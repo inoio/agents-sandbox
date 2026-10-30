@@ -13,8 +13,9 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -37,6 +38,58 @@ func TestCheckForActiveVMs_IgnoresNonVMSandboxes(t *testing.T) {
 
 	if err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj", Agent: "opencode"}); err != nil {
 		t.Fatalf("expected no error for non-VM sandbox, got: %v", err)
+	}
+}
+
+func TestCheckForActiveVMs_MatchesPrefixFreeProjectVM(t *testing.T) {
+	mock, _ := setupVolumeOpsFixtures(t)
+	mock.Sandboxes = []msb.SandboxHandle{
+		&msb.MockSandboxHandle{Name_: "someproj-1mjusbm3wikhb0-opencode", Status_: msbSdk.SandboxStatusRunning},
+	}
+
+	err := checkForActiveVMs(context.Background(), state.Key{Slug: "someproj-1mjusbm3wikhb0", Agent: "opencode"})
+	if err == nil {
+		t.Fatal("expected a running prefix-free project VM to block volume operations")
+	}
+}
+
+func TestCheckForActiveVMs_IgnoresPrefixFreeTaskSandbox(t *testing.T) {
+	mock, _ := setupVolumeOpsFixtures(t)
+	mock.Sandboxes = []msb.SandboxHandle{
+		&msb.MockSandboxHandle{
+			Name_:   "someproj-1mjusbm3wikhb0-opencode-1729000000000000000",
+			Status_: msbSdk.SandboxStatusRunning,
+		},
+	}
+
+	if err := checkForActiveVMs(
+		context.Background(),
+		state.Key{Slug: "someproj-1mjusbm3wikhb0", Agent: "opencode"},
+	); err != nil {
+		t.Fatalf("a prefix-free task sandbox must not block volume operations, got: %v", err)
+	}
+}
+
+// TestCheckForActiveVMs_UsesLabelsForTaskSandbox pins that a sandbox whose name
+// looks like a project VM but whose labels mark it a task does not block volume
+// operations: the label is authoritative over the name shape.
+func TestCheckForActiveVMs_UsesLabelsForTaskSandbox(t *testing.T) {
+	mock, _ := setupVolumeOpsFixtures(t)
+	mock.Sandboxes = []msb.SandboxHandle{
+		&msb.MockSandboxHandle{
+			Name_:   "someproj-1mjusbm3wikhb0-opencode",
+			Status_: msbSdk.SandboxStatusRunning,
+			Cfg: &msbSdk.SandboxConfig{
+				Labels: map[string]string{naming.LabelType: naming.SandboxTypeTask},
+			},
+		},
+	}
+
+	if err := checkForActiveVMs(
+		context.Background(),
+		state.Key{Slug: "someproj-1mjusbm3wikhb0", Agent: "opencode"},
+	); err != nil {
+		t.Fatalf("a label-identified task sandbox must not block volume operations, got: %v", err)
 	}
 }
 
@@ -96,8 +149,7 @@ func TestVolumeOp_ReadStateCorruptError(t *testing.T) {
 		context.Background(),
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
 		false,
 		ui,
@@ -110,14 +162,13 @@ func TestVolumeOp_ReadStateCorruptError(t *testing.T) {
 func TestVolumeOp_NoVolumeToOperate(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
 	slug := "novolproj"
-	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{})
+	seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{})
 
 	err := CmdReset(
 		context.Background(),
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
 		false,
 		ui,
@@ -130,7 +181,7 @@ func TestVolumeOp_NoVolumeToOperate(t *testing.T) {
 func TestVolumeOp_PrefillFails(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -140,8 +191,7 @@ func TestVolumeOp_PrefillFails(t *testing.T) {
 		context.Background(),
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
 		false,
 		ui,
@@ -154,7 +204,7 @@ func TestVolumeOp_PrefillFails(t *testing.T) {
 func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -178,8 +228,7 @@ func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 		context.Background(),
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
 		false,
 		ui,
@@ -189,7 +238,7 @@ func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 	}
 	var warned bool
 	for _, c := range ui.WarnCalls {
-		if strings.Contains(c, "failed to clean up") {
+		if strings.Contains(c, "failed to remove new volume") {
 			warned = true
 		}
 	}
@@ -198,18 +247,24 @@ func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 	}
 }
 
-func TestVolumeOp_WriteStateFails_Warns(t *testing.T) {
+func TestVolumeOp_WriteStateFails_ReturnsError(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"},
 	)
 
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not block writes")
+	}
 	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
-	if err := os.MkdirAll(filepath.Join(sdir, ".state.yaml.tmp"), 0o700); err != nil {
+	// A read-only state dir makes the atomic temp-file creation fail, so the
+	// state write fails while reads (needing only execute) still succeed.
+	if err := os.Chmod(sdir, 0o500); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
@@ -222,23 +277,23 @@ func TestVolumeOp_WriteStateFails_Warns(t *testing.T) {
 		context.Background(),
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
 		false,
 		ui,
 	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected a state-write error, got nil")
 	}
-	var warned bool
-	for _, c := range ui.WarnCalls {
-		if strings.Contains(c, "failed to write state file") {
-			warned = true
-		}
+	if !strings.Contains(err.Error(), "write state") {
+		t.Errorf("unexpected error: %v", err)
 	}
-	if !warned {
-		t.Errorf("expected write-state warning, got: %v", ui.WarnCalls)
+	st, readErr := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
+	if readErr != nil {
+		t.Fatalf("ReadState: %v", readErr)
+	}
+	if st.HomeVolume != "old-vol" {
+		t.Errorf("HomeVolume = %q, want the uncommitted write to leave old-vol in place", st.HomeVolume)
 	}
 }
 
@@ -246,7 +301,7 @@ func TestVolumeOp_RemoveOldFails_Warns(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
 	oldVol := "agents-sandbox-home-" + slug + "-old"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
@@ -268,8 +323,7 @@ func TestVolumeOp_RemoveOldFails_Warns(t *testing.T) {
 		context.Background(),
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		true,
 		false,
 		ui,
@@ -293,7 +347,7 @@ func TestCmdEdit_LoadImageFails(t *testing.T) {
 	docker.WithDefaultErrorDockerMock(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -302,8 +356,7 @@ func TestCmdEdit_LoadImageFails(t *testing.T) {
 		context.Background(),
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
-		"img-tag",
-		"sha256:abc",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
 		false,
 		false,
 		ui,
@@ -324,11 +377,85 @@ func TestPrefillVolume_LoadImageFails(t *testing.T) {
 		mock,
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"vol",
-		"img-tag",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag"},
 		&termio.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "load runner image") {
 		t.Fatalf("expected load runner image error, got: %v", err)
+	}
+}
+
+func TestCopyVolume_DestroyFailureWarns(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
+
+	mock := &msb.MockMsbClient{}
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return &msb.MockSandbox{DestroyErr: errors.New("destroy failed")}, nil
+	}
+	ui := &termio.Mock{}
+	vm := NewManager(ui)
+
+	err := vm.CopyVolume(
+		context.Background(),
+		mock,
+		state.Key{Slug: "myproject", Agent: "opencode"},
+		"old-vol",
+		"new-vol",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag"},
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("CopyVolume failed: %v", err)
+	}
+	var warned bool
+	for _, c := range ui.WarnCalls {
+		if strings.Contains(c, "failed to destroy copy sandbox") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("expected a copy destroy-failure warning, got %v", ui.WarnCalls)
+	}
+}
+
+func TestCmdEdit_DestroyFailureWarns(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+	slug := "testproj-aBc1234D"
+	seedHomeState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
+	)
+
+	callCount := 0
+	mock.CreateSandboxFn = func(_ context.Context, name string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		callCount++
+		if callCount == 2 {
+			return &msb.MockSandbox{Name_: name, DestroyErr: errors.New("destroy failed")}, nil
+		}
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+
+	err := CmdEdit(
+		context.Background(),
+		state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
+		false,
+		false,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("CmdEdit: %v", err)
+	}
+	var warned bool
+	for _, c := range ui.WarnCalls {
+		if strings.Contains(c, "failed to destroy edit sandbox") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("expected an edit destroy-failure warning, got %v", ui.WarnCalls)
 	}
 }
 
@@ -344,7 +471,7 @@ func TestCopyVolume_LoadImageFails(t *testing.T) {
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"old-vol",
 		"new-vol",
-		"img-tag",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag"},
 		&termio.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "load runner image") {
@@ -364,9 +491,10 @@ func TestEnsureNewHome_CreateVolumeFails(t *testing.T) {
 		context.Background(),
 		mock,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		"sha256:abc",
-		"img-tag",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
 		false,
+		state.Fingerprints{},
+		"",
 		&termio.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "create volume") {
@@ -394,14 +522,20 @@ func TestRecordHomeImage_WriteStateFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "writefail-rh"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:old"},
 	)
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not block writes")
+	}
 	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
-	if err := os.MkdirAll(filepath.Join(sdir, ".state.yaml.tmp"), 0o700); err != nil {
+	// A read-only state dir makes the atomic temp-file creation fail, so the
+	// state write fails while reads (needing only execute) still succeed.
+	if err := os.Chmod(sdir, 0o500); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
 	ui := &termio.Mock{}
 	vm := NewManager(ui)
@@ -411,45 +545,12 @@ func TestRecordHomeImage_WriteStateFails(t *testing.T) {
 	}
 	var warned bool
 	for _, c := range ui.WarnCalls {
-		if strings.Contains(c, "failed to write state file") {
+		if strings.Contains(c, "failed to update state file") {
 			warned = true
 		}
 	}
 	if !warned {
-		t.Errorf("expected write-state warning, got: %v", ui.WarnCalls)
-	}
-}
-
-func TestApplyHomeAction_KeepDryRun_ReturnsOldVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	mock := &msb.MockMsbClient{}
-	var createdVols int
-	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
-		createdVols++
-		return &msb.MockVolumeHandle{}, nil
-	}
-	vm := NewManager(&termio.Mock{})
-
-	vol, err := vm.ApplyHomeAction(
-		context.Background(),
-		mock,
-		state.Key{Slug: "myproj", Agent: "opencode"},
-		"old-vol",
-		"img-tag",
-		"sha256:new",
-		ActionKeep,
-		options.RunOptions{DryRun: true},
-		&termio.Mock{},
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if vol != "old-vol" {
-		t.Errorf("volume = %q, want old-vol", vol)
-	}
-	if createdVols != 0 {
-		t.Errorf("expected no volumes created, got %d", createdVols)
+		t.Errorf("expected update-state warning, got: %v", ui.WarnCalls)
 	}
 }
 
@@ -471,10 +572,9 @@ func TestApplyHomeAction_KeepRecordImageFails_Warns(t *testing.T) {
 		mock,
 		state.Key{Slug: slug, Agent: "opencode"},
 		"old-vol",
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		ActionKeep,
-		options.RunOptions{},
+		false,
 		ui,
 	)
 	if err != nil {
@@ -508,10 +608,9 @@ func TestApplyHomeAction_CreateVolumeFails(t *testing.T) {
 		mock,
 		state.Key{Slug: "myproj", Agent: "opencode"},
 		"old-vol",
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		ActionReset,
-		options.RunOptions{},
+		false,
 		&termio.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "create volume") {
@@ -519,25 +618,33 @@ func TestApplyHomeAction_CreateVolumeFails(t *testing.T) {
 	}
 }
 
-func TestApplyHomeAction_WriteStateFails_Warns(t *testing.T) {
+func TestApplyHomeAction_WriteStateFails_ReturnsError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
 
 	slug := "writefail-apply"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"},
 	)
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not block writes")
+	}
 	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
-	if err := os.MkdirAll(filepath.Join(sdir, ".state.yaml.tmp"), 0o700); err != nil {
+	// A read-only state dir makes the atomic temp-file creation fail, so the
+	// state write fails while reads (needing only execute) still succeed.
+	if err := os.Chmod(sdir, 0o500); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
 	mock := &msb.MockMsbClient{}
+	var createdVol string
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		createdVol = name
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
@@ -548,23 +655,25 @@ func TestApplyHomeAction_WriteStateFails_Warns(t *testing.T) {
 		mock,
 		state.Key{Slug: slug, Agent: "opencode"},
 		"old-vol",
-		"img-tag",
-		"sha256:new",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		ActionReset,
-		options.RunOptions{},
+		false,
 		ui,
 	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err == nil {
+		t.Fatal("expected a state-write error, got nil")
 	}
-	var warned bool
-	for _, c := range ui.WarnCalls {
-		if strings.Contains(c, "failed to write state file") {
-			warned = true
+	if !strings.Contains(err.Error(), "write state") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	var cleanedUp bool
+	for _, v := range mock.RemovedVolumes {
+		if v == createdVol {
+			cleanedUp = true
 		}
 	}
-	if !warned {
-		t.Errorf("expected write-state warning, got: %v", ui.WarnCalls)
+	if !cleanedUp {
+		t.Errorf("expected uncommitted volume %q to be cleaned up; removed=%v", createdVol, mock.RemovedVolumes)
 	}
 }
 
@@ -572,7 +681,7 @@ func TestCmdEdit_LoadImageFailsInMain(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
-	state.WriteState(
+	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
@@ -590,8 +699,7 @@ func TestCmdEdit_LoadImageFailsInMain(t *testing.T) {
 		context.Background(),
 		state.Key{Slug: slug, Agent: "opencode"},
 		"",
-		"img-tag",
-		"sha256:abc",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
 		false,
 		false,
 		ui,

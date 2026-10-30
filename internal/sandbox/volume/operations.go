@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -26,10 +23,15 @@ func checkForActiveVMs(ctx context.Context, k state.Key) error {
 		return fmt.Errorf("list sandboxes: %w", err)
 	}
 	for _, handle := range sandboxes {
-		if !strings.HasPrefix(handle.Name(), naming.VmPrefix) {
+		cfg, _ := handle.Config()
+		var labels map[string]string
+		if cfg != nil {
+			labels = cfg.Labels
+		}
+		artifact := naming.SandboxIdentity(handle.Name(), labels)
+		if artifact.Task {
 			continue
 		}
-		artifact := naming.ArtifactFor(handle.Name())
 		if artifact.Slug == k.Slug && (artifact.Agent == k.Agent || artifact.Agent == "") {
 			status := handle.Status()
 			if !msb.IsSandboxInactive(status) {
@@ -71,11 +73,12 @@ type volCallbacks struct {
 // CmdMigrate creates a new home volume, copies old files on top, updates state.
 func CmdMigrate(
 	ctx context.Context,
-	k state.Key, volumeName, imageTag, currentDigest string,
+	k state.Key, volumeName string,
+	info image.ImageInfo,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, k, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, k, volumeName, info, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q, copy files from %q",
@@ -85,7 +88,7 @@ func CmdMigrate(
 		},
 		main: func(oldVolume, newVolumeName string) error {
 			if err := NewManager(ui).CopyVolume(
-				ctx, msb.Get(), k, oldVolume, newVolumeName, imageTag, ui,
+				ctx, msb.Get(), k, oldVolume, newVolumeName, info, ui,
 			); err != nil {
 				return err
 			}
@@ -98,11 +101,12 @@ func CmdMigrate(
 // CmdReset creates a new home volume from image only, no copy.
 func CmdReset(
 	ctx context.Context,
-	k state.Key, volumeName, imageTag, currentDigest string,
+	k state.Key, volumeName string,
+	info image.ImageInfo,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, k, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, k, volumeName, info, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create fresh volume %q, remove %q",
@@ -120,11 +124,12 @@ func CmdReset(
 // CmdEdit creates a new volume alongside the old for manual transfer.
 func CmdEdit(
 	ctx context.Context,
-	k state.Key, volumeName, imageTag, currentDigest string,
+	k state.Key, volumeName string,
+	info image.ImageInfo,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, k, volumeName, imageTag, currentDigest, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, k, volumeName, info, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q alongside %q for manual transfer",
@@ -133,43 +138,9 @@ func CmdEdit(
 			)
 		},
 		main: func(oldVolume, newVolumeName string) error {
-			client := msb.Get()
-			if err := image.EnsureLoaded(ctx, client, k.Slug, imageTag, ui); err != nil {
-				return fmt.Errorf("load runner image: %w", err)
+			if err := editVolumesInteractively(ctx, k, oldVolume, newVolumeName, info, ui); err != nil {
+				return err
 			}
-			spin := ui.Spinner("Starting interactive session with both volumes")
-			editSandboxName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(
-				time.Now().UnixNano(),
-				10,
-			)
-			editOldMount := msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{})
-			editNewMount := msbSdk.Mount.Named(newVolumeName, msbSdk.MountOptions{})
-			editSb, editErr := client.CreateSandbox(ctx, editSandboxName,
-				msbSdk.WithImage(imageTag),
-				msbSdk.WithMounts(map[string]msbSdk.MountConfig{
-					srcMount: editOldMount,
-					dstMount: editNewMount,
-				}),
-				msbSdk.WithReplace(),
-			)
-			if editErr != nil {
-				return fmt.Errorf("create edit sandbox: %w", editErr)
-			}
-			ui.Infof("Both volumes mounted in session:")
-			ui.Infof("  Old volume (source):  /src")
-			ui.Infof("  New volume (target):  /dst")
-			ui.Infof("Type 'exit' to finish and return to the host.")
-			spin.Stop()
-			_, shellErr := editSb.Attach(ctx, "/bin/bash", "-l")
-			if shellErr != nil {
-				ui.Warnf("shell exited with error: %v", shellErr)
-			}
-			// Best-effort cleanup
-			stopCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
-			_ = editSb.Stop(stopCtx)
-			cancel()
-			_ = editSb.Close()
-			_ = client.RemoveSandbox(context.Background(), editSandboxName)
 			ui.Infof("exited interactive session, new volume: %q", newVolumeName)
 			return nil
 		},
@@ -179,7 +150,8 @@ func CmdEdit(
 // volumeOp is the shared implementation for migrate, reset, and edit operations.
 func volumeOp(
 	ctx context.Context,
-	k state.Key, volumeName, imageTag, currentDigest string,
+	k state.Key, volumeName string,
+	info image.ImageInfo,
 	rmOld, dryRun bool,
 	cbs volCallbacks,
 	ui termio.UI,
@@ -197,6 +169,13 @@ func volumeOp(
 	oldVolume := volumeName
 	if oldVolume == "" {
 		oldVolume = st.HomeVolume
+		if oldVolume == "" {
+			// A VM-only identity adoption (#144) records the legacy home volume in
+			// RecoveredHomeVolume before destroying the legacy VM, leaving HomeVolume
+			// empty until home resolution runs. Use the pending volume as the source
+			// so a first volume op works instead of failing.
+			oldVolume = st.RecoveredHomeVolume
+		}
 		if oldVolume == "" {
 			return errors.New("no volume to operate on: state has no home_volume set")
 		}
@@ -220,33 +199,26 @@ func volumeOp(
 	}
 
 	vm := NewManager(ui)
-	if err := vm.PrefillVolume(ctx, client, k, newVol.Name(), imageTag, ui); err != nil {
+	if err := vm.PrefillVolume(ctx, client, k, newVol.Name(), info, ui); err != nil {
 		return fmt.Errorf("prefill new volume: %w", err)
 	}
 
 	if err := cbs.main(oldVolume, newVolumeName); err != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
 		defer cancel()
-		if rmErr := client.RemoveVolume(cleanupCtx, newVolumeName); rmErr != nil {
-			ui.Warnf("failed to clean up new volume %q after error: %v", newVolumeName, rmErr)
-		}
+		vm.cleanupVolume(cleanupCtx, client, newVolumeName, ui)
 		return err
 	}
 
-	// Preserve the env/secret/network/mount fingerprints from the previous
-	// state: a volume operation changes the home volume data, not the
-	// env/secrets/network/mounts baked into the VM, so discarding them would
-	// trigger a false VM rebuild on the next startup (see
-	// EnvChanged/SecretsChanged/NetworkChanged/MountsChanged treating empty
-	// state as "changed").
-	newState := state.NewHomeState(newVolumeName, currentDigest)
-	newState.EnvState = st.EnvState
-	newState.SecretState = st.SecretState
-	newState.NetworkState = st.NetworkState
-	newState.MountState = st.MountState
-	if err := state.WriteState(k, newState); err != nil {
-		ui.Warnf("failed to write state file: %v", err)
+	// The operation replaced the volume a pending recovered-volume marker may
+	// still record (#144), so commitNewHomeVolume clears it.
+	if err := commitNewHomeVolume(k, st.HomeVolume, newVolumeName, info.Digest, true); err != nil {
+		vm.cleanupUncommittedVolume(ctx, client, newVolumeName, err, ui)
+		return err
 	}
+	// If the operation replaced a volume an identity adoption preserved, its
+	// claim is spent; retire it so it is not left stale (#144).
+	clearAdoptionClaim(k, oldVolume, ui)
 
 	if rmOld {
 		if err := client.RemoveVolume(ctx, oldVolume); err != nil {
@@ -257,4 +229,33 @@ func volumeOp(
 	}
 
 	return nil
+}
+
+// editVolumesInteractively attaches a login shell to a throwaway sandbox that
+// mounts the old volume at /src and the new one at /dst. A failing shell is
+// only reported, since the user may have finished the transfer regardless.
+func editVolumesInteractively(
+	ctx context.Context,
+	k state.Key, oldVolume, newVolumeName string,
+	info image.ImageInfo,
+	ui termio.UI,
+) error {
+	return withThrowawaySandbox(ctx, msb.Get(), k, info, throwawaySandbox{
+		purpose: "edit",
+		mounts: map[string]msbSdk.MountConfig{
+			srcMount: msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{}),
+			dstMount: msbSdk.Mount.Named(newVolumeName, msbSdk.MountOptions{}),
+		},
+		spinnerLabel: "Starting interactive session with both volumes",
+	}, ui, func(sb msb.Sandbox, spin termio.Spinner) error {
+		ui.Infof("Both volumes mounted in session:")
+		ui.Infof("  Old volume (source):  /src")
+		ui.Infof("  New volume (target):  /dst")
+		ui.Infof("Type 'exit' to finish and return to the host.")
+		spin.Stop()
+		if _, err := sb.Attach(ctx, "/bin/bash", "-l"); err != nil {
+			ui.Warnf("shell exited with error: %v", err)
+		}
+		return nil
+	})
 }

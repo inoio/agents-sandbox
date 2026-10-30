@@ -24,7 +24,8 @@ start
 :2. User-level\n\~/.config/agents-sandbox/;
 :3. User per-slug\n\~/.config/agents-sandbox/<slug>/;
 :4. Project-level\n.agents-sandbox/;
-:5. Environment variables\nOPENCODE_SANDBOX_*;
-:6. CLI flags;
+:5. Legacy env vars\nOPENCODE_SANDBOX_* (deprecated);
+:6. Environment variables\nAGENTS_SANDBOX_*;
+:7. CLI flags;
 stop
 @enduml

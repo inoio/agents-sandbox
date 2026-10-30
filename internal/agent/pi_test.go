@@ -41,6 +41,12 @@ func TestPIImageSpec(t *testing.T) {
 	if !strings.Contains(spec.InstallCommand, "@earendil-works/pi-coding-agent") {
 		t.Errorf("InstallCommand = %q, want pi npm install", spec.InstallCommand)
 	}
+	if !strings.Contains(spec.InstallCommand, "--prefix /opt/agents-sandbox") {
+		t.Errorf("InstallCommand = %q, want the /opt/agents-sandbox prefix", spec.InstallCommand)
+	}
+	if !spec.RequiresNode {
+		t.Error("RequiresNode = false, want true (pi is an npm node bundle)")
+	}
 }
 
 func TestPIAttachCommand(t *testing.T) {
@@ -50,7 +56,7 @@ func TestPIAttachCommand(t *testing.T) {
 		t.Fatal("pi should implement AttachRunner")
 	}
 	got := runner.AttachCommand("/workspace", []string{"--model", "claude"})
-	want := "pi --model claude"
+	want := "pi '--model' 'claude'"
 	if got != want {
 		t.Errorf("AttachCommand = %q, want %q", got, want)
 	}

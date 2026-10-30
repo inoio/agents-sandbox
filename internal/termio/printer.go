@@ -19,6 +19,7 @@ const (
 	ansiDim          = "\x1b[2m"
 )
 
+//exhaustruct:ignore
 type printer struct {
 	stdin       io.Reader
 	stdinReader *bufio.Reader
@@ -102,6 +103,12 @@ func (p *printer) Out(msg string) {
 	p.write(p.stdout, "", msg)
 }
 
+// Print writes a plain data line to stdout regardless of the quiet setting, so
+// list commands can emit identifiers-only output under --quiet.
+func (p *printer) Print(msg string) {
+	p.write(p.stdout, "", msg)
+}
+
 // Header writes a table header line to stdout. When color is enabled the
 // whole line is rendered bold and cyan, matching microsandbox table headers.
 func (p *printer) Header(msg string) {
@@ -113,7 +120,6 @@ func (p *printer) Header(msg string) {
 
 // NewTable returns an empty aligned Table that prints through p.
 func (p *printer) NewTable(headers ...string) *Table {
-	//nolint:exhaustruct_v5 // rows starts empty (nil slice is the zero value)
 	return &Table{ui: p, headers: headers}
 }
 
@@ -136,12 +142,32 @@ func (p *printer) SetQuiet(quiet bool) {
 	p.quiet = quiet
 }
 
+func (p *printer) Quiet() bool {
+	return p.quiet
+}
+
 func (p *printer) Spinner(msg string) Spinner {
 	return newSpinner(p.stderr, p.color, p.level, msg)
 }
 
 func (p *printer) Spinnerf(format string, args ...any) Spinner {
 	return newSpinner(p.stderr, p.color, p.level, p.format(format, args...))
+}
+
+// Acknowledge prints a one-time notice and, when interactive, waits for the
+// user to press Enter. It prints unconditionally — neither the level gate nor
+// --quiet suppresses it — because it is a deliberate, once-ever,
+// interaction-required moment that must not be silently dropped. A
+// non-interactive session prints the notice but returns immediately, so its
+// caller does not record an acknowledgment the user never gave.
+func (p *printer) Acknowledge(message string) error {
+	p.write(p.stderr, "", message)
+	if !p.IsInteractive() {
+		return nil
+	}
+	fmt.Fprint(p.stderr, "Press Enter to continue: ")
+	_, err := p.getStdinReader().ReadString('\n')
+	return err
 }
 
 func (p *printer) StdOut() io.Writer {

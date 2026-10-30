@@ -3,69 +3,167 @@ package reprovision
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
-	"reflect"
 	"sort"
-	"strconv"
 	"strings"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	config "github.com/inoio/agents-sandbox/internal/configmerge"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/sandbox/network"
-	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 
 	cp "github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 )
 
-// EnvKeyValueParts is the number of parts strings.SplitN should produce for
-// key=value lines.
-const EnvKeyValueParts = 2
-
-// parseKeyValueLines splits data into trimmed, non-blank, non-comment
-// "key=value" lines and hands each split pair to onLine. The key and value are
-// passed exactly as SplitN produced them (not re-trimmed); callers that need
-// trimmed keys trim them in their post-processing.
-func parseKeyValueLines(data string, onLine func(key, value string) error) error {
-	for line := range strings.SplitSeq(data, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, "=", EnvKeyValueParts)
-		if len(parts) != EnvKeyValueParts {
-			continue
-		}
-		if err := onLine(parts[0], parts[1]); err != nil {
-			return err
-		}
-	}
-	return nil
-}
+// evalProvisionRules is a seam over agent.EvalProvisionRules so tests can
+// exercise the provisioning-error path. A direct call cannot fail because the
+// copy callback only records files in memory.
+var evalProvisionRules = agent.EvalProvisionRules
 
 // VMHomeDir is the sandbox home mount point. It is fixed by the project VM
 // layout regardless of the configured runtime user.
 const VMHomeDir = mounts.VMHomeDir
 
-// AgentConfigPath returns the VM path where the agent's merged config is
-// provisioned for the given home directory. It delegates to the agent's own
-// ConfigMerger so the path reflects the agent's config layout.
-func AgentConfigPath(a agent.Agent, home string) string {
-	if cm, ok := agent.AsConfigMerger(a); ok {
-		return cm.VMConfigPath(home)
+// ConfigSource is the resolved launcher config-dir pair for an agent. Fallback
+// is the legacy dir name actually in use, or "" when the primary dirs are used.
+// PrimaryUserDir/PrimaryProjectDir are the primary (non-fallback) dirs the agent
+// migrates to, carried from resolution so a caller need not re-derive (and
+// re-validate) them.
+type ConfigSource struct {
+	UserDir           string
+	ProjectDir        string
+	Fallback          string
+	PrimaryUserDir    string
+	PrimaryProjectDir string
+}
+
+// ResolveConfigSource picks the agent's launcher config dirs. The primary dirs
+// win when either exists in any scope; otherwise the first alias whose dir
+// exists in either scope is used for both scopes. When nothing exists the
+// primary dirs are returned and Fallback is empty.
+func ResolveConfigSource(a agent.Agent) (ConfigSource, error) {
+	userCands, err := cp.Get().UserAgentConfigDirCandidates(a)
+	if err != nil {
+		return ConfigSource{}, err
 	}
-	return filepath.Join(home, ".config", a.ConfigDirName(), "agent.jsonc")
+	projectCands, err := cp.Get().ProjectAgentConfigDirCandidates(a)
+	if err != nil {
+		return ConfigSource{}, err
+	}
+	if len(userCands) == 0 || len(userCands) != len(projectCands) {
+		return ConfigSource{}, fmt.Errorf(
+			"agent %s resolved %d user / %d project config-dir candidates; expected a non-empty parallel pair",
+			a.Name(), len(userCands), len(projectCands))
+	}
+	// The candidate lists are parallel by construction: both come from the
+	// same ordered name list via agentConfigDirCandidates, so userCands[i] and
+	// projectCands[i] name the same config dir in their respective scopes, and
+	// index 0 is the primary namespace.
+	src := ConfigSource{
+		UserDir:           userCands[0],
+		ProjectDir:        projectCands[0],
+		Fallback:          "",
+		PrimaryUserDir:    userCands[0],
+		PrimaryProjectDir: projectCands[0],
+	}
+	primaryExists, err := anyDirExists(userCands[0], projectCands[0])
+	if err != nil {
+		return ConfigSource{}, err
+	}
+	if primaryExists {
+		return src, nil
+	}
+	for i := 1; i < len(userCands); i++ {
+		exists, err := anyDirExists(userCands[i], projectCands[i])
+		if err != nil {
+			return ConfigSource{}, err
+		}
+		if exists {
+			src.UserDir = userCands[i]
+			src.ProjectDir = projectCands[i]
+			src.Fallback = filepath.Base(userCands[i])
+			return src, nil
+		}
+	}
+	return src, nil
+}
+
+// anyDirExists reports whether any path names an existing directory. Every
+// candidate is tried, so an unreadable candidate in one scope does not hide a
+// usable one in the other; a stat error other than "not exist" is remembered
+// and surfaced only when no candidate exists, rather than being treated as
+// absent or aborting the search.
+func anyDirExists(dirs ...string) (bool, error) {
+	var statErr error
+	for _, d := range dirs {
+		info, err := os.Stat(d)
+		switch {
+		case err == nil:
+			if info.IsDir() {
+				return true, nil
+			}
+		case errors.Is(err, fs.ErrNotExist):
+			// absent in this scope; try the next
+		default:
+			if statErr == nil {
+				statErr = fmt.Errorf("stat config dir %q: %w", d, err)
+			}
+		}
+	}
+	return false, statErr
+}
+
+// describeConfigScopes renders "user: <dir>, project: <dir>" for the given
+// absolute scopes. When onlyExisting is set, scopes whose dir is absent are
+// omitted rather than named as if read.
+func describeConfigScopes(userDir, projectDir string, onlyExisting bool) string {
+	parts := make([]string, 0, 2)
+	if !onlyExisting || IsDir(userDir) {
+		parts = append(parts, fmt.Sprintf("user: %q", userDir))
+	}
+	if !onlyExisting || IsDir(projectDir) {
+		parts = append(parts, fmt.Sprintf("project: %q", projectDir))
+	}
+	if len(parts) == 0 {
+		return "(none)"
+	}
+	return strings.Join(parts, ", ")
+}
+
+// SourceDirs returns the user and project config dirs actually read for the
+// resolved source. They come straight from the source so display can never
+// diverge from what was read; the seam builds candidates absolute, so both are
+// absolute.
+func SourceDirs(src ConfigSource) (string, string) {
+	return src.UserDir, src.ProjectDir
+}
+
+// baseUserConfigDir returns the tool's user config dir the agent subdir sits
+// under: one level above the resolved source's user dir. Home files and hooks
+// resolve relative to it, so deriving it from the resolved source avoids
+// re-validating the profile's config-dir name after resolution.
+func baseUserConfigDir(src ConfigSource) string {
+	return filepath.Dir(src.UserDir)
+}
+
+// isDir reports whether path names an existing directory.
+// noLauncherConfigDir reports whether the agent has no launcher config dir in
+// either scope: neither primary dir exists and no legacy fallback was found.
+func noLauncherConfigDir(src ConfigSource) bool {
+	return src.Fallback == "" && !IsDir(src.PrimaryUserDir) && !IsDir(src.PrimaryProjectDir)
+}
+
+// IsDir reports whether path names an existing directory.
+func IsDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // ConfigFiles holds the merged agent config, the set of home files to
@@ -76,6 +174,7 @@ type ConfigFiles struct {
 	Merged      []byte                 // merged agent config content
 	MergedPath  string                 // VM path of the merged config ("" when no snippets)
 	Sources     []string               // host snippet paths merged into Merged
+	Source      ConfigSource           // resolved launcher config-dir pair (with legacy fallback marker)
 	HomeFiles   map[string][]byte      // VM absolute path -> content (from the home: key)
 	Provisioned map[string][]byte      // VM absolute path -> content (host drop-in copy)
 	Mirror      map[string][]byte      // VM absolute path -> content (verbatim <agent> mirror)
@@ -84,14 +183,16 @@ type ConfigFiles struct {
 	// RemoveHostCopies maps VM paths that may hold a stale copy of a host file
 	// to the host content; a VM file is deleted only when it equals it.
 	RemoveHostCopies map[string][]byte
-	Hooks            []homeconfig.HookSpec // startup hooks to run at setUpSandbox
-	Keys             []string              // sorted VM paths for comparison
+
+	Hooks []homeconfig.HookSpec // startup hooks to run at setUpSandbox
+	Keys  []string              // merged config path first (when snippets exist), then the remaining VM paths sorted
 }
 
 // LoadConfigFiles builds the desired VM state for the given agent using the
-// real host home. The agent determines its own config directories.
+// host home from the config-paths seam. The agent determines its own config
+// directories.
 func LoadConfigFiles(a agent.Agent, ui termio.UI, provisionHostConfig bool) (*ConfigFiles, error) {
-	hostHome, _ := os.UserHomeDir()
+	hostHome, _ := cp.Get().UserHomeDir()
 	return LoadConfigFilesForHost(a, hostHome, VMHomeDir, ui, provisionHostConfig)
 }
 
@@ -102,78 +203,37 @@ func LoadConfigFiles(a agent.Agent, ui termio.UI, provisionHostConfig bool) (*Co
 // host and about malformed provision rules. Home files and the merged config
 // override provisioned defaults for the same VM path. The agent's merged-config
 // path is reserved: a home target colliding with it is rejected.
-//
-//nolint:funlen,gocognit // config precedence and source loading are intentionally centralized
 func LoadConfigFilesForHost(
 	a agent.Agent,
 	hostHome, vmHome string,
 	ui termio.UI,
 	provisionHostConfig bool,
 ) (*ConfigFiles, error) {
-	mergedPath, mergedConfig, sources, hasSnippets, err := buildMergedConfig(a, vmHome)
+	src, err := ResolveConfigSource(a)
 	if err != nil {
 		return nil, err
 	}
-	var reserved []string
-	if mergedPath != "" {
-		rel, relErr := filepath.Rel(vmHome, mergedPath)
-		if relErr != nil {
-			return nil, fmt.Errorf("derive reserved home target: %w", relErr)
-		}
-		reserved = append(reserved, rel)
-	}
-	userConfigDir := filepath.Dir(cp.Get().UserAgentConfigDir(a))
-	homeSources, missing, _, err := homeconfig.BuildHomeFilesWithModes(
-		userConfigDir, // user config lives one level above the agent subdir
-		cp.Get().ProjectConfigDir(),
-		vmHome,
-		reserved,
-	)
+	merged, err := buildMergedConfig(a, vmHome, src)
 	if err != nil {
-		return nil, fmt.Errorf("build home files: %w", err)
+		return nil, err
 	}
-	for _, src := range missing {
-		ui.Warnf("home source %q does not exist on the host; skipping", src)
-	}
-	homeFiles := make(map[string][]byte, len(homeSources))
-	for path, source := range homeSources {
-		homeFiles[path] = source.Data
-	}
-	hooks, err := homeconfig.BuildHooks(
-		userConfigDir, // user config lives one level above the agent subdir
-		cp.Get().ProjectConfigDir(),
-		vmHome,
-		reserved,
-	)
+	reserved, err := reservedHomeTargets(merged.path, vmHome)
 	if err != nil {
-		return nil, fmt.Errorf("build hooks: %w", err)
+		return nil, err
 	}
-	provisioned := make(map[string][]byte)
-	modes := make(map[string]os.FileMode)
-	homeModes := make(map[string]os.FileMode, len(homeSources))
-	for path, source := range homeSources {
-		homeModes[path] = source.Mode
+	hooks, err := loadHooks(baseUserConfigDir(src), vmHome, reserved)
+	if err != nil {
+		return nil, err
 	}
-	if provisionHostConfig {
-		if p, ok := agent.AsProvisioner(a); ok {
-			for _, w := range agent.ValidateProvisionRules(p.ProvisionRules()) {
-				ui.Warnf("provision rule: %s", w)
-			}
-			onCopy := func(dst string, data []byte, mode os.FileMode) error {
-				provisioned[dst] = data
-				modes[dst] = mode
-				return nil
-			}
-			if _, provisionErr := agent.EvalProvisionRules(
-				p.ProvisionRules(),
-				hostHome,
-				vmHome,
-				onCopy,
-			); provisionErr != nil {
-				return nil, fmt.Errorf("eval provision rules: %w", provisionErr)
-			}
-		}
+	homeFiles, homeModes, err := loadHomeFiles(baseUserConfigDir(src), vmHome, reserved, ui)
+	if err != nil {
+		return nil, err
 	}
+	provisioned, modes, err := loadProvisioned(a, hostHome, vmHome, ui, provisionHostConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	// Precedence: home files always override provisioned defaults, and the
 	// merged agent config overrides the provisioned config when snippets exist
 	// (no merged config means the host drop-in is provisioned when enabled).
@@ -181,13 +241,14 @@ func LoadConfigFilesForHost(
 		delete(provisioned, p)
 		delete(modes, p)
 	}
-	if hasSnippets {
-		for _, path := range configFileFamilyPaths(mergedPath, configFamilyNames(a)) {
+	if merged.hasSnippets {
+		for _, path := range configFileFamilyPaths(merged.path, configFamilyNames(a)) {
 			delete(provisioned, path)
+			// gomutants:disable-next-line STATEMENT_REMOVE reason="applyMirrorPrecedence removes this same key from modes under the identical hasSnippets condition, so dropping the statement leaves ConfigFiles.Modes unchanged"
 			delete(modes, path)
 		}
 	}
-	mirrorEntries, err := buildMirror(a, vmHome)
+	mirrorEntries, err := buildMirror(a, vmHome, src)
 	if err != nil {
 		return nil, fmt.Errorf("build config mirror: %w", err)
 	}
@@ -195,23 +256,45 @@ func LoadConfigFilesForHost(
 	// Precedence: home overrides the mirror, the merged config overrides
 	// the mirror, and the mirror overrides the drop-in copy for the same path.
 	maps.Copy(modes, mirrorModes)
-	applyMirrorPrecedence(mirror, provisioned, homeFiles, mergedPath, hasSnippets, modes)
+	applyMirrorPrecedence(mirror, provisioned, homeFiles, merged.path, merged.hasSnippets, modes)
 	maps.Copy(modes, homeModes)
+	ensureHookExecutable(modes, hooks)
 	// Remove stale host config so it cannot shadow the merged config: when
 	// snippets exist the merged config must be the only config, and when host
 	// config provisioning is disabled no host copy may remain.
-	remove := configFileFamilyPaths(mergedPath, configFamilyNames(a))
+	remove := configFileFamilyPaths(merged.path, configFamilyNames(a))
 	removeHostCopies := excludedHostCopies(a, hostHome, vmHome)
 	if !provisionHostConfig {
 		maps.Copy(removeHostCopies, provisionedHostCopies(a, hostHome, vmHome))
 	}
-	keys := configKeys(mergedPath, hasSnippets, homeFiles, mirror, provisioned)
-	sort.Strings(keys)
+	keys := configKeys(merged.path, merged.hasSnippets, homeFiles, mirror, provisioned)
+	if src.Fallback != "" {
+		legacyUser, legacyProject := SourceDirs(src)
+		ui.Warnf(
+			"agent %s is reading launcher config from the legacy shared %q dir (%s), which agent opencode also uses; "+
+				"a %q dir in either the user or project scope switches both scopes, so copy (do not move) everything you need in one go into the %q namespace (%s): "+
+				"a partial copy will not fall back for the rest. The guest ~/.config/opencode path is unchanged.",
+			a.Name(),
+			src.Fallback,
+			describeConfigScopes(legacyUser, legacyProject, true),
+			a.ConfigDirName(),
+			a.ConfigDirName(),
+			describeConfigScopes(src.PrimaryUserDir, src.PrimaryProjectDir, false),
+		)
+	}
+	if noLauncherConfigDir(src) {
+		ui.Infof(
+			"No launcher config dir for agent %s yet (user: %q, project: %q); create one to add config snippets, "+
+				"mirrored files, and hooks. Run 'agents-sandbox config agent' to inspect what gets provisioned.",
+			a.Name(), src.PrimaryUserDir, src.PrimaryProjectDir,
+		)
+	}
 	return &ConfigFiles{
-		HasSnippets:      hasSnippets,
-		Merged:           mergedConfig,
-		MergedPath:       mergedPath,
-		Sources:          sources,
+		HasSnippets:      merged.hasSnippets,
+		Merged:           merged.content,
+		MergedPath:       merged.path,
+		Sources:          merged.sources,
+		Source:           src,
 		HomeFiles:        homeFiles,
 		Provisioned:      provisioned,
 		Mirror:           mirror,
@@ -221,6 +304,105 @@ func LoadConfigFilesForHost(
 		Hooks:            hooks,
 		Keys:             keys,
 	}, nil
+}
+
+// reservedHomeTargets returns the VM-relative merged-config path, if any, that
+// home targets may not collide with.
+func reservedHomeTargets(mergedPath, vmHome string) ([]string, error) {
+	if mergedPath == "" {
+		return nil, nil
+	}
+	rel, err := filepath.Rel(vmHome, mergedPath)
+	if err != nil {
+		return nil, fmt.Errorf("derive reserved home target: %w", err)
+	}
+	return []string{rel}, nil
+}
+
+// loadHomeFiles builds the home files and their modes, warning about any home
+// source missing on the host.
+func loadHomeFiles(
+	baseUserConfigDir, vmHome string,
+	reserved []string,
+	ui termio.UI,
+) (map[string][]byte, map[string]os.FileMode, error) {
+	homeSources, missing, _, err := homeconfig.BuildHomeFilesWithModes(
+		baseUserConfigDir, // user config lives one level above the agent subdir
+		cp.Get().ProjectConfigDir(),
+		vmHome,
+		reserved,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build home files: %w", err)
+	}
+	for _, src := range missing {
+		ui.Warnf("home source %q does not exist on the host; skipping", src)
+	}
+	homeFiles := make(map[string][]byte, len(homeSources))
+	homeModes := make(map[string]os.FileMode, len(homeSources))
+	for path, source := range homeSources {
+		homeFiles[path] = source.Data
+		homeModes[path] = source.Mode
+	}
+	return homeFiles, homeModes, nil
+}
+
+// loadHooks builds the merged startup hooks for the agent.
+func loadHooks(baseUserConfigDir, vmHome string, reserved []string) ([]homeconfig.HookSpec, error) {
+	hooks, err := homeconfig.BuildHooks(
+		baseUserConfigDir, // user config lives one level above the agent subdir
+		cp.Get().ProjectConfigDir(),
+		vmHome,
+		reserved,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("build hooks: %w", err)
+	}
+	return hooks, nil
+}
+
+// ensureHookExecutable adds the owner-execute bit to every startup-hook target
+// so the VM can execute it directly (the kernel applies the script's shebang)
+// even when the host source is not marked executable.
+func ensureHookExecutable(modes map[string]os.FileMode, hooks []homeconfig.HookSpec) {
+	for _, h := range hooks {
+		mode := modes[h.Target]
+		if mode == 0 {
+			mode = 0o600
+		}
+		modes[h.Target] = mode | 0o100
+	}
+}
+
+// loadProvisioned evaluates the agent's provision rules into the drop-in copy
+// maps, unless host config provisioning is disabled.
+func loadProvisioned(
+	a agent.Agent,
+	hostHome, vmHome string,
+	ui termio.UI,
+	enabled bool,
+) (map[string][]byte, map[string]os.FileMode, error) {
+	provisioned := make(map[string][]byte)
+	modes := make(map[string]os.FileMode)
+	if !enabled {
+		return provisioned, modes, nil
+	}
+	p, ok := agent.AsProvisioner(a)
+	if !ok {
+		return provisioned, modes, nil
+	}
+	for _, w := range agent.ValidateProvisionRules(p.ProvisionRules()) {
+		ui.Warnf("provision rule: %s", w)
+	}
+	onCopy := func(dst string, data []byte, mode os.FileMode) error {
+		provisioned[dst] = data
+		modes[dst] = mode
+		return nil
+	}
+	if _, err := evalProvisionRules(p.ProvisionRules(), hostHome, vmHome, onCopy); err != nil {
+		return nil, nil, fmt.Errorf("eval provision rules: %w", err)
+	}
+	return provisioned, modes, nil
 }
 
 // applyMirrorPrecedence prunes the mirror and drop-in copy maps so the mirror
@@ -245,24 +427,27 @@ func applyMirrorPrecedence(
 	}
 }
 
-// configKeys returns the sorted VM paths to provision and compare: the merged
-// config (when snippets exist), then home files, mirror files, and host drop-in
-// files.
+// configKeys returns the VM paths to provision and compare: the merged config
+// (when snippets exist) first, then the home/mirror/drop-in paths sorted. It is
+// the sole ordering authority for ConfigFiles.Keys — callers must not re-sort,
+// or the merged config would no longer lead. The map-backed inputs are
+// unordered, so the remainder must be sorted to keep Keys stable across runs.
 func configKeys(mergedPath string, hasSnippets bool, homeFiles, mirror, provisioned map[string][]byte) []string {
-	keys := make([]string, 0, len(homeFiles)+len(provisioned)+len(mirror)+1)
-	if hasSnippets {
-		keys = append(keys, mergedPath)
-	}
+	rest := make([]string, 0, len(homeFiles)+len(provisioned)+len(mirror))
 	for p := range homeFiles {
-		keys = append(keys, p)
+		rest = append(rest, p)
 	}
 	for p := range mirror {
-		keys = append(keys, p)
+		rest = append(rest, p)
 	}
 	for p := range provisioned {
-		keys = append(keys, p)
+		rest = append(rest, p)
 	}
-	return keys
+	sort.Strings(rest)
+	if hasSnippets {
+		return append([]string{mergedPath}, rest...)
+	}
+	return rest
 }
 
 // configFamilyNames returns the config filenames the agent reads from its VM
@@ -287,30 +472,47 @@ func configFileFamilyPaths(mergedPath string, names []string) []string {
 	return paths
 }
 
-// buildMergedConfig merges the agent's snippet files into a single config and
-// returns its destination VM path, content, the snippet source paths, whether
-// any snippet existed, and an error. Every agent in the registry implements
-// ConfigMerger, so a non-merger agent produces no merged config.
-func buildMergedConfig(a agent.Agent, vmHome string) (string, []byte, []string, bool, error) {
-	if cm, ok := agent.AsConfigMerger(a); ok {
-		merged, sources, hasSnippets, err := config.BuildMerged(
-			cm.SnippetPattern(),
-			cp.Get().UserAgentConfigDir(a),
-			cp.Get().ProjectAgentConfigDir(a),
-		)
-		if err != nil {
-			return "", nil, nil, false, fmt.Errorf("merge agent config: %w", err)
-		}
-		return cm.VMConfigPath(vmHome), merged, sources, hasSnippets, nil
+// mergedConfig is the outcome of merging an agent's snippet files: the
+// destination VM path, the merged content, the snippet source paths, and
+// whether any snippet existed.
+type mergedConfig struct {
+	path        string
+	content     []byte
+	sources     []string
+	hasSnippets bool
+}
+
+// buildMergedConfig merges the agent's snippet files into a single config.
+// Every agent in the registry implements ConfigMerger, so a non-merger agent
+// produces an empty mergedConfig.
+func buildMergedConfig(a agent.Agent, vmHome string, src ConfigSource) (mergedConfig, error) {
+	cm, ok := agent.AsConfigMerger(a)
+	if !ok {
+		return mergedConfig{}, nil
 	}
-	return "", nil, nil, false, nil
+	vmConfigPath := cm.VMConfigPath(vmHome)
+	built, err := config.BuildMerged(
+		vmConfigPath,
+		cm.SnippetPattern(),
+		src.UserDir,
+		src.ProjectDir,
+	)
+	if err != nil {
+		return mergedConfig{}, fmt.Errorf("merge agent config: %w", err)
+	}
+	return mergedConfig{
+		path:        vmConfigPath,
+		content:     built.Content,
+		sources:     built.Sources,
+		hasSnippets: built.HasSnippets,
+	}, nil
 }
 
 // buildMirror returns the verbatim mirror files for agent a: every file in the
 // user and project <agent> config dirs that is neither a top-level snippet
 // match nor a top-level config-family name, keyed by VM path under the agent's
 // VM config directory. Agents without a ConfigMerger have no mirror.
-func buildMirror(a agent.Agent, vmHome string) (map[string]config.MirrorEntry, error) {
+func buildMirror(a agent.Agent, vmHome string, src ConfigSource) (map[string]config.MirrorEntry, error) {
 	cm, ok := agent.AsConfigMerger(a)
 	if !ok {
 		return map[string]config.MirrorEntry{}, nil
@@ -318,8 +520,8 @@ func buildMirror(a agent.Agent, vmHome string) (map[string]config.MirrorEntry, e
 	entries, err := config.ScanMirror(
 		cm.SnippetPattern(),
 		cm.ConfigFileNames(),
-		cp.Get().UserAgentConfigDir(a),
-		cp.Get().ProjectAgentConfigDir(a),
+		src.UserDir,
+		src.ProjectDir,
 		filepath.Dir(cm.VMConfigPath(vmHome)),
 	)
 	if err != nil {
@@ -401,24 +603,24 @@ type MirrorFile struct {
 }
 
 // Describe returns the merged config, the snippet sources, the host drop-in
-// files, and the verbatim mirror files (host path → VM path) for agent a,
-// without touching a VM.
+// files, the verbatim mirror files (host path → VM path), and the resolved
+// config source for agent a, without touching a VM.
 func Describe(
 	a agent.Agent,
 	hostHome, vmHome string,
 	ui termio.UI,
 	provisionHostConfig bool,
-) ([]byte, []string, []HostFile, []MirrorFile, error) {
+) ([]byte, []string, []HostFile, []MirrorFile, ConfigSource, error) {
 	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, ui, provisionHostConfig)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, nil, ConfigSource{}, err
 	}
 	hostFiles := hostFilesFromProvisioner(a, hostHome, vmHome, cf)
-	return cf.Merged, cf.Sources, hostFiles, mirrorFilesFromConfig(a, vmHome), nil
+	return cf.Merged, cf.Sources, hostFiles, mirrorFilesFromConfig(a, vmHome, cf.Source), cf.Source, nil
 }
 
 // mirrorFilesFromConfig returns the mirror display records for agent a.
-func mirrorFilesFromConfig(a agent.Agent, vmHome string) []MirrorFile {
+func mirrorFilesFromConfig(a agent.Agent, vmHome string, src ConfigSource) []MirrorFile {
 	cm, ok := agent.AsConfigMerger(a)
 	if !ok {
 		return nil
@@ -426,8 +628,8 @@ func mirrorFilesFromConfig(a agent.Agent, vmHome string) []MirrorFile {
 	entries, err := config.ScanMirror(
 		cm.SnippetPattern(),
 		cm.ConfigFileNames(),
-		cp.Get().UserAgentConfigDir(a),
-		cp.Get().ProjectAgentConfigDir(a),
+		src.UserDir,
+		src.ProjectDir,
 		filepath.Dir(cm.VMConfigPath(vmHome)),
 	)
 	if err != nil {
@@ -481,12 +683,6 @@ func hostPathForDst(dst, hostHome, vmHome string) string {
 	return filepath.Join(hostHome, strings.TrimPrefix(rel, string(filepath.Separator)))
 }
 
-// tmpMountPath is the mount point used for the sandbox tmpfs.
-const tmpMountPath = mounts.TmpMountPath
-
-// workspaceMountPath is the mount point used for the host bind mount.
-const workspaceMountPath = mounts.WorkspaceMountPath
-
 // ReadVMConfig reads the given absolute VM paths, returning a map of path to
 // content for files that exist.
 func ReadVMConfig(ctx context.Context, sb msb.Sandbox, paths []string, ui termio.UI) map[string][]byte {
@@ -514,7 +710,7 @@ func AgentConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
 		if !ok {
 			return false
 		}
-		if !jsonEqual(cf.Merged, vm) {
+		if !config.DocumentsEqual(cf.MergedPath, cf.Merged, vm) {
 			return false
 		}
 	}
@@ -525,221 +721,4 @@ func AgentConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
 		}
 	}
 	return true
-}
-
-func jsonEqual(a, b []byte) bool {
-	va, err1 := parseJSON(a)
-	vb, err2 := parseJSON(b)
-	if err1 != nil || err2 != nil {
-		return false
-	}
-	return reflect.DeepEqual(va, vb)
-}
-
-// parseJSON unmarshals data into map[string]any for deep equality comparison.
-func parseJSON(data []byte) (any, error) {
-	var v any
-	if err := json.Unmarshal(data, &v); err != nil {
-		return nil, err
-	}
-	return v, nil
-}
-
-// BuildEnvMap reads environment variables from a file.
-func BuildEnvMap(filename string) map[string]string {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil
-	}
-	env := make(map[string]string)
-	_ = parseKeyValueLines(string(data), func(key, value string) error {
-		env[key] = value
-		return nil
-	})
-	return env
-}
-
-// MergeEnvMaps merges multiple environment maps into one.
-func MergeEnvMaps(mapsToMerge ...map[string]string) map[string]string {
-	result := make(map[string]string)
-	for _, m := range mapsToMerge {
-		maps.Copy(result, m)
-	}
-	return result
-}
-
-// LoadEnvAndSecrets reads the user and project env files and secret-spec files
-// and merges them into the desired env map and built secret entries. The
-// project files override the user files.
-func LoadEnvAndSecrets(ui termio.UI) (map[string]string, []msbSdk.SecretEntry) {
-	env := MergeEnvMaps(
-		BuildEnvMap(cp.Get().UserEnvFile()),
-		BuildEnvMap(cp.Get().ProjectEnvFile()),
-	)
-	secrets := BuildSecretsFromSpecs(MergeSecretSpecs(
-		ParseSecretSpecLegacy(cp.Get().UserEnvSecretFile(), ui),
-		ParseSecretSpecLegacy(cp.Get().ProjectEnvSecretFile(), ui),
-		ParseSecretSpecYAML(cp.Get().UserEnvSecretYAMLFile(), ui),
-		ParseSecretSpecYAML(cp.Get().ProjectEnvSecretYAMLFile(), ui),
-	), ui)
-	return env, secrets
-}
-
-// EnvContentHash returns a SHA-256 hex digest of the env map contents.
-// Keys are sorted and hashed as "K=V" lines for order-independence.
-func EnvContentHash(env map[string]string) string {
-	if env == nil {
-		env = map[string]string{}
-	}
-	lines := make([]string, 0, len(env))
-	for k, v := range env {
-		lines = append(lines, k+"="+v)
-	}
-	sort.Strings(lines)
-	h := sha256.Sum256([]byte(strings.Join(lines, "\n")))
-	return hex.EncodeToString(h[:])
-}
-
-// SecretsContentHash returns a SHA-256 hex digest of the secret entries.
-// Entries are sorted by EnvVar and hashed as a stable set of field values.
-// Every field that microsandbox bakes into
-// the VM at creation is included so a change to any of them (not just the
-// value) triggers the VM recreate that applies it.
-func SecretsContentHash(entries []msbSdk.SecretEntry) string {
-	if entries == nil {
-		entries = []msbSdk.SecretEntry{}
-	}
-	byEnv := make(map[string]msbSdk.SecretEntry, len(entries))
-	for _, e := range entries {
-		byEnv[e.EnvVar] = e
-	}
-	envVars := make([]string, 0, len(byEnv))
-	for k := range byEnv {
-		envVars = append(envVars, k)
-	}
-	sort.Strings(envVars)
-	var b strings.Builder
-	for _, k := range envVars {
-		e := byEnv[k]
-		tls := ""
-		if e.RequireTLSIdentity != nil {
-			tls = strconv.FormatBool(*e.RequireTLSIdentity)
-		}
-		headers := ""
-		if e.Substitution.Headers != nil {
-			headers = strconv.FormatBool(*e.Substitution.Headers)
-		}
-		fmt.Fprintf(&b, "%s=%s|%s|%s|%s|%s|%s|%t|%t|%s\n",
-			k,
-			e.Value,
-			strings.Join(e.Allow, ","),
-			strings.Join(e.Passthrough, ","),
-			e.Placeholder,
-			tls,
-			headers,
-			e.Substitution.Query,
-			e.Substitution.Body,
-			string(e.ViolationAction),
-		)
-	}
-	h := sha256.Sum256([]byte(b.String()))
-	return hex.EncodeToString(h[:])
-}
-
-// EnvChanged reports whether the applied env state differs from the desired
-// env map, comparing content hashes for a stable order-independent result.
-// A zero-value appliedEnv indicates "no persisted state yet" (first run),
-// which is considered "changed" only when the desired map is non-empty.
-func EnvChanged(applied state.EnvState, desired map[string]string) bool {
-	if applied.Hash == "" {
-		return len(desired) > 0
-	}
-	return applied.Hash != EnvContentHash(desired)
-}
-
-// SecretsChanged reports whether the applied secret state differs from the
-// desired secret entries, comparing content hashes.
-// A zero-value appliedSecrets indicates "no persisted state yet" (first run),
-// which is only considered "changed" when the desired slice is non-empty.
-func SecretsChanged(applied state.SecretState, desired []msbSdk.SecretEntry) bool {
-	if applied.Hash == "" {
-		if desired == nil {
-			return false
-		}
-		return len(desired) > 0
-	}
-	return applied.Hash != SecretsContentHash(desired)
-}
-
-// BuildEnvState computes the content hash and sorted name list for the env map.
-func BuildEnvState(desired map[string]string) state.EnvState {
-	names := make([]string, 0, len(desired))
-	for k := range desired {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	return state.EnvState{
-		Hash:  EnvContentHash(desired),
-		Names: names,
-	}
-}
-
-// BuildSecretState computes the content hash and sorted name list for the secret entries.
-func BuildSecretState(desired []msbSdk.SecretEntry) state.SecretState {
-	byEnv := make(map[string]msbSdk.SecretEntry, len(desired))
-	for _, e := range desired {
-		byEnv[e.EnvVar] = e
-	}
-	names := make([]string, 0, len(byEnv))
-	for k := range byEnv {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	return state.SecretState{
-		Hash:  SecretsContentHash(desired),
-		Names: names,
-	}
-}
-
-// NetworkChanged reports whether the applied network state differs from the
-// desired network policy, comparing content fingerprints. A zero-value applied
-// state indicates "no persisted state yet" (first run or a VM created before
-// network policies existed), so an existing VM must be recreated to apply the
-// secure default.
-func NetworkChanged(applied state.NetworkState, desired network.Policy) bool {
-	if applied.Hash == "" {
-		return true
-	}
-	return applied.Hash != desired.Fingerprint()
-}
-
-// BuildNetworkState computes the fingerprint for the desired network policy.
-func BuildNetworkState(desired network.Policy) state.NetworkState {
-	desired = desired.Effective()
-	return state.NetworkState{
-		Hash:  desired.Fingerprint(),
-		Names: []string{string(desired.Profile)},
-	}
-}
-
-// MountsChanged reports whether the applied mount state differs from the
-// desired host bind mounts, comparing content fingerprints. The comparison is
-// fingerprint-based because the microsandbox SDK does not round-trip volumes
-// when reading back an existing VM, so the live config cannot be inspected. A
-// zero-value applied state indicates "no persisted state yet" (first run or a
-// VM created before mounts existed); it is only considered "changed" when
-// mounts are actually configured.
-func MountsChanged(applied state.MountState, desired mounts.Mounts) bool {
-	if applied.Hash == "" {
-		return len(desired) > 0
-	}
-	return applied.Hash != mounts.Fingerprint(desired)
-}
-
-// BuildMountState computes the fingerprint for the desired host bind mounts.
-func BuildMountState(desired mounts.Mounts) state.MountState {
-	return state.MountState{
-		Hash:  mounts.Fingerprint(desired),
-		Names: mounts.MountTargets(desired),
-	}
 }

@@ -11,9 +11,16 @@ const (
 	kiB     = 1024
 )
 
+// clampNumCPUs bounds a reported CPU count to the range NumCPUs exposes: at
+// least 1 (a running host always has a CPU) and at most maxCPUs (the count
+// travels as a uint8). The count is a parameter so the bounds stay testable.
+func clampNumCPUs(cpus int) uint8 {
+	return uint8(min(max(cpus, 1), maxCPUs))
+}
+
+// NumCPUs reports the host's logical CPU count, clamped to [1, maxCPUs].
 func NumCPUs() uint8 {
-	n := min(max(runtime.NumCPU(), 1), maxCPUs)
-	return uint8(n)
+	return clampNumCPUs(runtime.NumCPU())
 }
 
 func parseMemInfo(data []byte) (int, bool) {

@@ -2,80 +2,6 @@ package naming
 
 import "testing"
 
-func TestArtifactFor_Dispatch(t *testing.T) {
-	cases := []struct {
-		in     string
-		slug   string
-		digest string
-		agent  string
-	}{
-		{"agents-sandbox-vm-agents-sandbox-1mjusbm3wikhb0", "agents-sandbox-1mjusbm3wikhb0", "", ""},
-		{"agents-sandbox-vm-agents-sandbox-1mjusbm3wikhb0-main", "agents-sandbox-1mjusbm3wikhb0", "", "main"},
-		{"agents-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh", ""},
-		{"agents-sandbox/runner-myproject:latest", "myproject", "", ""},
-		{"agents-sandbox/runner-myproject", "myproject", "", ""},
-		{
-			"agents-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
-			"myproject-aB3cDe4fGhIjKl",
-			"xYz1234AbCdEfGh",
-			"",
-		},
-	}
-	for _, c := range cases {
-		info := ArtifactFor(c.in)
-		if info.Slug != c.slug || info.Digest != c.digest || info.Agent != c.agent {
-			t.Errorf(
-				"%q: got (%q,%q,%q) want (%q,%q,%q)",
-				c.in,
-				info.Slug,
-				info.Digest,
-				info.Agent,
-				c.slug,
-				c.digest,
-				c.agent,
-			)
-		}
-	}
-}
-
-func TestArtifactFor_SinglePartSlugs(t *testing.T) {
-	cases := []struct {
-		in     string
-		slug   string
-		digest string
-	}{
-		{"agents-sandbox-task-prefill-proj-1719432000", "prefill-proj", ""},
-		{"agents-sandbox-task-fill-proj", "fill", ""},
-		{"agents-sandbox-task-prefill", "prefill", ""},
-	}
-	for _, c := range cases {
-		info := ArtifactFor(c.in)
-		if info.Slug != c.slug || info.Digest != c.digest {
-			t.Errorf("%q: got (%q,%q) want (%q,%q)", c.in, info.Slug, info.Digest, c.slug, c.digest)
-		}
-	}
-}
-
-func TestArtifactFor_Unrecognized(t *testing.T) {
-	cases := []struct {
-		in         string
-		wantSlug   string
-		wantDigest string
-	}{
-		{"some-random-name", "", ""},
-		{"", "", ""},
-		{"agents-sandbox-other-myslug", "", ""},
-		{"agents-sandbox-vm-", "", ""},
-		{"agents-sandbox-home-", "", ""},
-	}
-	for _, c := range cases {
-		info := ArtifactFor(c.in)
-		if info.Slug != c.wantSlug || info.Digest != c.wantDigest {
-			t.Errorf("%q: got (%q,%q) want (%q,%q)", c.in, info.Slug, info.Digest, c.wantSlug, c.wantDigest)
-		}
-	}
-}
-
 func TestHashSuffix(t *testing.T) {
 	cases := []struct {
 		name string
@@ -87,6 +13,14 @@ func TestHashSuffix(t *testing.T) {
 		{"hash followed by branch", "agents-sandbox-1mjusbm3wikhb0-main", 15},
 		{"hash embedded in multi-dash slug", "my-project-1mjusbm3wikhb0-develop", 11},
 		{"no hash - short string", "abc-def", -1},
+		// A folder whose own last segment is hash-shaped must not shadow the
+		// real hash: the rightmost bounded run is the slug hash.
+		{"hash-shaped folder segment", "go-1234567890abcd-1mjusbm3wikhb0-opencode", 18},
+		// A task sandbox's all-digit nanos run is longer than 14, so its interior
+		// is not a bounded segment and must not be mistaken for the hash.
+		{"task nanos after the hash", "myproj-1mjusbm3wikhb0-opencode-1729000000000000000", 7},
+		// A trailing run that is not the last segment is not the hash either.
+		{"hash not at end", "myproj-1mjusbm3wikhb0-opencode", 7},
 	}
 	for _, c := range cases {
 		got := findHashSuffix(c.in)
@@ -197,33 +131,6 @@ func TestParseHomeVolumeNameNewFormat(t *testing.T) {
 	}
 }
 
-func TestArtifactFor(t *testing.T) {
-	cases := []struct {
-		in         string
-		wantSlug   string
-		wantDigest string
-	}{
-		{"agents-sandbox-vm-agents-sandbox-1mjusbm3wikhb0", "agents-sandbox-1mjusbm3wikhb0", ""},
-		{"agents-sandbox/runner-myproject:xYz1234AbCdEfGh", "myproject", "xYz1234AbCdEfGh"},
-		{
-			"agents-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
-			"myproject-aB3cDe4fGhIjKl",
-			"xYz1234AbCdEfGh",
-		},
-		{"agents-sandbox-task-prefill-proj-1719432000", "prefill-proj", ""},
-		{"unknown-prefix-foo", "", ""},
-	}
-	for _, c := range cases {
-		info := ArtifactFor(c.in)
-		if info.Slug != c.wantSlug {
-			t.Errorf("ArtifactFor(%q) slug = %q, want %q", c.in, info.Slug, c.wantSlug)
-		}
-		if info.Digest != c.wantDigest {
-			t.Errorf("ArtifactFor(%q) digest = %q, want %q", c.in, info.Digest, c.wantDigest)
-		}
-	}
-}
-
 func TestParseVMNameAgent(t *testing.T) {
 	cases := []struct {
 		in        string
@@ -294,6 +201,64 @@ func TestIsHomeTimestamp(t *testing.T) {
 	for _, bad := range []string{"", "20260812T12A456", "10260812T123456", "20260812X123456", "short"} {
 		if isHomeTimestamp(bad) {
 			t.Errorf("isHomeTimestamp(%q) = true, want false", bad)
+		}
+	}
+}
+
+func TestRunnerImageRefRoundTrips(t *testing.T) {
+	ref := RunnerImageRef("myproject-1mjusbm3wikhb0", "opencode")
+	if ref != "myproject-1mjusbm3wikhb0:opencode-latest" {
+		t.Fatalf("RunnerImageRef = %q", ref)
+	}
+	info := ParseImageTag(ref)
+	if info.Slug != "myproject-1mjusbm3wikhb0" || info.Agent != "opencode" {
+		t.Fatalf("ParseImageTag(RunnerImageRef(...)) = %+v, want the slug and agent back", info)
+	}
+	if DockerImageRef("myproject-1mjusbm3wikhb0", "opencode") !=
+		"agents-sandbox/runner-myproject-1mjusbm3wikhb0:opencode-latest" {
+		t.Fatalf("DockerImageRef = %q", DockerImageRef("myproject-1mjusbm3wikhb0", "opencode"))
+	}
+}
+
+func TestIsLegacyLauncherSandbox(t *testing.T) {
+	cases := []struct {
+		name       string
+		wantVM     bool
+		wantTask   bool
+		wantLaunch bool
+	}{
+		{name: LegacyVMPrefix + "proj-aBc1234D", wantVM: true, wantLaunch: true},
+		{name: LegacyTaskPrefix + "proj-aBc1234D", wantTask: true, wantLaunch: true},
+		{name: "user-sandbox", wantVM: false, wantTask: false, wantLaunch: false},
+		{name: "", wantVM: false, wantTask: false, wantLaunch: false},
+	}
+	for _, c := range cases {
+		if got := IsLegacyProjectSandbox(c.name); got != c.wantVM {
+			t.Errorf("IsLegacyProjectSandbox(%q) = %v, want %v", c.name, got, c.wantVM)
+		}
+		if got := IsLegacyTaskSandbox(c.name); got != c.wantTask {
+			t.Errorf("IsLegacyTaskSandbox(%q) = %v, want %v", c.name, got, c.wantTask)
+		}
+		if got := IsLegacyLauncherSandbox(c.name); got != c.wantLaunch {
+			t.Errorf("IsLegacyLauncherSandbox(%q) = %v, want %v", c.name, got, c.wantLaunch)
+		}
+	}
+}
+
+func TestIsLegacyHomeVolume(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		{name: LegacyHomePrefix + "proj-aBc1234D", want: true},
+		{name: LegacyVMPrefix + "proj-aBc1234D", want: false},
+		{name: LegacyTaskPrefix + "proj-aBc1234D", want: false},
+		{name: "user-volume", want: false},
+		{name: "", want: false},
+	}
+	for _, c := range cases {
+		if got := IsLegacyHomeVolume(c.name); got != c.want {
+			t.Errorf("IsLegacyHomeVolume(%q) = %v, want %v", c.name, got, c.want)
 		}
 	}
 }

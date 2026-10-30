@@ -31,7 +31,7 @@ type Client interface {
 		ctx context.Context,
 		ref string,
 		opts client.ImagePullOptions,
-	) (io.ReadCloser, error)
+	) (client.ImagePullResponse, error)
 	ImageRemove(
 		ctx context.Context,
 		imageID string,
@@ -48,7 +48,6 @@ type Client interface {
 	Ping(ctx context.Context, opts client.PingOptions) (client.PingResult, error)
 }
 
-//nolint:gochecknoglobals // test hook for the otherwise unmockable docker client
 var Get = func() Client {
 	return &realDockerClient{}
 }
@@ -56,9 +55,10 @@ var Get = func() Client {
 // RealClient returns a Client backed by the real moby client, bypassing the
 // fail-fast Get installed under tests. Integration tests opt back into the real
 // docker daemon with it.
+//
+//deadcode:ignore reason="integration tests opt back into the real docker daemon"
 func RealClient() Client { return &realDockerClient{} }
 
-//nolint:gochecknoglobals // needed for lazy, thread-safe Docker client init
 var (
 	mobyClient     *client.Client
 	mobyClientOnce sync.Once
@@ -111,7 +111,7 @@ func (realDockerClient) ImagePull(
 	ctx context.Context,
 	ref string,
 	opts client.ImagePullOptions,
-) (io.ReadCloser, error) {
+) (client.ImagePullResponse, error) {
 	if err := ensureMobyClient(); err != nil {
 		return nil, err
 	}

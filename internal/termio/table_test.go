@@ -97,6 +97,14 @@ func TestPrintWritesHeaderAndRows(t *testing.T) {
 	}
 }
 
+func TestPrintNoopWithoutUI(t *testing.T) {
+	// A Table constructed without a UI must not panic when printed; the guard
+	// keeps callers that build a table before attaching output safe.
+	tbl := &Table{}
+	tbl.AddRow("alpha")
+	tbl.Print()
+}
+
 func TestPrintNoopWhenNoRows(t *testing.T) {
 	m := &Mock{}
 	tbl := m.NewTable("NAME")

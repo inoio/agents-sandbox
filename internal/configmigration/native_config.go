@@ -12,7 +12,7 @@ import (
 	"unicode"
 
 	"github.com/titanous/json5"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 )
@@ -251,24 +251,49 @@ func sanitizeNestedConfigValue(
 		return true, nil
 	}
 	if array, ok := value.([]any); ok {
-		for index, item := range array {
-			if nested, nestedOK := item.(map[string]any); nestedOK {
-				if err := sanitizeConfigMapWithSpec(
-					nested,
-					provider,
-					fmt.Sprintf("%s_%d", currentPath, index),
-					spec,
-					knownHosts,
-					providerHosts,
-					secrets,
-				); err != nil {
-					return true, err
-				}
-			}
+		if err := sanitizeConfigArrayValues(
+			array,
+			provider,
+			currentPath,
+			spec,
+			knownHosts,
+			providerHosts,
+			secrets,
+		); err != nil {
+			return true, err
 		}
 		return true, nil
 	}
 	return false, nil
+}
+
+// sanitizeConfigArrayValues sanitizes each map element of a config array,
+// giving elements a distinct path so collected secrets stay addressable.
+func sanitizeConfigArrayValues(
+	array []any,
+	provider, currentPath string,
+	spec agent.AuthMigrationSpec,
+	knownHosts, providerHosts map[string]string,
+	secrets map[string]Secret,
+) error {
+	for index, item := range array {
+		nested, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if err := sanitizeConfigMapWithSpec(
+			nested,
+			provider,
+			fmt.Sprintf("%s_%d", currentPath, index),
+			spec,
+			knownHosts,
+			providerHosts,
+			secrets,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func sanitizeConfigField(

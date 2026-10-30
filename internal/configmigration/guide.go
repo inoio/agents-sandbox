@@ -478,7 +478,12 @@ func hasManagedConfig(a agent.Agent, spec agent.ConfigMigrationSpec) bool {
 	if !ok {
 		return false
 	}
-	for _, dir := range []string{cp.Get().UserAgentConfigDir(a), cp.Get().ProjectAgentConfigDir(a)} {
+	userDir, userErr := cp.Get().UserAgentConfigDir(a)
+	projectDir, projectErr := cp.Get().ProjectAgentConfigDir(a)
+	if userErr != nil || projectErr != nil {
+		return false
+	}
+	for _, dir := range []string{userDir, projectDir} {
 		for _, name := range append(
 			[]string{spec.ManagedCredential, spec.ManagedSnippet},
 			spec.ManagedSupplementalFiles...,

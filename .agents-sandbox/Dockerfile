@@ -1,12 +1,12 @@
-FROM agents-sandbox/runner-base-dind:latest
+FROM agents-sandbox/runner-base-docker:latest
 
 # default versions, keep in sync with versions in Makefile
-ARG GO_VERSION=1.27.1
-ARG GOLANGCI_LINT_VERSION=2.14.0
+ARG GO_VERSION=1.27.3
+ARG GOLANGCI_LINT_VERSION=2.15.0
 ARG GOTESTSUM_VERSION=1.13.0
 ARG ZIG_VERSION=0.17.0
-ARG GH_VERSION=2.102.0
-ARG PLANTUML_VERSION=1.2026.7
+ARG GH_VERSION=2.103.2
+ARG PLANTUML_VERSION=1.2026.9
 
 USER root
 # Go & linter
@@ -19,7 +19,7 @@ RUN GOBIN=/usr/local/bin go install gotest.tools/gotestsum@v${GOTESTSUM_VERSION}
 # build-essential for CGO, shellcheck for shell script linting, default-jre for the PlantUML jar
 # (the full JRE, not -headless: PlantUML renders fonts and needs libharfbuzz/libfontmanager)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends build-essential bundler shellcheck default-jre && \
+    apt-get install -y --no-install-recommends build-essential bundler shellcheck default-jre fd-find && \
     rm -rf /var/lib/apt/lists/*
 
 # zig (tarball and install dir are architecture-specific; a stable symlink keeps PATH fixed)
@@ -35,9 +35,11 @@ ENV PATH="/usr/local/zig:${PATH}"
 # zig ships macOS C headers but not the framework/library stubs that Go's
 # linker needs (-framework CoreFoundation, -framework Security, -lresolv).
 # These empty stubs satisfy the linker; symbols resolve at runtime on macOS.
-# The build context set up by build.go#dockerfileTar contains only the Dockerfile, so the stubs are inlined
-# as printf(1) output (works on legacy and BuildKit builders alike) instead of
-# heredoc syntax (fails on legacy builder).
+# The canonical copies live in .github/stubs/ and are used by the release CI job
+# and by `make bootstrap`. They are re-inlined here as printf(1) output because
+# the image build context is synthetic — the rendered Dockerfile plus the
+# launcher's own assets — so repository files are not available to COPY. printf
+# works on legacy and BuildKit builders alike; heredoc syntax fails on legacy.
 RUN ZIG_DARWIN="$(dirname "$(which zig)")/lib/libc/darwin" \
  && mkdir -p "$ZIG_DARWIN/System/Library/Frameworks/CoreFoundation.framework" \
     "$ZIG_DARWIN/System/Library/Frameworks/Security.framework" \

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
@@ -16,5 +17,6 @@ func TestMain(m *testing.M) {
 	// cyclic dependency on termio
 	// doctor.InstallFailFast()
 	msb.InstallFailFastGet()
+	opener.InstallFailFast()
 	m.Run()
 }

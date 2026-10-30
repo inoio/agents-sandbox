@@ -3,19 +3,17 @@ package runtime
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/termio"
-	"github.com/inoio/agents-sandbox/internal/upgrade"
 )
 
 func TestInspectRuntimeEqual(t *testing.T) {
@@ -24,203 +22,15 @@ func TestInspectRuntimeEqual(t *testing.T) {
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
 
-	inspection, err := InspectRuntime()
+	inspection, err := inspectRuntime(msbSdk.SDKVersion())
 	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
+		t.Fatalf("inspectRuntime() error = %v", err)
 	}
 	if inspection.Relation != RuntimeEqual {
 		t.Fatalf("Relation = %q, want %q", inspection.Relation, RuntimeEqual)
 	}
 	if inspection.InstalledVersion != currentMSBVersion() {
 		t.Errorf("InstalledVersion = %q, want %s", inspection.InstalledVersion, currentMSBVersion())
-	}
-}
-
-func TestInspectRuntimeCustomMSBHomeRemainsManaged(t *testing.T) {
-	home := t.TempDir()
-	binDir := filepath.Join(home, "bin")
-	libDir := filepath.Join(home, "lib")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(libDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(
-		filepath.Join(binDir, "msb"),
-		msbVersionScript(currentMSBVersion()),
-		0o755,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(libDir, "libkrunfw.so.5.6.1"), []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_HOME", home)
-	unsetEnv(t, "MSB_PATH")
-
-	inspection, err := InspectRuntime()
-	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
-	}
-	if inspection.External {
-		t.Fatal("MSB_HOME alone must not mark the runtime external")
-	}
-}
-
-func TestInspectRuntimeUsesPersistedRuntimeHome(t *testing.T) {
-	root := t.TempDir()
-	configuredHome := filepath.Join(root, "configured-runtime")
-	writeRuntimeFiles(t, configuredHome, currentMSBVersion())
-	configPath := filepath.Join(root, "config.json")
-	config := fmt.Sprintf(`{"home":%q}`, configuredHome)
-	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", filepath.Join(root, "default-home"))
-	t.Setenv("MSB_CONFIG_PATH", configPath)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-	unsetEnv(t, "MSB_LIBKRUNFW_PATH")
-
-	inspection, err := InspectRuntime()
-	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
-	}
-	if inspection.Relation != RuntimeEqual {
-		t.Fatalf("Relation = %q, want %q", inspection.Relation, RuntimeEqual)
-	}
-	if inspection.MSBHome != configuredHome {
-		t.Errorf("MSBHome = %q, want %q", inspection.MSBHome, configuredHome)
-	}
-	if inspection.MSBPath != filepath.Join(configuredHome, "bin", "msb") {
-		t.Errorf("MSBPath = %q", inspection.MSBPath)
-	}
-}
-
-func TestInspectRuntimeUsesPersistedRuntimePaths(t *testing.T) {
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "custom", "msb")
-	libPath := filepath.Join(root, "custom", "libkrunfw.so.5.6.1")
-	if err := os.MkdirAll(filepath.Dir(msbPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(msbPath, msbVersionScript(currentMSBVersion()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	configPath := filepath.Join(root, "config.json")
-	config := fmt.Sprintf(`{"paths":{"msb":%q,"libkrunfw":%q}}`, msbPath, libPath)
-	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", filepath.Join(root, "default-home"))
-	t.Setenv("MSB_CONFIG_PATH", configPath)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-	unsetEnv(t, "MSB_LIBKRUNFW_PATH")
-
-	inspection, err := InspectRuntime()
-	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
-	}
-	if inspection.Relation != RuntimeEqual {
-		t.Fatalf("Relation = %q, want %q", inspection.Relation, RuntimeEqual)
-	}
-	if !inspection.External {
-		t.Fatal("configured runtime paths should be treated as external")
-	}
-	if inspection.MSBPath != msbPath || inspection.LibkrunfwPath != libPath {
-		t.Fatalf("selected paths = %q, %q; want %q, %q", inspection.MSBPath, inspection.LibkrunfwPath, msbPath, libPath)
-	}
-}
-
-func TestInspectRuntimePersistedConfigReadError(t *testing.T) {
-	t.Setenv("MSB_CONFIG_PATH", t.TempDir())
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want config read error")
-	}
-}
-
-func TestInspectRuntimePersistedConfigParseError(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(configPath, []byte("{"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_CONFIG_PATH", configPath)
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want config parse error")
-	}
-}
-
-func TestInspectRuntimeRejectsEmptyConfigPath(t *testing.T) {
-	t.Setenv("MSB_CONFIG_PATH", " ")
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want empty config path error")
-	}
-}
-
-func TestInspectRuntimeReportsMSBStatError(t *testing.T) {
-	root := t.TempDir()
-	configPath := filepath.Join(root, "config.json")
-	if err := os.WriteFile(configPath, []byte(`{"paths":{"msb":"\u0000"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_CONFIG_PATH", configPath)
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want msb stat error")
-	}
-}
-
-func TestInspectRuntimeReportsLibraryStatError(t *testing.T) {
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "msb")
-	if err := os.WriteFile(msbPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	configPath := filepath.Join(root, "config.json")
-	config := fmt.Sprintf(`{"paths":{"msb":%q,"libkrunfw":"\u0000"}}`, msbPath)
-	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_CONFIG_PATH", configPath)
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want libkrunfw stat error")
-	}
-}
-
-func TestInspectRuntimeLibraryOnlyOverrideIsIncomplete(t *testing.T) {
-	t.Setenv("MSB_LIBKRUNFW_PATH", filepath.Join(t.TempDir(), "libkrunfw.so.5.6.1"))
-	unsetEnv(t, "MSB_PATH")
-	inspection, err := InspectRuntime()
-	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
-	}
-	if inspection.Relation != RuntimeIncomplete {
-		t.Fatalf("Relation = %q, want %q", inspection.Relation, RuntimeIncomplete)
-	}
-}
-
-func TestInspectRuntimeMSBOverrideFindsAdjacentLibrary(t *testing.T) {
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "msb")
-	libPath := filepath.Join(root, "libkrunfw.so.5.6.1")
-	if err := os.WriteFile(msbPath, msbVersionScript(currentMSBVersion()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_PATH", msbPath)
-	unsetEnv(t, "MSB_LIBKRUNFW_PATH")
-	inspection, err := InspectRuntime()
-	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
-	}
-	if inspection.Relation != RuntimeEqual || inspection.LibkrunfwPath != libPath {
-		t.Fatalf("inspection = %+v, want equal runtime using %q", inspection, libPath)
 	}
 }
 
@@ -247,28 +57,6 @@ func TestRuntimeFilePresentClassifiesPaths(t *testing.T) {
 	}
 }
 
-func TestRuntimeConfigPathHomeResolutionError(t *testing.T) {
-	oldHome := userHomeDir
-	userHomeDir = func() (string, error) { return "", errors.New("home unavailable") }
-	t.Cleanup(func() { userHomeDir = oldHome })
-	unsetEnv(t, "MSB_CONFIG_PATH")
-	if _, err := runtimeConfigPath(); err == nil {
-		t.Fatal("runtimeConfigPath() error = nil, want home resolution error")
-	}
-}
-
-func TestRuntimeLibraryCandidateFallbacks(t *testing.T) {
-	if got := runtimeLibraryCandidate(""); got != "" {
-		t.Fatalf("empty msb path candidate = %q, want empty", got)
-	}
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "bin", "msb")
-	want := filepath.Join(root, "bin", "libkrunfw.so.5.6.1")
-	if got := runtimeLibraryCandidate(msbPath); got != want {
-		t.Fatalf("missing library candidate = %q, want %q", got, want)
-	}
-}
-
 func TestInspectRuntimeNewerAndOlder(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -285,9 +73,9 @@ func TestInspectRuntimeNewerAndOlder(t *testing.T) {
 			unsetEnv(t, "MSB_HOME")
 			unsetEnv(t, "MSB_PATH")
 
-			inspection, err := InspectRuntime()
+			inspection, err := inspectRuntime(msbSdk.SDKVersion())
 			if err != nil {
-				t.Fatalf("InspectRuntime() error = %v", err)
+				t.Fatalf("inspectRuntime() error = %v", err)
 			}
 			if inspection.Relation != test.want {
 				t.Errorf("Relation = %q, want %q", inspection.Relation, test.want)
@@ -302,47 +90,12 @@ func TestInspectRuntimeMissingLibraryIsIncomplete(t *testing.T) {
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
 
-	inspection, err := InspectRuntime()
+	inspection, err := inspectRuntime(msbSdk.SDKVersion())
 	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
+		t.Fatalf("inspectRuntime() error = %v", err)
 	}
 	if inspection.Relation != RuntimeIncomplete {
 		t.Fatalf("Relation = %q, want %q", inspection.Relation, RuntimeIncomplete)
-	}
-}
-
-func TestInspectRuntimeUsesExplicitMSBPathAndLibrary(t *testing.T) {
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "custom", "msb")
-	libPath := filepath.Join(root, "custom", "libkrunfw.so.5.6.1")
-	if err := os.MkdirAll(filepath.Dir(msbPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(msbPath, msbVersionScript(currentMSBVersion()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_PATH", msbPath)
-	t.Setenv("MSB_LIBKRUNFW_PATH", libPath)
-
-	inspection, err := InspectRuntime()
-	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
-	}
-	if !inspection.External || inspection.Relation != RuntimeEqual {
-		t.Fatalf("inspection = %+v, want external equal runtime", inspection)
-	}
-	if inspection.LibkrunfwPath != libPath {
-		t.Errorf("LibkrunfwPath = %q, want %q", inspection.LibkrunfwPath, libPath)
-	}
-}
-
-func TestInspectRuntimeRejectsEmptyMSBPath(t *testing.T) {
-	t.Setenv("MSB_PATH", " ")
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want empty MSB_PATH error")
 	}
 }
 
@@ -352,9 +105,9 @@ func TestInspectRuntimeUnknownVersion(t *testing.T) {
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
 
-	inspection, err := InspectRuntime()
+	inspection, err := inspectRuntime(msbSdk.SDKVersion())
 	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
+		t.Fatalf("inspectRuntime() error = %v", err)
 	}
 	if inspection.Relation != RuntimeUnknown {
 		t.Fatalf("Relation = %q, want %q", inspection.Relation, RuntimeUnknown)
@@ -370,9 +123,9 @@ func TestInspectRuntimeVersionCommandFailure(t *testing.T) {
 	runMSBVersion = func(string) (string, error) { return "", errors.New("exec failed") }
 	t.Cleanup(func() { runMSBVersion = oldVersion })
 
-	inspection, err := InspectRuntime()
+	inspection, err := inspectRuntime(msbSdk.SDKVersion())
 	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
+		t.Fatalf("inspectRuntime() error = %v", err)
 	}
 	if inspection.Relation != RuntimeUnknown {
 		t.Fatalf("Relation = %q, want %q", inspection.Relation, RuntimeUnknown)
@@ -395,40 +148,63 @@ func TestInspectRuntimeInvalidRequiredVersion(t *testing.T) {
 }
 
 func TestInspectRuntimeMissingBinary(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	mockRuntimeHome(t)
 
-	inspection, err := InspectRuntime()
+	inspection, err := inspectRuntime(msbSdk.SDKVersion())
 	if err != nil {
-		t.Fatalf("InspectRuntime() error = %v", err)
+		t.Fatalf("inspectRuntime() error = %v", err)
 	}
 	if inspection.Relation != RuntimeMissing {
 		t.Fatalf("Relation = %q, want %q", inspection.Relation, RuntimeMissing)
 	}
 }
 
-func TestInspectRuntimeHomeResolutionError(t *testing.T) {
-	oldHome := userHomeDir
-	userHomeDir = func() (string, error) { return "", errors.New("home unavailable") }
-	t.Cleanup(func() { userHomeDir = oldHome })
-	unsetEnv(t, "MSB_HOME")
+// TestInspectRuntimeMsbStatError covers an unexpected stat failure on the msb
+// binary path (a symlink loop yields ELOOP, not "not exist").
+func TestInspectRuntimeMsbStatError(t *testing.T) {
+	home := mockRuntimeHome(t)
+	binDir := filepath.Join(home, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("msb", filepath.Join(binDir, "msb")); err != nil {
+		t.Fatal(err)
+	}
 
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want home resolution error")
+	if _, err := inspectRuntime(msbSdk.SDKVersion()); err == nil {
+		t.Fatal("inspectRuntime() error = nil, want msb stat error")
 	}
 }
 
-func TestInspectRuntimeStatError(t *testing.T) {
-	oldHome := userHomeDir
-	userHomeDir = func() (string, error) { return string([]byte{'\x00'}), nil }
-	t.Cleanup(func() { userHomeDir = oldHome })
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+// TestInspectRuntimeLibraryStatError covers an unexpected stat failure on the
+// libkrunfw path after a valid msb is present.
+func TestInspectRuntimeLibraryStatError(t *testing.T) {
+	home := mockRuntimeHome(t)
+	writeRuntimeFiles(t, home, currentMSBVersion())
 
-	if _, err := InspectRuntime(); err == nil {
-		t.Fatal("InspectRuntime() error = nil, want stat error")
+	lib := filepath.Join(home, "lib", "libkrunfw.so.5.6.1")
+	if err := os.Remove(lib); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("libkrunfw.so.5.6.1", lib); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := inspectRuntime(msbSdk.SDKVersion()); err == nil {
+		t.Fatal("inspectRuntime() error = nil, want libkrunfw stat error")
+	}
+}
+
+func TestPrepareRuntimeApplyHomeError(t *testing.T) {
+	resetRuntimeState(t)
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("setenv boom")
+	orig := setenv
+	setenv = func(string, string) error { return wantErr }
+	t.Cleanup(func() { setenv = orig })
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+		t.Fatal("prepareRuntime() error = nil, want ApplyHome error")
 	}
 }
 
@@ -444,41 +220,114 @@ func TestDefaultRuntimeCommandSeams(t *testing.T) {
 	if _, err := runMSBVersion(filepath.Join(root, "missing")); err == nil {
 		t.Fatal("runMSBVersion() missing command error = nil")
 	}
+}
 
-	downgradePath := filepath.Join(root, "msb-downgrade")
-	if err := os.WriteFile(downgradePath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := runMSBDowngrade(
-		context.Background(),
-		downgradePath,
-		currentMSBVersion(),
-		io.Discard,
-		io.Discard,
-	); err != nil {
-		t.Fatalf("runMSBDowngrade() error = %v", err)
-	}
-	failingDowngrade := filepath.Join(root, "msb-downgrade-fail")
-	if err := os.WriteFile(failingDowngrade, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := runMSBDowngrade(
-		context.Background(),
-		failingDowngrade,
-		currentMSBVersion(),
-		io.Discard,
-		io.Discard,
-	); err == nil {
-		t.Fatal("runMSBDowngrade() failure error = nil")
+func TestDefaultEnsureRuntimeSeamFailsDeterministically(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	home := t.TempDir()
+	t.Setenv("MSB_HOME", home)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := ensureRuntime(ctx); err == nil {
+		t.Fatal("ensureRuntime() error = nil, want canceled setup error")
 	}
 }
 
 func TestDefaultInstallRuntimeSeamFailsDeterministically(t *testing.T) {
-	t.Setenv("MSB_HOME", t.TempDir())
+	configpaths.WithMockConfigPaths(t)
+	home := t.TempDir()
+	t.Setenv("MSB_HOME", home)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if err := installRuntime(ctx); err == nil {
 		t.Fatal("installRuntime() error = nil, want canceled setup error")
+	}
+}
+
+// TestRuntimeSetupSeamsPassPrivateHome asserts both setup seams hand the SDK the
+// private home explicitly, so resolution cannot depend on MSB_HOME having been
+// applied first.
+func TestRuntimeSetupSeamsPassPrivateHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantHome := PrivateHome()
+
+	var ensureConfig, installConfig msbSdk.RuntimeConfig
+	origEnsure, origInstall := msbEnsureRuntime, msbInstallRuntime
+	msbEnsureRuntime = func(
+		_ context.Context, config msbSdk.RuntimeConfig, _ msbSdk.InstallOptions,
+	) (msbSdk.ResolvedRuntime, error) {
+		ensureConfig = config
+		return msbSdk.ResolvedRuntime{}, nil
+	}
+	msbInstallRuntime = func(
+		_ context.Context, config msbSdk.RuntimeConfig, opts msbSdk.InstallOptions,
+	) (msbSdk.ResolvedRuntime, error) {
+		installConfig = config
+		if !opts.Force {
+			t.Error("install seam did not force-install")
+		}
+		return msbSdk.ResolvedRuntime{}, nil
+	}
+	t.Cleanup(func() { msbEnsureRuntime = origEnsure; msbInstallRuntime = origInstall })
+
+	if err := ensureRuntime(context.Background()); err != nil {
+		t.Fatalf("ensureRuntime() error = %v", err)
+	}
+	if err := installRuntime(context.Background()); err != nil {
+		t.Fatalf("installRuntime() error = %v", err)
+	}
+	if ensureConfig.Home != wantHome {
+		t.Errorf("ensure RuntimeConfig.Home = %q, want %q", ensureConfig.Home, wantHome)
+	}
+	if installConfig.Home != wantHome {
+		t.Errorf("install RuntimeConfig.Home = %q, want %q", installConfig.Home, wantHome)
+	}
+}
+
+func TestAcquireRuntimeLockBlocksSecondHolder(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	release, err := acquireRuntimeLock()
+	if err != nil {
+		t.Fatalf("acquireRuntimeLock: %v", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		r, _ := acquireRuntimeLock()
+		if r != nil {
+			r()
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("second acquire returned while the first held the lock")
+	case <-time.After(200 * time.Millisecond):
+	}
+	release()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second acquire did not proceed after release")
+	}
+}
+
+// TestAcquireRuntimeLockError covers the error wrapping: a directory occupying
+// the lock file path makes the acquisition fail.
+func TestAcquireRuntimeLockError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	blockRuntimeLock(t)
+	_, err := acquireRuntimeLock()
+	if err == nil || !strings.Contains(err.Error(), "acquire runtime lock") {
+		t.Fatalf("acquireRuntimeLock() error = %v, want a wrapped lock failure", err)
+	}
+}
+
+// blockRuntimeLock makes the runtime lock unacquirable by occupying its file
+// path with a directory.
+func blockRuntimeLock(t *testing.T) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(runtimeLockDir(), runtimeLockName), 0o700); err != nil {
+		t.Fatalf("mkdir at lock path: %v", err)
 	}
 }
 
@@ -487,20 +336,8 @@ func TestPrepareRuntimePublicGateSkipsMockClient(t *testing.T) {
 	runtimeClientIsReal = func() bool { return false }
 	t.Cleanup(func() { runtimeClientIsReal = oldReal })
 
-	if _, err := PrepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := PrepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("PrepareRuntime() error = %v", err)
-	}
-}
-
-func TestPrepareRuntimeExternalMissingRelationUsesRecovery(t *testing.T) {
-	resetRuntimeState(t)
-	oldInspect := inspectRuntimeFunc
-	inspectRuntimeFunc = func(string) (Inspection, error) {
-		return Inspection{Relation: RuntimeMissing, External: true, MSBPath: "/custom/msb"}, nil
-	}
-	t.Cleanup(func() { inspectRuntimeFunc = oldInspect })
-	if _, err := prepareRuntime(context.Background(), selectRuntimeAction("q"), "0.2.0"); err == nil {
-		t.Fatal("external missing runtime returned nil error")
 	}
 }
 
@@ -509,70 +346,8 @@ func TestPrepareRuntimeReturnsExistingPreparedState(t *testing.T) {
 	runtimeState.prepared = true
 	t.Cleanup(func() { resetRuntimeState(t) })
 
-	result, err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0")
-	if err != nil {
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("prepareRuntime() error = %v", err)
-	}
-	if result.Restart {
-		t.Fatal("prepared runtime unexpectedly requested restart")
-	}
-}
-
-func TestPrepareRuntimeBraveModeSkipsInstaller(t *testing.T) {
-	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
-	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-
-	oldGet := sandboxmsb.Get
-	sandboxmsb.Get = func() sandboxmsb.Client { return &sandboxmsb.MockMsbClient{} }
-	t.Cleanup(func() { sandboxmsb.Get = oldGet })
-
-	oldDowngrade := runMSBDowngrade
-	runMSBDowngrade = func(context.Context, string, string, io.Writer, io.Writer) error {
-		return errors.New("downgrade must not run")
-	}
-	t.Cleanup(func() { runMSBDowngrade = oldDowngrade })
-
-	ui := &termio.Mock{IsInteractiveResult: true}
-	ui.SelectFn = func(_ string, choices []termio.Choice, defaultKey string) (string, error) {
-		if defaultKey != "q" {
-			t.Errorf("default key = %q, want q", defaultKey)
-		}
-		if !containsChoice(choices, "b") {
-			t.Fatal("brave choice missing")
-		}
-		return "b", nil
-	}
-
-	result, err := prepareRuntime(context.Background(), ui, "0.2.0")
-	if err != nil {
-		t.Fatalf("PrepareRuntime() error = %v", err)
-	}
-	if result.Restart {
-		t.Fatal("brave mode unexpectedly requested restart")
-	}
-}
-
-func TestPrepareRuntimeNonInteractivePrintsIssueURL(t *testing.T) {
-	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
-	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-
-	oldGet := sandboxmsb.Get
-	sandboxmsb.Get = func() sandboxmsb.Client { return &sandboxmsb.MockMsbClient{} }
-	t.Cleanup(func() { sandboxmsb.Get = oldGet })
-
-	ui := &termio.Mock{}
-	_, err := prepareRuntime(context.Background(), ui, "0.2.0")
-	if err == nil {
-		t.Fatal("PrepareRuntime() error = nil, want mismatch error")
-	}
-	if !strings.Contains(strings.Join(errorMessages(ui), "\n"), runtimeIssueURL) {
-		t.Errorf("issue URL missing from error output: %v", ui.ErrorCalls)
 	}
 }
 
@@ -589,68 +364,112 @@ func TestPrepareRuntimePublicGateUsesRealClient(t *testing.T) {
 	validateRuntime = func(context.Context) error { return nil }
 	t.Cleanup(func() { validateRuntime = oldValidate })
 
-	if _, err := PrepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := PrepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("PrepareRuntime() error = %v", err)
 	}
 }
 
-func TestPrepareRuntimeMissingManagedRuntimeInstallsAndValidates(t *testing.T) {
+func TestApplyPreviewHomeSkipsMockClient(t *testing.T) {
+	oldReal := runtimeClientIsReal
+	runtimeClientIsReal = func() bool { return false }
+	t.Cleanup(func() { runtimeClientIsReal = oldReal })
+
+	unsetEnv(t, "MSB_HOME")
+
+	if err := ApplyPreviewHome(); err != nil {
+		t.Fatalf("ApplyPreviewHome() error = %v", err)
+	}
+	if got := os.Getenv("MSB_HOME"); got != "" {
+		t.Errorf("MSB_HOME = %q; want unset for a mock client", got)
+	}
+}
+
+func TestApplyPreviewHomePointsAtPrivateHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	unsetEnv(t, "MSB_HOME")
+	oldReal := runtimeClientIsReal
+	runtimeClientIsReal = func() bool { return true }
+	t.Cleanup(func() { runtimeClientIsReal = oldReal })
+
+	if err := ApplyPreviewHome(); err != nil {
+		t.Fatalf("ApplyPreviewHome() error = %v", err)
+	}
+	if got := os.Getenv("MSB_HOME"); got != PrivateHome() {
+		t.Errorf("MSB_HOME = %q; want the private home %q", got, PrivateHome())
+	}
+}
+
+func TestApplyPreviewHomeWrapsApplyHomeError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	oldReal := runtimeClientIsReal
+	runtimeClientIsReal = func() bool { return true }
+	t.Cleanup(func() { runtimeClientIsReal = oldReal })
+	orig := setenv
+	setenv = func(string, string) error { return errors.New("setenv boom") }
+	t.Cleanup(func() { setenv = orig })
+
+	err := ApplyPreviewHome()
+	if err == nil || !strings.Contains(err.Error(), "apply microsandbox home") {
+		t.Fatalf("ApplyPreviewHome() error = %v, want a wrapped ApplyHome failure", err)
+	}
+}
+
+func TestPrepareRuntimeMissingInstallsAndValidates(t *testing.T) {
 	resetRuntimeState(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := mockRuntimeHome(t)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
 
 	oldEnsure, oldValidate := ensureRuntime, validateRuntime
+	ensureCalls, validateCalls := 0, 0
 	ensureRuntime = func(context.Context) error {
-		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), currentMSBVersion())
+		ensureCalls++
+		writeRuntimeFiles(t, home, currentMSBVersion())
 		return nil
 	}
-	validateRuntime = func(context.Context) error { return nil }
+	validateRuntime = func(context.Context) error {
+		validateCalls++
+		return nil
+	}
 	t.Cleanup(func() {
 		ensureRuntime = oldEnsure
 		validateRuntime = oldValidate
 	})
 
-	if _, err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("prepareRuntime() error = %v", err)
 	}
-}
-
-func TestDefaultEnsureRuntimeSeamFailsDeterministically(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("MSB_HOME", home)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := ensureRuntime(ctx); err == nil {
-		t.Fatal("ensureRuntime() error = nil, want canceled setup error")
+	if ensureCalls != 1 || validateCalls != 1 {
+		t.Fatalf("ensureRuntime calls = %d, validateRuntime calls = %d; want 1 each", ensureCalls, validateCalls)
 	}
 }
 
 func TestPrepareRuntimeMissingManagedRuntimeInstallFails(t *testing.T) {
 	resetRuntimeState(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	// Resolve the private home to an isolated, empty directory. Setting HOME
+	// alone is not enough: configpaths honors XDG_DATA_HOME, so on a host where
+	// it points at a real install the runtime would be found and the install
+	// path never reached.
+	configpaths.WithMockConfigPaths(t)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
 	oldEnsure := ensureRuntime
 	ensureRuntime = func(context.Context) error { return errors.New("install failed") }
 	t.Cleanup(func() { ensureRuntime = oldEnsure })
-	if _, err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want install error")
 	}
 }
 
 func TestPrepareRuntimeMissingManagedRuntimeValidationFails(t *testing.T) {
 	resetRuntimeState(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := mockRuntimeHome(t)
 	unsetEnv(t, "MSB_HOME")
 	unsetEnv(t, "MSB_PATH")
 
 	oldEnsure, oldValidate := ensureRuntime, validateRuntime
 	ensureRuntime = func(context.Context) error {
-		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), currentMSBVersion())
+		writeRuntimeFiles(t, home, currentMSBVersion())
 		return nil
 	}
 	validateRuntime = func(context.Context) error { return errors.New("validation failed") }
@@ -658,34 +477,254 @@ func TestPrepareRuntimeMissingManagedRuntimeValidationFails(t *testing.T) {
 		ensureRuntime = oldEnsure
 		validateRuntime = oldValidate
 	})
-	if _, err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want post-install validation error")
 	}
 }
 
 func TestPrepareRuntimeInspectionFailure(t *testing.T) {
 	resetRuntimeState(t)
+	configpaths.WithMockConfigPaths(t)
 	oldInspect := inspectRuntimeFunc
 	inspectRuntimeFunc = func(string) (Inspection, error) { return Inspection{}, errors.New("inspect failed") }
 	t.Cleanup(func() { inspectRuntimeFunc = oldInspect })
-	if _, err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want inspection error")
 	}
 }
 
 func TestPrepareRuntimeRejectsUnknownFutureRelation(t *testing.T) {
 	resetRuntimeState(t)
+	configpaths.WithMockConfigPaths(t)
 	oldInspect := inspectRuntimeFunc
 	inspectRuntimeFunc = func(string) (Inspection, error) {
 		return Inspection{Relation: Relation("future")}, nil
 	}
 	t.Cleanup(func() { inspectRuntimeFunc = oldInspect })
-	if _, err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want unknown relation error")
 	}
 }
 
-func TestPrepareRuntimeEqualValidatesWithoutInstalling(t *testing.T) {
+func TestPrepareRuntimeMismatchRepairsByForceInstalling(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		version string
+	}{
+		{name: "older", version: olderMSBVersion(t)},
+		{name: "newer", version: newerMSBVersion(t)},
+		{name: "unknown", version: "not-a-version"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resetRuntimeState(t)
+			home := writeRuntimeFixture(t, test.version, true)
+			t.Setenv("HOME", home)
+			unsetEnv(t, "MSB_HOME")
+			unsetEnv(t, "MSB_PATH")
+
+			oldInstall, oldValidate := installRuntime, validateRuntime
+			installCalls, validateCalls := 0, 0
+			installRuntime = func(context.Context) error {
+				installCalls++
+				writeRuntimeFiles(t, home, currentMSBVersion())
+				return nil
+			}
+			validateRuntime = func(context.Context) error {
+				validateCalls++
+				return nil
+			}
+			t.Cleanup(func() {
+				installRuntime = oldInstall
+				validateRuntime = oldValidate
+			})
+
+			if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+				t.Fatalf("prepareRuntime() error = %v", err)
+			}
+			if installCalls != 1 || validateCalls != 1 {
+				t.Fatalf(
+					"installRuntime calls = %d, validateRuntime calls = %d; want 1 each",
+					installCalls,
+					validateCalls,
+				)
+			}
+		})
+	}
+}
+
+func TestPrepareRuntimeIncompleteRepairsAfterRemovingStrayFile(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, currentMSBVersion(), false)
+	t.Setenv("HOME", home)
+	unsetEnv(t, "MSB_HOME")
+	unsetEnv(t, "MSB_PATH")
+
+	oldInstall, oldValidate := installRuntime, validateRuntime
+	installRuntime = func(context.Context) error {
+		if _, err := os.Stat(filepath.Join(home, "bin", "msb")); !os.IsNotExist(err) {
+			t.Fatalf("stray runtime file not removed before install: err = %v", err)
+		}
+		writeRuntimeFiles(t, home, currentMSBVersion())
+		return nil
+	}
+	validateRuntime = func(context.Context) error { return nil }
+	t.Cleanup(func() {
+		installRuntime = oldInstall
+		validateRuntime = oldValidate
+	})
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+		t.Fatalf("prepareRuntime() error = %v", err)
+	}
+}
+
+func TestPrepareRuntimeRepairLockFails(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
+	t.Setenv("HOME", home)
+	unsetEnv(t, "MSB_HOME")
+	unsetEnv(t, "MSB_PATH")
+
+	blockRuntimeLock(t)
+
+	err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0")
+	if err == nil || !strings.Contains(err.Error(), "acquire runtime lock") {
+		t.Fatalf("prepareRuntime() error = %v, want a runtime lock failure", err)
+	}
+}
+
+func TestPrepareRuntimeRepairReinspectFails(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
+	t.Setenv("HOME", home)
+	unsetEnv(t, "MSB_HOME")
+	unsetEnv(t, "MSB_PATH")
+
+	oldInspect := inspectRuntimeFunc
+	inspectionCalls := 0
+	inspectRuntimeFunc = func(string) (Inspection, error) {
+		inspectionCalls++
+		if inspectionCalls == 1 {
+			return Inspection{Relation: RuntimeOlder}, nil
+		}
+		return Inspection{}, errors.New("inspect failed")
+	}
+	t.Cleanup(func() { inspectRuntimeFunc = oldInspect })
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+		t.Fatal("prepareRuntime() error = nil, want re-inspection error")
+	}
+}
+
+func TestPrepareRuntimeIncompleteRemovalFails(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, currentMSBVersion(), true)
+	binMSB := filepath.Join(home, "bin", "msb")
+	if err := os.Remove(binMSB); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(binMSB, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binMSB, "keep"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldInstall := installRuntime
+	installRuntime = func(context.Context) error {
+		t.Fatal("installRuntime must not run when the incomplete runtime cannot be removed")
+		return nil
+	}
+	t.Cleanup(func() { installRuntime = oldInstall })
+
+	err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0")
+	if err == nil {
+		t.Fatal("prepareRuntime() error = nil, want incomplete runtime removal error")
+	}
+	if !strings.Contains(err.Error(), "remove incomplete msb runtime") {
+		t.Fatalf("error = %v, want incomplete runtime removal error", err)
+	}
+}
+
+func TestPrepareRuntimeRepairSeesConcurrentRepair(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
+	t.Setenv("HOME", home)
+	unsetEnv(t, "MSB_HOME")
+	unsetEnv(t, "MSB_PATH")
+
+	oldInspect, oldInstall, oldValidate := inspectRuntimeFunc, installRuntime, validateRuntime
+	inspectionCalls := 0
+	inspectRuntimeFunc = func(string) (Inspection, error) {
+		inspectionCalls++
+		if inspectionCalls == 1 {
+			return Inspection{Relation: RuntimeOlder}, nil
+		}
+		return Inspection{Relation: RuntimeEqual}, nil
+	}
+	installRuntime = func(context.Context) error {
+		t.Fatal("installRuntime must not run when the runtime was repaired concurrently")
+		return nil
+	}
+	validated := false
+	validateRuntime = func(context.Context) error {
+		validated = true
+		return nil
+	}
+	t.Cleanup(func() {
+		inspectRuntimeFunc = oldInspect
+		installRuntime = oldInstall
+		validateRuntime = oldValidate
+	})
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+		t.Fatalf("prepareRuntime() error = %v", err)
+	}
+	if !validated {
+		t.Fatal("expected validation of the concurrently repaired runtime")
+	}
+}
+
+func TestPrepareRuntimeRepairValidationFails(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
+	t.Setenv("HOME", home)
+	unsetEnv(t, "MSB_HOME")
+	unsetEnv(t, "MSB_PATH")
+
+	oldInstall, oldValidate := installRuntime, validateRuntime
+	installRuntime = func(context.Context) error {
+		writeRuntimeFiles(t, home, currentMSBVersion())
+		return nil
+	}
+	validateRuntime = func(context.Context) error { return errors.New("validation failed") }
+	t.Cleanup(func() {
+		installRuntime = oldInstall
+		validateRuntime = oldValidate
+	})
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+		t.Fatal("prepareRuntime() error = nil, want post-repair validation error")
+	}
+}
+
+func TestPrepareRuntimeRepairInstallFails(t *testing.T) {
+	resetRuntimeState(t)
+	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
+	t.Setenv("HOME", home)
+	unsetEnv(t, "MSB_HOME")
+	unsetEnv(t, "MSB_PATH")
+
+	oldInstall := installRuntime
+	installRuntime = func(context.Context) error { return errors.New("install failed") }
+	t.Cleanup(func() { installRuntime = oldInstall })
+
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+		t.Fatal("prepareRuntime() error = nil, want repair install error")
+	}
+}
+
+func TestPrepareRuntimeEqualValidates(t *testing.T) {
 	resetRuntimeState(t)
 	home := writeRuntimeFixture(t, currentMSBVersion(), true)
 	t.Setenv("HOME", home)
@@ -704,83 +743,11 @@ func TestPrepareRuntimeEqualValidatesWithoutInstalling(t *testing.T) {
 		validateRuntime = oldValidate
 	})
 
-	if _, err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("prepareRuntime() error = %v", err)
 	}
 	if !validated {
 		t.Fatal("expected equal runtime validation")
-	}
-}
-
-func TestPrepareRuntimeUpgradeMSBAction(t *testing.T) {
-	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
-	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-
-	oldInstall, oldValidate := installRuntime, validateRuntime
-	installRuntime = func(context.Context) error {
-		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), currentMSBVersion())
-		return nil
-	}
-	validateRuntime = func(context.Context) error { return nil }
-	t.Cleanup(func() {
-		installRuntime = oldInstall
-		validateRuntime = oldValidate
-	})
-	ui := selectRuntimeAction("u")
-	if _, err := prepareRuntime(context.Background(), ui, "0.2.0"); err != nil {
-		t.Fatalf("prepareRuntime() error = %v", err)
-	}
-}
-
-func TestPrepareRuntimeDowngradeMSBAction(t *testing.T) {
-	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
-	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-
-	oldDowngrade, oldValidate := runMSBDowngrade, validateRuntime
-	runMSBDowngrade = func(_ context.Context, _, version string, _, _ io.Writer) error {
-		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), version)
-		return nil
-	}
-	validateRuntime = func(context.Context) error { return nil }
-	t.Cleanup(func() {
-		runMSBDowngrade = oldDowngrade
-		validateRuntime = oldValidate
-	})
-	if _, err := prepareRuntime(context.Background(), selectRuntimeAction("d"), "0.2.0"); err != nil {
-		t.Fatalf("prepareRuntime() error = %v", err)
-	}
-}
-
-func TestPrepareRuntimeLauncherUpgradeRequestsRestart(t *testing.T) {
-	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
-	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-
-	oldLatest, oldUpdate := latestAgentsSandboxVersion, updateAgentsSandbox
-	latestAgentsSandboxVersion = func(context.Context) (string, error) { return "0.3.0", nil }
-	updated := false
-	updateAgentsSandbox = func(context.Context, string) error {
-		updated = true
-		return nil
-	}
-	t.Cleanup(func() {
-		latestAgentsSandboxVersion = oldLatest
-		updateAgentsSandbox = oldUpdate
-	})
-	result, err := prepareRuntime(context.Background(), selectRuntimeAction("a"), "0.2.0")
-	if err != nil {
-		t.Fatalf("prepareRuntime() error = %v", err)
-	}
-	if !result.Restart || !updated {
-		t.Fatalf("result = %+v, updated = %v, want restart after update", result, updated)
 	}
 }
 
@@ -793,160 +760,8 @@ func TestPrepareRuntimePreparedStateShortCircuits(t *testing.T) {
 		runtimeClientIsReal = oldReal
 		resetRuntimeState(t)
 	})
-	if _, err := PrepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := PrepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("PrepareRuntime() error = %v", err)
-	}
-}
-
-func TestPrepareRuntimeSelectionErrorsAndQuit(t *testing.T) {
-	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
-	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-
-	ui := &termio.Mock{IsInteractiveResult: true}
-	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "q", nil }
-	if _, err := prepareRuntime(context.Background(), ui, "0.2.0"); err == nil {
-		t.Fatal("quit action returned nil error")
-	}
-
-	resetRuntimeState(t)
-	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "", errors.New("selection failed") }
-	if _, err := prepareRuntime(context.Background(), ui, "0.2.0"); err == nil {
-		t.Fatal("selection error returned nil error")
-	}
-}
-
-func TestPrepareRuntimeUnknownAction(t *testing.T) {
-	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
-	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-	if _, err := prepareRuntime(context.Background(), selectRuntimeAction("x"), "0.2.0"); err == nil {
-		t.Fatal("unknown action returned nil error")
-	}
-}
-
-func TestPrepareRuntimeExternalMissingRuntimeOffersIssueAndQuit(t *testing.T) {
-	resetRuntimeState(t)
-	t.Setenv("MSB_PATH", filepath.Join(t.TempDir(), "missing-msb"))
-	t.Setenv("MSB_LIBKRUNFW_PATH", filepath.Join(t.TempDir(), "missing-lib"))
-	ui := selectRuntimeAction("q")
-	if _, err := prepareRuntime(context.Background(), ui, "0.2.0"); err == nil {
-		t.Fatal("external missing runtime quit returned nil error")
-	}
-}
-
-func TestPrepareRuntimeLauncherUpgradeLookupAndInstallErrors(t *testing.T) {
-	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
-	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-
-	oldLatest, oldUpdate := latestAgentsSandboxVersion, updateAgentsSandbox
-	latestAgentsSandboxVersion = func(context.Context) (string, error) { return "", errors.New("lookup failed") }
-	updateAgentsSandbox = func(context.Context, string) error { return nil }
-	t.Cleanup(func() {
-		latestAgentsSandboxVersion = oldLatest
-		updateAgentsSandbox = oldUpdate
-	})
-	if _, err := prepareRuntime(context.Background(), selectRuntimeAction("a"), "0.2.0"); err == nil {
-		t.Fatal("launcher lookup failure returned nil error")
-	}
-
-	resetRuntimeState(t)
-	latestAgentsSandboxVersion = func(context.Context) (string, error) { return "0.3.0", nil }
-	updateAgentsSandbox = func(context.Context, string) error { return errors.New("update failed") }
-	if _, err := prepareRuntime(context.Background(), selectRuntimeAction("a"), "0.2.0"); err == nil {
-		t.Fatal("launcher update failure returned nil error")
-	}
-}
-
-func TestPrepareRuntimeUpgradeAndValidationErrors(t *testing.T) {
-	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
-	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-
-	oldInstall, oldValidate := installRuntime, validateRuntime
-	installRuntime = func(context.Context) error { return errors.New("install failed") }
-	validateRuntime = func(context.Context) error { return errors.New("validate failed") }
-	t.Cleanup(func() {
-		installRuntime = oldInstall
-		validateRuntime = oldValidate
-	})
-	if _, err := prepareRuntime(context.Background(), selectRuntimeAction("u"), "0.2.0"); err == nil {
-		t.Fatal("upgrade failure returned nil error")
-	}
-
-	resetRuntimeState(t)
-	installRuntime = func(context.Context) error {
-		writeRuntimeFiles(t, filepath.Join(home, ".microsandbox"), currentMSBVersion())
-		return nil
-	}
-	validateRuntime = func(context.Context) error { return errors.New("aligned validation failed") }
-	if _, err := prepareRuntime(context.Background(), selectRuntimeAction("u"), "0.2.0"); err == nil {
-		t.Fatal("aligned validation failure returned nil error")
-	}
-}
-
-func TestPrepareRuntimeDowngradeErrors(t *testing.T) {
-	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
-	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-
-	oldDowngrade := runMSBDowngrade
-	runMSBDowngrade = func(context.Context, string, string, io.Writer, io.Writer) error {
-		return errors.New("downgrade failed")
-	}
-	t.Cleanup(func() { runMSBDowngrade = oldDowngrade })
-	if _, err := prepareRuntime(context.Background(), selectRuntimeAction("d"), "0.2.0"); err == nil {
-		t.Fatal("downgrade failure returned nil error")
-	}
-}
-
-func TestPrepareRuntimeExternalDowngradeIsRejected(t *testing.T) {
-	resetRuntimeState(t)
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "msb")
-	libPath := filepath.Join(root, "libkrunfw.so.5.6.1")
-	if err := os.WriteFile(msbPath, msbVersionScript(newerMSBVersion(t)), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_PATH", msbPath)
-	t.Setenv("MSB_LIBKRUNFW_PATH", libPath)
-	if _, err := prepareRuntime(context.Background(), selectRuntimeAction("d"), "0.2.0"); err == nil {
-		t.Fatal("external downgrade returned nil error")
-	}
-}
-
-func TestPrepareRuntimeExternalEqualSkipsValidationInstaller(t *testing.T) {
-	resetRuntimeState(t)
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "msb")
-	libPath := filepath.Join(root, "libkrunfw.so.5.6.1")
-	if err := os.WriteFile(msbPath, msbVersionScript(currentMSBVersion()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_PATH", msbPath)
-	t.Setenv("MSB_LIBKRUNFW_PATH", libPath)
-	oldValidate := validateRuntime
-	validateRuntime = func(context.Context) error { return errors.New("external validation must not run") }
-	t.Cleanup(func() { validateRuntime = oldValidate })
-	if _, err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
-		t.Fatalf("prepareRuntime() error = %v", err)
 	}
 }
 
@@ -959,7 +774,7 @@ func TestPrepareRuntimeValidationErrorOnEqualRuntime(t *testing.T) {
 	oldValidate := validateRuntime
 	validateRuntime = func(context.Context) error { return errors.New("validation failed") }
 	t.Cleanup(func() { validateRuntime = oldValidate })
-	if _, err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("equal runtime validation returned nil error")
 	}
 }
@@ -989,74 +804,20 @@ func TestSanitizeRuntimePathEmpty(t *testing.T) {
 	}
 }
 
-func TestRuntimeLibraryPathUsesExplicitMSBPathCandidates(t *testing.T) {
-	root := t.TempDir()
-	msbPath := filepath.Join(root, "bin", "msb")
-	libPath := filepath.Join(root, "lib", "libkrunfw.so.5.6.1")
-	if err := os.MkdirAll(filepath.Dir(msbPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(libPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(libPath, []byte("fixture"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("MSB_PATH", msbPath)
-	unsetEnv(t, "MSB_LIBKRUNFW_PATH")
-	if got := runtimeLibraryCandidate(msbPath); got != libPath {
-		t.Errorf("runtimeLibraryCandidate() = %q, want %q", got, libPath)
-	}
-}
-
-func TestPrepareRuntimeBraveAndIssueActions(t *testing.T) {
-	resetRuntimeState(t)
-	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
-	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
-
-	if _, err := prepareRuntime(context.Background(), selectRuntimeAction("i"), "0.2.0"); err == nil {
-		t.Fatal("issue action returned nil error")
-	}
-	resetRuntimeState(t)
-	if _, err := prepareRuntime(context.Background(), selectRuntimeAction("unknown"), "0.2.0"); err == nil {
-		t.Fatal("unknown action returned nil error")
-	}
-}
-
-func TestIssueReportRedactsAbsolutePaths(t *testing.T) {
-	resetRuntimeState(t)
-	inspection := Inspection{
-		AgentsSandboxVersion: "0.2.0",
-		RequiredVersion:      currentMSBVersion(),
-		InstalledVersion:     newerMSBVersion(t),
-		MSBHome:              "/home/alice/private-microsandbox",
-		MSBPath:              "/home/alice/private-microsandbox/bin/msb",
-		Relation:             RuntimeNewer,
-	}
-	ui := &termio.Mock{}
-	showIssueReport(ui, inspection)
-	report := strings.Join(errorMessages(ui), "\n")
-	if strings.Contains(report, "/home/alice") {
-		t.Fatalf("report exposed an absolute home path: %s", report)
-	}
-	if !strings.Contains(report, "$MSB_HOME/bin/msb") {
-		t.Fatalf("report did not preserve a useful relative path: %s", report)
-	}
-}
-
 func TestSanitizeRuntimePathUsesHomeAndBasenameFallbacks(t *testing.T) {
-	oldHome := userHomeDir
-	userHomeDir = func() (string, error) { return "/home/user", nil }
-	t.Cleanup(func() { userHomeDir = oldHome })
-	if got := sanitizeRuntimePath("/home/user/.microsandbox/bin/msb", "/other"); got != "$HOME/.microsandbox/bin/msb" {
+	configpaths.WithMockConfigPaths(t)
+	home, err := configpaths.Get().UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	insideHome := filepath.Join(home, ".microsandbox", "bin", "msb")
+	if got := sanitizeRuntimePath(insideHome, "/other"); got != "$HOME/.microsandbox/bin/msb" {
 		t.Errorf("home path = %q", got)
 	}
 	if got := sanitizeRuntimePath("/opt/custom/msb", "/other"); got != "msb" {
 		t.Errorf("external path = %q, want basename", got)
 	}
-	userHomeDir = func() (string, error) { return "", errors.New("home unavailable") }
+	configpaths.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
 	if got := sanitizeRuntimePath("/opt/custom/msb", "/other"); got != "msb" {
 		t.Errorf("fallback path = %q, want basename", got)
 	}
@@ -1097,71 +858,6 @@ func TestRuntimeVersionParsingAndComparisonErrors(t *testing.T) {
 	}
 }
 
-func TestMismatchChoicesOfferLauncherUpgradeWhenNewerReleaseExists(t *testing.T) {
-	oldLatest := latestAgentsSandboxVersion
-	latestAgentsSandboxVersion = func(context.Context) (string, error) { return "0.3.0", nil }
-	t.Cleanup(func() { latestAgentsSandboxVersion = oldLatest })
-
-	choices := mismatchChoices(context.Background(), "0.2.0", Inspection{
-		RequiredVersion:  currentMSBVersion(),
-		InstalledVersion: newerMSBVersion(t),
-		Relation:         RuntimeNewer,
-	})
-	if !containsChoice(choices, "a") {
-		t.Fatal("expected launcher upgrade choice")
-	}
-}
-
-func TestMismatchChoicesDoNotOfferSelfUpgradeForHomebrewInstall(t *testing.T) {
-	oldLatest := latestAgentsSandboxVersion
-	latestAgentsSandboxVersion = func(context.Context) (string, error) { return "0.3.0", nil }
-	t.Cleanup(func() { latestAgentsSandboxVersion = oldLatest })
-
-	oldHomebrew := upgrade.InstalledViaHomebrew
-	upgrade.InstalledViaHomebrew = func() bool { return true }
-	t.Cleanup(func() { upgrade.InstalledViaHomebrew = oldHomebrew })
-
-	choices := mismatchChoices(context.Background(), "0.2.0", Inspection{
-		RequiredVersion:  currentMSBVersion(),
-		InstalledVersion: newerMSBVersion(t),
-		Relation:         RuntimeNewer,
-	})
-	if containsChoice(choices, "a") {
-		t.Fatal("a Homebrew-managed launcher must not be offered a self-upgrade that desyncs brew")
-	}
-	if !containsChoice(choices, "i") {
-		t.Fatal("expected the issue choice to remain available")
-	}
-}
-
-func TestMismatchChoicesUseIssueRequestWhenLauncherIsCurrent(t *testing.T) {
-	oldLatest := latestAgentsSandboxVersion
-	latestAgentsSandboxVersion = func(context.Context) (string, error) { return "0.2.0", nil }
-	t.Cleanup(func() { latestAgentsSandboxVersion = oldLatest })
-
-	choices := mismatchChoices(context.Background(), "0.2.0", Inspection{
-		RequiredVersion:  currentMSBVersion(),
-		InstalledVersion: newerMSBVersion(t),
-		Relation:         RuntimeNewer,
-	})
-	if containsChoice(choices, "a") {
-		t.Fatal("did not expect launcher upgrade choice")
-	}
-	if !containsChoice(choices, "i") {
-		t.Fatal("expected issue choice")
-	}
-}
-
-func TestMismatchChoicesDoNotOfferUpgradeForIncompleteRuntime(t *testing.T) {
-	choices := mismatchChoices(context.Background(), "0.2.0", Inspection{
-		RequiredVersion: currentMSBVersion(),
-		Relation:        RuntimeIncomplete,
-	})
-	if containsChoice(choices, "u") {
-		t.Fatal("incomplete runtime must not offer an upgrade action that cannot repair it")
-	}
-}
-
 func currentMSBVersion() string {
 	return msbSdk.SDKVersion()
 }
@@ -1198,23 +894,18 @@ func msbVersionScript(version string) []byte {
 	return []byte("#!/bin/sh\nprintf 'msb " + version + "\\n'\n")
 }
 
+func mockRuntimeHome(t *testing.T) string {
+	t.Helper()
+	configpaths.WithMockConfigPaths(t)
+	return filepath.Join(configpaths.Get().UserDataDir(), "msb")
+}
+
 func writeRuntimeFixture(t *testing.T, version string, includeLibrary bool) string {
 	t.Helper()
-	home := t.TempDir()
-	binDir := filepath.Join(home, ".microsandbox", "bin")
-	libDir := filepath.Join(home, ".microsandbox", "lib")
-	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(libDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	msbPath := filepath.Join(binDir, "msb")
-	if err := os.WriteFile(msbPath, msbVersionScript(version), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if includeLibrary {
-		if err := os.WriteFile(filepath.Join(libDir, "libkrunfw.so.5.6.1"), []byte("fixture"), 0o755); err != nil {
+	home := mockRuntimeHome(t)
+	writeRuntimeFiles(t, home, version)
+	if !includeLibrary {
+		if err := os.Remove(filepath.Join(home, "lib", "libkrunfw.so.5.6.1")); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1241,31 +932,6 @@ func writeRuntimeFiles(t *testing.T, home, version string) {
 	if err := os.WriteFile(filepath.Join(libDir, "libkrunfw.so.5.6.1"), []byte("fixture"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func selectRuntimeAction(key string) *termio.Mock {
-	ui := &termio.Mock{IsInteractiveResult: true}
-	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
-		return key, nil
-	}
-	return ui
-}
-
-func containsChoice(choices []termio.Choice, key string) bool {
-	for _, choice := range choices {
-		if choice.Key == key {
-			return true
-		}
-	}
-	return false
-}
-
-func errorMessages(ui *termio.Mock) []string {
-	messages := make([]string, 0, len(ui.ErrorCalls))
-	for _, call := range ui.ErrorCalls {
-		messages = append(messages, call.Msg)
-	}
-	return messages
 }
 
 func unsetEnv(t *testing.T, name string) {

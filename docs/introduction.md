@@ -1,7 +1,8 @@
 ---
 title: Why?
-description: "Why run coding agents like Claude Code, opencode or pi in a microVM: a separate guest kernel instead of a shared-kernel container or process sandbox."
+description: "Why run coding agents like Claude Code, Codex, opencode, opencode2, pi or hermes in a microVM: a separate guest kernel instead of a shared-kernel container or process sandbox."
 layout: default
+parent: Concepts
 nav_order: 10
 ---
 
@@ -22,7 +23,7 @@ recreating the VM does not undo those edits. Additional host mounts and files pr
 surfaces. A daemon-based agent's `--worktree` mode moves the working tree inside the VM when the host checkout must remain
 untouched.
 
-The agent's `/home/dev` is backed by a persistent volume scoped to the project and agent. It can be kept across VM rebuilds or
+The agent's `/home/dev` is backed by a persistent volume scoped to the checkout and agent. It can be kept across VM rebuilds or
 reset separately. The VM root is replaceable, but the project checkout and writable host mounts have their own lifecycles.
 
 ## Credentials and network access
@@ -41,9 +42,11 @@ selected native files as ordinary files into the persistent VM home. For OpenCod
 `~/.local/share/opencode/auth.json`, so credentials can then be present in the VM. Project `.env` files are also visible because
 `/workspace` is shared; they are not hidden by the VM boundary.
 
-Network egress is denied by default. The `network:` configuration can grant access through an explicit profile or allow list, and
-`profile: none` provides deny-by-default egress with explicit allow rules. It is not a complete air gap, and network policy does
-not change which files are shared with the guest.
+Network egress uses the `public` profile by default, so the agent can reach its APIs and package registries. The `network:`
+configuration can refine this: profiles `private` and `host` compose with `public`, the allowlist-only `none` profile
+restricts egress to explicit allow rules, and allow/deny rules refine the set. `profile: none` is deny-by-default egress
+with explicit allow rules, not a complete air gap, and network policy does not change which files are shared with the
+guest.
 
 ## What this is for
 

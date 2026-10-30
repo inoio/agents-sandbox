@@ -17,8 +17,6 @@ const homebrewCellarSegment = "Cellar"
 // kept current by Homebrew. Self-upgrading such a binary would silently desync
 // Homebrew's version bookkeeping, so callers defer updates to `brew upgrade`
 // instead of replacing the keg binary.
-//
-//nolint:gochecknoglobals // test seam
 var InstalledViaHomebrew = runningUnderHomebrew
 
 // runningUnderHomebrew is the production entry point, wiring the real process

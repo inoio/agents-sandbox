@@ -387,14 +387,18 @@ func removeClaudeAuthentication(plan *Plan) error {
 }
 
 func appendClaudeSettingsEnv(files []File, claude agent.Agent, secretName, endpoint string) ([]File, error) {
-	path := filepath.Join(cp.Get().UserAgentConfigDir(claude), "settings-migrated.json")
+	userConfigDir, err := cp.Get().UserAgentConfigDir(claude)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(userConfigDir, "settings-migrated.json")
 	settings := make(map[string]any)
 	for _, file := range files {
 		if file.Path != path {
 			continue
 		}
-		if err := json.Unmarshal(file.Data, &settings); err != nil {
-			return nil, fmt.Errorf("parse generated Claude settings: %w", err)
+		if unmarshalErr := json.Unmarshal(file.Data, &settings); unmarshalErr != nil {
+			return nil, fmt.Errorf("parse generated Claude settings: %w", unmarshalErr)
 		}
 		break
 	}

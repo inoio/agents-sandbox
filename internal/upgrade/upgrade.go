@@ -13,14 +13,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -36,14 +34,12 @@ const (
 	// MinInterval guards against hammering the GitHub API (which rate-limits
 	// unauthenticated requests) with absurdly frequent checks.
 	MinInterval = time.Hour
-
-	stateFileName = "upgrade.json"
 )
 
-//nolint:gochecknoglobals // test seams for the otherwise unmockable endpoints
 var (
 	latestURL    = fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", githubRepo)
-	downloadBase = fmt.Sprintf("https://github.com/%s/releases/latest/download", githubRepo)
+	releasesURL  = fmt.Sprintf("https://api.github.com/repos/%s/releases", githubRepo)
+	downloadBase = fmt.Sprintf("https://github.com/%s/releases/download", githubRepo)
 )
 
 // Mode selects how a detected newer release is handled.
@@ -74,6 +70,8 @@ func ParseMode(s string) (Mode, error) {
 }
 
 // Result describes what Check decided to do.
+//
+//exhaustruct:ignore
 type Result struct {
 	HasUpdate bool
 	Updated   bool
@@ -82,12 +80,27 @@ type Result struct {
 }
 
 // Options configures a single Check.
+//
+//exhaustruct:ignore
 type Options struct {
 	CurrentVersion string
 	Mode           Mode
 	Interval       time.Duration
-	StatePath      string
 	UI             termio.UI
+
+	// Channel selects which releases to offer. The zero value means stable.
+	Channel Channel
+
+	// AllowAnyVersion is the undocumented dev-build lever: with it set, an
+	// unparseable current version (empty, "dev", or garbage) counts as older
+	// than any release, so a locally built binary exercises the real check and
+	// install. It is never set from config or a flag.
+	AllowAnyVersion bool
+
+	// Store persists the launcher's update-check state. When nil, the check
+	// runs against an in-memory store: it still works, but nothing outlives
+	// the process.
+	Store Store
 
 	// UpdateFunc installs the given latest version over the running binary.
 	// When nil, updateExecutable is used. Tests inject it to avoid touching
@@ -95,28 +108,26 @@ type Options struct {
 	UpdateFunc func(ctx context.Context, latest string) error
 }
 
-// state is the persisted per-user upgrade state.
-type state struct {
-	LastCheck         time.Time `json:"last_check"`
-	DismissedVersions []string  `json:"dismissed_versions,omitempty"`
-}
-
-func (o Options) statePath() string {
-	if o.StatePath != "" {
-		return o.StatePath
+// store returns the injected Store, defaulting to an in-memory one. Callers
+// invoke it once per Check: a nil Store allocates a fresh memoryStore on each
+// call, so two calls would not share state.
+func (o Options) store() Store {
+	if o.Store == nil {
+		return &memoryStore{}
 	}
-	return filepath.Join(configpaths.Get().UserStateDir(), stateFileName)
+	return o.Store
 }
 
 // Check looks for a newer agents-sandbox release than CurrentVersion and
-// acts on it according to Mode. It is a no-op for development builds, for
-// Homebrew-managed installs (which update via `brew upgrade`), and when a check
-// happened within Interval. Transient network or parsing failures are
-// silently ignored so an offline run never blocks startup. An explicitly
-// configured interval below MinInterval is a misconfiguration and fails
-// loudly rather than being silently clamped.
+// acts on it according to Mode. It is a no-op for development builds unless
+// the undocumented dev lever is set, for Homebrew-managed installs (which
+// update via `brew upgrade`), and when a check happened within Interval.
+// Transient network or parsing failures are silently ignored so an offline
+// run never blocks startup. An explicitly configured interval below
+// MinInterval is a misconfiguration and fails loudly rather than being
+// silently clamped.
 func Check(ctx context.Context, opts Options) (Result, error) {
-	if opts.CurrentVersion == "" || opts.CurrentVersion == devVersion {
+	if !opts.AllowAnyVersion && (opts.CurrentVersion == "" || opts.CurrentVersion == devVersion) {
 		return Result{}, nil
 	}
 	if InstalledViaHomebrew() {
@@ -133,31 +144,56 @@ func Check(ctx context.Context, opts Options) (Result, error) {
 	case interval < MinInterval:
 		return Result{}, fmt.Errorf("upgrade interval %s is below the minimum %s", interval, MinInterval)
 	}
+	// The dev lever reduces the check window to the floor rather than removing
+	// the throttle: a check spends one unauthenticated GitHub request, so an
+	// unthrottled check on every run would hit the rate limit.
+	if opts.AllowAnyVersion && interval > MinInterval {
+		interval = MinInterval
+	}
 	updateFunc := opts.UpdateFunc
 	if updateFunc == nil {
 		updateFunc = updateExecutable
 	}
 
-	path := opts.statePath()
-	st := loadState(path)
-	if time.Since(st.LastCheck) < interval {
+	store := opts.store()
+	// Only fold the retired upgrade.json when a real store was injected. With a
+	// nil Store the check runs against an ephemeral memoryStore, so folding
+	// would delete the real file after "writing" into state that cannot outlive
+	// the process: the caller is the one that knows whether persistence is real.
+	//
+	// A fold that fails leaves this process without the legacy timestamp and
+	// dismissals, so defer the check rather than act on a state view known to be
+	// incomplete (which could re-prompt a version the user already dismissed).
+	// The file stays in place, so the next run retries the fold and resumes.
+	if opts.Store != nil {
+		if err := FoldLegacyState(store); err != nil {
+			opts.UI.Verbosef("upgrade state migration deferred: %v", err)
+			return Result{}, nil
+		}
+	}
+	st, err := store.Load()
+	if err != nil {
+		opts.UI.Verbosef("upgrade state unavailable: %v", err)
+		return Result{}, nil
+	}
+	if time.Since(st.LastChecked) < interval {
 		return Result{}, nil
 	}
 
-	latest, err := latestRelease(ctx)
+	latest, err := latestForChannel(ctx, opts.Channel)
 	if err != nil {
 		opts.UI.Verbosef("upgrade check failed: %v", err)
 		return Result{}, nil
 	}
 
-	newer, err := isNewer(opts.CurrentVersion, latest)
+	newer, err := newerThan(opts.CurrentVersion, latest, opts.AllowAnyVersion)
 	if err != nil {
 		opts.UI.Verbosef("upgrade check failed: %v", err)
 		return Result{}, nil
 	}
 	if !newer || slices.Contains(st.DismissedVersions, latest) {
-		st.LastCheck = time.Now()
-		_ = saveState(path, st)
+		st.LastChecked = time.Now()
+		persistBestEffort(store, st, opts.UI)
 		return Result{}, nil
 	}
 
@@ -165,9 +201,29 @@ func Check(ctx context.Context, opts Options) (Result, error) {
 	if res.Updated || res.Exit {
 		opts.UI.Infof("agents-sandbox updated to %s; restart to use it", latest)
 	}
-	st.LastCheck = time.Now()
-	_ = saveState(path, st)
+	st.LastChecked = time.Now()
+	persistBestEffort(store, st, opts.UI)
 	return res, nil
+}
+
+// persistBestEffort persists the upgrade state, reporting a failure as a verbose
+// note rather than an error: losing the check time only means checking again.
+//
+// It writes through Update and unions the dismissals, so a dismissal recorded by
+// a concurrent launcher after this process read the state survives. LastChecked
+// is set outright: this run's check is the most recent.
+func persistBestEffort(store Store, st LauncherState, ui termio.UI) {
+	err := store.Update(func(current *LauncherState) {
+		current.LastChecked = st.LastChecked
+		for _, version := range st.DismissedVersions {
+			if !slices.Contains(current.DismissedVersions, version) {
+				current.DismissedVersions = append(current.DismissedVersions, version)
+			}
+		}
+	})
+	if err != nil {
+		ui.Verbosef("could not persist upgrade state: %v", err)
+	}
 }
 
 // isNewer reports whether current is strictly older than latest, comparing
@@ -184,9 +240,25 @@ func isNewer(current, latest string) (bool, error) {
 	return cv.LessThan(lv), nil
 }
 
-// IsNewer reports whether current is strictly older than latest, comparing
-// versions using semantic versioning.
-func IsNewer(current, latest string) (bool, error) {
+// isParseable reports whether s is a semantic version, with or without a
+// leading "v".
+func isParseable(s string) bool {
+	_, err := semver.NewVersion(strings.TrimPrefix(s, "v"))
+	return err == nil
+}
+
+// newerThan reports whether latest should be offered over current. With
+// allowAnyVersion an unparseable current version (empty, "dev", or garbage)
+// counts as older than any parseable release. That is the undocumented dev
+// lever: it is what lets a locally built binary exercise the real check and
+// install instead of being skipped.
+func newerThan(current, latest string, allowAnyVersion bool) (bool, error) {
+	if allowAnyVersion && !isParseable(current) {
+		if _, err := semver.NewVersion(strings.TrimPrefix(latest, "v")); err != nil {
+			return false, fmt.Errorf("parse latest version %q: %w", latest, err)
+		}
+		return true, nil
+	}
 	return isNewer(current, latest)
 }
 
@@ -197,9 +269,8 @@ func applyMode(
 	opts Options,
 	updateFunc func(context.Context, string) error,
 	latest string,
-	st *state,
+	st *LauncherState,
 ) Result {
-	//nolint:exhaustruct_v5 // Updated/Exit default false until set below
 	res := Result{HasUpdate: true, Latest: latest}
 	install := func() bool {
 		if err := updateFunc(ctx, latest); err != nil {
@@ -287,31 +358,44 @@ func prompt(ui termio.UI, current, latest string) promptAction {
 	}
 }
 
-// Upgrade checks for a newer release than current and installs it over the
-// running binary, reporting progress via ui. It is the on-demand counterpart
-// to Check's automatic modes. Homebrew-managed installs are directed to
-// `brew upgrade` instead of replacing the keg binary out from under Homebrew.
-func Upgrade(ctx context.Context, ui termio.UI, current string) error {
-	if current == "" || current == devVersion {
+// UpgradeOptions configures Upgrade.
+//
+//exhaustruct:ignore
+type UpgradeOptions struct {
+	CurrentVersion string
+	Channel        Channel
+
+	// AllowAnyVersion is the undocumented dev-build lever, mirroring
+	// Options.AllowAnyVersion: it lets a locally built binary install a release.
+	AllowAnyVersion bool
+}
+
+// Upgrade checks for a newer release than opts.CurrentVersion and installs it
+// over the running binary, reporting progress via ui. It is the on-demand
+// counterpart to Check's automatic modes. Homebrew-managed installs are directed
+// to `brew upgrade` instead of replacing the keg binary out from under
+// Homebrew.
+func Upgrade(ctx context.Context, ui termio.UI, opts UpgradeOptions) error {
+	if !opts.AllowAnyVersion && (opts.CurrentVersion == "" || opts.CurrentVersion == devVersion) {
 		return errors.New("cannot upgrade a development build; use the released binary")
 	}
 	if InstalledViaHomebrew() {
 		ui.Infof("agents-sandbox is managed by Homebrew; run `brew update && brew upgrade agents-sandbox` to update it")
 		return nil
 	}
-	latest, err := LatestVersion(ctx)
+	latest, err := LatestVersion(ctx, opts.Channel)
 	if err != nil {
 		return err
 	}
-	newer, err := isNewer(current, latest)
+	newer, err := newerThan(opts.CurrentVersion, latest, opts.AllowAnyVersion)
 	if err != nil {
 		return err
 	}
 	if !newer {
-		ui.Infof("agents-sandbox is up to date (%s)", current)
+		ui.Infof("agents-sandbox is up to date (%s)", opts.CurrentVersion)
 		return nil
 	}
-	ui.Infof("upgrading agents-sandbox %s -> %s", current, latest)
+	ui.Infof("upgrading agents-sandbox %s -> %s", opts.CurrentVersion, latest)
 	if err := Update(ctx, latest); err != nil {
 		return err
 	}
@@ -319,11 +403,9 @@ func Upgrade(ctx context.Context, ui termio.UI, current string) error {
 	return nil
 }
 
-// LatestVersion returns the newest stable agents-sandbox release string
-// (leading "v" stripped) by querying the GitHub releases/latest endpoint.
-//
-//nolint:gochecknoglobals // test seam
-var LatestVersion = latestRelease
+// LatestVersion returns the newest release version for the channel (leading "v"
+// stripped) by querying the GitHub releases API.
+var LatestVersion = latestForChannel
 
 func latestRelease(ctx context.Context) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestURL, nil)
@@ -352,36 +434,61 @@ func latestRelease(ctx context.Context) (string, error) {
 
 // Update downloads and installs the release binary for the given version over
 // the running executable.
-//
-//nolint:gochecknoglobals // test seam
 var Update = updateExecutable
 
-// updateExecutable downloads the latest release binary for the current
-// platform and atomically replaces the running executable with it. The latest
-// version is pinned by the "latest" release asset download endpoint.
-func updateExecutable(ctx context.Context, _ string) error {
+// updateExecutable downloads the release binary for the given version and the
+// current platform and atomically replaces the running executable with it.
+func updateExecutable(ctx context.Context, latest string) error {
 	exe, err := executablePath()
 	if err != nil {
 		return err
 	}
-	assetPath, err := downloadAssetToDir(ctx, filepath.Dir(exe))
+	return installRelease(ctx, latest, exe)
+}
+
+// installRelease downloads the release binary for version and installs it at
+// exePath, verifying its SHA-256 against the release's published checksums
+// before the replacement. The replacement is unreachable unless verification
+// passes, so a tampered, truncated, or missing-metadata download leaves the
+// installed binary untouched.
+func installRelease(ctx context.Context, version, exePath string) error {
+	asset := assetName()
+	assetPath, err := downloadAssetToDir(ctx, filepath.Dir(exePath), version)
 	if err != nil {
 		return err
 	}
 	defer os.Remove(assetPath)
-	return replaceExecutable(assetPath, exe)
+	if err := verifyAssetChecksum(ctx, version, assetPath, asset); err != nil {
+		return fmt.Errorf("refusing to install %s: %w", asset, err)
+	}
+	return replaceExecutable(assetPath, exePath)
 }
 
-// downloadAssetToDir downloads the release binary for the current platform
-// into dir and returns the downloaded file path.
-func downloadAssetToDir(ctx context.Context, dir string) (string, error) {
-	asset := fmt.Sprintf("agents-sandbox-%s-%s", runtime.GOOS, runtime.GOARCH)
-	url := fmt.Sprintf("%s/%s", downloadBase, asset)
+// newAssetRequest builds the GET request the updater uses to fetch a release
+// asset, carrying the User-Agent the GitHub release endpoints expect. Callers
+// address the specific asset; this keeps request construction in one place.
+func newAssetRequest(ctx context.Context, url string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "agents-sandbox")
+	return req, nil
+}
+
+// downloadAssetToDir downloads the release binary for the given version and the
+// current platform into dir and returns the downloaded file path.
+//
+// The download is addressed by release tag rather than the "latest" endpoint,
+// which GitHub never serves for a prerelease; the tag is "v" + version by this
+// repository's tagging convention (every release tag is v<version>).
+func downloadAssetToDir(ctx context.Context, dir string, version string) (string, error) {
+	asset := assetName()
+	url := fmt.Sprintf("%s/v%s/%s", downloadBase, version, asset)
+	req, err := newAssetRequest(ctx, url)
 	if err != nil {
 		return "", fmt.Errorf("build download request: %w", err)
 	}
-	req.Header.Set("User-Agent", "agents-sandbox")
 	client := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := client.Do(req)
 	if err != nil {
@@ -433,29 +540,4 @@ func replaceExecutable(assetPath, exePath string) error {
 		return fmt.Errorf("replace running executable: %w", err)
 	}
 	return nil
-}
-
-// loadState reads the persisted upgrade state, tolerating a missing or
-// corrupt file by returning empty state.
-func loadState(path string) state {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return state{}
-	}
-	var s state
-	_ = json.Unmarshal(data, &s)
-	return s
-}
-
-// saveState writes the upgrade state to path, creating its directory if
-// needed.
-func saveState(path string, s state) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o600)
 }

@@ -17,6 +17,11 @@ variables. Put credentials in `env.secret` or `env.secret.yaml`, never in `env`.
 
 ## Quick start
 
+> **Note:** If you use OpenCode's `/connect` command, see [OpenCode authentication](#opencode-authentication). That is the
+> recommended workflow for credentials, which opencode stores in `auth.json`; it uses a literal microsandbox placeholder
+> and an explicit `home:` mapping. The `provision-host-config: false` setting shown there belongs in the top-level
+> launcher configuration in `~/.config/agents-sandbox/config.yaml`.
+
 For the complete configuration decision tree, including `config migrate`, manual snippets, Claude Code login/API-key choices,
 and `home:` provisioning, see [Manage config in the sandbox]({% link manage-config.md %}). This page focuses on the secret
 file formats and the runtime behavior shared by all agents.
@@ -110,6 +115,39 @@ either materialize real tokens in the VM or depend on fragile proxy-mediated ref
 placeholder-migrated. When a provider offers both a login and an API key, migration recommends the API-key path (a
 host-side secret) while still allowing the login fallback.
 
+## Trusting the CA in applications
+
+Replacing a placeholder requires the proxy to terminate TLS towards the allowed host. The VM trusts a microsandbox CA
+at `/.msb/tls/ca.pem`; microsandbox's guest init installs that CA into the system store and points the common runtimes
+at it through `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, and `CURL_CA_BUNDLE`. `curl`, `git`,
+Python, Go, and Node need no extra setup.
+
+Applications that keep their **own** certificate store do not read any of that. For those the runner image installs
+microsandbox's [trust helper](https://github.com/superradcompany/microsandbox/blob/v0.7.8/scripts/msb-trust/msb-trust.sh)
+as `msb-trust`:
+
+```console
+msb-trust all      # every supported application whose tools are installed
+msb-trust java     # the JDK's default trust store
+msb-trust chrome   # the current user's Chrome/Chromium NSS store
+```
+
+The JDK's trust store is root-owned, so run `msb-trust java` from `agents-sandbox shell --root`; `chrome` writes the
+current user's store and needs no elevation.
+
+The helper imports the CA, preserves the certificates that are already there, and never installs packages. `java`
+needs `keytool` on `PATH` (or `JAVA_HOME` pointing at a JDK) and `chrome` needs `certutil`
+(`libnss3-tools`/`nss-tools`); a missing tool is reported instead of installed. `msb-trust <application> --help` lists
+what that application needs. The helper's own messages say `sh msb-trust.sh …`, the layout upstream expects when you
+save the script next to your code, so translate the name to `msb-trust` when you follow them. The
+[Java recipe]({% link recipes/java-ca-trust.md %}) has the full setup and the import every VM boot needs.
+
+Two things the helper does not cover. Containers built inside the VM have their own root store, so a `docker build` that
+downloads over HTTPS fails certificate verification: copy the CA out of the VM
+(`/usr/local/share/ca-certificates/microsandbox-ca.crt`) into the build context and install it in that Dockerfile, then
+run `update-ca-certificates`. Applications with a bundled trust store also have to be configured individually.
+
+
 ## OpenCode authentication
 
 OpenCode stores credentials created by `/connect` in:
@@ -124,8 +162,10 @@ That is different from the agents-sandbox input directory:
 ~/.config/agents-sandbox/opencode/
 ```
 
-An `auth.json` placed in the latter directory is mirrored to `/home/dev/.config/opencode/auth.json`; it is not
-automatically OpenCode's credential store.
+(`opencode2` uses `~/.config/agents-sandbox/opencode2/` instead; see the fallback note in
+[Agent configuration]({% link configuration/agent.md %}).) An `auth.json` placed in the latter directory is mirrored to
+`/home/dev/.config/opencode/auth.json`; it is not automatically OpenCode's credential store. To use secret placeholders in OpenCode's credential store, provision the
+placeholder file explicitly with the launcher's `home:` key.
 
 Migration writes a managed `auth.json` containing placeholders for **static** credentials only. Refreshable OAuth
 providers (for example GitHub Copilot, whose `type` is `"oauth"`) are omitted: run `/connect` inside the sandbox and the
@@ -170,8 +210,8 @@ network:
 Use `agents-sandbox config home` to verify the `home:` mapping. `agents-sandbox config agent` shows the agent mirror and
 drop-in candidates, but does not show `home:` mappings or files already present in the persistent home volume.
 
-> **_NOTE:_**  After running `/connect` with OpenCode _inside_ the agents-sandbox, you can use `!` to switch to shell mode and then run
-> ```
+> **Note:** After running `/connect` with opencode _inside_ the agents-sandbox, you can use `!` to switch to shell mode and then run
+> ```console
 > cat ~/.local/share/opencode/auth.json
 > ```
 > to see the credentials stored in the sandbox. Login credentials must stay inside the persistent sandbox home rather than

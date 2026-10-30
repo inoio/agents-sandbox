@@ -16,8 +16,8 @@ import (
 )
 
 // TestPersistNetworkStateReadError covers the non-not-found ReadState error
-// branch of persistNetworkState (a corrupt state file).
-func TestPersistNetworkStateReadError(t *testing.T) {
+// branch of persistFingerprints (a corrupt state file).
+func TestPersistFingerprintsReadError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "corruptnetproj"
@@ -27,15 +27,33 @@ func TestPersistNetworkStateReadError(t *testing.T) {
 	}
 	testutil.WriteFile(t, sdir, "state.yaml", "{ corrupted: yaml: [")
 
-	err := persistNetworkState(state.Key{Slug: slug, Agent: "opencode"}, network.Policy{Profile: network.ProfileNone})
+	err := persistFingerprints(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.Fingerprints{
+			Network: state.BuildNetworkState(network.Policy{Profiles: []network.Profile{network.ProfileNone}}),
+		},
+	)
 	if err == nil {
 		t.Fatal("expected error for corrupted state YAML")
 	}
 }
 
-// TestCurrentUpgradeVersionReadError covers the load-error branch of
-// currentUpgradeVersion: an unreadable state file yields "".
-func TestCurrentUpgradeVersionReadError(t *testing.T) {
+// failingStateDirConfigPaths overrides only the state directory, delegating
+// every other path to the (nil) embedded interface. It is used to force
+// read/write errors on the per-project state file by pointing UserStateDir at a
+// regular file, so the parent "directory" cannot be created or read.
+type failingStateDirConfigPaths struct {
+	configpaths.ConfigPaths
+
+	stateDir string
+}
+
+func (f failingStateDirConfigPaths) UserStateDir() string { return f.stateDir }
+
+// withFailingStateDir installs a ConfigPaths whose UserStateDir is a regular
+// file, so any attempt to read or write <stateDir>/... fails.
+func withFailingStateDir(t *testing.T) {
+	t.Helper()
 	dir := t.TempDir()
 	stateFile := filepath.Join(dir, "userstate")
 	if err := os.WriteFile(stateFile, []byte("not-a-dir"), 0o600); err != nil {
@@ -46,9 +64,15 @@ func TestCurrentUpgradeVersionReadError(t *testing.T) {
 		return failingStateDirConfigPaths{stateDir: stateFile}
 	}
 	t.Cleanup(func() { configpaths.Get = orig })
+}
 
-	if got := currentUpgradeVersion(opencodeAgent(t)); got != "" {
-		t.Errorf("currentUpgradeVersion() = %q, want empty when the state cannot be read", got)
+// TestCurrentAgentVersionReadError covers the read-error branch of
+// currentAgentVersion: an unreadable state file yields "".
+func TestCurrentAgentVersionReadError(t *testing.T) {
+	withFailingStateDir(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	if got := currentAgentVersion(k); got != "" {
+		t.Errorf("currentAgentVersion() = %q, want empty when the state cannot be read", got)
 	}
 }
 
@@ -63,7 +87,7 @@ func TestValidateWorktreeBaseExecError(t *testing.T) {
 
 // TestPersistConfigHashesWarnsOnError covers the warning branches of
 // persistConfigHashes when the env/secret/network fingerprints cannot be
-// persisted (a corrupt state file makes both writes fail).
+// persisted (a corrupt state file makes the write fail).
 func TestPersistConfigHashesWarnsOnError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
@@ -77,18 +101,13 @@ func TestPersistConfigHashesWarnsOnError(t *testing.T) {
 
 	persistConfigHashes(
 		state.Key{Slug: slug, Agent: "opencode"},
-		network.Policy{Profile: network.ProfileNone},
-		nil,
+		state.Fingerprints{
+			Network: state.BuildNetworkState(network.Policy{Profiles: []network.Profile{network.ProfileNone}}),
+		},
 		&ui,
 	)
 
-	if !contains(joinStrings(ui.WarnCalls), "persisting env/secret fingerprints") {
-		t.Errorf("expected a warning about persisting env/secret fingerprints, got %v", ui.WarnCalls)
-	}
-	if !contains(joinStrings(ui.WarnCalls), "persisting network fingerprint") {
-		t.Errorf("expected a warning about persisting the network fingerprint, got %v", ui.WarnCalls)
-	}
-	if !contains(joinStrings(ui.WarnCalls), "persisting mount fingerprint") {
-		t.Errorf("expected a warning about persisting the mount fingerprint, got %v", ui.WarnCalls)
+	if len(ui.WarnCalls) != 1 || !contains(ui.WarnCalls[0], "persisting config fingerprints") {
+		t.Errorf("expected one warning about persisting config fingerprints, got %v", ui.WarnCalls)
 	}
 }

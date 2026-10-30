@@ -4,16 +4,132 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
+
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+// TestCreateProjectVMUsesResolvedRef pins that the VM is created with the ref
+// EnsureLoaded resolved (a reused legacy ref), not the freshly computed one, and
+// that the image label records the same ref.
+func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
+	key := testVMKey()
+	legacyRef := naming.DockerImageRef(key.Slug, key.Agent)
+	client := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, ref string) error {
+			if ref == legacyRef {
+				return nil
+			}
+			return errors.New("not cached")
+		},
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{Digest: "sha256:same"}, nil
+		},
+	}
+	testUI := termio.NewTestMock(t)
+	ui := &testUI
+
+	_, _, err := createProjectVM(
+		context.Background(),
+		client,
+		projectVMName(key),
+		key,
+		key.Slug,
+		image.ImageInfo{
+			DockerTag: legacyRef,
+			Ref:       naming.RunnerImageRef(key.Slug, key.Agent),
+			Digest:    "sha256:same",
+		},
+		"test-home-vol",
+		t.TempDir(),
+		options.RunOptions{Memory: "1G"},
+		envsecret.EnvSecrets{},
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("createProjectVM: %v", err)
+	}
+
+	var cfg msbSdk.SandboxConfig
+	for _, call := range client.CreatedSandboxCalls {
+		if call.Name != projectVMName(key) {
+			continue
+		}
+		for _, opt := range call.Opts {
+			opt(&cfg)
+		}
+	}
+	if cfg.Image != legacyRef {
+		t.Errorf("created VM image = %q, want the reused legacy ref %q", cfg.Image, legacyRef)
+	}
+	if got := cfg.Labels[naming.LabelImage]; got != legacyRef {
+		t.Errorf("LabelImage = %q, want %q", got, legacyRef)
+	}
+}
+
+// TestCreateProjectVMIdleTimeout pins the single default: an unset
+// RunOptions.IdleTimeout takes options.DefaultVMIdleTimeout, while a configured
+// value is passed through unchanged.
+func TestCreateProjectVMIdleTimeout(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
+
+	tests := []struct {
+		name string
+		opts time.Duration
+		want time.Duration
+	}{
+		{name: "unset uses the options default", opts: 0, want: options.DefaultVMIdleTimeout},
+		{name: "configured value is used as-is", opts: 45 * time.Second, want: 45 * time.Second},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			key := testVMKey()
+			client := &msb.MockMsbClient{}
+			testUI := termio.NewTestMock(t)
+			ui := &testUI
+
+			_, _, err := createProjectVM(
+				context.Background(),
+				client,
+				projectVMName(key),
+				key,
+				key.Slug,
+				image.ImageInfo{
+					DockerTag: "agents-sandbox/runner-test:latest",
+					Ref:       "agents-sandbox/runner-test:latest",
+				},
+				"test-home-vol",
+				t.TempDir(),
+				options.RunOptions{Memory: "1G", IdleTimeout: tc.opts},
+				envsecret.EnvSecrets{},
+				ui,
+			)
+			if err != nil {
+				t.Fatalf("createProjectVM: %v", err)
+			}
+			cfg := createdProjectVMConfig(t, client, projectVMName(key))
+			if cfg.IdleTimeout != tc.want {
+				t.Errorf("IdleTimeout = %v, want %v", cfg.IdleTimeout, tc.want)
+			}
+		})
+	}
+}
 
 // TestCreateProjectVMCreateSandboxError covers the CreateSandbox failure branch
 // in createProjectVM.
@@ -26,9 +142,17 @@ func TestCreateProjectVMCreateSandboxError(t *testing.T) {
 	ui := &testUI
 
 	_, _, err := createProjectVM(
-		context.Background(), client, "agents-sandbox-vm-test",
-		testVMKey(), "agents-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
-		options.RunOptions{Memory: "1G"}, nil, ui,
+		context.Background(),
+		client,
+		"agents-sandbox-vm-test",
+		testVMKey(),
+		testVMKey().Slug,
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
+		"test-home-vol",
+		t.TempDir(),
+		options.RunOptions{Memory: "1G"},
+		envsecret.EnvSecrets{},
+		ui,
 	)
 	if err == nil {
 		t.Fatal("expected error from CreateSandbox")
@@ -45,12 +169,20 @@ func TestCreateProjectVMNetworkConfigError(t *testing.T) {
 	ui := &testUI
 
 	_, _, err := createProjectVM(
-		context.Background(), client, "agents-sandbox-vm-test",
-		testVMKey(), "agents-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
+		context.Background(),
+		client,
+		"agents-sandbox-vm-test",
+		testVMKey(),
+		testVMKey().Slug,
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
+		"test-home-vol",
+		t.TempDir(),
 		options.RunOptions{
 			Memory:  "1G",
-			Network: network.Policy{Profile: network.Profile("bogus-profile")},
-		}, nil, ui,
+			Network: network.Policy{Profiles: []network.Profile{network.Profile("bogus-profile")}},
+		},
+		envsecret.EnvSecrets{},
+		ui,
 	)
 	if err == nil {
 		t.Fatal("expected error from the network config")
@@ -69,7 +201,17 @@ func TestSetUpSandboxDockerdError(t *testing.T) {
 
 	configpaths.WithMockConfigPaths(t)
 	cfs := &reprovision.ConfigFiles{}
-	_, err := setUpSandbox(context.Background(), sb, options.RunOptions{}, cfs, &ui, false, vmBootConnected)
+	_, err := setUpSandbox(
+		context.Background(),
+		testVMKey(),
+		sb,
+		options.RunOptions{Agent: "opencode"},
+		cfs,
+		&ui,
+		false,
+		vmBootConnected,
+		mounts.WorkspaceMountPath,
+	)
 	if err == nil {
 		t.Fatal("expected error from dockerd startup")
 	}
@@ -78,10 +220,10 @@ func TestSetUpSandboxDockerdError(t *testing.T) {
 // TestSetUpSandboxEnsureDaemonError covers the ensureDaemon failure branch in
 // setUpSandbox: the daemon never becomes healthy and starting it fails.
 func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
-	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
+	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return "", 0, errors.New("daemon shell failed")
 	})
-	t.Cleanup(func() { SetDaemonShellFunc(orig) })
+	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
 
 	ui := termio.NewTestMock(t)
 	sb := &msb.MockSandbox{
@@ -90,11 +232,24 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 		ShellOut: map[string]msb.ShellResult{
 			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 		},
+		ExecDetachedFn: func(context.Context, string, []string, ...msbSdk.JobExecOption) (msb.Job, error) {
+			return nil, errors.New("daemon start failed")
+		},
 	}
 
 	configpaths.WithMockConfigPaths(t)
 	cfs := &reprovision.ConfigFiles{}
-	_, err := setUpSandbox(context.Background(), sb, options.RunOptions{}, cfs, &ui, false, vmBootConnected)
+	_, err := setUpSandbox(
+		context.Background(),
+		testVMKey(),
+		sb,
+		options.RunOptions{Agent: "opencode"},
+		cfs,
+		&ui,
+		false,
+		vmBootConnected,
+		mounts.WorkspaceMountPath,
+	)
 	if err == nil {
 		t.Fatal("expected error from ensureDaemon")
 	}
@@ -104,13 +259,13 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 // setUpSandbox (config files are provisioned but the write fails; this is
 // logged as a warning and does not fail the sandbox setup).
 func TestSetUpSandboxProvisionWarn(t *testing.T) {
-	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
 	})
-	t.Cleanup(func() { SetDaemonShellFunc(orig) })
+	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
 
 	fs := msb.NewTestFS(nil, nil)
 	fs.WriteErr = errors.New("write denied")
@@ -119,7 +274,17 @@ func TestSetUpSandboxProvisionWarn(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	configpaths.WithMockConfigPaths(t)
 	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
-	_, err := setUpSandbox(context.Background(), sb, options.RunOptions{}, cfs, &ui, false, vmBootCreated)
+	_, err := setUpSandbox(
+		context.Background(),
+		testVMKey(),
+		sb,
+		options.RunOptions{Agent: "opencode"},
+		cfs,
+		&ui,
+		false,
+		vmBootCreated,
+		mounts.WorkspaceMountPath,
+	)
 	if err != nil {
 		t.Fatalf("setUpSandbox should not fail on provision warning: %v", err)
 	}
@@ -139,7 +304,7 @@ func TestRunStartupHooksAttachError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
-		{Target: "/home/dev/.vpn/connect.sh", Source: "x", Interpreter: "/bin/sh"},
+		{Target: "/home/dev/.vpn/connect.sh", Source: "x", HasShebang: true},
 	}, &ui)
 
 	if !contains(joinStrings(ui.WarnCalls), "startup hook") {

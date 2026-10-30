@@ -29,6 +29,9 @@ type Notification struct {
 	Trigger   Trigger
 	Title     string
 	Body      string
+	// EventID is the source event's envelope id, set for input notifications so
+	// dedup keys each distinct request separately. Empty for other triggers.
+	EventID string
 }
 
 // Backend delivers notifications.
@@ -37,9 +40,16 @@ type Backend interface {
 }
 
 // execCommand is a test seam; production uses exec.Command.
-//
-//nolint:gochecknoglobals // test seam
 var execCommand = exec.Command
+
+// InstallFailFast points execCommand at a panic so a test that reaches a real
+// desktop/audio notification command without overriding the seam fails loud
+// instead of spawning a real player. Wired up by the package TestMain.
+var InstallFailFast = func() { execCommand = failFastExecCommand }
+
+func failFastExecCommand(name string, _ ...string) *exec.Cmd {
+	panic("notify: reached real execCommand(" + name + "); override execCommand in the test")
+}
 
 // NewBackend builds the effective backend for cfg, or nil when inactive.
 func NewBackend(cfg Config, ui termio.UI) Backend {
@@ -93,18 +103,12 @@ func (c *compositeBackend) triggerEnabled(t Trigger) bool {
 type DesktopNotifier struct{}
 
 func (d *DesktopNotifier) Notify(n Notification) {
-	cmd, err := d.buildCmd(n.Title, n.Body)
-	if err != nil {
-		return
-	}
-	_ = cmd.Run()
+	_ = d.buildCmd(n.Title, n.Body).Run()
 }
 
 // buildCmd constructs the platform desktop-notification command.
-//
-//nolint:unparam // error return kept for the execCommand test seam
-func (d *DesktopNotifier) buildCmd(title, body string) (*exec.Cmd, error) {
-	return buildDesktopCommand(runtime.GOOS, title, body), nil
+func (d *DesktopNotifier) buildCmd(title, body string) *exec.Cmd {
+	return buildDesktopCommand(runtime.GOOS, title, body)
 }
 
 // buildDesktopCommand returns the desktop-notification command for the given

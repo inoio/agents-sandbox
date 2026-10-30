@@ -2,6 +2,8 @@ package agent_test
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -18,43 +20,67 @@ func TestOpencodeAttachCommand(t *testing.T) {
 		t.Fatal("opencode should implement AttachRunner")
 	}
 	got := cmd.AttachCommand("/workspace", []string{"--print-logs"})
-	want := "opencode attach http://127.0.0.1:4096 --dir /workspace --print-logs"
+	want := "opencode attach http://127.0.0.1:4096 --dir '/workspace' '--print-logs'"
 	if got != want {
 		t.Errorf("AttachCommand = %q, want %q", got, want)
+	}
+}
+
+func TestOpencodeConfigDirAliases(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	if _, ok := agent.AsConfigDirAliaser(a); ok {
+		t.Error("opencode (v1) must not declare config dir aliases")
+	}
+}
+
+func TestOpencodeAttachCommandQuotesTarget(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	cmd, _ := agent.AsAttachRunner(a)
+	cases := map[string]string{
+		"/workspace/my notes": "opencode attach http://127.0.0.1:4096 --dir '/workspace/my notes'",
+		"/workspace/it's":     `opencode attach http://127.0.0.1:4096 --dir '/workspace/it'\''s'`,
+	}
+	for target, want := range cases {
+		if got := cmd.AttachCommand(target, nil); got != want {
+			t.Errorf("AttachCommand(%q) = %q, want %q", target, got, want)
+		}
 	}
 }
 
 func TestOpencodeWorktreeCreateCmdUsesName(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	worktree := mustWorktree(t, a)
-	got := worktree.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feature/x"})
+	got := worktree.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feature/x"}, agent.WorktreeProject{})
 	want := "curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"feature/x\"}'"
 	if got != want {
 		t.Errorf("WorktreeCreateCmd = %q, want %q", got, want)
 	}
 }
 
-func TestOpencodeDaemonStartCmd(t *testing.T) {
+func TestOpencodeDaemonCommand(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	daemon := mustDaemon(t, a)
-	local := daemon.DaemonStartCmd(false)
-	if !strings.Contains(local, "--hostname 127.0.0.1") {
-		t.Errorf("local DaemonStartCmd = %q, want hostname 127.0.0.1", local)
+	local := daemon.DaemonCommand(false)
+	if local.Binary != "opencode" || !slices.Contains(local.Args, "serve") {
+		t.Errorf("local DaemonCommand = %+v, want opencode serve", local)
 	}
-	serve := daemon.DaemonStartCmd(true)
-	if !strings.Contains(serve, "--hostname 0.0.0.0") {
-		t.Errorf("serve DaemonStartCmd = %q, want hostname 0.0.0.0", serve)
+	if !slices.Contains(local.Args, "--hostname") || !slices.Contains(local.Args, "127.0.0.1") {
+		t.Errorf("local DaemonCommand = %+v, want --hostname 127.0.0.1", local)
+	}
+	serve := daemon.DaemonCommand(true)
+	if !slices.Contains(serve.Args, "0.0.0.0") {
+		t.Errorf("serve DaemonCommand = %+v, want hostname 0.0.0.0", serve)
 	}
 }
 
-func TestOpencodeDaemonKillAndHealthCmd(t *testing.T) {
+func TestOpencodeDaemonHealthCmd(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	daemon := mustDaemon(t, a)
-	if daemon.DaemonKillCmd() == "" {
-		t.Error("DaemonKillCmd must not be empty")
-	}
 	if !strings.Contains(daemon.DaemonHealthCmd(), "127.0.0.1:4096") {
 		t.Errorf("DaemonHealthCmd = %q, want port 4096", daemon.DaemonHealthCmd())
+	}
+	if hint := daemon.DaemonAuthHint(); !strings.Contains(hint, "OPENCODE_SERVER_PASSWORD") {
+		t.Errorf("DaemonAuthHint = %q, want mention of OPENCODE_SERVER_PASSWORD", hint)
 	}
 }
 
@@ -69,25 +95,82 @@ func TestOpencodeDaemonHealthParse(t *testing.T) {
 	if err != nil || notOK {
 		t.Errorf("DaemonHealthParse(unhealthy) = %v, %v, want false, nil", notOK, err)
 	}
-	if _, err := daemon.DaemonHealthParse("not json"); err == nil {
-		t.Error("DaemonHealthParse(invalid) should error")
+	parsed, err := daemon.DaemonHealthParse("not json")
+	if parsed {
+		t.Error("DaemonHealthParse(invalid) ok = true, want false")
+	}
+	if _, ok := errors.AsType[*json.SyntaxError](err); !ok {
+		t.Errorf("DaemonHealthParse(invalid) error = %v, want *json.SyntaxError", err)
 	}
 }
 
-func TestOpencodeWorktreeListCmd(t *testing.T) {
+func TestOpencodeWorktreeHasNoResolveStep(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	worktree := mustWorktree(t, a)
-	if !strings.Contains(worktree.WorktreeListCmd(), "/experimental/worktree") {
-		t.Errorf("WorktreeListCmd = %q", worktree.WorktreeListCmd())
+	if got := worktree.WorktreeResolveCmd("/workspace"); got != "" {
+		t.Errorf("WorktreeResolveCmd = %q, want empty (v1 routes are global)", got)
+	}
+	if got := worktree.WorktreeListCmd(
+		agent.WorktreeProject{},
+	); got != "curl -sf http://127.0.0.1:4096/experimental/worktree" {
+		t.Errorf("WorktreeListCmd = %q, want the global v1 route", got)
+	}
+	// v1 has no resolve step, so the paired parser is never called in
+	// production; it must still report no project rather than fabricate one.
+	if _, ok := worktree.WorktreeParseProject(`{"project":{"id":"abc","canonical":"/repo"}}`); ok {
+		t.Error("WorktreeParseProject must report no project for v1")
+	}
+}
+
+// TestOpencodeWorktreeParseList pins the v1 list parser: path strings and
+// {directory} objects are accepted, but a non-array payload or an entry without
+// a non-empty string directory must not read as "no worktrees".
+func TestOpencodeWorktreeParseList(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	worktree := mustWorktree(t, a)
+	cases := []struct {
+		name string
+		in   string
+		want []string
+		ok   bool
+	}{
+		{name: "string paths", in: `["/wt/a","/wt/b"]`, want: []string{"/wt/a", "/wt/b"}, ok: true},
+		{name: "objects", in: `[{"directory":"/wt/a"}]`, want: []string{"/wt/a"}, ok: true},
+		{name: "empty array", in: `[]`, want: []string{}, ok: true},
+		{name: "non-array object", in: `{"directory":"/wt/a"}`, ok: false},
+		{name: "null", in: `null`, ok: false},
+		{name: "empty input", in: ``, ok: false},
+		{name: "invalid json", in: `not json`, ok: false},
+		{name: "renamed field", in: `[{"path":"/wt/a"}]`, ok: false},
+		{name: "blank directory", in: `[{"directory":""}]`, ok: false},
+		{name: "numeric entry", in: `[123]`, ok: false},
+		{name: "numeric directory", in: `[{"directory":123}]`, ok: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := worktree.WorktreeParseList(tc.in, agent.WorktreeProject{})
+			if ok != tc.ok || !slices.Equal(got, tc.want) {
+				t.Errorf("WorktreeParseList(%q) = %v, %v; want %v, %v", tc.in, got, ok, tc.want, tc.ok)
+			}
+		})
 	}
 }
 
 func TestOpencodeWorktreeCreateCmdWithBase(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	worktree := mustWorktree(t, a)
-	got := worktree.WorktreeCreateCmd(agent.WorktreeSpec{Name: "f", Base: "main"})
+	got := worktree.WorktreeCreateCmd(agent.WorktreeSpec{Name: "f", Base: "main"}, agent.WorktreeProject{})
 	if !strings.Contains(got, `"startCommand":"git reset --hard main"`) {
 		t.Errorf("WorktreeCreateCmd(with base) = %q", got)
+	}
+}
+
+// TestOpencodeWorktreeNotDetached pins that v1 keeps its worktrees on a branch,
+// so the launcher never reports a detached HEAD for opencode.
+func TestOpencodeWorktreeNotDetached(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	if _, ok := agent.AsDetachedWorktreeReporter(a); ok {
+		t.Error("opencode must not implement DetachedWorktreeReporter (v1 keeps a branch)")
 	}
 }
 
@@ -103,6 +186,11 @@ func TestOpencodeWorktreeParseDir(t *testing.T) {
 	}
 	if _, ok := worktree.WorktreeParseDir(`{"directory":""}`); ok {
 		t.Error("WorktreeParseDir(empty) should return not-ok")
+	}
+	// A decode error that nonetheless accepted a directory value (a duplicate key)
+	// must not be mistaken for a successful parse.
+	if dir, ok := worktree.WorktreeParseDir(`{"directory":"/x","directory":123}`); ok {
+		t.Errorf("WorktreeParseDir(duplicate key) = %q, %v, want not-ok", dir, ok)
 	}
 }
 
@@ -238,15 +326,55 @@ func TestOpencodeEventStream(t *testing.T) {
 	if !ok {
 		t.Fatal("opencode should implement EventStreamProvider")
 	}
-	want := agent.EventStreamSpec{
-		StreamCommand: "curl -N -s http://127.0.0.1:4096/global/event",
-		BusyEvents:    []string{"message.part.updated", "session.updated"},
-		AwaitingInput: []string{"permission.asked", "question.asked"},
-		IdleEvents:    []string{"session.idle"},
-		ErrorEvents:   []string{"session.error"},
-		Name:          "opencode",
+	got := provider.EventStream()
+	if got.Parse == nil {
+		t.Fatal("EventStream().Parse is nil")
 	}
-	if got := provider.EventStream(); !reflect.DeepEqual(got, want) {
+	got.Parse = nil
+	if got.SessionList == nil {
+		t.Fatal("EventStream().SessionList is nil")
+	}
+	if want := "curl -sf -m 30 http://127.0.0.1:4096/session"; got.SessionList.Command() != want {
+		t.Errorf("SessionList.Command() = %q, want %q", got.SessionList.Command(), want)
+	}
+	if children := got.SessionList.Parse([]byte(
+		`[{"id":"ses_child","parentID":"ses_top"}]`,
+	)); len(children) != 1 || children[0] != "ses_child" {
+		t.Errorf("SessionList.Parse() = %v, want [ses_child]", children)
+	}
+	got.SessionList = nil
+	want := agent.EventStreamSpec{
+		StreamCommand:     "curl -N -s http://127.0.0.1:4096/global/event",
+		BusyEvents:        []string{"message.part.updated", "session.updated"},
+		AwaitingInput:     []string{"permission.asked", "question.asked"},
+		IdleEvents:        []string{"session.idle"},
+		ErrorEvents:       []string{"session.error"},
+		StickyErrorEvents: []string{"session.error"},
+		SessionEvents:     []string{"session.created", "session.updated"},
+		Name:              "opencode",
+	}
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("EventStream() = %+v, want %+v", got, want)
+	}
+}
+
+func TestOpencodeImplementsSessionStatusProvider(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	p, ok := agent.AsSessionStatusProvider(a)
+	if !ok {
+		t.Fatal("opencode should implement SessionStatusProvider")
+	}
+	if got, want := p.SessionStatusCmd(), "curl -sf http://127.0.0.1:4096/session/status"; got != want {
+		t.Errorf("SessionStatusCmd() = %q, want %q", got, want)
+	}
+	if got, want := p.QuestionListCmd(), "curl -sf http://127.0.0.1:4096/question"; got != want {
+		t.Errorf("QuestionListCmd() = %q, want %q", got, want)
+	}
+}
+
+func TestPiLacksSessionStatusProvider(t *testing.T) {
+	a, _ := agent.Lookup("pi")
+	if _, ok := agent.AsSessionStatusProvider(a); ok {
+		t.Error("pi should not implement SessionStatusProvider")
 	}
 }

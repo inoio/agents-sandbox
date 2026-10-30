@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -25,6 +26,17 @@ func writeHomeConfig(t *testing.T, dir, body string) {
 		sb.WriteString("  " + line + "\n")
 	}
 	testutil.WriteFile(t, dir, "config.yaml", sb.String())
+}
+
+// homeContents reduces the with-modes result to the byte map the retired
+// BuildHomeFiles wrapper returned, so these tests keep asserting exactly the
+// content they asserted before the wrapper was deleted.
+func homeContents(files map[string]HomeFile) map[string][]byte {
+	contents := make(map[string][]byte, len(files))
+	for path, file := range files {
+		contents[path] = file.Data
+	}
+	return contents
 }
 
 func TestParseHomeSection(t *testing.T) {
@@ -73,16 +85,30 @@ func TestParseHomeSectionEmptyHomeKey(t *testing.T) {
 	}
 }
 
-func TestMergeManifestsProjectWins(t *testing.T) {
-	user := Manifest{".gitconfig": Entry{Source: ""}, ".ssh/config": Entry{Source: ""}}
-	proj := Manifest{".gitconfig": Entry{Source: "~/dotfiles/gitconfig"}}
-	merged := MergeManifests(user, proj)
-	if merged[".ssh/config"].Source != "" {
-		t.Errorf("user-only key should remain, got %q", merged[".ssh/config"].Source)
+// TestDescribeLayersKeepsUserOnlyKeys covers the half of the retired
+// MergeManifests wrapper's behaviour that TestDescribeLayersProjectWinsOnOverlap
+// does not: a key only the user layer declares survives the merge.
+func TestDescribeLayersKeepsUserOnlyKeys(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	user := t.TempDir()
+	proj := t.TempDir()
+	writeHomeConfig(t, user, ".ssh/config:\n")
+	writeHomeConfig(t, proj, ".config/tool/cfg.toml: ./tool.toml\n")
+
+	layers, _, err := LoadLayers([]string{user, proj})
+	if err != nil {
+		t.Fatalf("LoadLayers: %v", err)
 	}
-	if merged[".gitconfig"].Source != "~/dotfiles/gitconfig" {
-		t.Errorf("project should override user, got %q", merged[".gitconfig"].Source)
+	pairs, err := DescribeLayers(layers, vmHome, nil)
+	if err != nil {
+		t.Fatalf("DescribeLayers: %v", err)
 	}
+	for _, p := range pairs {
+		if p[0] == "/home/dev/.ssh/config" {
+			return
+		}
+	}
+	t.Errorf("a key only the user layer declares should remain, got %v", pairs)
 }
 
 func TestParseHomeSectionStructuredEntry(t *testing.T) {
@@ -131,44 +157,38 @@ func TestParseHomeSectionRejectsNonBooleanRoot(t *testing.T) {
 }
 
 func TestResolveSourceEmptyFallsBackToTarget(t *testing.T) {
-	got, err := ResolveManifestSource(".gitconfig", "", "/tmp/mf")
+	configpaths.WithMockConfigPaths(t)
+	home, err := configpaths.Get().UserHomeDir()
 	if err != nil {
-		t.Fatalf("ResolveSource: %v", err)
+		t.Fatal(err)
 	}
-	if got == "" {
-		t.Fatal("expected a non-empty resolved source")
-	}
-	if !strings.HasSuffix(got, ".gitconfig") {
-		t.Errorf("expected suffix .gitconfig, got %q", got)
+	got := ResolveManifestSource(".gitconfig", "", "/tmp/mf")
+	if want := filepath.Join(home, ".gitconfig"); got != want {
+		t.Errorf("empty source = %q, want %q", got, want)
 	}
 }
 
 func TestResolveSourceAbsolute(t *testing.T) {
-	got, err := ResolveManifestSource(".x", "/etc/foo", "/tmp/mf")
-	if err != nil {
-		t.Fatalf("ResolveSource: %v", err)
-	}
+	got := ResolveManifestSource(".x", "/etc/foo", "/tmp/mf")
 	if got != "/etc/foo" {
 		t.Errorf("expected absolute source, got %q", got)
 	}
 }
 
 func TestResolveSourceTilde(t *testing.T) {
-	t.Setenv("HOME", "/home/u")
-	got, err := ResolveManifestSource(".x", "~/bar", "/tmp/mf")
+	configpaths.WithMockConfigPaths(t)
+	home, err := configpaths.Get().UserHomeDir()
 	if err != nil {
-		t.Fatalf("ResolveSource: %v", err)
+		t.Fatal(err)
 	}
-	if got != "/home/u/bar" {
-		t.Errorf("expected ~ expansion, got %q", got)
+	got := ResolveManifestSource(".x", "~/bar", "/tmp/mf")
+	if want := filepath.Join(home, "bar"); got != want {
+		t.Errorf("~ source = %q, want %q", got, want)
 	}
 }
 
 func TestResolveSourceRelativeToManifestDir(t *testing.T) {
-	got, err := ResolveManifestSource(".x", "tool/cfg.toml", "/home/u/dotfiles")
-	if err != nil {
-		t.Fatalf("ResolveSource: %v", err)
-	}
+	got := ResolveManifestSource(".x", "tool/cfg.toml", "/home/u/dotfiles")
 	if got != "/home/u/dotfiles/tool/cfg.toml" {
 		t.Errorf("expected manifest-dir-relative source, got %q", got)
 	}
@@ -244,15 +264,19 @@ func TestResolveVMTargetAcceptsNonMatchingReservedSpelling(t *testing.T) {
 }
 
 func TestBuildHomeFilesSkipsMissingSource(t *testing.T) {
-	// Point $HOME at an empty temp dir so the empty-source default
+	// The mocked home is an empty temp dir, so the empty-source default
 	// (host $HOME/.gitconfig) deterministically does not exist.
-	t.Setenv("HOME", t.TempDir())
+	configpaths.WithMockConfigPaths(t)
+	home, err := configpaths.Get().UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, user, ".gitconfig:\n")
-	files, missing, _, err := BuildHomeFiles(user, proj, vmHome, nil)
+	files, missing, _, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
 	if err != nil {
-		t.Fatalf("BuildHomeFiles: %v", err)
+		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
 	if _, ok := files["/home/dev/.gitconfig"]; ok {
 		t.Error("expected missing source to be skipped, but entry present")
@@ -260,26 +284,37 @@ func TestBuildHomeFilesSkipsMissingSource(t *testing.T) {
 	if len(missing) != 1 {
 		t.Fatalf("expected 1 missing source, got %v", missing)
 	}
-	want := filepath.Join(os.Getenv("HOME"), ".gitconfig")
+	want := filepath.Join(home, ".gitconfig")
 	if missing[0] != want {
 		t.Errorf("missing source = %q, want %q", missing[0], want)
 	}
 }
 
 func TestBuildHomeFilesRejectsReservedTarget(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, proj, ".config/opencode/opencode.jsonc:\n")
-	if _, _, _, err := BuildHomeFiles(user, proj, vmHome, []string{".config/opencode/opencode.jsonc"}); err == nil {
+	if _, _, _, err := BuildHomeFilesWithModes(
+		user,
+		proj,
+		vmHome,
+		[]string{".config/opencode/opencode.jsonc"},
+	); err == nil {
 		t.Error("expected an error for a reserved home target")
 	}
 }
 
-func TestDescribeManifestRejectsReservedTarget(t *testing.T) {
+func TestDescribeLayersRejectsReservedTarget(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, proj, ".pi/agent/settings.json:\n")
-	if _, _, err := DescribeManifest(user, proj, vmHome, []string{".pi/agent/settings.json"}); err == nil {
+	layers, _, err := LoadLayers([]string{user, proj})
+	if err != nil {
+		t.Fatalf("LoadLayers: %v", err)
+	}
+	if _, err := DescribeLayers(layers, vmHome, []string{".pi/agent/settings.json"}); err == nil {
 		t.Error("expected an error for a reserved home target")
 	}
 }
@@ -330,7 +365,8 @@ func TestDescribeLayersResolvesProjectRelativeAgainstProjectDir(t *testing.T) {
 	}
 }
 
-func TestDescribeManifestSortsPairsByVMPath(t *testing.T) {
+func TestDescribeLayersSortsPairsByVMPath(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, proj, ""+
@@ -340,9 +376,13 @@ func TestDescribeManifestSortsPairsByVMPath(t *testing.T) {
 		".config/tool/cfg.toml: ./cfg.toml\n"+
 		".b:\n")
 
-	pairs, _, err := DescribeManifest(user, proj, vmHome, nil)
+	layers, _, err := LoadLayers([]string{user, proj})
 	if err != nil {
-		t.Fatalf("DescribeManifest: %v", err)
+		t.Fatalf("LoadLayers: %v", err)
+	}
+	pairs, err := DescribeLayers(layers, vmHome, nil)
+	if err != nil {
+		t.Fatalf("DescribeLayers: %v", err)
 	}
 	var paths []string
 	for _, p := range pairs {
@@ -356,35 +396,43 @@ func TestDescribeManifestSortsPairsByVMPath(t *testing.T) {
 		"/home/dev/.zshrc",
 	}
 	if !reflect.DeepEqual(paths, want) {
-		t.Errorf("DescribeManifest pairs not sorted by VM path:\ngot  %v\nwant %v", paths, want)
+		t.Errorf("DescribeLayers pairs not sorted by VM path:\ngot  %v\nwant %v", paths, want)
 	}
 }
 
-func TestDescribeManifestNoManifestHasFalse(t *testing.T) {
+func TestLoadLayersNoManifestHasFalse(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
-	pairs, has, err := DescribeManifest(user, proj, vmHome, nil)
+	layers, has, err := LoadLayers([]string{user, proj})
 	if err != nil {
-		t.Fatalf("DescribeManifest: %v", err)
+		t.Fatalf("LoadLayers: %v", err)
 	}
 	if has {
 		t.Error("expected has=false when no manifest exists")
+	}
+	pairs, err := DescribeLayers(layers, vmHome, nil)
+	if err != nil {
+		t.Fatalf("DescribeLayers: %v", err)
 	}
 	if len(pairs) != 0 {
 		t.Errorf("expected no pairs, got %d", len(pairs))
 	}
 }
 
-func TestDescribeManifestEmptyManifestHasTrue(t *testing.T) {
+func TestLoadLayersEmptyManifestHasTrue(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, user, "")
-	pairs, has, err := DescribeManifest(user, proj, vmHome, nil)
+	layers, has, err := LoadLayers([]string{user, proj})
 	if err != nil {
-		t.Fatalf("DescribeManifest: %v", err)
+		t.Fatalf("LoadLayers: %v", err)
 	}
 	if !has {
 		t.Error("expected has=true when an (empty) manifest exists")
+	}
+	pairs, err := DescribeLayers(layers, vmHome, nil)
+	if err != nil {
+		t.Fatalf("DescribeLayers: %v", err)
 	}
 	if len(pairs) != 0 {
 		t.Errorf("expected no pairs, got %d", len(pairs))
@@ -400,9 +448,9 @@ func TestBuildHomeFilesReadsBytesByVMPath(t *testing.T) {
 	testutil.WritePath(t, src, "k=v\n")
 	writeHomeConfig(t, proj, ".config/tool/cfg.toml: "+src+"\n")
 
-	files, _, has, err := BuildHomeFiles(user, proj, vmHome, nil)
+	files, _, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
 	if err != nil {
-		t.Fatalf("BuildHomeFiles: %v", err)
+		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
 	if !has {
 		t.Fatal("expected has=true")
@@ -410,8 +458,8 @@ func TestBuildHomeFilesReadsBytesByVMPath(t *testing.T) {
 	want := map[string][]byte{
 		"/home/dev/.config/tool/cfg.toml": []byte("k=v\n"),
 	}
-	if !reflect.DeepEqual(files, want) {
-		t.Errorf("got %v, want %v", files, want)
+	if got := homeContents(files); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
@@ -444,6 +492,34 @@ func TestBuildHomeFilesWithModesPreservesSourceMode(t *testing.T) {
 	}
 }
 
+// TestBuildHomeFilesWithModesReportsUnreadableSourceAsMissing verifies a source
+// that exists but cannot be read as a file (here, a directory) is treated as a
+// missing source rather than a fatal error, so a stale home entry never blocks
+// VM setup.
+func TestBuildHomeFilesWithModesReportsUnreadableSourceAsMissing(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	sourceDir := filepath.Join(proj, "not-a-file")
+	if err := os.Mkdir(sourceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeHomeConfig(t, proj, ".config/tool/x: "+sourceDir+"\n")
+
+	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	if err != nil {
+		t.Fatalf("BuildHomeFilesWithModes: %v", err)
+	}
+	if !has {
+		t.Fatal("expected has=true")
+	}
+	if len(files) != 0 {
+		t.Errorf("unreadable source must yield no home file, got %v", files)
+	}
+	if len(missing) != 1 || missing[0] != sourceDir {
+		t.Errorf("missing = %v, want [%q]", missing, sourceDir)
+	}
+}
+
 func TestBuildHomeFilesReadsProjectRelativeSourceFromProjectDir(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
@@ -455,9 +531,9 @@ func TestBuildHomeFilesReadsProjectRelativeSourceFromProjectDir(t *testing.T) {
 	testutil.WriteFile(t, proj, "tool/cfg.toml", "k=v\n")
 	writeHomeConfig(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
 
-	files, _, has, err := BuildHomeFiles(user, proj, vmHome, nil)
+	files, _, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
 	if err != nil {
-		t.Fatalf("BuildHomeFiles: %v", err)
+		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
 	if !has {
 		t.Fatal("expected has=true")
@@ -465,33 +541,13 @@ func TestBuildHomeFilesReadsProjectRelativeSourceFromProjectDir(t *testing.T) {
 	want := map[string][]byte{
 		"/home/dev/.config/tool/cfg.toml": []byte("k=v\n"),
 	}
-	if !reflect.DeepEqual(files, want) {
-		t.Errorf("got %v, want %v", files, want)
-	}
-}
-
-func TestDescribeManifestResolvesProjectRelativeSourceAgainstProjectDir(t *testing.T) {
-	user := t.TempDir()
-	proj := t.TempDir()
-	writeHomeConfig(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
-
-	pairs, _, err := DescribeManifest(user, proj, vmHome, nil)
-	if err != nil {
-		t.Fatalf("DescribeManifest: %v", err)
-	}
-	var src string
-	for _, p := range pairs {
-		if p[0] == "/home/dev/.config/tool/cfg.toml" {
-			src = p[1]
-		}
-	}
-	want := filepath.Join(proj, "tool/cfg.toml")
-	if src != want {
-		t.Errorf("got source %q, want %q", src, want)
+	if got := homeContents(files); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
 func TestBuildHooksFiltersAndSorts(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 
@@ -510,10 +566,10 @@ func TestBuildHooksFiltersAndSorts(t *testing.T) {
 	}
 	want := []HookSpec{
 		{
-			Target:      "/home/dev/.vpn/connect.sh",
-			Source:      filepath.Join(proj, "vpn/connect.sh"),
-			Interpreter: "/bin/sh",
-			Root:        true,
+			Target:     "/home/dev/.vpn/connect.sh",
+			Source:     filepath.Join(proj, "vpn/connect.sh"),
+			HasShebang: true,
+			Root:       true,
 		},
 	}
 	if !reflect.DeepEqual(hooks, want) {
@@ -535,27 +591,29 @@ func TestBuildHooksSkipsMissingSource(t *testing.T) {
 	}
 }
 
-func TestShebangInterpreter(t *testing.T) {
+func TestHasShebang(t *testing.T) {
 	dir := t.TempDir()
 	cases := []struct {
 		name string
 		body string
-		want string
+		want bool
 	}{
-		{"plain sh", "#!/bin/sh\n", "/bin/sh"},
-		{"bash", "#!/bin/bash\necho hi\n", "/bin/bash"},
-		{"env bash", "#!/usr/bin/env bash\n", "/usr/bin/env bash"},
-		{"with spaces", "#!/usr/bin/env python3\n", "/usr/bin/env python3"},
-		{"no shebang", "echo hi\n", ""},
-		{"empty file", "", ""},
-		{"crlf shebang", "#!/bin/bash\r\n", "/bin/bash"},
+		{"plain sh", "#!/bin/sh\n", true},
+		{"bash", "#!/bin/bash\necho hi\n", true},
+		{"env bash", "#!/usr/bin/env bash\n", true},
+		{"with spaces", "#!/usr/bin/env python3\n", true},
+		{"with arg", "#!/bin/bash -e\n", true},
+		{"no shebang", "echo hi\n", false},
+		{"empty file", "", false},
+		{"bare marker", "#! \n", true},
+		{"crlf shebang", "#!/bin/bash\r\n", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := filepath.Join(dir, "s.sh")
 			testutil.WritePath(t, p, tc.body)
-			if got := shebangInterpreter(p); got != tc.want {
-				t.Errorf("shebangInterpreter(%q) = %q, want %q", tc.body, got, tc.want)
+			if got := hasShebang(p); got != tc.want {
+				t.Errorf("hasShebang(%q) = %v, want %v", tc.body, got, tc.want)
 			}
 		})
 	}
@@ -611,7 +669,7 @@ func TestDescribeLayersProjectWinsOnOverlap(t *testing.T) {
 	}
 }
 
-func TestBuildHooksCapturesInterpreter(t *testing.T) {
+func TestBuildHooksCapturesShebang(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	testutil.WritePath(t, filepath.Join(proj, "connect.sh"), "#!/bin/bash\n")
@@ -620,8 +678,42 @@ func TestBuildHooksCapturesInterpreter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}
-	if len(hooks) != 1 || hooks[0].Interpreter != "/bin/bash" {
-		t.Errorf("hooks = %v, want interpreter /bin/bash", hooks)
+	if len(hooks) != 1 || !hooks[0].HasShebang {
+		t.Errorf("hooks = %v, want a hook with a shebang", hooks)
+	}
+}
+
+func TestBuildHooksCapturesEnvShebang(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	testutil.WritePath(t, filepath.Join(proj, "connect.sh"), "#!/usr/bin/env bash\n")
+	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n")
+	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	if err != nil {
+		t.Fatalf("BuildHooks: %v", err)
+	}
+	if len(hooks) != 1 {
+		t.Fatalf("hooks = %v, want 1 hook", hooks)
+	}
+	if !hooks[0].HasShebang {
+		t.Errorf("hooks[0].HasShebang = %v, want true", hooks[0].HasShebang)
+	}
+}
+
+func TestBuildHooksNoShebangFallsBack(t *testing.T) {
+	user := t.TempDir()
+	proj := t.TempDir()
+	testutil.WritePath(t, filepath.Join(proj, "connect.sh"), "echo hi\n")
+	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n")
+	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	if err != nil {
+		t.Fatalf("BuildHooks: %v", err)
+	}
+	if len(hooks) != 1 {
+		t.Fatalf("hooks = %v, want 1 hook", hooks)
+	}
+	if hooks[0].HasShebang {
+		t.Errorf("hooks[0].HasShebang = %v, want false", hooks[0].HasShebang)
 	}
 }
 

@@ -80,6 +80,18 @@ func TestDesktopNotifierRunsCommand(t *testing.T) {
 	}
 }
 
+func TestInstallFailFastPanicsOnExecCommand(t *testing.T) {
+	orig := execCommand
+	t.Cleanup(func() { execCommand = orig })
+	InstallFailFast()
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected the fail-fast execCommand to panic")
+		}
+	}()
+	execCommand("notify-send")
+}
+
 func TestSystemAudioNotifierWithToolInPath(t *testing.T) {
 	for _, tool := range []string{"afplay", "paplay", "pw-play", "aplay"} {
 		t.Run(tool, func(t *testing.T) {

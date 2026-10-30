@@ -1,11 +1,8 @@
 package git
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestHashIDReturns14Chars(t *testing.T) {
@@ -101,39 +98,6 @@ func TestSanitizeFolderNameEmptyInput(t *testing.T) {
 	}
 }
 
-func TestProjectSlugFormat(t *testing.T) {
-	repo := testutil.InitRepo(t)
-	// ProjectSlug uses the working directory, so chdir into the repo.
-	t.Chdir(repo)
-	got := ProjectSlug()
-	// Expected format: <sanitized-folder>-<14 base36 chars>.
-	// The folder name is filepath.Base(repo), sanitized.
-	folderName := sanitizeFolderName(filepath.Base(repo))
-	if !strings.HasPrefix(got, folderName+"-") {
-		t.Errorf("expected slug to start with %q, got %q", folderName+"-", got)
-	}
-	hashPart := got[len(folderName)+1:]
-	if len(hashPart) != 14 {
-		t.Errorf("expected 14-char hash suffix, got %d chars (%q)", len(hashPart), hashPart)
-	}
-	for _, r := range hashPart {
-		isBase36 := (r >= '0' && r <= '9') || (r >= 'a' && r <= 'z')
-		if !isBase36 {
-			t.Errorf("expected base36 hash, found %q in %q", r, hashPart)
-		}
-	}
-}
-
-func TestProjectSlugDeterministic(t *testing.T) {
-	repo := testutil.InitRepo(t)
-	t.Chdir(repo)
-	a := ProjectSlug()
-	b := ProjectSlug()
-	if a != b {
-		t.Errorf("expected deterministic slug, got %q and %q", a, b)
-	}
-}
-
 func TestProjectSlugFallsBackWhenFolderNameEmpty(t *testing.T) {
 	got := projectSlug("", "some-id")
 	if !strings.HasPrefix(got, "project-") {
@@ -172,93 +136,5 @@ func TestLastPathSegment(t *testing.T) {
 				t.Errorf("lastPathSegment(%q) = %q, want %q", tt.url, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestProjectSlugUsesOriginRepoName(t *testing.T) {
-	const origin = "git@github.com:inoio/agents-sandbox.git"
-	repo := testutil.InitRepo(t)
-	testutil.RunGit(t, repo, "remote", "add", "origin", origin)
-	t.Chdir(repo)
-	got := ProjectSlug()
-	if !strings.HasPrefix(got, "agents-sandbox-") {
-		t.Errorf("expected slug to start with 'agents-sandbox-', got %q", got)
-	}
-	if len(got) != len("agents-sandbox-")+14 {
-		t.Errorf("expected slug of %d chars, got %d (%q)", len("agents-sandbox-")+14, len(got), got)
-	}
-}
-
-func TestProjectSlugStableForSameOrigin(t *testing.T) {
-	// Two clones of the same origin at different paths must share one slug,
-	// so worktrees/checkouts of the same project are not treated as distinct.
-	const origin = "git@github.com:inoio/agents-sandbox.git"
-	a := testutil.InitRepo(t)
-	testutil.RunGit(t, a, "remote", "add", "origin", origin)
-	b := testutil.InitRepo(t)
-	testutil.RunGit(t, b, "remote", "add", "origin", origin)
-
-	t.Chdir(a)
-	slugA := ProjectSlug()
-	t.Chdir(b)
-	slugB := ProjectSlug()
-	if slugA != slugB {
-		t.Errorf("expected identical slug for same origin across checkouts, got %q and %q", slugA, slugB)
-	}
-}
-
-func TestProjectSlugDiffersForDifferentOrigins(t *testing.T) {
-	a := testutil.InitRepo(t)
-	testutil.RunGit(t, a, "remote", "add", "origin", "git@github.com:inoio/agents-sandbox.git")
-	b := testutil.InitRepo(t)
-	testutil.RunGit(t, b, "remote", "add", "origin", "git@github.com:someone/agents-sandbox.git")
-
-	t.Chdir(a)
-	slugA := ProjectSlug()
-	t.Chdir(b)
-	slugB := ProjectSlug()
-	if slugA == slugB {
-		t.Errorf("expected distinct slugs for different origins, both %q", slugA)
-	}
-}
-
-func TestProjectSlugWorktreeSharesOriginSlug(t *testing.T) {
-	const origin = "git@github.com:inoio/agents-sandbox.git"
-	repo := testutil.InitRepo(t)
-	testutil.RunGit(t, repo, "remote", "add", "origin", origin)
-	mainSlug := projectSlugAt(repo)
-
-	wtDir := filepath.Join(t.TempDir(), "wt")
-	testutil.RunGit(t, repo, "worktree", "add", "--detach", wtDir)
-	wtSlug := projectSlugAt(wtDir)
-	if wtSlug != mainSlug {
-		t.Errorf("expected worktree to share the main checkout's slug, got %q and %q", mainSlug, wtSlug)
-	}
-}
-
-func TestProjectSlugFallsBackWithoutOrigin(t *testing.T) {
-	repo := testutil.InitRepo(t)
-	t.Chdir(repo)
-	got := ProjectSlug()
-	folderName := sanitizeFolderName(filepath.Base(repo))
-	if !strings.HasPrefix(got, folderName+"-") {
-		t.Errorf("expected slug to start with %q, got %q", folderName+"-", got)
-	}
-}
-
-func TestProjectSlugNonRepoDirectory(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	got := projectSlugAt(".")
-	if !strings.Contains(got, "-") {
-		t.Errorf("expected slug to contain folder-name and id, got %q", got)
-	}
-}
-
-func TestProjectSlugAbsoluteNonRepoPath(t *testing.T) {
-	dir := t.TempDir()
-	got := projectSlugAt(dir)
-	if !strings.Contains(got, "-") {
-		t.Errorf("expected slug from absolute non-repo path, got %q", got)
 	}
 }

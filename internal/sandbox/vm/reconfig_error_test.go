@@ -8,6 +8,8 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
@@ -19,17 +21,21 @@ import (
 // TestRestartDaemonsEnsureDaemonError covers the ensureDaemon failure branch of
 // restartDaemons: the daemon restart fails and is logged as a warning.
 func TestRestartDaemonsEnsureDaemonError(t *testing.T) {
-	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return "", 0, errors.New("health check failed")
 		}
 		return "", 0, errors.New("command failed")
 	})
-	t.Cleanup(func() { SetDaemonShellFunc(orig) })
+	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
 
 	ui := termio.NewTestMock(t)
-	fs := msb.NewTestFS(nil, nil)
-	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
+	sb := &msb.MockSandbox{
+		Name_: "vm",
+		ExecDetachedFn: func(context.Context, string, []string, ...msbSdk.JobExecOption) (msb.Job, error) {
+			return nil, errors.New("start failed")
+		},
+	}
 
 	restartDaemons(context.Background(), opencodeAgent(t), sb, false, &ui)
 
@@ -38,13 +44,13 @@ func TestRestartDaemonsEnsureDaemonError(t *testing.T) {
 	}
 }
 
-// TestDefaultDaemonShellFuncError covers the default daemonShellFunc closure
+// TestDefaultDaemonHealthFuncError covers the default daemonHealthFunc closure
 // (the non-test-seam path): when sb.Shell fails, it returns exit code -1.
-func TestDefaultDaemonShellFuncError(t *testing.T) {
+func TestDefaultDaemonHealthFuncError(t *testing.T) {
 	// Temporarily reset the seam to the default implementation.
-	orig := daemonShellFunc
-	defer func() { daemonShellFunc = orig }()
-	daemonShellFunc = func(ctx context.Context, sb msb.Sandbox, command string) (string, int, error) {
+	orig := daemonHealthFunc
+	defer func() { daemonHealthFunc = orig }()
+	daemonHealthFunc = func(ctx context.Context, sb msb.Sandbox, command string) (string, int, error) {
 		out, err := sb.Shell(ctx, command)
 		if err != nil {
 			return "", -1, err
@@ -53,9 +59,9 @@ func TestDefaultDaemonShellFuncError(t *testing.T) {
 	}
 
 	sb := &msb.MockSandbox{ShellErr: errors.New("shell failed")}
-	stdout, code, err := daemonShellFunc(context.Background(), sb, "some-command")
+	stdout, code, err := daemonHealthFunc(context.Background(), sb, "some-command")
 	if err == nil {
-		t.Fatal("expected error from default daemonShellFunc")
+		t.Fatal("expected error from default daemonHealthFunc")
 	}
 	if code != -1 {
 		t.Errorf("expected exit code -1 on error, got %d", code)
@@ -65,10 +71,10 @@ func TestDefaultDaemonShellFuncError(t *testing.T) {
 	}
 }
 
-// TestDecideReconfigDetachErrorVerbose covers the failed-detach verbose branch
-// in decideReconfig: a connected sandbox whose Detach fails is logged (not
+// TestResolveReconfigDecisionDetachErrorVerbose covers the failed-detach verbose branch
+// in resolveReconfigDecision: a connected sandbox whose Detach fails is logged (not
 // fatal).
-func TestDecideReconfigDetachErrorVerbose(t *testing.T) {
+func TestResolveReconfigDecisionDetachErrorVerbose(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	sh := &msb.MockSandboxHandle{
 		Cfg: &msbSdk.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
@@ -89,21 +95,21 @@ func TestDecideReconfigDetachErrorVerbose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	_, _, _, _, err = decideReconfig(
+	_, err = resolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{},
-		"img:tag",
-		"sha256:same",
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
 		"vol",
 		persisted,
 		cfs,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("decideReconfig: %v", err)
+		t.Fatalf("resolveReconfigDecision: %v", err)
 	}
 	if !contains(joinStrings(ui.VerboseCalls), "failed to detach") {
 		t.Errorf("expected a verbose message about the failed detach, got %v", ui.VerboseCalls)

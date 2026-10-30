@@ -8,6 +8,8 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
@@ -16,10 +18,11 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// TestDecideReconfigHomeQuit covers the user-quit branch of decideReconfig:
-// when the home-volume prompt is answered with "quit", the session is aborted
-// with an ExitError.
-func TestDecideReconfigHomeQuit(t *testing.T) {
+// TestApplyReconfigHomeActionQuit covers the user-quit branch of the reconfig
+// decision: when the home-volume prompt is answered with "quit", the action
+// that resolveReconfigDecision resolves makes applyReconfigHomeAction abort the
+// session with an ExitError.
+func TestApplyReconfigHomeActionQuit(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	sh := &msb.MockSandboxHandle{
@@ -52,17 +55,31 @@ func TestDecideReconfigHomeQuit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	_, _, _, _, err = decideReconfig(
+	decision, err := resolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{},
-		"img:new",
-		"sha256:new",
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:new", Ref: "img:new", Digest: "sha256:new"},
 		"vol",
 		persisted,
 		cfs,
+		envsecret.EnvSecrets{},
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	_, err = applyReconfigHomeAction(
+		context.Background(),
+		mock,
+		vm,
+		state.Key{Slug: "testproj", Agent: "opencode"},
+		"vol",
+		image.ImageInfo{DockerTag: "img:new", Ref: "img:new", Digest: "sha256:new"},
+		false,
+		decision,
 		ui,
 	)
 	if err == nil {
@@ -74,5 +91,8 @@ func TestDecideReconfigHomeQuit(t *testing.T) {
 	}
 	if exitErr.Code != 1 {
 		t.Errorf("expected exit code 1, got %d", exitErr.Code)
+	}
+	if !contains(joinStrings(ui.InfoCalls), "exiting as requested by user") {
+		t.Errorf("expected the quit to log the exit notice, got %v", ui.InfoCalls)
 	}
 }

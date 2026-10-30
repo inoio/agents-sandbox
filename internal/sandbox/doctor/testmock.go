@@ -1,3 +1,4 @@
+//deadcode:ignore reason="test support: referenced only by _test.go files"
 package doctor
 
 import (
@@ -24,10 +25,14 @@ func MockedEnsureInstalled(t *testing.T, raise bool) {
 	t.Cleanup(func() { ensureInstalledFunc = orig })
 }
 
+// errMockedEnsureInstalled is the cause the ensureInstalled mock returns, so
+// tests can assert the cause survives wrapping through errors.Is.
+var errMockedEnsureInstalled = errors.New("mocked error")
+
 func ensureInstalledMockFunc(raise bool) func(ctx context.Context) error {
 	return func(context.Context) error {
 		if raise {
-			return errors.New("mocked error")
+			return errMockedEnsureInstalled
 		}
 		return nil
 	}

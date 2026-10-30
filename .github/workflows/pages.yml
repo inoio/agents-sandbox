@@ -3,7 +3,14 @@ name: docs
 on:
   release:
     types: [published]
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build the docs from (defaults to the latest tag)"
+        required: false
 
 permissions:
   contents: read
@@ -15,22 +22,76 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Resolve which tag the docs describe and refuse to publish from a
+  # prerelease. The Pages site is the stable-facing surface; a canary
+  # (`v1.9.0-canary.1`) must not overwrite it. The guard is unconditional, so
+  # it covers every trigger — a published release, a pushed tag, and a manual
+  # dispatch (even one that names a prerelease tag).
+  classify:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Resolve docs tag
+        id: resolve
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${RELEASE_TAG}"
+          if [ -z "$tag" ]; then tag="${DISPATCH_TAG}"; fi
+          if [ -z "$tag" ] && [ "${GITHUB_REF_TYPE}" = "tag" ]; then tag="${GITHUB_REF_NAME}"; fi
+          if [ -z "$tag" ]; then
+            # No explicit tag: default to the newest final release, skipping
+            # prereleases so a dispatch never resolves to a canary.
+            tag="$(git tag --list 'v*' --sort=-v:refname | while read -r candidate; do
+              version="${candidate#v}"; version="${version%%+*}"
+              case "$version" in *-*) ;; *) printf '%s\n' "$candidate"; break;; esac
+            done)"
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          # Classify by the semver prerelease part, not a hyphen test: build
+          # metadata may itself contain a hyphen (v1.9.0+build-42 is a final
+          # release). A release explicitly flagged prerelease on GitHub is
+          # blocked too.
+          prerelease="false"
+          if [ "${RELEASE_PRERELEASE}" = "true" ]; then
+            prerelease="true"
+          else
+            version="${tag#v}"; version="${version%%+*}"
+            case "$version" in *-*) prerelease="true";; esac
+          fi
+          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: classify
+    if: needs.classify.outputs.prerelease != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
+          fetch-depth: 0
+          ref: ${{ needs.classify.outputs.tag }}
       - name: Configure Pages
         id: pages
         uses: actions/configure-pages@v6
       - name: Inject release version
         working-directory: docs
+        env:
+          # Pass the resolved tag through the environment rather than
+          # interpolating it into the script: a tag is repository-controlled
+          # text and `${{ }}` expands before the shell runs, so a name such as
+          # `v$(id)` would execute. Quoted `$DOCS_TAG` stays literal.
+          DOCS_TAG: ${{ needs.classify.outputs.tag }}
         run: |
           mkdir -p _data
-          echo "release: $DOCS_VERSION" > _data/version.yml
-        env:
-          DOCS_VERSION: ${{ github.event.release.tag_name || github.ref_name }}
+          printf 'release: %s\n' "$DOCS_TAG" > _data/version.yml
       - name: Render PlantUML diagrams
         working-directory: docs
         run: |
@@ -39,7 +100,7 @@ jobs:
           curl -fsSL "https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml.jar" -o /tmp/plantuml.jar
           cd diagrams && java -jar /tmp/plantuml.jar -DRELATIVE_INCLUDE -tsvg -o . $(find . -maxdepth 1 -name '*.puml' ! -name 'C4*' -printf '%f ')
         env:
-          PLANTUML_VERSION: 1.2026.7
+          PLANTUML_VERSION: 1.2026.9
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:

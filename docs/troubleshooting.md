@@ -2,11 +2,15 @@
 title: Troubleshooting
 description: "Fixes for common agents-sandbox problems, such as failing doctor checks, Docker and microsandbox runtime issues."
 layout: default
-nav_order: 110
+parent: Reference
+nav_order: 20
 ---
 # Troubleshooting
 
-Common issues and how to resolve them.
+Fixes for the problems you are most likely to hit while installing or running agents-sandbox.
+
+> **Note:** Run `agents-sandbox doctor` first. It checks the host prerequisites and reports what is missing; the
+> sections on this page cover the cases it cannot resolve on its own.
 
 ## `agents-sandbox doctor` fails
 
@@ -14,38 +18,67 @@ If the doctor command reports missing prerequisites:
 
 ### Docker not running
 
-Start the Docker daemon. How to start it depends on your environment. When using Docker Desktop, start it. With Docker installed as system wide package on Linux, the normal startup procedure is to execute `sudo systemctl start docker`
+Start your container engine. agents-sandbox talks to it over the Docker API, so what matters is that the engine serves
+that API, not which vendor provides it:
+
+- **Tested** — **Docker Engine**, **Docker Desktop**, **colima**, **podman**.
+- **Expected to work, but untested** — Podman Desktop and macOS podman machines, Rancher Desktop, OrbStack, Lima, and
+  any other engine that exposes a Docker-compatible socket.
+- **Not supported** — an engine with no Docker API, such as bare containerd with `nerdctl`, or colima started with its
+  `containerd` runtime.
+
+podman only: one podman setting can stop a build that works everywhere else, see
+[The base image cannot be found](#the-base-image-cannot-be-found).
+
+How you start the engine depends on which one you use: Docker Desktop starts from Applications, and a Docker Engine
+installed as a system-wide package on Linux starts with `sudo systemctl start docker`.
 
 You can verify afterwards by running `docker info`. It should show a healthy daemon.
 
-### Microsandbox runtime version mismatch
+The launcher finds the Docker endpoint the same way the `docker` CLI does: `DOCKER_HOST` first, then the active docker
+context (`docker context ls`), then the default `/var/run/docker.sock`. An engine that publishes its socket through a
+docker context, such as colima or Docker Desktop, needs no extra configuration; point `DOCKER_HOST` at an engine that
+publishes none.
 
-Before using microsandbox, agents-sandbox compares the selected `msb` version
-with the microsandbox SDK version linked into the launcher. A mismatch is
-reported before the runtime database is opened. The interactive recovery menu
-can:
+### Microsandbox runtime
 
-- upgrade agents-sandbox and restart when a newer launcher release is
-  available;
-- upgrade or downgrade `msb` to the required version;
-- use the installed runtime unchanged in unsupported brave mode;
-- print a sanitized diagnostic report and the bug-report URL; or
-- quit without changing anything.
+agents-sandbox provisions its own private microsandbox runtime under its data
+directory (`~/.local/share/agents-sandbox/msb`, or
+`$XDG_DATA_HOME/agents-sandbox/msb`) and points the SDK at it. The runtime never
+reads or writes your own `~/.microsandbox`; the one-time upgrade migration reads
+it only to copy your old volumes (see [Upgrading to 0.6]({% link install/upgrading.md %})).
+It does not install a user-facing `msb` command, and does not require any
+particular `msb` version on your machine. If agents-sandbox is the only thing
+installed, the absence of an `msb` command is expected, not a defect.
 
-The default choice is always quit. `--yes` does not select a runtime recovery
-action; in a noninteractive invocation the command prints diagnostics and
-exits without modifying the runtime.
-
-Do not replace only `~/.microsandbox/bin/msb` manually. The runtime database,
-`libkrunfw`, FFI library, VM records, volumes, and caches are versioned state
-and must remain compatible with one another. If a newer `msb` has already
-migrated the database, use the official rollback offered by the prompt rather
-than copying an older binary over the newer one.
-
-If no newer agents-sandbox release supports the installed `msb`, submit the
-compatibility report at:
+If you encounter a runtime error, submit a bug report at:
 
 <https://github.com/inoio/agents-sandbox/issues/new?template=bug_report.yml>
+
+### Legacy home volumes after upgrading
+
+For the upgrade overview — what changed, the migration choices, and how to retire
+`~/.microsandbox` — see [Upgrading to 0.6]({% link install/upgrading.md %}). See
+[Private volumes with unclear status](#private-volumes-with-unclear-status) for diagnosing an interrupted or unclear copy.
+
+An interrupted copy resumes where it stopped, because progress is tracked in
+agents-sandbox's host state. If a private volume already exists under a legacy
+name — for example after `~/.local/state/agents-sandbox/state.yaml` was removed —
+its status is unclear; [Private volumes with unclear status](#private-volumes-with-unclear-status) covers that case.
+
+#### Private volumes with unclear status
+
+The offer says so, cannot tell whether such a volume is a complete copy or a
+partial one, and gives two options:
+
+- **Copy the missing volumes; dismiss the existing private volumes from the
+  migration** — copies only the absent volumes and leaves the existing ones
+  untouched and never asked about again.
+- **Quit** — if you want a specific volume fully migrated, remove its private
+  copy with `agents-sandbox volume remove --force <name>` (the copy is still
+  referenced by its project's state, hence `--force`), then run again: the next
+  offer will re-copy it from the legacy home. Keep the copies you do not want
+  migrated.
 
 ### KVM unavailable
 
@@ -68,7 +101,7 @@ Log out and back in for the group change to take effect.
 
 The doctor command will exit with an error if you are running the x86_64 binary under Rosetta 2. Download the `darwin-arm64` binary instead. To check your current architecture:
 
-```
+```console
 uname -m
 ```
 
@@ -76,15 +109,15 @@ Expected output on supported hardware: `arm64`.
 
 ### Docker socket not found
 
-On macOS, the Docker socket is managed by Docker Desktop or colima. Verify it is running:
+On macOS the engine runs inside a VM, so the socket comes from whichever engine you started. Verify it is running:
 
-```
+```console
 docker info
 ```
 
 If Docker Desktop is installed but not running, launch it from Applications. If using colima:
 
-```
+```console
 colima start
 ```
 
@@ -92,14 +125,14 @@ agents-sandbox finds the socket the same way the `docker` CLI does: `DOCKER_HOST
 docker context, then the default `/var/run/docker.sock`. If `docker info` works but agents-sandbox reports
 the socket as unreachable, check which context is active and where it points:
 
-```
+```console
 docker context ls
 ```
 
 A context marked `*` that points at a stopped provider explains the failure — switch it with
 `docker context use <name>`, or point agents-sandbox at the socket directly:
 
-```
+```console
 export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
 ```
 
@@ -121,27 +154,28 @@ agents-sandbox run --log-level verbose
 Common causes:
 - Not enough system memory — reduce with `-m 2G`
 
+## State file errors
+
+agents-sandbox keeps host state in YAML files under `~/.local/state/agents-sandbox/`: one launcher-global `state.yaml`
+and one `state.yaml` per project and agent. It never overwrites a state file it cannot read.
+
+### "state file was written by a newer agents-sandbox"
+
+A newer agents-sandbox wrote the file with a schema this version does not know. To keep that version's data intact,
+this version refuses to change the file. Upgrade with `agents-sandbox upgrade`, or run the newer binary.
+
+### "parse root state file ... run `agents-sandbox state repair`"
+
+The launcher-global `state.yaml` is corrupt, which blocks update checks, the runtime migration, and identity adoption.
+Run [`agents-sandbox state repair`]({% link commands.md %}#state-repair) to move it aside as
+`state.yaml.corrupt-<timestamp>`. The next run starts from a fresh launcher state.
+
 ## Stale sandboxes consume resources
 
-### List and prune
+A sandbox that is no longer in use is stopped by its idle policy and reclaimed by auto-pruning. To list, stop, or
+reclaim sandboxes by hand, see [Sandboxes]({% link sandboxes.md %}) for the `list`, `stop`, `kill`, and `prune` commands.
 
-```console
-# See what's running
-agents-sandbox list
-
-# Remove old resources
-agents-sandbox prune --dry-run    # preview
-agents-sandbox prune --force      # remove
-```
-
-### Stop a specific VM
-
-```console
-agents-sandbox stop               # graceful stop
-agents-sandbox kill               # force kill
-```
-
-## Branch session issues
+## Worktree session issues
 
 ### "failed to create worktree"
 
@@ -158,9 +192,9 @@ Then retry the command. If the problem persists, check for uncommitted changes o
 git worktree list
 ```
 
-### Branch prompt hangs
+### Worktree prompt hangs
 
-If the branch creation prompt doesn't respond, check that the repository has a remote configured:
+If the worktree creation prompt doesn't respond, check that the repository has a remote configured:
 
 ```console
 git remote -v
@@ -185,6 +219,22 @@ secret is dropped with a warning.
 For `env.secret.yaml`, values may contain `@` without issues. Ensure the entry defines either `host`, `hosts`, or
 `allow_any_host_dangerous: true` — entries with no hosts definition are silently skipped. An empty `value` is valid
 and passed through unchanged.
+
+## TLS certificate errors for one application
+
+Once a secret is configured, requests to the matching hosts go through microsandbox's TLS proxy, whose interception CA
+the guest system store trusts. An application with its own trust store does not, and fails with a certificate-path
+error — Java reports
+`SunCertPathBuilderException: unable to find valid certification path to requested target`. Import the CA into that
+store with the `msb-trust` helper from the runner image:
+
+```console
+agents-sandbox shell --root
+msb-trust java
+```
+
+See [Trusting the CA in applications]({% link configuration/secrets.md %}) for which applications already work, and the
+[Java recipe]({% link recipes/java-ca-trust.md %}) for the boot hook that repeats the import after a recreate.
 
 ## Memory or CPU limits too low
 
@@ -257,3 +307,28 @@ If an older image or updater state reports `Release vuser-provided not found`, u
 runner image. `user-provided` identifies an agent that was previously found in a custom base; it is not a valid release
 version. A rebuilt image will keep an agent supplied by the base, or install a real resolved release if that binary is
 no longer present.
+
+### The base image cannot be found
+
+If the build fails before it runs any of your steps because the engine could not find an image named in a `FROM`, the
+engine is being asked to resolve a name with no registry in it. agents-sandbox pulls its own base under its full name
+(`docker.io/library/debian:trixie-slim`), so that name comes from your project Dockerfile or from a base it starts from.
+Docker Engine assumes Docker Hub and never fails this way; podman does when it has no search registries:
+
+```console
+Error: short-name "debian:trixie-slim" did not resolve to an alias and no unqualified search
+registries are defined in "/etc/containers/registries.conf"
+```
+
+Either fix works: name the registry in the `FROM`, such as `FROM docker.io/library/debian:trixie-slim`, or tell podman
+which registry to search by adding it to `registries.conf`:
+
+```toml
+unqualified-search-registries = ["docker.io"]
+```
+
+`short_name_mode = "permissive"` on its own does not help while that list is empty.
+
+When the build reports `base image not found or not logged in` for a name that already carries a registry, the registry
+rejected the pull instead: the image does not exist, it is private, or the engine is not logged in. Fix the name and
+retry, or log in to that registry (`docker login <registry>`) before building again.

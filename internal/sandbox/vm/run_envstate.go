@@ -1,51 +1,20 @@
 package vm
 
 import (
-	"errors"
-	"fmt"
-
-	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/agents-sandbox/internal/sandbox/network"
-	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
-func persistEnvSecrets(k state.Key, envState state.EnvState, secretState state.SecretState) error {
-	st, err := state.ReadState(k)
-	if err != nil {
-		if errors.Is(err, state.ErrStateNotFound) {
-			st = new(state.HomeState)
-		} else {
-			return fmt.Errorf("read state for persistence: %w", err)
+// persistFingerprints records the env/secret/network/mount fingerprints in one
+// home-state transaction, keeping every other field. With no prior state file it
+// is a no-op: home resolution already seeds a fresh home volume's fingerprints
+// (#183), and creating a document here would persist home_volume: "" — which the
+// next run's home resolution cannot resolve (#430).
+func persistFingerprints(k state.Key, fingerprints state.Fingerprints) error {
+	return state.WithHomeState(k, func(cur *state.HomeState, exists bool) (bool, error) {
+		if !exists {
+			return false, nil
 		}
-	}
-	st.EnvState = envState
-	st.SecretState = secretState
-	return state.WriteState(k, *st)
-}
-
-func persistNetworkState(k state.Key, policy network.Policy) error {
-	st, err := state.ReadState(k)
-	if err != nil {
-		if errors.Is(err, state.ErrStateNotFound) {
-			st = new(state.HomeState)
-		} else {
-			return fmt.Errorf("read state for network persistence: %w", err)
-		}
-	}
-	st.NetworkState = reprovision.BuildNetworkState(policy)
-	return state.WriteState(k, *st)
-}
-
-func persistMountState(k state.Key, mounts mounts.Mounts) error {
-	st, err := state.ReadState(k)
-	if err != nil {
-		if errors.Is(err, state.ErrStateNotFound) {
-			st = new(state.HomeState)
-		} else {
-			return fmt.Errorf("read state for mount persistence: %w", err)
-		}
-	}
-	st.MountState = reprovision.BuildMountState(mounts)
-	return state.WriteState(k, *st)
+		*cur = fingerprints.Apply(*cur)
+		return true, nil
+	})
 }

@@ -135,16 +135,3 @@ func TestVolumeList(t *testing.T) {
 		})
 	}
 }
-
-func TestVolumeListHeadersOrder(t *testing.T) {
-	want := []string{"NAME", "KIND", "SIZE", "CREATED"}
-	got := volumeListHeaders()
-	if len(got) != len(want) {
-		t.Fatalf("volumeListHeaders() = %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("volumeListHeaders()[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
-}

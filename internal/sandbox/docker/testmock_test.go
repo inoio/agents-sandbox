@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/moby/moby/client"
@@ -15,11 +16,13 @@ func TestMockDockerClientDefaults(t *testing.T) {
 	m := &MockDockerClient{}
 	ctx := context.Background()
 
-	if _, err := m.ImageBuild(ctx, io.NopCloser(nil), client.ImageBuildOptions{}); err != nil {
-		t.Errorf("ImageBuild default error = %v, want nil", err)
+	build, err := m.ImageBuild(ctx, io.NopCloser(nil), client.ImageBuildOptions{})
+	if err != nil || build.Body == nil {
+		t.Errorf("ImageBuild default = %+v, %v, want non-nil Body, nil", build, err)
 	}
-	if _, err := m.ImageInspect(ctx, "ref"); err != nil {
-		t.Errorf("ImageInspect default error = %v, want nil", err)
+	inspect, err := m.ImageInspect(ctx, "ref")
+	if err != nil || inspect.Config == nil {
+		t.Errorf("ImageInspect default = %+v, %v, want non-nil Config, nil", inspect, err)
 	}
 	save, err := m.ImageSave(ctx, []string{"ref"})
 	if err != nil || save == nil {
@@ -28,8 +31,9 @@ func TestMockDockerClientDefaults(t *testing.T) {
 	if _, err := m.ImageRemove(ctx, "ref", client.ImageRemoveOptions{}); err != nil {
 		t.Errorf("ImageRemove default error = %v, want nil", err)
 	}
-	if _, err := m.ImagePull(ctx, "ref", client.ImagePullOptions{}); err != nil {
-		t.Errorf("ImagePull default error = %v, want nil", err)
+	pull, err := m.ImagePull(ctx, "ref", client.ImagePullOptions{})
+	if err != nil || pull == nil {
+		t.Errorf("ImagePull default = %v, %v, want non-nil, nil", pull, err)
 	}
 	if _, err := m.ImageTag(ctx, client.ImageTagOptions{}); err != nil {
 		t.Errorf("ImageTag default error = %v, want nil", err)
@@ -61,7 +65,7 @@ func TestMockDockerClientFns(t *testing.T) {
 		ImageRemoveFn: func(context.Context, string, client.ImageRemoveOptions) (client.ImageRemoveResult, error) {
 			return client.ImageRemoveResult{}, wantErr
 		},
-		ImagePullFn: func(context.Context, string, client.ImagePullOptions) (io.ReadCloser, error) {
+		ImagePullFn: func(context.Context, string, client.ImagePullOptions) (client.ImagePullResponse, error) {
 			return nil, wantErr
 		},
 		ImageTagFn: func(context.Context, client.ImageTagOptions) (client.ImageTagResult, error) {
@@ -197,6 +201,56 @@ func TestWithDefaultErrorDockerMockInstalls(t *testing.T) {
 	WithDefaultErrorDockerMock(t)
 	if Get() == orig() {
 		t.Error("Get should return the error mock after WithDefaultErrorDockerMock")
+	}
+}
+
+// TestWithDockerMockRestoresGet verifies WithDockerMock's cleanup restores the
+// previously installed factory, so a later test does not inherit a leaked mock.
+func TestWithDockerMockRestoresGet(t *testing.T) {
+	t.Run("install", func(t *testing.T) {
+		WithDockerMock(t, &MockDockerClient{})
+	})
+
+	if _, ok := Get().(*failFastDockerClient); !ok {
+		t.Errorf("Get() = %T after the installing test, want the restored *failFastDockerClient", Get())
+	}
+}
+
+// TestPullResponseModelsWait covers the fake response's two roles: a body to
+// drain on success and a Wait error modelling a registry failure delivered
+// inside the stream.
+func TestPullResponseModelsWait(t *testing.T) {
+	ctx := context.Background()
+
+	succeeded := PullResponse{Body: strings.NewReader("{}")}
+	if err := succeeded.Wait(ctx); err != nil {
+		t.Errorf("PullResponse.Wait() = %v, want nil", err)
+	}
+	if err := succeeded.Close(); err != nil {
+		t.Errorf("PullResponse.Close() = %v, want nil", err)
+	}
+	got, err := io.ReadAll(succeeded)
+	if err != nil || string(got) != "{}" {
+		t.Errorf("PullResponse read = %q, %v, want %q, nil", got, err, "{}")
+	}
+	if seq := succeeded.JSONMessages(ctx); seq != nil {
+		for range seq {
+			t.Error("PullResponse.JSONMessages() yielded a message, want none")
+		}
+	}
+
+	wantErr := errors.New("pull access denied")
+	if err := (PullResponse{WaitErr: wantErr}).Wait(ctx); !errors.Is(err, wantErr) {
+		t.Errorf("PullResponse.Wait() = %v, want %v", err, wantErr)
+	}
+}
+
+// TestPullResponseWithoutBody verifies a response with no body reads as an empty
+// stream, so a successful pull that produced nothing still ends cleanly.
+func TestPullResponseWithoutBody(t *testing.T) {
+	got, err := io.ReadAll(PullResponse{})
+	if err != nil || len(got) != 0 {
+		t.Errorf("PullResponse{} read = %q, %v, want empty, nil", got, err)
 	}
 }
 

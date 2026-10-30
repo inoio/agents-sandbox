@@ -58,11 +58,11 @@ func DecodeMounts(raw any) (Mounts, error) {
 		return Mounts{}, nil
 	}
 	var mounts Mounts
-	//nolint:exhaustruct_v5 // DecoderConfig has many optional fields we leave zeroed.
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		DecodeHook: stringToBindMountHook(),
 		Result:     &mounts,
 	})
+	// gomutants:disable-next-line BRANCH_IF reason="NewDecoder only fails on a DecoderConfig this function builds statically: a non-pointer Result (ours is &mounts, addressable) or a hook that cannot compile (ours is a func value). No input reaches this branch; the guard keeps decoder non-nil for Decode."
 	if err != nil {
 		return nil, err
 	}
@@ -74,16 +74,12 @@ func DecodeMounts(raw any) (Mounts, error) {
 
 // managedMountTargets are the guest paths agents-sandbox mounts itself. A
 // configured mount may not replace them, nor shadow a parent of them.
-//
-//nolint:gochecknoglobals // package-level constant slice
 var managedMountTargets = []string{VMHomeDir, WorkspaceMountPath, TmpMountPath}
 
 // exclusiveMountTargets are managed mounts whose contents must stay visible,
 // so nesting a configured mount inside them is rejected as well. The home
 // volume is absent on purpose: mounting into it (e.g., /home/dev/.m2) is the
 // primary use case.
-//
-//nolint:gochecknoglobals // package-level constant slice
 var exclusiveMountTargets = []string{WorkspaceMountPath, TmpMountPath}
 
 // ResolveBindMounts expands host paths and validates configured bind mounts,
@@ -91,7 +87,7 @@ var exclusiveMountTargets = []string{WorkspaceMountPath, TmpMountPath}
 func ResolveBindMounts(mounts Mounts) (Mounts, error) {
 	resolved := make(map[string]BindMount, len(mounts))
 	for rawTarget, mount := range mounts {
-		target, err := resolveMountTarget(rawTarget)
+		target, err := ResolveMountTarget(rawTarget)
 		if err != nil {
 			return nil, err
 		}
@@ -131,8 +127,9 @@ func MountTargets(mounts Mounts) []string {
 	return targets
 }
 
-// resolveMountTarget validates a guest mount path and returns it cleaned.
-func resolveMountTarget(target string) (string, error) {
+// ResolveMountTarget validates a guest mount path against the managed mounts
+// and returns it cleaned.
+func ResolveMountTarget(target string) (string, error) {
 	if !filepath.IsAbs(target) {
 		return "", fmt.Errorf("mount target %q must be an absolute path", target)
 	}
@@ -165,6 +162,7 @@ func resolveMountSource(source string) (string, error) {
 		return "", err
 	}
 	info, err := os.Stat(resolved)
+	// gomutants:disable-next-line BRANCH_IF reason="EvalSymlinks already proved resolved exists and holds no symlinks, so os.Stat on it cannot fail short of a concurrent filesystem change; no input reaches this branch, and dropping the guard would panic on info.IsDir()."
 	if err != nil {
 		return "", err
 	}

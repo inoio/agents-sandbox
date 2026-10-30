@@ -7,17 +7,133 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 )
 
-// imageHasDockerfileID reports whether the existing runner image carries a
-// dockerfile-id label matching the current content identity. A match means the
-// baked image reflects the current agent, project Dockerfile, and version, so
-// the build can be skipped. It returns false on any inspect error or a missing
-// config/label so an unknown image is always rebuilt.
-func imageHasDockerfileID(ctx context.Context, rTag, dockerfileID string) bool {
+// runnerImageState is the inspected identity of an existing runner image.
+type runnerImageState struct {
+	Present      bool
+	DockerfileID string
+	Labels       map[string]string
+}
+
+// inspectRunnerImage reads the runner image's identity labels. A missing image
+// or one without config is reported as absent so the caller rebuilds.
+func inspectRunnerImage(ctx context.Context, rTag string) runnerImageState {
 	inspect, err := docker.Get().ImageInspect(ctx, rTag)
 	if err != nil || inspect.Config == nil {
-		return false
+		return runnerImageState{}
 	}
-	return inspect.Config.Labels[dockerfileIDLabelKey] == dockerfileID
+	labels := inspect.Config.Labels
+	return runnerImageState{
+		Present:      true,
+		DockerfileID: labels[dockerfileIDLabelKey],
+		Labels:       labels,
+	}
+}
+
+// ExistingAgentVersion reports the agent release baked into an existing runner
+// image for the project, read from its identity label. It is a local, no-network
+// probe used to recover the upgrade baseline when the project's recorded
+// agent_version is missing (e.g. the run after the updater.yaml migration
+// dropped the global current_version). It returns false when the image is
+// absent, predates the label, or carries a non-release sentinel
+// (none / user-provided).
+func ExistingAgentVersion(ctx context.Context, projectSlug, agentName string) (string, bool) {
+	state := inspectRunnerImage(ctx, runnerTag(projectSlug, agentName))
+	if !state.Present {
+		return "", false
+	}
+	version := agentReleaseFromLabels(state.Labels)
+	return version, version != ""
+}
+
+// agentReleaseFromLabels returns the release the image labels report, or "" for
+// a missing or non-release sentinel.
+func agentReleaseFromLabels(labels map[string]string) string {
+	version := labels[agentVersionLabelKey]
+	if version == identityNone || version == userProvidedImageIdentity {
+		return ""
+	}
+	return version
+}
+
+// buildDecision decides whether the runner image must be rebuilt, and when it
+// must, the reasons. A forced build short-circuits so no image inspect is made.
+func buildDecision(
+	ctx context.Context,
+	rTag string,
+	force bool,
+	dockerfileID string,
+	identity imageIdentity,
+) (bool, []string) {
+	if force {
+		return true, []string{"forced by --rebuild"}
+	}
+	return buildReasons(inspectRunnerImage(ctx, rTag), dockerfileID, identity)
+}
+
+// buildReasons explains why the runner image must be rebuilt. A differing
+// dockerfile-id names the changed source components; host-dependent components,
+// which the dockerfile-id leaves out, are compared on their own. No reasons
+// means the current inputs are already baked, so no build is needed.
+func buildReasons(state runnerImageState, dockerfileID string, identity imageIdentity) (bool, []string) {
+	if !state.Present {
+		return true, []string{"runner image not present locally"}
+	}
+	var reasons []string
+	if state.DockerfileID != dockerfileID {
+		reasons = changedIdentityReasons(state.Labels, identity)
+		if len(reasons) == 0 {
+			reasons = []string{"runner image content changed (tool version or legacy image)"}
+		}
+	}
+	reasons = append(reasons, changedHostReasons(state.Labels, identity)...)
+	return len(reasons) > 0, reasons
+}
+
+// changedHostReasons lists the host-dependent identity components that differ
+// from the image's recorded labels. An unknown value on either side is not a
+// change: an image without the label has nothing to compare against, and a
+// base image that is not cached locally (e.g. pruned) says nothing about a
+// newer base, so the decision must not pull to find out.
+func changedHostReasons(labels map[string]string, identity imageIdentity) []string {
+	var reasons []string
+	if recorded, ok := labels[userLabelKey]; ok && recorded != identity.User {
+		reasons = append(reasons, "host user uid/gid changed")
+	}
+	if recorded, ok := labels[baseLabelKey]; ok && identity.BaseImage != "" && recorded != identity.BaseImage {
+		reasons = append(reasons, "base image updated")
+	}
+	return reasons
+}
+
+// changedIdentityReasons lists the identity components that differ from the
+// image's recorded labels. It returns nil when the image predates the component
+// labels, leaving the caller to report a generic content change.
+func changedIdentityReasons(labels map[string]string, identity imageIdentity) []string {
+	if !hasIdentityLabels(labels) {
+		return nil
+	}
+	var reasons []string
+	if labels[projectDockerfileHashLabelKey] != identity.ProjectDockerfileHash {
+		reasons = append(reasons, "project Dockerfile changed")
+	}
+	if labels[agentVersionLabelKey] != identity.AgentVersion {
+		reasons = append(reasons, "agent version changed")
+	}
+	if labels[dockerLabelKey] != identity.Docker {
+		reasons = append(reasons, "docker-in-docker changed")
+	}
+	return reasons
+}
+
+// hasIdentityLabels reports whether the image carries any identity component
+// labels, distinguishing a legacy image from one with changed components.
+func hasIdentityLabels(labels map[string]string) bool {
+	for _, key := range []string{projectDockerfileHashLabelKey, agentVersionLabelKey, dockerLabelKey} {
+		if _, ok := labels[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // readImageInfoFromDocker returns the image env map by inspecting the Docker

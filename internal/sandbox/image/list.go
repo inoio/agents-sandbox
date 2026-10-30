@@ -3,7 +3,6 @@ package image
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/humanize"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -30,7 +29,12 @@ func imageSize(bytes *int64) string {
 	return humanize.FormatBytes(uint64(*bytes))
 }
 
-// ListImages returns the cached runner images.
+// ListImages returns the cached runner images. Ownership is positional: the
+// private runtime home holds only objects agents-sandbox created, so a reference
+// is a runner image when its parsed slug embeds the launcher's 14-character
+// slug hash (naming.IsRunnerImageRef); a repository reference (a slash) or a
+// single-segment reference without that hash — a manually loaded image — is
+// excluded, matching the removal guard.
 func ListImages(ctx context.Context) ([]Info, error) {
 	handles, err := msb.Get().ImageList(ctx)
 	if err != nil {
@@ -39,14 +43,15 @@ func ListImages(ctx context.Context) ([]Info, error) {
 	var result []Info
 	for _, h := range handles {
 		ref := h.Reference()
-		if strings.HasPrefix(ref, naming.ImagePrefix) {
-			result = append(result, Info{
-				Reference: ref,
-				Digest:    h.ManifestDigest(),
-				Size:      imageSize(h.SizeBytes()),
-				CreatedAt: FormatImageTime(h.CreatedAt()),
-			})
+		if !naming.IsRunnerImageRef(ref) {
+			continue
 		}
+		result = append(result, Info{
+			Reference: ref,
+			Digest:    h.ManifestDigest(),
+			Size:      imageSize(h.SizeBytes()),
+			CreatedAt: FormatImageTime(h.CreatedAt()),
+		})
 	}
 	return result, nil
 }

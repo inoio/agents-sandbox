@@ -1,16 +1,43 @@
 package vm
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
 
-	termio "github.com/inoio/agents-sandbox/internal/testutil/mocks"
+	mocks "github.com/inoio/agents-sandbox/internal/testutil/mocks"
+)
+
+// capturedDaemonReadyTimeout and capturedDaemonPollInterval hold the values the
+// production declarations assign, captured before TestMain overwrites the vars
+// for fast unit tests. TestMain's override makes the declared defaults
+// unreachable from a test otherwise, so this capture is how a test can pin them.
+var (
+	capturedDaemonReadyTimeout = daemonReadyTimeout
+	capturedDaemonPollInterval = daemonPollInterval
 )
 
 func TestMain(m *testing.M) {
-	termio.InitFailFastMocks(m)
+	// A mock that does not answer a readiness probe must fail fast, not poll out
+	// the production budget: these are mocked unit tests, and the first probe is
+	// healthy in every passing case. A test that needs the production window, or
+	// a deliberately expired one, saves and restores the var itself.
+	daemonReadyTimeout = 2 * time.Second
+	daemonPollInterval = 10 * time.Millisecond
+	dockerdReadyTimeout = 2 * time.Second
+	dockerdPollInterval = 10 * time.Millisecond
+	sandboxLifecyclePollInterval = 10 * time.Millisecond
+	// Seal PrepareSandbox off from the developer's real legacy home: the default
+	// offer is a no-op, and the tests that exercise it opt in explicitly.
+	SetRuntimeHomeMigrationOffer(func(context.Context, msb.Client, termio.UI) error { return nil })
+	// No existing runner image by default; recovery tests opt in explicitly.
+	existingAgentVersion = func(context.Context, string, string) (string, bool) { return "", false }
+	mocks.InitFailFastMocks(m)
 }
 
 // opencodeAgent returns the default opencode profile for tests that need a real

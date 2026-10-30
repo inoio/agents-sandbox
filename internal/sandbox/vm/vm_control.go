@@ -27,14 +27,15 @@ func stopOrKillProjectVM(
 ) error {
 	name := projectVMName(k)
 
-	handle, err := client.GetSandbox(ctx, name)
+	handle, found, err := findProjectVM(ctx, client, k)
 	if err != nil {
-		if msb.IsNotFound(err) {
-			ui.Infof("no project VM found: %s", name)
-			return nil
-		}
-		return fmt.Errorf("get sandbox %q: %w", name, err)
+		return err
 	}
+	if !found {
+		ui.Infof("no project VM found: %s", name)
+		return nil
+	}
+	name = handle.Name()
 
 	pastTense := action + "ed"
 	if action == "stop" {
@@ -44,6 +45,14 @@ func stopOrKillProjectVM(
 	status := handle.Status()
 	if msb.IsSandboxInactive(status) {
 		ui.Infof("project VM already %s: %s", pastTense, name)
+		if !remove {
+			return nil
+		}
+		if dryRun {
+			ui.Infof("dry-run: Would remove persisted state of %s project VM: %s", pastTense, name)
+			return nil
+		}
+		removePersistedState(ctx, handle, ui, name)
 		return nil
 	}
 	if !msb.IsSandboxActive(status) {
@@ -75,36 +84,59 @@ func stopOrKillProjectVM(
 	ui.Infof("%s project VM: %s", pastTense, name)
 
 	if remove {
-		if err := handle.Remove(ctx); err != nil {
-			ui.Warnf("failed to remove sandbox state: %v", err)
-		} else {
-			ui.Verbosef("persisted state removed: %s", name)
-		}
+		removePersistedState(ctx, handle, ui, name)
 	}
 	return nil
 }
 
+// removePersistedState deletes a sandbox's persisted state, warning rather than
+// failing the command when the removal does not succeed.
+func removePersistedState(ctx context.Context, handle msb.SandboxHandle, ui termio.UI, name string) {
+	if err := handle.Remove(ctx); err != nil {
+		ui.Warnf("failed to remove sandbox state: %v", err)
+		return
+	}
+	ui.Verbosef("persisted state removed: %s", name)
+}
+
 // StopProjectVM gracefully stops the project VM for the current directory and
-// agent. If remove is true, it also removes the VM's persisted state after
-// stopping.
+// agent. If remove is true, it also removes the VM's persisted state; an
+// inactive VM is not stopped, only removed.
 func StopProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agentName string) error {
 	a, ok := agent.Lookup(agentName)
 	if !ok {
 		return fmt.Errorf("unknown agent %q", agentName)
 	}
-	k := state.Key{Slug: git.ProjectSlug(), Agent: a.Name()}
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		return err
+	}
+	adoption, err := AdoptLegacyIdentity(ctx, msb.Get(), identity, a.Name(), !dryRun, ui)
+	if err != nil {
+		return err
+	}
+	k := state.Key{Slug: adoption.Slug, Agent: a.Name()}
 	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "stop", "Stopping", msb.Get(),
 		func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
 }
 
 // KillProjectVM force-kills the project VM for the current directory and agent.
-// If remove is true, it also removes the VM's persisted state after killing.
+// If remove is true, it also removes the VM's persisted state; an inactive VM
+// is not killed, only removed.
 func KillProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agentName string) error {
 	a, ok := agent.Lookup(agentName)
 	if !ok {
 		return fmt.Errorf("unknown agent %q", agentName)
 	}
-	k := state.Key{Slug: git.ProjectSlug(), Agent: a.Name()}
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		return err
+	}
+	adoption, err := AdoptLegacyIdentity(ctx, msb.Get(), identity, a.Name(), !dryRun, ui)
+	if err != nil {
+		return err
+	}
+	k := state.Key{Slug: adoption.Slug, Agent: a.Name()}
 	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "kill", "Force-killing", msb.Get(),
 		func(h msb.SandboxHandle, c context.Context) error { return h.Kill(c) })
 }

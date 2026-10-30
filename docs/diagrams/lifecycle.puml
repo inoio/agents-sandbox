@@ -20,7 +20,7 @@ activityDiagram {
 title agents-sandbox — lifecycle of the run command
 
 start
-:Pre-flight checks (doctor)\nDocker, KVM, Git, msb;
+:Pre-flight checks (doctor)\nDocker, KVM, microsandbox runtime;
 :Auto-prune\nremove stale VMs, volumes, images (once per process);
 
 if (newer agent available?\nchecked once per day & per version;\nuser-provided agents skip this check) then (yes)
@@ -37,7 +37,7 @@ else (no)
         :Reuse cached image\nno rebuild needed;
     endif
 endif
-:Home volume verify\nread state file, check msb volume;
+:Home volume verify\nread state file, check home volume;
 if (volume exists?) then (no)
     :Create home volume\nprefill from runner image;
 else (yes)

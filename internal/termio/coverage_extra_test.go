@@ -83,26 +83,6 @@ func TestOutfHiddenAtQuietLevel(t *testing.T) {
 	}
 }
 
-// ---- OutToVerboseRedirect ----
-
-func TestOutToVerboseRedirectOut(t *testing.T) {
-	m := &Mock{}
-	v := &OutToVerboseRedirect{UI: m}
-	v.Out("redirected")
-	if len(m.VerboseCalls) != 1 || m.VerboseCalls[0] != "redirected" {
-		t.Errorf("expected Verbose call with message, got %v", m.VerboseCalls)
-	}
-}
-
-func TestOutToVerboseRedirectOutf(t *testing.T) {
-	m := &Mock{}
-	v := &OutToVerboseRedirect{UI: m}
-	v.Outf("kept repo %s on branch %s", "/p", "feat")
-	if len(m.VerboseCalls) != 1 || m.VerboseCalls[0] != "kept repo /p on branch feat" {
-		t.Errorf("expected formatted Verbose call, got %v", m.VerboseCalls)
-	}
-}
-
 // ---- spinner: animate and finish branches ----
 
 func TestSpinnerColorAnimateAndDone(t *testing.T) {
@@ -140,13 +120,41 @@ func TestSpinnerFinishDefaultResultColor(t *testing.T) {
 }
 
 func TestSpinnerAnimateIterates(t *testing.T) {
+	orig := spinnerInterval
+	spinnerInterval = time.Millisecond
+	t.Cleanup(func() { spinnerInterval = orig })
+
 	var stderr bytes.Buffer
 	s := newSpinner(&stderr, true, LevelInfo, "step")
-	time.Sleep(3 * spinnerInterval)
+	time.Sleep(5 * spinnerInterval)
 	s.finish("done")
 	out := stderr.String()
 	if !strings.Contains(out, "step") {
 		t.Errorf("expected spinner msg in animated output, got %q", out)
+	}
+}
+
+// TestSpinnerFinishStopsPromptly verifies that finishing a spinner does not
+// block for the animation interval: finish signals the goroutine, which must
+// wake immediately instead of sleeping out the current frame.
+func TestSpinnerFinishStopsPromptly(t *testing.T) {
+	orig := spinnerInterval
+	spinnerInterval = time.Hour
+	t.Cleanup(func() { spinnerInterval = orig })
+
+	var stderr bytes.Buffer
+	s := newSpinner(&stderr, true, LevelInfo, "step")
+
+	done := make(chan struct{})
+	go func() {
+		s.finish("done")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("finish blocked on the animation interval instead of stopping promptly")
 	}
 }
 

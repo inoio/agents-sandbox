@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -25,16 +25,59 @@ type preparedSandbox interface {
 	Sandbox() msb.Sandbox
 	Target() string
 	ServeHostPort() int
+	GuestCWD() string
+	Key() state.Key
+	HomeVolume() string
 }
 
 // prepareSandbox is a test seam swapped in tests to avoid real VM setup.
-var prepareSandbox = func(ctx context.Context, opts options.RunOptions, ui termio.UI) (preparedSandbox, error) { //nolint:gochecknoglobals // test seam
-	return sandbox.PrepareSandbox(ctx, opts, ui)
+var prepareSandbox = func(ctx context.Context, opts options.RunOptions, skipVM bool, ui termio.UI) (preparedSandbox, error) {
+	return sandbox.PrepareSandbox(ctx, opts, skipVM, ui)
+}
+
+// previewSandbox is a test seam swapped in tests to avoid real host inspection.
+var previewSandbox = sandbox.PreviewSandbox
+
+// renderPreview reports what a real run would do, without doing it.
+func renderPreview(ui termio.UI, p sandbox.Preview, shell bool) {
+	switch {
+	case p.ResolveVersionAtBuild:
+		ui.Infof("dry-run: agent version resolved at build time")
+	case p.UpgradeCheckSkipped:
+		ui.Infof("dry-run: agent version %s (upgrade check not run)", p.AgentVersion)
+	default:
+		ui.Infof("dry-run: agent version %s", p.AgentVersion)
+	}
+	if p.BuildImage {
+		ui.Infof("dry-run: would build runner image %s (%s)", p.ImageTag, strings.Join(p.BuildReasons, "; "))
+	} else {
+		ui.Infof("dry-run: would reuse runner image %s", p.ImageTag)
+	}
+	if p.CreateHome {
+		ui.Infof("dry-run: would create home volume")
+	} else {
+		ui.Infof("dry-run: would reuse home volume %s", p.HomeVolume)
+	}
+	if shell {
+		ui.Infof("dry-run: would start interactive shell session")
+	} else {
+		ui.Infof("dry-run: would start agent session")
+	}
+}
+
+// previewAndRender resolves the read-only preview and reports it, returning nil
+// so a dry run ends here: nothing is built, created, written, started, or
+// attached.
+func previewAndRender(ctx context.Context, opts options.RunOptions, ui termio.UI, shell bool) error {
+	p, err := previewSandbox(ctx, opts, ui)
+	if err != nil {
+		return err
+	}
+	renderPreview(ui, p, shell)
+	return nil
 }
 
 // notifyWatch is a test seam; production uses notify.Watch.
-//
-//nolint:gochecknoglobals // test seam
 var notifyWatch = notify.Watch
 
 // startNotifyWatcher launches the notify watcher in a goroutine and returns a
@@ -52,7 +95,12 @@ func startNotifyWatcher(
 	projectSlug string,
 ) func() error {
 	if sb == nil || !cfg.Active() || spec == nil {
-		ui.Verbosef("not starting notify watcher, sandbox %s, active %v, spec %s", sb, cfg.Active(), spec)
+		ui.Verbosef(
+			"not starting notify watcher, sandbox nil %v, active %v, spec set %v",
+			sb == nil,
+			cfg.Active(),
+			spec != nil,
+		)
 		return func() error { return nil }
 	}
 	backend := notify.NewBackend(cfg, ui)
@@ -64,8 +112,8 @@ func startNotifyWatcher(
 	var watchErr error
 	go func() {
 		defer close(done)
-		ui.Verbosef("starting notify watcher, sandbox %s, active %v, spec %s", sb, cfg.Active(), spec)
-		watchErr = notifyWatch(watchCtx, sb, *spec, backend)
+		ui.Verbosef("starting notify watcher, project %s, active %v, spec %+v", projectSlug, cfg.Active(), spec)
+		watchErr = notifyWatch(watchCtx, notify.SandboxStreamOpener{Sandbox: sb}, *spec, backend)
 	}()
 	return func() error {
 		cancel()
@@ -92,20 +140,26 @@ func logNotifyWatcherError(stop func() error, ui termio.UI) {
 }
 
 // serveOnlyMessage builds the message printed when serving the agent daemon for
-// external clients such as desktop apps.
-func serveOnlyMessage(host, port string) string {
-	return fmt.Sprintf("Connect a client to: http://%s:%s\n\n"+
-		"Optional: set OPENCODE_SERVER_PASSWORD (and OPENCODE_SERVER_USERNAME) to protect the server with basic auth.\n"+
-		"Press Ctrl-D to stop serving.", host, port)
+// external clients such as desktop apps. The basic-auth guidance is
+// agent-specific: opencode's is opt-in, opencode2's is mandatory with a baked
+// credential, so a client can only connect with the right hint.
+func serveOnlyMessage(a agent.Agent, host, port string) string {
+	authHint := ""
+	if provider, ok := agent.AsDaemonProvider(a); ok {
+		if hint := provider.DaemonAuthHint(); hint != "" {
+			authHint = hint + "\n"
+		}
+	}
+	return fmt.Sprintf("Connect a client to: http://%s:%s\n\n%sPress Ctrl-D to stop serving.", host, port, authHint)
 }
 
 // runServeOnly keeps the VM alive and blocks until ctx is done (CTRL-D or
 // SIGINT), without attaching an in-VM TUI. It holds the VM via a keeper exec so
 // the msb idle timeout does not stop it while serving.
-func runServeOnly(ctx context.Context, sb msb.Sandbox, ui termio.UI, hostPort int) error {
+func runServeOnly(ctx context.Context, a agent.Agent, sb msb.Sandbox, ui termio.UI, hostPort int) error {
 	host := options.ServeOnlyBindAddr
 	port := strconv.Itoa(hostPort)
-	ui.Infof("%s", serveOnlyMessage(host, port))
+	ui.Infof("%s", serveOnlyMessage(a, host, port))
 	keeperCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	keeperDone := keepVMAlive(keeperCtx, sb)
@@ -118,24 +172,28 @@ func runServeOnly(ctx context.Context, sb msb.Sandbox, ui termio.UI, hostPort in
 // serve daemon, and attaches a TUI client.
 //
 // Note: Run is called from cli.go after all flags are resolved.
-func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
-	ses, err := prepareSandbox(ctx, opts, ui)
+func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui termio.UI) error {
+	if mode.Previews() {
+		return previewAndRender(ctx, opts, ui, false)
+	}
+
+	ses, err := prepareSandbox(ctx, opts, mode.SkipsVM(), ui)
 	if err != nil {
 		return err
 	}
 	defer ses.Cleanup()
 	sb := ses.Sandbox()
 
-	if opts.DryRun {
-		ui.Infof("dry-run: Would run agent session")
-		return nil
-	}
-	if opts.DryRunVM && sb == nil {
+	// A skip-VM prepare leaves sb nil (PrepareSandbox's skipVM contract), so
+	// this mode check alone decides the dry-run-vm path. Keeping only
+	// mode.SkipsVM() avoids a redundant sb == nil operand whose mutations cannot
+	// change behaviour.
+	if mode.SkipsVM() {
 		ui.Infof("dry-run: Would start agent session in VM")
 		return nil
 	}
 
-	projectSlug := git.ProjectSlug()
+	projectSlug := ses.Key().Slug
 
 	a, _ := agent.Lookup(opts.Agent)
 	var streamSpec *agent.EventStreamSpec
@@ -145,60 +203,82 @@ func Run(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
 	}
 	stopNotify := startNotifyWatcher(ctx, sb, opts.Notify, ui, streamSpec, projectSlug)
 	defer logNotifyWatcherError(stopNotify, ui)
+	stopHostOpener := startHostOpener(ctx, ses, opts.OpenLinks, ui)
+	defer stopHostOpener()
 
-	if opts.ServeOnly { //nolint:nestif // lease acquire/serve/release/reap sequence requires this structure
-		k := state.Key{Slug: projectSlug, Agent: a.Name()}
-		release, acquireErr := state.AcquireClientLease(k)
-		if acquireErr != nil {
-			ui.Warnf("client lease failed: %v", acquireErr)
-		}
-		defer func() {
-			if acquireErr == nil && release != nil {
-				release()
-			}
-		}()
-		if err := runServeOnly(ctx, sb, ui, ses.ServeHostPort()); err != nil && !errors.Is(err, context.Canceled) {
-			return err
-		}
-		if acquireErr == nil {
-			release()
-			release = nil
-		}
-		if err := reapOnLastClient(ctx, a, k, sb, opts.ReapPolicy, ui); err != nil {
-			ui.Warnf("reap failed: %v", err)
-		}
-		return &sandbox.ExitError{Code: 0}
+	if opts.ServeOnly {
+		return runServeOnlySession(ctx, a, sb, opts, ui, ses.ServeHostPort(), projectSlug)
 	}
 
 	setup := buildAttachCommand(a, ses.Target(), opts.Args)
 	ui.Verbosef("%s", setup)
 	// Run as a login shell so /etc/profile and ~/.profile are sourced,
-	// putting tools installed under /usr/local/go/bin, ~/go/bin and
-	// ~/.microsandbox/bin on PATH for the agent and its child shells.
-	return runAttach(ctx, sb, projectSlug, ui, opts, "-l", "-c", setup)
+	// putting tools installed under /usr/local/go/bin and ~/go/bin on
+	// PATH for the agent and its child shells. The image's composed PATH
+	// is restored by the /etc/profile.d/agents-sandbox-path.sh merge.
+	return runAttach(ctx, sb, projectSlug, ses.GuestCWD(), ui, opts, "-l", "-c", setup)
+}
+
+// runServeOnlySession owns the lease acquire/serve/release/reap sequence for
+// serve-only mode.
+func runServeOnlySession(
+	ctx context.Context,
+	a agent.Agent,
+	sb msb.Sandbox,
+	opts options.RunOptions,
+	ui termio.UI,
+	hostPort int,
+	projectSlug string,
+) error {
+	k := state.Key{Slug: projectSlug, Agent: a.Name()}
+	release, acquireErr := state.AcquireClientLease(k)
+	if acquireErr != nil {
+		ui.Warnf("client lease failed: %v", acquireErr)
+	}
+	defer func() {
+		if acquireErr == nil && release != nil {
+			release()
+		}
+	}()
+	if err := runServeOnly(ctx, a, sb, ui, hostPort); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	if acquireErr == nil {
+		release()
+		release = nil
+	}
+	if err := reapOnLastClient(ctx, a, k, sb, opts.ReapPolicy, ui); err != nil {
+		ui.Warnf("reap failed: %v", err)
+	}
+	return &sandbox.ExitError{Code: 0}
 }
 
 // Shell creates (or reuses) the project VM and drops the user into an
 // interactive shell session, without starting the agent serve daemon.
-func Shell(ctx context.Context, opts options.RunOptions, ui termio.UI) error {
-	ses, err := prepareSandbox(ctx, opts, ui)
+func Shell(ctx context.Context, opts options.RunOptions, mode options.Mode, ui termio.UI) error {
+	if mode.Previews() {
+		return previewAndRender(ctx, opts, ui, true)
+	}
+
+	ses, err := prepareSandbox(ctx, opts, mode.SkipsVM(), ui)
 	if err != nil {
 		return err
 	}
 	defer ses.Cleanup()
 	sb := ses.Sandbox()
 
-	if opts.DryRun {
-		ui.Infof("dry-run: Would start interactive shell session")
-		return nil
-	}
-	if opts.DryRunVM && sb == nil {
+	// See Run: the skip-VM mode alone decides this path because a skip-VM
+	// prepare leaves sb nil.
+	if mode.SkipsVM() {
 		ui.Infof("dry-run: Would start interactive shell session")
 		return nil
 	}
 
-	projectSlug := git.ProjectSlug()
-	return runAttach(ctx, sb, projectSlug, ui, opts, "-l")
+	stopHostOpener := startHostOpener(ctx, ses, opts.OpenLinks, ui)
+	defer stopHostOpener()
+
+	projectSlug := ses.Key().Slug
+	return runAttach(ctx, sb, projectSlug, ses.GuestCWD(), ui, opts, "-l")
 }
 
 func finalizeRun(attachErr error, exitCode int) error {
@@ -212,11 +292,14 @@ func finalizeRun(attachErr error, exitCode int) error {
 }
 
 // runAttach performs the shared lease-acquire, attach, explicit release,
-// reap-on-last-client, and finalize sequence for Run and Shell.
+// reap-on-last-client, and finalize sequence for Run and Shell. The guest CWD
+// is applied to every agent attach; pi and Claude Code ignore the attach
+// target and rely solely on the working directory.
 func runAttach(
 	ctx context.Context,
 	sb msb.Sandbox,
 	projectSlug string,
+	guestCWD string,
 	ui termio.UI,
 	opts options.RunOptions,
 	bashArgs ...string,
@@ -238,11 +321,11 @@ func runAttach(
 	// Attach to the sandbox and capture its exit code.
 	var exitCode int
 	var attachErr error
+	attachOpts := []msbSdk.AttachOption{msbSdk.WithAttachCwd(guestCWD)}
 	if opts.Root {
-		exitCode, attachErr = sb.AttachWith(ctx, "/bin/bash", bashArgs, msbSdk.WithAttachUser(sandbox.RootUser))
-	} else {
-		exitCode, attachErr = sb.Attach(ctx, "/bin/bash", bashArgs...)
+		attachOpts = append(attachOpts, msbSdk.WithAttachUser(sandbox.RootUser))
 	}
+	exitCode, attachErr = sb.AttachWith(ctx, "/bin/bash", bashArgs, attachOpts...)
 
 	// Explicitly release the lease after attach returns, before reaping.
 	// This ensures state.CountActiveClients reflects only OTHER live clients.

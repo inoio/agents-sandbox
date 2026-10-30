@@ -5,7 +5,11 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/runoptions"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
@@ -41,31 +45,89 @@ func TestResolveConfigAgentNameResolverEmptyAgent(t *testing.T) {
 	}
 }
 
-func TestResolveBuildDindDefault(t *testing.T) {
+func TestResolveBuildDockerSettingDefault(t *testing.T) {
 	cmd := buildDockerfileCmd(&termio.Mock{})
-	if resolveBuildDind(cmd) {
-		t.Error("resolveBuildDind = true, want false (no flag, no resolver)")
+	if resolveBuildDockerSetting(cmd).Enabled {
+		t.Error("resolveBuildDockerSetting = true, want false (no flag, no resolver)")
 	}
 }
 
-func TestResolveBuildDindFlag(t *testing.T) {
+func TestResolveBuildDockerSettingFlag(t *testing.T) {
+	cmd := buildDockerfileCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagDocker, "true"); err != nil {
+		t.Fatalf("set docker: %v", err)
+	}
+	got := resolveBuildDockerSetting(cmd)
+	if !got.Enabled || !got.Explicit {
+		t.Errorf("resolveBuildDockerSetting = %+v, want enabled and explicit (flag set)", got)
+	}
+}
+
+func TestResolveBuildDeprecatedDindFlagSetting(t *testing.T) {
 	cmd := buildDockerfileCmd(&termio.Mock{})
 	if err := cmd.Flags().Set(flagDind, "true"); err != nil {
 		t.Fatalf("set dind: %v", err)
 	}
-	if !resolveBuildDind(cmd) {
-		t.Error("resolveBuildDind = false, want true (flag set)")
+	got := resolveBuildDockerSetting(cmd)
+	if !got.Enabled || !got.Explicit {
+		t.Errorf("resolveBuildDockerSetting = %+v, want enabled and explicit (deprecated --dind set)", got)
 	}
 }
 
-func TestResolveBuildDindFromResolver(t *testing.T) {
+func TestResolveBuildDockerSettingFlagWinsOverDind(t *testing.T) {
+	cmd := buildDockerfileCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagDind, "true"); err != nil {
+		t.Fatalf("set dind: %v", err)
+	}
+	if err := cmd.Flags().Set(flagDocker, "false"); err != nil {
+		t.Fatalf("set docker: %v", err)
+	}
+	if resolveBuildDockerSetting(cmd).Enabled {
+		t.Error("resolveBuildDockerSetting = true, want --docker to win over --dind")
+	}
+}
+
+func TestResolveBuildDockerSettingFromResolver(t *testing.T) {
 	ui := &termio.Mock{}
 	cmd := buildDockerfileCmd(ui)
 	ctx := context.WithValue(context.Background(), (*launcherConfigKey)(nil),
-		launcherconfig.NewResolverWithConfig(launcherconfig.Config{Dind: true}))
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{Docker: true}))
 	cmd.SetContext(ctx)
-	if !resolveBuildDind(cmd) {
-		t.Error("resolveBuildDind = false, want true (from resolver)")
+	if !resolveBuildDockerSetting(cmd).Enabled {
+		t.Error("resolveBuildDockerSetting = false, want true (from resolver)")
+	}
+}
+
+// The build path resolves the deprecated --dind flag through the same shared
+// precedence as the run path, so a canonical docker config beats it here too.
+func TestResolveBuildDindFlagLosesToDockerConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"docker": false})
+
+	cmd := buildDockerfileCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagDind, "true"); err != nil {
+		t.Fatalf("set dind: %v", err)
+	}
+	cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd)))
+
+	got := resolveBuildDockerSetting(cmd)
+	if want := (options.DockerSetting{Enabled: false, Explicit: true}); got != want {
+		t.Errorf("resolveBuildDockerSetting = %+v, want %+v", got, want)
+	}
+}
+
+// A user config `docker: false` is an explicit source: the build path must carry
+// the explicitness through, so it overrides any project-Dockerfile content signal.
+func TestResolveBuildDockerSettingFromResolverExplicitOff(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"docker": false})
+
+	cmd := buildDockerfileCmd(&termio.Mock{})
+	cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd)))
+
+	got := resolveBuildDockerSetting(cmd)
+	if want := (options.DockerSetting{Enabled: false, Explicit: true}); got != want {
+		t.Errorf("resolveBuildDockerSetting = %+v, want %+v", got, want)
 	}
 }
 
@@ -103,17 +165,17 @@ func TestReservedHomeConfigTargetsOK(t *testing.T) {
 	}
 }
 
-// TestBuildRunOptionsInvalidNotifyFlag exercises the --notify flag override
-// error branch in BuildRunOptions (an invalid value passed directly on the
+// TestBuildInvalidNotifyFlag exercises the --notify flag override
+// error branch in runoptions.Build (an invalid value passed directly on the
 // flag, not via the env var), with a nil resolver.
-func TestBuildRunOptionsInvalidNotifyFlag(t *testing.T) {
+func TestBuildInvalidNotifyFlag(t *testing.T) {
 	ui := &termio.Mock{}
 	cmd := buildRunCmd(ui)
 	if err := cmd.Flags().Set(flagNotify, "loud"); err != nil {
 		t.Fatalf("set notify: %v", err)
 	}
 	var r *launcherconfig.Resolver
-	if _, err := r.BuildRunOptions(cmd, ui); err == nil {
+	if _, err := runoptions.Build(r.Config(), cmd, ui); err == nil {
 		t.Fatal("expected error for invalid --notify flag value")
 	}
 }

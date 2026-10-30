@@ -1,21 +1,14 @@
 package notify
 
-import "testing"
+import (
+	"testing"
 
-func TestHandleEventType(t *testing.T) {
-	tr := NewTracker(opencodeSpec())
-	if n := tr.HandleEventType("message.part.updated"); n != nil {
-		t.Fatalf("busy event should not notify, got %+v", n)
-	}
-	n := tr.HandleEventType("session.idle")
-	if n == nil || n.Trigger != TriggerDone {
-		t.Fatalf("expected done notification, got %+v", n)
-	}
-}
+	"github.com/inoio/agents-sandbox/internal/agent"
+)
 
 func TestTrackerAwaitingInputFromIdle(t *testing.T) {
 	tr := NewTracker(opencodeSpec())
-	n := tr.Handle(Event{Type: "question.asked"})
+	n := tr.Handle(agent.StreamEvent{Type: "question.asked"})
 	if n == nil || n.Trigger != TriggerInput {
 		t.Fatalf("expected input notification from idle, got %+v", n)
 	}
@@ -23,17 +16,17 @@ func TestTrackerAwaitingInputFromIdle(t *testing.T) {
 
 func TestTrackerAwaitingInputIsIdempotent(t *testing.T) {
 	tr := NewTracker(opencodeSpec())
-	tr.Handle(Event{Type: "message.part.updated"}) // -> busy
-	tr.Handle(Event{Type: "question.asked"})       // -> awaiting input, fires
-	if n := tr.Handle(Event{Type: "question.asked"}); n != nil {
+	tr.Handle(agent.StreamEvent{Type: "message.part.updated"}) // -> busy
+	tr.Handle(agent.StreamEvent{Type: "question.asked"})       // -> awaiting input, fires
+	if n := tr.Handle(agent.StreamEvent{Type: "question.asked"}); n != nil {
 		t.Fatalf("second awaiting-input should be deduped, got %+v", n)
 	}
 }
 
 func TestTrackerStuckOnError(t *testing.T) {
 	tr := NewTracker(opencodeSpec())
-	tr.Handle(Event{Type: "session.error"}) // -> error
-	if n := tr.Handle(Event{Type: "message.part.updated"}); n != nil {
+	tr.Handle(agent.StreamEvent{Type: "session.error"}) // -> error
+	if n := tr.Handle(agent.StreamEvent{Type: "message.part.updated"}); n != nil {
 		t.Fatalf("busy event after error should not notify, got %+v", n)
 	}
 	if tr.states[""] != stateError {
@@ -43,8 +36,8 @@ func TestTrackerStuckOnError(t *testing.T) {
 
 func TestTrackerDoneFromAwaitingInput(t *testing.T) {
 	tr := NewTracker(opencodeSpec())
-	tr.Handle(Event{Type: "question.asked"}) // idle -> awaiting input
-	n := tr.Handle(Event{Type: "session.idle"})
+	tr.Handle(agent.StreamEvent{Type: "question.asked"}) // idle -> awaiting input
+	n := tr.Handle(agent.StreamEvent{Type: "session.idle"})
 	if n == nil || n.Trigger != TriggerDone {
 		t.Fatalf("expected done notification from awaiting input, got %+v", n)
 	}

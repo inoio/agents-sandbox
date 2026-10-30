@@ -5,8 +5,9 @@ package agent
 
 import "sort"
 
-// opencodeName is the canonical registry name of the default agent.
-const opencodeName = "opencode"
+// DefaultAgentName is the registry name of the agent a bare `agents-sandbox`
+// runs: the profile an empty --agent and an unset agent config resolve to.
+const DefaultAgentName = opencode2Name
 
 // Agent is a built-in coding agent profile. It carries the stable identity and
 // the structured bits needed to bake the agent into the runner image.
@@ -22,25 +23,46 @@ type Agent interface {
 
 // WorktreeSpec describes a git worktree to create in the VM. It is a minimal,
 // local type so the agent package does not depend on internal/sandbox/options.
+//
+//exhaustruct:ignore
 type WorktreeSpec struct {
-	Name   string
-	Base   string
-	Target string
+	Name string
+	Base string
 }
 
-//nolint:gochecknoglobals // built-in agent registry, populated once at init
-var registry = map[string]Agent{}
+// builtinRegistry returns the built-in agent profiles keyed by canonical name.
+func builtinRegistry() map[string]Agent {
+	profiles := []Agent{
+		opencodeProfile{opencodeConfig: opencodeConfig{}},
+		opencode2Profile{opencodeConfig: opencodeConfig{}},
+		claudeCodeProfile{},
+		codexProfile{},
+		piProfile{},
+		hermesProfile{},
+	}
+	registry := make(map[string]Agent, len(profiles))
+	for _, a := range profiles {
+		registry[a.Name()] = a
+	}
+	return registry
+}
 
-// Register adds an agent profile to the registry. Built-ins call this in init.
+// registry holds the built-in agent profiles, plus any added via Register.
+var registry = builtinRegistry()
+
+// Register adds an agent profile to the registry, overriding a built-in of the
+// same name.
+//
+//deadcode:ignore reason="internal registry extension point; only registry tests register stubs"
 func Register(a Agent) {
 	registry[a.Name()] = a
 }
 
-// Lookup returns the agent profile for name. An empty name or "opencode"
-// resolves to the default opencode profile, preserving zero-config behavior.
+// Lookup returns the agent profile for name. An empty name resolves to
+// DefaultAgentName, preserving zero-config behavior.
 func Lookup(name string) (Agent, bool) {
 	if name == "" {
-		name = opencodeName
+		name = DefaultAgentName
 	}
 	a, ok := registry[name]
 	return a, ok

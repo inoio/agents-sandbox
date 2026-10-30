@@ -11,13 +11,16 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configmigration"
 	"github.com/inoio/agents-sandbox/internal/configwizard"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 
@@ -29,6 +32,11 @@ import (
 )
 
 const minUsagePadding = 25
+
+// autoPrune is the startup-prune seam: a variable so a test can assert the run
+// path invokes the prune without consuming the pruning package's process-wide
+// once (which other run tests in this binary may already have used).
+var autoPrune = pruning.AutoPrune
 
 func buildRunCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
@@ -62,8 +70,7 @@ func runUsageFunc(cmd *cobra.Command) error {
 	maxLen := minUsagePadding
 	args := argsFromAnnotations(cmd)
 	for _, a := range args {
-		//nolint:staticcheck // using strings.Builder, false positive
-		out.WriteString(fmt.Sprintf(" %s", a.Name))
+		fmt.Fprintf(&out, " %s", a.Name)
 		if len(a.Name) > maxLen {
 			maxLen = len(a.Name)
 		}
@@ -126,7 +133,7 @@ func runFunc(
 ) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		r := resolverFromContext(cmd.Context())
-		opts, err := r.BuildRunOptions(cmd, ui)
+		opts, err := runoptions.Build(r.Config(), cmd, ui)
 		if err != nil {
 			return err
 		}
@@ -136,7 +143,8 @@ func runFunc(
 		if opts.ServeOnly {
 			ctx, _ = serveOnlyContext(ctx)
 		}
-		isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
+		mode := runoptions.ResolveMode(cmd)
+		isDryRun := mode.Previews()
 		if !isDryRun {
 			if !doctor.CheckAll(cmd.Context(), ui) {
 				return errors.New("preflight failed")
@@ -166,9 +174,15 @@ func runFunc(
 			return err
 		}
 		if r != nil {
-			pruning.AutoPrune(cmd.Context(), r.AutoPruneAge(), isDryRun, &autoPruneOutToVerboseRedirect{UI: ui})
+			autoPrune(
+				cmd.Context(),
+				r.AutoPruneAge(),
+				isDryRun,
+				&autoPruneOutToVerboseRedirect{UI: ui},
+				currentRunImageKeys(opts.Agent)...,
+			)
 		}
-		return session.Run(ctx, opts, ui)
+		return session.Run(ctx, opts, mode, ui)
 	}
 }
 
@@ -192,12 +206,16 @@ func refreshRunOptionsAfterMigration(
 	args []string,
 	ui termio.UI,
 ) (options.RunOptions, *launcherconfig.Resolver, error) {
-	resolver, err := launcherconfig.NewResolver(cmd, git.ProjectSlug())
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		return options.RunOptions{}, nil, fmt.Errorf("resolve project identity: %w", err)
+	}
+	resolver, err := launcherconfig.NewResolver(cmd, effectiveConfigSlug(identity))
 	if err != nil {
 		return options.RunOptions{}, nil, err
 	}
 	cmd.SetContext(context.WithValue(cmd.Context(), (*launcherConfigKey)(nil), resolver))
-	runOptions, err := resolver.BuildRunOptions(cmd, ui)
+	runOptions, err := runoptions.Build(resolver.Config(), cmd, ui)
 	if err != nil {
 		return options.RunOptions{}, nil, err
 	}
@@ -231,8 +249,39 @@ func guideConfigMigration(opts options.RunOptions, ui termio.UI, dryRun bool) er
 	return configmigration.Guide(a, hostHome, opts.Network, provisionHostConfig, ui)
 }
 
+// currentRunImageKeys returns the runner-image keys the current run may reuse, so
+// its own startup auto-prune never reclaims the image it is about to import: the
+// prebuild's image on a project with no VM yet, or one whose stale VM the same
+// prune sweeps away. The runner image is keyed by the checkout slug; a
+// pre-migration project's images still live under its legacy repo slugs, so both
+// are returned. It is best-effort: when identity cannot be resolved the run fails
+// later with the real error, and the prune simply retains nothing.
+func currentRunImageKeys(agentName string) []state.Key {
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		return nil
+	}
+	slugs := append([]string{identity.CheckoutSlug}, identity.LegacyRepoSlugs...)
+	keys := make([]state.Key, 0, len(slugs))
+	for _, slug := range slugs {
+		keys = append(keys, state.Key{Slug: slug, Agent: agentName})
+	}
+	return keys
+}
+
 //nolint:gochecknoglobals // test seam for the otherwise hard-to-reach upgrade check
 var upgradeCheck = upgrade.Check
+
+// upgradeAnyVersionEnv is the undocumented lever that lets a locally built dev
+// binary exercise the real upgrade path: with it set, an unparseable current
+// version (empty, "dev", or garbage) counts as older than any release. Any
+// non-empty value enables it. It is deliberately absent from --help and docs.
+const upgradeAnyVersionEnv = "AGENTS_SANDBOX_UPGRADE_ANY"
+
+// upgradeAnyVersionEnabled reports whether the dev-build upgrade lever is set.
+func upgradeAnyVersionEnabled() bool {
+	return os.Getenv(upgradeAnyVersionEnv) != ""
+}
 
 // checkForUpgrade runs the self-upgrade check for the current version and
 // returns whether the caller should exit (an upgrade-and-exit was performed).
@@ -240,11 +289,14 @@ func checkForUpgrade(ctx context.Context, r *launcherconfig.Resolver, ui termio.
 	if r == nil {
 		return false, nil
 	}
-	res, err := upgradeCheck(ctx, upgrade.Options{ //nolint:exhaustruct_v5 // StatePath/UpdateFunc use their defaults
-		CurrentVersion: version,
-		Mode:           r.UpgradeMode(),
-		Interval:       r.UpgradeInterval(),
-		UI:             ui,
+	res, err := upgradeCheck(ctx, upgrade.Options{
+		CurrentVersion:  version,
+		Mode:            r.UpgradeMode(),
+		Interval:        r.UpgradeInterval(),
+		Channel:         r.UpgradeChannel(),
+		AllowAnyVersion: upgradeAnyVersionEnabled(),
+		UI:              ui,
+		Store:           launcherStore{},
 	})
 	if err != nil {
 		return false, err
@@ -252,17 +304,37 @@ func checkForUpgrade(ctx context.Context, r *launcherconfig.Resolver, ui termio.
 	return res.Exit, nil
 }
 
+// serveOnlyIsTerminal reports whether stdin is an interactive terminal. It is a
+// seam (mirroring termio's isTerminal) so the reader below can be exercised
+// without a real TTY.
+var serveOnlyIsTerminal = term.IsTerminal
+
+// serveOnlyStdinReader returns the reader whose EOF stops serve-only mode, or
+// nil when stdin must not be watched. Only an interactive terminal can deliver
+// a deliberate Ctrl-D; a non-TTY stdin (CI, `< /dev/null`, a background job) is
+// already at EOF, so watching it would cancel the run immediately (#387). It is
+// a seam so tests can drive both paths.
+var serveOnlyStdinReader = func() io.Reader {
+	if serveOnlyIsTerminal(int(os.Stdin.Fd())) {
+		return os.Stdin
+	}
+	return nil
+}
+
 // serveOnlyContext builds a cancellable context for the serve-only path.
-// It wires SIGINT/SIGTERM and stdin EOF (Ctrl-D) to cancel the context,
-// so runServeOnly can exit cleanly and trigger proper teardown
-// (lease release, keeper cancel, reaping, exit code 0).
+// It wires SIGINT/SIGTERM — and, for an interactive stdin, EOF (Ctrl-D) — to
+// cancel the context, so runServeOnly can exit cleanly and trigger proper
+// teardown (lease release, keeper cancel, reaping, exit code 0). A non-terminal
+// stdin is not watched: it relies on SIGINT/SIGTERM for shutdown.
 func serveOnlyContext(base context.Context) (context.Context, func()) {
 	ctx, stop := signal.NotifyContext(base, os.Interrupt, syscall.SIGTERM)
 	cancelCtx, cancel := context.WithCancel(ctx)
-	go func() {
-		_, _ = io.Copy(io.Discard, os.Stdin)
-		cancel()
-	}()
+	if stdin := serveOnlyStdinReader(); stdin != nil {
+		go func() {
+			_, _ = io.Copy(io.Discard, stdin)
+			cancel()
+		}()
+	}
 	return cancelCtx, func() {
 		stop()
 		cancel()
@@ -281,8 +353,8 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 			if !doctor.CheckAll(cmd.Context(), ui) {
 				return errors.New("preflight failed")
 			}
-			isDryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			if !isDryRun {
+			mode := runoptions.ResolveMode(cmd)
+			if !mode.Previews() {
 				exit, err := checkForUpgrade(cmd.Context(), resolverFromContext(cmd.Context()), ui)
 				if err != nil {
 					return err
@@ -291,11 +363,11 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 					return nil
 				}
 			}
-			opts, err := resolverFromContext(cmd.Context()).BuildRunOptions(cmd, ui)
+			opts, err := runoptions.Build(resolverFromContext(cmd.Context()).Config(), cmd, ui)
 			if err != nil {
 				return err
 			}
-			return session.Shell(cmd.Context(), opts, ui)
+			return session.Shell(cmd.Context(), opts, mode, ui)
 		},
 	}
 	registerSharedRunShellFlags(cmd)
@@ -307,9 +379,9 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 // on the given command.
 func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().
-		StringP(flagWorktree, "w", "", "(opencode only) Run in an isolated worktree named <name>, optionally starting from the local base ref <name>:<base>")
+		StringP(flagWorktree, "w", "", "(opencode, opencode2) Run in an isolated worktree named <name>, optionally starting from the local base ref <name>:<base>")
 	cmd.Flags().
-		BoolP(flagServeOnly, "s", false, "(opencode only) Serve on a dynamically allocated host port (http://127.0.0.1:<port>) for clients like Opencode Desktop, without attaching the TUI")
+		BoolP(flagServeOnly, "s", false, "(opencode, opencode2) Serve on a dynamically allocated host port (http://127.0.0.1:<port>) for clients like Opencode Desktop, without attaching the TUI")
 	cmd.Flags().
 		String(flagNotify, "", `Notify on session status: "on", "off", "desktop", or "audio" (bare --notify = on)`)
 	if notifyFlag := cmd.Flags().Lookup(flagNotify); notifyFlag != nil {
@@ -330,11 +402,21 @@ func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().String(flagDiskSize, "", "Size of the project VM root disk (e.g. 16G)")
 	cmd.Flags().String(flagWorkspaceQuota, "16G", "Guest-write quota for the /workspace bind mount (e.g. 32G)")
 	cmd.Flags().
-		String(flagNetwork, "", "Network egress profile for the VM: public, private, host, or none (default none; deny-by-default)")
+		StringSlice(flagNetwork, nil, "Network egress profile(s) for the VM: public, private, host, or none (default public); comma-separated or repeated")
 	cmd.Flags().
 		StringSlice(flagDNSServers, nil, "DNS upstream resolvers for the VM: IP (e.g. 1.1.1.1) or host:port (e.g. 1.1.1.1:53); comma-separated or repeated")
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to run")
-	cmd.Flags().Bool(flagDind, false, "Enable Docker-in-Docker in the runner image")
+	cmd.Flags().
+		Bool(flagOpenLinks, true, "Open links from the VM (xdg-open) on the host; --open-links=false disables it")
+	registerDockerFlags(cmd)
+}
+
+// registerDockerFlags registers the canonical --docker flag and the deprecated
+// --dind alias on cmd.
+func registerDockerFlags(cmd *cobra.Command) {
+	cmd.Flags().Bool(flagDocker, false, "Bake the Docker engine into the runner image")
+	cmd.Flags().Bool(flagDind, false, "Deprecated alias for --docker")
+	_ = cmd.Flags().MarkDeprecated(flagDind, "use --docker instead")
 }
 
 func buildStopCmd(ui termio.UI) *cobra.Command {
@@ -356,7 +438,8 @@ func buildStopCmd(ui termio.UI) *cobra.Command {
 		},
 	}
 	bindAgentFlag(cmd)
-	cmd.Flags().BoolP(flagForce, flagForce[:1], false, "Remove the VM's persisted state after stopping")
+	cmd.Flags().
+		BoolP(flagForce, flagForce[:1], false, "Remove the VM's persisted state (also a stopped or never-started VM)")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be stopped without stopping")
 	return cmd
 }
@@ -380,7 +463,8 @@ func buildKillCmd(ui termio.UI) *cobra.Command {
 		},
 	}
 	bindAgentFlag(cmd)
-	cmd.Flags().BoolP(flagForce, flagForce[:1], false, "Remove the VM's persisted state after killing")
+	cmd.Flags().
+		BoolP(flagForce, flagForce[:1], false, "Remove the VM's persisted state (also a stopped or never-started VM)")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be killed without killing")
 	return cmd
 }

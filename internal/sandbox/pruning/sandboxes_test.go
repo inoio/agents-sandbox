@@ -3,6 +3,7 @@ package pruning
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,58 +14,80 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+func stoppedHandle(name string) *msb.MockSandboxHandle {
+	return &msb.MockSandboxHandle{
+		Name_:      name,
+		Status_:    msbSdk.SandboxStatusStopped,
+		UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
+	}
+}
+
+func TestRenderSandboxReport(t *testing.T) {
+	ui := &termio.Mock{}
+	RenderSandboxReport(ui, SandboxReport{
+		VMsPruned: 1,
+		Details: []StaleEntry{
+			{Type: StaleTypeVM, Name: "agents-sandbox-vm-proj-1mjusbm3wikhb0", Slug: "proj-1mjusbm3wikhb0"},
+		},
+	}, false)
+	if len(ui.OutCalls) != 1 || ui.OutCalls[0] != "Pruned 1 sandbox(es)" {
+		t.Errorf("OutCalls = %v, want the summary", ui.OutCalls)
+	}
+	if len(ui.VerboseCalls) != 1 || !strings.Contains(ui.VerboseCalls[0], "agents-sandbox-vm-proj-1mjusbm3wikhb0") {
+		t.Errorf("VerboseCalls = %v, want the detail line", ui.VerboseCalls)
+	}
+
+	empty := &termio.Mock{}
+	RenderSandboxReport(empty, SandboxReport{}, true)
+	if len(empty.OutCalls) != 1 || empty.OutCalls[0] != "dry-run: Would prune 0 sandbox(es)" {
+		t.Errorf("OutCalls = %v, want the dry-run summary", empty.OutCalls)
+	}
+	if len(empty.VerboseCalls) != 0 {
+		t.Errorf("VerboseCalls = %v, want none without details", empty.VerboseCalls)
+	}
+}
+
 func TestPruneSandboxes(t *testing.T) {
-	stale := time.Now().Add(-15 * 24 * time.Hour)
+	t.Run("removes inactive sandboxes by identity and skips running", func(t *testing.T) {
+		stopped := stoppedHandle("agents-sandbox-vm-proj1-1mjusbm3wikhb0")
+		running := &msb.MockSandboxHandle{
+			Name_:      "agents-sandbox-vm-proj2-1mjusbm3wikhb0",
+			Status_:    msbSdk.SandboxStatusRunning,
+			UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
+		}
+		task := stoppedHandle("agents-sandbox-task-fill-proj")
 
-	stopped := &msb.MockSandboxHandle{
-		Name_:      "agents-sandbox-vm-proj1-1mjusbm3wikhb0",
-		Status_:    msbSdk.SandboxStatusStopped,
-		UpdatedAt_: stale,
-	}
-	running := &msb.MockSandboxHandle{
-		Name_:      "agents-sandbox-vm-proj2-1mjusbm3wikhb0",
-		Status_:    msbSdk.SandboxStatusRunning,
-		UpdatedAt_: stale,
-	}
-	task := &msb.MockSandboxHandle{
-		Name_:      "agents-sandbox-task-fill-proj",
-		Status_:    msbSdk.SandboxStatusStopped,
-		UpdatedAt_: stale,
-	}
-
-	t.Run("removes stopped sandboxes and skips running", func(t *testing.T) {
 		client := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, client)
 		ui := &termio.Mock{}
-		state := PruneState{
+		pruneState := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{
 				{Slug: "proj1-1mjusbm3wikhb0", Agent: ""}: stopped,
 				{Slug: "proj2-1mjusbm3wikhb0", Agent: ""}: running,
 				{Slug: "fill", Agent: ""}:                 task,
 			},
 		}
-		r, err := PruneSandboxes(context.Background(), state, false, ui)
+		r, err := PruneSandboxes(context.Background(), pruneState, false, ui)
 		if err != nil {
 			t.Fatalf("PruneSandboxes: %v", err)
 		}
 		if r.VMsPruned != 2 {
 			t.Errorf("VMsPruned = %d, want 2 (stopped vm + task)", r.VMsPruned)
 		}
-		if len(client.RemovedSandboxes) != 2 {
-			t.Fatalf("RemovedSandboxes = %v, want 2", client.RemovedSandboxes)
+		if !stopped.DidRemove() || !task.DidRemove() {
+			t.Errorf(
+				"inactive sandboxes not removed via handle: stopped=%v task=%v",
+				stopped.DidRemove(),
+				task.DidRemove(),
+			)
 		}
-		removed := map[string]bool{}
-		for _, n := range client.RemovedSandboxes {
-			removed[n] = true
-		}
-		for _, want := range []string{"agents-sandbox-vm-proj1-1mjusbm3wikhb0", "agents-sandbox-task-fill-proj"} {
-			if !removed[want] {
-				t.Errorf("RemovedSandboxes missing %q, got %v", want, client.RemovedSandboxes)
-			}
+		if running.DidRemove() {
+			t.Errorf("running sandbox was removed")
 		}
 	})
 
 	t.Run("dry run counts but does not delete", func(t *testing.T) {
+		stopped := stoppedHandle("agents-sandbox-vm-proj1-1mjusbm3wikhb0")
 		client := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, client)
 		ui := &termio.Mock{}
@@ -80,31 +103,33 @@ func TestPruneSandboxes(t *testing.T) {
 		if r.VMsPruned != 1 {
 			t.Errorf("VMsPruned = %d, want 1", r.VMsPruned)
 		}
-		if len(client.RemovedSandboxes) != 0 {
-			t.Errorf("dry run removed sandboxes: %v", client.RemovedSandboxes)
+		if stopped.DidRemove() {
+			t.Errorf("dry run removed a sandbox")
 		}
 	})
 
 	t.Run("skips active, transitional, and unknown statuses", func(t *testing.T) {
+		starting := &msb.MockSandboxHandle{
+			Name_:   "agents-sandbox-vm-starting",
+			Status_: msbSdk.SandboxStatusStarting,
+		}
+		unknown := &msb.MockSandboxHandle{
+			Name_:   "agents-sandbox-vm-unknown",
+			Status_: msbSdk.SandboxStatus("future-status"),
+		}
 		client := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, client)
 		ui := &termio.Mock{}
-		state := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
-			{Slug: "starting", Agent: ""}: &msb.MockSandboxHandle{
-				Name_:   "agents-sandbox-vm-starting",
-				Status_: msbSdk.SandboxStatusStarting,
-			},
-			{Slug: "unknown", Agent: ""}: &msb.MockSandboxHandle{
-				Name_:   "agents-sandbox-vm-unknown",
-				Status_: msbSdk.SandboxStatus("future-status"),
-			},
+		pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
+			{Slug: "starting", Agent: ""}: starting,
+			{Slug: "unknown", Agent: ""}:  unknown,
 		}}
-		r, err := PruneSandboxes(context.Background(), state, false, ui)
+		r, err := PruneSandboxes(context.Background(), pruneState, false, ui)
 		if err != nil {
 			t.Fatalf("PruneSandboxes: %v", err)
 		}
-		if r.VMsPruned != 0 || len(client.RemovedSandboxes) != 0 {
-			t.Fatalf("protected statuses were pruned: report=%+v removed=%v", r, client.RemovedSandboxes)
+		if r.VMsPruned != 0 || starting.DidRemove() || unknown.DidRemove() {
+			t.Fatalf("protected statuses were pruned: report=%+v", r)
 		}
 	})
 
@@ -119,46 +144,85 @@ func TestPruneSandboxes(t *testing.T) {
 		if r.VMsPruned != 0 {
 			t.Errorf("VMsPruned = %d, want 0", r.VMsPruned)
 		}
-		if len(client.RemovedSandboxes) != 0 {
-			t.Errorf("RemovedSandboxes = %v, want none", client.RemovedSandboxes)
-		}
 	})
 
 	t.Run("continues past a sandbox removal error", func(t *testing.T) {
-		removed := make(map[string]bool)
-		client := &msb.MockMsbClient{
-			RemoveSandboxFn: func(_ context.Context, name string) error {
-				if name == "agents-sandbox-vm-proj1-1mjusbm3wikhb0" {
-					return errors.New("boom")
-				}
-				removed[name] = true
-				return nil
-			},
-		}
+		failing := stoppedHandle("agents-sandbox-vm-proj1-1mjusbm3wikhb0")
+		failing.RemoveErr = errors.New("boom")
+		ok := stoppedHandle("agents-sandbox-vm-proj2-1mjusbm3wikhb0")
+
+		client := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, client)
 		ui := &termio.Mock{}
-		state := PruneState{
+		pruneState := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{
-				{Slug: "proj1-1mjusbm3wikhb0", Agent: ""}: stopped,
-				{Slug: "proj2-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{
-					Name_:      "agents-sandbox-vm-proj2-1mjusbm3wikhb0",
-					Status_:    msbSdk.SandboxStatusStopped,
-					UpdatedAt_: stale,
-				},
+				{Slug: "proj1-1mjusbm3wikhb0", Agent: ""}: failing,
+				{Slug: "proj2-1mjusbm3wikhb0", Agent: ""}: ok,
 			},
 		}
-		r, err := PruneSandboxes(context.Background(), state, false, ui)
+		r, err := PruneSandboxes(context.Background(), pruneState, false, ui)
 		if err != nil {
 			t.Fatalf("PruneSandboxes: %v", err)
 		}
 		if r.VMsPruned != 1 {
 			t.Errorf("VMsPruned = %d, want 1 (failed one is skipped)", r.VMsPruned)
 		}
-		if !removed["agents-sandbox-vm-proj2-1mjusbm3wikhb0"] {
-			t.Errorf("expected the non-failing sandbox to be removed, got %v", removed)
+		if !ok.DidRemove() {
+			t.Errorf("expected the non-failing sandbox to be removed")
 		}
 		if len(ui.WarnCalls) != 1 {
 			t.Errorf("WarnCalls = %v, want 1 warn about the failed removal", ui.WarnCalls)
+		}
+	})
+
+	t.Run("skips replaced and already-gone sandboxes without warning", func(t *testing.T) {
+		replaced := stoppedHandle("agents-sandbox-vm-proj1-1mjusbm3wikhb0")
+		replaced.RemoveErr = &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"}
+		gone := stoppedHandle("agents-sandbox-vm-proj2-1mjusbm3wikhb0")
+		gone.RemoveErr = &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
+		ok := stoppedHandle("agents-sandbox-vm-proj3-1mjusbm3wikhb0")
+
+		client := &msb.MockMsbClient{}
+		msb.WithMsbMock(t, client)
+		ui := &termio.Mock{}
+		pruneState := PruneState{
+			ToPrune: map[state.Key]msb.SandboxHandle{
+				{Slug: "proj1-1mjusbm3wikhb0", Agent: ""}: replaced,
+				{Slug: "proj2-1mjusbm3wikhb0", Agent: ""}: gone,
+				{Slug: "proj3-1mjusbm3wikhb0", Agent: ""}: ok,
+			},
+		}
+		r, err := PruneSandboxes(context.Background(), pruneState, false, ui)
+		if err != nil {
+			t.Fatalf("PruneSandboxes: %v", err)
+		}
+		if r.VMsPruned != 1 {
+			t.Errorf("VMsPruned = %d, want 1 (replaced and gone are skipped)", r.VMsPruned)
+		}
+		if !ok.DidRemove() {
+			t.Errorf("expected the non-replaced sandbox to be removed")
+		}
+		if len(ui.WarnCalls) != 0 {
+			t.Errorf("WarnCalls = %v, want none for replaced/gone skips", ui.WarnCalls)
+		}
+	})
+
+	t.Run("prunes stopped task sandboxes carried in Tasks", func(t *testing.T) {
+		task := stoppedHandle("agents-sandbox-task-fill-1mjusbm3wikhb0-opencode-1729")
+		client := &msb.MockMsbClient{}
+		msb.WithMsbMock(t, client)
+		ui := &termio.Mock{}
+		r, err := PruneSandboxes(
+			context.Background(),
+			PruneState{Tasks: []msb.SandboxHandle{task}},
+			false,
+			ui,
+		)
+		if err != nil {
+			t.Fatalf("PruneSandboxes: %v", err)
+		}
+		if r.VMsPruned != 1 || !task.DidRemove() {
+			t.Errorf("task sandbox not pruned: pruned=%d removed=%v", r.VMsPruned, task.DidRemove())
 		}
 	})
 }

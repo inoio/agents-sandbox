@@ -8,11 +8,13 @@ import (
 	"time"
 )
 
-const spinnerInterval = 100 * time.Millisecond
+// spinnerInterval is the delay between spinner animation frames. It is a
+// variable so tests can shrink it instead of waiting out the production interval.
+var spinnerInterval = 100 * time.Millisecond
 
-//nolint:gochecknoglobals // static lookup table, never mutated
 var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
+//exhaustruct:ignore
 type spinner struct {
 	w      io.Writer
 	level  Level
@@ -26,7 +28,6 @@ type spinner struct {
 }
 
 func newSpinner(w io.Writer, color bool, level Level, msg string) *spinner {
-	//nolint:exhaustruct_v5 // fields are lazily initialized by Start()
 	s := &spinner{w: w, color: color, level: level}
 	s.Start(msg)
 	return s
@@ -62,17 +63,18 @@ func formatElapsedDone(elapsed time.Duration) string {
 
 func (s *spinner) animate() {
 	defer close(s.done)
+	ticker := time.NewTicker(spinnerInterval)
+	defer ticker.Stop()
 	i := 0
 	for {
-		select {
-		case <-s.stopCh:
-			return
-		default:
-		}
 		elapsed := time.Since(s.start)
 		fmt.Fprintf(s.w, "\r\033[K%s %s%s", s.msg, spinnerChars[i%len(spinnerChars)], formatElapsedLive(elapsed))
 		i++
-		time.Sleep(spinnerInterval)
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+		}
 	}
 }
 

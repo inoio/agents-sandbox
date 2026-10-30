@@ -13,6 +13,15 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+func TestPruneReportPrefix(t *testing.T) {
+	if got := pruneReportPrefix(true); got != "dry-run: Would prune" {
+		t.Errorf("pruneReportPrefix(true) = %q, want %q", got, "dry-run: Would prune")
+	}
+	if got := pruneReportPrefix(false); got != "Pruned" {
+		t.Errorf("pruneReportPrefix(false) = %q, want %q", got, "Pruned")
+	}
+}
+
 func TestInvokePruneFunc(t *testing.T) {
 	t.Run("builds state and invokes the pruner", func(t *testing.T) {
 		client := &msb.MockMsbClient{
@@ -27,7 +36,7 @@ func TestInvokePruneFunc(t *testing.T) {
 		msb.WithMsbMock(t, client)
 		ui := &termio.Mock{}
 		var gotState PruneState
-		err := InvokePruneFunc(context.Background(),
+		got, err := InvokePruneFunc(context.Background(),
 			func(_ context.Context, state PruneState, _ bool, _ termio.UI) (int, error) {
 				gotState = state
 				return 42, nil
@@ -35,6 +44,9 @@ func TestInvokePruneFunc(t *testing.T) {
 			7*24*time.Hour, false, ui)
 		if err != nil {
 			t.Fatalf("InvokePruneFunc: %v", err)
+		}
+		if got != 42 {
+			t.Errorf("InvokePruneFunc report = %d, want 42", got)
 		}
 		if _, ok := gotState.ToPrune[state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: ""}]; !ok {
 			t.Errorf("pruner did not receive built PruneState, got %v", gotState)
@@ -50,7 +62,7 @@ func TestInvokePruneFunc(t *testing.T) {
 		msb.WithMsbMock(t, client)
 		ui := &termio.Mock{}
 		invoked := false
-		err := InvokePruneFunc(context.Background(),
+		_, err := InvokePruneFunc(context.Background(),
 			func(context.Context, PruneState, bool, termio.UI) (int, error) {
 				invoked = true
 				return 0, nil
@@ -67,7 +79,7 @@ func TestInvokePruneFunc(t *testing.T) {
 	t.Run("propagates pruner error", func(t *testing.T) {
 		msb.WithMsbMock(t, &msb.MockMsbClient{})
 		ui := &termio.Mock{}
-		err := InvokePruneFunc(context.Background(),
+		_, err := InvokePruneFunc(context.Background(),
 			func(context.Context, PruneState, bool, termio.UI) (int, error) {
 				return 0, errors.New("prune boom")
 			},

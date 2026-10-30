@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -55,15 +56,15 @@ func TestBuildMergedPatternFilter(t *testing.T) {
 	testutil.WriteFile(t, dir, "opencode-a.json", `{"a":1}`)
 	testutil.WriteFile(t, dir, "opencode-b.json", `{"b":2}`)
 	testutil.WriteFile(t, dir, "ignored.json", `{"x":9}`) // must not merge (name doesn't match)
-	data, sources, has, err := BuildMerged("opencode*.json*", dir, "")
-	if err != nil || !has {
-		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
+	merged, err := BuildMerged("", "opencode*.json*", dir, "")
+	if err != nil || !merged.HasSnippets {
+		t.Fatalf("BuildMerged: has=%v err=%v", merged.HasSnippets, err)
 	}
-	if len(sources) != 2 {
-		t.Fatalf("sources = %d, want 2 (ignored.json excluded)", len(sources))
+	if len(merged.Sources) != 2 {
+		t.Fatalf("sources = %d, want 2 (ignored.json excluded)", len(merged.Sources))
 	}
 	var m map[string]int
-	if err := json.Unmarshal(data, &m); err != nil {
+	if err := json.Unmarshal(merged.Content, &m); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if m["a"] != 1 || m["b"] != 2 {
@@ -77,16 +78,60 @@ func TestBuildMergedPatternFilter(t *testing.T) {
 func TestBuildMergedYAML(t *testing.T) {
 	dir := t.TempDir()
 	testutil.WriteFile(t, dir, "pi-settings.yaml", "theme: dark\nprovider: anthropic\n")
-	data, _, has, err := BuildMerged("pi-*.{json,yaml}", dir, "")
-	if err != nil || !has {
-		t.Fatalf("BuildMerged yaml: has=%v err=%v", has, err)
+	merged, err := BuildMerged("", "pi-*.{json,yaml}", dir, "")
+	if err != nil || !merged.HasSnippets {
+		t.Fatalf("BuildMerged yaml: has=%v err=%v", merged.HasSnippets, err)
 	}
 	var m map[string]any
-	if err := yaml.Unmarshal(data, &m); err != nil {
+	if err := yaml.Unmarshal(merged.Content, &m); err != nil {
 		t.Fatalf("yaml unmarshal: %v", err)
 	}
 	if m["theme"] != "dark" || m["provider"] != "anthropic" {
 		t.Errorf("yaml merged = %v", m)
+	}
+}
+
+func TestBuildMergedYAMLTargetEmitsYAML(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "config-model.yaml", "model: opus\n")
+	testutil.WriteFile(t, dir, "config-tools.yaml", "tools:\n  web: true\n")
+	merged, err := BuildMerged("/home/dev/.hermes/config.yaml", "config*.yaml", dir, "")
+	if err != nil || !merged.HasSnippets {
+		t.Fatalf("BuildMerged: has=%v err=%v", merged.HasSnippets, err)
+	}
+	// A YAML config path must yield YAML, not a JSON document wearing a .yaml
+	// name: the merged file is both the agent's input and user-editable.
+	if strings.HasPrefix(strings.TrimSpace(string(merged.Content)), "{") {
+		t.Fatalf("merged config for a .yaml target is JSON:\n%s", merged.Content)
+	}
+	want := "model: opus\ntools:\n    web: true\n"
+	if string(merged.Content) != want {
+		t.Errorf("merged YAML = %q, want %q", merged.Content, want)
+	}
+}
+
+func TestBuildMergedYMLTargetEmitsYAML(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "config-settings.yml", "model: opus\n")
+	merged, err := BuildMerged("/home/dev/.hermes/config.yml", "config*.yml", dir, "")
+	if err != nil || !merged.HasSnippets {
+		t.Fatalf("BuildMerged: has=%v err=%v", merged.HasSnippets, err)
+	}
+	if string(merged.Content) != "model: opus\n" {
+		t.Errorf("merged YAML = %q, want %q", merged.Content, "model: opus\n")
+	}
+}
+
+func TestBuildMergedJSONTargetStaysJSON(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "opencode-a.json", `{"a":1}`)
+	merged, err := BuildMerged("/home/dev/.config/opencode/opencode.jsonc", "opencode*.json*", dir, "")
+	if err != nil || !merged.HasSnippets {
+		t.Fatalf("BuildMerged: has=%v err=%v", merged.HasSnippets, err)
+	}
+	want := "{\n  \"a\": 1\n}\n"
+	if string(merged.Content) != want {
+		t.Errorf("merged JSON = %q, want %q", merged.Content, want)
 	}
 }
 
@@ -97,38 +142,38 @@ func TestBuildMergedSourcesInMergeOrder(t *testing.T) {
 	writeSnippet(t, user, "opencode-01-user.json", `{"a": 2}`)
 	writeSnippet(t, proj, "opencode-proj.json", `{"b": 3}`)
 
-	_, sources, has, err := BuildMerged("opencode*.json*", user, proj)
-	if err != nil || !has {
-		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
+	merged, err := BuildMerged("", "opencode*.json*", user, proj)
+	if err != nil || !merged.HasSnippets {
+		t.Fatalf("BuildMerged: has=%v err=%v", merged.HasSnippets, err)
 	}
 	want := []string{
 		filepath.Join(user, "opencode-01-user.json"),
 		filepath.Join(user, "opencode-02-user.json"),
 		filepath.Join(proj, "opencode-proj.json"),
 	}
-	if len(sources) != len(want) {
-		t.Fatalf("sources = %v, want %v", sources, want)
+	if len(merged.Sources) != len(want) {
+		t.Fatalf("sources = %v, want %v", merged.Sources, want)
 	}
 	for i := range want {
-		if sources[i] != want[i] {
-			t.Fatalf("sources = %v, want %v", sources, want)
+		if merged.Sources[i] != want[i] {
+			t.Fatalf("sources = %v, want %v", merged.Sources, want)
 		}
 	}
 }
 
 func TestBuildMergedNoSnippets(t *testing.T) {
-	data, sources, has, err := BuildMerged("opencode*.json*", t.TempDir(), t.TempDir())
+	merged, err := BuildMerged("", "opencode*.json*", t.TempDir(), t.TempDir())
 	if err != nil {
 		t.Fatalf("BuildMerged: %v", err)
 	}
-	if has {
+	if merged.HasSnippets {
 		t.Error("expected has=false when no snippet files exist")
 	}
-	if data != nil {
-		t.Errorf("expected nil bytes when no snippets, got %q", data)
+	if merged.Content != nil {
+		t.Errorf("expected nil bytes when no snippets, got %q", merged.Content)
 	}
-	if sources != nil {
-		t.Errorf("expected nil sources when no snippets, got %v", sources)
+	if merged.Sources != nil {
+		t.Errorf("expected nil sources when no snippets, got %v", merged.Sources)
 	}
 }
 
@@ -136,18 +181,18 @@ func TestBuildMergedEmitsMergedJSON(t *testing.T) {
 	user := t.TempDir()
 	writeSnippet(t, user, "opencode-x.json5", `{"model": "x", "instructions": "be brief"}`)
 
-	data, sources, has, err := BuildMerged("opencode*.json*", user, "")
+	merged, err := BuildMerged("", "opencode*.json*", user, "")
 	if err != nil {
 		t.Fatalf("BuildMerged: %v", err)
 	}
-	if !has {
+	if !merged.HasSnippets {
 		t.Fatal("expected has=true")
 	}
-	if len(sources) != 1 || sources[0] != filepath.Join(user, "opencode-x.json5") {
-		t.Errorf("unexpected sources: %v", sources)
+	if len(merged.Sources) != 1 || merged.Sources[0] != filepath.Join(user, "opencode-x.json5") {
+		t.Errorf("unexpected sources: %v", merged.Sources)
 	}
 	var parsed map[string]any
-	if err := json.Unmarshal(data, &parsed); err != nil {
+	if err := json.Unmarshal(merged.Content, &parsed); err != nil {
 		t.Fatalf("output not valid JSON: %v", err)
 	}
 	if parsed["model"] != "x" || parsed["instructions"] != "be brief" {
@@ -162,15 +207,15 @@ func TestBuildMergedDeterministic(t *testing.T) {
 
 	var first []byte
 	for range 5 {
-		data, _, has, err := BuildMerged("opencode*.json*", user, "")
-		if err != nil || !has {
-			t.Fatalf("BuildMerged: has=%v err=%v", has, err)
+		merged, err := BuildMerged("", "opencode*.json*", user, "")
+		if err != nil || !merged.HasSnippets {
+			t.Fatalf("BuildMerged: has=%v err=%v", merged.HasSnippets, err)
 		}
 		if first == nil {
-			first = data
+			first = merged.Content
 			continue
 		}
-		if !bytes.Equal(first, data) {
+		if !bytes.Equal(first, merged.Content) {
 			t.Fatal("output not deterministic across runs")
 		}
 	}
@@ -187,15 +232,15 @@ func TestBuildMergedUsesCallerPattern(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "pi-model.yaml"), []byte("model: x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	data, sources, has, err := BuildMerged("pi-*.{json,yaml}", "", dir)
+	merged, err := BuildMerged("", "pi-*.{json,yaml}", "", dir)
 	if err != nil {
 		t.Fatalf("BuildMerged: %v", err)
 	}
-	if !has || len(sources) != 1 {
-		t.Fatalf("has=%v sources=%v, want one matched file", has, sources)
+	if !merged.HasSnippets || len(merged.Sources) != 1 {
+		t.Fatalf("has=%v sources=%v, want one matched file", merged.HasSnippets, merged.Sources)
 	}
-	if !strings.Contains(string(data), `"model": "x"`) {
-		t.Errorf("merged data = %s, want model:x", data)
+	if !strings.Contains(string(merged.Content), `"model": "x"`) {
+		t.Errorf("merged data = %s, want model:x", merged.Content)
 	}
 }
 
@@ -209,21 +254,57 @@ func TestExpandBracesUnbalanced(t *testing.T) {
 	}
 }
 
+func TestExpandBracesStartingWithBrace(t *testing.T) {
+	// open == 0 is a real brace group, not "no brace".
+	cases := []struct {
+		pattern string
+		want    []string
+	}{
+		{"{a,b}", []string{"a", "b"}},
+		{"{a,b}x", []string{"ax", "bx"}},
+	}
+	for _, c := range cases {
+		if got := expandBraces(c.pattern); !slices.Equal(got, c.want) {
+			t.Errorf("expandBraces(%q) = %v, want %v", c.pattern, got, c.want)
+		}
+	}
+}
+
+func TestDeepMergeMergesEverySharedKey(t *testing.T) {
+	base := map[string]any{
+		"m": map[string]any{"a": 1},
+		"n": map[string]any{"c": 3},
+	}
+	override := map[string]any{
+		"m": map[string]any{"b": 2},
+		"n": map[string]any{"d": 4},
+	}
+	got := deepMerge(base, override)
+	m, _ := got["m"].(map[string]any)
+	n, _ := got["n"].(map[string]any)
+	if m["a"] != 1 || m["b"] != 2 {
+		t.Errorf("m = %v, want a=1 b=2", m)
+	}
+	if n["c"] != 3 || n["d"] != 4 {
+		t.Errorf("n = %v, want c=3 d=4", n)
+	}
+}
+
 func TestBuildMergedSkipsUnparsableSnippet(t *testing.T) {
 	dir := t.TempDir()
 	// A matching-but-invalid snippet must be skipped, not fail the build.
 	writeSnippet(t, dir, "opencode-bad.json5", "{ this is not valid json5")
 	writeSnippet(t, dir, "opencode-good.json", `{"ok": true}`)
 
-	data, sources, has, err := BuildMerged("opencode*.json*", dir, "")
-	if err != nil || !has {
-		t.Fatalf("BuildMerged: has=%v err=%v", has, err)
+	merged, err := BuildMerged("", "opencode*.json*", dir, "")
+	if err != nil || !merged.HasSnippets {
+		t.Fatalf("BuildMerged: has=%v err=%v", merged.HasSnippets, err)
 	}
-	if len(sources) != 1 {
-		t.Errorf("sources = %v, want only the valid snippet", sources)
+	if len(merged.Sources) != 1 {
+		t.Errorf("sources = %v, want only the valid snippet", merged.Sources)
 	}
 	var m map[string]bool
-	if err := json.Unmarshal(data, &m); err != nil {
+	if err := json.Unmarshal(merged.Content, &m); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if !m["ok"] {
@@ -334,5 +415,96 @@ func TestScanMirrorEmptyDirs(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("entries = %+v, want none", entries)
+	}
+}
+
+func TestScanMirrorSkipsEmptyDirAndScansNext(t *testing.T) {
+	proj := t.TempDir()
+	dest := t.TempDir()
+	testutil.WriteFile(t, proj, "tui.json", `{"theme":"dark"}`)
+
+	entries, err := ScanMirror("opencode*.json*", nil, "", proj, dest)
+	if err != nil {
+		t.Fatalf("ScanMirror: %v", err)
+	}
+	if len(entries) != 1 || entries[0].HostPath != filepath.Join(proj, "tui.json") {
+		t.Fatalf("entries = %+v, want the project file", entries)
+	}
+}
+
+func TestScanMirrorSortsEntriesByVMPath(t *testing.T) {
+	user := t.TempDir()
+	dest := t.TempDir()
+	testutil.WriteFile(t, user, "b.json", `{}`)
+	testutil.WriteFile(t, user, "a.json", `{}`)
+	testutil.WriteFile(t, user, "c.json", `{}`)
+
+	// A removed sort leaves map-iteration order, so repeat to make the
+	// non-determinism observable rather than a coin flip.
+	for range 50 {
+		entries, err := ScanMirror("opencode*.json*", nil, user, "", dest)
+		if err != nil {
+			t.Fatalf("ScanMirror: %v", err)
+		}
+		if len(entries) != 3 {
+			t.Fatalf("entries = %d, want 3", len(entries))
+		}
+		for i := 1; i < len(entries); i++ {
+			if entries[i-1].VMPath > entries[i].VMPath {
+				t.Fatalf("entries not sorted by VMPath: %q > %q", entries[i-1].VMPath, entries[i].VMPath)
+			}
+		}
+	}
+}
+
+func TestScanMirrorDescendsIntoDirectoryMatchingPattern(t *testing.T) {
+	user := t.TempDir()
+	dest := t.TempDir()
+	matchingDir := filepath.Join(user, "opencode-dir.json")
+	if err := os.MkdirAll(matchingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, matchingDir, "inner.txt", "inner")
+
+	entries, err := ScanMirror("opencode*.json*", nil, user, "", dest)
+	if err != nil {
+		t.Fatalf("ScanMirror: %v", err)
+	}
+	want := filepath.Join(dest, "opencode-dir.json", "inner.txt")
+	if len(entries) != 1 || entries[0].VMPath != want {
+		t.Fatalf("entries = %+v, want the nested file %q", entries, want)
+	}
+}
+
+func TestScanMirrorMirrorsNestedFileMatchingPattern(t *testing.T) {
+	user := t.TempDir()
+	dest := t.TempDir()
+	sub := filepath.Join(user, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, sub, "opencode-x.json", `{"x":1}`)
+
+	entries, err := ScanMirror("opencode*.json*", nil, user, "", dest)
+	if err != nil {
+		t.Fatalf("ScanMirror: %v", err)
+	}
+	want := filepath.Join(dest, "sub", "opencode-x.json")
+	if len(entries) != 1 || entries[0].VMPath != want {
+		t.Fatalf("entries = %+v, want the nested file %q", entries, want)
+	}
+}
+
+func TestScanMirrorSkipsFamilyFileWithoutPatternMatch(t *testing.T) {
+	user := t.TempDir()
+	dest := t.TempDir()
+	testutil.WriteFile(t, user, "tui.json", `{"theme":"dark"}`)
+
+	entries, err := ScanMirror("opencode*.json*", []string{"tui.json"}, user, "", dest)
+	if err != nil {
+		t.Fatalf("ScanMirror: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("entries = %+v, want none (tui.json is reserved by the family)", entries)
 	}
 }

@@ -12,6 +12,8 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -27,16 +29,20 @@ func TestPersistEnvSecrets_RoundTrip(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "roundtripproj"
+	k := state.Key{Slug: slug, Agent: "opencode"}
+	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
 
 	envSt := state.EnvState{Hash: "env-hash-123", Names: []string{"FOO"}}
 	secSt := state.SecretState{Hash: "sec-hash-456", Names: []string{"PASS"}}
 
-	err := persistEnvSecrets(state.Key{Slug: slug, Agent: "opencode"}, envSt, secSt)
+	err := persistFingerprints(k, state.Fingerprints{Env: envSt, Secret: secSt})
 	if err != nil {
-		t.Fatalf("persistEnvSecrets: %v", err)
+		t.Fatalf("persistFingerprints: %v", err)
 	}
 
-	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
+	got, err := state.ReadState(k)
 	if err != nil {
 		t.Fatalf("ReadState after persist: %v", err)
 	}
@@ -48,24 +54,27 @@ func TestPersistEnvSecrets_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestPersistEnvSecrets_CreatesMissingStateDir(t *testing.T) {
+// TestPersistFingerprintsSkipsMissingState pins that a first boot with no prior
+// state.yaml records nothing. Creating a fingerprint-only document there would
+// persist home_volume: "" (HomeVolume has no omitempty) and poison the next
+// run's home resolution with a GetVolume("") failure (#430).
+func TestPersistFingerprintsSkipsMissingState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	slug := "newproj-" + makeSlug()
+	k := state.Key{Slug: "newproj-" + makeSlug(), Agent: "opencode"}
 
 	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
 	secSt := state.SecretState{Hash: "h2", Names: []string{"Y"}}
 
-	if err := persistEnvSecrets(state.Key{Slug: slug, Agent: "opencode"}, envSt, secSt); err != nil {
-		t.Fatalf("persistEnvSecrets: %v", err)
+	if err := persistFingerprints(k, state.Fingerprints{Env: envSt, Secret: secSt}); err != nil {
+		t.Fatalf("persistFingerprints: %v", err)
 	}
 
-	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
-	if err != nil {
-		t.Fatalf("ReadState: %v", err)
+	if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
+		t.Fatalf("ReadState error = %v, want ErrStateNotFound (no state created)", err)
 	}
-	if got.EnvState.Hash != "h1" {
-		t.Errorf("EnvState.Hash = %q, want %q", got.EnvState.Hash, "h1")
+	if _, err := os.Stat(filepath.Join(state.KeyDir(k), "state.yaml")); !os.IsNotExist(err) {
+		t.Errorf("state.yaml exists after a first boot with no prior state: err = %v", err)
 	}
 }
 
@@ -75,7 +84,7 @@ func TestPersistEnvSecrets_MergesExistingState(t *testing.T) {
 	slug := "mergeproj"
 
 	// Write existing state with HomeVolume and ImageDigest
-	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
+	seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "existing-vol",
 		ImageDigest: "sha256:existing",
 	})
@@ -83,8 +92,11 @@ func TestPersistEnvSecrets_MergesExistingState(t *testing.T) {
 	envSt := state.EnvState{Hash: "new-env-hash", Names: []string{"NEW"}}
 	secSt := state.SecretState{Hash: "new-sec-hash", Names: []string{"SECRET"}}
 
-	if err := persistEnvSecrets(state.Key{Slug: slug, Agent: "opencode"}, envSt, secSt); err != nil {
-		t.Fatalf("persistEnvSecrets: %v", err)
+	if err := persistFingerprints(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.Fingerprints{Env: envSt, Secret: secSt},
+	); err != nil {
+		t.Fatalf("persistFingerprints: %v", err)
 	}
 
 	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
@@ -116,13 +128,16 @@ func TestPersistEnvSecrets_OverwritesExistingState(t *testing.T) {
 		EnvState:    state.EnvState{Hash: "sha256:olddata", Names: nil},
 		SecretState: state.SecretState{},
 	}
-	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, oldState)
+	seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, oldState)
 
 	envSt := state.EnvState{Hash: "newhash", Names: []string{"K"}}
 	secSt := state.SecretState{Hash: "sh", Names: []string{"S"}}
 
-	if err := persistEnvSecrets(state.Key{Slug: slug, Agent: "opencode"}, envSt, secSt); err != nil {
-		t.Fatalf("persistEnvSecrets: %v", err)
+	if err := persistFingerprints(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.Fingerprints{Env: envSt, Secret: secSt},
+	); err != nil {
+		t.Fatalf("persistFingerprints: %v", err)
 	}
 
 	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
@@ -141,23 +156,30 @@ func TestPersistNetworkState_RoundTrip(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "netproj"
-	policy := network.Policy{Profile: network.ProfileNone, EgressAllow: []string{"api.example.com"}}
+	k := state.Key{Slug: slug, Agent: "opencode"}
+	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}, EgressAllow: []string{"api.example.com"}}
 
-	if err := persistNetworkState(state.Key{Slug: slug, Agent: "opencode"}, policy); err != nil {
-		t.Fatalf("persistNetworkState: %v", err)
+	if err := persistFingerprints(
+		k,
+		state.Fingerprints{Network: state.BuildNetworkState(policy)},
+	); err != nil {
+		t.Fatalf("persistFingerprints: %v", err)
 	}
 
-	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
+	got, err := state.ReadState(k)
 	if err != nil {
 		t.Fatalf("ReadState after persist: %v", err)
 	}
-	want := reprovision.BuildNetworkState(policy)
+	want := state.BuildNetworkState(policy)
 	if got.NetworkState.Hash != want.Hash {
 		t.Errorf("NetworkState.Hash = %q, want %q", got.NetworkState.Hash, want.Hash)
 	}
 }
 
-func TestDecideReconfig_NetworkChangedWithPersistedState(t *testing.T) {
+func TestResolveReconfigDecision_NetworkChangedWithPersistedState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
@@ -171,38 +193,38 @@ func TestDecideReconfig_NetworkChangedWithPersistedState(t *testing.T) {
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:samedigest",
 	}
-	opts := options.RunOptions{Network: network.Policy{Profile: network.ProfileNone}}
+	opts := options.RunOptions{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}}
 
 	ui := termio.NewTestMock(t)
 	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, _, err := decideReconfig(
+	decision, err := resolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		opts,
-		"img:tag",
-		"sha256:samedigest",
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:samedigest"},
 		"vol",
 		persistedState,
 		cfs,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("decideReconfig: %v", err)
+		t.Fatalf("resolveReconfigDecision: %v", err)
 	}
-	if !recreate {
+	if !decision.Recreate {
 		t.Error("expected recreate when network policy differs from persisted state (network cannot be applied live)")
 	}
-	if restart {
+	if decision.Restart {
 		t.Error("expected no daemon restart for network change (folded into recreate)")
 	}
 }
 
-func TestDecideReconfig_NetworkUnchangedNoRecreate(t *testing.T) {
+func TestResolveReconfigDecision_NetworkUnchangedNoRecreate(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
@@ -210,11 +232,11 @@ func TestDecideReconfig_NetworkUnchangedNoRecreate(t *testing.T) {
 
 	vm := volume.NewManager(&termio.Mock{})
 
-	policy := network.Policy{Profile: network.ProfileNone}
+	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}}
 	persistedState := state.HomeState{
 		HomeVolume:   "vol",
 		ImageDigest:  "sha256:samedigest",
-		NetworkState: reprovision.BuildNetworkState(policy),
+		NetworkState: state.BuildNetworkState(policy),
 	}
 	opts := options.RunOptions{Network: policy}
 
@@ -223,56 +245,56 @@ func TestDecideReconfig_NetworkUnchangedNoRecreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, _, err := decideReconfig(
+	decision, err := resolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
 		opts,
-		"img:tag",
-		"sha256:samedigest",
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:samedigest"},
 		"vol",
 		persistedState,
 		cfs,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("decideReconfig: %v", err)
+		t.Fatalf("resolveReconfigDecision: %v", err)
 	}
-	if recreate {
+	if decision.Recreate {
 		t.Error("expected no recreate when network policy matches persisted state")
 	}
-	if restart {
+	if decision.Restart {
 		t.Error("expected no restart when network policy matches persisted state")
 	}
 }
 
 func TestNetworkChanged_ZeroApplied_NonEmptyDesired(t *testing.T) {
-	got := reprovision.NetworkChanged(state.NetworkState{}, network.Policy{Profile: network.ProfileNone})
+	got := state.NetworkChanged(state.NetworkState{}, network.Policy{Profiles: []network.Profile{network.ProfileNone}})
 	if !got {
 		t.Error("expected change when applied is zero and desired is non-empty")
 	}
 }
 
 func TestNetworkChanged_ZeroApplied_EmptyDesired(t *testing.T) {
-	got := reprovision.NetworkChanged(state.NetworkState{}, network.Policy{})
+	got := state.NetworkChanged(state.NetworkState{}, network.Policy{})
 	if !got {
 		t.Error("expected change when applied is zero so the secure default can be applied")
 	}
 }
 
 func TestNetworkChanged_MatchingHash(t *testing.T) {
-	policy := network.Policy{Profile: network.ProfileNone, EgressAllow: []string{"api.example.com"}}
-	applied := reprovision.BuildNetworkState(policy)
-	if got := reprovision.NetworkChanged(applied, policy); got {
+	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}, EgressAllow: []string{"api.example.com"}}
+	applied := state.BuildNetworkState(policy)
+	if got := state.NetworkChanged(applied, policy); got {
 		t.Error("expected NO change when fingerprints match")
 	}
 }
 
 func TestNetworkChanged_DifferentHash(t *testing.T) {
-	policy := network.Policy{Profile: network.ProfileNone, EgressAllow: []string{"api.example.com"}}
-	applied := reprovision.BuildNetworkState(network.Policy{Profile: network.ProfileNone})
-	if got := reprovision.NetworkChanged(applied, policy); !got {
+	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}, EgressAllow: []string{"api.example.com"}}
+	applied := state.BuildNetworkState(network.Policy{Profiles: []network.Profile{network.ProfileNone}})
+	if got := state.NetworkChanged(applied, policy); !got {
 		t.Error("expected change when fingerprints differ")
 	}
 }
@@ -289,20 +311,20 @@ func TestPersistEnvSecrets_ReadFailsReturnsError(t *testing.T) {
 
 	envSt := state.EnvState{Hash: "h"}
 	secSt := state.SecretState{Hash: "h"}
-	err := persistEnvSecrets(state.Key{Slug: slug, Agent: "opencode"}, envSt, secSt)
+	err := persistFingerprints(state.Key{Slug: slug, Agent: "opencode"}, state.Fingerprints{Env: envSt, Secret: secSt})
 
 	if err == nil {
 		t.Fatal("expected error for corrupted YAML, got nil")
 	}
-	if !errIsContains(err, "read state for persistence") {
-		t.Errorf("expected error containing 'read state for persistence', got: %v", err)
+	if !errIsContains(err, "read state for transaction") {
+		t.Errorf("expected error containing 'read state for transaction', got: %v", err)
 	}
 }
 
-func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
+func TestResolveReconfigDecision_EnvChangedWithPersistedState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	// Set up handle so reprovision.PlanReconfig gets a non-nil cfg
+	// Set up handle so reconfig.PlanReconfig gets a non-nil cfg
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
 	configpaths.WithMockConfigPaths(t)
@@ -325,31 +347,31 @@ func TestDecideReconfig_EnvChangedWithPersistedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, _, err := decideReconfig(
+	decision, err := resolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{},
-		"img:tag",
-		"sha256:samedigest",
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:samedigest"},
 		"vol",
 		persistedState,
 		cfs,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("decideReconfig: %v", err)
+		t.Fatalf("resolveReconfigDecision: %v", err)
 	}
-	if !recreate {
+	if !decision.Recreate {
 		t.Error("expected recreate when env differs from persisted state (env cannot be applied live)")
 	}
-	if restart {
+	if decision.Restart {
 		t.Error("expected no daemon restart for env change (folded into recreate)")
 	}
 }
 
-func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
+func TestResolveReconfigDecision_EnvUnchangedWithPersistedState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	userDir := t.TempDir()
@@ -379,31 +401,31 @@ func TestDecideReconfig_EnvUnchangedWithPersistedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, _, err := decideReconfig(
+	decision, err := resolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{},
-		"img:tag",
-		"sha256:samedigest",
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:samedigest"},
 		"vol",
 		persistedState,
 		cfs,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("decideReconfig: %v", err)
+		t.Fatalf("resolveReconfigDecision: %v", err)
 	}
-	if recreate {
+	if decision.Recreate {
 		t.Error("expected no recreate")
 	}
-	if restart {
+	if decision.Restart {
 		t.Error("expected no restart when env matches persisted state")
 	}
 }
 
-func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
+func TestResolveReconfigDecision_SecretsChangedWithPersistedState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
@@ -428,31 +450,31 @@ func TestDecideReconfig_SecretsChangedWithPersistedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, _, err := decideReconfig(
+	decision, err := resolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{},
-		"img:tag",
-		"sha256:samedigest",
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:samedigest"},
 		"vol",
 		persistedState,
 		cfs,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("decideReconfig: %v", err)
+		t.Fatalf("resolveReconfigDecision: %v", err)
 	}
-	if !recreate {
+	if !decision.Recreate {
 		t.Error("expected recreate when secrets differ from persisted state (secrets cannot be applied live)")
 	}
-	if restart {
+	if decision.Restart {
 		t.Error("expected no daemon restart for secrets change (folded into recreate)")
 	}
 }
 
-func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
+func TestResolveReconfigDecision_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	userDir := t.TempDir()
@@ -473,53 +495,53 @@ func TestDecideReconfig_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, _, err := decideReconfig(
+	decision, err := resolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{},
-		"img:tag",
-		"sha256:samedigest",
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:samedigest"},
 		"vol",
 		state.HomeState{},
 		cfs,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("decideReconfig: %v", err)
+		t.Fatalf("resolveReconfigDecision: %v", err)
 	}
-	if recreate {
+	if decision.Recreate {
 		t.Error("expected no recreate")
 	}
-	if restart {
+	if decision.Restart {
 		t.Error("expected no restart when no env is configured (zero+empty)")
 	}
 }
 
 func TestSecretsChanged_ZeroApplied_NilDesired(t *testing.T) {
-	got := reprovision.SecretsChanged(state.SecretState{}, nil)
+	got := state.SecretsChanged(state.SecretState{}, nil)
 	if got {
 		t.Error("expected NO change when applied is zero and desired is nil")
 	}
 }
 
 func TestSecretsChanged_ZeroApplied_EmptyDesired(t *testing.T) {
-	got := reprovision.SecretsChanged(state.SecretState{}, []msbSdk.SecretEntry{})
+	got := state.SecretsChanged(state.SecretState{}, []msbSdk.SecretEntry{})
 	if got {
 		t.Error("expected NO change when applied is zero and desired is empty")
 	}
 }
 
 func TestSecretsChanged_NonZeroApplied_DifferentHash(t *testing.T) {
-	got := reprovision.SecretsChanged(state.SecretState{Hash: "h1"}, []msbSdk.SecretEntry{{EnvVar: "K", Value: "v"}})
+	got := state.SecretsChanged(state.SecretState{Hash: "h1"}, []msbSdk.SecretEntry{{EnvVar: "K", Value: "v"}})
 	if !got {
 		t.Error("expected change when hashes differ")
 	}
 }
 
 func TestEnvChanged_ZeroApplied_NonEmptyDesired(t *testing.T) {
-	got := reprovision.EnvChanged(state.EnvState{}, map[string]string{"FOO": "bar"})
+	got := state.EnvChanged(state.EnvState{}, map[string]string{"FOO": "bar"})
 	if !got {
 		t.Error("expected change when applied is zero and desired is non-empty")
 	}
@@ -527,15 +549,15 @@ func TestEnvChanged_ZeroApplied_NonEmptyDesired(t *testing.T) {
 
 func TestEnvChanged_MatchingHash(t *testing.T) {
 	desired := map[string]string{"FOO": "bar"}
-	wantHash := reprovision.EnvContentHash(desired)
-	got := reprovision.EnvChanged(state.EnvState{Hash: wantHash}, desired)
+	wantHash := state.EnvContentHash(desired)
+	got := state.EnvChanged(state.EnvState{Hash: wantHash}, desired)
 	if got {
 		t.Error("expected NO change when hashes match")
 	}
 }
 
 func TestSecretState_NilEntries_RendersEmpty(t *testing.T) {
-	got := reprovision.SecretsContentHash(nil)
+	got := state.SecretsContentHash(nil)
 	if got == "" {
 		t.Error("expected non-empty hash for nil entries")
 	}
@@ -544,41 +566,10 @@ func TestSecretState_NilEntries_RendersEmpty(t *testing.T) {
 func TestEnvContentHash_OrderIndependent(t *testing.T) {
 	a := map[string]string{"A": "1", "B": "2"}
 	b := map[string]string{"B": "2", "A": "1"}
-	hA := reprovision.EnvContentHash(a)
-	hB := reprovision.EnvContentHash(b)
+	hA := state.EnvContentHash(a)
+	hB := state.EnvContentHash(b)
 	if hA != hB {
 		t.Errorf("hashes differ for same content in different order: %q vs %q", hA, hB)
-	}
-}
-
-// TestPersistEnvSecrets_NilStateOnNotFound tests persistEnvSecrets when no state file exists.
-func TestPersistEnvSecrets_NilStateOnNotFound(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	slug := "freshproject"
-
-	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
-	secSt := state.SecretState{Hash: "h2", Names: []string{"Y"}}
-
-	if err := persistEnvSecrets(state.Key{Slug: slug, Agent: "opencode"}, envSt, secSt); err != nil {
-		t.Fatalf("persistEnvSecrets: %v", err)
-	}
-
-	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
-	if err != nil {
-		t.Fatalf("ReadState: %v", err)
-	}
-	if got.HomeVolume != "" {
-		t.Error("expected empty HomeVolume for newly created state")
-	}
-	if got.ImageDigest != "" {
-		t.Error("expected empty ImageDigest for newly created state")
-	}
-	if got.EnvState.Hash != "h1" {
-		t.Errorf("EnvState.Hash = %q, want %q", got.EnvState.Hash, "h1")
-	}
-	if got.SecretState.Hash != "h2" {
-		t.Errorf("SecretState.Hash = %q, want %q", got.SecretState.Hash, "h2")
 	}
 }
 
@@ -586,12 +577,16 @@ func TestPersistEnvSecrets_HomeStateOmitsZeroState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "omittestproj"
+	k := state.Key{Slug: slug, Agent: "opencode"}
+	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
 
 	envSt := state.EnvState{Hash: "h1", Names: []string{"X"}}
 	secSt := state.SecretState{}
 
-	if err := persistEnvSecrets(state.Key{Slug: slug, Agent: "opencode"}, envSt, secSt); err != nil {
-		t.Fatalf("persistEnvSecrets: %v", err)
+	if err := persistFingerprints(k, state.Fingerprints{Env: envSt, Secret: secSt}); err != nil {
+		t.Fatalf("persistFingerprints: %v", err)
 	}
 
 	data, err := os.ReadFile(filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode", "state.yaml"))
@@ -609,18 +604,17 @@ func TestPersistEnvSecrets_ZeroStateOverwritesOnlyFields(t *testing.T) {
 
 	slug := "overwriteproj"
 
-	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
+	seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:img",
 		EnvState:    state.EnvState{Hash: "old-env", Names: []string{"OLD"}},
 	})
 
-	if err := persistEnvSecrets(
+	if err := persistFingerprints(
 		state.Key{Slug: slug, Agent: "opencode"},
-		state.EnvState{},
-		state.SecretState{},
+		state.Fingerprints{Env: state.EnvState{}, Secret: state.SecretState{}},
 	); err != nil {
-		t.Fatalf("persistEnvSecrets: %v", err)
+		t.Fatalf("persistFingerprints: %v", err)
 	}
 
 	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
@@ -638,7 +632,7 @@ func TestPersistEnvSecrets_ZeroStateOverwritesOnlyFields(t *testing.T) {
 	}
 }
 
-func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
+func TestResolveReconfigDecision_PersistedSecretsMatchDesired(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	userDir := t.TempDir()
@@ -650,10 +644,10 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 	vm := volume.NewManager(&termio.Mock{})
 
 	testutil.WriteFile(t, userDir, configpaths.EnvFileName, "K=V\n")
-	desiredEnv := reprovision.MergeEnvMaps(reprovision.BuildEnvMap(filepath.Join(userDir, configpaths.EnvFileName)))
-	envHash := reprovision.EnvContentHash(desiredEnv)
+	desiredEnv := envsecret.MergeEnvMaps(envsecret.BuildEnvMap(filepath.Join(userDir, configpaths.EnvFileName)))
+	envHash := state.EnvContentHash(desiredEnv)
 
-	state.WriteState(state.Key{Slug: "myproj5", Agent: "opencode"}, state.HomeState{
+	seedHomeState(state.Key{Slug: "myproj5", Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:img",
 		EnvState:    state.EnvState{Hash: envHash, Names: []string{"K"}},
@@ -670,29 +664,31 @@ func TestDecideReconfig_PersistedSecretsMatchDesired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, _, err := decideReconfig(
+	decision, err := resolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{},
-		"img", "sha256:img", "vol",
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img", Ref: "img", Digest: "sha256:img"},
+		"vol",
 		persistedState,
 		cfs,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("decideReconfig: %v", err)
+		t.Fatalf("resolveReconfigDecision: %v", err)
 	}
-	if recreate {
+	if decision.Recreate {
 		t.Error("expected no recreate")
 	}
-	if restart {
+	if decision.Restart {
 		t.Error("expected no restart when env matches persisted state and no secrets")
 	}
 }
 
-func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
+func TestResolveReconfigDecision_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
@@ -732,21 +728,34 @@ func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, homeVol, _, err := decideReconfig(
+	imageInfo := image.ImageInfo{
+		DockerTag: "img:tag",
+		Ref:       "img:tag",
+		// imageRef == cfg.Image; the digest still identifies the image
+		Digest: "sha256:new",
+	} // stored digest differs -> image-triggered rebuild
+	decision, err := resolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
 		key,
-		options.RunOptions{},
-		"img:tag",    // imageRef == cfg.Image; the digest still identifies the image
-		"sha256:new", // stored digest differs -> image-triggered rebuild
+		options.RunOptions{Agent: "opencode"},
+		imageInfo,
 		"vol",
 		persisted,
 		cfs,
+		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
-		t.Fatalf("decideReconfig: %v", err)
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	homeVol, err := applyReconfigHomeAction(
+		context.Background(), mock, vm, key, "vol", imageInfo,
+		false, decision, ui,
+	)
+	if err != nil {
+		t.Fatalf("applyReconfigHomeAction: %v", err)
 	}
 	if !reconfigPrompted {
 		t.Error("expected VM-recreate prompt when another client is active")
@@ -757,15 +766,18 @@ func TestDecideReconfig_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 	if homeVol != "vol" {
 		t.Errorf("homeVol = %q, want unchanged %q", homeVol, "vol")
 	}
-	if recreate {
+	if decision.Recreate {
 		t.Error("expected VM rebuild to be deferred when another client keeps the current VM")
 	}
-	if restart {
+	if decision.Restart {
 		t.Error("expected no restart")
+	}
+	if joined := strings.Join(ui.VerboseCalls, "\n"); !strings.Contains(joined, "image digest changed") {
+		t.Errorf("verbose calls = %v, want the image-digest change reason", ui.VerboseCalls)
 	}
 }
 
-func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
+func TestResolveReconfigDecision_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
@@ -789,36 +801,49 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:old",
 	}
-	slug := git.ProjectSlug()
-	state.WriteState(state.Key{Slug: slug, Agent: "opencode"}, persisted)
+	slug := git.MustCheckoutSlug()
+	seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, persisted)
 
 	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, homeVol, _, err := decideReconfig(
+	imageInfo := image.ImageInfo{
+		DockerTag: "img:new",
+		Ref:       "img:new",
+		// imageRef != cfg.Image("img:tag") -> image-triggered rebuild
+		Digest: "sha256:new",
+	} // stored digest differs -> image change detected
+	decision, err := resolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
 		state.Key{Slug: slug, Agent: "opencode"},
-		options.RunOptions{},
-		"img:new",    // imageRef != cfg.Image("img:tag") -> image-triggered rebuild
-		"sha256:new", // stored digest differs -> image change detected
+		options.RunOptions{Agent: "opencode"},
+		imageInfo,
 		"vol",
 		persisted,
 		cfs,
+		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
-		t.Fatalf("decideReconfig: %v", err)
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	homeVol, err := applyReconfigHomeAction(
+		context.Background(), mock, vm, state.Key{Slug: slug, Agent: "opencode"}, "vol", imageInfo,
+		false, decision, ui,
+	)
+	if err != nil {
+		t.Fatalf("applyReconfigHomeAction: %v", err)
 	}
 	if !prompted {
 		t.Error("expected home-volume prompt to fire when the rebuild onto the new image is confirmed")
 	}
-	if !recreate {
+	if !decision.Recreate {
 		t.Error("expected recreate when switching to the new image")
 	}
-	if restart {
+	if decision.Restart {
 		t.Error("expected no restart (env/secret/config unchanged)")
 	}
 	if homeVol != "vol" {
@@ -834,20 +859,20 @@ func TestDecideReconfig_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 	}
 }
 
-func TestDecideReconfig_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
+func TestResolveReconfigDecision_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	// Desired opencode config: a snippet producing {"model":"y"} (new config).
 	testutil.WriteFile(t,
-		configpaths.Get().UserAgentConfigDir(opencodeAgent(t)),
+		configpaths.MustDir(configpaths.Get().UserAgentConfigDir(opencodeAgent(t))),
 		"a.json",
 		`{"model":"y"}`,
 	)
 
-	// Existing VM whose Connect fails (stopped/suspended VM): decideReconfig
-	// cannot read live config, so it must neither recreate nor spuriously flag a
-	// daemon restart. Provisioning + fresh daemon pickup happen downstream in
-	// setUpSandbox once the VM is started.
+	// Existing VM whose Connect fails (stopped/suspended VM):
+	// resolveReconfigDecision cannot read live config, so it must neither
+	// recreate nor spuriously flag a daemon restart. Provisioning + fresh daemon
+	// pickup happen downstream in setUpSandbox once the VM is started.
 	sh := &msb.MockSandboxHandle{
 		Cfg: &msbSdk.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
 	}
@@ -862,7 +887,7 @@ func TestDecideReconfig_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 	persisted := state.HomeState{
 		HomeVolume:   "vol",
 		ImageDigest:  "sha256:same",
-		NetworkState: reprovision.BuildNetworkState(network.Policy{}),
+		NetworkState: state.BuildNetworkState(network.Policy{}),
 	}
 
 	ui := termio.NewTestMock(t)
@@ -870,26 +895,26 @@ func TestDecideReconfig_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	recreate, restart, _, _, err := decideReconfig(
+	decision, err := resolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
 		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{},
-		"img:tag",
-		"sha256:same",
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
 		"vol",
 		persisted,
 		cfs,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("decideReconfig: %v", err)
+		t.Fatalf("resolveReconfigDecision: %v", err)
 	}
-	if recreate {
+	if decision.Recreate {
 		t.Error("expected no recreate for an opencode-config-only change on a stopped VM")
 	}
-	if restart {
+	if decision.Restart {
 		t.Error("expected no daemon-restart flag from a stopped VM (fresh daemon picks up config on start)")
 	}
 }
@@ -909,8 +934,8 @@ func reconfigMockClient() *msb.MockMsbClient {
 }
 
 func computeEnvHash(envFile string) string {
-	env := reprovision.BuildEnvMap(envFile)
-	return reprovision.EnvContentHash(env)
+	env := envsecret.BuildEnvMap(envFile)
+	return state.EnvContentHash(env)
 }
 
 func makeSlug() string {
@@ -934,26 +959,34 @@ func containsStr(s, sub string) bool {
 	return len(s) >= len(sub) && contains(s, sub)
 }
 
-// TestPersistMountState_NilStateOnNotFound tests persistMountState when no
-// state file exists yet, e.g. the very first run of a project.
-func TestPersistMountState_NilStateOnNotFound(t *testing.T) {
+// TestPersistMountState_RecordsOnExistingState pins that mount fingerprints are
+// folded into an existing document (the post-home-resolution path); a first boot
+// with no state is a no-op covered by TestPersistFingerprintsSkipsMissingState.
+func TestPersistMountState_RecordsOnExistingState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	slug := "freshmountproject"
+	k := state.Key{Slug: slug, Agent: "opencode"}
+	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
 	mnts := mounts.Mounts{
 		"/home/dev/.m2": {Source: "/host/.m2"},
 	}
 
-	if err := persistMountState(state.Key{Slug: slug, Agent: "opencode"}, mnts); err != nil {
-		t.Fatalf("persistMountState: %v", err)
+	if err := persistFingerprints(
+		k,
+		state.Fingerprints{Mount: state.BuildMountState(mnts)},
+	); err != nil {
+		t.Fatalf("persistFingerprints: %v", err)
 	}
 
-	got, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
+	got, err := state.ReadState(k)
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
-	if got.HomeVolume != "" {
-		t.Error("expected empty HomeVolume for newly created state")
+	if got.HomeVolume != "vol" {
+		t.Errorf("HomeVolume = %q, want the seeded vol", got.HomeVolume)
 	}
 	if got.MountState.Hash != mounts.Fingerprint(mnts) {
 		t.Errorf("MountState.Hash = %q, want %q", got.MountState.Hash, mounts.Fingerprint(mnts))
@@ -972,11 +1005,14 @@ func TestPersistMountStateCorruptState(t *testing.T) {
 	}
 	testutil.WriteFile(t, sdir, "state.yaml", "{ corrupted: yaml: [")
 
-	err := persistMountState(state.Key{Slug: slug, Agent: "opencode"}, nil)
+	err := persistFingerprints(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.Fingerprints{Mount: state.BuildMountState(nil)},
+	)
 	if err == nil {
 		t.Fatal("expected an error for a corrupt state file")
 	}
-	if !strings.Contains(err.Error(), "read state for mount persistence") {
-		t.Errorf("error = %v, want it to mention mount persistence", err)
+	if !strings.Contains(err.Error(), "read state for transaction") {
+		t.Errorf("error = %v, want it to mention a state read failure", err)
 	}
 }

@@ -1,0 +1,127 @@
+name: fuzz
+
+# Fuzzing explores the inputs a user or their files control: persisted state
+# files (per-project and launcher-global), size and worktree specs, configured
+# mounts, the retired updater.yaml, the project Dockerfile, the `home:`
+# manifest, `--older-than` durations, and image references. It is deliberately
+# not a PR gate — the seed corpus and any committed crasher already run under
+# `make test`, and a time-budgeted explorer is nondeterministic — so a red run
+# here reports a crasher and never blocks a merge or a release.
+on:
+  push:
+    branches: [main]
+    # Only a merge that can change a fuzz target. The targets are discovered
+    # from the sources (see the `discover` job), so this filter names the trees
+    # those sources live in rather than the packages themselves, and a merge
+    # that cannot add or change a target has nothing new for one to find. This
+    # also keeps the jobs off every dependency bump, which touches only
+    # go.mod/go.sum.
+    paths:
+      - internal/**
+      - cmd/**
+      - test/**
+  schedule:
+    # Depth comes from the nightly run. GitHub only runs a schedule from the
+    # default branch's copy of this workflow, and always against that branch.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: Fuzzing budget per target (the job times out at 45m)
+        default: 15m
+        required: true
+
+# The workflow only checks out and runs Go, so the token needs no write scope.
+permissions:
+  contents: read
+
+jobs:
+  # Discover the fuzz targets from the sources exactly as `make fuzz` does, so a
+  # new target needs no edit here: drop a `func Fuzz...` in a package under
+  # internal/, cmd/, or test/ and it joins the matrix on the next run. This is
+  # the one place the target list is derived, keeping CI and the Makefile in
+  # agreement.
+  discover:
+    name: discover fuzz targets
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.list.outputs.targets }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: list
+        # One matrix entry per *target*, because `go test -fuzz` accepts exactly
+        # one target per run and each target spends the full FUZZTIME budget on
+        # its own. A job per target keeps that budget independent: a package
+        # with three targets would otherwise need three times the job timeout.
+        # `name` (flattened path + target) is unique across the matrix and safe
+        # to reuse in the cache key and the concurrency group.
+        run: |
+          entries=$(grep -rlE '^func Fuzz' --include='*_test.go' internal cmd test | while read -r file; do
+            pkg=$(dirname "$file")
+            grep -oE '^func Fuzz[A-Za-z0-9_]+' "$file" | awk '{print $2}' | while read -r target; do
+              printf '%s\t%s\n' "$pkg" "$target"
+            done
+          done | sort -u)
+          if [ -z "$entries" ]; then
+            echo "no fuzz targets found" >&2
+            exit 1
+          fi
+          json=$(printf '%s\n' "$entries" | jq -R -s -c 'split("\n") | map(select(length > 0)) | map(split("\t") | {name: (.[0] | gsub("/"; "-")) + "-" + .[1], path: .[0], target: .[1]})')
+          echo "targets=$json" >> "$GITHUB_OUTPUT"
+
+  fuzz:
+    needs: discover
+    name: fuzz (${{ matrix.target.path }} ${{ matrix.target.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      # One target's crasher must not hide the others.
+      fail-fast: false
+      # The target list comes from the `discover` job, not a static list.
+      matrix:
+        target: ${{ fromJSON(needs.discover.outputs.targets) }}
+    concurrency:
+      # Never cancel a run in progress: a cancelled run spends its budget
+      # without exploring, so a busy merge rate could starve exploration down to
+      # nothing. A superseded pending job is dropped; the running one finishes.
+      group: fuzz-${{ matrix.target.name }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          # Compile cache only, so the fuzz budget is not spent waiting on the
+          # build; the corpus has its own cache below.
+          cache: true
+      - name: Restore the fuzz corpus
+        # Go keeps the interesting inputs it finds under $GOCACHE/fuzz, so cache
+        # that subtree directly. It cannot ride setup-go's cache: that entry is
+        # keyed on go.sum and GitHub caches are immutable, so an exact hit is
+        # never re-saved and each run's discoveries would be discarded (another
+        # job sharing the key may also save it first). A key unique per run
+        # always saves, and the prefix restores the newest for this target.
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/go-build/fuzz
+          key: fuzz-corpus-${{ matrix.target.name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: fuzz-corpus-${{ matrix.target.name }}-
+      - name: Fuzz ${{ matrix.target.path }} ${{ matrix.target.target }}
+        # A merge only needs the hint that nothing new broke; the nightly is
+        # where depth comes from, and a dispatch says what it wants.
+        env:
+          FUZZPKG: ${{ matrix.target.path }}
+          FUZZTARGET: ${{ matrix.target.target }}
+          FUZZTIME: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzztime || github.event_name == 'schedule' && '15m' || '60s' }}
+        run: make fuzz
+      - name: Upload the crasher
+        # Go writes a failing input to the package's testdata/fuzz/<Target>/ and
+        # prints it in the log. CI cannot commit it — committing a corpus seed
+        # needs a push token — so it leaves the runner as an artifact.
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-crasher-${{ matrix.target.name }}
+          path: ${{ matrix.target.path }}/testdata/fuzz/${{ matrix.target.target }}/
+          if-no-files-found: ignore
+          retention-days: 30

@@ -6,7 +6,7 @@ import (
 )
 
 func TestAgentSpecsShareCredentialFieldMetadata(t *testing.T) {
-	for _, name := range []string{opencodeName, piName, claudeCodeName} {
+	for _, name := range []string{opencode1Name, piName, claudeCodeName} {
 		a, _ := Lookup(name)
 		auth := a.(MigrationSpecProvider).MigrationSpec().Auth
 		if !slices.Equal(auth.SensitiveFields, defaultSensitiveAuthFields) {

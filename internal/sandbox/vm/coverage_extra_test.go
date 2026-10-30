@@ -11,6 +11,9 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -30,12 +33,12 @@ func joinStrings(parts []string) string {
 
 func TestProjectVMNameIncludesAgent(t *testing.T) {
 	got := projectVMName(state.Key{Slug: "myproject-aBc1234DeF", Agent: "pi"})
-	want := "agents-sandbox-vm-myproject-aBc1234DeF-pi"
+	want := "myproject-aBc1234DeF-pi"
 	if got != want {
 		t.Errorf("projectVMName = %q, want %q", got, want)
 	}
 	got = projectVMName(state.Key{Slug: "myproject-aBc1234DeF", Agent: "opencode"})
-	want = "agents-sandbox-vm-myproject-aBc1234DeF-opencode"
+	want = "myproject-aBc1234DeF-opencode"
 	if got != want {
 		t.Errorf("projectVMName = %q, want %q", got, want)
 	}
@@ -66,39 +69,20 @@ func TestProjectVMNameExtremeAgentCoversFinalCut(t *testing.T) {
 	}
 }
 
-// TestKeyDirFlockPath covers the agent-scoped flock-path construction used by
-// ensureProjectVM: it lives under the (slug, agent) key directory.
-func TestKeyDirFlockPath(t *testing.T) {
+// TestCurrentAgentVersionIgnoresCorruptFile covers the read-error branch of
+// currentAgentVersion (a corrupt project state file must yield "").
+func TestCurrentAgentVersionIgnoresCorruptFile(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "myproj", Agent: "opencode"}
-	want := filepath.Join(configpaths.Get().UserStateDir(), "myproj", "opencode", "ensure-vm.lock")
-	if got := filepath.Join(state.KeyDir(k), "ensure-vm.lock"); got != want {
-		t.Errorf("flock path = %q, want %q", got, want)
-	}
-}
-
-// TestCurrentUpgradeVersionIgnoresCorruptFile covers the load-error branch of
-// currentUpgradeVersion (a corrupt state file must yield "").
-func TestCurrentUpgradeVersionIgnoresCorruptFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	path := filepath.Join(configpaths.Get().UserStateDir(), "updater.yaml")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent)
+	if err := os.MkdirAll(sdir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("::: not yaml :::"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(sdir, "state.yaml"), []byte("::: not yaml :::"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := currentUpgradeVersion(opencodeAgent(t)); got != "" {
-		t.Errorf("currentUpgradeVersion() = %q, want empty for corrupt file", got)
-	}
-}
-
-// TestSaveUpgradeStateMkdirError covers the MkdirAll error path in
-// saveUpgradeState (state directory cannot be created).
-func TestSaveUpgradeStateMkdirError(t *testing.T) {
-	withFailingStateDir(t)
-	if err := saveUpgradeState(upgradeState{CurrentVersion: "1.0.0"}); err == nil {
-		t.Error("expected error when the state directory cannot be created")
+	if got := currentAgentVersion(k); got != "" {
+		t.Errorf("currentAgentVersion() = %q, want empty for corrupt file", got)
 	}
 }
 
@@ -110,11 +94,22 @@ func TestPersistConfigHashesCoversEnvSecretAndNetwork(t *testing.T) {
 	ui := termio.NewTestMock(t)
 
 	slug := "hashproj"
-	policy := network.Policy{Profile: network.ProfileNone}
+	k := state.Key{Slug: slug, Agent: "opencode"}
+	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}}
 
-	persistConfigHashes(state.Key{Slug: slug, Agent: "opencode"}, policy, nil, &ui)
+	persistConfigHashes(
+		k,
+		state.Fingerprints{
+			Network: state.BuildNetworkState(policy),
+			Mount:   state.BuildMountState(nil),
+		},
+		&ui,
+	)
 
-	st, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
+	st, err := state.ReadState(k)
 	if err != nil {
 		t.Fatalf("ReadState after persistConfigHashes: %v", err)
 	}
@@ -124,40 +119,6 @@ func TestPersistConfigHashesCoversEnvSecretAndNetwork(t *testing.T) {
 	if st.MountState.Hash == "" {
 		t.Error("expected mount state hash to be persisted")
 	}
-}
-
-// TestAcquireProjectFlockOpenError covers the open-file error branch of
-// acquireProjectFlock (path under a non-directory parent).
-func TestAcquireProjectFlockOpenError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	// UserStateDir is a directory, so create a regular file as the parent of
-	// the lock path to force os.OpenFile to fail with ENOTDIR.
-	parent := filepath.Join(configpaths.Get().UserStateDir(), "notadir")
-	if err := os.WriteFile(parent, []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	lockPath := filepath.Join(parent, "ensure-vm.lock")
-	if _, err := acquireProjectFlock(lockPath); err == nil {
-		t.Error("expected error when opening the flock fails")
-	}
-}
-
-// TestAcquireProjectFlockFlockError covers the flock-syscall error branch. It
-// is hard to force an actual flock failure on a writable file, so instead we
-// verify the happy path acquires and releases a lock and returns a working
-// release closure.
-func TestAcquireProjectFlockAcquiresAndReleases(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	dir := t.TempDir()
-	lockPath := filepath.Join(dir, "ensure-vm.lock")
-	release, err := acquireProjectFlock(lockPath)
-	if err != nil {
-		t.Fatalf("acquireProjectFlock: %v", err)
-	}
-	if release == nil {
-		t.Fatal("expected a non-nil release function")
-	}
-	release()
 }
 
 // TestStopProjectVMGetSandboxError covers the non-not-found GetSandbox error
@@ -198,6 +159,7 @@ func TestStopProjectVMStopFnError(t *testing.T) {
 // TestKillProjectVMDryRunRemove covers the kill dry-run branch and the
 // actionWord selection.
 func TestKillProjectVMDryRunRemove(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(&msb.MockSandboxHandle{
@@ -227,13 +189,13 @@ func TestStopAndKillProjectVMUnknownAgent(t *testing.T) {
 // setUpSandbox: a provision failure is logged as a warning and the setup
 // continues (config provisioning is non-disruptive and never fatal).
 func TestSetUpSandboxProvisionError(t *testing.T) {
-	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
 	})
-	t.Cleanup(func() { SetDaemonShellFunc(orig) })
+	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
 
 	configpaths.WithMockConfigPaths(t)
 
@@ -251,12 +213,14 @@ func TestSetUpSandboxProvisionError(t *testing.T) {
 	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte("{}")}
 	if _, err := setUpSandbox(
 		context.Background(),
+		testVMKey(),
 		sb,
-		options.RunOptions{},
+		options.RunOptions{Agent: "opencode"},
 		cfs,
 		&ui,
 		false,
 		vmBootStarted,
+		mounts.WorkspaceMountPath,
 	); err != nil {
 		t.Fatalf("setUpSandbox: %v", err)
 	}
@@ -267,28 +231,30 @@ func TestSetUpSandboxProvisionError(t *testing.T) {
 	}
 }
 
-// TestRestartDaemonsKillError covers the kill-stale-daemon failure branch of
-// restartDaemons: the function warns but continues to ensure the daemon.
+// TestRestartDaemonsKillError covers the kill-stale-job failure branch of
+// restartDaemons: the failure is reported as a verbose diagnostic and the
+// daemon is still (re)started.
 func TestRestartDaemonsKillError(t *testing.T) {
-	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == opencodeProvider(t).DaemonKillCmd() {
-			return "", 0, errors.New("kill failed")
-		}
-		if command == opencodeProvider(t).DaemonHealthCmd() {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
+	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
+		return `{"healthy":true,"version":"test"}`, 0, nil
 	})
-	t.Cleanup(func() { SetDaemonShellFunc(orig) })
+	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
 
 	ui := termio.NewTestMock(t)
-	fs := msb.NewTestFS(nil, nil)
-	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
+	stale := &msb.MockJob{ID_: "stale", KillErr: errors.New("kill failed")}
+	command := opencodeProvider(t).DaemonCommand(false)
+	sb := &msb.MockSandbox{
+		Name_: "vm",
+		Jobs: []msbSdk.JobInfo{
+			{ID: "stale", Command: append([]string{command.Binary}, command.Args...)},
+		},
+		GetJobFn: func(context.Context, string) (msb.Job, error) { return stale, nil },
+	}
 
 	restartDaemons(context.Background(), opencodeAgent(t), sb, false, &ui)
 
-	if !contains(joinStrings(ui.WarnCalls), "kill stale daemon failed") {
-		t.Errorf("expected a kill-failure warning, got %v", ui.WarnCalls)
+	if !contains(joinStrings(ui.VerboseCalls), "killing job") {
+		t.Errorf("expected a kill-failure verbose message, got %v", ui.VerboseCalls)
 	}
 }
 
@@ -306,17 +272,19 @@ func TestRestartDaemonsNoProvider(t *testing.T) {
 	}
 }
 
-// TestEnsureProjectVMDryRunVM covers the DryRunVM early-return branch.
-func TestEnsureProjectVMDryRunVM(t *testing.T) {
+// TestEnsureProjectVMSkipVM covers the skip-VM early-return branch.
+func TestEnsureProjectVMSkipVM(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	sb, boot, err := ensureProjectVM(
 		context.Background(),
-		options.RunOptions{DryRunVM: true},
-		"img:tag",
+		options.RunOptions{},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
+		testVMKey().Slug,
+		true,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -341,12 +309,14 @@ func TestEnsureProjectVMGetSandboxFatalError(t *testing.T) {
 
 	_, _, err := ensureProjectVM(
 		context.Background(),
-		options.RunOptions{},
-		"img:tag",
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		testVMKey(),
+		testVMKey().Slug,
+		false,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {

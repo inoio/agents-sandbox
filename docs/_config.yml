@@ -1,7 +1,7 @@
 title: agents-sandbox
-tagline: Sandbox for Claude Code, opencode & pi in a microVM
+tagline: Sandbox for Claude Code, Codex, opencode, opencode2, pi & hermes in a microVM
 description: >-
-  Sandbox for AI coding agents: run Claude Code, opencode or pi in an isolated microVM on Linux or macOS, with your
+  Sandbox for AI coding agents: run Claude Code, Codex, opencode, opencode2, pi or hermes in an isolated microVM on Linux or macOS, with your
   project mounted and secrets kept on the host.
 
 # Absolute URLs for canonical links, sitemap and structured data.
@@ -26,8 +26,13 @@ heading_anchors: true
 color_scheme: light
 back_to_top: true
 
-# Avoid copying build artefacts into the deployed site.
+# Avoid copying build artefacts and local-only trees into the deployed site.
+# superpowers/ is gitignored tooling (see AGENTS.md); vendor/ is the Ruby gem
+# bundle. Both are absent in CI but present locally, and Jekyll would otherwise
+# copy them into _site/.
 exclude:
   - Gemfile
   - Gemfile.lock
   - "*.gemspec"
+  - superpowers
+  - vendor

@@ -2,7 +2,6 @@ package vm
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +11,8 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -20,7 +21,8 @@ import (
 )
 
 // nilResultDockerd models a sandbox whose dockerd readiness probe returns a
-// nil (nil, nil) result during polling, forcing the log/no-result branch.
+// nil (nil, nil) result during polling, exercising the nil-result guard in
+// probeHealthy.
 type nilResultDockerd struct {
 	msb.Sandbox
 
@@ -38,17 +40,16 @@ func (s *nilResultDockerd) Shell(
 	case dockerdReadyCmd:
 		s.readyCalls++
 		if s.readyCalls >= 2 {
-			return nil, errors.New("probe error")
+			return nil, nil //nolint:nilnil // models an SDK nil-result probe
 		}
 		return msb.NewTestResult(false, 1, "", "", nil), nil
-	case dockerdRestartCmd:
-		return msb.NewTestResult(true, 0, "", "", nil), nil
 	}
 	return s.Sandbox.Shell(ctx, command, opts...)
 }
 
 // TestStartDockerdNilProbeResult covers the branch where the dockerd readiness
-// probe returns a nil result during polling.
+// probe returns a nil result during polling: the probe is treated as unhealthy
+// and startup times out rather than panicking.
 func TestStartDockerdNilProbeResult(t *testing.T) {
 	origTimeout, origInterval := dockerdReadyTimeout, dockerdPollInterval
 	t.Cleanup(func() {
@@ -65,9 +66,6 @@ func TestStartDockerdNilProbeResult(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error when dockerd never becomes ready")
 	}
-	if !contains(joinStrings(ui.VerboseCalls), "dockerd readiness") {
-		t.Errorf("expected a readiness verbose message, got %v", ui.VerboseCalls)
-	}
 }
 
 // TestEnsureProjectVMFlockError covers the branch where acquiring the
@@ -78,10 +76,11 @@ func TestEnsureProjectVMFlockError(t *testing.T) {
 
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
-	slug := git.ProjectSlug()
+	slug := git.MustCheckoutSlug()
 	k := state.Key{Slug: slug, Agent: "opencode"}
-	flockDir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
-	if err := os.MkdirAll(filepath.Join(flockDir, "ensure-vm.lock"), 0o750); err != nil {
+	// A directory at the lock path makes os.OpenFile fail, exercising the flock
+	// acquisition error branch.
+	if err := os.MkdirAll(filepath.Join(state.ProjectVMLockDir(k), "ensure-vm.lock"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 
@@ -94,12 +93,14 @@ func TestEnsureProjectVMFlockError(t *testing.T) {
 
 	_, _, err := ensureProjectVM(
 		context.Background(),
-		options.RunOptions{},
-		"img:tag",
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
 		"/workspace",
-		nil,
 		k,
+		k.Slug,
+		false,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {

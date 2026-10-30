@@ -1,0 +1,211 @@
+name: mutation
+
+# Mutation testing mutates the code and checks whether the suite notices. It is
+# deliberately not a gate: gomutants has no pass/fail threshold (a LIVED mutant
+# is either a missing assertion or a genuinely equivalent mutation), so closing
+# one is human judgement, not a check. This workflow runs on every PR that can
+# change the code (and on manual dispatch); it is never a required check and
+# never a release prerequisite (see `.operator-shared/specs/mutation-testing.md`).
+on:
+  pull_request:
+    # A change that cannot alter which mutants exist need not pay the
+    # module-wide coverage pass: the sweep is about Go code, so docs, the
+    # operator brain, templates, and the Homebrew formula are excluded.
+    # Everything else (code, go.mod/.go-version, the Makefile, the workflow
+    # itself) still triggers. `workflow_dispatch` ignores this filter.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.operator-shared/**'
+      - 'Formula/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.gitignore'
+  workflow_dispatch:
+
+# Least privilege by default; the mutation job raises `pull-requests` so it can
+# post its sticky survivor comment.
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    name: mutation (changed lines)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    # A sweep over a large changeset can run long; cap it so a runaway cannot
+    # tie up a runner. A timeout is not a gate, only a wasted run.
+    timeout-minutes: 90
+    concurrency:
+      # A PR that pushes again supersedes its own sweep; the newest commit is
+      # the one worth signalling on.
+      group: mutation-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # gomutants' `--changed-since` needs a real merge base with the base
+          # branch, which the shallow default checkout does not provide.
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache: true
+      - name: Resolve the sweep range
+        id: range
+        env:
+          # A PR is scoped to its own changeset: lines changed since the merge
+          # base with the base branch. A manual run leaves SINCE unset, so `make
+          # mutation` falls back to its local default, the last release tag.
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            git fetch --no-tags origin "refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+            echo "since=origin/${BASE_REF}" >> "$GITHUB_OUTPUT"
+          else
+            echo "since=" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Sweep mutants
+        # Named MUTATION_SINCE, not SINCE: an empty SINCE in make's environment
+        # would defeat `SINCE ?= $(shell git describe ...)`, so a manual run would
+        # fail to resolve the release tag instead of falling back to it.
+        env:
+          MUTATION_SINCE: ${{ steps.range.outputs.since }}
+        # `make mutation` exits 0 on survivors (no threshold), so a red step here
+        # means the sweep itself failed, not that mutants survived.
+        #
+        # ANNOTATIONS is set only on the PR path: annotations attach to the diff
+        # by file+line, which `--changed-since` guarantees for a PR but a
+        # whole-tree dispatch sweep does not. GitHub caps the annotation channel
+        # at 10 warnings per step, so the comment below is the complete record.
+        run: |
+          if [ -n "$MUTATION_SINCE" ]; then
+            make mutation SINCE="$MUTATION_SINCE" ANNOTATIONS=github
+          else
+            make mutation
+          fi
+      - name: Summarize survivors
+        # The value of a non-gating run is the report, not the exit code, so
+        # surface it even if the sweep step failed.
+        if: ${{ always() }}
+        run: |
+          if [ ! -f mutation-report.json ]; then
+            echo "No mutation report was produced." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "## Mutation sweep"
+            echo
+            jq -r '[.files[]?.mutations[]?] as $m | "\($m | length) mutants: \([$m[] | select(.status == "KILLED")] | length) killed, \([$m[] | select(.status == "LIVED")] | length) lived"' mutation-report.json
+            echo
+            echo "| lived | file |"
+            echo "| ---: | --- |"
+            jq -r '[.files[]? | { f: .file_name, n: ([.mutations[]? | select(.status == "LIVED")] | length) } | select(.n > 0)] | sort_by(-.n)[] | "| \(.n) | `\(.f)` |"' mutation-report.json
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Comment the survivors
+        # Annotations cap at 10 warnings per step, so the comment carries the
+        # uncapped record: the totals and the full survivor list. `always()` so
+        # a failed sweep still explains itself. A fork PR gets a read-only token
+        # and cannot comment, so skip it rather than fail the job.
+        if: >-
+          ${{ always() &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ ! -f mutation-report.json ]; then
+            echo "No mutation report to comment." >&2
+            exit 0
+          fi
+
+          # One row per survivor, with `|`, CR/LF, and backticks neutralized so
+          # a mutant fragment cannot break the table. Bounded to 200 rows, and
+          # the assembled comment is size-checked below.
+          survivor_rows=$(
+            jq -r '
+              def esc: tostring | gsub("\\|"; "\\|") | gsub("`"; "") | gsub("\\r?\\n"; " ");
+              [ .files[]? as $f | $f.mutations[]? | select(.status == "LIVED")
+                | { file: $f.file_name, line: .line, type: .type, original: .original, replacement: .replacement } ]
+              | "\(length)\t" + (.[:200] | map("| `\(.file | esc)` | \(.line) | \(.type | esc) | `\(.original | esc)` → `\(.replacement | esc)` |") | join("\n"))
+            ' mutation-report.json
+          )
+          survivor_total=${survivor_rows%%$'\t'*}
+          survivor_table=${survivor_rows#*$'\t'}
+
+          {
+            echo '<!-- mutation-sweep -->'
+            if [ "$survivor_total" -eq 0 ]; then
+              echo "## Mutation sweep — no surviving mutants"
+            else
+              echo "## Mutation sweep — ${survivor_total} surviving mutant(s)"
+            fi
+            echo
+            jq -r 'if .mutants_total == 0
+                   then "No mutants on this PR'"'"'s changed lines — nothing to sweep."
+                   else "\(.mutants_lived) LIVED of \(.mutants_total) mutants on this PR'"'"'s changed lines (\(.mutants_killed) killed, \(.mutants_not_covered) not covered, \(.mutants_equivalent // 0) equivalent, \(.mutants_timed_out // 0) timed out, \(.mutants_infra_error // 0) infra error); test efficacy \(.test_efficacy)%."
+                   end' mutation-report.json
+            echo
+            if [ "$survivor_total" -gt 0 ]; then
+              echo "Survivors need human triage: strengthen the test, delete the redundant construct, or record a reason."
+              echo
+            fi
+          } > /tmp/mutation-comment.md
+
+          # GitHub rejects a comment past 65,536 characters, and a row can be long
+          # (a mutant's full replacement text), so gate on the assembled size and
+          # drop the table rather than let the PATCH fail: the artifact, not the
+          # comment, is the complete record.
+          if [ -n "$survivor_table" ]; then
+            {
+              echo "<details><summary>All ${survivor_total} survivors</summary>"
+              echo
+              echo "| file | line | mutator | original → replacement |"
+              echo "| --- | ---: | --- | --- |"
+              echo "$survivor_table"
+              if [ "$survivor_total" -gt 200 ]; then
+                echo
+                echo "_Showing the first 200; the \`mutation-report\` artifact has the full list._"
+              fi
+              echo
+              echo "</details>"
+            } > /tmp/mutation-details.md
+            if [ $(( $(wc -c < /tmp/mutation-comment.md) + $(wc -c < /tmp/mutation-details.md) )) -le 60000 ]; then
+              cat /tmp/mutation-details.md >> /tmp/mutation-comment.md
+            else
+              {
+                echo
+                echo "_Survivor list omitted: it would exceed GitHub's comment size limit. See the \`mutation-report\` artifact._"
+              } >> /tmp/mutation-comment.md
+            fi
+            echo >> /tmp/mutation-comment.md
+          fi
+
+          echo "[Full report and log](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) (artifact \`mutation-report\`)." >> /tmp/mutation-comment.md
+
+          # Update the workflow's own comment, matched by marker AND author: a
+          # human who pastes a report as a new comment must not be overwritten.
+          marker='<!-- mutation-sweep -->'
+          existing=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+            | jq -r --arg m "$marker" \
+                '.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith($m)) | .id' \
+            | tail -n1)
+          payload=$(jq -n --rawfile body /tmp/mutation-comment.md '{body: $body}')
+          if [ -n "$existing" ]; then
+            printf '%s' "$payload" | gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" --input -
+          else
+            printf '%s' "$payload" | gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --input -
+          fi
+      - name: Upload the mutation report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-report
+          path: mutation-report.json
+          if-no-files-found: ignore
+          retention-days: 30

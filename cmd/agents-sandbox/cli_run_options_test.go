@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -25,15 +27,18 @@ func TestRunCommandHasNoOpenCodeVersionFlag(t *testing.T) {
 	}
 }
 
-func TestRunAndShellHaveDindFlag(t *testing.T) {
+func TestRunAndShellHaveDockerFlags(t *testing.T) {
 	for _, name := range []string{cmdRun, cmdShell} {
 		cmd, _ := setupCommandFixtures(t, name, "--help")
 		foundCmd, _, err := cmd.Find([]string{name})
 		if err != nil {
 			t.Fatalf("Find %q: %v", name, err)
 		}
+		if flag := foundCmd.Flags().Lookup(flagDocker); flag == nil {
+			t.Errorf("%s command must have --docker flag", name)
+		}
 		if flag := foundCmd.Flags().Lookup(flagDind); flag == nil {
-			t.Errorf("%s command must have --dind flag", name)
+			t.Errorf("%s command must keep the deprecated --dind alias", name)
 		}
 	}
 }
@@ -47,6 +52,23 @@ func TestRunAndShellHaveDNSFlag(t *testing.T) {
 		}
 		if flag := foundCmd.Flags().Lookup(flagDNSServers); flag == nil {
 			t.Errorf("%s command must have --dns flag", name)
+		}
+	}
+}
+
+func TestRunAndShellHaveComposableNetworkFlag(t *testing.T) {
+	for _, name := range []string{cmdRun, cmdShell} {
+		cmd, _ := setupCommandFixtures(t, name, "--help")
+		foundCmd, _, err := cmd.Find([]string{name})
+		if err != nil {
+			t.Fatalf("Find %q: %v", name, err)
+		}
+		flag := foundCmd.Flags().Lookup(flagNetwork)
+		if flag == nil {
+			t.Fatalf("%s command must have --network flag", name)
+		}
+		if flag.Value.Type() != "stringSlice" {
+			t.Errorf("%s --network type = %q, want stringSlice (comma-separated or repeated)", name, flag.Value.Type())
 		}
 	}
 }
@@ -78,7 +100,7 @@ func TestBuildRunOptionsProvisionHostConfigOptIn(t *testing.T) {
 	ui := &termio.Mock{}
 	cmd := buildCommandWithLauncherConfig(ui, launcherconfig.Config{ProvisionHostConfig: true})
 
-	opts, err := resolverFromContext(cmd.Context()).BuildRunOptions(cmd, ui)
+	opts, err := runoptions.Build(resolverFromContext(cmd.Context()).Config(), cmd, ui)
 	if err != nil {
 		t.Fatalf("BuildRunOptions: %v", err)
 	}
@@ -129,8 +151,8 @@ func TestRefreshRunOptionsAfterMigrationPreservesNetworkFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opts.Network.Profile != network.ProfilePublic {
-		t.Fatalf("network profile = %q, want public", opts.Network.Profile)
+	if !slices.Contains(opts.Network.Profiles, network.ProfilePublic) {
+		t.Fatalf("network profiles = %v, want to contain public", opts.Network.Profiles)
 	}
 }
 

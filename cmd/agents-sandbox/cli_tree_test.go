@@ -41,7 +41,7 @@ func TestTree(t *testing.T) {
 		descs := []string{
 			"Assume yes to all prompts",
 			"Minimum log level to show (error, warning, info, verbose)",
-			"(opencode only) Run in an isolated worktree named <name>, optionally starting from the local base ref <name>:<base>",
+			"(opencode, opencode2) Run in an isolated worktree named <name>, optionally starting from the local base ref <name>:<base>",
 			"Rebuild the runner image before starting",
 			"Dry run without starting anything",
 			"Number of CPUs (default: all)",
@@ -90,7 +90,7 @@ func TestPrintTreeContainsCommandDescriptions(t *testing.T) {
 		"Manage runner images",
 		"Manage home volumes",
 		"Manage sandboxes",
-		"Show the merged agent config and host drop-in candidates",
+		"Show the merged agent config and the host files provisioned into the VM",
 		"List cached runner images",
 		"List managed volumes",
 		"Stop the project VM",
@@ -203,6 +203,35 @@ func TestPrintTreeShowsSandboxShorthands(t *testing.T) {
 	}
 }
 
+func TestPrintTreeContainsStorageCommands(t *testing.T) {
+	testUI := buildTree(t)
+	out := strings.Join(testUI.InfoCalls, "\n")
+	for _, s := range []string{
+		"df",
+		"storage",
+		"prune (also: storage prune)",
+	} {
+		if !strings.Contains(out, s) {
+			t.Errorf("expected %q in tree output:\n%s", s, out)
+		}
+	}
+}
+
+// TestPrintTreeContainsConfigPaths pins that the tree renders the config paths
+// subcommand and its description under config.
+func TestPrintTreeContainsConfigPaths(t *testing.T) {
+	out := strings.Join(buildTree(t).InfoCalls, "\n")
+	// Assert the subcommand's own row, not a bare "paths" substring: "host
+	// paths" in the storage --verbose description would satisfy that.
+	row := "── " + cmdPaths + "  "
+	if !strings.Contains(out, row) {
+		t.Fatalf("expected a %q row in tree output:\n%s", row, out)
+	}
+	if !strings.Contains(out, "Print the config layers in precedence order") {
+		t.Errorf("expected the config paths description in tree output:\n%s", out)
+	}
+}
+
 func TestPrintTreePositionalArgsHaveDescription(t *testing.T) {
 	testUI := buildTree(t)
 	out := strings.Join(testUI.InfoCalls, "\n")
@@ -272,4 +301,11 @@ func descriptionStartCol(line string) int {
 
 func isTreeChar(r rune) bool {
 	return r == '│' || r == '├' || r == '└' || r == '─' || r == ' '
+}
+
+func TestPrintTreeContainsSandboxCompact(t *testing.T) {
+	out := strings.Join(buildTree(t).InfoCalls, "\n")
+	if !strings.Contains(out, "Merge the copy-on-write disk layers of project sandbox VMs") {
+		t.Errorf("expected the sandbox compact row in tree output:\n%s", out)
+	}
 }

@@ -3,13 +3,11 @@ package volume
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
-	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 
@@ -18,15 +16,20 @@ import (
 
 // Mount point constants used by volume operations (prefill, copy, edit).
 const (
-	srcMount = "/src"
-	dstMount = "/dst"
+	homeMount = "/mnt/home"
+	srcMount  = "/src"
+	dstMount  = "/dst"
 )
 
-// HomeVolumeName generates a volume name for the given project/agent key using
-// the standard home volume prefix and a UTC timestamp.
+// homeVolumeClock is the clock HomeVolumeName timestamps from. It is a seam so
+// tests can control the generated names.
+var homeVolumeClock = time.Now
+
+// HomeVolumeName generates a prefix-free volume name for the given
+// project/agent key with a UTC timestamp.
 func HomeVolumeName(k state.Key) string {
-	ts := time.Now().UTC().Format("20060102T150405")
-	return naming.HomePrefix + k.Slug + "-" + k.Agent + "-" + ts
+	ts := homeVolumeClock().UTC().Format("20060102T150405")
+	return naming.HomeVolumeName(k.Slug, k.Agent, ts)
 }
 
 // Manager manages home-volume lifecycle for projects.
@@ -45,47 +48,23 @@ func NewManager(ui termio.UI) *Manager {
 func (vm *Manager) PrefillVolume(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, volumeName, imageTag string,
+	k state.Key, volumeName string,
+	info image.ImageInfo,
 	ui termio.UI,
 ) error {
-	if err := image.EnsureLoaded(ctx, client, k.Slug, imageTag, ui); err != nil {
-		return fmt.Errorf("load runner image: %w", err)
-	}
-	prefillName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
-	mountConfig := msbSdk.Mount.Named(volumeName, msbSdk.MountOptions{})
-
-	spin := ui.Spinner("Preparing home volume")
-	sb, err := client.CreateSandbox(ctx, prefillName,
-		msbSdk.WithImage(imageTag),
-		msbSdk.WithMounts(map[string]msbSdk.MountConfig{
-			"/mnt/home": mountConfig,
-		}),
-		msbSdk.WithReplace(),
-	)
-	if err != nil {
-		spin.StopError(err)
-		return fmt.Errorf("create prefill sandbox: %w", err)
-	}
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
-		defer cancel()
-		_ = sb.Stop(stopCtx)
-		_ = sb.Close()
-		_ = client.RemoveSandbox(context.Background(), prefillName)
-	}()
-
-	out, err := sb.Exec(ctx, "sh", []string{"-c", "cp -a /home/dev/. /mnt/home/ && chown -R dev:dev /mnt/home"})
-	if err != nil {
-		spin.StopError(err)
-		return fmt.Errorf("prefill cp: %w", err)
-	}
-	if !out.Success() {
-		err := fmt.Errorf("prefill cp failed (exit %d): %s", out.ExitCode(), out.Stderr())
-		spin.StopError(err)
-		return err
-	}
-	spin.Stop()
-	return nil
+	return withThrowawaySandbox(ctx, client, k, info, throwawaySandbox{
+		purpose: "prefill",
+		mounts: map[string]msbSdk.MountConfig{
+			homeMount: msbSdk.Mount.Named(volumeName, msbSdk.MountOptions{}),
+		},
+		spinnerLabel: "Preparing home volume",
+	}, ui, func(sb msb.Sandbox, spin termio.Spinner) error {
+		return runShell(ctx, sb, spin, shellStep{
+			execErrPrefix: "prefill cp",
+			failurePrefix: "prefill cp failed",
+			script:        "cp -a /home/dev/. " + homeMount + "/ && chown -R dev:dev " + homeMount,
+		})
+	})
 }
 
 // ApplyHomeAction executes the migrate/reset action the user chose, always
@@ -94,33 +73,26 @@ func (vm *Manager) PrefillVolume(
 // State is only written when the action actually executes successfully; a real
 // run creates the new volume, prefills it (spawning a VM), copies files for
 // migrate (spawning another VM), and then records the new volume and current
-// digest. Both --dry-run and --dry-run-vm simulate the action without changing
-// state: --dry-run performs no writes at all, and --dry-run-vm additionally
-// never spawns a VM, so the chosen action is left uncommitted.
+// digest. A skipVM prepare leaves a migrate or reset action uncommitted, because
+// the prefill and the copy would spawn a VM; ActionKeep still records the digest.
 func (vm *Manager) ApplyHomeAction(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, oldVolume, imageTag, currentDigest string,
+	k state.Key, oldVolume string,
+	info image.ImageInfo,
 	action VolumeAction,
-	opts options.RunOptions,
+	skipVM bool,
 	ui termio.UI,
 ) (string, error) {
 	if action == ActionKeep {
-		if opts.DryRun {
-			return oldVolume, nil
-		}
-		if err := vm.RecordHomeImage(k, currentDigest, ui); err != nil {
+		if err := vm.RecordHomeImage(k, info.Digest, ui); err != nil {
 			ui.Warnf("failed to record image digest: %v", err)
 		}
 		return oldVolume, nil
 	}
 
 	label := actionLabel(action)
-	if opts.DryRun {
-		ui.Infof("dry-run: Would %s home volume (old %q kept)", label, oldVolume)
-		return oldVolume, nil
-	}
-	if opts.DryRunVM {
+	if skipVM {
 		ui.Infof("dry-run-vm: %s deferred; not applied without running a VM (old %q kept)", label, oldVolume)
 		return oldVolume, nil
 	}
@@ -133,21 +105,23 @@ func (vm *Manager) ApplyHomeAction(
 	}
 	newName := newVol.Name()
 
-	if err := vm.PrefillVolume(ctx, client, k, newName, imageTag, ui); err != nil {
+	if err := vm.PrefillVolume(ctx, client, k, newName, info, ui); err != nil {
 		vm.cleanupVolume(ctx, client, newName, ui)
 		return "", err
 	}
 
 	if action == ActionMigrate {
-		if err := vm.CopyVolume(ctx, client, k, oldVolume, newName, imageTag, ui); err != nil {
+		if err := vm.CopyVolume(ctx, client, k, oldVolume, newName, info, ui); err != nil {
 			vm.cleanupVolume(ctx, client, newName, ui)
 			return "", err
 		}
 	}
 
-	newState := state.NewHomeState(newName, currentDigest)
-	if err := state.WriteState(k, newState); err != nil {
-		ui.Warnf("failed to write state file: %v", err)
+	// ResolveHomeVolume settles any recovered-volume marker before a home action
+	// runs, so a marker present now was set concurrently and must be kept.
+	if err := commitNewHomeVolume(k, oldVolume, newName, info.Digest, false); err != nil {
+		vm.cleanupUncommittedVolume(ctx, client, newName, err, ui)
+		return "", err
 	}
 	ui.Infof("%s to new home volume %q (old %q kept)", label, newName, oldVolume)
 	return newName, nil
@@ -161,48 +135,42 @@ func (vm *Manager) cleanupVolume(ctx context.Context, client msb.Client, name st
 	}
 }
 
+// cleanupUncommittedVolume removes name after a failed commit, unless the
+// commit error means the rename already installed the state that names it (a
+// post-rename durability failure): deleting the volume then would leave the
+// saved state pointing at a removed volume.
+func (vm *Manager) cleanupUncommittedVolume(
+	ctx context.Context, client msb.Client, name string, commitErr error, ui termio.UI,
+) {
+	if state.WriteInstalled(commitErr) {
+		return
+	}
+	vm.cleanupVolume(ctx, client, name, ui)
+}
+
 // CopyVolume copies the contents of the old home volume on top of the newly
 // created one via a throwaway sandbox that mounts both.
 func (vm *Manager) CopyVolume(
 	ctx context.Context,
 	client msb.Client,
-	k state.Key, oldVolume, newVolume, imageTag string,
+	k state.Key, oldVolume, newVolume string,
+	info image.ImageInfo,
 	ui termio.UI,
 ) error {
-	if err := image.EnsureLoaded(ctx, client, k.Slug, imageTag, ui); err != nil {
-		return fmt.Errorf("load runner image: %w", err)
-	}
-	copySbName := naming.TaskPrefix + k.Slug + "-" + k.Agent + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
-	copySb, err := client.CreateSandbox(ctx, copySbName,
-		msbSdk.WithImage(imageTag),
-		msbSdk.WithMounts(map[string]msbSdk.MountConfig{
+	return withThrowawaySandbox(ctx, client, k, info, throwawaySandbox{
+		purpose: "copy",
+		mounts: map[string]msbSdk.MountConfig{
 			srcMount: msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{}),
 			dstMount: msbSdk.Mount.Named(newVolume, msbSdk.MountOptions{}),
-		}),
-		msbSdk.WithReplace(),
-	)
-	if err != nil {
-		return fmt.Errorf("create copy sandbox: %w", err)
-	}
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
-		defer cancel()
-		_ = copySb.Stop(stopCtx)
-		_ = copySb.Close()
-		_ = client.RemoveSandbox(context.Background(), copySbName)
-	}()
-
-	spin := ui.Spinner("Copying files from existing home volume")
-	out, err := copySb.Exec(ctx, "sh", []string{"-c", "cp -a /src/. /dst/ && chown -R dev:dev /dst"})
-	if err != nil {
-		spin.StopError(err)
-		return fmt.Errorf("copy files: %w", err)
-	}
-	if !out.Success() {
-		err := fmt.Errorf("copy failed (exit %d): %s", out.ExitCode(), out.Stderr())
-		spin.StopError(err)
-		return err
-	}
-	spin.Stop()
-	return nil
+		},
+		// The copy spinner starts only once the sandbox is up.
+		spinnerLabel: "",
+	}, ui, func(sb msb.Sandbox, _ termio.Spinner) error {
+		spin := ui.Spinner("Copying files from existing home volume")
+		return runShell(ctx, sb, spin, shellStep{
+			execErrPrefix: "copy files",
+			failurePrefix: "copy failed",
+			script:        "cp -a " + srcMount + "/. " + dstMount + "/ && chown -R dev:dev " + dstMount,
+		})
+	})
 }

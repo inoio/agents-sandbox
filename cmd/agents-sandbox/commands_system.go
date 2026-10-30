@@ -2,140 +2,139 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
-	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/configmigration"
-	"github.com/inoio/agents-sandbox/internal/configwizard"
+	"github.com/inoio/agents-sandbox/internal/cliout"
 	"github.com/inoio/agents-sandbox/internal/git"
-	"github.com/inoio/agents-sandbox/internal/homeconfig"
-	"github.com/inoio/agents-sandbox/internal/humanize"
+	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
-	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
 	"github.com/inoio/agents-sandbox/internal/termio"
-	"github.com/inoio/agents-sandbox/internal/viperconfig"
+	"github.com/inoio/agents-sandbox/internal/view"
 )
 
-type volumeOpFunc func(context.Context, state.Key, string, string, string, bool, bool, termio.UI) error
+type volumeOpFunc func(context.Context, state.Key, string, image.ImageInfo, bool, bool, termio.UI) error
 
-const (
-	colName    = "NAME"
-	colStatus  = "STATUS"
-	colImage   = "IMAGE"
-	colCreated = "CREATED"
-	colKind    = "KIND"
-	colSize    = "SIZE"
-	colRef     = "REFERENCE"
-	colDigest  = "DIGEST"
-)
-
-// sandboxListHeaders returns the column order for sandbox lists. Matches msb:
-// NAME IMAGE STATUS CREATED.
-func sandboxListHeaders() []string {
-	return []string{colName, colImage, colStatus, colCreated}
+// volumeOp describes one `volume` subcommand that replaces the project's home
+// volume (migrate, reset, edit).
+type volumeOp struct {
+	name       string
+	run        volumeOpFunc
+	short      string
+	removeHelp string
 }
 
-func imageListHeaders() []string {
-	return []string{colRef, colDigest, colSize, colCreated}
+var volumeOps = []volumeOp{
+	{
+		name:       cmdMigrate,
+		run:        volume.CmdMigrate,
+		short:      "Migrate: create new volume, copy files from existing volume on top",
+		removeHelp: "Remove the old home volume after migration",
+	},
+	{
+		name:       cmdReset,
+		run:        volume.CmdReset,
+		short:      "Reset: create new volume from image, ",
+		removeHelp: "Remove the old home volume after reset",
+	},
+	{
+		name:       cmdEdit,
+		run:        volume.CmdEdit,
+		short:      "Edit: create new volume alongside old one for manual transfer",
+		removeHelp: "Remove the old home volume after editing",
+	},
 }
 
-func volumeListHeaders() []string {
-	return []string{colName, colKind, colSize, colCreated}
-}
-
-// volumeSize renders the SIZE column to match msb: disk volumes show
-// capacity, directory volumes show quota, and "-" when unavailable.
-func volumeSize(kind string, q *uint32, c *uint64) string {
-	if kind == "disk" {
-		if c != nil {
-			return humanize.FormatBytes(*c)
-		}
-		return "-"
-	}
-	if q != nil {
-		return humanize.FormatBytes(uint64(*q) * 1024 * 1024)
-	}
-	return "-"
-}
-
-// truncateDigest shortens a full manifest digest to the short form msb uses in
-// image list output: the "sha256:" prefix followed by the first 12 hex chars.
-func truncateDigest(digest string) string {
-	const shortLen = len("sha256:") + 12
-	if len(digest) <= shortLen {
-		return digest
-	}
-	return digest[:shortLen]
-}
-
-func buildVolumeOpsCmd(
-	ui termio.UI,
-	name string,
-	fn volumeOpFunc,
-	short, rmFlag, rmHelp string,
-	rmVar *bool,
-) *cobra.Command {
+func buildVolumeOpsCmd(ui termio.UI, op volumeOp) *cobra.Command {
+	var removeOld bool
 	cmd := &cobra.Command{
-		Use:   name,
+		Use:   op.name,
 		Args:  cobra.MaximumNArgs(1),
-		Short: short,
+		Short: op.short,
 		RunE: func(c *cobra.Command, args []string) error {
 			if !doctor.CheckAll(c.Context(), ui) {
 				return errors.New("preflight failed")
 			}
-			projectSlug := git.ProjectSlug()
 			dryRun, _ := c.Flags().GetBool(flagDryRun)
-			a, err := resolveAgentFlag(c)
+			key, info, err := prepareVolumeOp(c, ui, dryRun)
 			if err != nil {
 				return err
 			}
-			dind := false
-			if r := resolverFromContext(c.Context()); r != nil {
-				dind = r.Dind()
-			}
-			info, err := image.EnsureImage(
-				c.Context(),
-				a,
-				projectSlug,
-				image.BuildOptions{Force: false, AgentVersion: "", UserProvided: false, Dind: dind},
-				ui,
-			)
-			if err != nil {
-				return fmt.Errorf("ensure image: %w", err)
-			}
-			var volName string
+			var volumeName string
 			if len(args) > 0 {
-				volName = args[0]
+				volumeName = args[0]
 			}
-			return fn(
-				c.Context(),
-				state.Key{Slug: projectSlug, Agent: a.Name()},
-				volName,
-				info.Tag,
-				info.Digest,
-				*rmVar,
-				dryRun,
-				ui,
-			)
+			return op.run(c.Context(), key, volumeName, info, removeOld, dryRun, ui)
 		},
 	}
-	cmd.Flags().BoolVar(rmVar, rmFlag, false, rmHelp)
+	cmd.Flags().BoolVar(&removeOld, flagRemove, false, op.removeHelp)
 	cmd.Flags().Bool(flagDryRun, false, "Show what would be done")
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile")
+	// --rebuild was dropped from these volume ops without a deprecation cycle
+	// (migrate/reset shipped it in 0.5.0). Restore it on all three as a hidden
+	// no-op for one cycle: they ensure the runner image but never force a clean
+	// rebuild.
+	cmd.Flags().Bool(flagRebuild, false, "Deprecated no-op; run 'agents-sandbox build' to rebuild the runner image")
+	_ = cmd.Flags().MarkDeprecated(flagRebuild, "run 'agents-sandbox build' to rebuild the runner image")
 	return cmd
+}
+
+// prepareVolumeOp resolves the agent, adopts a legacy project identity, and
+// ensures the runner image a volume op seeds from, recording the release the
+// ensured image bakes (these ops resolve latest, not the recorded baseline, but
+// whatever they bake must still be the project's recorded release). It adopts
+// like PrepareSandbox does and uses the adopted slug for both the image and the
+// state key, never re-deriving it from git: adoption may have just moved the
+// state, and a dry run deliberately returns the legacy repo slug while the
+// migration stays pending. A dry run only reports the state-derived old
+// volume, so it leaves the runner image untouched: ensuring it could build
+// one, a side effect a preview must not have.
+func prepareVolumeOp(c *cobra.Command, ui termio.UI, dryRun bool) (state.Key, image.ImageInfo, error) {
+	a, err := resolveAgentFlag(c)
+	if err != nil {
+		return state.Key{}, image.ImageInfo{}, err
+	}
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		return state.Key{}, image.ImageInfo{}, err
+	}
+	adoption, err := sandbox.AdoptLegacyIdentity(
+		c.Context(), msb.Get(), identity, a.Name(), !dryRun, ui,
+	)
+	if err != nil {
+		return state.Key{}, image.ImageInfo{}, err
+	}
+	key := state.Key{Slug: adoption.Slug, Agent: a.Name()}
+	if dryRun {
+		return key, image.ImageInfo{}, nil
+	}
+	info, err := image.EnsureImage(
+		c.Context(),
+		a,
+		adoption.Slug,
+		image.BuildOptions{Force: false, AgentVersion: "", UserProvided: false, Docker: resolveBuildDockerSetting(c)},
+		ui,
+	)
+	if err != nil {
+		return state.Key{}, image.ImageInfo{}, fmt.Errorf("ensure image: %w", err)
+	}
+	// Record the release the ensured image bakes so the volume subcommands are
+	// writers of record too, whatever release they resolve. A failure only warns:
+	// the next run reconciles from the image label.
+	if err := state.RecordAgentVersion(key, info.AgentVersion); err != nil {
+		ui.Warnf("could not persist the agent version: %v (continuing)", err)
+	}
+	return key, info, nil
 }
 
 func buildDoctorCmd(ui termio.UI) *cobra.Command {
@@ -171,11 +170,9 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox list",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if namesOnly && format != "" {
-				return errors.New("--names and --format are mutually exclusive")
-			}
-			if format != "" && format != formatJSON {
-				return fmt.Errorf("unsupported format %q: only %q is supported", format, formatJSON)
+			mode, err := cliout.ResolveMode(format, ui.Quiet() || namesOnly)
+			if err != nil {
+				return err
 			}
 			labels, err := parseLabelFlags(labelsStr)
 			if err != nil {
@@ -195,25 +192,11 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if namesOnly {
-				for _, s := range sandboxes {
-					ui.Out(s.Name)
-				}
-				return nil
-			}
-			if format == formatJSON {
-				return printSandboxesJSON(ui, sandboxes)
-			}
-			printItems(sandboxes, "No sandboxes found.", sandboxListHeaders(), ui,
-				func(s sandbox.Info) string { return s.Name },
-				func(s sandbox.Info) string { return s.Image },
-				func(s sandbox.Info) string { return termio.StyleStatus(s.Status) },
-				func(s sandbox.Info) string { return s.CreatedAt },
-			)
-			return nil
+			return cliout.PrintList(ui, mode, sandboxes, "No sandboxes found.", view.SandboxPrinter{})
 		},
 	}
 	cmd.Flags().BoolVar(&namesOnly, pFlagNames, false, "Print only sandbox names")
+	_ = cmd.Flags().MarkDeprecated(pFlagNames, "use --quiet")
 	cmd.Flags().
 		StringArrayVar(&labelsStr, flagLabel, nil, "Only show sandboxes carrying this label KEY=VALUE (repeatable, all must match)")
 	cmd.Flags().Uint32Var(&limit, flagLimit, 0, "Limit the number of sandboxes shown")
@@ -235,344 +218,15 @@ func parseLabelFlags(values []string) (map[string]string, error) {
 	return labels, nil
 }
 
-type jsonSandbox struct {
-	Name    string            `json:"name"`
-	Status  string            `json:"status"`
-	Image   string            `json:"image"`
-	Created time.Time         `json:"created"`
-	Updated time.Time         `json:"updated"`
-	Labels  map[string]string `json:"labels"`
-}
-
-//nolint:gochecknoglobals // test seam for the JSON output error path
-var marshalSandboxesJSON = json.MarshalIndent
-
-func printSandboxesJSON(ui termio.UI, infos []sandbox.Info) error {
-	out := make([]jsonSandbox, 0, len(infos))
-	for _, s := range infos {
-		out = append(out, jsonSandbox{
-			Name:    s.Name,
-			Status:  s.Status,
-			Image:   s.Image,
-			Created: s.CreatedAtRaw,
-			Updated: s.UpdatedAtRaw,
-			Labels:  s.Labels,
-		})
-	}
-	data, err := marshalSandboxesJSON(out, "", "  ")
-	if err != nil {
-		return err
-	}
-	ui.Out(string(data))
-	return nil
-}
-
-func buildConfigCmd(ui termio.UI) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     cmdConfig,
-		Aliases: cmdConfigAliases,
-		Short:   "Inspect agent and home configuration",
-	}
-
-	cmd.AddCommand(buildConfigAgentCmd(ui))
-	cmd.AddCommand(buildConfigMigrateCmd(ui))
-	cmd.AddCommand(buildConfigWizardCmd(ui))
-
-	cmd.AddCommand(&cobra.Command{
-		Use:   cmdHome,
-		Args:  cobra.NoArgs,
-		Short: "List home-file mappings from the config home: key",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			a, _ := agent.Lookup("")
-			r := resolverFromContext(cmd.Context())
-			layers, has := r.Home()
-			if !has {
-				ui.Out("No home configuration found.")
-				return nil
-			}
-			pairs, err := homeconfig.DescribeLayers(
-				layers,
-				"/home/dev",
-				reservedHomeConfigTargets(a, "/home/dev"),
-			)
-			if err != nil {
-				return err
-			}
-			if len(pairs) == 0 {
-				ui.Out("No home mappings.")
-				return nil
-			}
-			for _, p := range pairs {
-				ui.Outf("%s  <-  %s", p[0], p[1])
-			}
-			return nil
-		},
-	})
-
-	return cmd
-}
-
-//nolint:gochecknoglobals // command seams restored by tests
-var (
-	buildMigrationPlan = configmigration.Build
-	applyMigrationPlan = configmigration.Apply
-	migrationHomeDir   = os.UserHomeDir
-)
-
-// buildConfigMigrateCmd creates the host-only safe migration command. It never
-// starts a VM and never enables native host-config provisioning implicitly.
-//
-//nolint:gocognit // command flow keeps migration decisions visible
-func buildConfigMigrateCmd(
-	ui termio.UI,
-) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   cmdMigrate,
-		Args:  cobra.MaximumNArgs(1),
-		Short: "Migrate native agent config without copying raw credentials",
-		RunE: func(c *cobra.Command, args []string) error {
-			name, err := resolveConfigAgentName(c, args)
-			if err != nil {
-				return err
-			}
-			a, ok := agent.Lookup(name)
-			if !ok {
-				return fmt.Errorf("unknown agent %q: must be one of %s", name, strings.Join(agent.Names(), ", "))
-			}
-			hostHome, err := migrationHomeDir()
-			if err != nil {
-				return fmt.Errorf("resolve host home: %w", err)
-			}
-			resolver, err := viperconfig.NewResolver(c, git.ProjectSlug())
-			if err != nil {
-				return err
-			}
-			runOptions, err := resolver.BuildRunOptions(c, ui)
-			if err != nil {
-				return err
-			}
-			plan, err := buildMigrationPlan(a, hostHome, runOptions.Network)
-			if err != nil {
-				if errors.Is(err, configmigration.ErrUnsupported) {
-					ui.Warnf("safe migration is not available for agent %q; configure it manually", a.Name())
-					return nil
-				}
-				return err
-			}
-			if !plan.HasNativeConfig && !plan.SetupOnly {
-				ui.Outf("No native %s configuration found.", a.Name())
-				return nil
-			}
-			if plan.HasManagedConfig && !plan.AlreadyConfigured {
-				ui.Warnf("managed %s configuration already exists; refusing to overwrite it", a.Name())
-				return nil
-			}
-			if len(plan.Files) == 0 && !plan.SetupOnly {
-				handled, err := migrateLoginOnly(plan, a, ui)
-				if err != nil {
-					return err
-				}
-				if handled {
-					return nil
-				}
-				ui.Warnf(
-					"native %s configuration was found, but no supported credential migration is available",
-					a.Name(),
-				)
-				for _, warning := range plan.Warnings {
-					ui.Warn(warning)
-				}
-				return nil
-			}
-			if plan.AlreadyConfigured {
-				ui.Outf("A safe %s migration is already configured.", a.Name())
-				return nil
-			}
-			if plan.Dismissed {
-				ui.Outf(
-					"Migration was previously dismissed for the current native configuration; applying it explicitly now.",
-				)
-			}
-			if plan.Manual || plan.LoginPending {
-				ui.Outf(
-					"Onboarding was previously deferred for the current native configuration; applying it explicitly now.",
-				)
-			}
-			ui.Outf("Migrating %s configuration without copying raw credentials.", a.Name())
-			if err := configmigration.Review(plan, ui); err != nil {
-				return err
-			}
-			if err := applyMigrationPlan(plan, ui); err != nil {
-				return err
-			}
-			ui.Outf("Safe migration completed. Secret values are stored in %s.", plan.SecretPath)
-			return nil
-		},
-	}
-	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile")
-	return cmd
-}
-
-// buildConfigWizardCmd returns the interactive setup-wizard command. It runs
-// without an msb runtime because commandNeedsMSBRuntime exempts the config tree.
-func buildConfigWizardCmd(ui termio.UI) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   cmdWizard,
-		Args:  cobra.NoArgs,
-		Short: "Interactively set launcher configuration",
-		RunE: func(c *cobra.Command, _ []string) error {
-			tier, _ := c.Flags().GetInt(flagTier)
-			if tier < 0 || tier > configwizard.TierIntegrations {
-				return fmt.Errorf("invalid tier %d: must be between 0 and %d", tier, configwizard.TierIntegrations)
-			}
-			return configwizard.Run(
-				resolverFromContext(c.Context()),
-				ui,
-				configwizard.Selection{FirstRun: false, Tier: tier},
-			)
-		},
-	}
-	cmd.Flags().Int(flagTier, 0, "Configuration tier to ask (0 asks all unanswered tiers)")
-	return cmd
-}
-
-// migrateLoginOnly re-arms the in-sandbox login for a login-only native
-// configuration and reports whether it handled the plan.
-func migrateLoginOnly(plan *configmigration.Plan, a agent.Agent, ui termio.UI) (bool, error) {
-	if !plan.HasLogin() {
-		return false, nil
-	}
-	if plan.Manual || plan.LoginPending || plan.Dismissed {
-		ui.Out(
-			"Onboarding was previously deferred for the current native configuration; re-arming the in-sandbox login.",
-		)
-	}
-	if err := configmigration.RecordLoginPending(plan); err != nil {
-		return false, err
-	}
-	ui.Outf(
-		"Refreshable %s credentials are not copied; start the sandbox and authenticate inside it.",
-		a.Name(),
-	)
-	return true, nil
-}
-
-// reservedHomeConfigTargets returns the home-relative VM paths the agent
-// reserves for its merged config, or nil for an agent without a ConfigMerger.
-func reservedHomeConfigTargets(a agent.Agent, home string) []string {
-	cm, ok := agent.AsConfigMerger(a)
-	if !ok {
-		return nil
-	}
-	rel, err := filepath.Rel(home, cm.VMConfigPath(home))
-	if err != nil {
-		return nil
-	}
-	return []string{rel}
-}
-
-// buildConfigAgentCmd returns the config agent subcommand, which prints the
-// agent's merged snippet config, host drop-in candidates, and the verbatim
-// mirror files that provisioning would copy into the VM.
-func buildConfigAgentCmd( //nolint:gocognit // plan-mandated config agent output restructure
-	ui termio.UI,
-) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   cmdAgent,
-		Args:  cobra.MaximumNArgs(1),
-		Short: "Show the merged agent config and host drop-in candidates",
-		RunE: func(c *cobra.Command, args []string) error {
-			name, err := resolveConfigAgentName(c, args)
-			if err != nil {
-				return err
-			}
-			a, ok := agent.Lookup(name)
-			if !ok {
-				return fmt.Errorf("unknown agent %q: must be one of %s", name, strings.Join(agent.Names(), ", "))
-			}
-			provision := false
-			if r := resolverFromContext(c.Context()); r != nil {
-				provision = r.ProvisionHostConfig()
-			}
-			hostHome, _ := os.UserHomeDir()
-			merged, sources, hostFiles, mirrorFiles, err := reprovision.Describe(
-				a,
-				hostHome,
-				reprovision.VMHomeDir,
-				ui,
-				provision,
-			)
-			if err != nil {
-				return err
-			}
-			ui.Outf("agent: %s", a.Name())
-			if len(sources) == 0 {
-				ui.Out("No snippet files found; no merged config is provisioned.")
-			} else {
-				ui.Out("merged files:")
-				for _, src := range sources {
-					ui.Outf("  %s", src)
-				}
-				ui.Out("merged agent config:")
-				for line := range strings.SplitSeq(string(merged), "\n") {
-					ui.Outf("  %s", line)
-				}
-			}
-			if len(mirrorFiles) > 0 {
-				ui.Out("mirror files:")
-				for _, mf := range mirrorFiles {
-					ui.Outf("  %s  ->  %s", mf.HostPath, mf.VMPath)
-				}
-			}
-			ui.Outf("host files (drop-in candidates, provision-host-config=%v):", provision)
-			for _, hf := range hostFiles {
-				status := "not merged"
-				if hf.Merged {
-					status = "merged"
-				}
-				ui.Outf("  %-9s %s  ->  %s", status, hf.HostPath, hf.VMPath)
-			}
-			return nil
-		},
-	}
-	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile")
-	return cmd
-}
-
-// resolveConfigAgentName resolves the agent name for the config agent command:
-// --agent flag, then the positional arg, then the resolver, then the default.
-// An explicit --agent that conflicts with a positional arg is ambiguous.
-func resolveConfigAgentName(c *cobra.Command, args []string) (string, error) {
-	name := defaultAgentName
-	flagName, _ := c.Flags().GetString(flagAgent)
-	if c.Flags().Changed(flagAgent) {
-		if len(args) > 0 && args[0] != flagName {
-			return "", fmt.Errorf("ambiguous agent: --agent %q conflicts with positional %q", flagName, args[0])
-		}
-		return flagName, nil
-	}
-	if len(args) > 0 {
-		return args[0], nil
-	}
-	if r := resolverFromContext(c.Context()); r != nil {
-		if rn := r.Agent(); rn != "" {
-			return rn, nil
-		}
-	}
-	return name, nil
-}
-
-// resolveBuildDind returns the effective dind switch for a build: the --dind
-// flag when set, else the configured resolver value (false when absent).
-func resolveBuildDind(cmd *cobra.Command) bool {
-	if cmd.Flags().Changed(flagDind) {
-		dind, _ := cmd.Flags().GetBool(flagDind)
-		return dind
-	}
-	if r := resolverFromContext(cmd.Context()); r != nil {
-		return r.Dind()
-	}
-	return false
+// resolveBuildDockerSetting returns the effective docker setting for a build.
+// It resolves through runoptions.ResolveDockerSetting — the same shared
+// docker/dind precedence the run path uses, so a build and a run of one project
+// cannot disagree — reading the resolver from the command context (a nil one
+// resolves from the changed flags alone).
+func resolveBuildDockerSetting(cmd *cobra.Command) options.DockerSetting {
+	// Resolver.Config tolerates a nil resolver, so the flag-only path (no
+	// resolver on the context) resolves from the flags alone.
+	return runoptions.ResolveDockerSetting(cmd, resolverFromContext(cmd.Context()).Config())
 }
 
 func buildBuildCmd(ui termio.UI) *cobra.Command {
@@ -587,26 +241,64 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 			if !cmd.Flags().Changed(flagAgentVersion) && cmd.Flags().Changed(flagOpenCodeVersion) {
 				openCodeVersion, _ = cmd.Flags().GetString(flagOpenCodeVersion)
 			}
-			if dryRun {
-				ui.Infof("dry-run: Would build runner image")
-				return nil
-			}
-			if err := doctor.CheckDocker(cmd.Context()); err != nil {
-				return fmt.Errorf("docker not available: %w", err)
-			}
 			a, err := resolveAgentFlag(cmd)
 			if err != nil {
 				return err
 			}
-			return image.Build(cmd.Context(), a, git.ProjectSlug(), image.BuildOptions{
-				Force: force, AgentVersion: openCodeVersion, UserProvided: false, Dind: resolveBuildDind(cmd),
+			// Check the Docker prerequisite before adopting, like run/shell and
+			// the volume ops do: the check does not need the slug, and a failing
+			// build must not destroy the legacy VM and move the state first.
+			if !dryRun {
+				if dockerErr := doctor.CheckDocker(cmd.Context()); dockerErr != nil {
+					return fmt.Errorf("docker not available: %w", dockerErr)
+				}
+			}
+			// Adopt like PrepareSandbox does, and use the adopted slug for the
+			// image tag. It runs before the dry-run gate so the migration notice
+			// prints; a dry run passes apply=false, so the migration stays
+			// pending and adoption returns the legacy repo slug.
+			identity, err := git.ResolveIdentity(".")
+			if err != nil {
+				return err
+			}
+			adoption, err := sandbox.AdoptLegacyIdentity(
+				cmd.Context(), msb.Get(), identity, a.Name(), !dryRun, ui,
+			)
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				ui.Infof("dry-run: Would build runner image")
+				return nil
+			}
+			agentVersion, userProvided := sandbox.ResolveAgentVersionForBuild(
+				state.Key{Slug: adoption.Slug, Agent: a.Name()},
+				openCodeVersion,
+			)
+			info, err := image.Build(cmd.Context(), a, adoption.Slug, image.BuildOptions{
+				Force:        force,
+				AgentVersion: agentVersion,
+				UserProvided: userProvided,
+				Docker:       resolveBuildDockerSetting(cmd),
 			}, ui)
+			if err != nil {
+				return err
+			}
+			// Record the release the built image reports so an explicit
+			// --agent-version pin persists for later unpinned runs. A failure
+			// only warns: the next run reconciles from the image label.
+			if err := state.RecordAgentVersion(
+				state.Key{Slug: adoption.Slug, Agent: a.Name()}, info.AgentVersion,
+			); err != nil {
+				ui.Warnf("could not persist the agent version: %v (continuing)", err)
+			}
+			return nil
 		},
 	}
 	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Force a clean rebuild")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Dry run without building")
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to build")
-	cmd.Flags().Bool(flagDind, false, "Enable Docker-in-Docker in the runner image")
+	registerDockerFlags(cmd)
 	cmd.Flags().
 		String(flagAgentVersion, "", "Pin the agent version baked into the runner image (default: latest release)")
 	cmd.Flags().
@@ -625,11 +317,18 @@ func buildDockerfileCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Print the runner Dockerfile as it would be built",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			image.WarnIgnoredProjectConfig(ui)
 			a, err := resolveAgentFlag(cmd)
 			if err != nil {
 				return err
 			}
-			out := image.RenderProjectDockerfile(a, resolveBuildDind(cmd))
+			setting := resolveBuildDockerSetting(cmd)
+			image.EmitProjectDockerfileDiagnostics(ui, setting)
+			agentVersion, _ := cmd.Flags().GetString(flagAgentVersion)
+			out, err := image.RenderProjectDockerfile(a, agentVersion, setting)
+			if err != nil {
+				return err
+			}
 			if _, err := ui.StdOut().Write(out); err != nil {
 				return err
 			}
@@ -637,7 +336,9 @@ func buildDockerfileCmd(ui termio.UI) *cobra.Command {
 		},
 	}
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to build")
-	cmd.Flags().Bool(flagDind, false, "Enable Docker-in-Docker in the runner image")
+	cmd.Flags().
+		String(flagAgentVersion, "", "Pin the agent version rendered into the preview (default: no pinned default)")
+	registerDockerFlags(cmd)
 	return cmd
 }
 
@@ -648,27 +349,51 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 		Args:    cobra.NoArgs,
 		Short:   "Manage runner images",
 	}
-	cmd.AddCommand(&cobra.Command{
+	var format string
+	listCmd := &cobra.Command{
 		Use:     cmdList,
 		Args:    cobra.NoArgs,
 		Aliases: cmdListAliases,
 		Short:   "List cached runner images",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			mode, err := cliout.ResolveMode(format, ui.Quiet())
+			if err != nil {
+				return err
+			}
 			images, err := image.ListImages(cmd.Context())
 			if err != nil {
 				return err
 			}
-			printItems(images, "No images found.", imageListHeaders(), ui,
-				func(i image.Info) string { return i.Reference },
-				func(i image.Info) string { return truncateDigest(i.Digest) },
-				func(i image.Info) string { return i.Size },
-				func(i image.Info) string { return i.CreatedAt },
-			)
-			return nil
+			return cliout.PrintList(ui, mode, images, "No images found.", view.ImagePrinter{})
 		},
-	})
+	}
+	listCmd.Flags().StringVar(&format, flagFormat, "", "Output format (json)")
+	cmd.AddCommand(listCmd)
+	cmd.AddCommand(buildImageInspectCmd(ui))
+	cmd.AddCommand(buildImageRemoveCmd(ui))
 	cmd.AddCommand(buildBuildCmd(ui))
 	cmd.AddCommand(buildImagePruneCmd(ui))
+	return cmd
+}
+
+// buildImageRemoveCmd builds `image remove <ref>...`, which deletes cached
+// runner images by reference. It refuses when an image is still in use unless
+// --force is set, and prompts unless --yes is set.
+func buildImageRemoveCmd(ui termio.UI) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:     cmdRemove + " <ref>...",
+		Aliases: cmdRemoveAliases,
+		Args:    cobra.MinimumNArgs(1),
+		Short:   "Remove cached runner images by reference",
+		Long: "Remove the named cached runner images. Refuses when an image is still in use by a " +
+			"project's state or a live sandbox; pass --force to remove it anyway. Prompts unless --yes is set.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return image.RemoveImages(cmd.Context(), args, force, ui)
+		},
+	}
+	cmd.Flags().
+		BoolVarP(&force, flagForce, flagForce[:1], false, "Remove even when a project or sandbox still references the image")
 	return cmd
 }
 
@@ -678,66 +403,54 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 		Aliases: cmdVolumeAliases,
 		Short:   "Manage home volumes",
 	}
-	cmd.AddCommand(&cobra.Command{
+	var format string
+	listCmd := &cobra.Command{
 		Use:     cmdList,
 		Aliases: cmdListAliases,
 		Args:    cobra.NoArgs,
 		Short:   "List managed volumes",
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			mode, err := cliout.ResolveMode(format, ui.Quiet())
+			if err != nil {
+				return err
+			}
 			volumes, err := volume.ListVolumes(cmd.Context())
 			if err != nil {
 				return err
 			}
-			printItems(volumes, "No volumes found.", volumeListHeaders(), ui,
-				func(v volume.VolumeInfo) string { return v.Name },
-				func(v volume.VolumeInfo) string { return v.Kind },
-				func(v volume.VolumeInfo) string { return volumeSize(v.Kind, v.QuotaMiB, v.CapacityBytes) },
-				func(v volume.VolumeInfo) string { return v.CreatedAt },
-			)
-			return nil
+			return cliout.PrintList(ui, mode, volumes, "No volumes found.", view.VolumePrinter{})
 		},
-	})
+	}
+	listCmd.Flags().StringVar(&format, flagFormat, "", "Output format (json)")
+	cmd.AddCommand(listCmd)
+	cmd.AddCommand(buildVolumeInspectCmd(ui))
 
-	var migrateRmOld bool
-	cmd.AddCommand(
-		buildVolumeOpsCmd(
-			ui,
-			cmdMigrate,
-			volume.CmdMigrate,
-			"Migrate: create new volume, copy files from existing volume on top",
-			flagRemove,
-			"Remove the old home volume after migration",
-			&migrateRmOld,
-		),
-	)
-
-	var resetRmOld bool
-	cmd.AddCommand(
-		buildVolumeOpsCmd(
-			ui,
-			cmdReset,
-			volume.CmdReset,
-			"Reset: create new volume from image, ",
-			flagRemove,
-			"Remove the old home volume after reset",
-			&resetRmOld,
-		),
-	)
-
-	var editRmOld bool
-	cmd.AddCommand(
-		buildVolumeOpsCmd(
-			ui,
-			cmdEdit,
-			volume.CmdEdit,
-			"Edit: create new volume alongside old one for manual transfer",
-			flagRemove,
-			"Remove the old home volume after editing",
-			&editRmOld,
-		),
-	)
-
+	for _, op := range volumeOps {
+		cmd.AddCommand(buildVolumeOpsCmd(ui, op))
+	}
+	cmd.AddCommand(buildVolumeRemoveCmd(ui))
 	cmd.AddCommand(buildVolumePruneCmd(ui))
+	return cmd
+}
+
+// buildVolumeRemoveCmd builds `volume remove <name>...`, which deletes home
+// volumes by name. It refuses when a project still references a volume unless
+// --force is set, and prompts unless --yes is set.
+func buildVolumeRemoveCmd(ui termio.UI) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:     cmdRemove + " <name>...",
+		Aliases: cmdRemoveAliases,
+		Args:    cobra.MinimumNArgs(1),
+		Short:   "Remove home volumes by name",
+		Long: "Remove the named home volumes. Refuses when a volume is still referenced by a " +
+			"project's state; pass --force to remove it anyway. Prompts unless --yes is set.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return volume.RemoveVolumes(cmd.Context(), args, force, ui)
+		},
+	}
+	cmd.Flags().
+		BoolVarP(&force, flagForce, flagForce[:1], false, "Remove even when a project still references the volume")
 	return cmd
 }
 
@@ -753,7 +466,31 @@ func buildSandboxCmd(ui termio.UI) *cobra.Command {
 	cmd.AddCommand(buildRunCmd(ui))
 	cmd.AddCommand(buildStopCmd(ui))
 	cmd.AddCommand(buildKillCmd(ui))
+	cmd.AddCommand(buildSandboxInspectCmd(ui))
+	cmd.AddCommand(buildSandboxRemoveCmd(ui))
 	cmd.AddCommand(buildSandboxPruneCmd(ui))
+	cmd.AddCommand(buildSandboxCompactCmd(ui))
+	return cmd
+}
+
+// buildSandboxRemoveCmd builds `sandbox remove <name>`, which removes a project
+// VM by name. It refuses a running VM unless --force is set (which stops it
+// first); the persisted project state is left intact so the next run reuses the
+// recorded home volume.
+func buildSandboxRemoveCmd(ui termio.UI) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:     cmdRemove + " <name>",
+		Aliases: cmdRemoveAliases,
+		Args:    cobra.ExactArgs(1),
+		Short:   "Remove a project sandbox VM by name",
+		Long: "Remove an agents-sandbox project VM. Refuses a running VM unless --force is set, " +
+			"which stops it first. The project's persisted state is left intact. Prompts unless --yes is set.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return sandbox.RemoveSandbox(cmd.Context(), args[0], force, ui)
+		},
+	}
+	cmd.Flags().BoolVarP(&force, flagForce, flagForce[:1], false, "Remove a running VM (stopping it first)")
 	return cmd
 }
 
@@ -762,34 +499,32 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 		Use:   cmdPrune,
 		Args:  cobra.NoArgs,
 		Short: "Prune stale VMs, volumes, and images",
+		Annotations: map[string]string{
+			annotationAlsoAs: cmdStorage + " " + cmdPrune,
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			age, dryRun, err := resolvePruneFlags(cmd)
 			if err != nil {
 				return err
 			}
-			return pruning.Prune(cmd.Context(), age, dryRun, ui)
+			mode, err := resolvePruneOutputMode(cmd, ui)
+			if err != nil {
+				return err
+			}
+			if err = confirmPrune(ui, dryRun); err != nil {
+				return err
+			}
+			report, pruneErr := pruning.Prune(cmd.Context(), age, dryRun, ui)
+			if report != nil {
+				cliout.RenderPruneReport(ui, mode,
+					func() { pruning.RenderPruneSummary(ui, report, dryRun) },
+					view.NewPruneReportJSON(report, dryRun))
+			}
+			return pruneErr
 		},
 	}
 	setPruneFlags(cmd)
 	return cmd
-}
-
-// resolvePruneAge returns the effective prune threshold for a manual prune:
-// --age if set, else manual-prune-age from config, else the 7d default.
-func resolvePruneAge(cmd *cobra.Command) (time.Duration, error) {
-	ageFlag := cmd.Flags().Lookup(flagAge)
-	if !ageFlag.Changed {
-		if r := resolverFromContext(cmd.Context()); r != nil && r.ManualPruneAge() > 0 {
-			return r.ManualPruneAge(), nil
-		}
-		return 7 * 24 * time.Hour, nil
-	}
-	ageStr := ageFlag.Value.String()
-	d, ok := viperconfig.ParseHumanDuration(ageStr)
-	if !ok {
-		return 0, fmt.Errorf("invalid age %q: use a Go duration or suffix d/w (e.g. 7d, 2w)", ageStr)
-	}
-	return d, nil
 }
 
 func buildImagePruneCmd(ui termio.UI) *cobra.Command {
@@ -798,11 +533,9 @@ func buildImagePruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune cached runner images not in use",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, dryRun, err := resolvePruneFlags(cmd)
-			if err != nil {
-				return err
-			}
-			return pruning.InvokePruneFunc(cmd.Context(), pruning.PruneImages, age, dryRun, ui)
+			return runGroupPrune(cmd, ui, pruning.PruneImages,
+				func(report pruning.ImageReport, dryRun bool) { pruning.RenderImageReport(ui, report, dryRun) },
+				func(report pruning.ImageReport, dryRun bool) any { return view.NewImageReportJSON(report, dryRun) })
 		},
 	}
 	setPruneFlags(cmd)
@@ -815,24 +548,17 @@ func buildVolumePruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune home volumes no longer referenced by a project VM",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, dryRun, err := resolvePruneFlags(cmd)
-			if err != nil {
-				return err
-			}
-			return pruning.InvokePruneFunc(cmd.Context(), pruning.PruneVolumes, age, dryRun, ui)
+			return runGroupPrune(
+				cmd,
+				ui,
+				pruning.PruneVolumes,
+				func(report pruning.VolumeReport, dryRun bool) { pruning.RenderVolumeReport(ui, report, dryRun) },
+				func(report pruning.VolumeReport, dryRun bool) any { return view.NewVolumeReportJSON(report, dryRun) },
+			)
 		},
 	}
 	setPruneFlags(cmd)
 	return cmd
-}
-
-func resolvePruneFlags(cmd *cobra.Command) (time.Duration, bool, error) {
-	age, err := resolvePruneAge(cmd)
-	if err != nil {
-		return 0 * time.Second, false, err
-	}
-	dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-	return age, dryRun, nil
 }
 
 func buildSandboxPruneCmd(ui termio.UI) *cobra.Command {
@@ -841,18 +567,13 @@ func buildSandboxPruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune stale sandboxes and leftover task workers",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			age, dryRun, err := resolvePruneFlags(cmd)
-			if err != nil {
-				return err
-			}
-			return pruning.InvokePruneFunc(cmd.Context(), pruning.PruneSandboxes, age, dryRun, ui)
+			return runGroupPrune(cmd, ui, pruning.PruneSandboxes,
+				func(report pruning.SandboxReport, dryRun bool) { pruning.RenderSandboxReport(ui, report, dryRun) },
+				func(report pruning.SandboxReport, dryRun bool) any {
+					return view.NewSandboxReportJSON(report, dryRun)
+				})
 		},
 	}
 	setPruneFlags(cmd)
 	return cmd
-}
-
-func setPruneFlags(cmd *cobra.Command) {
-	cmd.Flags().StringP(flagAge, flagAge[:1], "7d", "Prune threshold (default: manualPruneAge from config)")
-	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be pruned without deleting")
 }

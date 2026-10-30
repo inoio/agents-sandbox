@@ -27,9 +27,10 @@ core intent: **secure by design and easy at the same time**. See "Relationship t
 3. **Host-first onboarding is the documented story.** A new user sets the agent up on the host; agents-sandbox detects
    that config and migrates it. The wizard makes this explicit; it does not silently do nothing when config is missing or
    unmigratable.
-4. **Least privilege by default, public only as an informed choice.** Network egress defaults to `none`
-   (deny-by-default + explicit allow). A user may consciously choose public access; agents-sandbox never silently broadens
-   or silently narrows.
+4. **Public egress by default, least privilege as an informed choice.** The launcher's default network profile is
+   `public` (outbound internet allowed, so a first run just works). The wizard treats least privilege — `none` plus the
+   derived required hosts — as the recommended posture, and agents-sandbox never silently broadens or silently narrows a
+   user's chosen policy.
 5. **Always explicit outcomes.** Every interactive first run ends in a named outcome (migrated, login hand-off,
    host-first hand-off, review hand-off, manual, dismissed). No path returns silently leaving the user with an
    unconfigured sandbox.
@@ -104,11 +105,21 @@ Derived each run by `Guide`:
 | present | none | static/settings | migrate (→ `login-pending` if OAuth also present) |
 | present | none | OAuth only | login hand-off |
 | present | none | unsupported/malformed | review hand-off |
-| any | any | dismissed | quiet until source hash changes |
+| any | any | dismissed, manual | quiet until source hash changes |
 
 `login-pending` is a **verification loop, not terminal**: on the next interactive start, ask the user whether the
 in-sandbox login worked. `Yes` → `completed`. `No` → re-enter host review and keep `login-pending`. `Not yet` → quiet
 reminder next time. Non-interactive runs print a one-line reminder and never prompt.
+
+The verification question is asked **before** the managed-config quiet gate, so a mixed static+OAuth config — which
+writes files yet still records `login-pending` — reaches the loop on the next run instead of being silenced by the config
+it just wrote. A pending login is never auto-completed because a login host later became unreachable or deny-shadowed;
+only the verification answer (or the optional credential detection) does.
+
+`manual` is as quiet as `dismissed` until the source hash changes. It is recorded by the host-first, review, and login
+hand-offs when the user picks "configure manually" or, where offered, "start anyway"; the host-first "set up on the host"
+choice instead defers the run without recording a decision. An explicit `config migrate` still proceeds over a recorded
+`manual`, `login-pending`, or `dismissed` state for the current native configuration, noting the re-entry.
 
 Optional enhancement (not a dependency): if a stat of the persistent VM home can detect the agent's credential file,
 auto-confirm the login and skip the question.
@@ -147,28 +158,31 @@ a default; accepting defaults is one keystroke.
   - **T3 runtime** — `dind`, `tmp-size`, `log-level`.
   - **T4 integrations** — `notify.*`, `upgrade.*`, `auto-prune-age`.
 - First run asks T1–T3. Deeper tiers are opt-in later via `config wizard --tier=N`; `config wizard` with no flag asks
-  all unanswered tiers. Only the first run or the no-flag full wizard marks the first run done; an explicit
-  `config wizard --tier=1` must not suppress the later first-run tiers.
+  all unanswered tiers; a `--tier` outside 0–4 is rejected. Only the first run or the no-flag full wizard marks the first
+  run done; an explicit `config wizard --tier=1` must not suppress the later first-run tiers.
 - The wizard runs as a first-run step **before** credential migration, then run options are re-resolved so migration sees
   the chosen agent and network posture.
-- A value already set at a more specific scope (project / per-slug / env / flag) is never overwritten; the question is
-  skipped and this is reported.
+- A value already set at a more specific scope (project config / per-slug user config / env / flag, reported by
+  `viperconfig.Resolver.KeySetAboveUserConfig`) is never overwritten; the question is skipped and this is reported.
 - Accepting a default is a no-op for an existing value: the offered default is the value already set in the user config
   when present (for choice questions only when it is one of that question's choice keys), otherwise the catalog default.
   A value is written only when it differs from the current user-config value, so pressing Enter through an existing
   config leaves the file untouched and reports zero writes.
 - A group of related value questions may be collapsed behind one confirmation: e.g. a single "resource defaults ok?"
   accepts `cpus` / `memory` / `disk-size` / `workspace-quota` together, and only expands them into individual questions
-  when declined.
+  when declined. A group confirm applies its members' defaults through the same already-set/higher-scope skip rules, so
+  it never overwrites a member set elsewhere.
 - Network posture is asked at every first run (it is the one question that is always relevant to credential handling),
   unless a more specific scope already fixes it.
 - **User control / early exit:** every non-essential question offers an "enough questions — use defaults for the rest"
   option that stops the interview immediately and applies defaults to all remaining questions (recorded, so it does not
   re-ask). Essential questions — agent selection when unset, and network posture — are asked first and cannot be skipped
   this way, because the flow cannot proceed without them.
-- Writes user-level `config.yaml` **preserving comments and key order**, reusing the launcher-config YAML-node machinery
-  built for migration.
-- Answered/dismissed state is remembered so the wizard never nags.
+- Writes the user-level launcher config — whichever of `config.{yaml,yml,json,jsonc,json5}` exists, else `config.yaml` —
+  through the shared `internal/configfile` editor: comments and key order are preserved in YAML, and JSON-family files
+  round-trip as valid JSON.
+- Answered state is remembered in `<UserStateDir>/config-wizard.yaml` (`version`, `first_run_done`, `asked`, mode `0600`)
+  so the wizard never nags. The wizard is a no-op in a non-interactive run.
 
 Credential handling remains a **flow**, not a config question, and runs after the wizard establishes the agent and
 network posture because migration output feeds the network policy.
@@ -198,10 +212,12 @@ one-time, non-nagging prompt rather than automatic.
   file's `egress-deny` plus the project config's deny, and matches by exact string or `"*"`. It must instead:
   1. resolve the **effective** network policy through the normal resolver (so env vars, `--network`, and the profile are
      considered, not just the file); and
-  2. match derived hosts against deny entries using msb's destination semantics — host, CIDR, `.suffix`, and `*` — so a
-     suffix/CIDR deny that would shadow a new `egress-allow` (deny is emitted before allow) is detected rather than
-     silently defeating the migration.
-  A host that survives must actually be reachable; a shadowed host is surfaced to the user, never silently added.
+  2. match derived hosts against deny entries using msb's destination semantics — host, CIDR, `.suffix`, and `*`, via
+     `network.MatchesDestination` — so a suffix/CIDR deny that would shadow a new `egress-allow` (deny is emitted before
+     allow) is detected rather than silently defeating the migration.
+  A host that survives must actually be reachable; a shadowed host is surfaced to the user, never silently added. A
+  non-interactive migration with an unresolved conflict fails, naming the conflicting hosts; that only arises from an
+  explicit `config migrate`, because `Guide` never prompts non-interactively.
 - **Dismissal** is explicit, remembered, and re-armed by source-hash change; `config migrate` and `config wizard`
   re-enter voluntarily. In particular, explicit `config migrate` on a login-only native configuration records
   `login-pending` and directs the user to authenticate in the sandbox, rather than reporting nothing to migrate.
@@ -221,24 +237,16 @@ Changed:
 
 ## Implementation staging
 
-This spec is delivered in four sequential plans; each produces working software on its own:
-
-- **Plan A — Credential kinds, explicit `Guide`, network-deny handling.** Credential-kind model, always-explicit
-  `Guide`, effective-policy deny detection/resolution, plus the necessary refactorings (shared credential metadata,
-  dead-code/duplication removal, file decomposition). Plan document: `.operator-shared/plans/2026-10-07-guided-onboarding-a-credential-kind.md`.
-- **Plan B — Onboarding state machine** (see "Onboarding state machine").
-- **Plan C — Tiered setup wizard** (see "Tiered setup wizard"). Plan document:
-  `.operator-shared/plans/2026-10-08-guided-onboarding-c-tiered-wizard.md`.
-- **Plan D — `config harden`** (see "`config harden`").
-
-To resume: read the spec section named for the plan, then expand it into the same TDD-shaped plan as Plan A.
+The work splits into four stages: credential kinds / explicit `Guide` / network-deny handling, the onboarding state
+machine, and the tiered setup wizard are built; `config harden` (see "`config harden`") remains a design.
 
 ## Testing strategy
 
 Behavior-focused tests per terminal `Guide` outcome, per credential kind, and per state transition, including:
 OAuth-only native config produces a login hand-off (not a silent no-op) and no generated auth file; static creds still
 migrate; `login-pending` verification loop across runs; non-interactive warn-and-continue; network-deny interactive
-resolution; wizard answering/dismissal and comment preservation; `config harden` findings and remediation idempotency.
+resolution; wizard answering/dismissal, comment (and JSON-family) preservation, and higher-scope skipping; `config
+harden` findings and remediation idempotency.
 CLI command/flag changes covered in `cmd/agents-sandbox/cli_*_test.go`.
 
 ## Deferred / open

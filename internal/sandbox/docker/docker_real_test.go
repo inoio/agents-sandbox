@@ -1,3 +1,5 @@
+//go:build integration
+
 package docker
 
 import (
@@ -8,9 +10,12 @@ import (
 	"github.com/moby/moby/client"
 )
 
-// These tests exercise the real delegation layer against a live Docker
-// daemon. Stateful operations are only invoked with image IDs that cannot
-// exist, so their error paths are covered without mutating daemon state.
+// These integration tests exercise the real delegation layer against a live
+// Docker daemon. Stateful operations are only invoked with image IDs that
+// cannot exist, so their error paths are covered without mutating daemon state.
+// They are excluded from the main suite via the `integration` build tag (see
+// `make test-integration`) because they require a working Docker daemon, and
+// TestRealDockerClientImagePullError also needs network access to a registry.
 
 func TestRealDockerClientPing(t *testing.T) {
 	c := RealClient()
@@ -69,7 +74,13 @@ func TestRealDockerClientImagePullError(t *testing.T) {
 
 func TestRealDockerClientImagePrune(t *testing.T) {
 	c := RealClient()
-	if _, err := c.ImagePrune(context.Background(), client.ImagePruneOptions{}); err != nil {
+	// Prune with a filter that matches no image, so the call exercises the
+	// delegation path without deleting dangling images. A plain prune removes
+	// the classic builder's untagged layer-cache images, which the concurrent
+	// image integration tests rely on (and which developers may rely on for
+	// unrelated local builds).
+	filters := make(client.Filters).Add("label", "agents-sandbox-tests.no-such-image=true")
+	if _, err := c.ImagePrune(context.Background(), client.ImagePruneOptions{Filters: filters}); err != nil {
 		t.Errorf("ImagePrune() error = %v, want nil", err)
 	}
 }

@@ -41,7 +41,16 @@ func Build(
 	if launcherErr := applyLauncherPlan(a, result, spec); launcherErr != nil {
 		return nil, launcherErr
 	}
-	finalizeMigrationPlan(a, result, spec, migrationLauncherConfigPath(), configRequired, supplementalNames)
+	if err := finalizeMigrationPlan(
+		a,
+		result,
+		spec,
+		migrationLauncherConfigPath(),
+		configRequired,
+		supplementalNames,
+	); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -84,8 +93,12 @@ func applyNativeConfigMigration(
 	hostHome string,
 ) ([]string, bool, error) {
 	_, nativeAuthPath := nativeAgentPaths(hostHome, spec)
-	managedAuthPath := filepath.Join(cp.Get().UserAgentConfigDir(a), spec.ManagedCredential)
-	managedConfigPath := filepath.Join(cp.Get().UserAgentConfigDir(a), spec.ManagedSnippet)
+	userConfigDir, err := cp.Get().UserAgentConfigDir(a)
+	if err != nil {
+		return nil, false, err
+	}
+	managedAuthPath := filepath.Join(userConfigDir, spec.ManagedCredential)
+	managedConfigPath := filepath.Join(userConfigDir, spec.ManagedSnippet)
 	configData, configSecrets, configWarnings, providerHosts, configErr := migrateNativeConfigFn(hostHome, spec)
 	if configErr != nil {
 		return nil, false, configErr
@@ -107,7 +120,7 @@ func applyNativeConfigMigration(
 	sort.Strings(supplementalNames)
 	for _, name := range supplementalNames {
 		result.Files = append(result.Files, File{
-			Path: filepath.Join(cp.Get().UserAgentConfigDir(a), name),
+			Path: filepath.Join(userConfigDir, name),
 			Data: supplementalFiles[name],
 			Mode: defaultConfigMode,
 		})
@@ -177,9 +190,13 @@ func finalizeMigrationPlan(
 	configPath string,
 	configRequired bool,
 	supplementalNames []string,
-) {
-	managedAuthPath := filepath.Join(cp.Get().UserAgentConfigDir(a), spec.ManagedCredential)
-	managedConfigPath := filepath.Join(cp.Get().UserAgentConfigDir(a), spec.ManagedSnippet)
+) error {
+	userConfigDir, err := cp.Get().UserAgentConfigDir(a)
+	if err != nil {
+		return err
+	}
+	managedAuthPath := filepath.Join(userConfigDir, spec.ManagedCredential)
+	managedConfigPath := filepath.Join(userConfigDir, spec.ManagedSnippet)
 	result.Handled, result.Dismissed = migrationStatusFor(a, result.SourceHash)
 	applyDerivedMigrationState(a, result)
 	result.AlreadyConfigured = result.Handled && migrationAlreadyConfigured(
@@ -195,6 +212,7 @@ func finalizeMigrationPlan(
 			"native agent settings were found but are not copied automatically; review them and add managed snippets manually",
 		)
 	}
+	return nil
 }
 
 func applyDerivedMigrationState(a agent.Agent, result *Plan) {

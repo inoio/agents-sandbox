@@ -2,13 +2,11 @@ package pruning
 
 import (
 	"context"
-	"strings"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/humanize"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
-
-func hasPrefix(s, prefix string) bool { return strings.HasPrefix(s, prefix) }
 
 func pruneReportPrefix(dryRun bool) string {
 	prefix := "Pruned"
@@ -16,6 +14,15 @@ func pruneReportPrefix(dryRun bool) string {
 		prefix = "dry-run: Would prune"
 	}
 	return prefix
+}
+
+// formatOptionalBytes renders a byte count the runtime reported, or "-" when it
+// did not (nil), never as zero.
+func formatOptionalBytes(bytes *uint64) string {
+	if bytes == nil {
+		return "-"
+	}
+	return humanize.FormatBytes(*bytes)
 }
 
 func InvokePruneFunc[R any](
@@ -28,11 +35,11 @@ func InvokePruneFunc[R any](
 	age time.Duration,
 	dryRun bool,
 	ui termio.UI,
-) error {
+) (R, error) {
 	pruneState, err := buildPruneState(context, age)
 	if err != nil {
-		return err
+		var zero R
+		return zero, err
 	}
-	_, pruneErr := pruneLambda(context, pruneState, dryRun, ui)
-	return pruneErr
+	return pruneLambda(context, pruneState, dryRun, ui)
 }

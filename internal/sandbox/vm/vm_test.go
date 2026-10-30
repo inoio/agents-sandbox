@@ -16,6 +16,8 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -28,28 +30,30 @@ func TestBuildProjectVMEnvMergesImageEnvs(t *testing.T) {
 		"PATH":                             "/custom/path",
 		"OPENCODE_EXPERIMENTAL_WORKSPACES": "true",
 	}
-	envMap := map[string]string{}
-	buildProjectVMEnv(envMap, imageEnvs)
-	if envMap["MY_KEY"] != "my_value" {
-		t.Errorf("expected MY_KEY=my_value from image envs, got %q", envMap["MY_KEY"])
+	env := buildProjectVMEnv(map[string]string{}, imageEnvs)
+	if env["MY_KEY"] != "my_value" {
+		t.Errorf("expected MY_KEY=my_value from image envs, got %q", env["MY_KEY"])
 	}
-	// Image env PATH should override any envMap default.
-	if envMap["PATH"] != "/custom/path" {
-		t.Errorf("expected PATH=/custom/path from image envs, got %q", envMap["PATH"])
+	// Image env PATH should override any host env default.
+	if env["PATH"] != "/custom/path" {
+		t.Errorf("expected PATH=/custom/path from image envs, got %q", env["PATH"])
 	}
-	if envMap["OPENCODE_EXPERIMENTAL_WORKSPACES"] != "true" {
+	if env["OPENCODE_EXPERIMENTAL_WORKSPACES"] != "true" {
 		t.Error("expected OPENCODE_EXPERIMENTAL_WORKSPACES to be passed through from image envs")
 	}
 }
 
 func TestBuildProjectVMEnvKeepsExistingEntries(t *testing.T) {
-	envMap := map[string]string{"FOO": "bar"}
-	buildProjectVMEnv(envMap, map[string]string{"BAZ": "qux"})
-	if envMap["FOO"] != "bar" {
-		t.Errorf("expected FOO=bar preserved, got %q", envMap["FOO"])
+	hostEnv := map[string]string{"FOO": "bar"}
+	env := buildProjectVMEnv(hostEnv, map[string]string{"BAZ": "qux"})
+	if env["FOO"] != "bar" {
+		t.Errorf("expected FOO=bar preserved, got %q", env["FOO"])
 	}
-	if envMap["BAZ"] != "qux" {
-		t.Errorf("expected BAZ=qux from image envs, got %q", envMap["BAZ"])
+	if env["BAZ"] != "qux" {
+		t.Errorf("expected BAZ=qux from image envs, got %q", env["BAZ"])
+	}
+	if len(hostEnv) != 1 {
+		t.Errorf("expected the host env to be left unmodified, got %v", hostEnv)
 	}
 }
 
@@ -139,11 +143,12 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 		client,
 		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:latest",
+		testVMKey().Slug,
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{Memory: "1G"},
-		nil,
+		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -194,11 +199,12 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 		client,
 		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:abc",
+		testVMKey().Slug,
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:abc", Ref: "agents-sandbox/runner-test:abc"},
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{Memory: "1G"},
-		nil,
+		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -219,6 +225,7 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 }
 
 func TestStopProjectVMUsesClient(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 	client := &msb.MockMsbClient{}
@@ -230,7 +237,7 @@ func TestStopProjectVMUsesClient(t *testing.T) {
 	msb.Get = func() msb.Client { return client }
 	defer func() { msb.Get = oldGet }()
 
-	// ProjectSlug depends on the current directory, so use a temp repo.
+	// CheckoutSlug depends on the current directory, so use a temp repo.
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
@@ -255,18 +262,20 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
 
-	// ProjectSlug depends on the current directory, so use a temp repo.
+	// CheckoutSlug depends on the current directory, so use a temp repo.
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
+		testVMKey().Slug,
+		false,
+		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -314,11 +323,13 @@ func TestEnsureProjectVMAppliesLabels(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
+		testVMKey().Slug,
+		false,
+		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -350,11 +361,13 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
+		testVMKey().Slug,
+		false,
+		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -398,11 +411,13 @@ func TestEnsureProjectVM_ConnectOutcomeIsInfo(t *testing.T) {
 	if _, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
+		testVMKey().Slug,
+		false,
+		envsecret.EnvSecrets{},
 		ui,
 	); err != nil {
 		t.Fatalf("EnsureProjectVM (connect): %v", err)
@@ -427,11 +442,13 @@ func TestEnsureProjectVM_StartOutcomeIsInfo(t *testing.T) {
 	if _, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
+		testVMKey().Slug,
+		false,
+		envsecret.EnvSecrets{},
 		ui,
 	); err != nil {
 		t.Fatalf("EnsureProjectVM (start): %v", err)
@@ -460,11 +477,13 @@ func TestEnsureProjectVM_CreateOutcomeIsInfo(t *testing.T) {
 	if _, _, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:latest",
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
+		testVMKey().Slug,
+		false,
+		envsecret.EnvSecrets{},
 		ui,
 	); err != nil {
 		t.Fatalf("EnsureProjectVM (create): %v", err)
@@ -495,11 +514,13 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:abc123",
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:abc123", Ref: "agents-sandbox/runner-test:abc123"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
+		testVMKey().Slug,
+		false,
+		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -514,8 +535,8 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 	if len(client.CreatedSandboxes) != 0 {
 		t.Fatalf("expected no sandbox created, got %v", client.CreatedSandboxes)
 	}
-	if oldHandle.DidRemove() {
-		t.Error("expected existing VM not to be removed when image is unchanged")
+	if oldHandle.DidDestroy() {
+		t.Error("expected existing VM not to be destroyed when image is unchanged")
 	}
 }
 
@@ -597,10 +618,17 @@ func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	if _, _, err := createProjectVM(
-		context.Background(), client, "agents-sandbox-vm-test",
+		context.Background(),
+		client,
+		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:latest", "test-home-vol", t.TempDir(),
-		options.RunOptions{Memory: "1G", DiskSize: "16G"}, nil, ui,
+		testVMKey().Slug,
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
+		"test-home-vol",
+		t.TempDir(),
+		options.RunOptions{Memory: "1G", DiskSize: "16G"},
+		envsecret.EnvSecrets{},
+		ui,
 	); err != nil {
 		t.Fatalf("createProjectVM failed: %v", err)
 	}
@@ -645,11 +673,13 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		"agents-sandbox/runner-test:newDigest",
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:newDigest", Ref: "agents-sandbox/runner-test:newDigest"},
 		"test-home-vol",
 		tmpRepo,
-		nil,
 		testVMKey(),
+		testVMKey().Slug,
+		false,
+		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -696,11 +726,13 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 	sb, created, err := ensureProjectVM(
 		context.Background(),
 		opts,
-		"new:tag",
+		image.ImageInfo{DockerTag: "new:tag", Ref: "new:tag"},
 		"homevol",
 		"/workspace",
-		map[string]string{},
 		testVMKey(),
+		testVMKey().Slug,
+		false,
+		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -712,8 +744,11 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 	if sb == nil {
 		t.Error("expected a sandbox after recreate")
 	}
-	if !oldHandle.DidRemove() {
-		t.Error("expected old VM handle.Remove to be called")
+	if !oldHandle.DidDestroy() {
+		t.Error("expected old VM handle.Destroy to be called")
+	}
+	if oldHandle.DidStop {
+		t.Error("expected Destroy to replace the separate Stop call")
 	}
 }
 
@@ -737,12 +772,14 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 
 	sb, created, err := ensureProjectVM(
 		context.Background(),
-		options.RunOptions{},
-		"old:tag",
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "old:tag", Ref: "old:tag"},
 		"homevol",
 		"/workspace",
-		map[string]string{},
 		testVMKey(),
+		testVMKey().Slug,
+		false,
+		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -754,8 +791,8 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 	if sb == nil {
 		t.Error("expected a sandbox on reuse")
 	}
-	if handle.DidRemove() {
-		t.Error("did not expect Remove on reuse")
+	if handle.DidDestroy() {
+		t.Error("did not expect Destroy on reuse")
 	}
 }
 
@@ -799,6 +836,7 @@ func TestExitError(t *testing.T) {
 }
 
 func TestKillProjectVMUsesClient(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 	client := &msb.MockMsbClient{}
@@ -819,6 +857,7 @@ func TestKillProjectVMUsesClient(t *testing.T) {
 }
 
 func TestStopProjectVMAlreadyStopped(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 	client := &msb.MockMsbClient{}
@@ -834,9 +873,13 @@ func TestStopProjectVMAlreadyStopped(t *testing.T) {
 	if err := StopProjectVM(context.Background(), false, false, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM on already-stopped VM failed: %v", err)
 	}
+	if !strings.Contains(joinStrings(ui.InfoCalls), "already stopped") {
+		t.Errorf("expected the already-stopped note, got %v", ui.InfoCalls)
+	}
 }
 
 func TestStopProjectVMDryRunRemove(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 	client := &msb.MockMsbClient{}
@@ -855,6 +898,7 @@ func TestStopProjectVMDryRunRemove(t *testing.T) {
 }
 
 func TestStopProjectVMNotFound(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 	client := &msb.MockMsbClient{}
@@ -868,6 +912,9 @@ func TestStopProjectVMNotFound(t *testing.T) {
 
 	if err := StopProjectVM(context.Background(), false, false, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM on missing VM failed: %v", err)
+	}
+	if !strings.Contains(joinStrings(ui.InfoCalls), "no project VM found") {
+		t.Errorf("expected the missing-VM note, got %v", ui.InfoCalls)
 	}
 }
 
@@ -963,7 +1010,10 @@ func TestReconcileResourceConfig_ConflictsError(t *testing.T) {
 
 func TestSessionAccessors(t *testing.T) {
 	sb := &msb.MockSandbox{}
-	s := &Session{sb: sb, name: "vm-name", target: "/tmp/target", cwd: "/workspace"}
+	s := &Session{sb: sb, name: "vm-name", target: "/tmp/target", cwd: "/workspace", homeVolume: "home-vol"}
+	if got := s.HomeVolume(); got != "home-vol" {
+		t.Errorf("HomeVolume() = %q, want home-vol", got)
+	}
 	if got := s.Sandbox(); got != sb {
 		t.Errorf("Sandbox() = %v, want the stored sandbox", got)
 	}

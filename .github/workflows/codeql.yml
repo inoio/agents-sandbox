@@ -1,0 +1,84 @@
+name: CodeQL
+
+# Advanced code scanning. This replaces GitHub's default setup (which cannot be
+# path-filtered) so a docs- or brain-only change does not pay a scan, and so the
+# scanned languages and query suite live in the repo like every other workflow.
+# Default setup must be disabled for this to run; see the code-scanning spec.
+on:
+  push:
+    branches: [main]
+    # The complement of the `changes` gate in ci.yml: a change that cannot alter
+    # scanned code (docs, the operator brain, the Homebrew formula, issue
+    # templates, .gitignore) is skipped. Everything else — code, go.mod,
+    # .go-version, the Makefile, the workflows themselves — still scans.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.operator-shared/**'
+      - 'Formula/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.gitignore'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.operator-shared/**'
+      - 'Formula/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.gitignore'
+  schedule:
+    # Depth/coverage comes from the weekly run; a merge gets the pull_request
+    # path above.
+    - cron: "27 4 * * 1"
+  workflow_dispatch:
+
+# Least privilege by default; the analyze job raises `security-events: write`
+# so it can upload its SARIF results.
+permissions:
+  contents: read
+
+# A re-pushed PR supersedes its own scan; main/schedule runs are never cancelled.
+concurrency:
+  group: codeql-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      # One language's failure must not hide the others.
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: go
+            build-mode: autobuild
+          - language: ruby
+            build-mode: none
+    steps:
+      - uses: actions/checkout@v7
+      - if: matrix.language == 'go'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache: true
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+      - if: matrix.build-mode == 'autobuild'
+        uses: github/codeql-action/autobuild@v4
+        env:
+          # The module uses cgo (the microsandbox FFI binding); the Makefile
+          # sets this explicitly and CodeQL's autobuild should too.
+          CGO_ENABLED: "1"
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"

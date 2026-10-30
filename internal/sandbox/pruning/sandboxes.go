@@ -14,9 +14,9 @@ type SandboxReport struct {
 	Details   []StaleEntry
 }
 
-// PruneSandboxes prunes stale VMs and stopped task sandboxes. Task sandboxes have no
-// age gate (transient workers) but running ones are skipped. A stopped VM is
-// pruned only when older than threshold (age 0 = no wait).
+// PruneSandboxes prunes stale project VMs and stopped task sandboxes. Task
+// sandboxes have no age gate (transient workers) but running ones are skipped. A
+// stopped VM is pruned only when older than threshold (age 0 = no wait).
 func PruneSandboxes(
 	ctx context.Context,
 	pruneState PruneState,
@@ -24,13 +24,23 @@ func PruneSandboxes(
 	ui termio.UI,
 ) (SandboxReport, error) {
 	report := SandboxReport{VMsPruned: 0, Details: nil}
-	for slug, handle := range pruneState.ToPrune {
+	handles := make([]msb.SandboxHandle, 0, len(pruneState.ToPrune)+len(pruneState.Tasks))
+	for _, handle := range pruneState.ToPrune {
+		handles = append(handles, handle)
+	}
+	handles = append(handles, pruneState.Tasks...)
+
+	for _, handle := range handles {
 		name := handle.Name()
 		if !msb.IsSandboxInactive(handle.Status()) {
 			continue
 		}
 		if !dryRun {
-			if err := msb.Get().RemoveSandbox(ctx, name); err != nil {
+			if err := handle.Remove(ctx); err != nil {
+				if msb.IsReplaced(err) || msb.IsNotFound(err) {
+					ui.Verbosef("sandbox %s was already replaced or removed; skipping", name)
+					continue
+				}
 				ui.Warnf("failed to remove sandbox %s: %v", name, err)
 				continue
 			}
@@ -39,16 +49,15 @@ func PruneSandboxes(
 		report.Details = append(report.Details, StaleEntry{
 			Type:     StaleTypeVM,
 			Name:     name,
-			Slug:     slug.Slug,
+			Slug:     noteIdentity(handle).Slug,
 			StaleFor: time.Since(handle.UpdatedAt()),
 			Digest:   "",
 		})
 	}
-	printSandboxPruneReport(ui, report, dryRun)
 	return report, nil
 }
 
-func printSandboxPruneReport(ui termio.UI, r SandboxReport, dryRun bool) {
+func RenderSandboxReport(ui termio.UI, r SandboxReport, dryRun bool) {
 	ui.Outf("%s %d sandbox(es)", pruneReportPrefix(dryRun), r.VMsPruned)
 	for _, d := range r.Details {
 		ui.Verbosef("  %s (%s)", d.Name, d.Slug)

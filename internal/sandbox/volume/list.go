@@ -3,7 +3,6 @@ package volume
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/humanize"
@@ -11,7 +10,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
 
-//nolint:revive // VolumeInfo is the established name from query.go
+// VolumeInfo describes a persistent volume.
 type VolumeInfo struct {
 	Name          string
 	Kind          string
@@ -38,7 +37,7 @@ func ListVolumes(ctx context.Context) ([]VolumeInfo, error) {
 	var result []VolumeInfo
 	for _, h := range handles {
 		name := h.Name()
-		if !strings.HasPrefix(name, naming.HomePrefix) {
+		if naming.ParseHomeVolumeName(name).Slug == "" {
 			continue
 		}
 		result = append(result, VolumeInfo{

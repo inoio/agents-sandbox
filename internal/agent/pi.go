@@ -6,9 +6,6 @@ import (
 	"strings"
 )
 
-//nolint:gochecknoinits // built-in agent self-registration
-func init() { Register(piProfile{}) }
-
 // piName is the canonical registry name of the pi agent.
 const piName = "pi"
 
@@ -92,7 +89,12 @@ func (piProfile) ImageSpec() ImageSpec {
 		AgentEnv: map[string]string{"PI_SKIP_VERSION_CHECK": "1"},
 		// --ignore-scripts avoids running the package's postinstall (which may
 		// phone home); the version is pinned so the baked release is exact.
-		InstallCommand: "npm install -g --ignore-scripts @earendil-works/pi-coding-agent@$PI_VERSION",
+		InstallCommand: "npm install -g --ignore-scripts --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent@$PI_VERSION",
+		// The published package is a #!/usr/bin/env node bundle, so pi needs
+		// node at install and runtime; it is the only agent that does.
+		RequiresNode:   true,
+		OwnedToolPaths: nil,
+		RuntimeLibs:    nil,
 	}
 }
 
@@ -115,7 +117,7 @@ func (piProfile) ProvisionRules() []ProvisionRule {
 
 func (piProfile) AttachCommand(_ string, args []string) string {
 	parts := []string{"pi"}
-	parts = append(parts, args...)
+	parts = append(parts, shellQuoteArgs(args)...)
 	return strings.Join(parts, " ")
 }
 

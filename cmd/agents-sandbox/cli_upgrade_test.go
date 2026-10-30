@@ -25,6 +25,7 @@ func TestUpgrade(t *testing.T) {
 	})
 
 	t.Run("dev build is rejected", func(t *testing.T) {
+		t.Setenv(upgradeAnyVersionEnv, "")
 		version = devVersion
 		updateCmd, _ := setupUpgradeTestFixtures(t)
 		err := updateCmd.RunE(updateCmd, nil)
@@ -35,7 +36,7 @@ func TestUpgrade(t *testing.T) {
 
 	t.Run("up to date", func(t *testing.T) {
 		version = "1.0.0"
-		upgrade.LatestVersion = func(context.Context) (string, error) { return "1.0.0", nil }
+		upgrade.LatestVersion = func(context.Context, upgrade.Channel) (string, error) { return "1.0.0", nil }
 		upgrade.Update = func(context.Context, string) error { t.Fatal("Update should not be called"); return nil }
 
 		updateCmd, testUI := setupUpgradeTestFixtures(t)
@@ -49,7 +50,7 @@ func TestUpgrade(t *testing.T) {
 
 	t.Run("update available", func(t *testing.T) {
 		version = "1.0.0"
-		upgrade.LatestVersion = func(context.Context) (string, error) { return "2.0.0", nil }
+		upgrade.LatestVersion = func(context.Context, upgrade.Channel) (string, error) { return "2.0.0", nil }
 		var installed string
 		upgrade.Update = func(_ context.Context, latest string) error {
 			installed = latest
@@ -73,7 +74,7 @@ func TestUpgrade(t *testing.T) {
 		origHomebrew := upgrade.InstalledViaHomebrew
 		upgrade.InstalledViaHomebrew = func() bool { return true }
 		t.Cleanup(func() { upgrade.InstalledViaHomebrew = origHomebrew })
-		upgrade.LatestVersion = func(context.Context) (string, error) {
+		upgrade.LatestVersion = func(context.Context, upgrade.Channel) (string, error) {
 			t.Fatal("LatestVersion should not be consulted for a Homebrew install")
 			return "", nil
 		}
@@ -93,7 +94,7 @@ func TestUpgrade(t *testing.T) {
 
 	t.Run("latest lookup failure", func(t *testing.T) {
 		version = "1.0.0"
-		upgrade.LatestVersion = func(context.Context) (string, error) { return "", errors.New("boom") }
+		upgrade.LatestVersion = func(context.Context, upgrade.Channel) (string, error) { return "", errors.New("boom") }
 		upgrade.Update = func(context.Context, string) error { t.Fatal("Update should not be called"); return nil }
 
 		updateCmd, _ := setupUpgradeTestFixtures(t)
@@ -109,6 +110,98 @@ func setupUpgradeTestFixtures(t *testing.T) (*cobra.Command, *termio.Mock) {
 	root := buildRootCmd(&testUI)
 	upgradeCmd, _, _ := root.Find([]string{"upgrade"})
 	return upgradeCmd, &testUI
+}
+
+func TestUpgradeAnyVersionLever(t *testing.T) {
+	origVersion, origLatest := version, upgrade.LatestVersion
+	t.Cleanup(func() { version, upgrade.LatestVersion = origVersion, origLatest })
+
+	t.Run("dev build with the lever set is upgradable", func(t *testing.T) {
+		t.Setenv(upgradeAnyVersionEnv, "1")
+		version = devVersion
+		upgrade.LatestVersion = func(context.Context, upgrade.Channel) (string, error) { return "2.0.0", nil }
+		origUpdate := upgrade.Update
+		upgrade.Update = func(context.Context, string) error { return nil }
+		t.Cleanup(func() { upgrade.Update = origUpdate })
+
+		updateCmd, _ := setupUpgradeTestFixtures(t)
+		if err := updateCmd.RunE(updateCmd, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("dev build without the lever is rejected", func(t *testing.T) {
+		t.Setenv(upgradeAnyVersionEnv, "")
+		version = devVersion
+		upgrade.LatestVersion = func(context.Context, upgrade.Channel) (string, error) {
+			t.Fatal("LatestVersion must not be consulted without the lever")
+			return "", nil
+		}
+		updateCmd, _ := setupUpgradeTestFixtures(t)
+		if err := updateCmd.RunE(updateCmd, nil); err == nil {
+			t.Fatal("expected a dev build to be rejected")
+		}
+	})
+}
+
+func TestUpgradeChannelSelection(t *testing.T) {
+	origVersion, origLatest, origUpdate := version, upgrade.LatestVersion, upgrade.Update
+	t.Cleanup(func() { version, upgrade.LatestVersion, upgrade.Update = origVersion, origLatest, origUpdate })
+	version = "1.0.0"
+
+	t.Run("flag selects canary", func(t *testing.T) {
+		upgrade.Update = func(context.Context, string) error { t.Fatal("Update should not be called"); return nil }
+		var got upgrade.Channel
+		upgrade.LatestVersion = func(_ context.Context, ch upgrade.Channel) (string, error) {
+			got = ch
+			return "1.0.0", nil
+		}
+		updateCmd, _ := setupUpgradeTestFixtures(t)
+		if err := updateCmd.Flags().Set(flagChannel, "canary"); err != nil {
+			t.Fatal(err)
+		}
+		if err := updateCmd.RunE(updateCmd, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != upgrade.ChannelCanary {
+			t.Fatalf("resolved channel = %q, want canary", got)
+		}
+	})
+
+	t.Run("configuration selects canary", func(t *testing.T) {
+		upgrade.Update = func(context.Context, string) error { t.Fatal("Update should not be called"); return nil }
+		var got upgrade.Channel
+		upgrade.LatestVersion = func(_ context.Context, ch upgrade.Channel) (string, error) {
+			got = ch
+			return "1.0.0", nil
+		}
+		updateCmd, _ := setupUpgradeTestFixtures(t)
+		r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{
+			Upgrade: launcherconfig.UpgradeConfig{Channel: "canary"},
+		})
+		updateCmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil), r))
+		if err := updateCmd.RunE(updateCmd, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != upgrade.ChannelCanary {
+			t.Fatalf("resolved channel = %q, want canary from config", got)
+		}
+	})
+
+	t.Run("invalid flag is rejected", func(t *testing.T) {
+		upgrade.Update = func(context.Context, string) error { t.Fatal("Update should not be called"); return nil }
+		upgrade.LatestVersion = func(context.Context, upgrade.Channel) (string, error) {
+			t.Fatal("LatestVersion must not be consulted for an invalid channel")
+			return "", nil
+		}
+		updateCmd, _ := setupUpgradeTestFixtures(t)
+		if err := updateCmd.Flags().Set(flagChannel, "bogus"); err != nil {
+			t.Fatal(err)
+		}
+		if err := updateCmd.RunE(updateCmd, nil); err == nil {
+			t.Fatal("expected an error for an invalid --channel value")
+		}
+	})
 }
 
 func TestCheckForUpgrade(t *testing.T) {
@@ -130,6 +223,7 @@ func TestCheckForUpgrade(t *testing.T) {
 	})
 
 	t.Run("dev version no-ops", func(t *testing.T) {
+		t.Setenv(upgradeAnyVersionEnv, "")
 		version = devVersion
 		r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{})
 		exit, err := checkForUpgrade(context.Background(), r, &termio.Mock{})
@@ -164,12 +258,29 @@ func TestCheckForUpgrade(t *testing.T) {
 			t.Fatal("expected exit=true when the upgrade-and-exit mode ran")
 		}
 	})
+
+	t.Run("passes the configured channel", func(t *testing.T) {
+		var got upgrade.Channel
+		upgradeCheck = func(_ context.Context, opts upgrade.Options) (upgrade.Result, error) {
+			got = opts.Channel
+			return upgrade.Result{}, nil
+		}
+		r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{
+			Upgrade: launcherconfig.UpgradeConfig{Channel: "canary"},
+		})
+		if _, err := checkForUpgrade(context.Background(), r, &termio.Mock{}); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != upgrade.ChannelCanary {
+			t.Fatalf("Check channel = %q, want canary", got)
+		}
+	})
 }
 
 func TestRunShellUpgradeExit(t *testing.T) {
 	for _, cmdName := range []string{"run", "shell"} {
 		t.Run(cmdName, func(t *testing.T) {
-			initTestRepo(t)
+			initTestProjectDir(t)
 			origCheck := upgradeCheck
 			t.Cleanup(func() { upgradeCheck = origCheck })
 			upgradeCheck = func(context.Context, upgrade.Options) (upgrade.Result, error) {
@@ -194,7 +305,7 @@ func TestRunShellUpgradeExit(t *testing.T) {
 func TestRunShellUpgradeError(t *testing.T) {
 	for _, cmdName := range []string{"run", "shell"} {
 		t.Run(cmdName, func(t *testing.T) {
-			initTestRepo(t)
+			initTestProjectDir(t)
 			origCheck := upgradeCheck
 			t.Cleanup(func() { upgradeCheck = origCheck })
 			upgradeCheck = func(context.Context, upgrade.Options) (upgrade.Result, error) {

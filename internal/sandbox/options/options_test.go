@@ -119,6 +119,26 @@ func TestFirstFreeHostPort(t *testing.T) {
 	}
 }
 
+func TestFirstFreeHostPortSkipsBoundPorts(t *testing.T) {
+	orig := probeHostPort
+	t.Cleanup(func() { probeHostPort = orig })
+	probeHostPort = func(port int) bool { return port >= 6001 }
+
+	if got := FirstFreeHostPort(5999); got != 6001 {
+		t.Errorf("FirstFreeHostPort(5999) = %d, want 6001", got)
+	}
+}
+
+func TestFirstFreeHostPortFallsBackToBaseWhenAllBound(t *testing.T) {
+	orig := probeHostPort
+	t.Cleanup(func() { probeHostPort = orig })
+	probeHostPort = func(int) bool { return false }
+
+	if got := FirstFreeHostPort(7000); got != 7000 {
+		t.Errorf("FirstFreeHostPort(7000) = %d, want base 7000", got)
+	}
+}
+
 func TestResolveServeHostPort(t *testing.T) {
 	if got := ResolveServeHostPort(nil, false); got != 0 {
 		t.Errorf("not serve-only => 0, got %d", got)
@@ -143,5 +163,89 @@ func TestServeOnlyBindingsParametrized(t *testing.T) {
 	got := ServeOnlyBindings(4097)
 	if len(got) != 1 || got[0].HostPort != 4097 || got[0].GuestPort != 4096 {
 		t.Errorf("ServeOnlyBindings(4097) = %+v, want host 4097 guest 4096", got)
+	}
+}
+
+func TestNewReapPolicyKeepsSingleRetry(t *testing.T) {
+	if got := NewReapPolicy(false, 1).MaxSessionRetries; got != 1 {
+		t.Errorf("NewReapPolicy(false, 1).MaxSessionRetries = %d, want 1 (only <=0 clamps)", got)
+	}
+}
+
+func TestProbeHostPortReportsRealLoopbackState(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("bind loopback listener: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	if probeHostPort(port) {
+		t.Errorf("probeHostPort(%d) = true while the port is bound, want false", port)
+	}
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close loopback listener: %v", err)
+	}
+	if !probeHostPort(port) {
+		t.Errorf("probeHostPort(%d) = false after the port was released, want true", port)
+	}
+}
+
+func TestFirstFreeHostPortWindowExcludesBasePlus1024(t *testing.T) {
+	orig := probeHostPort
+	t.Cleanup(func() { probeHostPort = orig })
+	const base = 9000
+	probeHostPort = func(port int) bool { return port == base+1024 }
+
+	if got := FirstFreeHostPort(base); got != base {
+		t.Errorf("FirstFreeHostPort(%d) = %d, want %d (window is [base, base+1024))", base, got, base)
+	}
+}
+
+func TestFirstFreeHostPortWindowIncludesBasePlus1023(t *testing.T) {
+	orig := probeHostPort
+	t.Cleanup(func() { probeHostPort = orig })
+	const base = 9000
+	probeHostPort = func(port int) bool { return port == base+1023 }
+
+	if got := FirstFreeHostPort(base); got != base+1023 {
+		t.Errorf("FirstFreeHostPort(%d) = %d, want %d", base, got, base+1023)
+	}
+}
+
+func TestResolveServeHostPortReusesExistingBindingOverProbe(t *testing.T) {
+	orig := probeHostPort
+	t.Cleanup(func() { probeHostPort = orig })
+	probeHostPort = func(port int) bool { return port == 5000 }
+
+	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
+		{Bind: ServeOnlyBindAddr, HostPort: 4096, GuestPort: ServeOnlyBasePort, Protocol: msbSdk.PortProtocolTCP},
+	}}
+	if got := ResolveServeHostPort(cfg, true); got != 4096 {
+		t.Errorf("ResolveServeHostPort = %d, want the existing 4096 binding", got)
+	}
+}
+
+func TestResolveServeHostPortSkipsZeroHostPort(t *testing.T) {
+	orig := probeHostPort
+	t.Cleanup(func() { probeHostPort = orig })
+	probeHostPort = func(port int) bool { return port == 5000 }
+
+	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
+		{HostPort: 0},
+		{HostPort: 5555},
+	}}
+	if got := ResolveServeHostPort(cfg, true); got != 5555 {
+		t.Errorf("ResolveServeHostPort = %d, want 5555 (skip the unpublished entry)", got)
+	}
+}
+
+func TestResolveServeHostPortUsesPortOne(t *testing.T) {
+	orig := probeHostPort
+	t.Cleanup(func() { probeHostPort = orig })
+	probeHostPort = func(port int) bool { return port == 5000 }
+
+	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{{HostPort: 1}}}
+	if got := ResolveServeHostPort(cfg, true); got != 1 {
+		t.Errorf("ResolveServeHostPort = %d, want 1", got)
 	}
 }

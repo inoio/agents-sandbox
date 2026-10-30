@@ -1,21 +1,35 @@
 package viperconfig
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 )
+
+// wantNetworkProfiles asserts the effective network policy's profile set.
+func wantNetworkProfiles(t *testing.T, policy network.Policy, want ...network.Profile) {
+	t.Helper()
+	if got := policy.Effective().Profiles; !slices.Equal(got, want) {
+		t.Fatalf("network profiles = %v, want %v", got, want)
+	}
+}
 
 func TestResolverGettersReturnConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -43,16 +57,6 @@ func TestResolverGettersReturnConfig(t *testing.T) {
 	if !r.cfg.AutoStopOnActiveSessions ||
 		r.cfg.AutoStopTimeout != 30*time.Second || r.cfg.AutoStopMaxSessionRetries != 5 {
 		t.Error("autostop getters mismatch")
-	}
-	if r.cfg.IdleTimeout() != 30*time.Second {
-		t.Errorf("IdleTimeout = %v; want 30s", r.cfg.IdleTimeout())
-	}
-}
-
-func TestResolverIdleTimeoutDefault(t *testing.T) {
-	r := NewResolverWithConfig(Config{})
-	if r.cfg.IdleTimeout() != 10*time.Second {
-		t.Errorf("IdleTimeout default = %v; want 10s", r.cfg.IdleTimeout())
 	}
 }
 
@@ -129,13 +133,16 @@ func TestResolverRejectsInvalidMountEntry(t *testing.T) {
 			t.Errorf("error %q does not mention %q", err, want)
 		}
 	}
+	if errors.Unwrap(err) == nil {
+		t.Errorf("error %q does not wrap its cause", err)
+	}
 }
 
 func TestResolverEnvPrecedenceOverConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
-	t.Setenv("OPENCODE_SANDBOX_CPUS", "6")
+	t.Setenv("AGENTS_SANDBOX_CPUS", "6")
 
 	r, err := NewResolver(nil, "")
 	if err != nil {
@@ -312,7 +319,7 @@ func TestResolverConfigSyntaxErrorIsFriendly(t *testing.T) {
 
 func TestResolverEnvKeyReplacement(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS", "true")
+	t.Setenv("AGENTS_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS", "true")
 
 	r, err := NewResolver(nil, "")
 	if err != nil {
@@ -325,7 +332,7 @@ func TestResolverEnvKeyReplacement(t *testing.T) {
 
 func TestResolverEnvInvalidCPUs(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_CPUS", "300")
+	t.Setenv("AGENTS_SANDBOX_CPUS", "300")
 
 	if _, err := NewResolver(nil, ""); err == nil {
 		t.Fatal("expected error for cpus=300 from env")
@@ -337,7 +344,7 @@ func TestResolverFlagOverridesEnv(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
-	t.Setenv("OPENCODE_SANDBOX_CPUS", "4")
+	t.Setenv("AGENTS_SANDBOX_CPUS", "4")
 
 	root := &cobra.Command{Use: "root"}
 	root.PersistentFlags().Uint8("cpus", 0, "")
@@ -489,6 +496,25 @@ func TestResolverJSON5Config(t *testing.T) {
 	}
 }
 
+func TestResolverJSONCConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.UserConfigDir(), "config.jsonc", `{
+		// a comment
+		"cpus": 3,
+		"memory": "256M",
+		"yes": true
+	}`)
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.cfg.CPUs != 3 || r.cfg.Memory != "256M" || !r.Yes() {
+		t.Errorf("unexpected config: cpus=%d memory=%q yes=%v", r.cfg.CPUs, r.cfg.Memory, r.Yes())
+	}
+}
+
 func TestResolverDiskSizeConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
@@ -519,7 +545,7 @@ func TestResolverWorkspaceQuotaConfig(t *testing.T) {
 
 func TestResolverWorkspaceQuotaEnv(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_WORKSPACE_QUOTA", "48G")
+	t.Setenv("AGENTS_SANDBOX_WORKSPACE_QUOTA", "48G")
 
 	r, err := NewResolver(nil, "")
 	if err != nil {
@@ -555,14 +581,17 @@ func TestResolverReapPolicyDefaults(t *testing.T) {
 	}
 }
 
-func TestResolverIdleTimeoutDefaultFromConfig(t *testing.T) {
+// TestResolverIdleTimeoutUnsetFromConfig pins that the config layer does not
+// substitute a default idle timeout: with nothing configured, AutoStopTimeout
+// stays zero and the VM layer applies options.DefaultVMIdleTimeout.
+func TestResolverIdleTimeoutUnsetFromConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.cfg.IdleTimeout() != 10*time.Second {
-		t.Errorf("IdleTimeout default = %v; want 10s", r.cfg.IdleTimeout())
+	if r.cfg.AutoStopTimeout != 0 {
+		t.Errorf("AutoStopTimeout = %v; want 0 (default lives in the VM options layer)", r.cfg.AutoStopTimeout)
 	}
 }
 
@@ -575,7 +604,7 @@ func TestResolverAgentGetter(t *testing.T) {
 
 func TestResolverAgentEnvVar(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_AGENT", "pi")
+	t.Setenv("AGENTS_SANDBOX_AGENT", "pi")
 	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
@@ -587,30 +616,28 @@ func TestResolverAgentEnvVar(t *testing.T) {
 
 func TestNetworkProfileEnvVar(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_NETWORK_PROFILE", "none")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "none")
 	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if got := r.cfg.Network.Effective(); got.Profile != network.ProfileNone {
-		t.Fatalf("Network().Profile = %q, want %q", got.Profile, network.ProfileNone)
+	if got := r.cfg.Network.Effective(); !slices.Equal(got.Profiles, []network.Profile{network.ProfileNone}) {
+		t.Fatalf("Network().Profiles = %v, want [none]", got.Profiles)
 	}
 }
 
-func TestNetworkDefaultNone(t *testing.T) {
+func TestNetworkDefaultPublic(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if got := r.cfg.Network.Effective(); got.Profile != network.ProfileNone {
-		t.Errorf("with no network config, Network().Profile = %q, want %q", got.Profile, network.ProfileNone)
-	}
+	wantNetworkProfiles(t, r.cfg.Network, network.ProfilePublic)
 }
 
 func TestNetworkInvalidProfileRejected(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_NETWORK_PROFILE", "bogus")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "bogus")
 	if _, err := NewResolver(nil, ""); err == nil {
 		t.Fatal("expected error for invalid network profile")
 	}
@@ -618,16 +645,14 @@ func TestNetworkInvalidProfileRejected(t *testing.T) {
 
 func TestNetworkDNSServersEnvVar(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_NETWORK_DNS_SERVERS", "1.1.1.1,8.8.8.8")
+	t.Setenv("AGENTS_SANDBOX_NETWORK_DNS_SERVERS", "1.1.1.1,8.8.8.8")
 
 	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
 	got := r.cfg.Network.Effective()
-	if got.Profile != network.ProfileNone {
-		t.Fatalf("Network().Profile = %q, want none (dns-only)", got.Profile)
-	}
+	wantNetworkProfiles(t, got, network.ProfilePublic)
 	if len(got.DNSServers) != 2 || got.DNSServers[0] != "1.1.1.1" || got.DNSServers[1] != "8.8.8.8" {
 		t.Fatalf("Network().DNSServers = %v, want [1.1.1.1 8.8.8.8]", got.DNSServers)
 	}
@@ -647,9 +672,7 @@ func TestNetworkDNSServersFromConfigFile(t *testing.T) {
 		t.Fatalf("NewResolver: %v", err)
 	}
 	got := r.cfg.Network.Effective()
-	if got.Profile != network.ProfileNone {
-		t.Fatalf("Network().Profile = %q, want none", got.Profile)
-	}
+	wantNetworkProfiles(t, got, network.ProfileNone)
 	if len(got.DNSServers) != 2 || got.DNSServers[0] != "1.1.1.1" || got.DNSServers[1] != "8.8.8.8:5353" {
 		t.Fatalf("Network().DNSServers = %v, want [1.1.1.1 8.8.8.8:5353]", got.DNSServers)
 	}
@@ -669,6 +692,204 @@ func TestNetworkDNSServersScalarConfigFile(t *testing.T) {
 	if len(got) != 2 || got[0] != "1.1.1.1" || got[1] != "8.8.8.8" {
 		t.Fatalf("Network().DNSServers = %v, want [1.1.1.1 8.8.8.8]", got)
 	}
+}
+
+func TestNetworkProfilesListFromConfigFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"network": map[string]any{
+			"profile": []string{"public", "host"},
+		},
+	})
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	wantNetworkProfiles(t, r.cfg.Network, network.ProfilePublic, network.ProfileHost)
+}
+
+func TestNetworkProfilesCommaEnvVar(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "public,host")
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	wantNetworkProfiles(t, r.cfg.Network, network.ProfilePublic, network.ProfileHost)
+}
+
+func TestNetworkProfilesSpacedCommaEnvVar(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "public, host")
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	wantNetworkProfiles(t, r.cfg.Network, network.ProfilePublic, network.ProfileHost)
+}
+
+func TestNetworkProfilesSpacedScalarConfigFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"network": map[string]any{"profile": "public, host"},
+	})
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	wantNetworkProfiles(t, r.cfg.Network, network.ProfilePublic, network.ProfileHost)
+}
+
+func TestNetworkProfilesSpacedListConfigFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"network": map[string]any{"profile": []string{"public", " host"}},
+	})
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	wantNetworkProfiles(t, r.cfg.Network, network.ProfilePublic, network.ProfileHost)
+}
+
+func TestNetworkProfilesNoneCombinedRejected(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"network": map[string]any{
+			"profile": []string{"none", "public"},
+		},
+	})
+	if _, err := NewResolver(nil, ""); err == nil {
+		t.Fatal("expected error for none combined with another profile")
+	}
+}
+
+func TestProfileEntries(t *testing.T) {
+	got, err := profileEntries("public,host")
+	if err != nil {
+		t.Fatalf("profileEntries: %v", err)
+	}
+	if len(got) != 2 || got[0] != "public" || got[1] != "host" {
+		t.Fatalf("profileEntries = %v, want [public host]", got)
+	}
+
+	if got, err := profileEntries([]string{"public", "host"}); err != nil || len(got) != 2 {
+		t.Fatalf("profileEntries([]string) = %v, %v; want [public host], nil", got, err)
+	}
+	if got, err := profileEntries([]any{"public", "host"}); err != nil || len(got) != 2 {
+		t.Fatalf("profileEntries([]any) = %v, %v; want [public host], nil", got, err)
+	}
+	if _, err := profileEntries([]any{42}); err == nil {
+		t.Fatal("profileEntries with a non-string entry should error")
+	}
+	if _, err := profileEntries(""); err == nil {
+		t.Fatal("profileEntries(\"\") should error")
+	}
+	if _, err := profileEntries(42); err == nil {
+		t.Fatal("profileEntries(42) should error")
+	}
+}
+
+func TestNetworkProfileInvalidTypeRejected(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"network": map[string]any{"profile": 42},
+	})
+	_, err := NewResolver(nil, "")
+	if err == nil {
+		t.Fatal("expected error for a non-string network.profile")
+	}
+	if errors.Unwrap(err) == nil {
+		t.Errorf("error %q does not wrap its cause", err)
+	}
+}
+
+func TestStringToSliceDecodeHook(t *testing.T) {
+	hook := stringToSliceDecodeHook()
+
+	strType := reflect.TypeFor[string]()
+	sliceType := reflect.TypeFor[[]string]()
+	profileSliceType := reflect.TypeFor[[]network.Profile]()
+
+	exec := func(to reflect.Type, data any) (any, error) {
+		return mapstructure.DecodeHookExec(hook, reflect.ValueOf(data), reflect.New(to).Elem())
+	}
+
+	t.Run("comma string splits into []string", func(t *testing.T) {
+		got, err := exec(sliceType, "a,b")
+		if err != nil {
+			t.Fatalf("hook error: %v", err)
+		}
+		if !slices.Equal(got.([]string), []string{"a", "b"}) {
+			t.Errorf("hook(a,b) = %v, want [a b]", got)
+		}
+	})
+
+	t.Run("named string element type splits too", func(t *testing.T) {
+		got, err := exec(profileSliceType, "public,host")
+		if err != nil {
+			t.Fatalf("hook error: %v", err)
+		}
+		if !slices.Equal(got.([]string), []string{"public", "host"}) {
+			t.Errorf("hook(public,host) = %v, want [public host]", got)
+		}
+	})
+
+	t.Run("empty string yields empty slice", func(t *testing.T) {
+		got, err := exec(sliceType, "")
+		if err != nil {
+			t.Fatalf("hook error: %v", err)
+		}
+		if len(got.([]string)) != 0 {
+			t.Errorf("hook(\"\") = %v, want empty", got)
+		}
+	})
+
+	t.Run("non-string source passes through", func(t *testing.T) {
+		got, err := exec(sliceType, 7)
+		if err != nil {
+			t.Fatalf("hook error: %v", err)
+		}
+		if got != 7 {
+			t.Errorf("hook(int->slice) = %v, want unchanged", got)
+		}
+	})
+
+	t.Run("non-slice target passes through", func(t *testing.T) {
+		got, err := exec(strType, "a,b")
+		if err != nil {
+			t.Fatalf("hook error: %v", err)
+		}
+		if got != "a,b" {
+			t.Errorf("hook(string->string) = %v, want unchanged", got)
+		}
+	})
+
+	t.Run("named string source passes through", func(t *testing.T) {
+		src := network.ProfilePublic
+		got, err := exec(sliceType, src)
+		if err != nil {
+			t.Fatalf("hook error: %v", err)
+		}
+		if got != src {
+			t.Errorf("hook(Profile->slice) = %v, want unchanged", got)
+		}
+	})
+
+	t.Run("non-string element type passes through", func(t *testing.T) {
+		got, err := exec(reflect.TypeFor[[]int](), "a,b")
+		if err != nil {
+			t.Fatalf("hook error: %v", err)
+		}
+		if got != "a,b" {
+			t.Errorf("hook(string->[]int) = %v, want unchanged", got)
+		}
+	})
 }
 
 func TestDNSServerEntries(t *testing.T) {
@@ -742,7 +963,7 @@ func TestNetworkInvalidDNSServersRejected(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
 			if s, ok := tc.raw.(string); ok {
-				t.Setenv("OPENCODE_SANDBOX_NETWORK_DNS_SERVERS", s)
+				t.Setenv("AGENTS_SANDBOX_NETWORK_DNS_SERVERS", s)
 			} else {
 				testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 					"network": map[string]any{"dns-servers": tc.raw},
@@ -755,9 +976,34 @@ func TestNetworkInvalidDNSServersRejected(t *testing.T) {
 	}
 }
 
-func TestDindFromConfig(t *testing.T) {
+func TestDockerFromConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	// project-level config.yaml
+	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(configpaths.Get().ProjectConfigDir(), "config.yaml"),
+		[]byte("docker: true\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Config().Docker {
+		t.Error("Config().Docker = false, want true from config")
+	}
+	if r.DockerLegacyAlias() != "" {
+		t.Errorf("DockerLegacyAlias() = %q, want empty for the canonical key", r.DockerLegacyAlias())
+	}
+}
+
+// TestDindConfigAlias verifies the deprecated dind config key still enables
+// docker and is surfaced as a legacy alias for a one-time warning.
+func TestDindConfigAlias(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -772,15 +1018,190 @@ func TestDindFromConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if !r.Dind() {
-		t.Error("Dind() = false, want true from config")
+	if !r.Config().Docker {
+		t.Error("Config().Docker = false, want true from the deprecated dind key")
+	}
+	if got := r.DockerLegacyAlias(); got != "the dind config key" {
+		t.Errorf("DockerLegacyAlias() = %q, want the dind config key", got)
 	}
 }
 
-func TestDindDefaultsFalse(t *testing.T) {
+// TestDockerConfigWinsOverDindAlias verifies the canonical key has precedence.
+func TestDockerConfigWinsOverDindAlias(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(configpaths.Get().ProjectConfigDir(), "config.yaml"),
+		[]byte("docker: false\ndind: true\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.Config().Docker {
+		t.Error("Config().Docker = true, want the canonical docker key to win")
+	}
+}
+
+// TestDockerExplicitFromEnv verifies AGENTS_SANDBOX_DOCKER marks docker as
+// explicitly set, so the deprecated dind alias is not surfaced.
+func TestDockerExplicitFromEnv(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_DOCKER", "true")
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Config().Docker {
+		t.Error("Config().Docker = false, want true from AGENTS_SANDBOX_DOCKER")
+	}
+	if r.DockerLegacyAlias() != "" {
+		t.Errorf("DockerLegacyAlias() = %q, want empty when docker is explicit", r.DockerLegacyAlias())
+	}
+}
+
+// TestDockerExplicitFromLegacyEnv verifies the deprecated OPENCODE_SANDBOX_
+// prefix is surfaced as explicit too, so a legacy value overrides a project
+// Dockerfile in both directions instead of being read by viper then ignored.
+func TestDockerExplicitFromLegacyEnv(t *testing.T) {
+	for _, value := range []string{"true", "false"} {
+		t.Run(value, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			t.Setenv("OPENCODE_SANDBOX_DOCKER", value)
+			r, err := NewResolver(nil, "some-slug")
+			if err != nil {
+				t.Fatalf("NewResolver: %v", err)
+			}
+			if !r.Config().DockerExplicit() {
+				t.Error("Config().DockerExplicit() = false, want true from OPENCODE_SANDBOX_DOCKER")
+			}
+			if got, want := r.Config().Docker, value == "true"; got != want {
+				t.Errorf("Config().Docker = %v, want %v from OPENCODE_SANDBOX_DOCKER", got, want)
+			}
+			if r.DockerLegacyAlias() != "" {
+				t.Errorf("DockerLegacyAlias() = %q, want empty when docker is explicit", r.DockerLegacyAlias())
+			}
+		})
+	}
+}
+
+// TestDockerExplicitFromFlag verifies the --docker flag marks docker as
+// explicitly set.
+func TestDockerExplicitFromFlag(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	root := &cobra.Command{Use: "root"}
+	root.PersistentFlags().Bool(KeyDocker, false, "")
+	if err := root.ParseFlags([]string{"--" + KeyDocker}); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	r, err := NewResolver(root, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Config().Docker {
+		t.Error("Config().Docker = false, want true from --docker")
+	}
+	if r.DockerLegacyAlias() != "" {
+		t.Errorf("DockerLegacyAlias() = %q, want empty for the --docker flag", r.DockerLegacyAlias())
+	}
+}
+
+func writeUserConfig(t *testing.T, values map[string]any) {
+	t.Helper()
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", values)
+}
+
+func TestDockerExplicit(t *testing.T) {
+	t.Run("canonical config key", func(t *testing.T) {
+		writeUserConfig(t, map[string]any{"docker": false})
+		r, err := NewResolver(nil, "")
+		if err != nil {
+			t.Fatalf("NewResolver: %v", err)
+		}
+		if !r.Config().DockerExplicit() {
+			t.Error("docker key present must be explicit")
+		}
+		if r.Config().Docker {
+			t.Error("docker key false must resolve off")
+		}
+	})
+	t.Run("dind config key", func(t *testing.T) {
+		writeUserConfig(t, map[string]any{"dind": false})
+		r, err := NewResolver(nil, "")
+		if err != nil {
+			t.Fatalf("NewResolver: %v", err)
+		}
+		if !r.Config().DockerExplicit() {
+			t.Error("dind key present must be explicit")
+		}
+	})
+	t.Run("nothing set", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		r, err := NewResolver(nil, "")
+		if err != nil {
+			t.Fatalf("NewResolver: %v", err)
+		}
+		if r.Config().DockerExplicit() {
+			t.Error("no docker source must not be explicit")
+		}
+	})
+	t.Run("dind env", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		t.Setenv("AGENTS_SANDBOX_DIND", "true")
+		r, err := NewResolver(nil, "")
+		if err != nil {
+			t.Fatalf("NewResolver: %v", err)
+		}
+		if !r.Config().DockerExplicit() {
+			t.Error("AGENTS_SANDBOX_DIND must be explicit")
+		}
+	})
+}
+
+// TestDindFromEnvAlias verifies AGENTS_SANDBOX_DIND enables docker and is
+// reported as the deprecated source.
+func TestDindFromEnvAlias(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_DIND", "true")
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Config().Docker {
+		t.Error("Config().Docker = false, want true from AGENTS_SANDBOX_DIND")
+	}
+	if got := r.DockerLegacyAlias(); got != "AGENTS_SANDBOX_DIND" {
+		t.Errorf("DockerLegacyAlias() = %q, want AGENTS_SANDBOX_DIND", got)
+	}
+}
+
+// TestDindFromLegacyEnvAlias verifies the deprecated OPENCODE_SANDBOX_DIND
+// prefix enables docker and is reported with the generic dind source name.
+func TestDindFromLegacyEnvAlias(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_DIND", "true")
+	r, err := NewResolver(nil, "some-slug")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.Config().Docker {
+		t.Error("Config().Docker = false, want true from OPENCODE_SANDBOX_DIND")
+	}
+	if got := r.DockerLegacyAlias(); got != "dind" {
+		t.Errorf("DockerLegacyAlias() = %q, want the generic dind source for the legacy env prefix", got)
+	}
+}
+
+func TestDockerDefaultsFalse(t *testing.T) {
 	r := NewResolverWithConfig(Config{})
-	if r.Dind() {
-		t.Error("Dind() = true, want default false")
+	if r.Config().Docker {
+		t.Error("Config().Docker = true, want default false")
 	}
 }
 
@@ -846,8 +1267,8 @@ func TestResolverUpgradeIntervalClampsMin(t *testing.T) {
 
 func TestResolverUpgradeEnvVars(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_UPGRADE_MODE", "notify")
-	t.Setenv("OPENCODE_SANDBOX_UPGRADE_INTERVAL", "2h")
+	t.Setenv("AGENTS_SANDBOX_UPGRADE_MODE", "notify")
+	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", "2h")
 	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
@@ -862,15 +1283,52 @@ func TestResolverUpgradeEnvVars(t *testing.T) {
 
 func TestResolverRejectsInvalidUpgradeMode(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_UPGRADE_MODE", "bogus")
+	t.Setenv("AGENTS_SANDBOX_UPGRADE_MODE", "bogus")
 	if _, err := NewResolver(nil, ""); err == nil {
 		t.Fatal("expected error for invalid update mode")
 	}
 }
 
+func TestResolverUpgradeChannel(t *testing.T) {
+	if got := NewResolverWithConfig(Config{}).UpgradeChannel(); got != upgrade.ChannelStable {
+		t.Fatalf("UpgradeChannel default = %q, want stable", got)
+	}
+	r := NewResolverWithConfig(Config{Upgrade: UpgradeConfig{Channel: "canary"}})
+	if got := r.UpgradeChannel(); got != upgrade.ChannelCanary {
+		t.Fatalf("UpgradeChannel = %q, want canary", got)
+	}
+	// Unparsable values are possible via NewResolverWithConfig, which skips
+	// validation, and fall back to stable.
+	if got := NewResolverWithConfig(
+		Config{Upgrade: UpgradeConfig{Channel: "bogus"}},
+	).UpgradeChannel(); got != upgrade.ChannelStable {
+		t.Fatalf("UpgradeChannel(bogus) = %q, want stable", got)
+	}
+}
+
+func TestResolverUpgradeChannelEnvVar(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_UPGRADE_CHANNEL", "canary")
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if got := r.UpgradeChannel(); got != upgrade.ChannelCanary {
+		t.Fatalf("UpgradeChannel = %q, want canary from AGENTS_SANDBOX_UPGRADE_CHANNEL", got)
+	}
+}
+
+func TestResolverRejectsInvalidUpgradeChannel(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_UPGRADE_CHANNEL", "bogus")
+	if _, err := NewResolver(nil, ""); err == nil {
+		t.Fatal("expected error for invalid upgrade channel")
+	}
+}
+
 func TestResolverRejectsTooSmallInterval(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_UPGRADE_INTERVAL", "1m")
+	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", "1m")
 	if _, err := NewResolver(nil, ""); err == nil {
 		t.Fatal("expected error for update interval below minimum")
 	}
@@ -1020,7 +1478,68 @@ func TestResolverHomeRejectsInvalidHomeValue(t *testing.T) {
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"home": 5,
 	})
-	if _, err := NewResolver(nil, ""); err == nil {
+	_, err := NewResolver(nil, "")
+	if err == nil {
 		t.Fatal("expected error for invalid home value")
+	}
+	if errors.Unwrap(err) == nil {
+		t.Errorf("error %q does not wrap its cause", err)
+	}
+}
+
+// TestResolverConfigReturnsACopy covers the accessor runoptions.Build consumes:
+// a non-nil resolver returns a deep copy of its config, and a nil resolver
+// returns nil (which runoptions.Build treats as "no config").
+func TestResolverConfigReturnsACopy(t *testing.T) {
+	r := NewResolverWithConfig(Config{
+		CPUs: 4, Agent: "pi", OpenLinks: true,
+		Network: network.Policy{
+			Profiles:    []network.Profile{network.ProfilePublic},
+			EgressAllow: []string{"example.com"},
+			EgressDeny:  []string{"bad.example"},
+			DNSServers:  []string{"1.1.1.1"},
+		},
+		Mounts: mounts.Mounts{"/guest": {Source: "/host"}},
+		Home:   homeconfig.Layers{{Dir: "/cfg", Manifest: homeconfig.Manifest{"~/.x": {Source: "/host/.x"}}}},
+	})
+
+	got := r.Config()
+	if got == nil {
+		t.Fatal("Config() = nil, want the resolved config")
+	}
+	if got.CPUs != 4 || got.Agent != "pi" || !got.OpenLinks {
+		t.Errorf("Config() = %+v, want cpus 4, agent pi, open-links true", *got)
+	}
+
+	// The returned config must be a deep copy: mutating any field, including the
+	// slices and maps, cannot change later resolver reads.
+	got.Agent = "claudecode"
+	got.Network.Profiles[0] = network.ProfileHost
+	got.Network.EgressAllow[0] = "evil.example"
+	got.Network.EgressDeny[0] = "evil.example"
+	got.Network.DNSServers[0] = "8.8.8.8"
+	got.Mounts["/guest"] = mounts.BindMount{Source: "/evil"}
+	got.Home[0].Manifest["~/.x"] = homeconfig.Entry{Source: "/evil"}
+
+	again := r.Config()
+	if again.Agent != "pi" {
+		t.Errorf("mutating Config().Agent changed the resolver: Agent = %q, want pi", again.Agent)
+	}
+	if again.Network.Profiles[0] != network.ProfilePublic ||
+		again.Network.EgressAllow[0] != "example.com" ||
+		again.Network.EgressDeny[0] != "bad.example" ||
+		again.Network.DNSServers[0] != "1.1.1.1" {
+		t.Errorf("mutating Config() network changed the resolver: %+v", again.Network)
+	}
+	if again.Mounts["/guest"].Source != "/host" {
+		t.Errorf("mutating Config() mounts changed the resolver: %+v", again.Mounts)
+	}
+	if again.Home[0].Manifest["~/.x"].Source != "/host/.x" {
+		t.Errorf("mutating Config() home changed the resolver: %+v", again.Home)
+	}
+
+	var nilResolver *Resolver
+	if nilResolver.Config() != nil {
+		t.Error("Config() on a nil resolver = non-nil, want nil")
 	}
 }

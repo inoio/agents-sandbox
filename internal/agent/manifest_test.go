@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
+	"reflect"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -148,6 +148,33 @@ func TestEvalProvisionRulesOnCopyError(t *testing.T) {
 	}
 }
 
+// TestEvalProvisionRulesCountBeforeError pins that a later rule's failure still
+// reports the files copied by the rules before it.
+func TestEvalProvisionRulesCountBeforeError(t *testing.T) {
+	hostHome := t.TempDir()
+	mustWrite(t, filepath.Join(hostHome, "a/one.txt"), "1")
+	mustWrite(t, filepath.Join(hostHome, "b/two.txt"), "2")
+	rules := []agent.ProvisionRule{
+		{Dir: "a", Patterns: []string{"**"}},
+		{Dir: "b", Patterns: []string{"**"}},
+	}
+
+	vmHome := t.TempDir()
+	failErr := errors.New("copy boom")
+	n, err := agent.EvalProvisionRules(rules, hostHome, vmHome, func(dst string, _ []byte, _ os.FileMode) error {
+		if dst == filepath.Join(vmHome, "b", "two.txt") {
+			return failErr
+		}
+		return nil
+	})
+	if !errors.Is(err, failErr) {
+		t.Fatalf("EvalProvisionRules error = %v, want %v", err, failErr)
+	}
+	if n != 1 {
+		t.Errorf("copied count before failure = %d, want 1", n)
+	}
+}
+
 func TestEvalProvisionRulesDirectCopy(t *testing.T) {
 	hostHome := t.TempDir()
 	vmHome := t.TempDir()
@@ -165,15 +192,35 @@ func TestEvalProvisionRulesDirectCopy(t *testing.T) {
 
 func TestEvalProvisionRulesEmptyDirSkipped(t *testing.T) {
 	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+	// A file directly under hostHome would be copied if the empty-Dir rule walked
+	// the whole home instead of being skipped.
+	mustWrite(t, filepath.Join(hostHome, "stray.txt"), "stray")
+	mustWrite(t, filepath.Join(hostHome, "keep/kept.txt"), "kept")
+
+	got := map[string]string{}
 	n, err := agent.EvalProvisionRules(
-		[]agent.ProvisionRule{{Dir: "", Patterns: []string{"**"}}},
-		hostHome, t.TempDir(), nil,
+		[]agent.ProvisionRule{
+			{Dir: "", Patterns: []string{"**"}},
+			{Dir: "keep", Patterns: []string{"**"}},
+		},
+		hostHome, vmHome,
+		func(dst string, data []byte, _ os.FileMode) error {
+			got[filepath.ToSlash(dst)] = string(data)
+			return nil
+		},
 	)
 	if err != nil {
 		t.Fatalf("EvalProvisionRules error: %v", err)
 	}
-	if n != 0 {
-		t.Errorf("copied count = %d, want 0", n)
+	if n != 1 {
+		t.Errorf("copied count = %d, want 1", n)
+	}
+	if _, ok := got[filepath.ToSlash(filepath.Join(vmHome, "stray.txt"))]; ok {
+		t.Error("an empty-Dir rule must not copy the whole home")
+	}
+	if got[filepath.ToSlash(filepath.Join(vmHome, "keep", "kept.txt"))] != "kept" {
+		t.Error("a rule after an empty-Dir rule must still run")
 	}
 }
 
@@ -230,17 +277,20 @@ func TestEvalProvisionRulesUnreadableDir(t *testing.T) {
 }
 
 func TestValidateProvisionRules(t *testing.T) {
+	// Only the empty pattern and the bare "!" warn. Each is scoped to its own
+	// rule, and "!node_modules" (a legitimate negation) to a third, so a warning
+	// leaking to the wrong pattern or rule changes the exact result.
 	rules := []agent.ProvisionRule{
-		{Dir: "a", Patterns: []string{"", "**", "!"}},
-		{Dir: "b", Patterns: []string{"ok"}},
+		{Dir: "a", Patterns: []string{"", "**"}},
+		{Dir: "b", Patterns: []string{"!"}},
+		{Dir: "c", Patterns: []string{"!node_modules", "ok"}},
 	}
-	warnings := agent.ValidateProvisionRules(rules)
-	joined := strings.Join(warnings, "\n")
-	if !strings.Contains(joined, "empty pattern in provision rule for a") {
-		t.Errorf("missing empty-pattern warning, got: %v", warnings)
+	want := []string{
+		"empty pattern in provision rule for a",
+		"bare '!' in provision rule for b",
 	}
-	if !strings.Contains(joined, "bare '!' in provision rule for a") {
-		t.Errorf("missing bare-! warning, got: %v", warnings)
+	if got := agent.ValidateProvisionRules(rules); !reflect.DeepEqual(got, want) {
+		t.Errorf("ValidateProvisionRules() = %v, want %v", got, want)
 	}
 }
 

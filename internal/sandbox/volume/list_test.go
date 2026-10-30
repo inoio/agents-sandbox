@@ -11,10 +11,10 @@ import (
 )
 
 func TestListVolumesParseRoundTrip(t *testing.T) {
-	name := HomeVolumeName(state.Key{Slug: "proj-abc123", Agent: "opencode"})
-	info := naming.ArtifactFor(name)
-	if info.Slug != "proj-abc123" || info.Agent != "opencode" {
-		t.Errorf("ArtifactFor(%q) = %+v, want slug=proj-abc123 agent=opencode", name, info)
+	name := HomeVolumeName(state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"})
+	info := naming.ParseHomeVolumeName(name)
+	if info.Slug != "proj-1mjusbm3wikhb0" || info.Agent != "opencode" {
+		t.Errorf("ParseHomeVolumeName(%q) = %+v, want slug=proj-1mjusbm3wikhb0 agent=opencode", name, info)
 	}
 }
 

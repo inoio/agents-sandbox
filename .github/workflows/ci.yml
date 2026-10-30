@@ -5,8 +5,103 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+    # `labeled` opts a PR into the integration jobs via the `run-integration`
+    # and `run-integration-podman` labels; the other three are the default
+    # pull_request types.
+    types: [opened, synchronize, reopened, labeled]
+  # The merge queue re-runs the required checks on the temporary
+  # `gh-readonly-queue/main/...` ref, which holds `main` plus the queued PRs.
+  # Without this trigger the required checks never report there, so every
+  # queue entry waits out the check-response timeout and is dropped.
+  merge_group:
+  workflow_dispatch:
+
+# Least privilege for every job. The release pipeline's `publish` job raises this
+# for itself (contents + pull-requests write, to publish the Release and open the
+# Homebrew bump PR).
+permissions:
+  contents: read
+
+# A re-pushed PR cancels its superseded run: the newest commit is the one worth
+# checking, and the required checks re-report on it. Non-PR events (main pushes,
+# tags, dispatch, merge groups) each get a unique group via the run id, so they
+# are never cancelled or serialized — a burst of merges to main all still run,
+# and a rebuilt queue ref is a fresh run rather than a cancellation.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Whether a push to main changed anything that can affect the runner image or
+  # the tests. The costly integration jobs gate on this so a docs- or
+  # brain-only merge to main does not pay a ~16-minute image build. It always
+  # runs, so its output is available to every gated job on every event.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Detect code-affecting changes
+        id: filter
+        run: |
+          set -euo pipefail
+          # A push carries the previous tip in `before`. A pull_request payload
+          # has no `before`, so diff against the base branch's merge base, which
+          # is exactly the PR's changeset. A merge_group names its base directly,
+          # since its ref is the throwaway `gh-readonly-queue/...` branch.
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            git fetch --no-tags origin "refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+            base=$(git merge-base "origin/${{ github.base_ref }}" '${{ github.sha }}')
+          elif [ '${{ github.event_name }}' = 'merge_group' ]; then
+            base='${{ github.event.merge_group.base_sha }}'
+          else
+            base='${{ github.event.before }}'
+            if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base='HEAD^'; fi
+          fi
+          files=$(git diff --name-only "$base" '${{ github.sha }}' || true)
+          # The complement of mutation.yml's paths-ignore: docs, the operator
+          # brain, the Homebrew formula, issue templates, and .gitignore.
+          if printf '%s\n' "$files" | grep -vqE '^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/)|\.md$|^\.gitignore$'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Required check. It always runs — a gated required check reports Success
+  # without running — and decides the changelog presence rule from the diff.
+  # The base computation mirrors the `changes` job above.
+  changelog:
+    name: changelog
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Compute changed files
+        run: |
+          set -euo pipefail
+          base=""
+          if [ '${{ github.event_name }}' = 'pull_request' ]; then
+            git fetch --no-tags origin "refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" || true
+            base=$(git merge-base "origin/${{ github.base_ref }}" '${{ github.sha }}' || true)
+          elif [ '${{ github.event_name }}' = 'merge_group' ]; then
+            base='${{ github.event.merge_group.base_sha }}'
+          else
+            base='${{ github.event.before }}'
+            if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base='HEAD^'; fi
+          fi
+          # An undecidable base degrades to shape-only rather than failing this
+          # required check: a transient fetch failure must not eject a PR.
+          git diff --name-only "$base" '${{ github.sha }}' > /tmp/changed.txt 2>/dev/null || true
+      - name: Check fragments
+        run: ci/check-changelog.sh . --changed /tmp/changed.txt
+      - name: Test the fragment checker
+        run: make changelog-check-test
+
   lint:
     name: lint
     runs-on: ubuntu-latest
@@ -14,13 +109,18 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27"
+          go-version-file: .go-version
           cache: true
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.14
+          version: v2.15
           args: ./...
+      # Compile every package including build-tagged files (`integration`) so a
+      # tagged-only compile regression fails on PRs, not just on main/releases.
+      - run: make compile-all
       - run: make validate-fmt
+      - run: make docs-linkcheck
+      - run: make docs-linkcheck-test
 
   test:
     name: test
@@ -29,7 +129,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27"
+          go-version-file: .go-version
           cache: true
       - run: make coverage-junit
       - uses: codecov/codecov-action@v7
@@ -46,24 +146,119 @@ jobs:
           files: junit.xml
           fail_ci_if_error: false
 
-  integration:
-    name: integration (docker build)
-    # Costly full-image builds: run only on main, releases, and manual dispatch,
-    # not on every PR.
-    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+  race:
+    name: race
+    # A required check (see the `protect main` ruleset), so it is not gated and
+    # runs on every event. GitHub reports a job skipped by its `if` as Success,
+    # which would satisfy the required check without running it — a gated
+    # required check can go green untested. It runs in parallel with lint/test,
+    # so always-on costs the queue no extra wall-clock.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27"
+          go-version-file: .go-version
           cache: true
+      - run: make test-race
+
+  vulncheck:
+    name: vulncheck
+    # Not a required check; skipped on a code-free change, and never run on a
+    # merge group — a network-dependent red must not appear on the queue's
+    # throwaway ref, where it could only be noise.
+    needs: [changes]
+    if: >-
+      github.event_name != 'merge_group' &&
+      (github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      needs.changes.outputs.code == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache: true
+      - run: make vulncheck
+
+  deadcode:
+    name: deadcode
+    # A required check (see the `protect main` ruleset), so it always runs, like
+    # race.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache: true
+      - run: make deadcode
+
+  integration:
+    name: integration (docker build)
+    # Costly full-image builds (~10 minutes): run on main, releases, manual
+    # dispatch, and on a PR a maintainer opted in by adding the
+    # `run-integration` label — not on every PR. On a main push the `changes`
+    # gate skips it when the merge touched no code (docs/brain/formula only).
+    needs: [changes]
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      (github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'run-integration')) ||
+      (github.ref == 'refs/heads/main' && needs.changes.outputs.code == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache: true
+      - run: make test-integration
+
+  integration-podman:
+    name: integration (podman build)
+    # The same full-image build as `integration`, against a rootless podman
+    # endpoint instead of Docker Engine: podman serves the Docker API, so it is
+    # expected to work, and this job is what makes it a tested engine. Its own
+    # opt-in label keeps a podman-only failure from blocking a PR a maintainer
+    # ran docker for. Gated by `changes` on a main push like `integration`.
+    needs: [changes]
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      (github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'run-integration-podman')) ||
+      (github.ref == 'refs/heads/main' && needs.changes.outputs.code == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: .go-version
+          cache: true
+      - name: Serve the podman Docker API and point DOCKER_HOST at it
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman uidmap fuse-overlayfs slirp4netns
+          sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 "$(id -un)"
+          runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+          mkdir -p "$runtime_dir/podman"
+          export DOCKER_HOST="unix://$runtime_dir/podman/podman.sock"
+          podman system service --time=0 "$DOCKER_HOST" &
+          for _ in $(seq 1 60); do
+            if docker info >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker info
+          echo "DOCKER_HOST=$DOCKER_HOST" >> "$GITHUB_ENV"
       - run: make test-integration
 
   release:
     name: release (${{ matrix.target }})
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [lint, test]
+    needs: [lint, test, integration, integration-podman]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -107,7 +302,7 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.27"
+          go-version-file: .go-version
           cache: true
 
       - name: Resolve bare version
@@ -159,15 +354,49 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
+      - name: Classify release tag
+        run: |
+          set -euo pipefail
+          # Release tags are v<semver> (the workflow triggers on v*). Build
+          # metadata (a `+...` suffix) does not affect precedence, so drop it
+          # before looking for the prerelease hyphen: v1.9.0+build-42 is a final
+          # release whose metadata happens to contain a hyphen. A prerelease
+          # must not be served by /releases/latest (the stable channel's only
+          # source of truth) and must not bump the Homebrew formula (the tap
+          # serves full releases only).
+          version="${GITHUB_REF_NAME#v}"
+          version="${version%%+*}"
+          if [[ "$version" == *-* ]]; then
+            echo "IS_PRERELEASE=true" >> "$GITHUB_ENV"
+          else
+            echo "IS_PRERELEASE=false" >> "$GITHUB_ENV"
+          fi
+      - name: Write checksums.txt
+        run: |
+          set -euo pipefail
+          # One sha256sum-format line per release asset, keyed on the flat asset
+          # name the updater looks up: `<64-hex><two spaces><asset-name>`.
+          cd artifacts
+          : > checksums.txt
+          for asset in agents-sandbox-*/agents-sandbox-*; do
+            sha="$(sha256sum "$asset" | cut -d' ' -f1)"
+            printf '%s  %s\n' "$sha" "$(basename "$asset")"
+          done >> checksums.txt
+          cat checksums.txt
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: "agents-sandbox ${{ github.ref_name }}"
           generate_release_notes: true
-          files: artifacts/*/*
+          prerelease: ${{ env.IS_PRERELEASE }}
+          files: |
+            artifacts/*/*
+            artifacts/checksums.txt
 
       - name: Bump Homebrew formula
+        if: env.IS_PRERELEASE != 'true'
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
@@ -184,6 +413,7 @@ jobs:
           git --no-pager diff Formula/agents-sandbox.rb
 
       - name: Open Homebrew formula bump PR
+        if: env.IS_PRERELEASE != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ github.ref_name }}

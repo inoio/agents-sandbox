@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -36,8 +35,6 @@ type reconnectPolicy struct {
 
 // watchReconnectPolicy is the production policy. Tests replace it to make
 // timing fast and jitter deterministic.
-//
-//nolint:gochecknoglobals // test seam
 var watchReconnectPolicy = reconnectPolicy{
 	fastRetries:  2,
 	backoffStart: time.Second,
@@ -75,6 +72,8 @@ const summaryFirstDrops = 3
 // dropSummary accumulates a bounded report of stream drops so a long session
 // with frequent drops doesn't grow an unbounded error. It keeps the first few
 // drops, the running count, and the most recent drop.
+//
+//exhaustruct:ignore
 type dropSummary struct {
 	start time.Time
 	count int
@@ -109,23 +108,53 @@ func (s *dropSummary) err() error {
 		s.count, over, strings.Join(parts, "; "))
 }
 
+// StreamOpener opens the sandbox's agent event stream and runs the one-shot
+// commands the watcher needs. It is the watcher's whole dependency on the
+// sandbox: a fake carrying only these two operations drives Watch, without an
+// msb.Sandbox, and production adapts one with SandboxStreamOpener. It is
+// exported because it is Watch's parameter and the session package's tests
+// substitute their own; an unexported interface would be unnameable there.
+type StreamOpener interface {
+	// ShellStream starts a long-running command in the sandbox and returns the
+	// handle for its output and exit events.
+	ShellStream(ctx context.Context, command string) (msb.StreamHandle, error)
+	// Shell runs a command to completion in the sandbox.
+	Shell(ctx context.Context, command string) (msb.ShellResult, error)
+}
+
+// SandboxStreamOpener adapts an msb.Sandbox to StreamOpener, narrowing it to the
+// two operations the watcher uses and dropping the exec options it never passes.
+type SandboxStreamOpener struct {
+	Sandbox msb.Sandbox
+}
+
+// ShellStream delegates to the sandbox.
+func (s SandboxStreamOpener) ShellStream(ctx context.Context, command string) (msb.StreamHandle, error) {
+	return s.Sandbox.ShellStream(ctx, command)
+}
+
+// Shell delegates to the sandbox.
+func (s SandboxStreamOpener) Shell(ctx context.Context, command string) (msb.ShellResult, error) {
+	return s.Sandbox.Shell(ctx, command)
+}
+
 // Watch relays the in-VM SSE stream to the tracker and backend until ctx is
 // cancelled. When the stream drops (clean end, exit, or connection failure) it
 // reconnects with a fast-then-backoff policy (see watchReconnectPolicy). It
 // returns a compound error summarizing the drops, or nil if the stream never
 // dropped.
-func Watch(ctx context.Context, sb msb.Sandbox, spec agent.EventStreamSpec, sink Backend) error {
+func Watch(ctx context.Context, streams StreamOpener, spec agent.EventStreamSpec, sink Backend) error {
 	if sink == nil {
 		return nil
 	}
 	tracker := NewTracker(spec)
-	summary := &dropSummary{} //nolint:exhaustruct_v5 // fields zeroed, populated by record
+	summary := &dropSummary{}
 	var consecutiveFails int
 	var backoff time.Duration
 loop:
 	for attempt := 1; ; attempt++ {
 		start := time.Now()
-		reason := watchOnce(ctx, sb, tracker, sink, spec.StreamCommand)
+		reason := watchOnce(ctx, streams, tracker, sink, spec)
 		if ctx.Err() != nil {
 			break loop
 		}
@@ -152,16 +181,25 @@ loop:
 // and parsed one block at a time.
 func watchOnce(
 	ctx context.Context,
-	sb msb.Sandbox,
+	streams StreamOpener,
 	tracker *Tracker,
 	sink Backend,
-	streamCommand string,
+	spec agent.EventStreamSpec,
 ) error {
-	handle, err := sb.ShellStream(ctx, streamCommand)
+	handle, err := streams.ShellStream(ctx, spec.StreamCommand)
 	if err != nil {
 		return fmt.Errorf("opening stream: %w", err)
 	}
 	defer handle.Close()
+
+	// Seed the tracker with child sessions created before this stream opened.
+	// Best-effort: an error, non-success, or unparsable body is ignored and the
+	// stream proceeds, since session.created still teaches new children.
+	if spec.SessionList != nil {
+		if res, err := streams.Shell(ctx, spec.SessionList.Command()); err == nil && res.Success() {
+			tracker.SeedChildren(spec.SessionList.Parse([]byte(res.Stdout())))
+		}
+	}
 
 	scanner := bufio.NewScanner(&streamReader{ctx: ctx, handle: handle, chunk: make([]byte, 0), pos: 0})
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -171,7 +209,7 @@ func watchOnce(
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
-			if e, ok := parseSSEBlock(block); ok {
+			if e, ok := parseSSEBlock(spec.Parse, block); ok {
 				handleEvent(tracker, sink, e)
 			}
 			block = nil
@@ -192,7 +230,7 @@ func watchOnce(
 // work, a sessionBusyAware sink releases its in-flight dedup claims first, so a
 // later transition for the session can notify again; then the tracker decides
 // whether the event fires a notification.
-func handleEvent(tracker *Tracker, sink Backend, e Event) {
+func handleEvent(tracker *Tracker, sink Backend, e agent.StreamEvent) {
 	if e.SessionID != "" && eventTypeIn(e.Type, tracker.spec.BusyEvents) {
 		if aware, ok := sink.(sessionBusyAware); ok {
 			aware.SessionBusy(e.SessionID)
@@ -253,10 +291,10 @@ func (r *streamReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// parseSSEBlock parses one SSE block (the lines between blank lines) into an
-// Event. opencode's /global/event stream emits a single "data:" line whose
-// JSON carries the event type under "payload.type".
-func parseSSEBlock(lines []string) (Event, bool) {
+// parseSSEBlock extracts the data payload from one SSE block (the lines
+// between blank lines) and delegates decoding to parse. Every agent's event
+// stream emits a single "data:" line; a block with none carries no event.
+func parseSSEBlock(parse func([]byte) (agent.StreamEvent, bool), lines []string) (agent.StreamEvent, bool) {
 	var payload []byte
 	for _, l := range lines {
 		if rest, ok := strings.CutPrefix(l, "data:"); ok {
@@ -264,21 +302,7 @@ func parseSSEBlock(lines []string) (Event, bool) {
 		}
 	}
 	if len(payload) == 0 {
-		return Event{}, false
+		return agent.StreamEvent{}, false
 	}
-	var raw struct {
-		Payload struct {
-			Type       string `json:"type"`
-			Properties struct {
-				SessionID string `json:"sessionID"`
-			} `json:"properties"`
-		} `json:"payload"`
-	}
-	if err := json.Unmarshal(payload, &raw); err != nil {
-		return Event{}, false
-	}
-	if raw.Payload.Type == "" {
-		return Event{}, false
-	}
-	return Event{Type: raw.Payload.Type, SessionID: raw.Payload.Properties.SessionID, Data: payload}, true
+	return parse(payload)
 }

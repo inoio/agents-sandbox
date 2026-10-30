@@ -24,6 +24,9 @@ persisting user state via a home directory volume.
 
 - One ephemeral microsandbox VM per project, multiple clients can attach to the vm & connect
   to the server.
+- One release branch per minor line (`release/<major>.<minor>`): new work lands on `main`, a
+  released line's fixes land on its release branch, and the line's patch releases are tagged there.
+  See `.operator-shared/specs/release-branching.md`.
 
 ## Development
 
@@ -69,7 +72,15 @@ Common development commands (run from the Go module root):
 - `make check` — run fmt, lint, test targets. Execute this when finalizing work.
 - `go run ./cmd/agents-sandbox --dry-run` — build and run locally without producing a binary or starting interactively
   (skips launching the agent)
-- `make test`/`go test ./...` — run all tests.
+- `make test`/`go test ./...` — run all tests. `make test` passes `-tags microsandbox_ffi_path`, which keeps the
+  SDK's ~36 MB native library out of every test binary; a bare `go test ./...` links it and is slower. See
+  `.operator-shared/guides/test-runtime-cost.md`.
+- `make compile-all` — compile every test binary including `integration`-tagged files without a docker daemon (catches
+  tagged-only compile regressions; run by CI on every PR). Its `-run='^$'` output reads `[no tests to run]` for every
+  package — that is compile-only, not skipped tests.
+- `make test-msb` — run the `msb`-tagged harness smoke tests, which start every registered harness to its full-screen
+  TUI in a real microsandbox VM. Host-only (needs KVM, a docker daemon, and network) and excluded from
+  `make check`/`make test` via the `msb` build tag; `make compile-all` still compiles it.
 - `make lint`/`golangci-lint run` — run the linter. ALWAYS use! DON'T use `go vet`!
 - `make fmt`/`golangci-lint fmt` — format all files. ALWAYS use! DON'T manually rewrite / use `go fmt`!
 - `go mod tidy` — sync `go.mod`/`go.sum` (run after adding/removing imports).
@@ -89,8 +100,9 @@ Always use your superpowers for appropriate tasks, never skip user approval.
 
 ## Documentation
 
+- User-facing docs follow [`STYLEGUIDE.md`](STYLEGUIDE.md).
 - When changing or adding behavior, keep `README.md` and `docs` directory (except `docs/superpowers`) in sync and
-  current, and add a line to the `[Unreleased]` section in `CHANGELOG.md`.
+  current, and add a `changelog.d/<slug>.<type>.md` fragment (see `CONTRIBUTING.md`).
 - Linking style: root-level docs (README.md, SECURITY.md, ...) link into `docs/` with rendered HTML links
   (`https://inoio.github.io/agents-sandbox/<page>.html`, or `.../<dir>/` for an `index.md` page); non-docs relative links
   must resolve to a repo file. Pages under `docs/` link to each other with Jekyll `{% link %}` tags. `make check` runs
@@ -103,9 +115,10 @@ Always use your superpowers for appropriate tasks, never skip user approval.
 
 ## Current limitations
 
-- No SSH keys in the VM, git cmds against remotes won't work.
-- `golangci-lint` caches by module/package path, so linting in a git worktree can return results for the main checkout
-  (diagnostics show `../../../workspace/...`). Run `golangci-lint cache clean` before linting in a worktree.
+- No SSH keys in the VM, git cmds against remotes won't work. Use github-cli (gh).
+- GitHub only runs `pull_request` workflows when the PR is mergeable. While a PR has merge conflicts, the `ci`
+  workflows (`lint`, `test`, codecov) silently do **not** run — they are absent, not failed. Rebase to resolve the
+  conflict and they trigger on the next push.
 - microsandbox injects a tls cert into the VM for egress inspection. This can cause docker image builds to fail with
   self-signed cert errors. Workaround (example base image):
 
@@ -124,3 +137,49 @@ Always use your superpowers for appropriate tasks, never skip user approval.
   # 2. Build the runner image as usual.
   go run ./cmd/agents-sandbox build -r
   ```
+
+# Your personality
+
+<voice>
+Write as a knowledgeable colleague who has already done the work: plain, direct, specific.
+Use flowing prose. State things with "is"; do not inflate with "serves as" or "stands as".
+Open with the answer, not with praise or a preamble. Do not use flattery openers
+("Great question!").
+Do not close by restating what you just said.
+Prefer one precise sentence over three vague ones.
+</voice>
+
+
+<avoid>
+- Negative parallelism: "it's not just X, it's Y" / "not merely … but …".
+- Rule-of-three triplets used for rhythm rather than content.
+- Significance/legacy puffery: "pivotal", "underscores", "a testament to", "nestled".
+- Trailing "-ing" analysis clauses: "…, highlighting its importance".
+- Restating the answer in a closing summary.
+</avoid>
+
+<audience>
+You are explaining this to an experienced engineer who knows the domain and dislikes filler.
+Assume competence; skip basics unless asked. Keep jargon that carries meaning; drop it where a
+plain word is clearer.
+</audience>
+
+<content_invariant>
+Changing the register must not change the substance. Preserve every number, identifier, file path,
+code block, citation, caveat, and statement of uncertainty exactly. If a style rule and a fact
+conflict, the fact wins.
+</content_invariant>
+
+<length>
+Match length to difficulty, not to a fixed target. One or two sentences for a simple question;
+full reasoning for a complex one. Never pad to seem thorough, and never truncate to seem concise.
+</length>
+
+<example>
+<question>Why is the build slow?</question>
+<answer>The image layer is being rebuilt on every run. Two things cause it: the agent version is
+re-resolved each time, and the Dockerfile ID changes whenever the profile script changes. Pin the
+version and the layer cache holds.</answer>
+<question>Is the cache safe to delete?</question>
+<answer>Yes — it only holds build layers. Deleting it costs you the next rebuild's time.</answer>
+</example>

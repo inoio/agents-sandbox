@@ -79,6 +79,34 @@ func (p *printer) Select(prompt string, choices []Choice, defaultKey string) (st
 	return "", errTooManyInvalidInputs
 }
 
+func (p *printer) Confirm(prompt string, defaultYes bool) (bool, error) {
+	if p.assumeYes {
+		return true, nil
+	}
+	if !p.IsInteractive() {
+		return false, ErrConfirmationRequired
+	}
+
+	suffix := "y/N"
+	if defaultYes {
+		suffix = "Y/n"
+	}
+	fmt.Fprintf(p.stderr, "%s [%s]: ", prompt, suffix)
+
+	line, err := p.getStdinReader().ReadString('\n')
+	if err != nil {
+		return false, err
+	}
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return true, nil
+	case "":
+		return defaultYes, nil
+	default:
+		return false, nil
+	}
+}
+
 func (p *printer) Input(prompt, defaultValue string) (string, error) {
 	if !p.IsInteractive() {
 		p.Infof("%s: using default '%s'", prompt, defaultValue)

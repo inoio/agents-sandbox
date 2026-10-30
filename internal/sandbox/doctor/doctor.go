@@ -3,16 +3,16 @@ package doctor
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
+	"path/filepath"
 
 	"github.com/moby/moby/client"
 
+	"github.com/inoio/agents-sandbox/internal/docslink"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-//nolint:gochecknoglobals // test seams
 var (
 	checkAllFunc      = realCheckAll
 	checkDockerFunc   = realCheckDocker
@@ -30,14 +30,21 @@ func CheckAll(ctx context.Context, ui termio.UI) bool {
 	return checkAllFunc(ctx, ui)
 }
 
+// checkResults is what a prerequisite run produced: informational messages and
+// the fatal failures.
+type checkResults struct {
+	infos []string
+	errs  []error
+}
+
 // realCheckAll aggregates the platform checks and reports the results.
 func realCheckAll(ctx context.Context, ui termio.UI) bool {
-	infos, errs := collectChecksFunc(ctx)
-	ok := len(errs) == 0
-	for _, info := range infos {
+	results := collectChecksFunc(ctx)
+	ok := len(results.errs) == 0
+	for _, info := range results.infos {
 		ui.Info(info)
 	}
-	for _, err := range errs {
+	for _, err := range results.errs {
 		ui.Errorf("%s", err)
 	}
 	return ok
@@ -46,51 +53,47 @@ func realCheckAll(ctx context.Context, ui termio.UI) bool {
 // collectChecks runs every prerequisite check, collecting all failures so
 // CheckAll can report them together. checkPlatform is the only platform
 // specific check and comes first.
-func collectChecks(ctx context.Context) ([]string, []error) {
-	var infos []string
-	var errs []error
+func collectChecks(ctx context.Context) checkResults {
+	var results checkResults
 	for _, err := range []error{
 		checkPlatform(),
 		CheckDocker(ctx),
 	} {
 		if err != nil {
-			errs = append(errs, err)
+			results.errs = append(results.errs, err)
 		}
 	}
 	msbMessages, err := checkMsb(ctx)
-	infos = append(infos, msbMessages...)
+	results.infos = append(results.infos, msbMessages...)
 	if err != nil {
-		errs = append(errs, err)
+		results.errs = append(results.errs, err)
 	}
-	return infos, errs
+	return results
 }
 
 // realCheckDocker pings the Docker daemon, describing how to fix it on failure.
 func realCheckDocker(ctx context.Context) error {
-	//nolint:exhaustruct_v5 // NegotiateAPIVersion/ForceNegotiate not needed for a simple ping check
 	_, err := docker.Get().Ping(ctx, client.PingOptions{})
 	if err != nil {
 		return fmt.Errorf(
-			"docker API unreachable: %w; ensure Docker Desktop or colima is running, "+
-				"then check DOCKER_HOST and the active docker context (docker context ls)",
-			err,
+			"docker API unreachable: %w\n%s",
+			err, dockerRemedyHint(),
 		)
 	}
 	return nil
 }
 
-// checkMsb ensures the msb runtime is installed, returning non-fatal PATH
-// guidance as warnings when msb is installed but not on PATH.
+// checkMsb ensures the private msb runtime is installed and reports where it
+// lives. agents-sandbox owns the runtime at runtime.PrivateHome() and never
+// advertises a user-facing msb, so no PATH or shell-rc guidance is emitted; a
+// missing binary is not a user defect.
 func checkMsb(ctx context.Context) ([]string, error) {
 	if err := ensureMsbInstalled(ctx); err != nil {
-		return nil, fmt.Errorf("msb runtime setup failed: %w", err)
+		return nil, fmt.Errorf(
+			"msb runtime setup failed: %w\n  Docs: %s",
+			err, docslink.SectionURL("troubleshooting", "microsandbox-runtime"),
+		)
 	}
-	if _, err := exec.LookPath("msb"); err == nil {
-		return nil, nil
-	}
-	home, binDir, binPath, err := msbBinPath()
-	if err != nil {
-		return nil, err
-	}
-	return pathHints(home, os.Getenv("SHELL"), binDir, binPath), nil
+	home := runtime.PrivateHome()
+	return []string{fmt.Sprintf("msb runtime installed at %s", filepath.Join(home, "bin"))}, nil
 }

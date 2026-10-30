@@ -1,18 +1,44 @@
+//deadcode:ignore reason="test support: referenced only by _test.go files"
 package docker
 
 import (
 	"context"
 	"errors"
 	"io"
+	"iter"
 	"strings"
 	"testing"
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
+	"github.com/moby/moby/api/types/jsonstream"
 	"github.com/moby/moby/client"
 )
 
+// PullResponse is a client.ImagePullResponse for tests: reads come from Body and
+// Wait returns WaitErr, modelling the registry failure moby delivers inside the
+// pull stream. JSONMessages is unused by the launcher and yields nothing.
+type PullResponse struct {
+	Body    io.Reader
+	WaitErr error
+}
+
+func (p PullResponse) Read(b []byte) (int, error) {
+	if p.Body == nil {
+		return 0, io.EOF
+	}
+	return p.Body.Read(b)
+}
+
+func (p PullResponse) Close() error { return nil }
+
+func (p PullResponse) Wait(context.Context) error { return p.WaitErr }
+
+func (p PullResponse) JSONMessages(context.Context) iter.Seq2[jsonstream.Message, error] {
+	return func(func(jsonstream.Message, error) bool) {}
+}
+
 func WithDockerMock(t *testing.T, mock Client) {
-	t.Helper()
+	t.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only adjusts reported stack frames; it cannot change this helper's result"
 
 	orig := Get
 
@@ -43,7 +69,6 @@ func newDefaultErrorDockerClient() *MockDockerClient {
 	return newErrorDockerClient(mockErrors{nil, nil, nil, nil})
 }
 
-//nolint:revive // callbacks always return errors; params required by interface signatures
 func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 	defaultErr := errors.New("cannot connect to Docker daemon")
 	var buildErr, inspectErr, saveErr, removeErr = defaultErr, defaultErr, defaultErr, defaultErr
@@ -69,7 +94,7 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 		ImageSaveFn: func(_ context.Context, _ []string, saveOpts ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			return nil, saveErr
 		},
-		ImagePullFn: func(_ context.Context, _ string, _ client.ImagePullOptions) (io.ReadCloser, error) {
+		ImagePullFn: func(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 			return nil, defaultErr
 		},
 		ImageRemoveFn: func(_ context.Context, _ string, options client.ImageRemoveOptions) (client.ImageRemoveResult, error) {
@@ -88,13 +113,11 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 // MockDockerClient is the zero implementation of docker.Client.
 // All methods succeed with nil/empty returns. Use newErrorDockerClient
 // to override specific methods with errors.
-//
-//nolint:dupl // mirrors the docker.Client interface by design
 type MockDockerClient struct {
 	ImageBuildFn   func(ctx context.Context, r io.Reader, options client.ImageBuildOptions) (client.ImageBuildResult, error)
 	ImageInspectFn func(ctx context.Context, ref string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error)
 	ImageSaveFn    func(ctx context.Context, refs []string, saveOpts ...client.ImageSaveOption) (client.ImageSaveResult, error)
-	ImagePullFn    func(ctx context.Context, ref string, opts client.ImagePullOptions) (io.ReadCloser, error)
+	ImagePullFn    func(ctx context.Context, ref string, opts client.ImagePullOptions) (client.ImagePullResponse, error)
 	ImageRemoveFn  func(ctx context.Context, ref string, options client.ImageRemoveOptions) (client.ImageRemoveResult, error)
 	ImageTagFn     func(ctx context.Context, opts client.ImageTagOptions) (client.ImageTagResult, error)
 	ImagePruneFn   func(ctx context.Context, opts client.ImagePruneOptions) (client.ImagePruneResult, error)
@@ -123,9 +146,7 @@ func (m *MockDockerClient) ImageInspect(
 	if m.ImageInspectFn != nil {
 		return m.ImageInspectFn(ctx, ref, opts...)
 	}
-	//nolint:exhaustruct_v5 // DockerOCIImageConfig has unexported fields
 	result := client.ImageInspectResult{
-		//nolint:exhaustruct_v5 // DockerOCIImageConfig has unexported fields
 		Config: &dockerspec.DockerOCIImageConfig{}}
 	return result, nil
 }
@@ -156,11 +177,11 @@ func (m *MockDockerClient) ImagePull(
 	ctx context.Context,
 	ref string,
 	opts client.ImagePullOptions,
-) (io.ReadCloser, error) {
+) (client.ImagePullResponse, error) {
 	if m.ImagePullFn != nil {
 		return m.ImagePullFn(ctx, ref, opts)
 	}
-	return io.NopCloser(strings.NewReader("")), nil
+	return PullResponse{Body: strings.NewReader("")}, nil
 }
 
 func (m *MockDockerClient) ImageTag(ctx context.Context, opts client.ImageTagOptions) (client.ImageTagResult, error) {
@@ -187,7 +208,6 @@ func (m *MockDockerClient) Ping(
 	if m.PingFn != nil {
 		return m.PingFn(ctx, opts)
 	}
-	//nolint:exhaustruct_v5 // Experimental/BuilderVersion/SwarmStatus are set from HTTP headers, not struct literals
 	return client.PingResult{
 		APIVersion: "1.44",
 		OSType:     "linux",
@@ -228,7 +248,6 @@ func (f *failFastDockerClient) ImageSave(
 	_ ...client.ImageSaveOption,
 ) (client.ImageSaveResult, error) {
 	f.mustMock()
-	//nolint:nilnil // panics before returning; keeps failFastDockerClient interface-conformant
 	return nil, nil
 }
 
@@ -236,9 +255,8 @@ func (f *failFastDockerClient) ImagePull(
 	_ context.Context,
 	_ string,
 	_ client.ImagePullOptions,
-) (io.ReadCloser, error) {
+) (client.ImagePullResponse, error) {
 	f.mustMock()
-	//nolint:nilnil // panics before returning; keeps failFastDockerClient interface-conformant
 	return nil, nil
 }
 

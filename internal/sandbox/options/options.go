@@ -12,6 +12,16 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 )
 
+// DockerSetting is the resolved docker capability: whether the Docker engine
+// is on, and whether that value came from an explicit config/flag/env setting
+// (and therefore overrides any project-Dockerfile content signal). Enablement
+// consults Enabled only when Explicit is true; without an explicit source the
+// project Dockerfile's content signals decide.
+type DockerSetting struct {
+	Enabled  bool
+	Explicit bool
+}
+
 // RunOptions controls sandbox lifecycle and configuration.
 type RunOptions struct {
 	Worktree WorktreeSpec
@@ -27,10 +37,10 @@ type RunOptions struct {
 	IdleTimeout time.Duration
 	CPUs        uint8
 	Rebuild     bool
-	// Dind appends the tool's Docker-in-Docker block to the runner image.
-	Dind     bool
-	DryRun   bool
-	DryRunVM bool
+	// Docker is the resolved docker capability: whether the tool's Docker
+	// engine block is baked into the runner image and whether that value was
+	// set explicitly.
+	Docker DockerSetting
 	// WorkspaceQuota is the guest-write quota for the /workspace bind mount.
 	WorkspaceQuota string
 	// Recreate forces a project-VM rebuild on this invocation. It is set by
@@ -47,7 +57,7 @@ type RunOptions struct {
 	// Notify is the resolved notify config for the session (channels + triggers).
 	Notify notify.Config
 	// Network is the resolved egress policy for the project VM. An unset profile
-	// is resolved to the deny-by-default none profile.
+	// is resolved to the public profile.
 	Network network.Policy
 	// Mounts are additional host directories bind-mounted at absolute guest paths.
 	Mounts mounts.Mounts
@@ -58,6 +68,9 @@ type RunOptions struct {
 	// copied into the VM (drop-in provisioning). A nil value disables it
 	// (default); cmd resolves the launcher config and sets it explicitly.
 	ProvisionHostConfig *bool
+	// OpenLinks starts the host side of the in-VM xdg-open shim for the
+	// session, so links opened in the VM open on the host (internal/opener).
+	OpenLinks bool
 }
 
 // ServeOnlyBindAddr is the loopback address the agent server binds to
@@ -68,14 +81,22 @@ const ServeOnlyBindAddr = "127.0.0.1"
 // server in serve-only mode, and the guest port the agents serve on.
 const ServeOnlyBasePort = 4096
 
+// probeHostPort reports whether the loopback address can bind port. It is a
+// test seam so tests need not touch a real socket.
+var probeHostPort = func(port int) bool {
+	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ServeOnlyBindAddr, port))
+	if err != nil {
+		return false
+	}
+	_ = ln.Close()
+	return true
+}
+
 // FirstFreeHostPort returns the first host port at or above base that is not
 // currently bound on the loopback address.
 func FirstFreeHostPort(base int) int {
 	for p := base; p < base+1024; p++ {
-		//nolint:noctx // no context applies to a transient probe of localhost port availability
-		ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ServeOnlyBindAddr, p))
-		if err == nil {
-			_ = ln.Close()
+		if probeHostPort(p) {
 			return p
 		}
 	}

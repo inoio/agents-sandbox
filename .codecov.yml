@@ -1,0 +1,25 @@
+# Coverage gating for agents-sandbox. Settings here override Codecov's
+# app-level configuration for this repository, so the bar is versioned and
+# reviewable in the checkout — see .operator-shared/specs/test-coverage.md.
+# Validate a change at https://api.codecov.io/validate before pushing.
+coverage:
+  precision: 2
+  round: down
+  range: "90...100"
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 0.1%
+    patch:
+      default:
+        target: 100%
+        threshold: 0%
+
+comment:
+  layout: "condensed_header, diff, files"
+  behavior: default
+  require_changes: true
+
+github_checks:
+  annotations: true

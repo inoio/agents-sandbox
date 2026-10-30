@@ -14,6 +14,7 @@ Issues are best viewed filtered by priority. Bookmark these links:
 
 - **Critical** — <https://github.com/inoio/agents-sandbox/issues?q=is%3Aissue%20label%3A%22priority%3Acritical%22>
 - **High** — <https://github.com/inoio/agents-sandbox/issues?q=is%3Aissue%20label%3A%22priority%3Ahigh%22>
+- **Medium** — <https://github.com/inoio/agents-sandbox/issues?q=is%3Aissue%20label%3A%22priority%3Amedium%22>
 - **Low** — <https://github.com/inoio/agents-sandbox/issues?q=is%3Aissue%20label%3A%22priority%3Alow%22>
 
 Other useful views:

@@ -425,11 +425,6 @@ func isSafeField(key string, fields []string) bool {
 	return false
 }
 
-func isPlaceholderWithSpec(value string, spec agent.ConfigMigrationSpec) bool {
-	return strings.Contains(value, spec.Auth.AuthPlaceholderPrefix) ||
-		strings.Contains(value, spec.Auth.ConfigPlaceholderPrefix)
-}
-
 func isPlaceholderWithAuthSpec(value string, spec agent.AuthMigrationSpec) bool {
 	return strings.Contains(value, spec.AuthPlaceholderPrefix) || strings.Contains(value, spec.ConfigPlaceholderPrefix)
 }

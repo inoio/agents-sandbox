@@ -1,6 +1,6 @@
 ---
 title: Self-upgrade
-description: "How agents-sandbox checks for new releases and upgrades itself, and how to configure the upgrade mode and interval."
+description: "How agents-sandbox checks for new releases and upgrades itself, and how to configure the upgrade mode, interval, and release channel."
 layout: default
 parent: Configuration
 nav_order: 80
@@ -24,34 +24,49 @@ release is found, the `upgrade.mode` decides what happens:
 The `upgrade` command (`agents-sandbox upgrade`) checks for and installs the latest release at any time, independent of
 `upgrade.mode`/`upgrade.interval`. Upgrading replaces the running executable with the release binary for your platform
 (`agents-sandbox-<os>-<arch>` from the GitHub release assets); because a running process cannot swap its own binary, an
-upgrade (or `auto-exit`) takes effect on the next invocation.
+upgrade (or `auto-exit`) takes effect on the next invocation. Before replacing the binary, the launcher verifies the
+download's SHA-256 against the release's published `checksums.txt`; if that file is missing, or the entry for the asset
+is missing, malformed, or does not match, the install aborts and the running binary stays untouched.
 
-## Homebrew Installs
+## Release channels
+
+By default an install follows full releases only: GitHub's `latest` release, which never points at a prerelease.
+`upgrade.channel` opts an install into a prerelease line instead:
+
+| Channel            | Follows                                                                                                                                     |
+|--------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| `stable` (default) | The newest full release.                                                                                                                    |
+| `canary`           | The newest release eligible for the canary line: the newest canary prerelease such as `1.9.0-canary.3`, and the real release once it ships. |
+
+Set the key in the launcher config (or export `AGENTS_SANDBOX_UPGRADE_CHANNEL=canary`):
+
+```yaml
+upgrade:
+  channel: canary
+```
+
+Canary installs roll forward on their own: once `1.9.0` ships it outranks `1.9.0-canary.3`, so it is offered like any
+other release and a tester reaches it without switching channels. Only prereleases whose first identifier is `canary`
+are eligible for the line; an `-alpha` or `-rc` prerelease is offered to no channel.
+
+The `upgrade` command takes a one-shot override: `agents-sandbox upgrade --channel canary` checks and installs from the
+canary line for that invocation, leaving the setting untouched.
+
+Setting `upgrade.channel` back to `stable` changes nothing until the next release ships, because there is no downgrade —
+the installed canary stays until something newer is offered. To leave the canary line immediately, reinstall the stable
+binary following the [installation instructions]({% link install/installation.md %}).
+
+Homebrew installs ignore the setting: the tap serves full releases only, so a keg stays on the stable line whatever
+`upgrade.channel` says, and a canary cannot be installed through Homebrew. To install a canary, follow the
+release-binary instructions on the [installation page]({% link install/installation.md %}) and set the channel to
+`canary` so future upgrades follow the same line.
+
+## Homebrew installs
 
 When agents-sandbox detects that the running binary is a Homebrew-managed keg (it lives under a `Cellar` directory), it
 defers version management to Homebrew so the launcher never replaces the binary out from under `brew`:
 
 * The automatic `run`/`shell` check is skipped entirely, regardless of `upgrade.mode`.
 * The `upgrade` command prints `brew update && brew upgrade agents-sandbox` instead of downloading a release.
-* The msb-runtime mismatch prompt does not offer the launcher self-upgrade; it offers to downgrade `msb`, report a
-  compatibility issue, or quit.
 
 Update these installs with `brew update && brew upgrade agents-sandbox`.
-
-## Microsandbox Runtime Mismatches
-
-The launcher separately checks that the selected `msb` runtime matches the
-microsandbox SDK version linked into the running binary. This check is not
-throttled by `upgrade.interval` because continuing with an incompatible runtime
-can expose a newer database schema to an older binary.
-
-When the selected runtime is newer and a newer agents-sandbox release exists,
-the prompt offers to upgrade agents-sandbox and restart. If no newer launcher
-release is available, it offers to submit a compatibility issue requesting a
-release linked against the installed microsandbox version. The prompt can also
-run the official `msb` upgrade/downgrade flow, use the installed runtime in
-unsupported brave mode, or quit.
-
-The mismatch prompt always defaults to quit. Noninteractive runs, including
-`--yes`, do not choose a potentially destructive action; they print the issue
-URL and diagnostics and exit without changing the runtime.

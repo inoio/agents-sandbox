@@ -1,11 +1,31 @@
 package msb
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
+
+func TestMockSandboxDestroy(t *testing.T) {
+	sb := &MockSandbox{}
+	if err := sb.Destroy(context.Background()); err != nil {
+		t.Fatalf("Destroy() error = %v, want nil", err)
+	}
+	if !sb.DidDestroy() {
+		t.Error("expected DidDestroy() true after a successful destroy")
+	}
+
+	failing := &MockSandbox{DestroyErr: errors.New("boom")}
+	if err := failing.Destroy(context.Background()); err == nil {
+		t.Fatal("expected DestroyErr from Destroy()")
+	}
+	if failing.DidDestroy() {
+		t.Error("expected DidDestroy() false after a failed destroy")
+	}
+}
 
 func TestMockSandboxHandleCreatedAtBackendKind(t *testing.T) {
 	now := time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC)

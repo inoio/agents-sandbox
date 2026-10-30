@@ -11,7 +11,10 @@ func TestWrapErrIncludesLine(t *testing.T) {
 		"/path/home.yaml",
 		errors.New("yaml: line 3, column 7: mapping values are not allowed in this context"),
 	)
-	for _, want := range []string{"/path/home.yaml", "invalid YAML", "line 3", "column 7"} {
+	// The parenthesised detail is produced by the line-bearing branch alone;
+	// the fallthrough return would still carry "line 3, column 7" inside the
+	// wrapped cause, so only this form pins the branch's own output.
+	for _, want := range []string{"/path/home.yaml", "invalid YAML (line 3, column 7)"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %q", err, want)
 		}
@@ -26,8 +29,15 @@ func TestWrapErrWithoutLine(t *testing.T) {
 }
 
 func TestWrapErrRetainsCause(t *testing.T) {
-	cause := errors.New("yaml: line 2: did not find expected node content")
-	if !errors.Is(WrapErr("/x", cause), cause) {
-		t.Error("expected %w to preserve the wrapped cause")
+	causes := map[string]error{
+		"with line":    errors.New("yaml: line 2: did not find expected node content"),
+		"without line": errors.New("yaml: mapping values are not allowed"),
+	}
+	for name, cause := range causes {
+		t.Run(name, func(t *testing.T) {
+			if !errors.Is(WrapErr("/x", cause), cause) {
+				t.Error("expected %w to preserve the wrapped cause")
+			}
+		})
 	}
 }

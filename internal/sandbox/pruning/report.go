@@ -9,7 +9,19 @@ type StaleReport struct {
 	PrunedVolumes       int
 	PrunedDockerImages  int
 	PrunedSandboxImages int
+	SkippedImagesInUse  uint32
+	ImageBytesReclaimed *uint64
+	Storage             StorageReport
 	Details             []StaleEntry
+}
+
+// StorageReport summarizes a runtime-memory reclaim run. PhysicalBytesReclaimed
+// is nil when the runtime cannot measure it, following the nil-not-zero
+// convention; it is never rendered as zero.
+type StorageReport struct {
+	FilesRemoved           uint64
+	LogicalBytesRemoved    uint64
+	PhysicalBytesReclaimed *uint64
 }
 
 // StaleEntry describes a single artifact that was pruned or would be pruned.
@@ -31,7 +43,7 @@ const (
 	StaleTypeMsbImage
 )
 
-var typeName = map[StaleType]string{ //nolint:gochecknoglobals // fmt.stringer pattern
+var typeName = map[StaleType]string{
 	StaleTypeVM:          "vm",
 	StaleTypeVolume:      "volume",
 	StaleTypeDockerImage: "docker-image",

@@ -6,9 +6,6 @@ import (
 	"strings"
 )
 
-//nolint:gochecknoinits // built-in agent self-registration
-func init() { Register(claudeCodeProfile{}) }
-
 // claudeCodeName is the canonical registry name of the claude-code agent.
 const claudeCodeName = "claude-code"
 
@@ -70,7 +67,10 @@ func (claudeCodeProfile) ImageSpec() ImageSpec {
 		// version and resolves upgrades itself, so disable the in-agent
 		// auto-updater.
 		AgentEnv:       map[string]string{"DISABLE_AUTOUPDATER": "1"},
-		InstallCommand: "npm install -g @anthropic-ai/claude-code@$CLAUDE_CODE_VERSION",
+		InstallCommand: `curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_CODE_VERSION" && cp -L /root/.local/bin/claude /opt/agents-sandbox/bin/claude`,
+		RequiresNode:   false,
+		OwnedToolPaths: nil,
+		RuntimeLibs:    nil,
 	}
 }
 
@@ -93,7 +93,7 @@ func (claudeCodeProfile) ProvisionRules() []ProvisionRule {
 
 func (claudeCodeProfile) AttachCommand(_ string, args []string) string {
 	parts := []string{"claude"}
-	parts = append(parts, args...)
+	parts = append(parts, shellQuoteArgs(args)...)
 	return strings.Join(parts, " ")
 }
 

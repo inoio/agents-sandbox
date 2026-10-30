@@ -5,40 +5,54 @@ import (
 	"errors"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/humanize"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // MsbClient is a type alias for msb.Client, matching the original sandbox-level alias.
 type MsbClient = msb.Client
 
-// Prune orchestrates all three pruners against one shared snapshot and prints a
-// merged summary. Task sandboxes count into PrunedVMs.
+// Prune orchestrates all three pruners against one shared snapshot and returns a
+// merged report. Task sandboxes count into PrunedVMs.
 //
 // The keep-set comes from the snapshot taken before pruning runs, so a stale VM's
 // home volumes and images are reclaimed even if the VM's own removal fails.
-func Prune(ctx context.Context, threshold time.Duration, dryRun bool, ui termio.UI) error {
+// retain names the keys the current invocation is about to use (a `run`/`shell`
+// passes its own project key): their images survive regardless of VM liveness or
+// age, so a run's startup prune never reclaims the image it is about to import.
+func Prune(
+	ctx context.Context,
+	threshold time.Duration,
+	dryRun bool,
+	ui termio.UI,
+	retain ...state.Key,
+) (*StaleReport, error) {
 	pruneState, err := buildPruneState(ctx, threshold)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	outToVerboseUI := &termio.OutToVerboseRedirect{UI: ui}
-	vmReport, vmErr := PruneSandboxes(ctx, pruneState, dryRun, outToVerboseUI)
-	volReport, volErr := PruneVolumes(ctx, pruneState, dryRun, outToVerboseUI)
-	imgReport, imgErr := PruneImages(ctx, pruneState, dryRun, outToVerboseUI)
+	pruneState.RetainKeys = keySet(retain)
+	vmReport, vmErr := PruneSandboxes(ctx, pruneState, dryRun, ui)
+	volReport, volErr := PruneVolumes(ctx, pruneState, dryRun, ui)
+	imgReport, imgErr := PruneImages(ctx, pruneState, dryRun, ui)
+	storageReport, storageErr := PruneStorage(ctx, pruneState, dryRun, ui)
 
 	report := &StaleReport{
 		PrunedSandboxes:     vmReport.VMsPruned,
 		PrunedVolumes:       volReport.VolumesPruned,
 		PrunedDockerImages:  imgReport.DockerImagesPruned,
 		PrunedSandboxImages: imgReport.MSBImagesPruned,
+		SkippedImagesInUse:  imgReport.SkippedInUse,
+		ImageBytesReclaimed: imgReport.BytesReclaimed,
+		Storage:             storageReport,
 		Details:             append(append(vmReport.Details, volReport.Details...), imgReport.Details...),
 	}
-	printPruneSummary(ui, report, dryRun)
-	return errors.Join(vmErr, volErr, imgErr)
+	return report, errors.Join(vmErr, volErr, imgErr, storageErr)
 }
 
-func printPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
+func RenderPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
 	if report == nil {
 		return
 	}
@@ -54,4 +68,23 @@ func printPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
 		report.PrunedDockerImages,
 		report.PrunedSandboxImages,
 	)
+	if report.SkippedImagesInUse > 0 || report.ImageBytesReclaimed != nil {
+		ui.Outf(
+			"  image data: %d skipped (in use), %s reclaimed",
+			report.SkippedImagesInUse,
+			formatOptionalBytes(report.ImageBytesReclaimed),
+		)
+	}
+	if report.Storage.FilesRemoved > 0 || report.Storage.LogicalBytesRemoved > 0 ||
+		report.Storage.PhysicalBytesReclaimed != nil {
+		ui.Outf(
+			"  runtime memory: %d file(s), %s logical, %s reclaimed",
+			report.Storage.FilesRemoved,
+			humanize.FormatBytes(report.Storage.LogicalBytesRemoved),
+			formatOptionalBytes(report.Storage.PhysicalBytesReclaimed),
+		)
+	}
+	for _, detail := range report.Details {
+		ui.Verbosef("  %s (%s)", detail.Name, detail.Slug)
+	}
 }

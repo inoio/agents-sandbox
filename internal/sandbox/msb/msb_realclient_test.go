@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // TestGetFactory exercises the package-level Client factory, which the test
@@ -33,19 +35,6 @@ func TestRealMsbClientCreateVolumeError(t *testing.T) {
 	}
 }
 
-// TestRealMsbClientListSandboxesWithLabels covers the label-filtering branch of
-// realMsbClient.ListSandboxes.
-func TestRealMsbClientListSandboxesWithLabels(t *testing.T) {
-	c := &realMsbClient{}
-	handles, err := c.ListSandboxes(context.Background(), map[string]string{"project": "demo"})
-	if err != nil {
-		t.Fatalf("ListSandboxes() with labels error = %v", err)
-	}
-	if handles == nil {
-		t.Log("ListSandboxes() returned nil slice (no sandboxes present)")
-	}
-}
-
 // TestRealMsbClientImagePruneCanceled covers the adapter without pruning the
 // shared microsandbox image cache used by the test environment.
 func TestRealMsbClientImagePruneCanceled(t *testing.T) {
@@ -53,6 +42,30 @@ func TestRealMsbClientImagePruneCanceled(t *testing.T) {
 	cancel()
 	if _, err := (&realMsbClient{}).ImagePrune(ctx); err == nil {
 		t.Fatal("ImagePrune() with a canceled context = nil error, want cancellation error")
+	}
+}
+
+// TestRealMsbClientStorageUsageCanceled covers the StorageUsage adapter without
+// a runtime: a canceled context fails before the native call.
+func TestRealMsbClientStorageUsageCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := (&realMsbClient{}).StorageUsage(ctx); err == nil {
+		t.Fatal("StorageUsage() with a canceled context = nil error, want cancellation error")
+	}
+}
+
+// TestRealMsbClientImageInspectInjected covers the success path of the
+// ImageInspect adapter through the inspect seam.
+func TestRealMsbClientImageInspectInjected(t *testing.T) {
+	previous := realImageInspect
+	t.Cleanup(func() { realImageInspect = previous })
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return &msbSdk.ImageDetail{Config: &msbSdk.ImageConfig{Digest: "sha256:abc"}}, nil
+	}
+	cfg, err := (&realMsbClient{}).ImageInspect(context.Background(), "ref")
+	if err != nil || cfg == nil || cfg.Digest != "sha256:abc" {
+		t.Fatalf("ImageInspect = %v, %v", cfg, err)
 	}
 }
 
@@ -170,5 +183,112 @@ func TestRealVolumeHandlePathNilVal(t *testing.T) {
 	v := &realVolumeHandle{}
 	if got := v.Path(); got != "" {
 		t.Errorf("Path() with nil val = %q, want empty", got)
+	}
+}
+
+// TestRealMsbClientImageInspectDetailInjected covers the success path of the
+// ImageInspectDetail adapter through the inspect seam, mapping the SDK detail
+// onto the local ImageDetail (including a nil config).
+func TestRealMsbClientImageInspectDetailInjected(t *testing.T) {
+	previous := realImageInspect
+	t.Cleanup(func() { realImageInspect = previous })
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return &msbSdk.ImageDetail{
+			Config: &msbSdk.ImageConfig{Digest: "sha256:abc"},
+			Layers: []msbSdk.ImageLayer{{Position: 0, DiffID: "sha256:layer0"}},
+		}, nil
+	}
+	detail, err := (&realMsbClient{}).ImageInspectDetail(context.Background(), "ref")
+	if err != nil {
+		t.Fatalf("ImageInspectDetail() error = %v", err)
+	}
+	if detail.Config.Digest != "sha256:abc" || len(detail.Layers) != 1 ||
+		detail.Layers[0].DiffID != "sha256:layer0" {
+		t.Fatalf("ImageInspectDetail() = %+v, want digest sha256:abc and layer sha256:layer0", detail)
+	}
+}
+
+// TestRealMsbClientImageInspectDetailNilConfig covers the nil-config branch of
+// the adapter, which leaves the zero-value config in place.
+func TestRealMsbClientImageInspectDetailNilConfig(t *testing.T) {
+	previous := realImageInspect
+	t.Cleanup(func() { realImageInspect = previous })
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return &msbSdk.ImageDetail{}, nil
+	}
+	detail, err := (&realMsbClient{}).ImageInspectDetail(context.Background(), "ref")
+	if err != nil || detail == nil {
+		t.Fatalf("ImageInspectDetail() = %v, %v", detail, err)
+	}
+	if detail.Config.Digest != "" {
+		t.Errorf("ImageInspectDetail() config = %+v, want zero value", detail.Config)
+	}
+}
+
+// TestMockImageInspectDetail covers the mock's callback and default branches.
+func TestMockImageInspectDetail(t *testing.T) {
+	m := &MockMsbClient{ImageInspectDetailFn: func(_ context.Context, _ string) (*ImageDetail, error) {
+		return &ImageDetail{Reference: "agents-sandbox/runner-x", ManifestDigest: "sha256:x"}, nil
+	}}
+	detail, err := m.ImageInspectDetail(context.Background(), "ref")
+	if err != nil || detail.Reference != "agents-sandbox/runner-x" {
+		t.Fatalf("ImageInspectDetail via fn = %+v, %v", detail, err)
+	}
+
+	got, err := (&MockMsbClient{}).ImageInspectDetail(context.Background(), "ref")
+	if err != nil || got.Reference != "ref" {
+		t.Fatalf("ImageInspectDetail default = %+v, %v", got, err)
+	}
+}
+
+// TestRealMsbClientImageInspectDetailHandleAndError covers the ImageHandle
+// branch (metadata copied off the handle) and the inspect-error branch of the
+// ImageInspectDetail adapter.
+func TestRealMsbClientImageInspectDetailHandleAndError(t *testing.T) {
+	previous := realImageInspect
+	t.Cleanup(func() { realImageInspect = previous })
+
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return &msbSdk.ImageDetail{
+			ImageHandle: &msbSdk.ImageHandle{},
+			Config:      &msbSdk.ImageConfig{Digest: "sha256:abc"},
+		}, nil
+	}
+	detail, err := (&realMsbClient{}).ImageInspectDetail(context.Background(), "ref")
+	if err != nil || detail == nil {
+		t.Fatalf("ImageInspectDetail() = %v, %v", detail, err)
+	}
+	if detail.Reference != "" || detail.ManifestDigest != "" || detail.Architecture != "" ||
+		detail.OS != "" || detail.SizeBytes != nil || !detail.CreatedAt.IsZero() {
+		t.Errorf("ImageInspectDetail() from empty handle = %+v, want zero metadata", detail)
+	}
+	if detail.Config.Digest != "sha256:abc" {
+		t.Errorf("ImageInspectDetail() config = %+v, want digest sha256:abc", detail.Config)
+	}
+
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return nil, errors.New("inspect boom")
+	}
+	if _, err := (&realMsbClient{}).ImageInspectDetail(context.Background(), "ref"); err == nil {
+		t.Fatal("ImageInspectDetail() with a failing inspect = nil error, want error")
+	}
+}
+
+// TestFailFastImageInspectDetailPanics covers the fail-fast ImageInspectDetail.
+func TestFailFastImageInspectDetailPanics(t *testing.T) {
+	f := &failFastMsbClient{}
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic from fail-fast ImageInspectDetail")
+		}
+	}()
+	_, _ = f.ImageInspectDetail(context.Background(), "ref")
+}
+
+// TestMockSandboxHandleID covers the mock handle's stable-identity accessor.
+func TestMockSandboxHandleID(t *testing.T) {
+	h := &MockSandboxHandle{ID_: "sbx-123"}
+	if got := h.ID(); got != "sbx-123" {
+		t.Errorf("ID() = %q, want %q", got, "sbx-123")
 	}
 }

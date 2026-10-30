@@ -6,13 +6,13 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
-func TestLookupDefaultIsOpencode(t *testing.T) {
+func TestLookupDefaultIsOpenCode2(t *testing.T) {
 	a, ok := agent.Lookup("")
 	if !ok {
 		t.Fatal("Lookup(\"\") returned not-ok")
 	}
-	if a.Name() != "opencode" {
-		t.Errorf("Lookup(\"\") name = %q, want opencode", a.Name())
+	if a.Name() != agent.DefaultAgentName {
+		t.Errorf("Lookup(\"\") name = %q, want %q", a.Name(), agent.DefaultAgentName)
 	}
 }
 

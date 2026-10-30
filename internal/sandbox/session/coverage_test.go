@@ -40,6 +40,10 @@ func blockClientLease(t *testing.T, slug string) {
 func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
+	origInterval := waitQuiescentPollInterval
+	waitQuiescentPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { waitQuiescentPollInterval = origInterval })
+
 	slug := "reattachproj"
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{
@@ -54,12 +58,12 @@ func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
 		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
 	}
 
-	// A client reattaches 100ms into the 2s poll interval, so the second poll
-	// sees an active client and aborts the reaper.
+	// A client reattaches 20ms into the wait, so a later poll sees an active
+	// client and aborts the reaper.
 	hold := make(chan struct{})
 	defer close(hold)
 	go func() {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 		release, _ := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
 		<-hold
 		if release != nil {
@@ -117,7 +121,7 @@ func TestStartNotifyWatcherReturnsWatchError(t *testing.T) {
 	ui := &termio.Mock{}
 	origWatch := notifyWatch
 	defer func() { notifyWatch = origWatch }()
-	notifyWatch = func(_ context.Context, _ msb.Sandbox, _ agent.EventStreamSpec, _ notify.Backend) error {
+	notifyWatch = func(_ context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, _ notify.Backend) error {
 		return errors.New("watch boom")
 	}
 	spec := agent.EventStreamSpec{
@@ -146,13 +150,13 @@ func TestStartNotifyWatcherReturnsWatchError(t *testing.T) {
 // --- Run serve-only: client lease acquisition fails ---
 
 func TestRunServeOnlyClientLeaseFailureWarns(t *testing.T) {
-	slug := git.ProjectSlug()
-	blockClientLease(t, slug)
+	key := state.Key{Slug: "serveonlyleasefail", Agent: "opencode"}
+	blockClientLease(t, key.Slug)
 	ui := &termio.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 	orig := prepareSandbox
-	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: sb}, nil
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, key: key}, nil
 	}
 	defer func() { prepareSandbox = orig }()
 
@@ -160,7 +164,7 @@ func TestRunServeOnlyClientLeaseFailureWarns(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}, ui)
+		done <- Run(ctx, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}, options.ModeRun, ui)
 	}()
 	cancel()
 
@@ -189,6 +193,55 @@ func TestRunServeOnlyClientLeaseFailureWarns(t *testing.T) {
 	}
 }
 
+// --- Run: the client lease is keyed by the session's prepared key ---
+
+// TestRunUsesSessionKeyForLease pins the session-key wiring: Run keys the client
+// lease (and therefore the reap) off the key PrepareSandbox prepared instead of
+// re-resolving identity from the cwd, so the lease lands under the session's
+// checkout slug. The lease file is removed on release, but its clients/
+// directory remains, which is what the assertion observes.
+func TestRunUsesSessionKeyForLease(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	key := state.Key{Slug: "sessionkeyslug", Agent: "opencode"}
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	sb.ShellOut = map[string]msb.ShellResult{
+		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
+		),
+	}
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+	}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, target: "/workspace", key: key}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	if err := Run(
+		context.Background(),
+		options.RunOptions{Agent: "opencode", ReapPolicy: options.NewReapPolicy(true, 5)},
+		options.ModeRun,
+		ui,
+	); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(state.KeyDir(key), "clients")); statErr != nil {
+		t.Errorf("client lease did not land under the session key dir %s: %v", state.KeyDir(key), statErr)
+	}
+
+	ambientSlug := git.MustCheckoutSlug()
+	if ambientSlug == key.Slug {
+		t.Fatalf("fixture session slug %q must differ from the ambient slug", key.Slug)
+	}
+	ambientKeyDir := filepath.Join(state.KeyDir(state.Key{Slug: ambientSlug, Agent: "opencode"}), "clients")
+	if _, statErr := os.Stat(ambientKeyDir); statErr == nil {
+		t.Errorf("client lease landed under the ambient checkout slug %q; Run re-resolved identity", ambientSlug)
+	}
+}
+
 // --- Run serve-only: runServeOnly returns a non-cancel error (deadline) ---
 
 func TestRunServeOnlyReturnsDeadlineExceeded(t *testing.T) {
@@ -196,7 +249,7 @@ func TestRunServeOnlyReturnsDeadlineExceeded(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 	orig := prepareSandbox
-	prepareSandbox = func(context.Context, options.RunOptions, termio.UI) (preparedSandbox, error) {
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
 		return &fakePrepared{sb: sb, serveHostPort: 4096}, nil
 	}
 	defer func() { prepareSandbox = orig }()
@@ -204,7 +257,12 @@ func TestRunServeOnlyReturnsDeadlineExceeded(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(100*time.Millisecond))
 	defer cancel()
 
-	err := Run(ctx, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}, ui)
+	err := Run(
+		ctx,
+		options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)},
+		options.ModeRun,
+		ui,
+	)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
 	}
@@ -218,7 +276,7 @@ func TestRunAttachClientLeaseFailureWarns(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{AttachCode: 0}
 
-	err := runAttach(context.Background(), sb, slug, ui,
+	err := runAttach(context.Background(), sb, slug, "/workspace", ui,
 		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}, "-l")
 	if err != nil {
 		t.Fatalf("runAttach: expected success despite lease failure, got %v", err)
@@ -233,5 +291,28 @@ func TestRunAttachClientLeaseFailureWarns(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected client lease warning, got %v", ui.WarnCalls)
+	}
+}
+
+// --- prepareSandbox: the real seam delegates to sandbox.PrepareSandbox ---
+
+// TestPrepareSandboxSeamDelegatesToVM calls the real, unstubbed prepareSandbox
+// so its delegation to sandbox.PrepareSandbox is covered. An unknown agent name
+// makes the real path fail deterministically before it can touch host state,
+// the mocked config paths, or the fail-fast msb client.
+func TestPrepareSandboxSeamDelegatesToVM(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	_, err := prepareSandbox(
+		context.Background(),
+		options.RunOptions{Agent: "no-such-agent"},
+		false,
+		&termio.Mock{},
+	)
+	if err == nil {
+		t.Fatal("expected the real PrepareSandbox to error for an unknown agent")
+	}
+	if !strings.Contains(err.Error(), "unknown agent") {
+		t.Fatalf("error = %v, want an unknown-agent error from the real path", err)
 	}
 }

@@ -8,8 +8,38 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
+
+// TestNetworkFingerprintSurvivesStateRoundTrip pins that the network
+// fingerprint persisted to disk still compares equal to the desired policy, so
+// a run does not see a spurious "network policy changed" and rebuild the VM.
+func TestNetworkFingerprintSurvivesStateRoundTrip(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	k := Key{Slug: "netproj-aBc1234D", Agent: "opencode"}
+	policy := network.Policy{
+		Profiles:    []network.Profile{network.ProfilePrivate},
+		EgressAllow: []string{"api.example.com", "*.example.com"},
+		DNSServers:  []string{"1.1.1.1"},
+	}
+	if err := writeState(k, HomeState{
+		HomeVolume:   "vol",
+		ImageDigest:  "sha256:abc",
+		NetworkState: BuildNetworkState(policy),
+	}); err != nil {
+		t.Fatalf("writeState: %v", err)
+	}
+
+	st, err := ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if NetworkChanged(st.NetworkState, policy) {
+		t.Errorf("network fingerprint did not survive the state round trip: %+v", st.NetworkState)
+	}
+}
 
 func TestStateFile(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -42,12 +72,12 @@ func TestWriteAndReadState(t *testing.T) {
 	k := Key{Slug: "myproj-aBc1234D", Agent: "opencode"}
 	digest := "sha256:deadbeef1234"
 
-	err := WriteState(k, HomeState{
+	err := writeState(k, HomeState{
 		HomeVolume:  "agents-sandbox-home-myproj-20260806T143022",
 		ImageDigest: digest,
 	})
 	if err != nil {
-		t.Fatalf("WriteState: %v", err)
+		t.Fatalf("writeState: %v", err)
 	}
 
 	result, err := ReadState(k)
@@ -71,9 +101,9 @@ func TestWriteStateCreatesDirectory(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := Key{Slug: "newproj-a", Agent: "opencode"}
 
-	err := WriteState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
+	err := writeState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
 	if err != nil {
-		t.Fatalf("WriteState: %v", err)
+		t.Fatalf("writeState: %v", err)
 	}
 
 	dir := filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent)
@@ -97,8 +127,8 @@ func TestReadState_CorruptedYAML(t *testing.T) {
 	testutil.WriteFile(t, sdir, "state.yaml", "not: valid: yaml: [")
 
 	_, err := ReadState(k)
-	if err == nil {
-		t.Fatal("expected error for corrupted YAML")
+	if !errors.Is(err, ErrStateUnparsable) {
+		t.Fatalf("ReadState() error = %v, want ErrStateUnparsable", err)
 	}
 }
 
@@ -118,18 +148,35 @@ func TestNewHomeState(t *testing.T) {
 	}
 }
 
-func TestRemoveState(t *testing.T) {
+func TestFingerprintsApply(t *testing.T) {
+	f := Fingerprints{
+		Env:     EnvState{Hash: "env"},
+		Secret:  SecretState{Hash: "secret"},
+		Network: NetworkState{Hash: "network"},
+		Mount:   MountState{Hash: "mount"},
+	}
+	st := f.Apply(NewHomeState("vol", "sha256:digest"))
+	if st.HomeVolume != "vol" || st.ImageDigest != "sha256:digest" {
+		t.Errorf("Apply must preserve home volume/digest, got %+v", st)
+	}
+	if st.EnvState.Hash != "env" || st.SecretState.Hash != "secret" ||
+		st.NetworkState.Hash != "network" || st.MountState.Hash != "mount" {
+		t.Errorf("Apply did not copy all fingerprints, got %+v", st)
+	}
+}
+
+func TestRemoveHomeStateIf(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := Key{Slug: "myproj", Agent: "opencode"}
 
-	WriteState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
+	writeState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
 
 	statePath := filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent, "state.yaml")
 	if _, err := os.Stat(statePath); os.IsNotExist(err) {
-		t.Fatal("state file should exist before RemoveState")
+		t.Fatal("state file should exist before RemoveHomeStateIf")
 	}
 
-	RemoveState(k)
+	RemoveHomeStateIf(k, removeAlways)
 
 	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
 		t.Errorf("state file should be removed, but still exists")
@@ -140,7 +187,61 @@ func TestRemoveState(t *testing.T) {
 	}
 }
 
-func TestRemoveState_LegacySlugOnly(t *testing.T) {
+// TestRemoveHomeStateIfKeepsWhenPredicateFalse pins that the decision runs
+// before any removal: a false predicate leaves the state in place untouched.
+func TestRemoveHomeStateIfKeepsWhenPredicateFalse(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := Key{Slug: "keepme", Agent: "opencode"}
+	if err := writeState(k, HomeState{HomeVolume: "vol"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveHomeStateIf(k, func(*HomeState) bool { return false }); err != nil {
+		t.Fatalf("RemoveHomeStateIf: %v", err)
+	}
+	if _, err := ReadState(k); err != nil {
+		t.Errorf("state must survive a false predicate, got err=%v", err)
+	}
+}
+
+// TestRemoveHomeStateIfMissingSkipsPredicate pins that a missing document is a
+// no-op and never consulted: there is nothing to protect and nothing to remove.
+func TestRemoveHomeStateIfMissingSkipsPredicate(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := Key{Slug: "nofile", Agent: "opencode"}
+	called := false
+	if err := RemoveHomeStateIf(k, func(*HomeState) bool { called = true; return true }); err != nil {
+		t.Fatalf("RemoveHomeStateIf on missing state: %v", err)
+	}
+	if called {
+		t.Error("predicate must not run when there is no document")
+	}
+}
+
+// TestRemoveHomeStateIfUnreadableFailsClosed pins that an unparsable document is
+// returned as an error and never removed: an unknown document is not discarded.
+func TestRemoveHomeStateIfUnreadableFailsClosed(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := Key{Slug: "corrupt", Agent: "opencode"}
+	dir := KeyDir(k)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state.yaml"), []byte("home_volume: ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	if err := RemoveHomeStateIf(k, func(*HomeState) bool { called = true; return true }); err == nil {
+		t.Fatal("expected an error for an unparsable document")
+	}
+	if called {
+		t.Error("predicate must not run on an unreadable document")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "state.yaml")); err != nil {
+		t.Errorf("unparsable state must survive, got err=%v", err)
+	}
+}
+
+func TestRemoveHomeStateIf_LegacySlugOnly(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	slug := "legacyproj"
 
@@ -161,8 +262,8 @@ func TestRemoveState_LegacySlugOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := RemoveState(Key{Slug: slug, Agent: ""}); err != nil {
-		t.Fatalf("RemoveState legacy: %v", err)
+	if err := RemoveHomeStateIf(Key{Slug: slug, Agent: ""}, removeAlways); err != nil {
+		t.Fatalf("RemoveHomeStateIf legacy: %v", err)
 	}
 
 	// Legacy state file removed, sibling state and claims survive.
@@ -177,13 +278,34 @@ func TestRemoveState_LegacySlugOnly(t *testing.T) {
 	}
 }
 
-func TestRemoveState_LegacyMissing(t *testing.T) {
+func TestRemoveHomeStateIf_LegacyMissing(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := Key{Slug: "missingproj", Agent: ""}
-	if err := RemoveState(k); err != nil {
-		t.Fatalf("RemoveState on missing legacy state should be a no-op, got: %v", err)
+	if err := RemoveHomeStateIf(k, removeAlways); err != nil {
+		t.Fatalf("RemoveHomeStateIf on missing legacy state should be a no-op, got: %v", err)
 	}
 }
+
+func TestRemoveHomeStateIfRemovesStateButKeepsLock(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+	if err := writeState(k, HomeState{HomeVolume: "vol"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveHomeStateIf(k, removeAlways); err != nil {
+		t.Fatalf("RemoveHomeStateIf: %v", err)
+	}
+	if _, err := ReadState(k); !errors.Is(err, ErrStateNotFound) {
+		t.Fatalf("state still present: %v", err)
+	}
+	if _, err := os.Stat(homeLockPath(k)); err != nil {
+		t.Fatalf("lock file must survive removal: %v", err)
+	}
+}
+
+// removeAlways is the unconditional predicate the tests that exercise removal
+// itself use, mirroring the plain "remove the state" semantics.
+func removeAlways(*HomeState) bool { return true }
 
 func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -202,8 +324,8 @@ func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
 		},
 	}
 
-	if err := WriteState(k, input); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := writeState(k, input); err != nil {
+		t.Fatalf("writeState: %v", err)
 	}
 
 	result, err := ReadState(k)
@@ -239,12 +361,12 @@ func TestHomeState_ZeroEnvSecretOmitted(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := Key{Slug: "emptyproj", Agent: "opencode"}
 
-	err := WriteState(k, HomeState{
+	err := writeState(k, HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "d1",
 	})
 	if err != nil {
-		t.Fatalf("WriteState: %v", err)
+		t.Fatalf("writeState: %v", err)
 	}
 
 	data, err := os.ReadFile(filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent, "state.yaml"))
@@ -273,8 +395,8 @@ func TestWriteAndReadState_MountRoundTrip(t *testing.T) {
 			Names: []string{"/home/dev/.m2"},
 		},
 	}
-	if err := WriteState(k, input); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := writeState(k, input); err != nil {
+		t.Fatalf("writeState: %v", err)
 	}
 
 	result, err := ReadState(k)
@@ -289,12 +411,46 @@ func TestWriteAndReadState_MountRoundTrip(t *testing.T) {
 	}
 }
 
+func TestHomeStateUpgradeFieldsRoundTrip(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := Key{Slug: "proj", Agent: "opencode"}
+	if err := writeState(k, HomeState{
+		HomeVolume: "vol", ImageDigest: "d1",
+		AgentVersion: "1.2.3", AgentSource: "tool", DockerSource: "user",
+		OfferedVersions: []string{"2.0.0"},
+	}); err != nil {
+		t.Fatalf("writeState: %v", err)
+	}
+	got, err := ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if got.AgentVersion != "1.2.3" || got.AgentSource != "tool" || got.DockerSource != "user" {
+		t.Fatalf("upgrade fields = %+v", got)
+	}
+	if !got.Offered("2.0.0") || got.Offered("3.0.0") {
+		t.Fatalf("OfferedVersions = %v", got.OfferedVersions)
+	}
+}
+
+func TestHomeStateMarkOffered(t *testing.T) {
+	var hs HomeState
+	hs.MarkOffered("2.0.0")
+	hs.MarkOffered("2.0.0")
+	if !hs.Offered("2.0.0") {
+		t.Error("expected 2.0.0 offered")
+	}
+	if len(hs.OfferedVersions) != 1 {
+		t.Errorf("MarkOffered must not duplicate, got %v", hs.OfferedVersions)
+	}
+}
+
 func TestStateKeyScopesDir(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	root := configpaths.Get().UserStateDir()
 	k := Key{Slug: "proj-aBc1234D", Agent: "pi"}
-	if err := WriteState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"}); err != nil {
-		t.Fatalf("WriteState: %v", err)
+	if err := writeState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"}); err != nil {
+		t.Fatalf("writeState: %v", err)
 	}
 	// State lands under <root>/<slug>/<agent>/, not <root>/<slug>/.
 	if _, err := os.Stat(filepath.Join(root, "proj-aBc1234D", "pi", "state.yaml")); err != nil {

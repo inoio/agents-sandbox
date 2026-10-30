@@ -10,9 +10,10 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	msbruntime "github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -41,7 +42,9 @@ func TestCommandNeedsMSBRuntimeSkipsLauncherOnlyCommands(t *testing.T) {
 		{name: "version", cmd: &cobra.Command{Use: cmdVersion}, want: false},
 		{name: "upgrade", cmd: &cobra.Command{Use: cmdUpgrade}, want: false},
 		{name: "completion", cmd: &cobra.Command{Use: cmdCompletion}, want: false},
+		{name: "doctor", cmd: &cobra.Command{Use: cmdDoctor}, want: false},
 		{name: "config child", cmd: configChildCommand(), want: false},
+		{name: "state child", cmd: stateChildCommand(), want: false},
 		{name: "run", cmd: &cobra.Command{Use: cmdRun}, want: true},
 	}
 	for _, test := range tests {
@@ -53,43 +56,68 @@ func TestCommandNeedsMSBRuntimeSkipsLauncherOnlyCommands(t *testing.T) {
 	}
 }
 
-func TestRootCommandReturnsRuntimeRestart(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	oldPrepare := prepareMSBRuntime
-	prepareMSBRuntime = func(context.Context, termio.UI, string) (msbruntime.PreparationResult, error) {
-		return msbruntime.PreparationResult{Restart: true}, nil
-	}
-	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
-	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run", "--dry-run"})
-	if err := root.Execute(); err == nil {
-		t.Fatal("Execute() error = nil, want restart exit error")
-	}
-}
-
 func TestRootCommandReturnsRuntimePreparationError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	oldPrepare := prepareMSBRuntime
-	prepareMSBRuntime = func(context.Context, termio.UI, string) (msbruntime.PreparationResult, error) {
-		return msbruntime.PreparationResult{}, errors.New("runtime mismatch")
+	prepareMSBRuntime = func(context.Context, termio.UI, string) error {
+		return errors.New("runtime mismatch")
 	}
 	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
 	root := buildRootCmd(ui)
-	root.SetArgs([]string{"run", "--dry-run"})
+	root.SetArgs([]string{"run"})
 	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "runtime mismatch") {
 		t.Fatalf("Execute() error = %v, want runtime mismatch", err)
 	}
+}
+
+// TestDryRunPreviewsSkipPreflightRuntimeInstall pins #424: a dry-run preview
+// must not install the microsandbox runtime in the root preflight. The preview
+// is documented to make no network request and to install/download nothing, so
+// the runtime install — which downloads into the private runtime home — must be
+// skipped before the command body renders the plan.
+func TestDryRunPreviewsSkipPreflightRuntimeInstall(t *testing.T) {
+	skipRuntimeInstall := func(t *testing.T) {
+		t.Helper()
+		oldPrepare := prepareMSBRuntime
+		prepareMSBRuntime = func(context.Context, termio.UI, string) error {
+			t.Fatal("a dry-run preview must not install the msb runtime (#424)")
+			return nil
+		}
+		t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
+	}
+
+	t.Run("run", func(t *testing.T) {
+		initTestProjectDir(t)
+		mock := &msb.MockMsbClient{}
+		root, ui := setupRunMocks(t, mock, &msb.MockSandbox{}, "run", "--dry-run")
+		setupAbsentImagePreviewMocks(t, mock)
+		skipRuntimeInstall(t)
+
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+		assertPreviewInfoLines(t, ui, false)
+	})
+
+	t.Run("build", func(t *testing.T) {
+		initTestProjectDir(t)
+		root, _ := setupCommandFixtures(t, "build", "--dry-run")
+		skipRuntimeInstall(t)
+
+		if err := root.Execute(); err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+	})
 }
 
 func TestRootCommandReturnsInvalidCLISettingsError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	oldPrepare := prepareMSBRuntime
-	prepareMSBRuntime = func(context.Context, termio.UI, string) (msbruntime.PreparationResult, error) {
+	prepareMSBRuntime = func(context.Context, termio.UI, string) error {
 		t.Fatal("runtime preparation must not run after invalid CLI settings")
-		return msbruntime.PreparationResult{}, nil
+		return nil
 	}
 	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
 	root := buildRootCmd(ui)
@@ -99,10 +127,45 @@ func TestRootCommandReturnsInvalidCLISettingsError(t *testing.T) {
 	}
 }
 
+// TestDoctorRunsItsOwnChecksWithoutPreflightRuntimeInstall pins #423: doctor
+// must run its own checks instead of provisioning the msb runtime in the root
+// preflight, so a failing runtime install is reported by doctor (with its
+// troubleshooting link) alongside the KVM and Docker results rather than
+// aborting the command with a raw preflight error.
+func TestDoctorRunsItsOwnChecksWithoutPreflightRuntimeInstall(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	docker.WithNoopDockerMock(t)
+	doctor.MockedCheckAll(t, false)
+
+	oldPrepare := prepareMSBRuntime
+	prepareMSBRuntime = func(context.Context, termio.UI, string) error {
+		t.Fatal("doctor must not provision the msb runtime in the root preflight (#423)")
+		return nil
+	}
+	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
+
+	ui := &termio.Mock{}
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{cmdDoctor})
+
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "preflight failed") {
+		t.Fatalf("Execute() error = %v, want preflight failed", err)
+	}
+}
+
 func configChildCommand() *cobra.Command {
 	config := &cobra.Command{Use: cmdConfig}
 	child := &cobra.Command{Use: cmdHome}
 	config.AddCommand(child)
+	return child
+}
+
+func stateChildCommand() *cobra.Command {
+	stateCmd := &cobra.Command{Use: cmdState}
+	child := &cobra.Command{Use: cmdRepair}
+	stateCmd.AddCommand(child)
 	return child
 }
 
@@ -159,8 +222,8 @@ func TestImageBuildNounFormExists(t *testing.T) {
 
 func TestCLILogLevelFlagSetsLevel(t *testing.T) {
 	for _, args := range [][]string{
-		{"prune", "--age", "1m", "--log-level", "verbose"},
-		{"prune", "--age", "1m", "-l", "verbose"},
+		{"prune", "--age", "1m", "--log-level", "verbose", "--yes"},
+		{"prune", "--age", "1m", "-l", "verbose", "--yes"},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
@@ -202,8 +265,8 @@ func TestCLIPersistentYesAffectsUIAfterSubcommand(t *testing.T) {
 
 func TestCLIQuietFlagSetsQuiet(t *testing.T) {
 	for _, args := range [][]string{
-		{"prune", "--age", "1m", "--quiet"},
-		{"prune", "--age", "1m", "-q"},
+		{"prune", "--age", "1m", "--quiet", "--yes"},
+		{"prune", "--age", "1m", "-q", "--yes"},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
@@ -233,7 +296,7 @@ func TestCLIQuietFlagFalseByDefault(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	root := buildRootCmd(ui)
-	root.SetArgs([]string{"prune", "--age", "1m"})
+	root.SetArgs([]string{"prune", "--age", "1m", "--yes"})
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -250,15 +313,15 @@ func TestNewConfigSetsUserDirs(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "")
 	configpaths.WithRealConfigPaths(t)
 	cfg := configpaths.Get()
-	a, _ := agent.Lookup("")
+	a, _ := agent.Lookup("opencode")
 	if cfg.UserStateDir() != "/testhome/.local/state/agents-sandbox" {
 		t.Errorf("unexpected state dir: %q", cfg.UserStateDir())
 	}
 	if cfg.UserConfigDir() != "/testhome/.config/agents-sandbox" {
 		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir())
 	}
-	if cfg.UserAgentConfigDir(a) != "/testhome/.config/agents-sandbox/opencode" {
-		t.Errorf("unexpected agent config dir: %q", cfg.UserAgentConfigDir(a))
+	if configpaths.MustDir(cfg.UserAgentConfigDir(a)) != "/testhome/.config/agents-sandbox/opencode" {
+		t.Errorf("unexpected agent config dir: %q", configpaths.MustDir(cfg.UserAgentConfigDir(a)))
 	}
 	if cfg.UserCacheDir() != "/testhome/.cache/agents-sandbox" {
 		t.Errorf("unexpected cache dir: %q", cfg.UserCacheDir())
@@ -272,15 +335,15 @@ func TestNewConfigHonorsXdgEnv(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "/xdg/state")
 	configpaths.WithRealConfigPaths(t)
 	cfg := configpaths.Get()
-	a, _ := agent.Lookup("")
+	a, _ := agent.Lookup("opencode")
 	if cfg.UserStateDir() != "/xdg/state/agents-sandbox" {
 		t.Errorf("unexpected state dir: %q", cfg.UserStateDir())
 	}
 	if cfg.UserConfigDir() != "/xdg/config/agents-sandbox" {
 		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir())
 	}
-	if cfg.UserAgentConfigDir(a) != "/xdg/config/agents-sandbox/opencode" {
-		t.Errorf("unexpected agent config dir: %q", cfg.UserAgentConfigDir(a))
+	if configpaths.MustDir(cfg.UserAgentConfigDir(a)) != "/xdg/config/agents-sandbox/opencode" {
+		t.Errorf("unexpected agent config dir: %q", configpaths.MustDir(cfg.UserAgentConfigDir(a)))
 	}
 	if cfg.UserCacheDir() != "/xdg/cache/agents-sandbox" {
 		t.Errorf("unexpected cache dir: %q", cfg.UserCacheDir())
@@ -381,9 +444,9 @@ func TestCLIConfigPrecedenceViaResolver(t *testing.T) {
 	runCmd.SetContext(rootCtx)
 
 	r := resolverFromContext(runCmd.Context())
-	opts, err := r.BuildRunOptions(runCmd, ui)
+	opts, err := runoptions.Build(r.Config(), runCmd, ui)
 	if err != nil {
-		t.Fatalf("BuildRunOptions: %v", err)
+		t.Fatalf("runoptions.Build: %v", err)
 	}
 	if opts.CPUs != 6 {
 		t.Errorf("CPUs = %d; want 6 (flag overrides config)", opts.CPUs)

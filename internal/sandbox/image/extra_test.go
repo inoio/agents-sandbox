@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -27,6 +26,39 @@ func TestReferencesImageSkipsFromWithoutImage(t *testing.T) {
 func TestReferencesImageFalseForUnparseableRef(t *testing.T) {
 	if referencesImage([]byte("FROM INVALIDREF\n"), "anything") {
 		t.Error("expected referencesImage=false when the FROM reference cannot be parsed")
+	}
+}
+
+func TestReferencesImageTerminatesOnCyclicStageAlias(t *testing.T) {
+	// The project Dockerfile controls its own stage aliases, so it can name a
+	// stage after its own base token or make two stages alias each other.
+	// Resolving the final stage to its underlying image must terminate rather
+	// than follow the cycle forever.
+	for _, dockerfile := range []string{
+		"FROM 0 AS 0\n",
+		"FROM base AS builder\nFROM builder AS base\n",
+	} {
+		if referencesImage([]byte(dockerfile), "agents-sandbox/runner-base") {
+			t.Errorf("referencesImage(%q) = true, want false", dockerfile)
+		}
+	}
+}
+
+func TestResolveStageBaseReturnsUnresolvedToken(t *testing.T) {
+	if got := resolveStageBase("debian", map[string]string{"builder": "base"}); got != "debian" {
+		t.Errorf(`resolveStageBase("debian", {builder: base}) = %q, want "debian"`, got)
+	}
+}
+
+func TestResolveStageBaseStopsOnCyclicAlias(t *testing.T) {
+	// The token the walk stops at is observable, not just "did it terminate":
+	// a self-alias stops at "0", and a two-stage cycle entered at "b" stops at
+	// "b". Asserting the value keeps the cycle guard's return honest.
+	if got := resolveStageBase("0", map[string]string{"0": "0"}); got != "0" {
+		t.Errorf(`resolveStageBase("0", {0: 0}) = %q, want "0"`, got)
+	}
+	if got := resolveStageBase("b", map[string]string{"a": "b", "b": "a"}); got != "b" {
+		t.Errorf(`resolveStageBase("b", {a: b, b: a}) = %q, want "b"`, got)
 	}
 }
 
@@ -58,7 +90,7 @@ func TestBuildDockerImageError(t *testing.T) {
 	})
 	err := buildDockerImage(
 		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", "label", false, "v", "base", "id", false, &termio.Mock{},
+		"tag", "label", false, "v", "base", "id", false, imageIdentity{}, &termio.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected buildDockerImage to return an error when the build fails")
@@ -77,7 +109,7 @@ func TestBuildDockerImageForwardsStreamLines(t *testing.T) {
 	})
 	if err := buildDockerImage(
 		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", "label", false, "v", "base", "id", false, ui,
+		"tag", "label", false, "v", "base", "id", false, imageIdentity{}, ui,
 	); err != nil {
 		t.Fatalf("buildDockerImage: %v", err)
 	}
@@ -101,7 +133,7 @@ func TestBuildImageReturnsErrorOnImageBuild(t *testing.T) {
 	})
 	err := buildImage(
 		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", false, "v", "base", "id", false, func(string) {},
+		"tag", false, "v", "base", "id", false, imageIdentity{}, func(string) {},
 	)
 	if err == nil || !strings.Contains(err.Error(), "docker image build failed") {
 		t.Errorf("buildImage error = %v, want a docker build failure", err)
@@ -121,7 +153,7 @@ func TestBuildImageDetectsPullAccessDenied(t *testing.T) {
 	})
 	err := buildImage(
 		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", false, "v", "base", "id", false, func(string) {},
+		"tag", false, "v", "base", "id", false, imageIdentity{}, func(string) {},
 	)
 	if err == nil || !strings.Contains(err.Error(), "base image not found or not logged in") {
 		t.Errorf("buildImage error = %v, want a pull-access-denied hint", err)
@@ -139,11 +171,59 @@ func TestBuildImageReturnsGenericBuildError(t *testing.T) {
 	})
 	err := buildImage(
 		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", false, "v", "base", "id", false, func(string) {},
+		"tag", false, "v", "base", "id", false, imageIdentity{}, func(string) {},
 	)
 	if err == nil || !strings.Contains(err.Error(), "some other failure") ||
 		strings.Contains(err.Error(), "not found or not logged in") {
 		t.Errorf("buildImage error = %v, want a generic build failure wrapping the stream error", err)
+	}
+}
+
+// TestBuildImageHintsTroubleshootingOnUnresolvedName pins the podman failure
+// mode that is not an engine bug: an image name with no registry, which podman
+// refuses to resolve when it has no search registries. The error must point at
+// the troubleshooting section naming that fix. The real message wraps the name
+// and the config path in quotes; the classification only needs these two
+// phrases.
+func TestBuildImageHintsTroubleshootingOnUnresolvedName(t *testing.T) {
+	a := agentOpencode(t)
+	const engineError = "short-name debian:trixie-slim did not resolve to an alias and no " +
+		"unqualified search registries are defined in /etc/containers/registries.conf"
+	for _, tc := range []struct {
+		name  string
+		build func() (client.ImageBuildResult, error)
+	}{
+		{
+			name: "streamed build error",
+			build: func() (client.ImageBuildResult, error) {
+				return client.ImageBuildResult{
+					Body: io.NopCloser(strings.NewReader(`{"errorDetail":{"message":"` + engineError + `"}}`)),
+				}, nil
+			},
+		},
+		{
+			name: "build call error",
+			build: func() (client.ImageBuildResult, error) {
+				return client.ImageBuildResult{}, errors.New(engineError)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			docker.WithDockerMock(t, &docker.MockDockerClient{
+				ImageBuildFn: func(
+					_ context.Context, _ io.Reader, _ client.ImageBuildOptions,
+				) (client.ImageBuildResult, error) {
+					return tc.build()
+				},
+			})
+			err := buildImage(
+				context.Background(), a, []byte("FROM debian:trixie-slim\n"),
+				"tag", false, "v", "base", "id", false, imageIdentity{}, func(string) {},
+			)
+			if err == nil || !strings.Contains(err.Error(), "troubleshooting.html#the-base-image-cannot-be-found") {
+				t.Errorf("buildImage error = %v, want a troubleshooting pointer", err)
+			}
+		})
 	}
 }
 
@@ -158,16 +238,16 @@ func TestEnsureImageCannotInspectBuiltImage(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	WithMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
-	calls := 0
+	built := false
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			calls++
-			if calls == 1 {
+			if !built {
 				return client.ImageInspectResult{ID: "sha256:base"}, nil
 			}
 			return client.ImageInspectResult{}, errors.New("inspect boom")
 		},
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			built = true
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
@@ -217,9 +297,6 @@ func TestEnsureLoadedReturnsErrorWhenLoadFails(t *testing.T) {
 	a := agentOpencode(t)
 	rTag := runnerTag("test-project", a.Name())
 	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{}}, nil
-		},
 		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			return io.NopCloser(strings.NewReader("tar")), nil
 		},
@@ -230,111 +307,99 @@ func TestEnsureLoadedReturnsErrorWhenLoadFails(t *testing.T) {
 			return errors.New("load boom")
 		},
 	}
-	if err := EnsureLoaded(context.Background(), msbClient, "test-project", rTag, &termio.Mock{}); err == nil {
+	info := ImageInfo{DockerTag: rTag, Ref: rTag, Digest: "sha256:new"}
+	if _, err := EnsureLoaded(context.Background(), msbClient, info, &termio.Mock{}); err == nil {
 		t.Fatal("expected EnsureLoaded to return an error when ImageLoad fails")
 	}
 }
 
-func TestCachedImageMatchesDockerDockerInspectError(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{}, errors.New("docker inspect boom")
-		},
-	})
-	if cachedImageMatchesDocker(context.Background(), &msb.MockMsbClient{}, "ref") {
-		t.Error("expected false when the Docker inspect fails")
-	}
-}
-
-func TestCachedImageMatchesDockerNilConfig(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{InspectResponse: image.InspectResponse{}}, nil
-		},
-	})
-	if cachedImageMatchesDocker(context.Background(), &msb.MockMsbClient{}, "ref") {
-		t.Error("expected false when the Docker inspect has no config")
-	}
-}
-
-func TestCachedImageMatchesDockerMsbInspectError(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID:     "sha256:x",
-				Config: dockerConfigWith("", nil),
-			}, nil
-		},
-	})
+func TestCachedImageMatchesMsbInspectError(t *testing.T) {
 	msbClient := &msb.MockMsbClient{
 		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
 			return nil, errors.New("msb inspect boom")
 		},
 	}
-	if cachedImageMatchesDocker(context.Background(), msbClient, "ref") {
+	if cachedImageMatches(
+		context.Background(),
+		msbClient,
+		"ref",
+		ImageInfo{DockerTag: "ref", Ref: "ref", Digest: "sha256:x"},
+	) {
 		t.Error("expected false when the microsandbox inspect fails")
 	}
 }
 
-func TestCachedImageMatchesDockerByDigest(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID:     "sha256:same",
-				Config: dockerConfigWith("", nil),
-			}, nil
+// TestCachedImageMatches pins the content-identity contract: only a cached
+// digest equal to the Docker image ID counts as a match. A cached image that
+// records no digest is unknown content and must reload — the dockerfile-id
+// label is a source signature that can match while the bytes differ, so it is
+// never trusted.
+func TestCachedImageMatches(t *testing.T) {
+	cases := []struct {
+		name      string
+		msbDigest string
+		msbLabels map[string]string
+		msbNil    bool
+		info      ImageInfo
+		want      bool
+	}{
+		{
+			name:      "equal digest matches",
+			msbDigest: "sha256:same",
+			info:      ImageInfo{DockerTag: "ref", Ref: "ref", Digest: "sha256:same"},
+			want:      true,
 		},
-	})
-	msbClient := &msb.MockMsbClient{
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "sha256:same"}, nil
+		{
+			name:      "different digest never matches, even with equal label",
+			msbDigest: "sha256:old",
+			msbLabels: map[string]string{dockerfileIDLabelKey: "abc"},
+			info:      ImageInfo{DockerTag: "ref", Ref: "ref", Digest: "sha256:new", DockerfileID: "abc"},
+			want:      false,
+		},
+		{
+			name:      "missing digest never matches, even with equal label",
+			msbLabels: map[string]string{dockerfileIDLabelKey: "abc123"},
+			info:      ImageInfo{DockerTag: "ref", Ref: "ref", Digest: "sha256:new", DockerfileID: "abc123"},
+			want:      false,
+		},
+		{
+			name:      "missing digest and no labels never matches",
+			msbLabels: map[string]string{},
+			info:      ImageInfo{DockerTag: "ref", Ref: "ref", Digest: "sha256:new"},
+			want:      false,
+		},
+		{
+			name:      "cached digest with no requested digest never matches",
+			msbDigest: "sha256:same",
+			info:      ImageInfo{DockerTag: "ref", Ref: "ref"},
+			want:      false,
+		},
+		{
+			name: "no cached digest and no requested digest never matches",
+			info: ImageInfo{DockerTag: "ref", Ref: "ref"},
+			want: false,
+		},
+		{
+			name:   "nil inspect result never matches",
+			msbNil: true,
+			info:   ImageInfo{DockerTag: "ref", Ref: "ref", Digest: "sha256:new"},
+			want:   false,
 		},
 	}
-	if !cachedImageMatchesDocker(context.Background(), msbClient, "ref") {
-		t.Error("expected true when digests match")
-	}
-}
-
-func TestCachedImageMatchesDockerByLabel(t *testing.T) {
-	labels := map[string]string{dockerfileIDLabelKey: "abc123"}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Labels: labels,
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msbClient := &msb.MockMsbClient{
+				ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+					if tc.msbNil {
+						return nil, nil //nolint:nilnil // the seam can return a nil config with no error
+					}
+					return &msbSdk.ImageConfig{Digest: tc.msbDigest, Labels: tc.msbLabels}, nil
 				},
-			}, nil
-		},
-	})
-	msbClient := &msb.MockMsbClient{
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "", Labels: labels}, nil
-		},
-	}
-	if !cachedImageMatchesDocker(context.Background(), msbClient, "ref") {
-		t.Error("expected true when the dockerfile-id labels match")
-	}
-}
-
-func TestCachedImageMatchesDockerLabelMismatch(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Labels: map[string]string{dockerfileIDLabelKey: "abc"},
-				},
-			}, nil
-		},
-	})
-	msbClient := &msb.MockMsbClient{
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "", Labels: map[string]string{dockerfileIDLabelKey: "def"}}, nil
-		},
-	}
-	if cachedImageMatchesDocker(context.Background(), msbClient, "ref") {
-		t.Error("expected false when the dockerfile-id labels differ")
+			}
+			if got := cachedImageMatches(context.Background(), msbClient, tc.info.Ref, tc.info); got != tc.want {
+				t.Errorf("cachedImageMatches() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -353,11 +418,14 @@ func TestSplitFinalStageNoFrom(t *testing.T) {
 	}
 }
 
-func TestInjectDindBlockMarkerWithoutTrailingNewline(t *testing.T) {
-	got := injectDindBlock("RUN prereq\n# agents-sandbox:dind", "DIND\n")
-	want := "RUN prereq\nDIND\n"
+func TestInjectDockerBlockMarkerWithoutTrailingNewline(t *testing.T) {
+	got, injected := injectDockerBlock("RUN prereq\n# agents-sandbox:dind", true)
+	if !injected {
+		t.Fatal("expected injection at the legacy dind marker")
+	}
+	want := "RUN prereq\n" + dockerMergeBlock()
 	if got != want {
-		t.Errorf("injectDindBlock = %q, want %q", got, want)
+		t.Errorf("injectDockerBlock = %q, want %q", got, want)
 	}
 }
 
@@ -381,11 +449,11 @@ func TestResolveBaseDigestPullError(t *testing.T) {
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{}, errors.New("not found")
 		},
-		ImagePullFn: func(_ context.Context, _ string, _ client.ImagePullOptions) (io.ReadCloser, error) {
+		ImagePullFn: func(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 			return nil, errors.New("pull boom")
 		},
 	})
-	_, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", &termio.Mock{})
+	_, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", false, &termio.Mock{})
 	if err == nil || !strings.Contains(err.Error(), "pull base image") {
 		t.Errorf("resolveBaseDigest error = %v, want a pull failure", err)
 	}
@@ -398,36 +466,30 @@ func TestResolveBaseDigestInspectAfterPullError(t *testing.T) {
 			inspects++
 			return client.ImageInspectResult{}, errors.New("not found")
 		},
-		ImagePullFn: func(_ context.Context, _ string, _ client.ImagePullOptions) (io.ReadCloser, error) {
-			return io.NopCloser(strings.NewReader("")), nil
+		ImagePullFn: func(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
+			return docker.PullResponse{Body: strings.NewReader("")}, nil
 		},
 	})
-	_, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", &termio.Mock{})
+	_, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", false, &termio.Mock{})
 	if err == nil || !strings.Contains(err.Error(), "inspect pulled base image") {
 		t.Errorf("resolveBaseDigest error = %v, want an inspect-pulled-image failure", err)
 	}
 }
 
-func TestResolveBaseDigestPullDrainError(t *testing.T) {
+func TestResolveBaseDigestPullStreamError(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{}, errors.New("not found")
 		},
-		ImagePullFn: func(_ context.Context, _ string, _ client.ImagePullOptions) (io.ReadCloser, error) {
-			return io.NopCloser(&errorReader{}), nil
+		ImagePullFn: func(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
+			return docker.PullResponse{WaitErr: errors.New("read boom")}, nil
 		},
 	})
-	_, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", &termio.Mock{})
+	_, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", false, &termio.Mock{})
 	if err == nil || !strings.Contains(err.Error(), "pull base image") {
-		t.Errorf("resolveBaseDigest error = %v, want a pull drain failure", err)
+		t.Errorf("resolveBaseDigest error = %v, want a pull stream failure", err)
 	}
 }
-
-// errorReader always fails reads, used to exercise the drain-failure path when
-// consuming a Docker pull stream.
-type errorReader struct{}
-
-func (errorReader) Read([]byte) (int, error) { return 0, errors.New("read boom") }
 
 func TestResolveAgentVersionFallsBackToEmpty(t *testing.T) {
 	got, err := resolveAgentVersion(context.Background(), plainAgent{}, "")

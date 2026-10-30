@@ -5,6 +5,7 @@ import "testing"
 func TestVersionProviderForBuiltIns(t *testing.T) {
 	for name, wantCmd := range map[string]string{
 		"opencode":    "opencode --version",
+		"opencode2":   "opencode2 --version",
 		"pi":          "pi --version",
 		"claude-code": "claude --version",
 	} {
@@ -18,6 +19,26 @@ func TestVersionProviderForBuiltIns(t *testing.T) {
 		}
 		if got := p.VersionCmd(); got != wantCmd {
 			t.Errorf("VersionCmd() = %q, want %q", got, wantCmd)
+		}
+	}
+}
+
+func TestVersionProvidersParseVersion(t *testing.T) {
+	for _, name := range []string{"opencode", "opencode2", "pi", "claude-code"} {
+		a, ok := Lookup(name)
+		if !ok {
+			t.Fatalf("agent %q not registered", name)
+		}
+		p, ok := AsVersionProvider(a)
+		if !ok {
+			t.Fatalf("agent %q must be a VersionProvider", name)
+		}
+		got, err := p.ParseVersion("1.2.3\n")
+		if err != nil {
+			t.Fatalf("%s ParseVersion: %v", name, err)
+		}
+		if got != "1.2.3" {
+			t.Errorf("%s ParseVersion = %q, want 1.2.3", name, got)
 		}
 	}
 }

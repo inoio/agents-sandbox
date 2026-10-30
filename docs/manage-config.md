@@ -2,6 +2,7 @@
 title: Manage config in the sandbox
 description: "Manage the sandbox's agent configuration declaratively and reproducibly, keeping raw secret values out of the VM."
 layout: default
+parent: Get started
 nav_order: 40
 ---
 
@@ -14,6 +15,9 @@ starting point:
 - **Manual configuration** with agent snippets, without reading or migrating native host files.
 - **Manual secrets** with `env.secret` or `env.secret.yaml`.
 - **Provision files and startup hooks** with the `home:` configuration key.
+
+> **Note:** If you are new to coding agents, set up your agent (opencode, opencode2, pi, claude-code, codex, or hermes) on your host first,
+> then come back here.
 
 Native host-agent configuration is never copied into the VM unless you opt in with `provision-host-config: true` (see
 [Unsafe host-config drop-in](#unsafe-host-config-drop-in)).
@@ -243,9 +247,15 @@ mkdir -p ~/.config/agents-sandbox/opencode
 cp opencode.jsonc ~/.config/agents-sandbox/opencode/opencode-model.jsonc
 ```
 
+(For opencode2 / pi / claude-code / codex / hermes, use `~/.config/agents-sandbox/opencode2/` / `.../pi/` / `.../claude/` / `.../codex/` / `.../hermes/`. An
+`opencode2` dir is separate from the `opencode` one; see the fallback note in
+[Agent configuration]({% link configuration/agent.md %}).) Snippets matching
+the agent's pattern (e.g. `opencode*.json*`) are deep-merged into the VM config; see
+[Agent configuration]({% link configuration/agent.md %}).
+
 For Pi and Claude Code, create `settings*.json*` snippets rather than copying their native credential stores. Native
 `.credentials.json`, `auth.json`, and similar files should be handled through the agent's supported secret mechanism or through
-the migration flow above.
+the migration flow on this page.
 
 Manual configuration is useful when you want only selected settings. It also makes the configuration reproducible: snippets can
 be reviewed and committed when they contain no secrets.

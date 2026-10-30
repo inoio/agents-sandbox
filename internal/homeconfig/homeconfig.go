@@ -16,36 +16,11 @@ import (
 	"strings"
 
 	"github.com/titanous/json5"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
-
-// supportedExts are the config-file extensions, tried in order. The order MUST
-// match internal/viperconfig's supportedExts so both packages select the same
-// config file for a directory.
-//
-//nolint:gochecknoglobals // package-level constant slice
-var supportedExts = []string{".yaml", ".yml", ".json", ".jsonc", ".json5"}
-
-const (
-	extJSON5 = ".json5"
-	extJSONC = ".jsonc"
-)
-
-// findConfigFile returns the first existing config file in dir.
-func findConfigFile(dir string) (string, string, bool) {
-	if dir == "" {
-		return "", "", false
-	}
-	for _, ext := range supportedExts {
-		path := filepath.Join(dir, "config"+ext)
-		if _, err := os.Stat(path); err == nil {
-			return path, ext, true
-		}
-	}
-	return "", "", false
-}
 
 // ParseHomeSection parses the home manifest from raw config-file data (YAML or
 // JSON; JSON5/JSONC must be normalized first). The boolean reports whether a
@@ -89,6 +64,7 @@ func parseManifestValue(raw any, path string) (Manifest, error) {
 	for target, v := range rawMap {
 		e, err := parseEntry(v)
 		if err != nil {
+			// gomutants:disable-next-line ERRORF_WRAP reason="parseEntry errors are dynamic errors.New/fmt.Errorf values with no sentinel or typed cause, so no caller matches the chain and %v and %w yield the same message"
 			return nil, fmt.Errorf("parse %s entry %q: %w", path, target, err)
 		}
 		m[target] = e
@@ -99,7 +75,7 @@ func parseManifestValue(raw any, path string) (Manifest, error) {
 // ReadHomeFromConfigDir reads the config file in dir and returns its home
 // manifest. The boolean reports whether a home key was present.
 func ReadHomeFromConfigDir(dir string) (Manifest, bool, error) {
-	path, ext, ok := findConfigFile(dir)
+	path, ext, ok := configpaths.FindConfigFile(dir)
 	if !ok {
 		return Manifest{}, false, nil
 	}
@@ -107,7 +83,7 @@ func ReadHomeFromConfigDir(dir string) (Manifest, bool, error) {
 	if err != nil {
 		return nil, false, fmt.Errorf("read config %s: %w", path, err)
 	}
-	if ext == extJSON5 || ext == extJSONC {
+	if ext == configpaths.ExtJSON5 || ext == configpaths.ExtJSONC {
 		var m map[string]any
 		if unmarshalErr := json5.Unmarshal(data, &m); unmarshalErr != nil {
 			return nil, false, fmt.Errorf("parse config %s: %w", path, unmarshalErr)
@@ -145,24 +121,24 @@ func parseEntry(v any) (Entry, error) {
 		if s, ok := val["source"]; ok {
 			src, ok := s.(string)
 			if !ok {
-				return e, errors.New("source must be a string")
+				return Entry{}, errors.New("source must be a string")
 			}
 			e.Source = src
 		}
 		if h, ok := val["hook"]; ok {
 			hook, ok := h.(string)
 			if !ok {
-				return e, errors.New("hook must be a string")
+				return Entry{}, errors.New("hook must be a string")
 			}
 			e.Hook = hook
 		}
 		if e.Hook != "" && e.Hook != startupHook {
-			return e, fmt.Errorf("hook must be %q, got %q", startupHook, e.Hook)
+			return Entry{}, fmt.Errorf("hook must be %q, got %q", startupHook, e.Hook)
 		}
 		if r, ok := val["root"]; ok {
 			root, ok := r.(bool)
 			if !ok {
-				return e, errors.New("root must be a boolean")
+				return Entry{}, errors.New("root must be a boolean")
 			}
 			e.Root = root
 		}
@@ -170,16 +146,6 @@ func parseEntry(v any) (Entry, error) {
 	default:
 		return Entry{}, fmt.Errorf("unsupported value type %T", v)
 	}
-}
-
-// MergeManifests returns a single map with later layers overriding earlier ones
-// by key.
-func MergeManifests(layers ...Manifest) Manifest {
-	merged := Manifest{}
-	for _, layer := range layers {
-		maps.Copy(merged, layer)
-	}
-	return merged
 }
 
 // Layer pairs a home manifest with the config dir its relative sources resolve
@@ -213,20 +179,16 @@ func LoadLayers(dirs []string) ([]Layer, bool, error) {
 
 // resolveLayerSources resolves each layer's sources against that layer's own
 // config dir.
-func resolveLayerSources(layers []Layer) ([]Layer, error) {
+func resolveLayerSources(layers []Layer) []Layer {
 	for i := range layers {
 		out := make(Manifest, len(layers[i].Manifest))
 		for target, e := range layers[i].Manifest {
-			src, err := ResolveManifestSource(target, e.Source, layers[i].Dir)
-			if err != nil {
-				return nil, err
-			}
-			e.Source = src
+			e.Source = ResolveManifestSource(target, e.Source, layers[i].Dir)
 			out[target] = e
 		}
 		layers[i].Manifest = out
 	}
-	return layers, nil
+	return layers
 }
 
 // ResolveManifestSource resolves a manifest source value to a host path.
@@ -235,17 +197,18 @@ func resolveLayerSources(layers []Layer) ([]Layer, error) {
 //	starts with "/"  -> absolute
 //	starts with "~"  -> host $HOME/<rest>
 //	otherwise        -> relative to manifestDir
-func ResolveManifestSource(target, source, manifestDir string) (string, error) {
-	home, _ := os.UserHomeDir()
+func ResolveManifestSource(target, source, manifestDir string) string {
 	switch {
 	case source == "":
-		return filepath.Join(home, target), nil
+		home, _ := configpaths.Get().UserHomeDir()
+		return filepath.Join(home, target)
 	case strings.HasPrefix(source, "/"):
-		return source, nil
+		return source
 	case strings.HasPrefix(source, "~"):
-		return filepath.Join(home, strings.TrimPrefix(source, "~")), nil
+		home, _ := configpaths.Get().UserHomeDir()
+		return filepath.Join(home, strings.TrimPrefix(source, "~"))
 	default:
-		return filepath.Join(manifestDir, source), nil
+		return filepath.Join(manifestDir, source)
 	}
 }
 
@@ -286,29 +249,6 @@ func ResolveVMTarget(homeBase, relTarget string, reserved []string) (string, err
 	return abs, nil
 }
 
-// BuildHomeFiles loads the user and project config files' home manifests, merges
-// (project wins per key), resolves each entry, and reads the host source files.
-// It returns the desired home files keyed by absolute VM path, the resolved
-// source paths that could not be read (missing files), and whether any manifest
-// existed. A missing host source file is skipped, not fatal; its resolved path
-// is reported so callers can warn. The reserved list holds home-relative VM
-// paths the manifest must not target (e.g., the agent's merged config path);
-// when empty, no target is reserved.
-func BuildHomeFiles(
-	userConfigDir, projectConfigDir, homeBase string,
-	reserved []string,
-) (map[string][]byte, []string, bool, error) {
-	files, missing, has, err := BuildHomeFilesWithModes(userConfigDir, projectConfigDir, homeBase, reserved)
-	if err != nil {
-		return nil, nil, false, err
-	}
-	contents := make(map[string][]byte, len(files))
-	for path, file := range files {
-		contents[path] = file.Data
-	}
-	return contents, missing, has, nil
-}
-
 // HomeFile contains a home-provisioning source's content and ordinary Unix
 // permission bits.
 type HomeFile struct {
@@ -316,8 +256,15 @@ type HomeFile struct {
 	Mode os.FileMode
 }
 
-// BuildHomeFilesWithModes is like BuildHomeFiles but also returns ordinary Unix
-// permission bits for each source file.
+// BuildHomeFilesWithModes loads the user and project config files' home
+// manifests, merges them (project wins per target), resolves each entry, and
+// reads the host source files. It returns the desired home files keyed by
+// absolute VM path, the resolved source paths that could not be read (missing
+// files), and whether any manifest existed. A missing host source file is
+// skipped, not fatal; its resolved path is reported so callers can warn. The
+// reserved list holds home-relative VM paths the manifest must not target (e.g.,
+// the agent's merged config path); when empty, no target is reserved. Each
+// returned file carries its source's ordinary Unix permission bits.
 func BuildHomeFilesWithModes(
 	userConfigDir, projectConfigDir, homeBase string,
 	reserved []string,
@@ -326,25 +273,30 @@ func BuildHomeFilesWithModes(
 	if err != nil {
 		return nil, nil, false, err
 	}
-	resolved, err := resolveLayerSources(layers)
-	if err != nil {
-		return nil, nil, false, err
-	}
+	resolved := resolveLayerSources(layers)
 	merged := Manifest{}
 	for _, l := range resolved {
 		maps.Copy(merged, l.Manifest)
 	}
+	// An empty merged manifest short-circuits to an empty (non-nil) map, which is
+	// exactly what the general path below returns for zero entries; the boundary
+	// and branch mutations there are unobservable.
+	// gomutants:disable-next-line INTEGER_DECREMENT,BRANCH_IF reason="with zero entries the early return and the general path both yield an empty non-nil map, a nil missing slice, and the same has flag"
 	if len(merged) == 0 {
 		return map[string]HomeFile{}, nil, has, nil
 	}
 	files := make(map[string]HomeFile)
 	var missing []string
-	for target, e := range merged {
+	for _, target := range slices.Sorted(maps.Keys(merged)) {
+		e := merged[target]
 		vmPath, vErr := ResolveVMTarget(homeBase, target, reserved)
 		if vErr != nil {
 			return nil, nil, false, vErr
 		}
 		info, infoErr := os.Stat(e.Source)
+		// A source that Stat cannot stat also fails ReadFile below, which reports
+		// it missing the same way, so skipping this guard is unobservable.
+		// gomutants:disable-next-line BRANCH_IF reason="when Stat fails ReadFile on the same path also fails, so the fall-through appends the same missing source and continues"
 		if infoErr != nil {
 			missing = append(missing, e.Source)
 			continue
@@ -356,6 +308,9 @@ func BuildHomeFilesWithModes(
 		}
 		files[vmPath] = HomeFile{Data: data, Mode: info.Mode().Perm()}
 	}
+	// Reaching here means merged has at least one entry, which requires a layer
+	// that declared a home key, so has is always true here.
+	// gomutants:disable-next-line RETURN_TRUE reason="a non-empty merged manifest is only possible when a layer declared a home key, which sets has, so forcing has true changes nothing"
 	return files, missing, has, nil
 }
 
@@ -363,10 +318,7 @@ func BuildHomeFilesWithModes(
 // host source) pairs sorted by VM target, independent of whether the source
 // files exist.
 func DescribeLayers(layers []Layer, homeBase string, reserved []string) ([][2]string, error) {
-	resolved, err := resolveLayerSources(layers)
-	if err != nil {
-		return nil, err
-	}
+	resolved := resolveLayerSources(layers)
 	merged := Manifest{}
 	for _, l := range resolved {
 		maps.Copy(merged, l.Manifest)
@@ -379,73 +331,44 @@ func DescribeLayers(layers []Layer, homeBase string, reserved []string) ([][2]st
 		}
 		pairs = append(pairs, [2]string{vmPath, e.Source})
 	}
-	sort.Slice(pairs, func(i, j int) bool {
-		return pairs[i][0] < pairs[j][0]
-	})
+	sort.Slice(pairs, func(i, j int) bool { return describePairLess(pairs[i], pairs[j]) })
 	return pairs, nil
 }
 
-func DescribeManifest(userConfigDir, projectConfigDir, homeBase string, reserved []string) ([][2]string, bool, error) {
-	layers, has, err := LoadLayers([]string{userConfigDir, projectConfigDir})
-	if err != nil {
-		return nil, false, err
-	}
-	pairs, err := DescribeLayers(layers, homeBase, reserved)
-	if err != nil {
-		return nil, false, err
-	}
-	return pairs, has, nil
-}
+// describePairLess orders (VM target, host source) pairs by VM target.
+func describePairLess(a, b [2]string) bool { return a[0] < b[0] }
 
 // HookSpec describes a single startup-hook entry: the provisioned VM target,
-// its resolved host source, the interpreter declared by the script's shebang,
-// and whether to run it as root.
+// its resolved host source, whether the source declares a shebang, and whether
+// to run it as root. The hook is executed directly in the VM, where the kernel
+// applies the shebang; without one it falls back to /bin/sh.
 type HookSpec struct {
-	Target      string // absolute VM path to the provisioned script
-	Source      string // resolved host source path
-	Interpreter string // script's shebang interpreter; empty falls back to /bin/sh
-	Root        bool   // run as root; false runs as the sandbox user (dev)
+	Target     string // absolute VM path to the provisioned script
+	Source     string // resolved host source path
+	HasShebang bool   // source begins with a #! line; without one the hook runs via /bin/sh
+	Root       bool   // run as root; false runs as the sandbox user (dev)
 }
 
-// shebangInterpreter returns the interpreter named by the first `#!` line of
-// the file at path, or "" if there is none. `#!/usr/bin/env bash` yields
-// "/usr/bin/env bash" so the env command resolves the real interpreter inside
-// the VM.
-func shebangInterpreter(path string) string {
+// hasShebang reports whether the file at path begins with a `#!` marker, so the
+// VM kernel resolves the script's interpreter. A missing file or a bare marker
+// yields false.
+func hasShebang(path string) bool {
 	f, err := os.Open(path)
+	// gomutants:disable-next-line BRANCH_IF reason="a nil *os.File reads as ErrInvalid, so the missing-file fall-through reaches the read guard below and returns false exactly like this branch"
 	if err != nil {
-		return ""
+		return false
 	}
 	defer f.Close()
 	var line []byte
 	buf := make([]byte, 1)
 	for range 2 {
+		// gomutants:disable-next-line BRANCH_IF reason="a skipped read appends the zero byte, so both the early return and the fall-through yield an all-zero line that is not #!"
 		if _, err := f.Read(buf); err != nil {
-			return ""
+			return false
 		}
 		line = append(line, buf[0])
 	}
-	if string(line) != "#!" {
-		return ""
-	}
-	for {
-		b, err := f.Read(buf)
-		if err != nil {
-			break
-		}
-		if b == 0 {
-			break
-		}
-		if buf[0] == '\n' {
-			break
-		}
-		line = append(line, buf[0])
-	}
-	interp := strings.TrimSpace(strings.TrimPrefix(string(line), "#!"))
-	if interp == "" {
-		return ""
-	}
-	return interp
+	return string(line) == "#!"
 }
 
 // BuildHooks returns the merged manifest's startup-hook entries (Hook ==
@@ -458,16 +381,14 @@ func BuildHooks(userConfigDir, projectConfigDir, homeBase string, reserved []str
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := resolveLayerSources(layers)
-	if err != nil {
-		return nil, err
-	}
+	resolved := resolveLayerSources(layers)
 	merged := Manifest{}
 	for _, l := range resolved {
 		maps.Copy(merged, l.Manifest)
 	}
 	var hooks []HookSpec
-	for target, e := range merged {
+	for _, target := range slices.Sorted(maps.Keys(merged)) {
+		e := merged[target]
 		if e.Hook != startupHook {
 			continue
 		}
@@ -480,11 +401,12 @@ func BuildHooks(userConfigDir, projectConfigDir, homeBase string, reserved []str
 		}
 		hooks = append(
 			hooks,
-			HookSpec{Target: vmPath, Source: e.Source, Interpreter: shebangInterpreter(e.Source), Root: e.Root},
+			HookSpec{Target: vmPath, Source: e.Source, HasShebang: hasShebang(e.Source), Root: e.Root},
 		)
 	}
-	sort.Slice(hooks, func(i, j int) bool {
-		return hooks[i].Target < hooks[j].Target
-	})
+	sort.Slice(hooks, func(i, j int) bool { return hookSpecLess(hooks[i], hooks[j]) })
 	return hooks, nil
 }
+
+// hookSpecLess orders startup hooks by VM target.
+func hookSpecLess(a, b HookSpec) bool { return a.Target < b.Target }

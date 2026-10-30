@@ -10,6 +10,8 @@ import (
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
 func TestRealSandboxFS(t *testing.T) {
@@ -49,14 +51,48 @@ func TestRuntimePreparationHelpers(t *testing.T) {
 	}
 }
 
-func TestValidateInstalledUsesSDKResolve(t *testing.T) {
-	// The real SDK installer is deliberately not exercised here. This test
-	// covers the production adapter's validation seam without downloading a
-	// runtime into the test environment.
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("MSB_HOME", "")
+// TestValidateInstalledPassesPrivateHome asserts the resolve call names the
+// private home explicitly instead of relying on the process-global MSB_HOME.
+func TestValidateInstalledPassesPrivateHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantHome := configpaths.MSBHome()
+
+	orig := resolveRuntime
+	resolveRuntime = func(config msbSdk.RuntimeConfig) (msbSdk.ResolvedRuntime, error) {
+		if config.Home != wantHome {
+			t.Errorf("RuntimeConfig.Home = %q, want %q", config.Home, wantHome)
+		}
+		return msbSdk.ResolvedRuntime{}, errors.New("stop after capture")
+	}
+	t.Cleanup(func() { resolveRuntime = orig })
+
 	if err := ValidateInstalled(context.Background()); err == nil {
-		t.Fatal("ValidateInstalled() error = nil, want missing runtime error")
+		t.Fatal("ValidateInstalled() error = nil, want captured seam error")
+	}
+}
+
+// TestRealClientEnsureInstalledPassesPrivateHome asserts the ensure call names
+// the private home explicitly.
+func TestRealClientEnsureInstalledPassesPrivateHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	previous := skipRuntimeInstall
+	skipRuntimeInstall = false
+	t.Cleanup(func() { skipRuntimeInstall = previous })
+
+	wantHome := configpaths.MSBHome()
+	orig := ensureRuntime
+	ensureRuntime = func(
+		_ context.Context, config msbSdk.RuntimeConfig, _ msbSdk.InstallOptions,
+	) (msbSdk.ResolvedRuntime, error) {
+		if config.Home != wantHome {
+			t.Errorf("RuntimeConfig.Home = %q, want %q", config.Home, wantHome)
+		}
+		return msbSdk.ResolvedRuntime{}, nil
+	}
+	t.Cleanup(func() { ensureRuntime = orig })
+
+	if err := (&realMsbClient{}).EnsureInstalled(context.Background()); err != nil {
+		t.Fatalf("EnsureInstalled() error = %v", err)
 	}
 }
 
@@ -156,27 +192,6 @@ func TestMockMsbClientListSandboxes(t *testing.T) {
 	}}
 	if _, err := m2.ListSandboxes(ctx, nil); err == nil {
 		t.Fatal("expected ListSandboxesFn error")
-	}
-}
-
-func TestMockMsbClientRemoveSandbox(t *testing.T) {
-	ctx := context.Background()
-	m := &MockMsbClient{}
-	if err := m.RemoveSandbox(ctx, "r1"); err != nil {
-		t.Fatalf("RemoveSandbox error = %v", err)
-	}
-	if len(m.RemovedSandboxes) != 1 || m.RemovedSandboxes[0] != "r1" {
-		t.Fatalf("RemovedSandboxes = %v", m.RemovedSandboxes)
-	}
-	m.removeSandboxErr = errors.New("fail")
-	if err := m.RemoveSandbox(ctx, "r2"); err == nil {
-		t.Fatal("expected removeSandboxErr")
-	}
-	m2 := &MockMsbClient{RemoveSandboxFn: func(_ context.Context, _ string) error {
-		return errors.New("fn")
-	}}
-	if err := m2.RemoveSandbox(ctx, "x"); err == nil {
-		t.Fatal("expected RemoveSandboxFn error")
 	}
 }
 
@@ -363,6 +378,48 @@ func TestMockMsbClientImage(t *testing.T) {
 	}
 }
 
+// TestMockMsbClientPruneStorage pins that the mock records every
+// StoragePruneOptions it receives and honours StoragePruneFn.
+func TestMockMsbClientPruneStorage(t *testing.T) {
+	ctx := context.Background()
+	physical := uint64(2048)
+	m := &MockMsbClient{
+		StoragePruneFn: func(_ context.Context, _ msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error) {
+			return &msbSdk.StoragePruneReport{
+				FilesRemoved:           3,
+				LogicalBytesRemoved:    4096,
+				PhysicalBytesReclaimed: &physical,
+			}, nil
+		},
+	}
+	report, err := m.PruneStorage(ctx, msbSdk.StoragePruneOptions{DryRun: true, OlderThanSeconds: 600})
+	if err != nil || report.FilesRemoved != 3 || report.LogicalBytesRemoved != 4096 {
+		t.Fatalf("PruneStorage via fn = %+v, %v", report, err)
+	}
+	if len(m.StoragePruneCalls) != 1 || !m.StoragePruneCalls[0].DryRun ||
+		m.StoragePruneCalls[0].OlderThanSeconds != 600 {
+		t.Fatalf("StoragePruneCalls = %+v", m.StoragePruneCalls)
+	}
+
+	empty := &MockMsbClient{}
+	report, err = empty.PruneStorage(ctx, msbSdk.StoragePruneOptions{OlderThanSeconds: 60})
+	if err != nil || report == nil || report.FilesRemoved != 0 {
+		t.Fatalf("PruneStorage default = %+v, %v", report, err)
+	}
+	if len(empty.StoragePruneCalls) != 1 || empty.StoragePruneCalls[0].OlderThanSeconds != 60 {
+		t.Fatalf("StoragePruneCalls = %+v", empty.StoragePruneCalls)
+	}
+
+	failing := &MockMsbClient{
+		StoragePruneFn: func(context.Context, msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error) {
+			return nil, errors.New("prune failed")
+		},
+	}
+	if _, err := failing.PruneStorage(ctx, msbSdk.StoragePruneOptions{}); err == nil {
+		t.Fatal("expected StoragePruneFn error")
+	}
+}
+
 func TestMockSandboxHandleMethods(t *testing.T) {
 	now := time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC)
 	h := &MockSandboxHandle{
@@ -405,6 +462,13 @@ func TestMockSandboxHandleMethods(t *testing.T) {
 	if err := h.Remove(context.Background()); err != nil || !h.DidRmv || !h.DidRemove() {
 		t.Fatal("Remove should mark DidRmv")
 	}
+	if err := h.Destroy(context.Background()); err != nil || !h.Destroyed || !h.DidDestroy() {
+		t.Fatal("Destroy should mark Destroyed")
+	}
+	failing := &MockSandboxHandle{DestroyErr: errors.New("destroy failed")}
+	if err := failing.Destroy(context.Background()); err == nil || failing.DidDestroy() {
+		t.Fatal("Destroy should surface DestroyErr without marking Destroyed")
+	}
 	if cfg, err := h.Config(); err != nil || cfg != nil {
 		t.Fatalf("Config = %v, %v", cfg, err)
 	}
@@ -417,6 +481,23 @@ func TestMockSandboxHandleMethods(t *testing.T) {
 	}
 	if len(h.ModifiedOptions) != 1 {
 		t.Fatalf("ModifiedOptions = %v", h.ModifiedOptions)
+	}
+}
+
+func TestMockSandboxHandleCompact(t *testing.T) {
+	h := &MockSandboxHandle{}
+	result := &msbSdk.DiskCompactionResult{}
+	h.CompactResult = result
+	got, err := h.Compact(context.Background(), msbSdk.DiskCompactionOptions{DryRun: true})
+	if err != nil || got != result {
+		t.Fatalf("Compact = %v, %v", got, err)
+	}
+	if len(h.CompactedOptions) != 1 || !h.CompactedOptions[0].DryRun {
+		t.Fatalf("CompactedOptions = %v", h.CompactedOptions)
+	}
+	h.CompactErr = errors.New("c")
+	if _, err := h.Compact(context.Background(), msbSdk.DiskCompactionOptions{}); err == nil {
+		t.Fatal("expected CompactErr")
 	}
 }
 
@@ -648,7 +729,12 @@ func TestTestFS(t *testing.T) {
 
 func TestTestFSErrors(t *testing.T) {
 	ctx := context.Background()
-	fs := &TestFS{ListErr: errors.New("l"), ReadErr: errors.New("r"), WriteErr: errors.New("w")}
+	fs := &TestFS{
+		ListErr:  errors.New("l"),
+		ReadErr:  errors.New("r"),
+		WriteErr: errors.New("w"),
+		MkdirErr: errors.New("m"),
+	}
 	if _, err := fs.List(ctx, "/"); err == nil {
 		t.Fatal("expected ListErr")
 	}
@@ -660,6 +746,9 @@ func TestTestFSErrors(t *testing.T) {
 	}
 	if err := fs.Write(ctx, "x", []byte("d")); err == nil {
 		t.Fatal("expected WriteErr")
+	}
+	if err := fs.Mkdir(ctx, "/d"); err == nil {
+		t.Fatal("expected MkdirErr")
 	}
 	if _, err := fs.Read(ctx, "x"); err == nil {
 		t.Fatal("expected ReadErr on Read")
@@ -740,7 +829,6 @@ func TestFailFastClientPanics(t *testing.T) {
 		{"GetSandbox", func() { _, _ = f.GetSandbox(ctx, "x") }},
 		{"CreateSandbox", func() { _, _ = f.CreateSandbox(ctx, "x") }},
 		{"ListSandboxes", func() { _, _ = f.ListSandboxes(ctx, nil) }},
-		{"RemoveSandbox", func() { _ = f.RemoveSandbox(ctx, "x") }},
 		{"GetVolume", func() { _, _ = f.GetVolume(ctx, "x") }},
 		{"CreateVolume", func() { _, _ = f.CreateVolume(ctx, "x") }},
 		{"ListVolumes", func() { _, _ = f.ListVolumes(ctx) }},
@@ -750,6 +838,7 @@ func TestFailFastClientPanics(t *testing.T) {
 		{"ImageRemove", func() { _ = f.ImageRemove(ctx, "x", false) }},
 		{"ImageLoad", func() { _ = f.ImageLoad(ctx, "x", strings.NewReader("")) }},
 		{"ImageInspect", func() { _, _ = f.ImageInspect(ctx, "x") }},
+		{"PruneStorage", func() { _, _ = f.PruneStorage(ctx, msbSdk.StoragePruneOptions{}) }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -760,5 +849,24 @@ func TestFailFastClientPanics(t *testing.T) {
 			}()
 			tc.fn()
 		})
+	}
+}
+
+func TestMockSandboxHandleConfigMounts(t *testing.T) {
+	want := map[string]msbSdk.MountConfig{
+		"/tmp": msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{SizeMiB: 2048}),
+	}
+	m := &MockSandboxHandle{Mounts: want}
+	got, err := m.ConfigMounts()
+	if err != nil {
+		t.Fatalf("ConfigMounts() error = %v", err)
+	}
+	if got["/tmp"].SizeMiB != 2048 {
+		t.Errorf("ConfigMounts() = %+v, want the seeded mounts", got)
+	}
+
+	failing := &MockSandboxHandle{MountsErr: errors.New("mounts boom")}
+	if _, err := failing.ConfigMounts(); err == nil {
+		t.Error("ConfigMounts() error = nil, want the configured MountsErr")
 	}
 }

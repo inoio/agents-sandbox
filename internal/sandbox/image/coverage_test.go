@@ -76,7 +76,7 @@ func TestBuildSuccess(t *testing.T) {
 	}
 	msb.WithMsbMock(t, msbClient)
 
-	if err := Build(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{}); err != nil {
+	if _, err := Build(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(msbClient.LoadedImages) != 1 {
@@ -91,7 +91,7 @@ func TestBuildReturnsErrorWhenImageBuildFails(t *testing.T) {
 	docker.WithDefaultErrorDockerMock(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 
-	if err := Build(context.Background(), a, "test-project", BuildOptions{Force: true}, &termio.Mock{}); err == nil {
+	if _, err := Build(context.Background(), a, "test-project", BuildOptions{Force: true}, &termio.Mock{}); err == nil {
 		t.Error("expected Build to return an error when image build fails")
 	}
 }
@@ -115,7 +115,7 @@ func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	})
 
-	if err := Build(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{}); err == nil {
+	if _, err := Build(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{}); err == nil {
 		t.Error("expected Build to return an error when loading the image into microsandbox fails")
 	}
 }

@@ -276,6 +276,21 @@ func TestSelect(t *testing.T) {
 			t.Fatal("expected error when reading fails")
 		}
 	})
+
+	t.Run("placeholder for a choice without a description", func(t *testing.T) {
+		var stderr bytes.Buffer
+		ui := New(strings.NewReader("\n"), &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
+		p := ui.(*printer)
+		p.isTerminal = func(int) bool { return true }
+
+		bare := []Choice{{Label: "Keep", Key: "k"}}
+		if _, err := ui.Select("What to do?", bare, "k"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(stderr.String(), "k) Keep (default) - -") {
+			t.Errorf("expected a '-' placeholder for a missing description, got %q", stderr.String())
+		}
+	})
 }
 
 func TestInput(t *testing.T) {
@@ -329,6 +344,107 @@ func TestInput(t *testing.T) {
 		_, err := ui.Input("Branch name:", "main")
 		if err == nil {
 			t.Fatal("expected error when reading fails")
+		}
+	})
+}
+
+func TestConfirm(t *testing.T) {
+	t.Run("assume-yes returns true without reading stdin", func(t *testing.T) {
+		var stdout bytes.Buffer
+		ui := New(strings.NewReader("never read\n"), &stdout, &bytes.Buffer{}, false, LevelInfo, false, true)
+		p := ui.(*printer)
+		p.isTerminal = func(int) bool { return true }
+
+		got, err := ui.Confirm("Remove it?", false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !got {
+			t.Fatal("expected true when assume-yes is set")
+		}
+		if stdout.Len() != 0 {
+			t.Errorf("assume-yes should not write any output, got %q", stdout.String())
+		}
+	})
+
+	t.Run("returns true for y", func(t *testing.T) {
+		ui := New(strings.NewReader("y\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
+		p := ui.(*printer)
+		p.isTerminal = func(int) bool { return true }
+
+		got, err := ui.Confirm("Remove it?", false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !got {
+			t.Fatal("expected true for y")
+		}
+	})
+
+	t.Run("returns true for YES case-insensitively", func(t *testing.T) {
+		ui := New(strings.NewReader("YES\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
+		p := ui.(*printer)
+		p.isTerminal = func(int) bool { return true }
+
+		got, err := ui.Confirm("Remove it?", false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !got {
+			t.Fatal("expected true for YES")
+		}
+	})
+
+	t.Run("returns false for n", func(t *testing.T) {
+		ui := New(strings.NewReader("n\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
+		p := ui.(*printer)
+		p.isTerminal = func(int) bool { return true }
+
+		got, err := ui.Confirm("Remove it?", true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got {
+			t.Fatal("expected false for n")
+		}
+	})
+
+	t.Run("empty input returns defaultYes", func(t *testing.T) {
+		ui := New(strings.NewReader("\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
+		p := ui.(*printer)
+		p.isTerminal = func(int) bool { return true }
+
+		got, err := ui.Confirm("Remove it?", true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !got {
+			t.Fatal("expected default true on empty input")
+		}
+	})
+
+	t.Run("returns error when reading fails", func(t *testing.T) {
+		ui := New(&failingReader{}, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
+		p := ui.(*printer)
+		p.isTerminal = func(int) bool { return true }
+
+		_, err := ui.Confirm("Remove it?", false)
+		if err == nil {
+			t.Fatal("expected error when reading fails")
+		}
+	})
+
+	t.Run("non-interactive without assume-yes requires confirmation", func(t *testing.T) {
+		ui := New(strings.NewReader("y\n"), &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
+		p := ui.(*printer)
+		p.isTerminal = func(int) bool { return false }
+
+		got, err := ui.Confirm("Remove it?", false)
+		if !errors.Is(err, ErrConfirmationRequired) {
+			t.Fatalf("expected ErrConfirmationRequired, got %v", err)
+		}
+		if got {
+			t.Fatal("expected false when confirmation is required")
 		}
 	})
 }

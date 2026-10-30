@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -100,6 +102,20 @@ func TestResolveHostIgnoresUnusableContexts(t *testing.T) {
 			prepare: func(t *testing.T) { writeDockerConfig(t, "default") },
 		},
 		{
+			name: "default context with stored metadata",
+			prepare: func(t *testing.T) {
+				configDir := writeDockerConfig(t, "default")
+				writeContextMeta(t, configDir, "default", colimaSocket)
+			},
+		},
+		{
+			name: "no active context with stored metadata",
+			prepare: func(t *testing.T) {
+				configDir := writeDockerConfig(t, "")
+				writeContextMeta(t, configDir, "", colimaSocket)
+			},
+		},
+		{
 			name: "missing metadata",
 			prepare: func(t *testing.T) {
 				writeDockerConfig(t, "colima")
@@ -179,6 +195,92 @@ func TestResolveHostWithoutResolvableHomeDirectory(t *testing.T) {
 
 	if got := resolveHost(); got != "" {
 		t.Errorf("resolveHost() = %q, want %q", got, "")
+	}
+}
+
+// TestResolveHostIgnoresConfigWithoutHomeDirectory places a valid docker config
+// and context metadata in the working directory: an unresolvable home must stop
+// resolveHost before it reads them from the relative path.
+func TestResolveHostIgnoresConfigWithoutHomeDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(dir, "config.json"),
+		[]byte(`{"currentContext":"colima"}`),
+		0o600,
+	); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+	writeContextMeta(t, dir, "colima", colimaSocket)
+	t.Chdir(dir)
+
+	t.Setenv(envDockerHost, "")
+	t.Setenv(envDockerContext, "")
+	t.Setenv(envDockerConfig, "")
+	t.Setenv("HOME", "")
+
+	if got := resolveHost(); got != "" {
+		t.Errorf("resolveHost() = %q, want %q", got, "")
+	}
+}
+
+func TestDockerConfigDirWithoutHomeDirectory(t *testing.T) {
+	t.Setenv(envDockerConfig, "")
+	t.Setenv("HOME", "")
+
+	dir, err := dockerConfigDir()
+	if err == nil {
+		t.Error("dockerConfigDir() error = nil, want an error without a home directory")
+	}
+	if dir != "" {
+		t.Errorf("dockerConfigDir() = %q, want %q", dir, "")
+	}
+}
+
+func TestActiveContextNameIgnoresUnparsableConfig(t *testing.T) {
+	dir := t.TempDir()
+	// The duplicate key sets CurrentContext before the wrongly typed second value
+	// makes json.Unmarshal fail; the guard must discard the partial decode.
+	if err := os.WriteFile(
+		filepath.Join(dir, "config.json"),
+		[]byte(`{"currentContext":"colima","currentContext":123}`),
+		0o600,
+	); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+	t.Setenv(envDockerContext, "")
+
+	if got := activeContextName(dir); got != "" {
+		t.Errorf("activeContextName() = %q, want %q", got, "")
+	}
+}
+
+func TestContextEndpointIgnoresUnparsableMetadata(t *testing.T) {
+	dir := t.TempDir()
+	digest := sha256.Sum256([]byte("colima"))
+	metaDir := filepath.Join(dir, "contexts", "meta", hex.EncodeToString(digest[:]))
+	if err := os.MkdirAll(metaDir, 0o700); err != nil {
+		t.Fatalf("mkdir meta: %v", err)
+	}
+	// The duplicate key sets the docker endpoint before the wrongly typed second
+	// value makes json.Unmarshal fail; the guard must discard the partial decode.
+	if err := os.WriteFile(
+		filepath.Join(metaDir, "meta.json"),
+		[]byte(`{"Endpoints":{"docker":{"Host":"h"}},"Endpoints":123}`),
+		0o600,
+	); err != nil {
+		t.Fatalf("write meta.json: %v", err)
+	}
+
+	if got := contextEndpoint(dir, "colima"); got != "" {
+		t.Errorf("contextEndpoint() = %q, want %q", got, "")
+	}
+}
+
+func TestReadJSONFileMissingPath(t *testing.T) {
+	var target map[string]any
+	err := readJSONFile(filepath.Join(t.TempDir(), "absent.json"), &target)
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("readJSONFile() error = %v, want fs.ErrNotExist", err)
 	}
 }
 

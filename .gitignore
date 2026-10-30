@@ -6,5 +6,8 @@ version.env
 *.test
 coverage.out
 junit.xml
+mutation-report.json
+.gomutants-cache.json
 docs/diagrams/*.svg
 /docs/superpowers/
+/.operator/

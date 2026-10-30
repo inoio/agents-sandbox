@@ -1,0 +1,227 @@
+package state
+
+import (
+	"testing"
+
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+)
+
+func TestEnvContentHashOrderIndependent(t *testing.T) {
+	a := EnvContentHash(map[string]string{"B": "2", "A": "1"})
+	b := EnvContentHash(map[string]string{"A": "1", "B": "2"})
+	if a != b {
+		t.Errorf("EnvContentHash not order-independent: %q vs %q", a, b)
+	}
+	if EnvContentHash(nil) != EnvContentHash(map[string]string{}) {
+		t.Error("EnvContentHash(nil) should equal EnvContentHash(empty)")
+	}
+	if a == EnvContentHash(map[string]string{"A": "1", "B": "3"}) {
+		t.Error("EnvContentHash should differ when a value changes")
+	}
+}
+
+func TestSecretsContentHashStable(t *testing.T) {
+	a := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}, {EnvVar: "B", Value: "2"}})
+	b := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "B", Value: "2"}, {EnvVar: "A", Value: "1"}})
+	if a != b {
+		t.Errorf("SecretsContentHash not order-independent: %q vs %q", a, b)
+	}
+	if SecretsContentHash(nil) != SecretsContentHash([]msbSdk.SecretEntry{}) {
+		t.Error("SecretsContentHash(nil) should equal SecretsContentHash(empty)")
+	}
+}
+
+func TestEnvChanged(t *testing.T) {
+	hash := EnvContentHash(map[string]string{"A": "1"})
+	if EnvChanged(EnvState{Hash: hash}, map[string]string{"A": "1"}) {
+		t.Error("EnvChanged should be false when hashes match")
+	}
+	if !EnvChanged(EnvState{Hash: hash}, map[string]string{"A": "2"}) {
+		t.Error("EnvChanged should be true when a value changes")
+	}
+	if !EnvChanged(EnvState{}, map[string]string{"A": "1"}) {
+		t.Error("EnvChanged with empty applied and non-empty desired should be true")
+	}
+	if EnvChanged(EnvState{}, nil) {
+		t.Error("EnvChanged with empty applied and empty desired should be false")
+	}
+}
+
+func TestSecretsContentHashIncludesHosts(t *testing.T) {
+	// A change to a secret's allowed hosts (with the same value) must produce
+	// a different hash so the launcher recreates the VM. See SecretsContentHash.
+	a := SecretsContentHash([]msbSdk.SecretEntry{
+		{EnvVar: "GITHUB_TOKEN", Value: "t", Allow: []string{"github.com"}},
+	})
+	b := SecretsContentHash([]msbSdk.SecretEntry{
+		{EnvVar: "GITHUB_TOKEN", Value: "t", Allow: []string{"api.github.com", "github.com"}},
+	})
+	if a == b {
+		t.Error("SecretsContentHash should differ when Allow changes with the same value")
+	}
+}
+
+func TestSecretsContentHashIncludesOtherFields(t *testing.T) {
+	base := msbSdk.SecretEntry{EnvVar: "A", Value: "1"}
+	baseHash := SecretsContentHash([]msbSdk.SecretEntry{base})
+
+	boolPtr := func(v bool) *bool { return &v }
+	tests := []struct {
+		name   string
+		mutate func(e *msbSdk.SecretEntry)
+	}{
+		{"Value", func(e *msbSdk.SecretEntry) { e.Value = "2" }},
+		{"Allow", func(e *msbSdk.SecretEntry) { e.Allow = []string{"github.com"} }},
+		{"Passthrough", func(e *msbSdk.SecretEntry) { e.Passthrough = []string{"*.github.com"} }},
+		{"Placeholder", func(e *msbSdk.SecretEntry) { e.Placeholder = "$GITHUB_TOKEN" }},
+		{"RequireTLSIdentity true", func(e *msbSdk.SecretEntry) { e.RequireTLSIdentity = boolPtr(true) }},
+		{"RequireTLSIdentity false", func(e *msbSdk.SecretEntry) { e.RequireTLSIdentity = boolPtr(false) }},
+		{"Substitution headers true", func(e *msbSdk.SecretEntry) { e.Substitution.Headers = boolPtr(true) }},
+		{"Substitution headers false", func(e *msbSdk.SecretEntry) { e.Substitution.Headers = boolPtr(false) }},
+		{"Substitution query", func(e *msbSdk.SecretEntry) { e.Substitution.Query = true }},
+		{"Substitution body", func(e *msbSdk.SecretEntry) { e.Substitution.Body = true }},
+		{"ViolationAction", func(e *msbSdk.SecretEntry) { e.ViolationAction = msbSdk.ViolationActionBlock }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := base
+			tt.mutate(&e)
+			if got := SecretsContentHash([]msbSdk.SecretEntry{e}); got == baseHash {
+				t.Errorf("SecretsContentHash should differ when %s changes", tt.name)
+			}
+		})
+	}
+}
+
+func TestSecretsChanged(t *testing.T) {
+	hash := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}})
+	if SecretsChanged(SecretState{Hash: hash}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}}) {
+		t.Error("SecretsChanged should be false when hashes match")
+	}
+	if !SecretsChanged(SecretState{Hash: hash}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "2"}}) {
+		t.Error("SecretsChanged should be true when a value changes")
+	}
+	if !SecretsChanged(SecretState{}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}}) {
+		t.Error("SecretsChanged with empty applied and non-empty desired should be true")
+	}
+	if SecretsChanged(SecretState{}, nil) {
+		t.Error("SecretsChanged with empty applied and nil desired should be false")
+	}
+}
+
+func TestBuildEnvState(t *testing.T) {
+	st := BuildEnvState(map[string]string{"B": "2", "A": "1"})
+	if st.Hash != EnvContentHash(map[string]string{"A": "1", "B": "2"}) {
+		t.Errorf("BuildEnvState.Hash mismatch")
+	}
+	if len(st.Names) != 2 || st.Names[0] != "A" || st.Names[1] != "B" {
+		t.Errorf("BuildEnvState.Names = %v, want sorted [A B]", st.Names)
+	}
+}
+
+func TestBuildSecretState(t *testing.T) {
+	st := BuildSecretState([]msbSdk.SecretEntry{{EnvVar: "B", Value: "2"}, {EnvVar: "A", Value: "1"}})
+	if st.Hash != SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}, {EnvVar: "B", Value: "2"}}) {
+		t.Errorf("BuildSecretState.Hash mismatch")
+	}
+	if len(st.Names) != 2 || st.Names[0] != "A" || st.Names[1] != "B" {
+		t.Errorf("BuildSecretState.Names = %v, want sorted [A B]", st.Names)
+	}
+}
+
+func TestNetworkChanged(t *testing.T) {
+	policy := network.Policy{Profiles: []network.Profile{network.ProfilePublic}}
+	fp := policy.Fingerprint()
+	if NetworkChanged(NetworkState{Hash: fp}, policy) {
+		t.Error("NetworkChanged should be false when hashes match")
+	}
+	if !NetworkChanged(NetworkState{Hash: fp}, network.Policy{Profiles: []network.Profile{network.ProfileNone}}) {
+		t.Error("NetworkChanged should be true when profile changes")
+	}
+	if !NetworkChanged(NetworkState{}, policy) {
+		t.Error("NetworkChanged with empty applied and non-empty desired should be true")
+	}
+	if !NetworkChanged(NetworkState{}, network.Policy{}) {
+		t.Error("NetworkChanged with empty applied and empty desired should migrate to the secure default")
+	}
+}
+
+// TestNetworkChanged_MigratesPreFixDenyPolicy covers the #231 migration: a VM
+// whose persisted NetworkState holds the pre-fix fingerprint of a deny-bearing
+// profiled policy (one that omitted the rule-order marker) must be reported as
+// changed, so it is recreated once to bake in the corrected emission order. Once
+// the post-recreate state is persisted, no further recreation is triggered.
+func TestNetworkChanged_MigratesPreFixDenyPolicy(t *testing.T) {
+	const preFixDenyPublic = "440e1b21984eb6657c69098f6e9ddd813c90b39ebc3f6f575ad640ec97528498"
+	policy := network.Policy{
+		Profiles:   []network.Profile{network.ProfilePublic},
+		EgressDeny: []string{"123.123.123.0/24"},
+	}
+	if !NetworkChanged(NetworkState{Hash: preFixDenyPublic}, policy) {
+		t.Fatal("a persisted pre-fix deny fingerprint must trigger one recreate")
+	}
+	if NetworkChanged(BuildNetworkState(policy), policy) {
+		t.Fatal("the post-recreate fingerprint must not trigger another recreate")
+	}
+}
+
+func TestBuildNetworkState(t *testing.T) {
+	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}}
+	st := BuildNetworkState(policy)
+	if st.Hash != policy.Fingerprint() {
+		t.Errorf("BuildNetworkState.Hash = %q, want fingerprint %q", st.Hash, policy.Fingerprint())
+	}
+	if len(st.Names) != 1 || st.Names[0] != string(network.ProfileNone) {
+		t.Errorf("BuildNetworkState.Names = %v, want [none]", st.Names)
+	}
+}
+
+func TestMountsChanged(t *testing.T) {
+	desired := mounts.Mounts{
+		"/home/dev/.m2": {Source: "/host/.m2"},
+	}
+	applied := BuildMountState(desired)
+
+	if MountsChanged(applied, desired) {
+		t.Error("MountsChanged with identical mounts should be false")
+	}
+	if !MountsChanged(applied, nil) {
+		t.Error("MountsChanged after removing all mounts should be true")
+	}
+	if !MountsChanged(applied, mounts.Mounts{
+		"/home/dev/.m2": {Source: "/host/.m2", Readonly: true},
+	}) {
+		t.Error("MountsChanged with a flipped readonly flag should be true")
+	}
+}
+
+// TestMountsChangedEmptyAppliedState covers VMs created before mounts existed:
+// no persisted fingerprint must only count as changed when mounts are set.
+func TestMountsChangedEmptyAppliedState(t *testing.T) {
+	if MountsChanged(MountState{}, nil) {
+		t.Error("MountsChanged with no persisted state and no mounts should be false")
+	}
+	if !MountsChanged(MountState{}, mounts.Mounts{
+		"/home/dev/.m2": {Source: "/host/.m2"},
+	}) {
+		t.Error("MountsChanged with no persisted state and configured mounts should be true")
+	}
+}
+
+func TestBuildMountState(t *testing.T) {
+	desired := mounts.Mounts{
+		"/home/dev/z": {Source: "/host/z"},
+		"/home/dev/a": {Source: "/host/a"},
+	}
+	st := BuildMountState(desired)
+	if st.Hash != mounts.Fingerprint(desired) {
+		t.Errorf("BuildMountState.Hash = %q, want %q", st.Hash, mounts.Fingerprint(desired))
+	}
+	if len(st.Names) != 2 || st.Names[0] != "/home/dev/a" || st.Names[1] != "/home/dev/z" {
+		t.Errorf("BuildMountState.Names = %v, want sorted targets", st.Names)
+	}
+}

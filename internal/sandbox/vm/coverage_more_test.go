@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,9 +14,13 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -53,59 +58,57 @@ func TestListSandboxesError(t *testing.T) {
 	}
 }
 
-// TestRecordToolAgentVersionNotProvider covers the branch where the agent does
-// not implement VersionProvider: the entry is returned unchanged.
-func TestRecordToolAgentVersionNotProvider(t *testing.T) {
-	entry := agentUpgradeState{CurrentVersion: "1.0.0"}
-	got := recordToolAgentVersion(context.Background(), &fakeAgent{}, &msb.MockSandbox{}, &termio.Mock{}, entry)
-	if got.CurrentVersion != "1.0.0" {
-		t.Errorf("expected entry unchanged, got %+v", got)
+// TestDetectToolAgentVersionNotProvider covers the branch where the agent does
+// not implement VersionProvider: no version is detected.
+func TestDetectToolAgentVersionNotProvider(t *testing.T) {
+	version, ok := detectToolAgentVersion(context.Background(), &fakeAgent{}, &msb.MockSandbox{}, &termio.Mock{})
+	if ok || version != "" {
+		t.Errorf("expected no detection, got (%q, %v)", version, ok)
 	}
 }
 
-// TestRecordToolAgentVersionShellError covers the branch where detecting the
-// agent version via Shell fails: a warning is emitted and the entry is returned
-// unchanged.
-func TestRecordToolAgentVersionShellError(t *testing.T) {
+// TestDetectToolAgentVersionShellError covers the branch where detecting the
+// agent version via Shell fails: a warning is emitted and no version is
+// detected.
+func TestDetectToolAgentVersionShellError(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{ShellErr: errors.New("shell failed")}
-	entry := agentUpgradeState{CurrentVersion: "1.0.0"}
-	got := recordToolAgentVersion(context.Background(), opencodeAgent(t), sb, ui, entry)
-	if got.CurrentVersion != "1.0.0" {
-		t.Errorf("expected entry unchanged on shell error, got %+v", got)
+	version, ok := detectToolAgentVersion(context.Background(), opencodeAgent(t), sb, ui)
+	if ok || version != "" {
+		t.Errorf("expected no detection on shell error, got (%q, %v)", version, ok)
 	}
 	if !contains(joinStrings(ui.WarnCalls), "could not detect agent version") {
 		t.Errorf("expected a warning about the failed version detection, got %v", ui.WarnCalls)
 	}
 }
 
-// TestRecordToolAgentVersionParseError covers the branch where the agent
-// version output cannot be parsed: a warning is emitted and the entry is
-// returned unchanged.
-func TestRecordToolAgentVersionParseError(t *testing.T) {
+// TestDetectToolAgentVersionParseError covers the branch where the agent
+// version output cannot be parsed: a warning is emitted and no version is
+// detected.
+func TestDetectToolAgentVersionParseError(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
 			"opencode --version": msb.NewTestResult(true, 0, "not a version string", "", nil),
 		},
 	}
-	entry := agentUpgradeState{CurrentVersion: "1.0.0"}
-	got := recordToolAgentVersion(context.Background(), opencodeAgent(t), sb, ui, entry)
-	if got.CurrentVersion != "1.0.0" {
-		t.Errorf("expected entry unchanged on parse error, got %+v", got)
+	version, ok := detectToolAgentVersion(context.Background(), opencodeAgent(t), sb, ui)
+	if ok || version != "" {
+		t.Errorf("expected no detection on parse error, got (%q, %v)", version, ok)
 	}
 	if !contains(joinStrings(ui.WarnCalls), "could not parse agent version") {
 		t.Errorf("expected a warning about the parse failure, got %v", ui.WarnCalls)
 	}
 }
 
-// TestRecordImageProvenanceLoadError covers the branch where the updater state
+// TestRecordImageProvenanceLoadError covers the branch where the project state
 // cannot be read: a warning is emitted and recording is skipped.
 func TestRecordImageProvenanceLoadError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	// Make upgradeStatePath resolve to a directory so os.ReadFile fails with a
-	// non-not-exist error, forcing loadUpgradeState to return an error.
-	if err := os.MkdirAll(upgradeStatePath(), 0o700); err != nil {
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	// Make the state file resolve to a directory so os.ReadFile fails with a
+	// non-not-exist error, forcing ReadState to return an error.
+	if err := os.MkdirAll(filepath.Join(state.KeyDir(k), "state.yaml"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	fs := msb.NewTestFS(map[string][]byte{
@@ -113,23 +116,24 @@ func TestRecordImageProvenanceLoadError(t *testing.T) {
 	}, nil)
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{FSValue_: fs}
-	recordImageProvenance(context.Background(), opencodeAgent(t), sb, ui)
-	if !contains(joinStrings(ui.WarnCalls), "could not read updater state") {
-		t.Errorf("expected a warning about the unreadable updater state, got %v", ui.WarnCalls)
+	recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, ui)
+	if !contains(joinStrings(ui.WarnCalls), "read state for transaction") {
+		t.Errorf("expected a warning about the unreadable project state, got %v", ui.WarnCalls)
 	}
 }
 
 // TestRecordImageProvenancePersistError covers the branch where persisting the
-// updater state fails after a successful read: a warning is emitted.
+// project state fails after a successful read: a warning is emitted.
 func TestRecordImageProvenancePersistError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	// Persist an initial state first so the subsequent loadUpgradeState call
-	// succeeds, then make the state directory read-only so the atomic write in
-	// saveUpgradeState fails while loading still works.
-	if err := saveUpgradeState(upgradeState{}); err != nil {
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	// Persist an initial state first so the subsequent ReadState call succeeds,
+	// then make the state directory read-only so the atomic write fails while
+	// loading still works.
+	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
 		t.Fatal(err)
 	}
-	dir := configpaths.Get().UserStateDir()
+	dir := state.KeyDir(k)
 	if err := os.Chmod(dir, 0o555); err != nil {
 		t.Skipf("cannot chmod state dir: %v", err)
 	}
@@ -140,17 +144,17 @@ func TestRecordImageProvenancePersistError(t *testing.T) {
 	}, nil)
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{FSValue_: fs}
-	recordImageProvenance(context.Background(), opencodeAgent(t), sb, ui)
-	if !contains(joinStrings(ui.WarnCalls), "could not persist updater state") {
+	recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, ui)
+	if !contains(joinStrings(ui.WarnCalls), "could not persist project state") {
 		t.Errorf("expected a warning about the failed persist, got %v", ui.WarnCalls)
 	}
 }
 
-func TestFindWorktreeDirNonObjectEntry(t *testing.T) {
-	// A numeric entry cannot be unmarshalled into either the string or object
-	// form, so it is skipped while the object entry is matched.
-	if _, ok := findWorktreeDir(`[123, {"directory": "/w/foo"}]`, "foo"); !ok {
-		t.Error("expected to skip the numeric entry and match the object entry")
+func TestFindWorktreeDirSkipsNonMatching(t *testing.T) {
+	// A non-matching entry is skipped so a later one can match.
+	dir, ok := findWorktreeDir([]string{"/w/bar", "/w/foo"}, "foo")
+	if !ok || dir != "/w/foo" {
+		t.Errorf("findWorktreeDir = %q, %v; want /w/foo, true", dir, ok)
 	}
 }
 
@@ -178,15 +182,22 @@ func (s *errOnCmdSandbox) Shell(
 func TestResolveTargetCreateShellError(t *testing.T) {
 	ui := &termio.Mock{}
 	provider := mustWorktreeProvider(t)
-	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"})
+	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{})
 	base := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(): msb.NewTestResult(true, 0, `[]`, "", nil),
+			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0, `[]`, "", nil),
 		},
 		ShellCalls: &[]string{},
 	}
 	sb := &errOnCmdSandbox{Sandbox: base, cmd: createCmd}
-	_, err := ResolveTarget(context.Background(), opencodeAgent(t), sb, options.WorktreeSpec{Name: "feat-x"}, ui)
+	_, err := ResolveTarget(
+		context.Background(),
+		opencodeAgent(t),
+		sb,
+		options.WorktreeSpec{Name: "feat-x"},
+		mounts.WorkspaceMountPath,
+		ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when the worktree create shell command fails")
 	}
@@ -283,26 +294,12 @@ func TestStopOrKillProjectVMRejectsUnsafeStatuses(t *testing.T) {
 	}
 }
 
-// TestSaveUpgradeStateRenameError covers the atomic-rename failure branch where
-// the destination already exists as a directory.
-func TestSaveUpgradeStateRenameError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	if err := os.MkdirAll(upgradeStatePath(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := saveUpgradeState(upgradeState{}); err == nil {
-		t.Fatal("expected error when the rename destination is a directory")
-	}
-}
-
-// TestCurrentAgentSourceLoadError covers the branch where the updater state
+// TestCurrentAgentSourceLoadError covers the branch where the project state
 // cannot be read: an empty source is returned.
 func TestCurrentAgentSourceLoadError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	if err := os.MkdirAll(upgradeStatePath(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if got := currentAgentSource(opencodeAgent(t)); got != "" {
+	withFailingStateDir(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	if got := currentAgentSource(k); got != "" {
 		t.Errorf("currentAgentSource() = %q, want empty on load error", got)
 	}
 }
@@ -316,7 +313,7 @@ func TestEnsureDaemonContextCancelled(t *testing.T) {
 
 	provider := opencodeProvider(t)
 	healthChecks := 0
-	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == provider.DaemonHealthCmd() {
 			healthChecks++
 			if healthChecks == 3 {
@@ -326,31 +323,32 @@ func TestEnsureDaemonContextCancelled(t *testing.T) {
 		}
 		return "", 0, nil
 	})
-	t.Cleanup(func() { SetDaemonShellFunc(orig) })
+	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
 
-	t.Cleanup(func() { daemonPollInterval = 2 * time.Second })
+	origPoll := daemonPollInterval
+	t.Cleanup(func() { daemonPollInterval = origPoll })
 	daemonPollInterval = time.Millisecond
 
-	err := ensureDaemon(ctx, opencodeAgent(t), false, nil, &termio.Mock{})
+	err := ensureDaemon(ctx, opencodeAgent(t), false, false, &msb.MockSandbox{}, &termio.Mock{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }
 
-// TestDefaultDaemonShellFuncSuccess covers the default daemonShellFunc success
+// TestDefaultDaemonHealthFuncSuccess covers the default daemonHealthFunc success
 // path: it forwards stdout and the exit code from sb.Shell.
-func TestDefaultDaemonShellFuncSuccess(t *testing.T) {
-	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
+func TestDefaultDaemonHealthFuncSuccess(t *testing.T) {
+	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return "", 0, nil
 	})
-	t.Cleanup(func() { SetDaemonShellFunc(orig) })
+	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
 
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
 			"cmd": msb.NewTestResult(true, 7, "hello", "", nil),
 		},
 	}
-	// orig is the default daemonShellFunc closure; invoking it directly
+	// orig is the default daemonHealthFunc closure; invoking it directly
 	// exercises the production success path.
 	stdout, code, err := orig(context.Background(), sb, "cmd")
 	if err != nil {
@@ -377,14 +375,15 @@ func TestCreateProjectVMNetworkError(t *testing.T) {
 		client,
 		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:latest",
+		testVMKey().Slug,
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{
 			Memory:  "1G",
-			Network: network.Policy{Profile: network.Profile("bogus-profile")},
+			Network: network.Policy{Profiles: []network.Profile{network.Profile("bogus-profile")}},
 		},
-		nil,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -404,11 +403,12 @@ func TestCreateProjectVMCreateError(t *testing.T) {
 		client,
 		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:latest",
+		testVMKey().Slug,
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{Memory: "1G"},
-		nil,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -416,13 +416,11 @@ func TestCreateProjectVMCreateError(t *testing.T) {
 	}
 }
 
-// TestAgentLatestVersionDefaultClosureNoChecker covers the default
-// agentLatestVersion closure branch for an agent that is not an UpgradeChecker:
-// it returns an empty version without error.
-func TestAgentLatestVersionDefaultClosureNoChecker(t *testing.T) {
-	orig := agentLatestVersion
-	defer func() { agentLatestVersion = orig }()
-	got, err := orig(context.Background(), &fakeAgent{})
+// TestAgentLatestVersionDefaultNoChecker covers the default agentLatestVersion
+// branch for an agent that is not an UpgradeChecker: it returns an empty version
+// without error.
+func TestAgentLatestVersionDefaultNoChecker(t *testing.T) {
+	got, err := agentLatestVersion(context.Background(), &fakeAgent{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -438,7 +436,12 @@ func TestPrepareSandboxUnknownAgent(t *testing.T) {
 	t.Chdir(tmpRepo)
 	ui := termio.NewTestMock(t)
 
-	if _, err := PrepareSandbox(context.Background(), options.RunOptions{Agent: "no-such-agent"}, &ui); err == nil {
+	if _, err := PrepareSandbox(
+		context.Background(),
+		options.RunOptions{Agent: "no-such-agent"},
+		false,
+		&ui,
+	); err == nil {
 		t.Fatal("expected error for an unknown agent")
 	}
 }
@@ -457,15 +460,16 @@ func TestCreateProjectVMServeOnlyAndNetwork(t *testing.T) {
 		client,
 		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:latest",
+		testVMKey().Slug,
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{
 			Memory:    "1G",
 			ServeOnly: true,
-			Network:   network.Policy{Profile: network.ProfilePublic},
+			Network:   network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
 		},
-		nil,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -500,7 +504,8 @@ func TestCreateProjectVMServeOnlyPublishesExactPort(t *testing.T) {
 		client,
 		"agents-sandbox-vm-test",
 		testVMKey(),
-		"agents-sandbox/runner-test:latest",
+		testVMKey().Slug,
+		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
 		"test-home-vol",
 		t.TempDir(),
 		options.RunOptions{
@@ -508,7 +513,7 @@ func TestCreateProjectVMServeOnlyPublishesExactPort(t *testing.T) {
 			ServeOnly:     true,
 			ServeHostPort: 4097,
 		},
-		nil,
+		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -530,18 +535,18 @@ func TestCreateProjectVMServeOnlyPublishesExactPort(t *testing.T) {
 	}
 }
 
-// TestDefaultDaemonShellFuncErrorBranch covers the error branch of the default
-// daemonShellFunc closure: a failed sb.Shell yields exit code -1.
-func TestDefaultDaemonShellFuncErrorBranch(t *testing.T) {
-	orig := SetDaemonShellFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
+// TestDefaultDaemonHealthFuncErrorBranch covers the error branch of the default
+// daemonHealthFunc closure: a failed sb.Shell yields exit code -1.
+func TestDefaultDaemonHealthFuncErrorBranch(t *testing.T) {
+	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return "", 0, nil
 	})
-	t.Cleanup(func() { SetDaemonShellFunc(orig) })
+	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
 
 	sb := &msb.MockSandbox{ShellErr: errors.New("shell failed")}
 	stdout, code, err := orig(context.Background(), sb, "cmd")
 	if err == nil {
-		t.Fatal("expected error from the default daemonShellFunc")
+		t.Fatal("expected error from the default daemonHealthFunc")
 	}
 	if code != -1 {
 		t.Errorf("exit code = %d, want -1", code)

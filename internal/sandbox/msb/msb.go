@@ -8,17 +8,17 @@ import (
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
 // Get is the factory clients can use to get an Client.
 // Tests override Get to inject mocks.
-//
-//nolint:gochecknoglobals // test hook for the otherwise unmockable SDK
 var Get = func() Client {
 	return &realMsbClient{}
 }
 
-var skipRuntimeInstall bool //nolint:gochecknoglobals // process-wide runtime decision
+var skipRuntimeInstall bool
 
 // IsRealClient reports whether production SDK calls are active.
 func IsRealClient() bool {
@@ -30,25 +30,59 @@ func IsRealClient() bool {
 // replacement-capable installer after runtime preparation has made a decision.
 func SkipRuntimeInstall() { skipRuntimeInstall = true }
 
+// resolveRuntime/ensureRuntime wrap the SDK setup calls so tests can observe the
+// RuntimeConfig passed to them. Both name the private home explicitly so
+// resolution does not depend on whether ApplyHome already set MSB_HOME.
+var (
+	resolveRuntime = msbSdk.ResolveRuntime
+	ensureRuntime  = msbSdk.EnsureRuntime
+)
+
+// runtimeConfig names agents-sandbox's private runtime home explicitly. MSB_HOME
+// still governs the FFI cache and all non-setup SDK operations.
+func runtimeConfig() msbSdk.RuntimeConfig {
+	return msbSdk.RuntimeConfig{Home: configpaths.MSBHome()}
+}
+
+// Seams over the SDK calls realMsbClient delegates to, so its unit tests inject
+// fakes and never load the native library or read the developer's real runtime.
+// The real client is exercised by the msb-tagged tests and by the running
+// launcher, not here.
+var (
+	getSandbox        = msbSdk.GetSandbox
+	createSandbox     = msbSdk.CreateSandbox
+	listSandboxesWith = msbSdk.ListSandboxesWith
+	getVolume         = msbSdk.GetVolume
+	createVolume      = msbSdk.CreateVolume
+	listVolumes       = msbSdk.ListVolumes
+	removeVolume      = msbSdk.RemoveVolume
+	imageGet          = msbSdk.Image.Get
+	imageList         = msbSdk.Image.List
+	imageRemove       = msbSdk.Image.Remove
+	imageLoad         = msbSdk.Image.Load
+	realImageInspect  = msbSdk.Image.Inspect
+	imagePrune        = msbSdk.Image.Prune
+	storageUsage      = msbSdk.StorageUsage
+	storagePrune      = msbSdk.PruneStorage
+)
+
 // ValidateInstalled checks the SDK-managed runtime without downloading it.
 func ValidateInstalled(_ context.Context) error {
-	_, err := msbSdk.ResolveRuntime(
-		msbSdk.RuntimeConfig{ //nolint:exhaustruct_v5 // empty config uses environment/default paths
-		},
-	)
+	_, err := resolveRuntime(runtimeConfig())
 	return err
 }
 
 // Client is the public abstraction over the microsandbox SDK used by the
-// sandbox package. It covers discovery, creation, and deletion of sandboxes,
-// volumes, and images, plus runtime setup. Production code uses realMsbClient;
-// tests construct MockMsbClient directly.
+// sandbox package. It covers discovery and creation of sandboxes and deletion
+// of volumes and images, plus runtime setup. Sandboxes are removed through the
+// identity-aware handle/live operations (SandboxHandle.Remove, Sandbox.Destroy)
+// rather than by bare name, so this interface has no RemoveSandbox. Production
+// code uses realMsbClient; tests construct MockMsbClient directly.
 type Client interface {
 	EnsureInstalled(ctx context.Context) error
 	GetSandbox(ctx context.Context, name string) (SandboxHandle, error)
 	CreateSandbox(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)
 	ListSandboxes(ctx context.Context, labels map[string]string) ([]SandboxHandle, error)
-	RemoveSandbox(ctx context.Context, name string) error
 	GetVolume(ctx context.Context, name string) (VolumeHandle, error)
 	CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error)
 	ListVolumes(ctx context.Context) ([]VolumeHandle, error)
@@ -59,11 +93,15 @@ type Client interface {
 	ImageRemove(ctx context.Context, ref string, force bool) error
 	ImageLoad(ctx context.Context, ref string, r io.Reader) error
 	ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
+	ImageInspectDetail(ctx context.Context, ref string) (*ImageDetail, error)
+	StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error)
+	PruneStorage(ctx context.Context, options msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error)
 }
 
 // SandboxHandle is the subset of *msb.SandboxHandle used by the launcher.
 type SandboxHandle interface {
 	Name() string
+	ID() string
 	Status() msbSdk.SandboxStatus
 	UpdatedAt() time.Time
 	CreatedAt() time.Time
@@ -75,8 +113,16 @@ type SandboxHandle interface {
 	Stop(ctx context.Context, opts ...msbSdk.StopOption) error
 	Kill(ctx context.Context, opts ...msbSdk.KillOption) error
 	Remove(ctx context.Context) error
+	Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error
 	Config() (*msbSdk.SandboxConfig, error)
+	// ConfigMounts returns the mounts the persisted config records, keyed by
+	// guest path. Config() cannot supply them: the SDK's
+	// SandboxConfig.UnmarshalJSON drops the persisted mounts, so
+	// cfg.Volumes is always empty on a read-back
+	// (specs/live-mount-readback.md).
+	ConfigMounts() (map[string]msbSdk.MountConfig, error)
 	Modify(ctx context.Context, opts msbSdk.ModifyOptions) (*msbSdk.SandboxModificationPlan, error)
+	Compact(ctx context.Context, opts msbSdk.DiskCompactionOptions) (*msbSdk.DiskCompactionResult, error)
 }
 
 // Sandbox is the subset of *msb.Sandbox used by the launcher.
@@ -85,10 +131,25 @@ type Sandbox interface {
 	Shell(ctx context.Context, command string, opts ...msbSdk.ExecOption) (ShellResult, error)
 	Exec(ctx context.Context, command string, args []string, opts ...msbSdk.ExecOption) (ShellResult, error)
 	ShellStream(ctx context.Context, command string, opts ...msbSdk.ExecOption) (StreamHandle, error)
+	ExecDetached(ctx context.Context, cmd string, args []string, opts ...msbSdk.JobExecOption) (Job, error)
+	GetJob(ctx context.Context, id string) (Job, error)
+	ListJobs(ctx context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error)
 	AttachWith(ctx context.Context, command string, args []string, opts ...msbSdk.AttachOption) (int, error)
 	Attach(ctx context.Context, command string, args ...string) (int, error)
 	Detach(ctx context.Context) error
 	Stop(ctx context.Context, opts ...msbSdk.StopOption) error
+	Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error
+	Close() error
+}
+
+// Job is the subset of *msb.Job used by the launcher for runtime-owned
+// detached processes (dockerd, the agent serve daemon). Closing a job detaches
+// the handle; it never terminates the process.
+type Job interface {
+	ID() string
+	Inspect(ctx context.Context) (*msbSdk.JobInfo, error)
+	Kill(ctx context.Context) error
+	Logs(ctx context.Context, options msbSdk.JobLogOptions) ([]msbSdk.JobLogEntry, error)
 	Close() error
 }
 
@@ -112,6 +173,8 @@ const (
 )
 
 // StreamEvent is one event from a streaming exec session.
+//
+//exhaustruct:ignore
 type StreamEvent struct {
 	Kind     StreamEventKind
 	Data     []byte
@@ -146,6 +209,22 @@ type ImageHandle interface {
 	LastUsedAt() time.Time
 	SizeBytes() *int64
 	CreatedAt() time.Time
+}
+
+// ImageDetail is the inspected detail of a cached image: its manifest identity
+// plus the parsed OCI config and layer list. It mirrors the useful fields of
+// microsandbox's ImageDetail without exposing the SDK handle.
+//
+//exhaustruct:ignore
+type ImageDetail struct {
+	Reference      string
+	ManifestDigest string
+	Architecture   string
+	OS             string
+	SizeBytes      *int64
+	CreatedAt      time.Time
+	Config         msbSdk.ImageConfig
+	Layers         []msbSdk.ImageLayer
 }
 
 // SandboxFS is the subset of the sandbox filesystem operations used by the launcher.
@@ -214,6 +293,36 @@ func IsNotFound(err error) bool {
 	return msbSdk.IsKind(err, msbSdk.ErrSandboxNotFound)
 }
 
+// IsVolumeNotFound reports whether err is the microsandbox "volume does not
+// exist" error, unwrapping any wrapped errors. Absence must be distinguished
+// from a transient lookup failure: callers that recover or recreate a missing
+// resource treat any other error as a failure rather than as absence.
+func IsVolumeNotFound(err error) bool {
+	return msbSdk.IsKind(err, msbSdk.ErrVolumeNotFound)
+}
+
+// IsVolumeAlreadyExists reports whether err is the microsandbox "volume with
+// this name already exists" error, unwrapping any wrapped errors.
+func IsVolumeAlreadyExists(err error) bool {
+	return msbSdk.IsKind(err, msbSdk.ErrVolumeAlreadyExists)
+}
+
+// IsReplaced reports whether err indicates that a handle's name now refers to a
+// different persisted sandbox identity (the handle was replaced), unwrapping any
+// wrapped errors. Operate on live identities and treat a replaced handle as a
+// no-op rather than acting on the stranger that now shares the name.
+func IsReplaced(err error) bool {
+	return msbSdk.IsKind(err, msbSdk.ErrSandboxReplaced)
+}
+
+// IsUnsupportedOperation reports whether err indicates the selected backend or
+// native library cannot observe storage (cloud backends and older native
+// libraries), unwrapping any wrapped errors. Callers degrade the affected
+// categories to unknown rather than reporting zero.
+func IsUnsupportedOperation(err error) bool {
+	return msbSdk.IsKind(err, msbSdk.ErrUnsupportedOperation)
+}
+
 // realMsbClient delegates to the actual microsandbox SDK.
 type realMsbClient struct{}
 
@@ -221,16 +330,12 @@ func (realMsbClient) EnsureInstalled(ctx context.Context) error {
 	if skipRuntimeInstall {
 		return nil
 	}
-	_, err := msbSdk.EnsureRuntime(
-		ctx,
-		msbSdk.RuntimeConfig{},  //nolint:exhaustruct_v5 // empty config uses environment/default paths
-		msbSdk.InstallOptions{}, //nolint:exhaustruct_v5 // zero options install the SDK-pinned runtime
-	)
+	_, err := ensureRuntime(ctx, runtimeConfig(), msbSdk.InstallOptions{})
 	return err
 }
 
 func (realMsbClient) GetSandbox(ctx context.Context, name string) (SandboxHandle, error) {
-	h, err := msbSdk.GetSandbox(ctx, name)
+	h, err := getSandbox(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +343,7 @@ func (realMsbClient) GetSandbox(ctx context.Context, name string) (SandboxHandle
 }
 
 func (realMsbClient) CreateSandbox(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error) {
-	sb, err := msbSdk.CreateSandbox(ctx, name, opts...)
+	sb, err := createSandbox(ctx, name, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +363,7 @@ func (realMsbClient) ListSandboxes(ctx context.Context, labels map[string]string
 		if cursor != nil {
 			opts = append(opts, msbSdk.WithListCursor(*cursor))
 		}
-		page, err = msbSdk.ListSandboxesWith(ctx, opts...)
+		page, err = listSandboxesWith(ctx, opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -273,12 +378,8 @@ func (realMsbClient) ListSandboxes(ctx context.Context, labels map[string]string
 	return result, nil
 }
 
-func (realMsbClient) RemoveSandbox(ctx context.Context, name string) error {
-	return msbSdk.RemoveSandbox(ctx, name)
-}
-
 func (realMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandle, error) {
-	v, err := msbSdk.GetVolume(ctx, name)
+	v, err := getVolume(ctx, name)
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +387,7 @@ func (realMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandle, 
 }
 
 func (realMsbClient) CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error) {
-	vol, err := msbSdk.CreateVolume(ctx, name, opts...)
+	vol, err := createVolume(ctx, name, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -294,7 +395,7 @@ func (realMsbClient) CreateVolume(ctx context.Context, name string, opts ...msbS
 }
 
 func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
-	handles, err := msbSdk.ListVolumes(ctx)
+	handles, err := listVolumes(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -306,16 +407,16 @@ func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
 }
 
 func (realMsbClient) RemoveVolume(ctx context.Context, name string) error {
-	return msbSdk.RemoveVolume(ctx, name)
+	return removeVolume(ctx, name)
 }
 
 func (realMsbClient) ImageGet(ctx context.Context, ref string) error {
-	_, err := msbSdk.Image.Get(ctx, ref)
+	_, err := imageGet(ctx, ref)
 	return err
 }
 
 func (realMsbClient) ImageList(ctx context.Context) ([]ImageHandle, error) {
-	handles, err := msbSdk.Image.List(ctx)
+	handles, err := imageList(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -327,11 +428,18 @@ func (realMsbClient) ImageList(ctx context.Context) ([]ImageHandle, error) {
 }
 
 func (realMsbClient) ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, error) {
-	return msbSdk.Image.Prune(ctx)
+	return imagePrune(ctx)
+}
+
+func (realMsbClient) PruneStorage(
+	ctx context.Context,
+	options msbSdk.StoragePruneOptions,
+) (*msbSdk.StoragePruneReport, error) {
+	return storagePrune(ctx, options)
 }
 
 func (realMsbClient) ImageRemove(ctx context.Context, ref string, force bool) error {
-	return msbSdk.Image.Remove(ctx, ref, force)
+	return imageRemove(ctx, ref, force)
 }
 
 func (realMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) (err error) {
@@ -353,18 +461,42 @@ func (realMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) (er
 		return fmt.Errorf("syncing image archive: %w", err)
 	}
 
-	if _, err := msbSdk.Image.Load(ctx, tmp.Name(), ref); err != nil {
+	if _, err := imageLoad(ctx, tmp.Name(), ref); err != nil {
 		return fmt.Errorf("loading image into microsandbox: %w", err)
 	}
 	return nil
 }
 
 func (realMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error) {
-	detail, err := msbSdk.Image.Inspect(ctx, ref)
+	detail, err := realImageInspect(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
 	return detail.Config, nil
+}
+
+func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*ImageDetail, error) {
+	detail, err := realImageInspect(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	out := &ImageDetail{Layers: detail.Layers}
+	if detail.ImageHandle != nil {
+		out.Reference = detail.Reference()
+		out.ManifestDigest = detail.ManifestDigest()
+		out.Architecture = detail.Architecture()
+		out.OS = detail.OS()
+		out.SizeBytes = detail.SizeBytes()
+		out.CreatedAt = detail.CreatedAt()
+	}
+	if detail.Config != nil {
+		out.Config = *detail.Config
+	}
+	return out, nil
+}
+
+func (realMsbClient) StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error) {
+	return storageUsage(ctx)
 }
 
 // realVolumeHandle adapts *msbSdk.Volume or *msbSdk.VolumeHandle to VolumeHandle.
@@ -464,6 +596,10 @@ func (w realSandboxHandle) Name() string {
 	return w.handle.Name()
 }
 
+func (w realSandboxHandle) ID() string {
+	return w.handle.ID()
+}
+
 func (w realSandboxHandle) Status() msbSdk.SandboxStatus {
 	return w.handle.Status()
 }
@@ -524,8 +660,16 @@ func (w realSandboxHandle) Remove(ctx context.Context) error {
 	return w.handle.Remove(ctx)
 }
 
+func (w realSandboxHandle) Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error {
+	return w.handle.Destroy(ctx, opts...)
+}
+
 func (w realSandboxHandle) Config() (*msbSdk.SandboxConfig, error) {
 	return w.handle.Config()
+}
+
+func (w realSandboxHandle) ConfigMounts() (map[string]msbSdk.MountConfig, error) {
+	return ParseConfigMounts(w.handle.ConfigJSON())
 }
 
 func (w realSandboxHandle) Modify(
@@ -533,6 +677,13 @@ func (w realSandboxHandle) Modify(
 	opts msbSdk.ModifyOptions,
 ) (*msbSdk.SandboxModificationPlan, error) {
 	return w.handle.Modify(ctx, opts)
+}
+
+func (w realSandboxHandle) Compact(
+	ctx context.Context,
+	opts msbSdk.DiskCompactionOptions,
+) (*msbSdk.DiskCompactionResult, error) {
+	return w.handle.Compact(ctx, opts)
 }
 
 // realSandbox adapts *msbSdk.Sandbox to Sandbox.
@@ -569,6 +720,83 @@ func (s realSandbox) ShellStream(
 	return &realStreamHandle{handle: handle}, nil
 }
 
+func (s realSandbox) ExecDetached(
+	ctx context.Context,
+	cmd string,
+	args []string,
+	opts ...msbSdk.JobExecOption,
+) (Job, error) {
+	job, err := realSandboxExecDetached(s.sandbox, ctx, cmd, args, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return realJob{job: job}, nil
+}
+
+func (s realSandbox) GetJob(ctx context.Context, id string) (Job, error) {
+	job, err := realSandboxGetJob(s.sandbox, ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return realJob{job: job}, nil
+}
+
+// ListJobs returns every job known to the sandbox, following pagination.
+func (s realSandbox) ListJobs(ctx context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error) {
+	var result []msbSdk.JobInfo
+	var cursor *string
+	for {
+		pageOpts := opts
+		if cursor != nil {
+			pageOpts = append(append([]msbSdk.JobListOption{}, opts...), msbSdk.WithJobCursor(*cursor))
+		}
+		page, err := realSandboxListJobs(s.sandbox, ctx, pageOpts...)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, page.Items...)
+		cursor = page.NextCursor
+		// The SDK drops an empty cursor (its listJobs only sends "cursor" when
+		// non-empty), so a pointer to "" means no more pages; treating it as a
+		// live cursor would re-request the first page forever.
+		if cursor == nil || *cursor == "" {
+			return result, nil
+		}
+	}
+}
+
+// realJob adapts *msbSdk.Job to Job. Each delegation target is a package-level
+// seam (a method expression) so the thin wrapper is unit-testable without a
+// live VM.
+type realJob struct {
+	job *msbSdk.Job
+}
+
+var (
+	realSandboxExecDetached = (*msbSdk.Sandbox).ExecDetached
+	realSandboxGetJob       = (*msbSdk.Sandbox).GetJob
+	realSandboxListJobs     = (*msbSdk.Sandbox).ListJobs
+	realJobID               = (*msbSdk.Job).ID
+	realJobInspect          = (*msbSdk.Job).Inspect
+	realJobKill             = (*msbSdk.Job).Kill
+	realJobLogs             = (*msbSdk.Job).Logs
+	realJobClose            = (*msbSdk.Job).Close
+)
+
+func (j realJob) ID() string { return realJobID(j.job) }
+
+func (j realJob) Inspect(ctx context.Context) (*msbSdk.JobInfo, error) {
+	return realJobInspect(j.job, ctx)
+}
+
+func (j realJob) Kill(ctx context.Context) error { return realJobKill(j.job, ctx) }
+
+func (j realJob) Logs(ctx context.Context, options msbSdk.JobLogOptions) ([]msbSdk.JobLogEntry, error) {
+	return realJobLogs(j.job, ctx, options)
+}
+
+func (j realJob) Close() error { return realJobClose(j.job) }
+
 // realStreamHandle adapts *msbSdk.ExecHandle to StreamHandle.
 type realStreamHandle struct {
 	handle *msbSdk.ExecHandle
@@ -602,16 +830,12 @@ func (h *realStreamHandle) Recv(ctx context.Context) (StreamEvent, error) {
 func mapExecEvent(ev msbSdk.ExecEvent) (StreamEvent, bool, error) {
 	switch ev.Kind {
 	case msbSdk.ExecEventStdout:
-		//nolint:exhaustruct_v5 // stdout events carry no ExitCode
 		return StreamEvent{Kind: StreamEventStdout, Data: ev.Data}, true, nil
 	case msbSdk.ExecEventStderr:
-		//nolint:exhaustruct_v5 // stderr events carry no ExitCode
 		return StreamEvent{Kind: StreamEventStderr, Data: ev.Data}, true, nil
 	case msbSdk.ExecEventExited:
-		//nolint:exhaustruct_v5 // exited events carry no Data
 		return StreamEvent{Kind: StreamEventExited, ExitCode: ev.ExitCode}, true, nil
 	case msbSdk.ExecEventFailed:
-		//nolint:exhaustruct_v5 // failed events carry neither Data nor ExitCode
 		return StreamEvent{Kind: StreamEventFailed}, true, nil
 	case msbSdk.ExecEventDone:
 		return StreamEvent{}, false, io.EOF
@@ -626,8 +850,20 @@ func mapExecEvent(ev msbSdk.ExecEvent) (StreamEvent, bool, error) {
 
 func (h *realStreamHandle) Close() error { return h.handle.Close() }
 
+// The realSandbox lifecycle/passthrough methods delegate to the SDK sandbox.
+// Each delegation target is a package-level seam (a method expression) so the
+// thin wrapper is unit-testable without a live VM.
+var (
+	realSandboxAttach     = (*msbSdk.Sandbox).Attach
+	realSandboxAttachWith = (*msbSdk.Sandbox).AttachWith
+	realSandboxDetach     = (*msbSdk.Sandbox).Detach
+	realSandboxStop       = (*msbSdk.Sandbox).Stop
+	realSandboxDestroy    = (*msbSdk.Sandbox).Destroy
+	realSandboxClose      = (*msbSdk.Sandbox).Close
+)
+
 func (s realSandbox) Attach(ctx context.Context, command string, args ...string) (int, error) {
-	return s.sandbox.Attach(ctx, command, args...)
+	return realSandboxAttach(s.sandbox, ctx, command, args...)
 }
 
 func (s realSandbox) AttachWith(
@@ -636,17 +872,21 @@ func (s realSandbox) AttachWith(
 	args []string,
 	opts ...msbSdk.AttachOption,
 ) (int, error) {
-	return s.sandbox.AttachWith(ctx, command, args, opts...)
+	return realSandboxAttachWith(s.sandbox, ctx, command, args, opts...)
 }
 
 func (s realSandbox) Detach(ctx context.Context) error {
-	return s.sandbox.Detach(ctx)
+	return realSandboxDetach(s.sandbox, ctx)
 }
 
 func (s realSandbox) Stop(ctx context.Context, opts ...msbSdk.StopOption) error {
-	return s.sandbox.Stop(ctx, opts...)
+	return realSandboxStop(s.sandbox, ctx, opts...)
+}
+
+func (s realSandbox) Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error {
+	return realSandboxDestroy(s.sandbox, ctx, opts...)
 }
 
 func (s realSandbox) Close() error {
-	return s.sandbox.Close()
+	return realSandboxClose(s.sandbox)
 }

@@ -2,6 +2,8 @@ package pruning
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -15,226 +17,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
-
-type slugDigestTest struct {
-	name       string
-	input      string
-	wantSlug   string
-	wantDigest string
-	wantAgent  string
-}
-
-func runSlugDigestTests(t *testing.T, tests []slugDigestTest) {
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			info := naming.ArtifactFor(tt.input)
-			if info.Slug != tt.wantSlug {
-				t.Errorf("naming.ArtifactFor(%q) slug = %q, want %q", tt.input, info.Slug, tt.wantSlug)
-			}
-			if info.Digest != tt.wantDigest {
-				t.Errorf("naming.ArtifactFor(%q) digest = %q, want %q", tt.input, info.Digest, tt.wantDigest)
-			}
-			if info.Agent != tt.wantAgent {
-				t.Errorf("naming.ArtifactFor(%q) agent = %q, want %q", tt.input, info.Agent, tt.wantAgent)
-			}
-		})
-	}
-}
-
-func TestArtifactFor_ImageReferences(t *testing.T) {
-	tests := []slugDigestTest{
-		{
-			name:       "runner with digest tag",
-			input:      "agents-sandbox/runner-myproject:xYz1234AbCdEfGh",
-			wantSlug:   "myproject",
-			wantDigest: "xYz1234AbCdEfGh",
-		},
-		{
-			name:       "runner with latest tag",
-			input:      "agents-sandbox/runner-myproject:latest",
-			wantSlug:   "myproject",
-			wantDigest: "",
-		},
-		{
-			name:       "runner with empty tag",
-			input:      "agents-sandbox/runner-myproject:",
-			wantSlug:   "myproject",
-			wantDigest: "",
-		},
-		{
-			name:       "runner no tag at all",
-			input:      "agents-sandbox/runner-myproject",
-			wantSlug:   "myproject",
-			wantDigest: "",
-		},
-		{
-			name:       "runner with complex slug",
-			input:      "agents-sandbox/runner-my-project-name:xYz1234AbCdEfGh",
-			wantSlug:   "my-project-name",
-			wantDigest: "xYz1234AbCdEfGh",
-		},
-		{
-			name:       "runner with multiple colons in tag (uses LastIndex)",
-			input:      "agents-sandbox/runner-myproject:sha256:abc123",
-			wantSlug:   "myproject:sha256",
-			wantDigest: "abc123",
-		},
-		{
-			name:       "base image excluded-like prefix still parsed",
-			input:      "agents-sandbox/runner-base",
-			wantSlug:   "base",
-			wantDigest: "",
-		},
-		{name: "base image with tag", input: "agents-sandbox/runner-base:latest", wantSlug: "base", wantDigest: ""},
-	}
-	runSlugDigestTests(t, tests)
-}
-
-func TestArtifactFor_VMNames(t *testing.T) {
-	tests := []slugDigestTest{
-		{
-			name:       "simple vm name without hash suffix",
-			input:      "agents-sandbox-vm-projectname-main",
-			wantSlug:   "projectname-main",
-			wantDigest: "",
-		},
-		{
-			name:       "slug with dash and branch with dash",
-			input:      "agents-sandbox-vm-my-project-feature-branch",
-			wantSlug:   "my-project-feature-branch",
-			wantDigest: "",
-		},
-		{
-			name:       "single word slug with single word branch",
-			input:      "agents-sandbox-vm-myproject-main",
-			wantSlug:   "myproject-main",
-			wantDigest: "",
-		},
-	}
-	runSlugDigestTests(t, tests)
-}
-
-func TestArtifactFor_HomeVolumes(t *testing.T) {
-	tests := []slugDigestTest{
-		{
-			name:       "home volume with slug and digest",
-			input:      "agents-sandbox-home-myproject-aB3cDe4fGhIjKl-xYz1234AbCdEfGh",
-			wantSlug:   "myproject-aB3cDe4fGhIjKl",
-			wantDigest: "xYz1234AbCdEfGh",
-		},
-		{
-			name:       "home volume slug with dashes",
-			input:      "agents-sandbox-home-my-project-aB3cDe4fGhIjKl",
-			wantSlug:   "my-project",
-			wantDigest: "aB3cDe4fGhIjKl",
-		},
-		{
-			name:       "home volume single part slug",
-			input:      "agents-sandbox-home-myproject-xYz1234",
-			wantSlug:   "myproject",
-			wantDigest: "xYz1234",
-		},
-		{
-			name:       "home volume only two parts (slug-digest)",
-			input:      "agents-sandbox-home-proj-abc123",
-			wantSlug:   "proj",
-			wantDigest: "abc123",
-		},
-	}
-	runSlugDigestTests(t, tests)
-}
-
-func TestArtifactFor_TaskSandboxes(t *testing.T) {
-	tests := []slugDigestTest{
-		{
-			name:       "task sandbox",
-			input:      "agents-sandbox-task-prefill-proj-1719432000",
-			wantSlug:   "prefill-proj",
-			wantDigest: "",
-		},
-		{
-			name:       "task sandbox single slug part before dash",
-			input:      "agents-sandbox-task-fill-proj",
-			wantSlug:   "fill",
-			wantDigest: "",
-		},
-	}
-	runSlugDigestTests(t, tests)
-}
-
-func TestArtifactFor_VMWithHashSuffix(t *testing.T) {
-	tests := []slugDigestTest{
-		{
-			name:       "vm with 14-char hash suffix (no branch)",
-			input:      "agents-sandbox-vm-agents-sandbox-1mjusbm3wikhb0",
-			wantSlug:   "agents-sandbox-1mjusbm3wikhb0",
-			wantDigest: "",
-			wantAgent:  "",
-		},
-		{
-			name:       "vm with 14-char hash and branch",
-			input:      "agents-sandbox-vm-agents-sandbox-1mjusbm3wikhb0-main",
-			wantSlug:   "agents-sandbox-1mjusbm3wikhb0",
-			wantDigest: "",
-			wantAgent:  "main",
-		},
-		{
-			name:       "vm with 14-char hash, slug with dash, and branch",
-			input:      "agents-sandbox-vm-my-project-1mjusbm3wikhb0-develop",
-			wantSlug:   "my-project-1mjusbm3wikhb0",
-			wantDigest: "",
-			wantAgent:  "develop",
-		},
-		{
-			name:       "user's case: VM without branch matches image slug",
-			input:      "agents-sandbox-vm-agents-sandbox-1mjusbm3wikhb0",
-			wantSlug:   "agents-sandbox-1mjusbm3wikhb0",
-			wantDigest: "",
-			wantAgent:  "",
-		},
-	}
-	runSlugDigestTests(t, tests)
-}
-
-func TestArtifactFor_UnrecognizedPrefixes(t *testing.T) {
-	tests := []slugDigestTest{
-		{name: "random string", input: "some-random-name", wantSlug: "", wantDigest: ""},
-		{name: "empty string", input: "", wantSlug: "", wantDigest: ""},
-		{name: "similar but wrong prefix", input: "agents-sandbox-other-myslug", wantSlug: "", wantDigest: ""},
-		{name: "just the prefix no remainder for vm", input: "agents-sandbox-vm-", wantSlug: "", wantDigest: ""},
-		{
-			name:       "just the prefix home with single part after",
-			input:      "agents-sandbox-home-",
-			wantSlug:   "",
-			wantDigest: "",
-		},
-	}
-	runSlugDigestTests(t, tests)
-}
-
-func TestArtifactFor_VMOnlyTwoParts(t *testing.T) {
-	// VM with only two parts after prefix (e.g. name-branch, but we have name-branch).
-	// "agents-sandbox-vm-proj-main" → parts=["proj","main"] → slug = "proj".
-	tests := []struct {
-		name     string
-		input    string
-		wantSlug string
-	}{
-		{
-			name:     "two parts vm",
-			input:    "agents-sandbox-vm-proj-main",
-			wantSlug: "proj-main",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			slug := naming.ArtifactFor(tt.input).Slug
-			if slug != tt.wantSlug {
-				t.Errorf("naming.ArtifactFor(%q) slug = %q, want %q", tt.input, slug, tt.wantSlug)
-			}
-		})
-	}
-}
 
 func TestIsStoppedStatus(t *testing.T) {
 	tests := []struct {
@@ -261,25 +43,6 @@ func TestIsStoppedStatus(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestArtifactFor_ComplexSlugNames(t *testing.T) {
-	tests := []slugDigestTest{
-		{
-			name:       "home with long slug containing hashes",
-			input:      "agents-sandbox-home-abcdef-gH1234AB5678CD-eF9012gH3456iJ",
-			wantSlug:   "abcdef-gH1234AB5678CD",
-			wantDigest: "eF9012gH3456iJ",
-		},
-		{
-			name:       "vm with two-part name",
-			input:      "agents-sandbox-vm-acme-corp",
-			wantSlug:   "acme-corp",
-			wantDigest: "",
-		},
-	}
-
-	runSlugDigestTests(t, tests)
 }
 
 func TestParseImageTag(t *testing.T) {
@@ -455,13 +218,14 @@ func TestBuildPruneStateKeysByAgent(t *testing.T) {
 
 func TestPruneAggregateParity(t *testing.T) {
 	old := time.Now().Add(-15 * 24 * time.Hour)
+	staleHandle := &msb.MockSandboxHandle{
+		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
+		Status_:    msbSdk.SandboxStatusStopped,
+		UpdatedAt_: old,
+	}
 	client := &msb.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{
-				Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
-				Status_:    msbSdk.SandboxStatusStopped,
-				UpdatedAt_: old,
-			},
+			staleHandle,
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-live-1mjusbm3wikhb0",
 				Status_:    msbSdk.SandboxStatusRunning,
@@ -490,17 +254,74 @@ func TestPruneAggregateParity(t *testing.T) {
 	cp.WithMockConfigPaths(t)
 
 	testUI := termio.NewTestMock(t)
-	if err := Prune(context.Background(), 7*24*time.Hour, false, &testUI); err != nil {
+	if _, err := Prune(context.Background(), 7*24*time.Hour, false, &testUI); err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
-	if got := len(client.RemovedSandboxes); got != 1 {
-		t.Errorf("RemovedSandboxes = %d, want 1", got)
+	if !staleHandle.DidRemove() {
+		t.Error("expected the stale project VM to be removed through its handle")
 	}
 	if got := len(client.RemovedVolumes); got != 1 {
 		t.Errorf("RemovedVolumes = %d, want 1", got)
 	}
 	if got := len(client.RemovedImages); got != 2 {
 		t.Errorf("RemovedImages = %d, want 2 (stale proj image + live surplus)", got)
+	}
+}
+
+// TestPruneRunsStoragePhase proves the aggregate prune runs the runtime-memory
+// phase under the same age threshold and folds its result into the report.
+func TestPruneRunsStoragePhase(t *testing.T) {
+	physical := uint64(4096)
+	client := &msb.MockMsbClient{
+		StoragePruneFn: func(context.Context, msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error) {
+			return &msbSdk.StoragePruneReport{
+				FilesRemoved:           3,
+				LogicalBytesRemoved:    12288,
+				PhysicalBytesReclaimed: &physical,
+			}, nil
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	cp.WithMockConfigPaths(t)
+
+	report, err := Prune(context.Background(), 7*24*time.Hour, false, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if len(client.StoragePruneCalls) != 1 {
+		t.Fatalf("StoragePruneCalls = %v, want 1", client.StoragePruneCalls)
+	}
+	if want := uint64((7 * 24 * time.Hour).Seconds()); client.StoragePruneCalls[0].OlderThanSeconds != want {
+		t.Errorf("OlderThanSeconds = %d, want %d", client.StoragePruneCalls[0].OlderThanSeconds, want)
+	}
+	if report.Storage.FilesRemoved != 3 || report.Storage.LogicalBytesRemoved != 12288 {
+		t.Errorf("Storage = %+v, want files 3 logical 12288", report.Storage)
+	}
+	if report.Storage.PhysicalBytesReclaimed == nil || *report.Storage.PhysicalBytesReclaimed != physical {
+		t.Errorf("PhysicalBytesReclaimed = %v, want %d", report.Storage.PhysicalBytesReclaimed, physical)
+	}
+}
+
+// TestPruneJoinsStorageError proves a storage-prune failure is warned and
+// joined into the aggregate error instead of aborting the run.
+func TestPruneJoinsStorageError(t *testing.T) {
+	client := &msb.MockMsbClient{
+		StoragePruneFn: func(context.Context, msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error) {
+			return nil, errors.New("storage boom")
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	cp.WithMockConfigPaths(t)
+
+	ui := &termio.Mock{}
+	_, err := Prune(context.Background(), 7*24*time.Hour, false, ui)
+	if err == nil || !strings.Contains(err.Error(), "storage boom") {
+		t.Fatalf("Prune error = %v, want the storage error joined", err)
+	}
+	if !slices.ContainsFunc(ui.WarnCalls, func(s string) bool { return strings.Contains(s, "storage boom") }) {
+		t.Errorf("expected a warning mentioning the failure, got %v", ui.WarnCalls)
 	}
 }
 
@@ -512,16 +333,185 @@ func TestPrune_BuildStateError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	testUI := termio.NewTestMock(t)
-	err := Prune(context.Background(), 7*24*time.Hour, false, &testUI)
+	_, err := Prune(context.Background(), 7*24*time.Hour, false, &testUI)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected buildPruneState error, got %v", err)
 	}
 }
 
-func TestPrintPruneSummary_NilReport(t *testing.T) {
+func TestPruneSurfacesSubPrunerError(t *testing.T) {
+	client := &msb.MockMsbClient{
+		ListVolumesFn: func(context.Context) ([]msb.VolumeHandle, error) {
+			return nil, errBoom
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	cp.WithMockConfigPaths(t)
+	testUI := termio.NewTestMock(t)
+	_, err := Prune(context.Background(), 7*24*time.Hour, false, &testUI)
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("expected the volume sub-pruner error to surface, got %v", err)
+	}
+}
+
+func TestRenderPruneSummary_NilReport(t *testing.T) {
 	ui := &termio.Mock{}
-	printPruneSummary(ui, nil, false)
+	RenderPruneSummary(ui, nil, false)
 	if len(ui.OutCalls) != 0 {
-		t.Errorf("printPruneSummary with nil report must not emit output, got %v", ui.OutCalls)
+		t.Errorf("RenderPruneSummary with nil report must not emit output, got %v", ui.OutCalls)
+	}
+}
+
+// TestRenderPruneSummaryReportsStorageAndImages pins the extra report lines for
+// the runtime-memory phase and the native image-prune report.
+func TestRenderPruneSummaryReportsStorageAndImages(t *testing.T) {
+	physical := uint64(4096)
+	ui := &termio.Mock{}
+	report := &StaleReport{
+		PrunedSandboxes:     1,
+		SkippedImagesInUse:  4,
+		ImageBytesReclaimed: &physical,
+		Storage: StorageReport{
+			FilesRemoved:           3,
+			LogicalBytesRemoved:    12288,
+			PhysicalBytesReclaimed: &physical,
+		},
+	}
+	RenderPruneSummary(ui, report, false)
+	joined := strings.Join(ui.OutCalls, "\n")
+	if !strings.Contains(joined, "image data: 4 skipped (in use), 4 KiB reclaimed") {
+		t.Errorf("missing image-data line: %v", ui.OutCalls)
+	}
+	if !strings.Contains(joined, "runtime memory: 3 file(s), 12 KiB logical, 4 KiB reclaimed") {
+		t.Errorf("missing runtime-memory line: %v", ui.OutCalls)
+	}
+}
+
+// TestRenderPruneSummaryUnknownBytesRenderDash pins that unknown byte counts
+// render as "-", never "0".
+func TestRenderPruneSummaryUnknownBytesRenderDash(t *testing.T) {
+	ui := &termio.Mock{}
+	report := &StaleReport{
+		SkippedImagesInUse: 2,
+		Storage:            StorageReport{FilesRemoved: 1, LogicalBytesRemoved: 100},
+	}
+	RenderPruneSummary(ui, report, false)
+	joined := strings.Join(ui.OutCalls, "\n")
+	if strings.Count(joined, "- reclaimed") != 2 {
+		t.Errorf("unknown bytes must render as '- reclaimed', got: %v", ui.OutCalls)
+	}
+}
+
+// TestRenderPruneSummaryLineBoundaries pins when the image-data and
+// runtime-memory lines appear: for a single skipped image, for known image bytes
+// with no skips, and for each storage figure on its own, not only when all hold.
+func TestRenderPruneSummaryLineBoundaries(t *testing.T) {
+	one := uint64(1)
+	cases := []struct {
+		name        string
+		report      *StaleReport
+		wantImage   bool
+		wantStorage bool
+	}{
+		{"image skipped count one", &StaleReport{SkippedImagesInUse: 1}, true, false},
+		{"image bytes without skips", &StaleReport{ImageBytesReclaimed: &one}, true, false},
+		{"storage files only", &StaleReport{Storage: StorageReport{FilesRemoved: 1}}, false, true},
+		{"storage logical bytes only", &StaleReport{Storage: StorageReport{LogicalBytesRemoved: 1}}, false, true},
+		{
+			"storage physical bytes only",
+			&StaleReport{Storage: StorageReport{PhysicalBytesReclaimed: &one}},
+			false,
+			true,
+		},
+		{"nothing to report", &StaleReport{}, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ui := &termio.Mock{}
+			RenderPruneSummary(ui, tc.report, false)
+			gotImage := slices.ContainsFunc(
+				ui.OutCalls,
+				func(s string) bool { return strings.Contains(s, "image data:") },
+			)
+			gotStorage := slices.ContainsFunc(
+				ui.OutCalls,
+				func(s string) bool { return strings.Contains(s, "runtime memory:") },
+			)
+			if gotImage != tc.wantImage {
+				t.Errorf("image data line present = %v, want %v; out=%v", gotImage, tc.wantImage, ui.OutCalls)
+			}
+			if gotStorage != tc.wantStorage {
+				t.Errorf("runtime memory line present = %v, want %v; out=%v", gotStorage, tc.wantStorage, ui.OutCalls)
+			}
+		})
+	}
+}
+
+// TestRenderPruneSummaryOmitsEmptyStorageLine pins that a phase that reclaimed
+// nothing and reported no bytes stays off the output.
+func TestRenderPruneSummaryOmitsEmptyStorageLine(t *testing.T) {
+	ui := &termio.Mock{}
+	RenderPruneSummary(ui, &StaleReport{PrunedSandboxes: 1}, false)
+	if len(ui.OutCalls) != 1 {
+		t.Errorf("expected only the counts line, got: %v", ui.OutCalls)
+	}
+}
+
+func TestRenderPruneSummaryVerboseDetails(t *testing.T) {
+	ui := &termio.Mock{}
+	report := &StaleReport{
+		PrunedSandboxes: 1,
+		Details: []StaleEntry{
+			{Type: StaleTypeVM, Name: "agents-sandbox-vm-proj-1mjusbm3wikhb0", Slug: "proj-1mjusbm3wikhb0"},
+		},
+	}
+	RenderPruneSummary(ui, report, false)
+	if len(ui.VerboseCalls) != 1 {
+		t.Fatalf("expected one verbose detail line, got %v", ui.VerboseCalls)
+	}
+	if !strings.Contains(ui.VerboseCalls[0], "agents-sandbox-vm-proj-1mjusbm3wikhb0") {
+		t.Errorf("verbose detail missing entry name: %q", ui.VerboseCalls[0])
+	}
+}
+
+// TestPruneRetainsCurrentRunKeyImage pins the current-run exemption end to end:
+// a run passes the key it is about to use, and that key's image survives even
+// though its stale project VM is pruned in the same invocation.
+func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
+	cp.WithMockConfigPaths(t)
+	const slug = "proj-1mjusbm3wikhb0"
+	key := state.Key{Slug: slug, Agent: "opencode"}
+	ref := "agents-sandbox/runner-" + slug + ":opencode-latest"
+	nativePruned := false
+	client := &msb.MockMsbClient{
+		Sandboxes: []msb.SandboxHandle{
+			&msb.MockSandboxHandle{
+				Name_:      "agents-sandbox-vm-" + slug + "-opencode",
+				Status_:    msbSdk.SandboxStatusStopped,
+				UpdatedAt_: time.Now().Add(-48 * time.Hour),
+				Image_:     ref,
+			},
+		},
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{Reference_: ref, CreatedAt_: time.Now().Add(-48 * time.Hour)},
+		},
+		ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+			nativePruned = true
+			return &msbSdk.ImagePruneReport{}, nil
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	testUI := termio.NewTestMock(t)
+
+	if _, err := Prune(context.Background(), time.Hour, false, &testUI, key); err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if len(client.RemovedImages) != 0 {
+		t.Errorf("RemovedImages = %v, want none (the current run's key is retained)", client.RemovedImages)
+	}
+	if nativePruned {
+		t.Error("the native image-data prune must be deferred while the run protects a key")
 	}
 }

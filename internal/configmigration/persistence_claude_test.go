@@ -17,7 +17,7 @@ import (
 func claudeSettingsPath(t *testing.T) string {
 	t.Helper()
 	a, _ := agent.Lookup("claude-code")
-	return filepath.Join(configpaths.Get().UserAgentConfigDir(a), "settings-migrated.json")
+	return filepath.Join(configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), "settings-migrated.json")
 }
 
 func newClaudePlan(t *testing.T, files ...File) *Plan {
@@ -371,7 +371,7 @@ func TestHasManagedConfigFindsClaudeSnippetWithoutCredential(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a, _ := agent.Lookup("claude-code")
 	spec := a.(agent.MigrationSpecProvider).MigrationSpec()
-	testutil.WriteFile(t, configpaths.Get().UserAgentConfigDir(a), spec.ManagedSnippet, "{}")
+	testutil.WriteFile(t, configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), spec.ManagedSnippet, "{}")
 	if !hasManagedConfig(a, spec) {
 		t.Error("hasManagedConfig = false with a managed snippet and no managed credential")
 	}

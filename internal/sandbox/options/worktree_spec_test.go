@@ -32,6 +32,16 @@ func TestResolveWorktreeSpecEmpty(t *testing.T) {
 	}
 }
 
+func TestResolveWorktreeSpecTrimsSurroundingWhitespace(t *testing.T) {
+	got, err := ResolveWorktreeSpec("  bugfix-hello-world  ")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.Name != "bugfix-hello-world" {
+		t.Errorf("Name = %q, want %q", got.Name, "bugfix-hello-world")
+	}
+}
+
 func TestResolveWorktreeSpecRejectsNonSlugName(t *testing.T) {
 	for _, in := range []string{"feature/foo", "Feature bar", "a--b", "-lead", "trail-", ":main"} {
 		if _, err := ResolveWorktreeSpec(in); err == nil {

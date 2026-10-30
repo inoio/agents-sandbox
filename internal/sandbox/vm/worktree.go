@@ -2,10 +2,8 @@ package vm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
@@ -15,11 +13,6 @@ import (
 )
 
 const defaultTargetDir = mounts.WorkspaceMountPath
-
-// resolveTargetNoBranch returns the default worktree directory when no branch is requested.
-func resolveTargetNoBranch() string {
-	return defaultTargetDir
-}
 
 // validateWorktreeBase confirms the base ref resolves among existing local refs
 // inside the VM. It never fetches: the ref must already be present locally.
@@ -34,93 +27,134 @@ func validateWorktreeBase(ctx context.Context, sb msb.Sandbox, dir, base string)
 	return nil
 }
 
-// findWorktreeDir scans the daemon's worktree list response for a directory
-// whose base name matches the given slug. The list may be an array of
-// directory path strings (current daemon) or an array of objects each carrying
-// a directory field (newer daemon). ok is false when no match is found.
-func findWorktreeDir(listStdout string, slug string) (string, bool) {
-	if strings.TrimSpace(listStdout) == "" {
-		return "", false
-	}
-	var entries []json.RawMessage
-	if err := json.Unmarshal([]byte(listStdout), &entries); err != nil {
-		return "", false
-	}
-	for _, entry := range entries {
-		var directory string
-		switch {
-		case len(entry) > 0 && entry[0] == '"':
-			var path string
-			if json.Unmarshal(entry, &path) != nil {
-				continue
-			}
-			directory = path
-		default:
-			var info struct {
-				Directory string `json:"directory"`
-			}
-			if json.Unmarshal(entry, &info) != nil {
-				continue
-			}
-			directory = info.Directory
-		}
-		if directory != "" && filepath.Base(directory) == slug {
-			return directory, true
+// findWorktreeDir returns the first directory whose base name matches slug.
+func findWorktreeDir(dirs []string, slug string) (string, bool) {
+	for _, dir := range dirs {
+		if filepath.Base(dir) == slug {
+			return dir, true
 		}
 	}
 	return "", false
 }
 
-// ResolveTarget returns the --dir target for attach. An empty spec → /workspace.
+// resolveWorktreeProject resolves the launch directory to the daemon project the
+// worktree routes are scoped to. An agent whose routes are global has no resolve
+// command and returns the zero project without shelling out.
+func resolveWorktreeProject(
+	ctx context.Context, sb msb.Sandbox, provider agent.WorktreeProvider, target string,
+) (agent.WorktreeProject, error) {
+	command := provider.WorktreeResolveCmd(target)
+	if command == "" {
+		return agent.WorktreeProject{}, nil
+	}
+	out, err := sb.Shell(ctx, command)
+	if err != nil {
+		return agent.WorktreeProject{}, fmt.Errorf("resolve project for %q: %w", target, err)
+	}
+	if !out.Success() {
+		return agent.WorktreeProject{}, fmt.Errorf(
+			"resolve project for %q failed (exit %d): %s", target, out.ExitCode(), out.Stderr(),
+		)
+	}
+	project, ok := provider.WorktreeParseProject(out.Stdout())
+	if !ok {
+		return agent.WorktreeProject{}, fmt.Errorf("resolve project for %q returned an unexpected payload", target)
+	}
+	return project, nil
+}
+
+// worktreeDetachedNote is the parenthetical appended to the create message for
+// agents whose daemon leaves a new worktree on a detached HEAD (v2), naming the
+// recovery; it is empty for agents that keep a branch (v1). It is deliberately
+// not used on reuse: a reused worktree's checkout state is unknown, so claiming
+// one there would be wrong as soon as the user runs the suggested `git switch`.
+func worktreeDetachedNote(a agent.Agent) string {
+	reporter, ok := agent.AsDetachedWorktreeReporter(a)
+	if !ok || !reporter.WorktreeCreatesDetachedHead() {
+		return ""
+	}
+	return " (detached HEAD; run `git switch -c <branch>` to keep your commits)"
+}
+
+// ResolveTarget returns the --dir target for attach. An empty spec → defaultDir.
 // With a name → reuse an existing worktree via the provider's HTTP API when one
 // already exists for that name, otherwise create a new one, and return its
-// directory path. When a base is present on an existing (reused) worktree the
-// base is silently ignored with a warning. When a base is present on a fresh
-// create the base is validated (no fetch) and the create body carries a
-// `git reset --hard <base>` startCommand. An agent without a worktree provider
-// falls back to the default directory.
+// directory path. The daemon project is resolved first and threaded through the
+// list and create calls. When a base is present on an existing (reused) worktree
+// the base is silently ignored with a warning. When a base is present on a fresh
+// create the base is validated against the launch directory (no fetch) before
+// the create, so an unresolvable base aborts without creating a worktree. An
+// agent without a worktree provider falls back to defaultDir. defaultDir is the
+// launch directory (the guest CWD, e.g. `/workspace/<sub>`).
 func ResolveTarget(
 	ctx context.Context,
 	a agent.Agent,
 	sb msb.Sandbox,
 	spec options.WorktreeSpec,
+	defaultDir string,
 	ui termio.UI,
 ) (string, error) {
 	provider, hasWorktree := agent.AsWorktreeProvider(a)
 	if !hasWorktree {
-		return resolveTargetNoBranch(), nil
+		return defaultDir, nil
 	}
 
 	if spec.Name == "" {
-		return resolveTargetNoBranch(), nil
+		return defaultDir, nil
+	}
+
+	project, err := resolveWorktreeProject(ctx, sb, provider, defaultDir)
+	if err != nil {
+		return "", fmt.Errorf("worktree %q: %w", spec.Name, err)
 	}
 
 	ui.Verbosef("checking for an existing worktree %q", spec.Name)
-	listOut, err := sb.Shell(ctx, provider.WorktreeListCmd())
+	listOut, err := sb.Shell(ctx, provider.WorktreeListCmd(project))
 	if err != nil {
 		return "", fmt.Errorf("list worktrees for %q: %w", spec.Name, err)
 	}
-	if listOut.Success() {
-		if dir, ok := findWorktreeDir(listOut.Stdout(), spec.Name); ok {
-			if spec.Base != "" {
-				ui.Warnf("worktree %q already exists; ignoring base %q", spec.Name, spec.Base)
-			}
-			ui.Verbosef("reusing existing worktree %q: %s", spec.Name, dir)
-			return dir, nil
+	// A failed list must abort rather than fall through to create: silently
+	// treating it as "no worktrees" would abandon an existing worktree for a new
+	// server-suffixed one and hide a daemon route or field rename.
+	if !listOut.Success() {
+		return "", fmt.Errorf(
+			"list worktrees for %q failed (exit %d): %s",
+			spec.Name,
+			listOut.ExitCode(),
+			listOut.Stderr(),
+		)
+	}
+	dirs, listOK := provider.WorktreeParseList(listOut.Stdout(), project)
+	if !listOK {
+		return "", fmt.Errorf("list worktrees for %q returned an unexpected payload", spec.Name)
+	}
+	if dir, ok := findWorktreeDir(dirs, spec.Name); ok {
+		if spec.Base != "" {
+			ui.Warnf("worktree %q already exists; ignoring base %q", spec.Name, spec.Base)
+		}
+		ui.Infof("reusing existing worktree %q: %s", spec.Name, dir)
+		return dir, nil
+	}
+
+	if spec.Base != "" {
+		if err = validateWorktreeBase(ctx, sb, defaultDir, spec.Base); err != nil {
+			return "", fmt.Errorf("worktree %q: %w", spec.Name, err)
 		}
 	}
 
 	ui.Verbosef("creating worktree %q", spec.Name)
-	createSpec := agent.WorktreeSpec{ //nolint:exhaustruct_v5 // Target is unused by the create command
-		Name: spec.Name,
-		Base: spec.Base,
-	}
-	out, err := sb.Shell(ctx, provider.WorktreeCreateCmd(createSpec))
+	createSpec := agent.WorktreeSpec{Name: spec.Name, Base: spec.Base}
+	out, err := sb.Shell(ctx, provider.WorktreeCreateCmd(createSpec, project))
 	if err != nil {
 		return "", fmt.Errorf("create worktree %q: %w", spec.Name, err)
 	}
 	if !out.Success() {
-		return "", fmt.Errorf("create worktree %q failed (exit %d): %s", spec.Name, out.ExitCode(), out.Stderr())
+		return "", fmt.Errorf(
+			"create worktree %q failed (exit %d): %s (a timed-out request may still have created it)",
+			spec.Name,
+			out.ExitCode(),
+			out.Stderr(),
+		)
 	}
 
 	dir, ok := provider.WorktreeParseDir(out.Stdout())
@@ -128,12 +162,9 @@ func ResolveTarget(
 		return "", fmt.Errorf("parse worktree response for %q", spec.Name)
 	}
 
-	if spec.Base != "" {
-		if err := validateWorktreeBase(ctx, sb, dir, spec.Base); err != nil {
-			return "", fmt.Errorf("worktree %q: %w", spec.Name, err)
-		}
+	ui.Infof("created worktree %q: %s%s", spec.Name, dir, worktreeDetachedNote(a))
+	if filepath.Base(dir) != spec.Name {
+		ui.Warnf("requested worktree name %q was already taken; the daemon created %s", spec.Name, dir)
 	}
-
-	ui.Verbosef("worktree for %q: %s", spec.Name, dir)
 	return dir, nil
 }

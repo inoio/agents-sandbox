@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -13,7 +14,17 @@ import (
 func TestSetUpSandboxRejectsUnknownAgent(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	opts := options.RunOptions{Agent: "does-not-exist"}
-	if _, err := setUpSandbox(context.Background(), nil, opts, nil, &ui, false, vmBootConnected); err == nil {
+	if _, err := setUpSandbox(
+		context.Background(),
+		testVMKey(),
+		nil,
+		opts,
+		nil,
+		&ui,
+		false,
+		vmBootConnected,
+		mounts.WorkspaceMountPath,
+	); err == nil {
 		t.Fatal("expected an error for an unknown --agent in setUpSandbox")
 	}
 }

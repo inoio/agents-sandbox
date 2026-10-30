@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -47,11 +51,47 @@ func TestExecuteTree(t *testing.T) {
 // launcherconfig.NewResolver fail, so execute must surface that error.
 func TestExecuteRootPreRunResolverError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv("OPENCODE_SANDBOX_CPUS", "999")
+	t.Setenv("AGENTS_SANDBOX_CPUS", "999")
 	ui := &termio.Mock{}
 
 	if err := execute([]string{"version"}, ui); err == nil {
 		t.Fatal("expected an error from an invalid resolver config")
+	}
+}
+
+// TestExecuteWarnsOnLegacyEnvPrefix verifies that a deprecated
+// OPENCODE_SANDBOX_ variable still resolves and surfaces a warning once.
+func TestExecuteWarnsOnLegacyEnvPrefix(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_CPUS", "4")
+	ui := &termio.Mock{}
+
+	if err := execute([]string{"version"}, ui); err != nil {
+		t.Fatalf("execute version: %v", err)
+	}
+	found := slices.ContainsFunc(ui.WarnCalls, func(w string) bool {
+		return strings.Contains(w, "OPENCODE_SANDBOX_CPUS")
+	})
+	if !found {
+		t.Errorf("expected deprecation warning mentioning OPENCODE_SANDBOX_CPUS, got %v", ui.WarnCalls)
+	}
+}
+
+// TestExecuteWarnsOnDockerDindAlias verifies the deprecated dind setting
+// surfaces a one-time docker-alias warning.
+func TestExecuteWarnsOnDockerDindAlias(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_DIND", "true")
+	ui := &termio.Mock{}
+
+	if err := execute([]string{"version"}, ui); err != nil {
+		t.Fatalf("execute version: %v", err)
+	}
+	found := slices.ContainsFunc(ui.WarnCalls, func(w string) bool {
+		return strings.Contains(w, "AGENTS_SANDBOX_DIND")
+	})
+	if !found {
+		t.Errorf("expected docker deprecation warning mentioning AGENTS_SANDBOX_DIND, got %v", ui.WarnCalls)
 	}
 }
 
@@ -70,6 +110,33 @@ func TestAutoPruneOutToVerboseRedirect(t *testing.T) {
 		if ui.VerboseCalls[i] != want[i] {
 			t.Errorf("VerboseCalls[%d] = %q; want %q", i, ui.VerboseCalls[i], want[i])
 		}
+	}
+}
+
+// TestRunInvokesStartupAutoPrune pins that a run reaches the startup prune and
+// passes its dry-run state through, so a real run still reclaims stale
+// sandboxes while a preview only reports what it would do.
+func TestRunInvokesStartupAutoPrune(t *testing.T) {
+	initTestProjectDir(t)
+
+	var called, gotDryRun bool
+	original := autoPrune
+	autoPrune = func(_ context.Context, _ time.Duration, dryRun bool, _ termio.UI, _ ...state.Key) {
+		called = true
+		gotDryRun = dryRun
+	}
+	t.Cleanup(func() { autoPrune = original })
+
+	mock := &sandboxmsb.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run")
+	if err := root.Execute(); err != nil {
+		t.Fatalf("run --dry-run: %v", err)
+	}
+	if !called {
+		t.Fatal("run --dry-run did not invoke the startup auto-prune")
+	}
+	if !gotDryRun {
+		t.Error("autoPrune dryRun = false, want true for --dry-run")
 	}
 }
 
@@ -149,7 +216,7 @@ func TestMainHelperProcessExitError(t *testing.T) {
 	if os.Getenv("GO_WANT_MAIN_HELPER") != "1" {
 		t.Skip("helper process only")
 	}
-	initTestRepo(t)
+	initTestProjectDir(t)
 	mock := &sandboxmsb.MockMsbClient{}
 	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachCode: 5}, "run")
 	os.Args = []string{"agents-sandbox", "run"}

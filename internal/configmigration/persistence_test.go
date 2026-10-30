@@ -160,22 +160,23 @@ func TestBuildStoresEffectiveNetworkPolicy(t *testing.T) {
 		t.Fatal("opencode agent not registered")
 	}
 	policy := network.Policy{
-		Profile:    network.ProfilePrivate,
+		Profiles:   []network.Profile{network.ProfilePrivate},
 		EgressDeny: []string{"example.com"},
 	}
 	plan, err := Build(a, t.TempDir(), policy)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if plan.policy.Profile != policy.Profile || !slices.Equal(plan.policy.EgressDeny, policy.EgressDeny) {
+	if !slices.Equal(plan.policy.Profiles, policy.Profiles) ||
+		!slices.Equal(plan.policy.EgressDeny, policy.EgressDeny) {
 		t.Errorf("plan.policy = %+v, want %+v", plan.policy, policy)
 	}
 }
 
 func TestBuildReportsNetworkDenyConflicts(t *testing.T) {
 	tests := map[string]network.Policy{
-		"deny all":       {Profile: network.ProfilePrivate, EgressDeny: []string{"*"}},
-		"deny by suffix": {Profile: network.ProfilePrivate, EgressDeny: []string{".openrouter.ai"}},
+		"deny all":       {Profiles: []network.Profile{network.ProfilePrivate}, EgressDeny: []string{"*"}},
+		"deny by suffix": {Profiles: []network.Profile{network.ProfilePrivate}, EgressDeny: []string{".openrouter.ai"}},
 	}
 	for name, policy := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -1307,7 +1308,7 @@ func TestGuideSkipsLoginHandoffWhenManagedConfigPresent(t *testing.T) {
 	}
 	testutil.WriteFile(t, authDir, "auth.json", `{"github-copilot":{"type":"oauth","access":"a","refresh":"r"}}`)
 	a, _ := agent.Lookup("opencode")
-	testutil.WriteFile(t, configpaths.Get().UserAgentConfigDir(a), "auth.json", "{}")
+	testutil.WriteFile(t, configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), "auth.json", "{}")
 
 	ui := termio.NewTestMock(t)
 	ui.IsInteractiveResult = true

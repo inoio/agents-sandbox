@@ -2,9 +2,15 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
+
+	"github.com/Masterminds/semver/v3"
 )
 
 // overrideLatestURL swaps opencodeGitHubLatestURL for the duration of a test. It returns
@@ -16,7 +22,10 @@ func overrideLatestURL(url string) func() {
 }
 
 func TestLatestVersionReadsGitHubRelease(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	var accept, userAgent string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		accept = r.Header.Get("Accept")
+		userAgent = r.Header.Get("User-Agent")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"tag_name":"v1.2.3"}`))
 	}))
@@ -31,6 +40,12 @@ func TestLatestVersionReadsGitHubRelease(t *testing.T) {
 	}
 	if got != "1.2.3" {
 		t.Errorf("LatestVersion() = %q, want %q", got, "1.2.3")
+	}
+	if accept != "application/json" {
+		t.Errorf("Accept header = %q, want application/json", accept)
+	}
+	if userAgent != "agents-sandbox" {
+		t.Errorf("User-Agent header = %q, want agents-sandbox", userAgent)
 	}
 }
 
@@ -56,8 +71,19 @@ func TestLatestVersionPropagatesRequestError(t *testing.T) {
 	restore := overrideLatestURL("http://127.0.0.1:1")
 	t.Cleanup(restore)
 
-	if _, err := latestOpenCodeVersion(context.Background()); err == nil {
-		t.Fatal("expected error for unreachable endpoint")
+	_, err := latestOpenCodeVersion(context.Background())
+	if _, ok := errors.AsType[*url.Error](err); !ok {
+		t.Fatalf("error %v does not wrap the transport cause", err)
+	}
+}
+
+func TestLatestVersionBuildRequestError(t *testing.T) {
+	restore := overrideLatestURL("://bad")
+	t.Cleanup(restore)
+
+	_, err := latestOpenCodeVersion(context.Background())
+	if _, ok := errors.AsType[*url.Error](err); !ok {
+		t.Fatalf("error %v does not wrap the request-building cause", err)
 	}
 }
 
@@ -69,8 +95,9 @@ func TestLatestVersionNon200(t *testing.T) {
 	restore := overrideLatestURL(srv.URL)
 	t.Cleanup(restore)
 
-	if _, err := latestOpenCodeVersion(context.Background()); err == nil {
-		t.Fatal("expected error on non-200 response")
+	_, err := latestOpenCodeVersion(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "unexpected status") {
+		t.Fatalf("error = %v, want an unexpected-status error", err)
 	}
 }
 
@@ -82,8 +109,9 @@ func TestLatestVersionDecodeError(t *testing.T) {
 	restore := overrideLatestURL(srv.URL)
 	t.Cleanup(restore)
 
-	if _, err := latestOpenCodeVersion(context.Background()); err == nil {
-		t.Fatal("expected error on undecodable response")
+	_, err := latestOpenCodeVersion(context.Background())
+	if _, ok := errors.AsType[*json.SyntaxError](err); !ok {
+		t.Fatalf("error %v does not wrap the *json.SyntaxError cause", err)
 	}
 }
 
@@ -114,10 +142,13 @@ func TestNewerThan(t *testing.T) {
 }
 
 func TestNewerThanInvalidVersion(t *testing.T) {
-	if _, err := newerOpenCodeThan("not-a-version", "1.0.0"); err == nil {
-		t.Fatal("expected error for invalid first version")
-	}
-	if _, err := newerOpenCodeThan("1.0.0", "not-a-version"); err == nil {
-		t.Fatal("expected error for invalid second version")
+	for _, pair := range [][2]string{{"not-a-version", "1.0.0"}, {"1.0.0", "not-a-version"}} {
+		newer, err := newerOpenCodeThan(pair[0], pair[1])
+		if newer {
+			t.Errorf("newerOpenCodeThan(%q, %q) = true on a parse error, want false", pair[0], pair[1])
+		}
+		if !errors.Is(err, semver.ErrInvalidSemVer) {
+			t.Fatalf("error %v does not wrap semver.ErrInvalidSemVer", err)
+		}
 	}
 }

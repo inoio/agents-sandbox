@@ -3,8 +3,11 @@ package session
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
+
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -757,5 +760,49 @@ func TestPendingQuestionSessionIDsShellError(t *testing.T) {
 		"curl -sf http://127.0.0.1:4096/question",
 	); err == nil {
 		t.Error("pendingQuestionSessionIDs() with Shell error should return error")
+	}
+}
+
+// TestReapOnLastClient_SandboxReplacedOrGoneStopsWaiting covers the terminal
+// branch of the quiescence wait: when the held sandbox was replaced or removed,
+// the session-status poll fails closed and the reaper returns immediately
+// instead of spinning forever on a sandbox that no longer exists.
+func TestReapOnLastClient_SandboxReplacedOrGoneStopsWaiting(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"replaced", &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"}},
+		{"gone", &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ui := &termio.Mock{}
+			sb := &msb.MockSandbox{Name_: "test-vm", ShellErr: tc.err}
+
+			err := reapOnLastClient(
+				context.Background(),
+				opencodeAgent(t),
+				state.Key{Slug: "replacedproj-" + tc.name, Agent: "opencode"},
+				sb,
+				options.ReapPolicy{},
+				ui,
+			)
+			if err != nil {
+				t.Fatalf("expected nil error on replaced/gone sandbox, got %v", err)
+			}
+			found := false
+			for _, v := range ui.VerboseCalls {
+				if strings.Contains(v, "replaced or removed") {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected a verbose stop message, got %v", ui.VerboseCalls)
+			}
+		})
 	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -10,14 +11,18 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
-func initTestRepo(t *testing.T) {
+// initTestProjectDir makes a fresh temp dir the working directory for the test.
+// Commands derive their project slug from the working directory via go-git;
+// outside a repo that falls back to the folder name, which is all these CLI
+// tests need. A real repo would only add slow `git` subprocesses.
+func initTestProjectDir(t *testing.T) {
 	t.Helper()
-	dir := testutil.InitRepo(t)
-	t.Chdir(dir)
+	t.Chdir(t.TempDir())
 }
 func notFoundErr() error {
 	return &msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}
@@ -138,7 +143,7 @@ func TestStopKillLifecycle(t *testing.T) {
 	} {
 		for _, flags := range stopKillFlags {
 			t.Run(tc.name+" "+strings.Join(flags, " "), func(t *testing.T) {
-				initTestRepo(t)
+				initTestProjectDir(t)
 				ui := runStopKill(t, append([]string{tc.cmd}, flags...), func(m *sandboxmsb.MockMsbClient) {
 					m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusRunning})
 				})
@@ -157,7 +162,7 @@ func TestStopKillLifecycle(t *testing.T) {
 		{cmdKill, "Force-killing project VM", "killed project VM: "},
 	} {
 		t.Run(tc.cmd+" with --force", func(t *testing.T) {
-			initTestRepo(t)
+			initTestProjectDir(t)
 			ui := runStopKill(t, []string{tc.cmd, "--force"}, func(m *sandboxmsb.MockMsbClient) {
 				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusRunning})
 			})
@@ -167,7 +172,7 @@ func TestStopKillLifecycle(t *testing.T) {
 		})
 
 		t.Run(tc.cmd+" with -f", func(t *testing.T) {
-			initTestRepo(t)
+			initTestProjectDir(t)
 			ui := runStopKill(t, []string{tc.cmd, "-f"}, func(m *sandboxmsb.MockMsbClient) {
 				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusRunning})
 			})
@@ -178,7 +183,7 @@ func TestStopKillLifecycle(t *testing.T) {
 
 	for _, cmd := range []string{cmdStop, cmdKill} {
 		t.Run(cmd+" --force removes persisted state", func(t *testing.T) {
-			initTestRepo(t)
+			initTestProjectDir(t)
 			ui := runStopKill(t, []string{cmd, "--force"}, func(m *sandboxmsb.MockMsbClient) {
 				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusRunning})
 			})
@@ -196,7 +201,7 @@ func TestStopKillLifecycle(t *testing.T) {
 	} {
 		for _, flags := range stopKillFlags {
 			t.Run("dry-run "+tc.cmd+" ignores state removal failure "+strings.Join(flags, " "), func(t *testing.T) {
-				initTestRepo(t)
+				initTestProjectDir(t)
 				ui := runStopKill(t, append([]string{tc.cmd}, flags...), func(m *sandboxmsb.MockMsbClient) {
 					m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{
 						Status_:   msb.SandboxStatusRunning,
@@ -212,7 +217,7 @@ func TestStopKillLifecycle(t *testing.T) {
 
 	for _, cmd := range []string{cmdStop, cmdKill} {
 		t.Run(cmd+" --force warns on state removal failure", func(t *testing.T) {
-			initTestRepo(t)
+			initTestProjectDir(t)
 			ui := runStopKill(t, []string{cmd, "--force"}, func(m *sandboxmsb.MockMsbClient) {
 				m.SetGotSandbox(&sandboxmsb.MockSandboxHandle{
 					Status_:   msb.SandboxStatusRunning,
@@ -225,9 +230,9 @@ func TestStopKillLifecycle(t *testing.T) {
 	}
 }
 
-// TestStopKillAlreadyStopped covers stop/kill on an already-stopped VM: the
-// action and persisted-state removal must be skipped, and the user told the VM
-// is already stopped.
+// TestStopKillAlreadyStopped covers stop/kill on an inactive VM: the action is
+// always skipped, the user is told the VM is already stopped/killed, and
+// persisted state is removed only with --force and outside --dry-run.
 func TestStopKillAlreadyStopped(t *testing.T) {
 	for _, tc := range []struct {
 		cmd        string
@@ -237,11 +242,27 @@ func TestStopKillAlreadyStopped(t *testing.T) {
 		{cmdStop, "project VM already stopped: ", func(h *sandboxmsb.MockSandboxHandle) bool { return h.DidStop }},
 		{cmdKill, "project VM already killed: ", func(h *sandboxmsb.MockSandboxHandle) bool { return h.DidKill }},
 	} {
-		for _, flags := range stopKillFlags {
-			t.Run(tc.cmd+" "+strings.Join(flags, " "), func(t *testing.T) {
-				initTestRepo(t)
+		t.Run(tc.cmd+" without --force", func(t *testing.T) {
+			initTestProjectDir(t)
+			handle := &sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusStopped}
+			ui := runStopKill(t, []string{tc.cmd}, func(m *sandboxmsb.MockMsbClient) {
+				m.SetGotSandbox(handle)
+			})
+
+			assertInfoHasPrefix(t, ui, tc.infoPrefix)
+			if tc.action(handle) {
+				t.Errorf("expected no stop/kill action on already-stopped VM; got action")
+			}
+			if handle.DidRemove() {
+				t.Errorf("expected no state removal on already-stopped VM without --force; got removal")
+			}
+		})
+
+		for _, forceFlag := range []string{"--force", "-f"} {
+			t.Run(tc.cmd+" "+forceFlag+" removes state without acting", func(t *testing.T) {
+				initTestProjectDir(t)
 				handle := &sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusStopped}
-				ui := runStopKill(t, append([]string{tc.cmd}, flags...), func(m *sandboxmsb.MockMsbClient) {
+				ui := runStopKill(t, []string{tc.cmd, forceFlag}, func(m *sandboxmsb.MockMsbClient) {
 					m.SetGotSandbox(handle)
 				})
 
@@ -249,8 +270,28 @@ func TestStopKillAlreadyStopped(t *testing.T) {
 				if tc.action(handle) {
 					t.Errorf("expected no stop/kill action on already-stopped VM; got action")
 				}
+				if !handle.DidRemove() {
+					t.Errorf("expected --force to remove state on already-stopped VM; got none")
+				}
+				assertVerboseHasPrefix(t, ui, "persisted state removed: ")
+			})
+		}
+
+		for _, flags := range stopKillFlags {
+			t.Run(tc.cmd+" "+strings.Join(flags, " ")+" removes nothing", func(t *testing.T) {
+				initTestProjectDir(t)
+				handle := &sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusStopped}
+				ui := runStopKill(t, append([]string{tc.cmd}, flags...), func(m *sandboxmsb.MockMsbClient) {
+					m.SetGotSandbox(handle)
+				})
+
+				assertInfoHasPrefix(t, ui, tc.infoPrefix)
+				assertInfoHasPrefix(t, ui, "dry-run: Would remove persisted state")
+				if tc.action(handle) {
+					t.Errorf("expected no stop/kill action on already-stopped VM; got action")
+				}
 				if handle.DidRemove() {
-					t.Errorf("expected no state removal on already-stopped VM; got removal")
+					t.Errorf("expected --dry-run to remove nothing; got removal")
 				}
 			})
 		}
@@ -280,7 +321,7 @@ func TestStopKillGetSandboxError(t *testing.T) {
 		{cmdKill, "get sandbox"},
 	} {
 		t.Run(tc.cmd, func(t *testing.T) {
-			initTestRepo(t)
+			initTestProjectDir(t)
 			cmd, _ := setupStopKillConfig(t, []string{tc.cmd}, func(m *sandboxmsb.MockMsbClient) {
 				m.SetGetSandboxErr(errBoom)
 			})
@@ -338,7 +379,7 @@ func TestStopKillAgentPassThrough(t *testing.T) {
 	} {
 		for _, agentName := range []string{"pi", "opencode2"} {
 			t.Run(tc.cmd+" "+agentName, func(t *testing.T) {
-				initTestRepo(t)
+				initTestProjectDir(t)
 				cmd, _ := setupStopKillConfig(
 					t,
 					[]string{tc.cmd, tc.flag, agentName},
@@ -363,7 +404,7 @@ func TestStopKillAgentPassThrough(t *testing.T) {
 func TestStopKillUnknownAgent(t *testing.T) {
 	for _, cmd := range []string{cmdStop, cmdKill} {
 		t.Run(cmd, func(t *testing.T) {
-			initTestRepo(t)
+			initTestProjectDir(t)
 			cmd, _ := setupStopKillConfig(t, []string{cmd, "--agent", "bogus"}, nil)
 			assertErrContains(t, cmd.Execute(), `unknown agent "bogus"`)
 		})
@@ -381,13 +422,48 @@ func TestStopKillActionError(t *testing.T) {
 		{cmdKill, func(h *sandboxmsb.MockSandboxHandle) { h.KillErr = errBoom }, "kill sandbox"},
 	} {
 		t.Run(tc.cmd, func(t *testing.T) {
-			initTestRepo(t)
+			initTestProjectDir(t)
 			cmd, _ := setupStopKillConfig(t, []string{tc.cmd}, func(m *sandboxmsb.MockMsbClient) {
 				handle := &sandboxmsb.MockSandboxHandle{Status_: msb.SandboxStatusRunning}
 				tc.sbErr(handle)
 				m.SetGotSandbox(handle)
 			})
 			assertErrContains(t, cmd.Execute(), tc.wantErr)
+		})
+	}
+}
+
+// writeUnparsableLegacyState seeds a corrupt legacy state file at the key's
+// directory, the shape a fail-closed adoption must refuse to interpret.
+func writeUnparsableLegacyState(t *testing.T, key state.Key) {
+	t.Helper()
+	dir := state.KeyDir(key)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("create legacy state dir: %v", err)
+	}
+	testutil.WriteFile(t, dir, "state.yaml", `": [`)
+}
+
+// TestStopKillAdoptionFailureFailsClosed pins the fail-closed adoption wiring:
+// an unreadable legacy state aborts stop/kill before they look up the VM, so a
+// first post-upgrade stop cannot act on a half-understood identity.
+func TestStopKillAdoptionFailureFailsClosed(t *testing.T) {
+	for _, cmdName := range []string{cmdStop, cmdKill} {
+		t.Run(cmdName, func(t *testing.T) {
+			// An origin-holding clone gives distinct repo and checkout slugs, so the
+			// corrupt document is a *legacy* state, whose unreadable read still fails
+			// closed (a corrupt checkout state is skipped so recovery can repair it).
+			t.Chdir(newOriginClone(t))
+			// setupStopKillConfig installs the config-paths mock, so the seed
+			// and the command resolve the same isolated state root.
+			cmd, _ := setupStopKillConfig(t, []string{cmdName}, nil)
+			identity := mustIdentity(t, ".")
+			if identity.RepoSlug == identity.CheckoutSlug {
+				t.Fatalf("fixture must have distinct repo and checkout slugs")
+			}
+			writeUnparsableLegacyState(t, state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName})
+
+			assertErrContains(t, cmd.Execute(), "check for a pending legacy identity")
 		})
 	}
 }

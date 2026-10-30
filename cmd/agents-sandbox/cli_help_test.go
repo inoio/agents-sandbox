@@ -71,12 +71,16 @@ func TestEveryLeafCommandHelpRenders(t *testing.T) {
 		{"config", "migrate"},
 		{"config", "home"},
 		{"image", "list"},
+		{"image", "inspect"},
 		{"image", "build"},
 		{"volume", "list"},
+		{"volume", "inspect"},
 		{"volume", "migrate"},
 		{"volume", "reset"},
 		{"volume", "edit"},
+		{"volume", "remove"},
 		{"sandbox", "list"},
+		{"sandbox", "inspect"},
 		{"sandbox", "shell"},
 		{"sandbox", "run"},
 		{"sandbox", "stop"},
@@ -97,10 +101,10 @@ func TestGroupCommandHelpListsSubcommands(t *testing.T) {
 		path []string
 		subs []string
 	}{
-		{path: []string{"config"}, subs: []string{"agent", "migrate", "home"}},
-		{path: []string{"image"}, subs: []string{"list", "build"}},
-		{path: []string{"volume"}, subs: []string{"list", "migrate", "reset", "edit"}},
-		{path: []string{"sandbox"}, subs: []string{"list", "shell", "run", "stop", "kill"}},
+		{path: []string{"config"}, subs: []string{"agent", "migrate", "wizard", "paths", "home"}},
+		{path: []string{"image"}, subs: []string{"list", "inspect", "build"}},
+		{path: []string{"volume"}, subs: []string{"list", "inspect", "migrate", "reset", "edit", "remove"}},
+		{path: []string{"sandbox"}, subs: []string{"list", "inspect", "shell", "run", "stop", "kill"}},
 	} {
 		t.Run(strings.Join(tc.path, "_"), func(t *testing.T) {
 			out := commandOut(t, append(tc.path, "--help")...)
@@ -114,7 +118,7 @@ func TestGroupCommandHelpListsSubcommands(t *testing.T) {
 }
 
 func TestVolumeSubcommandsDoNotExposeRebuild(t *testing.T) {
-	for _, sub := range []string{"migrate", "reset", "edit"} {
+	for _, sub := range []string{"migrate", "reset", "edit", "remove"} {
 		t.Run(sub, func(t *testing.T) {
 			out := commandOut(t, "volume", sub, "--help")
 			if strings.Contains(out, "--rebuild") {
@@ -140,12 +144,15 @@ func TestHelpCommandShowsHelp(t *testing.T) {
 	}
 }
 
-func TestBuildRunShellHelpListDindFlag(t *testing.T) {
+func TestBuildRunShellHelpListDockerFlag(t *testing.T) {
 	for _, path := range [][]string{{"build"}, {"run"}, {"shell"}} {
 		t.Run(strings.Join(path, "_"), func(t *testing.T) {
 			out := commandOut(t, append(path, "--help")...)
-			if !strings.Contains(out, "--dind") {
-				t.Errorf("expected %q help to list --dind flag:\n%s", strings.Join(path, " "), out)
+			if !strings.Contains(out, "--docker") {
+				t.Errorf("expected %q help to list --docker flag:\n%s", strings.Join(path, " "), out)
+			}
+			if strings.Contains(out, "--dind") {
+				t.Errorf("deprecated --dind flag must be hidden from %q help:\n%s", strings.Join(path, " "), out)
 			}
 		})
 	}

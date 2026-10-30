@@ -1,6 +1,7 @@
 package state
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,23 +35,8 @@ func TestWriteState_MkdirAllError(t *testing.T) {
 	// A file where the slug dir should live makes MkdirAll fail.
 	testutil.WritePath(t, filepath.Join(stateRoot(), k.Slug), "not a directory")
 
-	if err := WriteState(k, HomeState{HomeVolume: "vol"}); err == nil {
+	if err := writeState(k, HomeState{HomeVolume: "vol"}); err == nil {
 		t.Fatal("expected error when the state dir cannot be created")
-	}
-}
-
-func TestWriteState_WriteTempError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	k := Key{Slug: "tmpproj-a", Agent: "opencode"}
-
-	sdir := KeyDir(k)
-	// A directory at the temp file path makes os.WriteFile fail.
-	if err := os.MkdirAll(filepath.Join(sdir, ".state.yaml.tmp"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := WriteState(k, HomeState{HomeVolume: "vol"}); err == nil {
-		t.Fatal("expected error when the temp file cannot be written")
 	}
 }
 
@@ -64,28 +50,54 @@ func TestWriteState_RenameErrorCleansTemp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := WriteState(k, HomeState{HomeVolume: "vol"}); err == nil {
+	if err := writeState(k, HomeState{HomeVolume: "vol"}); err == nil {
 		t.Fatal("expected error when the state file cannot be renamed")
 	}
 
-	// The temp file should have been cleaned up after the failed rename.
-	if _, err := os.Stat(filepath.Join(sdir, ".state.yaml.tmp")); !os.IsNotExist(err) {
-		t.Fatalf("temp file should be removed after failed rename, got %v", err)
+	// The unique temp file should have been cleaned up after the failed rename.
+	matches, err := filepath.Glob(filepath.Join(sdir, ".state.yaml.*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("leftover temp files = %v, want none", matches)
 	}
 }
 
-func TestRemoveState_LegacyRemoveError(t *testing.T) {
+func TestRemoveHomeStateIf_LegacyRemoveError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses the read-only directory permission this test relies on")
+	}
 	configpaths.WithMockConfigPaths(t)
 	slug := "legacyerrproj"
 
-	// A non-empty directory at the legacy state file path makes os.Remove
-	// fail with a non-"not exist" error.
 	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
-	if err := os.MkdirAll(filepath.Join(sdir, "state.yaml", "sub"), 0o700); err != nil {
+	if err := os.MkdirAll(sdir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(sdir, "state.yaml"), []byte("home_volume: vol\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A read-only slug dir lets the document be read but makes os.Remove fail,
+	// so the removal error branch is hit rather than an unreadable-document one.
+	if err := os.Chmod(sdir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
-	if err := RemoveState(Key{Slug: slug, Agent: ""}); err == nil {
+	if err := RemoveHomeStateIf(Key{Slug: slug, Agent: ""}, removeAlways); err == nil {
 		t.Fatal("expected error when the legacy state file cannot be removed")
+	}
+}
+
+func TestRemoveHomeStateIfLockError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("mkdir boom")
+	orig := mkdirHomeLock
+	mkdirHomeLock = func(string, os.FileMode) error { return wantErr }
+	t.Cleanup(func() { mkdirHomeLock = orig })
+
+	if err := RemoveHomeStateIf(Key{Slug: "proj", Agent: "opencode"}, removeAlways); !errors.Is(err, wantErr) {
+		t.Fatalf("RemoveHomeStateIf() error = %v, want %v", err, wantErr)
 	}
 }

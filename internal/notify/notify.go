@@ -12,6 +12,8 @@ const (
 )
 
 // Config is the resolved notify setting for a session.
+//
+//exhaustruct:ignore
 type Config struct {
 	Desktop bool
 	OnInput bool
@@ -36,7 +38,7 @@ func ParseAudioMode(s string) (AudioMode, error) {
 	}
 }
 
-// OverrideMode is a --notify / OPENCODE_SANDBOX_NOTIFY value.
+// OverrideMode is a --notify / AGENTS_SANDBOX_NOTIFY value.
 type OverrideMode string
 
 const (

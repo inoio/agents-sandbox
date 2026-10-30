@@ -9,8 +9,10 @@
 [![Docs](https://img.shields.io/badge/docs-github--pages-blue)](https://inoio.github.io/agents-sandbox/)
 
 agents-sandbox allows you to isolate your coding agents from the rest of your dev environment. You are put in control over what parts of your host machine and network environment are available to each agent. agents-sandbox acts as a launcher for [opencode](https://opencode.ai), [opencode2](https://opencode.ai),
-[pi](https://pi.dev), and [Claude Code](https://claude.com/product/claude-code). It builds or reuses a dedicated [microsandbox](https://microsandbox.dev/) VM per
-project and agent, then attaches the selected agent inside that VM.
+[pi](https://pi.dev), [Claude Code](https://claude.com/product/claude-code), [Codex](https://github.com/openai/codex), and [Hermes Agent](https://hermes-agent.nousresearch.com/). It builds or reuses a dedicated [microsandbox](https://microsandbox.dev/) VM per
+project and agent, then attaches the selected agent inside that VM. A system-wide microsandbox installation is not
+required: agents-sandbox provisions its own isolated runtime under its data directory, never uses `~/.microsandbox` as
+its runtime, and never writes to it (the one-time migration reads it only to copy your old volumes).
 
 On top of that, agents-sandbox utilizes the robust secrets management of microsandbox, which significantly reduces the exposure of secrets to the agent. This way, your helpful assistant (or even a rogue agent) won't be able to accidentally publish dev secrets to a public wiki page ;)
 
@@ -43,7 +45,8 @@ Legend for the first four rows: ✅ = stronger isolation or host-side handling; 
 | Agent home                | Stored in a persistent `/home/dev` volume scoped to the project and agent. Recreating the VM does not remove this volume unless you reset or prune it.                                                       |
 | `/workspace`              | The host project directory, mounted read-write in a normal session. Some agents allow you to optionally use a  [worktree-session](https://inoio.github.io/agents-sandbox/branch-sessions.html) for a VM-internal worktree instead. |
 | Other host files          | Not visible unless they are copied, provisioned with `home:`, or exposed through an explicit host mount. The opt-in [host-config drop-in](https://inoio.github.io/agents-sandbox/provision-host-config.html) (`provision-host-config: true`) copies native agent files, possibly including credentials, into the VM.                                                                                                     |
-| Network                   | Egress is denied by default. Profiles and allow/deny rules can grant access; `profile: none` is deny-by-default egress, not a complete air gap.                                                              |
+| Network                   | Egress uses the `public` profile by default; the composable `private` and `host` profiles extend it, and the allowlist-only `none` profile replaces it, with allow/deny rules refining either. `none` is deny-by-default egress, not a complete air gap.                                                              |
+| Links                     | A link the agent opens in the VM is handed to the attached launcher through the home volume and opened in the host's browser, if its scheme is allowlisted (`http`, `https`, `mailto`, editor/app links; never `file:`). While a browser login is open, the launcher listens on its callback port on the host's loopback and passes the callback into the VM. Turn it off with `open-links: false`; see [Opening links](https://inoio.github.io/agents-sandbox/configuration/opening-links.html). |
 | Raw credentials           | `env.secret` and `env.secret.yaml` keep the real value on the host and expose a placeholder to the guest. This is separate from ordinary file provisioning. |
 
 ## Why this model?
@@ -62,11 +65,10 @@ Use agents-sandbox when you already use a supported coding agent and want:
 
 ## Quick start
 
-Install agents-sandbox using the [installation guide](https://inoio.github.io/agents-sandbox/install.html), then
-check the host prerequisites and start the configured agent:
+Install agents-sandbox using the [Get started guide](https://inoio.github.io/agents-sandbox/get-started.html), then
+start the configured agent:
 
 ```console
-agents-sandbox doctor
 agents-sandbox
 ```
 
@@ -82,15 +84,21 @@ select the coding-agent to run, provision, or manage. This is also available as 
 `--agent-version` pins the version agents-sandbox installs into the runner image; it does not replace an agent already
 provided by a custom base or project Dockerfile.
 
-Four agents ship as built-in profiles:
+Six agents ship as built-in profiles:
 
-- **`opencode`** (default) — a daemon-based agent with serve/attach, worktree sessions, and GitHub-release upgrade checks.
-- **`opencode2`** — opencode 2 (beta), installed from `@opencode-ai/cli@beta` on npm; daemon-based with serve/attach,
-  worktree sessions, and npm beta-tag upgrade checks. It shares the `opencode` config directory (v2 reads the same files
-  as v1).
-- **`pi`** — the pi coding agent (`@earendil-works/pi-coding-agent`), run interactively, with upgrade checks via `pi.dev`.
-- **`claude-code`** — Anthropic's Claude Code (`@anthropic-ai/claude-code`), run interactively, with upgrade checks via the
-  npm registry.
+- **`opencode`** — a daemon-based agent with serve/attach, worktree sessions, and GitHub-release upgrade checks.
+- **`opencode2`** (default) — opencode 2 (beta), installed from its native installer; daemon-based with serve/attach, worktree
+  sessions, and upgrade checks via the opencode update API's `latest` channel. It owns its own launcher config dir (`~/.config/agents-sandbox/opencode2/`,
+  project equivalent `.agents-sandbox/opencode2/`), while its VM config path and host drop-in stay `~/.config/opencode/`.
+  While no `opencode2/` dir exists it falls back to the shared `opencode/` dir with a warning (see the agent docs).
+- **`pi`** — the pi coding agent (`@earendil-works/pi-coding-agent`, an npm-installed node bundle — the only agent that
+  needs node), run interactively, with upgrade checks via `pi.dev`.
+- **`claude-code`** — Anthropic's Claude Code, installed from its native installer, run interactively, with upgrade
+  checks via the npm registry.
+- **`codex`** — OpenAI's Codex CLI, installed from its GitHub release package, run interactively, with upgrade checks via
+  GitHub releases.
+- **`hermes`** — [Hermes Agent](https://hermes-agent.nousresearch.com/), installed from its official installer at a
+  pinned release tag, run interactively, with upgrade checks via its GitHub releases.
 
 ## Documentation
 
@@ -100,8 +108,9 @@ There's dedicated documentation per topic. You can also browse the documentation
 |-----------------------------------------------|------------------------------------------------------------------------------------------|
 | [Why?](https://inoio.github.io/agents-sandbox/introduction.html)                 | Motivation, isolation boundary, shared data, and limitations.                            |
 | [How it works](https://inoio.github.io/agents-sandbox/how-it-works.html)         | Architecture: host to VM, `/workspace`, home volume, secrets, and multi-client attach.   |
-| [Install](https://inoio.github.io/agents-sandbox/install.html)                   | Installation and prerequisites.                                                           |
-| [Manage config in the sandbox](https://inoio.github.io/agents-sandbox/manage-config.html) | Start from existing config or configure manually with snippets and secrets. |
+| [Get started](https://inoio.github.io/agents-sandbox/get-started.html)         | Installation, system requirements, and first run.                                        |
+| [Switch from your existing agent](https://inoio.github.io/agents-sandbox/switch.html) | Use agents-sandbox with your existing agent config and credentials (host-config drop-in). |
+| [Manage config in the sandbox](https://inoio.github.io/agents-sandbox/manage-config.html) | Declarative, self-contained config: secrets, provisioning, agent snippets.            |
 | [Commands](https://inoio.github.io/agents-sandbox/commands.html)                 | Complete CLI reference                                                                   |
 | [Configuration Details](https://inoio.github.io/agents-sandbox/configuration/) | Configuration files & Environment variables, secrets, networking, host mounts, home provisioning & startup hooks, agent configuration, notifications, self-upgrade |
 | [Runner Image](https://inoio.github.io/agents-sandbox/runner-image.html)         | Base image, custom tooling                                                               |

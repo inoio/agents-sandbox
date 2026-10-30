@@ -109,18 +109,79 @@ var (
 	}
 )
 
-// DaemonProvider runs a long-lived server that clients attach to (opencode).
-type DaemonProvider interface {
-	DaemonStartCmd(serveOnly bool) string
-	DaemonKillCmd() string
-	DaemonHealthCmd() string
-	DaemonHealthParse(stdout string) (bool, error)
+// Daemon bind hostnames: loopback for a co-located client, the external
+// interface when the host forwards a published port into the VM.
+const (
+	daemonLoopbackHostname = "127.0.0.1"
+	daemonExternalHostname = "0.0.0.0"
+)
+
+// DaemonCommand is the executable and arguments that launch an agent's serve
+// daemon as a runtime-owned detached job.
+type DaemonCommand struct {
+	Binary string
+	Args   []string
 }
 
-// WorktreeProvider manages git worktrees through a running daemon.
+// DaemonProvider runs a long-lived server that clients attach to (opencode).
+type DaemonProvider interface {
+	DaemonCommand(serveOnly bool) DaemonCommand
+	DaemonHealthCmd() string
+	DaemonHealthParse(stdout string) (bool, error)
+	// DaemonAuthHint is the one-line basic-auth note shown in serve-only
+	// guidance, telling an external client how to authenticate (or that auth is
+	// optional). It is empty when the daemon needs no credentials.
+	DaemonAuthHint() string
+}
+
+// GuestToolRequirer declares the shell tools the launcher invokes inside the
+// running VM for this agent's runtime: curl for the daemon health probe,
+// session and worktree calls, and the notify event stream. The daemon itself is
+// launched and stopped as a runtime-owned job, so no guest process control tool
+// is needed. The renderer verifies each with command -v in the
+// final runner stage, so a custom base missing one fails the image build naming
+// the tool instead of failing at runtime. Agents that run no daemon in the VM
+// (pi, claude-code) do not implement it.
+type GuestToolRequirer interface {
+	GuestTools() []string
+}
+
+// WorktreeProject identifies the daemon project a worktree request is scoped to.
+// Canonical is the repository root, which the worktree list must exclude so a
+// worktree named like the repository never reuses the main checkout. Both fields
+// are required: a request is never sent with an empty ID, and the list is never
+// filtered against an empty canonical.
+type WorktreeProject struct {
+	ID        string
+	Canonical string
+}
+
+// WorktreeProvider manages git worktrees through a running daemon. The daemon's
+// JSON is decoded in Go by the owning agent, so no guest command needs jq (which
+// a custom runner base need not have). The steps are explicit because v2's
+// routes are project-scoped: the resolve command turns the launch directory into
+// a project (empty for agents whose routes are global, which skip the step), the
+// list and create commands take that project, and each response has its own
+// parser.
 type WorktreeProvider interface {
-	WorktreeListCmd() string
-	WorktreeCreateCmd(spec WorktreeSpec) string
+	// WorktreeResolveCmd returns the command that resolves the launch directory
+	// to a project, or "" when the agent's routes are global (no step).
+	WorktreeResolveCmd(target string) string
+	// WorktreeParseProject decodes the resolve command's stdout. ok is false on
+	// a bad payload or an empty id/canonical.
+	WorktreeParseProject(stdout string) (WorktreeProject, bool)
+	// WorktreeListCmd returns the command that lists project's worktrees.
+	WorktreeListCmd(project WorktreeProject) string
+	// WorktreeParseList decodes the list command's stdout into directory paths,
+	// already filtered of the project's canonical root. ok is false on a bad
+	// payload (a non-array, or an entry without a non-empty directory), so a
+	// failed list never reads as "no worktrees".
+	WorktreeParseList(stdout string, project WorktreeProject) ([]string, bool)
+	// WorktreeCreateCmd returns the command that creates spec's worktree in
+	// project.
+	WorktreeCreateCmd(spec WorktreeSpec, project WorktreeProject) string
+	// WorktreeParseDir decodes the create command's stdout into the created
+	// worktree directory.
 	WorktreeParseDir(stdout string) (string, bool)
 }
 
@@ -214,6 +275,12 @@ func AsDaemonProvider(a Agent) (DaemonProvider, bool) {
 	return p, ok
 }
 
+// AsGuestToolRequirer returns the agent's GuestToolRequirer, if it implements one.
+func AsGuestToolRequirer(a Agent) (GuestToolRequirer, bool) {
+	p, ok := a.(GuestToolRequirer)
+	return p, ok
+}
+
 // AsWorktreeProvider returns the agent's WorktreeProvider, if it implements one.
 func AsWorktreeProvider(a Agent) (WorktreeProvider, bool) {
 	p, ok := a.(WorktreeProvider)
@@ -222,6 +289,18 @@ func AsWorktreeProvider(a Agent) (WorktreeProvider, bool) {
 
 // AsUpgradeChecker returns the agent's UpgradeChecker, if it implements one.
 func AsUpgradeChecker(a Agent) (UpgradeChecker, bool) { p, ok := a.(UpgradeChecker); return p, ok }
+
+// LatestVersion resolves a's newest release through its UpgradeChecker. An agent
+// without one has no release to look up and reports an empty version, not an
+// error, so the image build and the upgrade check share this one resolution
+// instead of each wrapping AsUpgradeChecker.
+func LatestVersion(ctx context.Context, a Agent) (string, error) {
+	checker, ok := AsUpgradeChecker(a)
+	if !ok {
+		return "", nil
+	}
+	return checker.LatestVersion(ctx)
+}
 
 // AsSessionStatusProvider returns the agent's SessionStatusProvider, if it
 // implements one.
@@ -246,6 +325,34 @@ func AsMigrationSpecProvider(a Agent) (MigrationSpecProvider, bool) {
 	return p, ok
 }
 
+// ConfigDirAliaser declares alternate launcher config-dir names this agent used
+// before its current ConfigDirName. They are fallback candidates only: the
+// primary dir always wins when present.
+type ConfigDirAliaser interface {
+	ConfigDirAliases() []string
+}
+
+// AsConfigDirAliaser returns the agent's ConfigDirAliaser, if it implements one.
+func AsConfigDirAliaser(a Agent) (ConfigDirAliaser, bool) {
+	p, ok := a.(ConfigDirAliaser)
+	return p, ok
+}
+
+// DetachedWorktreeReporter declares that the agent's daemon creates worktrees on
+// a detached HEAD rather than a branch, so the launcher can warn the user to
+// create a branch before they commit (and lose the work when the guest home
+// volume goes away). Agents that keep a branch do not implement it.
+type DetachedWorktreeReporter interface {
+	WorktreeCreatesDetachedHead() bool
+}
+
+// AsDetachedWorktreeReporter returns the agent's DetachedWorktreeReporter, if it
+// implements one.
+func AsDetachedWorktreeReporter(a Agent) (DetachedWorktreeReporter, bool) {
+	p, ok := a.(DetachedWorktreeReporter)
+	return p, ok
+}
+
 // VersionProvider exposes how to read the installed agent version from a
 // running image: the shell command to run and a parser for its output. Agents
 // print their version in different formats, so parsing is per-agent.
@@ -257,6 +364,20 @@ type VersionProvider interface {
 // AsVersionProvider returns the agent's VersionProvider, if it implements one.
 func AsVersionProvider(a Agent) (VersionProvider, bool) { p, ok := a.(VersionProvider); return p, ok }
 
+// StreamEvent is a decoded daemon event: its type, the session it belongs to,
+// and that session's parent (non-empty for a subagent session).
+type StreamEvent struct {
+	Type      string
+	SessionID string
+	ParentID  string
+	// EventID is the event's envelope id, unique per emission. It tells two
+	// input requests apart when a session already awaits input: a turn can ask
+	// for two approvals back to back in one step, so neither a step boundary
+	// nor the session state distinguishes them, but their ids do. Empty when
+	// the envelope carries no id.
+	EventID string
+}
+
 // EventStreamSpec describes the SSE event stream notify watches for an agent:
 // the shell command that streams events in the VM, the event-type names that
 // drive tracker transitions, and the agent name used in notification titles.
@@ -266,8 +387,58 @@ type EventStreamSpec struct {
 	AwaitingInput []string
 	IdleEvents    []string
 	ErrorEvents   []string
-	Name          string
+	// StickyErrorEvents is the subset of ErrorEvents that latches the session
+	// in the error state for the watcher's lifetime — reconnecting does not
+	// clear it, since the watcher reuses one tracker across reconnects. An
+	// error event not listed here ends only the current turn, so the session
+	// notifies again on its next turn. Empty means no error event latches.
+	StickyErrorEvents []string
+	// SessionEvents are lifecycle event types whose payload may identify a
+	// session's parent. A non-empty parent ID marks the session as a subagent
+	// (child) session; no notification ever fires for a child session.
+	SessionEvents []string
+	// SessionList seeds the tracker with sessions created before the watcher
+	// (re)connected, by running one shell command and parsing its output. Nil
+	// disables seeding; a non-nil value always carries both the command and its
+	// parser, so seeding can never be disabled by an omitted parser.
+	SessionList *SessionListSpec
+	Name        string
+	// Parse decodes one SSE data payload into a StreamEvent. ok is false when
+	// the payload carries no event.
+	Parse func(payload []byte) (StreamEvent, bool)
 }
+
+// SessionListSpec is an agent's one-shot session-list command together with the
+// parser for its stdout. The two belong together: a command without a parser
+// cannot seed anything, and a nil parser once made the notify watcher silently
+// skip seeding. Build one with NewSessionList.
+type SessionListSpec struct {
+	command string
+	parse   func(payload []byte) []string
+}
+
+// NewSessionList returns the seeding spec for command, using parse to extract
+// child session IDs from its stdout. Both are required: an agent that declares
+// a session list must also declare how to read it, so an incomplete pair is a
+// programming error and fails fast. A profile that omits its parser would
+// otherwise silently lose subagent filtering. The parser owns the list's JSON
+// shape, so the command needs no jq (or other tooling) in the runner image,
+// which a custom base need not have.
+func NewSessionList(command string, parse func(payload []byte) []string) *SessionListSpec {
+	if command == "" {
+		panic("agent.NewSessionList: empty command")
+	}
+	if parse == nil {
+		panic("agent.NewSessionList: nil parser")
+	}
+	return &SessionListSpec{command: command, parse: parse}
+}
+
+// Command is the shell command that prints the daemon's raw session list.
+func (s *SessionListSpec) Command() string { return s.command }
+
+// Parse extracts the child session IDs from Command's stdout.
+func (s *SessionListSpec) Parse(payload []byte) []string { return s.parse(payload) }
 
 // EventStreamProvider exposes the SSE event stream an agent daemon serves.
 type EventStreamProvider interface {

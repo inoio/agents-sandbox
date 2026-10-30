@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -146,22 +147,6 @@ func TestParseHomeSectionJSON(t *testing.T) {
 	}
 }
 
-func TestFindConfigFileEmptyDir(t *testing.T) {
-	if _, _, ok := findConfigFile(""); ok {
-		t.Error("expected ok=false for an empty dir")
-	}
-}
-
-func TestFindConfigFileFirstExtWins(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WriteFile(t, dir, "config.yaml", "a: 1\n")
-	testutil.WriteFile(t, dir, "config.json", `{"a": 1}`)
-	path, ext, ok := findConfigFile(dir)
-	if !ok || filepath.Base(path) != "config.yaml" || ext != ".yaml" {
-		t.Errorf("expected config.yaml to win, got path=%q ext=%q ok=%v", path, ext, ok)
-	}
-}
-
 func TestReadHomeFromConfigDirReadError(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "config.yaml"), 0o755); err != nil {
@@ -211,9 +196,9 @@ func TestReadHomeFromConfigDirJSON5NormalizeError(t *testing.T) {
 func TestBuildHomeFilesNoManifest(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
-	files, missing, has, err := BuildHomeFiles(user, proj, vmHome, nil)
+	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
 	if err != nil {
-		t.Fatalf("BuildHomeFiles: %v", err)
+		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
 	if has {
 		t.Error("expected has=false when no manifest exists")
@@ -230,16 +215,16 @@ func TestBuildHomeFilesRejectsInvalidUserManifest(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, user, ".gitconfig:\n  source: [\n")
-	if _, _, _, err := BuildHomeFiles(user, proj, vmHome, nil); err == nil {
+	if _, _, _, err := BuildHomeFilesWithModes(user, proj, vmHome, nil); err == nil {
 		t.Fatal("expected an error for an invalid user manifest")
 	}
 }
 
-func TestDescribeManifestRejectsInvalidUserManifest(t *testing.T) {
+func TestLoadLayersRejectsInvalidUserManifest(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, user, ".gitconfig:\n  source: [\n")
-	if _, _, err := DescribeManifest(user, proj, vmHome, nil); err == nil {
+	if _, _, err := LoadLayers([]string{user, proj}); err == nil {
 		t.Fatal("expected an error for an invalid user manifest")
 	}
 }
@@ -263,40 +248,43 @@ func TestBuildHooksRejectsReservedTarget(t *testing.T) {
 	}
 }
 
-func TestShebangInterpreterMissingFile(t *testing.T) {
-	if got := shebangInterpreter(filepath.Join(t.TempDir(), "nope.sh")); got != "" {
-		t.Errorf("expected empty interpreter for missing file, got %q", got)
+func TestHasShebangMissingFile(t *testing.T) {
+	if got := hasShebang(filepath.Join(t.TempDir(), "nope.sh")); got {
+		t.Errorf("expected false for missing file, got true")
 	}
 }
 
-func TestShebangInterpreterWithoutTrailingNewline(t *testing.T) {
-	// Reading runs to EOF (err) rather than a newline; the interpreter is still captured.
+func TestHasShebangWithoutTrailingNewline(t *testing.T) {
+	// A shebang without a trailing newline is still detected.
 	p := filepath.Join(t.TempDir(), "s.sh")
 	testutil.WritePath(t, p, "#!/bin/bash")
-	if got := shebangInterpreter(p); got != "/bin/bash" {
-		t.Errorf("shebangInterpreter = %q, want %q", got, "/bin/bash")
+	if !hasShebang(p) {
+		t.Errorf("expected a shebang for %q", p)
 	}
 }
 
-func TestShebangInterpreterBareMarker(t *testing.T) {
-	// A shebang with only whitespace after the marker leaves an empty
-	// interpreter after trimming.
+func TestHasShebangBareMarker(t *testing.T) {
+	// A shebang with only whitespace after the marker is still a shebang.
 	p := filepath.Join(t.TempDir(), "s.sh")
 	testutil.WritePath(t, p, "#! \n")
-	if got := shebangInterpreter(p); got != "" {
-		t.Errorf("expected empty interpreter for bare marker, got %q", got)
+	if !hasShebang(p) {
+		t.Errorf("expected a shebang for a bare marker")
 	}
 }
 
 func TestBuildHomeFilesReadsUserManifest(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	home, err := configpaths.Get().UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	user := t.TempDir()
 	proj := t.TempDir()
-	t.Setenv("HOME", user)
-	testutil.WriteFile(t, user, ".gitconfig", "user=x\n")
+	testutil.WriteFile(t, home, ".gitconfig", "user=x\n")
 	writeHomeConfig(t, user, ".gitconfig:\n")
-	files, missing, has, err := BuildHomeFiles(user, proj, vmHome, nil)
+	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
 	if err != nil {
-		t.Fatalf("BuildHomeFiles: %v", err)
+		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
 	if !has {
 		t.Fatal("expected has=true")
@@ -351,5 +339,54 @@ func TestErrorMessagesMentionRelevantTarget(t *testing.T) {
 				t.Errorf("error %q does not mention %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// TestResolveVMTargetRootBaseFailsContainment pins the final containment guard:
+// with a root home base the separator-prefixed comparison rejects the joined
+// path instead of returning it.
+func TestResolveVMTargetRootBaseFailsContainment(t *testing.T) {
+	if _, err := ResolveVMTarget("/", "etc", nil); err == nil {
+		t.Error("a root home base must fail the containment guard rather than return a path")
+	}
+}
+
+func TestBuildHomeFilesReportsLoadErrorWithHasFalse(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	user := t.TempDir()
+	proj := t.TempDir()
+	testutil.WritePath(t, filepath.Join(user, "config.yaml"), "home: [\n")
+
+	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	if err == nil {
+		t.Fatal("expected a load error from an invalid user config")
+	}
+	if files != nil || missing != nil || has {
+		t.Errorf("on error want (nil, nil, false), got files=%v missing=%v has=%v", files, missing, has)
+	}
+}
+
+func TestBuildHomeFilesContinuesPastMissingSource(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	user := t.TempDir()
+	proj := t.TempDir()
+	testutil.WritePath(t, filepath.Join(proj, "present.txt"), "data")
+	// The missing source sorts first, so it must not stop the later present one.
+	writeHomeConfig(t, proj, ""+
+		".aaa.txt: ./absent.txt\n"+
+		".zzz.txt: ./present.txt\n")
+
+	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	if err != nil {
+		t.Fatalf("BuildHomeFilesWithModes: %v", err)
+	}
+	if !has {
+		t.Fatal("expected has=true for a present manifest")
+	}
+	if len(missing) != 1 || !strings.HasSuffix(missing[0], "absent.txt") {
+		t.Errorf("missing = %v, want the absent source", missing)
+	}
+	if _, ok := files[filepath.Join(vmHome, ".zzz.txt")]; !ok {
+		t.Errorf("the present source after a missing one must still be built, got %v", files)
 	}
 }
