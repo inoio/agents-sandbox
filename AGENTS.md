@@ -102,7 +102,7 @@ Always use your superpowers for appropriate tasks, never skip user approval.
 
 - User-facing docs follow [`STYLEGUIDE.md`](STYLEGUIDE.md).
 - When changing or adding behavior, keep `README.md` and `docs` directory (except `docs/superpowers`) in sync and
-  current, and add a line to the `[Unreleased]` section in `CHANGELOG.md`.
+  current, and add a `changelog.d/<slug>.<type>.md` fragment (see `CONTRIBUTING.md`).
 - Linking style: root-level docs (README.md, SECURITY.md, ...) link into `docs/` with rendered HTML links
   (`https://inoio.github.io/agents-sandbox/<page>.html`, or `.../<dir>/` for an `index.md` page); non-docs relative links
   must resolve to a repo file. Pages under `docs/` link to each other with Jekyll `{% link %}` tags. `make check` runs

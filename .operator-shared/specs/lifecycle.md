@@ -64,8 +64,11 @@ so every later stage keys on the effective checkout slug. Under `--dry-run-vm` t
 keeps resolving against the legacy location. See `checkout-identity.md`, `bare-worktree-layout.md`.
 
 **`resolve-version`.** Decides the agent release to bake: an explicit pin, else the release the existing image's label
-reports, else the `agent_version` cache, then the upgrade prompt, which may raise it. Folds legacy updater state. Its
-only `HomeState` writes copy the authority into the cache (a stale or empty `agent_version` is rewritten from the
+reports, else the `agent_version` cache, then the upgrade prompt, which may raise it. A user-provided agent is the one
+exception: the tool does not own it, so `resolveBuildVersion` returns its recorded version before the pin, skipping
+label recovery and the upgrade prompt (empty when nothing is recorded, leaving resolution to the build). The
+`--dry-run` preview (`previewAgentVersion`) follows the same precedence. Folds legacy updater state. Its only
+`HomeState` writes copy the authority into the cache (a stale or empty `agent_version` is rewritten from the
 label) and mark an offered upgrade when state already exists.
 Prevents a stale `agent_version` cache from selecting a release older than the image already holds; an explicit pin
 may intentionally select an older release. See `agent-version-sync.md`, `upgrade-state-scoping.md`.
@@ -120,8 +123,10 @@ Each value has one writer of record. A reader never re-derives it from a second 
 - **Agent version.** Authority: the runner image's `agent-version` label. `HomeState.agent_version` is a cache that
   follows it. Writer of record: the image-ensuring path — `ensure-image` surfaces `ImageInfo.AgentVersion` and
   `ensure-home` persists it once state exists; `build` writes it through `image.Build`. `resolve-version`'s
-  reconciliation and boot provenance in `setup-sandbox` only copy the label into the cache and are never the only
-  writer. Every registered profile, `hermes` included, has the same three sources and none has a distinct one: an
+  reconciliation copies the label into the cache and is never the only writer. Boot provenance in `setup-sandbox` is a
+  separate source, not label recovery: on a fresh boot `recordImageProvenance` records the agent and docker sources and,
+  for a tool-provided agent, detects the running agent's version via its `VersionCmd()` and writes that detected value
+  to the cache. Every registered profile, `hermes` included, has the same three sources and none has a distinct one: an
   `UpgradeChecker` resolves the release, `ImageSpec.VersionArg` bakes it into the label, and a `VersionProvider`
   reports it in the VM at boot. `internal/agent/version_sources_test.go` fails for a profile that lacks one.
   (`agent-version-sync.md`)

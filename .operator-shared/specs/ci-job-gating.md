@@ -1,6 +1,6 @@
 ---
-description: Contract for what `.github/workflows/ci.yml` runs and gates — `lint`/`test`/`race`/`deadcode` are the required checks and always run, `vulncheck` runs when the `changes` gate reports code and is skipped on a code-free change, the `fuzz` and `mutation` workflows are deliberately outside this gating (see `fuzz-ci.md` and `mutation-testing.md`), the costly `integration` (Docker Engine) and `integration-podman` (rootless podman) jobs run the same build suite on a code-affecting `main` push, on release tags, on manual dispatch, and on a PR a maintainer opted in with the matching `run-integration` / `run-integration-podman` label; plus the `main` merge queue and its `merge_group` trigger, the PR-only concurrency group, the `changes` code-free gate, and the invariants that keep those conditions live (declared triggers, `pull_request.types` defaults, a skipped job reports Success so a required check must not be gated, why integration must stay in `ci.yml`).
-read_if: Changing the CI triggers or job conditions in `.github/workflows/ci.yml`, the merge queue or its `merge_group` trigger and required-check set, the `protect main` ruleset, the integration or integration-podman job's gating, the `run-integration`/`run-integration-podman` opt-in labels, the PR-only concurrency group, the `changes` code-free gate (integration and `vulncheck`), or deciding whether a check belongs in CI.
+description: Contract for what `.github/workflows/ci.yml` runs and gates — `lint`/`test`/`race`/`deadcode`/`changelog` are the required checks and always run, `vulncheck` runs when the `changes` gate reports code and is skipped on a code-free change, the `fuzz` and `mutation` workflows are deliberately outside this gating (see `fuzz-ci.md` and `mutation-testing.md`), the costly `integration` (Docker Engine) and `integration-podman` (rootless podman) jobs run the same build suite on a code-affecting `main` push, on release tags, on manual dispatch, and on a PR a maintainer opted in with the matching `run-integration` / `run-integration-podman` label; plus the `main` merge queue and its `merge_group` trigger, the PR-only concurrency group, the `changes` code-free gate, and the invariants that keep those conditions live (declared triggers, `pull_request.types` defaults, a skipped job reports Success so a required check must not be gated, why integration must stay in `ci.yml`).
+read_if: Changing the CI triggers or job conditions in `.github/workflows/ci.yml`, the merge queue or its `merge_group` trigger and required-check set, the `protect main` ruleset, the changelog fragment gate (`ci/check-changelog.sh`, see `changelog-fragments.md`), the integration or integration-podman job's gating, the `run-integration`/`run-integration-podman` opt-in labels, the PR-only concurrency group, the `changes` code-free gate (integration and `vulncheck`), or deciding whether a check belongs in CI.
 ---
 
 # CI job gating
@@ -8,7 +8,8 @@ read_if: Changing the CI triggers or job conditions in `.github/workflows/ci.yml
 ## Contract
 
 `.github/workflows/ci.yml` always runs `lint` (`make lint` + `make compile-all`), `test` (`make coverage-junit`),
-`race` (`make test-race`), and `deadcode` (`make deadcode`) — the four required branch checks, so none is gated and
+`race` (`make test-race`), `deadcode` (`make deadcode`), and `changelog` (`ci/check-changelog.sh`, which requires a
+`changelog.d/` fragment when the changeset touches code) — the five required branch checks, so none is gated and
 each runs on every event (see the merge queue below). `vulncheck` (`make vulncheck`) is **not** required: it
 `needs: [changes]` and runs on a PR, main push, tag, or dispatch only when the `changes` gate reports `code=true`, and
 it is excluded from a merge group. The
@@ -34,12 +35,12 @@ and never blocks a PR a maintainer ran Docker Engine for.
 
 `main` merges only through a GitHub **merge queue** (the `protect main` ruleset's `merge_queue` rule: `MERGE` method,
 `ALLGREEN` grouping, up to 5 entries, a 60-minute check-response timeout). The queue builds the queued PRs on top of the
-current `main` on a throwaway `gh-readonly-queue/main/pr-<n>-<sha>` ref and runs the four required checks there, so a
+current `main` on a throwaway `gh-readonly-queue/main/pr-<n>-<sha>` ref and runs the five required checks there, so a
 combination of two independently-green PRs that does not build is rejected before `main` moves. That is exactly the
 failure mode that motivated the queue: a stale `pull_request` run let one PR merge a signature change alongside a call
 site it did not compile with.
 
-The required set is exactly `lint`/`test`/`race`/`deadcode` because each runs in parallel (a queue cycle is about two
+The required set is exactly `lint`/`test`/`race`/`deadcode`/`changelog` because each runs in parallel (a queue cycle is about two
 minutes, bounded by `race`) and none depends on the network or on nondeterminism. `vulncheck`, `mutation`, `fuzz`, and
 both `integration` jobs are deliberately kept out — requiring the integration builds would make a cycle ~12 minutes and
 let image-build flake eject PRs.
@@ -91,7 +92,7 @@ gate. `race` and `deadcode` are required, so they are not gated and always run: 
   access qualifies and a read-only collaborator or outside contributor cannot self-serve. That is why CONTRIBUTING says
   to ask a maintainer. A label a contributor sets in their own fork does nothing: the condition reads the base
   repository's labels on the PR.
-- The `protect main` ruleset requires `lint`, `test`, `race`, and `deadcode`, and carries the `merge_queue` rule. GitHub
+- The `protect main` ruleset requires `lint`, `test`, `race`, `deadcode`, and `changelog`, and carries the `merge_queue` rule. GitHub
   reports a job skipped by its `if` as Success, so a skipped required check *is* treated as passed — gating one would
   leave it green without running. A workflow skipped by path or branch filtering is the opposite: it leaves its checks
   Pending and blocks the PR. So `race`/`deadcode` are not gated and run on every event, a docs-only merge included,

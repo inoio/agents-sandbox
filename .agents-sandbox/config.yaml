@@ -1,0 +1,11 @@
+memory: 8G
+tmp-size: 6G
+workspace-quota: 100G
+disk-size: 50G
+network: 
+  profile: public
+home:
+  .github/github-auth.sh:
+    source: github-auth.sh
+    hook: startup
+agent: opencode2
