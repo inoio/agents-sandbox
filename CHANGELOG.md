@@ -8,9 +8,6 @@ command reports the bare version (e.g. `0.1.0`).
 
 ## [Unreleased]
 
-- Docs: new [alternatives](docs/alternatives.md) page comparing agents-sandbox with other local agent sandboxes. It replaces the
-  comparison table in the README and on the docs home page.
-
 ## [0.5.0] - 2026-10-03
 
 ### Changed
