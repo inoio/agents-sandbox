@@ -160,19 +160,41 @@ identical bodies.
 Inside the bound bare root:
 
 - `.git/` — the bare git dir. Never a worktree.
-- `main/` — canonical checkout of the default branch, always main; the reference point and the usual `--worktree` base.
-- `IDE/` — the human's worktree; the one place branch-switching is expected (uppercase so it stands out).
+- one **stable checkout of `main`**, for reference and as the config source. Its directory name is local — `main`, `IDE`,
+  or another; IDEs may attach to it or to any other worktree.
+- `config/` — a **sparse** worktree of the config mirror branch, materializing only `.agents-sandbox/`.
+- `.agents-sandbox/` — the bare root's project config: file-level relative symlinks into `config/` (see below).
 - one flat directory per branch, **name derived from the branch** with `/` flattened to `--`:
   `feat/foo-does-bar` → `feat--foo-does-bar`. Agent and occasional human worktrees share this namespace.
+
+### Project config in git
+
+Project config is read from the bare root, so one copy serves every worktree; because the bare root is not itself a
+worktree, it is kept in git on `main` and bridged to the bare root:
+
+- `main` tracks `.agents-sandbox/`, ignoring only `env.secret` and `env.secret.yaml`.
+- `agents-sandbox-config` **mirrors** `main` (no commits of its own); `config/` is its sparse worktree.
+- The bare root's `.agents-sandbox/` entries are **file-level relative** symlinks into `config/.agents-sandbox/`, which
+  resolve at `/workspace` inside the VM and leave room for untracked files (a personal `env.secret`).
+- The mirror is advanced by a local `git -C config merge --ff-only main` after a fetch; a stale mirror means the bare
+  root reads a stale config.
+
+If the config worktree can be the only checkout of `main`, the mirror branch is dropped and `config/` holds `main`
+directly.
 
 ### Required git configuration
 
 - `worktree.useRelativePaths true` (git ≥ 2.48) so each worktree's `.git` pointer file survives the host→VM path
   remap. Set it in the bare repo's config.
+- `core.bare` is read from the shared `config` and, when `extensions.worktreeConfig` is enabled, from the bare root's
+  `config.worktree`, so it may live in either. Git moves it into `config.worktree` once the extension is set (as a
+  sparse worktree does) and ignores the file while the extension is off; with the extension on, a `core.bare` left in
+  the shared `config` instead makes every linked worktree inherit bare-ness and refuse worktree operations.
 
 ### Rules and reserved names
 
-- `main`, `IDE`, `.git` are reserved; a branch that would map to a reserved name is rejected/renamed by convention.
+- `.git`, the config worktree's name (`config`), and the stable checkout's name when it is `main` or `IDE` are
+  reserved; a branch that would map to a reserved name is rejected/renamed by convention.
 - Flattening is **lossy**: branches `feat/foo` and a literal `feat--foo` collide to the same directory. The convention
   documents this; users avoid literal `--` branch names.
 
