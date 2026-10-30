@@ -254,8 +254,15 @@ func TestAgentVersionFollowsTheImageLabel(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("make the agent_version cache stale: %v", err)
 	}
-	withOfflineUpgradeCheck(t)
+	// Expire the machine-global upgrade check so the final run consults the
+	// network instead of reusing the earlier run's cached successful check.
+	expireAgentUpgradeCheck(t)
+	var offlineConsulted bool
+	withOfflineUpgradeCheck(t, func() { offlineConsulted = true })
 	execute(cmdRun)
+	if !offlineConsulted {
+		t.Error("the final run never consulted the offline upgrade check: it reused the earlier run's cached check")
+	}
 
 	if slices.Contains(host.builds(), stale) {
 		t.Errorf("builds = %v, want no rebuild toward the stale cached %s", host.builds(), stale)
@@ -280,11 +287,26 @@ func withLatestAgentRelease(t *testing.T, version string) {
 	t.Cleanup(func() { sandbox.SetAgentLatestVersion(original) })
 }
 
+// expireAgentUpgradeCheck clears the machine-global agent upgrade check so the
+// next run treats the network check as due (a zero LastChecked is always due).
+func expireAgentUpgradeCheck(t *testing.T) {
+	t.Helper()
+	ok, err := state.WithRootState(false, func(txn *state.RootTxn) error {
+		txn.State().SetAgentCheck(defaultAgentName, state.AgentCheckState{})
+		return txn.Commit()
+	})
+	if err != nil || !ok {
+		t.Fatalf("expire the agent upgrade check: ok=%v err=%v", ok, err)
+	}
+}
+
 // withOfflineUpgradeCheck makes the run's latest-release lookup fail, as it
-// does without network access.
-func withOfflineUpgradeCheck(t *testing.T) {
+// does without network access, and calls consulted on each lookup so a test can
+// assert the run actually reached the network.
+func withOfflineUpgradeCheck(t *testing.T, consulted func()) {
 	t.Helper()
 	original := sandbox.SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
+		consulted()
 		return "", errors.New("offline")
 	})
 	t.Cleanup(func() { sandbox.SetAgentLatestVersion(original) })
