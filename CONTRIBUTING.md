@@ -170,13 +170,13 @@ without running — so a docs-only change runs them too. The `integration` suite
 - The project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Release tags are `vMAJOR.MINOR.PATCH`
   (e.g. `v0.1.0`); releases and the `version` command use the bare version (e.g. `0.1.0`).
 - Add a changelog **fragment**, don't edit `CHANGELOG.md`. For any user-visible change, create
-  `changelog.d/<slug>.<type>.md`: `<slug>` is the issue number (or the PR number when there is no issue) and `<type>`
-  one of `added`, `changed`, `deprecated`, `docs`, `fixed`. The file holds one bullet's text, without the leading
-  `- `, wrapped like the rest of the changelog. A change spanning two sections uses two files; several entries of the
-  same type are numbered (`103.changed-1.md`, `103.changed-2.md`). The required
-  `changelog` check enforces a fragment for production-code changes; a docs-only or test-only change needs none.
-  `CHANGELOG.md` is assembled from the fragments at release time, so no two pull requests touch it. See
-  `changelog.d/README.md`.
+  `changelog.d/<slug>.<type>.md`: `<slug>` is the PR number and `<type>` one of `added`, `changed`,
+  `deprecated`, `docs`, `fixed`. The file holds one bullet's text, without the leading `- `, wrapped
+  like the rest of the changelog; keep the `(#issue)` reference in that text. A change spanning two
+  sections uses two files; several entries of the same type are numbered (`103.changed-1.md`,
+  `103.changed-2.md`). The required `changelog` check enforces a fragment for production-code changes;
+  a docs-only or test-only change needs none. `CHANGELOG.md` is assembled from the fragments at release
+  time, so no two pull requests touch it. See `changelog.d/README.md`.
 
 ## Security
 

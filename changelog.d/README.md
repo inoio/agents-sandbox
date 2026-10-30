@@ -8,8 +8,9 @@ between releases.
 
 Create `changelog.d/<slug>.<type>.md`, where:
 
-- `<slug>` is the **issue number** when the change has one, otherwise the **PR number**. It must be
-  unique within this directory; the number guarantees that.
+- `<slug>` is the **PR number**. It is unique across pull requests, so two PRs cannot pick the same
+  filename — an issue number is shared when several PRs close the same issue. Put the `(#issue)`
+  reference in the bullet text, where it already lives.
 - `<type>` is one of `added`, `changed`, `deprecated`, `docs`, `fixed` — the section the entry
   belongs to in `CHANGELOG.md`.
 - `<n>` numbers several entries of the same type from one change (`103.changed-1.md`,

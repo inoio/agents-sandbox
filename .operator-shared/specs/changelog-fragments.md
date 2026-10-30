@@ -1,5 +1,5 @@
 ---
-description: Contract for per-PR changelog fragments: `changelog.d/<slug>.<type>.md` (slug = issue or PR number) replaces direct `[Unreleased]` edits so PRs cannot conflict on `CHANGELOG.md`, plus the type vocabulary, the release-time assembly order, the required always-run `changelog` shape/presence check, and the transition from the existing `[Unreleased]` entries.
+description: Contract for per-PR changelog fragments: `changelog.d/<slug>.<type>.md` (slug = the PR number) replaces direct `[Unreleased]` edits so PRs cannot conflict on `CHANGELOG.md`, plus the type vocabulary, the release-time assembly order, the required always-run `changelog` shape/presence check, and the transition from the existing `[Unreleased]` entries.
 read_if: Changing how changelog entries are authored or assembled (`changelog.d/`, `CONTRIBUTING.md`'s changelog rules, the release curation step, the `changelog` CI check), adding a `CHANGELOG.md` section, or diagnosing a missing/duplicated changelog entry or a conflict that was expected to vanish.
 ---
 
@@ -25,14 +25,16 @@ A changelog fragment is one file in `changelog.d/` at the repository root:
 - **Name**: `<slug>.<type>.md`.
   - `<type>` is one of `added`, `changed`, `deprecated`, `docs`, `fixed` (lowercase) — exactly the
     `CHANGELOG.md` section it belongs to.
-  - `<slug>` identifies the change: the **issue number** when the change has one, otherwise its
-    **PR number**. Both are unique by construction, which is what removes the conflict. A
-    descriptive slug is not used, because two branches can pick the same words and collide on the
-    same path — reintroducing the very conflict this removes. GitHub allocates issues and PRs from
-    one sequence, so the PR number is known as soon as the PR is opened, which is when the presence
-    check runs; deriving it earlier from the API is possible but racy and not required.
-  - Several entries of the same type from one change number them: `<slug>.<type>-<n>.md`, `<n>` from
-    `1` (`changelog.d/103.changed-1.md`, `changelog.d/103.changed-2.md`). A single entry omits the
+  - `<slug>` is the **PR number**. It is unique by construction, which is what removes the conflict.
+    An issue number is not: two PRs that close the same issue pick the same `<issue>.<type>.md` and
+    collide, reintroducing the very conflict this removes. A descriptive slug is not used either, for
+    the same reason — two branches can pick the same words. GitHub allocates issues and PRs from one
+    sequence, so the PR number is known as soon as the PR is opened, which is when the presence check
+    runs; deriving it from the API before opening the PR is possible but racy and not required. The
+    issue or PR reference (`(#432)`) stays in the bullet text, so the filename needs only uniqueness,
+    not attribution.
+  - Several entries of the same type from one PR number them: `<slug>.<type>-<n>.md`, `<n>` from `1`
+    (`changelog.d/103.changed-1.md`, `changelog.d/103.changed-2.md`). A single entry omits the
     ordinal.
   - Example: `changelog.d/432.added.md`, `changelog.d/431.fixed.md`, `changelog.d/103.changed-1.md`.
 - **Content**: exactly the text of one `CHANGELOG.md` bullet, without the leading `- `, with
