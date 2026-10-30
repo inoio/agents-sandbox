@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/go-git/go-git/v5/config"
@@ -108,7 +109,20 @@ func isBare(gitDir string) bool {
 // extensions.worktreeConfig, the switch that makes git read per-worktree
 // config.worktree files.
 func worktreeConfigEnabled(cfg *config.Config) bool {
-	return strings.EqualFold(cfg.Raw.Section("extensions").Option("worktreeConfig"), "true")
+	return gitConfigBool(cfg.Raw.Section("extensions").Option("worktreeConfig"))
+}
+
+// gitConfigBool parses a git boolean the way git does: true/yes/on
+// (case-insensitive) are true, and an integer is true unless it is zero. Every
+// other value — false/no/off, the empty value, or anything git would reject —
+// is false, which is also what strconv.Atoi yields for a non-integer.
+func gitConfigBool(value string) bool {
+	switch strings.ToLower(value) {
+	case "true", "yes", "on":
+		return true
+	}
+	integer, _ := strconv.Atoi(value)
+	return integer != 0
 }
 
 // configIsBare reports whether the named config file in gitDir sets core.bare. A
