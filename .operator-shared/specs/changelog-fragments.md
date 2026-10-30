@@ -67,11 +67,13 @@ presence rule internally from the PR's diff rather than gating its own execution
 
 - **Shape** (every run): every file in `changelog.d/` matches `<slug>.<type>.md` with a known type,
   except the ignored names above.
-- **Presence** (pull requests): a PR whose changeset touches code must add at least one fragment.
-  "Code" is the complement of the `changes`-job filter in `.github/workflows/ci.yml`: `docs/`,
-  `.operator-shared/`, `Formula/`, `.github/ISSUE_TEMPLATE/`, any `*.md`, and `.gitignore` are
-  exempt, so a docs-only PR needs no fragment. The check decides this internally from the PR diff;
-  it does not gate its own execution.
+- **Presence** (from the changeset, on every event): a changeset that touches code must add at least
+  one top-level, non-ignored fragment. "Code" is the complement of the `changes`-job filter in
+  `.github/workflows/ci.yml`: `docs/`, `.operator-shared/`, `Formula/`, `.github/ISSUE_TEMPLATE/`, any
+  `*.md`, and `.gitignore` are exempt, so a docs-only PR needs no fragment. An ignored name (the
+  directory's `README.md`) or a nested path under `changelog.d/` does not count as the fragment. The
+  `changelog` job computes this from the diff and never gates its own execution; it runs on the PR's
+  diff and again on the queue/merge diff, which carries the queued PRs' fragments.
 
 ## Transition
 
@@ -80,6 +82,10 @@ are frozen — from adoption on, no change edits `[Unreleased]` directly. After 
 section is empty and `changelog.d/` is the only live record for the next cycle. Migrating the current
 entries into fragments is deliberately not done: it is a churn PR on the one file that still
 conflicts, and the entries age out in one cycle anyway.
+
+Open pull requests with code changes need a fragment before the `changelog` check joins the
+`protect main` ruleset: their next `synchronize` would otherwise fail the check, and a queued PR would
+be ejected. Add a fragment to each open code PR, then flip the ruleset.
 
 ## Non-goals
 

@@ -133,5 +133,18 @@ d="$(new_fixture)"
 expect_presence "workflow change" 1 "no changelog.d" "$d" ".github/workflows/ci.yml"
 rm -rf "$d"
 
+# An ignored file in changelog.d/ is not a fragment: editing only the README does
+# not satisfy the presence rule.
+d="$(new_fixture README.md)"
+expect_presence "code, only changelog README" 1 "no changelog.d" "$d" "internal/foo/foo.go" "changelog.d/README.md"
+rm -rf "$d"
+
+# A fragment nested in a subdirectory is not a top-level fragment either.
+d="$(new_fixture)"
+mkdir -p "$d/changelog.d/sub"
+printf -- '- x\n' >"$d/changelog.d/sub/432.added.md"
+expect_presence "code, only nested fragment" 1 "no changelog.d" "$d" "internal/foo/foo.go" "changelog.d/sub/432.added.md"
+rm -rf "$d"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

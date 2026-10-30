@@ -68,7 +68,7 @@ check_shape
 # the `.changes` gate in .github/workflows/ci.yml (docs, the operator brain, the
 # Homebrew formula, issue templates, any *.md, and .gitignore).
 check_presence() {
-  local line code=0 fragment=0
+  local line base code=0 fragment=0
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
     if [[ ! "$line" =~ ^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/) ]] \
@@ -76,7 +76,13 @@ check_presence() {
       && [[ "$line" != ".gitignore" ]]; then
       code=1
     fi
-    [[ "$line" =~ ^changelog\.d/.*\.md$ ]] && fragment=1
+    # Only a top-level, non-ignored fragment counts; a nested path or the
+    # directory README does not satisfy the rule.
+    if [[ "$line" =~ ^changelog\.d/([^/]+)$ ]]; then
+      base="${BASH_REMATCH[1]}"
+      [[ " $IGNORE " == *" $base "* ]] && continue
+      [[ "$base" =~ \.md$ ]] && fragment=1
+    fi
   done <"$CHANGED_FILE"
   if [[ "$code" -eq 1 && "$fragment" -eq 0 ]]; then
     report "code changed but no changelog.d/<slug>.<type>.md fragment was added"

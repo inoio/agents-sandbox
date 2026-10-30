@@ -84,16 +84,19 @@ jobs:
       - name: Compute changed files
         run: |
           set -euo pipefail
+          base=""
           if [ '${{ github.event_name }}' = 'pull_request' ]; then
-            git fetch --no-tags origin "refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
-            base=$(git merge-base "origin/${{ github.base_ref }}" '${{ github.sha }}')
+            git fetch --no-tags origin "refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}" || true
+            base=$(git merge-base "origin/${{ github.base_ref }}" '${{ github.sha }}' || true)
           elif [ '${{ github.event_name }}' = 'merge_group' ]; then
             base='${{ github.event.merge_group.base_sha }}'
           else
             base='${{ github.event.before }}'
             if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then base='HEAD^'; fi
           fi
-          git diff --name-only "$base" '${{ github.sha }}' > /tmp/changed.txt || true
+          # An undecidable base degrades to shape-only rather than failing this
+          # required check: a transient fetch failure must not eject a PR.
+          git diff --name-only "$base" '${{ github.sha }}' > /tmp/changed.txt 2>/dev/null || true
       - name: Check fragments
         run: ci/check-changelog.sh . --changed /tmp/changed.txt
 

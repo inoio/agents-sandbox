@@ -1,8 +1,9 @@
 # Release notes
 
 The GitHub release body: authored in [step 4](SKILL.md#4-author-the-release-notes) from the curated
-`[Unreleased]` content, injected in [step 8](SKILL.md#8-set-the-release-notes). It is not committed;
-the release body is its only home.
+changelog content — the assembled `changelog.d/` fragments plus the legacy `[Unreleased]` entries —
+injected in [step 8](SKILL.md#8-set-the-release-notes). It is not committed; the release body is its
+only home.
 
 ## Structure
 
@@ -54,5 +55,5 @@ those logins for the highlighted lines; if the section is absent, no one is new 
 the returning contributors, reuse the authors from the generated `## What's Changed` list.
 
 List first-time contributors first, each marked `(first contribution)`, then the returning ones.
-The range the endpoint uses is the same window as the `[Unreleased]` section, so the notes and the
-changelog describe one set of changes.
+The range the endpoint uses matches the release's merged-PR window, so the notes and the changelog
+describe one set of changes.
