@@ -73,9 +73,6 @@ command reports the bare version (e.g. `0.1.0`).
   through `attach`), the single authority for each value that crosses stages, the liveness rule the prune applies per
   artifact kind, the `--dry-run`/`--dry-run-vm`/serve-only mode model, and the invariants a stage change must keep
   (#449).
-- Maintainers: the stage ids of `specs/lifecycle.md` are constants in `internal/sandbox/lifecycle`, checked against the
-  spec's stage table. `vm.PrepareSandbox` runs its stages as one ordered list, and `run`/`shell` record every stage they
-  reach into a `lifecycle.Trace` that tests assert (#450).
 
 ### Changed
 
