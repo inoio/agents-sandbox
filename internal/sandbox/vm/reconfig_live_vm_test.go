@@ -12,7 +12,9 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -113,6 +115,86 @@ func TestReadLiveProjectVMConnectFailureKeepsHandle(t *testing.T) {
 	}
 	if live.agentConfigFiles != nil {
 		t.Errorf("agent config files = %v, want nil when the VM cannot be connected", live.agentConfigFiles)
+	}
+	assertVerbose(t, &ui, "connecting to existing VM failed: not running")
+}
+
+// TestResolveReconfigDecisionAgentConfigDrivesRestart pins the agent config
+// comparison against the files read from the VM: a differing file restarts the
+// daemon, a matching one or none read (VM not connected) does not.
+func TestResolveReconfigDecisionAgentConfigDrivesRestart(t *testing.T) {
+	const mirrorPath = "/home/dev/.config/opencode/AGENTS.md"
+	tests := []struct {
+		name             string
+		agentConfigFiles map[string][]byte
+		wantRestart      bool
+	}{
+		{"differing file", map[string][]byte{mirrorPath: []byte("old")}, true},
+		{"matching file", map[string][]byte{mirrorPath: []byte("new")}, false},
+		{"nothing read", nil, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			ui := termio.NewTestMock(t)
+			configFiles := &reprovision.ConfigFiles{
+				Mirror: map[string][]byte{mirrorPath: []byte("new")},
+				Keys:   []string{mirrorPath},
+			}
+			persisted := matchingHomeState(network.Policy{})
+			live := liveProjectVM{
+				handle: &msb.MockSandboxHandle{},
+				config: &msbSdk.SandboxConfig{
+					Image:     "img:tag",
+					CPUs:      4,
+					MemoryMiB: 4096,
+					Volumes:   launcherLiveMounts(1024, 16384, "vol"),
+				},
+				agentConfigFiles: test.agentConfigFiles,
+			}
+
+			decision, err := resolveReconfigDecision(
+				context.Background(),
+				volume.NewManager(&ui),
+				testVMKey(),
+				options.RunOptions{Agent: "opencode"},
+				image.ImageInfo{Ref: "img:tag", Digest: persisted.ImageDigest},
+				"vol",
+				persisted,
+				configFiles,
+				envsecret.EnvSecrets{},
+				live,
+				&ui,
+			)
+			if err != nil {
+				t.Fatalf("resolveReconfigDecision: %v", err)
+			}
+			if decision.Recreate {
+				t.Fatalf("decision recreates (%v); only the agent config may differ in this test", ui.VerboseCalls)
+			}
+			if decision.Restart != test.wantRestart {
+				t.Errorf("Restart = %v, want %v", decision.Restart, test.wantRestart)
+			}
+		})
+	}
+}
+
+// TestPlanReconfigStageLiveVMReadError pins the fail-closed lookup through the
+// stage: a lookup error aborts plan-reconfig instead of planning against "no VM".
+func TestPlanReconfigStageLiveVMReadError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	lookupErr := errors.New("msb unreachable")
+	client := (&msb.MockMsbClient{}).SetGetSandboxErr(lookupErr)
+	msb.WithMsbMock(t, client)
+	provisionHostConfig := false
+	opts := options.RunOptions{Agent: "opencode", ProvisionHostConfig: &provisionHostConfig}
+	session := sessionIdentity{key: testVMKey(), agent: opencodeAgent(t)}
+	home := preparedHome{client: client, volumes: volume.NewManager(&ui), homeVolume: "vol"}
+
+	_, err := planReconfigStage(context.Background(), session, image.ImageInfo{}, home, false, opts, &ui)
+	if !errors.Is(err, lookupErr) {
+		t.Fatalf("planReconfigStage error = %v, want %v", err, lookupErr)
 	}
 }
 
