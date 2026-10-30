@@ -78,7 +78,9 @@ one: its baseline is written only by recovery, while a fresh or repaired state d
   built-in profile implements `agent.VersionProvider` (in-VM detection) alongside the image label, so the "left empty on
   a fresh/repaired state, self-healed on boot" assumption holds for all of them. `TestRegisteredAgentsHaveVersionSources`
   (`internal/agent/version_sources_test.go`) iterates the registry and fails for a profile without an `UpgradeChecker`,
-  an `ImageSpec.VersionArg` or a `VersionProvider` (#453).
+  an `ImageSpec.VersionArg` or a `VersionProvider` (#453). `TestAgentVersionFollowsTheImageLabel` (`cmd`) pins the
+  label authority end to end for opencode2: after `build` and `run` the cache equals the label, and an offline unpinned
+  run with a stale older cache neither rebuilds toward it nor keeps it (#452).
 
 ## Invariants
 
