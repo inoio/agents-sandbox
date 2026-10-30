@@ -69,6 +69,10 @@ command reports the bare version (e.g. `0.1.0`).
   skipped because a live sandbox holds them and the bytes it reclaimed. Byte counts the runtime cannot measure render as
   unknown (`-` in the human output, `null` in `--format json`), never `0`. The runtime-memory phase honors `--dry-run`
   through the runtime's own preview flag (#156).
+- Maintainers: `.operator-shared/specs/lifecycle.md` documents the `run`/`shell` lifecycle as named stages (`preflight`
+  through `attach`), the single authority for each value that crosses stages, the liveness rule the prune applies per
+  artifact kind, the `--dry-run`/`--dry-run-vm`/serve-only mode model, and the invariants a stage change must keep
+  (#449).
 
 ### Changed
 
