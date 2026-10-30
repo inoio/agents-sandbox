@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test fuzz test-race test-integration test-msb compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint fmt validate-fmt run cleanup-branches check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test fuzz test-race test-integration test-msb compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint fmt validate-fmt run cleanup-branches check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test docs-serve
 
 VERSION ?= dev
 
@@ -261,12 +261,12 @@ run:
 cleanup-branches:
 	./scripts/cleanup-merged-branches.sh $(ARGS)
 
-check: fmt lint test compile-all docs-linkcheck docs-linkcheck-test deadcode-test
+check: fmt lint test compile-all docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test
 
 # Read-only check for CI parity: fmt-check + lint + test + race + vulncheck (does not modify files).
-verify: validate-fmt lint test test-race compile-all vulncheck deadcode docs-linkcheck docs-linkcheck-test deadcode-test
+verify: validate-fmt lint test test-race compile-all vulncheck deadcode docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test
 
-all: fmt lint test docs-linkcheck docs-linkcheck-test build
+all: fmt lint test docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test build
 
 clean:
 	rm -f agents-sandbox
@@ -289,6 +289,14 @@ docs-linkcheck:
 # Test the documentation link checker itself.
 docs-linkcheck-test:
 	ci/test-check-docs.sh
+
+# Validate the changelog fragment convention (shape). See specs/changelog-fragments.md.
+changelog-check:
+	ci/check-changelog.sh
+
+# Test the changelog fragment checker itself.
+changelog-check-test:
+	ci/test-check-changelog.sh
 
 # Serve the docs locally the same way GitHub Pages does (Jekyll build + live reload) at http://localhost:4000/.
 docs-serve: docs-diagrams

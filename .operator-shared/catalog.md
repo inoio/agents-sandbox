@@ -44,9 +44,15 @@
 - `branch-worktree-cleanup.md`
   - Description: How `scripts/cleanup-merged-branches.sh` (via `make cleanup-branches`) removes merged worktrees/branches and reports the rest; the three merge-detection tiers (with the merge-commit guard on the `git cherry` tier and the gh tip-match requirement), the fresh-session worktree guard (`--fresh`, default 30m, not overridable by `--force`, keeps an unknown-creation-time worktree), dry-run skipping the remote refresh, the noninteractive-abort rule, the `--force-with-lease` origin deletion, and the prunable-worktree host/VM and idle-agents safety rules.
   - Read If: Running or changing local repository maintenance, cleaning up worktrees or merged branches, or debugging a branch the sweep kept or removed.
+- `github-merge-driver-support.md`
+  - Description: Verdict, with primary sources, that GitHub's server-side merge and merge-queue build ignore `.gitattributes` merge drivers, so `CHANGELOG.md merge=union` does not resolve a conflict (a queued PR is ejected instead); libgit2 does implement `union` but GitHub does not consult it, and GitLab dropped it in 17.1.
+  - Read If: Considering `merge=union`, a custom merge driver, or any `.gitattributes` merge attribute to auto-resolve conflicts on GitHub; or explaining why a server-side conflict persists when the CLI git merges cleanly.
 
 ### `specs/` - System contracts for this partition
 
+- `changelog-fragments.md`
+  - Description: Contract for per-PR changelog fragments (`changelog.d/<slug>.<type>.md`, slug = the PR number, with a `-<n>` ordinal for several same-type entries) replacing direct `[Unreleased]` edits so PRs cannot conflict on `CHANGELOG.md`: the type vocabulary, one-bullet content rule, release-time assembly order, the required always-run `changelog` shape/presence check (production-code changes need a fragment; test-only ones do not; a deleted fragment does not count), and the frozen-`[Unreleased]` transition.
+  - Read If: Changing how changelog entries are authored or assembled, `CONTRIBUTING.md`'s changelog rules, the release curation step, or `ci/check-changelog.sh`; or diagnosing a missing/duplicated changelog entry or a conflict that was expected to vanish.
 - `artifact-naming.md`
   - Description: Contract for the prefix-free artifact naming strategy: project VMs, task sandboxes, home volumes and microsandbox image refs drop the `agents-sandbox-` prefix while Docker images keep it (the `ImageInfo` Docker-tag/msb-ref split), new artifacts follow the new scheme while legacy ones stay discoverable without reimport or rebuild, ownership is positional for sandboxes/volumes while runner-image ownership requires the slug's embedded 14-char base36 hash, and project-vs-task classification is label-based.
   - Read If: Changing `internal/sandbox/naming`, the VM/home-volume/runner-image name or reference constructors or parsers, artifact discovery (list/remove/prune/reference scans), the sandbox or volume labels, or the Docker-vs-msb image reference split.
@@ -156,7 +162,7 @@
   - Description: Contract for the darwin cross-build's zig prerequisite: beyond zig on PATH, the macOS linker stubs (`.github/stubs/*.tbd`) must be baked into `<zig-root>/lib/libc/darwin`, and the three consumers that do it (CI release job, dev VM image, `make bootstrap`); plus `make bootstrap`'s classify-then-act guarantee (managed vs outside zig, on-disk idempotency, warnings), the symlink-following `ZIG_ROOT`/`ZIG_MANAGED_ROOT` resolution, and the accepted duplication between `.github/stubs` and the dev Dockerfile's inline `printf`.
   - Read If: Changing the macOS/darwin cross-compile path, `make bootstrap` or its zig classification, the release job's stub step, `.github/stubs/*.tbd`, the dev VM Dockerfile's stub step, or the Makefile's `ZIG_ROOT`/`ZIG_MANAGED_ROOT` resolution; or diagnosing a darwin cross-build that cannot find CoreFoundation, Security, or resolv.
 - `detached-jobs.md`
-  - Description: Contract for running dockerd and the agent serve daemon as microsandbox runtime-owned detached jobs (`ExecDetached`/`Job`) instead of shell-backgrounded `nohup` processes; health-probe readiness with `Job.Inspect` crash detection and `Job.Logs` on failure, no shell fallback, kill-by-command rediscovery, and the v0.7.11 idle fix that made re-landing safe.
+  - Description: Contract for running dockerd and the agent serve daemon as microsandbox runtime-owned detached jobs (`ExecDetached`/`Job`) instead of shell-backgrounded `nohup` processes; health-probe readiness with `Job.Inspect` crash detection and `Job.Logs` on failure, no shell fallback, current-generation kill-by-command rediscovery that tolerates a job left by an earlier boot, the running-container idle-stop warning, and the v0.7.11 idle fix that made re-landing safe.
   - Read If: Working on the VM's dockerd/agent-serve startup, readiness, or restart in `internal/sandbox/vm`, the msb detached-job seam, the agent `DaemonProvider` daemon command, or the VM idle timeout.
 - `deprecation-policy.md`
   - Description: Durable deprecation policy (0.x, high UX bar): works-warns-hides, replacement precedence, a one-minor minimum lifetime, the clean-break-vs-shim rule, the current register with removal targets, and the regression-test enforcement.
@@ -209,6 +215,9 @@
 
 ### `plans/` - TDD implementation plans
 
+- `2026-10-30-changelog-fragments.md`
+  - Description: TDD plan for `specs/changelog-fragments.md`: the `ci/check-changelog.sh` shape+presence checker and its fixture tests, the Makefile targets, the always-run required `changelog` CI job, the `changelog.d/` directory and this change's own fragment, the CONTRIBUTING/PR-template/AGENTS docs, and the release-skill + merge-queue-guide updates.
+  - Read If: Implementing or resuming the changelog fragment mechanism — the `changelog` check, `changelog.d/`, or the release assembly step.
 - `2026-10-10-buildkit-builder-vm.md`
   - Description: TDD plan for `specs/buildkit-builder-vm.md`: the `internal/sandbox/builder` package, BuildKit deps, rewiring `image`, VM creation, cache pruning, and removing `internal/sandbox/docker` + `doctor.CheckDocker`.
   - Read If: Implementing the Docker-free BuildKit builder (#15) — `internal/sandbox/builder`, `buildkitd`, `ImageLoad`, or the image build/inspect/load pipeline and `doctor.CheckDocker` removal.

@@ -66,9 +66,12 @@ One project-config **base dir** replaces the implicit `$PWD`:
 
 Implementation facts that shape the resolver:
 
-- The discriminator is `core.bare` from the common git dir's `config`, read with go-git
-  (`config.ReadConfig` → `cfg.Core.IsBare`), the same route `internal/git/git.go`'s `originURL` uses. No host
-  `git` binary. `internal/git` imports no internal package, so `configpaths` may depend on it without a cycle.
+- The discriminator is `core.bare`, read with go-git (`config.ReadConfig` → `cfg.Core.IsBare`), the same route
+  `internal/git/git.go`'s `originURL` uses. It comes from the common git dir's `config` and, when
+  `extensions.worktreeConfig` is enabled, from that git dir's `config.worktree` too — git moves `core.bare` there
+  once the extension is set (a sparse worktree does), so the shared `config` alone would read a bare repo as
+  non-bare (see `internal/git/isBare`). No host `git` binary. `internal/git` imports no internal package, so
+  `configpaths` may depend on it without a cycle.
 - `checkoutRoot` as `internal/git/workspace.go:25 ResolveWorkspaceLayout` already computes it is the bare root in
   the bare layout, so the base dir is `checkoutRoot/.agents-sandbox` when `core.bare` and the worktree is inside
   it. `ResolveWorkspaceLayout` cannot distinguish a bare root from a main checkout root today — both are

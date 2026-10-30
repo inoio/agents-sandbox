@@ -533,6 +533,53 @@ func TestRunServeOnlyReapFailureWarns(t *testing.T) {
 	}
 }
 
+// TestRunServeOnlyWarnsAboutContainersAfterCancel covers the canceled exit path
+// end to end: serve-only exits by canceling ctx, and the last-client reaper must
+// still probe for running containers (and warn) rather than let the canceled
+// context suppress the probe. Without the probe's own context this yields no
+// warning, which is the regression greptile flagged.
+func TestRunServeOnlyWarnsAboutContainersAfterCancel(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	sb := canceledContextSandbox{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{
+		ShellOut: map[string]msb.ShellResult{
+			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+		},
+	})}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, options.RunOptions{
+			Agent:      "opencode",
+			ServeOnly:  true,
+			ReapPolicy: options.ReapPolicy{AutoStopOnActiveSessions: true},
+		}, options.ModeRun, ui)
+	}()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run serve-only did not return after cancel")
+	}
+	found := false
+	for _, w := range ui.WarnCalls {
+		if strings.Contains(w, "container") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected a running-container warning on serve-only exit, got %v", ui.WarnCalls)
+	}
+}
+
 func TestShellPrepareSandboxError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
