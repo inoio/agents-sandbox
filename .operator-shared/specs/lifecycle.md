@@ -1,5 +1,5 @@
 ---
-description: Canonical model of the `run`/`shell` lifecycle: the ordered stage ids the code constants and trace test will share (#450, #452), what each stage reads, writes and guarantees, the single authority for every cross-stage value, the liveness principle and its per-artifact rules, the mode model, and the invariants a stage change must not break.
+description: Canonical model of the `run`/`shell` lifecycle: the ordered stage ids the code constants (`internal/sandbox/lifecycle`) and the trace tests share, what each stage reads, writes and guarantees, the single authority for every cross-stage value, the liveness principle and its per-artifact rules, the mode model, and the invariants a stage change must not break.
 read_if: Making any change to a run/shell/session lifecycle stage or a cross-stage value — `cmd.runFunc`/`buildShellCmd`, `pruning.AutoPrune`/`keepImage`/`PruneVolumes`, `vm.PrepareSandbox` and its steps, `session.Run`/`session.Shell`, the `--dry-run`/`--dry-run-vm`/`--serve-only` modes — or diagnosing two subsystems that disagree about what is live or current (a run that reclaims, rebuilds or reverts something it is about to use).
 ---
 
@@ -18,37 +18,49 @@ from them: every cross-stage value has exactly one writer of record, and every o
 
 ## Stage vocabulary
 
-The stage ids below are the shared vocabulary. The stage-id constants (planned as `lifecycle.StageID` in a
-constants-and-recorder package `internal/sandbox/lifecycle`) and the ordered lifecycle trace test do not exist yet
-(#450, #452); once they land they must spell these ids identically, and a stage renamed here is renamed there, and the
-reverse. Until then nothing checks the stage order automatically.
+The stage ids below are the shared vocabulary. The constants-and-recorder package `internal/sandbox/lifecycle` spells
+them as `lifecycle.StageID` constants, and `lifecycle.Order()` lists them in this order; `TestOrderMatchesSpec` reads
+this table and fails when the two disagree, so a stage renamed or moved here is renamed or moved there, and the
+reverse.
 
 | # | Stage id           | Owner                                                | Reads → writes                                                    |
 |---|--------------------|------------------------------------------------------|-------------------------------------------------------------------|
-| 1 | `preflight`        | root `PersistentPreRunE`, `doctor.CheckAll`          | host prerequisites → private msb runtime installed                |
-| 2 | `upgrade-check`    | `checkForUpgrade` (`cmd`)                            | launcher release, root state → self-upgrade, `updates.launcher`   |
-| 3 | `prune`            | `pruning.AutoPrune` (from `runFunc`)                 | msb VMs/volumes/images, home states → reclaimed artifacts         |
-| 4 | `resolve-identity` | `vm.resolveSessionIdentity`                          | cwd, agent, legacy artifacts → project key, adopted legacy state  |
-| 5 | `resolve-version`  | `vm.determineAgentVersion`/`resolveBuildVersion`     | pin, image label, `agent_version`, upgrade prompt → build version |
-| 6 | `ensure-image`     | `image.EnsureImage`                                  | build plan, Docker → runner image, `ImageInfo` with content ref   |
-| 7 | `ensure-home`      | `vm.prepareHomeVolume` → `volume.ResolveHomeVolume`  | state, live VM mounts → home volume, `HomeState`, agent version   |
-| 8 | `plan-reconfig`    | `vm.resolveReconfigDecision`/`applyReconfigHomeAction` | fingerprints, live VM config → recreate/restart, home action    |
-| 9 | `ensure-vm`        | `vm.ensureProjectVM`                                 | decision, image, home volume → image loaded in msb, VM up         |
-| 10 | `setup-sandbox`   | `vm.setUpSandbox`                                    | config files, boot kind → provisioned config, daemons, target     |
+| 1 | `preflight`        | root `PersistentPreRunE`, `cmd.runStartupStages`     | host prerequisites → private msb runtime installed                |
+| 2 | `upgrade-check`    | `cmd.runStartupStages` → `checkForUpgrade`           | launcher release, root state → self-upgrade, `updates.launcher`   |
+| 3 | `prune`            | `cmd.runStartupStages` → `pruning.AutoPrune`         | msb VMs/volumes/images, home states → reclaimed artifacts         |
+| 4 | `resolve-identity` | `vm.resolveIdentityStage`                            | cwd, agent, legacy artifacts → project key, adopted legacy state  |
+| 5 | `resolve-version`  | `vm.resolveVersionStage` → `resolveBuildVersion`     | pin, image label, `agent_version`, upgrade prompt → build version |
+| 6 | `ensure-image`     | `vm.ensureImageStage` → `image.EnsureImage`          | build plan, Docker → runner image, `ImageInfo` with content ref   |
+| 7 | `ensure-home`      | `vm.ensureHomeStage` → `volume.ResolveHomeVolume`    | state, live VM mounts → home volume, `HomeState`, agent version   |
+| 8 | `plan-reconfig`    | `vm.planReconfigStage`                               | fingerprints, live VM config → recreate/restart, home action      |
+| 9 | `ensure-vm`        | `vm.ensureVMStage` → `ensureProjectVM`               | decision, image, home volume → image loaded in msb, VM up         |
+| 10 | `setup-sandbox`   | `vm.setupSandboxStage` → `setUpSandbox`              | config files, boot kind → provisioned config, daemons, target     |
 | 11 | `attach`          | `session.runAttach` / `session.runServeOnlySession`  | VM, target → interactive session or serve-only keeper             |
 
-Stages 4–10 run inside `vm.PrepareSandbox`; stages 1–3 run in `cmd` before `session.Run`/`session.Shell`. Two inputs
-are loaded once per startup between stages and shared by every consumer instead of being re-read: the host env/secret
-files (`loadEnvFingerprints`, after `ensure-image`; consumed by `ensure-home`'s state seed, `plan-reconfig` and
-`ensure-vm`) and the merged agent config files (`reprovision.LoadConfigFiles`, after `ensure-home`; consumed by
-`plan-reconfig` and `setup-sandbox`).
+Stages 1–3 run in `cmd.runStartupStages`, shared by `run` and `shell`, before `session.Run`/`session.Shell`. Stages
+4–10 are the ordered `lifecycle.Stage` list in `vm.PrepareSandbox`, run by one loop (`lifecycle.Run`); each element
+calls one named `…Stage` step with the values it reads and hands its typed result (`sessionIdentity`,
+`versionDecision`, `preparedHome`, `reconfigPlan`) to the stages after it. There is no shared `State` bag: a step sees
+only what its signature names. Stage 11 runs in `session`. Two inputs are loaded once per startup and shared by every
+consumer instead of being re-read: the host env/secret files (`loadEnvFingerprints`, at the start of `ensure-home`;
+consumed by its state seed, `plan-reconfig` and `ensure-vm`) and the merged agent config files
+(`reprovision.LoadConfigFiles`, at the start of `plan-reconfig`; consumed by it and `setup-sandbox`).
+
+**Trace.** `cmd` creates a `lifecycle.Trace` per `run`/`shell` (`newLifecycleTrace`, a test seam) and passes it down as
+`RunOptions.Trace`; every stage records its id when it is reached, before its work runs. A stage a mode turns into a
+no-op still records (a preview's `preflight`, a `--dry-run-vm` prepare's `ensure-vm`), a failing stage is the last one
+recorded, and a stage the invocation never reaches is absent (`attach` needs a VM). A preview records nothing after
+`prune`: its read-only variants of `resolve-identity` through `ensure-home` (`vm.PreviewSandbox`) are not stages of the
+trace. The trace starts in `cmd.runStartupStages`: the root `PersistentPreRunE`'s runtime preparation, the first half of
+`preflight`, runs before the trace exists, so a failure there leaves the trace empty. A nil trace records nothing. The
+trace is test instrumentation: nothing reads it at run time.
 
 ## Stages
 
 **`preflight`.** The root `PersistentPreRunE` installs or inspects the private msb runtime (`msbruntime.PrepareRuntime`;
 a preview only applies the private `MSB_HOME`), then `doctor.CheckAll` verifies host prerequisites and fails the run on
 a missing one. Guarantees every later stage a usable runtime and Docker. `run` and `shell` skip `doctor.CheckAll`
-under `--dry-run`. Stages 1–3 are one helper both commands share (`cmd.runStartupStages`).
+under `--dry-run`.
 
 **`upgrade-check`.** Offers, performs or announces a launcher self-upgrade (`self-upgrade-channels.md`); an
 upgrade-and-exit ends the invocation here. Skipped under `--dry-run` for both `run` and `shell`.

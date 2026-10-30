@@ -8,6 +8,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 )
@@ -71,6 +72,9 @@ type RunOptions struct {
 	// OpenLinks starts the host side of the in-VM xdg-open shim for the
 	// session, so links opened in the VM open on the host (internal/opener).
 	OpenLinks bool
+	// Trace records the lifecycle stages the invocation reaches. cmd creates
+	// it; the stages in vm and session record into it. Nil records nothing.
+	Trace *lifecycle.Trace
 }
 
 // ServeOnlyBindAddr is the loopback address the agent server binds to

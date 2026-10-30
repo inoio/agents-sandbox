@@ -15,6 +15,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
+	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -34,6 +35,11 @@ const minUsagePadding = 25
 // path invokes the prune without consuming the pruning package's process-wide
 // once (which other run tests in this binary may already have used).
 var autoPrune = pruning.AutoPrune
+
+// newLifecycleTrace creates the trace a run or shell records its lifecycle
+// stages into (specs/lifecycle.md). It is a seam so a test can keep the trace it
+// hands out and assert the recorded stage order.
+var newLifecycleTrace = func() *lifecycle.Trace { return &lifecycle.Trace{} }
 
 func buildRunCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
@@ -132,13 +138,14 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		opts.Args = args
+		opts.Trace = newLifecycleTrace()
 
 		ctx := cmd.Context()
 		if opts.ServeOnly {
 			ctx, _ = serveOnlyContext(ctx)
 		}
 		mode := runoptions.ResolveMode(cmd)
-		exit, err := runStartupStages(ctx, cmd, mode, opts.Agent, ui)
+		exit, err := runStartupStages(ctx, cmd, mode, opts, ui)
 		if err != nil || exit {
 			return err
 		}
@@ -146,37 +153,41 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 	}
 }
 
-// runStartupStages runs the stages run and shell share before the session: the
-// doctor preflight and the self-upgrade check (both skipped on a preview), then
-// the startup auto-prune (report-only on a preview), which retains the current
-// invocation's runner-image keys. It reports exit when an upgrade was performed
-// and the command must stop. upgradeCtx is the context the upgrade check runs
-// under (run's serve-only context, so an interrupt cancels it).
+// runStartupStages runs the stages run and shell share before the session,
+// recording each into opts.Trace as it is reached: the doctor preflight and the
+// self-upgrade check (both skipped on a preview), then the startup auto-prune
+// (report-only on a preview), which retains the current invocation's
+// runner-image keys. It reports exit when an upgrade was performed and the
+// command must stop. upgradeCtx is the context the upgrade check runs under
+// (run's serve-only context, so an interrupt cancels it).
 func runStartupStages(
 	upgradeCtx context.Context,
 	cmd *cobra.Command,
 	mode options.Mode,
-	agentName string,
+	opts options.RunOptions,
 	ui termio.UI,
 ) (bool, error) {
 	r := resolverFromContext(cmd.Context())
 	isDryRun := mode.Previews()
+	opts.Trace.Record(lifecycle.Preflight)
+	if !isDryRun && !doctor.CheckAll(cmd.Context(), ui) {
+		return false, errors.New("preflight failed")
+	}
+	opts.Trace.Record(lifecycle.UpgradeCheck)
 	if !isDryRun {
-		if !doctor.CheckAll(cmd.Context(), ui) {
-			return false, errors.New("preflight failed")
-		}
 		exit, err := checkForUpgrade(upgradeCtx, r, ui)
 		if err != nil || exit {
 			return exit, err
 		}
 	}
+	opts.Trace.Record(lifecycle.Prune)
 	if r != nil {
 		autoPrune(
 			cmd.Context(),
 			r.AutoPruneAge(),
 			isDryRun,
 			&autoPruneOutToVerboseRedirect{UI: ui},
-			currentRunImageKeys(agentName)...,
+			currentRunImageKeys(opts.Agent)...,
 		)
 	}
 	return false, nil
@@ -286,8 +297,9 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			opts.Trace = newLifecycleTrace()
 			mode := runoptions.ResolveMode(cmd)
-			exit, err := runStartupStages(cmd.Context(), cmd, mode, opts.Agent, ui)
+			exit, err := runStartupStages(cmd.Context(), cmd, mode, opts, ui)
 			if err != nil || exit {
 				return err
 			}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -193,6 +194,7 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 		return nil
 	}
 
+	opts.Trace.Record(lifecycle.Attach)
 	projectSlug := ses.Key().Slug
 
 	a, _ := agent.Lookup(opts.Agent)
@@ -274,6 +276,7 @@ func Shell(ctx context.Context, opts options.RunOptions, mode options.Mode, ui t
 		return nil
 	}
 
+	opts.Trace.Record(lifecycle.Attach)
 	stopHostOpener := startHostOpener(ctx, ses, opts.OpenLinks, ui)
 	defer stopHostOpener()
 
