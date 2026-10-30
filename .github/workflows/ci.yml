@@ -99,6 +99,8 @@ jobs:
           git diff --name-only "$base" '${{ github.sha }}' > /tmp/changed.txt 2>/dev/null || true
       - name: Check fragments
         run: ci/check-changelog.sh . --changed /tmp/changed.txt
+      - name: Test the fragment checker
+        run: make changelog-check-test
 
   lint:
     name: lint

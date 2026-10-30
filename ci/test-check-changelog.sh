@@ -166,5 +166,11 @@ d="$(new_fixture)"
 expect_presence "code plus test" 1 "no changelog.d" "$d" "internal/foo/foo.go" "internal/foo/foo_test.go"
 rm -rf "$d"
 
+# A deleted fragment does not satisfy the rule: the path is in the changeset but
+# not in the tree.
+d="$(new_fixture)"
+expect_presence "code, fragment only deleted" 1 "no changelog.d" "$d" "internal/foo/foo.go" "changelog.d/432.added.md"
+rm -rf "$d"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

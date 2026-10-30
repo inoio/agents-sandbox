@@ -29,8 +29,10 @@ approves, and only for the version they chose. On abort, stop.
 
 Assemble `changelog.d/` into the changelog, then curate. Read every fragment in `changelog.d/` (the
 ignored `README.md` aside) together with the legacy `[Unreleased]` section of `CHANGELOG.md`, and turn
-them into the entries a reader wants. Order the fragments by section (`Added`, `Changed`, `Deprecated`,
-`Docs`, `Fixed`) and, within a section, by filename ascending, per
+them into the entries a reader wants. Read from the branch that will be tagged (step 7): `main` for a
+minor or major release, `release/<major>.<minor>` for a patch release, where the line's fixes and
+their fragments live. Order the fragments by section (`Added`, `Changed`, `Deprecated`, `Docs`,
+`Fixed`) and, within a section, by filename ascending, per
 [`specs/changelog-fragments.md`](../../../.operator-shared/specs/changelog-fragments.md).
 
 - Use one heading per section in the order `Added`, `Changed`, `Deprecated`, `Docs`, `Fixed`. Merge duplicate headings
@@ -99,7 +101,9 @@ creates the tag through `gh`). Wait for an explicit decision.
 
 On approval, open a PR that assembles `changelog.d/` and the legacy `[Unreleased]` content into
 `## [X.Y.Z] - <today>`, deletes the fragment files, and adds a fresh empty `[Unreleased]` above the
-new section; merge it to `main`. The tag must point at the merged content.
+new section; merge it to the branch being tagged (step 1) — `main` for a minor or major release, the
+existing `release/<major>.<minor>` branch for a patch release. The tag must point at the merged
+content.
 
 ### 7. Create the release branch and push the tag
 

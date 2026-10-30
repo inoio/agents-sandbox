@@ -10,9 +10,11 @@
 #   <slug>.<type>-<n>.md) with a known type; the ignored names are skipped.
 # - Presence (--changed FILE): when FILE lists one changed path per line (as
 #   `git diff --name-only` emits), a changeset that touches production code must
-#   include a changelog.d/*.md fragment. The code rule mirrors .github/workflows/ci.yml's
-#   `changes` job, except that a test-only changeset (`*_test.go`) needs none;
-#   keep the exempt prefix set in sync with the `changes` job.
+#   include a changelog.d/*.md fragment present in the tree (a fragment the
+#   changeset only deleted does not count). The code rule mirrors
+#   .github/workflows/ci.yml's `changes` job, except that a test-only changeset
+#   (`*_test.go`) needs none; keep the exempt prefix set in sync with the
+#   `changes` job.
 #
 # Usage: ci/check-changelog.sh [ROOT] [--changed FILE]
 #   ROOT defaults to the repository root; the test harness passes a fixture root.
@@ -81,12 +83,13 @@ check_presence() {
       && [[ "$line" != ".gitignore" ]]; then
       code=1
     fi
-    # Only a top-level, non-ignored fragment counts; a nested path or the
-    # directory README does not satisfy the rule.
+    # Only a top-level, non-ignored fragment that exists in the tree counts; a
+    # nested path, the directory README, or a fragment the changeset only
+    # deleted does not satisfy the rule.
     if [[ "$line" =~ ^changelog\.d/([^/]+)$ ]]; then
       base="${BASH_REMATCH[1]}"
       [[ " $IGNORE " == *" $base "* ]] && continue
-      [[ "$base" =~ \.md$ ]] && fragment=1
+      [[ "$base" =~ \.md$ && -f "$CHANGELOG_DIR/$base" ]] && fragment=1
     fi
   done <"$CHANGED_FILE"
   if [[ "$code" -eq 1 && "$fragment" -eq 0 ]]; then
