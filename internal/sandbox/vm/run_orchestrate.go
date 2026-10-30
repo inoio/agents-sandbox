@@ -388,6 +388,7 @@ func ensureVMStage(
 		home.env, ui,
 	)
 	if err != nil {
+		// gomutants:disable-next-line RETURN_ZERO reason="ensureProjectVM returns vmBootConnected (the vmBoot zero value, the first iota constant) on every error path, so a RETURN_ZERO replacement of boot is the identical constant"
 		return nil, boot, err
 	}
 	if boot == vmBootCreated {
