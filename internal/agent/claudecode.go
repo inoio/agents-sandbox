@@ -13,6 +13,7 @@ type claudeCodeProfile struct{}
 
 func (claudeCodeProfile) Name() string          { return claudeCodeName }
 func (claudeCodeProfile) ConfigDirName() string { return "claude" }
+func (claudeCodeProfile) Experimental() bool    { return true }
 
 func (claudeCodeProfile) ImageSpec() ImageSpec {
 	return ImageSpec{

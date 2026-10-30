@@ -67,6 +67,7 @@ func TestBuildAttachCommandOpencode(t *testing.T) {
 type nonAttachAgent struct{}
 
 func (nonAttachAgent) Name() string               { return "nonattach" }
+func (nonAttachAgent) Experimental() bool         { return false }
 func (nonAttachAgent) ConfigDirName() string      { return "nonattach" }
 func (nonAttachAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 

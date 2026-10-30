@@ -458,7 +458,8 @@ func TestRenderDockerfileChownsAgentToolTree(t *testing.T) {
 // must emit no chown.
 type emptyOwnedPathsAgent struct{ agent.Agent }
 
-func (emptyOwnedPathsAgent) Name() string { return "stub" }
+func (emptyOwnedPathsAgent) Name() string       { return "stub" }
+func (emptyOwnedPathsAgent) Experimental() bool { return false }
 func (emptyOwnedPathsAgent) ImageSpec() agent.ImageSpec {
 	return agent.ImageSpec{OwnedToolPaths: []string{}}
 }
@@ -490,6 +491,7 @@ func TestRenderDockerfileNoChownForStatelessAgents(t *testing.T) {
 type emptyGuestToolsAgent struct{ agent.Agent }
 
 func (emptyGuestToolsAgent) Name() string         { return "stub" }
+func (emptyGuestToolsAgent) Experimental() bool   { return false }
 func (emptyGuestToolsAgent) GuestTools() []string { return nil }
 
 func TestGuestToolsBlockEmptyListEmitsNothing(t *testing.T) {

@@ -78,6 +78,7 @@ func TestResolveConfigSourceEmptyCandidates(t *testing.T) {
 type invalidConfigDirAgent struct{}
 
 func (invalidConfigDirAgent) Name() string               { return "bad-profile" }
+func (invalidConfigDirAgent) Experimental() bool         { return false }
 func (invalidConfigDirAgent) ConfigDirName() string      { return "../escape" }
 func (invalidConfigDirAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 

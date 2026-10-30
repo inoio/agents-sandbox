@@ -34,6 +34,7 @@ func opencodeAgent(t *testing.T) agent.Agent {
 type noSessionStatusAgent struct{}
 
 func (noSessionStatusAgent) Name() string               { return "no-session-status" }
+func (noSessionStatusAgent) Experimental() bool         { return false }
 func (noSessionStatusAgent) ConfigDirName() string      { return "nosessionstatus" }
 func (noSessionStatusAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 

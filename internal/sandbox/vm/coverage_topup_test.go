@@ -28,6 +28,7 @@ import (
 type upgradeCheckerAgent struct{}
 
 func (upgradeCheckerAgent) Name() string          { return "upgradechecker" }
+func (upgradeCheckerAgent) Experimental() bool    { return false }
 func (upgradeCheckerAgent) ConfigDirName() string { return "upgradechecker" }
 func (upgradeCheckerAgent) ImageSpec() agent.ImageSpec {
 	return agent.ImageSpec{}

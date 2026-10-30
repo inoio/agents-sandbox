@@ -19,6 +19,11 @@ type Agent interface {
 	ConfigDirName() string
 	// ImageSpec returns the bits used to bake the agent into the runner image.
 	ImageSpec() ImageSpec
+	// Experimental reports whether this profile is experimental: not well
+	// tested with agents-sandbox. The launcher prints a notice when an
+	// experimental agent is selected. Every profile states it explicitly, so a
+	// new profile cannot silently default to stable.
+	Experimental() bool
 }
 
 // WorktreeSpec describes a git worktree to create in the VM. It is a minimal,
