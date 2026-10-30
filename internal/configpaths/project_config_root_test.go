@@ -3,15 +3,14 @@ package configpaths
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
-
-	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // pinHostDirs points the host home and XDG directories at temp trees, so a test
-// and any git subprocess it spawns never read or write the developer's real
-// config. It does not install the resolver; callers that need the real one add
-// WithRealConfigPaths (or isolateProjectConfig does both).
+// never reads or writes the developer's real config. It does not install the
+// resolver; callers that need the real one add WithRealConfigPaths (or
+// isolateProjectConfig does both).
 func pinHostDirs(t *testing.T) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
@@ -30,19 +29,36 @@ func isolateProjectConfig(t *testing.T) {
 	WithRealConfigPaths(t)
 }
 
-// writeBareCheckout builds a bare checkout whose worktrees live inside the bare
-// root: root/.git is a bare clone and root/main is a worktree of it.
+// writeBareCheckout lays out root/main as the worktree of a bare checkout and
+// installs a locator that reports this layout the way git.BareCheckoutRoots
+// reports a real one: the bare root for root itself, and root/main as the
+// worktree root for any directory inside it. Other directories are outside.
 func writeBareCheckout(t *testing.T) string {
 	t.Helper()
-	origin := testutil.InitRepo(t)
-	root := t.TempDir()
-	testutil.RunGit(t, root, "clone", "--bare", origin, ".git")
-	testutil.RunGit(t, filepath.Join(root, ".git"), "worktree", "add", filepath.Join(root, "main"))
+	root := physicalDir(t, t.TempDir())
+	worktree := filepath.Join(root, "main")
+	if err := os.MkdirAll(worktree, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", worktree, err)
+	}
+	WithBareCheckoutLocator(t, func(cwd string) (string, string, bool) {
+		switch {
+		case cwd == root:
+			return root, root, true
+		case isWithin(cwd, worktree):
+			return root, worktree, true
+		default:
+			return "", "", false
+		}
+	})
 	return root
 }
 
-// physicalDir resolves a path's symlinks, the same way the resolver derives the
-// bare base, so expectations hold even when the temp base contains a symlink.
+func isWithin(path, dir string) bool {
+	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
+}
+
+// physicalDir resolves a path's symlinks, so the fake layout matches the path
+// os.Getwd reports after a chdir even when the temp base contains a symlink.
 func physicalDir(t *testing.T, path string) string {
 	t.Helper()
 	resolved, err := filepath.EvalSymlinks(path)
@@ -54,7 +70,7 @@ func physicalDir(t *testing.T, path string) string {
 
 func assertBareProjectBase(t *testing.T, root string) {
 	t.Helper()
-	wantBase := filepath.Join(physicalDir(t, root), ".agents-sandbox")
+	wantBase := filepath.Join(root, ".agents-sandbox")
 	if got := Get().ProjectConfigDir(); got != wantBase {
 		t.Errorf("ProjectConfigDir() = %q, want %q", got, wantBase)
 	}
@@ -130,97 +146,69 @@ func TestProjectConfigBaseBareWithoutConfigDir(t *testing.T) {
 
 	assertBareProjectBase(t, root)
 
-	wantBase := filepath.Join(physicalDir(t, root), ".agents-sandbox")
+	wantBase := filepath.Join(root, ".agents-sandbox")
 	if _, err := os.Stat(wantBase); !os.IsNotExist(err) {
 		t.Errorf("resolving the base created %s (stat err = %v)", wantBase, err)
 	}
 }
 
-// TestProjectConfigBaseBareViaSymlink pins $PWD to the symlinked path so
-// os.Getwd returns the logical path; the resolver must still report the
-// physical bare root as its base.
-func TestProjectConfigBaseBareViaSymlink(t *testing.T) {
+func TestProjectConfigBaseOutsideBareCheckoutIsRelative(t *testing.T) {
 	isolateProjectConfig(t)
-	root := writeBareCheckout(t)
-	link := filepath.Join(t.TempDir(), "link")
-	if err := os.Symlink(root, link); err != nil {
-		t.Fatalf("symlink %s -> %s: %v", link, root, err)
-	}
-	target := filepath.Join(link, "main")
-	t.Setenv("PWD", target)
-	t.Chdir(target)
-
-	logical, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd: %v", err)
-	}
-	if logical != target {
-		t.Fatalf(
-			"os.Getwd() = %q, want the symlinked path %q: the PWD pin is not exercising the logical path",
-			logical,
-			target,
-		)
-	}
-
-	wantBase := filepath.Join(physicalDir(t, root), ".agents-sandbox")
-	if got := Get().ProjectConfigDir(); got != wantBase {
-		t.Errorf("ProjectConfigDir() = %q, want the physical base %q", got, wantBase)
-	}
-}
-
-func TestProjectConfigBaseNonBareSubdirectoryUnchanged(t *testing.T) {
-	isolateProjectConfig(t)
-	repo := testutil.InitRepo(t)
-	sub := filepath.Join(repo, "internal")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
-		t.Fatalf("mkdir %s: %v", sub, err)
-	}
-	t.Chdir(sub)
-
-	assertRelativeProjectBase(t)
-}
-
-func TestProjectConfigBaseNonRepoUnchanged(t *testing.T) {
-	isolateProjectConfig(t)
+	writeBareCheckout(t)
 	t.Chdir(t.TempDir())
 
 	assertRelativeProjectBase(t)
 }
 
-// TestResolveProjectConfigUnresolvableCwdFallsBack covers the EvalSymlinks
-// fallback: a CWD that cannot be resolved is used as-is, and since it is outside
-// any repository resolution degrades to the relative base with nothing ignored.
-func TestResolveProjectConfigUnresolvableCwdFallsBack(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "does-not-exist")
+// TestProjectConfigBaseWithoutLocatorIsRelative pins the default: until the
+// composition root installs a locator, no directory resolves to a bare base.
+func TestProjectConfigBaseWithoutLocatorIsRelative(t *testing.T) {
+	isolateProjectConfig(t)
+	WithBareCheckoutLocator(t, notInBareCheckout)
 
-	base, ignored := resolveProjectConfig(missing)
+	assertRelativeProjectBase(t)
+}
 
-	if base != projectConfigDir {
-		t.Errorf("base = %q, want %q", base, projectConfigDir)
+// TestProjectConfigLocatesTheBareCheckoutOncePerCwd pins the cache: path
+// helpers are called many times per launch, and each must not repeat the
+// filesystem walk that locating the checkout costs.
+func TestProjectConfigLocatesTheBareCheckoutOncePerCwd(t *testing.T) {
+	isolateProjectConfig(t)
+	first := physicalDir(t, t.TempDir())
+	second := physicalDir(t, t.TempDir())
+	locatedDirectories := map[string]int{}
+	WithBareCheckoutLocator(t, func(cwd string) (string, string, bool) {
+		locatedDirectories[cwd]++
+		return "", "", false
+	})
+
+	for _, dir := range []string{first, second, first} {
+		t.Chdir(dir)
+		Get().ProjectConfigDir()
+		Get().ProjectConfigDirAbs()
+		Get().ProjectDockerfile()
+		Get().ProjectEnvFile()
+		Get().IgnoredWorktreeConfigDir()
 	}
-	if ignored != "" {
-		t.Errorf("ignored = %q, want empty", ignored)
+
+	for _, dir := range []string{first, second} {
+		if got := locatedDirectories[dir]; got != 1 {
+			t.Errorf("locator called %d times for %q, want once", got, dir)
+		}
 	}
 }
 
-// TestResolveProjectConfigUnresolvableCwdInsideBareWorktree pins the #354
-// consequence inside a bare checkout: identity resolution now refuses an
-// unresolvable cwd, so the upward walk no longer reaches the enclosing bare
-// root and the read degrades to the relative base like any other unresolvable
-// cwd. (The earlier raw-path walk is gone with the slug-affecting fallback.)
-func TestResolveProjectConfigUnresolvableCwdInsideBareWorktree(t *testing.T) {
+// TestUseBareCheckoutLocatorDropsCachedResults guards against a stale layout:
+// installing another locator must not keep answers the previous one gave.
+func TestUseBareCheckoutLocatorDropsCachedResults(t *testing.T) {
 	isolateProjectConfig(t)
-	root := physicalDir(t, writeBareCheckout(t))
-	missing := filepath.Join(root, "main", "gone")
+	root := writeBareCheckout(t)
+	t.Chdir(filepath.Join(root, "main"))
+	assertBareProjectBase(t, root)
 
-	base, ignored := resolveProjectConfig(missing)
+	WithBareCheckoutLocator(t, notInBareCheckout)
 
-	if base != projectConfigDir {
-		t.Errorf("base = %q, want the relative base %q", base, projectConfigDir)
-	}
-	if ignored != "" {
-		t.Errorf("ignored = %q, want empty", ignored)
-	}
+	assertRelativeProjectBase(t)
 }
 
 func TestIgnoredWorktreeConfigDir(t *testing.T) {
@@ -235,9 +223,8 @@ func TestIgnoredWorktreeConfigDir(t *testing.T) {
 
 	assertBareProjectBase(t, root)
 
-	want := filepath.Join(physicalDir(t, mainDir), ".agents-sandbox")
-	if got := Get().IgnoredWorktreeConfigDir(); got != want {
-		t.Errorf("IgnoredWorktreeConfigDir() = %q, want %q", got, want)
+	if got := Get().IgnoredWorktreeConfigDir(); got != worktreeConfig {
+		t.Errorf("IgnoredWorktreeConfigDir() = %q, want %q", got, worktreeConfig)
 	}
 }
 
@@ -259,9 +246,21 @@ func TestIgnoredWorktreeConfigDirFromWorktreeSubdirectory(t *testing.T) {
 
 	assertBareProjectBase(t, root)
 
-	want := filepath.Join(physicalDir(t, mainDir), ".agents-sandbox")
+	want := filepath.Join(mainDir, ".agents-sandbox")
 	if got := Get().IgnoredWorktreeConfigDir(); got != want {
 		t.Errorf("IgnoredWorktreeConfigDir() from a worktree subdirectory = %q, want %q", got, want)
+	}
+}
+
+// TestIgnoredWorktreeConfigDirEmptyWithoutWorktreeCopy covers a bare worktree
+// with no .agents-sandbox of its own: there is nothing to warn about.
+func TestIgnoredWorktreeConfigDirEmptyWithoutWorktreeCopy(t *testing.T) {
+	isolateProjectConfig(t)
+	root := writeBareCheckout(t)
+	t.Chdir(filepath.Join(root, "main"))
+
+	if got := Get().IgnoredWorktreeConfigDir(); got != "" {
+		t.Errorf("IgnoredWorktreeConfigDir() = %q, want empty without a worktree copy", got)
 	}
 }
 
@@ -283,38 +282,17 @@ func TestIgnoredWorktreeConfigDirEmptyAtBareRoot(t *testing.T) {
 	}
 }
 
-func TestIgnoredWorktreeConfigDirEmptyForNonBare(t *testing.T) {
+func TestIgnoredWorktreeConfigDirEmptyOutsideBareCheckout(t *testing.T) {
 	isolateProjectConfig(t)
-	repo := testutil.InitRepo(t)
-	if err := os.MkdirAll(filepath.Join(repo, ".agents-sandbox"), 0o755); err != nil {
+	writeBareCheckout(t)
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".agents-sandbox"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Chdir(repo)
+	t.Chdir(dir)
 
 	if got := Get().IgnoredWorktreeConfigDir(); got != "" {
-		t.Errorf("IgnoredWorktreeConfigDir() = %q, want empty for a non-bare checkout", got)
-	}
-}
-
-// TestIgnoredWorktreeConfigDirEmptyForOutsideWorktree covers a worktree that
-// lives outside its bare shared git dir: nothing is ignored, and the base stays
-// the relative constant.
-func TestIgnoredWorktreeConfigDirEmptyForOutsideWorktree(t *testing.T) {
-	isolateProjectConfig(t)
-	origin := testutil.InitRepo(t)
-	root := t.TempDir()
-	testutil.RunGit(t, root, "clone", "--bare", origin, ".git")
-	worktree := filepath.Join(t.TempDir(), "wt")
-	testutil.RunGit(t, filepath.Join(root, ".git"), "worktree", "add", worktree)
-	if err := os.MkdirAll(filepath.Join(worktree, ".agents-sandbox"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Chdir(worktree)
-
-	assertRelativeProjectBase(t)
-
-	if got := Get().IgnoredWorktreeConfigDir(); got != "" {
-		t.Errorf("IgnoredWorktreeConfigDir() = %q, want empty for a worktree outside its checkout", got)
+		t.Errorf("IgnoredWorktreeConfigDir() = %q, want empty outside a bare checkout", got)
 	}
 }
 

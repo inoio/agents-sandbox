@@ -54,7 +54,10 @@ func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	snippet := filepath.Join(configpaths.MustDir(cp.UserAgentConfigDir(opencodeAgent(t))), "opencode-x.json5")
+	snippet := filepath.Join(
+		configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), opencodeAgent(t).ConfigDirName())),
+		"opencode-x.json5",
+	)
 	testutil.WritePath(t, snippet, `{"model":"x"}`)
 
 	ui := &termio.Mock{}

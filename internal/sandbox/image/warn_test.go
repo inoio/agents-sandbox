@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -24,6 +25,7 @@ func synthesizeBareWorktree(t *testing.T, withWorktreeConfig bool) (worktree str
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	configpaths.WithRealConfigPaths(t)
+	configpaths.WithBareCheckoutLocator(t, git.BareCheckoutRoots)
 
 	root := t.TempDir()
 	worktree = filepath.Join(root, "main")

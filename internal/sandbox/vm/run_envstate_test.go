@@ -864,7 +864,7 @@ func TestResolveReconfigDecision_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 
 	// Desired opencode config: a snippet producing {"model":"y"} (new config).
 	testutil.WriteFile(t,
-		configpaths.MustDir(configpaths.Get().UserAgentConfigDir(opencodeAgent(t))),
+		configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), opencodeAgent(t).ConfigDirName())),
 		"a.json",
 		`{"model":"y"}`,
 	)

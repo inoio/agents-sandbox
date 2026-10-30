@@ -29,7 +29,7 @@ func mustOpencode(t *testing.T) agent.Agent {
 func TestConfigAgentPrintsMergedAndHostFiles(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
 	snippetPath := filepath.Join(
-		configpaths.MustDir(configpaths.Get().UserAgentConfigDir(mustOpencode(t))),
+		configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode(t).ConfigDirName())),
 		"opencode-x.json5",
 	)
 	testutil.WritePath(t, snippetPath, `{"model":"x"}`)
@@ -130,7 +130,10 @@ func TestConfigHomeEmptyManifest(t *testing.T) {
 func TestConfigAgentNoSnippetFiles(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
 	a, _ := agent.Lookup("opencode")
-	if err := os.MkdirAll(configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), 0o755); err != nil {
+	if err := os.MkdirAll(
+		configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+		0o755,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -159,7 +162,7 @@ func TestConfigAgentCodexPrintsMergedTOML(t *testing.T) {
 	a, _ := agent.Lookup("codex")
 	testutil.WriteFile(
 		t,
-		configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)),
+		configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
 		"config-model.toml",
 		"model = \"gpt-5\"\n",
 	)
@@ -205,7 +208,7 @@ func TestConfigHomeManifestError(t *testing.T) {
 
 func TestConfigAgentPrintsMirrorFiles(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
-	agentDir := configpaths.MustDir(configpaths.Get().UserAgentConfigDir(mustOpencode(t)))
+	agentDir := configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode(t).ConfigDirName()))
 	testutil.WriteFile(t, agentDir, "tui.json", `{"theme":"dark"}`)
 
 	if err := cmd.Execute(); err != nil {
@@ -259,7 +262,7 @@ func TestConfigAgentOpencode2ShowsLegacyFallback(t *testing.T) {
 
 func TestConfigAgentOpencode2UsesOwnDir(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "--agent", "opencode2")
-	srcDir := configpaths.MustDir(configpaths.Get().UserAgentConfigDir(mustOpencode2(t)))
+	srcDir := configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode2(t).ConfigDirName()))
 	testutil.WriteFile(t, srcDir, "opencode-model.json", `{"model":"v2"}`)
 
 	if err := cmd.Execute(); err != nil {
@@ -382,7 +385,7 @@ func TestConfigAgentMarksMissingConfigDirs(t *testing.T) {
 
 func TestConfigAgentDoesNotMarkExistingConfigDir(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "--agent", "opencode2")
-	userDir := configpaths.MustDir(configpaths.Get().UserAgentConfigDir(mustOpencode2(t)))
+	userDir := configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode2(t).ConfigDirName()))
 	if err := os.MkdirAll(userDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
