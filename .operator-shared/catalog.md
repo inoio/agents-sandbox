@@ -182,6 +182,9 @@
 - `state-by-scope.md`
   - Description: Contract for #141: launcher-global state is one document (root `state.yaml`) and a new global decision is a key/section, never a new file; adds `updates.launcher`/`updates.agents` behind silent backwards-compatible folds and replaces `internal/upgrade`'s file seam with an injected store.
   - Read If: Adding or changing launcher-global persisted state, the root `state.yaml` document shape, the `updates.launcher`/`updates.agents` keys, the `internal/upgrade` state seam, or the `upgrade.json`/`updater.yaml` folds.
+- `lifecycle.md`
+  - Description: Canonical run/shell lifecycle model: the ordered stage ids the planned code constants and trace test will share, per-stage reads/writes/guarantees, the single authority for each cross-stage value, the liveness principle with its per-artifact prune rules, the mode model, and the cross-stage invariants.
+  - Read If: Any change to a run/shell/session lifecycle stage or a cross-stage value (`runFunc`, `pruning.AutoPrune`/`keepImage`/`PruneVolumes`, `vm.PrepareSandbox` steps, `session.Run`/`Shell`, `--dry-run`/`--dry-run-vm`/`--serve-only`); or diagnosing a run that reclaims, rebuilds or reverts something another stage considers live or current.
 - `dry-run-preview.md`
   - Description: Contract for #228: `--dry-run` is a true make-no-changes preview of a run/shell (build plan, image build decision, read-only home-volume probe) that returns before any build/volume/state/VM/network side effect; `--dry-run-vm` stays the KVM-less "prepare everything, skip the VM" flag.
   - Read If: Changing `--dry-run`/`--dry-run-vm` behavior, the `options.Mode`/`runoptions.ResolveMode` boundary, the run/shell preview, `image.EnsureImageWithClient`'s build decision / `resolveAgentVersion` / `resolveBaseDigest`, or the `vm.agentLatestVersion` test seam.
