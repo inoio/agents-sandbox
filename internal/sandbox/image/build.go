@@ -28,6 +28,9 @@ import (
 type BuildOptions struct {
 	// Force rebuilds the image regardless of cache state.
 	Force bool
+	// NoRebuild reuses an existing image even when its inputs changed; a
+	// missing image is still built.
+	NoRebuild bool
 	// Docker is the resolved docker capability baked into the image when it is
 	// built, and whether that value was set explicitly.
 	Docker options.DockerSetting
@@ -441,7 +444,7 @@ func EnsureImageWithClient(
 	}
 
 	plan, rTag, needsBuild, reasons, err := planRunnerImage(
-		ctx, a, projectDockerfile, projectSlug, buildOpts.Docker, agentVersion, identityVersion, buildOpts.Force,
+		ctx, a, projectDockerfile, projectSlug, agentVersion, identityVersion, buildOpts,
 	)
 	if err != nil {
 		return ImageInfo{}, fmt.Errorf("render Dockerfile: %w", err)
@@ -586,17 +589,16 @@ func planRunnerImage(
 	a agent.Agent,
 	projectDockerfile []byte,
 	projectSlug string,
-	dockerFlag options.DockerSetting,
 	agentVersion, identityVersion string,
-	force bool,
+	buildOpts BuildOptions,
 ) (buildPlan, string, bool, []string, error) {
-	plan, err := renderBuildPlan(a, projectDockerfile, dockerFlag, agentVersion, identityVersion)
+	plan, err := renderBuildPlan(a, projectDockerfile, buildOpts.Docker, agentVersion, identityVersion)
 	if err != nil {
 		return buildPlan{}, "", false, nil, err
 	}
 	plan.identity.BaseImage = localBaseImage(ctx, baseImageRef(plan.rendered))
 	tag := runnerTag(projectSlug, a.Name())
-	needsBuild, reasons := buildDecision(ctx, tag, force, plan.dockerfileID, plan.identity)
+	needsBuild, reasons := buildDecision(ctx, tag, buildOpts, plan.dockerfileID, plan.identity)
 	return plan, tag, needsBuild, reasons, nil
 }
 
@@ -632,9 +634,12 @@ func logBuildDecision(
 	reasons []string,
 	agentName, agentVersion, requestedVersion string,
 ) {
-	if needsBuild {
+	switch {
+	case needsBuild:
 		ui.Verbosef("rebuilding runner image %s: %s", rTag, strings.Join(reasons, "; "))
-	} else {
+	case len(reasons) > 0:
+		ui.Infof("reusing runner image %s despite changes (--no-rebuild): %s", rTag, strings.Join(reasons, "; "))
+	default:
 		ui.Verbosef("reusing runner image %s: content identity unchanged", rTag)
 	}
 	ui.Verbosef(

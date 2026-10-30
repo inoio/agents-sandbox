@@ -33,6 +33,7 @@ func wantNetworkProfiles(t *testing.T, policy network.Policy, want ...network.Pr
 func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().String(FlagWorktree, "", "worktree")
 	cmd.Flags().Bool(FlagRebuild, false, "rebuild")
+	cmd.Flags().Bool(FlagNoRebuild, false, "no-rebuild")
 	cmd.Flags().String(FlagAgentVersion, "", "agent-version")
 	cmd.Flags().Bool(FlagDryRun, false, "dry-run")
 	cmd.Flags().Bool(FlagDryRunVM, false, "dry-run-vm")
