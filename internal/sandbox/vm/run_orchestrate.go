@@ -471,6 +471,7 @@ func determineAgentVersion(
 func buildOptions(opts options.RunOptions, agentVersion string, force, userProvided bool) image.BuildOptions {
 	return image.BuildOptions{
 		Force:        force,
+		NoRebuild:    opts.NoRebuild,
 		AgentVersion: agentVersion,
 		UserProvided: userProvided,
 		Docker:       opts.Docker,

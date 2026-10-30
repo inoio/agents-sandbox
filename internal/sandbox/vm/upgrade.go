@@ -97,6 +97,10 @@ func resolveBuildVersion(
 		// an unknown version.
 		return "", false, "", nil
 	}
+	// Accepting an upgrade would rebuild the image --no-rebuild keeps.
+	if opts.NoRebuild {
+		return current, false, "", nil
+	}
 
 	latest, offer := pendingUpgrade(ctx, a, k, ui, current)
 	if !offer {
