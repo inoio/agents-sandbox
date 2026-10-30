@@ -819,6 +819,29 @@ func TestWithMsbMockAndResetGetFn(t *testing.T) {
 	ResetGetFn(prev)
 }
 
+func TestWithCountingMsbMockCountsResolutionsAndRestores(t *testing.T) {
+	mock := &MockMsbClient{}
+
+	t.Run("install", func(t *testing.T) {
+		resolutions := WithCountingMsbMock(t, mock)
+		if *resolutions != 0 {
+			t.Fatalf("resolutions before any Get = %d, want 0", *resolutions)
+		}
+		for range 2 {
+			if Get() != mock {
+				t.Fatal("Get should return the mock after WithCountingMsbMock")
+			}
+		}
+		if *resolutions != 2 {
+			t.Errorf("resolutions = %d, want 2", *resolutions)
+		}
+	})
+
+	if Get() == mock {
+		t.Error("WithCountingMsbMock must restore the previous factory on cleanup")
+	}
+}
+
 func TestFailFastClientPanics(t *testing.T) {
 	ctx := context.Background()
 	f := &failFastMsbClient{}
