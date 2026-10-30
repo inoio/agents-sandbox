@@ -71,7 +71,12 @@ func originURL(root string) string {
 // repository object, so the config file is read directly. Callers treat a
 // missing or unparseable config as "unknown" rather than failing.
 func readRepoConfig(gitDir string) (*config.Config, error) {
-	f, err := os.Open(filepath.Join(gitDir, "config"))
+	return readRepoConfigFile(filepath.Join(gitDir, "config"))
+}
+
+// readRepoConfigFile parses a single git config file.
+func readRepoConfigFile(path string) (*config.Config, error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
@@ -80,10 +85,21 @@ func readRepoConfig(gitDir string) (*config.Config, error) {
 }
 
 // isBare reports whether gitDir (a repository's shared git directory) is a bare
-// repository, read from its config's core.bare. A missing or unreadable config
-// means "not bare": that is today's behavior for an unrecognized repo.
+// repository. core.bare is read from the shared config and, when present, from
+// the main worktree's config.worktree: git moves core.bare there once
+// extensions.worktreeConfig is set (for example when a worktree uses
+// sparse-checkout), so the shared config alone would read a bare repo as
+// non-bare. A missing or unreadable config means "not bare": that is today's
+// behavior for an unrecognized repo.
 func isBare(gitDir string) bool {
-	cfg, err := readRepoConfig(gitDir)
+	return configIsBare(gitDir, "config") || configIsBare(gitDir, "config.worktree")
+}
+
+// configIsBare reports whether the named config file in gitDir sets core.bare. A
+// missing or unreadable file is not an error: it simply does not claim the repo
+// is bare.
+func configIsBare(gitDir, name string) bool {
+	cfg, err := readRepoConfigFile(filepath.Join(gitDir, name))
 	if err != nil {
 		return false
 	}
