@@ -608,3 +608,54 @@ func TestRunAgentCodexRejectsDaemonOnlyFlags(t *testing.T) {
 		})
 	}
 }
+
+// TestRunDryRunAgentOhMyPi verifies `run --agent oh-my-pi` resolves the
+// oh-my-pi profile, notices that it is experimental, and previews without
+// starting a VM.
+func TestRunDryRunAgentOhMyPi(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &sandboxmsb.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{},
+		"run", "--dry-run", "--agent", "oh-my-pi", "--agent-version", "18.14.0")
+	setupAbsentImagePreviewMocks(t, mock)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var pinnedVersion, experimental bool
+	for _, line := range ui.InfoCalls {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "dry-run: agent version 18.14.0" {
+			pinnedVersion = true
+		}
+		if strings.Contains(trimmed, "experimental") {
+			experimental = true
+		}
+	}
+	if !pinnedVersion {
+		t.Errorf("expected pinned oh-my-pi version line; got: %v", ui.InfoCalls)
+	}
+	if !experimental {
+		t.Errorf("expected an experimental notice for oh-my-pi; got: %v", ui.InfoCalls)
+	}
+	if len(mock.CreatedSandboxCalls) != 0 {
+		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
+	}
+}
+
+// TestRunAgentOhMyPiRejectsDaemonOnlyFlags verifies oh-my-pi, which runs no
+// daemon, rejects --worktree and --serve-only.
+func TestRunAgentOhMyPiRejectsDaemonOnlyFlags(t *testing.T) {
+	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
+		t.Run(flagArgs[0], func(t *testing.T) {
+			initTestProjectDir(t)
+			args := append([]string{"run", "--dry-run", "--agent", "oh-my-pi"}, flagArgs...)
+			root, _ := setupRunMocks(t, &sandboxmsb.MockMsbClient{}, &sandboxmsb.MockSandbox{}, args...)
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), `not supported by agent "oh-my-pi"`) {
+				t.Errorf("err = %v, want 'not supported by agent \"oh-my-pi\"'", err)
+			}
+		})
+	}
+}

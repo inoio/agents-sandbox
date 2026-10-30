@@ -72,6 +72,7 @@ func TestExperimentalAgentSet(t *testing.T) {
 		"claude-code": true,
 		"codex":       true,
 		"hermes":      true,
+		"oh-my-pi":    true,
 	}
 	stable := map[string]bool{
 		"opencode":  true,

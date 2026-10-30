@@ -1,6 +1,6 @@
 ---
 title: Agent configuration
-description: "Select and configure the coding agent run by agents-sandbox: opencode, opencode2, pi, Claude Code or Codex."
+description: "Select and configure the coding agent run by agents-sandbox: opencode, opencode2, pi, Claude Code, Codex, Hermes or Oh My Pi."
 layout: default
 parent: Configuration
 nav_order: 60
@@ -10,7 +10,7 @@ nav_order: 60
 
 agents-sandbox is agent-aware. A `--agent <name>` flag on `run`, `shell`, `build`, `volume`, `stop`, and `kill`
 selects the coding-agent profile to run, build, provision, or manage. The agent can also be selected via the `agent`
-config key or the `AGENTS_SANDBOX_AGENT` environment variable. Six agents ship as built-in profiles:
+config key or the `AGENTS_SANDBOX_AGENT` environment variable. Seven agents ship as built-in profiles:
 
 - **`opencode`** — daemon-based, with serve/attach, worktree sessions, and GitHub-release upgrade checks.
 - **`opencode2`** (default) — opencode 2 (beta), installed from its upstream installer (`https://opencode.ai/v2/install`); the
@@ -28,12 +28,16 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Six agents ship a
   to its `approval_policy`.
 - **`hermes`** — Hermes Agent, installed from its official installer at a pinned release tag and run interactively;
   upgrade checks via its GitHub releases.
+- **`oh-my-pi`** — [Oh My Pi](https://github.com/can1357/oh-my-pi) (binary `omp`), installed from its standalone GitHub
+  release binary after its checksum is verified, and run interactively; upgrade checks via its GitHub releases. Its
+  startup update check is turned off through a launcher-owned `--config` overlay, because agents-sandbox offers upgrades
+  itself. The binary is about 275 MB, so its runner image is larger than the others.
 
 > **Experimental agents:** `opencode` and `opencode2` are the tested default agents. Every other built-in
-> profile (`pi`, `claude-code`, `codex`, `hermes`) is **experimental** — not well tested with agents-sandbox.
+> profile (`pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`) is **experimental** — not well tested with agents-sandbox.
 > The launcher prints a notice when an experimental agent is selected.
 
-`--worktree` and `--serve-only` are rejected for pi, claude-code, codex, and hermes (they have no daemon); they run through the
+`--worktree` and `--serve-only` are rejected for pi, claude-code, codex, hermes, and oh-my-pi (they have no daemon); they run through the
 interactive TUI instead. Passing an unsupported `--agent` name reports the valid names in its error message.
 
 > **Note:** opencode2 server auth — v2's `serve` requires HTTP basic auth on every `/api/*` route and would otherwise generate a
@@ -79,12 +83,15 @@ user and project directories, and written to the agent's VM config path:
   `/home/dev/.codex/config.toml`, written as TOML.
 - **hermes** — snippets match `config*.yaml` in the `hermes/` subdir; merged to `/home/dev/.hermes/config.yaml`,
   written as YAML.
+- **oh-my-pi** — snippets match `config*.{yml,yaml}` in the `oh-my-pi/` subdir (e.g. `config-model.yml`); merged to
+  `/home/dev/.omp/agent/config.yml`, written as YAML. omp falls back to `config.yaml`, so both names are reserved for
+  the merged output.
 
 Matching files are parsed and **deep-merged** into one config document. The user directory is merged first, then the
 project directory; within each directory files are merged in alphabetical order, so later files override earlier ones.
 Snippet parsing supports JSON, JSONC, JSON5, YAML, and TOML, chosen by file extension (YAML only applies to agents whose
 pattern includes YAML extensions, e.g. a pattern like `pi-*.{json,yaml}`). The merged config is written as TOML when the
-agent's VM config path ends in `.toml` (codex), as YAML when it ends in `.yaml`/`.yml` (hermes), and as JSON otherwise.
+agent's VM config path ends in `.toml` (codex), as YAML when it ends in `.yaml`/`.yml` (hermes, oh-my-pi), and as JSON otherwise.
 
 If no snippet files exist, no merged config is produced.
 
@@ -108,7 +115,7 @@ the VM without extra configuration. For `opencode2`, read from its own `opencode
 
 Two families of files are *not* mirrored:
 
-- Files matching the agent's snippet pattern (`opencode*.json*`, `settings*.json*`, `config*.toml`) are **deep-merged** (see [Config
+- Files matching the agent's snippet pattern (`opencode*.json*`, `settings*.json*`, `config*.toml`, …) are **deep-merged** (see [Config
   snippet merge](#config-snippet-merge)), never mirrored.
 - The agent's config-file family (for opencode: `config.json`, `opencode.json`, `opencode.jsonc`, …) is **reserved for
   the merged output** and never mirrored, so a mirror copy cannot shadow the merged snippet config.
@@ -141,6 +148,9 @@ The drop-in copy is scoped to the agent's settings and, for opencode, its creden
 - **codex** — `~/.codex/config.toml` (sessions, logs, and the `auth.json` login cache are not copied).
 - **hermes** — `~/.hermes/config.yaml` (the rest of `~/.hermes` — `state.db`, `sessions/`, `memories/`, `skills/` — is
   runtime state and is not copied; credentials in `~/.hermes/.env` are never copied).
+- **oh-my-pi** — `~/.omp/agent/config.yml` or `config.yaml` (the rest of `~/.omp` — sessions, `agent.db`, the
+  extracted native addon — is runtime state and is not copied; `models.yml` and `~/.omp/agent/.env` can hold literal
+  provider keys and are never copied).
 
 Precedence: the merged snippet config and any `home:` mappings override the drop-in copy for the same VM path.
 
@@ -175,8 +185,8 @@ To opt out, exclude `auth.json` from the drop-in copy by placing a `home:` entry
 host secrets in any other way; the env-secret mechanism is the supported channel for secrets you do not want on disk in
 the VM.
 
-For pi, claude-code, codex, and hermes, the drop-in copy does not include credential files. pi, claude-code, and hermes
-authenticate with env secrets instead; codex logs in inside the VM:
+For pi, claude-code, codex, hermes, and oh-my-pi, the drop-in copy does not include credential files. pi, claude-code,
+hermes, and oh-my-pi authenticate with env secrets instead; codex logs in inside the VM:
 
 - **pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (see pi's docs for the
   full list). Put them in an `env.secret` / `env.secret.yaml` file.
@@ -188,6 +198,8 @@ authenticate with env secrets instead; codex logs in inside the VM:
 - **hermes** — the provider key Hermes is configured to use (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
   `OPENROUTER_API_KEY`, …), supplied through `env.secret`. Hermes reads the process environment, so nothing needs to be
   written into its `.env`.
+- **oh-my-pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, supplied through
+  `env.secret`. omp reads the process environment, so nothing needs to be written into `~/.omp/agent/.env`.
 - **opencode** — `OPENCODE_API_KEY`.
 
 ### Codex login
@@ -265,17 +277,18 @@ version/upgrade checks. Beyond that base, coverage differs by agent:
 - ◐ **Supportable** — the agent exposes a surface agents-sandbox could use, but does not implement yet.
 - ✖ **Unsupported** — the agent has no such surface.
 
-| Capability | `opencode` | `opencode2` | `pi` | `claude-code` | `codex` | `hermes` |
-|---|---|---|---|---|---|---|
-| Interactive attach | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Config snippet merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Host-config drop-in | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Version + upgrade check | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Serve/attach daemon | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ |
-| Worktree sessions | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ |
-| Notify event stream | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ |
-| Session quiescence | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ |
+| Capability | `opencode` | `opencode2` | `pi` | `claude-code` | `codex` | `hermes` | `oh-my-pi` |
+|---|---|---|---|---|---|---|---|
+| Interactive attach | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Config snippet merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Host-config drop-in | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Version + upgrade check | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Serve/attach daemon | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ |
+| Worktree sessions | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ◐ |
+| Notify event stream | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ |
+| Session quiescence | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
 
 The ◐ entries name an upstream surface agents-sandbox has not wired up: `codex app-server` (a JSON-RPC daemon with a
-turn/item event stream) for Codex, and `hermes serve` / `hermes chat --format stream-json` for Hermes.
+turn/item event stream) for Codex, `hermes serve` / `hermes chat --format stream-json` for Hermes, and `omp --mode rpc` /
+`omp acp` (stdio servers) and the `omp worktree` CLI for Oh My Pi.
 

@@ -787,6 +787,7 @@ func TestBuildNoticesExperimentalAgents(t *testing.T) {
 		{"claude-code", true},
 		{"codex", true},
 		{"hermes", true},
+		{"oh-my-pi", true},
 		{"opencode", false},
 		{"opencode2", false},
 	}
