@@ -764,6 +764,17 @@ func TestPendingQuestionSessionIDsShellError(t *testing.T) {
 	}
 }
 
+// TestContainerProbeTimeout pins the probe budget. The probe answers instantly
+// or fails, so the ±1 mutations of the literal are unobservable through an
+// immediate mock — but the value is not a false equivalent: a daemon answering
+// between 4s and 5s warns at 5s and does not at 4s. Assert the exact duration,
+// as dockerdReadyTimeoutDefault and heavyweightReadyTimeout do.
+func TestContainerProbeTimeout(t *testing.T) {
+	if containerProbeTimeout != 5*time.Second {
+		t.Errorf("containerProbeTimeout = %s, want 5s", containerProbeTimeout)
+	}
+}
+
 // TestWarnRunningContainers covers the container probe: it warns only when the
 // command succeeds and reports at least one running container.
 func TestWarnRunningContainers(t *testing.T) {
