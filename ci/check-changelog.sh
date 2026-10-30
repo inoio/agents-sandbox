@@ -3,14 +3,16 @@
 #
 # A fragment is changelog.d/<slug>.<type>.md, one file per change: slug is the
 # issue number, else the PR number, and type is one of the changelog sections.
+# A PR with several entries of the same type numbers them: <slug>.<type>-<n>.md.
 # See .operator-shared/specs/changelog-fragments.md.
 #
-# - Shape (always): every file in changelog.d/ is named <slug>.<type>.md with a
-#   known type; the ignored names are skipped.
+# - Shape (always): every file in changelog.d/ is named <slug>.<type>.md (or
+#   <slug>.<type>-<n>.md) with a known type; the ignored names are skipped.
 # - Presence (--changed FILE): when FILE lists one changed path per line (as
-#   `git diff --name-only` emits), a changeset that touches code must include a
-#   changelog.d/*.md fragment. The code rule mirrors .github/workflows/ci.yml's
-#   `changes` job; keep the two in sync.
+#   `git diff --name-only` emits), a changeset that touches production code must
+#   include a changelog.d/*.md fragment. The code rule mirrors .github/workflows/ci.yml's
+#   `changes` job, except that a test-only changeset (`*_test.go`) needs none;
+#   keep the exempt prefix set in sync with the `changes` job.
 #
 # Usage: ci/check-changelog.sh [ROOT] [--changed FILE]
 #   ROOT defaults to the repository root; the test harness passes a fixture root.
@@ -52,11 +54,11 @@ check_shape() {
   while IFS= read -r file; do
     base="$(basename "$file")"
     [[ " $IGNORE " == *" $base "* ]] && continue
-    if [[ ! "$base" =~ ^[0-9]+\.($TYPES)\.md$ ]]; then
-      if [[ "$base" =~ ^[0-9]+\.([a-z]+)\.md$ ]]; then
+    if [[ ! "$base" =~ ^[0-9]+\.($TYPES)(-[0-9]+)?\.md$ ]]; then
+      if [[ "$base" =~ ^[0-9]+\.([a-z]+)(-[0-9]+)?\.md$ ]]; then
         report "changelog.d/$base: unknown type '${BASH_REMATCH[1]}'"
       else
-        report "changelog.d/$base: does not match <slug>.<type>.md"
+        report "changelog.d/$base: does not match <slug>.<type>[-<n>].md"
       fi
     fi
   done < <(find "$CHANGELOG_DIR" -maxdepth 1 -type f | sort)
@@ -64,15 +66,18 @@ check_shape() {
 
 check_shape
 
-# A changeset that touches code must carry a fragment. The exempt pattern mirrors
-# the `.changes` gate in .github/workflows/ci.yml (docs, the operator brain, the
-# Homebrew formula, issue templates, any *.md, and .gitignore).
+# A changeset that touches production code must carry a fragment. The exempt
+# prefix set mirrors the `.changes` gate in .github/workflows/ci.yml (docs, the
+# operator brain, the Homebrew formula, issue templates, any *.md, and
+# .gitignore); on top of that a test-only changeset needs no fragment, so
+# `*_test.go` is exempt too.
 check_presence() {
   local line base code=0 fragment=0
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
     if [[ ! "$line" =~ ^(docs/|\.operator-shared/|Formula/|\.github/ISSUE_TEMPLATE/) ]] \
       && [[ ! "$line" =~ \.md$ ]] \
+      && [[ ! "$line" =~ _test\.go$ ]] \
       && [[ "$line" != ".gitignore" ]]; then
       code=1
     fi

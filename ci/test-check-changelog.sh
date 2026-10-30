@@ -45,6 +45,16 @@ d="$(new_fixture 432.added.md 431.fixed.md)"
 expect "valid names" 0 "" "$d"
 rm -rf "$d"
 
+# Several entries of the same type from one PR carry an ordinal suffix.
+d="$(new_fixture 103.added-1.md 103.added-2.md 103.changed-1.md)"
+expect "valid ordinal names" 0 "" "$d"
+rm -rf "$d"
+
+# An ordinal that is not a number is reported.
+d="$(new_fixture 103.changed-x.md)"
+expect "non-numeric ordinal" 1 "does not match" "$d"
+rm -rf "$d"
+
 # An unknown type is reported, not silently accepted.
 d="$(new_fixture 432.feature.md)"
 expect "unknown type" 1 "unknown type" "$d"
@@ -144,6 +154,16 @@ d="$(new_fixture)"
 mkdir -p "$d/changelog.d/sub"
 printf -- '- x\n' >"$d/changelog.d/sub/432.added.md"
 expect_presence "code, only nested fragment" 1 "no changelog.d" "$d" "internal/foo/foo.go" "changelog.d/sub/432.added.md"
+rm -rf "$d"
+
+# A test-only changeset needs no fragment: tests are not user-visible behavior.
+d="$(new_fixture)"
+expect_presence "test-only change" 0 "" "$d" "internal/foo/foo_test.go" "internal/foo/foo_internal_test.go"
+rm -rf "$d"
+
+# A test file alongside production code still needs a fragment.
+d="$(new_fixture)"
+expect_presence "code plus test" 1 "no changelog.d" "$d" "internal/foo/foo.go" "internal/foo/foo_test.go"
 rm -rf "$d"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

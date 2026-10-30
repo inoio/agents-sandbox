@@ -31,7 +31,10 @@ A changelog fragment is one file in `changelog.d/` at the repository root:
     same path — reintroducing the very conflict this removes. GitHub allocates issues and PRs from
     one sequence, so the PR number is known as soon as the PR is opened, which is when the presence
     check runs; deriving it earlier from the API is possible but racy and not required.
-  - Example: `changelog.d/432.added.md`, `changelog.d/431.fixed.md`.
+  - Several entries of the same type from one change number them: `<slug>.<type>-<n>.md`, `<n>` from
+    `1` (`changelog.d/103.changed-1.md`, `changelog.d/103.changed-2.md`). A single entry omits the
+    ordinal.
+  - Example: `changelog.d/432.added.md`, `changelog.d/431.fixed.md`, `changelog.d/103.changed-1.md`.
 - **Content**: exactly the text of one `CHANGELOG.md` bullet, without the leading `- `, with
   continuation lines indented two spaces like the surrounding changelog. One fragment becomes one
   bullet; a change spanning two sections uses two fragments. A human-readable issue or PR reference
@@ -65,15 +68,17 @@ check. It must never be conditionally skipped: a skipped required check reports 
 running, which is why the required set is always-run (see `specs/ci-job-gating.md`). It decides the
 presence rule internally from the PR's diff rather than gating its own execution.
 
-- **Shape** (every run): every file in `changelog.d/` matches `<slug>.<type>.md` with a known type,
-  except the ignored names above.
-- **Presence** (from the changeset, on every event): a changeset that touches code must add at least
-  one top-level, non-ignored fragment. "Code" is the complement of the `changes`-job filter in
-  `.github/workflows/ci.yml`: `docs/`, `.operator-shared/`, `Formula/`, `.github/ISSUE_TEMPLATE/`, any
-  `*.md`, and `.gitignore` are exempt, so a docs-only PR needs no fragment. An ignored name (the
-  directory's `README.md`) or a nested path under `changelog.d/` does not count as the fragment. The
-  `changelog` job computes this from the diff and never gates its own execution; it runs on the PR's
-  diff and again on the queue/merge diff, which carries the queued PRs' fragments.
+- **Shape** (every run): every file in `changelog.d/` matches `<slug>.<type>.md` (or
+  `<slug>.<type>-<n>.md`) with a known type, except the ignored names above.
+- **Presence** (from the changeset, on every event): a changeset that touches production code must
+  add at least one top-level, non-ignored fragment. "Production code" is the complement of the
+  `changes`-job filter in `.github/workflows/ci.yml` — `docs/`, `.operator-shared/`, `Formula/`,
+  `.github/ISSUE_TEMPLATE/`, any `*.md`, and `.gitignore` are exempt — minus a further exemption for
+  test files (`*_test.go`): a test-only changeset changes no user-visible behavior, so it needs no
+  fragment. An ignored name (the directory's `README.md`) or a nested path under `changelog.d/` does
+  not count as the fragment. The `changelog` job computes this from the diff and never gates its own
+  execution; it runs on the PR's diff and again on the queue/merge diff, which carries the queued
+  PRs' fragments.
 
 ## Transition
 
