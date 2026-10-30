@@ -95,11 +95,16 @@ var acquireProjectVMLock = func(k state.Key) (func(), error) {
 // vmBootConnected when an already-running VM was merely attached to (and when
 // skipVM leaves the lifecycle alone). A per-project host-side flock guards the
 // first-boot race and the recreate destroy between concurrent invocations.
+//
+// existing is the project VM the reconfiguration decision was read from
+// (readLiveProjectVM), or nil when none exists. It is used as-is rather than
+// looked up again, so a recreate destroys exactly the VM the decision judged.
 func ensureProjectVM(
 	ctx context.Context,
 	opts options.RunOptions,
 	info image.ImageInfo, homeVol, repoPath string,
 	k state.Key,
+	existing msb.SandboxHandle,
 	repoSlug string,
 	skipVM bool,
 	env envsecret.EnvSecrets,
@@ -113,25 +118,16 @@ func ensureProjectVM(
 	client := msb.Get()
 
 	name := projectVMName(k)
-
-	spin := ui.Spinner("Checking project VM")
-
-	handle, found, err := findProjectVM(ctx, client, k)
-	if err != nil {
-		spin.StopError(err)
-		return nil, vmBootConnected, fmt.Errorf("check sandbox %q: %w", name, err)
-	}
+	found := existing != nil
 	if found {
-		name = handle.Name()
+		name = existing.Name()
 	}
 
 	// Non-mutating fast path: attach to, wait for, or start an existing VM
 	// without the flock. A recreate is mutating, so it always takes the lock.
 	if found && !opts.Recreate {
-		return resolveExistingVM(ctx, handle, opts, name, ui, spin)
+		return resolveExistingVM(ctx, existing, opts, name, ui, ui.Spinner("Checking project VM"))
 	}
-
-	spin.Stop()
 
 	// Ensure runtime is available before acquiring the flock to reduce contention.
 	if ensureErr := client.EnsureInstalled(ctx); ensureErr != nil {
@@ -152,7 +148,12 @@ func ensureProjectVM(
 	// half-replaced VM — and the pre-lock handle: per specs/sandbox-identity.md
 	// the launcher never re-looks-up the name to adopt a replacement.
 	if found {
-		alreadyGone, destroyErr := destroyProjectVMHandle(context.Background(), handle, name, "rerun to reconfigure it")
+		alreadyGone, destroyErr := destroyProjectVMHandle(
+			context.Background(),
+			existing,
+			name,
+			"rerun to reconfigure it",
+		)
 		if destroyErr != nil {
 			// gomutants:disable-next-line RETURN_ZERO reason="vmBootConnected is the vmBoot zero value (it is the first iota constant), so a RETURN_ZERO replacement of vmBootConnected is the identical constant"
 			return nil, vmBootConnected, destroyErr

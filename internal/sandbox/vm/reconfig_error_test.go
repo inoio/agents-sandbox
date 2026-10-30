@@ -8,7 +8,6 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -95,7 +94,7 @@ func TestResolveReconfigDecisionDetachErrorVerbose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	_, err = resolveReconfigDecision(
+	_, err = readAndResolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
@@ -105,7 +104,6 @@ func TestResolveReconfigDecisionDetachErrorVerbose(t *testing.T) {
 		"vol",
 		persisted,
 		cfs,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {

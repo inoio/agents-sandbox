@@ -48,3 +48,26 @@ func TestMockSandboxHandleImageFallsBackToConfig(t *testing.T) {
 		t.Errorf("Image() explicit = %q, want img:direct", got)
 	}
 }
+
+// TestMockSandboxDetach pins both detach modes: DetachErr alone, and DetachFn
+// observing the context the detach runs under.
+func TestMockSandboxDetach(t *testing.T) {
+	detachErr := errors.New("detach failed")
+	if err := (&MockSandbox{DetachErr: detachErr}).Detach(context.Background()); !errors.Is(err, detachErr) {
+		t.Errorf("Detach() = %v, want %v", err, detachErr)
+	}
+
+	type contextKey struct{}
+	ctx := context.WithValue(context.Background(), contextKey{}, "caller")
+	var seenCallerValue any
+	sb := &MockSandbox{DetachErr: detachErr, DetachFn: func(ctx context.Context) error {
+		seenCallerValue = ctx.Value(contextKey{})
+		return nil
+	}}
+	if err := sb.Detach(ctx); err != nil {
+		t.Errorf("Detach() with DetachFn = %v, want DetachFn's nil", err)
+	}
+	if seenCallerValue != "caller" {
+		t.Error("DetachFn did not receive the caller's context")
+	}
+}

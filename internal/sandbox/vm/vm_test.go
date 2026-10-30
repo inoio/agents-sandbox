@@ -266,7 +266,7 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	sb, created, err := ensureProjectVM(
+	sb, created, err := lookUpAndEnsureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
@@ -275,7 +275,6 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -320,7 +319,7 @@ func TestEnsureProjectVMAppliesLabels(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	sb, created, err := ensureProjectVM(
+	sb, created, err := lookUpAndEnsureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
@@ -329,7 +328,6 @@ func TestEnsureProjectVMAppliesLabels(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -358,7 +356,7 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	sb, created, err := ensureProjectVM(
+	sb, created, err := lookUpAndEnsureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
@@ -367,7 +365,6 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -408,7 +405,7 @@ func TestEnsureProjectVM_ConnectOutcomeIsInfo(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if _, _, err := ensureProjectVM(
+	if _, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
@@ -417,7 +414,6 @@ func TestEnsureProjectVM_ConnectOutcomeIsInfo(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		ui,
 	); err != nil {
 		t.Fatalf("EnsureProjectVM (connect): %v", err)
@@ -439,7 +435,7 @@ func TestEnsureProjectVM_StartOutcomeIsInfo(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if _, _, err := ensureProjectVM(
+	if _, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
@@ -448,7 +444,6 @@ func TestEnsureProjectVM_StartOutcomeIsInfo(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		ui,
 	); err != nil {
 		t.Fatalf("EnsureProjectVM (start): %v", err)
@@ -474,7 +469,7 @@ func TestEnsureProjectVM_CreateOutcomeIsInfo(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if _, _, err := ensureProjectVM(
+	if _, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
@@ -483,7 +478,6 @@ func TestEnsureProjectVM_CreateOutcomeIsInfo(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		ui,
 	); err != nil {
 		t.Fatalf("EnsureProjectVM (create): %v", err)
@@ -511,7 +505,7 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	sb, created, err := ensureProjectVM(
+	sb, created, err := lookUpAndEnsureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:abc123", Ref: "agents-sandbox/runner-test:abc123"},
@@ -520,7 +514,6 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -670,7 +663,7 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	sb, created, err := ensureProjectVM(
+	sb, created, err := lookUpAndEnsureProjectVM(
 		context.Background(),
 		options.RunOptions{Memory: "1G", TmpSize: "512M"},
 		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:newDigest", Ref: "agents-sandbox/runner-test:newDigest"},
@@ -679,7 +672,6 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -723,7 +715,7 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	opts := options.RunOptions{ReapPolicy: options.ReapPolicy{}, Recreate: true, CPUs: 1, Memory: "2G"}
-	sb, created, err := ensureProjectVM(
+	sb, created, err := lookUpAndEnsureProjectVM(
 		context.Background(),
 		opts,
 		image.ImageInfo{DockerTag: "new:tag", Ref: "new:tag"},
@@ -732,7 +724,6 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -770,7 +761,7 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 	msb.WithMsbMock(t, client)
 	configpaths.WithMockConfigPaths(t)
 
-	sb, created, err := ensureProjectVM(
+	sb, created, err := lookUpAndEnsureProjectVM(
 		context.Background(),
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "old:tag", Ref: "old:tag"},
@@ -779,7 +770,6 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {

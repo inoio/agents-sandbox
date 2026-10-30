@@ -9,7 +9,6 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -76,7 +75,7 @@ func newReconfigFixtureForImage(
 
 func (f reconfigFixture) decide(t *testing.T, opts options.RunOptions, hs state.HomeState) (bool, error) {
 	t.Helper()
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		f.client,
 		f.vm,
@@ -86,7 +85,6 @@ func (f reconfigFixture) decide(t *testing.T, opts options.RunOptions, hs state.
 		f.homeVol,
 		hs,
 		f.cfs,
-		envsecret.EnvSecrets{},
 		f.ui,
 	)
 	return decision.Recreate, err
@@ -234,7 +232,7 @@ func TestResolveReconfigDecisionNoHomeActionOnUnchangedDigest(t *testing.T) {
 	f := newReconfigFixture(t, launcherLiveMounts(1024, 16384, "vol"), nil)
 	hs := matchingHomeState(opts.Network) // the seeded digest matches the run's image
 
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		f.client,
 		f.vm,
@@ -244,7 +242,6 @@ func TestResolveReconfigDecisionNoHomeActionOnUnchangedDigest(t *testing.T) {
 		f.homeVol,
 		hs,
 		f.cfs,
-		envsecret.EnvSecrets{},
 		f.ui,
 	)
 	if err != nil {
