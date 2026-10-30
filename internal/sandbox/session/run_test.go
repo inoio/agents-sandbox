@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -613,9 +615,11 @@ func TestRunNormalCallsRunAttach(t *testing.T) {
 	}
 	defer func() { prepareSandbox = orig }()
 
+	trace := &lifecycle.Trace{}
 	err := Run(context.Background(), options.RunOptions{
 		Agent:      "opencode",
 		ReapPolicy: options.NewReapPolicy(true, 5),
+		Trace:      trace,
 	}, options.ModeRun, ui)
 	if err != nil {
 		t.Fatalf("Run normal: %v", err)
@@ -635,6 +639,9 @@ func TestRunNormalCallsRunAttach(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected attach command in verbose output, got %v", ui.VerboseCalls)
+	}
+	if got, want := trace.Stages(), []lifecycle.StageID{lifecycle.Attach}; !slices.Equal(got, want) {
+		t.Errorf("trace = %v, want %v (attach recorded once)", got, want)
 	}
 }
 
@@ -735,9 +742,10 @@ func TestShellNormalCallsRunAttach(t *testing.T) {
 	}
 	defer func() { prepareSandbox = orig }()
 
+	trace := &lifecycle.Trace{}
 	err := Shell(
 		context.Background(),
-		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)},
+		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5), Trace: trace},
 		options.ModeRun,
 		ui,
 	)
@@ -746,6 +754,9 @@ func TestShellNormalCallsRunAttach(t *testing.T) {
 	}
 	if hasDryRunMessage(ui.InfoCalls) {
 		t.Errorf("a real shell run must not take the dry-run-vm path, got info calls %v", ui.InfoCalls)
+	}
+	if got, want := trace.Stages(), []lifecycle.StageID{lifecycle.Attach}; !slices.Equal(got, want) {
+		t.Errorf("trace = %v, want %v (attach recorded once)", got, want)
 	}
 }
 

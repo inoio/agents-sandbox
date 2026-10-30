@@ -40,6 +40,10 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 - `render_integration_test.go` — `//go:build integration` docker-build tests for `RenderDockerfile` composition (no Dockerfile / managed base / custom Fedora base, each ± dind). Run via `make test-integration`; wired into CI as a selective job — main and release tags, manual dispatch, and a PR labeled `run-integration` (the gating contract is `specs/ci-job-gating.md`). **In the agents-sandbox VM, microsandbox's egress-inspection CA makes in-image downloads (apt/dnf/node) fail** unless each base image is replaced by a CA-trusting rebuild first (the `AGENTS.md` workaround covers `debian:trixie-slim`, so the managed-base cases run; the custom-base cases need the same for `fedora:latest`).
 - Custom-base requirements (shadow-utils, POSIX shell bash→zsh→sh, curl+tar, dind prereqs) and unsupported bases (Alpine/distroless/scratch) are documented in `docs/runner-image.md`.
 
+### `lifecycle/` — Run lifecycle vocabulary and trace
+
+- `lifecycle.go` — the `StageID` constants and `Order()` of `specs/lifecycle.md` (`TestOrderMatchesSpec` parses the spec's stage table), the nil-safe `Trace` recorder, and `Run`, the loop that runs an ordered `Stage` list and records each stage. No stage logic: `cmd`, `vm` and `session` own their stages.
+
 ### `mounts/` — Filesystem mount handling
 
 - `mounts.go`
@@ -100,7 +104,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `vm/` — VM lifecycle and orchestration (largest)
 
-- `daemon.go`, `dockerd.go`, `detached.go`, `exit.go`, `inspect.go`, `list.go`, `provenance.go`, `reconfig.go`, `run_envstate.go`, `run_orchestrate.go`, `upgrade.go`, `upgrade_state.go`, `vm_control.go`, `vm_env.go`, `vm_lifecycle.go`, `vm_name.go`, `vm_resources.go`, `worktree.go` (`inspect.go` is `InspectSandbox`: the sandbox-inspect detail seam; `run_orchestrate.go` holds `resolveRunTarget`, the single place that resolves the identity, adopts a legacy one and builds the state key; `daemon.go`/`dockerd.go` launch the serve daemon and dockerd as runtime-owned detached jobs, with `detached.go` holding the shared readiness/kill helpers)
+- `daemon.go`, `dockerd.go`, `detached.go`, `exit.go`, `inspect.go`, `list.go`, `provenance.go`, `reconfig.go`, `run_envstate.go`, `run_orchestrate.go`, `upgrade.go`, `upgrade_state.go`, `vm_control.go`, `vm_env.go`, `vm_lifecycle.go`, `vm_name.go`, `vm_resources.go`, `worktree.go` (`inspect.go` is `InspectSandbox`: the sandbox-inspect detail seam; `run_orchestrate.go` holds `PrepareSandbox`, the ordered `lifecycle.Stage` list of the vm-owned stages, with one `…Stage` step per stage (`resolveIdentityStage` is the single place that resolves the identity, adopts a legacy one and builds the state key); `daemon.go`/`dockerd.go` launch the serve daemon and dockerd as runtime-owned detached jobs, with `detached.go` holding the shared readiness/kill helpers)
 - `adopt.go` — `AdoptLegacyIdentity`/`IdentityAdoption`: the #144 first-run migration (destroy the legacy repo-slug VM, then merge the state onto the checkout slug) and the notice block, including the dry-run variant that stays on the legacy slug; the lost-state VM-only arm records the destroyed VM's home volume in the checkout state (`recovered_home_volume`) before the destroy, and keeps the trigger live until the legacy VM is gone.
 - `create_project_vm_test.go`, `ensure_project_vm_test.go`, `prepare_sandbox_test.go`, `setupsandbox_test.go` — lifecycle setup tests
 - `fuzz_test.go` — `FuzzParseLegacyUpdaterState`: the retired `updater.yaml` reader is panic-free and folds a flat `last_checked` into the opencode agent entry

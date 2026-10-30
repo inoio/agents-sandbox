@@ -348,7 +348,11 @@ func TestRunStartupStagesExitContract(t *testing.T) {
 	t.Run("preflight failure returns exit=false", func(t *testing.T) {
 		doctor.MockedCheckAll(t, false)
 		exit, err := runStartupStages(
-			context.Background(), newCmd(t, nil), options.ModeRun, defaultAgentName, &termio.Mock{},
+			context.Background(),
+			newCmd(t, nil),
+			options.ModeRun,
+			options.RunOptions{Agent: defaultAgentName},
+			&termio.Mock{},
 		)
 		if err == nil {
 			t.Fatal("expected the preflight error to propagate")
@@ -365,7 +369,11 @@ func TestRunStartupStagesExitContract(t *testing.T) {
 		}
 		r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{})
 		exit, err := runStartupStages(
-			context.Background(), newCmd(t, r), options.ModeRun, defaultAgentName, &termio.Mock{},
+			context.Background(),
+			newCmd(t, r),
+			options.ModeRun,
+			options.RunOptions{Agent: defaultAgentName},
+			&termio.Mock{},
 		)
 		if err == nil {
 			t.Fatal("expected the upgrade-check error to propagate")
@@ -382,7 +390,11 @@ func TestRunStartupStagesExitContract(t *testing.T) {
 		}
 		r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{})
 		exit, err := runStartupStages(
-			context.Background(), newCmd(t, r), options.ModeRun, defaultAgentName, &termio.Mock{},
+			context.Background(),
+			newCmd(t, r),
+			options.ModeRun,
+			options.RunOptions{Agent: defaultAgentName},
+			&termio.Mock{},
 		)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

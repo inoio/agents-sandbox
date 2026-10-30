@@ -12,6 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
+	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -104,6 +105,12 @@ func SetRuntimeHomeMigrationOffer(
 // returns a ready-to-attach Session. It is the setup half of a run:
 // Run and Shell in the session package call it and then attach to the result.
 //
+// Its body is the ordered list of the vm-owned lifecycle stages
+// (specs/lifecycle.md, resolve-identity through setup-sandbox), run by one loop
+// that records each stage into opts.Trace. Each stage calls one step with the
+// values it reads and keeps the values it produces for the stages after it; the
+// locals below are that hand-off, not a state the steps reach into.
+//
 // skipVM prepares everything except the VM lifecycle (the --dry-run-vm
 // contract), leaving Session.Sandbox nil. A --dry-run preview never reaches
 // here: session.Run and session.Shell render the preview and return before this
@@ -114,106 +121,308 @@ func PrepareSandbox(
 	skipVM bool,
 	ui termio.UI,
 ) (*Session, error) {
-	cwd, err := resolveWorkspaceDir()
-	if err != nil {
-		return nil, err
-	}
-	a, identity, adoption, err := resolveSessionIdentity(ctx, cwd, opts.Agent, skipVM, ui)
-	if err != nil {
-		return nil, err
-	}
-	k := state.Key{Slug: adoption.Slug, Agent: a.Name()}
-	opts.Mounts = withSharedGitDirMount(opts.Mounts, identity, ui)
-	guestCWD := guestWorkspacePath(identity.BindRoot, cwd)
-	// Decide the agent version to bake before touching the image: this may offer
-	// an upgrade up front, so a normal run never rebuilds the image twice. See
-	// resolveBuildVersion for the decision rules.
-	agentVersion, shallUpgrade, offeredVersion, err := determineAgentVersion(ctx, k, a, ui, opts)
-	if err != nil {
-		return nil, err
-	}
-
-	buildVersion, userProvided := ResolveAgentVersionForBuild(k, agentVersion)
-	imageInfo, err := image.EnsureImage(
-		ctx,
-		a,
-		k.Slug,
-		buildOptions(opts, buildVersion, opts.Rebuild, userProvided),
-		ui,
+	var (
+		session       sessionIdentity
+		version       versionDecision
+		imageInfo     image.ImageInfo
+		home          preparedHome
+		plan          reconfigPlan
+		sb            msb.Sandbox
+		boot          vmBoot
+		sandboxTarget string
 	)
-	if err != nil {
-		return nil, fmt.Errorf("ensuring image failed: %w", err)
+	stages := []lifecycle.Stage{
+		{ID: lifecycle.ResolveIdentity, Run: func() error {
+			var err error
+			session, err = resolveIdentityStage(ctx, opts.Agent, skipVM, ui)
+			if err != nil {
+				return err
+			}
+			opts.Mounts = withSharedGitDirMount(opts.Mounts, session.identity, ui)
+			return nil
+		}},
+		{ID: lifecycle.ResolveVersion, Run: func() error {
+			var err error
+			version, err = resolveVersionStage(ctx, session, opts, ui)
+			return err
+		}},
+		{ID: lifecycle.EnsureImage, Run: func() error {
+			var err error
+			imageInfo, err = ensureImageStage(ctx, session, version, opts, ui)
+			return err
+		}},
+		{ID: lifecycle.EnsureHome, Run: func() error {
+			var err error
+			home, err = ensureHomeStage(ctx, session.key, imageInfo, version.offeredVersion, skipVM, opts, ui)
+			return err
+		}},
+		{ID: lifecycle.PlanReconfig, Run: func() error {
+			var err error
+			plan, err = planReconfigStage(ctx, session, imageInfo, home, skipVM, opts, ui)
+			if err != nil {
+				return err
+			}
+			opts.Recreate = plan.decision.Recreate
+			opts.ServeHostPort = resolveServeHostPort(opts, plan.decision.ServeHostPort)
+			return nil
+		}},
+		{ID: lifecycle.EnsureVM, Run: func() error {
+			var err error
+			sb, boot, err = ensureVMStage(ctx, session, imageInfo, home, plan.homeVolume, skipVM, opts, ui)
+			return err
+		}},
+		{ID: lifecycle.SetupSandbox, Run: func() error {
+			var err error
+			sandboxTarget, err = setupSandboxStage(ctx, session, sb, boot, plan, opts, ui)
+			return err
+		}},
 	}
-	if shallUpgrade {
-		ui.Verbosef("runner image rebuilt with a newer %s version", a.Name())
-	}
-
-	ui.Verbosef("Using image '%s' (digest=%s)", imageInfo.Ref, imageInfo.Digest)
-
-	env, fingerprints := loadEnvFingerprints(opts, ui)
-	client, vm, homeVol, vs, err := prepareHomeVolume(
-		ctx, k, imageInfo, skipVM, fingerprints, ui,
-	)
-	if err != nil {
+	if err := lifecycle.Run(opts.Trace, stages); err != nil {
 		return nil, err
 	}
-	// The home volume is resolved (state exists), so a deferred offered mark can
-	// now be recorded.
-	persistOfferedVersion(k, offeredVersion, ui)
-	persistAgentVersion(k, imageInfo.AgentVersion, ui)
-
-	// Load the merged agent config and home files exactly once per startup;
-	// the result is shared by the reconfig decision and the provisioning step.
-	cfs, err := reprovision.LoadConfigFiles(a, ui, provisionHostConfig(opts))
-	if err != nil {
-		return nil, err
-	}
-
-	decision, err := resolveReconfigDecision(ctx, client, vm, k, opts, imageInfo, homeVol, vs, cfs, env, ui)
-	if err != nil {
-		return nil, err
-	}
-	homeVol, err = applyReconfigHomeAction(ctx, client, vm, k, homeVol, imageInfo, skipVM, decision, ui)
-	if err != nil {
-		return nil, err
-	}
-	ui.Verbosef("recreate: %v, restart: %v", decision.Recreate, decision.Restart)
-	opts.Recreate = decision.Recreate
-	opts.ServeHostPort = resolveServeHostPort(opts, decision.ServeHostPort)
-
-	sb, boot, err := ensureProjectVM(
-		ctx, opts, imageInfo, homeVol, identity.BindRoot, k, identity.RepoSlug, skipVM, env, ui,
-	)
-	if err != nil {
-		return nil, err
-	}
-	if boot == vmBootCreated {
-		persistConfigHashes(k, fingerprints, ui)
-	}
-	var sandboxTarget string
-	var sandboxErr error
-	if sb == nil {
-		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
-		sandboxTarget = guestCWD
-	} else {
-		sandboxTarget, sandboxErr = setUpSandbox(ctx, k, sb, opts, cfs, ui, decision.Restart, boot, guestCWD)
-		if sandboxErr != nil {
-			return nil, sandboxErr
-		}
-	}
-
-	ui.Verbosef("attach target: %s", sandboxTarget)
 
 	return &Session{
 		sb:            sb,
-		name:          projectVMName(k),
+		name:          projectVMName(session.key),
 		target:        sandboxTarget,
-		cwd:           cwd,
-		guestCWD:      guestCWD,
+		cwd:           session.cwd,
+		guestCWD:      session.guestCWD,
 		serveHostPort: opts.ServeHostPort,
-		key:           k,
-		homeVolume:    homeVol,
+		key:           session.key,
+		homeVolume:    plan.homeVolume,
 	}, nil
+}
+
+// sessionIdentity is what resolve-identity hands to the later stages: the
+// workspace directory, the agent, the resolved identity and the effective key.
+type sessionIdentity struct {
+	cwd      string
+	guestCWD string
+	agent    agent.Agent
+	identity git.Identity
+	key      state.Key
+}
+
+// resolveIdentityStage is the resolve-identity stage: it resolves the physical
+// workspace directory, the agent and the workspace identity, adopting a legacy
+// identity first, and derives the effective key and the guest start directory.
+func resolveIdentityStage(
+	ctx context.Context,
+	agentName string,
+	skipVM bool,
+	ui termio.UI,
+) (sessionIdentity, error) {
+	cwd, err := resolveWorkspaceDir()
+	if err != nil {
+		return sessionIdentity{}, err
+	}
+	a, identity, adoption, err := resolveSessionIdentity(ctx, cwd, agentName, skipVM, ui)
+	if err != nil {
+		return sessionIdentity{}, err
+	}
+	return sessionIdentity{
+		cwd:      cwd,
+		guestCWD: guestWorkspacePath(identity.BindRoot, cwd),
+		agent:    a,
+		identity: identity,
+		key:      state.Key{Slug: adoption.Slug, Agent: a.Name()},
+	}, nil
+}
+
+// versionDecision is what resolve-version hands to the later stages: the
+// release to build, whether it is user-provided, whether an upgrade was
+// accepted, and the release whose upgrade prompt was shown.
+type versionDecision struct {
+	buildVersion   string
+	userProvided   bool
+	shallUpgrade   bool
+	offeredVersion string
+}
+
+// resolveVersionStage is the resolve-version stage. It decides the agent
+// version to bake before the image is touched: this may offer an upgrade up
+// front, so a normal run never rebuilds the image twice. See
+// resolveBuildVersion for the decision rules.
+func resolveVersionStage(
+	ctx context.Context,
+	session sessionIdentity,
+	opts options.RunOptions,
+	ui termio.UI,
+) (versionDecision, error) {
+	agentVersion, shallUpgrade, offeredVersion, err := determineAgentVersion(ctx, session.key, session.agent, ui, opts)
+	if err != nil {
+		return versionDecision{}, err
+	}
+	buildVersion, userProvided := ResolveAgentVersionForBuild(session.key, agentVersion)
+	return versionDecision{
+		buildVersion:   buildVersion,
+		userProvided:   userProvided,
+		shallUpgrade:   shallUpgrade,
+		offeredVersion: offeredVersion,
+	}, nil
+}
+
+// ensureImageStage is the ensure-image stage: it builds or reuses the runner
+// image at the decided version and loads it into microsandbox.
+func ensureImageStage(
+	ctx context.Context,
+	session sessionIdentity,
+	version versionDecision,
+	opts options.RunOptions,
+	ui termio.UI,
+) (image.ImageInfo, error) {
+	imageInfo, err := image.EnsureImage(
+		ctx,
+		session.agent,
+		session.key.Slug,
+		buildOptions(opts, version.buildVersion, opts.Rebuild, version.userProvided),
+		ui,
+	)
+	if err != nil {
+		return image.ImageInfo{}, fmt.Errorf("ensuring image failed: %w", err)
+	}
+	if version.shallUpgrade {
+		ui.Verbosef("runner image rebuilt with a newer %s version", session.agent.Name())
+	}
+	ui.Verbosef("Using image '%s' (digest=%s)", imageInfo.Ref, imageInfo.Digest)
+	return imageInfo, nil
+}
+
+// preparedHome is what ensure-home hands to the later stages: the host
+// env/secret files and their fingerprints (loaded once per startup), the msb
+// client and volume manager, and the resolved home volume and its state.
+type preparedHome struct {
+	env          envsecret.EnvSecrets
+	fingerprints state.Fingerprints
+	client       msb.Client
+	volumes      *volume.Manager
+	homeVolume   string
+	homeState    state.HomeState
+}
+
+// ensureHomeStage is the ensure-home stage: it loads the host env/secret files,
+// resolves the home volume and, once state exists, records the deferred
+// offered-upgrade mark and the baked agent version.
+func ensureHomeStage(
+	ctx context.Context,
+	k state.Key,
+	imageInfo image.ImageInfo,
+	offeredVersion string,
+	skipVM bool,
+	opts options.RunOptions,
+	ui termio.UI,
+) (preparedHome, error) {
+	env, fingerprints := loadEnvFingerprints(opts, ui)
+	client, volumes, homeVolume, homeState, err := prepareHomeVolume(ctx, k, imageInfo, skipVM, fingerprints, ui)
+	if err != nil {
+		return preparedHome{}, err
+	}
+	persistOfferedVersion(k, offeredVersion, ui)
+	persistAgentVersion(k, imageInfo.AgentVersion, ui)
+	return preparedHome{
+		env:          env,
+		fingerprints: fingerprints,
+		client:       client,
+		volumes:      volumes,
+		homeVolume:   homeVolume,
+		homeState:    homeState,
+	}, nil
+}
+
+// reconfigPlan is what plan-reconfig hands to the later stages: the merged
+// agent config files (loaded once per startup, shared with provisioning), the
+// reconfig decision, and the home volume after its home action.
+type reconfigPlan struct {
+	configFiles *reprovision.ConfigFiles
+	decision    reconfigDecision
+	homeVolume  string
+}
+
+// planReconfigStage is the plan-reconfig stage: it loads the merged agent
+// config, decides recreate vs restart vs nothing, and applies the resulting
+// home-volume action.
+func planReconfigStage(
+	ctx context.Context,
+	session sessionIdentity,
+	imageInfo image.ImageInfo,
+	home preparedHome,
+	skipVM bool,
+	opts options.RunOptions,
+	ui termio.UI,
+) (reconfigPlan, error) {
+	configFiles, err := reprovision.LoadConfigFiles(session.agent, ui, provisionHostConfig(opts))
+	if err != nil {
+		return reconfigPlan{}, err
+	}
+	decision, err := resolveReconfigDecision(
+		ctx, home.client, home.volumes, session.key, opts, imageInfo, home.homeVolume, home.homeState, configFiles,
+		home.env, ui,
+	)
+	if err != nil {
+		return reconfigPlan{}, err
+	}
+	homeVolume, err := applyReconfigHomeAction(
+		ctx, home.client, home.volumes, session.key, home.homeVolume, imageInfo, skipVM, decision, ui,
+	)
+	if err != nil {
+		return reconfigPlan{}, err
+	}
+	ui.Verbosef("recreate: %v, restart: %v", decision.Recreate, decision.Restart)
+	return reconfigPlan{configFiles: configFiles, decision: decision, homeVolume: homeVolume}, nil
+}
+
+// ensureVMStage is the ensure-vm stage: it creates, starts, recreates or
+// reconnects the project VM and, on creation, persists the fingerprints.
+func ensureVMStage(
+	ctx context.Context,
+	session sessionIdentity,
+	imageInfo image.ImageInfo,
+	home preparedHome,
+	homeVolume string,
+	skipVM bool,
+	opts options.RunOptions,
+	ui termio.UI,
+) (msb.Sandbox, vmBoot, error) {
+	sb, boot, err := ensureProjectVM(
+		ctx, opts, imageInfo, homeVolume, session.identity.BindRoot, session.key, session.identity.RepoSlug, skipVM,
+		home.env, ui,
+	)
+	if err != nil {
+		// gomutants:disable-next-line RETURN_ZERO reason="ensureProjectVM returns vmBootConnected (the vmBoot zero value, the first iota constant) on every error path, so a RETURN_ZERO replacement of boot is the identical constant"
+		return nil, boot, err
+	}
+	if boot == vmBootCreated {
+		persistConfigHashes(session.key, home.fingerprints, ui)
+	}
+	return sb, boot, nil
+}
+
+// setupSandboxStage is the setup-sandbox stage: it provisions the VM and
+// resolves the attach target. Without a VM (--dry-run-vm) the target is the
+// guest start directory.
+func setupSandboxStage(
+	ctx context.Context,
+	session sessionIdentity,
+	sb msb.Sandbox,
+	boot vmBoot,
+	plan reconfigPlan,
+	opts options.RunOptions,
+	ui termio.UI,
+) (string, error) {
+	sandboxTarget := session.guestCWD
+	if sb == nil {
+		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
+	} else {
+		var err error
+		sandboxTarget, err = setUpSandbox(
+			ctx, session.key, sb, opts, plan.configFiles, ui, plan.decision.Restart, boot, session.guestCWD,
+		)
+		if err != nil {
+			return "", err
+		}
+	}
+	ui.Verbosef("attach target: %s", sandboxTarget)
+	return sandboxTarget, nil
 }
 
 // resolveSessionIdentity looks up the agent and derives the workspace identity
