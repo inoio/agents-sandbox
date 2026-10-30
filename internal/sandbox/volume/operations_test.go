@@ -413,6 +413,7 @@ func TestCmdEdit_DryRun(t *testing.T) {
 
 func TestCmdEdit_MainPath(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
+	resolutions := msb.WithCountingMsbMock(t, mock)
 
 	slug := "testproj-aBc1234D"
 	seedHomeState(
@@ -438,6 +439,9 @@ func TestCmdEdit_MainPath(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if *resolutions != 1 {
+		t.Errorf("msb.Get resolved %d times, want once per CmdEdit", *resolutions)
 	}
 
 	// Should have created the home volume
@@ -565,7 +569,7 @@ func TestVolumeOpAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 		false, false,
 		volCallbacks{
 			dryRun: func(string) string { return "" },
-			main: func(oldVolume, _ string) error {
+			main: func(_ msb.Client, oldVolume, _ string) error {
 				if oldVolume != "vol-1" {
 					t.Fatalf("snapshot home volume = %q, want vol-1", oldVolume)
 				}
@@ -607,6 +611,7 @@ func TestVolumeOpAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 
 func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
+	resolutions := msb.WithCountingMsbMock(t, mock)
 
 	slug := "testproj-aBc1234D"
 	seedHomeState(
@@ -649,6 +654,9 @@ func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if *resolutions != 1 {
+		t.Errorf("msb.Get resolved %d times, want once per CmdMigrate", *resolutions)
 	}
 	if len(mock.CreatedSandboxes) != 2 {
 		t.Errorf("expected 2 sandboxes (prefill + copy), got %d", len(mock.CreatedSandboxes))

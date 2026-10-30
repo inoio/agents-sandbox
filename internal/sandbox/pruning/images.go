@@ -39,7 +39,8 @@ func PruneImages(
 	ui termio.UI,
 ) (ImageReport, error) {
 	var report ImageReport
-	handles, err := msb.Get().ImageList(ctx)
+	client := msb.Get()
+	handles, err := client.ImageList(ctx)
 	if err != nil {
 		// gomutants:disable-next-line RETURN_ZERO reason="report is still its zero value at this point, so returning a fresh zero ImageReport is identical"
 		return report, err
@@ -55,7 +56,7 @@ func PruneImages(
 			continue
 		}
 		if !dryRun {
-			if err := msb.Get().ImageRemove(ctx, ref, true); err != nil {
+			if err := client.ImageRemove(ctx, ref, true); err != nil {
 				ui.Warnf("failed to remove msb image %s: %v", ref, err)
 				continue
 			}
@@ -75,7 +76,7 @@ func PruneImages(
 		})
 	}
 	if !dryRun && pruneState.allowsNativeImagePrune() {
-		nativeReport, err := msb.Get().ImagePrune(ctx)
+		nativeReport, err := client.ImagePrune(ctx)
 		if err != nil {
 			ui.Warnf("failed to prune unused msb image data: %v", err)
 		} else {

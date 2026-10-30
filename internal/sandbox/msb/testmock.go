@@ -943,6 +943,21 @@ func WithMsbMock(t *testing.T, mock Client) {
 	t.Cleanup(func() { Get = orig })
 }
 
+// WithCountingMsbMock is WithMsbMock that also counts how often the Get
+// factory is called, so a test can pin that an entry point resolves the client
+// once and threads it instead of re-reading the global.
+func WithCountingMsbMock(t *testing.T, mock Client) *int {
+	t.Helper()
+	resolutions := 0
+	orig := Get
+	Get = func() Client {
+		resolutions++
+		return mock
+	}
+	t.Cleanup(func() { Get = orig })
+	return &resolutions
+}
+
 // ResetGetFn replaces the global Get factory, returning the previous factory for restoration.
 func ResetGetFn(f func() Client) func() Client {
 	old := Get

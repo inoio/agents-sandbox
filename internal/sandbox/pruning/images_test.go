@@ -431,11 +431,14 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 				return &msbSdk.ImagePruneReport{ManifestsRemoved: 1}, nil
 			},
 		}
-		msb.WithMsbMock(t, client)
+		resolutions := msb.WithCountingMsbMock(t, client)
 		docker.WithNoopDockerMock(t)
 
 		if _, err := PruneImages(context.Background(), PruneState{}, false, &termio.Mock{}); err != nil {
 			t.Fatalf("PruneImages: %v", err)
+		}
+		if *resolutions != 1 {
+			t.Errorf("msb.Get resolved %d times, want once per PruneImages", *resolutions)
 		}
 		if len(events) != 2 || events[0] != "remove" || events[1] != "prune" {
 			t.Errorf("prune events = %v, want [remove prune]", events)

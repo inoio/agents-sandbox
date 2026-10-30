@@ -277,6 +277,7 @@ func TestEnsureProjectVMSkipVM(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	sb, boot, err := ensureProjectVM(
 		context.Background(),
+		&msb.MockMsbClient{},
 		options.RunOptions{},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -309,6 +310,7 @@ func TestEnsureProjectVMGetSandboxFatalError(t *testing.T) {
 
 	_, _, err := ensureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",

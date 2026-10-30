@@ -218,7 +218,7 @@ func TestRemoveImagesForceDoesNotBypassHashOwnershipGuard(t *testing.T) {
 func TestRemoveImagesAcceptsHashBearingRefsEitherScheme(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	resolutions := msb.WithCountingMsbMock(t, client)
 
 	ui := &termio.Mock{}
 	ui.SetAssumeYes(true)
@@ -228,6 +228,9 @@ func TestRemoveImagesAcceptsHashBearingRefsEitherScheme(t *testing.T) {
 	}
 	if err := RemoveImages(context.Background(), refs, false, ui); err != nil {
 		t.Fatalf("RemoveImages(hash-bearing refs) = %v, want both removed", err)
+	}
+	if *resolutions != 1 {
+		t.Errorf("msb.Get resolved %d times, want once per RemoveImages", *resolutions)
 	}
 	if len(client.RemovedImages) != len(refs) {
 		t.Fatalf("RemovedImages = %v, want %d", client.RemovedImages, len(refs))
@@ -261,7 +264,7 @@ func TestInUseImageReferencesKeepsPositionalSandbox(t *testing.T) {
 	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{handle}}
 	msb.WithMsbMock(t, client)
 
-	references, err := inUseImageReferences(context.Background())
+	references, err := inUseImageReferences(context.Background(), client)
 	if err != nil {
 		t.Fatalf("inUseImageReferences() = %v", err)
 	}

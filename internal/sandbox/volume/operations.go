@@ -16,8 +16,7 @@ import (
 )
 
 // checkForActiveVMs checks if there are active VMs for the given key.
-func checkForActiveVMs(ctx context.Context, k state.Key) error {
-	client := msb.Get()
+func checkForActiveVMs(ctx context.Context, client msb.Client, k state.Key) error {
 	sandboxes, err := client.ListSandboxes(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("list sandboxes: %w", err)
@@ -59,10 +58,10 @@ type volDryRunFunc func(oldVolume string) string
 
 // volMainFunc implements the operation's main behavior after volume
 // preflight (state read, active-VM check, volume creation, prefill). It
-// receives the resolved source volume and the freshly created target volume;
-// the project slug, image tag, and UI are captured by the enclosing command's
-// closure, and clients are obtained via msb.Get() when needed.
-type volMainFunc func(oldVolume, newVolumeName string) error
+// receives the operation's msb client, the resolved source volume and the
+// freshly created target volume; the project slug, image tag, and UI are
+// captured by the enclosing command's closure.
+type volMainFunc func(client msb.Client, oldVolume, newVolumeName string) error
 
 // volCallbacks contains the callbacks for each volume operation variant.
 type volCallbacks struct {
@@ -86,9 +85,9 @@ func CmdMigrate(
 				oldVolume,
 			)
 		},
-		main: func(oldVolume, newVolumeName string) error {
+		main: func(client msb.Client, oldVolume, newVolumeName string) error {
 			if err := NewManager(ui).CopyVolume(
-				ctx, msb.Get(), k, oldVolume, newVolumeName, info, ui,
+				ctx, client, k, oldVolume, newVolumeName, info, ui,
 			); err != nil {
 				return err
 			}
@@ -114,7 +113,7 @@ func CmdReset(
 				oldVolume,
 			)
 		},
-		main: func(_ string, newVolumeName string) error {
+		main: func(_ msb.Client, _ string, newVolumeName string) error {
 			ui.Infof("reset to new home volume %q", newVolumeName)
 			return nil
 		},
@@ -137,8 +136,8 @@ func CmdEdit(
 				oldVolume,
 			)
 		},
-		main: func(oldVolume, newVolumeName string) error {
-			if err := editVolumesInteractively(ctx, k, oldVolume, newVolumeName, info, ui); err != nil {
+		main: func(client msb.Client, oldVolume, newVolumeName string) error {
+			if err := editVolumesInteractively(ctx, client, k, oldVolume, newVolumeName, info, ui); err != nil {
 				return err
 			}
 			ui.Infof("exited interactive session, new volume: %q", newVolumeName)
@@ -181,7 +180,7 @@ func volumeOp(
 		}
 	}
 
-	if vmErr := checkForActiveVMs(ctx, k); vmErr != nil {
+	if vmErr := checkForActiveVMs(ctx, client, k); vmErr != nil {
 		return vmErr
 	}
 
@@ -203,7 +202,7 @@ func volumeOp(
 		return fmt.Errorf("prefill new volume: %w", err)
 	}
 
-	if err := cbs.main(oldVolume, newVolumeName); err != nil {
+	if err := cbs.main(client, oldVolume, newVolumeName); err != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
 		defer cancel()
 		vm.cleanupVolume(cleanupCtx, client, newVolumeName, ui)
@@ -236,11 +235,12 @@ func volumeOp(
 // only reported, since the user may have finished the transfer regardless.
 func editVolumesInteractively(
 	ctx context.Context,
+	client msb.Client,
 	k state.Key, oldVolume, newVolumeName string,
 	info image.ImageInfo,
 	ui termio.UI,
 ) error {
-	return withThrowawaySandbox(ctx, msb.Get(), k, info, throwawaySandbox{
+	return withThrowawaySandbox(ctx, client, k, info, throwawaySandbox{
 		purpose: "edit",
 		mounts: map[string]msbSdk.MountConfig{
 			srcMount: msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{}),
