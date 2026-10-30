@@ -29,6 +29,10 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Six agents ship a
 - **`hermes`** — Hermes Agent, installed from its official installer at a pinned release tag and run interactively;
   upgrade checks via its GitHub releases.
 
+> **Experimental agents:** `opencode` and `opencode2` are the tested default agents. Every other built-in
+> profile (`pi`, `claude-code`, `codex`, `hermes`) is **experimental** — not well tested with agents-sandbox.
+> The launcher prints a notice when an experimental agent is selected.
+
 `--worktree` and `--serve-only` are rejected for pi, claude-code, codex, and hermes (they have no daemon); they run through the
 interactive TUI instead. Passing an unsupported `--agent` name reports the valid names in its error message.
 
