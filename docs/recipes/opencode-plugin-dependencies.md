@@ -49,7 +49,10 @@ npm install --prefix ~/.config/opencode
 ```
 
 This writes `~/.config/opencode/package-lock.json`. Keep it next to `package.json`; the install in
-[Install the dependencies in the VM](#install-the-dependencies-in-the-vm) refuses to run without it.
+[Install the dependencies in the VM](#install-the-dependencies-in-the-vm) refuses to run without it. Run the command
+again after every change to `package.json`. A lockfile that no longer matches `package.json` fails the install with
+`npm ci can only install packages when your package.json and package-lock.json ... are in sync`. This happens when
+another tool, such as `bun`, manages the directory and updates only its own lockfile.
 
 ## Add node to the image
 
@@ -107,7 +110,8 @@ install, for example while the npm registry is unreachable, prints a warning and
 Once `package.json` reaches the VM this way, the warning from `agents-sandbox run` no longer appears.
 
 The install needs to reach `registry.npmjs.org`. The default `public` network profile allows it; with `profile: none`,
-add the host to `network.egress-allow` (see [Networking]({% link configuration/networking.md %})).
+add the host to `network.egress-allow` (see [Networking]({% link configuration/networking.md %})). Without it, `npm ci`
+fails with `403 Forbidden`.
 
 ## MCP servers from the config directory
 
@@ -132,10 +136,17 @@ List the server's package under `dependencies` in `package.json` so the hook ins
 
 ## Check the result
 
-Restart the sandbox so the hook runs, then open a shell in it:
+Restart the sandbox so the hook runs:
 
 ```console
 agents-sandbox stop
+agents-sandbox run
+```
+
+The startup output shows the hook running `npm ci` on the first start. opencode loads plugins when a session opens
+the project, so start a session before you check its log. Then open a shell in the sandbox from another terminal:
+
+```console
 agents-sandbox shell
 ```
 
@@ -143,7 +154,7 @@ In that shell, `ls ~/.config/opencode/node_modules` lists the installed packages
 search the opencode log for the package it cannot find, and add that package to `package.json`:
 
 ```console
-grep -h 'failed to load plugin' /tmp/opencode-serve.log ~/.local/share/opencode/log/*.log
+grep -h 'failed to load plugin' ~/.local/share/opencode/log/*.log
 ```
 
 ## Mounting the packages from your machine instead
