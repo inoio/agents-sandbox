@@ -150,3 +150,37 @@ func TestUpgradeChannelSwitchReportsInstallFailure(t *testing.T) {
 		t.Fatal("expected the install failure to be returned")
 	}
 }
+
+func TestUpgradeAnnouncesANewerRelease(t *testing.T) {
+	stubRelease(t, "0.6.0")
+	ui := termio.Mock{}
+
+	if err := Upgrade(context.Background(), &ui, UpgradeOptions{CurrentVersion: "0.5.3"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ui.InfoCalls) == 0 || ui.InfoCalls[0] != "upgrading agents-sandbox 0.5.3 -> 0.6.0" {
+		t.Fatalf("expected the upgrade announcement first, got %v", ui.InfoCalls)
+	}
+}
+
+func TestLeavesPrerelease(t *testing.T) {
+	tests := []struct {
+		name    string
+		current string
+		channel Channel
+		want    bool
+	}{
+		{name: "canary on stable", current: "0.6.0-canary.1", channel: ChannelStable, want: true},
+		{name: "canary on zero channel", current: "v0.6.0-canary.1", channel: "", want: true},
+		{name: "canary on canary", current: "0.6.0-canary.1", channel: ChannelCanary, want: false},
+		{name: "release on stable", current: "0.5.3", channel: ChannelStable, want: false},
+		{name: "unparseable on stable", current: "dev", channel: ChannelStable, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := leavesPrerelease(test.current, test.channel); got != test.want {
+				t.Fatalf("leavesPrerelease(%q, %q) = %v, want %v", test.current, test.channel, got, test.want)
+			}
+		})
+	}
+}
