@@ -19,6 +19,10 @@ import (
 // egress-allow rule matches may resolve; any other name must fail, or the guest
 // could exfiltrate data in query names. The composable profiles keep resolving
 // arbitrary names.
+//
+// Every name a case expects refused exists upstream, which the `public` case
+// proves in the same run. A refusal therefore has to come from microsandbox's
+// proxy: a leaked query would be answered, not rejected.
 func TestNetworkPolicyDNSResolution(t *testing.T) {
 	ensureIsolatedRuntime(t)
 	none := []network.Profile{network.ProfileNone}
@@ -31,47 +35,47 @@ func TestNetworkPolicyDNSResolution(t *testing.T) {
 		{
 			name:        "none-without-allow-list",
 			policy:      network.Policy{Profiles: none},
-			notResolves: []string{"example.com", "exfil-233.example.org"},
+			notResolves: []string{"example.com", "example.org"},
 		},
 		{
 			name:        "none-with-ip-allow-list",
 			policy:      network.Policy{Profiles: none, EgressAllow: []string{"1.1.1.1"}},
-			notResolves: []string{"example.com", "exfil-233.example.org"},
+			notResolves: []string{"example.com", "example.org"},
 		},
 		{
 			name:        "none-with-hostname-allow-list",
 			policy:      network.Policy{Profiles: none, EgressAllow: []string{"example.com"}},
 			resolves:    []string{"example.com"},
-			notResolves: []string{"www.example.com", "exfil-233.example.org"},
+			notResolves: []string{"www.example.com", "example.org"},
 		},
 		{
 			name:        "none-with-suffix-allow-list",
 			policy:      network.Policy{Profiles: none, EgressAllow: []string{".example.com"}},
 			resolves:    []string{"example.com", "www.example.com"},
-			notResolves: []string{"exfil-233.example.org"},
+			notResolves: []string{"example.org"},
 		},
 		{
 			name:     "none-with-host-allow-list",
 			policy:   network.Policy{Profiles: none, EgressAllow: []string{"host"}},
-			resolves: []string{"example.com", "exfil-233.example.org"},
+			resolves: []string{"example.com", "example.org"},
 		},
 		{
 			name:     "public",
 			policy:   network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
-			resolves: []string{"example.com", "example.org"},
+			resolves: []string{"example.com", "www.example.com", "example.org"},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sandbox := createSandboxWithPolicy(t, "agents-sandbox-dns-egress-"+tc.name, tc.policy)
 			for _, name := range tc.resolves {
-				if !lookupSucceeds(t, sandbox, name) {
-					t.Errorf("%s: lookup of %q failed, want it to resolve", tc.name, name)
+				if result := lookup(t, sandbox, name); !result.Success() {
+					t.Errorf("%s: lookup of %q failed, want it to resolve: %s", tc.name, name, result.Stdout())
 				}
 			}
 			for _, name := range tc.notResolves {
-				if lookupSucceeds(t, sandbox, name) {
-					t.Errorf("%s: lookup of %q succeeded, want it refused", tc.name, name)
+				if result := lookup(t, sandbox, name); !isRefused(result) {
+					t.Errorf("%s: lookup of %q was not refused with NXDOMAIN: %s", tc.name, name, result.Stdout())
 				}
 			}
 		})
@@ -107,10 +111,8 @@ func createSandboxWithPolicy(t *testing.T, sandboxName string, policy network.Po
 	return sandbox
 }
 
-// lookupSucceeds reports whether the guest's resolver answers name without an
-// error. A refused name comes back as NXDOMAIN, which nslookup reports with a
-// non-zero exit code.
-func lookupSucceeds(t *testing.T, sandbox *msbSdk.Sandbox, name string) bool {
+// lookup runs nslookup for name in the guest.
+func lookup(t *testing.T, sandbox *msbSdk.Sandbox, name string) *msbSdk.ExecOutput {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -119,5 +121,12 @@ func lookupSucceeds(t *testing.T, sandbox *msbSdk.Sandbox, name string) bool {
 		t.Fatalf("nslookup %s: %v", name, err)
 	}
 	t.Logf("nslookup %s (exit %d): %s", name, output.ExitCode(), strings.TrimSpace(output.Stdout()))
-	return output.Success()
+	return output
+}
+
+// isRefused reports whether the resolver answered NXDOMAIN, as microsandbox's
+// proxy does for a name the policy does not allow. A timeout or other failure
+// does not count: it would hide a query that left the VM.
+func isRefused(output *msbSdk.ExecOutput) bool {
+	return !output.Success() && strings.Contains(output.Stdout(), "NXDOMAIN")
 }
