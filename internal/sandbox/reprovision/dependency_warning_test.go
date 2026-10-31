@@ -273,3 +273,16 @@ func TestWarnUnprovisionedDependenciesSilentWhenHostHomeIsUnknown(t *testing.T) 
 		t.Errorf("warnings = %v, want none", ui.WarnCalls)
 	}
 }
+
+func TestWarnUnprovisionedDependenciesSilentForAgentsWithoutProvisionRules(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	hostHome, _ := configpaths.Get().UserHomeDir()
+	writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
+	ui := termio.NewTestMock(t)
+
+	WarnUnprovisionedDependencies(plainAgent{}, &ConfigFiles{}, nil, true, &ui)
+
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none", ui.WarnCalls)
+	}
+}
