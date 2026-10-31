@@ -267,6 +267,9 @@ func buildUpgradeCmd(ui termio.UI) *cobra.Command {
 				CurrentVersion:  version,
 				Channel:         channel,
 				AllowAnyVersion: upgradeAnyVersionEnabled(),
+				// Only an explicit --channel may move a prerelease install to an
+				// older stable release; a configured channel never downgrades.
+				AllowChannelSwitch: cmd.Flags().Changed(flagChannel),
 			})
 		},
 	}

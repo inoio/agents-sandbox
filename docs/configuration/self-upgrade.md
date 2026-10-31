@@ -52,9 +52,10 @@ are eligible for the line; an `-alpha` or `-rc` prerelease is offered to no chan
 The `upgrade` command takes a one-shot override: `agents-sandbox upgrade --channel canary` checks and installs from the
 canary line for that invocation, leaving the setting untouched.
 
-Setting `upgrade.channel` back to `stable` changes nothing until the next release ships, because there is no downgrade —
-the installed canary stays until something newer is offered. To leave the canary line immediately, reinstall the stable
-binary following the [installation instructions]({% link install/installation.md %}).
+To leave the canary line immediately, run `agents-sandbox upgrade --channel stable`: it replaces the installed canary
+with the newest stable release, even when that release is older. Only the explicit flag switches lines. Setting
+`upgrade.channel` back to `stable` never downgrades: the automatic check and a plain `agents-sandbox upgrade` keep the
+installed canary until something newer is offered, and `upgrade` prints the `--channel stable` command to switch.
 
 Homebrew installs ignore the setting: the tap serves full releases only, so a keg stays on the stable line whatever
 `upgrade.channel` says, and a canary cannot be installed through Homebrew. To install a canary, follow the
