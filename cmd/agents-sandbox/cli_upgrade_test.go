@@ -190,6 +190,44 @@ func TestUpgradeChannelSelection(t *testing.T) {
 		}
 	})
 
+	t.Run("explicit stable flag switches a canary to stable", func(t *testing.T) {
+		version = "0.6.0-canary.1"
+		t.Cleanup(func() { version = "1.0.0" })
+		upgrade.LatestVersion = func(context.Context, upgrade.Channel) (string, error) { return "0.5.3", nil }
+		var installed string
+		upgrade.Update = func(_ context.Context, latest string) error {
+			installed = latest
+			return nil
+		}
+		updateCmd, _ := setupUpgradeTestFixtures(t)
+		if err := updateCmd.Flags().Set(flagChannel, "stable"); err != nil {
+			t.Fatal(err)
+		}
+		if err := updateCmd.RunE(updateCmd, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if installed != "0.5.3" {
+			t.Fatalf("installed = %q, want the stable 0.5.3", installed)
+		}
+	})
+
+	t.Run("configured stable channel keeps a canary and hints at the flag", func(t *testing.T) {
+		version = "0.6.0-canary.1"
+		t.Cleanup(func() { version = "1.0.0" })
+		upgrade.LatestVersion = func(context.Context, upgrade.Channel) (string, error) { return "0.5.3", nil }
+		upgrade.Update = func(context.Context, string) error {
+			t.Fatal("Update must not switch channels without an explicit --channel")
+			return nil
+		}
+		updateCmd, testUI := setupUpgradeTestFixtures(t)
+		if err := updateCmd.RunE(updateCmd, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(strings.Join(testUI.InfoCalls, " "), "--channel stable") {
+			t.Fatalf("expected a hint at --channel stable, got %v", testUI.InfoCalls)
+		}
+	})
+
 	t.Run("invalid flag is rejected", func(t *testing.T) {
 		upgrade.Update = func(context.Context, string) error { t.Fatal("Update should not be called"); return nil }
 		upgrade.LatestVersion = func(context.Context, upgrade.Channel) (string, error) {

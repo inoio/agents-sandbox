@@ -368,6 +368,12 @@ type UpgradeOptions struct {
 	// AllowAnyVersion is the undocumented dev-build lever, mirroring
 	// Options.AllowAnyVersion: it lets a locally built binary install a release.
 	AllowAnyVersion bool
+
+	// AllowChannelSwitch lets a prerelease install leave its line for the
+	// newest stable release even when that release is older. The CLI sets it
+	// only for an explicit --channel, so a canary tester whose configured
+	// channel is stable is never downgraded by accident.
+	AllowChannelSwitch bool
 }
 
 // Upgrade checks for a newer release than opts.CurrentVersion and installs it
@@ -391,16 +397,38 @@ func Upgrade(ctx context.Context, ui termio.UI, opts UpgradeOptions) error {
 	if err != nil {
 		return err
 	}
-	if !newer {
+	switch {
+	case newer:
+		ui.Infof("upgrading agents-sandbox %s -> %s", opts.CurrentVersion, latest)
+	case !leavesPrerelease(opts.CurrentVersion, opts.Channel):
 		ui.Infof("agents-sandbox is up to date (%s)", opts.CurrentVersion)
 		return nil
+	case !opts.AllowChannelSwitch:
+		ui.Infof("agents-sandbox is up to date (%s)", opts.CurrentVersion)
+		ui.Infof(
+			"to switch to the stable release %s, run `agents-sandbox upgrade --channel stable`",
+			latest,
+		)
+		return nil
+	default:
+		ui.Infof("switching agents-sandbox %s -> %s (stable channel)", opts.CurrentVersion, latest)
 	}
-	ui.Infof("upgrading agents-sandbox %s -> %s", opts.CurrentVersion, latest)
 	if err := Update(ctx, latest); err != nil {
 		return err
 	}
 	ui.Infof("upgraded to %s; restart to use it", latest)
 	return nil
+}
+
+// leavesPrerelease reports whether following channel means leaving the
+// prerelease line current belongs to: the stable channel (or its zero value)
+// never offers a prerelease, so a prerelease install is off its line.
+func leavesPrerelease(current string, channel Channel) bool {
+	if channel == ChannelCanary {
+		return false
+	}
+	currentVersion, err := semver.NewVersion(strings.TrimPrefix(current, "v"))
+	return err == nil && currentVersion.Prerelease() != ""
 }
 
 // LatestVersion returns the newest release version for the channel (leading "v"
