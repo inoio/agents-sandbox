@@ -31,13 +31,15 @@ deny-by-default, allowlist-only policy.
   `private` or `host`, and enabling `public` never reaches your LAN, VPN, or host.
 - Profiles compose: set any combination of `public`, `private`, and `host` as a list, e.g. `profile: [public, host]`. The
   VM then gets the union of their rules. Duplicate profiles are ignored.
-- `profile: none` is a **terminal, allowlist-only** policy: egress is deny-by-default, ingress is allowed, and only the
-  gateway-DNS rule plus your explicit `egress-allow`/`egress-deny` lists apply. This is how you restrict the VM to a
+- `profile: none` is a **terminal, allowlist-only** policy: egress is deny-by-default, ingress is allowed, and only
+  your explicit `egress-allow`/`egress-deny` lists apply. DNS follows the same allow list: the VM resolves only names
+  that an `egress-allow` entry matches (see [DNS under `none`](#dns-under-none)). This is how you restrict the VM to a
   specific set of hosts. `none` cannot be combined with another profile.
 - **`host` opens every host port to the VM.** The group allows the whole host gateway, not a single service, so a VM
   that reaches a host MCP bridge can also reach anything else listening on the host. Combine it with `public` only when
   the VM must call a host service.
-- Rule order in the generated firewall: gateway DNS, then `egress-deny`, then the profile allow rules, then `egress-allow`.
+- Rule order in the generated firewall: gateway DNS (omitted under `none`), then `egress-deny`, then the profile allow
+  rules, then `egress-allow`.
   microsandbox matches the first rule that applies, so a deny entry takes precedence over the profile's broad allow. With
   `profile: public` and `egress-deny: [123.123.123.0/24]`, `123.123.123.5` is blocked even though the public profile would
   otherwise allow it. Likewise `egress-allow: [123.123.0.0/16]` with `egress-deny: [123.123.123.0/24]` denies
@@ -86,5 +88,27 @@ network:
     - 8.8.8.8:5353
 ```
 
-With `profile: none`, only the gateway DNS is auto-allowed, so a custom resolver's IP must also be listed in
-`egress-allow` (e.g. `egress-allow: [1.1.1.1]`) for DNS lookups to reach it.
+The VM's resolver is a microsandbox DNS proxy on the gateway, and the proxy queries the upstream from the host. A custom
+resolver's IP therefore does not need an `egress-allow` entry. Under `profile: none`, `dns-servers` only affects the
+names the allow list lets the VM resolve.
+
+## DNS under `none`
+
+Under the `public`, `private`, and `host` profiles, the VM resolves any name. Under `none`, the DNS proxy answers only
+names that an `egress-allow` entry matches and returns `NXDOMAIN` for every other name, without forwarding it
+upstream:
+
+| `egress-allow` entry | Resolves                                                  |
+|----------------------|-----------------------------------------------------------|
+| `api.example.com`    | `api.example.com` only                                    |
+| `.example.com`       | `example.com` and every name under it                     |
+| an IP or CIDR        | no names                                                  |
+| `host`               | every name (the gateway DNS proxy is on the host gateway) |
+
+This closes DNS as an exfiltration channel: with an empty or IP-only allow list, the VM cannot send data out by
+encoding it in a query name such as `<encoded-secret>.attacker.example`. Directly queried resolvers (e.g.
+`nslookup example.com 1.1.1.1`) are intercepted by the same proxy.
+
+`profile: none` is still not an air gap. Every allowed destination is a channel the agent can send data through,
+including over DNS-over-HTTPS when an allowed host serves it, and through any name under an allowed `.suffix` whose
+domain someone else controls. Allow-list only hosts you trust with the data in the VM.
