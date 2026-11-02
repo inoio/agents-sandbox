@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -209,10 +210,10 @@ func (f *fakePrepared) HomeVolume() string   { return f.homeVolume }
 // stubPreviewSandbox swaps the preview seam for a fixed preview and restores it
 // on cleanup. Tests that run with options.ModePreview must use it so the real
 // PreviewSandbox never touches host state.
-func stubPreviewSandbox(t *testing.T, preview sandbox.Preview) {
+func stubPreviewSandbox(t *testing.T, preview prepare.Preview) {
 	t.Helper()
 	orig := previewSandbox
-	previewSandbox = func(context.Context, options.RunOptions, termio.UI) (sandbox.Preview, error) {
+	previewSandbox = func(context.Context, options.RunOptions, termio.UI) (prepare.Preview, error) {
 		return preview, nil
 	}
 	t.Cleanup(func() { previewSandbox = orig })
@@ -244,7 +245,7 @@ func hasDryRunMessage(infoCalls []string) bool {
 func TestRunDryRunRendersPreview(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
-	stubPreviewSandbox(t, sandbox.Preview{
+	stubPreviewSandbox(t, prepare.Preview{
 		AgentVersion: "1.0.0",
 		ImageTag:     "agents-sandbox-runner-x",
 		BuildImage:   true,
@@ -267,7 +268,7 @@ func TestRunDryRunRendersPreview(t *testing.T) {
 func TestRunDryRunRendersReusePreview(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
-	stubPreviewSandbox(t, sandbox.Preview{
+	stubPreviewSandbox(t, prepare.Preview{
 		AgentVersion: "1.2.3",
 		ImageTag:     "agents-sandbox-runner-y",
 		HomeVolume:   "agents-sandbox-home-abc",
@@ -288,7 +289,7 @@ func TestRunDryRunRendersReusePreview(t *testing.T) {
 func TestRunDryRunRendersUpgradeCheckSkippedSuffix(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
-	stubPreviewSandbox(t, sandbox.Preview{
+	stubPreviewSandbox(t, prepare.Preview{
 		AgentVersion:        "1.0.0",
 		UpgradeCheckSkipped: true,
 		ImageTag:            "agents-sandbox-runner-y",
@@ -310,7 +311,7 @@ func TestRunDryRunRendersUpgradeCheckSkippedSuffix(t *testing.T) {
 func TestRunDryRunResolveAtBuildMessage(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
-	stubPreviewSandbox(t, sandbox.Preview{
+	stubPreviewSandbox(t, prepare.Preview{
 		ResolveVersionAtBuild: true,
 		ImageTag:              "agents-sandbox-runner-z",
 		HomeVolume:            "agents-sandbox-home-abc",
@@ -331,7 +332,7 @@ func TestRunDryRunResolveAtBuildMessage(t *testing.T) {
 func TestRunDryRunJoinsMultipleBuildReasons(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
-	stubPreviewSandbox(t, sandbox.Preview{
+	stubPreviewSandbox(t, prepare.Preview{
 		AgentVersion: "1.0.0",
 		ImageTag:     "agents-sandbox-runner-x",
 		BuildImage:   true,
@@ -354,7 +355,7 @@ func TestRunDryRunJoinsMultipleBuildReasons(t *testing.T) {
 func TestRunDryRunDoesNotPrepareSandbox(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
-	stubPreviewSandbox(t, sandbox.Preview{AgentVersion: "1.0.0", ImageTag: "tag", HomeVolume: "vol"})
+	stubPreviewSandbox(t, prepare.Preview{AgentVersion: "1.0.0", ImageTag: "tag", HomeVolume: "vol"})
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
 		t.Error("prepareSandbox must not run in dry-run mode")
@@ -371,8 +372,8 @@ func TestRunDryRunPropagatesPreviewError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	orig := previewSandbox
-	previewSandbox = func(context.Context, options.RunOptions, termio.UI) (sandbox.Preview, error) {
-		return sandbox.Preview{}, errors.New("preview boom")
+	previewSandbox = func(context.Context, options.RunOptions, termio.UI) (prepare.Preview, error) {
+		return prepare.Preview{}, errors.New("preview boom")
 	}
 	t.Cleanup(func() { previewSandbox = orig })
 
@@ -651,7 +652,7 @@ func TestRunNormalCallsRunAttach(t *testing.T) {
 func TestShellDryRunRendersPreview(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
-	stubPreviewSandbox(t, sandbox.Preview{
+	stubPreviewSandbox(t, prepare.Preview{
 		AgentVersion: "1.0.0",
 		ImageTag:     "agents-sandbox-runner-x",
 		BuildImage:   true,
@@ -674,7 +675,7 @@ func TestShellDryRunRendersPreview(t *testing.T) {
 func TestShellDryRunDoesNotPrepareSandbox(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
-	stubPreviewSandbox(t, sandbox.Preview{AgentVersion: "1.0.0", ImageTag: "tag", HomeVolume: "vol"})
+	stubPreviewSandbox(t, prepare.Preview{AgentVersion: "1.0.0", ImageTag: "tag", HomeVolume: "vol"})
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
 		t.Error("prepareSandbox must not run in dry-run mode")
@@ -691,8 +692,8 @@ func TestShellDryRunPropagatesPreviewError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	orig := previewSandbox
-	previewSandbox = func(context.Context, options.RunOptions, termio.UI) (sandbox.Preview, error) {
-		return sandbox.Preview{}, errors.New("preview boom")
+	previewSandbox = func(context.Context, options.RunOptions, termio.UI) (prepare.Preview, error) {
+		return prepare.Preview{}, errors.New("preview boom")
 	}
 	t.Cleanup(func() { previewSandbox = orig })
 
@@ -1075,7 +1076,7 @@ func TestRunDoesNotStartNotifyWatcherWithoutEventStreamProvider(t *testing.T) {
 func TestRunDryRunRendersNoRebuildReuseWithSkippedReasons(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
-	stubPreviewSandbox(t, sandbox.Preview{
+	stubPreviewSandbox(t, prepare.Preview{
 		AgentVersion: "1.2.3",
 		ImageTag:     "agents-sandbox-runner-y",
 		BuildReasons: []string{"project Dockerfile changed"},

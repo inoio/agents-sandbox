@@ -15,6 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
@@ -278,7 +279,7 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 				ui.Infof("dry-run: Would build runner image")
 				return nil
 			}
-			agentVersion, userProvided := sandbox.ResolveAgentVersionForBuild(
+			agentVersion, userProvided := prepare.ResolveAgentVersionForBuild(
 				state.Key{Slug: adoption.Slug, Agent: a.Name()},
 				openCodeVersion,
 			)

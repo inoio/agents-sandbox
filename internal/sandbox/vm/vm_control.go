@@ -25,9 +25,9 @@ func stopOrKillProjectVM(
 	client msb.Client,
 	stopFn func(msb.SandboxHandle, context.Context) error,
 ) error {
-	name := projectVMName(k)
+	name := ProjectVMName(k)
 
-	handle, found, err := findProjectVM(ctx, client, k)
+	handle, found, err := FindProjectVM(ctx, client, k)
 	if err != nil {
 		return err
 	}

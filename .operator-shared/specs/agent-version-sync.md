@@ -1,6 +1,6 @@
 ---
 description: Contract for keeping the per-project `HomeState.agent_version` baseline in sync with the agent release actually baked into the runner image: the image label is the authority, `agent_version` is a cache, the image-ensuring paths are the writers of record, and recovery reconciles a disagreeing cache, not only an empty one.
-read_if: Changing `resolveBuildVersion`, `recordImageProvenance`, `recoverAgentVersion`, `PrepareSandbox`'s version handling, the release resolution (`agent.LatestVersion`, `image.resolveAgentVersion`, `vm.agentLatestVersion`), `image.EnsureImage`/`image.Build`/`ImageInfo`, the `agent-version` image label, or `--agent-version`; diagnosing a run that silently rebuilds the runner image to an older agent release than it already holds, a baseline that stays empty after deletion, or an accepted upgrade (e.g. opencode2) that reverts on the next run.
+read_if: Changing `resolveBuildVersion`, `recordImageProvenance`, `recoverAgentVersion`, `PrepareSandbox`'s version handling, the release resolution (`agent.LatestVersion`, `image.resolveAgentVersion`, `prepare.agentLatestVersion`), `image.EnsureImage`/`image.Build`/`ImageInfo`, the `agent-version` image label, or `--agent-version`; diagnosing a run that silently rebuilds the runner image to an older agent release than it already holds, a baseline that stays empty after deletion, or an accepted upgrade (e.g. opencode2) that reverts on the next run.
 ---
 
 # Agent-version baseline synchronization
@@ -8,8 +8,8 @@ read_if: Changing `resolveBuildVersion`, `recordImageProvenance`, `recoverAgentV
 ## Problem
 
 `state.HomeState.agent_version` is a project's upgrade baseline: the `current` the prompt compares against
-(`vm.pendingUpgrade`) and the version `vm.resolveBuildVersion` hands the build. It is treated as authoritative, but
-the two writers meant to keep it — `vm.recordImageProvenance` on boot and `vm.recoverAgentVersion` when it is empty —
+(`prepare.pendingUpgrade`) and the version `prepare.resolveBuildVersion` hands the build. It is treated as authoritative, but
+the two writers meant to keep it — `vm.recordImageProvenance` on boot and `prepare.recoverAgentVersion` when it is empty —
 do not include the path that actually bakes the version. A successful build of release V does not record V unless a VM
 boot happens *and* the profile can self-detect it.
 
@@ -34,7 +34,7 @@ one: its baseline is written only by recovery, while a fresh or repaired state d
 
 - The agent's newest release resolves in one place, `agent.LatestVersion` (the agent's `UpgradeChecker` capability, empty
   for an agent that lacks one): `image.resolveAgentVersion` adds only the requested-version short-circuit on top of it,
-  and `vm.agentLatestVersion` aliases the same function for the upgrade check. The two seam vars stay separate on purpose
+  and `prepare.agentLatestVersion` aliases the same function for the upgrade check. The two seam vars stay separate on purpose
   — no single seam is reachable from every entry path (`build`/`image build` and the `volume` ops call `image.EnsureImage`
   with no `vm` layer) and `cmd`'s fail-fast test isolation installs the `vm` seam — so do not collapse them into one.
 
@@ -63,7 +63,7 @@ one: its baseline is written only by recovery, while a fresh or repaired state d
 - An empty baseline is recovered from the image label (unchanged).
 - A non-empty baseline that **disagrees** with a present image's label is stale: the label wins and the cache is
   rewritten. A disagreeing cache is never a reason to rebuild the image back to the cached release.
-- Reconciliation runs in `vm.resolveBuildVersion` before the upgrade check and the build decision, so a stale cache
+- Reconciliation runs in `prepare.resolveBuildVersion` before the upgrade check and the build decision, so a stale cache
   can never select an older build. It reads only a local image label, adding no network call.
 - When no image is present, the cache is authoritative (offline reuse, pruned image).
 

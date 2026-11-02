@@ -21,9 +21,9 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -281,10 +281,10 @@ func withLatestAgentRelease(t *testing.T, version string) {
 		}
 		return version, nil
 	})
-	original := sandbox.SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
+	original := prepare.SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
 		return version, nil
 	})
-	t.Cleanup(func() { sandbox.SetAgentLatestVersion(original) })
+	t.Cleanup(func() { prepare.SetAgentLatestVersion(original) })
 }
 
 // expireAgentUpgradeCheck clears the machine-global agent upgrade check so the
@@ -305,11 +305,11 @@ func expireAgentUpgradeCheck(t *testing.T) {
 // assert the run actually reached the network.
 func withOfflineUpgradeCheck(t *testing.T, consulted func()) {
 	t.Helper()
-	original := sandbox.SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
+	original := prepare.SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
 		consulted()
 		return "", errors.New("offline")
 	})
-	t.Cleanup(func() { sandbox.SetAgentLatestVersion(original) })
+	t.Cleanup(func() { prepare.SetAgentLatestVersion(original) })
 }
 
 func assertRecordedAgentVersion(t *testing.T, k state.Key, want string) {
