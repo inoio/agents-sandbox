@@ -184,6 +184,8 @@ const dockerdBinaryCheckCmd = "command -v dockerd >/dev/null 2>&1"
 
 func (fakeAgent) Name() string { return "fake" }
 
+func (fakeAgent) Experimental() bool { return false }
+
 func (fakeAgent) ConfigDirName() string { return "fake" }
 
 func (fakeAgent) ImageSpec() agent.ImageSpec {
