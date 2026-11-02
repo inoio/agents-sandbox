@@ -7,6 +7,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/upgrade"
 )
 
 // TestServeOnlyContextCancelWiring verifies that calling the cancel function
@@ -61,6 +65,42 @@ func TestServeOnlyContextCancelsOnStdinEOF(t *testing.T) {
 		// Success: stdin EOF cancelled the context.
 	case <-time.After(500 * time.Millisecond):
 		t.Fatal("stdin EOF did not cancel the context")
+	}
+}
+
+// TestRunServeOnlyWrapsContextForCancellation pins that the run path replaces
+// the command context with the serve-only context when --serve-only is set: an
+// interactive stdin EOF must cancel the context the upgrade check receives.
+func TestRunServeOnlyWrapsContextForCancellation(t *testing.T) {
+	initTestProjectDir(t)
+
+	oldPrepare := prepareMSBRuntime
+	prepareMSBRuntime = func(context.Context, termio.UI, string) error { return nil }
+	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
+
+	origCheck := upgradeCheck
+	t.Cleanup(func() { upgradeCheck = origCheck })
+	var done <-chan struct{}
+	upgradeCheck = func(ctx context.Context, _ upgrade.Options) (upgrade.Result, error) {
+		done = ctx.Done()
+		return upgrade.Result{Exit: true}, nil
+	}
+
+	restoreReader := serveOnlyStdinReader
+	serveOnlyStdinReader = func() io.Reader { return strings.NewReader("") }
+	t.Cleanup(func() { serveOnlyStdinReader = restoreReader })
+
+	root, _ := setupRunMocks(t, &msb.MockMsbClient{}, &msb.MockSandbox{}, "run", "--serve-only")
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if done == nil {
+		t.Fatal("upgrade check did not run with a cancellable context")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("serve-only context was not cancelled on stdin EOF")
 	}
 }
 

@@ -74,6 +74,7 @@ func runUsageFunc(cmd *cobra.Command) error {
 	args := argsFromAnnotations(cmd)
 	for _, a := range args {
 		fmt.Fprintf(&out, " %s", a.Name)
+		// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="maxLen = len(a.Name) is idempotent when the lengths are equal, so >= assigns the same value"
 		if len(a.Name) > maxLen {
 			maxLen = len(a.Name)
 		}
@@ -271,17 +272,14 @@ var serveOnlyStdinReader = func() io.Reader {
 // stdin is not watched: it relies on SIGINT/SIGTERM for shutdown.
 func serveOnlyContext(base context.Context) (context.Context, func()) {
 	ctx, stop := signal.NotifyContext(base, os.Interrupt, syscall.SIGTERM)
-	cancelCtx, cancel := context.WithCancel(ctx)
 	if stdin := serveOnlyStdinReader(); stdin != nil {
 		go func() {
 			_, _ = io.Copy(io.Discard, stdin)
-			cancel()
+			// Ctrl-D reaches the same teardown as a signal.
+			stop()
 		}()
 	}
-	return cancelCtx, func() {
-		stop()
-		cancel()
-	}
+	return ctx, stop
 }
 
 func buildShellCmd(ui termio.UI) *cobra.Command {

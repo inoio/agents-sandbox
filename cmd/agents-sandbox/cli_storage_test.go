@@ -299,6 +299,40 @@ func TestDFVerboseFormatJSON(t *testing.T) {
 	}
 }
 
+// TestDFFormatJSONIncludesObjects pins that JSON output implies object
+// inclusion even without --verbose.
+func TestDFFormatJSONIncludesObjects(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, cmdDF, "--format", "json")
+	path := writeRuntimeFile(t, "bin", "msb", 64)
+	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+		StorageUsageFn: func(context.Context) (*msbSdk.StorageUsageReport, error) {
+			return storageReportWithTotals(), nil
+		},
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("df --format json: %v", err)
+	}
+	got := unmarshalStorageJSON(t, ui.OutCalls)
+	if len(got.Runtime.Items) != 1 || got.Runtime.Items[0].Path != path {
+		t.Errorf("runtime items = %+v, want one for %s", got.Runtime.Items, path)
+	}
+}
+
+// TestDFObserveErrorPreservesCause pins that the observe error is wrapped with
+// %w so its cause stays reachable.
+func TestDFObserveErrorPreservesCause(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, cmdDF)
+	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+		StorageUsageFn: func(context.Context) (*msbSdk.StorageUsageReport, error) {
+			return nil, errBoom
+		},
+	})
+	err := cmd.Execute()
+	if !errors.Is(err, errBoom) {
+		t.Errorf("df error = %v, want it to wrap errBoom", err)
+	}
+}
+
 func TestDFFormatConflict(t *testing.T) {
 	runListCmdTest(t, []string{cmdDF, "--quiet", "--format", "json"},
 		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "mutually exclusive")

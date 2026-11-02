@@ -38,11 +38,10 @@ func printInspect(ui termio.UI, mode cliout.Mode, identifier string, human func(
 // printKeyValues renders an aligned "key:  value" block, padding keys to the
 // widest key so the values line up.
 func printKeyValues(ui termio.UI, rows [][2]string) {
+	// gomutants:disable-next-line INTEGER_DECREMENT,INTEGER_INCREMENT reason="every row key is non-empty, so the initial width is always replaced by a real key length"
 	width := 0
 	for _, row := range rows {
-		if len(row[0]) > width {
-			width = len(row[0])
-		}
+		width = max(width, len(row[0]))
 	}
 	for _, row := range rows {
 		ui.Outf("%-*s  %s", width, row[0]+":", row[1])

@@ -32,8 +32,8 @@ var version = devVersion
 func execute(args []string, ui termio.UI) error {
 	rootCmd := buildRootCmd(ui)
 	rootCmd.SetArgs(args)
-	rootCmd.SetOut(ui.StdOut())
-	rootCmd.SetErr(ui.StdErr())
+	// buildRootCmd already routes cmd output to the UI; execute additionally
+	// silences cobra's own usage/error printing so main() is the only reporter.
 	rootCmd.SilenceUsage = true
 	rootCmd.SilenceErrors = true
 

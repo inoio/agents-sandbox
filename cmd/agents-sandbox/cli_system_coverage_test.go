@@ -425,6 +425,21 @@ func TestVolumeOpWarnsWhenRecordingAgentVersionFails(t *testing.T) {
 	assertWarnContains(t, ui, "could not persist the agent version")
 }
 
+// TestEffectiveConfigSlugPrefersRepoSlug pins that the repo slug's per-slug
+// config wins over a legacy slug's during a bare-root config migration.
+func TestEffectiveConfigSlugPrefersRepoSlug(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	repoSlug := "repo-slug"
+	legacySlug := "legacy-slug"
+	testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(repoSlug), "config.yaml", "yes: true\n")
+	testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(legacySlug), "config.yaml", "yes: true\n")
+
+	got := effectiveConfigSlug(git.Identity{RepoSlug: repoSlug, LegacyRepoSlugs: []string{legacySlug}})
+	if got != repoSlug {
+		t.Errorf("effectiveConfigSlug = %q, want the repo slug %q", got, repoSlug)
+	}
+}
+
 func TestVolumeMigrateUnknownAgent(t *testing.T) {
 	initTestProjectDir(t)
 	cmd, _ := setupCommandFixtures(t, "volume", "migrate", "--agent", "bogus")
@@ -452,6 +467,212 @@ func TestVolumeMigrateWithPositionalArg(t *testing.T) {
 	root.SetArgs([]string{"volume", "migrate", "explicit-vol-name"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("volume migrate with positional arg: %v", err)
+	}
+}
+
+// TestBuildVolumeOpsRejectsTwoArgs pins the volume-op arity bound: at most one
+// positional volume name.
+func TestBuildVolumeOpsRejectsTwoArgs(t *testing.T) {
+	cmd := buildVolumeOpsCmd(&termio.Mock{}, volumeOps[0])
+	if err := cmd.Args(cmd, []string{"a", "b"}); err == nil {
+		t.Error("expected an error for two positional args")
+	}
+	if err := cmd.Args(cmd, []string{"a"}); err != nil {
+		t.Errorf("one positional arg should be accepted, got %v", err)
+	}
+}
+
+// TestBuildVolumeOpsForwardsPositionalNameAndInfo pins that the positional name
+// reaches the op and the ensured image's info is passed through, and that the
+// --remove flag is registered from the op definition.
+func TestBuildVolumeOpsForwardsPositionalNameAndInfo(t *testing.T) {
+	initTestProjectDir(t)
+	configpaths.WithMockConfigPaths(t)
+	doctor.MockedCheckAll(t, true)
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				Config: &dockerspec.DockerOCIImageConfig{
+					Labels: map[string]string{"org.agents-sandbox.identity.agent-version": "3.3.3"},
+				},
+			}, nil
+		},
+	})
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+
+	var gotName string
+	var gotInfo image.ImageInfo
+	op := volumeOp{
+		name:       "probe",
+		removeHelp: "remove probe volume",
+		run: func(_ context.Context, _ state.Key, name string, info image.ImageInfo, _, _ bool, _ termio.UI) error {
+			gotName = name
+			gotInfo = info
+			return nil
+		},
+	}
+	cmd := buildVolumeOpsCmd(&termio.Mock{}, op)
+	cmd.SetArgs([]string{"explicit-vol-name"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if gotName != "explicit-vol-name" {
+		t.Errorf("volumeName = %q, want %q", gotName, "explicit-vol-name")
+	}
+	if gotInfo.AgentVersion != "3.3.3" {
+		t.Errorf("info.AgentVersion = %q, want %q", gotInfo.AgentVersion, "3.3.3")
+	}
+	if f := cmd.Flags().Lookup(flagRemove); f == nil || f.Usage != op.removeHelp {
+		t.Errorf("--%s flag = %v, want usage %q", flagRemove, f, op.removeHelp)
+	}
+}
+
+// TestParseLabelFlagsRejectsEmptyKey pins that a label without a key is
+// rejected rather than stored under the empty string.
+func TestParseLabelFlagsRejectsEmptyKey(t *testing.T) {
+	if _, err := parseLabelFlags([]string{"=value"}); err == nil {
+		t.Error("expected an error for an empty label key")
+	}
+	labels, err := parseLabelFlags([]string{"k=v"})
+	if err != nil || labels["k"] != "v" {
+		t.Errorf("parseLabelFlags(k=v) = %v, %v; want map[k:v]", labels, err)
+	}
+}
+
+// TestBuildListLimitDefault pins the --limit default of 0.
+func TestBuildListLimitDefault(t *testing.T) {
+	cmd := buildListCmd(&termio.Mock{})
+	if got := cmd.Flags().Lookup(flagLimit).DefValue; got != "0" {
+		t.Errorf("--%s default = %q, want %q", flagLimit, got, "0")
+	}
+}
+
+// TestResolveBuildAgentVersion pins the --agent-version/--opencode-version
+// precedence: --agent-version wins and the deprecated alias only applies when
+// --agent-version was not given.
+func TestResolveBuildAgentVersion(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"none", nil, ""},
+		{"agent-version", []string{"--agent-version", "1.2.3"}, "1.2.3"},
+		{"opencode-version fallback", []string{"--opencode-version", "9.9.9"}, "9.9.9"},
+		{"agent-version wins", []string{"--agent-version", "1.2.3", "--opencode-version", "9.9.9"}, "1.2.3"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := buildBuildCmd(&termio.Mock{})
+			if err := cmd.Flags().Parse(tc.args); err != nil {
+				t.Fatalf("parse %v: %v", tc.args, err)
+			}
+			if got := resolveBuildAgentVersion(cmd); got != tc.want {
+				t.Errorf("resolveBuildAgentVersion = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestCommandFlagShorthands pins the single-letter shorthands that the tree and
+// help surface advertise.
+func TestCommandFlagShorthands(t *testing.T) {
+	ui := &termio.Mock{}
+	if got := buildBuildCmd(ui).Flags().Lookup(flagRebuild).Shorthand; got != "r" {
+		t.Errorf("--%s shorthand = %q, want %q", flagRebuild, got, "r")
+	}
+	if got := buildImageRemoveCmd(ui).Flags().Lookup(flagForce).Shorthand; got != "f" {
+		t.Errorf("image remove --%s shorthand = %q, want %q", flagForce, got, "f")
+	}
+	if got := buildVolumeRemoveCmd(ui).Flags().Lookup(flagForce).Shorthand; got != "f" {
+		t.Errorf("volume remove --%s shorthand = %q, want %q", flagForce, got, "f")
+	}
+}
+
+// TestBuildSandboxCmdHasListAndRun pins that the sandbox group still registers
+// the list and run subcommands.
+func TestBuildSandboxCmdHasListAndRun(t *testing.T) {
+	cmd := buildSandboxCmd(&termio.Mock{})
+	names := map[string]bool{}
+	for _, sub := range cmd.Commands() {
+		names[sub.Name()] = true
+	}
+	if !names[cmdList] || !names[cmdRun] {
+		t.Errorf("sandbox subcommands = %v, want %q and %q", names, cmdList, cmdRun)
+	}
+}
+
+// TestBuildDockerCheckErrorWrapsCause pins that a failing Docker prerequisite is
+// wrapped with %w (so the cause stays reachable) rather than %v.
+func TestBuildDockerCheckErrorWrapsCause(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, _ := setupCommandFixtures(t, cmdBuild)
+	doctor.MockedCheckDocker(t, false)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected a docker prerequisite error")
+	}
+	if errors.Unwrap(err) == nil {
+		t.Errorf("error %v is not wrapped with %%w", err)
+	}
+}
+
+// TestVolumeOpsEnsureImageErrorWrapsCause pins that an ensure-image failure is
+// wrapped with %w rather than %v.
+func TestVolumeOpsEnsureImageErrorWrapsCause(t *testing.T) {
+	initTestProjectDir(t)
+	configpaths.WithMockConfigPaths(t)
+	doctor.MockedCheckAll(t, true)
+	image.WithMockAgentVersion(t, "0.0.0-test")
+	docker.WithDefaultErrorDockerMock(t)
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+
+	cmd := buildVolumeOpsCmd(&termio.Mock{}, volumeOps[0])
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected an ensure-image error")
+	}
+	if errors.Unwrap(err) == nil {
+		t.Errorf("error %v is not wrapped with %%w", err)
+	}
+}
+
+// TestRemoveCommandsRequireAnArgument pins the at-least-one-argument bound of
+// the image and volume remove commands.
+func TestRemoveCommandsRequireAnArgument(t *testing.T) {
+	ui := &termio.Mock{}
+	imageCmd := buildImageRemoveCmd(ui)
+	if err := imageCmd.Args(imageCmd, nil); err == nil {
+		t.Error("image remove should require at least one argument")
+	}
+	volumeCmd := buildVolumeRemoveCmd(ui)
+	if err := volumeCmd.Args(volumeCmd, nil); err == nil {
+		t.Error("volume remove should require at least one argument")
+	}
+}
+
+// TestBuildAdoptionFailureFailsClosed pins that a build whose legacy-identity
+// adoption fails stops with the adoption wrapper instead of proceeding against
+// a zero identity.
+func TestBuildAdoptionFailureFailsClosed(t *testing.T) {
+	clone := newOriginClone(t)
+	identity := mustIdentity(t, clone)
+	t.Chdir(clone)
+
+	cmd, _ := setupCommandFixtures(t, cmdBuild)
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	writeUnparsableLegacyState(t, state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "adopt legacy identity") {
+		t.Fatalf("build with an unreadable legacy state: error = %v, want the adoption wrapper", err)
+	}
+	if errors.Unwrap(err) == nil {
+		t.Errorf("error %v is not wrapped with %%w", err)
 	}
 }
 

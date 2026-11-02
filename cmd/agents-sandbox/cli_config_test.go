@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/testutil"
+	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
 // mustOpencode returns the built-in opencode agent profile, failing the test if
@@ -63,6 +65,18 @@ func TestConfigAgentPrintsMergedAndHostFiles(t *testing.T) {
 	if !strings.Contains(joined, "opencode.jsonc") {
 		t.Errorf("expected host drop-in file in output, got:\n%s", joined)
 	}
+	if !strings.Contains(joined, "agent: opencode") {
+		t.Errorf("expected the agent header line, got:\n%s", joined)
+	}
+	sawMerged := false
+	for _, line := range ui.OutCalls {
+		if strings.HasPrefix(line, "  merged ") {
+			sawMerged = true
+		}
+	}
+	if !sawMerged {
+		t.Errorf("expected a 'merged' host-file status, got:\n%s", joined)
+	}
 }
 
 func TestConfigHomeListsMappings(t *testing.T) {
@@ -75,6 +89,12 @@ func TestConfigHomeListsMappings(t *testing.T) {
 	joined := strings.Join(ui.OutCalls, "\n")
 	if !strings.Contains(joined, "/home/dev/.gitconfig") {
 		t.Errorf("expected home target in output, got:\n%s", joined)
+	}
+	for _, line := range ui.OutCalls {
+		parts := strings.SplitN(line, "  <-  ", 2)
+		if len(parts) == 2 && (parts[0] == "" || parts[1] == "" || parts[0] == parts[1]) {
+			t.Errorf("mapping line must join two distinct values, got %q", line)
+		}
 	}
 }
 
@@ -140,6 +160,38 @@ func TestConfigAgentNoSnippetFiles(t *testing.T) {
 	joined := strings.Join(ui.OutCalls, "\n")
 	if !strings.Contains(joined, "No snippet files found") {
 		t.Errorf("expected no-snippets message, got:\n%s", joined)
+	}
+	if strings.Contains(joined, "mirror files:") {
+		t.Errorf("did not expect a mirror files section with no mirror files:\n%s", joined)
+	}
+}
+
+// TestConfigAgentRejectsTwoArgs pins the config-agent arity bound with two
+// otherwise-valid agent names, so the error can only be the arity check.
+func TestConfigAgentRejectsTwoArgs(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "config", "agent", "pi", "claude-code")
+	if err := cmd.Execute(); err == nil {
+		t.Error("expected an error for two positional args")
+	}
+}
+
+// TestConfigAgentSameFlagAndPositionalNotAmbiguous pins that an identical
+// --agent and positional argument is not treated as a conflict.
+func TestConfigAgentSameFlagAndPositionalNotAmbiguous(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "config", "agent", "--agent", "pi", "pi")
+	if err := cmd.Execute(); err != nil {
+		t.Errorf("identical --agent and positional must not be ambiguous, got %v", err)
+	}
+}
+
+// TestProvisionHostConfigEnabledReadsResolver pins that a resolver's setting is
+// returned rather than a hard-coded false.
+func TestProvisionHostConfigEnabledReadsResolver(t *testing.T) {
+	r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{ProvisionHostConfig: true})
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil), r))
+	if !provisionHostConfigEnabled(cmd) {
+		t.Error("provisionHostConfigEnabled() = false, want the resolver's true")
 	}
 }
 
