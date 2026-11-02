@@ -57,6 +57,13 @@ func (b VMBoot) Booted() bool {
 	return b == VMBootStarted || b == VMBootCreated
 }
 
+// VMBootConnected is VMBoot's zero value, so a RETURN_ZERO mutant of it is the
+// same constant. The pattern matches only that operand: a return that also hands
+// back a sandbox puts VMBootConnected on its own line, so the sandbox operand's
+// RETURN_ZERO mutant stays live.
+//
+// gomutants:disable-regexp ^\s*(return\snil,\s)?VMBootConnected, RETURN_ZERO reason="VMBootConnected is the zero value of VMBoot, so RETURN_ZERO compiles to the identical constant"
+
 // defaultVMIdleTimeout moved to internal/sandbox/options.
 
 // decideVMAction maps a GetSandbox result to the lifecycle action.
@@ -295,7 +302,9 @@ func connectRunningVM(
 	stopSpinner(spin)
 	ui.Infof("connected to existing project VM: %s", name)
 	reconcileResources(ctx, handle, opts, ui)
-	return sb, VMBootConnected, nil
+	return sb,
+		VMBootConnected,
+		nil
 }
 
 // resumeAfterConnectFailure handles the idle-timeout race where the VM
@@ -345,7 +354,9 @@ func resumeSandboxByStatus(
 	switch status {
 	case msbSdk.SandboxStatusRunning:
 		sb, err := handle.Connect(ctx)
-		return sb, VMBootConnected, err
+		return sb,
+			VMBootConnected,
+			err
 	case msbSdk.SandboxStatusStarting:
 		return convergeExistingVM(ctx, handle)
 	case msbSdk.SandboxStatusCreated, msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
@@ -430,7 +441,9 @@ func convergeExistingVM(ctx context.Context, handle msb.SandboxHandle) (msb.Sand
 			if connectErr != nil {
 				return nil, VMBootConnected, connectErr
 			}
-			return sb, VMBootConnected, nil
+			return sb,
+				VMBootConnected,
+				nil
 		case msbSdk.SandboxStatusCreated, msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
 			return startExistingVM(ctx, current)
 		case msbSdk.SandboxStatusStarting:

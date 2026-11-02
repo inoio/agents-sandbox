@@ -428,13 +428,14 @@ func TestEnsureProjectVMPostLockWaitsForStartingVM(t *testing.T) {
 }
 
 func TestEnsureProjectVMPostLockWaitError(t *testing.T) {
+	causeErr := errors.New("refresh failed")
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	starting := &msb.MockSandboxHandle{
 		Name_:   "agents-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusStarting,
 		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
-			return nil, errors.New("refresh failed")
+			return nil, causeErr
 		},
 	}
 	callCount := 0
@@ -461,8 +462,8 @@ func TestEnsureProjectVMPostLockWaitError(t *testing.T) {
 		false,
 		&ui,
 	)
-	if err == nil {
-		t.Fatal("expected post-lock wait error")
+	if !errors.Is(err, causeErr) {
+		t.Fatalf("%s: error = %v, want it to wrap %v", "expected post-lock wait error", err, causeErr)
 	}
 }
 
@@ -640,12 +641,13 @@ func TestWaitForSandboxLifecycleCanceled(t *testing.T) {
 // TestEnsureProjectVMStartError covers the Start failure branch when an
 // existing stopped VM fails to start.
 func TestEnsureProjectVMStartError(t *testing.T) {
+	causeErr := errors.New("start failed")
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	handle := &msb.MockSandboxHandle{
 		Name_:    "agents-sandbox-vm-test",
 		Status_:  msbSdk.SandboxStatusStopped,
-		StartErr: errors.New("start failed"),
+		StartErr: causeErr,
 	}
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(handle)
@@ -663,18 +665,24 @@ func TestEnsureProjectVMStartError(t *testing.T) {
 		false,
 		&ui,
 	)
-	if err == nil {
-		t.Fatal("expected error when starting the stopped VM fails")
+	if !errors.Is(err, causeErr) {
+		t.Fatalf(
+			"%s: error = %v, want it to wrap %v",
+			"expected error when starting the stopped VM fails",
+			err,
+			causeErr,
+		)
 	}
 }
 
 // TestEnsureProjectVMEnsureInstalledError covers the microsandbox runtime
 // install failure branch in EnsureProjectVM (create path).
 func TestEnsureProjectVMEnsureInstalledError(t *testing.T) {
+	causeErr := errors.New("runtime install failed")
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	client := &msb.MockMsbClient{}
-	client.EnsureInstalledFn = func(context.Context) error { return errors.New("runtime install failed") }
+	client.EnsureInstalledFn = func(context.Context) error { return causeErr }
 	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
 	}
@@ -692,8 +700,13 @@ func TestEnsureProjectVMEnsureInstalledError(t *testing.T) {
 		false,
 		&ui,
 	)
-	if err == nil {
-		t.Fatal("expected error when the microsandbox runtime install fails")
+	if !errors.Is(err, causeErr) {
+		t.Fatalf(
+			"%s: error = %v, want it to wrap %v",
+			"expected error when the microsandbox runtime install fails",
+			err,
+			causeErr,
+		)
 	}
 }
 
@@ -1369,4 +1382,40 @@ func verboseContains(lines []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// TestEnsureProjectVMPostLockRecheckError covers the lookup that runs again
+// once the creation lock is held: a failure other than "not found" aborts the
+// create and keeps its cause.
+func TestEnsureProjectVMPostLockRecheckError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	causeErr := errors.New("lookup failed")
+	callCount := 0
+	client := &msb.MockMsbClient{}
+	client.GetSandboxFn = func(context.Context, string) (msb.SandboxHandle, error) {
+		callCount++
+		if callCount <= 2 {
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
+		}
+		return nil, causeErr
+	}
+	client.EnsureInstalledFn = func(context.Context) error { return nil }
+	msb.WithMsbMock(t, client)
+
+	_, _, err := lookUpAndEnsureProjectVM(
+		context.Background(),
+		client,
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		"vol",
+		"/workspace",
+		testVMKey(),
+		testVMKey().Slug,
+		false,
+		&ui,
+	)
+	if !errors.Is(err, causeErr) || !strings.Contains(err.Error(), "re-check sandbox") {
+		t.Fatalf("error = %v, want the re-check failure wrapping %v", err, causeErr)
+	}
 }

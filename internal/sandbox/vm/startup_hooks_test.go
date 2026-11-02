@@ -25,6 +25,9 @@ func TestRunStartupHooksDefaultsToDevUser(t *testing.T) {
 	if sb.AttachUser != DefaultSandboxUser {
 		t.Errorf("startup hook AttachWith user = %q, want default %q", sb.AttachUser, DefaultSandboxUser)
 	}
+	if home := sb.AttachEnv["HOME"]; home != "/home/dev" {
+		t.Errorf("startup hook HOME = %q, want %q", home, "/home/dev")
+	}
 	if sb.AttachCmd != "/bin/sh" {
 		t.Errorf("startup hook AttachWith cmd = %q, want fallback %q", sb.AttachCmd, "/bin/sh")
 	}
@@ -54,7 +57,7 @@ func TestRunStartupHooksExecutesTargetDirectly(t *testing.T) {
 }
 
 // TestRunStartupHooksRunsAsRoot verifies that a hook with Root set attaches as
-// the root user.
+// the root user, with root's home as HOME.
 func TestRunStartupHooksRunsAsRoot(t *testing.T) {
 	sb := &msb.MockSandbox{Name_: "vm"}
 	ui := termio.NewTestMock(t)
@@ -65,5 +68,8 @@ func TestRunStartupHooksRunsAsRoot(t *testing.T) {
 
 	if sb.AttachUser != "root" {
 		t.Errorf("startup hook AttachWith user = %q, want %q", sb.AttachUser, "root")
+	}
+	if home := sb.AttachEnv["HOME"]; home != "/root" {
+		t.Errorf("startup hook HOME = %q, want %q", home, "/root")
 	}
 }

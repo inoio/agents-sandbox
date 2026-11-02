@@ -65,17 +65,15 @@ func FindProjectVM(ctx context.Context, client msb.Client, k state.Key) (msb.San
 }
 
 // ProjectVMHomeVolume reports whether the project VM for k exists and the home
-// volume it has mounted. A nil handle counts as "no VM". A mounts read failure
+// volume it has mounted. FindProjectVM returns a nil handle when no VM exists,
+// and a nil handle counts as "no VM". A mounts read failure
 // returns exists=true together with the error, so a caller that would destroy the
 // VM on the strength of this result can fail closed instead of dropping its
 // volume; the best-effort home-recovery caller swallows it.
 func ProjectVMHomeVolume(ctx context.Context, client msb.Client, k state.Key) (string, bool, error) {
-	handle, found, err := FindProjectVM(ctx, client, k)
+	handle, _, err := FindProjectVM(ctx, client, k)
 	if err != nil {
 		return "", false, err
-	}
-	if !found {
-		return "", false, nil
 	}
 	if handle == nil {
 		return "", false, nil

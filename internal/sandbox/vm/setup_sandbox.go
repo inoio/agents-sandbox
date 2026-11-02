@@ -84,17 +84,14 @@ func SetUpSandbox(
 	ui.Verbosef("expected config files: %v", cfs.Keys)
 
 	// Provisioning (writing files) is idempotent and non-disruptive, so it is
-	// always performed when there is config to write. Whether the daemon is
-	// restarted to pick the config up is decided separately (the restart flag):
-	// on a "keep" decision the files are still updated on disk so the next
-	// daemon start sees them, without disturbing the running instance.
+	// always performed; without config to write it does nothing. Whether the
+	// daemon is restarted to pick the config up is decided separately (the
+	// restart flag): on a "keep" decision the files are still updated on disk so
+	// the next daemon start sees them, without disturbing the running instance.
 	provisioned := true
-	if cfs.HasSnippets || len(cfs.HomeFiles) > 0 || len(cfs.Provisioned) > 0 || len(cfs.Mirror) > 0 ||
-		len(cfs.Remove) > 0 {
-		if provErr := reprovision.Provision(ctx, sb, cfs); provErr != nil {
-			ui.Warnf("provision failed: %v (continuing)", provErr)
-			provisioned = false
-		}
+	if provErr := reprovision.Provision(ctx, sb, cfs); provErr != nil {
+		ui.Warnf("provision failed: %v (continuing)", provErr)
+		provisioned = false
 	}
 
 	// Record image provenance and the agent version baseline on a fresh boot.
@@ -109,7 +106,7 @@ func SetUpSandbox(
 		return ResolveTarget(ctx, a, sb, opts.Worktree, guestCWD, ui)
 	}
 
-	if len(cfs.Hooks) > 0 && boot.Booted() {
+	if boot.Booted() {
 		runStartupHooks(ctx, sb, cfs.Hooks, ui)
 	}
 

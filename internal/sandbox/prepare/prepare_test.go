@@ -218,7 +218,7 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
 
 	ui := termio.NewTestMock(t)
-	_, homeVol, _, err := prepareHomeVolume(
+	volumes, homeVol, homeState, err := prepareHomeVolume(
 		context.Background(),
 		mock,
 		k,
@@ -232,6 +232,12 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 	}
 	if homeVol != recovered {
 		t.Errorf("home volume = %q, want recovered %q", homeVol, recovered)
+	}
+	if volumes == nil {
+		t.Error("volume manager = nil, want the manager the reconfig steps use")
+	}
+	if homeState.HomeVolume != recovered {
+		t.Errorf("home state volume = %q, want recovered %q", homeState.HomeVolume, recovered)
 	}
 	persisted, err := state.ReadState(k)
 	if err != nil {

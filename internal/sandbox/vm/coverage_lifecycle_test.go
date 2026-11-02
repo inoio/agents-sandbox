@@ -314,13 +314,14 @@ func TestEnsureProjectVMPostLockConnectRetryRefreshError(t *testing.T) {
 // TestEnsureProjectVMPostLockStartError covers the post-lock recheck branch
 // where starting the stopped VM fails.
 func TestEnsureProjectVMPostLockStartError(t *testing.T) {
+	causeErr := errors.New("start failed")
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	callCount := 0
 	handle := &msb.MockSandboxHandle{
 		Name_:    "agents-sandbox-vm-test",
 		Status_:  msbSdk.SandboxStatusStopped,
-		StartErr: errors.New("start failed"),
+		StartErr: causeErr,
 	}
 	client := &msb.MockMsbClient{}
 	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
@@ -345,8 +346,8 @@ func TestEnsureProjectVMPostLockStartError(t *testing.T) {
 		false,
 		&ui,
 	)
-	if err == nil {
-		t.Fatal("expected error when the post-lock start fails")
+	if !errors.Is(err, causeErr) {
+		t.Fatalf("%s: error = %v, want it to wrap %v", "expected error when the post-lock start fails", err, causeErr)
 	}
 }
 
@@ -535,12 +536,13 @@ func TestEnsureProjectVMConnectRetryReconcileWarn(t *testing.T) {
 // TestEnsureProjectVMConnectRetryStartError covers the branch where, after a
 // connect failure and refresh to a non-active VM, starting it fails.
 func TestEnsureProjectVMConnectRetryStartError(t *testing.T) {
+	causeErr := errors.New("start failed")
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	refreshed := &msb.MockSandboxHandle{
 		Name_:    "agents-sandbox-vm-test",
 		Status_:  msbSdk.SandboxStatusStopped,
-		StartErr: errors.New("start failed"),
+		StartErr: causeErr,
 	}
 	handle := &retryConnectHandle{
 		SandboxHandle: &msb.MockSandboxHandle{
@@ -565,8 +567,13 @@ func TestEnsureProjectVMConnectRetryStartError(t *testing.T) {
 		false,
 		&ui,
 	)
-	if err == nil {
-		t.Fatal("expected error when starting the VM after a failed connect")
+	if !errors.Is(err, causeErr) {
+		t.Fatalf(
+			"%s: error = %v, want it to wrap %v",
+			"expected error when starting the VM after a failed connect",
+			err,
+			causeErr,
+		)
 	}
 }
 
