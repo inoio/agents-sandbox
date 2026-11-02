@@ -1,7 +1,7 @@
 package naming
 
 // Test-only name fixtures. The production constructors live where truncation
-// and persisted state are known (vm.projectVMName, volume.HomeVolumeName);
+// and persisted state are known (vm.ProjectVMName, volume.HomeVolumeName);
 // these build a scheme-shaped name from a bare slug so the parser round-trip
 // and fuzz tests can generate inputs under either scheme.
 

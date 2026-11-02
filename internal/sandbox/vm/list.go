@@ -1,6 +1,8 @@
-// Package vm queries and represents the sandbox VMs managed by the
-// launcher, mirroring the list/display helpers in the image and volume
-// packages.
+// Package vm holds the capabilities that act on a project VM: finding, naming,
+// creating, starting, stopping and removing it, setting up a running sandbox
+// (config files, startup hooks, dockerd, the agent daemon, the attach target),
+// adopting a legacy identity, and listing and inspecting VMs. Deciding what a
+// run needs from them is package prepare's job (specs/lifecycle.md).
 package vm
 
 import (

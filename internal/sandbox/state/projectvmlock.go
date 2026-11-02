@@ -9,7 +9,7 @@ import (
 )
 
 // ProjectVMLockName is the file name of the project-VM creation lock inside
-// ProjectVMLockDir. It is exported so ensureProjectVM (in package vm) and this
+// ProjectVMLockDir. It is exported so vm.EnsureProjectVM and this
 // package cannot disagree about the file the lock is taken on.
 const ProjectVMLockName = "ensure-vm.lock"
 
@@ -45,7 +45,7 @@ func ProjectVMLockDir(k Key) string {
 // down the same VM at once. The flock auto-releases on process exit, so a
 // crashed holder never pins the lock. It is not reentrant: a single call path
 // must never take the same key's project-VM lock twice, since flock locks a
-// file description per open. The file is shared with ensureProjectVM, which
+// file description per open. The file is shared with vm.EnsureProjectVM, which
 // takes it via hostlock.AcquireExclusive and so bypasses the same-process
 // registry: nesting that acquire inside this one hangs on the second flock
 // instead of failing fast.

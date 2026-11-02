@@ -47,7 +47,7 @@ func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
 	_, _, err := createProjectVM(
 		context.Background(),
 		client,
-		projectVMName(key),
+		ProjectVMName(key),
 		key,
 		key.Slug,
 		image.ImageInfo{
@@ -67,7 +67,7 @@ func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
 
 	var cfg msbSdk.SandboxConfig
 	for _, call := range client.CreatedSandboxCalls {
-		if call.Name != projectVMName(key) {
+		if call.Name != ProjectVMName(key) {
 			continue
 		}
 		for _, opt := range call.Opts {
@@ -107,7 +107,7 @@ func TestCreateProjectVMIdleTimeout(t *testing.T) {
 			_, _, err := createProjectVM(
 				context.Background(),
 				client,
-				projectVMName(key),
+				ProjectVMName(key),
 				key,
 				key.Slug,
 				image.ImageInfo{
@@ -123,7 +123,7 @@ func TestCreateProjectVMIdleTimeout(t *testing.T) {
 			if err != nil {
 				t.Fatalf("createProjectVM: %v", err)
 			}
-			cfg := createdProjectVMConfig(t, client, projectVMName(key))
+			cfg := createdProjectVMConfig(t, client, ProjectVMName(key))
 			if cfg.IdleTimeout != tc.want {
 				t.Errorf("IdleTimeout = %v, want %v", cfg.IdleTimeout, tc.want)
 			}
@@ -190,7 +190,7 @@ func TestCreateProjectVMNetworkConfigError(t *testing.T) {
 }
 
 // TestSetUpSandboxDockerdError covers the dockerd-start failure branch in
-// setUpSandbox.
+// SetUpSandbox.
 func TestSetUpSandboxDockerdError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	sb := &msb.MockSandbox{
@@ -201,7 +201,7 @@ func TestSetUpSandboxDockerdError(t *testing.T) {
 
 	configpaths.WithMockConfigPaths(t)
 	cfs := &reprovision.ConfigFiles{}
-	_, err := setUpSandbox(
+	_, err := SetUpSandbox(
 		context.Background(),
 		testVMKey(),
 		sb,
@@ -209,7 +209,7 @@ func TestSetUpSandboxDockerdError(t *testing.T) {
 		cfs,
 		&ui,
 		false,
-		vmBootConnected,
+		VMBootConnected,
 		mounts.WorkspaceMountPath,
 	)
 	if err == nil {
@@ -218,7 +218,7 @@ func TestSetUpSandboxDockerdError(t *testing.T) {
 }
 
 // TestSetUpSandboxEnsureDaemonError covers the ensureDaemon failure branch in
-// setUpSandbox: the daemon never becomes healthy and starting it fails.
+// SetUpSandbox: the daemon never becomes healthy and starting it fails.
 func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return "", 0, errors.New("daemon shell failed")
@@ -239,7 +239,7 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 
 	configpaths.WithMockConfigPaths(t)
 	cfs := &reprovision.ConfigFiles{}
-	_, err := setUpSandbox(
+	_, err := SetUpSandbox(
 		context.Background(),
 		testVMKey(),
 		sb,
@@ -247,7 +247,7 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 		cfs,
 		&ui,
 		false,
-		vmBootConnected,
+		VMBootConnected,
 		mounts.WorkspaceMountPath,
 	)
 	if err == nil {
@@ -256,7 +256,7 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 }
 
 // TestSetUpSandboxProvisionWarn covers the provision-failure warning branch in
-// setUpSandbox (config files are provisioned but the write fails; this is
+// SetUpSandbox (config files are provisioned but the write fails; this is
 // logged as a warning and does not fail the sandbox setup).
 func TestSetUpSandboxProvisionWarn(t *testing.T) {
 	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
@@ -274,7 +274,7 @@ func TestSetUpSandboxProvisionWarn(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	configpaths.WithMockConfigPaths(t)
 	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
-	_, err := setUpSandbox(
+	_, err := SetUpSandbox(
 		context.Background(),
 		testVMKey(),
 		sb,
@@ -282,11 +282,11 @@ func TestSetUpSandboxProvisionWarn(t *testing.T) {
 		cfs,
 		&ui,
 		false,
-		vmBootCreated,
+		VMBootCreated,
 		mounts.WorkspaceMountPath,
 	)
 	if err != nil {
-		t.Fatalf("setUpSandbox should not fail on provision warning: %v", err)
+		t.Fatalf("SetUpSandbox should not fail on provision warning: %v", err)
 	}
 	if !contains(joinStrings(ui.WarnCalls), "provision failed") {
 		t.Errorf("expected a provision warning, got %v", ui.WarnCalls)

@@ -556,6 +556,8 @@ type MockSandbox struct {
 	AttachErr  error
 	AttachUser string
 	AttachCwd  string
+	// AttachEnv is the environment the last AttachWith passed.
+	AttachEnv  map[string]string
 	AttachCmd  string
 	AttachArgs []string
 	DetachErr  error
@@ -681,6 +683,7 @@ func (m *MockSandbox) AttachWith(
 		}
 		m.AttachUser = cfg.User
 		m.AttachCwd = cfg.Cwd
+		m.AttachEnv = cfg.Env
 	}
 	return m.AttachCode, m.AttachErr
 }

@@ -610,11 +610,15 @@ func TestMockSandboxAttach(t *testing.T) {
 	}
 
 	m2 := &MockSandbox{AttachCode: 3}
-	if code, err := m2.AttachWith(ctx, "ls", []string{"-l"}, msbSdk.WithAttachUser("root")); code != 3 || err != nil {
+	if code, err := m2.AttachWith(
+		ctx, "ls", []string{"-l"}, msbSdk.WithAttachUser("root"),
+		msbSdk.WithAttachEnv(map[string]string{"HOME": "/root"}),
+	); code != 3 || err != nil {
 		t.Fatalf("AttachWith = %d, %v", code, err)
 	}
-	if m2.AttachCmd != "ls" || len(m2.AttachArgs) != 1 || m2.AttachArgs[0] != "-l" || m2.AttachUser != "root" {
-		t.Fatalf("AttachWith captured = %q %v user=%q", m2.AttachCmd, m2.AttachArgs, m2.AttachUser)
+	if m2.AttachCmd != "ls" || len(m2.AttachArgs) != 1 || m2.AttachArgs[0] != "-l" || m2.AttachUser != "root" ||
+		m2.AttachEnv["HOME"] != "/root" {
+		t.Fatalf("AttachWith captured = %q %v user=%q env=%v", m2.AttachCmd, m2.AttachArgs, m2.AttachUser, m2.AttachEnv)
 	}
 
 	m3 := &MockSandbox{}

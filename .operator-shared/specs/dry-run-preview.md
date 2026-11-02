@@ -17,7 +17,7 @@ clause in [upgrade-state-scoping.md](upgrade-state-scoping.md) (which held only 
 `upgrade-state-scoping.md` states it is side-effect-free. It is not. `session.Run`/`session.Shell` call
 `PrepareSandbox` and only early-return **after** it completes (`internal/sandbox/session/run.go:132`, `:209`), so the
 whole preparation runs. The parts that *are* suppressed are the upgrade network check and legacy fold
-(`vm/run_orchestrate.go:221`), the legacy home-migration offer (`:321`), the chosen home action
+(`determineAgentVersion`), the legacy home-migration offer (`prepareHomeVolume`), the chosen home action
 (`volume/volume.go:113`,`:123`), and VM start/attach. Everything else runs under `--dry-run`:
 
 - `image.EnsureImage` builds the runner image when `buildDecision` says so (`internal/sandbox/image/build.go:407`).
@@ -28,7 +28,7 @@ Two further leaks reach the network under `--dry-run`:
 
 - `resolveBaseDigest` (`image/build.go:617`) pulls the base image when a build runs.
 - `resolveAgentVersion` (`image/fetch.go:13`) hits the agent's `LatestVersion` when the resolved version is empty —
-  which is exactly what `determineAgentVersion` returns on a first run (`vm/run_orchestrate.go:221-227`).
+  which is exactly what `determineAgentVersion` returns on a first run (`prepare/prepare.go`).
 
 The two flags`--dry-run` (user-facing: "tell me what this would do") and `--dry-run-vm` (KVM-less: "prepare
 everything, skip the VM") only diverge at the four suppression sites above. The user-facing flag is the one that
@@ -69,7 +69,7 @@ It reports, via `termio`:
    `image.ExistingAgentVersion` (a local `docker inspect`, no network) and uses it ahead of the recorded cache, mirroring
    `resolveBuildVersion`'s reconciliation: the label is the authority for a present image, so a stale record must not
    drive the reported image decision. The recorded `agent_version` is used only when the image yields nothing. Unlike
-   `recoverAgentVersion` (`vm/upgrade.go:315`), the preview does **not** record the reconciled version — it only reports.
+   `recoverAgentVersion` (`prepare/upgrade.go`), the preview does **not** record the reconciled version — it only reports.
    This makes a post-migration project with an unchanged image report `would reuse` rather than always `would build`.
    Only when neither the image nor the record yields a version does the preview report that no version is known — that
    is item 1's deferred-resolution message — and the image decision then likely reports `would build`.
@@ -88,7 +88,7 @@ It reports, via `termio`:
    is created and no recovered state is written.
 4. **Session.** Report `would start agent session` (or the shell equivalent).
 
-The result is carried in a small value (e.g. `vm.Preview{Image, NeedsBuild, Reasons, AgentVersion, HomeVolume, Create}`
+The result is carried in a small value (e.g. `prepare.Preview{Image, NeedsBuild, Reasons, AgentVersion, HomeVolume, Create}`
 plus the session line) so it is asserted as data in unit tests and as the rendered lines in CLI tests.
 
 ### Purity boundaries (implementation shape)
@@ -101,10 +101,10 @@ plus the session line) so it is asserted as data in unit tests and as the render
   the same precedence the real run applies for every registered agent — and reports a deferred resolution only when
   neither yields a version.
 - Home resolution in the preview is a read-only variant of `ResolveHomeVolume` (`volume/state.go:23`): it reads state
-  and probes the recorded volume, and on the recovery path consults `liveHomeVolume` (`vm/run_orchestrate.go:433`,
+  and probes the recorded volume, and on the recovery path consults `liveHomeVolume` (`prepare/prepare.go`,
   also read-only), but never calls `recoverOrCreateHome`/`EnsureNewHome`/`RecoverHomeState` and never writes the
   recovered state.
-- The setup hub (`vm.PrepareSandbox`) takes a `skipVM bool` and has no `--dry-run` branch. The mode lives at the
+- The setup hub (`prepare.PrepareSandbox`) takes a `skipVM bool` and has no `--dry-run` branch. The mode lives at the
   session/CLI boundary (`options.Mode`, resolved by `runoptions.ResolveMode`): the session enters the hub only for
   `ModeRun`/`ModeSkipVM` and returns the preview before reaching it, so the hub never runs under `--dry-run` and its
   migration offer and version determination are simply never reached. The preview entry point
@@ -121,10 +121,10 @@ plus the session line) so it is asserted as data in unit tests and as the render
 
 ### Test seam
 
-`vm.agentLatestVersion` (`vm/upgrade.go`) is the upgrade check's release lookup; `image.WithMockAgentVersion` does
+`prepare.agentLatestVersion` (`prepare/upgrade.go`) is the upgrade check's release lookup; `image.WithMockAgentVersion` does
 not cover it (a different var). The run/shell CLI tests run `--dry-run-vm`, so they reach `resolveBuildVersion`, whose
 `pendingUpgrade` calls it when a project has a recorded baseline and the check is due — a real network request.
-`vm.SetAgentLatestVersion` replaces it, and `cmd`'s `TestMain` (`cmd/agents-sandbox/main_test.go`, beside the
+`prepare.SetAgentLatestVersion` replaces it, and `cmd`'s `TestMain` (`cmd/agents-sandbox/main_test.go`, beside the
 migration-offer default) installs a **fail-fast** default that panics: a test that reaches the network path fails loudly
 and opts in with an explicit stub, rather than silently bypassing it. This is not an `InstallFailFast*` family, so the
 `seamFamilies` registry in `internal/testutil/isolation_contract_test.go` is untouched.

@@ -178,7 +178,7 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 				&ui,
 			)
 			if (err != nil) != tc.wantErr {
-				t.Fatalf("ensureProjectVM error = %v, wantErr %v", err, tc.wantErr)
+				t.Fatalf("EnsureProjectVM error = %v, wantErr %v", err, tc.wantErr)
 			}
 			if ui.SpinnerStops != tc.wantStops {
 				t.Errorf("spinner stops = %d, want %d", ui.SpinnerStops, tc.wantStops)

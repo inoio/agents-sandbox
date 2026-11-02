@@ -16,10 +16,10 @@ import (
 
 func TestProjectVMNameIsPrefixFreeAndTruncated(t *testing.T) {
 	k := state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"}
-	require.Equal(t, "myproj-1mjusbm3wikhb0-opencode", projectVMName(k))
+	require.Equal(t, "myproj-1mjusbm3wikhb0-opencode", ProjectVMName(k))
 	require.Equal(t, "agents-sandbox-vm-myproj-1mjusbm3wikhb0-opencode", legacyProjectVMName(k))
 	require.LessOrEqual(t,
-		len(projectVMName(state.Key{Slug: strings.Repeat("a", 200), Agent: "opencode"})),
+		len(ProjectVMName(state.Key{Slug: strings.Repeat("a", 200), Agent: "opencode"})),
 		options.MaxSandboxNameLen,
 	)
 }
@@ -37,7 +37,7 @@ func TestFindProjectVMFallsBackToLegacyName(t *testing.T) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
 	}}
 
-	handle, found, err := findProjectVM(context.Background(), client, k)
+	handle, found, err := FindProjectVM(context.Background(), client, k)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, legacy.Name_, handle.Name())
@@ -45,7 +45,7 @@ func TestFindProjectVMFallsBackToLegacyName(t *testing.T) {
 
 func TestFindProjectVMPrefersNewName(t *testing.T) {
 	k := state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"}
-	project := &msb.MockSandboxHandle{Name_: projectVMName(k), Status_: msbSdk.SandboxStatusRunning}
+	project := &msb.MockSandboxHandle{Name_: ProjectVMName(k), Status_: msbSdk.SandboxStatusRunning}
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		if name == project.Name_ {
 			return project, nil
@@ -53,7 +53,7 @@ func TestFindProjectVMPrefersNewName(t *testing.T) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
 	}}
 
-	handle, found, err := findProjectVM(context.Background(), client, k)
+	handle, found, err := FindProjectVM(context.Background(), client, k)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, project.Name_, handle.Name())
@@ -65,7 +65,7 @@ func TestFindProjectVMNotFoundWhenNeitherExists(t *testing.T) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
 	}}
 
-	handle, found, err := findProjectVM(context.Background(), client, k)
+	handle, found, err := FindProjectVM(context.Background(), client, k)
 	require.NoError(t, err)
 	require.False(t, found)
 	require.Nil(t, handle)
@@ -81,13 +81,13 @@ func TestLegacyProjectVMNameIsTruncatedWithPrefixKept(t *testing.T) {
 func TestFindProjectVMPropagatesLegacyProbeError(t *testing.T) {
 	k := state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"}
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		if name == projectVMName(k) {
+		if name == ProjectVMName(k) {
 			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
 		}
 		return nil, context.DeadlineExceeded
 	}}
 
-	_, _, err := findProjectVM(context.Background(), client, k)
+	_, _, err := FindProjectVM(context.Background(), client, k)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
@@ -96,7 +96,7 @@ func TestFindProjectVMSurfacesOtherErrors(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	client.SetGetSandboxErr(context.DeadlineExceeded)
 
-	_, _, err := findProjectVM(context.Background(), client, k)
+	_, _, err := FindProjectVM(context.Background(), client, k)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 

@@ -134,7 +134,7 @@ All measured on this VM on 2026-10-21 with `golang.org/x/tools/cmd/deadcode@v0.5
   never switched on. Triaging the 21 scattered findings showed 9 are intentional test seams (`agent.Register`,
   `git.RepoSlug`, `git.CheckoutSlug`, `viperconfig.NewResolverWithConfig`, `docker.RealClient`,
   `image.WithMockAgentVersion`, `image.WithMockAgentVersionResolver`, `vm.SetDaemonHealthFunc`,
-  `vm.SetRuntimeHomeMigrationOffer`) and carry a reason-bearing marker, while **12 are genuinely dead and are deleted**:
+  `prepare.SetRuntimeHomeMigrationOffer`) and carry a reason-bearing marker, while **12 are genuinely dead and are deleted**:
   `homeconfig.MergeManifests` / `BuildHomeFiles` / `DescribeManifest` (superseded by the production
   `BuildHomeFilesWithModes` / `DescribeLayers` / `LoadLayers`), `upgrade.IsNewer` (a wrapper existing only for its own
   test), `termio.OutToVerboseRedirect` and its `Out`/`Outf` (duplicated by `cmd`'s live
@@ -152,12 +152,12 @@ All measured on this VM on 2026-10-21 with `golang.org/x/tools/cmd/deadcode@v0.5
   ResolveIdentity fields"; `viperconfig.NewResolverWithConfig` "construction seam for cmd tests; see doc comment";
   `docker.RealClient` "integration tests opt back into the real docker daemon"; `image.WithMockAgentVersion` "test seam
   establishing a pinned agent version"; `image.WithMockAgentVersionResolver` "test seam establishing a custom agent
-  version resolver"; `vm.SetDaemonHealthFunc` "test seam replacing the daemon health"; `vm.SetRuntimeHomeMigrationOffer`
+  version resolver"; `vm.SetDaemonHealthFunc` "test seam replacing the daemon health"; `prepare.SetRuntimeHomeMigrationOffer`
   "test seam replacing the runtime migration offer". Marking a genuinely dead function to silence the gate is the rubber
   stamp the anti-goals forbid.
 - **The gate has flagged two more seams on code that landed after it was designed** — the dry-run preview's
   `image.RunnerDockerfileID` (exported so higher-layer preview tests can seed a matching label) and
-  `vm.SetAgentLatestVersion` (keeps the upgrade check off the network) — both marked in the same declaration-scope
+  `prepare.SetAgentLatestVersion` (keeps the upgrade check off the network) — both marked in the same declaration-scope
   category, with no change to the mechanism.
 - **Resolved by the builder:** markers are additive, so if the BuildKit plan (issue #15) removes `internal/sandbox/docker`
   first, the 24 `docker/testmock.go` markers disappear with the package and the totals in this document are stale while the

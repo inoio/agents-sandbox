@@ -5,7 +5,7 @@ read_if: Changing readLiveProjectVM/resolveReconfigDecision/applyReconfigHomeAct
 
 # Project-VM reconfiguration decision
 
-`PrepareSandbox` calls `resolveReconfigDecision` (`internal/sandbox/vm/reconfig.go`) once per startup to choose between
+`PrepareSandbox` calls `resolveReconfigDecision` (`internal/sandbox/prepare/reconfig.go`) once per startup to choose between
 recreating the project VM, restarting the agent daemon, or doing nothing. It returns a named `reconfigDecision`
 (`Recreate`/`Restart`/`HomeAction`/`ServeHostPort`) instead of a positional tuple; the home-volume action it resolves
 is applied separately by `applyReconfigHomeAction`, keeping plan resolution free of home-volume side effects. The
@@ -16,7 +16,7 @@ Reading the live VM is a separate step that runs first (#341). `readLiveProjectV
 reads its persisted config and live mounts, and reads the agent config files through one attach that it detaches
 before returning (under the caller's context without its cancellation). It returns a `liveProjectVM` value that
 `resolveReconfigDecision` plans from, so the decision itself neither looks up nor attaches to the VM. The handle it
-read travels in `reconfigPlan.existingVM` to `ensureProjectVM`, which reuses it instead of looking the VM up again: a
+read travels in `reconfigPlan.existingVM` to `EnsureProjectVM`, which reuses it instead of looking the VM up again: a
 recreate destroys exactly the VM the decision judged (`sandbox-identity.md`), and a kept VM is connected through the
 same handle, whose stale status after a long prompt is recovered by `resolveExistingVM`'s refresh-and-resume. The
 second attach, in `ensure-vm`, remains: holding the read connection across the reconfig prompt and the home action
@@ -46,7 +46,7 @@ the same read and cannot disagree. The image's Dockerfile `ENV`, which `buildPro
 (winning on collisions), is not part of the fingerprint; a change there is caught by the image-digest recreate path. The
 loader's warnings are emitted once instead of once per consumer (#342).
 
-A read of an existing VM's persisted config can fail (`msb.SandboxHandle.Config()`), and `findProjectVM` can fail to
+A read of an existing VM's persisted config can fail (`msb.SandboxHandle.Config()`), and `FindProjectVM` can fail to
 locate a VM it cannot confirm absent. Both are treated fail-closed by `readLiveProjectVM` and `resolveReconfigDecision`:
 a non-not-found lookup error is returned (the run aborts) rather than treated as "no VM"; and a `Config()` failure is
 surfaced as a warning and forces a recreate through the normal `ResolveReconfig` path (a `unreadable VM config` change
@@ -57,7 +57,7 @@ failure in `applyLiveMounts` is deliberately different: it degrades to pre-#223 
 recreate.
 
 Fingerprints are written by `persistConfigHashes`, which runs only when the VM was created this run (`boot ==
-vmBootCreated`). A fresh home volume's state is additionally seeded with the desired fingerprints at creation
+VMBootCreated`). A fresh home volume's state is additionally seeded with the desired fingerprints at creation
 (`volume.Manager.EnsureNewHome`), so a `HomeState` is never fingerprint-less while a VM exists (see Resolution below).
 
 ## Invariant: preserve fingerprints on every state rewrite
@@ -84,7 +84,7 @@ after the first session created the VM but before it persisted fingerprints, and
 env/secret/mount) change — a silent rebuild when alone or a rebuild/restart prompt when another client was attached.
 
 The invariant now held is: **a `HomeState` is never fingerprint-less while a VM exists.** The desired fingerprints are
-computed once (`vm.desiredFingerprints`) and seeded as part of the fresh-home write: `volume.Manager.EnsureNewHome`
+computed once (`prepare.desiredFingerprints`) and seeded as part of the fresh-home write: `volume.Manager.EnsureNewHome`
 applies `state.Fingerprints` to the new `HomeState` in one atomic write, and `persistConfigHashes` persists that same
 value, so the seeded and persisted sets cannot diverge. Because state resolution runs before VM creation, the written
 state already matches the desired config by the time any session can observe the VM, so the empty-applied "changed" rule
