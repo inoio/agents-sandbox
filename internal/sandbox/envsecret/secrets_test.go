@@ -514,6 +514,25 @@ func TestBuildSecretsFromSpecsAllowPlaceholderForExcludesAllowedHost(t *testing.
 	}
 }
 
+// TestBuildSecretsFromSpecsAllowPlaceholderForContinuesPastSkippedHost pins
+// that a skipped host earlier in the list does not stop the scan: the allowed
+// host is excluded with continue, and the later passthrough host must survive.
+// A break would stop at the first host and drop every host after it.
+func TestBuildSecretsFromSpecsAllowPlaceholderForContinuesPastSkippedHost(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {Value: "v", Hosts: []string{"git.example"}}}
+	secrets := BuildSecretsFromSpecs(in, []string{"git.example", "model.example"}, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if !slices.Equal(secrets[0].Passthrough, []string{"model.example"}) {
+		t.Errorf(
+			"Passthrough = %v, want [model.example] (the allowed host is skipped, not a loop stop)",
+			secrets[0].Passthrough,
+		)
+	}
+}
+
 // TestBuildSecretsFromSpecsAllowPlaceholderForSkipsAllowAnyHostSecret pins that
 // a secret allowing every host (Allow ["*"]) gets no placeholder passthrough:
 // it already substitutes everywhere, and the runtime rejects the combination.

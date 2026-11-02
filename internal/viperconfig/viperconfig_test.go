@@ -1277,6 +1277,51 @@ func TestResolverNotifyTriggersFromConfigFile(t *testing.T) {
 	}
 }
 
+// The notify.* dotted keys are bound explicitly (they are not derived from the
+// Config struct because Notify is decoded outside viper), so their documented
+// AGENTS_SANDBOX_NOTIFY_* env vars resolve without AutomaticEnv.
+func TestResolverNotifyDottedEnvVars(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_NOTIFY_DESKTOP", "true")
+	t.Setenv("AGENTS_SANDBOX_NOTIFY_AUDIO", "bell")
+	t.Setenv("AGENTS_SANDBOX_NOTIFY_ON_INPUT", "false")
+	t.Setenv("AGENTS_SANDBOX_NOTIFY_ON_DONE", "false")
+	t.Setenv("AGENTS_SANDBOX_NOTIFY_ON_ERROR", "false")
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	cfg := resolverNotify(r)
+	if !cfg.Desktop {
+		t.Error("Desktop = false, want true from AGENTS_SANDBOX_NOTIFY_DESKTOP")
+	}
+	if cfg.Audio != notify.AudioBell {
+		t.Errorf("Audio = %q, want bell from AGENTS_SANDBOX_NOTIFY_AUDIO", cfg.Audio)
+	}
+	if cfg.OnInput || cfg.OnDone || cfg.OnError {
+		t.Errorf("triggers = input:%v done:%v error:%v, want all false from env", cfg.OnInput, cfg.OnDone, cfg.OnError)
+	}
+}
+
+// The deprecated OPENCODE_SANDBOX_ prefix is bound for the notify dotted keys
+// too, and surfaced as a legacy variable in effect.
+func TestResolverNotifyLegacyEnvVars(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_NOTIFY_AUDIO", "bell")
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if got := resolverNotify(r).Audio; got != notify.AudioBell {
+		t.Errorf("Audio = %q, want bell from OPENCODE_SANDBOX_NOTIFY_AUDIO", got)
+	}
+	if got := r.LegacyEnvVars(); !slices.Contains(got, "OPENCODE_SANDBOX_NOTIFY_AUDIO") {
+		t.Errorf("LegacyEnvVars = %v, want it to contain OPENCODE_SANDBOX_NOTIFY_AUDIO", got)
+	}
+}
+
 // A valid Go-style duration (parsed directly by GetDuration) passes
 // validatePruneAges via the d > 0 fast path.
 func TestResolverPruneAgeValidGoDuration(t *testing.T) {
@@ -1367,6 +1412,9 @@ func TestResolverConfigReturnsACopy(t *testing.T) {
 		},
 		Mounts: mounts.Mounts{"/guest": {Source: "/host"}},
 		Home:   homeconfig.Layers{{Dir: "/cfg", Manifest: homeconfig.Manifest{"~/.x": {Source: "/host/.x"}}}},
+		Secrets: Secrets{
+			Common: SecretCommon{AllowPlaceholderFor: []string{"model.example"}},
+		},
 	})
 
 	got := r.Config()
@@ -1384,6 +1432,7 @@ func TestResolverConfigReturnsACopy(t *testing.T) {
 	got.Network.EgressAllow[0] = "evil.example"
 	got.Network.EgressDeny[0] = "evil.example"
 	got.Network.DNSServers[0] = "8.8.8.8"
+	got.Secrets.Common.AllowPlaceholderFor[0] = "evil.example"
 	got.Mounts["/guest"] = mounts.BindMount{Source: "/evil"}
 	got.Home[0].Manifest["~/.x"] = homeconfig.Entry{Source: "/evil"}
 
@@ -1399,6 +1448,9 @@ func TestResolverConfigReturnsACopy(t *testing.T) {
 	}
 	if again.Mounts["/guest"].Source != "/host" {
 		t.Errorf("mutating Config() mounts changed the resolver: %+v", again.Mounts)
+	}
+	if again.Secrets.Common.AllowPlaceholderFor[0] != "model.example" {
+		t.Errorf("mutating Config() secrets changed the resolver: %+v", again.Secrets)
 	}
 	if again.Home[0].Manifest["~/.x"].Source != "/host/.x" {
 		t.Errorf("mutating Config() home changed the resolver: %+v", again.Home)

@@ -66,17 +66,16 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 		}
 	}
 
-	v.SetEnvPrefix(EnvPrefix)
-	// Env-var keys are all top-level and dash-separated; only the nested
-	// "network.profile" key uses a dot, which maps to "_" here. This is a
-	// repo-wide replacement, so a future dotted top-level key (e.g.
-	// "auto.stop") would collide with a dashed one ("auto-stop") and must be
-	// avoided.
-	v.SetEnvKeyReplacer(envKeyReplacer)
-	v.AutomaticEnv()
-	for _, key := range configEnvKeys {
+	// Env vars are bound explicitly rather than through viper's AutomaticEnv:
+	// AutomaticEnv resolves *any* key from the environment, so an
+	// AGENTS_SANDBOX_<KEY> variable would override a config-file-only key
+	// (env:"-") whenever a config file sets it. Binding only envKeys keeps
+	// those keys config-file-only. Each key binds the canonical
+	// AGENTS_SANDBOX_ name first and the deprecated OPENCODE_SANDBOX_ alias
+	// second, so the canonical value wins when both are set.
+	for _, key := range envKeys {
 		// Keys are non-empty constants, so binding cannot fail.
-		v.MustBindEnv(key, envVarName(LegacyEnvPrefix, key))
+		v.MustBindEnv(key, envVarName(EnvPrefix, key), envVarName(LegacyEnvPrefix, key))
 	}
 
 	if cmd != nil {

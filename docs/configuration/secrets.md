@@ -119,8 +119,8 @@ A host cannot be both substituted for and placeholder-passthrough. Two rules kee
 
 - A host a secret already lists in `host`/`hosts` keeps substitution and is dropped from that secret's passthrough
   hosts. The credential that authenticates to the model host is unaffected.
-- A secret with `allow_any_host_dangerous: true` already substitutes for every host, so it gets no
-  placeholder-passthrough hosts.
+- A secret with `allow_any_host_dangerous: true` and no explicit `host` or `hosts` substitutes for every host, so it
+  gets no placeholder-passthrough hosts.
 
 Changing this key changes the VM's secret fingerprint, so the next run recreates the project VM once.
 
