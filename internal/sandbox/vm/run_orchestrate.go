@@ -168,7 +168,7 @@ func PrepareSandbox(
 		}},
 		{ID: lifecycle.EnsureVM, Run: func() error {
 			var err error
-			sb, boot, err = ensureVMStage(ctx, session, imageInfo, home, plan.homeVolume, skipVM, opts, ui)
+			sb, boot, err = ensureVMStage(ctx, session, imageInfo, home, plan, skipVM, opts, ui)
 			return err
 		}},
 		{ID: lifecycle.SetupSandbox, Run: func() error {
@@ -331,16 +331,18 @@ func ensureHomeStage(
 
 // reconfigPlan is what plan-reconfig hands to the later stages: the merged
 // agent config files (loaded once per startup, shared with provisioning), the
-// reconfig decision, and the home volume after its home action.
+// project VM the decision was read from, the reconfig decision, and the home
+// volume after its home action.
 type reconfigPlan struct {
 	configFiles *reprovision.ConfigFiles
+	existingVM  msb.SandboxHandle
 	decision    reconfigDecision
 	homeVolume  string
 }
 
 // planReconfigStage is the plan-reconfig stage: it loads the merged agent
-// config, decides recreate vs restart vs nothing, and applies the resulting
-// home-volume action.
+// config, reads the live project VM, decides recreate vs restart vs nothing,
+// and applies the resulting home-volume action.
 func planReconfigStage(
 	ctx context.Context,
 	session sessionIdentity,
@@ -354,9 +356,13 @@ func planReconfigStage(
 	if err != nil {
 		return reconfigPlan{}, err
 	}
+	live, err := readLiveProjectVM(ctx, home.client, session.key, configFiles.Keys, ui)
+	if err != nil {
+		return reconfigPlan{}, err
+	}
 	decision, err := resolveReconfigDecision(
-		ctx, home.client, home.volumes, session.key, opts, imageInfo, home.homeVolume, home.homeState, configFiles,
-		home.env, ui,
+		ctx, home.volumes, session.key, opts, imageInfo, home.homeVolume, home.homeState, configFiles,
+		home.env, live, ui,
 	)
 	if err != nil {
 		return reconfigPlan{}, err
@@ -368,7 +374,12 @@ func planReconfigStage(
 		return reconfigPlan{}, err
 	}
 	ui.Verbosef("recreate: %v, restart: %v", decision.Recreate, decision.Restart)
-	return reconfigPlan{configFiles: configFiles, decision: decision, homeVolume: homeVolume}, nil
+	return reconfigPlan{
+		configFiles: configFiles,
+		existingVM:  live.handle,
+		decision:    decision,
+		homeVolume:  homeVolume,
+	}, nil
 }
 
 // ensureVMStage is the ensure-vm stage: it creates, starts, recreates or
@@ -378,14 +389,14 @@ func ensureVMStage(
 	session sessionIdentity,
 	imageInfo image.ImageInfo,
 	home preparedHome,
-	homeVolume string,
+	plan reconfigPlan,
 	skipVM bool,
 	opts options.RunOptions,
 	ui termio.UI,
 ) (msb.Sandbox, vmBoot, error) {
 	sb, boot, err := ensureProjectVM(
-		ctx, opts, imageInfo, homeVolume, session.identity.BindRoot, session.key, session.identity.RepoSlug, skipVM,
-		home.env, ui,
+		ctx, opts, imageInfo, plan.homeVolume, session.identity.BindRoot, session.key, plan.existingVM,
+		session.identity.RepoSlug, skipVM, home.env, ui,
 	)
 	if err != nil {
 		// gomutants:disable-next-line RETURN_ZERO reason="ensureProjectVM returns vmBootConnected (the vmBoot zero value, the first iota constant) on every error path, so a RETURN_ZERO replacement of boot is the identical constant"

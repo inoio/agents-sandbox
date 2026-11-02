@@ -559,6 +559,9 @@ type MockSandbox struct {
 	AttachCmd  string
 	AttachArgs []string
 	DetachErr  error
+	// DetachFn overrides DetachErr when set, so a test can observe the
+	// context a detach runs under.
+	DetachFn   func(ctx context.Context) error
 	StopErr    error
 	DestroyErr error
 	Destroyed  bool
@@ -682,7 +685,12 @@ func (m *MockSandbox) AttachWith(
 	return m.AttachCode, m.AttachErr
 }
 
-func (m *MockSandbox) Detach(_ context.Context) error                       { return m.DetachErr }
+func (m *MockSandbox) Detach(ctx context.Context) error {
+	if m.DetachFn != nil {
+		return m.DetachFn(ctx)
+	}
+	return m.DetachErr
+}
 func (m *MockSandbox) Stop(_ context.Context, _ ...msbSdk.StopOption) error { return m.StopErr }
 func (m *MockSandbox) Destroy(_ context.Context, _ ...msbSdk.DestroyOption) error {
 	if m.DestroyErr != nil {

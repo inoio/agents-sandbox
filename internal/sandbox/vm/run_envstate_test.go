@@ -200,7 +200,7 @@ func TestResolveReconfigDecision_NetworkChangedWithPersistedState(t *testing.T) 
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
@@ -210,7 +210,6 @@ func TestResolveReconfigDecision_NetworkChangedWithPersistedState(t *testing.T) 
 		"vol",
 		persistedState,
 		cfs,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -245,7 +244,7 @@ func TestResolveReconfigDecision_NetworkUnchangedNoRecreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
@@ -255,7 +254,6 @@ func TestResolveReconfigDecision_NetworkUnchangedNoRecreate(t *testing.T) {
 		"vol",
 		persistedState,
 		cfs,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -347,7 +345,7 @@ func TestResolveReconfigDecision_EnvChangedWithPersistedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
@@ -357,7 +355,6 @@ func TestResolveReconfigDecision_EnvChangedWithPersistedState(t *testing.T) {
 		"vol",
 		persistedState,
 		cfs,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -401,7 +398,7 @@ func TestResolveReconfigDecision_EnvUnchangedWithPersistedState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
@@ -411,7 +408,6 @@ func TestResolveReconfigDecision_EnvUnchangedWithPersistedState(t *testing.T) {
 		"vol",
 		persistedState,
 		cfs,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -450,7 +446,7 @@ func TestResolveReconfigDecision_SecretsChangedWithPersistedState(t *testing.T) 
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
@@ -460,7 +456,6 @@ func TestResolveReconfigDecision_SecretsChangedWithPersistedState(t *testing.T) 
 		"vol",
 		persistedState,
 		cfs,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -495,7 +490,7 @@ func TestResolveReconfigDecision_ZeroPersistedStateNoSpuriousChange(t *testing.T
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
@@ -505,7 +500,6 @@ func TestResolveReconfigDecision_ZeroPersistedStateNoSpuriousChange(t *testing.T
 		"vol",
 		state.HomeState{},
 		cfs,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -664,7 +658,7 @@ func TestResolveReconfigDecision_PersistedSecretsMatchDesired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
@@ -674,7 +668,6 @@ func TestResolveReconfigDecision_PersistedSecretsMatchDesired(t *testing.T) {
 		"vol",
 		persistedState,
 		cfs,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -734,7 +727,7 @@ func TestResolveReconfigDecision_HomePromptDeferredWhenRebuildDeferred(t *testin
 		// imageRef == cfg.Image; the digest still identifies the image
 		Digest: "sha256:new",
 	} // stored digest differs -> image-triggered rebuild
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
@@ -744,7 +737,6 @@ func TestResolveReconfigDecision_HomePromptDeferredWhenRebuildDeferred(t *testin
 		"vol",
 		persisted,
 		cfs,
-		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -814,7 +806,7 @@ func TestResolveReconfigDecision_HomePromptAskedWhenRebuildConfirmed(t *testing.
 		// imageRef != cfg.Image("img:tag") -> image-triggered rebuild
 		Digest: "sha256:new",
 	} // stored digest differs -> image change detected
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
@@ -824,7 +816,6 @@ func TestResolveReconfigDecision_HomePromptAskedWhenRebuildConfirmed(t *testing.
 		"vol",
 		persisted,
 		cfs,
-		envsecret.EnvSecrets{},
 		ui,
 	)
 	if err != nil {
@@ -895,7 +886,7 @@ func TestResolveReconfigDecision_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		mock,
 		vm,
@@ -905,7 +896,6 @@ func TestResolveReconfigDecision_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 		"vol",
 		persisted,
 		cfs,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {

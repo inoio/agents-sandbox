@@ -73,21 +73,24 @@ func TestPrepareSandboxTraceEndsAtTheFailingStage(t *testing.T) {
 }
 
 // TestEnsureVMStageFailureSkipsFingerprints pins the ensure-vm error path: a
-// failed VM lookup is returned with no sandbox, and the fingerprints are not
-// persisted, since no VM was created.
+// failed per-project flock acquisition is returned with no sandbox, and the
+// fingerprints are not persisted, since no VM was created.
 func TestEnsureVMStageFailureSkipsFingerprints(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	lookupErr := errors.New("lookup boom")
-	msb.WithMsbMock(t, (&msb.MockMsbClient{}).SetGetSandboxErr(lookupErr))
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	lockErr := errors.New("flock boom")
+	origLock := acquireProjectVMLock
+	acquireProjectVMLock = func(state.Key) (func(), error) { return nil, lockErr }
+	t.Cleanup(func() { acquireProjectVMLock = origLock })
 	k := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	ui := termio.NewTestMock(t)
 
 	sb, _, err := ensureVMStage(
-		context.Background(), sessionIdentity{key: k}, sandboximage.ImageInfo{}, preparedHome{}, "home-vol", false,
-		options.RunOptions{}, &ui,
+		context.Background(), sessionIdentity{key: k}, sandboximage.ImageInfo{}, preparedHome{},
+		reconfigPlan{homeVolume: "home-vol"}, false, options.RunOptions{}, &ui,
 	)
-	if !errors.Is(err, lookupErr) {
-		t.Fatalf("ensureVMStage error = %v, want %v", err, lookupErr)
+	if !errors.Is(err, lockErr) {
+		t.Fatalf("ensureVMStage error = %v, want %v", err, lockErr)
 	}
 	if sb != nil {
 		t.Errorf("ensureVMStage sandbox = %v, want nil on failure", sb)

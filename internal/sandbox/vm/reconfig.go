@@ -143,35 +143,93 @@ type reconfigDecision struct {
 	ServeHostPort int
 }
 
-// resolveReconfigDecision computes the reconfiguration decision: it reads the
-// live VM, compares the persisted fingerprints, resolves the recreate/restart
-// choice against any attached clients, and — when the VM will be recreated for
-// a changed image — resolves the home-volume action. It performs no
-// home-volume side effects; applyReconfigHomeAction applies the resolved
-// action. The desired env and secrets are the caller's single load
-// (envsecret.LoadEnvAndSecrets), so the change comparison and the VM creation
-// it leads to agree on one reading of the host files.
+// liveProjectVM is what the launcher reads from the existing project VM before
+// planning its reconfiguration. The zero value means no project VM exists.
 //
-// It re-fetches the existing sandbox handle to read live VM files: no
-// passed-in msb.Sandbox is available at the call site, which runs before
-// ensureProjectVM creates one.
-func resolveReconfigDecision(
+//exhaustruct:ignore
+type liveProjectVM struct {
+	// handle is the project VM the decision is read from; ensureProjectVM
+	// reuses it rather than looking the VM up again, so a recreate destroys
+	// exactly this VM (specs/sandbox-identity.md).
+	handle           msb.SandboxHandle
+	config           *msbSdk.SandboxConfig
+	configUnreadable bool
+	// agentConfigFiles holds the agent config files read from the running VM,
+	// keyed by guest path; nil when the VM could not be connected.
+	agentConfigFiles map[string][]byte
+}
+
+// readLiveProjectVM reads the facts the reconfiguration decision compares
+// against: the project VM's handle, its persisted config, and the agent config
+// files currently in the VM. Reading the files attaches to the VM once and
+// detaches before returning. A lookup error that cannot confirm the VM absent
+// is returned, so it is never mistaken for "no VM".
+func readLiveProjectVM(
 	ctx context.Context,
 	client msb.Client,
+	k state.Key,
+	agentConfigPaths []string,
+	ui termio.UI,
+) (liveProjectVM, error) {
+	handle, found, lookupErr := findProjectVM(ctx, client, k)
+	if lookupErr != nil {
+		return liveProjectVM{}, fmt.Errorf("locate project VM: %w", lookupErr)
+	}
+	if !found {
+		return liveProjectVM{}, nil
+	}
+	config, configUnreadable := readExistingVMConfig(handle, k, ui)
+	return liveProjectVM{
+		handle:           handle,
+		config:           config,
+		configUnreadable: configUnreadable,
+		agentConfigFiles: readAgentConfigFiles(ctx, handle, agentConfigPaths, ui),
+	}, nil
+}
+
+// readAgentConfigFiles connects to the VM, reads the agent config files at
+// paths, and detaches. A VM that cannot be connected (e.g. a stopped one)
+// yields nil. The detach runs under the caller's context without its
+// cancellation, so a cancelled run still releases the attach.
+func readAgentConfigFiles(
+	ctx context.Context,
+	handle msb.SandboxHandle,
+	paths []string,
+	ui termio.UI,
+) map[string][]byte {
+	sb, connectErr := handle.Connect(ctx)
+	if connectErr != nil {
+		ui.Verbosef("connecting to existing VM failed: %v (continuing)", connectErr)
+		return nil
+	}
+	defer func() {
+		if detachErr := sb.Detach(context.WithoutCancel(ctx)); detachErr != nil {
+			ui.Verbosef("failed to detach live sandbox handle: %v", detachErr)
+		}
+	}()
+	return reprovision.ReadVMConfig(ctx, sb, paths, ui)
+}
+
+// resolveReconfigDecision computes the reconfiguration decision from the live
+// VM facts readLiveProjectVM read: it compares the persisted fingerprints,
+// resolves the recreate/restart choice against any attached clients, and —
+// when the VM will be recreated for a changed image — resolves the home-volume
+// action. It neither touches the VM nor has home-volume side effects;
+// applyReconfigHomeAction applies the resolved action. The desired env and
+// secrets are the caller's single load (envsecret.LoadEnvAndSecrets), so the
+// change comparison and the VM creation it leads to agree on one reading of
+// the host files.
+func resolveReconfigDecision(
+	ctx context.Context,
 	vm *volume.Manager,
 	k state.Key,
 	opts options.RunOptions,
 	imageInfo image.ImageInfo, homeVol string, hs state.HomeState,
 	cfs *reprovision.ConfigFiles,
 	env envsecret.EnvSecrets,
+	live liveProjectVM,
 	ui termio.UI,
 ) (reconfigDecision, error) {
-	handle, _, lookupErr := findProjectVM(ctx, client, k)
-	if lookupErr != nil {
-		return reconfigDecision{}, fmt.Errorf("locate project VM: %w", lookupErr)
-	}
-	curCfg, liveSb, configUnreadable := readExistingVM(ctx, handle, k, ui)
-
 	// Detect whether the project's image digest changed since the last run. The
 	// home-volume prompt is deferred until the rebuild decision below confirms
 	// we are actually switching to the new image.
@@ -180,14 +238,7 @@ func resolveReconfigDecision(
 		ui.Verbosef("image digest changed: %s -> %s", hs.ImageDigest, imageInfo.Digest)
 	}
 
-	var agentCfgChanged bool
-	if liveSb != nil {
-		vmData := reprovision.ReadVMConfig(ctx, liveSb, cfs.Keys, ui)
-		agentCfgChanged = len(vmData) > 0 && !reprovision.AgentConfigEqual(cfs, vmData)
-		if detachErr := liveSb.Detach(context.Background()); detachErr != nil {
-			ui.Verbosef("failed to detach live sandbox handle: %v", detachErr)
-		}
-	}
+	agentCfgChanged := len(live.agentConfigFiles) > 0 && !reprovision.AgentConfigEqual(cfs, live.agentConfigFiles)
 
 	envHasChanged := state.EnvChanged(hs.EnvState, env.Vars)
 	secretsHasChanged := state.SecretsChanged(hs.SecretState, env.Secrets)
@@ -195,7 +246,7 @@ func resolveReconfigDecision(
 	mountsHaveChanged := state.MountsChanged(hs.MountState, opts.Mounts)
 
 	plan := reconfig.PlanReconfig(
-		curCfg,
+		live.config,
 		imageInfo.Identity,
 		opts,
 		reconfig.ChangeFlags{
@@ -214,7 +265,7 @@ func resolveReconfigDecision(
 	// resolution path (plan.Recreate + a change label), which still prompts when
 	// other clients are attached, instead of silently reusing a VM whose image,
 	// env, or network may differ.
-	if configUnreadable {
+	if live.configUnreadable {
 		plan.Recreate = true
 		plan.Changes = append([]reconfig.Change{{Label: unreadableVMConfigChangeLabel}}, plan.Changes...)
 	}
@@ -274,20 +325,15 @@ func applyReconfigHomeAction(
 	return newVol, nil
 }
 
-// readExistingVM reads the existing project VM's config and live handle. A
-// failed Config read is surfaced as a warning and reported as unreadable, so
-// the caller can force a recreate instead of silently reusing a VM whose image,
-// env, or network may differ (specs/reconfig-decision.md). handle may be nil
-// when no VM exists, in which case all three results are zero.
-func readExistingVM(
-	ctx context.Context,
+// readExistingVMConfig reads the existing project VM's config, including its
+// live mounts. A failed Config read is surfaced as a warning and reported as
+// unreadable, so the caller can force a recreate instead of silently reusing a
+// VM whose image, env, or network may differ (specs/reconfig-decision.md).
+func readExistingVMConfig(
 	handle msb.SandboxHandle,
 	k state.Key,
 	ui termio.UI,
-) (*msbSdk.SandboxConfig, msb.Sandbox, bool) {
-	if handle == nil {
-		return nil, nil, false
-	}
+) (*msbSdk.SandboxConfig, bool) {
 	cfg, configReadErr := handle.Config()
 	configUnreadable := configReadErr != nil
 	if configUnreadable {
@@ -297,11 +343,7 @@ func readExistingVM(
 		)
 	}
 	applyLiveMounts(cfg, handle, ui)
-	liveSb, connectErr := handle.Connect(ctx)
-	if connectErr != nil {
-		ui.Verbosef("connecting to existing VM failed: %v (continuing)", connectErr)
-	}
-	return cfg, liveSb, configUnreadable
+	return cfg, configUnreadable
 }
 
 // applyLiveMounts fills cfg.Volumes with the mounts the persisted config
