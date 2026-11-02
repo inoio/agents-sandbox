@@ -49,23 +49,12 @@ type ConfigSource struct {
 // exists in either scope is used for both scopes. When nothing exists the
 // primary dirs are returned and Fallback is empty.
 func ResolveConfigSource(a agent.Agent) (ConfigSource, error) {
-	userCands, err := cp.Get().UserAgentConfigDirCandidates(a)
+	names, err := agent.ConfigDirNames(a)
 	if err != nil {
 		return ConfigSource{}, err
 	}
-	projectCands, err := cp.Get().ProjectAgentConfigDirCandidates(a)
-	if err != nil {
-		return ConfigSource{}, err
-	}
-	if len(userCands) == 0 || len(userCands) != len(projectCands) {
-		return ConfigSource{}, fmt.Errorf(
-			"agent %s resolved %d user / %d project config-dir candidates; expected a non-empty parallel pair",
-			a.Name(), len(userCands), len(projectCands))
-	}
-	// The candidate lists are parallel by construction: both come from the
-	// same ordered name list via agentConfigDirCandidates, so userCands[i] and
-	// projectCands[i] name the same config dir in their respective scopes, and
-	// index 0 is the primary namespace.
+	userCands := joinUnder(cp.Get().UserConfigDir(), names)
+	projectCands := joinUnder(cp.Get().ProjectConfigDirAbs(), names)
 	src := ConfigSource{
 		UserDir:           userCands[0],
 		ProjectDir:        projectCands[0],
@@ -93,6 +82,17 @@ func ResolveConfigSource(a agent.Agent) (ConfigSource, error) {
 		}
 	}
 	return src, nil
+}
+
+// joinUnder joins each name under base, so the user and project candidate
+// lists stay parallel: index i names the same config dir in both scopes, and
+// index 0 is the primary namespace.
+func joinUnder(base string, names []string) []string {
+	dirs := make([]string, len(names))
+	for i, name := range names {
+		dirs[i] = filepath.Join(base, name)
+	}
+	return dirs
 }
 
 // anyDirExists reports whether any path names an existing directory. Every
