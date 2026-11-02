@@ -44,7 +44,7 @@ func adoptIdentity() git.Identity {
 func adoptRepoKey() state.Key     { return state.Key{Slug: adoptRepoSlug, Agent: adoptAgentName} }
 func adoptCheckoutKey() state.Key { return state.Key{Slug: adoptCheckoutSlug, Agent: adoptAgentName} }
 
-func adoptLegacyVMName() string { return projectVMName(adoptRepoKey()) }
+func adoptLegacyVMName() string { return ProjectVMName(adoptRepoKey()) }
 
 // seedLegacyState writes the legacy origin-keyed state file that triggers
 // adoption, and returns the path it wrote so a test can assert it survives.
@@ -149,7 +149,7 @@ func TestAdoptLegacyIdentityNoticeNamesEveryPath(t *testing.T) {
 		state.SlugDir(adoptRepoSlug),
 		state.SlugDir(adoptCheckoutSlug),
 		adoptLegacyVMName(),
-		projectVMName(adoptCheckoutKey()),
+		ProjectVMName(adoptCheckoutKey()),
 		adoptLegacyVolume,
 		naming.RunnerImageRef(adoptRepoSlug, adoptAgentName),
 		naming.RunnerImageRef(adoptCheckoutSlug, adoptAgentName),
@@ -641,7 +641,7 @@ func TestAdoptLegacyIdentityDestroysEveryMovedAgentsVM(t *testing.T) {
 		t.Fatalf("AdoptLegacyIdentity: %v", err)
 	}
 
-	for _, name := range []string{projectVMName(adoptRepoKey()), projectVMName(piKey)} {
+	for _, name := range []string{ProjectVMName(adoptRepoKey()), ProjectVMName(piKey)} {
 		handle, ok := handles[name]
 		if !ok {
 			t.Errorf("GetSandbox never called for %q", name)
@@ -720,7 +720,7 @@ func TestAdoptLegacyIdentityAdoptsBareRootLegacySlug(t *testing.T) {
 	if !statePresent(t, adoptCheckoutKey()) {
 		t.Error("bare-root legacy state was not moved to the checkout slug")
 	}
-	if handle := handles[projectVMName(legacyKey)]; handle == nil || !handle.Destroyed {
+	if handle := handles[ProjectVMName(legacyKey)]; handle == nil || !handle.Destroyed {
 		t.Errorf("bare-root legacy VM was not destroyed (handles=%v)", handles)
 	}
 	want := IdentityAdoption{Slug: adoptCheckoutSlug, Pending: true, Applied: true}

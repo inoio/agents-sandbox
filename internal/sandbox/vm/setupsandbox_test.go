@@ -201,7 +201,10 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	snippet := filepath.Join(configpaths.MustDir(cp.UserAgentConfigDir(opencodeAgent(t))), "opencode-x.json5")
+	snippet := filepath.Join(
+		configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), opencodeAgent(t).ConfigDirName())),
+		"opencode-x.json5",
+	)
 	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +215,7 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	target, err := setUpSandbox(
+	target, err := SetUpSandbox(
 		context.Background(),
 		testVMKey(),
 		sb,
@@ -220,11 +223,11 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 		cfs,
 		ui,
 		false,
-		vmBootStarted,
+		VMBootStarted,
 		mounts.WorkspaceMountPath,
 	)
 	if err != nil {
-		t.Fatalf("setUpSandbox: %v", err)
+		t.Fatalf("SetUpSandbox: %v", err)
 	}
 	if target != defaultTargetDir {
 		t.Errorf("target = %q, want %q", target, defaultTargetDir)
@@ -276,19 +279,19 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 
 	configpaths.WithMockConfigPaths(t)
 
-	// setUpSandbox's signature is
+	// SetUpSandbox's signature is
 	//   (ctx, k, sb, opts, cfs, ui, restart, boot, guestCWD).
 	// Pass restart=true to force the daemon-restart path on a reused VM.
 	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	target, err := setUpSandbox(
+	target, err := SetUpSandbox(
 		context.Background(), testVMKey(), sb, options.RunOptions{Agent: "opencode"},
-		cfs, &ui, true, vmBootStarted, mounts.WorkspaceMountPath,
+		cfs, &ui, true, VMBootStarted, mounts.WorkspaceMountPath,
 	)
 	if err != nil {
-		t.Fatalf("setUpSandbox: %v", err)
+		t.Fatalf("SetUpSandbox: %v", err)
 	}
 	if target == "" {
 		t.Error("expected a resolved target")
@@ -322,7 +325,7 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
 
 	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte("{}")}
-	target, err := setUpSandbox(
+	target, err := SetUpSandbox(
 		context.Background(),
 		testVMKey(),
 		sb,
@@ -330,11 +333,11 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 		cfs,
 		&ui,
 		true,
-		vmBootStarted,
+		VMBootStarted,
 		mounts.WorkspaceMountPath,
 	)
 	if err != nil {
-		t.Fatalf("setUpSandbox: %v", err)
+		t.Fatalf("SetUpSandbox: %v", err)
 	}
 	if target == "" {
 		t.Error("expected a resolved target even when provisioning failed")
@@ -370,7 +373,10 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	snippet := filepath.Join(configpaths.MustDir(cp.UserAgentConfigDir(opencodeAgent(t))), "opencode-x.json5")
+	snippet := filepath.Join(
+		configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), opencodeAgent(t).ConfigDirName())),
+		"opencode-x.json5",
+	)
 	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +387,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	_, err = setUpSandbox(
+	_, err = SetUpSandbox(
 		context.Background(),
 		testVMKey(),
 		sb,
@@ -389,11 +395,11 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 		cfs,
 		ui,
 		false, // restart=false (user chose "keep")
-		vmBootStarted,
+		VMBootStarted,
 		mounts.WorkspaceMountPath,
 	)
 	if err != nil {
-		t.Fatalf("setUpSandbox: %v", err)
+		t.Fatalf("SetUpSandbox: %v", err)
 	}
 
 	wrote := fs.Writes != nil && fs.Writes[ocPath] != nil
@@ -426,17 +432,17 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 
 	for _, tc := range []struct {
 		name   string
-		boot   vmBoot
+		boot   VMBoot
 		expect bool
 	}{
-		{"connected VM skips hooks", vmBootConnected, false},
-		{"started VM runs hooks", vmBootStarted, true},
-		{"created VM runs hooks", vmBootCreated, true},
+		{"connected VM skips hooks", VMBootConnected, false},
+		{"started VM runs hooks", VMBootStarted, true},
+		{"created VM runs hooks", VMBootCreated, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			sb.AttachCmd = ""
 			sb.AttachUser = ""
-			_, err := setUpSandbox(
+			_, err := SetUpSandbox(
 				context.Background(),
 				testVMKey(),
 				sb,
@@ -448,7 +454,7 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 				mounts.WorkspaceMountPath,
 			)
 			if err != nil {
-				t.Fatalf("setUpSandbox: %v", err)
+				t.Fatalf("SetUpSandbox: %v", err)
 			}
 			ran := sb.AttachCmd != ""
 			if ran != tc.expect {
@@ -487,7 +493,7 @@ func TestSetUpSandboxProvisionsMirrorOnly(t *testing.T) {
 			"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
 		},
 	}
-	if _, err := setUpSandbox(
+	if _, err := SetUpSandbox(
 		context.Background(),
 		testVMKey(),
 		sb,
@@ -495,10 +501,10 @@ func TestSetUpSandboxProvisionsMirrorOnly(t *testing.T) {
 		cfs,
 		ui,
 		false,
-		vmBootStarted,
+		VMBootStarted,
 		mounts.WorkspaceMountPath,
 	); err != nil {
-		t.Fatalf("setUpSandbox: %v", err)
+		t.Fatalf("SetUpSandbox: %v", err)
 	}
 	if fs.Writes["/home/dev/.config/opencode/tui.json"] == nil {
 		t.Error("expected mirror file to be provisioned")

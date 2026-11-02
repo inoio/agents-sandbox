@@ -556,9 +556,14 @@ type MockSandbox struct {
 	AttachErr  error
 	AttachUser string
 	AttachCwd  string
+	// AttachEnv is the environment the last AttachWith passed.
+	AttachEnv  map[string]string
 	AttachCmd  string
 	AttachArgs []string
 	DetachErr  error
+	// DetachFn overrides DetachErr when set, so a test can observe the
+	// context a detach runs under.
+	DetachFn   func(ctx context.Context) error
 	StopErr    error
 	DestroyErr error
 	Destroyed  bool
@@ -678,11 +683,17 @@ func (m *MockSandbox) AttachWith(
 		}
 		m.AttachUser = cfg.User
 		m.AttachCwd = cfg.Cwd
+		m.AttachEnv = cfg.Env
 	}
 	return m.AttachCode, m.AttachErr
 }
 
-func (m *MockSandbox) Detach(_ context.Context) error                       { return m.DetachErr }
+func (m *MockSandbox) Detach(ctx context.Context) error {
+	if m.DetachFn != nil {
+		return m.DetachFn(ctx)
+	}
+	return m.DetachErr
+}
 func (m *MockSandbox) Stop(_ context.Context, _ ...msbSdk.StopOption) error { return m.StopErr }
 func (m *MockSandbox) Destroy(_ context.Context, _ ...msbSdk.DestroyOption) error {
 	if m.DestroyErr != nil {
@@ -941,6 +952,21 @@ func WithMsbMock(t *testing.T, mock Client) {
 	orig := Get
 	Get = func() Client { return mock }
 	t.Cleanup(func() { Get = orig })
+}
+
+// WithCountingMsbMock is WithMsbMock that also counts how often the Get
+// factory is called, so a test can pin that an entry point resolves the client
+// once and threads it instead of re-reading the global.
+func WithCountingMsbMock(t *testing.T, mock Client) *int {
+	t.Helper()
+	resolutions := 0
+	orig := Get
+	Get = func() Client {
+		resolutions++
+		return mock
+	}
+	t.Cleanup(func() { Get = orig })
+	return &resolutions
 }
 
 // ResetGetFn replaces the global Get factory, returning the previous factory for restoration.

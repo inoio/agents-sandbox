@@ -130,7 +130,10 @@ your normal agent setup (e.g. an existing opencode config) works without extra c
 The drop-in copy is scoped to the agent's settings and, for opencode, its credential file. Runtime state is not copied:
 
 - **opencode** — `~/.config/opencode/**` (excluding `node_modules/`, `package*.json`, and `.gitignore`) plus
-  `~/.local/share/opencode/auth.json`.
+  `~/.local/share/opencode/auth.json`. `node_modules/` is not copied because packages built on your machine do not
+  run reliably in the Linux VM. When `~/.config/opencode/package.json` lists `dependencies`, `agents-sandbox run`
+  warns that plugins importing them will not load; install them inside the VM as described in
+  [Install Opencode Plugin Dependencies]({% link recipes/opencode-plugin-dependencies.md %}).
 - **opencode2** — same drop-in copy as `opencode` (`~/.config/opencode/**` and `~/.local/share/opencode/auth.json`).
 - **pi** — `~/.pi/agent/settings.json`.
 - **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).

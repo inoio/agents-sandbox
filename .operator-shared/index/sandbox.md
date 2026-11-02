@@ -12,7 +12,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 ## Architecture
 
 - `internal/sandbox/` is the largest area of the codebase; it drives VM lifecycle, runner-image builds, docker & microsandbox (msb) clients, volumes, pruning, sessions, and state locking.
-- The `vm/` package is the biggest: it orchestrates project-VM creation/ensure, the dockerd sidecar, run execution, upgrades, worktree handling, and VM env/control.
+- A run is layered `session/` → `prepare/` → `vm/` (`specs/run-orchestration-layer.md`): `prepare/` runs the stages that ready the project VM and makes the version/reconfig/home decisions; `vm/` holds the capabilities that act on a project VM (create/ensure, setup with the dockerd sidecar and agent daemon, worktree handling, adoption, VM env/control).
 - Cross-cutting dependencies: `msb/` (microsandbox SDK client) and `docker/` are the external system clients; `naming/`, `options/`, `state/`, `network/`, `mounts/` provide shared configuration/locking primitives used across sandbox subpackages.
 - Heavily test-driven (many `*_test.go` / `coverage_*.go` files per package); most integration seams are mockable via `testmock.go` / `main_test.go` per package.
 
@@ -42,7 +42,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `lifecycle/` — Run lifecycle vocabulary and trace
 
-- `lifecycle.go` — the `StageID` constants and `Order()` of `specs/lifecycle.md` (`TestOrderMatchesSpec` parses the spec's stage table), the nil-safe `Trace` recorder, and `Run`, the loop that runs an ordered `Stage` list and records each stage. No stage logic: `cmd`, `vm` and `session` own their stages.
+- `lifecycle.go` — the `StageID` constants and `Order()` of `specs/lifecycle.md` (`TestOrderMatchesSpec` parses the spec's stage table), the nil-safe `Trace` recorder, and `Run`, the loop that runs an ordered `Stage` list and records each stage. No stage logic: `cmd`, `prepare` and `session` own their stages.
 
 ### `mounts/` — Filesystem mount handling
 
@@ -65,6 +65,15 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 - `options.go`, `sizes.go`, `timeouts.go`, `worktree_spec.go`
 - `fuzz_test.go` — `FuzzParseOptions`: size-spec parsing against an independent overflow oracle, and `--worktree` slug validation
+
+### `prepare/` — Run preparation: stages resolve-identity through setup-sandbox
+
+- `prepare.go` — `PrepareSandbox`, the ordered `lifecycle.Stage` list of the prepare-owned stages with one `…Stage` step per stage (`resolveIdentityStage` is the single place that resolves the identity, adopts a legacy one and builds the state key), and the returned `Session`
+- `preview.go` — `PreviewSandbox`/`Preview`: the read-only `--dry-run` variant of the same stages
+- `upgrade.go`, `upgrade_state.go`, `upgrade_migration.go` — the resolve-version decision (`resolveBuildVersion`, the upgrade prompt, `ResolveAgentVersionForBuild` shared with `build`) and the legacy `updater.yaml` fold
+- `reconfig.go` — the plan-reconfig decision: `readLiveProjectVM`, `resolveReconfigDecision`, `applyReconfigHomeAction`
+- `run_envstate.go`, `shared_git_dir_mount.go` — fingerprint persistence and the shared-git-dir mount for an outside-worktree checkout
+- `fuzz_test.go` — `FuzzParseLegacyUpdaterState`: the retired `updater.yaml` reader is panic-free and folds a flat `last_checked` into the opencode agent entry
 
 ### `pruning/` — Cleanup and prune of images, sandboxes, volumes
 
@@ -102,12 +111,11 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 - `storage.go` — `Observe`: the six microsandbox storage categories (snake_case names, msb order, with `InUse`) plus the runtime host category; nil counters stay unknown, `ErrUnsupportedOperation` degrades to unknown with a report-level note.
 - `host.go` — walks the private home's `bin`/`lib` runtime/FFI artifacts, summing regular files.
 
-### `vm/` — VM lifecycle and orchestration (largest)
+### `vm/` — Project-VM capabilities (largest)
 
-- `daemon.go`, `dockerd.go`, `detached.go`, `exit.go`, `inspect.go`, `list.go`, `provenance.go`, `reconfig.go`, `run_envstate.go`, `run_orchestrate.go`, `upgrade.go`, `upgrade_state.go`, `vm_control.go`, `vm_env.go`, `vm_lifecycle.go`, `vm_name.go`, `vm_resources.go`, `worktree.go` (`inspect.go` is `InspectSandbox`: the sandbox-inspect detail seam; `run_orchestrate.go` holds `PrepareSandbox`, the ordered `lifecycle.Stage` list of the vm-owned stages, with one `…Stage` step per stage (`resolveIdentityStage` is the single place that resolves the identity, adopts a legacy one and builds the state key); `daemon.go`/`dockerd.go` launch the serve daemon and dockerd as runtime-owned detached jobs, with `detached.go` holding the shared readiness/kill helpers)
+- `daemon.go`, `dockerd.go`, `detached.go`, `exit.go`, `inspect.go`, `list.go`, `provenance.go`, `setup_sandbox.go`, `vm_control.go`, `vm_env.go`, `vm_lifecycle.go`, `vm_name.go`, `vm_resources.go`, `worktree.go` (`inspect.go` is `InspectSandbox`: the sandbox-inspect detail seam; `vm_lifecycle.go` holds `EnsureProjectVM`, `vm_name.go` `FindProjectVM`/`ProjectVMName`/`ProjectVMHomeVolume`, `setup_sandbox.go` `SetUpSandbox` (config files, startup hooks, dockerd, agent daemon, attach target); `daemon.go`/`dockerd.go` launch the serve daemon and dockerd as runtime-owned detached jobs, with `detached.go` holding the shared readiness/kill helpers)
 - `adopt.go` — `AdoptLegacyIdentity`/`IdentityAdoption`: the #144 first-run migration (destroy the legacy repo-slug VM, then merge the state onto the checkout slug) and the notice block, including the dry-run variant that stays on the legacy slug; the lost-state VM-only arm records the destroyed VM's home volume in the checkout state (`recovered_home_volume`) before the destroy, and keeps the trigger live until the legacy VM is gone.
-- `create_project_vm_test.go`, `ensure_project_vm_test.go`, `prepare_sandbox_test.go`, `setupsandbox_test.go` — lifecycle setup tests
-- `fuzz_test.go` — `FuzzParseLegacyUpdaterState`: the retired `updater.yaml` reader is panic-free and folds a flat `last_checked` into the opencode agent entry
+- `create_project_vm_test.go`, `ensure_project_vm_test.go`, `setupsandbox_test.go` — lifecycle setup tests
 
 ### `volume/` — Volume management
 

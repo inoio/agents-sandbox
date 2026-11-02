@@ -610,11 +610,15 @@ func TestMockSandboxAttach(t *testing.T) {
 	}
 
 	m2 := &MockSandbox{AttachCode: 3}
-	if code, err := m2.AttachWith(ctx, "ls", []string{"-l"}, msbSdk.WithAttachUser("root")); code != 3 || err != nil {
+	if code, err := m2.AttachWith(
+		ctx, "ls", []string{"-l"}, msbSdk.WithAttachUser("root"),
+		msbSdk.WithAttachEnv(map[string]string{"HOME": "/root"}),
+	); code != 3 || err != nil {
 		t.Fatalf("AttachWith = %d, %v", code, err)
 	}
-	if m2.AttachCmd != "ls" || len(m2.AttachArgs) != 1 || m2.AttachArgs[0] != "-l" || m2.AttachUser != "root" {
-		t.Fatalf("AttachWith captured = %q %v user=%q", m2.AttachCmd, m2.AttachArgs, m2.AttachUser)
+	if m2.AttachCmd != "ls" || len(m2.AttachArgs) != 1 || m2.AttachArgs[0] != "-l" || m2.AttachUser != "root" ||
+		m2.AttachEnv["HOME"] != "/root" {
+		t.Fatalf("AttachWith captured = %q %v user=%q env=%v", m2.AttachCmd, m2.AttachArgs, m2.AttachUser, m2.AttachEnv)
 	}
 
 	m3 := &MockSandbox{}
@@ -817,6 +821,29 @@ func TestWithMsbMockAndResetGetFn(t *testing.T) {
 		t.Fatal("ResetGetFn should return previous factory")
 	}
 	ResetGetFn(prev)
+}
+
+func TestWithCountingMsbMockCountsResolutionsAndRestores(t *testing.T) {
+	mock := &MockMsbClient{}
+
+	t.Run("install", func(t *testing.T) {
+		resolutions := WithCountingMsbMock(t, mock)
+		if *resolutions != 0 {
+			t.Fatalf("resolutions before any Get = %d, want 0", *resolutions)
+		}
+		for range 2 {
+			if Get() != mock {
+				t.Fatal("Get should return the mock after WithCountingMsbMock")
+			}
+		}
+		if *resolutions != 2 {
+			t.Errorf("resolutions = %d, want 2", *resolutions)
+		}
+	})
+
+	if Get() == mock {
+		t.Error("WithCountingMsbMock must restore the previous factory on cleanup")
+	}
 }
 
 func TestFailFastClientPanics(t *testing.T) {

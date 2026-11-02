@@ -21,7 +21,7 @@ cannot. Resolution order (`volume.Manager.ResolveHomeVolume`):
 2. **Live VM** — when state is absent or its recorded volume is gone, adopt the home volume the project VM still
    mounts, if that volume still exists. The mount is read from the VM's persisted config JSON as the `Named` mount at
    `mounts.VMHomeDir` (`msb.SandboxHandle.ConfigMounts()`, `specs/live-mount-readback.md`); the vm package supplies it
-   via `liveHomeVolume` (`client.GetSandbox(projectVMName(k))`), because the volume package cannot import vm.
+   via `liveHomeVolume` (`client.GetSandbox(ProjectVMName(k))`), because the volume package cannot import vm.
 3. **Fresh prefill** — otherwise `EnsureNewHome` creates a new volume, as before.
 
 A fresh prefill that fails removes the volume it just created before returning the error (the same cleanup

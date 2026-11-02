@@ -1,6 +1,6 @@
 ---
 description: Canonical model of the `run`/`shell` lifecycle: the ordered stage ids the code constants (`internal/sandbox/lifecycle`) and the trace tests share, what each stage reads, writes and guarantees, the single authority for every cross-stage value, the liveness principle and its per-artifact rules, the mode model, and the invariants a stage change must not break.
-read_if: Making any change to a run/shell/session lifecycle stage or a cross-stage value — `cmd.runFunc`/`buildShellCmd`, `pruning.AutoPrune`/`keepImage`/`PruneVolumes`, `vm.PrepareSandbox` and its steps, `session.Run`/`session.Shell`, the `--dry-run`/`--dry-run-vm`/`--serve-only` modes — or diagnosing two subsystems that disagree about what is live or current (a run that reclaims, rebuilds or reverts something it is about to use).
+read_if: Making any change to a run/shell/session lifecycle stage or a cross-stage value — `cmd.runFunc`/`buildShellCmd`, `pruning.AutoPrune`/`keepImage`/`PruneVolumes`, `prepare.PrepareSandbox` and its steps, `session.Run`/`session.Shell`, the `--dry-run`/`--dry-run-vm`/`--serve-only` modes — or diagnosing two subsystems that disagree about what is live or current (a run that reclaims, rebuilds or reverts something it is about to use).
 ---
 
 # Run lifecycle
@@ -23,40 +23,49 @@ them as `lifecycle.StageID` constants, and `lifecycle.Order()` lists them in thi
 this table and fails when the two disagree, so a stage renamed or moved here is renamed or moved there, and the
 reverse.
 
-| # | Stage id           | Owner                                                | Reads → writes                                                    |
-|---|--------------------|------------------------------------------------------|-------------------------------------------------------------------|
-| 1 | `preflight`        | root `PersistentPreRunE`, `cmd.runStartupStages`     | host prerequisites → private msb runtime installed                |
-| 2 | `upgrade-check`    | `cmd.runStartupStages` → `checkForUpgrade`           | launcher release, root state → self-upgrade, `updates.launcher`   |
-| 3 | `prune`            | `cmd.runStartupStages` → `pruning.AutoPrune`         | msb VMs/volumes/images, home states → reclaimed artifacts         |
-| 4 | `resolve-identity` | `vm.resolveIdentityStage`                            | cwd, agent, legacy artifacts → project key, adopted legacy state  |
-| 5 | `resolve-version`  | `vm.resolveVersionStage` → `resolveBuildVersion`     | pin, image label, `agent_version`, upgrade prompt → build version |
-| 6 | `ensure-image`     | `vm.ensureImageStage` → `image.EnsureImage`          | build plan, Docker → runner image, `ImageInfo` with content ref   |
-| 7 | `ensure-home`      | `vm.ensureHomeStage` → `volume.ResolveHomeVolume`    | state, live VM mounts → home volume, `HomeState`, agent version   |
-| 8 | `plan-reconfig`    | `vm.planReconfigStage`                               | fingerprints, live VM config → recreate/restart, home action      |
-| 9 | `ensure-vm`        | `vm.ensureVMStage` → `ensureProjectVM`               | decision, image, home volume → image loaded in msb, VM up         |
-| 10 | `setup-sandbox`   | `vm.setupSandboxStage` → `setUpSandbox`              | config files, boot kind → provisioned config, daemons, target     |
-| 11 | `attach`          | `session.runAttach` / `session.runServeOnlySession`  | VM, target → interactive session or serve-only keeper             |
+| # | Stage id           | Owner                                                  | Reads → writes                                                    |
+|---|--------------------|--------------------------------------------------------|-------------------------------------------------------------------|
+| 1 | `preflight`        | root `PersistentPreRunE`, `cmd.runStartupStages`       | host prerequisites → private msb runtime installed                |
+| 2 | `upgrade-check`    | `cmd.runStartupStages` → `checkForUpgrade`             | launcher release, root state → self-upgrade, `updates.launcher`   |
+| 3 | `prune`            | `cmd.runStartupStages` → `pruning.AutoPrune`           | msb VMs/volumes/images, home states → reclaimed artifacts         |
+| 4 | `resolve-identity` | `prepare.resolveIdentityStage`                         | cwd, agent, legacy artifacts → project key, adopted legacy state  |
+| 5 | `resolve-version`  | `prepare.resolveVersionStage` → `resolveBuildVersion`  | pin, image label, `agent_version`, upgrade prompt → build version |
+| 6 | `ensure-image`     | `prepare.ensureImageStage` → `image.EnsureImage`       | build plan, Docker → runner image, `ImageInfo` with content ref   |
+| 7 | `ensure-home`      | `prepare.ensureHomeStage` → `volume.ResolveHomeVolume` | state, live VM mounts → home volume, `HomeState`, agent version   |
+| 8 | `plan-reconfig`    | `prepare.planReconfigStage`                            | fingerprints, live VM config → recreate/restart, home action      |
+| 9 | `ensure-vm`        | `prepare.ensureVMStage` → `vm.EnsureProjectVM`         | decision, image, home volume → image loaded in msb, VM up         |
+| 10 | `setup-sandbox`   | `prepare.setupSandboxStage` → `vm.SetUpSandbox`        | config files, boot kind → provisioned config, daemons, target     |
+| 11 | `attach`          | `session.runAttach` / `session.runServeOnlySession`    | VM, target → interactive session or serve-only keeper             |
 
 Stages 1–3 run in `cmd.runStartupStages`, shared by `run` and `shell`, before `session.Run`/`session.Shell`. Stages
-4–10 are the ordered `lifecycle.Stage` list in `vm.PrepareSandbox`, run by one loop (`lifecycle.Run`); each element
-calls one named `…Stage` step with the values it reads and hands its typed result (`sessionIdentity`,
+4–10 are the ordered `lifecycle.Stage` list in `prepare.PrepareSandbox`, run by one loop (`lifecycle.Run`); each
+element calls one named `…Stage` step with the values it reads and hands its typed result (`sessionIdentity`,
 `versionDecision`, `preparedHome`, `reconfigPlan`) to the stages after it. There is no shared `State` bag: a step sees
-only what its signature names. Stage 11 runs in `session`. Two inputs are loaded once per startup and shared by every
-consumer instead of being re-read: the host env/secret files (`loadEnvFingerprints`, at the start of `ensure-home`;
-consumed by its state seed, `plan-reconfig` and `ensure-vm`) and the merged agent config files
-(`reprovision.LoadConfigFiles`, at the start of `plan-reconfig`; consumed by it and `setup-sandbox`).
+only what its signature names. Stage 11 runs in `session`.
+
+**Packages.** The layering is `cmd` → `session` → `prepare` → `vm` (`run-orchestration-layer.md`). `prepare` owns
+stages 4–10, the `--dry-run` preview and the decisions only they make: the agent version and upgrade prompt
+(`resolveBuildVersion`), the reconfig decision and home action (`resolveReconfigDecision`, `applyReconfigHomeAction`)
+and the fingerprints. `vm` holds the capabilities that act on a project VM; `prepare` reaches them only through `vm`'s
+exported API (`FindProjectVM`, `ProjectVMName`, `ProjectVMHomeVolume`, `EnsureProjectVM`, `SetUpSandbox`,
+`AdoptLegacyIdentity`).
+
+Two inputs are loaded once per startup and shared by every consumer instead of being re-read: the host env/secret
+files (`loadEnvFingerprints`, at the start of `ensure-home`; consumed by its state seed, `plan-reconfig` and
+`ensure-vm`) and the merged agent config files (`reprovision.LoadConfigFiles`, at the start of `plan-reconfig`;
+consumed by it and `setup-sandbox`).
 
 **Trace.** `cmd` creates a `lifecycle.Trace` per `run`/`shell` (`newLifecycleTrace`, a test seam) and passes it down as
 `RunOptions.Trace`; every stage records its id when it is reached, before its work runs. A stage a mode turns into a
 no-op still records (a preview's `preflight`, a `--dry-run-vm` prepare's `ensure-vm`), a failing stage is the last one
 recorded, and a stage the invocation never reaches is absent (`attach` needs a VM). A preview records nothing after
-`prune`: its read-only variants of `resolve-identity` through `ensure-home` (`vm.PreviewSandbox`) are not stages of the
+`prune`: its read-only variants of `resolve-identity` through `ensure-home` (`prepare.PreviewSandbox`) are not stages of the
 trace. The trace starts in `cmd.runStartupStages`: the root `PersistentPreRunE`'s runtime preparation, the first half of
 `preflight`, runs before the trace exists, so a failure there leaves the trace empty. A nil trace records nothing. The
 trace is test instrumentation: nothing reads it at run time. `cmd`'s `TestRunShellRecordTheLifecycleTrace` asserts the
 trace of `run` and `shell` in every mode against `lifecycle.Order()` (the mutating path through `attach`,
-`--dry-run-vm` without it, a preview up to `prune`); `vm`'s `TestPrepareSandboxSkipVMRecordsStagesInOrder` asserts the
-vm-owned part.
+`--dry-run-vm` without it, a preview up to `prune`); `prepare`'s `TestPrepareSandboxSkipVMRecordsStagesInOrder` asserts
+the prepare-owned part.
 
 ## Stages
 
@@ -106,16 +115,19 @@ would-be name and an in-memory, fingerprint-seeded state, so the first run with 
 (#429). A concurrent first run that loses the state commit adopts the winner's volume and removes its own (#431). See
 `home-volume-recovery.md`, `project-state-transactions.md`, `runtime-home-decoupling.md`.
 
-**`plan-reconfig`.** Compares the desired fingerprints and image with the persisted ones and the live VM to decide
-recreate vs daemon restart vs nothing (`resolveReconfigDecision`), then applies the resulting home-volume action
-(keep/migrate/reset) separately (`applyReconfigHomeAction`). Guarantees `ensure-vm` a decision whose home volume is
-final. Under `--dry-run-vm` a migrate or reset action is left uncommitted. See `reconfig-decision.md`.
+**`plan-reconfig`.** Reads the live VM once (`readLiveProjectVM`: lookup, persisted config, agent config files),
+compares the desired fingerprints and image with the persisted ones and those facts to decide recreate vs daemon restart
+vs nothing (`resolveReconfigDecision`), then applies the resulting home-volume action (keep/migrate/reset) separately
+(`applyReconfigHomeAction`). Guarantees `ensure-vm` a decision whose home volume is final, and the VM handle the
+decision was read from (`reconfigPlan.existingVM`). Under `--dry-run-vm` a migrate or reset action is left uncommitted.
+See `reconfig-decision.md`.
 
-**`ensure-vm`.** Creates, starts, recreates or reconnects the project VM. Creation and recreation take the per-project
-`ensure-vm.lock`; starting or reconnecting to an existing VM takes the lock-free fast path (`resolveExistingVM`). A
-creation first loads the runner image into msb unless it is cached with matching content (`createProjectVM` →
-`image.EnsureLoaded`), then persists the fingerprints (`persistConfigHashes`). Returns the boot kind. Skipped under
-`--dry-run-vm` (no VM, nil sandbox). See `reconfig-decision.md`, `sandbox-identity.md`, `vm-idle-timeout-default.md`.
+**`ensure-vm`.** Creates, starts, recreates or reconnects the project VM, using the handle `plan-reconfig` read instead
+of looking the VM up again. Creation and recreation take the per-project `ensure-vm.lock`; starting or reconnecting to
+an existing VM takes the lock-free fast path (`resolveExistingVM`). A creation first loads the runner image into msb
+unless it is cached with matching content (`createProjectVM` → `image.EnsureLoaded`), then persists the fingerprints
+(`persistConfigHashes`). Returns the boot kind. Skipped under `--dry-run-vm` (no VM, nil sandbox). See
+`reconfig-decision.md`, `sandbox-identity.md`, `vm-idle-timeout-default.md`.
 
 **`setup-sandbox`.** Provisions the agent config files, records boot provenance on a fresh boot
 (`recordImageProvenance`), runs startup hooks, starts dockerd and the agent daemon (or restarts the daemon when the
@@ -213,8 +225,8 @@ stale, keeps the built image and does not reimport it, and fails when the run pa
 | `attach`           | session or keeper    | preview line                  | would-start line                      | login shell       |
 
 - **`--dry-run`** is a read-only preview (`dry-run-preview.md`): `session.previewAndRender` runs read-only variants of
-  `resolve-identity` through `ensure-home` (`vm.PreviewSandbox`), reports would-build/would-reuse, and returns before
-  `vm.PrepareSandbox` is ever entered. No build, pull, network version lookup, volume, state write or VM.
+  `resolve-identity` through `ensure-home` (`prepare.PreviewSandbox`), reports would-build/would-reuse, and returns before
+  `prepare.PrepareSandbox` is ever entered. No build, pull, network version lookup, volume, state write or VM.
 - **`--dry-run-vm`** prepares for real through `plan-reconfig` (the KVM-less mode) and stops before `ensure-vm`. It
   builds the Docker image but loads nothing into msb and never creates a home volume; a fresh project's state stays
   in memory.

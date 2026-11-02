@@ -15,6 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
@@ -122,7 +123,13 @@ func prepareVolumeOp(c *cobra.Command, ui termio.UI, dryRun bool) (state.Key, im
 		c.Context(),
 		a,
 		adoption.Slug,
-		image.BuildOptions{Force: false, AgentVersion: "", UserProvided: false, Docker: resolveBuildDockerSetting(c)},
+		image.BuildOptions{
+			Force:        false,
+			NoRebuild:    false,
+			AgentVersion: "",
+			UserProvided: false,
+			Docker:       resolveBuildDockerSetting(c),
+		},
 		ui,
 	)
 	if err != nil {
@@ -261,8 +268,9 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			client := msb.Get()
 			adoption, err := sandbox.AdoptLegacyIdentity(
-				cmd.Context(), msb.Get(), identity, a.Name(), !dryRun, ui,
+				cmd.Context(), client, identity, a.Name(), !dryRun, ui,
 			)
 			if err != nil {
 				return err
@@ -271,12 +279,13 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 				ui.Infof("dry-run: Would build runner image")
 				return nil
 			}
-			agentVersion, userProvided := sandbox.ResolveAgentVersionForBuild(
+			agentVersion, userProvided := prepare.ResolveAgentVersionForBuild(
 				state.Key{Slug: adoption.Slug, Agent: a.Name()},
 				openCodeVersion,
 			)
-			info, err := image.Build(cmd.Context(), a, adoption.Slug, image.BuildOptions{
+			info, err := image.Build(cmd.Context(), client, a, adoption.Slug, image.BuildOptions{
 				Force:        force,
+				NoRebuild:    false,
 				AgentVersion: agentVersion,
 				UserProvided: userProvided,
 				Docker:       resolveBuildDockerSetting(cmd),

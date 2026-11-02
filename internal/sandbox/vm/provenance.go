@@ -18,12 +18,6 @@ const (
 	dockerSourcePath = "/etc/agents-sandbox/docker-source"
 )
 
-// Agent-source provenance values baked into the image.
-const (
-	agentSourceTool = "tool"
-	agentSourceUser = "user"
-)
-
 // recordImageProvenance reads the image's install-provenance files on first
 // boot and writes them into the project's HomeState, detecting and recording
 // the installed agent version as the upgrade baseline for a tool-installed
@@ -43,7 +37,7 @@ func recordImageProvenance(ctx context.Context, k state.Key, a agent.Agent, sb m
 	dockerSource = strings.TrimSpace(dockerSource)
 
 	detectedVersion, hasVersion := "", false
-	if agentSource == agentSourceTool {
+	if agentSource == state.AgentSourceTool {
 		detectedVersion, hasVersion = detectToolAgentVersion(ctx, a, sb, ui)
 	}
 

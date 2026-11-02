@@ -11,8 +11,8 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// TestHomeWritersPreserveUnrelatedFields is a property guard over every vm
-// HomeState writer: each writer owns a small set of fields and must leave every
+// TestHomeWritersPreserveUnrelatedFields is a property guard over the boot
+// provenance HomeState writer: each writer owns a small set of fields and must leave every
 // other field of the existing document untouched. Each case seeds a fully
 // populated state, runs one writer, and compares the result against the seed
 // with only the writer's owned fields advanced.
@@ -22,8 +22,8 @@ func TestHomeWritersPreserveUnrelatedFields(t *testing.T) {
 			HomeVolume:      "vol",
 			ImageDigest:     "d",
 			AgentVersion:    "1.0.0",
-			AgentSource:     agentSourceTool,
-			DockerSource:    agentSourceTool,
+			AgentSource:     state.AgentSourceTool,
+			DockerSource:    state.AgentSourceTool,
 			OfferedVersions: []string{"1.1.0"},
 			EnvState:        state.EnvState{Hash: "e"},
 			SecretState:     state.SecretState{Hash: "s"},
@@ -38,86 +38,21 @@ func TestHomeWritersPreserveUnrelatedFields(t *testing.T) {
 		want func() state.HomeState
 	}{
 		{
-			name: "persistFingerprints",
-			run: func(t *testing.T, k state.Key) {
-				t.Helper()
-				fingerprints := state.Fingerprints{
-					Env:     state.EnvState{Hash: "e2"},
-					Secret:  state.SecretState{Hash: "s2"},
-					Network: state.NetworkState{Hash: "n2"},
-					Mount:   state.MountState{Hash: "m2"},
-				}
-				if err := persistFingerprints(k, fingerprints); err != nil {
-					t.Fatalf("persistFingerprints: %v", err)
-				}
-			},
-			want: func() state.HomeState {
-				w := seed()
-				w.EnvState = state.EnvState{Hash: "e2"}
-				w.SecretState = state.SecretState{Hash: "s2"}
-				w.NetworkState = state.NetworkState{Hash: "n2"}
-				w.MountState = state.MountState{Hash: "m2"}
-				return w
-			},
-		},
-		{
-			name: "persistOfferedVersion",
-			run: func(t *testing.T, k state.Key) {
-				t.Helper()
-				persistOfferedVersion(k, "2.0.0", &termio.Mock{})
-			},
-			want: func() state.HomeState {
-				w := seed()
-				w.OfferedVersions = []string{"1.1.0", "2.0.0"}
-				return w
-			},
-		},
-		{
-			name: "recoverAgentVersion",
-			run: func(t *testing.T, k state.Key) {
-				t.Helper()
-				orig := existingAgentVersion
-				existingAgentVersion = func(context.Context, string, string) (string, bool) { return "1.2.3", true }
-				t.Cleanup(func() { existingAgentVersion = orig })
-				// The recorded baseline disagrees, so the image label wins.
-				if got := recoverAgentVersion(context.Background(), k, "0.0.0", &termio.Mock{}); got != "1.2.3" {
-					t.Fatalf("recoverAgentVersion = %q, want 1.2.3", got)
-				}
-			},
-			want: func() state.HomeState {
-				w := seed()
-				w.AgentVersion = "1.2.3"
-				return w
-			},
-		},
-		{
-			name: "persistAgentVersion",
-			run: func(t *testing.T, k state.Key) {
-				t.Helper()
-				persistAgentVersion(k, "2.0.0", &termio.Mock{})
-			},
-			want: func() state.HomeState {
-				w := seed()
-				w.AgentVersion = "2.0.0"
-				return w
-			},
-		},
-		{
 			name: "recordImageProvenance",
 			run: func(t *testing.T, k state.Key) {
 				t.Helper()
 				sb := &msb.MockSandbox{
 					FSValue_: msb.NewTestFS(map[string][]byte{
-						agentSourcePath:  []byte(agentSourceUser + "\n"),
-						dockerSourcePath: []byte(agentSourceUser + "\n"),
+						agentSourcePath:  []byte(state.AgentSourceUser + "\n"),
+						dockerSourcePath: []byte(state.AgentSourceUser + "\n"),
 					}, nil),
 				}
 				recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, &termio.Mock{})
 			},
 			want: func() state.HomeState {
 				w := seed()
-				w.AgentSource = agentSourceUser
-				w.DockerSource = agentSourceUser
+				w.AgentSource = state.AgentSourceUser
+				w.DockerSource = state.AgentSourceUser
 				return w
 			},
 		},

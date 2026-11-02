@@ -15,7 +15,6 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
-	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -24,7 +23,7 @@ import (
 )
 
 // TestEnsureProjectVMFlockDirError covers the project-flock failure in
-// ensureProjectVM (the flock directory cannot be created).
+// EnsureProjectVM (the flock directory cannot be created).
 func TestEnsureProjectVMFlockDirError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
@@ -44,8 +43,9 @@ func TestEnsureProjectVMFlockDirError(t *testing.T) {
 	}
 	t.Cleanup(func() { configpaths.Get = orig })
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -53,7 +53,6 @@ func TestEnsureProjectVMFlockDirError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -76,8 +75,9 @@ func TestEnsureProjectVMDecideActionError(t *testing.T) {
 	})
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -85,7 +85,6 @@ func TestEnsureProjectVMDecideActionError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -114,8 +113,9 @@ func TestEnsureProjectVMWaitsForStartingVM(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -123,11 +123,10 @@ func TestEnsureProjectVMWaitsForStartingVM(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM: %v", err)
+		t.Fatalf("EnsureProjectVM: %v", err)
 	}
 	if !wasRefreshed {
 		t.Fatal("expected a starting VM to be refreshed while waiting")
@@ -135,8 +134,8 @@ func TestEnsureProjectVMWaitsForStartingVM(t *testing.T) {
 	if sb == nil {
 		t.Fatal("expected a connected sandbox")
 	}
-	if boot != vmBootConnected {
-		t.Errorf("boot = %v, want vmBootConnected", boot)
+	if boot != VMBootConnected {
+		t.Errorf("boot = %v, want VMBootConnected", boot)
 	}
 }
 
@@ -163,8 +162,9 @@ func TestEnsureProjectVMStartingReconcileWarning(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{CPUs: 2},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -172,11 +172,10 @@ func TestEnsureProjectVMStartingReconcileWarning(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM: %v", err)
+		t.Fatalf("EnsureProjectVM: %v", err)
 	}
 	if len(ui.WarnCalls) == 0 {
 		t.Fatal("expected resource reconcile warning")
@@ -197,8 +196,9 @@ func TestEnsureProjectVMStartingStatusError(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -206,7 +206,6 @@ func TestEnsureProjectVMStartingStatusError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -234,8 +233,9 @@ func TestEnsureProjectVMStartsAfterConcurrentBootFails(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -243,17 +243,16 @@ func TestEnsureProjectVMStartsAfterConcurrentBootFails(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM: %v", err)
+		t.Fatalf("EnsureProjectVM: %v", err)
 	}
 	if sb != started {
 		t.Fatalf("sandbox = %v, want the restarted sandbox", sb)
 	}
-	if boot != vmBootStarted {
-		t.Errorf("boot = %v, want vmBootStarted", boot)
+	if boot != VMBootStarted {
+		t.Errorf("boot = %v, want VMBootStarted", boot)
 	}
 }
 
@@ -282,8 +281,9 @@ func TestEnsureProjectVMConvergesCreatedStartRace(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -291,17 +291,16 @@ func TestEnsureProjectVMConvergesCreatedStartRace(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM: %v", err)
+		t.Fatalf("EnsureProjectVM: %v", err)
 	}
 	if sb == nil {
 		t.Fatal("expected a connected sandbox")
 	}
-	if boot != vmBootConnected {
-		t.Errorf("boot = %v, want vmBootConnected for the losing starter", boot)
+	if boot != VMBootConnected {
+		t.Errorf("boot = %v, want VMBootConnected for the losing starter", boot)
 	}
 }
 
@@ -320,8 +319,9 @@ func TestEnsureProjectVMConnectRetryRejectsRefreshedPausedVM(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -329,7 +329,6 @@ func TestEnsureProjectVMConnectRetryRejectsRefreshedPausedVM(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -364,8 +363,9 @@ func TestEnsureProjectVMConnectRetryWaitsForStartingVM(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -373,10 +373,9 @@ func TestEnsureProjectVMConnectRetryWaitsForStartingVM(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
-	if err != nil || sb == nil || boot != vmBootConnected {
+	if err != nil || sb == nil || boot != VMBootConnected {
 		t.Fatalf("connect retry convergence = %v, %v, %v", sb, boot, err)
 	}
 }
@@ -408,8 +407,9 @@ func TestEnsureProjectVMPostLockWaitsForStartingVM(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -417,25 +417,25 @@ func TestEnsureProjectVMPostLockWaitsForStartingVM(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM: %v", err)
+		t.Fatalf("EnsureProjectVM: %v", err)
 	}
-	if sb == nil || boot != vmBootConnected {
+	if sb == nil || boot != VMBootConnected {
 		t.Fatalf("post-lock convergence = %v, %v", sb, boot)
 	}
 }
 
 func TestEnsureProjectVMPostLockWaitError(t *testing.T) {
+	causeErr := errors.New("refresh failed")
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	starting := &msb.MockSandboxHandle{
 		Name_:   "agents-sandbox-vm-test",
 		Status_: msbSdk.SandboxStatusStarting,
 		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
-			return nil, errors.New("refresh failed")
+			return nil, causeErr
 		},
 	}
 	callCount := 0
@@ -450,8 +450,9 @@ func TestEnsureProjectVMPostLockWaitError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -459,11 +460,10 @@ func TestEnsureProjectVMPostLockWaitError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
-	if err == nil {
-		t.Fatal("expected post-lock wait error")
+	if !errors.Is(err, causeErr) {
+		t.Fatalf("%s: error = %v, want it to wrap %v", "expected post-lock wait error", err, causeErr)
 	}
 }
 
@@ -496,8 +496,9 @@ func TestEnsureProjectVMPostLockWaitReconcileWarning(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, boot, err := ensureProjectVM(
+	_, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{CPUs: 2},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -505,14 +506,13 @@ func TestEnsureProjectVMPostLockWaitReconcileWarning(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM: %v", err)
+		t.Fatalf("EnsureProjectVM: %v", err)
 	}
-	if boot != vmBootConnected {
-		t.Fatalf("boot = %v, want vmBootConnected", boot)
+	if boot != VMBootConnected {
+		t.Fatalf("boot = %v, want VMBootConnected", boot)
 	}
 	if len(ui.WarnCalls) == 0 {
 		t.Fatal("expected resource reconcile warning")
@@ -568,7 +568,7 @@ func TestConvergeExistingVMWaitsThroughStarting(t *testing.T) {
 		},
 	}
 	sb, boot, err := convergeExistingVM(context.Background(), handle)
-	if err != nil || sb == nil || boot != vmBootConnected {
+	if err != nil || sb == nil || boot != VMBootConnected {
 		t.Fatalf("convergeExistingVM = %v, %v, %v", sb, boot, err)
 	}
 	if refreshes != 2 {
@@ -595,7 +595,7 @@ func TestConvergeExistingVMStartsInactiveVM(t *testing.T) {
 	started := &msb.MockSandbox{Name_: "vm"}
 	handle := &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusStopped, StartSb: started}
 	sb, boot, err := convergeExistingVM(context.Background(), handle)
-	if err != nil || sb != started || boot != vmBootStarted {
+	if err != nil || sb != started || boot != VMBootStarted {
 		t.Fatalf("convergeExistingVM = %v, %v, %v", sb, boot, err)
 	}
 }
@@ -641,19 +641,21 @@ func TestWaitForSandboxLifecycleCanceled(t *testing.T) {
 // TestEnsureProjectVMStartError covers the Start failure branch when an
 // existing stopped VM fails to start.
 func TestEnsureProjectVMStartError(t *testing.T) {
+	causeErr := errors.New("start failed")
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	handle := &msb.MockSandboxHandle{
 		Name_:    "agents-sandbox-vm-test",
 		Status_:  msbSdk.SandboxStatusStopped,
-		StartErr: errors.New("start failed"),
+		StartErr: causeErr,
 	}
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -661,28 +663,34 @@ func TestEnsureProjectVMStartError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
-	if err == nil {
-		t.Fatal("expected error when starting the stopped VM fails")
+	if !errors.Is(err, causeErr) {
+		t.Fatalf(
+			"%s: error = %v, want it to wrap %v",
+			"expected error when starting the stopped VM fails",
+			err,
+			causeErr,
+		)
 	}
 }
 
 // TestEnsureProjectVMEnsureInstalledError covers the microsandbox runtime
-// install failure branch in ensureProjectVM (create path).
+// install failure branch in EnsureProjectVM (create path).
 func TestEnsureProjectVMEnsureInstalledError(t *testing.T) {
+	causeErr := errors.New("runtime install failed")
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	client := &msb.MockMsbClient{}
-	client.EnsureInstalledFn = func(context.Context) error { return errors.New("runtime install failed") }
+	client.EnsureInstalledFn = func(context.Context) error { return causeErr }
 	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
 	}
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -690,11 +698,15 @@ func TestEnsureProjectVMEnsureInstalledError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
-	if err == nil {
-		t.Fatal("expected error when the microsandbox runtime install fails")
+	if !errors.Is(err, causeErr) {
+		t.Fatalf(
+			"%s: error = %v, want it to wrap %v",
+			"expected error when the microsandbox runtime install fails",
+			err,
+			causeErr,
+		)
 	}
 }
 
@@ -713,8 +725,9 @@ func TestEnsureProjectVMConnectRetryReconnectError(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -722,7 +735,6 @@ func TestEnsureProjectVMConnectRetryReconnectError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -753,8 +765,9 @@ func TestEnsureProjectVMConnectRetryStartAfterRefresh(t *testing.T) {
 	// The mock's Refresh returns the same handle; with a running status the
 	// retry path attempts a second Connect which also fails. We assert the
 	// resulting error message mentions the connect failure.
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -762,7 +775,6 @@ func TestEnsureProjectVMConnectRetryStartAfterRefresh(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -793,8 +805,9 @@ func TestEnsureProjectVMPostLockRecheckConnect(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -802,17 +815,16 @@ func TestEnsureProjectVMPostLockRecheckConnect(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM post-lock recheck: %v", err)
+		t.Fatalf("EnsureProjectVM post-lock recheck: %v", err)
 	}
 	if sb == nil {
 		t.Fatal("expected a non-nil sandbox")
 	}
-	if boot != vmBootConnected {
-		t.Errorf("expected vmBootConnected, got %v", boot)
+	if boot != VMBootConnected {
+		t.Errorf("expected VMBootConnected, got %v", boot)
 	}
 }
 
@@ -839,8 +851,9 @@ func TestEnsureProjectVMPostLockRecheckStart(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -848,17 +861,16 @@ func TestEnsureProjectVMPostLockRecheckStart(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM post-lock recheck: %v", err)
+		t.Fatalf("EnsureProjectVM post-lock recheck: %v", err)
 	}
 	if sb == nil {
 		t.Fatal("expected a non-nil sandbox")
 	}
-	if boot != vmBootStarted {
-		t.Errorf("expected vmBootStarted, got %v", boot)
+	if boot != VMBootStarted {
+		t.Errorf("expected VMBootStarted, got %v", boot)
 	}
 }
 
@@ -888,8 +900,9 @@ func TestEnsureProjectVMRecreateStopError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Recreate: true, CPUs: 1, Memory: "2G"},
 		image.ImageInfo{DockerTag: "new:tag", Ref: "new:tag"},
 		"homevol",
@@ -897,13 +910,12 @@ func TestEnsureProjectVMRecreateStopError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM recreate with stop error: %v", err)
+		t.Fatalf("EnsureProjectVM recreate with stop error: %v", err)
 	}
-	if !boot.booted() {
+	if !boot.Booted() {
 		t.Error("expected a boot after recreate")
 	}
 	if sb == nil {
@@ -926,8 +938,9 @@ func TestEnsureProjectVMStartSucceedsWithReconcile(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{CPUs: 2, Memory: "2048"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -935,17 +948,16 @@ func TestEnsureProjectVMStartSucceedsWithReconcile(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM start: %v", err)
+		t.Fatalf("EnsureProjectVM start: %v", err)
 	}
 	if sb == nil {
 		t.Fatal("expected a non-nil sandbox")
 	}
-	if boot != vmBootStarted {
-		t.Errorf("expected vmBootStarted, got %v", boot)
+	if boot != VMBootStarted {
+		t.Errorf("expected VMBootStarted, got %v", boot)
 	}
 }
 
@@ -966,8 +978,9 @@ func TestEnsureProjectVMConnectReconcileWarn(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{CPUs: 4},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -975,17 +988,16 @@ func TestEnsureProjectVMConnectReconcileWarn(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM connect with reconcile warning: %v", err)
+		t.Fatalf("EnsureProjectVM connect with reconcile warning: %v", err)
 	}
 	if sb == nil {
 		t.Fatal("expected a non-nil sandbox")
 	}
-	if boot != vmBootConnected {
-		t.Errorf("expected vmBootConnected, got %v", boot)
+	if boot != VMBootConnected {
+		t.Errorf("expected VMBootConnected, got %v", boot)
 	}
 	if !contains(joinStrings(ui.WarnCalls), "could not reconcile VM resources") {
 		t.Errorf("expected a reconcile warning, got %v", ui.WarnCalls)
@@ -1008,8 +1020,9 @@ func TestEnsureProjectVMStartReconcileWarn(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, _, err := ensureProjectVM(
+	sb, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{CPUs: 4},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -1017,11 +1030,10 @@ func TestEnsureProjectVMStartReconcileWarn(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM start with reconcile warning: %v", err)
+		t.Fatalf("EnsureProjectVM start with reconcile warning: %v", err)
 	}
 	if sb == nil {
 		t.Fatal("expected a non-nil sandbox")
@@ -1048,8 +1060,9 @@ func TestEnsureProjectVMRecheckNonNotFoundError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -1057,7 +1070,6 @@ func TestEnsureProjectVMRecheckNonNotFoundError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -1066,7 +1078,7 @@ func TestEnsureProjectVMRecheckNonNotFoundError(t *testing.T) {
 }
 
 // TestEnsureProjectVMCreateError covers the create-failure branch in
-// ensureProjectVM (createProjectVM fails after the post-lock recheck).
+// EnsureProjectVM (createProjectVM fails after the post-lock recheck).
 func TestEnsureProjectVMCreateError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
@@ -1076,8 +1088,9 @@ func TestEnsureProjectVMCreateError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Memory: "1G"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -1085,7 +1098,6 @@ func TestEnsureProjectVMCreateError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -1115,8 +1127,9 @@ func TestEnsureProjectVMRecreateDestroyError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Recreate: true, CPUs: 1, Memory: "2G"},
 		image.ImageInfo{DockerTag: "new:tag", Ref: "new:tag"},
 		"homevol",
@@ -1124,7 +1137,6 @@ func TestEnsureProjectVMRecreateDestroyError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -1164,8 +1176,9 @@ func TestEnsureProjectVMRecreateGoneIdentity(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Recreate: true, CPUs: 1, Memory: "2G"},
 		image.ImageInfo{DockerTag: "new:tag", Ref: "new:tag"},
 		"homevol",
@@ -1173,13 +1186,12 @@ func TestEnsureProjectVMRecreateGoneIdentity(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM recreate with gone identity: %v", err)
+		t.Fatalf("EnsureProjectVM recreate with gone identity: %v", err)
 	}
-	if !boot.booted() {
+	if !boot.Booted() {
 		t.Error("expected a boot after recreate")
 	}
 	if sb == nil {
@@ -1187,7 +1199,7 @@ func TestEnsureProjectVMRecreateGoneIdentity(t *testing.T) {
 	}
 	// The replaced VM carried a legacy name; the recreate must use the
 	// prefix-free one so the rename takes effect.
-	if want := projectVMName(testVMKey()); createdName != want {
+	if want := ProjectVMName(testVMKey()); createdName != want {
 		t.Errorf("recreated sandbox name = %q, want %q", createdName, want)
 	}
 	// The already-gone teardown must be logged distinctly from a replace.
@@ -1234,8 +1246,9 @@ func TestEnsureProjectVMRecreateReplacedIdentityFailsClosed(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Recreate: true, CPUs: 1, Memory: "2G"},
 		image.ImageInfo{DockerTag: "new:tag", Ref: "new:tag"},
 		"homevol",
@@ -1243,11 +1256,10 @@ func TestEnsureProjectVMRecreateReplacedIdentityFailsClosed(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
-		t.Fatal("expected ensureProjectVM to fail closed when the held identity was replaced")
+		t.Fatal("expected EnsureProjectVM to fail closed when the held identity was replaced")
 	}
 	if !msb.IsReplaced(err) {
 		t.Errorf("expected the returned error to wrap ErrSandboxReplaced, got %v", err)
@@ -1309,13 +1321,14 @@ func TestEnsureProjectVMRecreateHoldsCreationLock(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	if _, _, err := ensureProjectVM(
+	if _, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Recreate: true, CPUs: 1, Memory: "2G"},
 		image.ImageInfo{DockerTag: "new:tag", Ref: "new:tag"},
-		"homevol", "/workspace", testVMKey(), testVMKey().Slug, false, envsecret.EnvSecrets{}, &ui,
+		"homevol", "/workspace", testVMKey(), testVMKey().Slug, false, &ui,
 	); err != nil {
-		t.Fatalf("ensureProjectVM recreate: %v", err)
+		t.Fatalf("EnsureProjectVM recreate: %v", err)
 	}
 	if !created {
 		t.Fatal("expected the recreate to create a replacement VM under the lock")
@@ -1327,7 +1340,7 @@ func TestEnsureProjectVMRecreateHoldsCreationLock(t *testing.T) {
 }
 
 // TestEnsureProjectVMCreateEnsureLoadedError covers the image-load failure
-// branch inside createProjectVM when reached through ensureProjectVM.
+// branch inside createProjectVM when reached through EnsureProjectVM.
 func TestEnsureProjectVMCreateEnsureLoadedError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
@@ -1344,8 +1357,9 @@ func TestEnsureProjectVMCreateEnsureLoadedError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Memory: "1G"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -1353,7 +1367,6 @@ func TestEnsureProjectVMCreateEnsureLoadedError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -1369,4 +1382,40 @@ func verboseContains(lines []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// TestEnsureProjectVMPostLockRecheckError covers the lookup that runs again
+// once the creation lock is held: a failure other than "not found" aborts the
+// create and keeps its cause.
+func TestEnsureProjectVMPostLockRecheckError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	causeErr := errors.New("lookup failed")
+	callCount := 0
+	client := &msb.MockMsbClient{}
+	client.GetSandboxFn = func(context.Context, string) (msb.SandboxHandle, error) {
+		callCount++
+		if callCount <= 2 {
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
+		}
+		return nil, causeErr
+	}
+	client.EnsureInstalledFn = func(context.Context) error { return nil }
+	msb.WithMsbMock(t, client)
+
+	_, _, err := lookUpAndEnsureProjectVM(
+		context.Background(),
+		client,
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		"vol",
+		"/workspace",
+		testVMKey(),
+		testVMKey().Slug,
+		false,
+		&ui,
+	)
+	if !errors.Is(err, causeErr) || !strings.Contains(err.Error(), "re-check sandbox") {
+		t.Fatalf("error = %v, want the re-check failure wrapping %v", err, causeErr)
+	}
 }

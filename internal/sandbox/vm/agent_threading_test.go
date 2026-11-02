@@ -9,12 +9,12 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// setUpSandbox must resolve the agent from opts.Agent, not from the hardcoded
+// SetUpSandbox must resolve the agent from opts.Agent, not from the hardcoded
 // default. An unknown agent must surface as an error early.
 func TestSetUpSandboxRejectsUnknownAgent(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	opts := options.RunOptions{Agent: "does-not-exist"}
-	if _, err := setUpSandbox(
+	if _, err := SetUpSandbox(
 		context.Background(),
 		testVMKey(),
 		nil,
@@ -22,9 +22,9 @@ func TestSetUpSandboxRejectsUnknownAgent(t *testing.T) {
 		nil,
 		&ui,
 		false,
-		vmBootConnected,
+		VMBootConnected,
 		mounts.WorkspaceMountPath,
 	); err == nil {
-		t.Fatal("expected an error for an unknown --agent in setUpSandbox")
+		t.Fatal("expected an error for an unknown --agent in SetUpSandbox")
 	}
 }

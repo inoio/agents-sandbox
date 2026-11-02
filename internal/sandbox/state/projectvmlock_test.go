@@ -30,7 +30,7 @@ func TestProjectVMLockDirLivesUnderLocksDir(t *testing.T) {
 }
 
 // TestProjectVMLockDirIsAgentScoped pins the project-VM creation lock to the
-// agent. Agents of one project use separate VMs (see projectVMName), so sharing
+// agent. Agents of one project use separate VMs (see vm.ProjectVMName), so sharing
 // one creation lock would make an unrelated agent's creation wait (#330).
 func TestProjectVMLockDirIsAgentScoped(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)

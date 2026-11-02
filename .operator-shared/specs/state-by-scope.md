@@ -67,7 +67,7 @@ anything writes `updates.launcher`, so the union is normally a straight copy).
 
 1. **`upgrade.json` → `updates.launcher`.** A one-time fold owned by
    `internal/upgrade`, mirroring the retired-`updater.yaml` fold
-   (`internal/sandbox/vm/upgrade_migration.go`): read the legacy JSON, fold any
+   (`internal/sandbox/prepare/upgrade_migration.go`): read the legacy JSON, fold any
    `last_checked`/`dismissed_versions` not already present, delete the file on a
    successful commit, and leave it in place on a contended root lock or a failed
    write so a later run retries. A missing, empty, or corrupt file folds nothing
