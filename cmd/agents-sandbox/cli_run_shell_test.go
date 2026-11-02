@@ -603,6 +603,24 @@ func TestRunDryRunAgentCodex(t *testing.T) {
 	}
 }
 
+// TestRunForwardsAgentArgs verifies the positional args after `--` reach the
+// agent attach as forwarded arguments: dropping opts.Args would swallow them.
+func TestRunForwardsAgentArgs(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &sandboxmsb.MockMsbClient{}
+	sb := &sandboxmsb.MockSandbox{}
+	root, _ := setupRunMocks(t, mock, sb, "run", "--", "--model", "sonnet")
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	joined := strings.Join(sb.AttachArgs, " ")
+	if !strings.Contains(joined, "'--model' 'sonnet'") {
+		t.Errorf("AttachArgs = %q, want the forwarded --model sonnet args", sb.AttachArgs)
+	}
+}
+
 // TestRunAgentCodexRejectsDaemonOnlyFlags verifies codex, which runs no
 // daemon, rejects --worktree and --serve-only.
 func TestRunAgentCodexRejectsDaemonOnlyFlags(t *testing.T) {

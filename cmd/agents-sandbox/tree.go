@@ -21,9 +21,11 @@ func printTree(rootCmd *cobra.Command, ui termio.UI) {
 	var entries []treeEntry
 	collectTreeEntries(&entries, rootCmd, rootCmd, "")
 
+	// gomutants:disable-next-line INTEGER_DECREMENT,INTEGER_INCREMENT reason="every entry's width is at least the 4-rune connector plus its non-empty name, so the initial value never survives as the maximum"
 	maxWidth := 0
 	for _, e := range entries {
 		width := utf8.RuneCountInString(e.prefix) + utf8.RuneCountInString(e.name)
+		// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="assigning an equal width is idempotent, so > and >= produce the same maximum"
 		if width > maxWidth {
 			maxWidth = width
 		}
@@ -102,12 +104,10 @@ func formatFlagName(f *pflag.Flag) string {
 }
 
 func argsFromAnnotations(cmd *cobra.Command) []namedArg {
-	raw, ok := cmd.Annotations[annotationArgs]
-	if !ok || raw == "" {
-		return nil
-	}
+	// A missing or empty annotation fails the unmarshal below, so it needs no
+	// separate guard; a decoded-but-partial slice is still discarded.
 	var args []namedArg
-	if err := json.Unmarshal([]byte(raw), &args); err != nil {
+	if err := json.Unmarshal([]byte(cmd.Annotations[annotationArgs]), &args); err != nil {
 		return nil
 	}
 	return args
