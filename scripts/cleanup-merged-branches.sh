@@ -44,7 +44,8 @@
 #   --no-fetch               Do not run `git fetch --prune origin` first.
 #   --color <when>           auto (default), always, never. Also honours NO_COLOR.
 #   --format <kind>          text (default) or json.
-#   -q, --quiet              Only print the summary.
+#   -q, --quiet              Print only the destructive-action plan and the summary;
+#                            omit the remaining inventory.
 #   --configure              Set fetch.prune=true in this repo and exit.
 #   -h, --help               Show this help.
 
@@ -419,6 +420,58 @@ current_branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
 
 local_default="${default_ref#origin/}"
 
+# --- config-worktree protection --------------------------------------------
+# The bare-root recipe bridges .agents-sandbox into a sibling worktree with
+# file-level relative symlinks. That worktree takes no commits of its own, so
+# it always looks merged once main advances; protect it structurally (B) and by
+# its reserved names (A).
+
+CONFIG_MIRROR_BRANCH="agents-sandbox-config"
+CONFIG_DIR_NAME="config"
+
+config_protected_paths=()
+collect_config_protected_paths() {
+  local common candidate entry target target_dir parent
+  common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+  [[ -n "$common" ]] || return 0
+  for candidate in "$(cd "$common" 2>/dev/null && cd .. && pwd -P)" "$(cd "$common" 2>/dev/null && pwd -P)"; do
+    [[ -n "$candidate" && -d "$candidate/.agents-sandbox" ]] || continue
+    for entry in "$candidate"/.agents-sandbox/*; do
+      [[ -L "$entry" ]] || continue
+      target="$(readlink "$entry")" || continue
+      [[ "$target" == /* ]] || target="$(dirname "$entry")/$target"
+      target_dir="$(cd "$(dirname "$target")" 2>/dev/null && pwd -P)" || continue
+      while [[ "$target_dir" != / && "$(basename "$target_dir")" != .agents-sandbox ]]; do
+        target_dir="$(dirname "$target_dir")"
+      done
+      [[ "$(basename "$target_dir")" == .agents-sandbox ]] || continue
+      parent="$(dirname "$target_dir")"
+      contains "$parent" ${config_protected_paths[@]+"${config_protected_paths[@]}"} || config_protected_paths+=("$parent")
+    done
+  done
+}
+
+is_protected_config_worktree() {
+  local path="$1" canonical
+  [[ "$(basename "$path")" == "$CONFIG_DIR_NAME" ]] && return 0
+  canonical="$(cd "$path" 2>/dev/null && pwd -P)" || return 1
+  contains "$canonical" ${config_protected_paths[@]+"${config_protected_paths[@]}"}
+}
+
+is_protected_config_branch() {
+  local branch="$1"
+  [[ "$branch" == "$CONFIG_MIRROR_BRANCH" ]] && return 0
+  contains "$branch" ${config_protected_branches[@]+"${config_protected_branches[@]}"}
+}
+
+config_protected_branches=()
+collect_config_protected_paths
+for i in "${!worktree_path[@]}"; do
+  if is_protected_config_worktree "${worktree_path[$i]}"; then
+    [[ -n "${worktree_branch[$i]}" ]] && config_protected_branches+=("${worktree_branch[$i]}")
+  fi
+done
+
 # --- plan: worktrees --------------------------------------------------------
 
 plan_wt_path=()
@@ -455,6 +508,8 @@ for i in "${!worktree_path[@]}"; do
       note="unmerged"
     elif [[ "$branch" == release/* ]]; then
       note="release branch"
+    elif is_protected_config_worktree "$path" || is_protected_config_branch "$branch"; then
+      note="config mirror; protected"
     elif is_excluded "$branch"; then
       note="excluded (merged)"
     elif [[ "$method" == ancestry ]] && worktree_at_or_ahead_of_default "$branch"; then
@@ -518,6 +573,8 @@ while IFS= read -r branch; do
     note="current branch"
   elif [[ "$branch" == release/* ]]; then
     note="release branch"
+  elif is_protected_config_branch "$branch"; then
+    note="config mirror; protected"
   elif contains "$branch" ${checked_out[@]+"${checked_out[@]}"}; then
     note="checked out in a worktree"
   elif is_excluded "$branch"; then
@@ -568,6 +625,8 @@ while IFS= read -r ref; do
     note="default branch"
   elif [[ "$name" == release/* ]]; then
     note="release branch"
+  elif is_protected_config_branch "$name"; then
+    note="config mirror; protected"
   elif is_excluded "$name"; then
     note="excluded (merged)"
   elif ! older_than_allows "$age"; then
@@ -601,6 +660,30 @@ age_desc_indices() {
 rem_wt_order="$(age_desc_indices rem_wt_age)"
 rem_lb_order="$(age_desc_indices rem_lb_age)"
 rem_rb_order="$(age_desc_indices rem_rb_age)"
+
+# --- plan (named, before the gate) ------------------------------------------
+
+render_plan() {
+  local i
+  if ((${#plan_wt_path[@]})); then
+    printf 'Worktrees to remove:\n'
+    printf '  %s\n' "${plan_wt_path[@]}"
+  fi
+  if ((${#plan_lb_name[@]})); then
+    printf 'Local branches to delete:\n'
+    for i in "${!plan_lb_name[@]}"; do
+      printf '  %s (was %s)\n' "${plan_lb_name[$i]}" "$(git rev-parse --short "${plan_lb_name[$i]}" 2>/dev/null || true)"
+    done
+  fi
+  if ((${#plan_rb_name[@]})); then
+    printf 'Origin branches to delete:\n'
+    printf '  origin/%s\n' "${plan_rb_name[@]}"
+  fi
+  ((${#plan_wt_path[@]} + ${#plan_lb_name[@]} + ${#plan_rb_name[@]})) && printf '\n'
+  return 0
+}
+
+[[ "$output" == text ]] && render_plan
 
 # --- confirm ----------------------------------------------------------------
 
@@ -820,28 +903,12 @@ if [[ "$output" == json ]]; then
       remaining:{worktrees:$remainingWorktrees,localBranches:$remainingLocalBranches,originBranches:$remainingOriginBranches},
       failures:$failures}'
 else
-  if ((${#skip[@]})); then
-    printf 'Skipped:\n'
-    printf '  %s\n' "${skip[@]}"
-    printf '\n'
-  fi
-
   if ! $quiet; then
-    if ((${#ex_wt[@]})); then
-      if $dry_run; then printf 'Worktrees to remove:\n'; else printf 'Removed worktrees:\n'; fi
-      printf '  %s\n' "${ex_wt[@]}"
+    if ((${#skip[@]})); then
+      printf 'Skipped:\n'
+      printf '  %s\n' "${skip[@]}"
+      printf '\n'
     fi
-    if ((${#ex_lb_name[@]})); then
-      if $dry_run; then printf 'Local branches to delete:\n'; else printf 'Deleted local branches:\n'; fi
-      for i in "${!ex_lb_name[@]}"; do
-        printf '  %s (was %s)\n' "${ex_lb_name[$i]}" "${ex_lb_sha[$i]}"
-      done
-    fi
-    if ((${#ex_rb[@]})); then
-      if $dry_run; then printf 'Origin branches to delete:\n'; else printf 'Deleted origin branches:\n'; fi
-      printf '  origin/%s\n' "${ex_rb[@]}"
-    fi
-    ((${#ex_wt[@]} + ${#ex_lb_name[@]} + ${#ex_rb[@]})) && printf '\n'
 
     render_remaining_worktrees
     ((${#rem_wt_name[@]})) && printf '\n'

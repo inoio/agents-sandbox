@@ -7,7 +7,8 @@ read_if: Changing the CI triggers or job conditions in `.github/workflows/ci.yml
 
 ## Contract
 
-`.github/workflows/ci.yml` always runs `lint` (`make lint` + `make compile-all`), `test` (`make coverage-junit`),
+`.github/workflows/ci.yml` always runs `lint` (`make lint`, `make compile-all`, `make validate-fmt`,
+`make docs-linkcheck`, `make docs-linkcheck-test`, `make cleanup-branches-test`), `test` (`make coverage-junit`),
 `race` (`make test-race`), `deadcode` (`make deadcode`), and `changelog` (`ci/check-changelog.sh`, which requires a
 `changelog.d/` fragment when the changeset touches code) — the five required branch checks, so none is gated and
 each runs on every event (see the merge queue below). `vulncheck` (`make vulncheck`) is **not** required: it
