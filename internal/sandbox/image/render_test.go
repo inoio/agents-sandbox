@@ -382,7 +382,7 @@ func TestRenderDockerfileChecksGuestRuntimeTools(t *testing.T) {
 // TestRenderDockerfileNoGuestToolsForDaemonlessAgents guards that agents which
 // run no daemon in the VM declare no guest tools, so no check is emitted.
 func TestRenderDockerfileNoGuestToolsForDaemonlessAgents(t *testing.T) {
-	for _, name := range []string{"pi", "claude-code", "codex", "hermes"} {
+	for _, name := range []string{"pi", "claude-code", "codex", "hermes", "oh-my-pi"} {
 		a, _ := agent.Lookup(name)
 		final := finalStage(t, mustRender(t, a, nil, dockerOff))
 		if strings.Contains(final, "agent runtime tool missing") {
