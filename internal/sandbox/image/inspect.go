@@ -55,19 +55,26 @@ func agentReleaseFromLabels(labels map[string]string) string {
 	return version
 }
 
-// buildDecision decides whether the runner image must be rebuilt, and when it
-// must, the reasons. A forced build short-circuits so no image inspect is made.
+// buildDecision decides whether the runner image must be rebuilt, and the
+// reasons it is out of date. A forced build short-circuits so no image inspect
+// is made. Under NoRebuild a present image is reused, and the reasons that
+// would have rebuilt it are still returned so the caller can name them.
 func buildDecision(
 	ctx context.Context,
 	rTag string,
-	force bool,
+	buildOpts BuildOptions,
 	dockerfileID string,
 	identity imageIdentity,
 ) (bool, []string) {
-	if force {
+	if buildOpts.Force {
 		return true, []string{"forced by --rebuild"}
 	}
-	return buildReasons(inspectRunnerImage(ctx, rTag), dockerfileID, identity)
+	state := inspectRunnerImage(ctx, rTag)
+	needsBuild, reasons := buildReasons(state, dockerfileID, identity)
+	if buildOpts.NoRebuild && state.Present {
+		return false, reasons
+	}
+	return needsBuild, reasons
 }
 
 // buildReasons explains why the runner image must be rebuilt. A differing

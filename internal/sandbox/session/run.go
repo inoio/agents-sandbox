@@ -49,9 +49,13 @@ func renderPreview(ui termio.UI, p sandbox.Preview, shell bool) {
 	default:
 		ui.Infof("dry-run: agent version %s", p.AgentVersion)
 	}
-	if p.BuildImage {
+	switch {
+	case p.BuildImage:
 		ui.Infof("dry-run: would build runner image %s (%s)", p.ImageTag, strings.Join(p.BuildReasons, "; "))
-	} else {
+	case len(p.BuildReasons) > 0:
+		ui.Infof("dry-run: would reuse runner image %s despite changes (--no-rebuild): %s",
+			p.ImageTag, strings.Join(p.BuildReasons, "; "))
+	default:
 		ui.Infof("dry-run: would reuse runner image %s", p.ImageTag)
 	}
 	if p.CreateHome {

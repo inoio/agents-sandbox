@@ -103,6 +103,15 @@ Docker: when they differ, for example after `docker pull debian:trixie-slim`, th
 `agents-sandbox build -r` (or `--rebuild`), which pulls the base before building. If that pull fails, for example
 offline, the build warns and uses the cached base.
 
+### Reuse a stale image
+
+Use `--no-rebuild` on `run` or `shell` when a rebuild would be slow or you are offline and the existing image is good
+enough. The launcher then uses the project's existing runner image even when an input changed, and prints the changes it
+skipped — for example `reusing runner image … despite changes (--no-rebuild): project Dockerfile changed`. It also skips
+the agent upgrade check, because accepting an upgrade would rebuild the image. A project without a runner image still
+gets one built. `--no-rebuild` can't be combined with `--rebuild` or `--agent-version`, since both only take effect
+through a rebuild. The next run without the flag rebuilds as usual.
+
 ### Content-verified load
 
 Before skipping a load, `EnsureLoaded` verifies the microsandbox cache content by comparing its config digest against the

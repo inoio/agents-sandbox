@@ -25,6 +25,7 @@ import (
 const (
 	FlagWorktree     = "worktree"
 	FlagRebuild      = "rebuild"
+	FlagNoRebuild    = "no-rebuild"
 	FlagDryRun       = "dry-run"
 	FlagDryRunVM     = "dry-run-vm"
 	FlagServeOnly    = "serve-only"
@@ -174,6 +175,7 @@ func resolveFlags(cmd *cobra.Command) (options.RunOptions, error) {
 	}
 	opts.Worktree = worktree
 	opts.Rebuild, _ = cmd.Flags().GetBool(FlagRebuild)
+	opts.NoRebuild, _ = cmd.Flags().GetBool(FlagNoRebuild)
 	opts.AgentVersion, _ = cmd.Flags().GetString(FlagAgentVersion)
 	opts.ServeOnly, _ = cmd.Flags().GetBool(FlagServeOnly)
 	if cmd.Flags().Lookup(FlagRoot) != nil {

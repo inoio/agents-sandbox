@@ -1070,3 +1070,25 @@ func TestRunDoesNotStartNotifyWatcherWithoutEventStreamProvider(t *testing.T) {
 		t.Error("notify watcher should not start for an agent without EventStreamProvider")
 	}
 }
+
+func TestRunDryRunRendersNoRebuildReuseWithSkippedReasons(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	stubPreviewSandbox(t, sandbox.Preview{
+		AgentVersion: "1.2.3",
+		ImageTag:     "agents-sandbox-runner-y",
+		BuildReasons: []string{"project Dockerfile changed"},
+		HomeVolume:   "agents-sandbox-home-abc",
+	})
+
+	err := Run(context.Background(), options.RunOptions{}, options.ModePreview, ui)
+	if err != nil {
+		t.Fatalf("Run dry-run: %v", err)
+	}
+	assertInfoCalls(t, ui, []string{
+		"dry-run: agent version 1.2.3",
+		"dry-run: would reuse runner image agents-sandbox-runner-y despite changes (--no-rebuild): project Dockerfile changed",
+		"dry-run: would reuse home volume agents-sandbox-home-abc",
+		"dry-run: would start agent session",
+	})
+}
