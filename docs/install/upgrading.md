@@ -107,6 +107,7 @@ do not remove the whole folder while one remains.
 Removing `~/.microsandbox` does not uninstall a system-wide microsandbox by
 itself. Since agents-sandbox no longer requires the system-wide `msb` command,
 you can also uninstall a system-wide microsandbox the way you installed it.
+To remove agents-sandbox itself, see [Uninstalling]({% link install/uninstall.md %}).
 
 ## A footnote: renamed flags and commands
 
