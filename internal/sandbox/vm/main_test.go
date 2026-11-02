@@ -1,14 +1,11 @@
 package vm
 
 import (
-	"context"
 	"testing"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
 
 	mocks "github.com/inoio/agents-sandbox/internal/testutil/mocks"
 )
@@ -32,11 +29,6 @@ func TestMain(m *testing.M) {
 	dockerdReadyTimeout = 2 * time.Second
 	dockerdPollInterval = 10 * time.Millisecond
 	sandboxLifecyclePollInterval = 10 * time.Millisecond
-	// Seal PrepareSandbox off from the developer's real legacy home: the default
-	// offer is a no-op, and the tests that exercise it opt in explicitly.
-	SetRuntimeHomeMigrationOffer(func(context.Context, msb.Client, termio.UI) error { return nil })
-	// No existing runner image by default; recovery tests opt in explicitly.
-	existingAgentVersion = func(context.Context, string, string) (string, bool) { return "", false }
 	mocks.InitFailFastMocks(m)
 }
 

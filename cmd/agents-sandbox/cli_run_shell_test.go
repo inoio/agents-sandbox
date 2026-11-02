@@ -20,6 +20,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -545,11 +546,11 @@ func TestShellDryRunPreviewCLI(t *testing.T) {
 func TestRunDryRunWithPinnedVersionReportsPin(t *testing.T) {
 	initTestProjectDir(t)
 
-	orig := sandbox.SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
+	orig := prepare.SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
 		t.Error("the --dry-run preview must not run the agent latest-version check")
 		return "", nil
 	})
-	t.Cleanup(func() { sandbox.SetAgentLatestVersion(orig) })
+	t.Cleanup(func() { prepare.SetAgentLatestVersion(orig) })
 
 	mock := &sandboxmsb.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run", "--agent-version", "9.9.9")

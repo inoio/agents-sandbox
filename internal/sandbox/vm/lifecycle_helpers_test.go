@@ -19,10 +19,3 @@ func TestResumeSandboxByStatusUnavailable(t *testing.T) {
 		}
 	}
 }
-
-func TestSessionServeHostPort(t *testing.T) {
-	s := &Session{serveHostPort: 4096}
-	if got := s.ServeHostPort(); got != 4096 {
-		t.Errorf("ServeHostPort() = %d, want 4096", got)
-	}
-}

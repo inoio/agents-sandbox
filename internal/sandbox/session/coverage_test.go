@@ -294,10 +294,10 @@ func TestRunAttachClientLeaseFailureWarns(t *testing.T) {
 	}
 }
 
-// --- prepareSandbox: the real seam delegates to sandbox.PrepareSandbox ---
+// --- prepareSandbox: the real seam delegates to prepare.PrepareSandbox ---
 
 // TestPrepareSandboxSeamDelegatesToVM calls the real, unstubbed prepareSandbox
-// so its delegation to sandbox.PrepareSandbox is covered. An unknown agent name
+// so its delegation to prepare.PrepareSandbox is covered. An unknown agent name
 // makes the real path fail deterministically before it can touch host state,
 // the mocked config paths, or the fail-fast msb client.
 func TestPrepareSandboxSeamDelegatesToVM(t *testing.T) {

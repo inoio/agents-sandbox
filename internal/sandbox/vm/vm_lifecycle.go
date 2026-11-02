@@ -108,7 +108,7 @@ func SetProjectVMLock(f func(k state.Key) (func(), error)) func(k state.Key) (fu
 // first-boot race and the recreate destroy between concurrent invocations.
 //
 // existing is the project VM the reconfiguration decision was read from
-// (readLiveProjectVM), or nil when none exists. It is used as-is rather than
+// (readLiveProjectVM in package prepare), or nil when none exists. It is used as-is rather than
 // looked up again, so a recreate destroys exactly the VM the decision judged.
 func EnsureProjectVM(
 	ctx context.Context,

@@ -6,40 +6,12 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
-
-func TestGuestWorkspacePath(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		bindRoot string
-		cwd      string
-		want     string
-	}{
-		{"cwd is bind root", "/workspace", "/workspace", "/workspace"},
-		{"nested directory", "/repo", "/repo/internal/foo", "/workspace/internal/foo"},
-		{"nested worktree root", "/root/wt", "/root/wt", "/workspace"},
-		{"rel error falls back to mount path", "relative/bind", "/repo", mounts.WorkspaceMountPath},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := guestWorkspacePath(tc.bindRoot, tc.cwd); got != tc.want {
-				t.Errorf("guestWorkspacePath(%q, %q) = %q, want %q", tc.bindRoot, tc.cwd, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestSessionGuestCWD(t *testing.T) {
-	s := &Session{guestCWD: "/workspace/sub"}
-	if got := s.GuestCWD(); got != "/workspace/sub" {
-		t.Errorf("GuestCWD() = %q, want %q", got, "/workspace/sub")
-	}
-}
 
 func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 	origDaemon := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
