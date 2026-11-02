@@ -2,7 +2,8 @@
 
 `scripts/cleanup-merged-branches.sh` (run as `make cleanup-branches ARGS=...`) removes
 merged worktrees and local/origin branches, then reports everything left, fresh entries in
-green and stale ones in yellow. It is repo-maintenance tooling, not part of `make check`.
+green and stale ones in yellow. It is repo-maintenance tooling, not part of `make check`; its
+fixture test is.
 
 ## Merge detection
 
@@ -42,9 +43,9 @@ branch. Kept entries carry the note `config mirror; protected` in the remaining 
 
 ## Reporting
 
-Every text run prints the named removal plan — `Worktrees to remove:`, `Local branches to
-delete:`, `Origin branches to delete:` — before the confirmation gate, so the prompt is
-approved against the exact names, not a count. `--quiet` prints that plan and the closing
+Whenever there is something to remove, a text run prints the named plan — `Worktrees to
+remove:`, `Local branches to delete:`, `Origin branches to delete:` — before the confirmation
+gate, so the prompt is approved against the exact names, not a count. `--quiet` prints that plan and the closing
 summary but omits the remaining inventory. The plan states intent, not outcome: a removal that
 fails on a non-dry run is still named under its plan heading — the error goes to stderr — while
 the closing summary, which counts successes only, excludes it.

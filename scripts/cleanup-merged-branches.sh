@@ -452,11 +452,10 @@ collect_config_protected_paths() {
 }
 
 is_protected_config_worktree() {
-  local path
-  path="$(cd "$1" 2>/dev/null && pwd -P)" || return 1
-  contains "$path" ${config_protected_paths[@]+"${config_protected_paths[@]}"} && return 0
+  local path="$1" canonical
   [[ "$(basename "$path")" == "$CONFIG_DIR_NAME" ]] && return 0
-  return 1
+  canonical="$(cd "$path" 2>/dev/null && pwd -P)" || return 1
+  contains "$canonical" ${config_protected_paths[@]+"${config_protected_paths[@]}"}
 }
 
 is_protected_config_branch() {

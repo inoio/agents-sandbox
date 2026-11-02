@@ -12,6 +12,8 @@ CLEANUP="$SCRIPT_DIR/cleanup-merged-branches.sh"
 
 pass=0
 fail=0
+fixtures=()
+trap '[[ ${#fixtures[@]} -gt 0 ]] && rm -rf "${fixtures[@]}"' EXIT
 ok()  { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
 bad() { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
 
@@ -26,6 +28,7 @@ new_fixture() { # [config_dir] [config_branch] [relative|absolute|none] [dirty 0
   local symlink="${3:-relative}" dirty="${4:-0}"
   local root seed proj old
   root="$(mktemp -d "${TMPDIR:-/tmp}/cleanup-fixture.XXXXXX")"
+  fixtures+=("$root")
   seed="$root/seed"; proj="$root/proj"
 
   mkdir -p "$seed/.agents-sandbox"
@@ -71,12 +74,11 @@ run_cleanup() { # proj [extra args...]
 }
 
 check_protection() { # label proj config_dir config_branch
-  local label="$1" proj="$2" dir="$3" branch="$4" out rem_wt rem_lb keep_wt keep_lb
+  local label="$1" proj="$2" dir="$3" branch="$4" out rem_wt rem_lb keep_wt
   out="$(run_cleanup "$proj")"
   rem_wt="$(section "$out" 'Worktrees to remove:')"
   rem_lb="$(section "$out" 'Local branches to delete:')"
   keep_wt="$(section "$out" 'Remaining worktrees:')"
-  keep_lb="$(section "$out" 'Remaining local branches:')"
   assert_contains     "$label: config worktree kept"        "$keep_wt" "$proj/$dir"
   assert_contains     "$label: protection note"             "$keep_wt" "[config mirror; protected]"
   assert_not_contains "$label: config worktree not removed" "$rem_wt"  "$proj/$dir"
@@ -105,7 +107,7 @@ check_protection "A named no-symlink" "$proj" config cfg-mirror
 proj="$(new_fixture config agents-sandbox-config relative 1)"
 out="$(run_cleanup "$proj" --force)"
 keep_wt="$(section "$out" 'Remaining worktrees:')"
-assert_contains "$proj" "$keep_wt" "$proj/config"
+assert_contains "dirty: config worktree kept" "$keep_wt" "$proj/config"
 assert_contains "dirty config kept under --force" "$keep_wt" "[config mirror; protected]"
 
 # Branch-loop protection: the config branch and its origin ref stay put.
@@ -119,12 +121,16 @@ assert_not_contains "local config branch not deleted" "$rem_lb" "agents-sandbox-
 assert_contains     "local config branch kept"        "$keep_lb" "[config mirror; protected]"
 assert_not_contains "origin config branch not deleted" "$rem_rb" "origin/agents-sandbox-config"
 assert_contains     "origin config branch kept"        "$keep_rb" "origin/agents-sandbox-config"
+assert_contains     "origin config branch note"        "$keep_rb" "[config mirror; protected]"
 
 # --quiet still names what it acts on.
 proj="$(new_fixture config agents-sandbox-config relative 0)"
 out="$(run_cleanup "$proj" --quiet)"
 assert_contains "quiet names worktree" "$out" "$proj/oldwork"
 assert_contains "quiet names branch"   "$out" "stale-branch"
+assert_not_contains "quiet omits remaining worktrees" "$out" "Remaining worktrees:"
+assert_not_contains "quiet omits remaining local branches" "$out" "Remaining local branches:"
+assert_not_contains "quiet omits remaining origin branches" "$out" "Remaining origin branches:"
 
 # The plan is printed before a non-TTY run aborts.
 proj="$(new_fixture config agents-sandbox-config relative 0)"
