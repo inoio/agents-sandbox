@@ -44,7 +44,8 @@
 #   --no-fetch               Do not run `git fetch --prune origin` first.
 #   --color <when>           auto (default), always, never. Also honours NO_COLOR.
 #   --format <kind>          text (default) or json.
-#   -q, --quiet              Only print the summary.
+#   -q, --quiet              Print only the destructive-action plan and the summary;
+#                            omit the remaining inventory.
 #   --configure              Set fetch.prune=true in this repo and exit.
 #   -h, --help               Show this help.
 
@@ -661,6 +662,30 @@ rem_wt_order="$(age_desc_indices rem_wt_age)"
 rem_lb_order="$(age_desc_indices rem_lb_age)"
 rem_rb_order="$(age_desc_indices rem_rb_age)"
 
+# --- plan (named, before the gate) ------------------------------------------
+
+render_plan() {
+  local i
+  if ((${#plan_wt_path[@]})); then
+    printf 'Worktrees to remove:\n'
+    printf '  %s\n' "${plan_wt_path[@]}"
+  fi
+  if ((${#plan_lb_name[@]})); then
+    printf 'Local branches to delete:\n'
+    for i in "${!plan_lb_name[@]}"; do
+      printf '  %s (was %s)\n' "${plan_lb_name[$i]}" "$(git rev-parse --short "${plan_lb_name[$i]}" 2>/dev/null || true)"
+    done
+  fi
+  if ((${#plan_rb_name[@]})); then
+    printf 'Origin branches to delete:\n'
+    printf '  origin/%s\n' "${plan_rb_name[@]}"
+  fi
+  ((${#plan_wt_path[@]} + ${#plan_lb_name[@]} + ${#plan_rb_name[@]})) && printf '\n'
+  return 0
+}
+
+[[ "$output" == text ]] && render_plan
+
 # --- confirm ----------------------------------------------------------------
 
 action_count=$((${#plan_wt_path[@]} + ${#plan_lb_name[@]} + ${#plan_rb_name[@]}))
@@ -879,28 +904,12 @@ if [[ "$output" == json ]]; then
       remaining:{worktrees:$remainingWorktrees,localBranches:$remainingLocalBranches,originBranches:$remainingOriginBranches},
       failures:$failures}'
 else
-  if ((${#skip[@]})); then
-    printf 'Skipped:\n'
-    printf '  %s\n' "${skip[@]}"
-    printf '\n'
-  fi
-
   if ! $quiet; then
-    if ((${#ex_wt[@]})); then
-      if $dry_run; then printf 'Worktrees to remove:\n'; else printf 'Removed worktrees:\n'; fi
-      printf '  %s\n' "${ex_wt[@]}"
+    if ((${#skip[@]})); then
+      printf 'Skipped:\n'
+      printf '  %s\n' "${skip[@]}"
+      printf '\n'
     fi
-    if ((${#ex_lb_name[@]})); then
-      if $dry_run; then printf 'Local branches to delete:\n'; else printf 'Deleted local branches:\n'; fi
-      for i in "${!ex_lb_name[@]}"; do
-        printf '  %s (was %s)\n' "${ex_lb_name[$i]}" "${ex_lb_sha[$i]}"
-      done
-    fi
-    if ((${#ex_rb[@]})); then
-      if $dry_run; then printf 'Origin branches to delete:\n'; else printf 'Deleted origin branches:\n'; fi
-      printf '  origin/%s\n' "${ex_rb[@]}"
-    fi
-    ((${#ex_wt[@]} + ${#ex_lb_name[@]} + ${#ex_rb[@]})) && printf '\n'
 
     render_remaining_worktrees
     ((${#rem_wt_name[@]})) && printf '\n'

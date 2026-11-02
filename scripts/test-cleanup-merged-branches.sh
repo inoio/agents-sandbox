@@ -120,5 +120,30 @@ assert_contains     "local config branch kept"        "$keep_lb" "[config mirror
 assert_not_contains "origin config branch not deleted" "$rem_rb" "origin/agents-sandbox-config"
 assert_contains     "origin config branch kept"        "$keep_rb" "origin/agents-sandbox-config"
 
+# --quiet still names what it acts on.
+proj="$(new_fixture config agents-sandbox-config relative 0)"
+out="$(run_cleanup "$proj" --quiet)"
+assert_contains "quiet names worktree" "$out" "$proj/oldwork"
+assert_contains "quiet names branch"   "$out" "stale-branch"
+
+# The plan is printed before a non-TTY run aborts.
+proj="$(new_fixture config agents-sandbox-config relative 0)"
+stdout_file="$(mktemp)"; stderr_file="$(mktemp)"
+( cd "$proj/main" && bash "$CLEANUP" --no-fetch --no-gh --fresh 0 --color never \
+    >"$stdout_file" 2>"$stderr_file" </dev/null ) && rc=0 || rc=$?
+assert_contains     "plan names worktree before abort" "$(cat "$stdout_file")" "$proj/oldwork"
+assert_contains     "non-TTY aborts"                   "$(cat "$stderr_file")" "refusing to delete"
+[[ "$rc" -ne 0 ]] && ok "non-TTY exit non-zero" || bad "non-TTY exit non-zero"
+
+# Zero planned actions: no prompt, no abort, exit 0.
+proj="$(new_fixture config agents-sandbox-config relative 0)"
+git -C "$proj" worktree remove "$proj/oldwork"
+git -C "$proj" branch -D old-work stale-branch >/dev/null
+git -C "$proj" update-ref -d refs/remotes/origin/stale-branch
+( cd "$proj/main" && bash "$CLEANUP" --no-fetch --no-gh --fresh 0 --color never \
+    >/dev/null 2>"$stderr_file" </dev/null ) && rc=0 || rc=$?
+[[ "$rc" -eq 0 ]] && ok "zero actions exit 0" || bad "zero actions exit 0 (rc=$rc)"
+assert_not_contains "zero actions no abort" "$(cat "$stderr_file")" "refusing to delete"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))
