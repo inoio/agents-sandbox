@@ -12,8 +12,11 @@ CLEANUP="$SCRIPT_DIR/cleanup-merged-branches.sh"
 
 pass=0
 fail=0
-fixtures=()
-trap '[[ ${#fixtures[@]} -gt 0 ]] && rm -rf "${fixtures[@]}"' EXIT
+# Repositories and capture files live under one parent-owned root. new_fixture
+# runs in a command substitution, so it cannot register paths in an array the
+# parent trap could see; the root is created here instead.
+fixture_root="$(mktemp -d "${TMPDIR:-/tmp}/cleanup-fixtures.XXXXXX")"
+trap 'rm -rf "$fixture_root"' EXIT
 ok()  { pass=$((pass + 1)); printf 'ok   - %s\n' "$1"; }
 bad() { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
 
@@ -27,8 +30,7 @@ new_fixture() { # [config_dir] [config_branch] [relative|absolute|none] [dirty 0
   local config_dir="${1:-config}" config_branch="${2:-agents-sandbox-config}"
   local symlink="${3:-relative}" dirty="${4:-0}"
   local root seed proj old
-  root="$(mktemp -d "${TMPDIR:-/tmp}/cleanup-fixture.XXXXXX")"
-  fixtures+=("$root")
+  root="$(mktemp -d "$fixture_root/fixture.XXXXXX")"
   seed="$root/seed"; proj="$root/proj"
 
   mkdir -p "$seed/.agents-sandbox"
@@ -134,7 +136,7 @@ assert_not_contains "quiet omits remaining origin branches" "$out" "Remaining or
 
 # The plan is printed before a non-TTY run aborts.
 proj="$(new_fixture config agents-sandbox-config relative 0)"
-stdout_file="$(mktemp)"; stderr_file="$(mktemp)"
+stdout_file="$fixture_root/stdout"; stderr_file="$fixture_root/stderr"
 ( cd "$proj/main" && bash "$CLEANUP" --no-fetch --no-gh --fresh 0 --color never \
     >"$stdout_file" 2>"$stderr_file" </dev/null ) && rc=0 || rc=$?
 assert_contains     "plan names worktree before abort" "$(cat "$stdout_file")" "$proj/oldwork"
