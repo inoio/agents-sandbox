@@ -63,12 +63,13 @@ func readAndResolveReconfigDecision(
 	)
 }
 
-// lookUpAndEnsureProjectVM looks the project VM up through the installed msb
+// lookUpAndEnsureProjectVM looks the project VM up through the given msb
 // client and ensures it with empty host env and secrets, as the plan-reconfig
 // and ensure-vm stages do together.
 // A skipVM run leaves the VM alone, so it needs no lookup and no msb mock.
 func lookUpAndEnsureProjectVM(
 	ctx context.Context,
+	client msb.Client,
 	opts options.RunOptions,
 	info image.ImageInfo, homeVolume, repoPath string,
 	k state.Key,
@@ -79,13 +80,14 @@ func lookUpAndEnsureProjectVM(
 	var existing msb.SandboxHandle
 	if !skipVM {
 		var err error
-		existing, _, err = findProjectVM(ctx, msb.Get(), k)
+		existing, _, err = findProjectVM(ctx, client, k)
 		if err != nil {
 			return nil, vmBootConnected, err
 		}
 	}
 	return ensureProjectVM(
 		ctx,
+		client,
 		opts,
 		info,
 		homeVolume,

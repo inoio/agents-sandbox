@@ -26,11 +26,11 @@ import (
 func TestPrepareHomeVolumeAlwaysOffersRuntimeHomeMigration(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	client := &msb.MockMsbClient{
 		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
 			return &msb.MockVolumeHandle{Name_: name}, nil
 		},
-	})
+	}
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
 	if err := seedHomeState(k, state.HomeState{HomeVolume: "home-vol", ImageDigest: "sha256:abc123"}); err != nil {
@@ -46,8 +46,8 @@ func TestPrepareHomeVolumeAlwaysOffersRuntimeHomeMigration(t *testing.T) {
 	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
 
 	ui := termio.NewTestMock(t)
-	if _, _, _, _, err := prepareHomeVolume(
-		context.Background(), k, sandboximage.ImageInfo{},
+	if _, _, _, err := prepareHomeVolume(
+		context.Background(), client, k, sandboximage.ImageInfo{},
 		true, /* skipVM */
 		state.Fingerprints{},
 		&ui,
@@ -64,8 +64,6 @@ func TestPrepareHomeVolumeAlwaysOffersRuntimeHomeMigration(t *testing.T) {
 func TestPrepareHomeVolumeOfferErrorPropagates(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
-
 	k := state.Key{Slug: "slug", Agent: "opencode"}
 	wantErr := errors.New("offer boom")
 	origOffer := offerRuntimeHomeMigration
@@ -75,8 +73,9 @@ func TestPrepareHomeVolumeOfferErrorPropagates(t *testing.T) {
 	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
 
 	ui := termio.NewTestMock(t)
-	_, _, _, _, err := prepareHomeVolume(
+	_, _, _, err := prepareHomeVolume(
 		context.Background(),
+		&msb.MockMsbClient{},
 		k,
 		sandboximage.ImageInfo{},
 		false,
@@ -219,8 +218,9 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
 
 	ui := termio.NewTestMock(t)
-	_, _, homeVol, _, err := prepareHomeVolume(
+	_, homeVol, _, err := prepareHomeVolume(
 		context.Background(),
+		mock,
 		k,
 		sandboximage.ImageInfo{Digest: "sha256:def"},
 		false,
@@ -374,8 +374,9 @@ func TestPrepareHomeVolumeRecoversPersistedAdoptionVolume(t *testing.T) {
 	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
 
 	ui := termio.NewTestMock(t)
-	_, _, homeVol, _, err := prepareHomeVolume(
+	_, homeVol, _, err := prepareHomeVolume(
 		context.Background(),
+		mock,
 		k,
 		sandboximage.ImageInfo{Digest: "sha256:def"},
 		false,

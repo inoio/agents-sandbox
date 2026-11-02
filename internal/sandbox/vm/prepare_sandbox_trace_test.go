@@ -77,7 +77,6 @@ func TestPrepareSandboxTraceEndsAtTheFailingStage(t *testing.T) {
 // fingerprints are not persisted, since no VM was created.
 func TestEnsureVMStageFailureSkipsFingerprints(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	lockErr := errors.New("flock boom")
 	origLock := acquireProjectVMLock
 	acquireProjectVMLock = func(state.Key) (func(), error) { return nil, lockErr }
@@ -86,8 +85,14 @@ func TestEnsureVMStageFailureSkipsFingerprints(t *testing.T) {
 	ui := termio.NewTestMock(t)
 
 	sb, _, err := ensureVMStage(
-		context.Background(), sessionIdentity{key: k}, sandboximage.ImageInfo{}, preparedHome{},
-		reconfigPlan{homeVolume: "home-vol"}, false, options.RunOptions{}, &ui,
+		context.Background(),
+		sessionIdentity{key: k},
+		sandboximage.ImageInfo{},
+		preparedHome{client: &msb.MockMsbClient{}},
+		reconfigPlan{homeVolume: "home-vol"},
+		false,
+		options.RunOptions{},
+		&ui,
 	)
 	if !errors.Is(err, lockErr) {
 		t.Fatalf("ensureVMStage error = %v, want %v", err, lockErr)

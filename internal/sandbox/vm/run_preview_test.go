@@ -47,9 +47,9 @@ func absentImageDockerMock(t *testing.T) {
 }
 
 // noVolumeCreateMock fails the test if the preview ever creates a volume.
-func noVolumeCreateMock(t *testing.T) {
+func noVolumeCreateMock(t *testing.T) *int {
 	t.Helper()
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	return msb.WithCountingMsbMock(t, &msb.MockMsbClient{
 		CreateVolumeFn: func(
 			context.Context, string, ...msbSdk.VolumeOption,
 		) (msb.VolumeHandle, error) {
@@ -66,12 +66,15 @@ func previewKey() state.Key {
 func TestPreviewSandboxReportsBuildAndCreate(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	absentImageDockerMock(t)
-	noVolumeCreateMock(t)
+	resolutions := noVolumeCreateMock(t)
 
 	ui := termio.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
+	}
+	if *resolutions != 1 {
+		t.Errorf("msb.Get resolved %d times, want once per PreviewSandbox", *resolutions)
 	}
 	if !p.BuildImage {
 		t.Errorf("BuildImage = false, want true (reasons %v)", p.BuildReasons)

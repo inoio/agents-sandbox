@@ -282,11 +282,11 @@ func TestEnsureProjectVMRecreateDestroysTheHandleItIsGiven(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
 	ui := termio.NewTestMock(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	existing := &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning}
 
 	_, boot, err := ensureProjectVM(
 		context.Background(),
+		&msb.MockMsbClient{},
 		options.RunOptions{Agent: "opencode", Recreate: true},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",

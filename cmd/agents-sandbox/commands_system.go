@@ -261,8 +261,9 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			client := msb.Get()
 			adoption, err := sandbox.AdoptLegacyIdentity(
-				cmd.Context(), msb.Get(), identity, a.Name(), !dryRun, ui,
+				cmd.Context(), client, identity, a.Name(), !dryRun, ui,
 			)
 			if err != nil {
 				return err
@@ -275,7 +276,7 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 				state.Key{Slug: adoption.Slug, Agent: a.Name()},
 				openCodeVersion,
 			)
-			info, err := image.Build(cmd.Context(), a, adoption.Slug, image.BuildOptions{
+			info, err := image.Build(cmd.Context(), client, a, adoption.Slug, image.BuildOptions{
 				Force:        force,
 				AgentVersion: agentVersion,
 				UserProvided: userProvided,

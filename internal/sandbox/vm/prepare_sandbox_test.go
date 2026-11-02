@@ -653,7 +653,7 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
 	}
 	mock.SetGotSandbox(sh)
-	msb.WithMsbMock(t, mock)
+	resolutions := msb.WithCountingMsbMock(t, mock)
 
 	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
@@ -690,6 +690,9 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 
 	if offeredWith != mock {
 		t.Errorf("offer client = %v, want the msb client from msb.Get()", offeredWith)
+	}
+	if *resolutions != 1 {
+		t.Errorf("msb.Get resolved %d times, want once per PrepareSandbox", *resolutions)
 	}
 }
 

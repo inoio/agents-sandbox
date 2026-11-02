@@ -29,7 +29,8 @@ func PruneVolumes(
 	ui termio.UI,
 ) (VolumeReport, error) {
 	report := VolumeReport{VolumesPruned: 0, Details: nil}
-	handles, err := msb.Get().ListVolumes(ctx)
+	client := msb.Get()
+	handles, err := client.ListVolumes(ctx)
 	if err != nil {
 		// gomutants:disable-next-line RETURN_ZERO reason="report is still its zero value at this point, so returning a fresh zero VolumeReport is identical"
 		return report, err
@@ -40,7 +41,7 @@ func PruneVolumes(
 		// gomutants:disable-next-line RETURN_ZERO reason="report is still its zero value at this point, so returning a fresh zero VolumeReport is identical"
 		return report, err
 	}
-	removed := pruneHomeVolumes(ctx, handles, pruneState, references, dryRun, ui, &report)
+	removed := pruneHomeVolumes(ctx, client, handles, pruneState, references, dryRun, ui, &report)
 	if !dryRun {
 		removeStateForGoneKeys(ui, removed, exists)
 	}
@@ -67,6 +68,7 @@ func countVolumesByKey(handles []msb.VolumeHandle) map[state.Key]int {
 // points at.
 func pruneHomeVolumes(
 	ctx context.Context,
+	client msb.Client,
 	handles []msb.VolumeHandle,
 	pruneState PruneState,
 	references map[string][]state.Key,
@@ -90,7 +92,7 @@ func pruneHomeVolumes(
 			continue
 		}
 		if !dryRun {
-			if err := msb.Get().RemoveVolume(ctx, name); err != nil {
+			if err := client.RemoveVolume(ctx, name); err != nil {
 				ui.Warnf("failed to remove home volume %s: %v", name, err)
 				continue
 			}

@@ -92,6 +92,7 @@ func TestEnsureProjectVMFlockError(t *testing.T) {
 
 	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
