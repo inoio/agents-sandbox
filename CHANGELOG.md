@@ -29,7 +29,7 @@ emptied at the next release.
   `~/.hermes/config.yaml`, the host drop-in copies only `~/.hermes/config.yaml` (never `.env`), and unpinned
   builds resolve the latest release from its GitHub releases endpoint. Merged configs whose target file is YAML are now
   written and compared as YAML instead of JSON.
-- Runner image: an `ImageSpec.OwnedToolPaths` field lets an agent declare that it writes into its tool tree, so the
+- Runner image: an `ImageSpec.OwnsToolTree` flag marks that an agent writes into its tool tree, so the
   runner's tool-tree `COPY` carries `--chown=dev:dev` and hands the tree to its `dev` user at copy time (no separate
   chown layer, so the tree is recorded once). Only `hermes` declares paths: it writes its dependency ledger and bytecode
   markers into its own installation at runtime and git rejects a checkout owned by another user.

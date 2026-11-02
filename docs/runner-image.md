@@ -358,8 +358,8 @@ installers `https://opencode.ai/install` and `https://opencode.ai/v2/install`, `
 binary copy: it clones the pinned release tag into `/opt/agents-sandbox/hermes` and provisions its own Python (and
 Node, for the TUI/web product build) into `/opt/agents-sandbox/hermes-home`, so the tool stage needs no node of its
 own, publishes its launcher into `/opt/agents-sandbox/bin`, and keeps its tree outside `/home/dev` — which the sandbox
-home volume covers at runtime — handed to the runner's `dev` user as it is copied in (`ImageSpec.OwnedToolPaths`: a
-`COPY --chown=dev:dev` emitted for agents that write into their own installation), because Hermes keeps its
+home volume covers at runtime — handed to the runner's `dev` user as it is copied in (`ImageSpec.OwnsToolTree`:
+a `COPY --chown=dev:dev` emitted for agents that write into their own installation), because Hermes keeps its
 dependency ledger and bytecode markers there. The launcher the stage publishes is therefore a small shim: it keeps user state in
 `$HERMES_HOME` (`/home/dev/.hermes`, so config, sessions, and memories persist on the home volume) and links the tool
 store, uv cache, and dependency environments from the image into it, so a fresh home volume starts Hermes without

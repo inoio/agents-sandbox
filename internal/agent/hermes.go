@@ -63,9 +63,9 @@ func (hermesProfile) ImageSpec() ImageSpec {
 		// release tag and provisions a Python/Node tool store, then writes a
 		// launcher carrying absolute interpreter paths. Checkout and store
 		// therefore live under toolDir, outside /home/dev, which the sandbox
-		// home volume covers at runtime; a non-empty OwnedToolPaths makes the
-		// runner's tool-tree COPY carry --chown=dev:dev, handing the tree to the
-		// dev user at copy time, because Hermes keeps its dependency
+		// home volume covers at runtime; OwnsToolTree makes the runner's
+		// tool-tree COPY carry --chown=dev:dev, handing the tree to the dev
+		// user at copy time, because Hermes keeps its dependency
 		// ledger and bytecode markers there. --non-interactive skips the setup
 		// wizard and the gateway service install, and the browser/computer-use
 		// tools are dropped because the runner image carries no desktop stack for
@@ -81,8 +81,8 @@ func (hermesProfile) ImageSpec() ImageSpec {
 			hermesLauncherShim + hermesLauncherGuard,
 		// The agent stage installs no node: Hermes' installer provisions the
 		// node build its TUI and web products need into its own tool store.
-		RequiresNode:   false,
-		OwnedToolPaths: []string{hermesCheckout, hermesBuildHome},
+		RequiresNode: false,
+		OwnsToolTree: true,
 		// The managed Node.js Hermes provisions links libatomic.so.1 on glibc,
 		// and the runner copies only the tool tree from the agent stage (which
 		// installed libatomic1 for the installer's own package manager), so the

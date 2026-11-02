@@ -642,7 +642,7 @@ func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected b
 // name, unlike BuildKit, which falls back to the user's primary group). Agents
 // that declare no owned paths get the plain, root-owned copy.
 func agentToolTreeCopy(a agent.Agent) string {
-	if len(a.ImageSpec().OwnedToolPaths) == 0 {
+	if !a.ImageSpec().OwnsToolTree {
 		return fmt.Sprintf("COPY --from=%s %s %s\n", agentStageAlias, toolDir, toolDir)
 	}
 	return fmt.Sprintf("COPY --chown=dev:dev --from=%s %s %s\n", agentStageAlias, toolDir, toolDir)

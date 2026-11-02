@@ -457,27 +457,6 @@ func TestRenderDockerfileOwnsAgentToolTreeAtCopy(t *testing.T) {
 	}
 }
 
-// emptyOwnedPathsAgent carries a non-nil but empty OwnedToolPaths slice,
-// covering agentToolTreeCopy's empty-list guard: an agent that names no paths
-// must get the plain, root-owned copy.
-type emptyOwnedPathsAgent struct{ agent.Agent }
-
-func (emptyOwnedPathsAgent) Name() string { return "stub" }
-func (emptyOwnedPathsAgent) ImageSpec() agent.ImageSpec {
-	return agent.ImageSpec{OwnedToolPaths: []string{}}
-}
-
-func TestRenderDockerfileNoChownForEmptyOwnedPaths(t *testing.T) {
-	stub := emptyOwnedPathsAgent{Agent: agentOpencode(t)}
-	final := finalStage(t, mustRender(t, stub, nil, dockerOff))
-	if strings.Contains(final, "chown -R") {
-		t.Errorf("an empty OwnedToolPaths list must emit no chown; got:\n%s", final)
-	}
-	if strings.Contains(final, "--chown=dev:dev") {
-		t.Errorf("an empty OwnedToolPaths list must not tag the tool-tree copy with --chown; got:\n%s", final)
-	}
-}
-
 // TestRenderDockerfileNoChownForStatelessAgents guards that an agent which never
 // writes into its installation gets no ownership handover.
 func TestRenderDockerfileNoChownForStatelessAgents(t *testing.T) {

@@ -1,6 +1,6 @@
 ---
 description: Contract for how the per-project runner Dockerfile is composed into per-tool multistage stages so tool-owned layers (apt tools, node, agent, docker) cache independently of the user body, the base, and each other; includes when the node stage is emitted (agent node dependency), the native vs npm agent install methods, and the `dind` → `docker` rename with deprecated aliases.
-read_if: Changing RenderDockerfile/stage composition, image layer caching, which agents need node, agent install methods (native installer vs npm), the `ImageSpec.OwnedToolPaths` tool-tree ownership (`COPY --chown=dev:dev`, the `devUserBlock` `dev`-group guarantee), the dind/docker switch or marker, the Dockerfile-content docker enablement, its explicit-config precedence and the shared docker/dind source precedence (`viperconfig.EffectiveDockerSource`), the unified dockerfile diagnostics, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd vfs storage driver.
+read_if: Changing RenderDockerfile/stage composition, image layer caching, which agents need node, agent install methods (native installer vs npm), the `ImageSpec.OwnsToolTree` tool-tree ownership (`COPY --chown=dev:dev`, the `devUserBlock` `dev`-group guarantee), the dind/docker switch or marker, the Dockerfile-content docker enablement, its explicit-config precedence and the shared docker/dind source precedence (`viperconfig.EffectiveDockerSource`), the unified dockerfile diagnostics, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd vfs storage driver.
 ---
 
 # Runner image composition and tool-layer caching
@@ -46,10 +46,9 @@ and the tool layers cache across bases. The tool base is never part of the runne
 
 **Tool-tree ownership handover.** A plain `COPY --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox`
 preserves the source stage's root ownership, so the runner sets the owner at copy time. An agent whose install self-writes
-at runtime (Hermes keeps its dependency ledger and bytecode markers in its checkout) declares the affected paths in
-`ImageSpec.OwnedToolPaths`; the runner then emits
-`COPY --chown=dev:dev --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox`, which covers the whole copied
-tree (`bin/hermes` included), not only the declared paths. There is no follow-up `chown`: a chown that rewrites ownership
+at runtime (Hermes keeps its dependency ledger and bytecode markers in its checkout) sets `ImageSpec.OwnsToolTree`; the
+runner then emits `COPY --chown=dev:dev --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox`, handing the
+whole copied tree (`bin/hermes` included) to `dev`. There is no follow-up `chown`: a chown that rewrites ownership
 on every file records a second full copy of the tree in its layer diff, so the image would carry the tree twice — the
 doubling is a property of the diff, present under every storage driver and in `docker save`/`msb` import alike.
 
@@ -57,8 +56,8 @@ doubling is a property of the diff, present under every storage driver and in `d
 `groupadd -f -g "$USER_GID" dev` before the `dev` user guard: a custom base that pre-creates `dev` without a `dev` user
 group still gets one, and when `USER_GID` is already taken (macOS `dialout`/20) the group lands on the next free GID and
 the name still resolves to it. This matters because the production classic builder (`client.ImageBuild`) fails on an
-unresolvable `--chown` group name, where BuildKit silently falls back to the user's primary group. Agents that declare no
-paths get the plain, root-owned copy.
+unresolvable `--chown` group name, where BuildKit silently falls back to the user's primary group. Agents that do not set
+`OwnsToolTree` get the plain, root-owned copy.
 
 ### Pinned versions are rendered into the content
 
