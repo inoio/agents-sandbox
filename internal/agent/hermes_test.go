@@ -47,7 +47,7 @@ func TestHermesImageSpec(t *testing.T) {
 	}
 	// The store must stay outside /home/dev, which the sandbox home volume
 	// covers at runtime; ownership is handed to the runtime user by the
-	// renderer's OwnedToolPaths block, not by the install command.
+	// renderer's OwnsToolTree handling, not by the install command.
 	for _, want := range []string{
 		"--hermes-home /opt/agents-sandbox/hermes-home",
 		"> /opt/agents-sandbox/bin/hermes",
@@ -98,11 +98,10 @@ func TestHermesAttachCommandQuotesForwardedArgs(t *testing.T) {
 	}
 }
 
-func TestHermesOwnedToolPaths(t *testing.T) {
+func TestHermesOwnsToolTree(t *testing.T) {
 	a, _ := agent.Lookup("hermes")
-	want := []string{"/opt/agents-sandbox/hermes", "/opt/agents-sandbox/hermes-home"}
-	if got := a.ImageSpec().OwnedToolPaths; !slices.Equal(got, want) {
-		t.Errorf("ImageSpec().OwnedToolPaths = %v, want %v", got, want)
+	if !a.ImageSpec().OwnsToolTree {
+		t.Error("hermes writes into its installation at runtime, so ImageSpec().OwnsToolTree must be true")
 	}
 }
 

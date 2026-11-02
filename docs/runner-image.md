@@ -251,8 +251,9 @@ base must meet these requirements:
   library fails the build naming it. The check is skipped on musl bases.
 - The recommended CLI tools listed here are documented for your convenience, not as requirements — as a custom base you install
   your own.
-- A base that already provides docker, node, or the agent is left alone (idempotency), and a pre-created `dev` user is
-  tolerated.
+- A base that already provides docker, node, or the agent is left alone (idempotency). A pre-created `dev` user is
+  tolerated, and the `dev` group is guaranteed: the runner creates it when the base or a pre-created `dev` user lacks it,
+  so the tool trees can always be handed to `dev` at copy time.
 
 Bases that do not provide these **out of the box** are not supported without a project Dockerfile that installs
 them — for example **Alpine** (busybox `adduser`/`addgroup`, no shadow-utils or bash) and **distroless**/ **scratch**
@@ -269,8 +270,9 @@ metadata, not an agent release version. A matching user-provided image is reused
 ### User context
 
 The `dev` user (host UID/GID) is created as the first instruction of the final stage, and the image always ends with
-`USER dev` active. If the host GID is already taken by another group in the base image (e.g. macOS `staff`/20 vs
-`dialout`), the `dev` group is created with the next free GID. Your Dockerfile body runs in the final stage, so it may
+`USER dev` active. The `dev` group is created if no base already provides it (including a base that pre-creates a `dev`
+user without a group), and if the host GID is already taken by another group in the base image (e.g. macOS `staff`/20 vs
+`dialout`), the group is created with the next free GID. Your Dockerfile body runs in the final stage, so it may
 switch to `USER dev` — but earlier build stages in a multi-stage Dockerfile run as root:
 
 ```dockerfile
@@ -365,8 +367,8 @@ installers `https://opencode.ai/install` and `https://opencode.ai/v2/install`, `
 binary copy: it clones the pinned release tag into `/opt/agents-sandbox/hermes` and provisions its own Python (and
 Node, for the TUI/web product build) into `/opt/agents-sandbox/hermes-home`, so the tool stage needs no node of its
 own, publishes its launcher into `/opt/agents-sandbox/bin`, and keeps its tree outside `/home/dev` — which the sandbox
-home volume covers at runtime — handed to the runner's `dev` user after it is copied in (`ImageSpec.OwnedToolPaths`: a
-`chown -R dev:dev` block emitted for agents that write into their own installation), because Hermes keeps its
+home volume covers at runtime — handed to the runner's `dev` user as it is copied in (`ImageSpec.OwnsToolTree`:
+a `COPY --chown=dev:dev` emitted for agents that write into their own installation), because Hermes keeps its
 dependency ledger and bytecode markers there. The launcher the stage publishes is therefore a small shim: it keeps user state in
 `$HERMES_HOME` (`/home/dev/.hermes`, so config, sessions, and memories persist on the home volume) and links the tool
 store, uv cache, and dependency environments from the image into it, so a fresh home volume starts Hermes without

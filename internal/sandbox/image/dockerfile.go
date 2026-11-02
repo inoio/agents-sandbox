@@ -622,9 +622,8 @@ func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected b
 		parts = append(parts, dockerMergeBlock())
 	}
 	parts = append(parts,
-		fmt.Sprintf("COPY --from=%s %s %s\n", agentStageAlias, toolDir, toolDir),
+		agentToolTreeCopy(a),
 		agentAdoptionBlock(a),
-		agentOwnershipBlock(a),
 		agentImageConfigBlock(a),
 		finalizationBlock(),
 		guestToolsBlock(a),
@@ -634,20 +633,19 @@ func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected b
 	return joinBlocks(parts...)
 }
 
-// agentOwnershipBlock hands the agent's self-written tool-tree paths to the
-// runtime user. It runs as root after the tool tree is copied in and before the
-// image switches to the dev user. The group is resolved at build time from the
-// dev user's own entry (`id -g dev`), not assumed to be a `dev` group nor taken
-// from the USER_UID/USER_GID build args: devUserBlock skips creation entirely
-// when a custom base already provides a `dev` user, which need not come with a
-// `dev` group, and groupadd -f may leave the dev group on a GID other than a
-// pinned host GID. Agents that declare no owned paths emit nothing.
-func agentOwnershipBlock(a agent.Agent) string {
-	paths := a.ImageSpec().OwnedToolPaths
-	if len(paths) == 0 {
-		return ""
+// agentToolTreeCopy copies the agent's tool tree into the runner, setting its
+// owner to the runtime user at copy time when the agent declares owned paths.
+// Handing ownership to the same COPY records it in the single tree layer; a
+// post-copy chown would write a second full copy of the tree. The dev group is
+// guaranteed by devUserBlock for every base, which makes the --chown name
+// resolvable on the production classic builder (it fails on an unresolvable
+// name, unlike BuildKit, which falls back to the user's primary group). Agents
+// that declare no owned paths get the plain, root-owned copy.
+func agentToolTreeCopy(a agent.Agent) string {
+	if !a.ImageSpec().OwnsToolTree {
+		return fmt.Sprintf("COPY --from=%s %s %s\n", agentStageAlias, toolDir, toolDir)
 	}
-	return fmt.Sprintf("USER root\nRUN chown -R dev:$(id -g dev) %s\n", strings.Join(paths, " "))
+	return fmt.Sprintf("COPY --chown=dev:dev --from=%s %s %s\n", agentStageAlias, toolDir, toolDir)
 }
 
 // injectDockerBlock replaces the first top-level docker marker line in body
@@ -831,18 +829,21 @@ func joinBlocks(blocks ...string) string {
 	return strings.Join(nonEmpty, "\n")
 }
 
-// devUserBlock creates the dev user as root, leaving the shell as root.
-// groupadd -f tolerates a host GID already taken in the base image (e.g. macOS
-// staff/20 vs dialout): the group then gets the next free GID, so useradd must
-// reference it by name. The login shell prefers bash, then zsh, then sh, so a
-// custom base need only provide a POSIX shell.
+// devUserBlock creates the dev user as root, leaving the shell as root. It
+// creates the dev group for every base, including a custom base that already
+// provides a dev user without one, so the group name resolves wherever the
+// runtime hands the tool tree to dev: groupadd -f is a no-op when the group
+// exists and otherwise creates it at USER_GID, or the next free GID when that
+// GID is taken (e.g. macOS staff/20 vs dialout), so useradd references it by
+// name. The login shell prefers bash, then zsh, then sh, so a custom base need
+// only provide a POSIX shell.
 func devUserBlock() string {
 	return `USER root
 ARG USER_UID=1000
 ARG USER_GID=1000
-RUN id -u dev >/dev/null 2>&1 || \
-      { groupadd -f -g "$USER_GID" dev && \
-        p=/bin/sh; for sh in bash zsh sh; do q="$(command -v "$sh" 2>/dev/null)" && { p="$q"; break; }; done; \
+RUN groupadd -f -g "$USER_GID" dev; \
+    id -u dev >/dev/null 2>&1 || \
+      { p=/bin/sh; for sh in bash zsh sh; do q="$(command -v "$sh" 2>/dev/null)" && { p="$q"; break; }; done; \
         useradd -m -u "$USER_UID" -g dev -s "$p" dev; }
 `
 }

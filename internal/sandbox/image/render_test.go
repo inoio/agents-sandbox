@@ -434,45 +434,31 @@ func TestRenderDockerfileManagedBaseInstallsLibatomic(t *testing.T) {
 	}
 }
 
-// TestRenderDockerfileChownsAgentToolTree guards the ownership handover: an
+// TestRenderDockerfileOwnsAgentToolTreeAtCopy guards the ownership handover: an
 // agent that writes into its own installation at runtime (hermes) declares the
-// paths, and the runner chowns them to the dev user it just created. The chown
+// paths, so the runner's tool-tree COPY carries --chown=dev:dev and hands the
+// tree to the dev user at copy time. There is no follow-up chown, and the copy
 // must run before the image switches to USER dev.
-func TestRenderDockerfileChownsAgentToolTree(t *testing.T) {
+func TestRenderDockerfileOwnsAgentToolTreeAtCopy(t *testing.T) {
 	a, _ := agent.Lookup("hermes")
 	final := finalStage(t, mustRender(t, a, nil, dockerOff))
 
-	wantChown := `chown -R dev:$(id -g dev) /opt/agents-sandbox/hermes /opt/agents-sandbox/hermes-home`
-	chownIdx := strings.Index(final, wantChown)
-	if chownIdx < 0 {
-		t.Fatalf("the final stage must chown the agent's tool tree to the runtime user; got:\n%s", final)
+	want := "COPY --chown=dev:dev --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox"
+	copyIdx := strings.Index(final, want)
+	if copyIdx < 0 {
+		t.Fatalf("the final stage must own the tool tree at copy time; got:\n%s", final)
+	}
+	if strings.Contains(final, "chown -R") {
+		t.Errorf("ownership must not be a separate chown layer; got:\n%s", final)
 	}
 	devIdx := strings.LastIndex(final, "USER dev")
-	if devIdx < 0 || chownIdx > devIdx {
-		t.Errorf("the chown must run before the image switches to USER dev; got:\n%s", final)
-	}
-}
-
-// emptyOwnedPathsAgent carries a non-nil but empty OwnedToolPaths slice,
-// covering agentOwnershipBlock's empty-list guard: an agent that names no paths
-// must emit no chown.
-type emptyOwnedPathsAgent struct{ agent.Agent }
-
-func (emptyOwnedPathsAgent) Name() string { return "stub" }
-func (emptyOwnedPathsAgent) ImageSpec() agent.ImageSpec {
-	return agent.ImageSpec{OwnedToolPaths: []string{}}
-}
-
-func TestRenderDockerfileNoChownForEmptyOwnedPaths(t *testing.T) {
-	stub := emptyOwnedPathsAgent{Agent: agentOpencode(t)}
-	final := finalStage(t, mustRender(t, stub, nil, dockerOff))
-	if strings.Contains(final, "chown -R") {
-		t.Errorf("an empty OwnedToolPaths list must emit no chown; got:\n%s", final)
+	if devIdx < 0 || copyIdx > devIdx {
+		t.Errorf("the ownership copy must run before the image switches to USER dev; got:\n%s", final)
 	}
 }
 
 // TestRenderDockerfileNoChownForStatelessAgents guards that an agent which never
-// writes into its installation emits no chown block.
+// writes into its installation gets no ownership handover.
 func TestRenderDockerfileNoChownForStatelessAgents(t *testing.T) {
 	for _, name := range []string{"opencode", "pi", "claude-code", "codex"} {
 		a, _ := agent.Lookup(name)
@@ -480,6 +466,21 @@ func TestRenderDockerfileNoChownForStatelessAgents(t *testing.T) {
 		if strings.Contains(final, "chown -R") {
 			t.Errorf("%s must not emit a tool-tree chown; got:\n%s", name, final)
 		}
+		if strings.Contains(final, "--chown=dev:dev") {
+			t.Errorf("%s must not tag the tool-tree copy with --chown; got:\n%s", name, final)
+		}
+	}
+}
+
+func TestDevUserBlockCreatesDevGroupUnconditionally(t *testing.T) {
+	block := devUserBlock()
+	groupIdx := strings.Index(block, `groupadd -f -g "$USER_GID" dev`)
+	guardIdx := strings.Index(block, "id -u dev")
+	if groupIdx < 0 {
+		t.Fatalf("devUserBlock must create the dev group regardless of a pre-created user; got:\n%s", block)
+	}
+	if guardIdx < 0 || groupIdx > guardIdx {
+		t.Errorf("the dev group must be created before the id -u dev guard; got:\n%s", block)
 	}
 }
 
