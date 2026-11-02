@@ -348,6 +348,18 @@ func assertSuppressesDestructiveCommands(t *testing.T, notice string) {
 	}
 }
 
+// assertOffersCopiedVolumeForRemoval fails when a notice lists a copied volume
+// among the uncopied ones instead of offering its removal command.
+func assertOffersCopiedVolumeForRemoval(t *testing.T, notice, copied string) {
+	t.Helper()
+	if strings.Contains(notice, "\n    "+copied+"\n") {
+		t.Errorf("notice lists the copied volume %q as uncopied:\n%s", copied, notice)
+	}
+	if !strings.Contains(notice, "rm -rf ~/.microsandbox/volumes/"+copied+"\n") {
+		t.Errorf("notice missing the removal command for the copied volume %q:\n%s", copied, notice)
+	}
+}
+
 // warnedAbout reports whether any warning contains substring.
 func warnedAbout(warnCalls []string, substring string) bool {
 	for _, call := range warnCalls {
@@ -376,7 +388,115 @@ func TestAcknowledgeNoticeKeepsAnExistingEntry(t *testing.T) {
 // when none of ours is present: no "safe to remove" tier is printed.
 func TestRenderNoticeWithoutArtifactsOmitsTheRemovableTier(t *testing.T) {
 	out := renderNotice(legacyArtifacts{}, nil)
-	if strings.Contains(out, "Ours, safe to remove") {
+	if strings.Contains(out, "safe to remove") {
 		t.Errorf("notice mentions a removable tier with no artifacts present:\n%s", out)
+	}
+}
+
+// TestRenderNoticeNamesLeftoversAsFromEarlierVersions pins the wording that
+// reported confusion in #285: the removable tier must read as leftovers of the
+// old runtime, not as files agents-sandbox just created, and every removal
+// line is a command rather than a path list followed by "these".
+func TestRenderNoticeNamesLeftoversAsFromEarlierVersions(t *testing.T) {
+	out := renderNotice(legacyArtifacts{
+		HomeVolumes: []string{naming.LegacyHomePrefix + "a"},
+		Sandboxes:   []string{naming.LegacyVMPrefix + "p"},
+	}, nil)
+	if !strings.Contains(out, "Leftovers from earlier agents-sandbox versions, safe to remove:") {
+		t.Errorf("notice does not name the removable tier as old leftovers:\n%s", out)
+	}
+	for _, confusing := range []string{"Ours", "Remove just these"} {
+		if strings.Contains(out, confusing) {
+			t.Errorf("notice still contains the confusing %q:\n%s", confusing, out)
+		}
+	}
+	if strings.Contains(out, "\n    ~/.microsandbox/") {
+		t.Errorf("notice lists bare paths instead of removal commands:\n%s", out)
+	}
+}
+
+// TestRenderNoticeUncopiedOffersCopiedVolumesIndividually pins that a copied
+// volume next to an uncopied one still gets its own removal command, while the
+// uncopied one gets none.
+func TestRenderNoticeUncopiedOffersCopiedVolumesIndividually(t *testing.T) {
+	copied := naming.LegacyHomePrefix + "copied"
+	uncopied := naming.LegacyHomePrefix + "uncopied"
+	out := renderNotice(legacyArtifacts{HomeVolumes: []string{copied, uncopied}}, []string{uncopied})
+	if !strings.Contains(out, "    rm -rf ~/.microsandbox/volumes/"+copied+"\n") {
+		t.Errorf("notice missing the removal command for the copied volume:\n%s", out)
+	}
+	if strings.Contains(out, "rm -rf ~/.microsandbox/volumes/"+uncopied) {
+		t.Errorf("notice offers to remove the uncopied volume:\n%s", out)
+	}
+}
+
+// TestRenderNoticeAllUncopiedOmitsTheRemovableTier pins the "Start fresh" case
+// from #285: every legacy volume is uncopied and no sandbox is left, so there is
+// nothing safe to remove and no removable tier is printed.
+func TestRenderNoticeAllUncopiedOmitsTheRemovableTier(t *testing.T) {
+	volume := naming.LegacyHomePrefix + "a"
+	out := renderNotice(legacyArtifacts{HomeVolumes: []string{volume}}, []string{volume})
+	if strings.Contains(out, "safe to remove") {
+		t.Errorf("notice prints a removable tier with nothing safe to remove:\n%s", out)
+	}
+}
+
+// TestRenderNoticeQuotesUnsafeVolumeNames pins that a copied volume whose name
+// holds shell metacharacters is quoted, so pasting the command removes only
+// that directory.
+func TestRenderNoticeQuotesUnsafeVolumeNames(t *testing.T) {
+	unsafe := naming.LegacyHomePrefix + "a b;c'd"
+	uncopied := naming.LegacyHomePrefix + "uncopied"
+	out := renderNotice(legacyArtifacts{HomeVolumes: []string{unsafe, uncopied}}, []string{uncopied})
+	want := `rm -rf ~/.microsandbox/volumes/'` + naming.LegacyHomePrefix + `a b;c'\''d'`
+	if !strings.Contains(out, want+"\n") {
+		t.Errorf("notice = \n%s\nwant the quoted command %q", out, want)
+	}
+}
+
+// TestRenderNoticeOffersNoCommandForANameSanitizingChanges pins that a copied
+// volume whose name holds a control character gets no removal command: printed
+// raw it would emit a terminal escape, and its sanitized form names a different
+// directory, possibly an uncopied volume.
+func TestRenderNoticeOffersNoCommandForANameSanitizingChanges(t *testing.T) {
+	uncopied := naming.LegacyHomePrefix + "a"
+	copiedWithEscape := uncopied + "\x1b"
+	out := renderNotice(legacyArtifacts{HomeVolumes: []string{copiedWithEscape, uncopied}}, []string{uncopied})
+	if strings.Contains(out, "rm -rf ~/.microsandbox/volumes/") {
+		t.Errorf("notice offers a volume removal command for a name sanitizing changes:\n%q", out)
+	}
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("notice leaked an escape byte from a volume name:\n%q", out)
+	}
+}
+
+// TestRenderNoticeStartFreshLayout pins the full notice for the case reported
+// in #285: "Start fresh" left every legacy volume uncopied next to leftover
+// sandboxes.
+func TestRenderNoticeStartFreshLayout(t *testing.T) {
+	volume := naming.LegacyHomePrefix + "a"
+	out := renderNotice(legacyArtifacts{
+		HomeVolumes: []string{volume},
+		Sandboxes:   []string{naming.LegacyVMPrefix + "p"},
+	}, []string{volume})
+	want := `agents-sandbox now runs its own microsandbox runtime
+
+Nothing broke — agents-sandbox keeps its runtime in its own private home now,
+so the system-wide microsandbox is no longer needed to run it.
+
+Your ~/.microsandbox was left untouched. It still holds what earlier
+agents-sandbox versions stored there:
+
+  These old home volumes were not copied into agents-sandbox and still hold data:
+    agents-sandbox-home-a
+  They were left in place; do not remove them.
+
+  Leftovers from earlier agents-sandbox versions, safe to remove:
+    rm -rf ~/.microsandbox/sandboxes/agents-sandbox-vm-*
+    rm -rf ~/.microsandbox/sandboxes/agents-sandbox-task-*
+
+Nothing was deleted for you.`
+	if out != want {
+		t.Errorf("notice =\n%s\nwant\n%s", out, want)
 	}
 }
