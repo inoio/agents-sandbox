@@ -29,14 +29,25 @@ default silently ignored the env/config value, so `internal/viperconfig/configke
 
 An exported field tagged `env:"-"` is omitted from every derived list: it has no env var and no CLI flag and is
 set in the config file only. Today that is `network.Policy.EgressAllow`/`EgressDeny`
-(see [network profiles](network-profiles.md) and `docs/configuration/networking.md`); adding another
-config-file-only key means tagging the field, not editing a list. A field tagged `mapstructure:"-"` is decoded
-outside viper (mounts, home, notify) and is likewise skipped.
+(see [network profiles](network-profiles.md) and `docs/configuration/networking.md`) and
+`SecretCommon.AllowPlaceholderFor`. A field tagged `mapstructure:"-"` is decoded outside viper (mounts, home,
+notify) and is likewise skipped.
+
+This is enforced by **not** enabling viper's `AutomaticEnv`: `NewResolver` binds an environment variable
+explicitly for every key in `envKeys` — the derived set plus the hand-listed `notify.*` keys (whose `Notify`
+field is decoded outside viper, so the walk cannot see them) — to `AGENTS_SANDBOX_<KEY>` and the deprecated
+`OPENCODE_SANDBOX_<KEY>` alias, canonical first. Every other key therefore has no env var at all, so `env:"-"`
+is sufficient on its own. `AutomaticEnv` would instead resolve *any* key, letting an `AGENTS_SANDBOX_<KEY>`
+variable override a config-file-only key whenever a config file sets it.
+
+The bare `notify` key is deliberately absent from `envKeys` (and stays unbound): it would collide with the
+`notify.*` keys in viper, and `runoptions` reads `AGENTS_SANDBOX_NOTIFY`/`OPENCODE_SANDBOX_NOTIFY` directly.
 
 ## Tests
 
 `internal/viperconfig/configkeys_test.go` pins the env-key set as a golden list (a dropped or added key fails
-there), asserts `dind` is absent from the bind list, asserts the egress lists stay unbindable, and pins the
-struct-derived flag-default types. `walkConfigKeys` is also asserted directly against a synthetic type, because
-`Config` itself has no untagged exported field and no tagged unexported field for the walk's two skip guards to
-act on.
+there), asserts `dind` is absent from the bind list, asserts the egress lists stay out of `envKeys` and win over
+their env var when a config file sets them too, and pins the struct-derived flag-default types.
+`walkConfigKeys` is also asserted directly against a synthetic type, because `Config` itself has no untagged
+exported field and no tagged unexported field for the walk's two skip guards to act on.
+`TestResolverNotifyDottedEnvVars`/`TestResolverNotifyLegacyEnvVars` cover the explicitly bound `notify.*` keys.

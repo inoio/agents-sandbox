@@ -4,6 +4,8 @@ package image
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -258,6 +260,99 @@ func TestRenderDockerfileMissingRuntimeLibFailsBuild(t *testing.T) {
 	}
 	if out := strings.Join(lines, "\n"); !strings.Contains(out, "agent runtime library missing: libatomic.so.1") {
 		t.Errorf("the failed build must name the missing library; output:\n%s", out)
+	}
+}
+
+// ownedPathsStubAgent declares OwnsToolTree but installs only a marker tree,
+// so the copy-time ownership handover builds and inspects cheaply without the
+// real hermes installer.
+type ownedPathsStubAgent struct{ agent.Agent }
+
+func (ownedPathsStubAgent) Name() string { return "stub-owned" }
+
+func (ownedPathsStubAgent) ImageSpec() agent.ImageSpec {
+	return agent.ImageSpec{
+		VersionArg:     "STUB_VERSION",
+		InstallCommand: "mkdir -p /opt/agents-sandbox/stub && touch /opt/agents-sandbox/stub/marker",
+		OwnsToolTree:   true,
+	}
+}
+
+// TestRenderDockerfileOwnsToolTreeOnPreProvidedDevBase proves the dev group is
+// guaranteed for a custom base, which is what makes COPY --chown=dev:dev safe on
+// the production classic builder: it fails on an unresolvable group name where
+// BuildKit silently falls back to the user's primary group. Each base
+// pre-creates the dev user in an earlier stage (the final-stage body runs after
+// devUserBlock), covering a base with a dev group, one without, and one where
+// the host's USER_GID is already taken (the macOS dialout/20 drift).
+func TestRenderDockerfileOwnsToolTreeOnPreProvidedDevBase(t *testing.T) {
+	origGet := docker.Get
+	docker.Get = docker.RealClient
+	t.Cleanup(func() { docker.Get = origGet })
+
+	stub := ownedPathsStubAgent{}
+	basePrelude := "FROM debian:trixie-slim AS predev\n" +
+		"RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*\n"
+
+	// A GID distinct from the host's USER_GID, so dev-with-group proves
+	// groupadd -f leaves an existing dev group where the base put it. Pinning
+	// the group's numeric id (not just its name) is what catches a groupadd -f
+	// that moved the group onto USER_GID.
+	devGroupGID := 1001
+	if devGroupGID == os.Getgid() {
+		devGroupGID = 1002
+	}
+
+	cases := []struct {
+		name    string
+		project []byte
+		wantGID string
+	}{
+		{"dev-with-group", []byte(fmt.Sprintf(basePrelude+
+			"RUN groupadd -g %[1]d dev && useradd -m -u 1001 -g dev dev\nFROM predev\n", devGroupGID)),
+			fmt.Sprintf("%d", devGroupGID)},
+		{"dev-without-group", []byte(basePrelude +
+			"RUN useradd -m -u 1001 -g nogroup dev\nFROM predev\n"), ""},
+		{"user-gid-taken", []byte(fmt.Sprintf(basePrelude+
+			"RUN getent group %[1]d >/dev/null || groupadd -g %[1]d occupied; useradd -m -u 1001 -g nogroup dev\nFROM predev\n", os.Getgid())), ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tag := "agents-sandbox/it-owns-dev-" + tc.name
+			t.Cleanup(func() { removeTestImage(tag) })
+
+			buildDockerfileTag(
+				t,
+				stub,
+				renderBytesVersion(t, stub, "0.0.0", tc.project, dockerOff),
+				"0.0.0",
+				false,
+				tag,
+			)
+
+			out, err := exec.Command("docker", "run", "--rm", tag, "stat", "-c", "%U:%G", "/opt/agents-sandbox/stub").
+				Output()
+			if err != nil {
+				t.Fatalf("stat the owned tool path: %v", err)
+			}
+			if got := strings.TrimSpace(string(out)); got != "dev:dev" {
+				t.Errorf("owned tool path is %q, want dev:dev", got)
+			}
+			if tc.wantGID != "" {
+				out, err := exec.Command("docker", "run", "--rm", tag, "stat", "-c", "%g", "/opt/agents-sandbox/stub").
+					Output()
+				if err != nil {
+					t.Fatalf("stat the owned tool path's group id: %v", err)
+				}
+				if got := strings.TrimSpace(string(out)); got != tc.wantGID {
+					t.Errorf(
+						"owned tool path group id is %s, want %s (an existing dev group must not be moved onto USER_GID)",
+						got,
+						tc.wantGID,
+					)
+				}
+			}
+		})
 	}
 }
 

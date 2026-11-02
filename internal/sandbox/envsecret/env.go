@@ -76,8 +76,10 @@ type EnvSecrets struct {
 
 // LoadEnvAndSecrets reads the user and project env files and secret-spec files
 // and merges them into the desired env and secrets. The project files override
-// the user files.
-func LoadEnvAndSecrets(ui termio.UI) EnvSecrets {
+// the user files. allowPlaceholderFor lists hosts that may receive any secret's
+// placeholder unchanged (the secrets.common.allow-placeholder-for config key);
+// each secret still substitutes for the hosts it allows.
+func LoadEnvAndSecrets(ui termio.UI, allowPlaceholderFor []string) EnvSecrets {
 	return EnvSecrets{
 		Vars: MergeEnvMaps(
 			BuildEnvMap(cp.Get().UserEnvFile()),
@@ -88,6 +90,6 @@ func LoadEnvAndSecrets(ui termio.UI) EnvSecrets {
 			ParseSecretSpecLegacy(cp.Get().ProjectEnvSecretFile(), ui),
 			ParseSecretSpecYAML(cp.Get().UserEnvSecretYAMLFile(), ui),
 			ParseSecretSpecYAML(cp.Get().ProjectEnvSecretYAMLFile(), ui),
-		), ui),
+		), allowPlaceholderFor, ui),
 	}
 }

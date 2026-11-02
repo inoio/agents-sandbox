@@ -1094,7 +1094,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 
 	opts := options.RunOptions{Agent: "opencode", TmpSize: "2G"}
 	seedUI := termio.NewTestMock(t)
-	fingerprints := desiredFingerprints(opts, envsecret.LoadEnvAndSecrets(&seedUI))
+	fingerprints := desiredFingerprints(opts, envsecret.LoadEnvAndSecrets(&seedUI, nil))
 	if err := seedHomeState(k, state.HomeState{
 		HomeVolume:   "home-vol",
 		ImageDigest:  "sha256:abc123",

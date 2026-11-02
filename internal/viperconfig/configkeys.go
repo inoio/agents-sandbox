@@ -15,6 +15,9 @@ import (
 // A field tagged `env:"-"` is deliberately config-file-only: it has no env var
 // and no CLI flag. Nested config structs are walked recursively and contribute
 // "<prefix>.<key>".
+//
+// The one exception is the notify.* keys: Notify is decoded outside viper, so
+// its dotted keys are listed in notifyEnvKeys by hand (see envKeys).
 
 // configKey is one launcher config key.
 type configKey struct {
@@ -39,6 +42,25 @@ var configBindKeys = configKeyNames(configKeysDerived)
 // the deprecated OPENCODE_SANDBOX_<KEY> aliases): the derived set plus KeyDind,
 // the deprecated docker alias that has no Config field.
 var configEnvKeys = slices.Concat(configBindKeys, []string{KeyDind})
+
+// notifyEnvKeys are the notify.* keys. They are not in the derived set because
+// Notify is decoded outside viper (mapstructure:"-"), yet each has a documented
+// AGENTS_SANDBOX_NOTIFY_<KEY> env var, so they are listed here and bound
+// alongside the derived keys.
+var notifyEnvKeys = []string{
+	keyNotifyDesktop,
+	keyNotifyAudio,
+	keyNotifyOnInput,
+	keyNotifyOnDone,
+	keyNotifyOnError,
+}
+
+// envKeys are every key bound to an environment variable: the derived set
+// (plus the deprecated dind alias) and the notify dotted keys. NewResolver
+// binds each to AGENTS_SANDBOX_<KEY> and the deprecated OPENCODE_SANDBOX_<KEY>
+// alias explicitly; it does not use viper's AutomaticEnv, which would resolve
+// any key (including config-file-only ones) from the environment.
+var envKeys = slices.Concat(configEnvKeys, notifyEnvKeys)
 
 // configKeyKinds maps a derived key to its Config field's Go kind.
 var configKeyKinds = func() map[string]reflect.Kind {
