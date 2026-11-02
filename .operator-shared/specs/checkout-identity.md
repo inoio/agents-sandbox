@@ -208,7 +208,7 @@ write or VM creation cannot interleave with them (#333).
 1. **Destroy every legacy VM first, across all sources, before moving any state.** For every legacy slug,
    enumerate the agents whose state lives there (`state.StatefulAgentNames`), **plus the command's own agent**
    (so a lost-state VM that `StatefulAgentNames` cannot see is torn down too), and destroy
-   `projectVMName({Slug: legacySlug, Agent})` identity-safely (best-effort; a gone name is fine). Doing all
+   `ProjectVMName({Slug: legacySlug, Agent})` identity-safely (best-effort; a gone name is fine). Doing all
    destroys before any move makes a destroy failure abort with every legacy state file still in place, so
    the next run re-fires the trigger and resumes; moving first would create the checkout state file and, on
    a later destroy failure, leave the trigger permanently satisfied — the retry would adopt the first

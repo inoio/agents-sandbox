@@ -30,7 +30,7 @@ both are still read, never produced.
 `<slug>` is `<folder≤20>-<14-char base36>` (`internal/git`), lowercase and alphanumeric-starting, so every target
 name still satisfies the runtime's name rules (sandbox ≤128 bytes / alnum-start / `[A-Za-z0-9._-]`; volume same
 charset) and the derived guest hostname (≤64 bytes). The shorter names are a side benefit: `<slug>-<agent>` is ~47
-bytes, so msb no longer truncates and hash-suffixes the guest hostname, and `projectVMName`'s 128-byte truncation
+bytes, so msb no longer truncates and hash-suffixes the guest hostname, and `ProjectVMName`'s 128-byte truncation
 stops biting.
 
 ## The Docker/msb reference split

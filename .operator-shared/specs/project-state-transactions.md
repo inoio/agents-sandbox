@@ -84,7 +84,7 @@ recovery as the only wholesale writer.
    `locks/<slug>/legacy.lock`, taken by prune's `RemoveHomeStateIf`) is deliberately not locked — no current path
    writes the agent-less `HomeState`, so the only outcomes are a benign ENOENT or adoption's existing loud
    arrival failure.
-7. **`--dry-run` side-effect-freedom was spread across call paths** (`vm/run_orchestrate.go`), not one guard.
+7. **`--dry-run` side-effect-freedom was spread across call paths** (`prepare/prepare.go`), not one guard.
    It is now a genuine read-only preview (no image build, volume create, or state write); see
    [dry-run-preview.md](dry-run-preview.md).
 
@@ -121,7 +121,7 @@ concurrency half of finding 3 is gone by construction. `RecoverHomeState` is the
 
 Only home resolution and recovery may **create** the document, because they are the writers that own the volume-naming
 write. Every other writer takes the `UpdateExistingHomeState` shape (`if !exists { return false, nil }`), including the
-two that run after a VM is created: `vm.persistFingerprints` (the post-creation fingerprint record) and
+two that run after a VM is created: `prepare.persistFingerprints` (the post-creation fingerprint record) and
 `vm.recordImageProvenance` (the boot provenance record). Creating a document there would persist
 `home_volume: ""` — `HomeVolume` has no `omitempty` — and the next run's home resolution would then try to resolve the
 empty name, hard-failing on a non-absence error or warning about a missing `""` volume (#430).
@@ -195,7 +195,7 @@ creation lock) that `RemoveHomeStateIf`, pruning, and every other path never tou
 remove the key's state directory (the state file and `clients/`) but never the lock; `claims/` is per-slug, outside
 the key dir, and is untouched. (This changes the lock path once; there are no cross-change holders.)
 
-The project-VM creation lock that serializes `ensureProjectVM` also lives under `<root>/locks/`, at
+The project-VM creation lock that serializes `EnsureProjectVM` also lives under `<root>/locks/`, at
 `locks/<slug>/<agent>/ensure-vm.lock` — keyed per agent as well as slug, since agents of one project use separate VMs
 and must not serialize on each other's creation — so a prune cannot unlink the lock a concurrent creation holds
 (#330).
