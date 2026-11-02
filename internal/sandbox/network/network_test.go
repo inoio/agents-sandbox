@@ -20,12 +20,57 @@ func TestConfigNoneAllowlistBase(t *testing.T) {
 	if cfg.DefaultIngress != msbSdk.PolicyActionAllow {
 		t.Fatalf("none must allow ingress, got %v", cfg.DefaultIngress)
 	}
-	// Only the gateway-DNS rule is present when no lists are given.
-	if len(cfg.Rules) != 1 {
-		t.Fatalf("none with no lists should have only the gateway-DNS rule, got %d rules", len(cfg.Rules))
+	// No rules at all when no lists are given: not even the gateway-DNS rule,
+	// so no name resolves (#233).
+	if len(cfg.Rules) != 0 {
+		t.Fatalf("none with no lists should have no rules, got %+v", cfg.Rules)
 	}
-	if cfg.Rules[0].Destination != "host" {
-		t.Fatalf("gateway-DNS rule destination = %q, want host", cfg.Rules[0].Destination)
+}
+
+// TestConfigNoneOmitsGatewayDNS pins the #233 fix: under `none`, the gateway-DNS
+// rule would let the DNS proxy forward any name upstream, a data channel that
+// needs no allow entry. Without it, microsandbox resolves only names an
+// egress-allow rule matches, so hostname and suffix allow-lists keep working.
+func TestConfigNoneOmitsGatewayDNS(t *testing.T) {
+	cases := map[string]Policy{
+		"no lists":  {Profiles: []Profile{ProfileNone}},
+		"ip only":   {Profiles: []Profile{ProfileNone}, EgressAllow: []string{"1.1.1.1", "10.0.0.0/8"}},
+		"hostname":  {Profiles: []Profile{ProfileNone}, EgressAllow: []string{"api.example.com"}},
+		"suffix":    {Profiles: []Profile{ProfileNone}, EgressAllow: []string{".example.com"}},
+		"deny only": {Profiles: []Profile{ProfileNone}, EgressDeny: []string{"10.0.0.0/8"}},
+		"dns-servers": {
+			Profiles:    []Profile{ProfileNone},
+			EgressAllow: []string{"api.example.com"},
+			DNSServers:  []string{"1.1.1.1"},
+		},
+	}
+	for name, policy := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := policy.Config()
+			if err != nil {
+				t.Fatalf("Config: %v", err)
+			}
+			if slices.ContainsFunc(cfg.Rules, isGatewayDNSRule) {
+				t.Fatalf("none must not emit the gateway-DNS rule, got %+v", cfg.Rules)
+			}
+		})
+	}
+}
+
+// TestConfigComposableProfilesKeepGatewayDNS verifies the composable profiles
+// still lead with the gateway-DNS rule: they allow broad egress, so names must
+// resolve.
+func TestConfigComposableProfilesKeepGatewayDNS(t *testing.T) {
+	for _, profile := range []Profile{ProfilePublic, ProfilePrivate, ProfileHost} {
+		t.Run(profile.String(), func(t *testing.T) {
+			cfg, err := (Policy{Profiles: []Profile{profile}}).Config()
+			if err != nil {
+				t.Fatalf("Config: %v", err)
+			}
+			if len(cfg.Rules) == 0 || !isGatewayDNSRule(cfg.Rules[0]) {
+				t.Fatalf("%s must lead with the gateway-DNS rule, got %+v", profile, cfg.Rules)
+			}
+		})
 	}
 }
 
@@ -132,9 +177,9 @@ func TestConfigNoneSingleHostAllowlist(t *testing.T) {
 			allowed++
 		}
 	}
-	// Gateway-DNS + the single explicit allow = 2 allow rules; nothing else.
-	if allowed != 2 {
-		t.Fatalf("expected exactly gateway-DNS + 1 explicit allow rule, got %d allow rules", allowed)
+	// Only the single explicit allow; no gateway-DNS rule (#233).
+	if allowed != 1 {
+		t.Fatalf("expected exactly 1 explicit allow rule, got %d allow rules", allowed)
 	}
 }
 
@@ -250,6 +295,7 @@ func TestConfigRuleOrder(t *testing.T) {
 	// The exact list order is the contract: microsandbox matches the first
 	// applicable rule, so the gateway-DNS rule leads, then the user deny
 	// carve-outs, then the profile allow rules, then the explicit allows (#231).
+	// `none` emits no gateway-DNS rule (#233).
 	cases := []struct {
 		name   string
 		policy Policy
@@ -277,7 +323,6 @@ func TestConfigRuleOrder(t *testing.T) {
 				EgressAllow: []string{"api.example.com"},
 			},
 			want: []rule{
-				{msbSdk.PolicyActionAllow, "host", "53"},
 				{msbSdk.PolicyActionDeny, "10.0.0.0/8", ""},
 				{msbSdk.PolicyActionAllow, "api.example.com", ""},
 			},
@@ -686,14 +731,30 @@ func TestFingerprintDenyPolicyMigratesFromLegacy(t *testing.T) {
 	}
 }
 
-// TestFingerprintDenyWithoutProfileRulesKeepsLegacyFormat verifies the migration
-// marker is omitted when the emitted rules do not change: a `none` policy emits
-// no profile allow rules, so its deny rules already came first.
-func TestFingerprintDenyWithoutProfileRulesKeepsLegacyFormat(t *testing.T) {
-	const legacyNoneDeny = "d825326a2c0b481774b194a7cbb7597bbad1558e38726d0ea7b6e4be792ff3a7"
-	p := Policy{Profiles: []Profile{ProfileNone}, EgressDeny: []string{"123.123.123.0/24"}}
-	if got := p.Fingerprint(); got != legacyNoneDeny {
-		t.Fatalf("none deny fingerprint = %q, want legacy %q", got, legacyNoneDeny)
+// TestFingerprintNonePolicyMigratesFromLegacy pins the pre-#233 fingerprints of
+// `none` policies and asserts the current ones diverge, so an existing VM
+// (whose persisted NetworkState holds the old hash and whose baked-in rules
+// still allow gateway DNS) is recreated once without the gateway-DNS rule.
+func TestFingerprintNonePolicyMigratesFromLegacy(t *testing.T) {
+	cases := map[string]struct {
+		legacy string
+		policy Policy
+	}{
+		"bare": {
+			legacy: "950b1e22ca472ac5ec7b1e1b44376630af9b707a935c83515bfd9039886716fd",
+			policy: Policy{Profiles: []Profile{ProfileNone}},
+		},
+		"with deny": {
+			legacy: "d825326a2c0b481774b194a7cbb7597bbad1558e38726d0ea7b6e4be792ff3a7",
+			policy: Policy{Profiles: []Profile{ProfileNone}, EgressDeny: []string{"123.123.123.0/24"}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.policy.Fingerprint(); got == tc.legacy {
+				t.Fatalf("none fingerprint %q must diverge from the pre-#233 value", got)
+			}
+		})
 	}
 }
 
@@ -719,6 +780,14 @@ func TestFingerprintDistinguishesDNSServers(t *testing.T) {
 	if different.Fingerprint() == withDNS.Fingerprint() {
 		t.Fatal("different dns-servers must change the fingerprint")
 	}
+}
+
+// isGatewayDNSRule reports whether rule is microsandbox's gateway-DNS allow
+// rule (gateway UDP/TCP port 53).
+func isGatewayDNSRule(rule msbSdk.PolicyRule) bool {
+	gatewayDNS := msbSdk.Rule.AllowDNS()
+	return rule.Action == gatewayDNS.Action && rule.Destination == gatewayDNS.Destination &&
+		rule.Port == gatewayDNS.Port
 }
 
 // isProfileDestination reports whether a rule destination names one of the
