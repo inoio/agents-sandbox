@@ -489,6 +489,7 @@ func TestBuildVolumeOpsForwardsPositionalNameAndInfo(t *testing.T) {
 	initTestProjectDir(t)
 	configpaths.WithMockConfigPaths(t)
 	doctor.MockedCheckAll(t, true)
+	image.WithMockAgentVersion(t, "3.3.3")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
