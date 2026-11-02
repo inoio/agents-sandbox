@@ -65,7 +65,7 @@ func TestParseSecretSpecLegacyBadLineWarns(t *testing.T) {
 func TestBuildSecretsFromSpecsNoHostsDropsEntry(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"FOO": {Value: "x"}}
-	secrets := BuildSecretsFromSpecs(in, &testUI)
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
 	if len(secrets) != 0 {
 		t.Fatalf("expected entry with no hosts to be dropped, got %d secrets", len(secrets))
 	}
@@ -84,7 +84,7 @@ func TestBuildSecretsFromSpecsDroppedEntryDoesNotStopLaterEntries(t *testing.T) 
 		"AAA": {Value: "dropped"}, // no hosts → dropped by the guard
 		"ZZZ": {Value: "kept", Host: "h.example"},
 	}
-	secrets := BuildSecretsFromSpecs(in, &testUI)
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
 	if len(secrets) != 1 {
 		t.Fatalf("expected the valid entry after a dropped one, got %d secrets", len(secrets))
 	}
@@ -96,7 +96,7 @@ func TestBuildSecretsFromSpecsDroppedEntryDoesNotStopLaterEntries(t *testing.T) 
 func TestBuildSecretsFromSpecsHostListAndHost(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"K": {Value: "v", Host: "a.example", Hosts: []string{"b.example"}}}
-	secrets := BuildSecretsFromSpecs(in, &testUI)
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
 	if len(secrets) != 1 {
 		t.Fatalf("expected 1 secret")
 	}
@@ -115,7 +115,7 @@ func TestBuildSecretsFromSpecsHostListAndHost(t *testing.T) {
 func TestBuildSecretsFromSpecsEmptyValueAndHostIsPassedThrough(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"K": {Value: "", Hosts: []string{"h"}}}
-	secrets := BuildSecretsFromSpecs(in, &testUI)
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
 	if len(secrets) != 1 {
 		t.Fatalf("expected 1 secret for empty value with host, got %d", len(secrets))
 	}
@@ -197,7 +197,7 @@ func TestParseSecretSpecYAMLAllowAnyHostDangerous(t *testing.T) {
 func TestBuildSecretsFromSpecsAllowAnyHostDangerous(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"K": {Value: "v", AllowAnyHostDangerous: true}}
-	secrets := BuildSecretsFromSpecs(in, &testUI)
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
 	if len(secrets) != 1 {
 		t.Fatalf("expected 1 secret for allow_any_host_dangerous, got %d", len(secrets))
 	}
@@ -212,7 +212,7 @@ func TestBuildSecretsFromSpecsAllowAnyHostDangerous(t *testing.T) {
 func TestBuildSecretsFromSpecsAllowAnyHostDangerousWithHostsPreservesHosts(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"K": {Value: "v", AllowAnyHostDangerous: true, Hosts: []string{"h.example"}}}
-	secrets := BuildSecretsFromSpecs(in, &testUI)
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
 	if len(secrets) != 1 {
 		t.Fatalf("expected 1 secret, got %d", len(secrets))
 	}
@@ -300,7 +300,7 @@ func TestBuildSecretsPipelinePrecedence(t *testing.T) {
 		ParseSecretSpecYAML(userYAML, &testUI),
 		ParseSecretSpecYAML(projectYAML, &testUI),
 	)
-	secrets := BuildSecretsFromSpecs(specs, &testUI)
+	secrets := BuildSecretsFromSpecs(specs, nil, &testUI)
 
 	byVar := map[string]msbSdk.SecretEntry{}
 	for _, s := range secrets {
@@ -317,7 +317,7 @@ func TestBuildSecretsPipelinePrecedence(t *testing.T) {
 func TestBuildSecretsFromSpecsDangerousFlagWithHosts(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"K": {Value: "v", AllowAnyHostDangerous: true, Hosts: []string{"h.example"}}}
-	secrets := BuildSecretsFromSpecs(in, &testUI)
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
 	if len(secrets) != 1 {
 		t.Fatalf("expected 1 secret, got %d", len(secrets))
 	}
@@ -356,7 +356,7 @@ func TestMergePrecedence4Layers(t *testing.T) {
 		ParseSecretSpecYAML(userYAML, &testUI),
 		ParseSecretSpecYAML(projectYAML, &testUI),
 	)
-	secrets := BuildSecretsFromSpecs(specs, &testUI)
+	secrets := BuildSecretsFromSpecs(specs, nil, &testUI)
 
 	byVar := map[string]msbSdk.SecretEntry{}
 	for _, s := range secrets {
@@ -399,7 +399,7 @@ func TestParseSecretSpecLegacyValueOnly(t *testing.T) {
 func TestBuildSecretsEmptyHostname(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"K": {Value: "v", Hosts: []string{""}}}
-	secrets := BuildSecretsFromSpecs(in, &testUI)
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
 	if len(secrets) != 1 {
 		t.Fatalf("expected 1 secret, got %d", len(secrets))
 	}
@@ -421,7 +421,7 @@ func TestBuildSecretsYAMLValueOnlyWithNoHostsDropped(t *testing.T) {
 		ParseSecretSpecLegacy(legacyPath, &testUI),
 		ParseSecretSpecYAML(yamlPath, &testUI),
 	)
-	secrets := BuildSecretsFromSpecs(specs, &testUI)
+	secrets := BuildSecretsFromSpecs(specs, nil, &testUI)
 	// YAML entry with value only fully replaces legacy spec; no hosts → dropped
 	if len(secrets) != 0 {
 		t.Errorf("expected 0 secrets (YAML value-only replaces legacy hosts), got %d", len(secrets))
@@ -448,7 +448,7 @@ func TestMergeSecretSpecsYAMLOnlyKeyWins(t *testing.T) {
 		ParseSecretSpecYAML(userYAML, &testUI),
 		ParseSecretSpecYAML(projectYAML, &testUI),
 	)
-	secrets := BuildSecretsFromSpecs(specs, &testUI)
+	secrets := BuildSecretsFromSpecs(specs, nil, &testUI)
 
 	byVar := map[string]msbSdk.SecretEntry{}
 	for _, s := range secrets {
@@ -477,12 +477,83 @@ func TestParseSecretSpecLegacyValueWithAtAtEnd(t *testing.T) {
 func TestBuildSecretsFromSpecsOnlySingleHost(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	in := map[string]SecretSpec{"K": {Value: "v", Host: "h.example"}}
-	secrets := BuildSecretsFromSpecs(in, &testUI)
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
 	if len(secrets) != 1 {
 		t.Fatalf("expected 1 secret, got %d", len(secrets))
 	}
 	if secrets[0].Allow[0] != "h.example" {
 		t.Errorf("Allow = %v, want [h.example]", secrets[0].Allow)
+	}
+}
+
+func TestBuildSecretsFromSpecsAppliesAllowPlaceholderFor(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {Value: "v", Hosts: []string{"git.example"}}}
+	secrets := BuildSecretsFromSpecs(in, []string{"model.example"}, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if !slices.Equal(secrets[0].Passthrough, []string{"model.example"}) {
+		t.Errorf("Passthrough = %v, want [model.example]", secrets[0].Passthrough)
+	}
+}
+
+// TestBuildSecretsFromSpecsAllowPlaceholderForExcludesAllowedHost pins that a
+// host a secret already allows keeps substitution: it must not also be a
+// placeholder-passthrough host, because the runtime rejects a host listed in
+// both.
+func TestBuildSecretsFromSpecsAllowPlaceholderForExcludesAllowedHost(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {Value: "v", Hosts: []string{"model.example"}}}
+	secrets := BuildSecretsFromSpecs(in, []string{"model.example"}, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if len(secrets[0].Passthrough) != 0 {
+		t.Errorf("Passthrough = %v, want empty (host is already allowed)", secrets[0].Passthrough)
+	}
+}
+
+// TestBuildSecretsFromSpecsAllowPlaceholderForSkipsAllowAnyHostSecret pins that
+// a secret allowing every host (Allow ["*"]) gets no placeholder passthrough:
+// it already substitutes everywhere, and the runtime rejects the combination.
+func TestBuildSecretsFromSpecsAllowPlaceholderForSkipsAllowAnyHostSecret(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {Value: "v", AllowAnyHostDangerous: true}}
+	secrets := BuildSecretsFromSpecs(in, []string{"model.example"}, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if len(secrets[0].Passthrough) != 0 {
+		t.Errorf("Passthrough = %v, want empty for an allow-any-host secret", secrets[0].Passthrough)
+	}
+}
+
+func TestBuildSecretsFromSpecsEmptyAllowPlaceholderForLeavesPassthroughNil(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {Value: "v", Hosts: []string{"git.example"}}}
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if secrets[0].Passthrough != nil {
+		t.Errorf("Passthrough = %v, want nil so the fingerprint does not flip", secrets[0].Passthrough)
+	}
+}
+
+// TestBuildSecretsFromSpecsAllowPlaceholderForDedupesAndSorts pins that the
+// placeholder-passthrough hosts are deduplicated and sorted, so the same config
+// with reordered entries yields an identical entry (and an identical
+// fingerprint).
+func TestBuildSecretsFromSpecsAllowPlaceholderForDedupesAndSorts(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {Value: "v", Hosts: []string{"git.example"}}}
+	secrets := BuildSecretsFromSpecs(in, []string{"b.example", "a.example", "b.example"}, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if !slices.Equal(secrets[0].Passthrough, []string{"a.example", "b.example"}) {
+		t.Errorf("Passthrough = %v, want [a.example b.example]", secrets[0].Passthrough)
 	}
 }
 
@@ -501,7 +572,7 @@ func TestBuildSecretsFromSpecsDeterministicOrder(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 
 	for range 50 {
-		entries := BuildSecretsFromSpecs(specs, &testUI)
+		entries := BuildSecretsFromSpecs(specs, nil, &testUI)
 		names := make([]string, 0, len(entries))
 		for _, e := range entries {
 			names = append(names, e.EnvVar)

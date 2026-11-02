@@ -38,6 +38,8 @@ type Config struct {
 
 	// Network holds the egress policy. Only Profiles is settable via env/flag.
 	Network network.Policy `mapstructure:"network"`
+	// Secrets holds secret-global settings that apply to every secret.
+	Secrets Secrets `mapstructure:"secrets"`
 	// Mounts is excluded from viper.Unmarshal (mapstructure:"-") and decoded
 	// from v.Get("mounts") instead: viper flattens dotted guest paths such as
 	// /home/dev/.m2 into nested keys, which would corrupt the map keys.
@@ -63,6 +65,23 @@ type Config struct {
 	// override — the bare "notify" key — cannot collide with the nested
 	// notify.desktop/audio/... keys.
 	Notify NotifyConfig `mapstructure:"-"`
+}
+
+// Secrets holds secret-global launcher settings.
+type Secrets struct {
+	// Common holds settings shared by every secret.
+	Common SecretCommon `mapstructure:"common"`
+}
+
+// SecretCommon holds settings that apply to every secret.
+//
+//exhaustruct:ignore
+type SecretCommon struct {
+	// AllowPlaceholderFor lists hosts that may receive any secret's placeholder
+	// unchanged (the allow-placeholder-for key). It is config-file-only: no env
+	// var and no flag, so an LLM model host is trusted deliberately. A host a
+	// secret already allows keeps substitution (see docs/configuration/secrets.md).
+	AllowPlaceholderFor []string `mapstructure:"allow-placeholder-for" env:"-"`
 }
 
 // NotifyConfig is the resolved notify setting for a session.

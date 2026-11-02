@@ -175,6 +175,24 @@ func TestBuildOpenLinksFromFlagWithoutConfig(t *testing.T) {
 	}
 }
 
+// TestBuildAllowPlaceholderForFromConfig pins that the config-file-only
+// allow-placeholder-for list reaches RunOptions, where the env/secret load
+// reads it to build the secret entries' placeholder passthrough.
+func TestBuildAllowPlaceholderForFromConfig(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{
+		Secrets: viperconfig.Secrets{
+			Common: viperconfig.SecretCommon{AllowPlaceholderFor: []string{"model.example"}},
+		},
+	})
+	opts, err := Build(r.Config(), newRunCommand(), &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !slices.Equal(opts.AllowPlaceholderFor, []string{"model.example"}) {
+		t.Errorf("AllowPlaceholderFor = %v, want [model.example]", opts.AllowPlaceholderFor)
+	}
+}
+
 func TestBuildNilResolver(t *testing.T) {
 	ui := &termio.Mock{}
 	cmd := newRunCommand()

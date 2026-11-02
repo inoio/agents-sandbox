@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 
 	"github.com/spf13/pflag"
 )
@@ -73,6 +74,53 @@ func TestConfigEgressListsAreConfigFileOnly(t *testing.T) {
 	}
 	if len(r.cfg.Network.EgressAllow) != 0 {
 		t.Errorf("Network.EgressAllow = %v, want none (its env var is not honored)", r.cfg.Network.EgressAllow)
+	}
+}
+
+// allow-placeholder-for is config-file-only like the network egress lists: the
+// env:"-" tag keeps the derived env list from binding it, so an
+// AGENTS_SANDBOX_ALLOW_PLACEHOLDER_FOR is not honored.
+func TestConfigAllowPlaceholderForEnvIsIgnored(t *testing.T) {
+	const key = "secrets.common.allow-placeholder-for"
+	if slices.Contains(configEnvKeys, key) {
+		t.Errorf("configEnvKeys must not contain the config-file-only key %q", key)
+	}
+
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv(envVarName(EnvPrefix, key), "env-only.example")
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if len(r.cfg.Secrets.Common.AllowPlaceholderFor) != 0 {
+		t.Errorf(
+			"Secrets.Common.AllowPlaceholderFor = %v, want none (its env var is not honored)",
+			r.cfg.Secrets.Common.AllowPlaceholderFor,
+		)
+	}
+}
+
+// TestConfigAllowPlaceholderForFromFile pins that the config-file-only
+// secrets.common.allow-placeholder-for key reaches Config.
+func TestConfigAllowPlaceholderForFromFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
+		"secrets": map[string]any{
+			"common": map[string]any{
+				"allow-placeholder-for": []string{"model.example"},
+			},
+		},
+	})
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	want := []string{"model.example"}
+	if got := r.cfg.Secrets.Common.AllowPlaceholderFor; !slices.Equal(got, want) {
+		t.Errorf("Secrets.Common.AllowPlaceholderFor = %v, want %v", got, want)
 	}
 }
 
