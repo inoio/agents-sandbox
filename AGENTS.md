@@ -37,6 +37,10 @@ You are dogfooding the project, you are not on the host, but in an agents-sandbo
 - `~/.local/share/opencode/worktree/` git worktrees of `/workspace`, created by opencode. If that's your CWD, finalize 
   the session by pushing a PR to github and deleting the worktree.
 
+Some sessions run on the host instead: there is no `/workspace`, and `/dev/kvm` is writable. There you can start VMs and
+run `make test-msb` yourself, so runtime behavior (network policy, DNS, harness startup) can be verified against real
+VMs instead of being handed to the user. Issues labelled `ready-for-human` for that reason are workable on the host.
+
 ## System tools
 
 Prefer these installed CLI tools over other tools or custom solutions:
@@ -64,7 +68,7 @@ Don't install additional tools yourself without permission.
 
 - go, gofmt, golangci-lint, gcc (for CGO), zig (for cross-compilation)
 - msb (microsandbox cli) - since /dev/kvm is not functional in the VM, you can't actually start VMs yourself. Must be
-  tested manually by the user
+  tested manually by the user, unless you run on the host (see Development)
 - docker
 
 Common development commands (run from the Go module root):
@@ -80,7 +84,9 @@ Common development commands (run from the Go module root):
   package — that is compile-only, not skipped tests.
 - `make test-msb` — run the `msb`-tagged harness smoke tests, which start every registered harness to its full-screen
   TUI in a real microsandbox VM. Host-only (needs KVM, a docker daemon, and network) and excluded from
-  `make check`/`make test` via the `msb` build tag; `make compile-all` still compiles it.
+  `make check`/`make test` via the `msb` build tag; `make compile-all` still compiles it. Run it (or a single test via
+  `CGO_ENABLED=1 go test -tags msb -run <Test> ./internal/sandbox/msb/`) whenever you are on the host. `make lint`
+  skips `msb`-tagged files; lint them with `golangci-lint run --build-tags msb <pkg>`.
 - `make lint`/`golangci-lint run` — run the linter. ALWAYS use! DON'T use `go vet`!
 - `make fmt`/`golangci-lint fmt` — format all files. ALWAYS use! DON'T manually rewrite / use `go fmt`!
 - `go mod tidy` — sync `go.mod`/`go.sum` (run after adding/removing imports).
