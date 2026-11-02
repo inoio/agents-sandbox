@@ -419,6 +419,59 @@ current_branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
 
 local_default="${default_ref#origin/}"
 
+# --- config-worktree protection --------------------------------------------
+# The bare-root recipe bridges .agents-sandbox into a sibling worktree with
+# file-level relative symlinks. That worktree takes no commits of its own, so
+# it always looks merged once main advances; protect it structurally (B) and by
+# its reserved names (A).
+
+CONFIG_MIRROR_BRANCH="agents-sandbox-config"
+CONFIG_DIR_NAME="config"
+
+config_protected_paths=()
+collect_config_protected_paths() {
+  local common candidate entry target target_dir parent
+  common="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+  [[ -n "$common" ]] || return 0
+  for candidate in "$(cd "$common" 2>/dev/null && cd .. && pwd -P)" "$(cd "$common" 2>/dev/null && pwd -P)"; do
+    [[ -n "$candidate" && -d "$candidate/.agents-sandbox" ]] || continue
+    for entry in "$candidate"/.agents-sandbox/*; do
+      [[ -L "$entry" ]] || continue
+      target="$(readlink "$entry")" || continue
+      [[ "$target" == /* ]] || target="$(dirname "$entry")/$target"
+      target_dir="$(cd "$(dirname "$target")" 2>/dev/null && pwd -P)" || continue
+      while [[ "$target_dir" != / && "$(basename "$target_dir")" != .agents-sandbox ]]; do
+        target_dir="$(dirname "$target_dir")"
+      done
+      [[ "$(basename "$target_dir")" == .agents-sandbox ]] || continue
+      parent="$(dirname "$target_dir")"
+      contains "$parent" ${config_protected_paths[@]+"${config_protected_paths[@]}"} || config_protected_paths+=("$parent")
+    done
+  done
+}
+
+is_protected_config_worktree() {
+  local path
+  path="$(cd "$1" 2>/dev/null && pwd -P)" || return 1
+  contains "$path" ${config_protected_paths[@]+"${config_protected_paths[@]}"} && return 0
+  [[ "$(basename "$path")" == "$CONFIG_DIR_NAME" ]] && return 0
+  return 1
+}
+
+is_protected_config_branch() {
+  local branch="$1"
+  [[ "$branch" == "$CONFIG_MIRROR_BRANCH" ]] && return 0
+  contains "$branch" ${config_protected_branches[@]+"${config_protected_branches[@]}"}
+}
+
+config_protected_branches=()
+collect_config_protected_paths
+for i in "${!worktree_path[@]}"; do
+  if is_protected_config_worktree "${worktree_path[$i]}"; then
+    [[ -n "${worktree_branch[$i]}" ]] && config_protected_branches+=("${worktree_branch[$i]}")
+  fi
+done
+
 # --- plan: worktrees --------------------------------------------------------
 
 plan_wt_path=()
@@ -455,6 +508,8 @@ for i in "${!worktree_path[@]}"; do
       note="unmerged"
     elif [[ "$branch" == release/* ]]; then
       note="release branch"
+    elif is_protected_config_worktree "$path" || is_protected_config_branch "$branch"; then
+      note="config mirror; protected"
     elif is_excluded "$branch"; then
       note="excluded (merged)"
     elif [[ "$method" == ancestry ]] && worktree_at_or_ahead_of_default "$branch"; then
