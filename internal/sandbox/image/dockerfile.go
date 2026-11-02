@@ -831,18 +831,21 @@ func joinBlocks(blocks ...string) string {
 	return strings.Join(nonEmpty, "\n")
 }
 
-// devUserBlock creates the dev user as root, leaving the shell as root.
-// groupadd -f tolerates a host GID already taken in the base image (e.g. macOS
-// staff/20 vs dialout): the group then gets the next free GID, so useradd must
-// reference it by name. The login shell prefers bash, then zsh, then sh, so a
-// custom base need only provide a POSIX shell.
+// devUserBlock creates the dev user as root, leaving the shell as root. It
+// creates the dev group for every base, including a custom base that already
+// provides a dev user without one, so the group name resolves wherever the
+// runtime hands the tool tree to dev: groupadd -f is a no-op when the group
+// exists and otherwise creates it at USER_GID, or the next free GID when that
+// GID is taken (e.g. macOS staff/20 vs dialout), so useradd references it by
+// name. The login shell prefers bash, then zsh, then sh, so a custom base need
+// only provide a POSIX shell.
 func devUserBlock() string {
 	return `USER root
 ARG USER_UID=1000
 ARG USER_GID=1000
-RUN id -u dev >/dev/null 2>&1 || \
-      { groupadd -f -g "$USER_GID" dev && \
-        p=/bin/sh; for sh in bash zsh sh; do q="$(command -v "$sh" 2>/dev/null)" && { p="$q"; break; }; done; \
+RUN groupadd -f -g "$USER_GID" dev; \
+    id -u dev >/dev/null 2>&1 || \
+      { p=/bin/sh; for sh in bash zsh sh; do q="$(command -v "$sh" 2>/dev/null)" && { p="$q"; break; }; done; \
         useradd -m -u "$USER_UID" -g dev -s "$p" dev; }
 `
 }

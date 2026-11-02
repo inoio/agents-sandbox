@@ -483,6 +483,18 @@ func TestRenderDockerfileNoChownForStatelessAgents(t *testing.T) {
 	}
 }
 
+func TestDevUserBlockCreatesDevGroupUnconditionally(t *testing.T) {
+	block := devUserBlock()
+	groupIdx := strings.Index(block, `groupadd -f -g "$USER_GID" dev`)
+	guardIdx := strings.Index(block, "id -u dev")
+	if groupIdx < 0 {
+		t.Fatalf("devUserBlock must create the dev group regardless of a pre-created user; got:\n%s", block)
+	}
+	if guardIdx < 0 || groupIdx > guardIdx {
+		t.Errorf("the dev group must be created before the id -u dev guard; got:\n%s", block)
+	}
+}
+
 // emptyGuestToolsAgent declares the GuestToolRequirer capability with no tools,
 // covering guestToolsBlock's empty-list guard. The interface contract is that a
 // daemonless agent does not implement it, but a capability that returns an empty
