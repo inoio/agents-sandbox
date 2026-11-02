@@ -303,7 +303,7 @@ func TestRenderDockerfileOwnsToolTreeOnPreProvidedDevBase(t *testing.T) {
 		{"dev-without-group", []byte(basePrelude +
 			"RUN useradd -m -u 1001 -g nogroup dev\nFROM predev\n")},
 		{"user-gid-taken", []byte(fmt.Sprintf(basePrelude+
-			"RUN groupadd -g %d occupied && useradd -m -u 1001 -g nogroup dev\nFROM predev\n", os.Getgid()))},
+			"RUN getent group %[1]d >/dev/null || groupadd -g %[1]d occupied; useradd -m -u 1001 -g nogroup dev\nFROM predev\n", os.Getgid()))},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

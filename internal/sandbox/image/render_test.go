@@ -434,9 +434,10 @@ func TestRenderDockerfileManagedBaseInstallsLibatomic(t *testing.T) {
 	}
 }
 
-// TestRenderDockerfileChownsAgentToolTree guards the ownership handover: an
+// TestRenderDockerfileOwnsAgentToolTreeAtCopy guards the ownership handover: an
 // agent that writes into its own installation at runtime (hermes) declares the
-// paths, and the runner chowns them to the dev user it just created. The chown
+// paths, so the runner's tool-tree COPY carries --chown=dev:dev and hands the
+// tree to the dev user at copy time. There is no follow-up chown, and the copy
 // must run before the image switches to USER dev.
 func TestRenderDockerfileOwnsAgentToolTreeAtCopy(t *testing.T) {
 	a, _ := agent.Lookup("hermes")

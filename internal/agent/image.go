@@ -12,14 +12,14 @@ type ImageSpec struct {
 	AgentEnv       map[string]string
 	InstallCommand string
 	RequiresNode   bool
-	// OwnedToolPaths are the paths inside the runner image that must belong to
-	// the runtime user. They exist for agents that write into their own
-	// installation at runtime (Hermes keeps a dependency ledger and bytecode
-	// markers in its checkout and rejects a git checkout owned by another
-	// user), so a tree left owned by the build's root is unusable for dev. The
-	// renderer chowns them to `dev` after copying the tool tree in and before
-	// it switches to `USER dev`. Agents that never write into their
-	// installation leave it nil.
+	// OwnedToolPaths marks that the agent writes into its own installation at
+	// runtime (Hermes keeps a dependency ledger and bytecode markers in its
+	// checkout and rejects a git checkout owned by another user), so the tool
+	// tree must belong to the runtime user. A non-empty slice makes the
+	// renderer's tool-tree COPY carry --chown=dev:dev, handing the whole copied
+	// tree to dev at copy time; the listed paths are the declaration, not the
+	// chown scope (a granular chown would record a second full copy of the
+	// tree in its layer diff). A nil or empty slice leaves the tree root-owned.
 	OwnedToolPaths []string
 	// RuntimeLibs are shared libraries the agent's provisioned runtime links at
 	// run time. The runner copies only the agent's tool tree into the project's
