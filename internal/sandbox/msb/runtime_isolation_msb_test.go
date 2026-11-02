@@ -26,6 +26,15 @@ var isolatedRuntimeReady bool
 // cannot hang the suite.
 const destroyTimeout = 30 * time.Second
 
+// testIdleTimeout is the out-of-process backstop for a sandbox a test creates:
+// if the test binary is hard-killed (SIGKILL, an OOM, a CI timeout) neither its
+// t.Cleanup Destroy nor the TestMain sweep runs, but the runtime still stops the
+// idle VM instead of leaving it up forever. It exceeds TestJobsRoundTrip's
+// three-minute context on purpose, so it can never fire during a legitimate run
+// (the context cancels first); it stops the VM without removing the persisted
+// sandbox, which is why Destroy and the sweep stay primary.
+const testIdleTimeout = 5 * time.Minute
+
 // installIsolatedRuntimeHome points the process at a fresh microsandbox home and
 // returns a cleanup that removes it. It is cheap — the runtime installs lazily
 // in ensureIsolatedRuntime, so compile-all's -run=^$ stays a no-op.

@@ -36,6 +36,9 @@ func TestJobsRoundTrip(t *testing.T) {
 		msbSdk.WithImage("alpine:3.20"),
 		msbSdk.WithReplace(),
 		msbSdk.WithDetached(),
+		// Out-of-process backstop: reap the VM if this test process is
+		// killed before its cleanup or the TestMain sweep can run.
+		msbSdk.WithIdleTimeout(testIdleTimeout),
 	)
 	if err != nil {
 		t.Fatalf("CreateSandbox: %v", err)
