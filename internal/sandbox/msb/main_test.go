@@ -1,6 +1,8 @@
 package msb
 
 import (
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -25,9 +27,18 @@ func TestMain(m *testing.M) {
 	// the untagged build (see runtime_isolation_msb_test.go).
 	removeIsolatedRuntimeHome := installIsolatedRuntimeHome()
 	m.Run()
-	// A test that did not reach its own cleanup (interrupted, timed out,
-	// panicked) would otherwise leave a detached VM in a home the next line
-	// deletes; sweep it first (no-op untagged and when nothing ran).
-	sweepIsolatedSandboxes()
-	removeIsolatedRuntimeHome()
+	// A test that failed or panicked without reaching its own cleanup would
+	// otherwise leave a detached VM in the home removeIsolatedRuntimeHome
+	// deletes; sweep it first (no-op untagged and when nothing ran). A hard kill
+	// — a -timeout expiry, SIGINT, or SIGKILL — exits without returning from
+	// m.Run(), so the sweep cannot run and the sandbox's idle timeout is the
+	// backstop instead.
+	if sweepErr := sweepIsolatedSandboxes(); sweepErr != nil {
+		// Keep the home so the surviving sandbox stays reachable for manual
+		// cleanup; the error names the home and each sandbox it could not
+		// destroy.
+		fmt.Fprintf(os.Stderr, "msb tests: sandbox sweep failed, keeping the isolated runtime home: %v\n", sweepErr)
+	} else {
+		removeIsolatedRuntimeHome()
+	}
 }

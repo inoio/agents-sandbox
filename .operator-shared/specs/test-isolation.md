@@ -98,10 +98,13 @@ never be reached by a later invocation. Three rules keep the msb-tagged tests fr
   stopped"; a detached sandbox (`WithDetached()`) keeps running past the Go process, so a bare `Remove` on a running
   one fails (and is easy to swallow) and the VM runs forever. Tests tear down with `SandboxHandle.Destroy`
   (identity-safe stop-and-remove), never `Remove`.
-- **Sweep after the run.** `TestMain` destroys any sandbox left in the isolated home after `m.Run()` and before
-  removing the home, so a test that never reached its own cleanup (interrupted, timed out, panicked) cannot leak a VM
-  pointing at a deleted home. The sweep is a no-op when no test resolved the runtime, so `compile-all`'s `-run=^$`
-  stays inert — the same guard `specs/harness-smoke-tests.md` gives its temp root.
+- **Sweep after the run.** `TestMain` destroys any sandbox left in the isolated home after `m.Run()` returns and
+  before removing the home, so a test that failed or panicked without reaching its own cleanup cannot leak a VM
+  pointing at a deleted home. It does **not** cover a hard kill — a `-timeout` expiry, SIGINT, SIGKILL, or an OOM
+  exits the process without returning from `m.Run()`, so the sweep never runs and the idle-timeout backstop is what
+  stops that VM. A failed sweep is reported and the home is kept, so the surviving sandbox stays reachable for manual
+  cleanup instead of vanishing with the home. The sweep is a no-op when no test resolved the runtime, so
+  `compile-all`'s `-run=^$` stays inert — the same guard `specs/harness-smoke-tests.md` gives its temp root.
 - **Backstop with an idle timeout.** A sandbox a test creates also starts with `WithIdleTimeout`, so if the test
   binary is hard-killed — where neither `Destroy` nor the sweep can run — the runtime still stops the idle VM instead
   of leaving it up forever. The timer fires on *exec* silence (a sleeping job or a `Job.Inspect` poll does not reset

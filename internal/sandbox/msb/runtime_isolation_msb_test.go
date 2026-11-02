@@ -4,6 +4,7 @@ package msb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -73,27 +74,38 @@ func ensureIsolatedRuntime(t *testing.T) {
 }
 
 // sweepIsolatedSandboxes best-effort destroys every sandbox left in the
-// isolated runtime home after the tests. A test that reached its own cleanup
-// leaves nothing; one interrupted before it (a timeout, a panic, a SIGINT at
-// the wrong moment) would otherwise leak a detached VM whose runtime home the
-// teardown is about to delete, unreachable from any later invocation. The
+// isolated runtime home after m.Run() returns. A test that reached its own
+// cleanup leaves nothing; one that failed or panicked without reaching it would
+// otherwise leak a detached VM whose runtime home the teardown is about to
+// delete, unreachable from any later invocation. A hard kill (a -timeout
+// expiry, SIGINT, SIGKILL) exits without returning from m.Run(), so the sweep
+// cannot run and the sandbox's idle timeout is the backstop instead. The
 // harness suite guards the same failure with its sandbox sweep
 // (specs/harness-smoke-tests.md); this is the msb package's equivalent.
 //
 // Destroy stops and removes, because Remove requires an already-stopped
-// sandbox. The sweep is a no-op when no test installed the runtime, keeping
-// compile-all's -run=^$ inert.
-func sweepIsolatedSandboxes() {
+// sandbox. A failure is returned rather than swallowed, naming the home and
+// each sandbox it could not destroy, so the caller can report it and keep the
+// home reachable for manual cleanup. The sweep is a no-op when no test
+// installed the runtime, keeping compile-all's -run=^$ inert.
+func sweepIsolatedSandboxes() error {
 	if !isolatedRuntimeReady {
-		return
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), destroyTimeout)
 	defer cancel()
 	handles, err := (&realMsbClient{}).ListSandboxes(ctx, nil)
 	if err != nil {
-		return
+		return fmt.Errorf("list sandboxes in isolated runtime home %s: %w", isolatedRuntimeHome, err)
 	}
+	var destroyErrors []error
 	for _, handle := range handles {
-		_ = handle.Destroy(ctx)
+		if err := handle.Destroy(ctx); err != nil {
+			destroyErrors = append(destroyErrors, fmt.Errorf(
+				"destroy sandbox %s in isolated runtime home %s: %w",
+				handle.Name(), isolatedRuntimeHome, err,
+			))
+		}
 	}
+	return errors.Join(destroyErrors...)
 }

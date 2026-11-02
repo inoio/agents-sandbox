@@ -10,4 +10,4 @@ func installIsolatedRuntimeHome() func() { return func() {} }
 // sweepIsolatedSandboxes is a no-op outside the msb-tagged build: the untagged
 // tests never create sandboxes, so there is nothing to sweep and the native
 // SDK must not be touched.
-func sweepIsolatedSandboxes() {}
+func sweepIsolatedSandboxes() error { return nil }
