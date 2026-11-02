@@ -319,7 +319,8 @@ func TestRenderDockerfileOwnsToolTreeOnPreProvidedDevBase(t *testing.T) {
 				tag,
 			)
 
-			out, err := exec.Command("docker", "run", "--rm", tag, "stat", "-c", "%U:%G", "/opt/agents-sandbox/stub").Output()
+			out, err := exec.Command("docker", "run", "--rm", tag, "stat", "-c", "%U:%G", "/opt/agents-sandbox/stub").
+				Output()
 			if err != nil {
 				t.Fatalf("stat the owned tool path: %v", err)
 			}
