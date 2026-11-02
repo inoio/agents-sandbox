@@ -1,6 +1,8 @@
 package runtimemigration
 
 import (
+	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -90,7 +92,7 @@ func acknowledgeNotice() error {
 // wholesale rm -rf ~/.microsandbox and the selective
 // ~/.microsandbox/volumes/agents-sandbox-home-* glob both match an uncopied
 // volume. The safe sandbox globs are still offered, and the volumes glob is
-// replaced by a note to remove the remaining volumes individually. An unreadable
+// replaced by one command per copied volume. An unreadable
 // legacy volumes directory is treated the same way: the wholesale command is
 // withheld and replaced by a note to inspect it, because unlisted home volumes
 // may still hold data.
@@ -99,12 +101,13 @@ func renderNotice(a legacyArtifacts, uncopied []string) string {
 	b.WriteString("agents-sandbox now runs its own microsandbox runtime\n\n")
 	b.WriteString("Nothing broke — agents-sandbox keeps its runtime in its own private home now,\n")
 	b.WriteString("so the system-wide microsandbox is no longer needed to run it.\n\n")
-	b.WriteString("Your ~/.microsandbox was left untouched. It holds two kinds of things:\n\n")
+	b.WriteString("Your ~/.microsandbox was left untouched. It still holds what earlier\n")
+	b.WriteString("agents-sandbox versions stored there:\n\n")
 	hasUncopied := len(uncopied) > 0
 	if hasUncopied {
 		writeUncopiedWarning(&b, uncopied)
 	}
-	writeRemovableLeftovers(&b, a, hasUncopied)
+	writeRemovableLeftovers(&b, a, uncopied)
 	switch {
 	case hasUncopied:
 		// The leading warning already covers it; no wholesale command.
@@ -125,7 +128,7 @@ func renderNotice(a legacyArtifacts, uncopied []string) string {
 // It reads true both for a failed copy and for a volume the user chose not to
 // migrate.
 func writeUncopiedWarning(b *strings.Builder, uncopied []string) {
-	b.WriteString("  These volumes were not copied into agents-sandbox and still hold data:\n")
+	b.WriteString("  These old home volumes were not copied into agents-sandbox and still hold data:\n")
 	for _, name := range uncopied {
 		b.WriteString("    " + sanitizeNoticeName(name) + "\n")
 	}
@@ -144,41 +147,61 @@ func sanitizeNoticeName(name string) string {
 	}, name)
 }
 
-// writeRemovableLeftovers writes the "ours, safe to remove" tier and its removal
-// commands, if any of our leftovers are present. When uncopied volumes exist,
-// hasUncopied suppresses the agents-sandbox-home-* glob (it matches an uncopied
-// volume) and offers a qualification instead; the sandbox globs are unaffected.
-func writeRemovableLeftovers(b *strings.Builder, a legacyArtifacts, hasUncopied bool) {
-	if len(a.HomeVolumes) == 0 && len(a.Sandboxes) == 0 {
+// writeRemovableLeftovers writes the tier of old-runtime leftovers that are safe
+// to remove, as one removal command per line, if any are present.
+func writeRemovableLeftovers(b *strings.Builder, a legacyArtifacts, uncopied []string) {
+	commands := removalCommands(a, uncopied)
+	if len(commands) == 0 {
 		return
 	}
-	b.WriteString("  Ours, safe to remove:\n")
-	if len(a.HomeVolumes) > 0 {
-		b.WriteString("    ~/.microsandbox/volumes/agents-sandbox-home-*\n")
-	}
-	if len(a.Sandboxes) > 0 {
-		b.WriteString("    ~/.microsandbox/sandboxes/agents-sandbox-vm-*\n")
-		b.WriteString("    ~/.microsandbox/sandboxes/agents-sandbox-task-*\n")
-	}
-	b.WriteString("  Remove just these with:\n")
-	if len(a.HomeVolumes) > 0 {
-		writeVolumeRemovalCommand(b, hasUncopied)
-	}
-	if len(a.Sandboxes) > 0 {
-		b.WriteString("    rm -rf ~/.microsandbox/sandboxes/agents-sandbox-vm-*\n")
-		b.WriteString("    rm -rf ~/.microsandbox/sandboxes/agents-sandbox-task-*\n")
+	b.WriteString("  Leftovers from earlier agents-sandbox versions, safe to remove:\n")
+	for _, command := range commands {
+		b.WriteString("    " + command + "\n")
 	}
 	b.WriteString("\n")
 }
 
-// writeVolumeRemovalCommand writes the removal command for our home volumes, or
-// a qualification when uncopied volumes exist: the glob matches an uncopied
-// volume, so the user must remove the remaining volumes individually.
-func writeVolumeRemovalCommand(b *strings.Builder, hasUncopied bool) {
-	if hasUncopied {
-		b.WriteString("    (the agents-sandbox-home-* glob also matches the uncopied volumes above;\n")
-		b.WriteString("    remove the rest individually and leave those in place)\n")
-		return
+// removalCommands returns the commands removing our old-runtime leftovers,
+// never one that would delete an uncopied volume.
+func removalCommands(a legacyArtifacts, uncopied []string) []string {
+	commands := volumeRemovalCommands(a.HomeVolumes, uncopied)
+	if len(a.Sandboxes) > 0 {
+		commands = append(commands,
+			"rm -rf ~/.microsandbox/sandboxes/agents-sandbox-vm-*",
+			"rm -rf ~/.microsandbox/sandboxes/agents-sandbox-task-*",
+		)
 	}
-	b.WriteString("    rm -rf ~/.microsandbox/volumes/agents-sandbox-home-*\n")
+	return commands
+}
+
+// volumeRemovalCommands returns one glob command when every legacy home volume
+// was copied. Otherwise the glob would match an uncopied volume, so it returns
+// one command per copied volume instead.
+func volumeRemovalCommands(homeVolumes, uncopied []string) []string {
+	if len(homeVolumes) == 0 {
+		return nil
+	}
+	if len(uncopied) == 0 {
+		return []string{"rm -rf ~/.microsandbox/volumes/agents-sandbox-home-*"}
+	}
+	var commands []string
+	for _, name := range homeVolumes {
+		if slices.Contains(uncopied, name) {
+			continue
+		}
+		commands = append(commands, "rm -rf ~/.microsandbox/volumes/"+shellWord(sanitizeNoticeName(name)))
+	}
+	return commands
+}
+
+var shellSafeWord = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// shellWord returns name as a single POSIX shell word: unchanged when it holds
+// only safe characters, single-quoted otherwise. Legacy volumes are matched by
+// prefix only, so a name may hold shell metacharacters.
+func shellWord(name string) string {
+	if shellSafeWord.MatchString(name) {
+		return name
+	}
+	return "'" + strings.ReplaceAll(name, "'", `'\''`) + "'"
 }
