@@ -46,6 +46,7 @@ const (
 	flagRemove = "rm"
 
 	flagRebuild        = runoptions.FlagRebuild
+	flagNoRebuild      = runoptions.FlagNoRebuild
 	flagCpus           = "cpus"
 	flagMemory         = "memory"
 	flagTmpSize        = "tmp-size"

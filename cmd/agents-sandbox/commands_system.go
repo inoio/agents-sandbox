@@ -122,7 +122,13 @@ func prepareVolumeOp(c *cobra.Command, ui termio.UI, dryRun bool) (state.Key, im
 		c.Context(),
 		a,
 		adoption.Slug,
-		image.BuildOptions{Force: false, AgentVersion: "", UserProvided: false, Docker: resolveBuildDockerSetting(c)},
+		image.BuildOptions{
+			Force:        false,
+			NoRebuild:    false,
+			AgentVersion: "",
+			UserProvided: false,
+			Docker:       resolveBuildDockerSetting(c),
+		},
 		ui,
 	)
 	if err != nil {
@@ -278,6 +284,7 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 			)
 			info, err := image.Build(cmd.Context(), client, a, adoption.Slug, image.BuildOptions{
 				Force:        force,
+				NoRebuild:    false,
 				AgentVersion: agentVersion,
 				UserProvided: userProvided,
 				Docker:       resolveBuildDockerSetting(cmd),

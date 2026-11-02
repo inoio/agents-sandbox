@@ -38,6 +38,9 @@ type RunOptions struct {
 	IdleTimeout time.Duration
 	CPUs        uint8
 	Rebuild     bool
+	// NoRebuild reuses the existing runner image even when its inputs changed
+	// and skips the agent upgrade check. A missing image is still built.
+	NoRebuild bool
 	// Docker is the resolved docker capability: whether the tool's Docker
 	// engine block is baked into the runner image and whether that value was
 	// set explicitly.
