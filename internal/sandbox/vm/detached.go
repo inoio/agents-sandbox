@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -100,12 +101,26 @@ func (h detachedHelper) matches(command []string) bool {
 	return len(command) > 0 && command[0] == h.binary
 }
 
+// jobAlreadyStopped reports whether an error means the job is not running — it
+// already finished, or it was left behind by an earlier runtime generation whose
+// runner is gone. The desired end state, the job not running, already holds, so
+// the error is not a failure.
+func jobAlreadyStopped(err error) bool {
+	var jobErr *msbSdk.JobError
+	return errors.As(err, &jobErr) && jobErr.Code == "job_not_running"
+}
+
 // killJobs kills every detached job belonging to the helper, so a stale helper
 // never keeps the socket, port, or pid file a fresh launch needs. Failures are
 // reported as verbose diagnostics and never fatal: the readiness probe that
 // follows decides.
 func killJobs(ctx context.Context, sb msb.Sandbox, helper detachedHelper, ui termio.UI) {
-	infos, err := sb.ListJobs(ctx, msbSdk.WithAllJobs())
+	// The default listing is scoped to the current runtime generation: it returns
+	// the runtime's active jobs. WithAllJobs would also return retained terminal
+	// records — jobs that already finished, including ones an earlier boot left
+	// behind — whose runner is gone, so a kill can never succeed and every restart
+	// is flooded with spurious failures.
+	infos, err := sb.ListJobs(ctx)
 	if err != nil {
 		ui.Verbosef("listing jobs to stop %s failed: %v", helper.marker, err)
 		return
@@ -125,11 +140,14 @@ func killJobs(ctx context.Context, sb msb.Sandbox, helper detachedHelper, ui ter
 		if closeErr := job.Close(); closeErr != nil {
 			ui.Verbosef("closing job %s handle failed: %v", info.ID, closeErr)
 		}
-		if killErr != nil {
+		switch {
+		case killErr == nil:
+			ui.Verbosef("killed stale job %s", info.ID)
+		case jobAlreadyStopped(killErr):
+			ui.Verbosef("job %s was already stopped", info.ID)
+		default:
 			ui.Verbosef("killing job %s failed: %v", info.ID, killErr)
-			continue
 		}
-		ui.Verbosef("killed stale job %s", info.ID)
 	}
 }
 

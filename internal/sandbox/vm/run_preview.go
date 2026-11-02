@@ -57,7 +57,8 @@ func PreviewSandbox(ctx context.Context, opts options.RunOptions, ui termio.UI) 
 	// Read-only adoption: apply=false so the preview never moves state, but it
 	// still resolves against the location a real run would find first (the
 	// legacy slug while a migration is pending), matching the volume dry runs.
-	adoption, err := AdoptLegacyIdentity(ctx, msb.Get(), identity, a.Name(), false, ui)
+	client := msb.Get()
+	adoption, err := AdoptLegacyIdentity(ctx, client, identity, a.Name(), false, ui)
 	if err != nil {
 		return Preview{}, err
 	}
@@ -80,7 +81,6 @@ func PreviewSandbox(ctx context.Context, opts options.RunOptions, ui termio.UI) 
 		return Preview{}, err
 	}
 
-	client := msb.Get()
 	homeVolume, createHome, err := volume.PreviewHomeVolume(ctx, client, k, liveHomeVolume(ctx, client, k, ui))
 	if err != nil {
 		return Preview{}, err

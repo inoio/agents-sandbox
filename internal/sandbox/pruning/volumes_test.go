@@ -255,7 +255,7 @@ func TestPruneVolumesStillRemovesUnreferencedVolume(t *testing.T) {
 			&msb.MockVolumeHandle{Name_: goneVolume, CreatedAt_: old},
 		},
 	}
-	msb.WithMsbMock(t, client)
+	resolutions := msb.WithCountingMsbMock(t, client)
 	ui := &termio.Mock{}
 	r, err := PruneVolumes(context.Background(), PruneState{
 		ToPrune: map[state.Key]msb.SandboxHandle{
@@ -265,6 +265,9 @@ func TestPruneVolumesStillRemovesUnreferencedVolume(t *testing.T) {
 	}, false, ui)
 	if err != nil {
 		t.Fatalf("PruneVolumes: %v", err)
+	}
+	if *resolutions != 1 {
+		t.Errorf("msb.Get resolved %d times, want once per PruneVolumes", *resolutions)
 	}
 	if r.VolumesPruned != 1 {
 		t.Errorf("VolumesPruned = %d, want 1 (only the unreferenced volume)", r.VolumesPruned)

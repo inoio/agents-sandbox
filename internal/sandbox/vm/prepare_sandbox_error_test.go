@@ -24,18 +24,24 @@ import (
 
 // TestPrepareSandboxImageError covers the image-setup failure branch of
 // PrepareSandbox: when the opencode version cannot be resolved, the image
-// cannot be built and PrepareSandbox returns an error.
+// cannot be built and PrepareSandbox returns an error wrapping the cause, so a
+// caller can still reach it with errors.Is.
 func TestPrepareSandboxImageError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 
+	resolveErr := errors.New("cannot resolve opencode version")
 	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
-		return "", errors.New("cannot resolve opencode version")
+		return "", resolveErr
 	})
 
 	ui := termio.NewTestMock(t)
-	if _, err := PrepareSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, false, &ui); err == nil {
+	_, err := PrepareSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, false, &ui)
+	if err == nil {
 		t.Fatal("expected error when the opencode version cannot be resolved")
+	}
+	if !errors.Is(err, resolveErr) {
+		t.Errorf("error = %v, want it to wrap %v", err, resolveErr)
 	}
 }
 

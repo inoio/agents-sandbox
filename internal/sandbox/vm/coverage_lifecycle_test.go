@@ -8,7 +8,6 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -63,8 +62,9 @@ func TestEnsureProjectVMConnectRetryReconnectSucceeds(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -72,7 +72,6 @@ func TestEnsureProjectVMConnectRetryReconnectSucceeds(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -107,8 +106,9 @@ func TestEnsureProjectVMConnectRetryThenStart(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -116,7 +116,6 @@ func TestEnsureProjectVMConnectRetryThenStart(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -151,8 +150,9 @@ func TestEnsureProjectVMPostLockDecideError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -160,7 +160,6 @@ func TestEnsureProjectVMPostLockDecideError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -206,8 +205,9 @@ func TestEnsureProjectVMPostLockConnectFailThenStart(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -215,7 +215,6 @@ func TestEnsureProjectVMPostLockConnectFailThenStart(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -255,8 +254,9 @@ func TestEnsureProjectVMPostLockConnectRetryReconnectSucceeds(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -264,7 +264,6 @@ func TestEnsureProjectVMPostLockConnectRetryReconnectSucceeds(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -295,8 +294,9 @@ func TestEnsureProjectVMPostLockConnectRetryRefreshError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -304,7 +304,6 @@ func TestEnsureProjectVMPostLockConnectRetryRefreshError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -334,8 +333,9 @@ func TestEnsureProjectVMPostLockStartError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -343,7 +343,6 @@ func TestEnsureProjectVMPostLockStartError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -375,8 +374,9 @@ func TestEnsureProjectVMPostLockConnectReconcileWarn(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{CPUs: 4},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -384,7 +384,6 @@ func TestEnsureProjectVMPostLockConnectReconcileWarn(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -425,8 +424,9 @@ func TestEnsureProjectVMPostLockStartReconcileWarn(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{CPUs: 4},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -434,7 +434,6 @@ func TestEnsureProjectVMPostLockStartReconcileWarn(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -467,8 +466,9 @@ func TestEnsureProjectVMConnectRetryRefreshError(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -476,7 +476,6 @@ func TestEnsureProjectVMConnectRetryRefreshError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -507,8 +506,9 @@ func TestEnsureProjectVMConnectRetryReconcileWarn(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{CPUs: 4},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -516,7 +516,6 @@ func TestEnsureProjectVMConnectRetryReconcileWarn(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
@@ -554,8 +553,9 @@ func TestEnsureProjectVMConnectRetryStartError(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -563,7 +563,6 @@ func TestEnsureProjectVMConnectRetryStartError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {
@@ -594,8 +593,9 @@ func TestEnsureProjectVMConnectRetryStartReconcileWarn(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{CPUs: 4},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -603,7 +603,6 @@ func TestEnsureProjectVMConnectRetryStartReconcileWarn(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {

@@ -187,6 +187,50 @@ network:
     - api.githubcopilot.com
 ```
 
+### GitHub Copilot on GitHub Enterprise (GHE.com)
+
+With a GitHub Enterprise account, OpenCode stores the enterprise domain as `enterpriseUrl` in `auth.json` and sends the
+tokens to that domain's Copilot endpoints instead of `api.githubcopilot.com`. Allow the secrets for those hosts, and
+allow the domain in the network policy. For example, for the enterprise domain `example.ghe.com`:
+
+```json
+// ~/.config/agents-sandbox/opencode/auth.json
+{
+  "github-copilot": {
+    "type": "oauth",
+    "access": "$MSB_GH_COPILOT_ACCESS_TOKEN",
+    "refresh": "$MSB_GH_COPILOT_REFRESH_TOKEN",
+    "expires": 0,
+    "enterpriseUrl": "example.ghe.com"
+  }
+}
+```
+
+```yaml
+# ~/.config/agents-sandbox/env.secret.yaml
+GH_COPILOT_ACCESS_TOKEN:
+  value: "<access-token>"
+  hosts:
+    - copilot-api.example.ghe.com
+    - api.example.ghe.com
+GH_COPILOT_REFRESH_TOKEN:
+  value: "<refresh-token>"
+  hosts:
+    - copilot-api.example.ghe.com
+    - api.example.ghe.com
+```
+
+```yaml
+# ~/.config/agents-sandbox/config.yaml
+network:
+  egress-allow:
+    - .example.ghe.com
+```
+
+If a secret's hosts do not match the endpoint OpenCode calls, the request fails with
+`Forbidden: Request blocked by secret policy.` The proxy refuses to forward a placeholder to a host the secret is not
+allowed for. Add the host from the failing request to the secret's `hosts`.
+
 Use `agents-sandbox config home` to verify the `home:` mapping. `agents-sandbox config agent` shows the agent mirror and
 drop-in candidates, but does not show `home:` mappings or files already present in the persistent home volume.
 

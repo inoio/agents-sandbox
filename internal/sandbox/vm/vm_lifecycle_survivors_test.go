@@ -8,7 +8,6 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -166,8 +165,9 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 			client.SetGotSandbox(tc.handle())
 			msb.WithMsbMock(t, client)
 
-			_, _, err := ensureProjectVM(
+			_, _, err := lookUpAndEnsureProjectVM(
 				context.Background(),
+				client,
 				options.RunOptions{Agent: "opencode"},
 				image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 				"vol",
@@ -175,7 +175,6 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 				testVMKey(),
 				testVMKey().Slug,
 				false,
-				envsecret.EnvSecrets{},
 				&ui,
 			)
 			if (err != nil) != tc.wantErr {

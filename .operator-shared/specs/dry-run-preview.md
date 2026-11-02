@@ -116,19 +116,18 @@ plus the session line) so it is asserted as data in unit tests and as the render
   `runoptions.ResolveMode(cmd).Previews()` and, instead of `PrepareRuntime`, only applies the private `MSB_HOME`
   (`runtime.ApplyPreviewHome`, inspect/install skipped). A fresh host thus renders the plan with no download and no
   runtime install, while the preview's read-only msb inspection (volumes, sandboxes) still resolves against the
-  private home rather than the user's `~/.microsandbox`. `shell --dry-run` is unaffected: the root preflight installs
-  nothing, and shell's own `doctor.CheckAll` preflight is what may still install the runtime.
+  private home rather than the user's `~/.microsandbox`. `shell --dry-run` behaves the same: like `run`, it skips the
+  `doctor.CheckAll` preflight on a preview (`cmd.runStartupStages`), so it installs nothing either.
 
 ### Test seam
 
-`vm.agentLatestVersion` (`vm/upgrade.go:21`) is a package var with **no exported setter**, so `cmd` tests cannot stub
-it and `image.WithMockAgentVersion` does not cover it (a different var). Once the run/shell CLI tests move to
-`--dry-run-vm` they run `resolveBuildVersion`, whose `pendingUpgrade` can call it when a project has a recorded
-baseline and the check is due — a real network request. Add `vm.SetAgentLatestVersion` and install a **fail-fast**
-default in `cmd`'s `TestMain` (beside the existing migration-offer default, `cmd/agents-sandbox/main_test.go`),
-mirroring the isolation discipline: a test that reaches the network path fails loudly and opts in with an explicit
-stub, rather than silently bypassing it. This is not an `InstallFailFast*` family, so the `seamFamilies` registry in
-`internal/testutil/isolation_contract_test.go` is untouched.
+`vm.agentLatestVersion` (`vm/upgrade.go`) is the upgrade check's release lookup; `image.WithMockAgentVersion` does
+not cover it (a different var). The run/shell CLI tests run `--dry-run-vm`, so they reach `resolveBuildVersion`, whose
+`pendingUpgrade` calls it when a project has a recorded baseline and the check is due — a real network request.
+`vm.SetAgentLatestVersion` replaces it, and `cmd`'s `TestMain` (`cmd/agents-sandbox/main_test.go`, beside the
+migration-offer default) installs a **fail-fast** default that panics: a test that reaches the network path fails loudly
+and opts in with an explicit stub, rather than silently bypassing it. This is not an `InstallFailFast*` family, so the
+`seamFamilies` registry in `internal/testutil/isolation_contract_test.go` is untouched.
 
 The preview itself needs no new seam: it composes the existing docker (`WithNoopDockerMock`) and msb
 (`WithMsbMock`) mocks. Its purity is pinned by tests that install a resolver/`agentLatestVersion` which fails the test

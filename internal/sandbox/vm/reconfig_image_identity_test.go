@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -45,7 +44,7 @@ func TestResolveReconfigDecisionRecreatesOnContentIDSwitch(t *testing.T) {
 		Digest:   persisted.ImageDigest,
 	}
 
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		f.client,
 		f.vm,
@@ -55,7 +54,6 @@ func TestResolveReconfigDecisionRecreatesOnContentIDSwitch(t *testing.T) {
 		f.homeVol,
 		persisted,
 		f.cfs,
-		envsecret.EnvSecrets{},
 		f.ui,
 	)
 	if err != nil {
@@ -89,7 +87,7 @@ func TestResolveReconfigDecisionReusesVMOnSameContentIdentity(t *testing.T) {
 		Digest:   persisted.ImageDigest,
 	}
 
-	decision, err := resolveReconfigDecision(
+	decision, err := readAndResolveReconfigDecision(
 		context.Background(),
 		f.client,
 		f.vm,
@@ -99,7 +97,6 @@ func TestResolveReconfigDecisionReusesVMOnSameContentIdentity(t *testing.T) {
 		f.homeVol,
 		persisted,
 		f.cfs,
-		envsecret.EnvSecrets{},
 		f.ui,
 	)
 	if err != nil {

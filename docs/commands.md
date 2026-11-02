@@ -54,6 +54,7 @@ Arguments after `--` are forwarded to the agent. Arguments before `--` that don'
 |----------------|-------|----------|--------------------------------------------------------------------------------------------------------------------------------------------|
 | `--worktree`   | `-w`  | `""`     | Isolated agent worktree named <name>, optionally starting from base ref <name>:<base>                                  |
 | `--rebuild`    | `-r`  | `false`  | Rebuild runner image before starting (clean rebuild that pulls the latest base image; still offers an agent upgrade if one is available)                                                                      |
+| `--no-rebuild` | —     | `false`  | Reuse the existing runner image even if its inputs changed, and skip the agent upgrade check. A missing image is still built. Can't be combined with `--rebuild` or `--agent-version`. See [Runner Image]({% link runner-image.md %}#reuse-a-stale-image) |
 | `--agent-version` | —  | `""`     | Pin the version agents-sandbox installs into the runner image (default: latest). Ignored for a user-provided agent. |
 | `--dry-run`    | `-n`  | `false`  | Read-only preview of a run: report the agent version (or that it resolves at build time), whether the runner image would build (with the reasons a real build logs) or be reused, and whether the home volume would be created or reused — without building, creating a volume, writing state, starting a VM, attaching, or making any network request. It also installs no microsandbox runtime, so a fresh host gets the plan without the download. When the reported version is a known, non-pinned one, its line notes `(upgrade check not run)` |
 | `--cpus`       | `-c`  | `0`      | vCPUs for the sandbox (0 = all)                                                                                                            |
@@ -76,7 +77,7 @@ Arguments after `--` are forwarded to the agent. Arguments before `--` that don'
 
 Start a sandbox VM and open an interactive shell. Useful for debugging the sandbox environment. Shares the common run/shell flags with `run`.
 
-With `--dry-run`, `shell` builds no image, creates no volume, writes no state, starts no VM, and makes no network request — but unlike `run` it still runs the prerequisite check (`doctor`) first, which may install the microsandbox runtime.
+With `--dry-run`, `shell` builds no image, creates no volume, writes no state, starts no VM, and makes no network request. Like `run`, it skips the prerequisite check (`doctor`) on a preview, so it installs nothing.
 
 ```console
 agents-sandbox shell
@@ -699,10 +700,12 @@ version takes effect on the next invocation. For a Homebrew-managed install the 
 ```console
 agents-sandbox upgrade
 agents-sandbox upgrade --channel canary     # one-shot override: upgrade from the canary line
+agents-sandbox upgrade --channel stable     # leave the canary line for the newest stable release
 ```
 
 `--channel` accepts `stable` or `canary` and applies to that invocation only, leaving the configured `upgrade.channel`
-unchanged.
+unchanged. `--channel stable` on a canary install switches to the newest stable release even when that release is
+older; without the flag, `upgrade` never downgrades.
 
 ---
 

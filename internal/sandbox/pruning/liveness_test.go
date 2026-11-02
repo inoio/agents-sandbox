@@ -213,6 +213,72 @@ func TestBuildPruneState_AgeZero(t *testing.T) {
 	}
 }
 
+// TestBuildPruneStateRecordsRetainKeys pins that the current invocation's keys
+// enter the snapshot with the VM classification, so every liveness input is
+// built in one place.
+func TestBuildPruneStateRecordsRetainKeys(t *testing.T) {
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
+
+	pruneState, err := buildPruneState(context.Background(), time.Hour, key)
+	if err != nil {
+		t.Fatalf("buildPruneState: %v", err)
+	}
+	if _, retained := pruneState.RetainKeys[key]; !retained || len(pruneState.RetainKeys) != 1 {
+		t.Errorf("RetainKeys = %v, want exactly %v", pruneState.RetainKeys, key)
+	}
+}
+
+// TestKeepImagePrecedence pins keepImage's first-match-wins order from
+// specs/lifecycle.md (kept-VM ref → RetainKeys → ToPrune → agent within age →
+// reclaim): each case sets up two conflicting rules and expects the earlier one
+// to decide, so reordering the checks fails a case.
+func TestKeepImagePrecedence(t *testing.T) {
+	const ref = "proj-1mjusbm3wikhb0:opencode.9f2c1a7b4d6e0f31"
+	const agentlessRef = "proj-1mjusbm3wikhb0-latest"
+	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
+	retiredKey := map[state.Key]msb.SandboxHandle{key: &msb.MockSandboxHandle{}}
+	recent := time.Now().Add(-time.Minute)
+	aged := time.Now().Add(-48 * time.Hour)
+
+	for _, tc := range []struct {
+		name         string
+		reference    string
+		lastUsedAt   time.Time
+		heldByKeptVM bool
+		retained     bool
+		retired      bool
+		want         bool
+	}{
+		{name: "kept-VM ref beats a retired key and age", reference: ref, lastUsedAt: aged, heldByKeptVM: true, retired: true, want: true},
+		{name: "kept-VM ref beats a missing agent", reference: agentlessRef, lastUsedAt: aged, heldByKeptVM: true, want: true},
+		{name: "retained key beats a retired key and age", reference: ref, lastUsedAt: aged, retained: true, retired: true, want: true},
+		{name: "retired key beats recent use", reference: ref, lastUsedAt: recent, retired: true, want: false},
+		{name: "recent use keeps an agent ref of a VM-less key", reference: ref, lastUsedAt: recent, want: true},
+		{name: "recent use does not keep an agent-less ref", reference: agentlessRef, lastUsedAt: recent, want: false},
+		{name: "nothing retains an aged ref", reference: ref, lastUsedAt: aged, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pruneState := PruneState{Age: time.Hour}
+			if tc.retained {
+				pruneState.RetainKeys = map[state.Key]struct{}{key: {}}
+			}
+			if tc.retired {
+				pruneState.ToPrune = retiredKey
+			}
+			var keptImageRefs map[string]struct{}
+			if tc.heldByKeptVM {
+				keptImageRefs = map[string]struct{}{tc.reference: {}}
+			}
+			handle := &msb.MockImageHandle{Reference_: tc.reference, LastUsedAt_: tc.lastUsedAt}
+
+			if got := keepImage(handle, naming.ParseImageTag(tc.reference), pruneState, keptImageRefs); got != tc.want {
+				t.Errorf("keepImage = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBuildPruneStateRecordsAge(t *testing.T) {
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 

@@ -260,7 +260,12 @@ func TestLoadConfigFilesProvisioningPrecedence(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 
 	// Snippets exist so hasSnippets=true and the merged config is written.
-	testutil.WriteFile(t, configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "opencode-model.json", `{"model":"x"}`)
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"opencode-model.json",
+		`{"model":"x"}`,
+	)
 
 	// Host files that the drop-in copy would pick up.
 	ocConfig := filepath.Join(hostHome, ".config/opencode")
@@ -325,7 +330,12 @@ func TestLoadConfigFilesRemovesStaleConfigWithSnippets(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 
 	// Snippets exist so hasSnippets=true and the merged config is written.
-	testutil.WriteFile(t, configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "opencode-model.json", `{"model":"x"}`)
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"opencode-model.json",
+		`{"model":"x"}`,
+	)
 
 	// Host files the drop-in copy would pick up: opencode.jsonc is the merged
 	// config filename, other.json is unrelated.
@@ -406,7 +416,12 @@ func TestLoadConfigFilesProvisioningDisabled(t *testing.T) {
 
 	a, _ := agent.Lookup("opencode")
 
-	testutil.WriteFile(t, configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "opencode-model.json", `{"model":"x"}`)
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"opencode-model.json",
+		`{"model":"x"}`,
+	)
 	ocConfig := filepath.Join(hostHome, ".config/opencode")
 	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
 		t.Fatal(err)
@@ -612,7 +627,7 @@ func TestLoadConfigFilesPIMergedConfig(t *testing.T) {
 	a, _ := agent.Lookup("pi")
 	testutil.WriteFile(
 		t,
-		configpaths.MustDir(cp.ProjectAgentConfigDir(a)),
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
 		"settings.json",
 		`{"model":"claude-sonnet-4-5"}`,
 	)
@@ -646,10 +661,15 @@ func TestLoadConfigFilesCodexMergesTOMLSnippets(t *testing.T) {
 	vmHome := t.TempDir()
 
 	a, _ := agent.Lookup("codex")
-	testutil.WriteFile(t, configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "config-model.toml", "model = \"gpt-5\"\n")
 	testutil.WriteFile(
 		t,
-		configpaths.MustDir(cp.ProjectAgentConfigDir(a)),
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"config-model.toml",
+		"model = \"gpt-5\"\n",
+	)
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
 		"config-sandbox.toml",
 		"[sandbox_workspace_write]\nnetwork_access = true\n",
 	)
@@ -684,7 +704,12 @@ func TestLoadConfigFilesHermesMergedConfig(t *testing.T) {
 	vmHome := t.TempDir()
 
 	a, _ := agent.Lookup("hermes")
-	testutil.WriteFile(t, configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "config-model.yaml", "model: opus\n")
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"config-model.yaml",
+		"model: opus\n",
+	)
 
 	ui := termio.NewTestMock(t)
 	cf, err := LoadConfigFilesForHost(a, t.TempDir(), vmHome, &ui, true)
@@ -832,20 +857,33 @@ func TestLoadConfigFilesMirror(t *testing.T) {
 
 	a, _ := agent.Lookup("opencode")
 	// Snippet (merged, not mirrored) plus mirror files at top level and nested.
-	testutil.WriteFile(t, configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "opencode-model.json", `{"model":"x"}`)
-	testutil.WriteFile(t, configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "tui.json", `{"theme":"dark"}`)
-	if err := os.Chmod(filepath.Join(configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "tui.json"), 0o755); err != nil {
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"opencode-model.json",
+		`{"model":"x"}`,
+	)
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"tui.json",
+		`{"theme":"dark"}`,
+	)
+	if err := os.Chmod(
+		filepath.Join(configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())), "tui.json"),
+		0o755,
+	); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(
-		filepath.Join(configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "agents"),
+		filepath.Join(configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())), "agents"),
 		0o755,
 	); err != nil {
 		t.Fatal(err)
 	}
 	testutil.WriteFile(
 		t,
-		filepath.Join(configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "agents"),
+		filepath.Join(configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())), "agents"),
 		"coder.md",
 		"# coder\n",
 	)
@@ -885,8 +923,16 @@ func TestLoadConfigFilesMirrorPrecedence(t *testing.T) {
 
 	a, _ := agent.Lookup("opencode")
 	// Mirror file at tui.json, plus a host drop-in copy at the same VM path.
-	testutil.WriteFile(t, configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "tui.json", `{"theme":"mirror"}`)
-	if err := os.Chmod(filepath.Join(configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "tui.json"), 0o700); err != nil {
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"tui.json",
+		`{"theme":"mirror"}`,
+	)
+	if err := os.Chmod(
+		filepath.Join(configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())), "tui.json"),
+		0o700,
+	); err != nil {
 		t.Fatal(err)
 	}
 	ocConfig := filepath.Join(hostHome, ".config", "opencode")
@@ -923,7 +969,12 @@ func TestLoadConfigFilesMirrorHomeYAMLWins(t *testing.T) {
 	vmHome := t.TempDir()
 
 	a, _ := agent.Lookup("opencode")
-	testutil.WriteFile(t, configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "tui.json", `{"theme":"mirror"}`)
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"tui.json",
+		`{"theme":"mirror"}`,
+	)
 	// home maps the same VM path explicitly; it must win over the mirror.
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "tui-home.json", `{"theme":"home"}`)
 	if err := os.Chmod(filepath.Join(cp.ProjectConfigDir(), "tui-home.json"), 0o755); err != nil {
@@ -958,7 +1009,12 @@ func TestLoadConfigFilesMirrorWithProvisioningDisabled(t *testing.T) {
 	vmHome := t.TempDir()
 
 	a, _ := agent.Lookup("opencode")
-	testutil.WriteFile(t, configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "tui.json", `{"theme":"dark"}`)
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"tui.json",
+		`{"theme":"dark"}`,
+	)
 
 	ui := termio.NewTestMock(t)
 	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, &ui, false)
@@ -999,8 +1055,18 @@ func TestDescribe(t *testing.T) {
 	vmHome := t.TempDir()
 
 	a, _ := agent.Lookup("opencode")
-	testutil.WriteFile(t, configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "opencode-model.json", `{"model":"x"}`)
-	testutil.WriteFile(t, configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "tui.json", `{"theme":"dark"}`)
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"opencode-model.json",
+		`{"model":"x"}`,
+	)
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"tui.json",
+		`{"theme":"dark"}`,
+	)
 	ocConfig := filepath.Join(hostHome, ".config", "opencode")
 	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
 		t.Fatal(err)
@@ -1022,8 +1088,11 @@ func TestDescribe(t *testing.T) {
 		t.Error("Describe returned no host files")
 	}
 	wantMirror := MirrorFile{
-		HostPath: filepath.Join(configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "tui.json"),
-		VMPath:   filepath.Join(vmHome, ".config", "opencode", "tui.json"),
+		HostPath: filepath.Join(
+			configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+			"tui.json",
+		),
+		VMPath: filepath.Join(vmHome, ".config", "opencode", "tui.json"),
 	}
 	if !slices.ContainsFunc(mirrorFiles, func(mf MirrorFile) bool {
 		return mf.HostPath == wantMirror.HostPath && mf.VMPath == wantMirror.VMPath
@@ -1052,16 +1121,21 @@ func TestLoadConfigFilesKeysMergedFirstAndSorted(t *testing.T) {
 		t.Fatal("opencode agent not registered")
 	}
 	vmHome := t.TempDir()
-	testutil.WriteFile(t, configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "opencode-model.json", `{"model":"x"}`)
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"opencode-model.json",
+		`{"model":"x"}`,
+	)
 	if err := os.MkdirAll(
-		filepath.Join(configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "agents"),
+		filepath.Join(configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())), "agents"),
 		0o755,
 	); err != nil {
 		t.Fatal(err)
 	}
 	testutil.WriteFile(
 		t,
-		filepath.Join(configpaths.MustDir(cp.ProjectAgentConfigDir(a)), "agents"),
+		filepath.Join(configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())), "agents"),
 		"coder.md",
 		"# coder\n",
 	)

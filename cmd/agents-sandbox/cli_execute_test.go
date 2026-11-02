@@ -113,30 +113,46 @@ func TestAutoPruneOutToVerboseRedirect(t *testing.T) {
 	}
 }
 
-// TestRunInvokesStartupAutoPrune pins that a run reaches the startup prune and
-// passes its dry-run state through, so a real run still reclaims stale
-// sandboxes while a preview only reports what it would do.
-func TestRunInvokesStartupAutoPrune(t *testing.T) {
-	initTestProjectDir(t)
+// TestRunShellInvokeStartupAutoPrune pins that run and shell both reach the
+// startup prune, pass their dry-run state through and retain the current
+// invocation's runner-image keys, so a real run or shell reclaims stale
+// sandboxes without reclaiming the image it is about to use, while a preview
+// only reports what it would do.
+func TestRunShellInvokeStartupAutoPrune(t *testing.T) {
+	for _, command := range []string{cmdRun, cmdShell} {
+		t.Run(command, func(t *testing.T) {
+			initTestProjectDir(t)
 
-	var called, gotDryRun bool
-	original := autoPrune
-	autoPrune = func(_ context.Context, _ time.Duration, dryRun bool, _ termio.UI, _ ...state.Key) {
-		called = true
-		gotDryRun = dryRun
-	}
-	t.Cleanup(func() { autoPrune = original })
+			var called, gotDryRun bool
+			var gotRetainKeys []state.Key
+			original := autoPrune
+			autoPrune = func(_ context.Context, _ time.Duration, dryRun bool, _ termio.UI, retainKeys ...state.Key) {
+				called = true
+				gotDryRun = dryRun
+				gotRetainKeys = retainKeys
+			}
+			t.Cleanup(func() { autoPrune = original })
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run")
-	if err := root.Execute(); err != nil {
-		t.Fatalf("run --dry-run: %v", err)
-	}
-	if !called {
-		t.Fatal("run --dry-run did not invoke the startup auto-prune")
-	}
-	if !gotDryRun {
-		t.Error("autoPrune dryRun = false, want true for --dry-run")
+			mock := &sandboxmsb.MockMsbClient{}
+			root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, command, "--dry-run")
+			if err := root.Execute(); err != nil {
+				t.Fatalf("%s --dry-run: %v", command, err)
+			}
+			if !called {
+				t.Fatalf("%s --dry-run did not invoke the startup auto-prune", command)
+			}
+			if !gotDryRun {
+				t.Error("autoPrune dryRun = false, want true for --dry-run")
+			}
+			wantRetainKeys := currentRunImageKeys(defaultAgentName)
+			if len(wantRetainKeys) == 0 || !slices.Equal(gotRetainKeys, wantRetainKeys) {
+				t.Errorf(
+					"autoPrune retainKeys = %v, want the current invocation's keys %v",
+					gotRetainKeys,
+					wantRetainKeys,
+				)
+			}
+		})
 	}
 }
 

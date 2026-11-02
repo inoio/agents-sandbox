@@ -111,12 +111,13 @@ func StopProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agent
 	if err != nil {
 		return err
 	}
-	adoption, err := AdoptLegacyIdentity(ctx, msb.Get(), identity, a.Name(), !dryRun, ui)
+	client := msb.Get()
+	adoption, err := AdoptLegacyIdentity(ctx, client, identity, a.Name(), !dryRun, ui)
 	if err != nil {
 		return err
 	}
 	k := state.Key{Slug: adoption.Slug, Agent: a.Name()}
-	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "stop", "Stopping", msb.Get(),
+	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "stop", "Stopping", client,
 		func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
 }
 
@@ -132,11 +133,12 @@ func KillProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agent
 	if err != nil {
 		return err
 	}
-	adoption, err := AdoptLegacyIdentity(ctx, msb.Get(), identity, a.Name(), !dryRun, ui)
+	client := msb.Get()
+	adoption, err := AdoptLegacyIdentity(ctx, client, identity, a.Name(), !dryRun, ui)
 	if err != nil {
 		return err
 	}
 	k := state.Key{Slug: adoption.Slug, Agent: a.Name()}
-	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "kill", "Force-killing", msb.Get(),
+	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "kill", "Force-killing", client,
 		func(h msb.SandboxHandle, c context.Context) error { return h.Kill(c) })
 }

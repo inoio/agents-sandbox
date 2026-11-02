@@ -33,7 +33,7 @@ func TestLoadConfigFilesWithSnippet(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteFile(
 		t,
-		configpaths.MustDir(cp.ProjectAgentConfigDir(opencodeTestAgent())),
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), opencodeTestAgent().ConfigDirName())),
 		"opencode-model.json",
 		`{"model":"x"}`,
 	)
@@ -123,7 +123,7 @@ func TestLoadConfigFilesMergedConfigError(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteFile(
 		t,
-		configpaths.MustDir(cp.UserAgentConfigDir(opencodeTestAgent())),
+		configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), opencodeTestAgent().ConfigDirName())),
 		"opencode-inf.json.yaml",
 		"v: !!float .inf\n",
 	)

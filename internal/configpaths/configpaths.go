@@ -1,13 +1,8 @@
 package configpaths
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
-
-	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/git"
 )
 
 type ConfigPaths interface {
@@ -16,8 +11,6 @@ type ConfigPaths interface {
 	UserCacheDir() string
 	UserStateDir() string
 	UserDataDir() string
-	UserAgentConfigDir(a agent.Agent) (string, error)
-	UserAgentConfigDirCandidates(a agent.Agent) ([]string, error)
 	UserHomeDir() (string, error)
 
 	UserEnvFile() string
@@ -26,8 +19,6 @@ type ConfigPaths interface {
 
 	ProjectConfigDir() string
 	ProjectConfigDirAbs() string
-	ProjectAgentConfigDir(a agent.Agent) (string, error)
-	ProjectAgentConfigDirCandidates(a agent.Agent) ([]string, error)
 	ProjectEnvFile() string
 	ProjectEnvSecretFile() string
 	ProjectEnvSecretYAMLFile() string
@@ -82,62 +73,6 @@ func MSBHome() string {
 	return filepath.Join(Get().UserDataDir(), "msb")
 }
 
-// UserAgentConfigDir returns the directory of the active agent's own user
-// config, nested under the tool's user config base.
-func (c *realConfigPaths) UserAgentConfigDir(a agent.Agent) (string, error) {
-	name, err := validConfigDirName(a.Name(), a.ConfigDirName())
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(c.UserConfigDir(), name), nil
-}
-
-// UserAgentConfigDirCandidates returns the agent's user config-dir candidates,
-// primary first, then each alias. Paths only: the method never creates dirs.
-func (c *realConfigPaths) UserAgentConfigDirCandidates(a agent.Agent) ([]string, error) {
-	return agentConfigDirCandidates(c.UserConfigDir(), a)
-}
-
-// ProjectAgentConfigDirCandidates returns the project config-dir candidates.
-// The base is absolute so the dirs that resolution reads are the same dirs that
-// display reports, with no second derivation of the project root.
-func (c *realConfigPaths) ProjectAgentConfigDirCandidates(a agent.Agent) ([]string, error) {
-	return agentConfigDirCandidates(c.ProjectConfigDirAbs(), a)
-}
-
-func agentConfigDirCandidates(base string, a agent.Agent) ([]string, error) {
-	names := []string{a.ConfigDirName()}
-	if al, ok := agent.AsConfigDirAliaser(a); ok {
-		names = append(names, al.ConfigDirAliases()...)
-	}
-	dirs := make([]string, 0, len(names))
-	for _, name := range names {
-		validName, err := validConfigDirName(a.Name(), name)
-		if err != nil {
-			return nil, err
-		}
-		dirs = append(dirs, filepath.Join(base, validName))
-	}
-	return dirs, nil
-}
-
-// validConfigDirName rejects a name that is not a single clean path element.
-// Without this, names like "", ".", ".." or "a/b" would resolve to the launcher
-// config root or a parent: filepath.Join cleans "..", so the config mirror could
-// copy unrelated host files — including launcher secrets — into the VM. A bad
-// name is a profile programming error, so it is returned as an error rather than
-// panicking deep inside a path join.
-func validConfigDirName(agentName, name string) (string, error) {
-	if name == "" || name == "." || name == ".." || strings.ContainsRune(name, filepath.Separator) {
-		return "", fmt.Errorf(
-			"agent %s declares invalid config dir name %q: must be a single path element",
-			agentName,
-			name,
-		)
-	}
-	return name, nil
-}
-
 // UserHomeDir returns the host user's home directory. It is the root the
 // home-relative agent config and home manifests are resolved against, exposed
 // through this seam so every host-home lookup is mockable like the other paths.
@@ -150,36 +85,6 @@ func (c *realConfigPaths) UserHomeDir() (string, error) {
 // worktrees live inside the bare root, the absolute <bare-root>/.agents-sandbox.
 // It never creates the directory.
 func (c *realConfigPaths) ProjectConfigDir() string { return c.projectConfigBase() }
-
-// resolveProjectConfig returns the directory project config is read from and,
-// when a bare checkout ignores a worktree-level .agents-sandbox, its path. In a
-// bare checkout the base is the absolute bare-root .agents-sandbox; the worktree
-// is inside the bare root, so a copy at the worktree root is ignored — from any
-// directory within the worktree, not just its root. Everywhere else the base is
-// the relative constant, resolved against the CWD by the callers.
-func resolveProjectConfig(cwd string) (string, string) {
-	identity, err := git.ResolveIdentity(cwd)
-	if err != nil {
-		// An unresolvable cwd degrades to the relative base: the project config
-		// directory is not identity-keyed, so it must not fail the read. The
-		// slug-deriving callers refuse instead (#354).
-		return projectConfigDir, ""
-	}
-	if !identity.Bare || identity.OutsideWorktree {
-		return projectConfigDir, ""
-	}
-	base := filepath.Join(identity.CheckoutRoot, projectConfigDir)
-	ignored := filepath.Join(identity.WorktreeRoot, projectConfigDir)
-	if ignored == base {
-		// The CWD is the bare root itself: this is the directory the base reads,
-		// not a worktree copy that gets ignored.
-		return base, ""
-	}
-	if info, statErr := os.Stat(ignored); statErr == nil && info.IsDir() {
-		return base, ignored
-	}
-	return base, ""
-}
 
 // projectConfigBase returns the config dir for this process's CWD. It never
 // creates a directory. When os.Getwd fails it degrades to the relative constant,
@@ -247,16 +152,6 @@ const (
 // ProjectDockerfile returns the project Dockerfile path.
 func (c *realConfigPaths) ProjectDockerfile() string {
 	return filepath.Join(c.projectConfigBase(), dockerfileName)
-}
-
-// ProjectAgentConfigDir returns the project-local config dir for the agent,
-// absolute to match ProjectAgentConfigDirCandidates.
-func (c *realConfigPaths) ProjectAgentConfigDir(a agent.Agent) (string, error) {
-	name, err := validConfigDirName(a.Name(), a.ConfigDirName())
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(c.ProjectConfigDirAbs(), name), nil
 }
 
 func (c *realConfigPaths) ProjectEnvFile() string {

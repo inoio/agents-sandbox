@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -532,6 +534,53 @@ func TestRunServeOnlyReapFailureWarns(t *testing.T) {
 	}
 }
 
+// TestRunServeOnlyWarnsAboutContainersAfterCancel covers the canceled exit path
+// end to end: serve-only exits by canceling ctx, and the last-client reaper must
+// still probe for running containers (and warn) rather than let the canceled
+// context suppress the probe. Without the probe's own context this yields no
+// warning, which is the regression greptile flagged.
+func TestRunServeOnlyWarnsAboutContainersAfterCancel(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	sb := canceledContextSandbox{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{
+		ShellOut: map[string]msb.ShellResult{
+			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+		},
+	})}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, options.RunOptions{
+			Agent:      "opencode",
+			ServeOnly:  true,
+			ReapPolicy: options.ReapPolicy{AutoStopOnActiveSessions: true},
+		}, options.ModeRun, ui)
+	}()
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run serve-only did not return after cancel")
+	}
+	found := false
+	for _, w := range ui.WarnCalls {
+		if strings.Contains(w, "container") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected a running-container warning on serve-only exit, got %v", ui.WarnCalls)
+	}
+}
+
 func TestShellPrepareSandboxError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
@@ -567,9 +616,11 @@ func TestRunNormalCallsRunAttach(t *testing.T) {
 	}
 	defer func() { prepareSandbox = orig }()
 
+	trace := &lifecycle.Trace{}
 	err := Run(context.Background(), options.RunOptions{
 		Agent:      "opencode",
 		ReapPolicy: options.NewReapPolicy(true, 5),
+		Trace:      trace,
 	}, options.ModeRun, ui)
 	if err != nil {
 		t.Fatalf("Run normal: %v", err)
@@ -589,6 +640,9 @@ func TestRunNormalCallsRunAttach(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected attach command in verbose output, got %v", ui.VerboseCalls)
+	}
+	if got, want := trace.Stages(), []lifecycle.StageID{lifecycle.Attach}; !slices.Equal(got, want) {
+		t.Errorf("trace = %v, want %v (attach recorded once)", got, want)
 	}
 }
 
@@ -689,9 +743,10 @@ func TestShellNormalCallsRunAttach(t *testing.T) {
 	}
 	defer func() { prepareSandbox = orig }()
 
+	trace := &lifecycle.Trace{}
 	err := Shell(
 		context.Background(),
-		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)},
+		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5), Trace: trace},
 		options.ModeRun,
 		ui,
 	)
@@ -700,6 +755,9 @@ func TestShellNormalCallsRunAttach(t *testing.T) {
 	}
 	if hasDryRunMessage(ui.InfoCalls) {
 		t.Errorf("a real shell run must not take the dry-run-vm path, got info calls %v", ui.InfoCalls)
+	}
+	if got, want := trace.Stages(), []lifecycle.StageID{lifecycle.Attach}; !slices.Equal(got, want) {
+		t.Errorf("trace = %v, want %v (attach recorded once)", got, want)
 	}
 }
 
@@ -1012,4 +1070,26 @@ func TestRunDoesNotStartNotifyWatcherWithoutEventStreamProvider(t *testing.T) {
 	if called {
 		t.Error("notify watcher should not start for an agent without EventStreamProvider")
 	}
+}
+
+func TestRunDryRunRendersNoRebuildReuseWithSkippedReasons(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	stubPreviewSandbox(t, sandbox.Preview{
+		AgentVersion: "1.2.3",
+		ImageTag:     "agents-sandbox-runner-y",
+		BuildReasons: []string{"project Dockerfile changed"},
+		HomeVolume:   "agents-sandbox-home-abc",
+	})
+
+	err := Run(context.Background(), options.RunOptions{}, options.ModePreview, ui)
+	if err != nil {
+		t.Fatalf("Run dry-run: %v", err)
+	}
+	assertInfoCalls(t, ui, []string{
+		"dry-run: agent version 1.2.3",
+		"dry-run: would reuse runner image agents-sandbox-runner-y despite changes (--no-rebuild): project Dockerfile changed",
+		"dry-run: would reuse home volume agents-sandbox-home-abc",
+		"dry-run: would start agent session",
+	})
 }

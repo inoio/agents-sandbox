@@ -8,6 +8,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 )
@@ -37,6 +38,9 @@ type RunOptions struct {
 	IdleTimeout time.Duration
 	CPUs        uint8
 	Rebuild     bool
+	// NoRebuild reuses the existing runner image even when its inputs changed
+	// and skips the agent upgrade check. A missing image is still built.
+	NoRebuild bool
 	// Docker is the resolved docker capability: whether the tool's Docker
 	// engine block is baked into the runner image and whether that value was
 	// set explicitly.
@@ -71,6 +75,9 @@ type RunOptions struct {
 	// OpenLinks starts the host side of the in-VM xdg-open shim for the
 	// session, so links opened in the VM open on the host (internal/opener).
 	OpenLinks bool
+	// Trace records the lifecycle stages the invocation reaches. cmd creates
+	// it; the stages in vm and session record into it. Nil records nothing.
+	Trace *lifecycle.Trace
 }
 
 // ServeOnlyBindAddr is the loopback address the agent server binds to

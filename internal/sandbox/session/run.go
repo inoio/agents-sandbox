@@ -11,6 +11,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -48,9 +49,13 @@ func renderPreview(ui termio.UI, p sandbox.Preview, shell bool) {
 	default:
 		ui.Infof("dry-run: agent version %s", p.AgentVersion)
 	}
-	if p.BuildImage {
+	switch {
+	case p.BuildImage:
 		ui.Infof("dry-run: would build runner image %s (%s)", p.ImageTag, strings.Join(p.BuildReasons, "; "))
-	} else {
+	case len(p.BuildReasons) > 0:
+		ui.Infof("dry-run: would reuse runner image %s despite changes (--no-rebuild): %s",
+			p.ImageTag, strings.Join(p.BuildReasons, "; "))
+	default:
 		ui.Infof("dry-run: would reuse runner image %s", p.ImageTag)
 	}
 	if p.CreateHome {
@@ -193,6 +198,7 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 		return nil
 	}
 
+	opts.Trace.Record(lifecycle.Attach)
 	projectSlug := ses.Key().Slug
 
 	a, _ := agent.Lookup(opts.Agent)
@@ -274,6 +280,7 @@ func Shell(ctx context.Context, opts options.RunOptions, mode options.Mode, ui t
 		return nil
 	}
 
+	opts.Trace.Record(lifecycle.Attach)
 	stopHostOpener := startHostOpener(ctx, ses, opts.OpenLinks, ui)
 	defer stopHostOpener()
 

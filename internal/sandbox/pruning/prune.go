@@ -29,11 +29,10 @@ func Prune(
 	ui termio.UI,
 	retain ...state.Key,
 ) (*StaleReport, error) {
-	pruneState, err := buildPruneState(ctx, threshold)
+	pruneState, err := buildPruneState(ctx, threshold, retain...)
 	if err != nil {
 		return nil, err
 	}
-	pruneState.RetainKeys = keySet(retain)
 	vmReport, vmErr := PruneSandboxes(ctx, pruneState, dryRun, ui)
 	volReport, volErr := PruneVolumes(ctx, pruneState, dryRun, ui)
 	imgReport, imgErr := PruneImages(ctx, pruneState, dryRun, ui)
