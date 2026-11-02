@@ -9,7 +9,7 @@
 [![Docs](https://img.shields.io/badge/docs-github--pages-blue)](https://inoio.github.io/agents-sandbox/)
 
 agents-sandbox allows you to isolate your coding agents from the rest of your dev environment. You are put in control over what parts of your host machine and network environment are available to each agent. agents-sandbox acts as a launcher for [opencode](https://opencode.ai), [opencode2](https://opencode.ai),
-[pi](https://pi.dev), [Claude Code](https://claude.com/product/claude-code), [Codex](https://github.com/openai/codex), and [Hermes Agent](https://hermes-agent.nousresearch.com/). It builds or reuses a dedicated [microsandbox](https://microsandbox.dev/) VM per
+[pi](https://pi.dev), [Claude Code](https://claude.com/product/claude-code), [Codex](https://github.com/openai/codex), [Hermes Agent](https://hermes-agent.nousresearch.com/), and [Oh My Pi](https://github.com/can1357/oh-my-pi). It builds or reuses a dedicated [microsandbox](https://microsandbox.dev/) VM per
 project and agent, then attaches the selected agent inside that VM. A system-wide microsandbox installation is not
 required: agents-sandbox provisions its own isolated runtime under its data directory, never uses `~/.microsandbox` as
 its runtime, and never writes to it (the one-time migration reads it only to copy your old volumes).
@@ -88,7 +88,7 @@ select the coding-agent to run, provision, or manage. This is also available as 
 `--agent-version` pins the version agents-sandbox installs into the runner image; it does not replace an agent already
 provided by a custom base or project Dockerfile.
 
-Six agents ship as built-in profiles:
+Seven agents ship as built-in profiles:
 
 - **`opencode`** — a daemon-based agent with serve/attach, worktree sessions, and GitHub-release upgrade checks.
 - **`opencode2`** (default) — opencode 2 (beta), installed from its native installer; daemon-based with serve/attach, worktree
@@ -103,8 +103,10 @@ Six agents ship as built-in profiles:
   GitHub releases.
 - **`hermes`** — [Hermes Agent](https://hermes-agent.nousresearch.com/), installed from its official installer at a
   pinned release tag, run interactively, with upgrade checks via its GitHub releases.
+- **`oh-my-pi`** — [Oh My Pi](https://github.com/can1357/oh-my-pi) (binary `omp`), installed from its checksum-verified
+  GitHub release binary (about 275 MB), run interactively, with upgrade checks via its GitHub releases.
 
-`opencode` and `opencode2` are the tested default agents; the other four are experimental — not well tested with
+`opencode` and `opencode2` are the tested default agents; the other five are experimental — not well tested with
 agents-sandbox.
 
 ## Documentation

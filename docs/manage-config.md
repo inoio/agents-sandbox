@@ -11,7 +11,7 @@ nav_order: 40
 Own the sandbox's configuration declaratively: self-contained, reproducible, and able to keep raw secret values out of the VM.
 This extends **[Switch from your existing agent]({% link switch.md %})**.
 
-> **Note:** If you are new to coding agents, set up your agent (opencode, opencode2, pi, claude-code, codex, or hermes) on your host first,
+> **Note:** If you are new to coding agents, set up your agent (opencode, opencode2, pi, claude-code, codex, hermes, or oh-my-pi) on your host first,
 > then come back here.
 
 ## 1. Turn off host-config fallback
@@ -35,7 +35,7 @@ for f in "$HOME"/.config/opencode/* "$HOME"/.config/opencode/.[!.]*; do
 done
 ```
 
-(For opencode2 / pi / claude-code / codex / hermes, use `~/.config/agents-sandbox/opencode2/` / `.../pi/` / `.../claude/` / `.../codex/` / `.../hermes/`. An
+(For opencode2 / pi / claude-code / codex / hermes / oh-my-pi, use `~/.config/agents-sandbox/opencode2/` / `.../pi/` / `.../claude/` / `.../codex/` / `.../hermes/` / `.../oh-my-pi/`. An
 `opencode2` dir is separate from the `opencode` one; see the fallback note in
 [Agent configuration]({% link configuration/agent.md %}).) Snippets matching
 the agent's pattern (e.g. `opencode*.json*`) are deep-merged into the VM config; see
