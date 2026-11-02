@@ -16,6 +16,7 @@ type codexProfile struct{}
 
 func (codexProfile) Name() string          { return codexName }
 func (codexProfile) ConfigDirName() string { return "codex" }
+func (codexProfile) Experimental() bool    { return true }
 
 // ImageSpec installs the codex-package release asset, the layout Codex's own
 // installer uses: bin/codex plus the helpers it resolves next to its real path

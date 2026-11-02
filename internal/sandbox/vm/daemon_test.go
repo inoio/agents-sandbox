@@ -20,6 +20,7 @@ import (
 type fakeAgent struct{}
 
 func (fakeAgent) Name() string          { return "fake" }
+func (fakeAgent) Experimental() bool    { return false }
 func (fakeAgent) ConfigDirName() string { return "fake" }
 func (fakeAgent) ImageSpec() agent.ImageSpec {
 	return agent.ImageSpec{}

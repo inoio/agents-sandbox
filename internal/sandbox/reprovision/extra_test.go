@@ -20,6 +20,7 @@ import (
 type plainAgent struct{}
 
 func (plainAgent) Name() string          { return "plain" }
+func (plainAgent) Experimental() bool    { return false }
 func (plainAgent) ConfigDirName() string { return "plain" }
 func (plainAgent) ImageSpec() agent.ImageSpec {
 	return agent.ImageSpec{InstallCommand: "true"}

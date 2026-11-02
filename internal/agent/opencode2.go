@@ -46,7 +46,8 @@ type opencode2Profile struct {
 	opencodeConfig
 }
 
-func (opencode2Profile) Name() string { return opencode2Name }
+func (opencode2Profile) Name() string       { return opencode2Name }
+func (opencode2Profile) Experimental() bool { return false }
 
 // GuestTools declares the daemon's in-VM runtime tools for the image-build check.
 func (opencode2Profile) GuestTools() []string { return daemonGuestTools }

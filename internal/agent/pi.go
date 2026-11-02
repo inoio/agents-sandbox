@@ -13,6 +13,7 @@ type piProfile struct{}
 
 func (piProfile) Name() string          { return piName }
 func (piProfile) ConfigDirName() string { return "pi" }
+func (piProfile) Experimental() bool    { return true }
 
 func (piProfile) ImageSpec() ImageSpec {
 	return ImageSpec{

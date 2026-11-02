@@ -10,6 +10,7 @@ type stubAgent struct{ name string }
 func (s stubAgent) Name() string          { return s.name }
 func (s stubAgent) ConfigDirName() string { return s.name }
 func (s stubAgent) ImageSpec() ImageSpec  { return ImageSpec{} }
+func (s stubAgent) Experimental() bool    { return false }
 
 func TestRegisterMakesAgentLookupable(t *testing.T) {
 	const name = "test-stub-agent"

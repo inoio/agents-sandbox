@@ -104,6 +104,9 @@ Six agents ship as built-in profiles:
 - **`hermes`** — [Hermes Agent](https://hermes-agent.nousresearch.com/), installed from its official installer at a
   pinned release tag, run interactively, with upgrade checks via its GitHub releases.
 
+`opencode` and `opencode2` are the tested default agents; the other four are experimental — not well tested with
+agents-sandbox.
+
 ## Documentation
 
 There's dedicated documentation per topic. You can also browse the documentation on [GitHub Pages](https://inoio.github.io/agents-sandbox/).

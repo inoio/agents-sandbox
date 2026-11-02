@@ -71,7 +71,8 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.UI) (options.R
 		return options.RunOptions{}, err
 	}
 
-	if err = resolveAgentAndValidate(cfg, cmd, &opts); err != nil {
+	a, err := resolveAgentAndValidate(cfg, cmd, &opts)
+	if err != nil {
 		return options.RunOptions{}, err
 	}
 
@@ -107,6 +108,13 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.UI) (options.R
 
 	if err := resolveSizes(&opts); err != nil {
 		return options.RunOptions{}, err
+	}
+
+	// The experimental notice is informational, so it is emitted only once all
+	// validation has passed: an invalid invocation errors without first printing
+	// the info line.
+	if a.Experimental() {
+		ui.Infof("%s is experimental — not well tested with agents-sandbox", a.Name())
 	}
 
 	return opts, nil
@@ -197,9 +205,14 @@ func ResolveMode(cmd *cobra.Command) options.Mode {
 	return options.ModeRun
 }
 
-// resolveAgentAndValidate resolves the agent (default > config > flag) and
-// rejects unknown names and unsupported --worktree/--serve-only combinations.
-func resolveAgentAndValidate(cfg *viperconfig.Config, cmd *cobra.Command, opts *options.RunOptions) error {
+// resolveAgentAndValidate resolves the agent (default > config > flag),
+// rejecting unknown names and unsupported --worktree/--serve-only combinations,
+// and returns the validated profile.
+func resolveAgentAndValidate(
+	cfg *viperconfig.Config,
+	cmd *cobra.Command,
+	opts *options.RunOptions,
+) (agent.Agent, error) {
 	opts.Agent = defaultAgentName
 	if cfg != nil && cfg.Agent != "" {
 		opts.Agent = cfg.Agent
@@ -208,7 +221,7 @@ func resolveAgentAndValidate(cfg *viperconfig.Config, cmd *cobra.Command, opts *
 		opts.Agent = name
 	}
 	if !slices.Contains(agent.Names(), opts.Agent) {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"unknown agent %q: must be one of %s",
 			opts.Agent,
 			strings.Join(agent.Names(), ", "),
@@ -217,15 +230,15 @@ func resolveAgentAndValidate(cfg *viperconfig.Config, cmd *cobra.Command, opts *
 	a, _ := agent.Lookup(opts.Agent)
 	if opts.Worktree.Name != "" {
 		if _, ok := agent.AsWorktreeProvider(a); !ok {
-			return fmt.Errorf("--worktree is not supported by agent %q", a.Name())
+			return nil, fmt.Errorf("--worktree is not supported by agent %q", a.Name())
 		}
 	}
 	if opts.ServeOnly {
 		if _, ok := agent.AsDaemonProvider(a); !ok {
-			return fmt.Errorf("--serve-only is not supported by agent %q", a.Name())
+			return nil, fmt.Errorf("--serve-only is not supported by agent %q", a.Name())
 		}
 	}
-	return nil
+	return a, nil
 }
 
 // resolveNotify resolves the effective notify config (flag > env > config),

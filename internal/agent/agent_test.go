@@ -66,6 +66,50 @@ func TestOpencodeImplementsDaemon(t *testing.T) {
 	}
 }
 
+func TestExperimentalAgentSet(t *testing.T) {
+	experimental := map[string]bool{
+		"pi":          true,
+		"claude-code": true,
+		"codex":       true,
+		"hermes":      true,
+	}
+	stable := map[string]bool{
+		"opencode":  true,
+		"opencode2": true,
+	}
+
+	names := agent.Names()
+	classified := map[string]bool{}
+	for _, name := range names {
+		a, ok := agent.Lookup(name)
+		if !ok {
+			t.Fatalf("Lookup(%q) = not-ok", name)
+		}
+		want, known := experimental[name]
+		if !known {
+			if !stable[name] {
+				t.Errorf("agent %q is in neither the experimental nor the stable set", name)
+				continue
+			}
+			want = false
+		}
+		classified[name] = true
+		if got := a.Experimental(); got != want {
+			t.Errorf("agent %q Experimental() = %v, want %v", name, got, want)
+		}
+	}
+	for name := range experimental {
+		if !classified[name] {
+			t.Errorf("experimental agent %q is not registered", name)
+		}
+	}
+	for name := range stable {
+		if !classified[name] {
+			t.Errorf("stable agent %q is not registered", name)
+		}
+	}
+}
+
 func TestOpencodeImageSpec(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	spec := a.ImageSpec()

@@ -55,6 +55,7 @@ type hermesProfile struct{}
 
 func (hermesProfile) Name() string          { return hermesName }
 func (hermesProfile) ConfigDirName() string { return "hermes" }
+func (hermesProfile) Experimental() bool    { return true }
 
 func (hermesProfile) ImageSpec() ImageSpec {
 	return ImageSpec{
