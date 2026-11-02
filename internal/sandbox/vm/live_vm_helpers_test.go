@@ -76,16 +76,16 @@ func lookUpAndEnsureProjectVM(
 	repoSlug string,
 	skipVM bool,
 	ui termio.UI,
-) (msb.Sandbox, vmBoot, error) {
+) (msb.Sandbox, VMBoot, error) {
 	var existing msb.SandboxHandle
 	if !skipVM {
 		var err error
-		existing, _, err = findProjectVM(ctx, client, k)
+		existing, _, err = FindProjectVM(ctx, client, k)
 		if err != nil {
-			return nil, vmBootConnected, err
+			return nil, VMBootConnected, err
 		}
 	}
-	return ensureProjectVM(
+	return EnsureProjectVM(
 		ctx,
 		client,
 		opts,

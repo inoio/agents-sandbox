@@ -359,7 +359,7 @@ func TestPreviewSandboxUserProvidedAgentIgnoresPin(t *testing.T) {
 		},
 	})
 	noVolumeCreateMock(t)
-	seedAgentState(t, k, "1.0.0", agentSourceUser)
+	seedAgentState(t, k, "1.0.0", state.AgentSourceUser)
 
 	orig := SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
 		t.Fatal("PreviewSandbox must not run the upgrade check for a user-provided agent")
@@ -390,7 +390,7 @@ func TestPreviewSandboxUserProvidedAgentNeverRecoversVersion(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	absentImageDockerMock(t)
 	noVolumeCreateMock(t)
-	seedAgentState(t, previewKey(), "", agentSourceUser)
+	seedAgentState(t, previewKey(), "", state.AgentSourceUser)
 
 	orig := existingAgentVersion
 	existingAgentVersion = func(context.Context, string, string) (string, bool) {

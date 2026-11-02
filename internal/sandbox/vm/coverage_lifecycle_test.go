@@ -16,7 +16,7 @@ import (
 
 // retryConnectHandle is a SandboxHandle whose Connect fails on the first call
 // and then delegates to a refreshed handle on subsequent calls, modelling the
-// idle-timeout race ensureProjectVM recovers from.
+// idle-timeout race EnsureProjectVM recovers from.
 type retryConnectHandle struct {
 	msb.SandboxHandle
 
@@ -75,13 +75,13 @@ func TestEnsureProjectVMConnectRetryReconnectSucceeds(t *testing.T) {
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM connect-retry reconnect: %v", err)
+		t.Fatalf("EnsureProjectVM connect-retry reconnect: %v", err)
 	}
 	if sb == nil {
 		t.Fatal("expected a non-nil sandbox")
 	}
-	if boot != vmBootConnected {
-		t.Errorf("expected vmBootConnected, got %v", boot)
+	if boot != VMBootConnected {
+		t.Errorf("expected VMBootConnected, got %v", boot)
 	}
 }
 
@@ -119,13 +119,13 @@ func TestEnsureProjectVMConnectRetryThenStart(t *testing.T) {
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM connect-retry start: %v", err)
+		t.Fatalf("EnsureProjectVM connect-retry start: %v", err)
 	}
 	if sb == nil {
 		t.Fatal("expected a non-nil sandbox")
 	}
-	if boot != vmBootStarted {
-		t.Errorf("expected vmBootStarted, got %v", boot)
+	if boot != VMBootStarted {
+		t.Errorf("expected VMBootStarted, got %v", boot)
 	}
 }
 
@@ -168,7 +168,7 @@ func TestEnsureProjectVMPostLockDecideError(t *testing.T) {
 }
 
 // postLockGetSandbox returns a GetSandboxFn that misses the two lookups
-// findProjectVM makes (the current and legacy name) and answers the post-lock
+// FindProjectVM makes (the current and legacy name) and answers the post-lock
 // re-check with handle.
 func postLockGetSandbox(handle msb.SandboxHandle) func(context.Context, string) (msb.SandboxHandle, error) {
 	lookups := 0
@@ -218,13 +218,13 @@ func TestEnsureProjectVMPostLockConnectFailThenStart(t *testing.T) {
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM post-lock connect-fail start: %v", err)
+		t.Fatalf("EnsureProjectVM post-lock connect-fail start: %v", err)
 	}
 	if sb != started {
 		t.Fatalf("sandbox = %v, want the started sandbox", sb)
 	}
-	if boot != vmBootStarted {
-		t.Errorf("expected vmBootStarted, got %v", boot)
+	if boot != VMBootStarted {
+		t.Errorf("expected VMBootStarted, got %v", boot)
 	}
 	if !contains(joinStrings(ui.VerboseCalls), "retrying via Start") {
 		t.Errorf("expected a verbose message about the connect retry, got %v", ui.VerboseCalls)
@@ -267,13 +267,13 @@ func TestEnsureProjectVMPostLockConnectRetryReconnectSucceeds(t *testing.T) {
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM post-lock connect retry: %v", err)
+		t.Fatalf("EnsureProjectVM post-lock connect retry: %v", err)
 	}
 	if sb != connected {
 		t.Fatalf("sandbox = %v, want the reconnected sandbox", sb)
 	}
-	if boot != vmBootConnected {
-		t.Errorf("expected vmBootConnected, got %v", boot)
+	if boot != VMBootConnected {
+		t.Errorf("expected VMBootConnected, got %v", boot)
 	}
 }
 
@@ -387,13 +387,13 @@ func TestEnsureProjectVMPostLockConnectReconcileWarn(t *testing.T) {
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM post-lock connect reconcile warn: %v", err)
+		t.Fatalf("EnsureProjectVM post-lock connect reconcile warn: %v", err)
 	}
 	if sb == nil {
 		t.Fatal("expected a non-nil sandbox")
 	}
-	if boot != vmBootConnected {
-		t.Errorf("expected vmBootConnected, got %v", boot)
+	if boot != VMBootConnected {
+		t.Errorf("expected VMBootConnected, got %v", boot)
 	}
 	if !contains(joinStrings(ui.WarnCalls), "could not reconcile VM resources") {
 		t.Errorf("expected a reconcile warning, got %v", ui.WarnCalls)
@@ -437,13 +437,13 @@ func TestEnsureProjectVMPostLockStartReconcileWarn(t *testing.T) {
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM post-lock start reconcile warn: %v", err)
+		t.Fatalf("EnsureProjectVM post-lock start reconcile warn: %v", err)
 	}
 	if sb == nil {
 		t.Fatal("expected a non-nil sandbox")
 	}
-	if boot != vmBootStarted {
-		t.Errorf("expected vmBootStarted, got %v", boot)
+	if boot != VMBootStarted {
+		t.Errorf("expected VMBootStarted, got %v", boot)
 	}
 	if !contains(joinStrings(ui.WarnCalls), "could not reconcile VM resources") {
 		t.Errorf("expected a reconcile warning, got %v", ui.WarnCalls)
@@ -519,13 +519,13 @@ func TestEnsureProjectVMConnectRetryReconcileWarn(t *testing.T) {
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM connect-retry reconcile warn: %v", err)
+		t.Fatalf("EnsureProjectVM connect-retry reconcile warn: %v", err)
 	}
 	if sb == nil {
 		t.Fatal("expected a non-nil sandbox")
 	}
-	if boot != vmBootConnected {
-		t.Errorf("expected vmBootConnected, got %v", boot)
+	if boot != VMBootConnected {
+		t.Errorf("expected VMBootConnected, got %v", boot)
 	}
 	if !contains(joinStrings(ui.WarnCalls), "could not reconcile VM resources") {
 		t.Errorf("expected a reconcile warning, got %v", ui.WarnCalls)
@@ -606,13 +606,13 @@ func TestEnsureProjectVMConnectRetryStartReconcileWarn(t *testing.T) {
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM connect-retry start reconcile warn: %v", err)
+		t.Fatalf("EnsureProjectVM connect-retry start reconcile warn: %v", err)
 	}
 	if sb == nil {
 		t.Fatal("expected a non-nil sandbox")
 	}
-	if boot != vmBootStarted {
-		t.Errorf("expected vmBootStarted, got %v", boot)
+	if boot != VMBootStarted {
+		t.Errorf("expected VMBootStarted, got %v", boot)
 	}
 	if !contains(joinStrings(ui.WarnCalls), "could not reconcile VM resources") {
 		t.Errorf("expected a reconcile warning, got %v", ui.WarnCalls)

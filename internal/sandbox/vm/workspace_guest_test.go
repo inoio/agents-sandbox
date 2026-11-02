@@ -65,7 +65,7 @@ func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	target, err := setUpSandbox(
+	target, err := SetUpSandbox(
 		context.Background(),
 		testVMKey(),
 		sb,
@@ -73,11 +73,11 @@ func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 		cfs,
 		ui,
 		false,
-		vmBootStarted,
+		VMBootStarted,
 		"/workspace/sub",
 	)
 	if err != nil {
-		t.Fatalf("setUpSandbox: %v", err)
+		t.Fatalf("SetUpSandbox: %v", err)
 	}
 	if target != "/workspace/sub" {
 		t.Errorf("target = %q, want %q", target, "/workspace/sub")

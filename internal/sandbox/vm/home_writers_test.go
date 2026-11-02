@@ -22,8 +22,8 @@ func TestHomeWritersPreserveUnrelatedFields(t *testing.T) {
 			HomeVolume:      "vol",
 			ImageDigest:     "d",
 			AgentVersion:    "1.0.0",
-			AgentSource:     agentSourceTool,
-			DockerSource:    agentSourceTool,
+			AgentSource:     state.AgentSourceTool,
+			DockerSource:    state.AgentSourceTool,
 			OfferedVersions: []string{"1.1.0"},
 			EnvState:        state.EnvState{Hash: "e"},
 			SecretState:     state.SecretState{Hash: "s"},
@@ -108,16 +108,16 @@ func TestHomeWritersPreserveUnrelatedFields(t *testing.T) {
 				t.Helper()
 				sb := &msb.MockSandbox{
 					FSValue_: msb.NewTestFS(map[string][]byte{
-						agentSourcePath:  []byte(agentSourceUser + "\n"),
-						dockerSourcePath: []byte(agentSourceUser + "\n"),
+						agentSourcePath:  []byte(state.AgentSourceUser + "\n"),
+						dockerSourcePath: []byte(state.AgentSourceUser + "\n"),
 					}, nil),
 				}
 				recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, &termio.Mock{})
 			},
 			want: func() state.HomeState {
 				w := seed()
-				w.AgentSource = agentSourceUser
-				w.DockerSource = agentSourceUser
+				w.AgentSource = state.AgentSourceUser
+				w.DockerSource = state.AgentSourceUser
 				return w
 			},
 		},

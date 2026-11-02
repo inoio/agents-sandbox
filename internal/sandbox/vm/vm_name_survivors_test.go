@@ -45,17 +45,17 @@ func TestTruncateProjectVMNameKeepsAtLeastZeroSlugBytes(t *testing.T) {
 func TestFindProjectVMPropagatesNewNameProbeError(t *testing.T) {
 	k := state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"}
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		if name == projectVMName(k) {
+		if name == ProjectVMName(k) {
 			return nil, errVMNameBoom
 		}
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
 	}}
 
-	handle, found, err := findProjectVM(context.Background(), client, k)
+	handle, found, err := FindProjectVM(context.Background(), client, k)
 	require.ErrorIs(t, err, errVMNameBoom)
 	require.False(t, found)
 	require.Nil(t, handle)
-	require.Contains(t, err.Error(), projectVMName(k))
+	require.Contains(t, err.Error(), ProjectVMName(k))
 }
 
 // TestFindProjectVMPropagatesLegacyProbeErrorFailsClosed pins the legacy probe's
@@ -64,13 +64,13 @@ func TestFindProjectVMPropagatesNewNameProbeError(t *testing.T) {
 func TestFindProjectVMPropagatesLegacyProbeErrorFailsClosed(t *testing.T) {
 	k := state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"}
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		if name == projectVMName(k) {
+		if name == ProjectVMName(k) {
 			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
 		}
 		return nil, errVMNameBoom
 	}}
 
-	handle, found, err := findProjectVM(context.Background(), client, k)
+	handle, found, err := FindProjectVM(context.Background(), client, k)
 	require.ErrorIs(t, err, errVMNameBoom)
 	require.False(t, found)
 	require.Nil(t, handle)

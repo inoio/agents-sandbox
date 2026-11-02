@@ -267,7 +267,7 @@ func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensureVMStage: %v", err)
 	}
-	if sb != connected || boot != vmBootConnected {
+	if sb != connected || boot != VMBootConnected {
 		t.Errorf("ensureVMStage = (%v, %v), want the running VM connected", sb, boot)
 	}
 	if lookups != 1 {
@@ -284,7 +284,7 @@ func TestEnsureProjectVMRecreateDestroysTheHandleItIsGiven(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	existing := &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning}
 
-	_, boot, err := ensureProjectVM(
+	_, boot, err := EnsureProjectVM(
 		context.Background(),
 		&msb.MockMsbClient{},
 		options.RunOptions{Agent: "opencode", Recreate: true},
@@ -299,12 +299,12 @@ func TestEnsureProjectVMRecreateDestroysTheHandleItIsGiven(t *testing.T) {
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM: %v", err)
+		t.Fatalf("EnsureProjectVM: %v", err)
 	}
 	if !existing.Destroyed {
 		t.Error("recreate did not destroy the handle the decision was read from")
 	}
-	if boot != vmBootCreated {
-		t.Errorf("boot = %v, want vmBootCreated", boot)
+	if boot != VMBootCreated {
+		t.Errorf("boot = %v, want VMBootCreated", boot)
 	}
 }

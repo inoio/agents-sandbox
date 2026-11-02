@@ -282,7 +282,7 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (create): %v", err)
 	}
-	if !created.booted() {
+	if !created.Booted() {
 		t.Error("expected created=true on create path")
 	}
 	if sb == nil {
@@ -334,9 +334,9 @@ func TestEnsureProjectVMAppliesLabels(t *testing.T) {
 		ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM (create): %v", err)
+		t.Fatalf("EnsureProjectVM (create): %v", err)
 	}
-	if !created.booted() || sb == nil {
+	if !created.Booted() || sb == nil {
 		t.Fatal("expected created sandbox")
 	}
 }
@@ -374,7 +374,7 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (reconnect): %v", err)
 	}
-	if created.booted() {
+	if created.Booted() {
 		t.Error("expected created=false on reconnect path")
 	}
 	if sb == nil {
@@ -527,7 +527,7 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (unchanged image): %v", err)
 	}
-	if created.booted() {
+	if created.Booted() {
 		t.Error("expected created=false when image is unchanged")
 	}
 	if sb == nil {
@@ -686,7 +686,7 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (unknown existing image): %v", err)
 	}
-	if created.booted() {
+	if created.Booted() {
 		t.Error("expected created=false when existing image is unknown")
 	}
 	if sb == nil {
@@ -739,7 +739,7 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureProjectVM: %v", err)
 	}
-	if !created.booted() {
+	if !created.Booted() {
 		t.Error("expected created=true after recreate")
 	}
 	if sb == nil {
@@ -786,7 +786,7 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureProjectVM: %v", err)
 	}
-	if created.booted() {
+	if created.Booted() {
 		t.Error("expected created=false on reuse")
 	}
 	if sb == nil {

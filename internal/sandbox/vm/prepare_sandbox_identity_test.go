@@ -120,7 +120,7 @@ func seedMatchingHomeState(t *testing.T, k state.Key) {
 		HomeVolume:   "home-vol",
 		ImageDigest:  "sha256:abc123",
 		AgentVersion: "1.0.0",
-		AgentSource:  agentSourceTool,
+		AgentSource:  state.AgentSourceTool,
 	}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestPrepareSandboxUsesCheckoutSlugForStateAndRepoSlugForLabel(t *testing.T)
 	}
 	defer firstSession.Cleanup()
 	firstTag := *inspectedTag
-	firstName := projectVMName(firstKey)
+	firstName := ProjectVMName(firstKey)
 	firstLabels := createdProjectVMConfig(t, firstMock, firstName).Labels
 
 	t.Chdir(secondClone)
@@ -203,7 +203,7 @@ func TestPrepareSandboxUsesCheckoutSlugForStateAndRepoSlugForLabel(t *testing.T)
 	}
 	defer secondSession.Cleanup()
 	secondTag := *inspectedTag
-	secondName := projectVMName(secondKey)
+	secondName := ProjectVMName(secondKey)
 	secondLabels := createdProjectVMConfig(t, secondMock, secondName).Labels
 
 	if firstName == secondName {
@@ -280,9 +280,9 @@ func TestPrepareSandboxOutsideWorktreeUsesItsOwnKey(t *testing.T) {
 	if got := session.Key(); got != key {
 		t.Errorf("session key = %+v, want the worktree-root-derived %+v", got, key)
 	}
-	if got := createdProjectVMNames(mock); len(got) != 1 || got[0] != projectVMName(key) {
+	if got := createdProjectVMNames(mock); len(got) != 1 || got[0] != ProjectVMName(key) {
 		t.Errorf("created sandboxes = %v, want the worktree-root-derived %q",
-			got, projectVMName(key))
+			got, ProjectVMName(key))
 	}
 	if *inspectedTag != naming.DockerImageRef(identity.CheckoutSlug, "opencode") {
 		t.Errorf("image tag = %q, want the worktree-root-derived tag", *inspectedTag)
@@ -293,7 +293,7 @@ func TestPrepareSandboxOutsideWorktreeUsesItsOwnKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvalSymlinks(%q): %v", outside, err)
 	}
-	mountConfig := createdProjectVMConfig(t, mock, projectVMName(key))
+	mountConfig := createdProjectVMConfig(t, mock, ProjectVMName(key))
 	if got := mountConfig.Volumes[defaultTargetDir].Bind; got != worktreeRoot {
 		t.Errorf("%s mount source = %q, want the worktree root %q", defaultTargetDir, got, worktreeRoot)
 	}
@@ -394,7 +394,7 @@ func TestPrepareSandboxMigratesOnFirstRun(t *testing.T) {
 	seedMatchingHomeState(t, legacyKey)
 
 	legacyHandle := &msb.MockSandboxHandle{
-		Name_:     projectVMName(legacyKey),
+		Name_:     ProjectVMName(legacyKey),
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: msb.NewMockSandbox(msb.SandboxOpts{}),
 	}
@@ -404,7 +404,7 @@ func TestPrepareSandboxMigratesOnFirstRun(t *testing.T) {
 
 	mock := installPrepareSandboxMSBMock(t)
 	mock.GetSandboxFn = func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		if name == projectVMName(legacyKey) {
+		if name == ProjectVMName(legacyKey) {
 			return legacyHandle, nil
 		}
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
@@ -423,9 +423,9 @@ func TestPrepareSandboxMigratesOnFirstRun(t *testing.T) {
 	if !statePresent(t, checkoutKey) {
 		t.Error("state file did not arrive under the checkout slug")
 	}
-	if got := createdProjectVMNames(mock); len(got) != 1 || got[0] != projectVMName(checkoutKey) {
+	if got := createdProjectVMNames(mock); len(got) != 1 || got[0] != ProjectVMName(checkoutKey) {
 		t.Errorf("created sandboxes = %v, want the checkout-slug name %q",
-			got, projectVMName(checkoutKey))
+			got, ProjectVMName(checkoutKey))
 	}
 	if *inspectedTag != naming.DockerImageRef(identity.CheckoutSlug, "opencode") {
 		t.Errorf("image tag = %q, want the checkout-slug tag", *inspectedTag)

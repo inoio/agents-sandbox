@@ -180,7 +180,7 @@ type ConfigFiles struct {
 	Mirror      map[string][]byte      // VM absolute path -> content (verbatim <agent> mirror)
 	Modes       map[string]os.FileMode // VM absolute path -> ordinary file permission bits
 	Remove      []string               // VM absolute paths to delete before writing
-	Hooks       []homeconfig.HookSpec  // startup hooks to run at setUpSandbox
+	Hooks       []homeconfig.HookSpec  // startup hooks to run at vm.SetUpSandbox
 	Keys        []string               // merged config path first (when snippets exist), then the remaining VM paths sorted
 }
 

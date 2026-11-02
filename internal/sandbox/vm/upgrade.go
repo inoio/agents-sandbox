@@ -123,7 +123,7 @@ func resolveBuildVersion(
 // favor of the recorded version and the caller must treat the build as
 // user-provided. Every other project honors the requested version as-is.
 func ResolveAgentVersionForBuild(k state.Key, requestedVersion string) (string, bool) {
-	if currentAgentSource(k) == agentSourceUser {
+	if currentAgentSource(k) == state.AgentSourceUser {
 		return currentAgentVersion(k), true
 	}
 	return requestedVersion, false

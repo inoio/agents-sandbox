@@ -74,7 +74,7 @@ func TestPrepareSandboxLoadConfigFilesError(t *testing.T) {
 			HomeVolume:   "home-vol",
 			ImageDigest:  "sha256:abc123",
 			AgentVersion: "1.5.0",
-			AgentSource:  agentSourceTool,
+			AgentSource:  state.AgentSourceTool,
 		},
 	)
 

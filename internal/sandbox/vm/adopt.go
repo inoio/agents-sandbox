@@ -356,7 +356,7 @@ func legacyAdoptionPending(
 		if !errors.Is(err, state.ErrStateNotFound) {
 			return legacyPendingSource{}, false, err
 		}
-		volume, exists, vmErr := projectVMHomeVolume(ctx, client, state.Key{Slug: slug, Agent: checkoutKey.Agent})
+		volume, exists, vmErr := ProjectVMHomeVolume(ctx, client, state.Key{Slug: slug, Agent: checkoutKey.Agent})
 		if vmErr != nil {
 			return legacyPendingSource{}, false, fmt.Errorf("check legacy project VM for %s: %w", slug, vmErr)
 		}
@@ -479,7 +479,7 @@ func migrateLegacyState(
 				filepath.Join(state.KeyDir(checkoutKey), "state.yaml"),
 				strings.Join(skipped, ", "),
 				verifyErr,
-				projectVMName(primaryKey),
+				ProjectVMName(primaryKey),
 				state.SlugDir(identity.CheckoutSlug),
 			)
 		}
@@ -528,9 +528,9 @@ func legacyAgentsToMigrate(slug, agentName string) ([]string, error) {
 // replaced belongs to a sandbox this run did not create, so adopting it would
 // destroy a stranger's VM and the adoption stops instead.
 func destroyLegacyVM(ctx context.Context, client msb.Client, repoKey state.Key, ui termio.UI) error {
-	name := projectVMName(repoKey)
+	name := ProjectVMName(repoKey)
 
-	handle, found, err := findProjectVM(ctx, client, repoKey)
+	handle, found, err := FindProjectVM(ctx, client, repoKey)
 	if err != nil {
 		return fmt.Errorf("check legacy project VM %q: %w", name, err)
 	}
@@ -634,8 +634,8 @@ No action needed: files, credentials and the home volume are kept; only the proj
 		headline,
 		state.SlugDir(identity.RepoSlug), state.SlugDir(identity.CheckoutSlug), extraStateRows.String(),
 		homeVolume,
-		projectVMName(state.Key{Slug: identity.RepoSlug, Agent: agentName}),
-		projectVMName(state.Key{Slug: identity.CheckoutSlug, Agent: agentName}),
+		ProjectVMName(state.Key{Slug: identity.RepoSlug, Agent: agentName}),
+		ProjectVMName(state.Key{Slug: identity.CheckoutSlug, Agent: agentName}),
 		naming.DockerImageRef(identity.RepoSlug, agentName),
 		naming.DockerImageRef(identity.CheckoutSlug, agentName),
 		configRow.String(),

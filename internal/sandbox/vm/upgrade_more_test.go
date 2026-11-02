@@ -18,7 +18,7 @@ import (
 func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
-	seedAgentState(t, k, "1.0.0", agentSourceTool)
+	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
@@ -48,7 +48,7 @@ func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
-	seedAgentState(t, k, "1.0.0", agentSourceTool)
+	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
@@ -83,7 +83,7 @@ func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
 func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
-	seedAgentState(t, k, "1.0.0", agentSourceTool)
+	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
@@ -119,7 +119,7 @@ func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
 func TestResolveBuildVersionWithoutUpgradeChecker(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "fake"}
-	seedAgentState(t, k, "1.5.0", agentSourceTool)
+	seedAgentState(t, k, "1.5.0", state.AgentSourceTool)
 	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
 		k,

@@ -36,7 +36,8 @@ func TestRecordImageProvenanceDetectsToolAgentVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
-	if hs.AgentSource != agentSourceTool || hs.DockerSource != agentSourceUser || hs.AgentVersion != "0.5.0" {
+	if hs.AgentSource != state.AgentSourceTool || hs.DockerSource != state.AgentSourceUser ||
+		hs.AgentVersion != "0.5.0" {
 		t.Fatalf("provenance = %+v", hs)
 	}
 }
@@ -48,8 +49,8 @@ func TestRecordImageProvenanceSkipsMissingState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "freshproj", Agent: "opencode"}
 	fs := msb.NewTestFS(map[string][]byte{
-		agentSourcePath:  []byte(agentSourceUser + "\n"),
-		dockerSourcePath: []byte(agentSourceUser + "\n"),
+		agentSourcePath:  []byte(state.AgentSourceUser + "\n"),
+		dockerSourcePath: []byte(state.AgentSourceUser + "\n"),
 	}, nil)
 	sb := &msb.MockSandbox{FSValue_: fs}
 
@@ -79,7 +80,7 @@ func TestRecordImageProvenanceSkipsVersionForUserAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
-	if hs.AgentSource != agentSourceUser {
+	if hs.AgentSource != state.AgentSourceUser {
 		t.Errorf("AgentSource = %q, want user", hs.AgentSource)
 	}
 	if hs.AgentVersion != "" {
@@ -142,7 +143,7 @@ func TestRecordImageProvenancePreservesExistingFields(t *testing.T) {
 	if hs.EnvState.Hash != "envhash" {
 		t.Errorf("env fingerprint not preserved: %+v", hs.EnvState)
 	}
-	if hs.AgentSource != agentSourceTool || hs.AgentVersion != "0.5.0" {
+	if hs.AgentSource != state.AgentSourceTool || hs.AgentVersion != "0.5.0" {
 		t.Errorf("provenance not recorded: %+v", hs)
 	}
 }
@@ -153,7 +154,7 @@ func TestRecordImageProvenancePreservesExistingFields(t *testing.T) {
 func TestRecordImageProvenanceReadErrorLeavesStateUntouched(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
-	if err := seedHomeState(k, state.HomeState{AgentSource: agentSourceUser}); err != nil {
+	if err := seedHomeState(k, state.HomeState{AgentSource: state.AgentSourceUser}); err != nil {
 		t.Fatal(err)
 	}
 	fs := msb.NewTestFS(nil, nil) // every ReadString fails: no provenance files
@@ -164,9 +165,9 @@ func TestRecordImageProvenanceReadErrorLeavesStateUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
-	if hs.AgentSource != agentSourceUser {
+	if hs.AgentSource != state.AgentSourceUser {
 		t.Errorf("AgentSource = %q, want the pre-existing %q (a read failure must not rewrite state)",
-			hs.AgentSource, agentSourceUser)
+			hs.AgentSource, state.AgentSourceUser)
 	}
 	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "no agent-source file in image") {
 		t.Errorf("expected the pre-provenance verbose note, got %v", ui.VerboseCalls)
@@ -179,10 +180,10 @@ func TestCurrentAgentSource(t *testing.T) {
 	if got := currentAgentSource(k); got != "" {
 		t.Errorf("currentAgentSource() = %q, want empty", got)
 	}
-	if err := seedHomeState(k, state.HomeState{AgentSource: agentSourceUser}); err != nil {
+	if err := seedHomeState(k, state.HomeState{AgentSource: state.AgentSourceUser}); err != nil {
 		t.Fatal(err)
 	}
-	if got := currentAgentSource(k); got != agentSourceUser {
+	if got := currentAgentSource(k); got != state.AgentSourceUser {
 		t.Errorf("currentAgentSource() = %q, want user", got)
 	}
 }

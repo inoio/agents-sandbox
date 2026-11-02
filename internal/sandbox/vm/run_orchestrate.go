@@ -129,7 +129,7 @@ func PrepareSandbox(
 		home          preparedHome
 		plan          reconfigPlan
 		sb            msb.Sandbox
-		boot          vmBoot
+		boot          VMBoot
 		sandboxTarget string
 	)
 	stages := []lifecycle.Stage{
@@ -184,7 +184,7 @@ func PrepareSandbox(
 
 	return &Session{
 		sb:            sb,
-		name:          projectVMName(session.key),
+		name:          ProjectVMName(session.key),
 		target:        sandboxTarget,
 		cwd:           session.cwd,
 		guestCWD:      session.guestCWD,
@@ -399,16 +399,16 @@ func ensureVMStage(
 	skipVM bool,
 	opts options.RunOptions,
 	ui termio.UI,
-) (msb.Sandbox, vmBoot, error) {
-	sb, boot, err := ensureProjectVM(
+) (msb.Sandbox, VMBoot, error) {
+	sb, boot, err := EnsureProjectVM(
 		ctx, home.client, opts, imageInfo, plan.homeVolume, session.identity.BindRoot, session.key, plan.existingVM,
 		session.identity.RepoSlug, skipVM, home.env, ui,
 	)
 	if err != nil {
-		// gomutants:disable-next-line RETURN_ZERO reason="ensureProjectVM returns vmBootConnected (the vmBoot zero value, the first iota constant) on every error path, so a RETURN_ZERO replacement of boot is the identical constant"
+		// gomutants:disable-next-line RETURN_ZERO reason="EnsureProjectVM returns VMBootConnected (the VMBoot zero value, the first iota constant) on every error path, so a RETURN_ZERO replacement of boot is the identical constant"
 		return nil, boot, err
 	}
-	if boot == vmBootCreated {
+	if boot == VMBootCreated {
 		persistConfigHashes(session.key, home.fingerprints, ui)
 	}
 	return sb, boot, nil
@@ -421,7 +421,7 @@ func setupSandboxStage(
 	ctx context.Context,
 	session sessionIdentity,
 	sb msb.Sandbox,
-	boot vmBoot,
+	boot VMBoot,
 	plan reconfigPlan,
 	opts options.RunOptions,
 	ui termio.UI,
@@ -431,7 +431,7 @@ func setupSandboxStage(
 		ui.Infof("VM lifecycle skipped (--dry-run-vm)")
 	} else {
 		var err error
-		sandboxTarget, err = setUpSandbox(
+		sandboxTarget, err = SetUpSandbox(
 			ctx, session.key, sb, opts, plan.configFiles, ui, plan.decision.Restart, boot, session.guestCWD,
 		)
 		if err != nil {
@@ -613,29 +613,6 @@ func persistOfferedVersion(k state.Key, version string, ui termio.UI) {
 	}
 }
 
-// projectVMHomeVolume reports whether the project VM for k exists and the home
-// volume it has mounted. A nil handle counts as "no VM". A mounts read failure
-// returns exists=true together with the error, so a caller that would destroy the
-// VM on the strength of this result can fail closed instead of dropping its
-// volume; the best-effort home-recovery caller swallows it.
-func projectVMHomeVolume(ctx context.Context, client msb.Client, k state.Key) (string, bool, error) {
-	handle, found, err := findProjectVM(ctx, client, k)
-	if err != nil {
-		return "", false, err
-	}
-	if !found {
-		return "", false, nil
-	}
-	if handle == nil {
-		return "", false, nil
-	}
-	liveMounts, err := handle.ConfigMounts()
-	if err != nil {
-		return "", true, err
-	}
-	return liveMounts[mounts.VMHomeDir].Named, true, nil
-}
-
 // liveHomeVolume returns the home volume currently mounted by the project VM,
 // or "" when the project has no VM or its mounts cannot be read. It lets home
 // resolution recover the volume when the state file was lost (issue #219). The
@@ -644,7 +621,7 @@ func projectVMHomeVolume(ctx context.Context, client msb.Client, k state.Key) (s
 // not-found VM is expected (first run); any other lookup error is logged so a
 // transient failure is visible rather than silently orphaning the volume.
 func liveHomeVolume(ctx context.Context, client msb.Client, k state.Key, ui termio.UI) string {
-	volume, _, err := projectVMHomeVolume(ctx, client, k)
+	volume, _, err := ProjectVMHomeVolume(ctx, client, k)
 	if err != nil {
 		ui.Verbosef("project VM lookup for home-volume recovery failed: %v (continuing)", err)
 		return ""

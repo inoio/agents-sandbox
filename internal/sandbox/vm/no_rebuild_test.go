@@ -23,7 +23,7 @@ func TestResolveBuildVersionNoRebuildSkipsUpgradeCheck(t *testing.T) {
 	}
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
-	seedAgentState(t, k, "1.0.0", agentSourceTool)
+	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
 	withExistingAgentVersion(t)
 
 	got, upgraded, offered, err := resolveBuildVersion(

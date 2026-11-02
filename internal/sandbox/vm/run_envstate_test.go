@@ -863,7 +863,7 @@ func TestResolveReconfigDecision_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 	// Existing VM whose Connect fails (stopped/suspended VM):
 	// resolveReconfigDecision cannot read live config, so it must neither
 	// recreate nor spuriously flag a daemon restart. Provisioning + fresh daemon
-	// pickup happen downstream in setUpSandbox once the VM is started.
+	// pickup happen downstream in SetUpSandbox once the VM is started.
 	sh := &msb.MockSandboxHandle{
 		Cfg: &msbSdk.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
 	}

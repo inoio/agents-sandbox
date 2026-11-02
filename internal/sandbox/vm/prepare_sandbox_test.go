@@ -68,7 +68,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		Name_:     ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
@@ -91,7 +91,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 			HomeVolume:   "home-vol",
 			ImageDigest:  "sha256:abc123",
 			AgentVersion: "1.5.0",
-			AgentSource:  agentSourceTool,
+			AgentSource:  state.AgentSourceTool,
 		},
 	)
 
@@ -157,7 +157,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		Name_:     ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
@@ -180,7 +180,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 			HomeVolume:   "home-vol",
 			ImageDigest:  "sha256:abc123",
 			AgentVersion: "1.0.0",
-			AgentSource:  agentSourceTool,
+			AgentSource:  state.AgentSourceTool,
 		},
 	)
 
@@ -209,7 +209,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 // TestPrepareSandboxLoadsHomeYamlOnce verifies that a full startup loads the
 // home manifests exactly once: a missing host source is warned about a
 // single time. This guards against the regression where config files were
-// loaded twice (once in resolveReconfigDecision and once in setUpSandbox), which made
+// loaded twice (once in resolveReconfigDecision and once in SetUpSandbox), which made
 // the warning (and the underlying BuildHomeFilesWithModes computation) run twice.
 func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -256,7 +256,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		Name_:     ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
@@ -281,7 +281,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 			HomeVolume:   "home-vol",
 			ImageDigest:  "sha256:abc123",
 			AgentVersion: "1.0.0",
-			AgentSource:  agentSourceTool,
+			AgentSource:  state.AgentSourceTool,
 		},
 	)
 
@@ -351,7 +351,7 @@ func TestPrepareSandboxLoadsEnvSecretsOnce(t *testing.T) {
 	slug := git.MustCheckoutSlug()
 	vmFS := msb.NewTestFS(nil, nil)
 	createdSb := &msb.MockSandbox{
-		Name_:    projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		Name_:    ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		FSValue_: vmFS,
 		ShellOut: map[string]msb.ShellResult{
 			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
@@ -371,7 +371,7 @@ func TestPrepareSandboxLoadsEnvSecretsOnce(t *testing.T) {
 		HomeVolume:   "home-vol",
 		ImageDigest:  "sha256:abc123",
 		AgentVersion: "1.5.0",
-		AgentSource:  agentSourceTool,
+		AgentSource:  state.AgentSourceTool,
 	}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestPrepareSandboxBakesAndFingerprintsTheLoadedEnv(t *testing.T) {
 
 	key := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
 	createdSb := &msb.MockSandbox{
-		Name_:    projectVMName(key),
+		Name_:    ProjectVMName(key),
 		FSValue_: msb.NewTestFS(nil, nil),
 		ShellOut: map[string]msb.ShellResult{
 			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
@@ -463,7 +463,7 @@ func TestPrepareSandboxBakesAndFingerprintsTheLoadedEnv(t *testing.T) {
 		HomeVolume:   "home-vol",
 		ImageDigest:  "sha256:abc123",
 		AgentVersion: "1.5.0",
-		AgentSource:  agentSourceTool,
+		AgentSource:  state.AgentSourceTool,
 	}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
@@ -553,7 +553,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		Name_:     ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusStopped,
 		ConnectSb: connectSb,
 		StartSb:   connectSb,
@@ -577,7 +577,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 			HomeVolume:   "home-vol",
 			ImageDigest:  "sha256:abc123",
 			AgentVersion: "1.0.0",
-			AgentSource:  agentSourceTool,
+			AgentSource:  state.AgentSourceTool,
 		},
 	)
 
@@ -638,7 +638,7 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		Name_:     ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
@@ -661,7 +661,7 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 			HomeVolume:   "home-vol",
 			ImageDigest:  "sha256:abc123",
 			AgentVersion: "1.5.0",
-			AgentSource:  agentSourceTool,
+			AgentSource:  state.AgentSourceTool,
 		},
 	)
 
@@ -737,7 +737,7 @@ func TestPrepareSandboxBlocksOnPendingRuntimeHomeMigration(t *testing.T) {
 
 	seedHomeState(
 		state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"},
-		state.HomeState{AgentVersion: "1.5.0", AgentSource: agentSourceTool},
+		state.HomeState{AgentVersion: "1.5.0", AgentSource: state.AgentSourceTool},
 	)
 
 	origOffer := offerRuntimeHomeMigration
@@ -798,7 +798,7 @@ func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		Name_:     ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
@@ -821,7 +821,7 @@ func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 			HomeVolume:   "home-vol",
 			ImageDigest:  "sha256:abc123",
 			AgentVersion: "1.5.0",
-			AgentSource:  agentSourceTool,
+			AgentSource:  state.AgentSourceTool,
 		},
 	)
 
@@ -952,14 +952,14 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	slug := git.MustCheckoutSlug()
 	vmFS := msb.NewTestFS(nil, nil)
 	createdSb := &msb.MockSandbox{
-		Name_:    projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		Name_:    ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		FSValue_: vmFS,
 		ShellOut: map[string]msb.ShellResult{
 			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 		},
 	}
 	// No sandbox handle is registered, so GetSandbox reports "not found" and
-	// PrepareSandbox takes the create path (boot == vmBootCreated).
+	// PrepareSandbox takes the create path (boot == VMBootCreated).
 	mock := &msb.MockMsbClient{
 		ImageGetFn:     func(_ context.Context, _ string) error { return nil },
 		CreatedSandbox: createdSb,
@@ -971,7 +971,7 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 		HomeVolume:   "home-vol",
 		ImageDigest:  "sha256:abc123",
 		AgentVersion: "1.5.0",
-		AgentSource:  agentSourceTool,
+		AgentSource:  state.AgentSourceTool,
 	}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
@@ -1043,7 +1043,7 @@ func TestPrepareSandboxRecordsBakedAgentVersion(t *testing.T) {
 	slug := git.MustCheckoutSlug()
 	vmFS := msb.NewTestFS(nil, nil)
 	createdSb := &msb.MockSandbox{
-		Name_:    projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		Name_:    ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		FSValue_: vmFS,
 		ShellOut: map[string]msb.ShellResult{
 			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
@@ -1122,7 +1122,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 	// mount read-back is the only thing that can drive the recreate.
 	shellOut := map[string]msb.ShellResult{dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil)}
 	existing := &msb.MockSandboxHandle{
-		Name_:     projectVMName(k),
+		Name_:     ProjectVMName(k),
 		Status_:   msbSdk.SandboxStatusRunning,
 		Cfg:       &msbSdk.SandboxConfig{},
 		ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil, nil), ShellOut: shellOut},
@@ -1135,7 +1135,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 			mounts.VMHomeDir: msbSdk.Mount.Named("home-vol", msbSdk.MountOptions{}),
 		},
 	}
-	createdSb := &msb.MockSandbox{Name_: projectVMName(k), FSValue_: msb.NewTestFS(nil, nil), ShellOut: shellOut}
+	createdSb := &msb.MockSandbox{Name_: ProjectVMName(k), FSValue_: msb.NewTestFS(nil, nil), ShellOut: shellOut}
 	mock := &msb.MockMsbClient{
 		ImageGetFn:     func(_ context.Context, _ string) error { return nil },
 		CreatedSandbox: createdSb,
@@ -1145,7 +1145,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 	// runs; a static handle would leave the mock attaching to the old VM.
 	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		if existing.DidDestroy() {
-			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: projectVMName(k)}
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: ProjectVMName(k)}
 		}
 		return existing, nil
 	}
@@ -1158,7 +1158,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 		HomeVolume:   "home-vol",
 		ImageDigest:  "sha256:abc123",
 		AgentVersion: "1.5.0",
-		AgentSource:  agentSourceTool,
+		AgentSource:  state.AgentSourceTool,
 		EnvState:     fingerprints.Env,
 		SecretState:  fingerprints.Secret,
 		NetworkState: fingerprints.Network,

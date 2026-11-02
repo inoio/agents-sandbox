@@ -53,7 +53,7 @@ func TestPrepareSandboxVersionResolutionError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	seedHomeState(
 		state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"},
-		state.HomeState{AgentVersion: "1.0.0", AgentSource: agentSourceTool},
+		state.HomeState{AgentVersion: "1.0.0", AgentSource: state.AgentSourceTool},
 	)
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
@@ -103,7 +103,7 @@ func stubPrepareSandboxImage(t *testing.T) {
 // sandbox, so the reconfig decision reads a live VM without any Docker or KVM.
 func existingProjectVMHandle(k state.Key) *msb.MockSandboxHandle {
 	return &msb.MockSandboxHandle{
-		Name_:     projectVMName(k),
+		Name_:     ProjectVMName(k),
 		Status_:   msbSdk.SandboxStatusRunning,
 		Cfg:       &msbSdk.SandboxConfig{},
 		ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil, nil)},
@@ -135,7 +135,7 @@ func TestPrepareSandboxReconfigDecisionError(t *testing.T) {
 		HomeVolume:   "home-vol",
 		ImageDigest:  "sha256:abc123",
 		AgentVersion: "1.5.0",
-		AgentSource:  agentSourceTool,
+		AgentSource:  state.AgentSourceTool,
 	}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestPrepareSandboxReconfigApplyHomeActionError(t *testing.T) {
 		HomeVolume:   "home-vol",
 		ImageDigest:  "sha256:old",
 		AgentVersion: "1.5.0",
-		AgentSource:  agentSourceTool,
+		AgentSource:  state.AgentSourceTool,
 	}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}

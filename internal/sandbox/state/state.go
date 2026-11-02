@@ -64,6 +64,13 @@ type NetworkState = FingerprintState
 // MountState tracks host bind-mount fingerprint data for a project.
 type MountState = FingerprintState
 
+// Install-provenance values of HomeState.AgentSource and HomeState.DockerSource,
+// baked into the runner image: the tool installed the component, or the user did.
+const (
+	AgentSourceTool = "tool"
+	AgentSourceUser = "user"
+)
+
 // HomeState represents the per-project state file contents.
 //
 //exhaustruct:ignore

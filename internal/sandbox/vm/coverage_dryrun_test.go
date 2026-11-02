@@ -74,7 +74,7 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 			HomeVolume:   "home-vol",
 			ImageDigest:  "sha256:abc123",
 			AgentVersion: "1.5.0",
-			AgentSource:  agentSourceTool,
+			AgentSource:  state.AgentSourceTool,
 		},
 	)
 
@@ -192,7 +192,7 @@ func TestPrepareSandboxDryRunVMServeOnlyPublishesPort(t *testing.T) {
 		HomeVolume:   "home-vol",
 		ImageDigest:  "sha256:abc123",
 		AgentVersion: "1.5.0",
-		AgentSource:  agentSourceTool,
+		AgentSource:  state.AgentSourceTool,
 	}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 			HomeVolume:   "home-vol",
 			ImageDigest:  "sha256:abc123",
 			AgentVersion: "1.5.0",
-			AgentSource:  agentSourceTool,
+			AgentSource:  state.AgentSourceTool,
 		},
 	)
 
@@ -333,7 +333,7 @@ func TestPrepareSandboxVolumeError(t *testing.T) {
 
 	seedHomeState(
 		state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"},
-		state.HomeState{AgentVersion: "1.5.0", AgentSource: agentSourceTool},
+		state.HomeState{AgentVersion: "1.5.0", AgentSource: state.AgentSourceTool},
 	)
 
 	origDaemon := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
@@ -351,7 +351,7 @@ func TestPrepareSandboxVolumeError(t *testing.T) {
 	}
 }
 
-// TestPrepareSandboxEnsureVMError covers the ensureProjectVM failure branch of
+// TestPrepareSandboxEnsureVMError covers the EnsureProjectVM failure branch of
 // PrepareSandbox: a VM-lookup error is propagated.
 func TestPrepareSandboxEnsureVMError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -400,7 +400,7 @@ func TestPrepareSandboxEnsureVMError(t *testing.T) {
 			HomeVolume:   "home-vol",
 			ImageDigest:  "sha256:abc123",
 			AgentVersion: "1.5.0",
-			AgentSource:  agentSourceTool,
+			AgentSource:  state.AgentSourceTool,
 		},
 	)
 
@@ -418,7 +418,7 @@ func TestPrepareSandboxEnsureVMError(t *testing.T) {
 	}
 }
 
-// TestPrepareSandboxSetUpError covers the setUpSandbox failure branch of
+// TestPrepareSandboxSetUpError covers the SetUpSandbox failure branch of
 // PrepareSandbox: a dockerd-startup failure is propagated.
 func TestPrepareSandboxSetUpError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -449,7 +449,7 @@ func TestPrepareSandboxSetUpError(t *testing.T) {
 	vmFS := msb.NewTestFS(nil, nil)
 	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellErr: errors.New("shell failed")}
 	sh := &msb.MockSandboxHandle{
-		Name_:     projectVMName(state.Key{Slug: slug, Agent: "opencode"}),
+		Name_:     ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msbSdk.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
@@ -472,7 +472,7 @@ func TestPrepareSandboxSetUpError(t *testing.T) {
 			HomeVolume:   "home-vol",
 			ImageDigest:  "sha256:abc123",
 			AgentVersion: "1.5.0",
-			AgentSource:  agentSourceTool,
+			AgentSource:  state.AgentSourceTool,
 		},
 	)
 
@@ -486,6 +486,6 @@ func TestPrepareSandboxSetUpError(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	if _, err := PrepareSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, false, &ui); err == nil {
-		t.Fatal("expected error when setUpSandbox fails")
+		t.Fatal("expected error when SetUpSandbox fails")
 	}
 }
