@@ -2,6 +2,7 @@ package envsecret
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -24,7 +25,7 @@ func TestLoadEnvAndSecretsMergesUserAndProject(t *testing.T) {
 	testutil.WritePath(t, cp.ProjectEnvSecretYAMLFile(), "SECRET_D:\n  value: value-d\n  hosts: [project.example]\n")
 
 	ui := termio.NewTestMock(t)
-	loaded := LoadEnvAndSecrets(&ui)
+	loaded := LoadEnvAndSecrets(&ui, nil)
 
 	wantEnv := map[string]string{"A": "user", "B": "project", "SHARED": "project"}
 	if !reflect.DeepEqual(loaded.Vars, wantEnv) {
@@ -52,11 +53,32 @@ func TestLoadEnvAndSecretsMergesUserAndProject(t *testing.T) {
 	}
 }
 
+// TestLoadEnvAndSecretsAppliesAllowPlaceholderFor pins that the global
+// allow-placeholder-for list reaches the built entries: a listed host becomes a
+// placeholder-passthrough host, while a host the secret already allows keeps
+// substitution and is excluded from passthrough.
+func TestLoadEnvAndSecretsAppliesAllowPlaceholderFor(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+
+	testutil.WritePath(t, cp.ProjectEnvSecretFile(), "SECRET_A=value-a@a.example\n")
+
+	ui := termio.NewTestMock(t)
+	loaded := LoadEnvAndSecrets(&ui, []string{"model.example", "a.example"})
+
+	if len(loaded.Secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d: %#v", len(loaded.Secrets), loaded.Secrets)
+	}
+	if !slices.Equal(loaded.Secrets[0].Passthrough, []string{"model.example"}) {
+		t.Errorf("Passthrough = %v, want [model.example]", loaded.Secrets[0].Passthrough)
+	}
+}
+
 func TestLoadEnvAndSecretsEmptyWhenNoFiles(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	ui := termio.NewTestMock(t)
-	loaded := LoadEnvAndSecrets(&ui)
+	loaded := LoadEnvAndSecrets(&ui, nil)
 
 	if len(loaded.Vars) != 0 {
 		t.Errorf("expected empty env, got %#v", loaded.Vars)

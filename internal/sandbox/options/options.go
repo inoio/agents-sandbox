@@ -65,6 +65,10 @@ type RunOptions struct {
 	Network network.Policy
 	// Mounts are additional host directories bind-mounted at absolute guest paths.
 	Mounts mounts.Mounts
+	// AllowPlaceholderFor lists hosts that may receive any secret's placeholder
+	// unchanged. It comes from the config-file-only
+	// secrets.common.allow-placeholder-for key.
+	AllowPlaceholderFor []string
 	// AgentVersion pins the agent version baked into the runner image on
 	// rebuild. Empty means resolve the latest at build time.
 	AgentVersion string

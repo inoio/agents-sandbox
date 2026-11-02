@@ -3,6 +3,7 @@ package envsecret
 import (
 	"maps"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -22,7 +23,11 @@ type SecretSpec struct {
 	AllowAnyHostDangerous bool     `yaml:"allow_any_host_dangerous"`
 }
 
-func BuildSecretsFromSpecs(specs map[string]SecretSpec, ui termio.UI) []msbSdk.SecretEntry {
+func BuildSecretsFromSpecs(
+	specs map[string]SecretSpec,
+	allowPlaceholderFor []string,
+	ui termio.UI,
+) []msbSdk.SecretEntry {
 	envVars := make([]string, 0, len(specs))
 	for envVar := range specs {
 		envVars = append(envVars, envVar)
@@ -45,10 +50,37 @@ func BuildSecretsFromSpecs(specs map[string]SecretSpec, ui termio.UI) []msbSdk.S
 		secrets = append(secrets, msbSdk.Secret.Env(
 			envVar,
 			spec.Value,
-			msbSdk.SecretEnvOptions{Allow: hosts},
+			msbSdk.SecretEnvOptions{
+				Allow:               hosts,
+				AllowPlaceholderFor: placeholderHostsFor(hosts, allowPlaceholderFor),
+			},
 		))
 	}
 	return secrets
+}
+
+// placeholderHostsFor returns the hosts from allowPlaceholderFor that may
+// receive spec's unchanged placeholder: the launcher-wide list minus the hosts
+// the secret already allows, deduplicated and sorted. A host cannot be both
+// substituted for and placeholder-passthrough, so the runtime rejects an entry
+// that lists one host in both; excluding an allowed host keeps substitution
+// (Allow wins). A secret that allows every host already substitutes
+// everywhere, so it gets no placeholder passthrough at all. The result is nil
+// when nothing remains, so an unset allow-placeholder-for does not change the
+// built entry.
+func placeholderHostsFor(allowHosts, allowPlaceholderFor []string) []string {
+	if slices.Contains(allowHosts, "*") {
+		return nil
+	}
+	var placeholderHosts []string
+	for _, host := range allowPlaceholderFor {
+		if slices.Contains(allowHosts, host) || slices.Contains(placeholderHosts, host) {
+			continue
+		}
+		placeholderHosts = append(placeholderHosts, host)
+	}
+	sort.Strings(placeholderHosts)
+	return placeholderHosts
 }
 
 func ParseSecretSpecLegacy(filename string, ui termio.UI) map[string]SecretSpec {

@@ -93,6 +93,37 @@ $MSB_<SECRET_NAME>
 
 For example, the guest value of `GITHUB_TOKEN` is `$MSB_GITHUB_TOKEN`.
 
+## Placeholders in request bodies
+
+The proxy blocks a placeholder that reaches a host the secret neither allows nor passes through. That is fatal when
+the placeholder travels in a request the agent does not control. A coding agent sends its whole conversation as the
+completion request body, so once a placeholder enters the transcript — a tool that prints the environment, for
+example — every later completion request is blocked and the session cannot continue.
+
+`secrets.common.allow-placeholder-for` lists the hosts that may receive **any** secret's placeholder unchanged. Set it
+to the agent's model endpoint:
+
+```yaml
+# ~/.config/agents-sandbox/config.yaml
+secrets:
+  common:
+    allow-placeholder-for:
+      - model.example.com
+```
+
+The key is config-file-only: it has no environment variable and no CLI flag, so trusting a host with placeholders is
+a deliberate edit. A forwarded placeholder is inert — the real value stays on the host, and the proxy rewrites a
+placeholder to the real value only for a host in the secret's `host`/`hosts`.
+
+A host cannot be both substituted for and placeholder-passthrough. Two rules keep the lists disjoint:
+
+- A host a secret already lists in `host`/`hosts` keeps substitution and is dropped from that secret's passthrough
+  hosts. The credential that authenticates to the model host is unaffected.
+- A secret with `allow_any_host_dangerous: true` and no explicit `host` or `hosts` substitutes for every host, so it
+  gets no placeholder-passthrough hosts.
+
+Changing this key changes the VM's secret fingerprint, so the next run recreates the project VM once.
+
 ## Trusting the CA in applications
 
 Replacing a placeholder requires the proxy to terminate TLS towards the allowed host. The VM trusts a microsandbox CA
