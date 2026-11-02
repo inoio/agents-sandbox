@@ -21,8 +21,9 @@ type Agent interface {
 	ImageSpec() ImageSpec
 	// Experimental reports whether this profile is experimental: not well
 	// tested with agents-sandbox. The launcher prints a notice when an
-	// experimental agent is selected. Every profile states it explicitly, so a
-	// new profile cannot silently default to stable.
+	// experimental agent is selected. The interface requires every profile to
+	// answer it, so the compiler forces a value; a profile that embeds another
+	// inherits its answer rather than stating one.
 	Experimental() bool
 }
 

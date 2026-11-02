@@ -76,10 +76,6 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.UI) (options.R
 		return options.RunOptions{}, err
 	}
 
-	if a.Experimental() {
-		ui.Infof("%s is experimental — not well tested with agents-sandbox", a.Name())
-	}
-
 	if err = resolveNotify(cfg, cmd, ui, &opts); err != nil {
 		return options.RunOptions{}, err
 	}
@@ -111,6 +107,13 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.UI) (options.R
 
 	if err := resolveSizes(&opts); err != nil {
 		return options.RunOptions{}, err
+	}
+
+	// The experimental notice is informational, so it is emitted only once all
+	// validation has passed: an invalid invocation errors without first printing
+	// the info line.
+	if a.Experimental() {
+		ui.Infof("%s is experimental — not well tested with agents-sandbox", a.Name())
 	}
 
 	return opts, nil

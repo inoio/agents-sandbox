@@ -2,7 +2,7 @@
 # Validate the changelog fragment convention.
 #
 # A fragment is changelog.d/<slug>.<type>.md, one file per change: slug is the
-# issue number, else the PR number, and type is one of the changelog sections.
+# PR number, and type is one of the changelog sections.
 # A PR with several entries of the same type numbers them: <slug>.<type>-<n>.md.
 # See .operator-shared/specs/changelog-fragments.md.
 #
