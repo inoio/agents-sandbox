@@ -100,6 +100,8 @@ ln -s ../config/.agents-sandbox/opencode2       .agents-sandbox/opencode2
   **file-level**, so you can drop untracked files (a personal `env.secret`) in the same directory.
 - `agents-sandbox-config` is a **mirror** of `main`: it takes no commits of its own. Keep it at main's HEAD by
   fast-forwarding it after a fetch — `git -C config merge --ff-only main` — or the bare root reads a stale config.
+  Because the mirror always looks merged, `make cleanup-branches` protects it: that sweep never removes the
+  `config/` worktree or its mirror branch.
 - If the config worktree can be the *only* checkout of `main`, skip the mirror branch: `git --git-dir=.git worktree
   add config main` and symlink into `config/` directly.
 
