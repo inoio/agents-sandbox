@@ -210,6 +210,13 @@ git remote add origin https://example.com/repo.git
 
 If you need a tool that isn't in the base image (e.g., `go`, `rustc`, `python3`), add it to your project's custom Dockerfile, see [Runner Image]({% link runner-image.md %}) documentation.
 
+## Opencode plugins do not load in the sandbox
+
+opencode and opencode2 only: a local plugin or custom tool that imports an npm package works on your machine but not
+in the sandbox, and the opencode log in the VM shows `failed to load plugin ... Cannot find package`. The packages in
+`~/.config/opencode/node_modules` are not copied into the VM. Install them inside the VM as described in
+[Install Opencode Plugin Dependencies]({% link recipes/opencode-plugin-dependencies.md %}).
+
 ## Secrets not available
 
 Verify the secret is set with the correct format. For legacy `env.secret`, the format is `KEY=value@host` where the
