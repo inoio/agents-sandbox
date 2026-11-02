@@ -453,3 +453,50 @@ func TestRenderNoticeQuotesUnsafeVolumeNames(t *testing.T) {
 		t.Errorf("notice = \n%s\nwant the quoted command %q", out, want)
 	}
 }
+
+// TestRenderNoticeOffersNoCommandForANameSanitizingChanges pins that a copied
+// volume whose name holds a control character gets no removal command: printed
+// raw it would emit a terminal escape, and its sanitized form names a different
+// directory, possibly an uncopied volume.
+func TestRenderNoticeOffersNoCommandForANameSanitizingChanges(t *testing.T) {
+	uncopied := naming.LegacyHomePrefix + "a"
+	copiedWithEscape := uncopied + "\x1b"
+	out := renderNotice(legacyArtifacts{HomeVolumes: []string{copiedWithEscape, uncopied}}, []string{uncopied})
+	if strings.Contains(out, "rm -rf ~/.microsandbox/volumes/") {
+		t.Errorf("notice offers a volume removal command for a name sanitizing changes:\n%q", out)
+	}
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("notice leaked an escape byte from a volume name:\n%q", out)
+	}
+}
+
+// TestRenderNoticeStartFreshLayout pins the full notice for the case reported
+// in #285: "Start fresh" left every legacy volume uncopied next to leftover
+// sandboxes.
+func TestRenderNoticeStartFreshLayout(t *testing.T) {
+	volume := naming.LegacyHomePrefix + "a"
+	out := renderNotice(legacyArtifacts{
+		HomeVolumes: []string{volume},
+		Sandboxes:   []string{naming.LegacyVMPrefix + "p"},
+	}, []string{volume})
+	want := `agents-sandbox now runs its own microsandbox runtime
+
+Nothing broke — agents-sandbox keeps its runtime in its own private home now,
+so the system-wide microsandbox is no longer needed to run it.
+
+Your ~/.microsandbox was left untouched. It still holds what earlier
+agents-sandbox versions stored there:
+
+  These old home volumes were not copied into agents-sandbox and still hold data:
+    agents-sandbox-home-a
+  They were left in place; do not remove them.
+
+  Leftovers from earlier agents-sandbox versions, safe to remove:
+    rm -rf ~/.microsandbox/sandboxes/agents-sandbox-vm-*
+    rm -rf ~/.microsandbox/sandboxes/agents-sandbox-task-*
+
+Nothing was deleted for you.`
+	if out != want {
+		t.Errorf("notice =\n%s\nwant\n%s", out, want)
+	}
+}

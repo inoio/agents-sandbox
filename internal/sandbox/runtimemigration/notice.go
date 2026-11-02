@@ -176,7 +176,9 @@ func removalCommands(a legacyArtifacts, uncopied []string) []string {
 
 // volumeRemovalCommands returns one glob command when every legacy home volume
 // was copied. Otherwise the glob would match an uncopied volume, so it returns
-// one command per copied volume instead.
+// one command per copied volume instead. A name holding a control character
+// gets no command: printing it raw could emit terminal escapes, and its
+// sanitized form names a different directory.
 func volumeRemovalCommands(homeVolumes, uncopied []string) []string {
 	if len(homeVolumes) == 0 {
 		return nil
@@ -186,10 +188,10 @@ func volumeRemovalCommands(homeVolumes, uncopied []string) []string {
 	}
 	var commands []string
 	for _, name := range homeVolumes {
-		if slices.Contains(uncopied, name) {
+		if slices.Contains(uncopied, name) || sanitizeNoticeName(name) != name {
 			continue
 		}
-		commands = append(commands, "rm -rf ~/.microsandbox/volumes/"+shellWord(sanitizeNoticeName(name)))
+		commands = append(commands, "rm -rf ~/.microsandbox/volumes/"+shellWord(name))
 	}
 	return commands
 }
