@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -15,6 +16,15 @@ import (
 // SDK-pinned runtime into. It is set in TestMain, before any SDK call, so the
 // SDK's own resolution and FFI cache land there.
 var isolatedRuntimeHome string
+
+// isolatedRuntimeReady records that a real-client test resolved the runtime, so
+// the post-test sweep only touches the SDK when tests actually ran. compile-all
+// executes TestMain under -run=^$, where the runtime install must stay lazy.
+var isolatedRuntimeReady bool
+
+// destroyTimeout bounds a test's best-effort sandbox teardown, so a wedged VM
+// cannot hang the suite.
+const destroyTimeout = 30 * time.Second
 
 // installIsolatedRuntimeHome points the process at a fresh microsandbox home and
 // returns a cleanup that removes it. It is cheap — the runtime installs lazily
@@ -49,5 +59,32 @@ func ensureIsolatedRuntime(t *testing.T) {
 		msbSdk.InstallOptions{},
 	); err != nil {
 		t.Fatalf("ensure isolated msb runtime in %s: %v", isolatedRuntimeHome, err)
+	}
+	isolatedRuntimeReady = true
+}
+
+// sweepIsolatedSandboxes best-effort destroys every sandbox left in the
+// isolated runtime home after the tests. A test that reached its own cleanup
+// leaves nothing; one interrupted before it (a timeout, a panic, a SIGINT at
+// the wrong moment) would otherwise leak a detached VM whose runtime home the
+// teardown is about to delete, unreachable from any later invocation. The
+// harness suite guards the same failure with its sandbox sweep
+// (specs/harness-smoke-tests.md); this is the msb package's equivalent.
+//
+// Destroy stops and removes, because Remove requires an already-stopped
+// sandbox. The sweep is a no-op when no test installed the runtime, keeping
+// compile-all's -run=^$ inert.
+func sweepIsolatedSandboxes() {
+	if !isolatedRuntimeReady {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), destroyTimeout)
+	defer cancel()
+	handles, err := (&realMsbClient{}).ListSandboxes(ctx, nil)
+	if err != nil {
+		return
+	}
+	for _, handle := range handles {
+		_ = handle.Destroy(ctx)
 	}
 }

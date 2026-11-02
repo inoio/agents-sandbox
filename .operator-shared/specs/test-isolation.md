@@ -1,6 +1,6 @@
 ---
-description: Contract for keeping tests off real host state - the fail-fast seam mocks installed by every test package's TestMain, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, and the rule that seam overrides must be restored so the suite stays idempotent under -count>1.
-read_if: Adding a test package or a TestMain, debugging a test that reads or writes real host state (config, home, docker, msb, doctor), or a test that passes at -count=1 but fails under -count>1.
+description: Contract for keeping tests off real host state - the fail-fast seam mocks installed by every test package's TestMain, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, the msb-tagged isolated runtime home and its stop-then-remove sandbox teardown, and the rule that seam overrides must be restored so the suite stays idempotent under -count>1.
+read_if: Adding a test package or a TestMain, debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, or a test that passes at -count=1 but fails under -count>1.
 ---
 
 # Test isolation
@@ -89,6 +89,19 @@ before its first SDK call (`ensureIsolatedRuntime`). The runtime install is lazy
 where a runtime left by a pre-decoupling agents-sandbox install fails sandbox creation with the native library's
 "no tested sandbox launch contract for runtime <v>" after an SDK bump; the launcher repairs only its own private home
 (`runtime-home-decoupling.md`).
+
+Because that home is **fresh per test process**, a sandbox leaked by one run is invisible to the next: `WithReplace`
+only replaces a same-name sandbox within one runtime home, and the teardown deletes the home, so a surviving VM can
+never be reached by a later invocation. Two rules keep the msb-tagged tests from leaking:
+
+- **Stop before removing.** The SDK contract is "`Remove` deletes the sandbox's persisted state. The sandbox must be
+  stopped"; a detached sandbox (`WithDetached()`) keeps running past the Go process, so a bare `Remove` on a running
+  one fails (and is easy to swallow) and the VM runs forever — no idle timeout applies to a raw `CreateSandbox`. Tests
+  tear down with `SandboxHandle.Destroy` (identity-safe stop-and-remove), never `Remove`.
+- **Sweep after the run.** `TestMain` destroys any sandbox left in the isolated home after `m.Run()` and before
+  removing the home, so a test that never reached its own cleanup (interrupted, timed out, panicked) cannot leak a VM
+  pointing at a deleted home. The sweep is a no-op when no test resolved the runtime, so `compile-all`'s `-run=^$`
+  stays inert — the same guard `specs/harness-smoke-tests.md` gives its temp root.
 
 ## Host-home redirect
 

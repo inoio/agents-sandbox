@@ -40,10 +40,15 @@ func TestJobsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSandbox: %v", err)
 	}
+	// Destroy stops and removes; Remove alone refuses a running sandbox
+	// (the SDK contract is "Remove deletes the sandbox's persisted state.
+	// The sandbox must be stopped"), so a running detached sandbox survives
+	// a bare Remove and leaks its VM.
 	t.Cleanup(func() {
-		cleanupCtx := context.Background()
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), destroyTimeout)
+		defer cancel()
 		if handle, handleErr := msbSdk.GetSandbox(cleanupCtx, sandboxName); handleErr == nil {
-			_ = handle.Remove(cleanupCtx)
+			_ = handle.Destroy(cleanupCtx)
 		}
 	})
 

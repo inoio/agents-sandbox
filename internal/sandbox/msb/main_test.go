@@ -25,5 +25,9 @@ func TestMain(m *testing.M) {
 	// the untagged build (see runtime_isolation_msb_test.go).
 	removeIsolatedRuntimeHome := installIsolatedRuntimeHome()
 	m.Run()
+	// A test that did not reach its own cleanup (interrupted, timed out,
+	// panicked) would otherwise leave a detached VM in a home the next line
+	// deletes; sweep it first (no-op untagged and when nothing ran).
+	sweepIsolatedSandboxes()
 	removeIsolatedRuntimeHome()
 }
