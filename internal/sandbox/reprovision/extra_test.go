@@ -139,7 +139,7 @@ func TestLoadConfigFilesNoMergedForNonConfigMerger(t *testing.T) {
 	// merged config because only ConfigMerger agents merge snippets.
 	testutil.WriteFile(
 		t,
-		configpaths.MustDir(cp.UserAgentConfigDir(plainAgent{})),
+		configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), plainAgent{}.ConfigDirName())),
 		"opencode-model.json",
 		`{"model":"x"}`,
 	)

@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
 // TestFailFastConfigPathsPanics verifies that every method of the default
@@ -15,7 +13,6 @@ import (
 // resolution without opting in fails loudly rather than silently resolving.
 func TestFailFastConfigPathsPanics(t *testing.T) {
 	f := &failFastConfigPaths{}
-	a, _ := agent.Lookup("opencode")
 
 	cases := []struct {
 		name string
@@ -25,16 +22,12 @@ func TestFailFastConfigPathsPanics(t *testing.T) {
 		{"UserSlugConfigDir", func() { f.UserSlugConfigDir("widget-bbb") }},
 		{"UserCacheDir", func() { f.UserCacheDir() }},
 		{"UserStateDir", func() { f.UserStateDir() }},
-		{"UserAgentConfigDir", func() { f.UserAgentConfigDir(a) }},
-		{"UserAgentConfigDirCandidates", func() { f.UserAgentConfigDirCandidates(a) }},
 		{"UserHomeDir", func() { _, _ = f.UserHomeDir() }},
 		{"UserEnvFile", func() { f.UserEnvFile() }},
 		{"UserEnvSecretFile", func() { f.UserEnvSecretFile() }},
 		{"UserEnvSecretYAMLFile", func() { f.UserEnvSecretYAMLFile() }},
 		{"ProjectConfigDir", func() { f.ProjectConfigDir() }},
 		{"ProjectConfigDirAbs", func() { _ = f.ProjectConfigDirAbs() }},
-		{"ProjectAgentConfigDir", func() { f.ProjectAgentConfigDir(a) }},
-		{"ProjectAgentConfigDirCandidates", func() { f.ProjectAgentConfigDirCandidates(a) }},
 		{"ProjectEnvFile", func() { f.ProjectEnvFile() }},
 		{"ProjectEnvSecretFile", func() { f.ProjectEnvSecretFile() }},
 		{"ProjectEnvSecretYAMLFile", func() { f.ProjectEnvSecretYAMLFile() }},
