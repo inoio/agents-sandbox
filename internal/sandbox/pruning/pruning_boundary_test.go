@@ -133,7 +133,6 @@ func TestPruneHomeVolumesSkipsAndContinues(t *testing.T) {
 		}
 		return nil
 	}}
-	msb.WithMsbMock(t, client)
 
 	pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
 		{Slug: "ref-1mjusbm3wikhb0"}:  &msb.MockSandboxHandle{},
@@ -145,7 +144,7 @@ func TestPruneHomeVolumesSkipsAndContinues(t *testing.T) {
 	report := &VolumeReport{}
 
 	removed := pruneHomeVolumes(
-		context.Background(), handles, pruneState, references, false, ui, report)
+		context.Background(), client, handles, pruneState, references, false, ui, report)
 
 	if report.VolumesPruned != 1 {
 		t.Errorf(
@@ -175,7 +174,6 @@ func TestPruneHomeVolumesSkipsAndContinues(t *testing.T) {
 func TestPruneHomeVolumesSkipsForeignEvenWithEmptyKey(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
 	handles := []msb.VolumeHandle{
 		&msb.MockVolumeHandle{Name_: "foreign-volume", CreatedAt_: time.Now()},
 	}
@@ -184,7 +182,7 @@ func TestPruneHomeVolumesSkipsForeignEvenWithEmptyKey(t *testing.T) {
 	}}
 	report := &VolumeReport{}
 
-	pruneHomeVolumes(context.Background(), handles, pruneState, nil, false, &termio.Mock{}, report)
+	pruneHomeVolumes(context.Background(), client, handles, pruneState, nil, false, &termio.Mock{}, report)
 
 	if report.VolumesPruned != 0 || len(client.RemovedVolumes) != 0 {
 		t.Errorf("a foreign volume must be skipped: report=%+v removed=%v", report, client.RemovedVolumes)
