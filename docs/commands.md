@@ -699,10 +699,12 @@ version takes effect on the next invocation. For a Homebrew-managed install the 
 ```console
 agents-sandbox upgrade
 agents-sandbox upgrade --channel canary     # one-shot override: upgrade from the canary line
+agents-sandbox upgrade --channel stable     # leave the canary line for the newest stable release
 ```
 
 `--channel` accepts `stable` or `canary` and applies to that invocation only, leaving the configured `upgrade.channel`
-unchanged.
+unchanged. `--channel stable` on a canary install switches to the newest stable release even when that release is
+older; without the flag, `upgrade` never downgrades.
 
 ---
 
