@@ -573,6 +573,8 @@ while IFS= read -r branch; do
     note="current branch"
   elif [[ "$branch" == release/* ]]; then
     note="release branch"
+  elif is_protected_config_branch "$branch"; then
+    note="config mirror; protected"
   elif contains "$branch" ${checked_out[@]+"${checked_out[@]}"}; then
     note="checked out in a worktree"
   elif is_excluded "$branch"; then
@@ -623,6 +625,8 @@ while IFS= read -r ref; do
     note="default branch"
   elif [[ "$name" == release/* ]]; then
     note="release branch"
+  elif is_protected_config_branch "$name"; then
+    note="config mirror; protected"
   elif is_excluded "$name"; then
     note="excluded (merged)"
   elif ! older_than_allows "$age"; then

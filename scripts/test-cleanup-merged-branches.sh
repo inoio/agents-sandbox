@@ -57,6 +57,8 @@ new_fixture() { # [config_dir] [config_branch] [relative|absolute|none] [dirty 0
   git -C "$proj" update-ref refs/remotes/origin/main "$(git -C "$proj/main" rev-parse HEAD)"
   git -C "$proj" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
   git -C "$proj" branch stale-branch "$old"
+  git -C "$proj" update-ref refs/remotes/origin/"$config_branch" "$old"
+  git -C "$proj" update-ref refs/remotes/origin/stale-branch "$old"
   git -C "$proj" worktree add -q "$proj/oldwork" -b old-work "$old"
   [[ "$dirty" == 1 ]] && echo scratch >"$proj/$config_dir/untracked.txt"
 
@@ -105,6 +107,18 @@ out="$(run_cleanup "$proj" --force)"
 keep_wt="$(section "$out" 'Remaining worktrees:')"
 assert_contains "$proj" "$keep_wt" "$proj/config"
 assert_contains "dirty config kept under --force" "$keep_wt" "[config mirror; protected]"
+
+# Branch-loop protection: the config branch and its origin ref stay put.
+proj="$(new_fixture config agents-sandbox-config relative 0)"
+out="$(run_cleanup "$proj")"
+rem_lb="$(section "$out" 'Local branches to delete:')"
+keep_lb="$(section "$out" 'Remaining local branches:')"
+rem_rb="$(section "$out" 'Origin branches to delete:')"
+keep_rb="$(section "$out" 'Remaining origin branches:')"
+assert_not_contains "local config branch not deleted" "$rem_lb" "agents-sandbox-config (was"
+assert_contains     "local config branch kept"        "$keep_lb" "[config mirror; protected]"
+assert_not_contains "origin config branch not deleted" "$rem_rb" "origin/agents-sandbox-config"
+assert_contains     "origin config branch kept"        "$keep_rb" "origin/agents-sandbox-config"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))
