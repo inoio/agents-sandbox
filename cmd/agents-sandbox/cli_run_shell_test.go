@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,6 +14,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
@@ -19,6 +22,7 @@ import (
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // setupRunMocks configures all mock dependencies needed for run/shell tests,
@@ -611,5 +615,80 @@ func TestRunAgentCodexRejectsDaemonOnlyFlags(t *testing.T) {
 				t.Errorf("err = %v, want 'not supported by agent \"codex\"'", err)
 			}
 		})
+	}
+}
+
+// writeHostOpencodeManifest writes a ~/.config/opencode/package.json declaring
+// a dependency into the mocked host home and returns its path.
+func writeHostOpencodeManifest(t *testing.T) string {
+	t.Helper()
+	hostHome, err := configpaths.Get().UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+	dir := filepath.Join(hostHome, ".config", "opencode")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatalf("create %s: %v", dir, err)
+	}
+	manifest := filepath.Join(dir, "package.json")
+	testutil.WritePath(t, manifest, `{"dependencies": {"zod": "4.1.8"}}`)
+	return manifest
+}
+
+func countWarningsMentioning(warnings []string, substr string) int {
+	count := 0
+	for _, warning := range warnings {
+		if strings.Contains(warning, substr) {
+			count++
+		}
+	}
+	return count
+}
+
+func TestRunWarnsAboutUnprovisionedConfigDirDependencies(t *testing.T) {
+	initTestProjectDir(t)
+	mock := &sandboxmsb.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run-vm")
+	manifest := writeHostOpencodeManifest(t)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if n := countWarningsMentioning(ui.WarnCalls, manifest); n != 1 {
+		t.Errorf("warnings mentioning %s = %d, want 1; got: %v", manifest, n, ui.WarnCalls)
+	}
+}
+
+func TestRunSkipsDependencyWarningWhenAMountSuppliesNodeModules(t *testing.T) {
+	initTestProjectDir(t)
+	mock := &sandboxmsb.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run-vm")
+	manifest := writeHostOpencodeManifest(t)
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml",
+		"mounts:\n  /home/dev/node_modules:\n    source: "+t.TempDir()+"\n    readonly: true\n")
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if n := countWarningsMentioning(ui.WarnCalls, manifest); n != 0 {
+		t.Errorf("warnings mentioning %s = %d, want 0; got: %v", manifest, n, ui.WarnCalls)
+	}
+}
+
+func TestRunSkipsDependencyWarningWhenHostProvisioningIsDisabled(t *testing.T) {
+	initTestProjectDir(t)
+	mock := &sandboxmsb.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run-vm")
+	manifest := writeHostOpencodeManifest(t)
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "provision-host-config: false\n")
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if n := countWarningsMentioning(ui.WarnCalls, manifest); n != 0 {
+		t.Errorf("warnings mentioning %s = %d, want 0; got: %v", manifest, n, ui.WarnCalls)
 	}
 }

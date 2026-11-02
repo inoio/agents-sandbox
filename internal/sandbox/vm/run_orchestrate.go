@@ -359,6 +359,9 @@ func planReconfigStage(
 	if err != nil {
 		return reconfigPlan{}, err
 	}
+	reprovision.WarnUnprovisionedDependencies(
+		session.agent, configFiles, mounts.MountTargets(opts.Mounts), provisionHostConfig(opts), ui,
+	)
 	live, err := readLiveProjectVM(ctx, home.client, session.key, configFiles.Keys, ui)
 	if err != nil {
 		return reconfigPlan{}, err
