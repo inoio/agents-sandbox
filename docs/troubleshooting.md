@@ -220,6 +220,13 @@ For `env.secret.yaml`, values may contain `@` without issues. Ensure the entry d
 `allow_any_host_dangerous: true` — entries with no hosts definition are silently skipped. An empty `value` is valid
 and passed through unchanged.
 
+## Forbidden: Request blocked by secret policy
+
+The request carried a secret placeholder to a host that the secret is not allowed for, so the proxy refused to forward
+it. Add the host the application actually calls to the secret's `host`/`hosts`. A common case is GitHub Copilot on
+GitHub Enterprise, where OpenCode calls the enterprise domain instead of `api.githubcopilot.com`; see
+[GitHub Copilot on GitHub Enterprise]({% link configuration/secrets.md %}#github-copilot-on-github-enterprise-ghecom).
+
 ## TLS certificate errors for one application
 
 Once a secret is configured, requests to the matching hosts go through microsandbox's TLS proxy, whose interception CA
