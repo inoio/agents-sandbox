@@ -150,7 +150,7 @@ func TestRunAttachUsesAttachWithForRoot(t *testing.T) {
 	}
 	release()
 
-	err = runAttach(context.Background(), sb, "roottest", "/workspace/sub", ui,
+	err = runAttach(context.Background(), state.Key{Slug: "roottest", Agent: "opencode"}, sb, "/workspace/sub", ui,
 		options.RunOptions{Root: true, ReapPolicy: options.NewReapPolicy(false, 5)}, "-l")
 	if err != nil {
 		t.Fatalf("runAttach failed: %v", err)
@@ -175,7 +175,7 @@ func TestRunAttachDefaultDoesNotUseRoot(t *testing.T) {
 	}
 	release()
 
-	err = runAttach(context.Background(), sb, "defaulttest", "/workspace/sub", ui,
+	err = runAttach(context.Background(), state.Key{Slug: "defaulttest", Agent: "opencode"}, sb, "/workspace/sub", ui,
 		options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}, "-l")
 	if err != nil {
 		t.Fatalf("runAttach failed: %v", err)
@@ -495,7 +495,7 @@ func TestRunServeOnlyReapFailureWarns(t *testing.T) {
 	sb.ShellErr = errors.New("shell failed")
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: sb}, nil
+		return &fakePrepared{sb: sb, key: state.Key{Slug: "serveonlyreapfail", Agent: "opencode"}}, nil
 	}
 	defer func() { prepareSandbox = orig }()
 
@@ -550,7 +550,7 @@ func TestRunServeOnlyWarnsAboutContainersAfterCancel(t *testing.T) {
 	})}
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: sb}, nil
+		return &fakePrepared{sb: sb, key: state.Key{Slug: "warncontainers", Agent: "opencode"}}, nil
 	}
 	defer func() { prepareSandbox = orig }()
 
@@ -613,7 +613,7 @@ func TestRunNormalCallsRunAttach(t *testing.T) {
 	var gotSkipVM bool
 	prepareSandbox = func(_ context.Context, _ options.RunOptions, skipVM bool, _ termio.UI) (preparedSandbox, error) {
 		gotSkipVM = skipVM
-		return &fakePrepared{sb: sb, target: "/workspace"}, nil
+		return &fakePrepared{sb: sb, target: "/workspace", key: state.Key{Slug: "normalattach", Agent: "opencode"}}, nil
 	}
 	defer func() { prepareSandbox = orig }()
 
@@ -801,7 +801,7 @@ func TestRunAttachPropagatesAttachError(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{AttachErr: errors.New("attach boom")}
 
-	err := runAttach(context.Background(), sb, "errproj", "/workspace", ui,
+	err := runAttach(context.Background(), state.Key{Slug: "errproj", Agent: "opencode"}, sb, "/workspace", ui,
 		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}, "-l")
 	if err == nil {
 		t.Fatal("expected error when attach fails")
@@ -816,7 +816,7 @@ func TestRunAttachReturnsExitErrorForNonZeroCode(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{AttachCode: 3}
 
-	err := runAttach(context.Background(), sb, "exitproj", "/workspace", ui,
+	err := runAttach(context.Background(), state.Key{Slug: "exitproj", Agent: "opencode"}, sb, "/workspace", ui,
 		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}, "-l")
 	var exitErr *sandbox.ExitError
 	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
@@ -835,7 +835,7 @@ func TestRunAttachWarnsOnReapFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := runAttach(ctx, sb, "reaperrproj", "/workspace", ui,
+	err := runAttach(ctx, state.Key{Slug: "reaperrproj", Agent: "opencode"}, sb, "/workspace", ui,
 		options.RunOptions{Agent: "opencode", ReapPolicy: options.NewReapPolicy(false, 5)}, "-l")
 	if err != nil {
 		t.Fatalf("runAttach should not fail on reap error: %v", err)
@@ -849,6 +849,143 @@ func TestRunAttachWarnsOnReapFailure(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected reap warning, got %v", ui.WarnCalls)
+	}
+}
+
+// --- withClientSession ---
+
+// containerProbeWarn reports whether the last-client reap probed for running
+// containers, which it only does once this session's own lease is gone.
+func containerProbeWarn(ui *termio.Mock) bool {
+	for _, w := range ui.WarnCalls {
+		if strings.Contains(w, "running container") {
+			return true
+		}
+	}
+	return false
+}
+
+func TestWithClientSessionHandsResolvedAgentToBody(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+
+	var got string
+	err := withClientSession(
+		context.Background(),
+		state.Key{Slug: "withsessionagent", Agent: "opencode"},
+		&msb.MockSandbox{Name_: "test-vm"},
+		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		ui,
+		func(a agent.Agent) error {
+			got = a.Name()
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("withClientSession: %v", err)
+	}
+	if got != "opencode" {
+		t.Errorf("body agent = %q, want %q", got, "opencode")
+	}
+}
+
+// TestWithClientSessionReleasesLeaseBeforeReaping pins the rule that the lease is
+// released before the last-client reap, so state.CountActiveClients reflects only
+// OTHER live clients while the reaper decides. The container probe is the reaper's
+// first observable step and runs only when no client is active, so its warning
+// proves this session's own lease was already gone.
+func TestWithClientSessionReleasesLeaseBeforeReaping(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "withsessionrelease", Agent: "opencode"}
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{
+		Name_: "test-vm",
+		ShellOut: map[string]msb.ShellResult{
+			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+		},
+	}
+
+	err := withClientSession(context.Background(), k, sb, options.ReapPolicy{}, ui, func(agent.Agent) error {
+		if got := state.CountActiveClients(k); got != 1 {
+			t.Errorf("body ran with %d active clients, want 1 (its own lease)", got)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("withClientSession: %v", err)
+	}
+	if got := state.CountActiveClients(k); got != 0 {
+		t.Errorf("CountActiveClients after withClientSession = %d, want 0", got)
+	}
+	if !containerProbeWarn(ui) {
+		t.Errorf("expected the last-client reap to probe containers (lease released first), got %v", ui.WarnCalls)
+	}
+}
+
+// TestWithClientSessionReturnsBodyErrorAfterReaping pins that a body error is
+// returned unchanged and the reap still runs: the attach path reaps even when the
+// attach itself fails.
+func TestWithClientSessionReturnsBodyErrorAfterReaping(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "withsessionbodyerr", Agent: "opencode"}
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{
+		Name_: "test-vm",
+		ShellOut: map[string]msb.ShellResult{
+			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+		},
+	}
+	sentinel := errors.New("body boom")
+
+	err := withClientSession(context.Background(), k, sb, options.ReapPolicy{}, ui, func(agent.Agent) error {
+		return sentinel
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("withClientSession = %v, want the body error", err)
+	}
+	if got := state.CountActiveClients(k); got != 0 {
+		t.Errorf("CountActiveClients = %d, want 0 after the deferred release", got)
+	}
+	if !containerProbeWarn(ui) {
+		t.Errorf("expected the reap to run despite the body error, got %v", ui.WarnCalls)
+	}
+}
+
+// TestWithClientSessionLeaseFailureStillRunsBody pins that a failed lease
+// acquisition only warns: the session still runs and the reap still fires, with
+// no lease of its own to release.
+func TestWithClientSessionLeaseFailureStillRunsBody(t *testing.T) {
+	slug := "withsessionleasefail"
+	blockClientLease(t, slug)
+	ui := &termio.Mock{}
+	ran := false
+
+	err := withClientSession(
+		context.Background(),
+		state.Key{Slug: slug, Agent: "opencode"},
+		&msb.MockSandbox{Name_: "test-vm"},
+		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		ui,
+		func(agent.Agent) error {
+			ran = true
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("withClientSession: %v", err)
+	}
+	if !ran {
+		t.Error("body must run even when the client lease cannot be acquired")
+	}
+	found := false
+	for _, w := range ui.WarnCalls {
+		if strings.Contains(w, "client lease failed") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected a client lease warning, got %v", ui.WarnCalls)
 	}
 }
 
