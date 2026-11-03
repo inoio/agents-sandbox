@@ -16,6 +16,17 @@ what `AGENTS.md` does not cover.
 - When adding or editing a catalog entry, spec, plan, or guide, follow
   `guides/operator-brain-maintenance.md`.
 
+## Skills
+
+- Two skill libraries cover overlapping ground: the **superpowers** plugin
+  (always loaded) and this repo's `.agents/skills/`. Where both cover the same
+  concept, prefer **superpowers** — its discipline is stricter and it is present
+  in every session. Keep a `.agents/skills/` skill only when it produces a
+  distinct artifact superpowers has no equivalent for (the architecture/domain
+  vocabulary and the design review), or when it is repo-specific (the release,
+  bare-worktree, maintainer, PR-feedback, and PR-body skills).
+- Do not run both libraries' skills for the same step. Pick one per task.
+
 ## Private / Shared Policy
 
 - **Shared** (`.operator-shared/`, published with the repo): durable project truth.
