@@ -44,23 +44,22 @@ func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 
-	_, _, err := createProjectVM(
-		context.Background(),
-		client,
-		ProjectVMName(key),
-		key,
-		key.Slug,
-		image.ImageInfo{
+	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
+		Client:  client,
+		Options: options.RunOptions{Memory: "1G"},
+		Image: image.ImageInfo{
 			DockerTag: legacyRef,
 			Ref:       naming.RunnerImageRef(key.Slug, key.Agent),
 			Digest:    "sha256:same",
+			Env:       map[string]string{"FOO": "bar"},
 		},
-		"test-home-vol",
-		t.TempDir(),
-		options.RunOptions{Memory: "1G"},
-		envsecret.EnvSecrets{},
-		ui,
-	)
+		HomeVolume: "test-home-vol",
+		RepoPath:   t.TempDir(),
+		Key:        key,
+		RepoSlug:   key.Slug,
+		Env:        envsecret.EnvSecrets{},
+		UI:         ui,
+	}, ProjectVMName(key))
 	if err != nil {
 		t.Fatalf("createProjectVM: %v", err)
 	}
@@ -79,6 +78,9 @@ func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
 	}
 	if got := cfg.Labels[naming.LabelImage]; got != legacyRef {
 		t.Errorf("LabelImage = %q, want %q", got, legacyRef)
+	}
+	if !verboseContains(ui.VerboseCalls, "adding docker env definitions to project VM environment: map[FOO:bar]") {
+		t.Errorf("verbose output = %v, want the docker env note", ui.VerboseCalls)
 	}
 }
 
@@ -104,22 +106,20 @@ func TestCreateProjectVMIdleTimeout(t *testing.T) {
 			testUI := termio.NewTestMock(t)
 			ui := &testUI
 
-			_, _, err := createProjectVM(
-				context.Background(),
-				client,
-				ProjectVMName(key),
-				key,
-				key.Slug,
-				image.ImageInfo{
+			_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
+				Client:  client,
+				Options: options.RunOptions{Memory: "1G", IdleTimeout: tc.opts},
+				Image: image.ImageInfo{
 					DockerTag: "agents-sandbox/runner-test:latest",
 					Ref:       "agents-sandbox/runner-test:latest",
 				},
-				"test-home-vol",
-				t.TempDir(),
-				options.RunOptions{Memory: "1G", IdleTimeout: tc.opts},
-				envsecret.EnvSecrets{},
-				ui,
-			)
+				HomeVolume: "test-home-vol",
+				RepoPath:   t.TempDir(),
+				Key:        key,
+				RepoSlug:   key.Slug,
+				Env:        envsecret.EnvSecrets{},
+				UI:         ui,
+			}, ProjectVMName(key))
 			if err != nil {
 				t.Fatalf("createProjectVM: %v", err)
 			}
@@ -141,19 +141,20 @@ func TestCreateProjectVMCreateSandboxError(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 
-	_, _, err := createProjectVM(
-		context.Background(),
-		client,
-		"agents-sandbox-vm-test",
-		testVMKey(),
-		testVMKey().Slug,
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
-		"test-home-vol",
-		t.TempDir(),
-		options.RunOptions{Memory: "1G"},
-		envsecret.EnvSecrets{},
-		ui,
-	)
+	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
+		Client:  client,
+		Options: options.RunOptions{Memory: "1G"},
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:latest",
+			Ref:       "agents-sandbox/runner-test:latest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   t.TempDir(),
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		Env:        envsecret.EnvSecrets{},
+		UI:         ui,
+	}, "agents-sandbox-vm-test")
 	if err == nil {
 		t.Fatal("expected error from CreateSandbox")
 	}
@@ -168,22 +169,23 @@ func TestCreateProjectVMNetworkConfigError(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 
-	_, _, err := createProjectVM(
-		context.Background(),
-		client,
-		"agents-sandbox-vm-test",
-		testVMKey(),
-		testVMKey().Slug,
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
-		"test-home-vol",
-		t.TempDir(),
-		options.RunOptions{
+	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
+		Client: client,
+		Options: options.RunOptions{
 			Memory:  "1G",
 			Network: network.Policy{Profiles: []network.Profile{network.Profile("bogus-profile")}},
 		},
-		envsecret.EnvSecrets{},
-		ui,
-	)
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:latest",
+			Ref:       "agents-sandbox/runner-test:latest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   t.TempDir(),
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		Env:        envsecret.EnvSecrets{},
+		UI:         ui,
+	}, "agents-sandbox-vm-test")
 	if err == nil {
 		t.Fatal("expected error from the network config")
 	}

@@ -406,10 +406,19 @@ func ensureVMStage(
 	opts options.RunOptions,
 	ui termio.UI,
 ) (msb.Sandbox, vm.VMBoot, error) {
-	sb, boot, err := vm.EnsureProjectVM(
-		ctx, home.client, opts, imageInfo, plan.homeVolume, session.identity.BindRoot, session.key, plan.existingVM,
-		session.identity.RepoSlug, skipVM, home.env, ui,
-	)
+	sb, boot, err := vm.EnsureProjectVM(ctx, vm.ProjectVMCreation{
+		Client:     home.client,
+		Options:    opts,
+		Image:      imageInfo,
+		HomeVolume: plan.homeVolume,
+		RepoPath:   session.identity.BindRoot,
+		Key:        session.key,
+		Existing:   plan.existingVM,
+		RepoSlug:   session.identity.RepoSlug,
+		SkipVM:     skipVM,
+		Env:        home.env,
+		UI:         ui,
+	})
 	if err != nil {
 		// gomutants:disable-next-line RETURN_ZERO reason="EnsureProjectVM returns vm.VMBootConnected (the vm.VMBoot zero value, the first iota constant) on every error path, so a RETURN_ZERO replacement of boot is the identical constant"
 		return nil, boot, err

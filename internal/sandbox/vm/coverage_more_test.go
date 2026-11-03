@@ -339,22 +339,23 @@ func TestCreateProjectVMNetworkError(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	ui := termio.NewTestMock(t)
 
-	_, _, err := createProjectVM(
-		context.Background(),
-		client,
-		"agents-sandbox-vm-test",
-		testVMKey(),
-		testVMKey().Slug,
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
-		"test-home-vol",
-		t.TempDir(),
-		options.RunOptions{
+	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
+		Client: client,
+		Options: options.RunOptions{
 			Memory:  "1G",
 			Network: network.Policy{Profiles: []network.Profile{network.Profile("bogus-profile")}},
 		},
-		envsecret.EnvSecrets{},
-		&ui,
-	)
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:latest",
+			Ref:       "agents-sandbox/runner-test:latest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   t.TempDir(),
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		Env:        envsecret.EnvSecrets{},
+		UI:         &ui,
+	}, "agents-sandbox-vm-test")
 	if err == nil {
 		t.Fatal("expected error when the network policy cannot be converted")
 	}
@@ -367,19 +368,20 @@ func TestCreateProjectVMCreateError(t *testing.T) {
 	client := &msb.MockMsbClient{CreateSandboxErr: errors.New("create failed")}
 	ui := termio.NewTestMock(t)
 
-	_, _, err := createProjectVM(
-		context.Background(),
-		client,
-		"agents-sandbox-vm-test",
-		testVMKey(),
-		testVMKey().Slug,
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
-		"test-home-vol",
-		t.TempDir(),
-		options.RunOptions{Memory: "1G"},
-		envsecret.EnvSecrets{},
-		&ui,
-	)
+	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
+		Client:  client,
+		Options: options.RunOptions{Memory: "1G"},
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:latest",
+			Ref:       "agents-sandbox/runner-test:latest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   t.TempDir(),
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		Env:        envsecret.EnvSecrets{},
+		UI:         &ui,
+	}, "agents-sandbox-vm-test")
 	if err == nil {
 		t.Fatal("expected error when CreateSandbox fails")
 	}
@@ -394,23 +396,24 @@ func TestCreateProjectVMServeOnlyAndNetwork(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	ui := termio.NewTestMock(t)
 
-	_, _, err := createProjectVM(
-		context.Background(),
-		client,
-		"agents-sandbox-vm-test",
-		testVMKey(),
-		testVMKey().Slug,
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
-		"test-home-vol",
-		t.TempDir(),
-		options.RunOptions{
+	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
+		Client: client,
+		Options: options.RunOptions{
 			Memory:    "1G",
 			ServeOnly: true,
 			Network:   network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
 		},
-		envsecret.EnvSecrets{},
-		&ui,
-	)
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:latest",
+			Ref:       "agents-sandbox/runner-test:latest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   t.TempDir(),
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		Env:        envsecret.EnvSecrets{},
+		UI:         &ui,
+	}, "agents-sandbox-vm-test")
 	if err != nil {
 		t.Fatalf("createProjectVM with serve-only + network: %v", err)
 	}
@@ -438,23 +441,24 @@ func TestCreateProjectVMServeOnlyPublishesExactPort(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	ui := termio.NewTestMock(t)
 
-	_, _, err := createProjectVM(
-		context.Background(),
-		client,
-		"agents-sandbox-vm-test",
-		testVMKey(),
-		testVMKey().Slug,
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
-		"test-home-vol",
-		t.TempDir(),
-		options.RunOptions{
+	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
+		Client: client,
+		Options: options.RunOptions{
 			Memory:        "1G",
 			ServeOnly:     true,
 			ServeHostPort: 4097,
 		},
-		envsecret.EnvSecrets{},
-		&ui,
-	)
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:latest",
+			Ref:       "agents-sandbox/runner-test:latest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   t.TempDir(),
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		Env:        envsecret.EnvSecrets{},
+		UI:         &ui,
+	}, "agents-sandbox-vm-test")
 	if err != nil {
 		t.Fatalf("createProjectVM with serve-only + fixed host port: %v", err)
 	}
