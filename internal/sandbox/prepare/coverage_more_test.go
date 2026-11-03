@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -51,6 +52,33 @@ func TestAgentLatestVersionDefaultNoChecker(t *testing.T) {
 	}
 	if got != "" {
 		t.Errorf("agentLatestVersion for a non-checker = %q, want empty", got)
+	}
+}
+
+// upgradeCheckerAgent implements both the core Agent interface and the
+// UpgradeChecker capability so the shared release resolver reaches its
+// LatestVersion call without touching the network.
+type upgradeCheckerAgent struct{}
+
+func (upgradeCheckerAgent) Name() string          { return "upgradechecker" }
+func (upgradeCheckerAgent) Experimental() bool    { return false }
+func (upgradeCheckerAgent) ConfigDirName() string { return "upgradechecker" }
+func (upgradeCheckerAgent) ImageSpec() agent.ImageSpec {
+	return agent.ImageSpec{}
+}
+func (upgradeCheckerAgent) LatestVersion(context.Context) (string, error) { return "9.9.9", nil }
+func (upgradeCheckerAgent) NewerThan(_, _ string) (bool, error)           { return true, nil }
+
+// TestAgentLatestVersionCheckerAgent covers the real agentLatestVersion branch
+// where the agent is an UpgradeChecker: it returns the checker's latest
+// version.
+func TestAgentLatestVersionCheckerAgent(t *testing.T) {
+	got, err := agentLatestVersion(context.Background(), upgradeCheckerAgent{})
+	if err != nil {
+		t.Fatalf("agentLatestVersion: %v", err)
+	}
+	if got != "9.9.9" {
+		t.Errorf("agentLatestVersion = %q, want %q", got, "9.9.9")
 	}
 }
 

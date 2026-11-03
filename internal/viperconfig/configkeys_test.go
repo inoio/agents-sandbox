@@ -23,7 +23,7 @@ func TestConfigEnvKeysGoldenSet(t *testing.T) {
 		keyAgent, KeyDocker, keyCPUs,
 		keyProvisionHostConfig, KeyOpenLinks,
 		keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
-		keyNetworkProfile, keyNetworkDNSServers,
+		keyNetworkProfile, keyNetworkDNSServers, keyPorts,
 		keyUpgradeMode, keyUpgradeInterval, keyUpgradeChannel,
 		KeyDind,
 	}

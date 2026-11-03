@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -895,5 +896,24 @@ func TestMockSandboxHandleConfigMounts(t *testing.T) {
 	failing := &MockSandboxHandle{MountsErr: errors.New("mounts boom")}
 	if _, err := failing.ConfigMounts(); err == nil {
 		t.Error("ConfigMounts() error = nil, want the configured MountsErr")
+	}
+}
+
+func TestMockSandboxHandleConfigPorts(t *testing.T) {
+	want := []msbSdk.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+	}
+	m := &MockSandboxHandle{PortBindings: want}
+	got, err := m.ConfigPorts()
+	if err != nil {
+		t.Fatalf("ConfigPorts() error = %v", err)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("ConfigPorts() = %+v, want the seeded bindings", got)
+	}
+
+	failing := &MockSandboxHandle{PortsErr: errors.New("ports boom")}
+	if _, err := failing.ConfigPorts(); err == nil {
+		t.Error("ConfigPorts() error = nil, want the configured PortsErr")
 	}
 }

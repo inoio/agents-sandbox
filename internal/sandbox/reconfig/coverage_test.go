@@ -9,6 +9,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -135,7 +136,7 @@ func TestPlanReconfigDiskChangeWithNilRootDisk(t *testing.T) {
 // TestPortBindingsEqualLengthMismatch verifies the length-mismatch branch.
 func TestPortBindingsEqualLengthMismatch(t *testing.T) {
 	a := []msbSdk.PortBinding{{Bind: "localhost"}}
-	if portBindingsEqual(a, nil) {
+	if ports.BindingsEqual(a, nil) {
 		t.Error("expected false for differing lengths")
 	}
 }
@@ -145,7 +146,7 @@ func TestPortBindingsEqualLengthMismatch(t *testing.T) {
 func TestPortBindingsEqualElementMismatch(t *testing.T) {
 	a := []msbSdk.PortBinding{{Bind: "localhost", HostPort: 1}}
 	b := []msbSdk.PortBinding{{Bind: "localhost", HostPort: 2}}
-	if portBindingsEqual(a, b) {
+	if ports.BindingsEqual(a, b) {
 		t.Error("expected false for differing elements")
 	}
 }
@@ -154,7 +155,7 @@ func TestPortBindingsEqualElementMismatch(t *testing.T) {
 func TestPortBindingsEqualMatch(t *testing.T) {
 	a := []msbSdk.PortBinding{{Bind: "localhost", HostPort: 1}}
 	b := []msbSdk.PortBinding{{Bind: "localhost", HostPort: 1}}
-	if !portBindingsEqual(a, b) {
+	if !ports.BindingsEqual(a, b) {
 		t.Error("expected true for matching bindings")
 	}
 }

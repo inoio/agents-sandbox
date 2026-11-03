@@ -8,6 +8,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 )
 
 // planSlug and planContentID identify the runner image the plan tests compare
@@ -31,7 +32,7 @@ func planNameImage() naming.ImageIdentity {
 }
 
 func TestPlanReconfigServeOnly(t *testing.T) {
-	desired := options.ServeOnlyBindings(options.ServeOnlyBasePort)
+	desired := ports.ServeOnlyBindings(ports.ServeOnlyBasePort)
 	tests := []struct {
 		name         string
 		serveOnly    bool
@@ -186,8 +187,8 @@ func TestDesiredPublishBindingsDelegatesToOptions(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
 		{Bind: "127.0.0.1", HostPort: 4097, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
 	}}
-	optsBindings := options.ServeOnlyBindings(4097)
-	planBindings := desiredPublishBindings(true, cfg)
+	optsBindings := ports.ServeOnlyBindings(4097)
+	planBindings := desiredPublishBindings(options.RunOptions{ServeOnly: true}, cfg)
 	if len(planBindings) != 1 {
 		t.Fatalf("expected 1 binding, got %d", len(planBindings))
 	}
@@ -205,10 +206,93 @@ func TestDesiredPublishBindingsDelegatesToOptions(t *testing.T) {
 	}
 }
 
-func TestDesiredPublishBindingsNilWhenNotServeOnly(t *testing.T) {
-	got := desiredPublishBindings(false, nil)
+func TestDesiredPublishBindingsNilWhenNothingPublished(t *testing.T) {
+	got := desiredPublishBindings(options.RunOptions{}, nil)
 	if got != nil {
-		t.Errorf("expected nil when serveOnly=false, got %+v", got)
+		t.Errorf("expected nil when nothing is published, got %+v", got)
+	}
+}
+
+func TestDesiredPublishBindingsIncludeUserPorts(t *testing.T) {
+	opts := options.RunOptions{Ports: []ports.PortMapping{{HostPort: 8080, GuestPort: 5173}}}
+	got := desiredPublishBindings(opts, nil)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 binding, got %+v", got)
+	}
+	if got[0].HostPort != 8080 || got[0].GuestPort != 5173 {
+		t.Errorf("binding = %+v, want host 8080 guest 5173", got[0])
+	}
+}
+
+func TestPlanReconfigUserPorts(t *testing.T) {
+	userBinding := msbSdk.PortBinding{
+		Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP,
+	}
+	tests := []struct {
+		name         string
+		ports        []ports.PortMapping
+		cfgPorts     []msbSdk.PortBinding
+		wantRecreate bool
+	}{
+		{"user port added", nil, []msbSdk.PortBinding{userBinding}, true},
+		{
+			"user port unchanged",
+			[]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}},
+			[]msbSdk.PortBinding{userBinding},
+			false,
+		},
+		{"user port removed", []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}, nil, true},
+		{
+			"user port changed",
+			[]ports.PortMapping{{HostPort: 3000, GuestPort: 5173}},
+			[]msbSdk.PortBinding{userBinding},
+			true,
+		},
+		{
+			"binding order is irrelevant",
+			[]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}, {HostPort: 8080, GuestPort: 5173}},
+			[]msbSdk.PortBinding{
+				{Bind: "127.0.0.1", HostPort: 8080, GuestPort: 5173, Protocol: msbSdk.PortProtocolTCP},
+				userBinding,
+			},
+			false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &msbSdk.SandboxConfig{PortBindings: tt.cfgPorts}
+			plan := PlanReconfig(
+				cfg,
+				planImage(),
+				options.RunOptions{Ports: tt.ports},
+				ChangeFlags{},
+				"",
+			)
+			if plan.Recreate != tt.wantRecreate {
+				t.Errorf("Recreate = %v, want %v", plan.Recreate, tt.wantRecreate)
+			}
+		})
+	}
+}
+
+func TestPlanReconfigUserPortsWithServeOnly(t *testing.T) {
+	serveBinding := msbSdk.PortBinding{
+		Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP,
+	}
+	userBinding := msbSdk.PortBinding{
+		Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP,
+	}
+	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{userBinding, serveBinding}}
+	opts := options.RunOptions{
+		ServeOnly: true,
+		Ports:     []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}},
+	}
+	plan := PlanReconfig(cfg, planImage(), opts, ChangeFlags{}, "")
+	if plan.Recreate {
+		t.Error("expected no recreate when serve-only and user ports both match")
+	}
+	if plan.ServeHostPort != 4096 {
+		t.Errorf("ServeHostPort = %d, want 4096 (the agent guest port binding)", plan.ServeHostPort)
 	}
 }
 
@@ -530,7 +614,7 @@ func TestPublishReconfigHostPort(t *testing.T) {
 	if hostPort, changed := publishReconfig(options.RunOptions{}, &msbSdk.SandboxConfig{}); hostPort != 0 || changed {
 		t.Errorf("not serve-only: hostPort=%d changed=%v, want 0 false", hostPort, changed)
 	}
-	cfg := &msbSdk.SandboxConfig{PortBindings: options.ServeOnlyBindings(4097)}
+	cfg := &msbSdk.SandboxConfig{PortBindings: ports.ServeOnlyBindings(4097)}
 	if hostPort, changed := publishReconfig(options.RunOptions{ServeOnly: true}, cfg); hostPort != 4097 || changed {
 		t.Errorf("serve-only reuse: hostPort=%d changed=%v, want 4097 false", hostPort, changed)
 	}

@@ -361,6 +361,8 @@ func registerSharedRunShellFlags(cmd *cobra.Command) {
 		StringSlice(flagNetwork, nil, "Network egress profile(s) for the VM: public, private, host, or none (default public); comma-separated or repeated")
 	cmd.Flags().
 		StringSlice(flagDNSServers, nil, "DNS upstream resolvers for the VM: IP (e.g. 1.1.1.1) or host:port (e.g. 1.1.1.1:53); comma-separated or repeated")
+	cmd.Flags().
+		StringSliceP(flagPort, "p", nil, "Publish a VM port on the host loopback: <port> or <host>:<guest> (TCP; e.g. 3000 or 8080:3000); comma-separated or repeated. Applied at VM creation; a change triggers recreation.")
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to run")
 	cmd.Flags().
 		Bool(flagOpenLinks, true, "Open links from the VM (xdg-open) on the host; --open-links=false disables it")
