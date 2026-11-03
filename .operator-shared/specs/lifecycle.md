@@ -201,9 +201,7 @@ defers it.
 
 The current invocation's own stale VM is reclaimed on purpose: project VMs are ephemeral and recreated by `ensure-vm`,
 while what the run actually reuses — its runner image (retained by key) and its home volume (retained by its state
-reference) — survives. The two landed fixes satisfy the principle: the image prune no longer treats a VM-less key as
-retired and always retains `RetainKeys`, and the native prune is skipped while anything is retained.
-`TestBuildThenRunKeepsTheBuiltImage` (`cmd`) pins it end to end: a `run` after a `build`, with the project's only VM
+reference) — survives. `TestBuildThenRunKeepsTheBuiltImage` (`cmd`) pins it end to end: a `run` after a `build`, with the project's only VM
 stale, keeps the built image and does not reimport it, and fails when the run passes no keys.
 
 ## Mode model

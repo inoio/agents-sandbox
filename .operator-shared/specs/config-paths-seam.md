@@ -13,14 +13,15 @@ resolver is also injected below each entry point (image render helpers, `vm.Adop
 prepare/upgrade migrations) so those call sites take a `ConfigPaths` parameter; `Get()` remains the boundary factory and
 the process-root residue (`state`, `runtime`/`MSBHome`, `homeconfig`) — see `client-injection.md`.
 
-- Methods cover the tool's XDG dirs (`UserConfigDir`/`UserCacheDir`/`UserStateDir`/`UserDataDir`), the per-agent
-  config dirs, the project config dir, the env/secret/Dockerfile paths, and `UserHomeDir() (string, error)` — the host
-  user's home, the root the home-relative agent config and `home:` manifests resolve against.
-- The per-agent config-dir accessors (`UserAgentConfigDir`, `UserAgentConfigDirCandidates`, `ProjectAgentConfigDir`,
-  `ProjectAgentConfigDirCandidates`) return an error when a profile's config-dir name is not a single clean path element
-  (`""`, `"."`, `".."`, or one containing a path separator), and `validConfigDirName` is the one guard. It returns the
-  error rather than panicking, so a malformed profile fails at the resolution boundary — `reprovision.ResolveConfigSource`
-  / `PrimaryDirs` / `LoadConfigFilesForHost` — with a message naming the agent (#366).
+- Methods cover the tool's XDG dirs (`UserConfigDir`/`UserSlugConfigDir`/`UserCacheDir`/`UserStateDir`/`UserDataDir`),
+  the project config dir and env/secret/Dockerfile paths, `IgnoredWorktreeConfigDir`, and `UserHomeDir() (string, error)`
+  — the host user's home, the root the home-relative agent config and `home:` manifests resolve against.
+- The per-agent config-dir candidates are resolved by `agent.ConfigDirNames(a) ([]string, error)` (the primary name then
+  each `ConfigDirAliaser` alias), joined under the tool's user/project config dir by `reprovision.joinUnder` inside
+  `reprovision.ResolveConfigSource`. `agent.validateConfigDirName` is the one guard: it returns an error when a profile's
+  config-dir name is not a single clean path element (`""`, `"."`, `".."`, or one containing a path separator), so a
+  malformed profile fails at the resolution boundary — `reprovision.ResolveConfigSource` / `LoadConfigFilesForHost` —
+  with a message naming the agent, rather than panicking deep inside a path join (#366).
 - `MSBHome()` is a free function (not a method) so the low-level `sandbox/msb` adapter can resolve the private
   microsandbox home without importing the higher-level runtime package.
 - Config-file discovery (`FindConfigFile`, with `ExtJSONC`/`ExtJSON5`) is a free function here too: the launcher-config

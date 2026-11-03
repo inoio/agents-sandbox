@@ -45,23 +45,23 @@ of every deprecation currently in force.
   the minimum-lifetime rule. If a removal slipped out without a deprecation
   cycle, **restore it as a hidden deprecated alias/no-op for one cycle** rather
   than shipping the removal.
-  - **0.6.0 correction (H2 in #203):** `--rebuild` on `volume migrate`/`reset`/
-    `edit` (present in 0.5.0, removed in this range) **was restored as a
-    hidden deprecated no-op that warns**, removable at its 0.8.0 eligibility
-    (implemented in #206). Point users at `agents-sandbox build`.
+  - **0.6.0 correction:** `--rebuild` on `volume migrate`/`reset`/`edit` (present
+    in 0.5.0, removed in this range) **was restored as a hidden deprecated no-op
+    that warns**, removable at its 0.8.0 eligibility. Point users at
+    `agents-sandbox build`.
 
 ## Register (current)
 
-| Deprecated form | Replacement | Introduced | Eligible removal |
-|---|---|---|---|
-| `--dind` / `dind` config key / `AGENTS_SANDBOX_DIND` | `--docker` / `docker` / `AGENTS_SANDBOX_DOCKER` | 0.6.0 | 0.8.0 |
-| `runner-base-dind` image reference | `runner-base-docker` | 0.6.0 | 0.8.0 |
-| `# agents-sandbox:dind` Dockerfile marker | `# agents-sandbox:docker` | 0.6.0 | 0.8.0 |
-| `OPENCODE_SANDBOX_*` env prefix | `AGENTS_SANDBOX_*` | 0.6.0 | 0.8.0 |
-| `sandbox list --names` | global `-q`/`--quiet` | 0.6.0 | 0.8.0 |
-| `prune --age` / `-a` | `--older-than` | 0.6.0 | 0.8.0 |
-| `--opencode-version` | `--agent-version` | 0.2.0 | 0.7.0 |
-| `volume migrate`/`reset`/`edit` `--rebuild` (restored no-op, #206) | run `agents-sandbox build` first | 0.5.0 (removed) / 0.6.0 | 0.8.0 |
+| Deprecated form | Replacement | Eligible removal |
+|---|---|---|
+| `--dind` / `dind` config key / `AGENTS_SANDBOX_DIND` | `--docker` / `docker` / `AGENTS_SANDBOX_DOCKER` | 0.8.0 |
+| `runner-base-dind` image reference | `runner-base-docker` | 0.8.0 |
+| `# agents-sandbox:dind` Dockerfile marker | `# agents-sandbox:docker` | 0.8.0 |
+| `OPENCODE_SANDBOX_*` env prefix | `AGENTS_SANDBOX_*` | 0.8.0 |
+| `sandbox list --names` | global `-q`/`--quiet` | 0.8.0 |
+| `prune --age` / `-a` | `--older-than` | 0.8.0 |
+| `--opencode-version` | `--agent-version` | 0.7.0 |
+| `volume migrate`/`reset`/`edit` `--rebuild` (restored no-op) | run `agents-sandbox build` first | 0.8.0 |
 
 Eligibility is a floor, not a promise; a removal only lands in a minor release,
 never a patch.
@@ -72,16 +72,16 @@ never a patch.
   the same PR that introduces or removes a deprecation.
 - Every deprecation has a regression test asserting it still resolves with lower
   precedence and emits one warning. `cmd/agents-sandbox/cli_deprecations_test.go`
-  (#202) covers the flag/env/config aliases and asserts the warning fires exactly
-  once. The project-Dockerfile spellings (`runner-base-dind` base and the
+  covers the flag/env/config aliases and asserts the warning fires exactly once.
+  The project-Dockerfile spellings (`runner-base-dind` base and the
   `# agents-sandbox:dind` marker) have no lower-precedence replacement to resolve
   against; they warn on every `EnsureImage` (including cached reuse) and are
   covered by `internal/sandbox/image/deprecation_test.go`. A deprecation without a
   test is incomplete.
-- The docs `deprecations.md` page (added in #206) mirrors the rules above
-  (works/warns/hides, replacement precedence, minimum lifetime, clean-break-vs-shim,
-  no undeprecated removals) alongside the register, updated from the register by
-  hand (small, curated) and checked by `make check`'s docs linkcheck.
+- The docs `deprecations.md` page mirrors the rules above (works/warns/hides,
+  replacement precedence, minimum lifetime, clean-break-vs-shim, no undeprecated
+  removals) alongside the register, updated from the register by hand (small,
+  curated) and checked by `make check`'s docs linkcheck.
 
 ## Non-goals
 

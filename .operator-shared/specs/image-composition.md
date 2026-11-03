@@ -50,13 +50,19 @@ at runtime (Hermes keeps its dependency ledger and bytecode markers in its check
 runner then emits `COPY --chown=dev:dev --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox`, handing the
 whole copied tree (`bin/hermes` included) to `dev`. There is no follow-up `chown`: a chown that rewrites ownership
 on every file records a second full copy of the tree in its layer diff, so the image would carry the tree twice — the
-doubling is a property of the diff, present under every storage driver and in `docker save`/`msb` import alike.
+doubling is a property of the diff, present under every storage driver and in `docker save`/`msb` import alike. The
+invariant is that the agent tool tree appears **once** in the runner image: no step rewrites ownership on the tree after
+the copy.
 
 `--chown=dev:dev` names the group, so it must always resolve. `devUserBlock` guarantees it for every base by running
 `groupadd -f -g "$USER_GID" dev` before the `dev` user guard: a custom base that pre-creates `dev` without a `dev` user
 group still gets one, and when `USER_GID` is already taken (macOS `dialout`/20) the group lands on the next free GID and
 the name still resolves to it. This matters because the production classic builder (`client.ImageBuild`) fails on an
-unresolvable `--chown` group name, where BuildKit silently falls back to the user's primary group. Agents that do not set
+unresolvable `--chown` group name, where BuildKit silently falls back to the user's primary group. Guaranteeing the group
+adds no custom-base requirement — `shadow-utils` is already one (`docs/runner-image.md`) — and the runtime home-volume
+scripts (`PrefillVolume`, `CopyVolume` in `internal/sandbox/volume`) already run `chown -R dev:dev`, which needs the same
+group: a base that pre-creates a `dev` user without a `dev` group already fails first-run prefill/migrate, so guaranteeing
+the group only makes the build and the runtime agree and moves any failure to build time. Agents that do not set
 `OwnsToolTree` get the plain, root-owned copy.
 
 ### Pinned versions are rendered into the content
@@ -94,7 +100,10 @@ Resulting cache behaviour:
   `/etc/profile.d/agents-sandbox-path.sh` (mode 644), **`/usr/local/bin/msb-trust`** (mode 755: the executable bit
   travels in the context entry rather than a `chmod` `RUN`), and its license at
   **`/usr/share/licenses/msb-trust/LICENSE`** (mode 644), which Apache-2.0 section 4(a) requires to travel with the
-  vendored helper. See [ca-trust-helper.md](ca-trust-helper.md).
+  vendored helper (see [ca-trust-helper.md](ca-trust-helper.md)), and the in-VM **`/usr/local/bin/xdg-open`** opener
+  shim (mode 755, from `hostOpenerShimAsset`/`hostOpenerShimScript()`), installed by `hostOpenerBlock()` with the
+  `x-www-browser`/`sensible-browser` aliases and `BROWSER=xdg-open` set (#273; see
+  [agent-link-opening.md](../guides/agent-link-opening.md)).
 - `ImageSpec.InstallCommand` is responsible for landing the agent in that prefix: npm agents (pi) use
   `npm install -g --prefix /opt/agents-sandbox <pkg>@$VERSION`; every other agent copies the binary produced by its
   upstream installer to `/opt/agents-sandbox/bin` (opencode v1 and opencode2 copy the native installer's binary;

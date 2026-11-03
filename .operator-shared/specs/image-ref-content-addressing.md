@@ -123,10 +123,6 @@ therefore invokes it only when the invocation retains nothing. A `run`/`shell`'s
 so it skips the native prune and defers that reclamation to the next explicit `prune` — otherwise the native sweep would
 discard the image the run is about to load, which `keepImage`'s ref-level retention cannot prevent.
 
-The `-latest` suffix test in the current `keepImage` must be dropped (keeping on the parsed agent alone): a content ref
-does not end in `-latest`, and ownership already implies the per-agent tag. This clause is already the shape on `main`
-(forward-port note).
-
 ## Invariants
 
 - The msb reference is a pure, deterministic function of `(slug, agent, docker image ID)`; no random uuid/hash — a repeat
@@ -153,29 +149,3 @@ does not end in `-latest`, and ownership already implies the per-agent tag. This
 - No change to the Docker tag or its prefix, and no rename/rewrite of existing msb images (write-new, read-all-both).
 - The content id length and encoding are the builder's call within the shape above; a change to it is not a contract
   change as long as it stays deterministic and content-derived.
-
-## Spec amendments
-
-- `artifact-naming.md`: the msb image ref is no longer `<slug>:<agent>-latest` as the produced form — that becomes the
-  legacy/name form only; the produced msb ref is content-addressed. The "resolve by content" clause already established
-  for the Docker/msb split extends to the content suffix.
-- `runner-image-build.md`: the "Load decision" section gains the candidate-reference set (content, name, prefixed) and
-  the `ImageInfo.Identity` field the name ref is derived from; the retained-reference rule changes from "per-agent
-  `-latest`" to "all variants of a live key within the prune age".
-
-## Acceptance
-
-- `asb run` (no `--docker`), then `asb run --docker`, then `asb run` again: each variant is imported into msb at most
-  once; the second and third runs import nothing (`--verbose` shows no `loading image ... into microsandbox`).
-- `asb build`, then the first `asb run`: the image is imported once (by the build); the run reuses it and imports
-  nothing. The run's startup auto-prune must not reclaim the image the project is about to use — neither its ref
-  (`keepImage`) nor its image data (the native `Image.Prune`, which is deferred to an explicit `prune`).
-- Same for an agent-version bump and back, and for a project-Dockerfile edit and back.
-- An existing 0.6.0 install (cached under `<slug>:<agent>-latest`) and a pre-0.6 install (cached under the prefixed ref)
-  each keep their cache when the content matches — no reimport on upgrade, and no VM recreate while the image digest is
-  unchanged (`reconfig.sameImageRef` tolerates the content spelling).
-- `image list` shows every content ref; `image remove <content-ref>` refuses while a kept sandbox holds it and otherwise
-  removes it; `image prune` keeps a project's recent variants (with or without a running VM) and removes a pruned key's
-  refs and aged-out variants (dry-run reports the same).
-- `ParseImageTag`/`SandboxIdentity` round-trip a content ref to the same `(slug, agent)` `state.Key` (fuzz coverage).
-- `make check` green; `CHANGELOG.md` Unreleased line; docs updated where they describe the runner-image cache.

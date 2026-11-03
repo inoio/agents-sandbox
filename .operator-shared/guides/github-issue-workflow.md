@@ -1,8 +1,8 @@
 # GitHub issue workflow
 
 Issues and specs for this repo (`inoio/agents-sandbox`) live as GitHub issues. Use the `gh` CLI for
-every operation; it infers the repo from `git remote -v`. This is the tracker the engineering skills
-(`to-spec`, `to-tickets`, `implement-spec`, `code-review`, `maintain`) read from and write to.
+every operation; it infers the repo from `git remote -v`. This is the tracker the `maintain` skill
+reads from and writes to.
 
 ## Conventions
 

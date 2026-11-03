@@ -5,6 +5,8 @@ read_if: Working on config migration, first-run guidance, credential/auth handli
 
 # Guided onboarding and credential handling
 
+> **Status: design — not yet implemented on `main`** (the machinery lives on the unmerged `issue-99-guided-config-setup` branch).
+
 ## Problem
 
 The secure default `provision-host-config: false` removed raw host credentials from the VM but also removed the
@@ -12,9 +14,9 @@ convenience of "it just works". The first-run experience must therefore guide a 
 agent configuration to a working, reviewable sandbox configuration without ever copying raw host credentials into the
 VM.
 
-PR #103 built the mechanical half of this (a `configmigration` package that plans, reviews, and applies a safe
-migration, plus a wizard in `Guide`). This spec keeps that machinery and corrects its model so it matches the project's
-core intent: **secure by design and easy at the same time**. See "Relationship to PR #103" for what changes.
+This spec is the design for that first-run experience: a safe migration package (`configmigration`) that plans, reviews,
+and applies the move, plus a wizard in `Guide`, so the project is **secure by design and easy at the same time**. None of
+it is on `main` yet; the implementation lives on the unmerged `issue-99-guided-config-setup` branch.
 
 ## Principles
 
@@ -86,14 +88,14 @@ dead end.
 ## Onboarding state machine
 
 **Derived state is authoritative**; only user decisions and the apply journal are persisted. This ensures external file
-changes are always observed. State is keyed by the native-configuration source hash (an existing concept), so any native
-file change re-arms the entire flow.
+changes are always observed. State is keyed by the native-configuration source hash, so any native file change re-arms
+the entire flow.
 
 Persisted in the per-agent manifest `~/.local/state/agents-sandbox/<agent>/config-migration.yaml`:
 
 - `state` — the last terminal decision for this native configuration: `completed`, `dismissed`, `manual`,
   `login-pending`.
-- `outputs` — the apply journal for interrupted-apply resume (existing).
+- `outputs` — the apply journal for interrupted-apply resume.
 - `pending` — login-required providers and their allowed hosts.
 
 Derived each run by `Guide`:
@@ -140,8 +142,8 @@ auto-confirm the login and skip the question.
   it", plus manual-config docs and start-anyway.
 
 Warnings and review-required items are surfaced **before** any "has changes" gate, so a plan with nothing to write still
-communicates its findings. This corrects the current behavior where `HasChanges()` short-circuits `Guide` and
-`applyAuthMigration` returns before appending warnings when the generated auth is empty.
+communicates its findings. This guards against a `HasChanges()` short-circuit skipping `Guide` and `applyAuthMigration`
+returning before it appends warnings when the generated auth is empty.
 
 Non-interactive runs: warn (native config found but not migrated, etc.) and continue.
 
@@ -150,8 +152,8 @@ Non-interactive runs: warn (native config found but not migrated, etc.) and cont
 A declarative, extensible catalog of `SetupQuestion`s (key path, tier, prompt, default, validation). Every question has
 a default; accepting defaults is one keystroke.
 
-- Tier membership (fixed; the catalog stays re-tierable without structural change — see
-  `internal/configwizard/catalog.go` for the concrete catalog):
+- Tier membership (fixed; the catalog stays re-tierable without structural change — the concrete catalog lives in
+  `configwizard`):
   - **T1 essentials** — `agent` (only when unset) and `network.profile`.
   - **T2 resources** — `cpus`, `memory`, `disk-size`, `workspace-quota`, collapsed behind one "resource defaults ok?"
     confirmation.
@@ -203,51 +205,6 @@ Representative findings:
 
 `config harden` is also the home for "reduce egress later", so the public posture is always reversible through a
 one-time, non-nagging prompt rather than automatic.
-
-## Secondary fixes (bundled)
-
-- **Network-deny conflict** during migration becomes an interactive resolution (skip that host / remove the deny / choose
-  public / abort) rather than a hard error that aborts the whole migration.
-- **Deny-conflict discovery is corrected.** Today the check (`updateLauncherNetwork`) only inspects the launcher config
-  file's `egress-deny` plus the project config's deny, and matches by exact string or `"*"`. It must instead:
-  1. resolve the **effective** network policy through the normal resolver (so env vars, `--network`, and the profile are
-     considered, not just the file); and
-  2. match derived hosts against deny entries using msb's destination semantics — host, CIDR, `.suffix`, and `*`, via
-     `network.MatchesDestination` — so a suffix/CIDR deny that would shadow a new `egress-allow` (deny is emitted before
-     allow) is detected rather than silently defeating the migration.
-  A host that survives must actually be reachable; a shadowed host is surfaced to the user, never silently added. A
-  non-interactive migration with an unresolved conflict fails, naming the conflicting hosts; that only arises from an
-  explicit `config migrate`, because `Guide` never prompts non-interactively.
-- **Dismissal** is explicit, remembered, and re-armed by source-hash change; `config migrate` and `config wizard`
-  re-enter voluntarily. In particular, explicit `config migrate` on a login-only native configuration records
-  `login-pending` and directs the user to authenticate in the sandbox, rather than reporting nothing to migrate.
-
-## Relationship to PR #103
-
-Retained: the `configmigration` package, plan/review/apply split, manifest and interrupted-apply resume, placeholder +
-`env.secret.yaml` extraction, endpoint/known-provider host derivation, comment-preserving launcher-config writer, and
-the CLI/behavior test structure.
-
-Changed:
-
-- OAuth (`type: "oauth"`) is no longer redacted/migrated; it becomes a `Login` item routed to in-sandbox login.
-- `Guide` no longer silently returns when there is nothing to migrate; every branch is explicit and surfaces warnings.
-- Network posture and host determination become an informed, reversible choice rather than a fallback.
-- The first-run flow grows a tiered setup wizard and a companion `config harden` command.
-
-## Implementation staging
-
-The work splits into four stages: credential kinds / explicit `Guide` / network-deny handling, the onboarding state
-machine, and the tiered setup wizard are built; `config harden` (see "`config harden`") remains a design.
-
-## Testing strategy
-
-Behavior-focused tests per terminal `Guide` outcome, per credential kind, and per state transition, including:
-OAuth-only native config produces a login hand-off (not a silent no-op) and no generated auth file; static creds still
-migrate; `login-pending` verification loop across runs; non-interactive warn-and-continue; network-deny interactive
-resolution; wizard answering/dismissal, comment (and JSON-family) preservation, and higher-scope skipping; `config
-harden` findings and remediation idempotency.
-CLI command/flag changes covered in `cmd/agents-sandbox/cli_*_test.go`.
 
 ## Deferred / open
 
