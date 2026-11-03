@@ -1,6 +1,6 @@
 ---
 description: Contract for how the per-project runner Dockerfile is composed into per-tool multistage stages so tool-owned layers (apt tools, node, agent, docker) cache independently of the user body, the base, and each other; includes when the node stage is emitted (agent node dependency), the native vs npm agent install methods, and the `dind` → `docker` rename with deprecated aliases.
-read_if: Changing RenderDockerfile/stage composition, image layer caching, which agents need node, agent install methods (native installer vs npm), the `ImageSpec.OwnsToolTree` tool-tree ownership (`COPY --chown=dev:dev`, the `devUserBlock` `dev`-group guarantee), the dind/docker switch or marker, the Dockerfile-content docker enablement, its explicit-config precedence and the shared docker/dind source precedence (`viperconfig.EffectiveDockerSource`), the unified dockerfile diagnostics, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd vfs storage driver.
+read_if: Changing RenderDockerfile/stage composition, image layer caching, which agents need node, agent install methods (native installer vs npm), the `ImageSpec.OwnsToolTree` tool-tree ownership (`COPY --chown=dev:dev`, the `devUserBlock` `dev`-group guarantee), the dind/docker switch or marker, the Dockerfile-content docker enablement, its explicit-config precedence and the shared docker/dind source precedence (`viperconfig.EffectiveDockerSource`), the unified dockerfile diagnostics, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd storage driver (fuse-overlayfs with a vfs fallback).
 ---
 
 # Runner image composition and tool-layer caching
@@ -242,22 +242,36 @@ Deprecated aliases stay accepted at lower precedence with a one-time warning, mi
 inputs that keep working: the `# agents-sandbox:dind` marker and a `FROM agents-sandbox/runner-base-dind` both still
 enable the engine, and each warns on every ensure; `agents-sandbox/runner-base-docker` is the new-name variant.
 
-## vfs storage driver
+## Storage driver: fuse-overlayfs with a vfs fallback
 
-`vfs` is required because the microsandbox filesystem does not support overlayfs. The launcher forces it from
-`vm/dockerd.go` at VM start and never writes `/etc/docker/daemon.json`, so a user's edits to it are preserved. Before
-choosing a start command it reads the image's `/etc/docker/daemon.json` through the msb FS API (a read error is fatal;
-absent or unparseable JSON counts as no entry, and a malformed file is left for dockerd to reject):
+The kernel cannot back `overlay2` on the microsandbox filesystem (an overlay upper on the guest overlay, and virtiofs,
+are both rejected), so the launcher selects a driver the guest supports. `fuse-overlayfs` merges in userspace and
+exposes its own FUSE mount, so neither restriction applies, and its copy-on-write layers cut build time and data-root
+disk use versus `vfs`'s full copy per layer. To provide it, the embedded managed base (`data/Dockerfile`) installs
+`fuse-overlayfs` and its `libfuse3` runtime from apt (the pinned trixie packages). The `agents-sandbox-docker` stage
+installs only the static docker tarball into `/opt/agents-sandbox`, because the runner copies nothing from that stage
+except `/opt/agents-sandbox` (`dockerMergeBlock`), so a system package installed there would not reach the image. A
+custom base must therefore provide `fuse-overlayfs` and `libfuse3` itself, or the probe falls back to `vfs`.
 
-- no `storage-driver` entry → start with `--storage-driver=vfs`.
-- `storage-driver` already `vfs` → start **without** the flag, because dockerd rejects a directive set both as a flag
-  and in the configuration file even when the values agree (#287). This is the case that broke images carrying the
-  `daemon.json` the pre-0.6 runner wrote.
-- any other `storage-driver` → hard error naming the value, rather than silently overriding the user's file or letting
-  the conflict surface as the 30s readiness timeout.
+The launcher selects the driver from `vm/dockerd.go` at VM start and never writes `/etc/docker/daemon.json`, so a
+user's edits to it are preserved. Before choosing a start command it reads the image's `/etc/docker/daemon.json`
+through the msb FS API (a read error is fatal; absent or unparseable JSON counts as no entry, and a malformed file is
+left for dockerd to reject):
+
+- no `storage-driver` entry → probe the guest (`command -v fuse-overlayfs` plus a usable `/dev/fuse`, run as root like
+  the daemon): request `--storage-driver=fuse-overlayfs` when both are present, else `--storage-driver=vfs`. A probe
+  transport error falls back to `vfs` rather than failing the VM start.
+- `storage-driver` already `vfs` or `fuse-overlayfs` → start **without** the flag, because dockerd rejects a directive
+  set both as a flag and in the configuration file even when the values agree (#287). This is the case that broke
+  images carrying the `daemon.json` the pre-0.6 runner wrote.
+- any other `storage-driver` → hard error naming the value and both accepted drivers, rather than silently overriding
+  the user's file or letting the conflict surface as the 30s readiness timeout.
 
 The old build-time `daemon.json` overwrite is removed; the build-time invariant still holds
-(`TestRenderDockerfileDockerStage` asserts no `daemon.json` is written).
+(`TestRenderDockerfileDockerStage` asserts no `daemon.json` is written, and
+`TestRenderDockerfileManagedBaseInstallsFuseOverlayfs` asserts the managed base carries the driver packages). The
+kernel reason `overlay2` fails (an overlay upper on the guest overlay, or on virtiofs, is rejected) and the
+fuse-overlayfs spike are recorded on issue #489.
 
 ## Invariants
 

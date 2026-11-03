@@ -31,6 +31,20 @@ const (
 	dockerdDaemonConfigPath = "/etc/docker/daemon.json"
 	vfsStorageDriver        = "vfs"
 
+	// fuseOverlayfsStorageDriver is the copy-on-write driver the launcher
+	// prefers when the guest provides it. The kernel rejects overlay2 here (an
+	// overlay upper on the guest overlay, or on virtiofs), but fuse-overlayfs
+	// merges in userspace and exposes its own FUSE mount, so neither
+	// restriction applies. The tarball's dockerd compiles the driver in.
+	fuseOverlayfsStorageDriver = "fuse-overlayfs"
+
+	// fuseOverlayfsProbeCmd reports whether the runner image provides the
+	// fuse-overlayfs binary and a usable /dev/fuse, the two things a rootful
+	// fuse-overlayfs dockerd needs. It runs as root, the user dockerd runs as,
+	// so a root-only device is accepted.
+	fuseOverlayfsProbeCmd = "command -v fuse-overlayfs >/dev/null 2>&1 && " +
+		"[ -c /dev/fuse ] && [ -r /dev/fuse ] && [ -w /dev/fuse ]"
+
 	// dockerdCleanupCmd removes containerd/pid/socket residue left by a killed
 	// dockerd job. Killing the job tears down dockerd but not necessarily its
 	// containerd child, so the residue is cleared explicitly before a restart.
@@ -51,31 +65,60 @@ var (
 	dockerdPollInterval = dockerdPollIntervalDefault
 )
 
-// dockerdArgs builds dockerd's argument list for this VM. The microsandbox
-// filesystem does not support overlayfs, so vfs must win; it is requested with
-// --storage-driver=vfs unless the image's daemon.json already sets it, in which
+// dockerdArgs builds dockerd's argument list for this VM and returns the
+// storage driver it selected. The microsandbox filesystem cannot back overlay2,
+// so the launcher asks for a driver the guest supports: fuse-overlayfs when its
+// binary and /dev/fuse are present, vfs otherwise. The driver is requested with
+// --storage-driver unless the image's daemon.json already sets it, in which
 // case the flag is dropped because dockerd refuses a directive set both as a
-// flag and in the configuration file (#287). A daemon.json requesting a
-// different driver is a hard error rather than a silent override or a
-// flag/file conflict.
-func dockerdArgs(ctx context.Context, sb msb.Sandbox) ([]string, error) {
-	args := []string{dockerdSocketFlag, dockerdSocket}
+// flag and in the configuration file (#287). A daemon.json requesting any
+// driver other than those two is a hard error rather than a silent override or
+// a flag/file conflict.
+func dockerdArgs(ctx context.Context, sb msb.Sandbox) ([]string, string, error) {
 	driver, err := guestStorageDriver(ctx, sb)
 	if err != nil {
-		return nil, err
+		return nil, "", err
+	}
+	requested := driver == ""
+	if requested {
+		driver = defaultGuestStorageDriver(ctx, sb)
 	}
 	switch driver {
-	case "":
-		return append(args, "--storage-driver="+vfsStorageDriver), nil
-	case vfsStorageDriver:
-		return args, nil
+	case fuseOverlayfsStorageDriver, vfsStorageDriver:
 	default:
-		return nil, fmt.Errorf(
-			"%s sets storage-driver=%q, but the microsandbox filesystem requires %q; "+
-				"remove the storage-driver entry or set it to %q",
-			dockerdDaemonConfigPath, driver, vfsStorageDriver, vfsStorageDriver,
+		return nil, "", fmt.Errorf(
+			"%s sets storage-driver=%q, but the microsandbox filesystem supports only %q or %q; "+
+				"remove the storage-driver entry or set it to one of them",
+			dockerdDaemonConfigPath, driver, fuseOverlayfsStorageDriver, vfsStorageDriver,
 		)
 	}
+	args := []string{dockerdSocketFlag, dockerdSocket}
+	if requested {
+		args = append(args, "--storage-driver="+driver)
+	}
+	return args, driver, nil
+}
+
+// defaultGuestStorageDriver returns the driver to request when the image's
+// daemon.json sets none: fuse-overlayfs, whose copy-on-write layers cut both
+// build time and data-root disk use, when the guest provides the binary and a
+// usable /dev/fuse, and vfs otherwise.
+func defaultGuestStorageDriver(ctx context.Context, sb msb.Sandbox) string {
+	if guestSupportsFuseOverlayfs(ctx, sb) {
+		return fuseOverlayfsStorageDriver
+	}
+	return vfsStorageDriver
+}
+
+// guestSupportsFuseOverlayfs probes the guest for the fuse-overlayfs binary and
+// a usable /dev/fuse. A probe failure is treated as unsupported so a transport
+// hiccup falls back to vfs rather than failing the VM start.
+func guestSupportsFuseOverlayfs(ctx context.Context, sb msb.Sandbox) bool {
+	out, err := sb.Shell(ctx, fuseOverlayfsProbeCmd, msbSdk.WithExecUser(RootUser))
+	if err != nil {
+		return false
+	}
+	return out.Success()
 }
 
 // guestStorageDriver returns the storage-driver requested by the image's
@@ -134,12 +177,12 @@ func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.UI) er
 		return nil
 	}
 
-	args, err := dockerdArgs(ctx, sb)
+	args, driver, err := dockerdArgs(ctx, sb)
 	if err != nil {
 		return err
 	}
 
-	ui.Verbose("starting dockerd with vfs storage driver")
+	ui.Verbosef("starting dockerd with %s storage driver", driver)
 	// Kill a stale dockerd job before starting a fresh one so a previous launch
 	// never keeps the socket bound, then clear the containerd/pid/socket
 	// residue the killed process leaves behind. Both are best-effort: a failure

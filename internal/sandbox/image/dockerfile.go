@@ -598,6 +598,13 @@ RUN mkdir -p %s && %s
 // runtime prerequisites (iptables, git, ps, xz): the check runs in the final
 // stage instead (dockerAdoptionBlock), after the user body, so a body that
 // installs them is accepted.
+//
+// It deliberately installs no system package: only toolDir is copied into the
+// runner (dockerMergeBlock), so a package installed here would not reach the
+// image. The storage driver's copy-on-write runtime (fuse-overlayfs + libfuse3)
+// is a system package, so the embedded managed base installs it instead; a
+// custom base must provide it or the launcher falls back to vfs. See
+// specs/image-composition.md.
 func dockerStage() string {
 	return fmt.Sprintf(`FROM %s AS %s
 USER root
