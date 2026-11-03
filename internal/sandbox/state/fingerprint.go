@@ -58,7 +58,7 @@ func SecretsContentHash(entries []msbSdk.SecretEntry) string {
 		if e.Substitution.Headers != nil {
 			headers = strconv.FormatBool(*e.Substitution.Headers)
 		}
-		fmt.Fprintf(&b, "%s=%s|%s|%s|%s|%s|%s|%t|%t|%s\n",
+		fmt.Fprintf(&b, "%s=%s|%s|%s|%s|%s|%s|%t|%t|%s|%s\n",
 			k,
 			e.Value,
 			strings.Join(e.Allow, ","),
@@ -69,6 +69,7 @@ func SecretsContentHash(entries []msbSdk.SecretEntry) string {
 			e.Substitution.Query,
 			e.Substitution.Body,
 			string(e.ViolationAction),
+			strings.Join(e.Substitution.HeaderFields, ","),
 		)
 	}
 	h := sha256.Sum256([]byte(b.String()))

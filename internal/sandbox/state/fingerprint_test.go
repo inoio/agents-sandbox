@@ -83,6 +83,10 @@ func TestSecretsContentHashIncludesOtherFields(t *testing.T) {
 		{"Substitution headers false", func(e *msbSdk.SecretEntry) { e.Substitution.Headers = boolPtr(false) }},
 		{"Substitution query", func(e *msbSdk.SecretEntry) { e.Substitution.Query = true }},
 		{"Substitution body", func(e *msbSdk.SecretEntry) { e.Substitution.Body = true }},
+		{
+			"Substitution header fields",
+			func(e *msbSdk.SecretEntry) { e.Substitution.HeaderFields = []string{"authorization"} },
+		},
 		{"ViolationAction", func(e *msbSdk.SecretEntry) { e.ViolationAction = msbSdk.ViolationActionBlock }},
 	}
 
@@ -94,6 +98,26 @@ func TestSecretsContentHashIncludesOtherFields(t *testing.T) {
 				t.Errorf("SecretsContentHash should differ when %s changes", tt.name)
 			}
 		})
+	}
+}
+
+func TestSecretsContentHashIncludesHeaderFieldsScope(t *testing.T) {
+	// A change to a secret's header scope (same value, same hosts) must
+	// produce a different hash so the launcher recreates the VM. See
+	// SecretsContentHash.
+	allHeaders := SecretsContentHash([]msbSdk.SecretEntry{
+		{EnvVar: "K", Value: "v", Allow: []string{"h.example"}},
+	})
+	scoped := SecretsContentHash([]msbSdk.SecretEntry{
+		{
+			EnvVar:       "K",
+			Value:        "v",
+			Allow:        []string{"h.example"},
+			Substitution: msbSdk.SecretSubstitution{HeaderFields: []string{"authorization"}},
+		},
+	})
+	if allHeaders == scoped {
+		t.Error("SecretsContentHash should differ when Substitution.HeaderFields changes")
 	}
 }
 
