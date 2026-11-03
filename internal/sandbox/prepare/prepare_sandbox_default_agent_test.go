@@ -64,7 +64,7 @@ func TestPrepareSandboxRunsDefaultAgentDaemon(t *testing.T) {
 	t.Cleanup(func() { vm.SetDaemonHealthFunc(origDaemon) })
 
 	ui := termio.NewTestMock(t)
-	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, false, &ui)
+	sess, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{}), false, &ui)
 	if err != nil {
 		t.Fatalf("PrepareSandbox(default %q): %v", agent.DefaultAgentName, err)
 	}

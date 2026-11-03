@@ -25,7 +25,7 @@ const dependencyManifestName = "package.json"
 // cannot see an in-VM install, so it warns rather than fails; shipping the
 // manifest via home: or the mirror counts as handling the install.
 func WarnUnprovisionedDependencies(
-	a agent.Agent,
+	a agent.Resolved,
 	files *ConfigFiles,
 	mountTargets []string,
 	provisionHostConfig bool,

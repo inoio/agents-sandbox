@@ -49,7 +49,7 @@ type QuestionRequest struct {
 // timeout stops the VM as in auto-stop mode.
 func reapOnLastClient(
 	ctx context.Context,
-	a agent.Agent,
+	a agent.Resolved,
 	k state.Key,
 	sb msb.Sandbox,
 	policy options.ReapPolicy,
@@ -68,9 +68,9 @@ func reapOnLastClient(
 	if sb == nil {
 		return nil
 	}
-	provider, ok := agent.AsSessionStatusProvider(a)
-	if !ok {
-		ui.Verbosef("agent %q has no session-status endpoints; skipping quiescence wait", a.Name())
+	provider := a.SessionStatus
+	if provider == nil {
+		ui.Verbosef("agent %q has no session-status endpoints; skipping quiescence wait", a.Profile.Name())
 		return nil
 	}
 	return waitQuiescent(ctx, k, sb, provider, policy.MaxSessionRetries, ui)

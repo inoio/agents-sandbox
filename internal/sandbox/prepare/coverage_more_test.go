@@ -63,7 +63,7 @@ func TestPrepareSandboxUnknownAgent(t *testing.T) {
 
 	if _, err := PrepareSandbox(
 		context.Background(),
-		options.RunOptions{Agent: "no-such-agent"},
+		resolvedRunOptions(t, options.RunOptions{Agent: "no-such-agent"}),
 		false,
 		&ui,
 	); err == nil {

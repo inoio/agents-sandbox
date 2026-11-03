@@ -145,7 +145,7 @@ func PrepareSandbox(
 	stages := []lifecycle.Stage{
 		{ID: lifecycle.ResolveIdentity, Run: func() error {
 			var err error
-			session, err = resolveIdentityStage(ctx, client, paths, opts.Agent, skipVM, ui)
+			session, err = resolveIdentityStage(ctx, client, paths, opts, skipVM, ui)
 			if err != nil {
 				return err
 			}
@@ -232,15 +232,18 @@ func resolveIdentityStage(
 	ctx context.Context,
 	client msb.Client,
 	paths configpaths.ConfigPaths,
-	agentName string,
+	opts options.RunOptions,
 	skipVM bool,
 	ui termio.Logger,
 ) (sessionIdentity, error) {
+	if opts.ResolvedAgent.Profile == nil {
+		return sessionIdentity{}, fmt.Errorf("unknown agent %q", opts.Agent)
+	}
 	cwd, err := resolveWorkspaceDir()
 	if err != nil {
 		return sessionIdentity{}, err
 	}
-	a, identity, adoption, err := resolveSessionIdentity(ctx, client, paths, cwd, agentName, skipVM, ui)
+	a, identity, adoption, err := resolveSessionIdentity(ctx, client, paths, cwd, opts.ResolvedAgent, skipVM, ui)
 	if err != nil {
 		return sessionIdentity{}, err
 	}
@@ -404,12 +407,12 @@ func planReconfigStage(
 	opts options.RunOptions,
 	ui termio.UI,
 ) (reconfigPlan, error) {
-	configFiles, err := reprovision.LoadConfigFiles(session.agent.Profile, ui, provisionHostConfig(opts))
+	configFiles, err := reprovision.LoadConfigFiles(session.agent, ui, provisionHostConfig(opts))
 	if err != nil {
 		return reconfigPlan{}, err
 	}
 	reprovision.WarnUnprovisionedDependencies(
-		session.agent.Profile, configFiles, mounts.MountTargets(opts.Mounts), provisionHostConfig(opts), ui,
+		session.agent, configFiles, mounts.MountTargets(opts.Mounts), provisionHostConfig(opts), ui,
 	)
 	live, err := readLiveProjectVM(ctx, home.client, session.key, configFiles.Keys, ui)
 	if err != nil {
@@ -510,35 +513,32 @@ func setupSandboxStage(
 	return sandboxTarget, nil
 }
 
-// resolveSessionIdentity looks up the agent and derives the workspace identity
-// for cwd, then adopts a legacy origin-keyed identity (#144). Adoption runs
-// before any other work so its notice explains the pause and the runner image
-// builds under the effective (checkout-scoped) tag; a skipVM prepare makes it
-// read-only, so the rest of the run keeps resolving against the legacy location.
-// It returns the adoption so the caller can use the effective slug; a home
-// volume a VM-only adoption preserved is recorded in the checkout state, not in
-// the adoption value.
+// resolveSessionIdentity derives the workspace identity for cwd from the
+// run's already-resolved agent, then adopts a legacy origin-keyed identity
+// (#144). Adoption runs before any other work so its notice explains the pause
+// and the runner image builds under the effective (checkout-scoped) tag; a
+// skipVM prepare makes it read-only, so the rest of the run keeps resolving
+// against the legacy location. It returns the adoption so the caller can use the
+// effective slug; a home volume a VM-only adoption preserved is recorded in the
+// checkout state, not in the adoption value.
 func resolveSessionIdentity(
 	ctx context.Context,
 	client msb.Client,
 	paths configpaths.ConfigPaths,
-	cwd, agentName string,
+	cwd string,
+	a agent.Resolved,
 	skipVM bool,
 	ui termio.Logger,
 ) (agent.Resolved, git.Identity, vm.IdentityAdoption, error) {
-	a, ok := agent.Lookup(agentName)
-	if !ok {
-		return agent.Resolved{}, git.Identity{}, vm.IdentityAdoption{}, fmt.Errorf("unknown agent %q", agentName)
-	}
 	identity, err := git.ResolveIdentity(cwd)
 	if err != nil {
 		return agent.Resolved{}, git.Identity{}, vm.IdentityAdoption{}, err
 	}
-	adoption, err := vm.AdoptLegacyIdentity(ctx, paths, client, identity, a.Name(), !skipVM, ui)
+	adoption, err := vm.AdoptLegacyIdentity(ctx, paths, client, identity, a.Profile.Name(), !skipVM, ui)
 	if err != nil {
 		return agent.Resolved{}, git.Identity{}, vm.IdentityAdoption{}, err
 	}
-	return agent.Resolve(a), identity, adoption, nil
+	return a, identity, adoption, nil
 }
 
 // determineAgentVersion decides the agent version for the run: the upgrade

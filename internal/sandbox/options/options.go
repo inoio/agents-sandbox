@@ -7,6 +7,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
@@ -33,11 +34,15 @@ type RunOptions struct {
 	Args     []string
 	// Agent selects the coding-agent profile for this session. Empty resolves
 	// to the default agent via agent.Lookup.
-	Agent       string
-	ReapPolicy  ReapPolicy
-	IdleTimeout time.Duration
-	CPUs        uint8
-	Rebuild     bool
+	Agent string
+	// ResolvedAgent is the selected profile and the capabilities the run
+	// consumes, resolved once at the run boundary (runoptions.Build). Never set
+	// from config or flags.
+	ResolvedAgent agent.Resolved
+	ReapPolicy    ReapPolicy
+	IdleTimeout   time.Duration
+	CPUs          uint8
+	Rebuild       bool
 	// NoRebuild reuses the existing runner image even when its inputs changed
 	// and skips the agent upgrade check. A missing image is still built.
 	NoRebuild bool

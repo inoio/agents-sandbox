@@ -39,7 +39,7 @@ func TestLoadConfigFilesWithSnippet(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), t.TempDir(), VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestLoadConfigFilesWarnsMissingSource(t *testing.T) {
 			"    source: does-not-exist\n")
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), t.TempDir(), VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -89,7 +89,13 @@ func TestLoadConfigFilesBuildHomeFilesError(t *testing.T) {
 			"    source: 123\n")
 
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true); err == nil {
+	if _, err := LoadConfigFilesForHost(
+		agent.Resolve(opencodeTestAgent()),
+		t.TempDir(),
+		VMHomeDir,
+		&ui,
+		true,
+	); err == nil {
 		t.Error("expected an error for a malformed home source type")
 	}
 }
@@ -109,7 +115,13 @@ func TestLoadConfigFilesBuildHooksError(t *testing.T) {
 			"    hook: 123\n")
 
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true); err == nil {
+	if _, err := LoadConfigFilesForHost(
+		agent.Resolve(opencodeTestAgent()),
+		t.TempDir(),
+		VMHomeDir,
+		&ui,
+		true,
+	); err == nil {
 		t.Error("expected an error for an invalid hook value")
 	}
 }
@@ -129,7 +141,7 @@ func TestLoadConfigFilesMergedConfigError(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	_, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), VMHomeDir, &ui, true)
+	_, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), t.TempDir(), VMHomeDir, &ui, true)
 	if err == nil || !strings.Contains(err.Error(), "merge agent config") {
 		t.Fatalf("LoadConfigFilesForHost error = %v, want merge agent config error", err)
 	}

@@ -22,7 +22,7 @@ import (
 
 func TestBuildAttachCommand(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	got := buildAttachCommand(a, "/workspace", []string{"foo"})
+	got := buildAttachCommand(agent.Resolve(a), "/workspace", []string{"foo"})
 	if !strings.Contains(got, "opencode attach") {
 		t.Errorf("expected 'opencode attach' in command, got %q", got)
 	}
@@ -42,7 +42,7 @@ func TestBuildAttachCommand(t *testing.T) {
 
 func TestBuildAttachCommandWorktreeTarget(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	got := buildAttachCommand(a, "/home/dev/.local/share/opencode/worktree/abc/feat", nil)
+	got := buildAttachCommand(agent.Resolve(a), "/home/dev/.local/share/opencode/worktree/abc/feat", nil)
 	if !strings.Contains(got, "--dir '/home/dev/.local/share/opencode/worktree/abc/feat'") {
 		t.Errorf("expected worktree dir in command, got %q", got)
 	}
@@ -50,7 +50,7 @@ func TestBuildAttachCommandWorktreeTarget(t *testing.T) {
 
 func TestBuildAttachCommandQuotesTargetWithSpaces(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	got := buildAttachCommand(a, "/workspace/my notes", nil)
+	got := buildAttachCommand(agent.Resolve(a), "/workspace/my notes", nil)
 	if !strings.Contains(got, "--dir '/workspace/my notes'") {
 		t.Errorf("expected the quoted target to keep the space, got %q", got)
 	}
@@ -58,7 +58,7 @@ func TestBuildAttachCommandQuotesTargetWithSpaces(t *testing.T) {
 
 func TestBuildAttachCommandOpencode(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	got := buildAttachCommand(a, "/workspace/x", nil)
+	got := buildAttachCommand(agent.Resolve(a), "/workspace/x", nil)
 	want := "opencode attach http://127.0.0.1:4096 --dir '/workspace/x'"
 	if got != want {
 		t.Errorf("attach = %q, want %q", got, want)
@@ -75,7 +75,7 @@ func (nonAttachAgent) ConfigDirName() string      { return "nonattach" }
 func (nonAttachAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 
 func TestBuildAttachCommandNoAttachRunner(t *testing.T) {
-	got := buildAttachCommand(nonAttachAgent{}, "/workspace/x", nil)
+	got := buildAttachCommand(agent.Resolve(nonAttachAgent{}), "/workspace/x", nil)
 	if got != "" {
 		t.Errorf("attach = %q, want empty string for non-AttachRunner agent", got)
 	}
@@ -83,7 +83,7 @@ func TestBuildAttachCommandNoAttachRunner(t *testing.T) {
 
 func TestServeOnlyMessage(t *testing.T) {
 	opencode, _ := agent.Lookup("opencode")
-	msg := serveOnlyMessage(opencode, "127.0.0.1", "4096")
+	msg := serveOnlyMessage(agent.Resolve(opencode), "127.0.0.1", "4096")
 	for _, want := range []string{"Connect a client to", "http://127.0.0.1:4096", "OPENCODE_SERVER_PASSWORD", "Ctrl-D"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("serveOnlyMessage missing %q in:\n%s", want, msg)
@@ -97,7 +97,7 @@ func TestServeOnlyMessage(t *testing.T) {
 // wrong and would leave the client unable to connect.
 func TestServeOnlyMessageOpencode2StatesCredential(t *testing.T) {
 	opencode2, _ := agent.Lookup("opencode2")
-	msg := serveOnlyMessage(opencode2, "127.0.0.1", "4096")
+	msg := serveOnlyMessage(agent.Resolve(opencode2), "127.0.0.1", "4096")
 	for _, want := range []string{"http://127.0.0.1:4096", `user "opencode"`, `password "opencode"`} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("serveOnlyMessage(opencode2) missing %q in:\n%s", want, msg)
@@ -113,7 +113,7 @@ func TestRunServeOnlyBlocksUntilCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	got := make(chan error, 1)
 	ui := &termio.Mock{}
-	go func() { got <- runServeOnly(ctx, opencodeAgent(t), sb, ui, 4096) }()
+	go func() { got <- runServeOnly(ctx, opencodeResolved(t), sb, ui, 4096) }()
 	cancel()
 	select {
 	case err := <-got:
@@ -151,7 +151,7 @@ func TestRunAttachUsesAttachWithForRoot(t *testing.T) {
 	release()
 
 	err = runAttach(context.Background(), state.Key{Slug: "roottest", Agent: "opencode"}, sb, "/workspace/sub", ui,
-		options.RunOptions{Root: true, ReapPolicy: options.NewReapPolicy(false, 5)}, "-l")
+		resolvedRunOptions(t, options.RunOptions{Root: true, ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
 	if err != nil {
 		t.Fatalf("runAttach failed: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestRunAttachDefaultDoesNotUseRoot(t *testing.T) {
 	release()
 
 	err = runAttach(context.Background(), state.Key{Slug: "defaulttest", Agent: "opencode"}, sb, "/workspace/sub", ui,
-		options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}, "-l")
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
 	if err != nil {
 		t.Fatalf("runAttach failed: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestRunDryRunRendersPreview(t *testing.T) {
 		CreateHome:   true,
 	})
 
-	err := Run(context.Background(), options.RunOptions{}, options.ModePreview, ui)
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
 	if err != nil {
 		t.Fatalf("Run dry-run: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestRunDryRunRendersReusePreview(t *testing.T) {
 		HomeVolume:   "agents-sandbox-home-abc",
 	})
 
-	err := Run(context.Background(), options.RunOptions{}, options.ModePreview, ui)
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
 	if err != nil {
 		t.Fatalf("Run dry-run: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestRunDryRunRendersUpgradeCheckSkippedSuffix(t *testing.T) {
 		HomeVolume:          "agents-sandbox-home-abc",
 	})
 
-	err := Run(context.Background(), options.RunOptions{}, options.ModePreview, ui)
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
 	if err != nil {
 		t.Fatalf("Run dry-run: %v", err)
 	}
@@ -317,7 +317,7 @@ func TestRunDryRunResolveAtBuildMessage(t *testing.T) {
 		HomeVolume:            "agents-sandbox-home-abc",
 	})
 
-	err := Run(context.Background(), options.RunOptions{}, options.ModePreview, ui)
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
 	if err != nil {
 		t.Fatalf("Run dry-run: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestRunDryRunJoinsMultipleBuildReasons(t *testing.T) {
 		HomeVolume:   "agents-sandbox-home-abc",
 	})
 
-	err := Run(context.Background(), options.RunOptions{}, options.ModePreview, ui)
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
 	if err != nil {
 		t.Fatalf("Run dry-run: %v", err)
 	}
@@ -363,7 +363,12 @@ func TestRunDryRunDoesNotPrepareSandbox(t *testing.T) {
 	}
 	t.Cleanup(func() { prepareSandbox = orig })
 
-	if err := Run(context.Background(), options.RunOptions{}, options.ModePreview, ui); err != nil {
+	if err := Run(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{}),
+		options.ModePreview,
+		ui,
+	); err != nil {
 		t.Fatalf("Run dry-run: %v", err)
 	}
 }
@@ -377,7 +382,7 @@ func TestRunDryRunPropagatesPreviewError(t *testing.T) {
 	}
 	t.Cleanup(func() { previewSandbox = orig })
 
-	err := Run(context.Background(), options.RunOptions{}, options.ModePreview, ui)
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
 	if err == nil || !strings.Contains(err.Error(), "preview boom") {
 		t.Errorf("err = %v, want preview error", err)
 	}
@@ -394,7 +399,7 @@ func TestRunDryRunVM(t *testing.T) {
 	}
 	defer func() { prepareSandbox = orig }()
 
-	err := Run(context.Background(), options.RunOptions{}, options.ModeSkipVM, ui)
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModeSkipVM, ui)
 	if err != nil {
 		t.Fatalf("Run dry-run-vm: %v", err)
 	}
@@ -419,7 +424,7 @@ func TestRunServeOnlyPath(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}, options.ModeRun, ui)
+		done <- Run(ctx, resolvedRunOptions(t, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}), options.ModeRun, ui)
 	}()
 	cancel()
 	var err error
@@ -453,7 +458,7 @@ func TestRunServeOnlyUsesSessionServeHostPort(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}, options.ModeRun, ui)
+		done <- Run(ctx, resolvedRunOptions(t, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}), options.ModeRun, ui)
 	}()
 	cancel()
 	select {
@@ -482,7 +487,7 @@ func TestRunPrepareSandboxError(t *testing.T) {
 	}
 	defer func() { prepareSandbox = orig }()
 
-	err := Run(context.Background(), options.RunOptions{}, options.ModeRun, ui)
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModeRun, ui)
 	if err == nil || !strings.Contains(err.Error(), "prepare boom") {
 		t.Errorf("err = %v, want prepareSandbox error", err)
 	}
@@ -503,11 +508,11 @@ func TestRunServeOnlyReapFailureWarns(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, options.RunOptions{
+		done <- Run(ctx, resolvedRunOptions(t, options.RunOptions{
 			Agent:      "opencode",
 			ServeOnly:  true,
 			ReapPolicy: options.NewReapPolicy(false, 5),
-		}, options.ModeRun, ui)
+		}), options.ModeRun, ui)
 	}()
 	cancel()
 	var err error
@@ -558,11 +563,11 @@ func TestRunServeOnlyWarnsAboutContainersAfterCancel(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, options.RunOptions{
+		done <- Run(ctx, resolvedRunOptions(t, options.RunOptions{
 			Agent:      "opencode",
 			ServeOnly:  true,
 			ReapPolicy: options.ReapPolicy{AutoStopOnActiveSessions: true},
-		}, options.ModeRun, ui)
+		}), options.ModeRun, ui)
 	}()
 	cancel()
 	select {
@@ -591,7 +596,7 @@ func TestShellPrepareSandboxError(t *testing.T) {
 	}
 	defer func() { prepareSandbox = orig }()
 
-	err := Shell(context.Background(), options.RunOptions{}, options.ModeRun, ui)
+	err := Shell(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModeRun, ui)
 	if err == nil || !strings.Contains(err.Error(), "prepare boom") {
 		t.Errorf("err = %v, want prepareSandbox error", err)
 	}
@@ -618,11 +623,11 @@ func TestRunNormalCallsRunAttach(t *testing.T) {
 	defer func() { prepareSandbox = orig }()
 
 	trace := &lifecycle.Trace{}
-	err := Run(context.Background(), options.RunOptions{
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
 		Agent:      "opencode",
 		ReapPolicy: options.NewReapPolicy(true, 5),
 		Trace:      trace,
-	}, options.ModeRun, ui)
+	}), options.ModeRun, ui)
 	if err != nil {
 		t.Fatalf("Run normal: %v", err)
 	}
@@ -660,7 +665,7 @@ func TestShellDryRunRendersPreview(t *testing.T) {
 		HomeVolume:   "agents-sandbox-home-abc",
 	})
 
-	err := Shell(context.Background(), options.RunOptions{}, options.ModePreview, ui)
+	err := Shell(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
 	if err != nil {
 		t.Fatalf("Shell dry-run: %v", err)
 	}
@@ -683,7 +688,12 @@ func TestShellDryRunDoesNotPrepareSandbox(t *testing.T) {
 	}
 	t.Cleanup(func() { prepareSandbox = orig })
 
-	if err := Shell(context.Background(), options.RunOptions{}, options.ModePreview, ui); err != nil {
+	if err := Shell(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{}),
+		options.ModePreview,
+		ui,
+	); err != nil {
 		t.Fatalf("Shell dry-run: %v", err)
 	}
 }
@@ -697,7 +707,7 @@ func TestShellDryRunPropagatesPreviewError(t *testing.T) {
 	}
 	t.Cleanup(func() { previewSandbox = orig })
 
-	err := Shell(context.Background(), options.RunOptions{}, options.ModePreview, ui)
+	err := Shell(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
 	if err == nil || !strings.Contains(err.Error(), "preview boom") {
 		t.Errorf("err = %v, want preview error", err)
 	}
@@ -714,7 +724,7 @@ func TestShellDryRunVM(t *testing.T) {
 	}
 	defer func() { prepareSandbox = orig }()
 
-	err := Shell(context.Background(), options.RunOptions{}, options.ModeSkipVM, ui)
+	err := Shell(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModeSkipVM, ui)
 	if err != nil {
 		t.Fatalf("Shell dry-run-vm: %v", err)
 	}
@@ -747,7 +757,7 @@ func TestShellNormalCallsRunAttach(t *testing.T) {
 	trace := &lifecycle.Trace{}
 	err := Shell(
 		context.Background(),
-		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5), Trace: trace},
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5), Trace: trace}),
 		options.ModeRun,
 		ui,
 	)
@@ -782,7 +792,7 @@ func TestShellUsesGuestCWD(t *testing.T) {
 
 	err := Shell(
 		context.Background(),
-		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)},
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}),
 		options.ModeRun,
 		ui,
 	)
@@ -802,7 +812,7 @@ func TestRunAttachPropagatesAttachError(t *testing.T) {
 	sb := &msb.MockSandbox{AttachErr: errors.New("attach boom")}
 
 	err := runAttach(context.Background(), state.Key{Slug: "errproj", Agent: "opencode"}, sb, "/workspace", ui,
-		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}, "-l")
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
 	if err == nil {
 		t.Fatal("expected error when attach fails")
 	}
@@ -817,7 +827,7 @@ func TestRunAttachReturnsExitErrorForNonZeroCode(t *testing.T) {
 	sb := &msb.MockSandbox{AttachCode: 3}
 
 	err := runAttach(context.Background(), state.Key{Slug: "exitproj", Agent: "opencode"}, sb, "/workspace", ui,
-		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}, "-l")
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
 	var exitErr *sandbox.ExitError
 	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
 		t.Errorf("err = %v, want ExitError code 3", err)
@@ -836,7 +846,7 @@ func TestRunAttachWarnsOnReapFailure(t *testing.T) {
 	cancel()
 
 	err := runAttach(ctx, state.Key{Slug: "reaperrproj", Agent: "opencode"}, sb, "/workspace", ui,
-		options.RunOptions{Agent: "opencode", ReapPolicy: options.NewReapPolicy(false, 5)}, "-l")
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
 	if err != nil {
 		t.Fatalf("runAttach should not fail on reap error: %v", err)
 	}
@@ -877,8 +887,9 @@ func TestWithClientSessionHandsResolvedAgentToBody(t *testing.T) {
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
 		ui,
 		alwaysReap,
-		func(a agent.Agent) error {
-			got = a.Name()
+		opencodeResolved(t),
+		func(a agent.Resolved) error {
+			got = a.Profile.Name()
 			return nil
 		},
 	)
@@ -913,7 +924,8 @@ func TestWithClientSessionReleasesLeaseBeforeReaping(t *testing.T) {
 		options.ReapPolicy{},
 		ui,
 		alwaysReap,
-		func(agent.Agent) error {
+		opencodeResolved(t),
+		func(agent.Resolved) error {
 			if got := state.CountActiveClients(k); got != 1 {
 				t.Errorf("body ran with %d active clients, want 1 (its own lease)", got)
 			}
@@ -953,7 +965,8 @@ func TestWithClientSessionReturnsBodyErrorAfterReaping(t *testing.T) {
 		options.ReapPolicy{},
 		ui,
 		alwaysReap,
-		func(agent.Agent) error {
+		opencodeResolved(t),
+		func(agent.Resolved) error {
 			return sentinel
 		},
 	)
@@ -990,7 +1003,8 @@ func TestWithClientSessionLeaseFailureStillRunsBody(t *testing.T) {
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
 		ui,
 		alwaysReap,
-		func(agent.Agent) error {
+		opencodeResolved(t),
+		func(agent.Resolved) error {
 			ran = true
 			return nil
 		},
@@ -1037,7 +1051,8 @@ func TestWithClientSessionReleasesLeaseOnPanic(t *testing.T) {
 			options.ReapPolicy{AutoStopOnActiveSessions: true},
 			ui,
 			alwaysReap,
-			func(agent.Agent) error {
+			opencodeResolved(t),
+			func(agent.Resolved) error {
 				panic("body boom")
 			},
 		)
@@ -1066,7 +1081,7 @@ func TestRunServeOnlySessionSkipsReapOnNonCanceledError(t *testing.T) {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(50*time.Millisecond))
 	defer cancel()
 
-	err := runServeOnlySession(ctx, k, sb, options.ReapPolicy{}, ui, 4096)
+	err := runServeOnlySession(ctx, opencodeResolved(t), k, sb, options.ReapPolicy{}, ui, 4096)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("runServeOnlySession = %v, want context.DeadlineExceeded", err)
 	}
@@ -1134,13 +1149,13 @@ func TestRunStartsNotifyWatcher(t *testing.T) {
 		return nil
 	}
 
-	err := Run(context.Background(), options.RunOptions{
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
 		ReapPolicy: options.NewReapPolicy(true, 5),
 		Notify: notify.Config{
 			Desktop: true, Audio: notify.AudioOff,
 			OnInput: true, OnDone: true, OnError: true,
 		},
-	}, options.ModeRun, ui)
+	}), options.ModeRun, ui)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1168,9 +1183,9 @@ func TestRunDoesNotStartNotifyWatcherWhenInactive(t *testing.T) {
 		return nil
 	}
 
-	err := Run(context.Background(), options.RunOptions{
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
 		ReapPolicy: options.NewReapPolicy(true, 5),
-	}, options.ModeRun, ui)
+	}), options.ModeRun, ui)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1268,13 +1283,13 @@ func TestRunLogsNotifyWatcherErrorAfterStop(t *testing.T) {
 		return errors.New("watch boom")
 	}
 
-	err := Run(context.Background(), options.RunOptions{
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
 		ReapPolicy: options.NewReapPolicy(true, 5),
 		Notify: notify.Config{
 			Desktop: true, Audio: notify.AudioOff,
 			OnInput: true, OnDone: true, OnError: true,
 		},
-	}, options.ModeRun, ui)
+	}), options.ModeRun, ui)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1306,14 +1321,14 @@ func TestRunDoesNotStartNotifyWatcherWithoutEventStreamProvider(t *testing.T) {
 		return nil
 	}
 
-	err := Run(context.Background(), options.RunOptions{
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
 		Agent:      "pi",
 		ReapPolicy: options.NewReapPolicy(true, 5),
 		Notify: notify.Config{
 			Desktop: true, Audio: notify.AudioOff,
 			OnInput: true, OnDone: true, OnError: true,
 		},
-	}, options.ModeRun, ui)
+	}), options.ModeRun, ui)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -1332,7 +1347,7 @@ func TestRunDryRunRendersNoRebuildReuseWithSkippedReasons(t *testing.T) {
 		HomeVolume:   "agents-sandbox-home-abc",
 	})
 
-	err := Run(context.Background(), options.RunOptions{}, options.ModePreview, ui)
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
 	if err != nil {
 		t.Fatalf("Run dry-run: %v", err)
 	}

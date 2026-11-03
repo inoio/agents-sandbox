@@ -43,7 +43,12 @@ func TestPrepareSandboxSkipVMRecordsStagesInOrder(t *testing.T) {
 	installPrepareSandboxMSBMock(t)
 
 	trace := &lifecycle.Trace{}
-	session, err := PrepareSandbox(context.Background(), options.RunOptions{Agent: "opencode", Trace: trace}, true, &ui)
+	session, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", Trace: trace}),
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("PrepareSandbox (skip VM): %v", err)
 	}
@@ -64,7 +69,10 @@ func TestPrepareSandboxTraceEndsAtTheFailingStage(t *testing.T) {
 
 	trace := &lifecycle.Trace{}
 	if _, err := PrepareSandbox(
-		context.Background(), options.RunOptions{Agent: "no-such-agent", Trace: trace}, true, &ui,
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "no-such-agent", Trace: trace}),
+		true,
+		&ui,
 	); err == nil {
 		t.Fatal("PrepareSandbox with an unknown agent: want an error")
 	}
@@ -123,7 +131,12 @@ func TestPrepareSandboxVMStageFailureStopsAtEnsureVM(t *testing.T) {
 	t.Cleanup(func() { vm.SetProjectVMLock(origLock) })
 
 	trace := &lifecycle.Trace{}
-	_, err := PrepareSandbox(context.Background(), options.RunOptions{Agent: "opencode", Trace: trace}, false, &ui)
+	_, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", Trace: trace}),
+		false,
+		&ui,
+	)
 	if !errors.Is(err, lockErr) {
 		t.Fatalf("PrepareSandbox error = %v, want %v", err, lockErr)
 	}

@@ -200,7 +200,7 @@ func TestWarnUnprovisionedDependenciesWarnsForTheOpencodeConfigDir(t *testing.T)
 	opencode, _ := agent.Lookup("opencode")
 	ui := termio.NewTestMock(t)
 
-	WarnUnprovisionedDependencies(opencode, &ConfigFiles{}, nil, true, &ui)
+	WarnUnprovisionedDependencies(agent.Resolve(opencode), &ConfigFiles{}, nil, true, &ui)
 
 	if len(ui.WarnCalls) != 1 {
 		t.Fatalf("warnings = %v, want exactly one", ui.WarnCalls)
@@ -220,7 +220,7 @@ func TestWarnUnprovisionedDependenciesSilentWhenHostProvisioningIsDisabled(t *te
 	opencode, _ := agent.Lookup("opencode")
 	ui := termio.NewTestMock(t)
 
-	WarnUnprovisionedDependencies(opencode, &ConfigFiles{}, nil, false, &ui)
+	WarnUnprovisionedDependencies(agent.Resolve(opencode), &ConfigFiles{}, nil, false, &ui)
 
 	if len(ui.WarnCalls) != 0 {
 		t.Errorf("warnings = %v, want none", ui.WarnCalls)
@@ -241,7 +241,7 @@ func TestWarnUnprovisionedDependenciesSilentWhenHomeOrMirrorSuppliesTheManifest(
 			opencode, _ := agent.Lookup("opencode")
 			ui := termio.NewTestMock(t)
 
-			WarnUnprovisionedDependencies(opencode, files, nil, true, &ui)
+			WarnUnprovisionedDependencies(agent.Resolve(opencode), files, nil, true, &ui)
 
 			if len(ui.WarnCalls) != 0 {
 				t.Errorf("warnings = %v, want none", ui.WarnCalls)
@@ -257,7 +257,7 @@ func TestWarnUnprovisionedDependenciesSilentForAgentsNotProvisioningTheOpencodeD
 	claude, _ := agent.Lookup("claude-code")
 	ui := termio.NewTestMock(t)
 
-	WarnUnprovisionedDependencies(claude, &ConfigFiles{}, nil, true, &ui)
+	WarnUnprovisionedDependencies(agent.Resolve(claude), &ConfigFiles{}, nil, true, &ui)
 
 	if len(ui.WarnCalls) != 0 {
 		t.Errorf("warnings = %v, want none", ui.WarnCalls)
@@ -270,7 +270,7 @@ func TestWarnUnprovisionedDependenciesSilentForAgentsWithoutProvisionRules(t *te
 	writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
 	ui := termio.NewTestMock(t)
 
-	WarnUnprovisionedDependencies(plainAgent{}, &ConfigFiles{}, nil, true, &ui)
+	WarnUnprovisionedDependencies(agent.Resolve(plainAgent{}), &ConfigFiles{}, nil, true, &ui)
 
 	if len(ui.WarnCalls) != 0 {
 		t.Errorf("warnings = %v, want none", ui.WarnCalls)
@@ -322,7 +322,7 @@ func TestWarnUnprovisionedDependenciesNeverResolvesAgainstTheWorkingDirectory(t 
 	opencode, _ := agent.Lookup("opencode")
 	ui := termio.NewTestMock(t)
 
-	WarnUnprovisionedDependencies(opencode, &ConfigFiles{}, nil, true, &ui)
+	WarnUnprovisionedDependencies(agent.Resolve(opencode), &ConfigFiles{}, nil, true, &ui)
 
 	if len(ui.WarnCalls) != 0 {
 		t.Errorf("warnings = %v, want none", ui.WarnCalls)

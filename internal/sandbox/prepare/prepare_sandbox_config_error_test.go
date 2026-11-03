@@ -75,7 +75,12 @@ func TestPrepareSandboxLoadConfigFilesError(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	if _, err := PrepareSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, false, &ui); err == nil {
+	if _, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		false,
+		&ui,
+	); err == nil {
 		t.Fatal("expected error for a malformed home manifest")
 	}
 }

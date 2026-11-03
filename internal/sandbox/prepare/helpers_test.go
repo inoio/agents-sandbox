@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
@@ -34,6 +35,20 @@ func opencodeAgent(t *testing.T) agent.Agent {
 func opencodeResolved(t *testing.T) agent.Resolved {
 	t.Helper()
 	return agent.Resolve(opencodeAgent(t))
+}
+
+// resolvedRunOptions returns opts with ResolvedAgent set as runoptions.Build
+// would: the profile named by opts.Agent (the default when empty), with its
+// capabilities resolved. Tests that construct RunOptions directly use it so the
+// prepare stages see the run boundary's resolved agent.
+func resolvedRunOptions(t *testing.T, opts options.RunOptions) options.RunOptions {
+	t.Helper()
+	a, ok := agent.Lookup(opts.Agent)
+	if !ok {
+		return opts
+	}
+	opts.ResolvedAgent = agent.Resolve(a)
+	return opts
 }
 
 // opencodeProvider returns the opencode profile's DaemonProvider so tests can
