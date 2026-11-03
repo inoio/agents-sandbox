@@ -184,6 +184,41 @@ type ConfigFiles struct {
 	Keys        []string               // merged config path first (when snippets exist), then the remaining VM paths sorted
 }
 
+// configSubject materializes the agent facts the config pipeline needs, derived
+// once from the agent instead of re-asserted and re-derived per builder: the
+// merger's VM config path, snippet pattern and config-file family, and the
+// provisioner's drop-in rules. The builders consume this value, so the merged
+// config path and the mirror's base directory cannot diverge between them.
+type configSubject struct {
+	merger         agent.ConfigMerger    // nil when the agent does not merge snippets
+	provisioner    agent.Provisioner     // nil when the agent does not provision host config
+	vmHome         string                // VM home the paths below were derived against
+	vmConfigPath   string                // merged config's VM path ("" without a merger)
+	snippetPattern string                // host snippet glob ("" without a merger)
+	familyNames    []string              // config filenames the merged config supersedes
+	provisionRules []agent.ProvisionRule // drop-in copy rules
+}
+
+// resolveConfigSubject reads the agent's config capabilities once: the merger's
+// VM config path (against vmHome), snippet pattern and config-file family, and
+// the provisioner's rules. An agent with neither capability yields the zero
+// subject, so the builders keep their no-merger/no-provisioner behavior.
+func resolveConfigSubject(a agent.Agent, vmHome string) configSubject {
+	var subject configSubject
+	subject.vmHome = vmHome
+	if cm, ok := agent.AsConfigMerger(a); ok {
+		subject.merger = cm
+		subject.vmConfigPath = cm.VMConfigPath(vmHome)
+		subject.snippetPattern = cm.SnippetPattern()
+		subject.familyNames = cm.ConfigFileNames()
+	}
+	if p, ok := agent.AsProvisioner(a); ok {
+		subject.provisioner = p
+		subject.provisionRules = p.ProvisionRules()
+	}
+	return subject
+}
+
 // LoadConfigFiles builds the desired VM state for the given agent using the
 // host home from the config-paths seam. The agent determines its own config
 // directories.
@@ -210,7 +245,8 @@ func LoadConfigFilesForHost(
 	if err != nil {
 		return nil, err
 	}
-	merged, err := buildMergedConfig(a, vmHome, src)
+	subject := resolveConfigSubject(a, vmHome)
+	merged, err := subject.buildMergedConfig(src)
 	if err != nil {
 		return nil, err
 	}
@@ -226,40 +262,24 @@ func LoadConfigFilesForHost(
 	if err != nil {
 		return nil, err
 	}
-	provisioned, modes, err := loadProvisioned(a, hostHome, vmHome, ui, provisionHostConfig)
+	provisioned, modes, err := subject.loadProvisioned(hostHome, ui, provisionHostConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	// Precedence: home files always override provisioned defaults, and the
-	// merged agent config overrides the provisioned config when snippets exist
-	// (no merged config means the drop-in default is provisioned).
-	for p := range homeFiles {
-		delete(provisioned, p)
-		delete(modes, p)
-	}
-	if merged.hasSnippets {
-		delete(provisioned, merged.path)
-		// gomutants:disable-next-line STATEMENT_REMOVE reason="applyMirrorPrecedence removes this same key from modes under the identical hasSnippets condition, so dropping the statement leaves ConfigFiles.Modes unchanged"
-		delete(modes, merged.path)
-	}
-	mirrorEntries, err := buildMirror(a, vmHome, src)
+	mirrorEntries, err := subject.buildMirror(src)
 	if err != nil {
 		return nil, fmt.Errorf("build config mirror: %w", err)
 	}
 	mirror, mirrorModes := mirrorMaps(mirrorEntries)
-	// Precedence: home overrides the mirror, the merged config overrides
-	// the mirror, and the mirror overrides the drop-in copy for the same path.
-	maps.Copy(modes, mirrorModes)
-	applyMirrorPrecedence(mirror, provisioned, homeFiles, merged.path, merged.hasSnippets, modes)
-	maps.Copy(modes, homeModes)
+	subject.applyPrecedence(provisioned, homeFiles, mirror, modes, mirrorModes, homeModes, merged.hasSnippets)
 	ensureHookExecutable(modes, hooks)
 	// Remove stale host config so it cannot shadow the merged config: when
 	// snippets exist the merged config must be the only config, and when host
 	// config provisioning is disabled no host file may remain.
-	remove := configFileFamilyPaths(merged.path, configFamilyNames(a))
+	remove := configFileFamilyPaths(merged.path, subject.familyNames)
 	if !provisionHostConfig {
-		remove = append(remove, provisionDestinations(a, hostHome, vmHome)...)
+		remove = append(remove, subject.provisionDestinations(hostHome)...)
 	}
 	keys := configKeys(merged.path, merged.hasSnippets, homeFiles, mirror, provisioned)
 	if src.Fallback != "" {
@@ -367,24 +387,19 @@ func ensureHookExecutable(modes map[string]os.FileMode, hooks []homeconfig.HookS
 	}
 }
 
-// loadProvisioned evaluates the agent's provision rules into the drop-in copy
+// loadProvisioned evaluates the subject's provision rules into the drop-in copy
 // maps, unless host config provisioning is disabled.
-func loadProvisioned(
-	a agent.Agent,
-	hostHome, vmHome string,
+func (s configSubject) loadProvisioned(
+	hostHome string,
 	ui termio.Logger,
 	enabled bool,
 ) (map[string][]byte, map[string]os.FileMode, error) {
 	provisioned := make(map[string][]byte)
 	modes := make(map[string]os.FileMode)
-	if !enabled {
+	if !enabled || s.provisioner == nil {
 		return provisioned, modes, nil
 	}
-	p, ok := agent.AsProvisioner(a)
-	if !ok {
-		return provisioned, modes, nil
-	}
-	for _, w := range agent.ValidateProvisionRules(p.ProvisionRules()) {
+	for _, w := range agent.ValidateProvisionRules(s.provisionRules) {
 		ui.Warnf("provision rule: %s", w)
 	}
 	onCopy := func(dst string, data []byte, mode os.FileMode) error {
@@ -392,32 +407,54 @@ func loadProvisioned(
 		modes[dst] = mode
 		return nil
 	}
-	if _, err := evalProvisionRules(p.ProvisionRules(), hostHome, vmHome, onCopy); err != nil {
+	if _, err := evalProvisionRules(s.provisionRules, hostHome, s.vmHome, onCopy); err != nil {
 		return nil, nil, fmt.Errorf("eval provision rules: %w", err)
 	}
 	return provisioned, modes, nil
 }
 
-// applyMirrorPrecedence prunes the mirror and drop-in copy maps so the mirror
-// overrides the drop-in copy for the same VM path, while home files and the
-// merged config override the mirror.
-func applyMirrorPrecedence(
-	mirror, provisioned, homeFiles map[string][]byte,
-	mergedPath string,
+// applyPrecedence resolves the config sources that can supply the same VM path
+// so the precedence contract holds, highest priority first:
+//
+//	merged config, home files  >  mirror  >  drop-in copy
+//
+// The merged config and a home file cannot collide: a home target at the
+// merged-config path is rejected as reserved. The subject's merged-config path
+// is the one the merge builder wrote to, so this is the single statement of
+// which source wins. It is the only place the mirror and home file modes are
+// installed.
+func (s configSubject) applyPrecedence(
+	provisioned, homeFiles, mirror map[string][]byte,
+	modes, mirrorModes, homeModes map[string]os.FileMode,
 	hasSnippets bool,
-	modes map[string]os.FileMode,
 ) {
-	for p := range mirror {
-		delete(provisioned, p)
+	// Home files override the drop-in copy.
+	for path := range homeFiles {
+		delete(provisioned, path)
+		delete(modes, path)
 	}
-	for p := range homeFiles {
-		delete(mirror, p)
-		delete(modes, p)
+	// The merged config overrides the drop-in copy when snippets exist.
+	if hasSnippets {
+		delete(provisioned, s.vmConfigPath)
+		// gomutants:disable-next-line STATEMENT_REMOVE reason="the mirror-override block below removes this same key from modes under the identical hasSnippets condition, so dropping the statement leaves ConfigFiles.Modes unchanged"
+		delete(modes, s.vmConfigPath)
+	}
+	// The mirror's and then the home files' modes take effect; home wins.
+	maps.Copy(modes, mirrorModes)
+	// The mirror overrides the drop-in copy.
+	for path := range mirror {
+		delete(provisioned, path)
+	}
+	// Home files and the merged config override the mirror.
+	for path := range homeFiles {
+		delete(mirror, path)
+		delete(modes, path)
 	}
 	if hasSnippets {
-		delete(mirror, mergedPath)
-		delete(modes, mergedPath)
+		delete(mirror, s.vmConfigPath)
+		delete(modes, s.vmConfigPath)
 	}
+	maps.Copy(modes, homeModes)
 }
 
 // configKeys returns the VM paths to provision and compare: the merged config
@@ -443,16 +480,6 @@ func configKeys(mergedPath string, hasSnippets bool, homeFiles, mirror, provisio
 	return rest
 }
 
-// configFamilyNames returns the config filenames the agent reads from its VM
-// config directory that the merged config supersedes, or nil for an agent
-// without a ConfigMerger.
-func configFamilyNames(a agent.Agent) []string {
-	if cm, ok := agent.AsConfigMerger(a); ok {
-		return cm.ConfigFileNames()
-	}
-	return nil
-}
-
 // configFileFamilyPaths returns the VM paths of the config files in the merged
 // config's directory (the given names) that would otherwise merge into (or
 // shadow) it.
@@ -475,18 +502,16 @@ type mergedConfig struct {
 	hasSnippets bool
 }
 
-// buildMergedConfig merges the agent's snippet files into a single config.
-// Every agent in the registry implements ConfigMerger, so a non-merger agent
+// buildMergedConfig merges the subject's snippet files into a single config.
+// Every agent in the registry implements ConfigMerger, so a non-merger subject
 // produces an empty mergedConfig.
-func buildMergedConfig(a agent.Agent, vmHome string, src ConfigSource) (mergedConfig, error) {
-	cm, ok := agent.AsConfigMerger(a)
-	if !ok {
+func (s configSubject) buildMergedConfig(src ConfigSource) (mergedConfig, error) {
+	if s.merger == nil {
 		return mergedConfig{}, nil
 	}
-	vmConfigPath := cm.VMConfigPath(vmHome)
 	built, err := config.BuildMerged(
-		vmConfigPath,
-		cm.SnippetPattern(),
+		s.vmConfigPath,
+		s.snippetPattern,
 		src.UserDir,
 		src.ProjectDir,
 	)
@@ -494,28 +519,27 @@ func buildMergedConfig(a agent.Agent, vmHome string, src ConfigSource) (mergedCo
 		return mergedConfig{}, fmt.Errorf("merge agent config: %w", err)
 	}
 	return mergedConfig{
-		path:        vmConfigPath,
+		path:        s.vmConfigPath,
 		content:     built.Content,
 		sources:     built.Sources,
 		hasSnippets: built.HasSnippets,
 	}, nil
 }
 
-// buildMirror returns the verbatim mirror files for agent a: every file in the
-// user and project <agent> config dirs that is neither a top-level snippet
+// buildMirror returns the verbatim mirror files for the subject: every file in
+// the user and project <agent> config dirs that is neither a top-level snippet
 // match nor a top-level config-family name, keyed by VM path under the agent's
-// VM config directory. Agents without a ConfigMerger have no mirror.
-func buildMirror(a agent.Agent, vmHome string, src ConfigSource) (map[string]config.MirrorEntry, error) {
-	cm, ok := agent.AsConfigMerger(a)
-	if !ok {
+// VM config directory. A subject without a merger has no mirror.
+func (s configSubject) buildMirror(src ConfigSource) (map[string]config.MirrorEntry, error) {
+	if s.merger == nil {
 		return map[string]config.MirrorEntry{}, nil
 	}
 	entries, err := config.ScanMirror(
-		cm.SnippetPattern(),
-		cm.ConfigFileNames(),
+		s.snippetPattern,
+		s.familyNames,
 		src.UserDir,
 		src.ProjectDir,
-		filepath.Dir(cm.VMConfigPath(vmHome)),
+		filepath.Dir(s.vmConfigPath),
 	)
 	if err != nil {
 		return nil, err
@@ -537,19 +561,19 @@ func mirrorMaps(entries map[string]config.MirrorEntry) (map[string][]byte, map[s
 	return mirror, modes
 }
 
-// provisionDestinations returns the VM paths the agent's provision rules would
-// copy for the given host, without copying anything. It mirrors the drop-in
-// copy's destinations so they can be removed when host provisioning is disabled.
-func provisionDestinations(a agent.Agent, hostHome, vmHome string) []string {
-	p, ok := agent.AsProvisioner(a)
-	if !ok {
+// provisionDestinations returns the VM paths the subject's provision rules
+// would copy for the given host, without copying anything. It mirrors the
+// drop-in copy's destinations so they can be removed when host provisioning is
+// disabled.
+func (s configSubject) provisionDestinations(hostHome string) []string {
+	if s.provisioner == nil {
 		return nil
 	}
 	var dsts []string
 	_, _ = agent.EvalProvisionRules(
-		p.ProvisionRules(),
+		s.provisionRules,
 		hostHome,
-		vmHome,
+		s.vmHome,
 		func(dst string, _ []byte, _ os.FileMode) error {
 			dsts = append(dsts, dst)
 			return nil
@@ -584,22 +608,22 @@ func Describe(
 	if err != nil {
 		return nil, nil, nil, nil, ConfigSource{}, err
 	}
-	hostFiles := hostFilesFromProvisioner(a, hostHome, vmHome, cf)
-	return cf.Merged, cf.Sources, hostFiles, mirrorFilesFromConfig(a, vmHome, cf.Source), cf.Source, nil
+	subject := resolveConfigSubject(a, vmHome)
+	hostFiles := subject.hostFilesFromProvisioner(hostHome, cf)
+	return cf.Merged, cf.Sources, hostFiles, subject.mirrorFilesFromConfig(cf.Source), cf.Source, nil
 }
 
-// mirrorFilesFromConfig returns the mirror display records for agent a.
-func mirrorFilesFromConfig(a agent.Agent, vmHome string, src ConfigSource) []MirrorFile {
-	cm, ok := agent.AsConfigMerger(a)
-	if !ok {
+// mirrorFilesFromConfig returns the mirror display records for the subject.
+func (s configSubject) mirrorFilesFromConfig(src ConfigSource) []MirrorFile {
+	if s.merger == nil {
 		return nil
 	}
 	entries, err := config.ScanMirror(
-		cm.SnippetPattern(),
-		cm.ConfigFileNames(),
+		s.snippetPattern,
+		s.familyNames,
 		src.UserDir,
 		src.ProjectDir,
-		filepath.Dir(cm.VMConfigPath(vmHome)),
+		filepath.Dir(s.vmConfigPath),
 	)
 	if err != nil {
 		return nil
@@ -611,31 +635,29 @@ func mirrorFilesFromConfig(a agent.Agent, vmHome string, src ConfigSource) []Mir
 	return files
 }
 
-// hostFilesFromProvisioner walks the agent's provision rules against hostHome
+// hostFilesFromProvisioner walks the subject's provision rules against hostHome
 // and records each host file it would copy, marking whether the VM destination
 // is merged into the single config rather than copied as a drop-in. It never
 // modifies any state.
-func hostFilesFromProvisioner(a agent.Agent, hostHome, vmHome string, cf *ConfigFiles) []HostFile {
-	p, ok := agent.AsProvisioner(a)
-	if !ok {
+func (s configSubject) hostFilesFromProvisioner(hostHome string, cf *ConfigFiles) []HostFile {
+	if s.provisioner == nil {
 		return nil
 	}
-	mergedPath := cf.MergedPath
 	merged := make(map[string]struct{})
 	if cf.HasSnippets {
-		for _, path := range configFileFamilyPaths(mergedPath, configFamilyNames(a)) {
+		for _, path := range configFileFamilyPaths(cf.MergedPath, s.familyNames) {
 			merged[path] = struct{}{}
 		}
 	}
 	var files []HostFile
 	_, _ = agent.EvalProvisionRules(
-		p.ProvisionRules(),
+		s.provisionRules,
 		hostHome,
-		vmHome,
+		s.vmHome,
 		func(dst string, _ []byte, _ os.FileMode) error {
 			_, isMerged := merged[dst]
 			files = append(files, HostFile{
-				HostPath: hostPathForDst(dst, hostHome, vmHome),
+				HostPath: hostPathForDst(dst, hostHome, s.vmHome),
 				VMPath:   dst,
 				Merged:   isMerged,
 			})

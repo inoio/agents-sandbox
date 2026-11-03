@@ -34,8 +34,8 @@ func WarnUnprovisionedDependencies(
 	if !provisionHostConfig {
 		return
 	}
-	provisioner, ok := agent.AsProvisioner(a)
-	if !ok {
+	subject := resolveConfigSubject(a, VMHomeDir)
+	if subject.provisioner == nil {
 		return
 	}
 	hostHome, err := cp.Get().UserHomeDir()
@@ -43,7 +43,7 @@ func WarnUnprovisionedDependencies(
 		return
 	}
 	manifests := unprovisionedDependencyManifests(
-		provisioner.ProvisionRules(), hostHome, suppliedVMPaths(files), mountTargets,
+		subject.provisionRules, hostHome, suppliedVMPaths(files), mountTargets,
 	)
 	for _, manifest := range manifests {
 		ui.Warnf(

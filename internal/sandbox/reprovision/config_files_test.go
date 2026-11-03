@@ -353,7 +353,7 @@ func TestLoadConfigFilesRemovesStaleConfigWithSnippets(t *testing.T) {
 	}
 
 	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
-	for _, name := range configFamilyNames(opencodeTestAgent()) {
+	for _, name := range resolveConfigSubject(opencodeTestAgent(), vmHome).familyNames {
 		want := filepath.Join(vmHome, ".config", "opencode", name)
 		if !slices.Contains(cf.Remove, want) {
 			t.Errorf("expected config file %s in Remove, got %v", want, cf.Remove)
@@ -442,7 +442,7 @@ func TestLoadConfigFilesProvisioningDisabled(t *testing.T) {
 	if len(cf.Provisioned) != 0 {
 		t.Errorf("expected no drop-in copy when provisioning disabled, got %v", cf.Provisioned)
 	}
-	for _, name := range configFamilyNames(opencodeTestAgent()) {
+	for _, name := range resolveConfigSubject(opencodeTestAgent(), vmHome).familyNames {
 		want := filepath.Join(vmHome, ".config", "opencode", name)
 		if !slices.Contains(cf.Remove, want) {
 			t.Errorf("expected config file %s in Remove, got %v", want, cf.Remove)
@@ -466,7 +466,7 @@ func TestProvisionRemovesStalePaths(t *testing.T) {
 		MergedPath:  opencodeMergedPath,
 		Remove: configFileFamilyPaths(
 			opencodeMergedPath,
-			configFamilyNames(opencodeTestAgent()),
+			resolveConfigSubject(opencodeTestAgent(), VMHomeDir).familyNames,
 		),
 	}
 	fs := msb.NewTestFS(nil, nil)
@@ -839,6 +839,51 @@ func TestHostPathForDstRoot(t *testing.T) {
 	}
 }
 
+// TestResolveConfigSubjectMaterializesMergerFacts verifies the subject derives
+// the merger's VM config path, snippet pattern and config-file family, and the
+// provisioner's rules, once from the agent, so the builders consume them
+// instead of re-asserting the capabilities and recomputing the paths.
+func TestResolveConfigSubjectMaterializesMergerFacts(t *testing.T) {
+	vmHome := filepath.Join(string(filepath.Separator), "home", "dev")
+	a, _ := agent.Lookup("")
+	subject := resolveConfigSubject(a, vmHome)
+
+	if subject.merger == nil {
+		t.Fatal("opencode should resolve a merger")
+	}
+	if subject.provisioner == nil {
+		t.Fatal("opencode should resolve a provisioner")
+	}
+	if want := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc"); subject.vmConfigPath != want {
+		t.Errorf("vmConfigPath = %q, want %q", subject.vmConfigPath, want)
+	}
+	if want := "opencode*.json*"; subject.snippetPattern != want {
+		t.Errorf("snippetPattern = %q, want %q", subject.snippetPattern, want)
+	}
+	if !slices.Contains(subject.familyNames, "opencode.json") {
+		t.Errorf("familyNames = %v, want to include opencode.json", subject.familyNames)
+	}
+	if len(subject.provisionRules) == 0 {
+		t.Error("provisionRules should be non-empty for opencode")
+	}
+}
+
+// TestResolveConfigSubjectZeroForPlainAgent verifies an agent with neither
+// capability yields a subject whose derived facts are empty, so the builders
+// keep their "no merger/provisioner" behavior.
+func TestResolveConfigSubjectZeroForPlainAgent(t *testing.T) {
+	subject := resolveConfigSubject(plainAgent{}, filepath.Join(string(filepath.Separator), "home", "dev"))
+	if subject.merger != nil || subject.provisioner != nil {
+		t.Errorf("plain agent should resolve no capabilities, got %+v", subject)
+	}
+	if subject.vmConfigPath != "" || subject.snippetPattern != "" || subject.familyNames != nil {
+		t.Errorf("plain agent should derive no merger facts, got %+v", subject)
+	}
+	if subject.provisionRules != nil {
+		t.Errorf("plain agent should have no provision rules, got %v", subject.provisionRules)
+	}
+}
+
 // TestHostFilesFromProvisioner verifies hostFilesFromProvisioner reports each
 // host file the drop-in copy would pick up, marking config-family destinations
 // as Merged when snippets produce a merged config.
@@ -857,7 +902,7 @@ func TestHostFilesFromProvisioner(t *testing.T) {
 
 	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
 	cf := &ConfigFiles{HasSnippets: true, MergedPath: mergedPath}
-	files := hostFilesFromProvisioner(a, hostHome, vmHome, cf)
+	files := resolveConfigSubject(a, vmHome).hostFilesFromProvisioner(hostHome, cf)
 
 	if len(files) != 2 {
 		t.Fatalf("hostFilesFromProvisioner = %+v, want 2 files", files)
@@ -1076,7 +1121,7 @@ func TestHostFilesFromProvisionerNoSnippets(t *testing.T) {
 	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
 
 	cf := &ConfigFiles{HasSnippets: false}
-	files := hostFilesFromProvisioner(a, hostHome, vmHome, cf)
+	files := resolveConfigSubject(a, vmHome).hostFilesFromProvisioner(hostHome, cf)
 	if len(files) != 1 || files[0].Merged {
 		t.Errorf("hostFilesFromProvisioner = %+v, want 1 non-merged file", files)
 	}
@@ -1277,11 +1322,11 @@ func TestLoadConfigFilesPrimarySuppressesLegacy(t *testing.T) {
 
 func reprovisionVMConfigDir(t *testing.T, a agent.Agent) string {
 	t.Helper()
-	cm, ok := agent.AsConfigMerger(a)
-	if !ok {
+	subject := resolveConfigSubject(a, VMHomeDir)
+	if subject.merger == nil {
 		t.Fatal("agent has no ConfigMerger")
 	}
-	return filepath.Dir(cm.VMConfigPath(VMHomeDir))
+	return filepath.Dir(subject.vmConfigPath)
 }
 
 func countWarns(warns []string, substr string) int {
