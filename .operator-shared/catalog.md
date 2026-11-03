@@ -50,12 +50,6 @@
 - `github-issue-workflow.md`
   - Description: How this repo tracks work on GitHub with the `gh` CLI: the issue CRUD commands, the actual triage label vocabulary (`bug`/`enhancement`/`chore`/`documentation`, the `needs-triage`/`needs-info`/`ready-for-agent`/`ready-for-human`/`wontfix` states, the `upstream` marker, the orthogonal `priority:*` set), and that external PRs are not a request surface.
   - Read If: Creating, reading, labeling, or closing a GitHub issue; resolving the label vocabulary the `maintain` skill uses; or working through a skill that publishes to or reads from the issue tracker.
-- `merge-queue-prs.md`
-  - Description: How to drive `main`'s merge queue from the CLI: the GraphQL `enqueuePullRequest` mutation (`gh pr merge` fails because auto-merge is disabled and only merge-commit is enabled), the `CHANGELOG.md` same-anchor conflicts the queue builds on one ref, and chaining branches to preview same-anchor and semantic conflicts with `git merge-tree`.
-  - Read If: Enqueuing a PR into the `main` merge queue, resolving a `CHANGELOG.md` or same-anchor conflict between queued PRs, or retargeting a stacked PR.
-- `docker-storage-driver-in-vm.md`
-  - Description: Reference for inside the microsandbox VM: why the guest has no usable FUSE mount and `/var/lib/docker` on the guest root overlay rules out `overlay2` (kernel rejects overlay-on-overlay and virtiofs uppers), the verified `fuse-overlayfs` spike (rootful, selectable, copy-up and build work; perf vs `vfs` unmeasured), how to spike a second dockerd without killing the first, and the msb-level mount capability that `overlay2` would need. `specs/image-composition.md` owns the contract.
-  - Read If: Investigating the in-VM dockerd storage driver, evaluating `fuse-overlayfs` vs `vfs`, or diagnosing an `overlay2`/"driver not supported" dockerd failure.
 - `secret-placeholder-transcript-trap.md`
   - Description: Why a session dies once a microsandbox secret placeholder reaches the model context — the LLM transport POSTs the whole conversation, so a placeholder anywhere in history blocks every later turn — how to observe the block in `runtime.log` (the zero `LogOptions` misses it; it is a `LogSourceSystem` read), and the launcher's config-file-only `secrets.common.allow-placeholder-for` repair (`Allow`/`Passthrough` disjointness, the `placeholderHostsFor` invariants, the digest change that forces one recreate).
   - Read If: Diagnosing a model turn blocked by a secret violation, working on `secrets.common.allow-placeholder-for`, `BuildSecretsFromSpecs`/`placeholderHostsFor`, or `envsecret` passthrough hosts.
@@ -235,7 +229,7 @@
   - Read If: Adding a YAML parse/serialize path, touching `go.mod`'s YAML dependency, or triaging a `FuzzParseState` serialization-stability failure.
 - `tool-tree-ownership.md`
   - Description: Design for #490 (part of #488) to set the runner image's agent tool-tree ownership at copy time (`COPY --chown=dev:dev`) instead of a follow-up full-tree `chown` layer, which records a second copy of the tree and doubles the Hermes runner image; requires guaranteeing the `dev` group for every base (unconditional `groupadd -f` in `devUserBlock`) so the name resolves on the production classic builder, and retires `agentOwnershipBlock`. Supersedes `image-composition.md`'s tool-ownership paragraph on landing.
-  - Read If: Changing the runner image's tool-tree ownership (`agentOwnershipBlock`, `ImageSpec.OwnedToolPaths`, `devUserBlock`'s dev user/group, the `dev` group contract, `COPY --chown` in `runnerStage`); or diagnosing a doubled Hermes runner image, a `can't find gid for group dev` build failure, or a volume prefill/migrate `chown -R dev:dev` failure on a custom base.
+  - Read If: Changing the runner image's tool-tree ownership (`agentOwnershipBlock`, `ImageSpec.OwnsToolTree`, `devUserBlock`'s dev user/group, the `dev` group contract, `COPY --chown` in `runnerStage`); or diagnosing a doubled Hermes runner image, a `can't find gid for group dev` build failure, or a volume prefill/migrate `chown -R dev:dev` failure on a custom base.
 
 ### `plans/` - TDD implementation plans
 

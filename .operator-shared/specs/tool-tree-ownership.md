@@ -1,6 +1,6 @@
 ---
 description: Design for #490 (part of #488) to set the runner image's agent tool-tree ownership at copy time (`COPY --chown=dev:dev`) instead of a follow-up full-tree `chown` layer, which records a second copy of the tree and doubles the Hermes runner image; requires guaranteeing the `dev` group for every base (unconditional `groupadd -f` in `devUserBlock`) so the name resolves on the production classic builder, and retires `agentOwnershipBlock`.
-read_if: Changing the runner image's tool-tree ownership (`agentOwnershipBlock`, `ImageSpec.OwnedToolPaths`, `devUserBlock`'s dev user/group, the `dev` group contract, `COPY --chown` in `runnerStage`); or diagnosing a doubled Hermes runner image, a `can't find gid for group dev` build failure, or a volume prefill/migrate `chown -R dev:dev` failure on a custom base.
+read_if: Changing the runner image's tool-tree ownership (`agentOwnershipBlock`, `ImageSpec.OwnsToolTree`, `devUserBlock`'s dev user/group, the `dev` group contract, `COPY --chown` in `runnerStage`); or diagnosing a doubled Hermes runner image, a `can't find gid for group dev` build failure, or a volume prefill/migrate `chown -R dev:dev` failure on a custom base.
 ---
 
 # Tool-tree ownership in the runner image
@@ -16,8 +16,8 @@ The runner image sets an agent tool tree's owner at **copy time**, not with a fo
 - `runnerStage` copies the agent tool tree with
   `COPY --chown=dev:dev --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox`.
 - There is no separate `chown -R` layer; `agentOwnershipBlock` is deleted.
-- `ImageSpec.OwnedToolPaths` stays as the per-agent signal for whether the copy carries `--chown`. An agent that
-  names no path gets the plain root-owned copy.
+- `ImageSpec.OwnsToolTree` (a boolean) is the per-agent signal for whether the copy carries `--chown`; it stays.
+  An agent with `OwnsToolTree` false gets the plain root-owned copy.
 
 `--chown=dev:dev` binds the **name**, resolved at copy time against the destination stage's `/etc/group`. The
 `USER_UID`/`USER_GID` build args are deliberately not usable here: the agent stage can only see the args, and the
@@ -68,8 +68,8 @@ build cache.
 
 ## Scope
 
-- Applies to every agent with `OwnedToolPaths` (today only `hermes`), not Hermes-specific.
-- `--chown` covers the whole copied tree, not the `OwnedToolPaths` subset. For Hermes that is effectively the whole
+- Applies to every agent with `OwnsToolTree` set (today only `hermes`), not Hermes-specific.
+- `--chown` covers the whole copied tree, not a subset of it. For Hermes that is effectively the whole
   tree; `bin/hermes` also becomes `dev`-owned. This is the intended scope broadening.
 - Custom-base images shrink too: there is no managed/custom branch, because the `dev` group guarantee makes
   `dev:dev` resolvable for both.
