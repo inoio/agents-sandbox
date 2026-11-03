@@ -298,15 +298,22 @@ func dockerMarkerKind(line string) (string, bool) {
 	}
 }
 
-// firstMarkerIndex returns the index of the first top-level line carrying a
-// docker injection marker, current or legacy, or -1. Heredoc bodies are
-// skipped, so marker text copied into a file is not read as a marker.
-func firstMarkerIndex(lines [][]byte) int {
-	for _, i := range topLevelLineIndices(lines) {
+// firstMarkerIndex returns the index in the final-stage body's lines of the
+// first top-level line at or after bodyStart carrying a docker injection marker,
+// current or legacy, or -1. Heredoc bodies are skipped, so marker text copied
+// into a file is not read as a marker. It reads the one shared walk's top-level
+// indices instead of re-lexing the body, translating the marker's file index
+// into the body's line space (body line i is file line bodyStart+i).
+func firstMarkerIndex(lines [][]byte, topLevelLines []int, bodyStart int) int {
+	for _, i := range topLevelLines {
+		if i < bodyStart {
+			continue
+		}
 		if _, ok := dockerMarkerKind(lineText(lines[i])); ok {
-			return i
+			return i - bodyStart
 		}
 	}
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="markerAt is only compared with < 0 and >= 0 so any negative sentinel is equivalent and -1 and -2 both inject nothing"
 	return -1
 }
 

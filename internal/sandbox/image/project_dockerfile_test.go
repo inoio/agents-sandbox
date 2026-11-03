@@ -64,10 +64,62 @@ func splitFinalStageForTest(data []byte) (string, string, string) {
 	return p.earlier, p.finalBase, p.body
 }
 
+// TestRenderBuildPlanIdentityHashesProjectDockerfile pins that the parsed value
+// carries the project bytes into the image identity: the identity's Dockerfile
+// hash must be the hash of the project Dockerfile, not the absent-input sentinel.
+func TestRenderBuildPlanIdentityHashesProjectDockerfile(t *testing.T) {
+	project := []byte("FROM ubuntu:24.04\nRUN echo hi\n")
+	plan, err := renderBuildPlan(
+		agentOpencode(t), parseProjectDockerfile(project), dockerOff, testAgentVersion, testAgentVersion,
+	)
+	if err != nil {
+		t.Fatalf("renderBuildPlan: %v", err)
+	}
+	if want := hashOrNone(project); plan.identity.ProjectDockerfileHash != want {
+		t.Errorf("identity ProjectDockerfileHash = %q, want %q", plan.identity.ProjectDockerfileHash, want)
+	}
+}
+
+// TestReservedAliasErrorSortsCollisions pins that the reported alias list is
+// sorted rather than left in Go's randomized map-iteration order: the same
+// sorted message must come out of every call.
+func TestReservedAliasErrorSortsCollisions(t *testing.T) {
+	p := parsedProjectDockerfile{stageBase: map[string]string{
+		"agents-sandbox-runner": "image",
+		"agents-sandbox-base":   "image",
+		"agents-sandbox-agent":  "image",
+	}}
+	want := "project Dockerfile declares reserved stage alias(es): " +
+		"agents-sandbox-agent, agents-sandbox-base, agents-sandbox-runner"
+	for range 200 {
+		if got := p.reservedAliasError(); got == nil || got.Error() != want {
+			t.Fatalf("reservedAliasError() = %v, want %q", got, want)
+		}
+	}
+}
+
+// TestParseProjectDockerfileNoFromMarkerIsNotABodyMarker pins that a marker with
+// no final FROM is not a body marker: without a final stage there is no body to
+// inject into, so the content signal must stay off.
+func TestParseProjectDockerfileNoFromMarkerIsNotABodyMarker(t *testing.T) {
+	project := []byte("RUN echo hi\n# agents-sandbox:docker\n")
+	p := parseProjectDockerfile(project)
+	if p.marker != "" {
+		t.Errorf("marker = %q, want none (a no-FROM file has no final-stage body)", p.marker)
+	}
+	if p.asksDocker() {
+		t.Error("asksDocker() = true, want false: a no-FROM marker is not a body marker")
+	}
+	if p.effectiveDocker(dockerOff) {
+		t.Error("effectiveDocker(off) = true, want false: a no-FROM marker must not enable docker")
+	}
+}
+
 // injectDockerBlockForTest is the body-level convenience the injection tests
-// use: it splits the body and finds its first marker itself, the same way
-// parseProjectDockerfile does before calling injectDockerBlock.
+// use: it lexes the body with the same shared walk parseProjectDockerfile uses
+// and finds the first top-level marker, then injects.
 func injectDockerBlockForTest(body string, docker bool) (string, bool) {
 	lines := dockerfileLines([]byte(body))
-	return injectDockerBlock(lines, firstMarkerIndex(lines), docker)
+	_, topLevelLines := dockerfileLineIndices(lines)
+	return injectDockerBlock(lines, firstMarkerIndex(lines, topLevelLines, 0), docker)
 }

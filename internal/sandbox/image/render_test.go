@@ -816,6 +816,14 @@ func TestRenderDockerfileDindFromImpliesDocker(t *testing.T) {
 	if !strings.Contains(s, "agents-sandbox-docker") {
 		t.Error("a runner-base-dind FROM must imply docker")
 	}
+	// The dind base is a managed base, so its final FROM must resolve to the
+	// embedded base tools block, not be kept as a custom base.
+	if !strings.Contains(s, "FROM "+distroBaseRef+" AS "+baseStageAlias) {
+		t.Errorf("a managed dind base must be replaced with the embedded base tools block; got:\n%s", s)
+	}
+	if strings.Contains(s, "agents-sandbox/runner-base-dind") {
+		t.Errorf("the managed dind base reference must be replaced, not kept; got:\n%s", s)
+	}
 }
 
 func TestRenderDockerfileDockerFromImpliesDocker(t *testing.T) {
@@ -824,6 +832,14 @@ func TestRenderDockerfileDockerFromImpliesDocker(t *testing.T) {
 	s := mustRender(t, a, project, dockerOff)
 	if !strings.Contains(s, "agents-sandbox-docker") {
 		t.Error("a runner-base-docker FROM must imply docker")
+	}
+	// The docker base is a managed base, so its final FROM must resolve to the
+	// embedded base tools block, not be kept as a custom base.
+	if !strings.Contains(s, "FROM "+distroBaseRef+" AS "+baseStageAlias) {
+		t.Errorf("a managed docker base must be replaced with the embedded base tools block; got:\n%s", s)
+	}
+	if strings.Contains(s, "agents-sandbox/runner-base-docker") {
+		t.Errorf("the managed docker base reference must be replaced, not kept; got:\n%s", s)
 	}
 }
 
@@ -1134,6 +1150,54 @@ func TestRenderDockerfileHeredocMarkerIsInert(t *testing.T) {
 	}
 }
 
+// TestRenderDockerfileEscapeContinuationSwallowsMarker pins that the marker scan
+// reads the file-level lex: under a file-level `# escape=` (backtick), a backtick
+// line continuation swallows the following marker line as instruction content, so
+// the marker neither enables nor positions docker. The removed body-level re-lex
+// re-derived the escape from the body (defaulting to backslash), read the comment
+// as a top-level marker, and enabled docker.
+func TestRenderDockerfileEscapeContinuationSwallowsMarker(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	project := []byte("# escape=`\n" +
+		"FROM debian:trixie-slim\n" +
+		"RUN echo hi `\n" +
+		"# agents-sandbox:docker\n" +
+		"RUN echo bye\n")
+	p := parseProjectDockerfile(project)
+	if p.marker != "" || p.asksDocker() {
+		t.Errorf("marker = %q, asksDocker = %v, want none: a backtick continuation swallows the marker",
+			p.marker, p.asksDocker())
+	}
+	s := mustRender(t, a, project, dockerOff)
+	if strings.Contains(s, " AS "+dockerStageAlias) {
+		t.Errorf("a marker swallowed by a backtick continuation must not enable docker; got:\n%s", s)
+	}
+	if !strings.Contains(s, "# agents-sandbox:docker") {
+		t.Errorf("the swallowed marker must stay verbatim in the body; got:\n%s", s)
+	}
+}
+
+// TestRenderDockerfileFromContinuationSwallowsMarker pins the same file-level lex
+// for a final FROM whose own line continuation consumes the following marker
+// comment: the walk reads the comment as instruction content, not a top-level
+// line, so it never enables docker. The removed body-level re-lex started after
+// the FROM line and read the comment fresh as a marker.
+func TestRenderDockerfileFromContinuationSwallowsMarker(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	project := []byte("FROM debian:trixie-slim \\\n" +
+		"# agents-sandbox:docker\n" +
+		"RUN echo hi\n")
+	p := parseProjectDockerfile(project)
+	if p.marker != "" || p.asksDocker() {
+		t.Errorf("marker = %q, asksDocker = %v, want none: the FROM continuation swallows the marker",
+			p.marker, p.asksDocker())
+	}
+	s := mustRender(t, a, project, dockerOff)
+	if strings.Contains(s, " AS "+dockerStageAlias) {
+		t.Errorf("a marker swallowed by the FROM continuation must not enable docker; got:\n%s", s)
+	}
+}
+
 func TestAgentImageConfigBlock(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	block := agentImageConfigBlock(a)
@@ -1160,6 +1224,31 @@ func TestInjectDockerBlockAtMarker(t *testing.T) {
 	want := "RUN install-prereqs\n" + dockerMergeBlock() + "RUN configure\n"
 	if got != want {
 		t.Errorf("injectDockerBlock = %q, want %q", got, want)
+	}
+}
+
+// TestInjectDockerBlockAtFirstBodyLine pins markerAt == 0: a marker that is the
+// very first body line must still inject, so the guard rejects only a position
+// below zero (a concrete sentinel, not "the first line").
+func TestInjectDockerBlockAtFirstBodyLine(t *testing.T) {
+	body := "# agents-sandbox:docker\nRUN configure\n"
+	got, injected := injectDockerBlockForTest(body, true)
+	if !injected {
+		t.Fatal("expected injection at a marker that is the first body line")
+	}
+	want := dockerMergeBlock() + "RUN configure\n"
+	if got != want {
+		t.Errorf("injectDockerBlock = %q, want %q", got, want)
+	}
+}
+
+// TestInjectDockerBlockDisabledWithMarkerLeavesBody pins that a present marker
+// does not inject when docker is disabled: the body must be returned untouched.
+func TestInjectDockerBlockDisabledWithMarkerLeavesBody(t *testing.T) {
+	body := "RUN install-prereqs\n# agents-sandbox:docker\nRUN configure\n"
+	got, injected := injectDockerBlockForTest(body, false)
+	if injected || got != body {
+		t.Errorf("injectDockerBlock = %q (injected=%v), want the body unchanged", got, injected)
 	}
 }
 

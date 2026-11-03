@@ -58,10 +58,12 @@ type parsedProjectDockerfile struct {
 func parseProjectDockerfile(data []byte) parsedProjectDockerfile {
 	var p parsedProjectDockerfile
 	p.raw = data
-	p.markerAt = -1
 	p.lines = dockerfileLines(data)
-	instructionLines := instructionLineIndices(p.lines)
-	p.topLevelLines = topLevelLineIndices(p.lines)
+	var instructionLines []int
+	instructionLines, p.topLevelLines = dockerfileLineIndices(p.lines)
+	// lastFrom is only ever compared with < 0 and used as a non-negative slice
+	// bound, so any negative sentinel is equivalent.
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="lastFrom is only compared with < 0 and sliced from a non-negative index so -1 and -2 are indistinguishable"
 	p.lastFrom = -1
 	for _, i := range instructionLines {
 		if keyword, _ := instruction(string(p.lines[i])); keyword == fromInstruction {
@@ -95,7 +97,13 @@ func parseProjectDockerfile(data []byte) parsedProjectDockerfile {
 	}
 
 	p.bodyLines = dockerfileLines([]byte(p.body))
-	p.markerAt = firstMarkerIndex(p.bodyLines)
+	bodyStart := p.lastFrom + 1
+	if p.lastFrom < 0 {
+		// Without a final FROM there is no body, so no line can be its marker;
+		// start the scan at the end of the file, where nothing qualifies.
+		bodyStart = len(p.lines)
+	}
+	p.markerAt = firstMarkerIndex(p.lines, p.topLevelLines, bodyStart)
 	if p.markerAt >= 0 {
 		p.marker, _ = dockerMarkerKind(lineText(p.bodyLines[p.markerAt]))
 	}
@@ -249,7 +257,9 @@ func (p parsedProjectDockerfile) render(
 	// block builders read them instead of each re-asserting an interface.
 	resolved := agent.Resolve(a)
 
-	blocks := make([]string, 0, 7)
+	// The slice is built by appending, so no length or capacity hint is needed;
+	// joinBlocks filters the empty blocks anyway.
+	var blocks []string
 	blocks = append(blocks, p.earlier, toolbaseStage())
 	agentParent := toolbaseStageAlias
 	if resolved.Profile.ImageSpec().RequiresNode {

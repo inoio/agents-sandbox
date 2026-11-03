@@ -168,9 +168,11 @@ Both content signals work for a custom base and a managed base alike. The render
 classifier, and the image identity all consume the one parsed value, so the marker position, the
 enablement, and the recorded identity cannot disagree. Only the final-stage body is scanned, so a
 marker in an earlier stage neither enables nor positions. Markers are read only from top-level
-lines (`topLevelLineIndices`): a marker inside a heredoc body — e.g. a `COPY <<EOF` copying a sample
-Dockerfile — is inert for enablement, positioning, and diagnostics, so heredoc text is never
-rewritten by the injection.
+lines, from the same single walk (`dockerfileLineIndices`) that yields the instruction list: a marker
+inside a heredoc body — e.g. a `COPY <<EOF` copying a sample Dockerfile — or swallowed by a line
+continuation (for example under a file-level `# escape=`, or by the final `FROM`'s own continuation) is
+inert for enablement, positioning, and diagnostics, so text the lexer reads as heredoc body or
+continuation is never rewritten by the injection.
 
 **Precedence.** Explicit launcher config wins in both directions:
 `explicit config/flag/env (either value) > Dockerfile content > off`. "Explicit" is the canonical `docker` source (config
