@@ -160,6 +160,31 @@ func TestSecretsContentHashIncludesHeaderFieldsScope(t *testing.T) {
 	}
 }
 
+// TestSecretsContentHashScopedStable pins the digest of a header-scoped secret
+// (golden) and asserts a different field set hashes differently. Together they
+// prove the folded header-fields segment — both its leading "|" separator and
+// the joined names — reaches the digest: dropping either write still leaves a
+// scoped secret differing from an all-headers one, so scoped-vs-unscoped alone
+// would not notice a scoped-secret edit that stopped recreating the VM. The
+// no-scope case is pinned separately by TestSecretsContentHashAllHeadersStable.
+func TestSecretsContentHashScopedStable(t *testing.T) {
+	const golden = "af3da3e12c4d20cac8cce978b21986bca531ef43c6f5294b5590096d08d4cd22"
+	scoped := func(fields ...string) string {
+		return SecretsContentHash([]msbSdk.SecretEntry{{
+			EnvVar:       "K",
+			Value:        "v",
+			Allow:        []string{"h.example"},
+			Substitution: msbSdk.SecretSubstitution{HeaderFields: fields},
+		}})
+	}
+	if got := scoped("authorization"); got != golden {
+		t.Errorf("scoped header-fields hash = %q, want %q", got, golden)
+	}
+	if scoped("authorization") == scoped("x-api-key") {
+		t.Error("SecretsContentHash must differ when the header-field names differ")
+	}
+}
+
 func TestSecretsChanged(t *testing.T) {
 	hash := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}})
 	if SecretsChanged(SecretState{Hash: hash}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}}) {

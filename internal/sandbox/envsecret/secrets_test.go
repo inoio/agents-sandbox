@@ -672,6 +672,43 @@ func TestBuildSecretsFromSpecsHeaderFieldsCanonical(t *testing.T) {
 	}
 }
 
+// TestNormalizeHeaderFields exercises the helper's contract directly. An
+// empty or nil list collapses to nil (the SDK's all-headers default), a
+// single field is kept rather than treated as empty, and the dedup loop must
+// keep scanning after a repeat so a later distinct field survives.
+func TestNormalizeHeaderFields(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"nil stays nil", nil, nil},
+		{"empty collapses to nil", []string{}, nil},
+		{"single field", []string{"Authorization"}, []string{"authorization"}},
+		{
+			"duplicate before distinct",
+			[]string{"X-Api-Key", "X-API-KEY", "Authorization"},
+			[]string{"authorization", "x-api-key"},
+		},
+		{
+			"case and order only",
+			[]string{"X-Api-Key", "authorization", "x-api-key", "AUTHORIZATION"},
+			[]string{"authorization", "x-api-key"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeHeaderFields(tt.in)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("normalizeHeaderFields(%v) = %v, want %v", tt.in, got, tt.want)
+			}
+			if tt.want == nil && got != nil {
+				t.Errorf("normalizeHeaderFields(%v) = %v, want nil (all-headers default)", tt.in, got)
+			}
+		})
+	}
+}
+
 // TestParseSecretSpecLegacyTrimsKey pins that the legacy parser trims
 // surrounding whitespace from a key; the line is trimmed as a whole, but the
 // part before '=' can still carry trailing spaces.
