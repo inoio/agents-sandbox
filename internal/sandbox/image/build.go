@@ -174,38 +174,45 @@ func nextField(s string) (string, string) {
 	return s[:i], strings.TrimLeft(s[i+1:], " \t")
 }
 
-// buildDockerImage builds the given Dockerfile as a tag, wrapping the build
-// with a spinner and verbose output. noCache bypasses Docker's layer cache; it is
+// buildRequest is the single description of one runner-image build: the rendered
+// plan (Dockerfile, content identity, dockerfile-id, and the resolved agent
+// release baked as the installer ARG default), the resolved base digest recorded
+// as provenance, and the resolved docker setting. Every build arg is derived from
+// this one object instead of parallel positional values.
+//
+// The one resolved options.DockerSetting feeds two deliberate, different docker
+// derivations, and they must not be "simplified" into each other: the
+// DOCKER_VERSION arg (userBuildArgs) reads the raw docker.Enabled, while the
+// IDENTITY_DOCKER label reads the effective value (effectiveDocker, recorded in
+// plan.identity.Docker). They diverge whenever the setting is not explicit but the
+// project Dockerfile's final-stage marker or managed docker base implies docker:
+// then DOCKER_VERSION is absent while IDENTITY_DOCKER is "true". Unifying the two
+// would change the build args.
+//
+// baseDigest and plan.identity.BaseImage are deliberately named apart: the former
+// is the resolved `<ref>@<image id>` the build records, the latter is the locally
+// cached base the build decision compares against.
+type buildRequest struct {
+	plan       buildPlan
+	baseDigest string
+	docker     options.DockerSetting
+}
+
+// buildDockerImage builds the described image as a tag, wrapping the build with a
+// spinner and verbose output. noCache bypasses Docker's layer cache; it is
 // independent of whether a build is needed at all.
 func buildDockerImage(
 	ctx context.Context,
 	a agent.Agent,
-	dockerfile []byte,
+	req buildRequest,
 	tag, label string,
 	noCache bool,
-	agentVersion string,
-	baseImage string,
-	dockerfileID string,
-	dockerEnabled bool,
-	identity imageIdentity,
 	ui termio.UI,
 ) error {
 	spinner := ui.Spinner(label)
 	line := func(s string) { ui.Verbose(s) }
 	ui.Verbosef("Building Docker image (noCache=%v)", noCache)
-	if err := buildImage(
-		ctx,
-		a,
-		dockerfile,
-		tag,
-		noCache,
-		agentVersion,
-		baseImage,
-		dockerfileID,
-		dockerEnabled,
-		identity,
-		line,
-	); err != nil {
+	if err := buildImage(ctx, a, req, tag, noCache, line); err != nil {
 		spinner.StopError(err)
 		return err
 	}
@@ -219,34 +226,21 @@ func buildDockerImage(
 func buildImage(
 	ctx context.Context,
 	a agent.Agent,
-	dockerfile []byte,
+	req buildRequest,
 	tag string,
 	noCache bool,
-	agentVersion string,
-	baseImage string,
-	dockerfileID string,
-	dockerEnabled bool,
-	identity imageIdentity,
 	line func(string),
 ) error {
 	var tarBuf bytes.Buffer
-	if err := writeDockerfileTar(&tarBuf, dockerfile); err != nil {
+	// gomutants:disable-next-line BRANCH_IF reason="writeDockerfileTar writes only into this in-memory bytes.Buffer, whose Write is documented to always return a nil error, so the call cannot fail here and the branch body never executes"
+	if err := writeDockerfileTar(&tarBuf, req.plan.rendered); err != nil {
 		return fmt.Errorf("create build context: %w", err)
 	}
 	buildResp, err := docker.Get().ImageBuild(ctx, &tarBuf, client.ImageBuildOptions{
-		Tags:    []string{tag},
-		Remove:  true,
-		NoCache: noCache,
-		BuildArgs: userBuildArgs(
-			os.Getuid(),
-			os.Getgid(),
-			a.ImageSpec(),
-			agentVersion,
-			baseImage,
-			dockerfileID,
-			dockerEnabled,
-			identity,
-		),
+		Tags:      []string{tag},
+		Remove:    true,
+		NoCache:   noCache,
+		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid(), a.ImageSpec(), req),
 	})
 	if err != nil {
 		return buildFailureError(err)
@@ -382,28 +376,28 @@ func writeTarEntry(tw *tar.Writer, name string, content []byte, mode int64) erro
 // userBuildArgs returns Docker build arguments that align the in-image dev
 // user with the host user that owns the bind-mounted /workspace, pin the agent
 // version, record the base image provenance label, and carry the identity
-// components recorded as image labels.
-func userBuildArgs(
-	uid, gid int,
-	spec agent.ImageSpec,
-	version, baseImage, dockerfileID string,
-	docker bool,
-	identity imageIdentity,
-) map[string]*string {
+// components recorded as image labels. Every value comes from the request. The
+// DOCKER_VERSION arg deliberately follows the request's raw docker.Enabled, not
+// the identity's effective docker value (see buildRequest): the two differ for a
+// non-explicit setting that the project Dockerfile nonetheless enables, and
+// switching this to the effective value would change the build args.
+func userBuildArgs(uid, gid int, spec agent.ImageSpec, req buildRequest) map[string]*string {
 	u := strconv.Itoa(uid)
 	g := strconv.Itoa(gid)
+	identity := req.plan.identity
+	version := req.plan.agentVersion
 	args := map[string]*string{
 		"USER_UID":               &u,
 		"USER_GID":               &g,
 		spec.VersionArg:          &version,
-		"BASE_IMAGE":             &baseImage,
-		"DOCKERFILE_ID":          &dockerfileID,
+		"BASE_IMAGE":             &req.baseDigest,
+		"DOCKERFILE_ID":          &req.plan.dockerfileID,
 		projectDockerfileHashArg: &identity.ProjectDockerfileHash,
 		agentVersionArg:          &identity.AgentVersion,
 		dockerArg:                &identity.Docker,
 		userArg:                  &identity.User,
 	}
-	if docker {
+	if req.docker.Enabled {
 		v := dockerVersion
 		args["DOCKER_VERSION"] = &v
 	}
@@ -466,7 +460,7 @@ func EnsureImageWithClient(
 	logBuildDecision(ui, rTag, needsBuild, reasons, a.Name(), agentVersion, buildOpts.AgentVersion)
 
 	if needsBuild {
-		if buildErr := buildFromPlan(ctx, a, plan, rTag, buildOpts, agentVersion, ui); buildErr != nil {
+		if buildErr := buildFromPlan(ctx, a, plan, rTag, buildOpts, ui); buildErr != nil {
 			return ImageInfo{}, buildErr
 		}
 	}
@@ -549,11 +543,13 @@ func initialBuildVersions(buildOpts BuildOptions) (string, string, bool) {
 	return buildOpts.AgentVersion, buildOpts.AgentVersion, false
 }
 
-// buildPlan is the rendered Dockerfile and the content identity it bakes.
+// buildPlan is the rendered Dockerfile and the content identity it bakes,
+// together with the resolved agent release that is the installer ARG's default.
 type buildPlan struct {
 	rendered     []byte
 	identity     imageIdentity
 	dockerfileID string
+	agentVersion string
 }
 
 // renderBuildPlan renders the runner Dockerfile for the pinned agent version and
@@ -575,6 +571,7 @@ func renderBuildPlan(
 			projectDockerfile, identityVersion, effectiveDocker(projectDockerfile, docker),
 		)),
 		dockerfileID: computeDockerfileID(rendered, identityVersion),
+		agentVersion: agentVersion,
 	}, nil
 }
 
@@ -615,7 +612,6 @@ func buildFromPlan(
 	plan buildPlan,
 	rTag string,
 	buildOpts BuildOptions,
-	agentVersion string,
 	ui termio.UI,
 ) error {
 	baseRef := baseImageRef(plan.rendered)
@@ -624,8 +620,9 @@ func buildFromPlan(
 		return fmt.Errorf("resolve base image %s: %w", baseRef, err)
 	}
 	return buildDockerImage(
-		ctx, a, plan.rendered, rTag, "Ensuring runner image",
-		buildOpts.Force, agentVersion, baseDigest, plan.dockerfileID, buildOpts.Docker.Enabled, plan.identity, ui,
+		ctx, a,
+		buildRequest{plan: plan, baseDigest: baseDigest, docker: buildOpts.Docker},
+		rTag, "Ensuring runner image", buildOpts.Force, ui,
 	)
 }
 

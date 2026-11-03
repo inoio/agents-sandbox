@@ -209,8 +209,11 @@ func TestRenderDockerfileMissingGuestToolFailsBuild(t *testing.T) {
 	var lines []string
 	buildErr := buildImage(
 		ctx, a,
-		renderBytesVersion(t, a, version, []byte("FROM debian:trixie-slim\n"), dockerOff),
-		tag, false, version, "", "", false, imageIdentity{},
+		testBuildRequest(
+			renderBytesVersion(t, a, version, []byte("FROM debian:trixie-slim\n"), dockerOff),
+			version, "", "", imageIdentity{},
+		),
+		tag, false,
 		func(s string) { lines = append(lines, s) },
 	)
 	if buildErr == nil {
@@ -251,8 +254,11 @@ func TestRenderDockerfileMissingRuntimeLibFailsBuild(t *testing.T) {
 	var lines []string
 	buildErr := buildImage(
 		ctx, a,
-		renderBytesVersion(t, a, version, []byte("FROM debian:trixie-slim\n"), dockerOff),
-		tag, false, version, "", "", false, imageIdentity{},
+		testBuildRequest(
+			renderBytesVersion(t, a, version, []byte("FROM debian:trixie-slim\n"), dockerOff),
+			version, "", "", imageIdentity{},
+		),
+		tag, false,
 		func(s string) { lines = append(lines, s) },
 	)
 	if buildErr == nil {
@@ -622,17 +628,16 @@ func buildDockerfileTagOutput(
 			*lines = append(*lines, s)
 		}
 	}
+	req := testBuildRequest(dockerfile, agentVersion, "", "", imageIdentity{})
+	if dockerEnabled {
+		req.docker = options.DockerSetting{Enabled: true, Explicit: true}
+	}
 	if err := buildImage(
 		ctx,
 		a,
-		dockerfile,
+		req,
 		tag,
 		false,
-		agentVersion,
-		"",
-		"",
-		dockerEnabled,
-		imageIdentity{},
 		line,
 	); err != nil {
 		t.Fatalf("docker image build failed: %v", err)
