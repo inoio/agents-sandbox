@@ -227,6 +227,3 @@
 - `2026-10-29-all-agents-integration-build.md`
   - Description: TDD plan for CI coverage of every agent install: `TestRenderDockerfileBuildsEveryAgent` (build and run each profile on the managed and a custom non-Debian base), an `opencode2` `VersionProvider` so the run probe is uniform, and removal of the two composition cases it subsumes. Its Outcome section records the deviations: the node/npm regression test was kept, and the conditional `libatomic1` fix was not needed.
   - Read If: Implementing or reviewing the all-agents integration build, the `opencode2` version provider, or which duplicate composition cases the all-agents test subsumes.
-- `2026-11-03-fuse-overlayfs-dockerd.md`
-  - Description: TDD plan for #489: the docker-stage `fuse-overlayfs libfuse3-4` apt install, the `vm/dockerd.go` driver selection (guest probe, #287 flag rule, unknown-driver hard error, vfs fallback), the msb-tagged in-VM integration test, and the docs/spec/changelog sweep.
-  - Read If: Implementing or resuming the fuse-overlayfs storage-driver switch — `dockerStage`, `dockerdArgs`/`guestStorageDriver`, `guestSupportsFuseOverlayfs`, or the harness docker-storage test.

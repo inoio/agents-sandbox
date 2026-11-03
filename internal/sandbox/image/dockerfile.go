@@ -597,7 +597,7 @@ RUN mkdir -p %s && %s
 // runner's PATH precedence and recorded by adoption. It also installs
 // fuse-overlayfs and its libfuse3 runtime from the tool base's apt, so the
 // guest has a copy-on-write storage driver dockerd can use (the kernel rejects
-// overlay2 here; see the dockerd storage-driver contract and the guide). It
+// overlay2 here; the selection contract is in specs/image-composition.md). It
 // does not check the runtime prerequisites (iptables, git, ps, xz): the check
 // runs in the final stage instead (dockerAdoptionBlock), after the user body,
 // so a body that installs them is accepted.

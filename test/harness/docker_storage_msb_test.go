@@ -40,15 +40,20 @@ func TestDockerStorageDriverIsFuseOverlayfs(t *testing.T) {
 		binary, "shell", "--agent", "opencode", "--docker", "--network", networkNone)
 	defer ses.close()
 
-	// Turn off the tty's input echo first: with it on, the sentinels below would
-	// match the echoed command line the moment it is written, before the shell
-	// has run anything.
-	if err := ses.write([]byte("stty -echo\n")); err != nil {
-		t.Fatalf("write stty: %v", err)
+	// The shell prints no stable readiness marker, so wait out the launcher's
+	// prepare the way waitSettled does, then type. Anything typed before the
+	// shell is up queues in the pty, but waiting keeps the input out of the
+	// window where the attach switches the terminal to raw mode.
+	if err := ses.waitSettled(settledReadyTimeout); err != nil {
+		t.Fatalf("shell did not come up: %v\n%s", err, stripANSI(ses.output()))
 	}
 
+	// Every marker is assembled at runtime (printf) so the pty's echoed command
+	// line never contains it: with the tty echoing input, a literal marker would
+	// match the echo before the shell had run anything.
+	writeAndAwaitMarker(t, ses, "printf '__SHELL%s__\\n' _READY\n", "__SHELL_READY__")
 	writeAndAwaitMarker(t, ses,
-		"echo \"__DRIVER=__$(docker info --format '{{.Driver}}')__END__\"; echo __DRIVER_DONE__\n",
+		"echo \"__DRIVER=__$(docker info --format '{{.Driver}}')__END__\"; printf '__DRIVER%s__\\n' _DONE\n",
 		"__DRIVER_DONE__")
 	if !strings.Contains(markerText(string(ses.output())), "__DRIVER=__"+fuseDriverMarker+"__END__") {
 		t.Fatalf("in-VM dockerd did not use %s; output:\n%s", fuseDriverMarker, stripANSI(ses.output()))
@@ -63,7 +68,7 @@ func TestDockerStorageDriverIsFuseOverlayfs(t *testing.T) {
 		"touch /tmp/ctx/extra",
 		"docker build -t driver-probe /tmp/ctx",
 		"docker run --rm driver-probe /dockerd --version",
-		"echo __BUILD_DONE__",
+		"printf '__BUILD%s__\\n' _DONE",
 	}, "; ")
 	writeAndAwaitMarker(t, ses, script+"\n", "__BUILD_DONE__")
 	output := stripANSI(ses.output())
