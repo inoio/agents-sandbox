@@ -307,7 +307,7 @@ linters:
         - ^github.com/moby/moby/client.PingOptions$
         - ^github.com/superradcompany/microsandbox/sdk/go\.(RuntimeConfig|InstallOptions|DNSConfig)$
         - ^github.com/superradcompany/microsandbox/sdk/go.MountOptions$
-        - ^github.com/superradcompany/microsandbox/sdk/go.SecretEnvOptions$
+        - ^github.com/superradcompany/microsandbox/sdk/go\.(SecretEnvOptions|SecretSubstitution)$
         # microsandbox SDK errors — Cause is nil for SDK-originated errors
         - ^github.com/superradcompany/microsandbox/sdk/go.Error$
         # project types — intentionally partial init (zero-value fields set later)

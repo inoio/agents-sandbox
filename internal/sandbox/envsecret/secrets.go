@@ -20,6 +20,7 @@ type SecretSpec struct {
 	Value                 string   `yaml:"value"`
 	Host                  string   `yaml:"host"`
 	Hosts                 []string `yaml:"hosts"`
+	HeaderFields          []string `yaml:"header_fields"`
 	AllowAnyHostDangerous bool     `yaml:"allow_any_host_dangerous"`
 }
 
@@ -53,10 +54,34 @@ func BuildSecretsFromSpecs(
 			msbSdk.SecretEnvOptions{
 				Allow:               hosts,
 				AllowPlaceholderFor: placeholderHostsFor(hosts, allowPlaceholderFor),
+				Substitution: msbSdk.SecretSubstitution{
+					HeaderFields: normalizeHeaderFields(spec.HeaderFields),
+				},
 			},
 		))
 	}
 	return secrets
+}
+
+// normalizeHeaderFields lowercases, deduplicates and sorts header field names
+// so case- or order-only edits compare equal, and returns nil when nothing
+// remains (an empty list means every header may be substituted).
+func normalizeHeaderFields(fields []string) []string {
+	if len(fields) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(fields))
+	normalized := make([]string, 0, len(fields))
+	for _, field := range fields {
+		lower := strings.ToLower(field)
+		if _, ok := seen[lower]; ok {
+			continue
+		}
+		seen[lower] = struct{}{}
+		normalized = append(normalized, lower)
+	}
+	sort.Strings(normalized)
+	return normalized
 }
 
 // placeholderHostsFor returns the hosts from allowPlaceholderFor that may

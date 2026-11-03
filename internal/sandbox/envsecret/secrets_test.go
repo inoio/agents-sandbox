@@ -602,6 +602,76 @@ func TestBuildSecretsFromSpecsDeterministicOrder(t *testing.T) {
 	}
 }
 
+func TestParseSecretSpecYAMLHeaderFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "env.secret.yaml")
+	testutil.WritePath(t, path, "FOO:\n  value: x\n  host: h.example\n  header_fields: [X-Api-Key, Authorization]\n")
+	testUI := termio.NewTestMock(t)
+
+	specs := ParseSecretSpecYAML(path, &testUI)
+	want := map[string]SecretSpec{"FOO": {
+		Value: "x", Host: "h.example", HeaderFields: []string{"X-Api-Key", "Authorization"},
+	}}
+	if !reflect.DeepEqual(specs, want) {
+		t.Errorf("got %#v, want %#v", specs, want)
+	}
+}
+
+func TestBuildSecretsFromSpecsHeaderFieldsScoped(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {
+		Value: "v", Host: "h.example", HeaderFields: []string{"authorization", "x-api-key"},
+	}}
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if !slices.Equal(secrets[0].Substitution.HeaderFields, []string{"authorization", "x-api-key"}) {
+		t.Errorf("HeaderFields = %v, want [authorization x-api-key]", secrets[0].Substitution.HeaderFields)
+	}
+}
+
+func TestBuildSecretsFromSpecsHeaderFieldsAbsentIsAllHeaders(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {Value: "v", Host: "h.example"}}
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if len(secrets[0].Substitution.HeaderFields) != 0 {
+		t.Errorf("HeaderFields = %v, want empty so all headers substitute", secrets[0].Substitution.HeaderFields)
+	}
+}
+
+func TestBuildSecretsFromSpecsHeaderFieldsEmptySliceIsAllHeaders(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {Value: "v", Host: "h.example", HeaderFields: []string{}}}
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if len(secrets[0].Substitution.HeaderFields) != 0 {
+		t.Errorf("HeaderFields = %v, want empty so all headers substitute", secrets[0].Substitution.HeaderFields)
+	}
+}
+
+// TestBuildSecretsFromSpecsHeaderFieldsCanonical pins that case-, order- and
+// duplicate-only differences collapse to one canonical slice, so the built
+// entry (and its fingerprint) is identical for equivalent inputs.
+func TestBuildSecretsFromSpecsHeaderFieldsCanonical(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {
+		Value: "v", Host: "h.example",
+		HeaderFields: []string{"X-Api-Key", "authorization", "x-api-key", "AUTHORIZATION"},
+	}}
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if !slices.Equal(secrets[0].Substitution.HeaderFields, []string{"authorization", "x-api-key"}) {
+		t.Errorf("HeaderFields = %v, want [authorization x-api-key]", secrets[0].Substitution.HeaderFields)
+	}
+}
+
 // TestParseSecretSpecLegacyTrimsKey pins that the legacy parser trims
 // surrounding whitespace from a key; the line is trimmed as a whole, but the
 // part before '=' can still carry trailing spaces.
