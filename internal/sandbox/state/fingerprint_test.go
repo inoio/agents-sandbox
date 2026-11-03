@@ -5,8 +5,10 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestEnvContentHashOrderIndependent(t *testing.T) {
@@ -99,6 +101,43 @@ func TestSecretsContentHashIncludesOtherFields(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSecretsContentHashAllHeadersStable pins the digest of an all-headers
+// secret (no header_fields) to the value the record format produced before
+// header scoping existed. An unconditional change to the line would hash every
+// existing secret differently and recreate every project VM once on upgrade,
+// which this change must not do. Treat a mismatch here as deliberate: it means
+// field scoping was folded into the fingerprint in a way that also moves the
+// no-scope case.
+func TestSecretsContentHashAllHeadersStable(t *testing.T) {
+	const golden = "26f56b74321a6352bfaa9ef9c5434c1929f5e9b2c6416b9cf1f4803437ce3ce4"
+	got := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}})
+	if got != golden {
+		t.Errorf("all-headers secret hash = %q, want the pre-scoping value %q", got, golden)
+	}
+}
+
+// TestSecretsContentHashCaseOrderInsensitiveAcrossSpecs pins the review-focus
+// invariant end to end: two specs that differ only in header-field case and
+// order build identical entries and therefore one fingerprint, so such an edit
+// never triggers a recreate.
+func TestSecretsContentHashCaseOrderInsensitiveAcrossSpecs(t *testing.T) {
+	a := envsecret.BuildSecretsFromSpecs(map[string]envsecret.SecretSpec{
+		"K": {Value: "v", Host: "h.example", HeaderFields: []string{"X-Api-Key", "Authorization"}},
+	}, nil, testUI(t))
+	b := envsecret.BuildSecretsFromSpecs(map[string]envsecret.SecretSpec{
+		"K": {Value: "v", Host: "h.example", HeaderFields: []string{"authorization", "x-api-key"}},
+	}, nil, testUI(t))
+	if SecretsContentHash(a) != SecretsContentHash(b) {
+		t.Error("case/order-only header_fields change must not flip the fingerprint")
+	}
+}
+
+func testUI(t *testing.T) termio.UI {
+	t.Helper()
+	mock := termio.NewTestMock(t)
+	return &mock
 }
 
 func TestSecretsContentHashIncludesHeaderFieldsScope(t *testing.T) {

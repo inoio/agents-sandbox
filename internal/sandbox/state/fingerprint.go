@@ -58,7 +58,7 @@ func SecretsContentHash(entries []msbSdk.SecretEntry) string {
 		if e.Substitution.Headers != nil {
 			headers = strconv.FormatBool(*e.Substitution.Headers)
 		}
-		fmt.Fprintf(&b, "%s=%s|%s|%s|%s|%s|%s|%t|%t|%s|%s\n",
+		fmt.Fprintf(&b, "%s=%s|%s|%s|%s|%s|%s|%t|%t|%s",
 			k,
 			e.Value,
 			strings.Join(e.Allow, ","),
@@ -69,8 +69,15 @@ func SecretsContentHash(entries []msbSdk.SecretEntry) string {
 			e.Substitution.Query,
 			e.Substitution.Body,
 			string(e.ViolationAction),
-			strings.Join(e.Substitution.HeaderFields, ","),
 		)
+		// The header-fields segment is appended only when scoping is set, so an
+		// all-headers secret keeps the record format (and digest) it had before
+		// scoping existed and upgrading the launcher recreates nothing.
+		if fields := strings.Join(e.Substitution.HeaderFields, ","); fields != "" {
+			b.WriteString("|")
+			b.WriteString(fields)
+		}
+		b.WriteString("\n")
 	}
 	h := sha256.Sum256([]byte(b.String()))
 	return hex.EncodeToString(h[:])
