@@ -159,13 +159,18 @@ The heavy docker install lives in the `agents-sandbox-docker` stage. The final-s
 so steps after it see `docker`; without a marker that copy+adopt is appended after the body, matching the previous
 default. The download itself stays cacheable.
 
-The marker is also an **enable** signal, not only a position. `effectiveDocker(projectDockerfile, DockerSetting)` is the
-single decision site: the capability is on when the final-stage body carries either marker **or** the final stage's base
-resolves to the managed `runner-base-docker`/`runner-base-dind` alias (`referencesImage`). Both content signals work for
-a custom base and a managed base alike. Only the final-stage body is scanned, so a marker in an earlier stage neither
-enables nor positions. Markers are read only from top-level lines (`topLevelLineIndices`): a marker inside a heredoc body
-— e.g. a `COPY <<EOF` copying a sample Dockerfile — is inert for enablement, positioning, and diagnostics, so heredoc
-text is never rewritten by the injection.
+The marker is also an **enable** signal, not only a position. The project
+Dockerfile is lexed once into a `parsedProjectDockerfile` (`parseProjectDockerfile`), and
+`effectiveDocker(DockerSetting)` is the single decision site over that value: the capability is on
+when the final-stage body carries either marker **or** the final stage's base resolves to the
+managed `runner-base-docker`/`runner-base-dind` alias (`parsedProjectDockerfile.referencesImage`).
+Both content signals work for a custom base and a managed base alike. The renderer, the diagnostic
+classifier, and the image identity all consume the one parsed value, so the marker position, the
+enablement, and the recorded identity cannot disagree. Only the final-stage body is scanned, so a
+marker in an earlier stage neither enables nor positions. Markers are read only from top-level
+lines (`topLevelLineIndices`): a marker inside a heredoc body — e.g. a `COPY <<EOF` copying a sample
+Dockerfile — is inert for enablement, positioning, and diagnostics, so heredoc text is never
+rewritten by the injection.
 
 **Precedence.** Explicit launcher config wins in both directions:
 `explicit config/flag/env (either value) > Dockerfile content > off`. "Explicit" is the canonical `docker` source (config
@@ -189,9 +194,13 @@ case-insensitive (`nearMissDockerMarker`) so a case variant is still surfaced an
 the token (`dockr`) are not caught.
 
 **Diagnostics.** One pure classifier and one emitter, both in `internal/sandbox/image`
-(`DiagnoseDockerfile`/`DockerfileDiagnostics` and `EmitDockerfileDiagnostics`), serve every emission site:
-`EnsureImageWithClient` (every ensure, cached reuse included), the dry-run preview, and `build dockerfile` (through
-`EmitProjectDockerfileDiagnostics`, which reads the file before diagnosing). Messages are the capability line
+(`DiagnoseDockerfile`/`DockerfileDiagnostics` and `EmitDockerfileDiagnostics`), serve every emission
+site: `EnsureImageWithClient` (every ensure, cached reuse included), the dry-run preview, and
+`build dockerfile` (through `EmitProjectDockerfileDiagnostics`). The bytes are an explicit input end
+to end: `ReadProjectDockerfile` is the single reader, called once at the CLI and run/shell boundary
+(`EnsureImage`/`Build`/`PreviewImage`/`RenderProjectDockerfile` take the bytes instead of reaching
+for the process-global path). `DiagnoseDockerfile` is a thin wrapper over
+`parsedProjectDockerfile.diagnostics`. Messages are the capability line
 (`docker: on (project Dockerfile marker)` / `docker: on (project Dockerfile base)`) or the suppression notice
 (`docker: off (config); project Dockerfile asks for docker`); the legacy base and marker deprecation warnings; exactly
 one ignored-marker message per earlier-stage marker, which replaces that line's deprecation warning; and one near-miss

@@ -51,7 +51,7 @@ func TestEnsureImageVerboseNamesChangedInputs(t *testing.T) {
 		},
 	})
 	ui := &termio.Mock{}
-	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, ui); err != nil {
+	if _, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{}, ui); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
 	if !built {
@@ -87,7 +87,7 @@ func TestEnsureImageVerboseReportsReuse(t *testing.T) {
 		},
 	})
 	ui := &termio.Mock{}
-	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, ui); err != nil {
+	if _, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{}, ui); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
 	if !verboseContains(ui, "reusing runner image") {
@@ -110,7 +110,7 @@ func TestEnsureImageVerboseReportsForcedRebuild(t *testing.T) {
 		},
 	})
 	ui := &termio.Mock{}
-	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{Force: true}, ui); err != nil {
+	if _, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{Force: true}, ui); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
 	if !verboseContains(ui, "forced by --rebuild") {

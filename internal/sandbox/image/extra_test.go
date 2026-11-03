@@ -18,13 +18,13 @@ import (
 )
 
 func TestReferencesImageSkipsFromWithoutImage(t *testing.T) {
-	if referencesImage([]byte("FROM --platform=linux/amd64\n"), "debian") {
+	if parseProjectDockerfile([]byte("FROM --platform=linux/amd64\n")).referencesImage("debian") {
 		t.Error("expected referencesImage=false for a FROM line carrying only flags")
 	}
 }
 
 func TestReferencesImageFalseForUnparseableRef(t *testing.T) {
-	if referencesImage([]byte("FROM INVALIDREF\n"), "anything") {
+	if parseProjectDockerfile([]byte("FROM INVALIDREF\n")).referencesImage("anything") {
 		t.Error("expected referencesImage=false when the FROM reference cannot be parsed")
 	}
 }
@@ -38,7 +38,7 @@ func TestReferencesImageTerminatesOnCyclicStageAlias(t *testing.T) {
 		"FROM 0 AS 0\n",
 		"FROM base AS builder\nFROM builder AS base\n",
 	} {
-		if referencesImage([]byte(dockerfile), "agents-sandbox/runner-base") {
+		if parseProjectDockerfile([]byte(dockerfile)).referencesImage("agents-sandbox/runner-base") {
 			t.Errorf("referencesImage(%q) = true, want false", dockerfile)
 		}
 	}
@@ -410,7 +410,7 @@ func TestCachedImageMatches(t *testing.T) {
 }
 
 func TestSplitFinalStageNoFrom(t *testing.T) {
-	earlier, base, body := splitFinalStage([]byte("RUN echo hi\n"))
+	earlier, base, body := splitFinalStageForTest([]byte("RUN echo hi\n"))
 	if earlier != "" || body != "" {
 		t.Errorf(
 			"splitFinalStage without a FROM must return the input as the base, got earlier=%q base=%q body=%q",
@@ -425,7 +425,7 @@ func TestSplitFinalStageNoFrom(t *testing.T) {
 }
 
 func TestInjectDockerBlockMarkerWithoutTrailingNewline(t *testing.T) {
-	got, injected := injectDockerBlock("RUN prereq\n# agents-sandbox:dind", true)
+	got, injected := injectDockerBlockForTest("RUN prereq\n# agents-sandbox:dind", true)
 	if !injected {
 		t.Fatal("expected injection at the legacy dind marker")
 	}

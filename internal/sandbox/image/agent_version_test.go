@@ -36,7 +36,7 @@ func TestEnsureImageReportsBakedAgentVersion(t *testing.T) {
 		},
 	})
 
-	info, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{})
+	info, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{}, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestEnsureImageReportsEmptyForSentinelLabel(t *testing.T) {
 		},
 	})
 
-	info, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{})
+	info, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{}, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}

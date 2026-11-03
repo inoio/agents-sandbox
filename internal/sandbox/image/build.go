@@ -71,26 +71,23 @@ type ImageInfo struct {
 	AgentVersion string
 }
 
-// referencesImage reports whether the Dockerfile uses the given image
-// identifier as the base of its final (last) stage, ignoring any tag or digest
-// on the reference. Multi-stage FROM lines are resolved through their declared
-// stage aliases, so the image only counts if it ultimately backs the resulting
-// image.
-func referencesImage(dockerfile []byte, imageRef string) bool {
-	lastImage, stageBase := scanFromStages(dockerfile)
-	return imageRefMatches(resolveStageBase(lastImage, stageBase), imageRef)
-}
-
 // scanFromStages walks a Dockerfile's FROM instructions, returning the final
 // stage's image token and the declared stage-alias map. Only real instruction
 // starts are read, so a stage header is not found inside a heredoc body or a
 // continuation line; keywords are matched case-insensitively, so lowercase and
 // mixed-case FROM lines are recognised.
 func scanFromStages(dockerfile []byte) (string, map[string]string) {
+	lines := dockerfileLines(dockerfile)
+	return scanFromStagesFrom(lines, instructionLineIndices(lines))
+}
+
+// scanFromStagesFrom is scanFromStages over pre-lexed input, so a caller that
+// already holds the line split and instruction indices (parseProjectDockerfile)
+// does not re-lex. lines and instructionLines must come from the same Dockerfile.
+func scanFromStagesFrom(lines [][]byte, instructionLines []int) (string, map[string]string) {
 	stageBase := make(map[string]string)
 	var lastImage string
-	lines := dockerfileLines(dockerfile)
-	for _, i := range instructionLineIndices(lines) {
+	for _, i := range instructionLines {
 		fromImage, stageAlias := parseFrom(string(lines[i]))
 		if fromImage == "" {
 			continue
@@ -426,7 +423,8 @@ func EnsureImageWithClient(
 	buildOpts BuildOptions,
 	ui termio.UI,
 ) (ImageInfo, error) {
-	EmitDockerfileDiagnostics(ui, DiagnoseDockerfile(projectDockerfile, buildOpts.Docker))
+	project := parseProjectDockerfile(projectDockerfile)
+	EmitDockerfileDiagnostics(ui, project.diagnostics(buildOpts.Docker))
 
 	agentVersion, identityVersion, deferResolve := initialBuildVersions(buildOpts)
 	if !deferResolve {
@@ -438,7 +436,7 @@ func EnsureImageWithClient(
 	}
 
 	plan, rTag, needsBuild, reasons, err := planRunnerImage(
-		ctx, a, projectDockerfile, projectSlug, agentVersion, identityVersion, buildOpts,
+		ctx, a, project, projectSlug, agentVersion, identityVersion, buildOpts,
 	)
 	if err != nil {
 		return ImageInfo{}, fmt.Errorf("render Dockerfile: %w", err)
@@ -452,7 +450,7 @@ func EnsureImageWithClient(
 		agentVersion, identityVersion = resolved, resolved
 		// Re-render so the resolved version becomes the agent stage's ARG
 		// default (the deferred render above had no version).
-		plan, err = renderBuildPlan(a, projectDockerfile, buildOpts.Docker, agentVersion, identityVersion)
+		plan, err = renderBuildPlan(a, project, buildOpts.Docker, agentVersion, identityVersion)
 		if err != nil {
 			return ImageInfo{}, fmt.Errorf("render Dockerfile: %w", err)
 		}
@@ -553,22 +551,23 @@ type buildPlan struct {
 }
 
 // renderBuildPlan renders the runner Dockerfile for the pinned agent version and
-// derives the image content identity from the same inputs. The version is the
-// agent stage's ARG default, so the rendered content changes with the version.
+// derives the image content identity from the same parsed project Dockerfile.
+// The version is the agent stage's ARG default, so the rendered content changes
+// with the version.
 func renderBuildPlan(
 	a agent.Agent,
-	projectDockerfile []byte,
+	project parsedProjectDockerfile,
 	docker options.DockerSetting,
 	agentVersion, identityVersion string,
 ) (buildPlan, error) {
-	rendered, err := RenderDockerfile(a, agentVersion, projectDockerfile, docker)
+	rendered, err := project.render(a, agentVersion, docker)
 	if err != nil {
 		return buildPlan{}, err
 	}
 	return buildPlan{
 		rendered: rendered,
 		identity: withHostUser(computeImageIdentity(
-			projectDockerfile, identityVersion, effectiveDocker(projectDockerfile, docker),
+			project.raw, identityVersion, project.effectiveDocker(docker),
 		)),
 		dockerfileID: computeDockerfileID(rendered, identityVersion),
 		agentVersion: agentVersion,
@@ -588,12 +587,12 @@ func withHostUser(identity imageIdentity) imageIdentity {
 func planRunnerImage(
 	ctx context.Context,
 	a agent.Agent,
-	projectDockerfile []byte,
+	project parsedProjectDockerfile,
 	projectSlug string,
 	agentVersion, identityVersion string,
 	buildOpts BuildOptions,
 ) (buildPlan, string, bool, []string, error) {
-	plan, err := renderBuildPlan(a, projectDockerfile, buildOpts.Docker, agentVersion, identityVersion)
+	plan, err := renderBuildPlan(a, project, buildOpts.Docker, agentVersion, identityVersion)
 	if err != nil {
 		return buildPlan{}, "", false, nil, err
 	}
@@ -720,33 +719,37 @@ func cachedImageMatches(ctx context.Context, mclient msb.Client, ref string, inf
 // EnsureImage builds/inspects the runner Docker image and returns an ImageInfo
 // describing the resulting image — its tag, reference, digest, content identity,
 // baked agent release, and ENV map, read from the Docker image config. It does
-// not load the image into microsandbox.
+// not load the image into microsandbox. The project Dockerfile's bytes are an
+// explicit input (see ReadProjectDockerfile); the caller reads them once.
 func EnsureImage(
 	ctx context.Context,
 	a agent.Agent,
 	projectSlug string,
+	projectDockerfile []byte,
 	buildOpts BuildOptions,
 	ui termio.UI,
 ) (ImageInfo, error) {
 	WarnIgnoredProjectConfig(ui)
-	return EnsureImageWithClient(ctx, a, readProjectDockerfile(), projectSlug, buildOpts, ui)
+	return EnsureImageWithClient(ctx, a, projectDockerfile, projectSlug, buildOpts, ui)
 }
 
 // Build ensures the runner image is built and loaded into the microsandbox
 // cache, so it can be used to create VMs. It composes EnsureImageWithClient
 // (build/inspect) and EnsureLoaded (load into microsandbox) and returns the
 // resulting ImageInfo. Preflight checks (e.g., docker availability) and dry-run
-// handling are the caller's concern.
+// handling are the caller's concern. The project Dockerfile's bytes are an
+// explicit input (see ReadProjectDockerfile).
 func Build(
 	ctx context.Context,
 	client msb.Client,
 	a agent.Agent,
 	projectSlug string,
+	projectDockerfile []byte,
 	buildOpts BuildOptions,
 	ui termio.UI,
 ) (ImageInfo, error) {
 	WarnIgnoredProjectConfig(ui)
-	info, err := EnsureImageWithClient(ctx, a, readProjectDockerfile(), projectSlug, buildOpts, ui)
+	info, err := EnsureImageWithClient(ctx, a, projectDockerfile, projectSlug, buildOpts, ui)
 	if err != nil {
 		return ImageInfo{}, err
 	}

@@ -29,7 +29,7 @@ func TestEnsureImageSuccess(t *testing.T) {
 		},
 	})
 
-	info, err := EnsureImage(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{})
+	info, err := EnsureImage(context.Background(), a, "test-project", nil, BuildOptions{}, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -48,6 +48,7 @@ func TestEnsureImageReturnsError(t *testing.T) {
 		context.Background(),
 		a,
 		"test-project",
+		nil,
 		BuildOptions{Force: true},
 		&termio.Mock{},
 	)
@@ -74,7 +75,15 @@ func TestBuildSuccess(t *testing.T) {
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
-	if _, err := Build(context.Background(), msbClient, a, "test-project", BuildOptions{}, &termio.Mock{}); err != nil {
+	if _, err := Build(
+		context.Background(),
+		msbClient,
+		a,
+		"test-project",
+		nil,
+		BuildOptions{},
+		&termio.Mock{},
+	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(msbClient.LoadedImages) != 1 {
@@ -92,6 +101,7 @@ func TestBuildReturnsErrorWhenImageBuildFails(t *testing.T) {
 		&msb.MockMsbClient{},
 		a,
 		"test-project",
+		nil,
 		BuildOptions{Force: true},
 		&termio.Mock{},
 	); err == nil {
@@ -118,7 +128,15 @@ func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 
-	if _, err := Build(context.Background(), msbClient, a, "test-project", BuildOptions{}, &termio.Mock{}); err == nil {
+	if _, err := Build(
+		context.Background(),
+		msbClient,
+		a,
+		"test-project",
+		nil,
+		BuildOptions{},
+		&termio.Mock{},
+	); err == nil {
 		t.Error("expected Build to return an error when loading the image into microsandbox fails")
 	}
 }

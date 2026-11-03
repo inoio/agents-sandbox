@@ -24,7 +24,7 @@ func TestPlanRunnerImageNoRebuildReusesChangedImage(t *testing.T) {
 	runnerAndBaseMock(t, seededRunnerLabels(t, "debian:trixie-slim@sha256:old"), "sha256:new")
 
 	_, _, needsBuild, reasons, err := planRunnerImage(
-		context.Background(), agentOpencode(t), nil, "proj", "1.2.3", "1.2.3",
+		context.Background(), agentOpencode(t), parseProjectDockerfile(nil), "proj", "1.2.3", "1.2.3",
 		BuildOptions{Docker: dockerOff, NoRebuild: true},
 	)
 	if err != nil {
@@ -48,7 +48,7 @@ func TestPlanRunnerImageNoRebuildStillBuildsMissingImage(t *testing.T) {
 	})
 
 	_, _, needsBuild, reasons, err := planRunnerImage(
-		context.Background(), agentOpencode(t), nil, "proj", "1.2.3", "1.2.3",
+		context.Background(), agentOpencode(t), parseProjectDockerfile(nil), "proj", "1.2.3", "1.2.3",
 		BuildOptions{Docker: dockerOff, NoRebuild: true},
 	)
 	if err != nil {
@@ -135,6 +135,7 @@ func TestEnsureImageNoRebuildReusesUnlabeledImageOffline(t *testing.T) {
 		context.Background(),
 		agentOpencode(t),
 		"proj",
+		nil,
 		BuildOptions{NoRebuild: true},
 		&termio.Mock{},
 	)

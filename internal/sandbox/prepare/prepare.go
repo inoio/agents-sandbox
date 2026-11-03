@@ -290,6 +290,7 @@ func ensureImageStage(
 		ctx,
 		session.agent.Profile,
 		session.key.Slug,
+		image.ReadProjectDockerfile(),
 		buildOptions(opts, version.buildVersion, opts.Rebuild, version.userProvided),
 		ui,
 	)

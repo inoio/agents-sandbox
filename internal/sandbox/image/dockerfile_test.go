@@ -56,7 +56,7 @@ func renderBytesVersion(
 }
 
 // TestReadProjectDockerfileBareWorktree pins the image path to the bare-root
-// project config: readProjectDockerfile must read the bare root's Dockerfile and
+// project config: ReadProjectDockerfile must read the bare root's Dockerfile and
 // ignore the worktree copy, which the resolver reports as ignored.
 func TestReadProjectDockerfileBareWorktree(t *testing.T) {
 	worktree := synthesizeBareWorktree(t, false)
@@ -64,7 +64,7 @@ func TestReadProjectDockerfileBareWorktree(t *testing.T) {
 	writeFileAt(t, filepath.Join(root, ".agents-sandbox", "Dockerfile"), "FROM bare-root\n")
 	writeFileAt(t, filepath.Join(worktree, ".agents-sandbox", "Dockerfile"), "FROM worktree\n")
 
-	if got := string(readProjectDockerfile()); got != "FROM bare-root\n" {
-		t.Errorf("readProjectDockerfile() = %q, want %q", got, "FROM bare-root\n")
+	if got := string(ReadProjectDockerfile()); got != "FROM bare-root\n" {
+		t.Errorf("ReadProjectDockerfile() = %q, want %q", got, "FROM bare-root\n")
 	}
 }

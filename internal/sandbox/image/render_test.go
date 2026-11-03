@@ -930,7 +930,7 @@ func TestRenderDockerfileDeterministic(t *testing.T) {
 }
 
 func TestSplitFinalStageNoProjectDockerfile(t *testing.T) {
-	earlier, base, body := splitFinalStage(nil)
+	earlier, base, body := splitFinalStageForTest(nil)
 	if earlier != "" {
 		t.Errorf("earlier = %q, want empty", earlier)
 	}
@@ -944,7 +944,7 @@ func TestSplitFinalStageNoProjectDockerfile(t *testing.T) {
 
 func TestSplitFinalStageManagedBase(t *testing.T) {
 	project := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo managed\n")
-	earlier, base, body := splitFinalStage(project)
+	earlier, base, body := splitFinalStageForTest(project)
 	if earlier != "" {
 		t.Errorf("earlier = %q, want empty", earlier)
 	}
@@ -958,7 +958,7 @@ func TestSplitFinalStageManagedBase(t *testing.T) {
 
 func TestSplitFinalStageCustomBase(t *testing.T) {
 	project := []byte("FROM ubuntu:24.04\nRUN echo custom\n")
-	earlier, base, body := splitFinalStage(project)
+	earlier, base, body := splitFinalStageForTest(project)
 	if earlier != "" {
 		t.Errorf("earlier = %q, want empty", earlier)
 	}
@@ -975,7 +975,7 @@ func TestSplitFinalStageMultiStage(t *testing.T) {
 		"FROM golang:1.24 AS build\nRUN go build\n" +
 			"FROM debian:trixie-slim AS final\nCOPY --from=build /app /app\n",
 	)
-	earlier, base, body := splitFinalStage(project)
+	earlier, base, body := splitFinalStageForTest(project)
 	wantEarlier := "FROM golang:1.24 AS build\nRUN go build\n"
 	if earlier != wantEarlier {
 		t.Errorf("earlier = %q, want %q", earlier, wantEarlier)
@@ -990,7 +990,7 @@ func TestSplitFinalStageMultiStage(t *testing.T) {
 
 func TestSplitFinalStageLowercaseFrom(t *testing.T) {
 	project := []byte("from debian:trixie-slim\nRUN echo hi\n")
-	earlier, base, body := splitFinalStage(project)
+	earlier, base, body := splitFinalStageForTest(project)
 	if earlier != "" {
 		t.Errorf("earlier = %q, want empty", earlier)
 	}
@@ -1004,7 +1004,7 @@ func TestSplitFinalStageLowercaseFrom(t *testing.T) {
 
 func TestSplitFinalStageMixedCaseFrom(t *testing.T) {
 	project := []byte("From debian:trixie-slim\nRUN echo hi\n")
-	earlier, base, body := splitFinalStage(project)
+	earlier, base, body := splitFinalStageForTest(project)
 	if earlier != "" {
 		t.Errorf("earlier = %q, want empty", earlier)
 	}
@@ -1021,7 +1021,7 @@ func TestSplitFinalStageLowercaseMultiStage(t *testing.T) {
 		"from golang:1.24 as build\nRUN go build\n" +
 			"from debian:trixie-slim as final\nCOPY --from=build /app /app\n",
 	)
-	earlier, base, body := splitFinalStage(project)
+	earlier, base, body := splitFinalStageForTest(project)
 	wantEarlier := "from golang:1.24 as build\nRUN go build\n"
 	if earlier != wantEarlier {
 		t.Errorf("earlier = %q, want %q", earlier, wantEarlier)
@@ -1036,7 +1036,7 @@ func TestSplitFinalStageLowercaseMultiStage(t *testing.T) {
 
 func TestSplitFinalStageIgnoresFromage(t *testing.T) {
 	project := []byte("FROMAGE debian:trixie-slim\nRUN echo hi\n")
-	earlier, base, body := splitFinalStage(project)
+	earlier, base, body := splitFinalStageForTest(project)
 	if earlier != "" {
 		t.Errorf("earlier = %q, want empty", earlier)
 	}
@@ -1153,7 +1153,7 @@ func TestAgentImageConfigBlock(t *testing.T) {
 
 func TestInjectDockerBlockAtMarker(t *testing.T) {
 	body := "RUN install-prereqs\n# agents-sandbox:docker\nRUN configure\n"
-	got, injected := injectDockerBlock(body, true)
+	got, injected := injectDockerBlockForTest(body, true)
 	if !injected {
 		t.Fatal("expected injection at the marker")
 	}
@@ -1164,7 +1164,7 @@ func TestInjectDockerBlockAtMarker(t *testing.T) {
 }
 
 func TestInjectDockerBlockAppendsWithoutMarker(t *testing.T) {
-	got, injected := injectDockerBlock("RUN install-prereqs\n", true)
+	got, injected := injectDockerBlockForTest("RUN install-prereqs\n", true)
 	if injected {
 		t.Error("expected append, not marker injection")
 	}
@@ -1178,7 +1178,7 @@ func TestInjectDockerBlockAppendsWithoutMarker(t *testing.T) {
 // instead of overwriting the copied file.
 func TestInjectDockerBlockSkipsHeredocMarker(t *testing.T) {
 	body := "COPY <<EOF /tmp/example.Dockerfile\n# agents-sandbox:docker\nEOF\n"
-	got, injected := injectDockerBlock(body, true)
+	got, injected := injectDockerBlockForTest(body, true)
 	if injected {
 		t.Error("a marker inside a heredoc body must not be an injection point")
 	}
@@ -1188,7 +1188,7 @@ func TestInjectDockerBlockSkipsHeredocMarker(t *testing.T) {
 }
 
 func TestInjectDockerBlockNoopWhenDisabled(t *testing.T) {
-	got, injected := injectDockerBlock("RUN x\n", false)
+	got, injected := injectDockerBlockForTest("RUN x\n", false)
 	if injected || got != "RUN x\n" {
 		t.Errorf("injectDockerBlock = %q (injected=%v), want unchanged", got, injected)
 	}
@@ -1253,7 +1253,10 @@ func (p *projectDockerfilePaths) ProjectEnvSecretFile() string     { return "" }
 func (p *projectDockerfilePaths) ProjectEnvSecretYAMLFile() string { return "" }
 func (p *projectDockerfilePaths) IgnoredWorktreeConfigDir() string { return "" }
 
-func TestRenderProjectDockerfileReadsProjectFile(t *testing.T) {
+// TestRenderProjectDockerfileRendersProjectFile pins that the caller-read
+// project Dockerfile bytes reach the rendered output: the reader is the
+// boundary, and RenderProjectDockerfile renders only what it is given.
+func TestRenderProjectDockerfileRendersProjectFile(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	dir := t.TempDir()
 	projectFile := filepath.Join(dir, configpaths.DockerFileName)
@@ -1265,7 +1268,7 @@ func TestRenderProjectDockerfileReadsProjectFile(t *testing.T) {
 	configpaths.Get = func() configpaths.ConfigPaths { return &projectDockerfilePaths{dir: dir} }
 	t.Cleanup(func() { configpaths.Get = orig })
 
-	out, err := RenderProjectDockerfile(a, testAgentVersion, dockerOff)
+	out, err := RenderProjectDockerfile(a, testAgentVersion, ReadProjectDockerfile(), dockerOff)
 	if err != nil {
 		t.Fatalf("RenderProjectDockerfile: %v", err)
 	}
@@ -1287,7 +1290,7 @@ func TestRenderProjectDockerfileNoProjectFile(t *testing.T) {
 	configpaths.Get = func() configpaths.ConfigPaths { return &projectDockerfilePaths{dir: dir} }
 	t.Cleanup(func() { configpaths.Get = orig })
 
-	out, err := RenderProjectDockerfile(a, testAgentVersion, dockerOff)
+	out, err := RenderProjectDockerfile(a, testAgentVersion, ReadProjectDockerfile(), dockerOff)
 	if err != nil {
 		t.Fatalf("RenderProjectDockerfile: %v", err)
 	}

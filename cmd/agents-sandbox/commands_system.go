@@ -123,6 +123,7 @@ func prepareVolumeOp(c *cobra.Command, ui termio.UI, dryRun bool) (state.Key, im
 		c.Context(),
 		a,
 		adoption.Slug,
+		image.ReadProjectDockerfile(),
 		image.BuildOptions{
 			Force:        false,
 			NoRebuild:    false,
@@ -293,13 +294,21 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 				state.Key{Slug: adoption.Slug, Agent: a.Name()},
 				openCodeVersion,
 			)
-			info, err := image.Build(cmd.Context(), client, a, adoption.Slug, image.BuildOptions{
-				Force:        force,
-				NoRebuild:    false,
-				AgentVersion: agentVersion,
-				UserProvided: userProvided,
-				Docker:       resolveBuildDockerSetting(cmd),
-			}, ui)
+			info, err := image.Build(
+				cmd.Context(),
+				client,
+				a,
+				adoption.Slug,
+				image.ReadProjectDockerfile(),
+				image.BuildOptions{
+					Force:        force,
+					NoRebuild:    false,
+					AgentVersion: agentVersion,
+					UserProvided: userProvided,
+					Docker:       resolveBuildDockerSetting(cmd),
+				},
+				ui,
+			)
 			if err != nil {
 				return err
 			}
@@ -342,9 +351,10 @@ func buildDockerfileCmd(ui termio.UI) *cobra.Command {
 				return err
 			}
 			setting := resolveBuildDockerSetting(cmd)
-			image.EmitProjectDockerfileDiagnostics(ui, setting)
+			projectDockerfile := image.ReadProjectDockerfile()
+			image.EmitProjectDockerfileDiagnostics(ui, projectDockerfile, setting)
 			agentVersion, _ := cmd.Flags().GetString(flagAgentVersion)
-			out, err := image.RenderProjectDockerfile(a, agentVersion, setting)
+			out, err := image.RenderProjectDockerfile(a, agentVersion, projectDockerfile, setting)
 			if err != nil {
 				return err
 			}

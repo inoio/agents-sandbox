@@ -92,7 +92,7 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	info, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{})
+	info, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{}, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{}); err != nil {
+	if _, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{}, &termio.Mock{}); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
 	if !built {
@@ -165,7 +165,7 @@ func TestEnsureImageBuildArgsIncludeBaseAndAgentVersion(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	_, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{})
+	_, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{}, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	if _, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{}); err != nil {
+	if _, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{}, &termio.Mock{}); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
 	if requested != "" {
@@ -245,6 +245,7 @@ func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) 
 		context.Background(),
 		a,
 		"proj",
+		nil,
 		BuildOptions{UserProvided: true},
 		&termio.Mock{},
 	); err != nil {
@@ -291,6 +292,7 @@ func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
 		context.Background(),
 		a,
 		"proj",
+		nil,
 		BuildOptions{UserProvided: true},
 		&termio.Mock{},
 	); err != nil {
@@ -325,6 +327,7 @@ func TestEnsureImageDockerAddsDockerVersionArg(t *testing.T) {
 		context.Background(),
 		a,
 		"proj",
+		nil,
 		BuildOptions{Docker: dockerOn},
 		&termio.Mock{},
 	); err != nil {

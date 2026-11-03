@@ -81,7 +81,7 @@ func runnerAndBaseMock(t *testing.T, runnerLabels map[string]string, baseID stri
 // current plan with the given base provenance label.
 func seededRunnerLabels(t *testing.T, baseLabel string) map[string]string {
 	t.Helper()
-	plan, err := renderBuildPlan(agentOpencode(t), nil, dockerOff, "1.2.3", "1.2.3")
+	plan, err := renderBuildPlan(agentOpencode(t), parseProjectDockerfile(nil), dockerOff, "1.2.3", "1.2.3")
 	if err != nil {
 		t.Fatalf("renderBuildPlan: %v", err)
 	}
@@ -96,7 +96,13 @@ func TestPlanRunnerImageRebuildsWhenLocalBaseAdvanced(t *testing.T) {
 	runnerAndBaseMock(t, seededRunnerLabels(t, "debian:trixie-slim@sha256:old"), "sha256:new")
 
 	_, _, needsBuild, reasons, err := planRunnerImage(
-		context.Background(), agentOpencode(t), nil, "proj", "1.2.3", "1.2.3", BuildOptions{Docker: dockerOff},
+		context.Background(),
+		agentOpencode(t),
+		parseProjectDockerfile(nil),
+		"proj",
+		"1.2.3",
+		"1.2.3",
+		BuildOptions{Docker: dockerOff},
 	)
 	if err != nil {
 		t.Fatalf("planRunnerImage: %v", err)
@@ -118,7 +124,13 @@ func TestPlanRunnerImageReusesImageWhenBaseUnchangedOrAbsent(t *testing.T) {
 			runnerAndBaseMock(t, seededRunnerLabels(t, "debian:trixie-slim@sha256:same"), tc.baseID)
 
 			_, _, needsBuild, reasons, err := planRunnerImage(
-				context.Background(), agentOpencode(t), nil, "proj", "1.2.3", "1.2.3", BuildOptions{Docker: dockerOff},
+				context.Background(),
+				agentOpencode(t),
+				parseProjectDockerfile(nil),
+				"proj",
+				"1.2.3",
+				"1.2.3",
+				BuildOptions{Docker: dockerOff},
 			)
 			if err != nil {
 				t.Fatalf("planRunnerImage: %v", err)
