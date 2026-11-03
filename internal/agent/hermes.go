@@ -51,6 +51,28 @@ const hermesLauncherShim = `printf '%s\n' ` +
 const hermesLauncherGuard = ` && { test -x ` + hermesBundledLauncher +
 	` || { echo "hermes: bundled launcher missing at ` + hermesBundledLauncher + ` (install layout changed)" >&2; exit 1; }; }`
 
+// hermesBuildOnlyPaths are the checkout and store trees the installer
+// populates but nothing reads once the image is built: the test suite, the
+// docs site, the desktop/bootstrap source (the built products live in
+// ui-tui/dist and hermes_cli/web_dist), and the build-time uv cache (uv
+// hardlinks from it into installs/, so removing it keeps the venv working).
+// The blobless .git clone is safe too: the installer's completion tail writes
+// install-stamp.json, which version_info reads before git, skipping its git
+// cross-check when .git is absent — so `hermes --version` still reports the
+// pinned release. optional-skills is deliberately kept: the skills hub reads
+// it.
+var hermesBuildOnlyPaths = []string{
+	hermesCheckout + "/.git",
+	hermesCheckout + "/tests",
+	hermesCheckout + "/website",
+	hermesCheckout + "/apps",
+	hermesBuildHome + "/cache/uv",
+}
+
+// hermesPruneCommand removes hermesBuildOnlyPaths; it is appended after the
+// launcher guard so a failed install never reaches it.
+var hermesPruneCommand = "rm -rf " + strings.Join(hermesBuildOnlyPaths, " ")
+
 type hermesProfile struct{}
 
 func (hermesProfile) Name() string          { return hermesName }
@@ -79,7 +101,7 @@ func (hermesProfile) ImageSpec() ImageSpec {
 			`curl -fsSL https://hermes-agent.nousresearch.com/install.sh -o /tmp/hermes-install.sh && ` +
 			`bash /tmp/hermes-install.sh --commit "v$HERMES_VERSION" --dir ` + hermesCheckout + ` ` +
 			`--hermes-home ` + hermesBuildHome + ` --non-interactive --skip-browser --skip-computer-use && ` +
-			hermesLauncherShim + hermesLauncherGuard,
+			hermesLauncherShim + hermesLauncherGuard + ` && ` + hermesPruneCommand,
 		// The agent stage installs no node: Hermes' installer provisions the
 		// node build its TUI and web products need into its own tool store.
 		RequiresNode: false,
