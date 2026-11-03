@@ -75,47 +75,19 @@ Facts the design leans on:
 
 ## Shape
 
-```make
-GOMUTANTS_VERSION = v0.7.2
+`make mutation` wraps `CGO_ENABLED=1 go run github.com/gomutants/gomutants@$(GOMUTANTS_VERSION)` with knobs:
 
-# On-demand mutation testing. Never a gate; the `mutation` workflow is advisory.
-#   make mutation                        # whole module, lines changed since the last release tag
-#   make mutation PKG=./internal/foo     # one package, changed lines
-#   make mutation FULL=1                 # whole module, all lines (slow)
-#   make mutation ANNOTATIONS=github     # also print ::warning:: annotations (CI only)
-PKG   ?= ./...
-SINCE ?= $(shell git describe --tags --abbrev=0)
-FULL  ?=
-ANNOTATIONS ?=
-
-mutation:
-	@test -n "$(FULL)" || test -n "$(SINCE)" || { \
-		echo "make mutation: cannot resolve a release tag; pass SINCE=<ref> or FULL=1"; exit 1; }
-	CGO_ENABLED=1 go run github.com/gomutants/gomutants@$(GOMUTANTS_VERSION) \
-		--detect-equivalent \
-		$(if $(ANNOTATIONS),--annotations $(ANNOTATIONS)) \
-		$(if $(FULL),,--changed-since $(SINCE)) \
-		$(PKG)
-```
-
-`ANNOTATIONS` is empty by default, so a plain local `make mutation` prints no workflow commands — the flag exists only
-so the CI workflow can request the `::warning::` output. `CGO_ENABLED=1` mirrors every other test-invoking target in the
-`Makefile`: the microsandbox SDK uses cgo, so the inner `go test` needs it.
-
-## Where the practice lives
-
-- **`.agents/skills/release/SKILL.md` step 2 (Verify)** gains the sweep: run `make mutation`, then triage every LIVED
-  mutant — strengthen the test or record the reason — and commit the fixes locally. At release time `SINCE` resolves to
+- `PKG` (default `./...`) — the package argument.
+- `SINCE` (default `$(git describe --tags --abbrev=0)`) — passed as `--changed-since`; at release time it resolves to
   the previous tag, so the sweep covers this release.
-  - This **amends the skill's stated hard rule**. It currently reads "steps 1-4 are local and read-only"; step 2 now
-    writes. The rule's actual protection is that nothing reaches a remote before the step-5 gate, which still holds.
-    The fixes are local commits on the current branch; the step-6 PR that promotes the changelog carries them, and the
-    tag lands on the merged result. The wording changes; the guarantee does not.
-- **`CONTRIBUTING.md`** gains a short subsection under Testing: how to run `make mutation`, that it is on-demand, that
-  it is never a gate, and that the advisory `mutation` workflow runs on every PR.
-- **`.gitignore`** gains `mutation-report.json` and `.gomutants-cache.json`.
-- **`.agents/skills/release/NON-GO-DEPS.md`** gains a `gomutants` row. Its existing gap — `GOVULNCHECK_VERSION` is
-  absent though the pin exists — is fixed in the same edit.
+- `FULL=1` — drops `--changed-since` for the whole-module sweep.
+- `ANNOTATIONS=github` — adds `--annotations github` (CI only; empty by default so a local run prints no workflow
+  commands).
+- `--detect-equivalent` is always on.
+
+The target fails loud when `SINCE` resolves empty and `FULL` is unset, rather than silently widening to the full run.
+`CGO_ENABLED=1` mirrors every other test-invoking target: the microsandbox SDK uses cgo, so the inner `go test` needs
+it.
 
 ## CI signal (advisory)
 
@@ -152,21 +124,6 @@ a **signal, not a check**: nothing depends on it, and because it lives in its ow
 - **Not required by construction.** Required checks are a branch-protection setting, not this workflow; the design keeps
   the sweep out of `ci.yml` precisely so no `release.needs` edge can ever depend on it.
 
-## Goals
-
-- A documented, repeatable command that mutation-tests one package, or the release's changed lines, on demand.
-- The recurring practice has a durable home in the release flow, so it is not skipped.
-- The mechanism is enforced where it can be: the target is never wired into `check`/`verify`/`all`, and CI runs it only
-  as an advisory workflow that gates nothing.
-
-## Who does what
-
-This change lands the **mechanism**: the `make mutation` target, the `GOMUTANTS_VERSION` pin, the release-skill step-2
-amendment, the CONTRIBUTING/NON-GO-DEPS/gitignore edits, and this contract. It does **not** run the release sweep, fix
-survivors, or report results. The maintainer runs the sweep and reports what it finds **manually** — that is the point
-of the practice, not a work item for this change. The issue's "every changed package run" and "each survivor triaged"
-criteria are the maintainer's execution, not this change's deliverable.
-
 ## Non-goals
 
 - Mutation testing as a required CI check, or a merge/release gate (runtime in hours; a survivor needs human triage).
@@ -181,24 +138,3 @@ criteria are the maintainer's execution, not this change's deliverable.
   strengthen. A recorded reason must name why the mutant cannot change behaviour.
 - The unscoped `FULL=1` run becoming the release default — the documented default stays the changed-line sweep.
 
-## Constraints
-
-- Follow `AGENTS.md`: idiomatic Go, self-documenting names; format/lint with `make fmt`/`make lint`.
-- The Makefile target mirrors the `vulncheck` target's shape and its deliberate exclusion from `check`/`verify`.
-- Keep `CHANGELOG.md` `[Unreleased]` and the docs in sync (`ci/check-docs.sh` runs in `make check`).
-- Run `make check` before the final commit.
-
-## Open to the builder
-
-- Whether `--detect-equivalent` belongs in the target versus being left to the caller (the design puts it in the
-  target: it costs one compile per survivor and removes equivalent mutants from triage for free).
-- The exact guard shape for the empty-`SINCE` failure (recipe `test`/`||`, a `$(error …)`, or a distinct sentinel).
-- Whether the release-skill edit needs a matching note in `RELEASE-NOTES.md` (likely not — it is process, not
-  user-visible).
-
-## Scope of this change
-
-Land the mechanism only. The maintainer executes the sweep and reports findings by hand, so no test-strengthening work
-is in scope here and the number of survivors does not affect this change's size. A useful guard against the anti-goal
-"wired into `make check`": a small test (or `ci/` script) asserting `mutation` is not a prerequisite of
-`check`/`verify`/`all`, in the spirit of the deprecation-register regression tests.

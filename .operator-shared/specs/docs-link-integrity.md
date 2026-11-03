@@ -118,18 +118,11 @@ its `main_test.go` installs the wrapper's families minus `doctor` directly rathe
   dead `[ref]: …/page.html#anchor` no longer escapes as a page-only link.
 - `report` messages naming the file, line, fragment and target page.
 
-## Calibration
-
-Run the extended checker against the real tree and resolve every finding before landing: fix a genuinely dead
-anchor, or adjust the mirror if a heading exposes a divergence. Confirm the mirror against a real
-`bundle exec jekyll build` in a checkout with the vendored gems (Ruby and `bundle` are present; the gem bundle is
-gitignored and may need `bundle install`), since the published ids are what the gate claims to verify.
-
 ## Tests
 
-`ci/test-check-docs.sh` covers, at minimum: a root rendered-HTML link to a matching heading (pass) and a
-non-matching one (fail — note the existing `install.html#the-base-image` case currently asserts pass and must be
-rewritten); a `docs/` in-page anchor that resolves and one that does not; a `docs/` `{% link page.md %}#anchor`
-that resolves and one that does not; Go `docslink.SectionURL` and literal-URL extraction; and slug edge cases
-(backticked/punctuated heading, duplicate heading → `-1`/`-2`, a declared `{#id}`, a dash-led slug, and a `#` line
-inside YAML front matter that must not become an id).
+`ci/test-check-docs.sh` covers the pass and fail cases for each fragment source: a root rendered-HTML link that matches
+a heading and one that does not (the `install.html#the-base-image` case asserts fail, expecting one violation); a
+`docs/` in-page anchor and a `docs/` `{% link page.md %}#anchor` that each resolve and each do not; Go
+`docslink.SectionURL` and literal-URL extraction; and the slug edge cases (a backticked/punctuated heading, a duplicate
+heading → `-1`/`-2`, a declared `{#id}`, a dash-led slug, and a `#` line inside YAML front matter that must not become
+an id).

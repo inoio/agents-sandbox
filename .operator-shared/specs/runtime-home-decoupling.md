@@ -8,14 +8,7 @@ read_if: Implementing or reviewing runtime-home decoupling, the private `MSB_HOM
 Date: 2026-10-15
 
 Status: **implemented**; the copy state model is the host-owned `migrations`
-registry described in "Persisted state". An earlier design tracked completion
-with an in-volume sentinel and no cross-process locking; it was unsafe
-(guest-controlled completion, a symlink-followable marker write, concurrent
-sessions deleting each other's copy) and the registry replaced it. The registry
-also never adopts a present private volume of unclear status: the "no unusable
-partial" invariant, the `copied`/`kept`/`excluded` split, and the ambiguous-state
-offer below are the resolution. The one successful manual ownership-mapping
-verification is recorded under "Verification".
+registry described in "Persisted state".
 
 ## Intent
 
@@ -67,32 +60,6 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   runtime resolution and installation additionally accept an explicit per-call
   home via `RuntimeConfig.Home`.
 
-## Current state (grounding)
-
-- `internal/sandbox/runtime/runtime.go` inspects the selected runtime before any
-  SDK call and drives a recovery menu (`recoverRuntimeMismatch`) offering
-  launcher upgrade, `msb` upgrade/downgrade, brave mode, issue, or quit.
-- `selectRuntime` treats `MSB_HOME` as the managed home and only marks a runtime
-  "external" via `MSB_PATH` / `MSB_LIBKRUNFW_PATH` / persisted paths.
-- `internal/sandbox/runtime` and `internal/sandbox/msb` name the private home
-  explicitly when calling `ResolveRuntime` / `EnsureRuntime` / `InstallRuntime`
-  (`RuntimeConfig{Home: configpaths.MSBHome()}`), so host-runtime resolution is
-  deterministic and order-independent rather than depending on `MSB_HOME` having
-  been applied first (issue #160).
-- The SDK's `installDir()` (`setup.go`) and the native resolver both read
-  `$MSB_HOME`, defaulting to `~/.microsandbox`.
-- `internal/sandbox/doctor/install.go` prints PATH hints so the user can invoke
-  the installed `msb`.
-- A home volume is a `VolumeKindDir` — a plain host directory at
-  `$MSB_HOME/volumes/<name>`; its host-facing path is exposed by `Volume.Path()`.
-- Home volumes are named `agents-sandbox-home-<slug>-<agent>-<timestamp>`
-  (`internal/sandbox/volume`), and the project → volume mapping lives in
-  `~/.local/state/agents-sandbox/<slug>/<agent>/state.yaml`, independent of the
-  msb home.
-- Launcher-global state currently sprawls across feature-named files at the
-  state root (`upgrade.json`, `updater.yaml`); making root `state.yaml` the one
-  launcher-global document is a separate concern, tracked in issue #141.
-
 ## Decisions
 
 ### Private runtime home
@@ -109,10 +76,13 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   `EnsureRuntime` path.
 - The private home is unconditional: there is **no external escape hatch**. The
   user cannot point agents-sandbox at another runtime, so `MSB_PATH`,
-  `MSB_LIBKRUNFW_PATH`, persisted runtime paths, and the `External` /
-  `Incomplete` runtime concepts are dropped. This is deliberate — supporting an
+  `MSB_LIBKRUNFW_PATH`, persisted runtime paths, and the `External` runtime
+  concept are dropped. This is deliberate — supporting an
   externally configured runtime would reintroduce exactly the coupling this work
   removes. (A future opt-in could revisit it, but not now.)
+- `RuntimeIncomplete` is retained: it names a partial runtime pair, which the
+  repair path handles by removing the stray files (`removeRuntimeFiles`) before
+  the force-install.
 - Runtime setup calls pass the private home explicitly through
   `RuntimeConfig.Home` (`configpaths.MSBHome()`), alongside `ApplyHome()` setting
   `MSB_HOME`. The explicit config makes resolution/installation deterministic and
@@ -144,8 +114,9 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   force-install. Removing the partial first is safe: it is unusable, and the
   installer publishes the replacement pair atomically.
 - Repair is serialized across processes by a host-only advisory lock
-  (`state.FlockExclusive`, `$MSB_HOME/.agents-sandbox/runtime.lock`), and the
-  runtime is re-inspected under it before any removal or install. Without the
+  (`runtime.acquireRuntimeLock` → `hostlock.AcquireExclusive(runtimeLockDir(), "runtime.lock")`, where
+  `runtimeLockDir()` is `PrivateHome()/.agents-sandbox`), and the runtime is
+  re-inspected under it before any removal or install. Without the
   lock, a second session acting on a stale inspection could delete the pair a
   concurrent session just repaired. The flock auto-releases on process exit, so a
   crashed holder never pins repair.
@@ -485,27 +456,11 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   mechanics and the uninstall payoff — issue #208), README positioning ("no system-wide
   microsandbox required"), the CHANGELOG entry, and `doctor` reporting the private home.
 
-### State-file placement (related, separate)
+### State-file placement
 
-- Folding launcher-global state into a single scope-based `state.yaml` is issue
-  #141. This work only adds its `migrations.runtime_home` entry to root
-  `state.yaml`; it must not introduce a feature-named file of its own.
-
-## Left to the builder
-
-- Exact wiring of `MSB_HOME` at startup and any interaction with the SDK FFI
-  auto-loader; confirm nothing in the tool's own code still assumes
-  `~/.microsandbox`.
-- The precise provisioning call and where it runs in the startup sequence.
-- Removing the external-runtime handling (`MSB_PATH` / `MSB_LIBKRUNFW_PATH` /
-  persisted paths / `External` / `Incomplete`) and the recovery menu, while
-  keeping any internal sanity checks that should remain.
-- Where the copy prompt hooks into the session start (`run`/`shell`) path.
-- The stale-state detection ("recorded volume missing") and where it lives.
-- `doctor` changes after removing the runtime prerequisite/hints.
-- macOS-specific path and behavior confirmation.
-- Testing strategy, including a fake legacy home for the copy path.
-- Docs and `CHANGELOG.md` updates per the repo's documentation rules.
+- Launcher-global state is the single scope-based root `state.yaml`
+  (`state-by-scope.md`); this work adds only its `migrations.runtime_home` entry
+  there and introduces no feature-named file of its own.
 
 ## Verification
 
@@ -524,18 +479,8 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
   host `XDG_DATA_HOME` that points at a real `agents-sandbox/msb` would
   otherwise satisfy inspection and bypass the path under test.
 
-## Open question deferred to the builder
-
-- Whether a terminal decision should ever be reversible in-product. This design
-  says no; the `migrations.runtime_home` entry already carries a `status`, so a
-  future re-arm is a status change (e.g. back to `pending`), not a new field or
-  file.
-
 ## Relationship to other specs and issues
 
 - Supersedes the runtime-sharing assumptions behind the mismatch-recovery
   behavior described in the troubleshooting docs.
-- Depends on the state-by-scope refactor only in that its key lives in root
-  `state.yaml`; the key itself can be added before #141 lands if the root file
-  is created for it.
-- Issue #141: organize persisted state by ownership scope.
+- Its key lives in the root `state.yaml` owned by `state-by-scope.md`.

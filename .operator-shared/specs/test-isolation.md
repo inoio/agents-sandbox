@@ -41,30 +41,25 @@ The per-package check credits only direct calls that run before `m.Run()`: insta
 `InitFailFastMocks(m)` counts as the wrapper, so the wrapper's own package can install it without importing itself. The
 walk covers the module root too, so a package beside `go.mod` is checked like any other.
 
-Packages in the seam import chain cannot import `internal/testutil/mocks` without a test import cycle; they install the
-reachable subset directly, mirroring that body:
+Packages in the seam import chain cannot import `internal/testutil/mocks` without a test import cycle, so they call
+the reachable `InstallFailFast*` functions directly in `TestMain` instead of the wrapper. Which families are reachable
+is not enumerated here: `TestEveryTestPackageInstallsItsAcyclicFailFastMocks` derives each package's expected set from
+the module import graph, so a family is skipped exactly when the family's package imports the test package. Some
+illustrative cases:
 
-- `configpaths` (installs configpaths + docker; doctor and msb are unreachable and would cycle)
-- `docker` (installs configpaths + docker + msb + notify; doctor imports docker, so it would cycle)
-- `msb` (installs configpaths + docker + msb; doctor imports msb, so it would cycle)
-- `termio` (installs configpaths + docker + msb; doctor imports termio, so it would cycle)
-- `doctor` (installs configpaths + docker + doctor + msb + notify; importing `internal/testutil/mocks` would cycle
-  through doctor)
-- `runtime` (installs configpaths + docker + msb + notify; doctor imports runtime, so `InitFailFastMocks` would cycle
-  and doctor is unreachable from runtime)
-- `notify` (installs configpaths + docker + doctor + msb + notify; the wrapper installs notify, so importing it would
-  cycle)
-- `docslink` (installs configpaths + docker + msb + notify; doctor imports docslink, so the wrapper, which installs
-  doctor, would cycle)
-- `atomicwrite`, `mounts`, `naming`, `network`, `state` (install configpaths + docker + doctor + msb; notify imports
-  them, so they cannot import the wrapper, which installs notify)
-- `agent` and `filewalk` install docker only: `configpaths` imports `agent`, which imports `filewalk`, and `notify`
-  imports both, so docker is the only family importable. Neither package reaches a seam in its own code; if one ever
-  gains such a call, the seam must be reached through an injected dependency rather than a global.
-- `internal/testutil/mocks` calls the wrapper unqualified from its `TestMain`, since a package cannot import itself.
-  `TestInstalledFailFastDefaultsPanic` asserts the wrapper's effect there — each family's fail-fast is the one in
-  effect, panic message included — which also puts the wrapper's body under that package's own coverage profile
-  (`make coverage` measures per package, so a package with no test files reports 0%).
+- `configpaths` installs configpaths + docker + opener (doctor and msb would cycle).
+- `sandbox/msb` installs configpaths + docker + msb + opener, with doctor deliberately omitted.
+- `agent` and `filewalk` reach every family except notify — `notify` imports both — and neither reaches a seam in its
+  own code; if one ever gains such a call, the seam must be reached through an injected dependency rather than a
+  global.
+
+Nearly every seam-chain package installs `opener.InstallFailFast()` (the host opener's `xdg-open`/`open` spawn), so a
+dropped opener installer is the accidental omission the derived check catches.
+
+`internal/testutil/mocks` calls the wrapper unqualified from its `TestMain`, since a package cannot import itself.
+`TestInstalledFailFastDefaultsPanic` asserts the wrapper's effect there — each family's fail-fast is the one in
+effect, panic message included — which also puts the wrapper's body under that package's own coverage profile
+(`make coverage` measures per package, so a package with no test files reports 0%).
 
 Add a `main_test.go` with such a `TestMain` to every new package that has tests; the contract test fails without one.
 
@@ -182,9 +177,8 @@ seam family is reached without its injectable factory. The remaining ambient pat
 - `os.Getuid`/`Getgid` (image build args), `os.Getwd` (workspace source), `time.Now` (names/polling/spinner), and
   `viperconfig`'s env reads are read-only or the input itself, not leaks.
 
-`agent` and `filewalk` keep the docker fail-fast as their only backstop (every other family either cycles through
-`configpaths` or is declared in `notify`, which imports both). Keep any future host-path need in them injected, never
-global.
+`agent` and `filewalk` install every fail-fast family except `notify` (which imports both, so it cannot be installed
+from them). Keep any future host-path need in them injected, never global.
 
 ## Why (the incident this encodes)
 
