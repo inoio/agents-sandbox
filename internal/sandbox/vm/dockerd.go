@@ -161,7 +161,8 @@ func guestStorageDriver(ctx context.Context, sb msb.Sandbox) (string, error) {
 // startDockerdIfPresent starts dockerd inside the VM as a runtime-owned
 // detached job if the docker image is in use, or does nothing otherwise. It is
 // safe to call on every VM bootstrap because it checks for the dockerd binary
-// and handles the case where dockerd is already running.
+// and handles the case where dockerd is already running. The launch/readiness
+// sequence is the shared ensureDetachedService recipe.
 func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.Logger) error {
 	out, checkErr := sb.Shell(ctx, dockerdBinaryCheckCmd, msbSdk.WithExecUser(RootUser))
 	if checkErr != nil {
@@ -172,55 +173,37 @@ func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.Logger
 		return nil
 	}
 
-	if healthy, _ := probeHealthy(ctx, sb, dockerdReadyCmd); healthy {
-		ui.Verbose("using already running dockerd")
-		return nil
-	}
-
-	args, driver, err := dockerdArgs(ctx, sb)
-	if err != nil {
-		return err
-	}
-
-	ui.Verbosef("starting dockerd with %s storage driver", driver)
-	// Kill a stale dockerd job before starting a fresh one so a previous launch
-	// never keeps the socket bound, then clear the containerd/pid/socket
-	// residue the killed process leaves behind. Both are best-effort: a failure
-	// is reported and the readiness probe below decides.
-	helper := dockerdHelper()
-	killJobs(ctx, sb, helper, ui)
-	if _, cleanupErr := sb.Shell(ctx, dockerdCleanupCmd, msbSdk.WithExecUser(RootUser)); cleanupErr != nil {
-		ui.Verbosef("dockerd residue cleanup failed (continuing): %v", cleanupErr)
-	}
-
-	binary, commandArgs := helper.markedCommand(args)
-	job, startErr := sb.ExecDetached(ctx, binary, commandArgs, msbSdk.WithExecUser(RootUser))
-	if startErr != nil {
-		return fmt.Errorf("start dockerd: %w", startErr)
-	}
-	defer func() {
-		if closeErr := job.Close(); closeErr != nil {
-			ui.Verbosef("closing dockerd job handle failed: %v", closeErr)
-		}
-	}()
-
-	probe := func(probeCtx context.Context) (bool, string) {
-		return probeHealthy(probeCtx, sb, dockerdReadyCmd)
-	}
-	onUnhealthy := func(detail string) {
-		ui.Verbosef("dockerd not ready: %s", detail)
-	}
-	if readyErr := awaitJobReady(
-		ctx,
-		job,
-		"dockerd",
-		probe,
-		onUnhealthy,
-		dockerdReadyTimeout,
-		dockerdPollInterval,
-	); readyErr != nil {
-		return readyErr
-	}
-	ui.Verbosef("dockerd is ready")
-	return nil
+	return ensureDetachedService(ctx, sb, ui, detachedService{
+		helper: dockerdHelper(),
+		probe: func(probeCtx context.Context) (bool, string) {
+			return probeHealthy(probeCtx, sb, dockerdReadyCmd)
+		},
+		onUnhealthy: func(detail string) {
+			ui.Verbosef("dockerd not ready: %s", detail)
+		},
+		label:      dockerdBinary,
+		startLabel: dockerdBinary,
+		launchArgs: func(launchCtx context.Context) ([]string, string, error) {
+			args, driver, err := dockerdArgs(launchCtx, sb)
+			if err != nil {
+				return nil, "", err
+			}
+			return args, fmt.Sprintf("starting dockerd with %s storage driver", driver), nil
+		},
+		execUser: RootUser,
+		// Killing the dockerd job does not necessarily reap its containerd
+		// child, so clear the residue the killed process leaves behind before
+		// the fresh launch. Best-effort: a failure is reported and the
+		// readiness probe decides.
+		cleanup: func(cleanupCtx context.Context) error {
+			_, cleanupErr := sb.Shell(cleanupCtx, dockerdCleanupCmd, msbSdk.WithExecUser(RootUser))
+			return cleanupErr
+		},
+		timeout:            dockerdReadyTimeout,
+		pollInterval:       dockerdPollInterval,
+		alreadyHealthyNote: "using already running dockerd",
+		readyNote:          "dockerd is ready",
+		closeNote:          "closing dockerd job handle failed: %v",
+		cleanupNote:        "dockerd residue cleanup failed (continuing): %v",
+	})
 }
