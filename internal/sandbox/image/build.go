@@ -178,11 +178,20 @@ func nextField(s string) (string, string) {
 // plan (Dockerfile, content identity, dockerfile-id, and the resolved agent
 // release baked as the installer ARG default), the resolved base digest recorded
 // as provenance, and the resolved docker setting. Every build arg is derived from
-// it, so the identity, the ARG defaults and the labels come from one object
-// instead of parallel values that can disagree. baseDigest and
-// plan.identity.BaseImage are deliberately named apart: the former is the
-// resolved `<ref>@<image id>` the build records, the latter is the locally cached
-// base the build decision compares against.
+// this one object instead of parallel positional values.
+//
+// The one resolved options.DockerSetting feeds two deliberate, different docker
+// derivations, and they must not be "simplified" into each other: the
+// DOCKER_VERSION arg (userBuildArgs) reads the raw docker.Enabled, while the
+// IDENTITY_DOCKER label reads the effective value (effectiveDocker, recorded in
+// plan.identity.Docker). They diverge whenever the setting is not explicit but the
+// project Dockerfile's final-stage marker or managed docker base implies docker:
+// then DOCKER_VERSION is absent while IDENTITY_DOCKER is "true". Unifying the two
+// would change the build args.
+//
+// baseDigest and plan.identity.BaseImage are deliberately named apart: the former
+// is the resolved `<ref>@<image id>` the build records, the latter is the locally
+// cached base the build decision compares against.
 type buildRequest struct {
 	plan       buildPlan
 	baseDigest string
@@ -366,10 +375,11 @@ func writeTarEntry(tw *tar.Writer, name string, content []byte, mode int64) erro
 // userBuildArgs returns Docker build arguments that align the in-image dev
 // user with the host user that owns the bind-mounted /workspace, pin the agent
 // version, record the base image provenance label, and carry the identity
-// components recorded as image labels. Every value comes from the request, so
-// the identity is never built from inputs that disagree with the enablement; the
-// DOCKER_VERSION arg follows the request's resolved docker setting exactly as
-// before.
+// components recorded as image labels. Every value comes from the request. The
+// DOCKER_VERSION arg deliberately follows the request's raw docker.Enabled, not
+// the identity's effective docker value (see buildRequest): the two differ for a
+// non-explicit setting that the project Dockerfile nonetheless enables, and
+// switching this to the effective value would change the build args.
 func userBuildArgs(uid, gid int, spec agent.ImageSpec, req buildRequest) map[string]*string {
 	u := strconv.Itoa(uid)
 	g := strconv.Itoa(gid)

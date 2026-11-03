@@ -53,3 +53,30 @@ func TestUserBuildArgsDockerVersionFollowsRequestSetting(t *testing.T) {
 		t.Errorf("DOCKER_VERSION = %v, want %q", v, dockerVersion)
 	}
 }
+
+// TestBuildRequestKeepsRawAndEffectiveDockerApart pins the deliberate divergence
+// between the request's raw docker setting and the identity's effective docker
+// value. When the project Dockerfile's final-stage marker implies docker with no
+// explicit config, DOCKER_VERSION is absent (the raw setting is off) while the
+// identity's docker field is "true" (the effective value is on). A future
+// "simplification" that derives one from the other would change the build args,
+// so this locks the behavior.
+func TestBuildRequestKeepsRawAndEffectiveDockerApart(t *testing.T) {
+	project := []byte("FROM debian:trixie-slim\n# agents-sandbox:docker\nRUN echo hi\n")
+	plan, err := renderBuildPlan(agentOpencode(t), project, dockerOff, "1.2.3", "1.2.3")
+	if err != nil {
+		t.Fatalf("renderBuildPlan: %v", err)
+	}
+	if plan.identity.Docker != "true" {
+		t.Fatalf("identity.Docker = %q, want the effective on value", plan.identity.Docker)
+	}
+
+	args := userBuildArgs(1000, 1000, agentOpencode(t).ImageSpec(), buildRequest{plan: plan, docker: dockerOff})
+
+	if v := args["DOCKER_VERSION"]; v != nil {
+		t.Errorf("DOCKER_VERSION = %q, want absent for the raw off setting", *v)
+	}
+	if got := args[dockerArg]; got == nil || *got != "true" {
+		t.Errorf("IDENTITY_DOCKER = %v, want %q", got, "true")
+	}
+}
