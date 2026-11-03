@@ -181,6 +181,14 @@ func TestLoadConfigFilesWarnsOnMalformedProvisionRules(t *testing.T) {
 	if len(cf.Provisioned) == 0 {
 		t.Errorf("expected some provisioned files, got %v", cf.Provisioned)
 	}
+	// Every malformed pattern warns, not just the first: the empty pattern and
+	// the bare '!' are both reported.
+	if n := countWarns(ui.WarnCalls, "empty pattern in provision rule"); n != 1 {
+		t.Errorf("warnings = %v, want one empty-pattern warning", ui.WarnCalls)
+	}
+	if n := countWarns(ui.WarnCalls, "bare '!' in provision rule"); n != 1 {
+		t.Errorf("warnings = %v, want one bare-'!' warning", ui.WarnCalls)
+	}
 }
 
 func TestProvisionReturnsErrorWhenProvisionedWriteFails(t *testing.T) {

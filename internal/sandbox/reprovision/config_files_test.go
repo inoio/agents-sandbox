@@ -353,7 +353,7 @@ func TestLoadConfigFilesRemovesStaleConfigWithSnippets(t *testing.T) {
 	}
 
 	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
-	for _, name := range configFamilyNames(opencodeTestAgent()) {
+	for _, name := range resolveConfigSubject(opencodeTestAgent(), vmHome).familyNames {
 		want := filepath.Join(vmHome, ".config", "opencode", name)
 		if !slices.Contains(cf.Remove, want) {
 			t.Errorf("expected config file %s in Remove, got %v", want, cf.Remove)
@@ -442,7 +442,7 @@ func TestLoadConfigFilesProvisioningDisabled(t *testing.T) {
 	if len(cf.Provisioned) != 0 {
 		t.Errorf("expected no drop-in copy when provisioning disabled, got %v", cf.Provisioned)
 	}
-	for _, name := range configFamilyNames(opencodeTestAgent()) {
+	for _, name := range resolveConfigSubject(opencodeTestAgent(), vmHome).familyNames {
 		want := filepath.Join(vmHome, ".config", "opencode", name)
 		if !slices.Contains(cf.Remove, want) {
 			t.Errorf("expected config file %s in Remove, got %v", want, cf.Remove)
@@ -466,7 +466,7 @@ func TestProvisionRemovesStalePaths(t *testing.T) {
 		MergedPath:  opencodeMergedPath,
 		Remove: configFileFamilyPaths(
 			opencodeMergedPath,
-			configFamilyNames(opencodeTestAgent()),
+			resolveConfigSubject(opencodeTestAgent(), VMHomeDir).familyNames,
 		),
 	}
 	fs := msb.NewTestFS(nil, nil)
@@ -839,6 +839,189 @@ func TestHostPathForDstRoot(t *testing.T) {
 	}
 }
 
+// TestResolveConfigSubjectMaterializesMergerFacts verifies the subject derives
+// the merger's VM config path, snippet pattern and config-file family, and the
+// provisioner's rules, once from the agent, so the builders consume them
+// instead of re-asserting the capabilities and recomputing the paths.
+func TestResolveConfigSubjectMaterializesMergerFacts(t *testing.T) {
+	vmHome := filepath.Join(string(filepath.Separator), "home", "dev")
+	a, _ := agent.Lookup("")
+	subject := resolveConfigSubject(a, vmHome)
+
+	if subject.merger == nil {
+		t.Fatal("opencode should resolve a merger")
+	}
+	if subject.provisioner == nil {
+		t.Fatal("opencode should resolve a provisioner")
+	}
+	if want := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc"); subject.vmConfigPath != want {
+		t.Errorf("vmConfigPath = %q, want %q", subject.vmConfigPath, want)
+	}
+	if want := "opencode*.json*"; subject.snippetPattern != want {
+		t.Errorf("snippetPattern = %q, want %q", subject.snippetPattern, want)
+	}
+	if !slices.Contains(subject.familyNames, "opencode.json") {
+		t.Errorf("familyNames = %v, want to include opencode.json", subject.familyNames)
+	}
+	if len(subject.provisionRules) == 0 {
+		t.Error("provisionRules should be non-empty for opencode")
+	}
+}
+
+// TestResolveConfigSubjectZeroForPlainAgent verifies an agent with neither
+// capability yields a subject whose derived facts are empty, so the builders
+// keep their "no merger/provisioner" behavior.
+func TestResolveConfigSubjectZeroForPlainAgent(t *testing.T) {
+	subject := resolveConfigSubject(plainAgent{}, filepath.Join(string(filepath.Separator), "home", "dev"))
+	if subject.merger != nil || subject.provisioner != nil {
+		t.Errorf("plain agent should resolve no capabilities, got %+v", subject)
+	}
+	if subject.vmConfigPath != "" || subject.snippetPattern != "" || subject.familyNames != nil {
+		t.Errorf("plain agent should derive no merger facts, got %+v", subject)
+	}
+	if subject.provisionRules != nil {
+		t.Errorf("plain agent should have no provision rules, got %v", subject.provisionRules)
+	}
+}
+
+// TestBuildMergedConfigNoMergerYieldsEmpty verifies the subject's merger guard:
+// a subject with no merger produces no merged config even when it carries a
+// snippet pattern that would match a host snippet, so capability, not pattern,
+// decides whether snippets merge.
+func TestBuildMergedConfigNoMergerYieldsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "opencode-model.json", `{"model":"x"}`)
+
+	subject := configSubject{
+		snippetPattern: "opencode*.json*",
+		vmConfigPath:   "/home/dev/.config/opencode/opencode.jsonc",
+	}
+	got, err := subject.buildMergedConfig(ConfigSource{UserDir: dir})
+	if err != nil {
+		t.Fatalf("buildMergedConfig: %v", err)
+	}
+	if !reflect.DeepEqual(got, mergedConfig{}) {
+		t.Errorf("buildMergedConfig without a merger = %+v, want the zero mergedConfig", got)
+	}
+}
+
+// TestBuildMirrorNoMergerYieldsEmpty verifies the subject's merger guard for the
+// mirror: a subject with no merger mirrors nothing, even when the source config
+// dir holds files a pattern-less scan would otherwise mirror.
+func TestBuildMirrorNoMergerYieldsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "tui.json", `{"theme":"dark"}`)
+
+	mirror, err := configSubject{}.buildMirror(ConfigSource{UserDir: dir})
+	if err != nil {
+		t.Fatalf("buildMirror: %v", err)
+	}
+	if len(mirror) != 0 {
+		t.Errorf("buildMirror without a merger = %v, want no entries", mirror)
+	}
+}
+
+// TestMirrorFilesFromConfigNoMergerYieldsEmpty verifies the display mirror list
+// is empty for a subject with no merger.
+func TestMirrorFilesFromConfigNoMergerYieldsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "tui.json", `{"theme":"dark"}`)
+
+	files := configSubject{}.mirrorFilesFromConfig(ConfigSource{UserDir: dir})
+	if len(files) != 0 {
+		t.Errorf("mirrorFilesFromConfig without a merger = %v, want none", files)
+	}
+}
+
+// TestLoadProvisionedNoProvisionerYieldsNothing verifies the subject's
+// provisioner guard: even with rules present, a subject with no provisioner
+// copies nothing.
+func TestLoadProvisionedNoProvisionerYieldsNothing(t *testing.T) {
+	hostHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(hostHome, ".config", "tool"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, filepath.Join(hostHome, ".config", "tool", "config.json"), `{"a":1}`)
+
+	subject := configSubject{
+		provisionRules: []agent.ProvisionRule{{Dir: ".config/tool", Patterns: []string{"**"}}},
+		vmHome:         "/home/dev",
+	}
+	ui := termio.NewTestMock(t)
+	provisioned, modes, err := subject.loadProvisioned(hostHome, &ui, true)
+	if err != nil {
+		t.Fatalf("loadProvisioned: %v", err)
+	}
+	if len(provisioned) != 0 || len(modes) != 0 {
+		t.Errorf("loadProvisioned without a provisioner = %v / %v, want empty", provisioned, modes)
+	}
+}
+
+// TestProvisionDestinationsNoProvisionerYieldsNone verifies the subject's
+// provisioner guard for the removal destinations.
+func TestProvisionDestinationsNoProvisionerYieldsNone(t *testing.T) {
+	hostHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(hostHome, ".config", "tool"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, filepath.Join(hostHome, ".config", "tool", "config.json"), `{"a":1}`)
+
+	subject := configSubject{
+		provisionRules: []agent.ProvisionRule{{Dir: ".config/tool", Patterns: []string{"**"}}},
+		vmHome:         "/home/dev",
+	}
+	if dsts := subject.provisionDestinations(hostHome); len(dsts) != 0 {
+		t.Errorf("provisionDestinations without a provisioner = %v, want none", dsts)
+	}
+}
+
+// TestHostFilesFromProvisionerNoProvisionerYieldsNone verifies the subject's
+// provisioner guard for the host-file report.
+func TestHostFilesFromProvisionerNoProvisionerYieldsNone(t *testing.T) {
+	hostHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(hostHome, ".config", "tool"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, filepath.Join(hostHome, ".config", "tool", "config.json"), `{"a":1}`)
+
+	subject := configSubject{
+		provisionRules: []agent.ProvisionRule{{Dir: ".config/tool", Patterns: []string{"**"}}},
+		vmHome:         "/home/dev",
+	}
+	files := subject.hostFilesFromProvisioner(hostHome, &ConfigFiles{})
+	if len(files) != 0 {
+		t.Errorf("hostFilesFromProvisioner without a provisioner = %v, want none", files)
+	}
+}
+
+// TestApplyPrecedenceMergedConfigOverridesMirror verifies the precedence
+// authority drops the merged-config path from the drop-in copy, the mirror and
+// the mode map under hasSnippets, so a lower-priority entry at that path cannot
+// shadow or re-mode the merged config.
+func TestApplyPrecedenceMergedConfigOverridesMirror(t *testing.T) {
+	mergedPath := filepath.Join(string(filepath.Separator), "home", "dev", ".config", "opencode", "opencode.jsonc")
+	subject := configSubject{vmConfigPath: mergedPath}
+
+	provisioned := map[string][]byte{mergedPath: []byte("drop-in")}
+	homeFiles := map[string][]byte{}
+	mirror := map[string][]byte{mergedPath: []byte("mirror")}
+	modes := map[string]os.FileMode{mergedPath: 0o600}
+	mirrorModes := map[string]os.FileMode{mergedPath: 0o644}
+	homeModes := map[string]os.FileMode{}
+
+	subject.applyPrecedence(provisioned, homeFiles, mirror, modes, mirrorModes, homeModes, true)
+
+	if _, ok := provisioned[mergedPath]; ok {
+		t.Errorf("merged config path must not remain in Provisioned, got %v", provisioned)
+	}
+	if _, ok := mirror[mergedPath]; ok {
+		t.Errorf("merged config path must not remain in Mirror, got %v", mirror)
+	}
+	if _, ok := modes[mergedPath]; ok {
+		t.Errorf("merged config path must not carry a drop-in/mirror mode, got %v", modes)
+	}
+}
+
 // TestHostFilesFromProvisioner verifies hostFilesFromProvisioner reports each
 // host file the drop-in copy would pick up, marking config-family destinations
 // as Merged when snippets produce a merged config.
@@ -857,7 +1040,7 @@ func TestHostFilesFromProvisioner(t *testing.T) {
 
 	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
 	cf := &ConfigFiles{HasSnippets: true, MergedPath: mergedPath}
-	files := hostFilesFromProvisioner(a, hostHome, vmHome, cf)
+	files := resolveConfigSubject(a, vmHome).hostFilesFromProvisioner(hostHome, cf)
 
 	if len(files) != 2 {
 		t.Fatalf("hostFilesFromProvisioner = %+v, want 2 files", files)
@@ -1076,7 +1259,7 @@ func TestHostFilesFromProvisionerNoSnippets(t *testing.T) {
 	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
 
 	cf := &ConfigFiles{HasSnippets: false}
-	files := hostFilesFromProvisioner(a, hostHome, vmHome, cf)
+	files := resolveConfigSubject(a, vmHome).hostFilesFromProvisioner(hostHome, cf)
 	if len(files) != 1 || files[0].Merged {
 		t.Errorf("hostFilesFromProvisioner = %+v, want 1 non-merged file", files)
 	}
@@ -1110,9 +1293,16 @@ func TestDescribe(t *testing.T) {
 	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
 
 	ui := termio.NewTestMock(t)
-	merged, sources, hostFiles, mirrorFiles, _, err := Describe(a, hostHome, vmHome, &ui, true)
+	merged, sources, hostFiles, mirrorFiles, source, err := Describe(a, hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("Describe: %v", err)
+	}
+	wantSource, err := ResolveConfigSource(a)
+	if err != nil {
+		t.Fatalf("ResolveConfigSource: %v", err)
+	}
+	if source != wantSource {
+		t.Errorf("Describe source = %+v, want the resolved source %+v", source, wantSource)
 	}
 	if len(merged) == 0 {
 		t.Error("Describe returned empty merged config")
@@ -1277,11 +1467,11 @@ func TestLoadConfigFilesPrimarySuppressesLegacy(t *testing.T) {
 
 func reprovisionVMConfigDir(t *testing.T, a agent.Agent) string {
 	t.Helper()
-	cm, ok := agent.AsConfigMerger(a)
-	if !ok {
+	subject := resolveConfigSubject(a, VMHomeDir)
+	if subject.merger == nil {
 		t.Fatal("agent has no ConfigMerger")
 	}
-	return filepath.Dir(cm.VMConfigPath(VMHomeDir))
+	return filepath.Dir(subject.vmConfigPath)
 }
 
 func countWarns(warns []string, substr string) int {

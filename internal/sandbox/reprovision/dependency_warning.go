@@ -34,8 +34,9 @@ func WarnUnprovisionedDependencies(
 	if !provisionHostConfig {
 		return
 	}
-	provisioner, ok := agent.AsProvisioner(a)
-	if !ok {
+	subject := resolveConfigSubject(a, VMHomeDir)
+	// gomutants:disable-next-line BRANCH_IF reason="resolveConfigSubject sets provisionRules only together with a non-nil provisioner, and unprovisionedDependencyManifests over nil rules returns no manifests, so removing the guard resolves the host home and then warns identically"
+	if subject.provisioner == nil {
 		return
 	}
 	hostHome, err := cp.Get().UserHomeDir()
@@ -43,7 +44,7 @@ func WarnUnprovisionedDependencies(
 		return
 	}
 	manifests := unprovisionedDependencyManifests(
-		provisioner.ProvisionRules(), hostHome, suppliedVMPaths(files), mountTargets,
+		subject.provisionRules, hostHome, suppliedVMPaths(files), mountTargets,
 	)
 	for _, manifest := range manifests {
 		ui.Warnf(
