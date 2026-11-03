@@ -5,8 +5,10 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestEnvContentHashOrderIndependent(t *testing.T) {
@@ -83,6 +85,10 @@ func TestSecretsContentHashIncludesOtherFields(t *testing.T) {
 		{"Substitution headers false", func(e *msbSdk.SecretEntry) { e.Substitution.Headers = boolPtr(false) }},
 		{"Substitution query", func(e *msbSdk.SecretEntry) { e.Substitution.Query = true }},
 		{"Substitution body", func(e *msbSdk.SecretEntry) { e.Substitution.Body = true }},
+		{
+			"Substitution header fields",
+			func(e *msbSdk.SecretEntry) { e.Substitution.HeaderFields = []string{"authorization"} },
+		},
 		{"ViolationAction", func(e *msbSdk.SecretEntry) { e.ViolationAction = msbSdk.ViolationActionBlock }},
 	}
 
@@ -94,6 +100,88 @@ func TestSecretsContentHashIncludesOtherFields(t *testing.T) {
 				t.Errorf("SecretsContentHash should differ when %s changes", tt.name)
 			}
 		})
+	}
+}
+
+// TestSecretsContentHashAllHeadersStable pins the digest of an all-headers
+// secret (no header_fields) to the value the record format produced before
+// header scoping existed. An unconditional change to the line would hash every
+// existing secret differently and recreate every project VM once on upgrade,
+// which this change must not do. Treat a mismatch here as deliberate: it means
+// field scoping was folded into the fingerprint in a way that also moves the
+// no-scope case.
+func TestSecretsContentHashAllHeadersStable(t *testing.T) {
+	const golden = "26f56b74321a6352bfaa9ef9c5434c1929f5e9b2c6416b9cf1f4803437ce3ce4"
+	got := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}})
+	if got != golden {
+		t.Errorf("all-headers secret hash = %q, want the pre-scoping value %q", got, golden)
+	}
+}
+
+// TestSecretsContentHashCaseOrderInsensitiveAcrossSpecs pins the review-focus
+// invariant end to end: two specs that differ only in header-field case and
+// order build identical entries and therefore one fingerprint, so such an edit
+// never triggers a recreate.
+func TestSecretsContentHashCaseOrderInsensitiveAcrossSpecs(t *testing.T) {
+	a := envsecret.BuildSecretsFromSpecs(map[string]envsecret.SecretSpec{
+		"K": {Value: "v", Host: "h.example", HeaderFields: []string{"X-Api-Key", "Authorization"}},
+	}, nil, testUI(t))
+	b := envsecret.BuildSecretsFromSpecs(map[string]envsecret.SecretSpec{
+		"K": {Value: "v", Host: "h.example", HeaderFields: []string{"authorization", "x-api-key"}},
+	}, nil, testUI(t))
+	if SecretsContentHash(a) != SecretsContentHash(b) {
+		t.Error("case/order-only header_fields change must not flip the fingerprint")
+	}
+}
+
+func testUI(t *testing.T) termio.UI {
+	t.Helper()
+	mock := termio.NewTestMock(t)
+	return &mock
+}
+
+func TestSecretsContentHashIncludesHeaderFieldsScope(t *testing.T) {
+	// A change to a secret's header scope (same value, same hosts) must
+	// produce a different hash so the launcher recreates the VM. See
+	// SecretsContentHash.
+	allHeaders := SecretsContentHash([]msbSdk.SecretEntry{
+		{EnvVar: "K", Value: "v", Allow: []string{"h.example"}},
+	})
+	scoped := SecretsContentHash([]msbSdk.SecretEntry{
+		{
+			EnvVar:       "K",
+			Value:        "v",
+			Allow:        []string{"h.example"},
+			Substitution: msbSdk.SecretSubstitution{HeaderFields: []string{"authorization"}},
+		},
+	})
+	if allHeaders == scoped {
+		t.Error("SecretsContentHash should differ when Substitution.HeaderFields changes")
+	}
+}
+
+// TestSecretsContentHashScopedStable pins the digest of a header-scoped secret
+// (golden) and asserts a different field set hashes differently. Together they
+// prove the folded header-fields segment — both its leading "|" separator and
+// the joined names — reaches the digest: dropping either write still leaves a
+// scoped secret differing from an all-headers one, so scoped-vs-unscoped alone
+// would not notice a scoped-secret edit that stopped recreating the VM. The
+// no-scope case is pinned separately by TestSecretsContentHashAllHeadersStable.
+func TestSecretsContentHashScopedStable(t *testing.T) {
+	const golden = "af3da3e12c4d20cac8cce978b21986bca531ef43c6f5294b5590096d08d4cd22"
+	scoped := func(fields ...string) string {
+		return SecretsContentHash([]msbSdk.SecretEntry{{
+			EnvVar:       "K",
+			Value:        "v",
+			Allow:        []string{"h.example"},
+			Substitution: msbSdk.SecretSubstitution{HeaderFields: fields},
+		}})
+	}
+	if got := scoped("authorization"); got != golden {
+		t.Errorf("scoped header-fields hash = %q, want %q", got, golden)
+	}
+	if scoped("authorization") == scoped("x-api-key") {
+		t.Error("SecretsContentHash must differ when the header-field names differ")
 	}
 }
 

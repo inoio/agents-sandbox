@@ -39,10 +39,10 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx@anthropic.com
 
 **YAML format** — `env.secret.yaml`
 
-A YAML object map from env-var name to `{ value, host?, hosts?, allow_any_host_dangerous? }`. Values may contain **any
-characters** including `@`. `host` and `hosts` are optional when `allow_any_host_dangerous` is set, but otherwise
-required — entries with neither hosts nor a dangerous flag are dropped with a warning. JSON is also accepted (YAML 1.2
-is a JSON superset).
+A YAML object map from env-var name to `{ value, host?, hosts?, header_fields?, allow_any_host_dangerous? }`. Values
+may contain **any characters** including `@`. `host` and `hosts` are optional when `allow_any_host_dangerous` is set,
+but otherwise required — entries with neither hosts nor a dangerous flag are dropped with a warning. JSON is also
+accepted (YAML 1.2 is a JSON superset).
 
 ```yaml
 # .agents-sandbox/env.secret.yaml
@@ -52,6 +52,7 @@ GITHUB_TOKEN:
 ANTHROPIC_API_KEY:
   value: sk-ant-xxxxxxxx
   hosts: [gw-a.internal, gw-b.internal]
+  header_fields: [authorization, x-api-key]
 # No hosts defined — this entry is dropped with a warning
 DROPPED_KEY:
   value: secret-value
@@ -123,6 +124,26 @@ A host cannot be both substituted for and placeholder-passthrough. Two rules kee
   gets no placeholder-passthrough hosts.
 
 Changing this key changes the VM's secret fingerprint, so the next run recreates the project VM once.
+
+## Header substitution scope
+
+By default microsandbox replaces a secret's placeholder in every request header it sees. That lets an untrusted
+program inside the sandbox put the placeholder in a header the upstream echoes back, and read the real secret from
+the response. `header_fields` restricts substitution to the header names you list:
+
+```yaml
+# .agents-sandbox/env.secret.yaml
+GITHUB_TOKEN:
+  value: ghp_xxxxxxxx
+  host: github.com
+  header_fields: [authorization]
+```
+
+Field names are case-insensitive, and the list is deduplicated. Omitting `header_fields`, or setting it to an empty
+list, keeps the default: the placeholder is replaced in every header. Only the YAML format carries the key; the
+legacy `KEY=value@host` format has no place for it.
+
+Changing the list changes the sandbox's secret fingerprint, so the next run recreates the project VM once.
 
 ## Trusting the CA in applications
 

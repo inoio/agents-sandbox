@@ -602,6 +602,113 @@ func TestBuildSecretsFromSpecsDeterministicOrder(t *testing.T) {
 	}
 }
 
+func TestParseSecretSpecYAMLHeaderFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "env.secret.yaml")
+	testutil.WritePath(t, path, "FOO:\n  value: x\n  host: h.example\n  header_fields: [X-Api-Key, Authorization]\n")
+	testUI := termio.NewTestMock(t)
+
+	specs := ParseSecretSpecYAML(path, &testUI)
+	want := map[string]SecretSpec{"FOO": {
+		Value: "x", Host: "h.example", HeaderFields: []string{"X-Api-Key", "Authorization"},
+	}}
+	if !reflect.DeepEqual(specs, want) {
+		t.Errorf("got %#v, want %#v", specs, want)
+	}
+}
+
+func TestBuildSecretsFromSpecsHeaderFieldsScoped(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {
+		Value: "v", Host: "h.example", HeaderFields: []string{"authorization", "x-api-key"},
+	}}
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if !slices.Equal(secrets[0].Substitution.HeaderFields, []string{"authorization", "x-api-key"}) {
+		t.Errorf("HeaderFields = %v, want [authorization x-api-key]", secrets[0].Substitution.HeaderFields)
+	}
+}
+
+func TestBuildSecretsFromSpecsHeaderFieldsAbsentIsAllHeaders(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {Value: "v", Host: "h.example"}}
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if len(secrets[0].Substitution.HeaderFields) != 0 {
+		t.Errorf("HeaderFields = %v, want empty so all headers substitute", secrets[0].Substitution.HeaderFields)
+	}
+}
+
+func TestBuildSecretsFromSpecsHeaderFieldsEmptySliceIsAllHeaders(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {Value: "v", Host: "h.example", HeaderFields: []string{}}}
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if len(secrets[0].Substitution.HeaderFields) != 0 {
+		t.Errorf("HeaderFields = %v, want empty so all headers substitute", secrets[0].Substitution.HeaderFields)
+	}
+}
+
+// TestBuildSecretsFromSpecsHeaderFieldsCanonical pins that case-, order- and
+// duplicate-only differences collapse to one canonical slice, so the built
+// entry (and its fingerprint) is identical for equivalent inputs.
+func TestBuildSecretsFromSpecsHeaderFieldsCanonical(t *testing.T) {
+	testUI := termio.NewTestMock(t)
+	in := map[string]SecretSpec{"K": {
+		Value: "v", Host: "h.example",
+		HeaderFields: []string{"X-Api-Key", "authorization", "x-api-key", "AUTHORIZATION"},
+	}}
+	secrets := BuildSecretsFromSpecs(in, nil, &testUI)
+	if len(secrets) != 1 {
+		t.Fatalf("expected 1 secret, got %d", len(secrets))
+	}
+	if !slices.Equal(secrets[0].Substitution.HeaderFields, []string{"authorization", "x-api-key"}) {
+		t.Errorf("HeaderFields = %v, want [authorization x-api-key]", secrets[0].Substitution.HeaderFields)
+	}
+}
+
+// TestNormalizeHeaderFields exercises the helper's contract directly. An
+// empty or nil list collapses to nil (the SDK's all-headers default), a
+// single field is kept rather than treated as empty, and the dedup loop must
+// keep scanning after a repeat so a later distinct field survives.
+func TestNormalizeHeaderFields(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{"nil stays nil", nil, nil},
+		{"empty collapses to nil", []string{}, nil},
+		{"single field", []string{"Authorization"}, []string{"authorization"}},
+		{
+			"duplicate before distinct",
+			[]string{"X-Api-Key", "X-API-KEY", "Authorization"},
+			[]string{"authorization", "x-api-key"},
+		},
+		{
+			"case and order only",
+			[]string{"X-Api-Key", "authorization", "x-api-key", "AUTHORIZATION"},
+			[]string{"authorization", "x-api-key"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeHeaderFields(tt.in)
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("normalizeHeaderFields(%v) = %v, want %v", tt.in, got, tt.want)
+			}
+			if tt.want == nil && got != nil {
+				t.Errorf("normalizeHeaderFields(%v) = %v, want nil (all-headers default)", tt.in, got)
+			}
+		})
+	}
+}
+
 // TestParseSecretSpecLegacyTrimsKey pins that the legacy parser trims
 // surrounding whitespace from a key; the line is trimmed as a whole, but the
 // part before '=' can still carry trailing spaces.

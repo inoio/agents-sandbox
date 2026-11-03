@@ -107,6 +107,9 @@
 - `network-profiles.md`
   - Description: Contract for composable network profiles: `public`/`private`/`host` union through one microsandbox policy, `none` is terminal and allowlist-only, the config/env/flag surface accepts a scalar/comma-string/list, and the fingerprint keeps one `profile=` line per profile so single-profile digests are stable.
   - Read If: Changing `network.Policy`, `ParseProfile`/`ParseProfiles`, viperconfig `profileEntries`/`stringToSliceDecodeHook`, the `network.profile`/`--network`/`AGENTS_SANDBOX_NETWORK_PROFILE` surface, the egress lists' `env:"-"` config-file-only exclusion, or network fingerprinting and its VM-recreation trigger.
+- `secret-header-scoping.md`
+  - Description: Contract for scoping a secret's placeholder substitution to named request-header fields via `env.secret.yaml` `header_fields` (#150): the lowercase/dedupe/sort normalization shared by the built entry and the fingerprint, the all-headers default for an absent or empty list, and the `HeaderFields` fold in `SecretsContentHash`.
+  - Read If: Changing per-secret header substitution, `envsecret.SecretSpec`/`BuildSecretsFromSpecs`, the `header_fields` docs, or `state.SecretsContentHash`'s field set.
 - `home-volume-recovery.md`
   - Description: Contract for recovering a project's home volume when `state.yaml` is lost: resolution order (state → the live VM's mounted volume → fresh prefill), why the live VM config is authoritative, the warning + rewrite, and the deliberate non-recovery of fingerprints (#219).
   - Read If: Changing `volume.Manager.ResolveHomeVolume`/`recoverOrCreateHome`, `liveHomeVolume`, home-volume resolution, or diagnosing a duplicate/orphaned home volume after state loss.
