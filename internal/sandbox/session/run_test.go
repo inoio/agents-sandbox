@@ -969,18 +969,24 @@ func TestWithClientSessionReturnsBodyErrorAfterReaping(t *testing.T) {
 }
 
 // TestWithClientSessionLeaseFailureStillRunsBody pins that a failed lease
-// acquisition only warns: the session still runs and the reap still fires, with
-// no lease of its own to release.
+// acquisition only warns: the session still runs and the reap still fires (the
+// running-container probe proves it), with no lease of its own to release.
 func TestWithClientSessionLeaseFailureStillRunsBody(t *testing.T) {
 	slug := "withsessionleasefail"
 	blockClientLease(t, slug)
 	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{
+		Name_: "test-vm",
+		ShellOut: map[string]msb.ShellResult{
+			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+		},
+	}
 	ran := false
 
 	err := withClientSession(
 		context.Background(),
 		state.Key{Slug: slug, Agent: "opencode"},
-		&msb.MockSandbox{Name_: "test-vm"},
+		sb,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
 		ui,
 		alwaysReap,
@@ -1004,6 +1010,9 @@ func TestWithClientSessionLeaseFailureStillRunsBody(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected a client lease warning, got %v", ui.WarnCalls)
+	}
+	if !containerProbeWarn(ui) {
+		t.Errorf("expected the reap to probe containers despite the lease failure, got %v", ui.WarnCalls)
 	}
 }
 
@@ -1066,6 +1075,29 @@ func TestRunServeOnlySessionSkipsReapOnNonCanceledError(t *testing.T) {
 	}
 	if got := state.CountActiveClients(k); got != 0 {
 		t.Errorf("CountActiveClients = %d, want 0 after the deferred release", got)
+	}
+}
+
+// TestServeOnlyShouldReap pins the serve-only predicate directly, including the
+// nil clean-exit case the runServeOnlySession path cannot reach: runServeOnly
+// always returns its ctx.Err(), so no session error observed through it is nil.
+func TestServeOnlyShouldReap(t *testing.T) {
+	cases := []struct {
+		name       string
+		sessionErr error
+		want       bool
+	}{
+		{"clean exit", nil, true},
+		{"canceled", context.Canceled, true},
+		{"deadline exceeded", context.DeadlineExceeded, false},
+		{"other error", errors.New("boom"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := serveOnlyShouldReap(tc.sessionErr); got != tc.want {
+				t.Errorf("serveOnlyShouldReap(%v) = %v, want %v", tc.sessionErr, got, tc.want)
+			}
+		})
 	}
 }
 

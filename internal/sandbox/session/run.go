@@ -278,10 +278,18 @@ func withClientSession(
 // even when the attach itself failed.
 func alwaysReap(error) bool { return true }
 
+// serveOnlyShouldReap reports whether a serve-only session's end is reap-able: a
+// clean exit (nil) or a user cancel reaps, while any other payload error is an
+// abnormal end that skips the reap, leaving the VM to its idle timeout. The same
+// predicate classifies the result the caller sees: a reap-able exit reports a
+// clean ExitError 0, an abnormal one is returned to the caller.
+func serveOnlyShouldReap(sessionErr error) bool {
+	return sessionErr == nil || errors.Is(sessionErr, context.Canceled)
+}
+
 // runServeOnlySession supplies the serve-only payload around the shared client
 // session lifecycle: hold the VM (keeper exec) until ctx is done, then report a
-// clean exit. A payload error other than context.Canceled skips the reap, as an
-// abnormal end leaves the VM to its idle timeout.
+// clean exit.
 func runServeOnlySession(
 	ctx context.Context,
 	k state.Key,
@@ -296,12 +304,12 @@ func runServeOnlySession(
 		sb,
 		policy,
 		ui,
-		func(err error) bool { return err == nil || errors.Is(err, context.Canceled) },
+		serveOnlyShouldReap,
 		func(a agent.Agent) error {
 			return runServeOnly(ctx, a, sb, ui, hostPort)
 		},
 	)
-	if sessionErr != nil && !errors.Is(sessionErr, context.Canceled) {
+	if !serveOnlyShouldReap(sessionErr) {
 		return sessionErr
 	}
 	return &sandbox.ExitError{Code: 0}
