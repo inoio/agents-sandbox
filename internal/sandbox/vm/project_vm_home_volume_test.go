@@ -95,10 +95,18 @@ func TestSetProjectVMLockReplacesTheCreationLock(t *testing.T) {
 	t.Cleanup(func() { SetProjectVMLock(orig) })
 	ui := termio.NewTestMock(t)
 
-	_, _, err := EnsureProjectVM(
-		context.Background(), &msb.MockMsbClient{}, options.RunOptions{}, image.ImageInfo{}, "home-vol", "/repo",
-		testVMKey(), nil, "repo", false, envsecret.EnvSecrets{}, &ui,
-	)
+	_, _, err := EnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     &msb.MockMsbClient{},
+		Options:    options.RunOptions{},
+		Image:      image.ImageInfo{},
+		HomeVolume: "home-vol",
+		RepoPath:   "/repo",
+		Key:        testVMKey(),
+		RepoSlug:   "repo",
+		SkipVM:     false,
+		Env:        envsecret.EnvSecrets{},
+		UI:         &ui,
+	})
 	if !errors.Is(err, lockErr) {
 		t.Fatalf("EnsureProjectVM error = %v, want the replaced lock's %v", err, lockErr)
 	}

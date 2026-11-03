@@ -219,18 +219,17 @@ func TestRestartDaemonsNoProvider(t *testing.T) {
 // TestEnsureProjectVMSkipVM covers the skip-VM early-return branch.
 func TestEnsureProjectVMSkipVM(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	sb, boot, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		&msb.MockMsbClient{},
-		options.RunOptions{},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		true,
-		&ui,
-	)
+	sb, boot, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     &msb.MockMsbClient{},
+		Options:    options.RunOptions{},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     true,
+		UI:         &ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM dry-run: %v", err)
 	}
@@ -251,18 +250,17 @@ func TestEnsureProjectVMGetSandboxFatalError(t *testing.T) {
 	client.SetGetSandboxErr(errors.New("boom"))
 	msb.WithMsbMock(t, client)
 
-	_, _, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		&ui,
-	)
+	_, _, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{Agent: "opencode"},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if err == nil {
 		t.Fatal("expected error from GetSandbox")
 	}

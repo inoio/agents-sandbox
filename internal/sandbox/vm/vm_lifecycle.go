@@ -107,54 +107,72 @@ func SetProjectVMLock(f func(k state.Key) (func(), error)) func(k state.Key) (fu
 	return orig
 }
 
+// ProjectVMCreation is the whole input to creating (or attaching to) a project
+// VM: every value the ensure-vm stage resolved, passed through the creation path
+// as one named value instead of a positional tuple. EnsureProjectVM owns the
+// lifecycle decisions the request cannot carry (the lock, the name it derives);
+// createOrAttachAfterLock and createProjectVM take the request plus the name
+// EnsureProjectVM decided.
+//
+// Existing is the project VM the reconfiguration decision was read from
+// (readLiveProjectVM in package prepare), or nil when none exists. It is used
+// as-is rather than looked up again, so a recreate destroys exactly the VM the
+// decision judged.
+type ProjectVMCreation struct {
+	Client     msb.Client
+	Options    options.RunOptions
+	Image      image.ImageInfo
+	HomeVolume string
+	RepoPath   string
+	Key        state.Key
+	Existing   msb.SandboxHandle
+	RepoSlug   string
+	SkipVM     bool
+	Env        envsecret.EnvSecrets
+	UI         termio.UI
+}
+
 // EnsureProjectVM returns a live *msb.Sandbox for the project VM and how it
 // entered the running state this run: VMBootCreated on first boot or
 // recreation, VMBootStarted when this invocation booted an existing VM, or
 // VMBootConnected when an already-running VM was merely attached to (and when
-// skipVM leaves the lifecycle alone). A per-project host-side flock guards the
-// first-boot race and the recreate destroy between concurrent invocations.
-//
-// existing is the project VM the reconfiguration decision was read from
-// (readLiveProjectVM in package prepare), or nil when none exists. It is used as-is rather than
-// looked up again, so a recreate destroys exactly the VM the decision judged.
-func EnsureProjectVM(
-	ctx context.Context,
-	client msb.Client,
-	opts options.RunOptions,
-	info image.ImageInfo, homeVol, repoPath string,
-	k state.Key,
-	existing msb.SandboxHandle,
-	repoSlug string,
-	skipVM bool,
-	env envsecret.EnvSecrets,
-	ui termio.UI,
-) (msb.Sandbox, VMBoot, error) {
-	if skipVM {
-		ui.Verbosef("dry-run: VM lifecycle skipped")
+// creation.SkipVM leaves the lifecycle alone). A per-project host-side flock
+// guards the first-boot race and the recreate destroy between concurrent
+// invocations.
+func EnsureProjectVM(ctx context.Context, creation ProjectVMCreation) (msb.Sandbox, VMBoot, error) {
+	if creation.SkipVM {
+		creation.UI.Verbosef("dry-run: VM lifecycle skipped")
 		return nil, VMBootConnected, nil
 	}
 
-	name := ProjectVMName(k)
-	found := existing != nil
+	name := ProjectVMName(creation.Key)
+	found := creation.Existing != nil
 	if found {
-		name = existing.Name()
+		name = creation.Existing.Name()
 	}
 
 	// Non-mutating fast path: attach to, wait for, or start an existing VM
 	// without the flock. A recreate is mutating, so it always takes the lock.
-	if found && !opts.Recreate {
-		return resolveExistingVM(ctx, existing, opts, name, ui, ui.Spinner("Checking project VM"))
+	if found && !creation.Options.Recreate {
+		return resolveExistingVM(
+			ctx,
+			creation.Existing,
+			creation.Options,
+			name,
+			creation.UI,
+			creation.UI.Spinner("Checking project VM"),
+		)
 	}
 
 	// Ensure runtime is available before acquiring the flock to reduce contention.
-	if ensureErr := client.EnsureInstalled(ctx); ensureErr != nil {
+	if ensureErr := creation.Client.EnsureInstalled(ctx); ensureErr != nil {
 		return nil, VMBootConnected, fmt.Errorf("microsandbox runtime: %w", ensureErr)
 	}
 
 	// Slow path: hold the per-project flock so concurrent invocations don't both
 	// create (and clobber via WithReplace), and so a recreate destroy cannot race
 	// a VM another invocation just created.
-	release, lockErr := acquireProjectVMLock(k)
+	release, lockErr := acquireProjectVMLock(creation.Key)
 	if lockErr != nil {
 		return nil, VMBootConnected, fmt.Errorf("acquire project flock: %w", lockErr)
 	}
@@ -167,7 +185,7 @@ func EnsureProjectVM(
 	if found {
 		alreadyGone, destroyErr := destroyProjectVMHandle(
 			context.Background(),
-			existing,
+			creation.Existing,
 			name,
 			"rerun to reconfigure it",
 		)
@@ -176,16 +194,16 @@ func EnsureProjectVM(
 			return nil, VMBootConnected, destroyErr
 		}
 		if alreadyGone {
-			ui.Verbosef("project VM %s was already gone; recreating from new config", name)
+			creation.UI.Verbosef("project VM %s was already gone; recreating from new config", name)
 		} else {
-			ui.Verbosef("replaced project VM %s; recreating from new config", name)
+			creation.UI.Verbosef("replaced project VM %s; recreating from new config", name)
 		}
 		// The replaced VM may have carried a legacy name; recreate under the
 		// prefix-free scheme so the rename takes effect.
-		name = ProjectVMName(k)
+		name = ProjectVMName(creation.Key)
 	}
 
-	return createOrAttachAfterLock(ctx, client, name, k, repoSlug, info, homeVol, repoPath, opts, env, ui)
+	return createOrAttachAfterLock(ctx, creation, name)
 }
 
 // destroyProjectVMHandle destroys a project VM handle identity-safely and
@@ -368,27 +386,22 @@ func resumeSandboxByStatus(
 }
 
 // createOrAttachAfterLock re-checks for the VM after the flock was acquired,
-// attaching to one another invocation created, or creating it.
+// attaching to one another invocation created, or creating it under the name
+// EnsureProjectVM decided.
 func createOrAttachAfterLock(
 	ctx context.Context,
-	client msb.Client,
+	creation ProjectVMCreation,
 	name string,
-	key state.Key,
-	repoSlug string,
-	info image.ImageInfo, homeVol, repoPath string,
-	opts options.RunOptions,
-	env envsecret.EnvSecrets,
-	ui termio.UI,
 ) (msb.Sandbox, VMBoot, error) {
-	handle, err := client.GetSandbox(ctx, name)
+	handle, err := creation.Client.GetSandbox(ctx, name)
 	if err == nil {
-		return resolveExistingVM(ctx, handle, opts, name, ui, nil)
+		return resolveExistingVM(ctx, handle, creation.Options, name, creation.UI, nil)
 	}
 	if !msb.IsNotFound(err) {
 		return nil, VMBootConnected, fmt.Errorf("re-check sandbox %q: %w", name, err)
 	}
 
-	sb, created, err := createProjectVM(ctx, client, name, key, repoSlug, info, homeVol, repoPath, opts, env, ui)
+	sb, created, err := createProjectVM(ctx, creation, name)
 	if err != nil {
 		return nil, VMBootConnected, err
 	}
@@ -473,21 +486,12 @@ func waitForSandboxLifecycle(ctx context.Context) error {
 	}
 }
 
-func createProjectVM(
-	ctx context.Context,
-	client msb.Client,
-	name string,
-	key state.Key,
-	repoSlug string,
-	info image.ImageInfo, homeVol, repoPath string,
-	opts options.RunOptions,
-	env envsecret.EnvSecrets,
-	ui termio.UI,
-) (msb.Sandbox, bool, error) {
-	info, err := image.EnsureLoaded(ctx, client, info, ui)
+func createProjectVM(ctx context.Context, creation ProjectVMCreation, name string) (msb.Sandbox, bool, error) {
+	info, err := image.EnsureLoaded(ctx, creation.Client, creation.Image, creation.UI)
 	if err != nil {
 		return nil, false, fmt.Errorf("load runner image: %w", err)
 	}
+	opts := creation.Options
 	cpus := opts.CPUs
 	numCPUs := sysinfo.NumCPUs()
 	if cpus == 0 {
@@ -495,18 +499,18 @@ func createProjectVM(
 	}
 	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 
-	vmEnv := buildProjectVMEnv(env.Vars, info.Env)
-	ui.Verbosef("adding docker env definitions to project VM environment: %s", info.Env)
+	vmEnv := buildProjectVMEnv(creation.Env.Vars, info.Env)
+	creation.UI.Verbosef("adding docker env definitions to project VM environment: %s", info.Env)
 
 	mountConfigs := buildMounts(
-		homeVol,
-		repoPath,
+		creation.HomeVolume,
+		creation.RepoPath,
 		options.ResolveTmpSizeMiB(opts.TmpSize),
 		options.ResolveWorkspaceQuotaMiB(opts.WorkspaceQuota),
 		opts.Mounts,
 	)
 
-	spin := ui.Spinner("Starting project VM")
+	spin := creation.UI.Spinner("Starting project VM")
 	idleTimeout := opts.IdleTimeout
 	if idleTimeout <= 0 {
 		idleTimeout = options.DefaultVMIdleTimeout
@@ -518,9 +522,14 @@ func createProjectVM(
 		// prefix, and it may have been truncated. The grouping label carries the
 		// repo slug so list --label project=<repo> groups every clone of one
 		// origin.
-		msbSdk.WithLabels(naming.ProjectSandboxLabels(key.Slug, key.Agent, repoSlug, info.Ref)),
+		msbSdk.WithLabels(naming.ProjectSandboxLabels(
+			creation.Key.Slug,
+			creation.Key.Agent,
+			creation.RepoSlug,
+			info.Ref,
+		)),
 		msbSdk.WithMounts(mountConfigs),
-		msbSdk.WithSecrets(env.Secrets...),
+		msbSdk.WithSecrets(creation.Env.Secrets...),
 		msbSdk.WithEnv(vmEnv),
 		msbSdk.WithWorkdir(defaultTargetDir),
 		msbSdk.WithCPUs(cpus),
@@ -548,13 +557,13 @@ func createProjectVM(
 		return nil, false, fmt.Errorf("network config: %w", err)
 	}
 	optsList = append(optsList, msbSdk.WithNetwork(netCfg))
-	sb, err := client.CreateSandbox(ctx, name, optsList...)
+	sb, err := creation.Client.CreateSandbox(ctx, name, optsList...)
 	if err != nil {
 		spin.StopError(err)
 		return nil, false, fmt.Errorf("create sandbox: %w", err)
 	}
 	spin.Stop()
-	ui.Infof("created new project VM: %s", name)
+	creation.UI.Infof("created new project VM: %s", name)
 	return sb, true, nil
 }
 

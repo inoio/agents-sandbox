@@ -165,18 +165,17 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 			client.SetGotSandbox(tc.handle())
 			msb.WithMsbMock(t, client)
 
-			_, _, err := lookUpAndEnsureProjectVM(
-				context.Background(),
-				client,
-				options.RunOptions{Agent: "opencode"},
-				image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-				"vol",
-				"/workspace",
-				testVMKey(),
-				testVMKey().Slug,
-				false,
-				&ui,
-			)
+			_, _, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+				Client:     client,
+				Options:    options.RunOptions{Agent: "opencode"},
+				Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+				HomeVolume: "vol",
+				RepoPath:   "/workspace",
+				Key:        testVMKey(),
+				RepoSlug:   testVMKey().Slug,
+				SkipVM:     false,
+				UI:         &ui,
+			})
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("EnsureProjectVM error = %v, wantErr %v", err, tc.wantErr)
 			}

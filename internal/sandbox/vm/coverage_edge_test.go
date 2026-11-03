@@ -90,18 +90,17 @@ func TestEnsureProjectVMFlockError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		k,
-		k.Slug,
-		false,
-		&ui,
-	)
+	_, _, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{Agent: "opencode"},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        k,
+		RepoSlug:   k.Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if err == nil {
 		t.Fatal("expected error when acquiring the project flock fails")
 	}

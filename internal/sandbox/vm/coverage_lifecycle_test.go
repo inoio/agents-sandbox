@@ -62,18 +62,17 @@ func TestEnsureProjectVMConnectRetryReconnectSucceeds(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		&ui,
-	)
+	sb, boot, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{Agent: "opencode"},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM connect-retry reconnect: %v", err)
 	}
@@ -106,18 +105,17 @@ func TestEnsureProjectVMConnectRetryThenStart(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		&ui,
-	)
+	sb, boot, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{Agent: "opencode"},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM connect-retry start: %v", err)
 	}
@@ -150,18 +148,17 @@ func TestEnsureProjectVMPostLockDecideError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		&ui,
-	)
+	_, _, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{Agent: "opencode"},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if err == nil {
 		t.Fatal("expected error for an unrecognized status in the post-lock recheck")
 	}
@@ -205,18 +202,17 @@ func TestEnsureProjectVMPostLockConnectFailThenStart(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		&ui,
-	)
+	sb, boot, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{Agent: "opencode"},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM post-lock connect-fail start: %v", err)
 	}
@@ -254,18 +250,17 @@ func TestEnsureProjectVMPostLockConnectRetryReconnectSucceeds(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		&ui,
-	)
+	sb, boot, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{Agent: "opencode"},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM post-lock connect retry: %v", err)
 	}
@@ -294,18 +289,17 @@ func TestEnsureProjectVMPostLockConnectRetryRefreshError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		&ui,
-	)
+	_, _, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{Agent: "opencode"},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if err == nil {
 		t.Fatal("expected error when refreshing the handle after a post-lock connect failure")
 	}
@@ -334,18 +328,17 @@ func TestEnsureProjectVMPostLockStartError(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	_, _, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		&ui,
-	)
+	_, _, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{Agent: "opencode"},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if !errors.Is(err, causeErr) {
 		t.Fatalf("%s: error = %v, want it to wrap %v", "expected error when the post-lock start fails", err, causeErr)
 	}
@@ -375,18 +368,17 @@ func TestEnsureProjectVMPostLockConnectReconcileWarn(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{CPUs: 4},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		&ui,
-	)
+	sb, boot, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{CPUs: 4},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM post-lock connect reconcile warn: %v", err)
 	}
@@ -425,18 +417,17 @@ func TestEnsureProjectVMPostLockStartReconcileWarn(t *testing.T) {
 	client.EnsureInstalledFn = func(context.Context) error { return nil }
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{CPUs: 4},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		&ui,
-	)
+	sb, boot, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{CPUs: 4},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM post-lock start reconcile warn: %v", err)
 	}
@@ -467,18 +458,17 @@ func TestEnsureProjectVMConnectRetryRefreshError(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	_, _, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		&ui,
-	)
+	_, _, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{Agent: "opencode"},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if err == nil {
 		t.Fatal("expected error when refreshing the handle after a connect failure")
 	}
@@ -507,18 +497,17 @@ func TestEnsureProjectVMConnectRetryReconcileWarn(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{CPUs: 4},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		&ui,
-	)
+	sb, boot, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{CPUs: 4},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM connect-retry reconcile warn: %v", err)
 	}
@@ -555,18 +544,17 @@ func TestEnsureProjectVMConnectRetryStartError(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	_, _, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		&ui,
-	)
+	_, _, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{Agent: "opencode"},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if !errors.Is(err, causeErr) {
 		t.Fatalf(
 			"%s: error = %v, want it to wrap %v",
@@ -600,18 +588,17 @@ func TestEnsureProjectVMConnectRetryStartReconcileWarn(t *testing.T) {
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
-	sb, boot, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{CPUs: 4},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		"vol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		&ui,
-	)
+	sb, boot, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{CPUs: 4},
+		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume: "vol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         &ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM connect-retry start reconcile warn: %v", err)
 	}

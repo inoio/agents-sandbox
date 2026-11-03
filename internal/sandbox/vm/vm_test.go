@@ -138,19 +138,20 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	ui := &testUI
 	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
-	sb, created, err := createProjectVM(
-		context.Background(),
-		client,
-		"agents-sandbox-vm-test",
-		testVMKey(),
-		testVMKey().Slug,
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
-		"test-home-vol",
-		t.TempDir(),
-		options.RunOptions{Memory: "1G"},
-		envsecret.EnvSecrets{},
-		ui,
-	)
+	sb, created, err := createProjectVM(context.Background(), ProjectVMCreation{
+		Client:  client,
+		Options: options.RunOptions{Memory: "1G"},
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:latest",
+			Ref:       "agents-sandbox/runner-test:latest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   t.TempDir(),
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		Env:        envsecret.EnvSecrets{},
+		UI:         ui,
+	}, "agents-sandbox-vm-test")
 	if err != nil {
 		t.Fatalf("createProjectVM failed: %v", err)
 	}
@@ -194,19 +195,17 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 
-	sb, created, err := createProjectVM(
-		context.Background(),
-		client,
-		"agents-sandbox-vm-test",
-		testVMKey(),
-		testVMKey().Slug,
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:abc", Ref: "agents-sandbox/runner-test:abc"},
-		"test-home-vol",
-		t.TempDir(),
-		options.RunOptions{Memory: "1G"},
-		envsecret.EnvSecrets{},
-		ui,
-	)
+	sb, created, err := createProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{Memory: "1G"},
+		Image:      image.ImageInfo{DockerTag: "agents-sandbox/runner-test:abc", Ref: "agents-sandbox/runner-test:abc"},
+		HomeVolume: "test-home-vol",
+		RepoPath:   t.TempDir(),
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		Env:        envsecret.EnvSecrets{},
+		UI:         ui,
+	}, "agents-sandbox-vm-test")
 	if err != nil {
 		t.Fatalf("createProjectVM failed: %v", err)
 	}
@@ -267,18 +266,20 @@ func TestEnsureProjectVM_CreatePath(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	sb, created, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
-		"test-home-vol",
-		tmpRepo,
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		ui,
-	)
+	sb, created, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:  client,
+		Options: options.RunOptions{Memory: "1G", TmpSize: "512M"},
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:latest",
+			Ref:       "agents-sandbox/runner-test:latest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   tmpRepo,
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (create): %v", err)
 	}
@@ -321,18 +322,20 @@ func TestEnsureProjectVMAppliesLabels(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	sb, created, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
-		"test-home-vol",
-		tmpRepo,
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		ui,
-	)
+	sb, created, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:  client,
+		Options: options.RunOptions{Memory: "1G", TmpSize: "512M"},
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:latest",
+			Ref:       "agents-sandbox/runner-test:latest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   tmpRepo,
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (create): %v", err)
 	}
@@ -359,18 +362,20 @@ func TestEnsureProjectVM_ReconnectPath(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	sb, created, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
-		"test-home-vol",
-		tmpRepo,
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		ui,
-	)
+	sb, created, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:  client,
+		Options: options.RunOptions{Memory: "1G", TmpSize: "512M"},
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:latest",
+			Ref:       "agents-sandbox/runner-test:latest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   tmpRepo,
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (reconnect): %v", err)
 	}
@@ -409,18 +414,20 @@ func TestEnsureProjectVM_ConnectOutcomeIsInfo(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if _, _, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
-		"test-home-vol",
-		tmpRepo,
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		ui,
-	); err != nil {
+	if _, _, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:  client,
+		Options: options.RunOptions{Memory: "1G", TmpSize: "512M"},
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:latest",
+			Ref:       "agents-sandbox/runner-test:latest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   tmpRepo,
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         ui,
+	}); err != nil {
 		t.Fatalf("EnsureProjectVM (connect): %v", err)
 	}
 	assertInfoCall(t, ui, "connected to existing project VM")
@@ -440,18 +447,20 @@ func TestEnsureProjectVM_StartOutcomeIsInfo(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if _, _, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
-		"test-home-vol",
-		tmpRepo,
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		ui,
-	); err != nil {
+	if _, _, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:  client,
+		Options: options.RunOptions{Memory: "1G", TmpSize: "512M"},
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:latest",
+			Ref:       "agents-sandbox/runner-test:latest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   tmpRepo,
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         ui,
+	}); err != nil {
 		t.Fatalf("EnsureProjectVM (start): %v", err)
 	}
 	assertInfoCall(t, ui, "started existing project VM")
@@ -475,18 +484,20 @@ func TestEnsureProjectVM_CreateOutcomeIsInfo(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if _, _, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
-		"test-home-vol",
-		tmpRepo,
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		ui,
-	); err != nil {
+	if _, _, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:  client,
+		Options: options.RunOptions{Memory: "1G", TmpSize: "512M"},
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:latest",
+			Ref:       "agents-sandbox/runner-test:latest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   tmpRepo,
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         ui,
+	}); err != nil {
 		t.Fatalf("EnsureProjectVM (create): %v", err)
 	}
 	assertInfoCall(t, ui, "created new project VM")
@@ -512,18 +523,20 @@ func TestEnsureProjectVM_ReconnectWhenImageUnchanged(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	sb, created, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:abc123", Ref: "agents-sandbox/runner-test:abc123"},
-		"test-home-vol",
-		tmpRepo,
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		ui,
-	)
+	sb, created, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:  client,
+		Options: options.RunOptions{Memory: "1G", TmpSize: "512M"},
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:abc123",
+			Ref:       "agents-sandbox/runner-test:abc123",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   tmpRepo,
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (unchanged image): %v", err)
 	}
@@ -618,19 +631,20 @@ func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
 
-	if _, _, err := createProjectVM(
-		context.Background(),
-		client,
-		"agents-sandbox-vm-test",
-		testVMKey(),
-		testVMKey().Slug,
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:latest", Ref: "agents-sandbox/runner-test:latest"},
-		"test-home-vol",
-		t.TempDir(),
-		options.RunOptions{Memory: "1G", DiskSize: "16G"},
-		envsecret.EnvSecrets{},
-		ui,
-	); err != nil {
+	if _, _, err := createProjectVM(context.Background(), ProjectVMCreation{
+		Client:  client,
+		Options: options.RunOptions{Memory: "1G", DiskSize: "16G"},
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:latest",
+			Ref:       "agents-sandbox/runner-test:latest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   t.TempDir(),
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		Env:        envsecret.EnvSecrets{},
+		UI:         ui,
+	}, "agents-sandbox-vm-test"); err != nil {
 		t.Fatalf("createProjectVM failed: %v", err)
 	}
 
@@ -671,18 +685,20 @@ func TestEnsureProjectVM_NoReplacementWhenExistingImageUnknown(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	sb, created, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Memory: "1G", TmpSize: "512M"},
-		image.ImageInfo{DockerTag: "agents-sandbox/runner-test:newDigest", Ref: "agents-sandbox/runner-test:newDigest"},
-		"test-home-vol",
-		tmpRepo,
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		ui,
-	)
+	sb, created, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:  client,
+		Options: options.RunOptions{Memory: "1G", TmpSize: "512M"},
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:newDigest",
+			Ref:       "agents-sandbox/runner-test:newDigest",
+		},
+		HomeVolume: "test-home-vol",
+		RepoPath:   tmpRepo,
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM (unknown existing image): %v", err)
 	}
@@ -724,18 +740,17 @@ func TestEnsureProjectVMRecreatesWhenFlagged(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	opts := options.RunOptions{ReapPolicy: options.ReapPolicy{}, Recreate: true, CPUs: 1, Memory: "2G"}
-	sb, created, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		opts,
-		image.ImageInfo{DockerTag: "new:tag", Ref: "new:tag"},
-		"homevol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		ui,
-	)
+	sb, created, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    opts,
+		Image:      image.ImageInfo{DockerTag: "new:tag", Ref: "new:tag"},
+		HomeVolume: "homevol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM: %v", err)
 	}
@@ -771,18 +786,17 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 	msb.WithMsbMock(t, client)
 	configpaths.WithMockConfigPaths(t)
 
-	sb, created, err := lookUpAndEnsureProjectVM(
-		context.Background(),
-		client,
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "old:tag", Ref: "old:tag"},
-		"homevol",
-		"/workspace",
-		testVMKey(),
-		testVMKey().Slug,
-		false,
-		ui,
-	)
+	sb, created, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
+		Client:     client,
+		Options:    options.RunOptions{Agent: "opencode"},
+		Image:      image.ImageInfo{DockerTag: "old:tag", Ref: "old:tag"},
+		HomeVolume: "homevol",
+		RepoPath:   "/workspace",
+		Key:        testVMKey(),
+		RepoSlug:   testVMKey().Slug,
+		SkipVM:     false,
+		UI:         ui,
+	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM: %v", err)
 	}
