@@ -16,7 +16,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
-	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -56,7 +55,7 @@ func newOriginClone(t *testing.T) string {
 // build inspected (the tag the pipeline resolved).
 func installPrepareSandboxDockerMock(t *testing.T) *string {
 	t.Helper()
-	sandboximage.WithMockAgentVersion(t, "1.0.0")
+	withMockAgentLatestVersion(t, "1.0.0")
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.0.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })

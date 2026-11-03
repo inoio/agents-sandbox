@@ -94,9 +94,7 @@ func TestAdoptLegacyIdentityPersistRecoveredVolumeFailureFailsClosed(t *testing.
 	handle := legacyVMWithHome()
 	ui := termio.NewTestMock(t)
 
-	if _, err := AdoptLegacyIdentity(
-		context.Background(),
-		legacyVMNotFound(handle),
+	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
 		adoptAgentName,
 		true,
@@ -151,9 +149,7 @@ func TestAdoptLegacyIdentityClaimCommitFailureFailsClosed(t *testing.T) {
 	handle := legacyVMWithHome()
 	ui := termio.NewTestMock(t)
 
-	_, err := AdoptLegacyIdentity(
-		context.Background(),
-		legacyVMNotFound(handle),
+	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
 		adoptAgentName,
 		true,
@@ -191,9 +187,7 @@ func TestAdoptLegacyIdentityClaimVolumeMismatchFailsClosed(t *testing.T) {
 	handle := legacyVMWithHome()
 	ui := termio.NewTestMock(t)
 
-	_, err := AdoptLegacyIdentity(
-		context.Background(),
-		legacyVMNotFound(handle),
+	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
 		adoptAgentName,
 		true,
@@ -237,9 +231,7 @@ func TestAdoptLegacyIdentityRestoresOtherOwnersMarkerBeforeDestroy(t *testing.T)
 	handle := legacyVMWithHome()
 	ui := termio.NewTestMock(t)
 
-	if _, err := AdoptLegacyIdentity(
-		context.Background(),
-		legacyVMNotFound(handle),
+	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
 		adoptAgentName,
 		true,
@@ -282,9 +274,7 @@ func TestAdoptLegacyIdentityOtherOwnerClaimVolumeMismatchFailsClosed(t *testing.
 	handle := legacyVMWithHome()
 	ui := termio.NewTestMock(t)
 
-	_, err := AdoptLegacyIdentity(
-		context.Background(),
-		legacyVMNotFound(handle),
+	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
 		adoptAgentName,
 		true,
@@ -324,9 +314,7 @@ func TestAdoptLegacyIdentityOtherOwnerMarkerRestoreFailureFailsClosed(t *testing
 	handle := legacyVMWithHome()
 	ui := termio.NewTestMock(t)
 
-	if _, err := AdoptLegacyIdentity(
-		context.Background(),
-		legacyVMNotFound(handle),
+	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
 		adoptAgentName,
 		true,
@@ -358,7 +346,15 @@ func TestAdoptLegacyIdentityRecheckErrorPropagates(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	_, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	_, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected the locked re-check to propagate the unreadable legacy state")
 	}

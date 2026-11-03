@@ -19,6 +19,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -102,6 +103,11 @@ type Options struct {
 	// the process.
 	Store Store
 
+	// Paths resolves the legacy upgrade.json location that FoldLegacyState
+	// folds. The command boundary injects it; nil leaves the fold unable to
+	// locate the file (it then folds nothing).
+	Paths configpaths.ConfigPaths
+
 	// UpdateFunc installs the given latest version over the running binary.
 	// When nil, updateExecutable is used. Tests inject it to avoid touching
 	// the running executable.
@@ -165,8 +171,8 @@ func Check(ctx context.Context, opts Options) (Result, error) {
 	// dismissals, so defer the check rather than act on a state view known to be
 	// incomplete (which could re-prompt a version the user already dismissed).
 	// The file stays in place, so the next run retries the fold and resumes.
-	if opts.Store != nil {
-		if err := FoldLegacyState(store); err != nil {
+	if opts.Store != nil && opts.Paths != nil {
+		if err := FoldLegacyState(store, opts.Paths); err != nil {
 			opts.UI.Verbosef("upgrade state migration deferred: %v", err)
 			return Result{}, nil
 		}

@@ -97,6 +97,7 @@ func TestPlanRunnerImageRebuildsWhenLocalBaseAdvanced(t *testing.T) {
 
 	_, _, needsBuild, reasons, err := planRunnerImage(
 		context.Background(),
+		docker.Get(),
 		agentOpencode(t),
 		parseProjectDockerfile(nil),
 		"proj",
@@ -125,6 +126,7 @@ func TestPlanRunnerImageReusesImageWhenBaseUnchangedOrAbsent(t *testing.T) {
 
 			_, _, needsBuild, reasons, err := planRunnerImage(
 				context.Background(),
+				docker.Get(),
 				agentOpencode(t),
 				parseProjectDockerfile(nil),
 				"proj",
@@ -161,7 +163,7 @@ func TestResolveBaseDigestRefreshPullsPresentBase(t *testing.T) {
 
 	ui := &termio.Mock{}
 
-	got, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", true, ui)
+	got, err := resolveBaseDigest(context.Background(), docker.Get(), "debian:trixie-slim", true, ui)
 	if err != nil {
 		t.Fatalf("resolveBaseDigest: %v", err)
 	}
@@ -186,7 +188,7 @@ func TestResolveBaseDigestRefreshFallsBackToLocalBase(t *testing.T) {
 	})
 	ui := &termio.Mock{}
 
-	got, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", true, ui)
+	got, err := resolveBaseDigest(context.Background(), docker.Get(), "debian:trixie-slim", true, ui)
 	if err != nil {
 		t.Fatalf("resolveBaseDigest: %v", err)
 	}
@@ -208,7 +210,7 @@ func TestResolveBaseDigestRefreshFailsWithoutLocalBase(t *testing.T) {
 		},
 	})
 
-	_, err := resolveBaseDigest(context.Background(), "private/base:latest", true, &termio.Mock{})
+	_, err := resolveBaseDigest(context.Background(), docker.Get(), "private/base:latest", true, &termio.Mock{})
 	if err == nil || !strings.Contains(err.Error(), "pull base image") {
 		t.Errorf("resolveBaseDigest error = %v, want the pull failure", err)
 	}
@@ -225,7 +227,7 @@ func TestResolveBaseDigestUsesLocalBaseWithoutPulling(t *testing.T) {
 		},
 	})
 
-	got, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", false, &termio.Mock{})
+	got, err := resolveBaseDigest(context.Background(), docker.Get(), "debian:trixie-slim", false, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("resolveBaseDigest: %v", err)
 	}
@@ -250,7 +252,7 @@ func TestResolveBaseDigestLogsPullOfAbsentBase(t *testing.T) {
 	})
 	ui := &termio.Mock{}
 
-	if _, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", false, ui); err != nil {
+	if _, err := resolveBaseDigest(context.Background(), docker.Get(), "debian:trixie-slim", false, ui); err != nil {
 		t.Fatalf("resolveBaseDigest: %v", err)
 	}
 	if len(ui.VerboseCalls) != 1 || !strings.Contains(ui.VerboseCalls[0], "not present locally, pulling") {
@@ -275,7 +277,7 @@ func TestLocalBaseImageTreatsUnknownImageAsAbsent(t *testing.T) {
 					return tc.result, tc.err
 				},
 			})
-			if got := localBaseImage(context.Background(), "debian:trixie-slim"); got != tc.want {
+			if got := localBaseImage(context.Background(), docker.Get(), "debian:trixie-slim"); got != tc.want {
 				t.Errorf("localBaseImage = %q, want %q", got, tc.want)
 			}
 		})
@@ -305,7 +307,7 @@ func TestResolveBaseDigestWrapsCauses(t *testing.T) {
 					return docker.PullResponse{Body: strings.NewReader(""), WaitErr: tc.waitErr}, nil
 				},
 			})
-			_, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", false, &termio.Mock{})
+			_, err := resolveBaseDigest(context.Background(), docker.Get(), "debian:trixie-slim", false, &termio.Mock{})
 			if !errors.Is(err, cause) {
 				t.Errorf("resolveBaseDigest error = %v, want it to wrap the cause", err)
 			}

@@ -96,7 +96,7 @@ func TestResolverUpgradeIntervalOneNanosecond(t *testing.T) {
 func TestResolverProvisionHostConfigDefaultsOn(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestResolverProvisionHostConfigDefaultsOn(t *testing.T) {
 func TestResolveDockerAliasWithoutAnySource(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestDindConfigFalseDoesNotEnableDocker(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().ProjectConfigDir(), "config.yaml", map[string]any{"dind": false})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestDockerExplicitEnvFalseBeatsDindConfig(t *testing.T) {
 	t.Setenv("AGENTS_SANDBOX_DOCKER", "false")
 	testutil.WriteYAML(t, configpaths.Get().ProjectConfigDir(), "config.yaml", map[string]any{"dind": true})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestDockerFlagExplicitBeatsDindConfig(t *testing.T) {
 		t.Fatalf("ParseFlags: %v", err)
 	}
 
-	r, err := NewResolver(root, "some-slug")
+	r, err := NewResolver(root, configpaths.Get(), "some-slug")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestDockerFlagUnchangedDoesNotBeatDind(t *testing.T) {
 		t.Fatalf("ParseFlags: %v", err)
 	}
 
-	r, err := NewResolver(root, "some-slug")
+	r, err := NewResolver(root, configpaths.Get(), "some-slug")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestNewResolverJSONCWithComment(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserConfigDir(), "config.jsonc", "{\n\t// a comment\n\t\"cpus\": 2\n}")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestResolverUpgradeIntervalHumanDuration(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", "7d")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestResolverUpgradeIntervalAtMinimum(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", upgrade.MinInterval.String())
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestResolverPruneAgesChecksEveryKey(t *testing.T) {
 		"manual-prune-age": "-1h",
 	})
 
-	if _, err := NewResolver(nil, ""); err == nil {
+	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for the invalid second prune age")
 	}
 }

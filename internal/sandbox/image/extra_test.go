@@ -89,7 +89,7 @@ func TestBuildDockerImageError(t *testing.T) {
 		},
 	})
 	err := buildDockerImage(
-		context.Background(), a,
+		context.Background(), docker.Get(), a,
 		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
 		"tag", "label", false, &termio.Mock{},
 	)
@@ -109,7 +109,7 @@ func TestBuildDockerImageForwardsStreamLines(t *testing.T) {
 		},
 	})
 	if err := buildDockerImage(
-		context.Background(), a,
+		context.Background(), docker.Get(), a,
 		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
 		"tag", "label", false, ui,
 	); err != nil {
@@ -134,7 +134,7 @@ func TestBuildImageReturnsErrorOnImageBuild(t *testing.T) {
 		},
 	})
 	err := buildImage(
-		context.Background(), a,
+		context.Background(), docker.Get(), a,
 		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
 		"tag", false, func(string) {},
 	)
@@ -155,7 +155,7 @@ func TestBuildImageDetectsPullAccessDenied(t *testing.T) {
 		},
 	})
 	err := buildImage(
-		context.Background(), a,
+		context.Background(), docker.Get(), a,
 		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
 		"tag", false, func(string) {},
 	)
@@ -174,7 +174,7 @@ func TestBuildImageReturnsGenericBuildError(t *testing.T) {
 		},
 	})
 	err := buildImage(
-		context.Background(), a,
+		context.Background(), docker.Get(), a,
 		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
 		"tag", false, func(string) {},
 	)
@@ -222,7 +222,7 @@ func TestBuildImageHintsTroubleshootingOnUnresolvedName(t *testing.T) {
 				},
 			})
 			err := buildImage(
-				context.Background(), a,
+				context.Background(), docker.Get(), a,
 				testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
 				"tag", false, func(string) {},
 			)
@@ -242,7 +242,7 @@ func TestScanBuildOutputUnexpectedOutput(t *testing.T) {
 
 func TestEnsureImageCannotInspectBuiltImage(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	built := false
 	docker.WithDockerMock(t, &docker.MockDockerClient{
@@ -257,8 +257,7 @@ func TestEnsureImageCannotInspectBuiltImage(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	_, err := EnsureImageWithClient(
-		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
+	_, err := EnsureImageWithClient(context.Background(), docker.Get(), a, []byte("FROM debian:trixie-slim\n"),
 		"proj", BuildOptions{Force: true}, &termio.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "cannot inspect built image") {
@@ -268,7 +267,7 @@ func TestEnsureImageCannotInspectBuiltImage(t *testing.T) {
 
 func TestEnsureImageCannotReadImageInfo(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	calls := 0
 	docker.WithDockerMock(t, &docker.MockDockerClient{
@@ -289,8 +288,7 @@ func TestEnsureImageCannotReadImageInfo(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	_, err := EnsureImageWithClient(
-		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
+	_, err := EnsureImageWithClient(context.Background(), docker.Get(), a, []byte("FROM debian:trixie-slim\n"),
 		"proj", BuildOptions{Force: true}, &termio.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "inspect built image") {
@@ -314,7 +312,7 @@ func TestEnsureLoadedReturnsErrorWhenLoadFails(t *testing.T) {
 		},
 	}
 	info := ImageInfo{DockerTag: rTag, Ref: rTag, Digest: "sha256:new"}
-	if _, err := EnsureLoaded(context.Background(), msbClient, info, &termio.Mock{}); err == nil {
+	if _, err := EnsureLoaded(context.Background(), docker.Get(), msbClient, info, &termio.Mock{}); err == nil {
 		t.Fatal("expected EnsureLoaded to return an error when ImageLoad fails")
 	}
 }
@@ -441,7 +439,7 @@ func TestReadImageInfoFromDockerNilConfig(t *testing.T) {
 			return client.ImageInspectResult{InspectResponse: image.InspectResponse{}}, nil
 		},
 	})
-	env, err := readImageInfoFromDocker(context.Background(), "runner-tag")
+	env, err := readImageInfoFromDocker(context.Background(), docker.Get(), "runner-tag")
 	if err != nil {
 		t.Fatalf("readImageInfoFromDocker: %v", err)
 	}
@@ -459,7 +457,7 @@ func TestResolveBaseDigestPullError(t *testing.T) {
 			return nil, errors.New("pull boom")
 		},
 	})
-	_, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", false, &termio.Mock{})
+	_, err := resolveBaseDigest(context.Background(), docker.Get(), "debian:trixie-slim", false, &termio.Mock{})
 	if err == nil || !strings.Contains(err.Error(), "pull base image") {
 		t.Errorf("resolveBaseDigest error = %v, want a pull failure", err)
 	}
@@ -476,7 +474,7 @@ func TestResolveBaseDigestInspectAfterPullError(t *testing.T) {
 			return docker.PullResponse{Body: strings.NewReader("")}, nil
 		},
 	})
-	_, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", false, &termio.Mock{})
+	_, err := resolveBaseDigest(context.Background(), docker.Get(), "debian:trixie-slim", false, &termio.Mock{})
 	if err == nil || !strings.Contains(err.Error(), "inspect pulled base image") {
 		t.Errorf("resolveBaseDigest error = %v, want an inspect-pulled-image failure", err)
 	}
@@ -491,14 +489,14 @@ func TestResolveBaseDigestPullStreamError(t *testing.T) {
 			return docker.PullResponse{WaitErr: errors.New("read boom")}, nil
 		},
 	})
-	_, err := resolveBaseDigest(context.Background(), "debian:trixie-slim", false, &termio.Mock{})
+	_, err := resolveBaseDigest(context.Background(), docker.Get(), "debian:trixie-slim", false, &termio.Mock{})
 	if err == nil || !strings.Contains(err.Error(), "pull base image") {
 		t.Errorf("resolveBaseDigest error = %v, want a pull stream failure", err)
 	}
 }
 
 func TestResolveAgentVersionFallsBackToEmpty(t *testing.T) {
-	got, err := resolveAgentVersion(context.Background(), plainAgent{}, "")
+	got, err := DefaultAgentVersionResolver(context.Background(), plainAgent{}, "")
 	if err != nil {
 		t.Fatalf("resolveAgentVersion: %v", err)
 	}
@@ -512,7 +510,7 @@ func TestResolveAgentVersionFallsBackToEmpty(t *testing.T) {
 
 func TestEnsureImageReturnsBuildError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -522,8 +520,7 @@ func TestEnsureImageReturnsBuildError(t *testing.T) {
 			return client.ImageBuildResult{}, errors.New("build boom")
 		},
 	})
-	_, err := EnsureImageWithClient(
-		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
+	_, err := EnsureImageWithClient(context.Background(), docker.Get(), a, []byte("FROM debian:trixie-slim\n"),
 		"proj", BuildOptions{Force: true}, &termio.Mock{},
 	)
 	if err == nil {

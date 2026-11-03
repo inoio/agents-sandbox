@@ -10,6 +10,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -66,7 +67,7 @@ func TestResolveReconfigDecisionConfigError(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 
 	ui := termio.NewTestMock(t)
-	volumes := volume.NewManager()
+	volumes := volume.NewManager(docker.Get())
 
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
 
@@ -133,7 +134,7 @@ func TestResolveReconfigDecisionConfigErrorPromptsAttachedClients(t *testing.T) 
 			return "k", nil
 		},
 	}
-	volumes := volume.NewManager()
+	volumes := volume.NewManager(docker.Get())
 
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
 
@@ -175,7 +176,7 @@ func TestResolveReconfigDecisionFindProjectVMError(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 
 	ui := termio.NewTestMock(t)
-	volumes := volume.NewManager()
+	volumes := volume.NewManager(docker.Get())
 
 	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
@@ -214,7 +215,7 @@ func TestResolveReconfigDecisionNoVMSkipsRecreate(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 
 	ui := termio.NewTestMock(t)
-	volumes := volume.NewManager()
+	volumes := volume.NewManager(docker.Get())
 
 	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
@@ -267,7 +268,7 @@ func TestResolveReconfigDecisionQuitAtRecreatePrompt(t *testing.T) {
 			return "q", nil
 		},
 	}
-	volumes := volume.NewManager()
+	volumes := volume.NewManager(docker.Get())
 
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:old"}
 
@@ -313,7 +314,7 @@ func TestApplyReconfigHomeActionError(t *testing.T) {
 			return "", nil
 		},
 	}
-	volumes := volume.NewManager()
+	volumes := volume.NewManager(docker.Get())
 
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:old"}
 

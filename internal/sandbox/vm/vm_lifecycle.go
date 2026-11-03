@@ -7,6 +7,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
@@ -119,17 +120,18 @@ func SetProjectVMLock(f func(k state.Key) (func(), error)) func(k state.Key) (fu
 // as-is rather than looked up again, so a recreate destroys exactly the VM the
 // decision judged.
 type ProjectVMCreation struct {
-	Client     msb.Client
-	Options    options.RunOptions
-	Image      image.ImageInfo
-	HomeVolume string
-	RepoPath   string
-	Key        state.Key
-	Existing   msb.SandboxHandle
-	RepoSlug   string
-	SkipVM     bool
-	Env        envsecret.EnvSecrets
-	UI         termio.UI
+	Client       msb.Client
+	DockerClient docker.Client
+	Options      options.RunOptions
+	Image        image.ImageInfo
+	HomeVolume   string
+	RepoPath     string
+	Key          state.Key
+	Existing     msb.SandboxHandle
+	RepoSlug     string
+	SkipVM       bool
+	Env          envsecret.EnvSecrets
+	UI           termio.UI
 }
 
 // EnsureProjectVM returns a live *msb.Sandbox for the project VM and how it
@@ -487,7 +489,7 @@ func waitForSandboxLifecycle(ctx context.Context) error {
 }
 
 func createProjectVM(ctx context.Context, creation ProjectVMCreation, name string) (msb.Sandbox, bool, error) {
-	info, err := image.EnsureLoaded(ctx, creation.Client, creation.Image, creation.UI)
+	info, err := image.EnsureLoaded(ctx, creation.DockerClient, creation.Client, creation.Image, creation.UI)
 	if err != nil {
 		return nil, false, fmt.Errorf("load runner image: %w", err)
 	}

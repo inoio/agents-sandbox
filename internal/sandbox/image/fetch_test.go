@@ -32,7 +32,7 @@ func (fakeUpgradeAgent) NewerThan(_, _ string) (bool, error)               { ret
 
 // The agent's own UpgradeChecker must drive the resolved version, not opencode's.
 func TestResolveAgentVersionUsesAgentsOwnChecker(t *testing.T) {
-	got, err := resolveAgentVersion(context.Background(), fakeUpgradeAgent{latest: "7.7.7"}, "")
+	got, err := DefaultAgentVersionResolver(context.Background(), fakeUpgradeAgent{latest: "7.7.7"}, "")
 	if err != nil {
 		t.Fatalf("resolveAgentVersion error: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestResolveAgentVersionUsesAgentsOwnChecker(t *testing.T) {
 }
 
 func TestResolveAgentVersionWithoutUpgradeChecker(t *testing.T) {
-	got, err := resolveAgentVersion(context.Background(), plainAgent{}, "1.2.3")
+	got, err := DefaultAgentVersionResolver(context.Background(), plainAgent{}, "1.2.3")
 	if err != nil {
 		t.Fatalf("resolveAgentVersion error: %v", err)
 	}
@@ -52,8 +52,8 @@ func TestResolveAgentVersionWithoutUpgradeChecker(t *testing.T) {
 }
 
 func TestResolveOpenCodeVersionRequestsLatest(t *testing.T) {
-	WithMockAgentVersion(t, "9.9.9")
-	got, err := resolveAgentVersion(context.Background(), plainAgent{}, "")
+	withMockAgentVersion(t, "9.9.9")
+	got, err := BuildOptions{}.resolveAgentVersion(context.Background(), plainAgent{}, "")
 	if err != nil {
 		t.Fatalf("resolveAgentVersion error: %v", err)
 	}

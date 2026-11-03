@@ -730,10 +730,11 @@ func RenderProjectDockerfile(
 
 // ReadProjectDockerfile returns the project Dockerfile bytes, or nil when none
 // exists. It is the single reader of the on-disk project Dockerfile: the CLI
-// and the run/shell boundary call it once and thread the bytes into the image
-// entry points, so no lower layer reaches for a process-global path.
-func ReadProjectDockerfile() []byte {
-	if data, err := os.ReadFile(configpaths.Get().ProjectDockerfile()); err == nil {
+// and the run/shell boundary resolve the path resolver once and call it once,
+// then thread the bytes into the image entry points, so no lower layer reaches
+// for a process-global path.
+func ReadProjectDockerfile(paths configpaths.ConfigPaths) []byte {
+	if data, err := os.ReadFile(paths.ProjectDockerfile()); err == nil {
 		return data
 	}
 	return nil

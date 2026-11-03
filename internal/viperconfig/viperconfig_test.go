@@ -70,7 +70,7 @@ func TestResolverMounts(t *testing.T) {
 		},
 	})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestResolverMountsMergeByTarget(t *testing.T) {
 		},
 	})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestResolverRejectsInvalidMountEntry(t *testing.T) {
 		},
 	})
 
-	_, err := NewResolver(nil, "")
+	_, err := NewResolver(nil, configpaths.Get(), "")
 	if err == nil {
 		t.Fatal("expected invalid mount entry to fail")
 	}
@@ -144,7 +144,7 @@ func TestResolverEnvPrecedenceOverConfig(t *testing.T) {
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
 	t.Setenv("AGENTS_SANDBOX_CPUS", "6")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestResolverConfigNoFlag(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 3})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestResolverConfigSyntaxErrorIsFriendly(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserConfigDir(), "config.yaml", "cpus: 2\n  memory: [\n")
 
-	_, err := NewResolver(nil, "")
+	_, err := NewResolver(nil, configpaths.Get(), "")
 	if err == nil {
 		t.Fatal("expected error for malformed config.yaml")
 	}
@@ -187,7 +187,7 @@ func TestResolverEnvKeyReplacement(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS", "true")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestResolverEnvInvalidCPUs(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_CPUS", "300")
 
-	if _, err := NewResolver(nil, ""); err == nil {
+	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for cpus=300 from env")
 	}
 }
@@ -218,7 +218,7 @@ func TestResolverFlagOverridesEnv(t *testing.T) {
 		t.Fatalf("ParseFlags: %v", err)
 	}
 
-	r, err := NewResolver(root, "")
+	r, err := NewResolver(root, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestResolverUnspecifiedFlagDefaultDoesNotOverride(t *testing.T) {
 
 	root := &cobra.Command{Use: "root"}
 	root.PersistentFlags().String("memory", "4G", "") // default 4G, not changed
-	r, err := NewResolver(root, "")
+	r, err := NewResolver(root, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestResolverFlagDefaultUsedWhenNothingElse(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	root := &cobra.Command{Use: "root"}
 	root.PersistentFlags().String("memory", "4G", "")
-	r, err := NewResolver(root, "")
+	r, err := NewResolver(root, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestResolverIgnoresRebuildKey(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"rebuild": true, "cpus": 2})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestResolverProjectOverridesUser(t *testing.T) {
 		"yes":    false,
 	})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestResolverInvalidPruneAgeFromFile(t *testing.T) {
 			cp := configpaths.Get()
 			testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{tc.key: tc.value})
 
-			_, err := NewResolver(nil, "")
+			_, err := NewResolver(nil, configpaths.Get(), "")
 			if err == nil {
 				t.Fatalf("expected error for %s=%s", tc.key, tc.value)
 			}
@@ -334,7 +334,7 @@ func TestResolverInvalidAutoStopRetriesFromFile(t *testing.T) {
 		"auto-stop-max-session-retries": -1,
 	})
 
-	_, err := NewResolver(nil, "")
+	_, err := NewResolver(nil, configpaths.Get(), "")
 	if err == nil {
 		t.Fatal("expected error for negative auto-stop-max-session-retries")
 	}
@@ -353,7 +353,7 @@ func TestResolverJSON5Config(t *testing.T) {
 		"yes": true
 	}`)
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -372,7 +372,7 @@ func TestResolverJSONCConfig(t *testing.T) {
 		"yes": true
 	}`)
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -386,7 +386,7 @@ func TestResolverDiskSizeConfig(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"disk-size": "24G"})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestResolverWorkspaceQuotaConfig(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"workspace-quota": "32G"})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestResolverWorkspaceQuotaEnv(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_WORKSPACE_QUOTA", "48G")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -433,7 +433,7 @@ func TestResolverWorkspaceQuotaGetter(t *testing.T) {
 
 func TestResolverReapPolicyDefaults(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestResolverReapPolicyDefaults(t *testing.T) {
 // stays zero and the VM layer applies options.DefaultVMIdleTimeout.
 func TestResolverIdleTimeoutUnsetFromConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -471,7 +471,7 @@ func TestResolverAgentGetter(t *testing.T) {
 func TestResolverAgentEnvVar(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_AGENT", "pi")
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -483,7 +483,7 @@ func TestResolverAgentEnvVar(t *testing.T) {
 func TestNetworkProfileEnvVar(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "none")
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -494,7 +494,7 @@ func TestNetworkProfileEnvVar(t *testing.T) {
 
 func TestNetworkDefaultPublic(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -504,7 +504,7 @@ func TestNetworkDefaultPublic(t *testing.T) {
 func TestNetworkInvalidProfileRejected(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "bogus")
-	if _, err := NewResolver(nil, ""); err == nil {
+	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for invalid network profile")
 	}
 }
@@ -513,7 +513,7 @@ func TestNetworkDNSServersEnvVar(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_DNS_SERVERS", "1.1.1.1,8.8.8.8")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -533,7 +533,7 @@ func TestNetworkDNSServersFromConfigFile(t *testing.T) {
 		},
 	})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -550,7 +550,7 @@ func TestNetworkDNSServersScalarConfigFile(t *testing.T) {
 		"network": map[string]any{"dns-servers": "1.1.1.1,8.8.8.8"},
 	})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -568,7 +568,7 @@ func TestNetworkProfilesListFromConfigFile(t *testing.T) {
 		},
 	})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -579,7 +579,7 @@ func TestNetworkProfilesCommaEnvVar(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "public,host")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -590,7 +590,7 @@ func TestNetworkProfilesSpacedCommaEnvVar(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "public, host")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -603,7 +603,7 @@ func TestNetworkProfilesSpacedScalarConfigFile(t *testing.T) {
 		"network": map[string]any{"profile": "public, host"},
 	})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -616,7 +616,7 @@ func TestNetworkProfilesSpacedListConfigFile(t *testing.T) {
 		"network": map[string]any{"profile": []string{"public", " host"}},
 	})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -630,7 +630,7 @@ func TestNetworkProfilesNoneCombinedRejected(t *testing.T) {
 			"profile": []string{"none", "public"},
 		},
 	})
-	if _, err := NewResolver(nil, ""); err == nil {
+	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for none combined with another profile")
 	}
 }
@@ -666,7 +666,7 @@ func TestNetworkProfileInvalidTypeRejected(t *testing.T) {
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"network": map[string]any{"profile": 42},
 	})
-	_, err := NewResolver(nil, "")
+	_, err := NewResolver(nil, configpaths.Get(), "")
 	if err == nil {
 		t.Fatal("expected error for a non-string network.profile")
 	}
@@ -835,7 +835,7 @@ func TestNetworkInvalidDNSServersRejected(t *testing.T) {
 					"network": map[string]any{"dns-servers": tc.raw},
 				})
 			}
-			if _, err := NewResolver(nil, ""); err == nil {
+			if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 				t.Fatal("expected error for invalid network.dns-servers")
 			}
 		})
@@ -854,7 +854,7 @@ func TestDockerFromConfig(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	r, err := NewResolver(nil, "some-slug")
+	r, err := NewResolver(nil, configpaths.Get(), "some-slug")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -880,7 +880,7 @@ func TestDindConfigAlias(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	r, err := NewResolver(nil, "some-slug")
+	r, err := NewResolver(nil, configpaths.Get(), "some-slug")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -905,7 +905,7 @@ func TestDockerConfigWinsOverDindAlias(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	r, err := NewResolver(nil, "some-slug")
+	r, err := NewResolver(nil, configpaths.Get(), "some-slug")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -919,7 +919,7 @@ func TestDockerConfigWinsOverDindAlias(t *testing.T) {
 func TestDockerExplicitFromEnv(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_DOCKER", "true")
-	r, err := NewResolver(nil, "some-slug")
+	r, err := NewResolver(nil, configpaths.Get(), "some-slug")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -939,7 +939,7 @@ func TestDockerExplicitFromLegacyEnv(t *testing.T) {
 		t.Run(value, func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
 			t.Setenv("OPENCODE_SANDBOX_DOCKER", value)
-			r, err := NewResolver(nil, "some-slug")
+			r, err := NewResolver(nil, configpaths.Get(), "some-slug")
 			if err != nil {
 				t.Fatalf("NewResolver: %v", err)
 			}
@@ -965,7 +965,7 @@ func TestDockerExplicitFromFlag(t *testing.T) {
 	if err := root.ParseFlags([]string{"--" + KeyDocker}); err != nil {
 		t.Fatalf("ParseFlags: %v", err)
 	}
-	r, err := NewResolver(root, "some-slug")
+	r, err := NewResolver(root, configpaths.Get(), "some-slug")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -986,7 +986,7 @@ func writeUserConfig(t *testing.T, values map[string]any) {
 func TestDockerExplicit(t *testing.T) {
 	t.Run("canonical config key", func(t *testing.T) {
 		writeUserConfig(t, map[string]any{"docker": false})
-		r, err := NewResolver(nil, "")
+		r, err := NewResolver(nil, configpaths.Get(), "")
 		if err != nil {
 			t.Fatalf("NewResolver: %v", err)
 		}
@@ -999,7 +999,7 @@ func TestDockerExplicit(t *testing.T) {
 	})
 	t.Run("dind config key", func(t *testing.T) {
 		writeUserConfig(t, map[string]any{"dind": false})
-		r, err := NewResolver(nil, "")
+		r, err := NewResolver(nil, configpaths.Get(), "")
 		if err != nil {
 			t.Fatalf("NewResolver: %v", err)
 		}
@@ -1009,7 +1009,7 @@ func TestDockerExplicit(t *testing.T) {
 	})
 	t.Run("nothing set", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
-		r, err := NewResolver(nil, "")
+		r, err := NewResolver(nil, configpaths.Get(), "")
 		if err != nil {
 			t.Fatalf("NewResolver: %v", err)
 		}
@@ -1020,7 +1020,7 @@ func TestDockerExplicit(t *testing.T) {
 	t.Run("dind env", func(t *testing.T) {
 		configpaths.WithMockConfigPaths(t)
 		t.Setenv("AGENTS_SANDBOX_DIND", "true")
-		r, err := NewResolver(nil, "")
+		r, err := NewResolver(nil, configpaths.Get(), "")
 		if err != nil {
 			t.Fatalf("NewResolver: %v", err)
 		}
@@ -1035,7 +1035,7 @@ func TestDockerExplicit(t *testing.T) {
 func TestDindFromEnvAlias(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_DIND", "true")
-	r, err := NewResolver(nil, "some-slug")
+	r, err := NewResolver(nil, configpaths.Get(), "some-slug")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -1052,7 +1052,7 @@ func TestDindFromEnvAlias(t *testing.T) {
 func TestDindFromLegacyEnvAlias(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("OPENCODE_SANDBOX_DIND", "true")
-	r, err := NewResolver(nil, "some-slug")
+	r, err := NewResolver(nil, configpaths.Get(), "some-slug")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -1083,7 +1083,7 @@ func TestPerSlugConfigPrecedence(t *testing.T) {
 	testutil.WriteYAML(t, filepath.Join(cp.UserConfigDir(), "myslug"), "config.yaml", map[string]any{"cpus": 3})
 	testutil.WriteYAML(t, cp.ProjectConfigDir(), "config.yaml", map[string]any{"cpus": 4})
 
-	r, err := NewResolver(nil, "myslug")
+	r, err := NewResolver(nil, configpaths.Get(), "myslug")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -1093,7 +1093,7 @@ func TestPerSlugConfigPrecedence(t *testing.T) {
 
 	// Remove the project file; per-slug user must now win over generic user.
 	os.Remove(filepath.Join(cp.ProjectConfigDir(), "config.yaml"))
-	r2, err := NewResolver(nil, "myslug")
+	r2, err := NewResolver(nil, configpaths.Get(), "myslug")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -1135,7 +1135,7 @@ func TestResolverUpgradeEnvVars(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_MODE", "notify")
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", "2h")
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -1150,7 +1150,7 @@ func TestResolverUpgradeEnvVars(t *testing.T) {
 func TestResolverRejectsInvalidUpgradeMode(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_MODE", "bogus")
-	if _, err := NewResolver(nil, ""); err == nil {
+	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for invalid update mode")
 	}
 }
@@ -1175,7 +1175,7 @@ func TestResolverUpgradeChannel(t *testing.T) {
 func TestResolverUpgradeChannelEnvVar(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_CHANNEL", "canary")
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -1187,7 +1187,7 @@ func TestResolverUpgradeChannelEnvVar(t *testing.T) {
 func TestResolverRejectsInvalidUpgradeChannel(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_CHANNEL", "bogus")
-	if _, err := NewResolver(nil, ""); err == nil {
+	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for invalid upgrade channel")
 	}
 }
@@ -1195,7 +1195,7 @@ func TestResolverRejectsInvalidUpgradeChannel(t *testing.T) {
 func TestResolverRejectsTooSmallInterval(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", "1m")
-	if _, err := NewResolver(nil, ""); err == nil {
+	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for update interval below minimum")
 	}
 }
@@ -1230,7 +1230,7 @@ func TestResolverNotifyFromConfigFile(t *testing.T) {
 			"on-input": false,
 		},
 	})
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -1248,7 +1248,7 @@ func TestResolverNotifyRejectsInvalidAudio(t *testing.T) {
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"notify": map[string]any{"audio": "loud"},
 	})
-	if _, err := NewResolver(nil, ""); err == nil {
+	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for invalid notify.audio mode")
 	}
 }
@@ -1264,7 +1264,7 @@ func TestResolverNotifyTriggersFromConfigFile(t *testing.T) {
 			"on-error": false,
 		},
 	})
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -1288,7 +1288,7 @@ func TestResolverNotifyDottedEnvVars(t *testing.T) {
 	t.Setenv("AGENTS_SANDBOX_NOTIFY_ON_DONE", "false")
 	t.Setenv("AGENTS_SANDBOX_NOTIFY_ON_ERROR", "false")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -1310,7 +1310,7 @@ func TestResolverNotifyLegacyEnvVars(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("OPENCODE_SANDBOX_NOTIFY_AUDIO", "bell")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -1329,7 +1329,7 @@ func TestResolverPruneAgeValidGoDuration(t *testing.T) {
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"auto-prune-age": "1h",
 	})
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -1348,7 +1348,7 @@ func TestResolverHome(t *testing.T) {
 		"home": map[string]any{".config/tool/cfg.toml": "./tool/cfg.toml"},
 	})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -1369,7 +1369,7 @@ func TestResolverHome(t *testing.T) {
 
 func TestResolverHomeNoConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -1389,7 +1389,7 @@ func TestResolverHomeRejectsInvalidHomeValue(t *testing.T) {
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"home": 5,
 	})
-	_, err := NewResolver(nil, "")
+	_, err := NewResolver(nil, configpaths.Get(), "")
 	if err == nil {
 		t.Fatal("expected error for invalid home value")
 	}

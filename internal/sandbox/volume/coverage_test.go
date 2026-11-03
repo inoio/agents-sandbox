@@ -167,9 +167,7 @@ func TestVolumeOp_ReadStateCorruptError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := CmdReset(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
@@ -186,9 +184,7 @@ func TestVolumeOp_NoVolumeToOperate(t *testing.T) {
 	slug := "novolproj"
 	seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{})
 
-	err := CmdReset(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
@@ -209,9 +205,7 @@ func TestVolumeOp_PrefillFails(t *testing.T) {
 	)
 	mock.CreateSandboxErr = errors.New("prefill failed")
 
-	err := CmdReset(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
@@ -246,9 +240,7 @@ func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 		return errors.New("volume busy")
 	}
 
-	err := CmdMigrate(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdMigrate(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
@@ -295,9 +287,7 @@ func TestVolumeOp_WriteStateFails_ReturnsError(t *testing.T) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	err := CmdReset(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
@@ -341,9 +331,7 @@ func TestVolumeOp_RemoveOldFails_Warns(t *testing.T) {
 		return nil
 	}
 
-	err := CmdReset(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		true,
@@ -374,9 +362,7 @@ func TestCmdEdit_LoadImageFails(t *testing.T) {
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
 
-	err := CmdEdit(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdEdit(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
 		false,
@@ -393,7 +379,7 @@ func TestPrefillVolume_LoadImageFails(t *testing.T) {
 	docker.WithDefaultErrorDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
-	vm := NewManager()
+	vm := NewManager(docker.Get())
 	err := vm.PrefillVolume(
 		context.Background(),
 		mock,
@@ -416,7 +402,7 @@ func TestCopyVolume_DestroyFailureWarns(t *testing.T) {
 		return &msb.MockSandbox{DestroyErr: errors.New("destroy failed")}, nil
 	}
 	ui := &termio.Mock{}
-	vm := NewManager()
+	vm := NewManager(docker.Get())
 
 	err := vm.CopyVolume(
 		context.Background(),
@@ -458,9 +444,7 @@ func TestCmdEdit_DestroyFailureWarns(t *testing.T) {
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
 
-	err := CmdEdit(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdEdit(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
 		false,
@@ -486,7 +470,7 @@ func TestCopyVolume_LoadImageFails(t *testing.T) {
 	docker.WithDefaultErrorDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
-	vm := NewManager()
+	vm := NewManager(docker.Get())
 	err := vm.CopyVolume(
 		context.Background(),
 		mock,
@@ -508,7 +492,7 @@ func TestEnsureNewHome_CreateVolumeFails(t *testing.T) {
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
 		return nil, errors.New("create failed")
 	}
-	vm := NewManager()
+	vm := NewManager(docker.Get())
 	_, _, err := vm.EnsureNewHome(
 		context.Background(),
 		mock,
@@ -533,7 +517,7 @@ func TestRecordHomeImage_ReadStateError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	vm := NewManager()
+	vm := NewManager(docker.Get())
 	err := vm.RecordHomeImage(state.Key{Slug: slug, Agent: "opencode"}, "sha256:new", &termio.Mock{})
 	if err == nil {
 		t.Fatal("expected error for unreadable state, got nil")
@@ -560,7 +544,7 @@ func TestRecordHomeImage_WriteStateFails(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
 	ui := &termio.Mock{}
-	vm := NewManager()
+	vm := NewManager(docker.Get())
 	err := vm.RecordHomeImage(state.Key{Slug: slug, Agent: "opencode"}, "sha256:new", ui)
 	if err == nil {
 		t.Fatal("expected write-state error, got nil")
@@ -587,7 +571,7 @@ func TestApplyHomeAction_KeepRecordImageFails_Warns(t *testing.T) {
 
 	mock := &msb.MockMsbClient{}
 	ui := &termio.Mock{}
-	vm := NewManager()
+	vm := NewManager(docker.Get())
 
 	vol, err := vm.ApplyHomeAction(
 		context.Background(),
@@ -623,7 +607,7 @@ func TestApplyHomeAction_CreateVolumeFails(t *testing.T) {
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
 		return nil, errors.New("create failed")
 	}
-	vm := NewManager()
+	vm := NewManager(docker.Get())
 
 	_, err := vm.ApplyHomeAction(
 		context.Background(),
@@ -671,7 +655,7 @@ func TestApplyHomeAction_WriteStateFails_ReturnsError(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager()
+	vm := NewManager(docker.Get())
 	_, err := vm.ApplyHomeAction(
 		context.Background(),
 		mock,
@@ -717,9 +701,7 @@ func TestCmdEdit_LoadImageFailsInMain(t *testing.T) {
 		return nil
 	}
 
-	err := CmdEdit(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdEdit(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
 		false,

@@ -12,7 +12,6 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
@@ -50,7 +49,7 @@ func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 	mock := &msb.MockMsbClient{}
 
 	doctor.MockedCheckAll(t, !tc.preflightFail)
-	image.WithMockAgentVersion(t, "0.0.0-test")
+	withMockAgentVersion(t, "0.0.0-test")
 	if tc.ensureImageErr {
 		docker.WithDefaultErrorDockerMock(t)
 	} else {
@@ -179,7 +178,7 @@ func TestVolumeOpsDryRunDoesNotEnsureImage(t *testing.T) {
 			}
 			docker.WithDockerMock(t, dockerMock)
 			doctor.MockedCheckAll(t, true)
-			image.WithMockAgentVersion(t, "0.0.0-test")
+			withMockAgentVersion(t, "0.0.0-test")
 
 			slug := git.MustCheckoutSlug()
 			homeVolume := fmt.Sprintf("agents-sandbox-home-%s-20260814T132349", slug)

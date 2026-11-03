@@ -42,7 +42,7 @@ func TestInstalledFailFastDefaultsPanic(t *testing.T) {
 			panicsWith: "doctor.CheckAll not mocked",
 			reachesSeam: func(t *testing.T) {
 				testUI := termio.NewTestMock(t)
-				_ = doctor.CheckAll(context.Background(), &testUI)
+				_ = doctor.CheckAll(context.Background(), docker.Get(), &testUI)
 			},
 		},
 		{

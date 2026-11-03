@@ -28,7 +28,7 @@ func TestExistingAgentVersionReadsImageLabel(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	withInspectLabels(t, map[string]string{agentVersionLabelKey: "1.4.0"}, true)
 
-	got, ok := ExistingAgentVersion(context.Background(), "proj", "opencode")
+	got, ok := ExistingAgentVersion(context.Background(), docker.Get(), "proj", "opencode")
 	if !ok || got != "1.4.0" {
 		t.Fatalf("ExistingAgentVersion() = %q,%v want 1.4.0,true", got, ok)
 	}
@@ -40,7 +40,7 @@ func TestExistingAgentVersionRejectsSentinels(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
 			withInspectLabels(t, map[string]string{agentVersionLabelKey: sentinel}, true)
 
-			if got, ok := ExistingAgentVersion(context.Background(), "proj", "opencode"); ok {
+			if got, ok := ExistingAgentVersion(context.Background(), docker.Get(), "proj", "opencode"); ok {
 				t.Fatalf("ExistingAgentVersion() = %q,%v want false for sentinel %q", got, ok, sentinel)
 			}
 		})
@@ -51,7 +51,7 @@ func TestExistingAgentVersionAbsentImage(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	withInspectLabels(t, nil, false)
 
-	if got, ok := ExistingAgentVersion(context.Background(), "proj", "opencode"); ok {
+	if got, ok := ExistingAgentVersion(context.Background(), docker.Get(), "proj", "opencode"); ok {
 		t.Fatalf("ExistingAgentVersion() = %q,%v want false for absent image", got, ok)
 	}
 }
@@ -60,7 +60,7 @@ func TestExistingAgentVersionMissingLabel(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	withInspectLabels(t, map[string]string{"unrelated": "x"}, true)
 
-	if got, ok := ExistingAgentVersion(context.Background(), "proj", "opencode"); ok {
+	if got, ok := ExistingAgentVersion(context.Background(), docker.Get(), "proj", "opencode"); ok {
 		t.Fatalf("ExistingAgentVersion() = %q,%v want false for missing label", got, ok)
 	}
 }

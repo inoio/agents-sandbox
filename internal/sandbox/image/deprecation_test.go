@@ -209,7 +209,7 @@ func TestEmitProjectDockerfileDiagnostics(t *testing.T) {
 	t.Cleanup(func() { configpaths.Get = orig })
 
 	ui := &termio.Mock{}
-	EmitProjectDockerfileDiagnostics(ui, ReadProjectDockerfile(), dockerOff)
+	EmitProjectDockerfileDiagnostics(ui, ReadProjectDockerfile(configpaths.Get()), dockerOff)
 
 	joined := strings.Join(ui.WarnCalls, "\n")
 	for _, want := range []string{"docker: on (project Dockerfile marker)", "# agents-sandbox:dind"} {
@@ -224,7 +224,7 @@ func TestEmitProjectDockerfileDiagnostics(t *testing.T) {
 // ensured for building.
 func TestEnsureImageWarnsOnLegacyDockerfileForms(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 
 	docker.WithDockerMock(t, &docker.MockDockerClient{
@@ -246,7 +246,15 @@ func TestEnsureImageWarnsOnLegacyDockerfileForms(t *testing.T) {
 
 	project := []byte("FROM agents-sandbox/runner-base-dind\n# agents-sandbox:dind\nRUN echo hi\n")
 	ui := &termio.Mock{}
-	if _, err := EnsureImageWithClient(context.Background(), a, project, "proj", BuildOptions{}, ui); err != nil {
+	if _, err := EnsureImageWithClient(
+		context.Background(),
+		docker.Get(),
+		a,
+		project,
+		"proj",
+		BuildOptions{},
+		ui,
+	); err != nil {
 		t.Fatalf("EnsureImageWithClient: %v", err)
 	}
 
@@ -263,7 +271,7 @@ func TestEnsureImageWarnsOnLegacyDockerfileForms(t *testing.T) {
 // reuse: a Dockerfile carrying both legacy forms yields two warnings per call.
 func TestEnsureImageWarnsOnEveryEnsure(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 
 	docker.WithDockerMock(t, &docker.MockDockerClient{
@@ -286,7 +294,15 @@ func TestEnsureImageWarnsOnEveryEnsure(t *testing.T) {
 	project := []byte("FROM agents-sandbox/runner-base-dind\n# agents-sandbox:dind\nRUN echo hi\n")
 	ui := &termio.Mock{}
 	for range 2 {
-		if _, err := EnsureImageWithClient(context.Background(), a, project, "proj", BuildOptions{}, ui); err != nil {
+		if _, err := EnsureImageWithClient(
+			context.Background(),
+			docker.Get(),
+			a,
+			project,
+			"proj",
+			BuildOptions{},
+			ui,
+		); err != nil {
 			t.Fatalf("EnsureImageWithClient: %v", err)
 		}
 	}

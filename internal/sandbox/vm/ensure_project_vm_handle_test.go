@@ -25,17 +25,18 @@ func TestEnsureProjectVMRecreateDestroysTheHandleItIsGiven(t *testing.T) {
 	existing := &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning}
 
 	_, boot, err := EnsureProjectVM(context.Background(), ProjectVMCreation{
-		Client:     &msb.MockMsbClient{},
-		Options:    options.RunOptions{Agent: "opencode", Recreate: true},
-		Image:      image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
-		HomeVolume: "vol",
-		RepoPath:   "/workspace",
-		Key:        testVMKey(),
-		Existing:   existing,
-		RepoSlug:   testVMKey().Slug,
-		SkipVM:     false,
-		Env:        envsecret.EnvSecrets{},
-		UI:         &ui,
+		Client:       &msb.MockMsbClient{},
+		DockerClient: docker.Get(),
+		Options:      options.RunOptions{Agent: "opencode", Recreate: true},
+		Image:        image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
+		HomeVolume:   "vol",
+		RepoPath:     "/workspace",
+		Key:          testVMKey(),
+		Existing:     existing,
+		RepoSlug:     testVMKey().Slug,
+		SkipVM:       false,
+		Env:          envsecret.EnvSecrets{},
+		UI:           &ui,
 	})
 	if err != nil {
 		t.Fatalf("EnsureProjectVM: %v", err)

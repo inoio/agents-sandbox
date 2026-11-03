@@ -28,7 +28,7 @@ func verboseContains(ui *termio.Mock, substr string) bool {
 
 func TestEnsureImageVerboseNamesChangedInputs(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "2.0.0")
+	withMockAgentVersion(t, "2.0.0")
 	a := agentOpencode(t)
 	oldLabels := identityLabels(computeImageIdentity(nil, "1.0.0", false))
 	oldLabels[dockerfileIDLabelKey] = "stale"
@@ -51,7 +51,16 @@ func TestEnsureImageVerboseNamesChangedInputs(t *testing.T) {
 		},
 	})
 	ui := &termio.Mock{}
-	if _, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{}, ui); err != nil {
+	if _, err := EnsureImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		a,
+		"proj",
+		nil,
+		BuildOptions{},
+		ui,
+	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
 	if !built {
@@ -64,7 +73,7 @@ func TestEnsureImageVerboseNamesChangedInputs(t *testing.T) {
 
 func TestEnsureImageVerboseReportsReuse(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	rendered, err := RenderDockerfile(a, testAgentVersion, nil, dockerOff)
 	if err != nil {
@@ -87,7 +96,16 @@ func TestEnsureImageVerboseReportsReuse(t *testing.T) {
 		},
 	})
 	ui := &termio.Mock{}
-	if _, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{}, ui); err != nil {
+	if _, err := EnsureImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		a,
+		"proj",
+		nil,
+		BuildOptions{},
+		ui,
+	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
 	if !verboseContains(ui, "reusing runner image") {
@@ -97,7 +115,7 @@ func TestEnsureImageVerboseReportsReuse(t *testing.T) {
 
 func TestEnsureImageVerboseReportsForcedRebuild(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(
@@ -110,7 +128,16 @@ func TestEnsureImageVerboseReportsForcedRebuild(t *testing.T) {
 		},
 	})
 	ui := &termio.Mock{}
-	if _, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{Force: true}, ui); err != nil {
+	if _, err := EnsureImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		a,
+		"proj",
+		nil,
+		BuildOptions{Force: true},
+		ui,
+	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
 	if !verboseContains(ui, "forced by --rebuild") {
@@ -137,7 +164,11 @@ func TestEnsureLoadedVerboseReportsUpToDate(t *testing.T) {
 		},
 	}
 	if _, err := EnsureLoaded(
-		context.Background(), msbClient, ImageInfo{DockerTag: rTag, Ref: rTag, Digest: "sha256:same"}, ui,
+		context.Background(),
+		docker.Get(),
+		msbClient,
+		ImageInfo{DockerTag: rTag, Ref: rTag, Digest: "sha256:same"},
+		ui,
 	); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
@@ -157,8 +188,7 @@ func TestEnsureLoadedVerboseReportsNotPresent(t *testing.T) {
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
-	if _, err := EnsureLoaded(
-		context.Background(), msbClient,
+	if _, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: "agents-sandbox/runner-p:opencode", Ref: "agents-sandbox/runner-p:opencode"}, ui,
 	); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
@@ -190,7 +220,11 @@ func TestEnsureLoadedVerboseReportsStaleCache(t *testing.T) {
 		},
 	}
 	if _, err := EnsureLoaded(
-		context.Background(), msbClient, ImageInfo{DockerTag: rTag, Ref: rTag, Digest: "sha256:docker-new"}, ui,
+		context.Background(),
+		docker.Get(),
+		msbClient,
+		ImageInfo{DockerTag: rTag, Ref: rTag, Digest: "sha256:docker-new"},
+		ui,
 	); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}

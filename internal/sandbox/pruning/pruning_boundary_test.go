@@ -40,7 +40,7 @@ func TestAutoPruneZeroThresholdKeepsFreshStoppedVM(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	testUI := termio.NewTestMock(t)
 
-	AutoPrune(context.Background(), 0, false, &testUI)
+	AutoPrune(context.Background(), docker.Get(), 0, false, &testUI)
 
 	if fresh.DidRemove() {
 		t.Error("a zero threshold must default to 30 days and keep a fresh stopped VM")
@@ -52,7 +52,7 @@ func TestAutoPruneRendersSummary(t *testing.T) {
 	withAutoPruneMocks(t)
 	testUI := termio.NewTestMock(t)
 
-	AutoPrune(context.Background(), time.Hour, false, &testUI)
+	AutoPrune(context.Background(), docker.Get(), time.Hour, false, &testUI)
 
 	if len(testUI.OutCalls) == 0 || !strings.Contains(testUI.OutCalls[0], "Pruned") {
 		t.Errorf("OutCalls = %v, want a prune summary", testUI.OutCalls)
@@ -304,7 +304,7 @@ func TestPruneImagesSkipsForeignAndReports(t *testing.T) {
 		{Slug: "orphan-1mjusbm3wikhb0"}: &msb.MockSandboxHandle{},
 	}}
 
-	r, err := PruneImages(context.Background(), pruneState, false, &termio.Mock{})
+	r, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestPruneImagesErrorReturnsZeroReport(t *testing.T) {
 	}}
 	msb.WithMsbMock(t, client)
 
-	r, err := PruneImages(context.Background(), PruneState{}, false, &termio.Mock{})
+	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
 	if err == nil {
 		t.Fatal("expected an ImageList error")
 	}
@@ -341,7 +341,7 @@ func TestPruneImagesDockerCounts(t *testing.T) {
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	docker.WithDockerMock(t, deletedImagesDockerMock(3))
 
-	r, err := PruneImages(context.Background(), PruneState{}, false, &termio.Mock{})
+	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestPruneImagesEmptyAgentLatestTagIsSurplus(t *testing.T) {
 		{Slug: "active-1mjusbm3wikhb0"}: &msb.MockSandboxHandle{},
 	}}
 
-	r, err := PruneImages(context.Background(), pruneState, false, &termio.Mock{})
+	r, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
 	}
@@ -374,10 +374,10 @@ func TestPruneImagesEmptyAgentLatestTagIsSurplus(t *testing.T) {
 
 func TestPruneDockerImagesDryRunReturnsZero(t *testing.T) {
 	docker.WithDockerMock(t, deletedImagesDockerMock(3))
-	if n := pruneDockerImages(context.Background(), true, &termio.Mock{}); n != 0 {
+	if n := pruneDockerImages(context.Background(), docker.Get(), true, &termio.Mock{}); n != 0 {
 		t.Errorf("dry-run pruneDockerImages = %d, want 0", n)
 	}
-	if n := pruneDockerImages(context.Background(), false, &termio.Mock{}); n != 3 {
+	if n := pruneDockerImages(context.Background(), docker.Get(), false, &termio.Mock{}); n != 3 {
 		t.Errorf("pruneDockerImages = %d, want 3", n)
 	}
 }

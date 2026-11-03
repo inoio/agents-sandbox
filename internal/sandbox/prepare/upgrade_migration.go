@@ -35,8 +35,8 @@ type legacyAgentState struct {
 	LastChecked time.Time `yaml:"last_checked"`
 }
 
-func legacyUpdaterStatePath() string {
-	return filepath.Join(configpaths.Get().UserStateDir(), legacyUpdaterStateFile)
+func legacyUpdaterStatePath(paths configpaths.ConfigPaths) string {
+	return filepath.Join(paths.UserStateDir(), legacyUpdaterStateFile)
 }
 
 // migrateLegacyUpdaterState folds each agent's last_checked from the retired
@@ -45,8 +45,8 @@ func legacyUpdaterStatePath() string {
 // empty, or corrupt files fold nothing but are still removed. A contended root
 // lock (typically a copy campaign holding it) or a failed write leaves the file
 // in place so the migration retries.
-func migrateLegacyUpdaterState(ui termio.Logger) {
-	path := legacyUpdaterStatePath()
+func migrateLegacyUpdaterState(paths configpaths.ConfigPaths, ui termio.Logger) {
+	path := legacyUpdaterStatePath(paths)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if !os.IsNotExist(err) {

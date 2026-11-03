@@ -100,7 +100,7 @@ func TestPreviewSandboxReportsReuse(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a := opencodeAgent(t)
 
-	id, err := sandboximage.RunnerDockerfileID(a, "1.0.0", options.DockerSetting{})
+	id, err := sandboximage.RunnerDockerfileID(configpaths.Get(), a, "1.0.0", options.DockerSetting{})
 	if err != nil {
 		t.Fatalf("RunnerDockerfileID: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestPreviewSandboxReconcilesStaleRecordedVersionWithImageLabel(t *testing.T
 	t.Cleanup(func() { existingAgentVersion = orig })
 	a := opencodeAgent(t)
 
-	id, err := sandboximage.RunnerDockerfileID(a, "2.0.0", options.DockerSetting{})
+	id, err := sandboximage.RunnerDockerfileID(configpaths.Get(), a, "2.0.0", options.DockerSetting{})
 	if err != nil {
 		t.Fatalf("RunnerDockerfileID: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestPreviewSandboxRecoversVersionFromImageLabelReadOnly(t *testing.T) {
 	// The seam is what supplies the recovered version; the docker mock below
 	// only feeds PreviewImage's image decision.
 	orig := existingAgentVersion
-	existingAgentVersion = func(context.Context, string, string) (string, bool) { return "1.0.0", true }
+	existingAgentVersion = func(context.Context, docker.Client, string, string) (string, bool) { return "1.0.0", true }
 	t.Cleanup(func() { existingAgentVersion = orig })
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(
@@ -343,7 +343,7 @@ func TestPreviewSandboxUserProvidedAgentIgnoresPin(t *testing.T) {
 	a := opencodeAgent(t)
 	k := previewKey()
 
-	id, err := sandboximage.RunnerDockerfileID(a, "1.0.0", options.DockerSetting{})
+	id, err := sandboximage.RunnerDockerfileID(configpaths.Get(), a, "1.0.0", options.DockerSetting{})
 	if err != nil {
 		t.Fatalf("RunnerDockerfileID: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestPreviewSandboxUserProvidedAgentNeverRecoversVersion(t *testing.T) {
 	seedAgentState(t, previewKey(), "", state.AgentSourceUser)
 
 	orig := existingAgentVersion
-	existingAgentVersion = func(context.Context, string, string) (string, bool) {
+	existingAgentVersion = func(context.Context, docker.Client, string, string) (string, bool) {
 		t.Fatal("PreviewSandbox must not recover a version for a user-provided agent")
 		return "", false
 	}

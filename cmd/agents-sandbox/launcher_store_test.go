@@ -94,7 +94,7 @@ func TestFoldLegacyStateDefersOnContendedRootLock(t *testing.T) {
 	ran := false
 	_, _ = state.WithRootState(true, func(_ *state.RootTxn) error {
 		ran = true
-		if err := upgrade.FoldLegacyState(launcherStore{}); !errors.Is(err, errRootStateLocked) {
+		if err := upgrade.FoldLegacyState(launcherStore{}, configpaths.Get()); !errors.Is(err, errRootStateLocked) {
 			t.Errorf("FoldLegacyState under held lock = %v, want errRootStateLocked", err)
 		}
 		return errors.New("closure ran")

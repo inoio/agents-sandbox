@@ -7,6 +7,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -102,7 +103,13 @@ func removePersistedState(ctx context.Context, handle msb.SandboxHandle, ui term
 // StopProjectVM gracefully stops the project VM for the current directory and
 // agent. If remove is true, it also removes the VM's persisted state; an
 // inactive VM is not stopped, only removed.
-func StopProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agentName string) error {
+func StopProjectVM(
+	ctx context.Context,
+	paths configpaths.ConfigPaths,
+	remove, dryRun bool,
+	ui termio.UI,
+	agentName string,
+) error {
 	a, ok := agent.Lookup(agentName)
 	if !ok {
 		return fmt.Errorf("unknown agent %q", agentName)
@@ -112,7 +119,7 @@ func StopProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agent
 		return err
 	}
 	client := msb.Get()
-	adoption, err := AdoptLegacyIdentity(ctx, client, identity, a.Name(), !dryRun, ui)
+	adoption, err := AdoptLegacyIdentity(ctx, paths, client, identity, a.Name(), !dryRun, ui)
 	if err != nil {
 		return err
 	}
@@ -124,7 +131,13 @@ func StopProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agent
 // KillProjectVM force-kills the project VM for the current directory and agent.
 // If remove is true, it also removes the VM's persisted state; an inactive VM
 // is not killed, only removed.
-func KillProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agentName string) error {
+func KillProjectVM(
+	ctx context.Context,
+	paths configpaths.ConfigPaths,
+	remove, dryRun bool,
+	ui termio.UI,
+	agentName string,
+) error {
 	a, ok := agent.Lookup(agentName)
 	if !ok {
 		return fmt.Errorf("unknown agent %q", agentName)
@@ -134,7 +147,7 @@ func KillProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agent
 		return err
 	}
 	client := msb.Get()
-	adoption, err := AdoptLegacyIdentity(ctx, client, identity, a.Name(), !dryRun, ui)
+	adoption, err := AdoptLegacyIdentity(ctx, paths, client, identity, a.Name(), !dryRun, ui)
 	if err != nil {
 		return err
 	}

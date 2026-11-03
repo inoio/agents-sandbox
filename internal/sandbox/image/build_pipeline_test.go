@@ -71,7 +71,7 @@ func TestComputeDockerfileIDFoldsTrustHelperLicense(t *testing.T) {
 // when the existing runner image already carries a matching dockerfile-id label.
 func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	built := false
 	docker.WithDockerMock(t, &docker.MockDockerClient{
@@ -92,7 +92,16 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	info, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{}, &termio.Mock{})
+	info, err := EnsureImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		a,
+		"proj",
+		nil,
+		BuildOptions{},
+		&termio.Mock{},
+	)
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -108,11 +117,19 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 // a reserved stage alias surfaces the render error before any build runs.
 func TestEnsureImageReportsRenderError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	project := []byte("FROM debian:trixie-slim AS agents-sandbox-base\n")
 
-	_, err := EnsureImageWithClient(context.Background(), a, project, "proj", BuildOptions{}, &termio.Mock{})
+	_, err := EnsureImageWithClient(
+		context.Background(),
+		docker.Get(),
+		a,
+		project,
+		"proj",
+		BuildOptions{},
+		&termio.Mock{},
+	)
 	if err == nil || !strings.Contains(err.Error(), "render Dockerfile") {
 		t.Fatalf("EnsureImageWithClient error = %v, want a render Dockerfile error", err)
 	}
@@ -122,7 +139,7 @@ func TestEnsureImageReportsRenderError(t *testing.T) {
 // the existing runner image's dockerfile-id label differs from the current one.
 func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	built := false
 	docker.WithDockerMock(t, &docker.MockDockerClient{
@@ -141,7 +158,16 @@ func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	if _, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{}, &termio.Mock{}); err != nil {
+	if _, err := EnsureImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		a,
+		"proj",
+		nil,
+		BuildOptions{},
+		&termio.Mock{},
+	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
 	if !built {
@@ -153,7 +179,7 @@ func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
 // provenance build arg and the pinned agent version arg.
 func TestEnsureImageBuildArgsIncludeBaseAndAgentVersion(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	var gotArgs map[string]*string
 	docker.WithDockerMock(t, &docker.MockDockerClient{
@@ -165,7 +191,16 @@ func TestEnsureImageBuildArgsIncludeBaseAndAgentVersion(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	_, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{}, &termio.Mock{})
+	_, err := EnsureImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		a,
+		"proj",
+		nil,
+		BuildOptions{},
+		&termio.Mock{},
+	)
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -186,7 +221,7 @@ func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
 	a := agentOpencode(t)
 	var requested string
 	var gotArgs map[string]*string
-	WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
+	withMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
 		requested = req
 		return "1.2.3", nil
 	})
@@ -199,7 +234,16 @@ func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	if _, err := EnsureImage(context.Background(), a, "proj", nil, BuildOptions{}, &termio.Mock{}); err != nil {
+	if _, err := EnsureImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		a,
+		"proj",
+		nil,
+		BuildOptions{},
+		&termio.Mock{},
+	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
 	if requested != "" {
@@ -225,7 +269,7 @@ func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) 
 	wantID := computeDockerfileID(rendered, userProvidedImageIdentity)
 	buildCalled := false
 	resolverCalled := false
-	WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
+	withMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		resolverCalled = true
 		return "1.2.3", nil
 	})
@@ -241,9 +285,7 @@ func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) 
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	if _, err := EnsureImage(
-		context.Background(),
-		a,
+	if _, err := EnsureImage(context.Background(), docker.Get(), configpaths.Get(), a,
 		"proj",
 		nil,
 		BuildOptions{UserProvided: true},
@@ -267,7 +309,7 @@ func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
 	a := agentOpencode(t)
 	var gotArgs map[string]*string
 	var gotDockerfileID string
-	WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, requested string) (string, error) {
+	withMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, requested string) (string, error) {
 		if requested != "" {
 			t.Errorf("resolver requested = %q, want empty version", requested)
 		}
@@ -288,9 +330,7 @@ func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	if _, err := EnsureImage(
-		context.Background(),
-		a,
+	if _, err := EnsureImage(context.Background(), docker.Get(), configpaths.Get(), a,
 		"proj",
 		nil,
 		BuildOptions{UserProvided: true},
@@ -311,7 +351,7 @@ func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
 // passed when dind is enabled.
 func TestEnsureImageDockerAddsDockerVersionArg(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	var gotArgs map[string]*string
 	docker.WithDockerMock(t, &docker.MockDockerClient{
@@ -323,9 +363,7 @@ func TestEnsureImageDockerAddsDockerVersionArg(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	if _, err := EnsureImage(
-		context.Background(),
-		a,
+	if _, err := EnsureImage(context.Background(), docker.Get(), configpaths.Get(), a,
 		"proj",
 		nil,
 		BuildOptions{Docker: dockerOn},
@@ -358,7 +396,7 @@ func TestResolveBaseDigestPullsAbsentBase(t *testing.T) {
 		},
 	})
 	const qualified = "docker.io/library/debian:trixie-slim"
-	got, err := resolveBaseDigest(context.Background(), qualified, false, &termio.Mock{})
+	got, err := resolveBaseDigest(context.Background(), docker.Get(), qualified, false, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("resolveBaseDigest: %v", err)
 	}
@@ -406,7 +444,13 @@ func TestResolveBaseDigestSurfacesPullFailure(t *testing.T) {
 					return tc.pull()
 				},
 			})
-			_, err := resolveBaseDigest(context.Background(), "private/base:latest", false, &termio.Mock{})
+			_, err := resolveBaseDigest(
+				context.Background(),
+				docker.Get(),
+				"private/base:latest",
+				false,
+				&termio.Mock{},
+			)
 			if err == nil || !strings.Contains(err.Error(), "base image not found or not logged in") {
 				t.Errorf("resolveBaseDigest error = %v, want the classified base-image failure", err)
 			}
@@ -430,7 +474,7 @@ func TestResolveBaseDigestKeepsUnparseableRef(t *testing.T) {
 		},
 	})
 	const unparseable = "Not A Valid Ref"
-	got, err := resolveBaseDigest(context.Background(), unparseable, false, &termio.Mock{})
+	got, err := resolveBaseDigest(context.Background(), docker.Get(), unparseable, false, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("resolveBaseDigest: %v", err)
 	}

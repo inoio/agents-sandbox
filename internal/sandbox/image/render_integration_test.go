@@ -208,7 +208,7 @@ func TestRenderDockerfileMissingGuestToolFailsBuild(t *testing.T) {
 
 	var lines []string
 	buildErr := buildImage(
-		ctx, a,
+		ctx, docker.Get(), a,
 		testBuildRequest(
 			renderBytesVersion(t, a, version, []byte("FROM debian:trixie-slim\n"), dockerOff),
 			version, "", "", imageIdentity{},
@@ -253,7 +253,7 @@ func TestRenderDockerfileMissingRuntimeLibFailsBuild(t *testing.T) {
 
 	var lines []string
 	buildErr := buildImage(
-		ctx, a,
+		ctx, docker.Get(), a,
 		testBuildRequest(
 			renderBytesVersion(t, a, version, []byte("FROM debian:trixie-slim\n"), dockerOff),
 			version, "", "", imageIdentity{},
@@ -634,6 +634,7 @@ func buildDockerfileTagOutput(
 	}
 	if err := buildImage(
 		ctx,
+		docker.Get(),
 		a,
 		req,
 		tag,

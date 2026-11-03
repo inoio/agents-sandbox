@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -20,7 +21,7 @@ func TestCheckAllUsesMockedCheckAll(t *testing.T) {
 			testUI := termio.NewTestMock(t)
 			MockedCheckAll(t, tc.success)
 
-			if got := CheckAll(context.Background(), &testUI); got != tc.success {
+			if got := CheckAll(context.Background(), docker.Get(), &testUI); got != tc.success {
 				t.Errorf("CheckAll() = %v, want %v", got, tc.success)
 			}
 		})
@@ -65,10 +66,10 @@ func assertFactoryPanics(t *testing.T, name string, fn func()) {
 // default installed by InstallFailFast.
 func assertFailFastFactoriesPanic(t *testing.T) {
 	t.Helper()
-	assertFactoryPanics(t, "CheckDocker", func() { _ = CheckDocker(context.Background()) })
+	assertFactoryPanics(t, "CheckDocker", func() { _ = CheckDocker(context.Background(), docker.Get()) })
 	assertFactoryPanics(t, "CheckAll", func() {
 		testUI := termio.NewTestMock(t)
-		_ = CheckAll(context.Background(), &testUI)
+		_ = CheckAll(context.Background(), docker.Get(), &testUI)
 	})
 	assertFactoryPanics(t, "ensureMsbInstalled", func() { _ = ensureMsbInstalled(context.Background()) })
 }

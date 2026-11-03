@@ -27,7 +27,7 @@ whole preparation runs. The parts that *are* suppressed are the upgrade network 
 Two further leaks reach the network under `--dry-run`:
 
 - `resolveBaseDigest` (`image/build.go:617`) pulls the base image when a build runs.
-- `resolveAgentVersion` (`image/fetch.go:13`) hits the agent's `LatestVersion` when the resolved version is empty —
+- `DefaultAgentVersionResolver` (`image/fetch.go`) hits the agent's `LatestVersion` when the resolved version is empty —
   which is exactly what `determineAgentVersion` returns on a first run (`prepare/prepare.go`).
 
 The two flags`--dry-run` (user-facing: "tell me what this would do") and `--dry-run-vm` (KVM-less: "prepare
@@ -96,7 +96,7 @@ plus the session line) so it is asserted as data in unit tests and as the render
 - Split the image path so the preview can compute the decision without building: `EnsureImageWithClient`
   (`image/build.go:414`) factors a pure `planRunnerImage` (render + `buildDecision`) from `buildFromPlan` (`:602`).
   The preview calls the planner only; `buildFromPlan` — and therefore `resolveBaseDigest` — is never reached.
-- The preview must not call `resolveAgentVersion(ctx, a, "")` (`image/build.go:443`). It passes the pin, or the
+- The preview must not call `BuildOptions.resolveAgentVersion(ctx, a, "")` (`image/build.go`). It passes the pin, or the
   label-reconciled baseline (`image.ExistingAgentVersion`, local) with the recorded `agent_version` as the fallback —
   the same precedence the real run applies for every registered agent — and reports a deferred resolution only when
   neither yields a version.
@@ -121,8 +121,8 @@ plus the session line) so it is asserted as data in unit tests and as the render
 
 ### Test seam
 
-`prepare.agentLatestVersion` (`prepare/upgrade.go`) is the upgrade check's release lookup; `image.WithMockAgentVersion` does
-not cover it (a different var). The run/shell CLI tests run `--dry-run-vm`, so they reach `resolveBuildVersion`, whose
+`prepare.agentLatestVersion` (`prepare/upgrade.go`) is the upgrade check's release lookup; the image build's injected
+resolver (`BuildOptions.ResolveVersion`, supplied by `prepare.buildVersionResolver`) reads it too. The run/shell CLI tests run `--dry-run-vm`, so they reach `resolveBuildVersion`, whose
 `pendingUpgrade` calls it when a project has a recorded baseline and the check is due — a real network request.
 `prepare.SetAgentLatestVersion` replaces it, and `cmd`'s `TestMain` (`cmd/agents-sandbox/main_test.go`, beside the
 migration-offer default) installs a **fail-fast** default that panics: a test that reaches the network path fails loudly

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 )
 
@@ -64,7 +65,7 @@ func TestReadProjectDockerfileBareWorktree(t *testing.T) {
 	writeFileAt(t, filepath.Join(root, ".agents-sandbox", "Dockerfile"), "FROM bare-root\n")
 	writeFileAt(t, filepath.Join(worktree, ".agents-sandbox", "Dockerfile"), "FROM worktree\n")
 
-	if got := string(ReadProjectDockerfile()); got != "FROM bare-root\n" {
-		t.Errorf("ReadProjectDockerfile() = %q, want %q", got, "FROM bare-root\n")
+	if got := string(ReadProjectDockerfile(configpaths.Get())); got != "FROM bare-root\n" {
+		t.Errorf("ReadProjectDockerfile(configpaths.Get()) = %q, want %q", got, "FROM bare-root\n")
 	}
 }

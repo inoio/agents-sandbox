@@ -345,7 +345,8 @@ func TestCreateProjectVMNetworkError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 
 	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
-		Client: client,
+		Client:       client,
+		DockerClient: docker.Get(),
 		Options: options.RunOptions{
 			Memory:  "1G",
 			Network: network.Policy{Profiles: []network.Profile{network.Profile("bogus-profile")}},
@@ -374,8 +375,9 @@ func TestCreateProjectVMCreateError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 
 	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
-		Client:  client,
-		Options: options.RunOptions{Memory: "1G"},
+		Client:       client,
+		DockerClient: docker.Get(),
+		Options:      options.RunOptions{Memory: "1G"},
 		Image: image.ImageInfo{
 			DockerTag: "agents-sandbox/runner-test:latest",
 			Ref:       "agents-sandbox/runner-test:latest",
@@ -402,7 +404,8 @@ func TestCreateProjectVMServeOnlyAndNetwork(t *testing.T) {
 	ui := termio.NewTestMock(t)
 
 	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
-		Client: client,
+		Client:       client,
+		DockerClient: docker.Get(),
 		Options: options.RunOptions{
 			Memory:    "1G",
 			ServeOnly: true,
@@ -447,7 +450,8 @@ func TestCreateProjectVMServeOnlyPublishesExactPort(t *testing.T) {
 	ui := termio.NewTestMock(t)
 
 	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
-		Client: client,
+		Client:       client,
+		DockerClient: docker.Get(),
 		Options: options.RunOptions{
 			Memory:        "1G",
 			ServeOnly:     true,

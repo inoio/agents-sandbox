@@ -9,8 +9,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/cliout"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -24,7 +26,22 @@ import (
 	"github.com/inoio/agents-sandbox/internal/view"
 )
 
-type volumeOpFunc func(context.Context, state.Key, string, image.ImageInfo, bool, bool, termio.UI) error
+type volumeOpFunc func(
+	context.Context,
+	docker.Client,
+	state.Key,
+	string,
+	image.ImageInfo,
+	bool,
+	bool,
+	termio.UI,
+) error
+
+// agentVersionResolver resolves the agent release to bake into the runner image
+// when no version is pinned. It is the command boundary's injected dependency,
+// so the image package holds no process-global test seam; tests replace it to
+// keep a build off the network.
+var agentVersionResolver image.AgentVersionResolver = image.DefaultAgentVersionResolver
 
 // volumeOp describes one `volume` subcommand that replaces the project's home
 // volume (migrate, reset, edit).
@@ -63,7 +80,7 @@ func buildVolumeOpsCmd(ui termio.UI, op volumeOp) *cobra.Command {
 		Args:  cobra.MaximumNArgs(1),
 		Short: op.short,
 		RunE: func(c *cobra.Command, args []string) error {
-			if !doctor.CheckAll(c.Context(), ui) {
+			if !doctor.CheckAll(c.Context(), docker.Get(), ui) {
 				return errors.New("preflight failed")
 			}
 			dryRun, _ := c.Flags().GetBool(flagDryRun)
@@ -75,7 +92,7 @@ func buildVolumeOpsCmd(ui termio.UI, op volumeOp) *cobra.Command {
 			if len(args) > 0 {
 				volumeName = args[0]
 			}
-			return op.run(c.Context(), key, volumeName, info, removeOld, dryRun, ui)
+			return op.run(c.Context(), docker.Get(), key, volumeName, info, removeOld, dryRun, ui)
 		},
 	}
 	cmd.Flags().BoolVar(&removeOld, flagRemove, false, op.removeHelp)
@@ -109,8 +126,9 @@ func prepareVolumeOp(c *cobra.Command, ui termio.UI, dryRun bool) (state.Key, im
 	if err != nil {
 		return state.Key{}, image.ImageInfo{}, err
 	}
+	paths := configpaths.Get()
 	adoption, err := sandbox.AdoptLegacyIdentity(
-		c.Context(), msb.Get(), identity, a.Name(), !dryRun, ui,
+		c.Context(), paths, msb.Get(), identity, a.Name(), !dryRun, ui,
 	)
 	if err != nil {
 		return state.Key{}, image.ImageInfo{}, err
@@ -121,15 +139,18 @@ func prepareVolumeOp(c *cobra.Command, ui termio.UI, dryRun bool) (state.Key, im
 	}
 	info, err := image.EnsureImage(
 		c.Context(),
+		docker.Get(),
+		paths,
 		a,
 		adoption.Slug,
-		image.ReadProjectDockerfile(),
+		image.ReadProjectDockerfile(paths),
 		image.BuildOptions{
-			Force:        false,
-			NoRebuild:    false,
-			AgentVersion: "",
-			UserProvided: false,
-			Docker:       resolveBuildDockerSetting(c),
+			Force:          false,
+			NoRebuild:      false,
+			AgentVersion:   "",
+			UserProvided:   false,
+			Docker:         resolveBuildDockerSetting(c),
+			ResolveVersion: agentVersionResolver,
 		},
 		ui,
 	)
@@ -151,7 +172,7 @@ func buildDoctorCmd(ui termio.Logger) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Check prerequisites",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !doctor.CheckAll(cmd.Context(), ui) {
+			if !doctor.CheckAll(cmd.Context(), docker.Get(), ui) {
 				return errors.New("preflight failed")
 			}
 			ui.Info("doctor: all checks passed")
@@ -267,7 +288,7 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 			// the volume ops do: the check does not need the slug, and a failing
 			// build must not destroy the legacy VM and move the state first.
 			if !dryRun {
-				if dockerErr := doctor.CheckDocker(cmd.Context()); dockerErr != nil {
+				if dockerErr := doctor.CheckDocker(cmd.Context(), docker.Get()); dockerErr != nil {
 					return fmt.Errorf("docker not available: %w", dockerErr)
 				}
 			}
@@ -280,8 +301,9 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 				return err
 			}
 			client := msb.Get()
+			paths := configpaths.Get()
 			adoption, err := sandbox.AdoptLegacyIdentity(
-				cmd.Context(), client, identity, a.Name(), !dryRun, ui,
+				cmd.Context(), paths, client, identity, a.Name(), !dryRun, ui,
 			)
 			if err != nil {
 				return fmt.Errorf("adopt legacy identity: %w", err)
@@ -296,16 +318,19 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 			)
 			info, err := image.Build(
 				cmd.Context(),
+				docker.Get(),
 				client,
+				paths,
 				a,
 				adoption.Slug,
-				image.ReadProjectDockerfile(),
+				image.ReadProjectDockerfile(paths),
 				image.BuildOptions{
-					Force:        force,
-					NoRebuild:    false,
-					AgentVersion: agentVersion,
-					UserProvided: userProvided,
-					Docker:       resolveBuildDockerSetting(cmd),
+					Force:          force,
+					NoRebuild:      false,
+					AgentVersion:   agentVersion,
+					UserProvided:   userProvided,
+					Docker:         resolveBuildDockerSetting(cmd),
+					ResolveVersion: agentVersionResolver,
 				},
 				ui,
 			)
@@ -345,13 +370,14 @@ func buildDockerfileCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Print the runner Dockerfile as it would be built",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			image.WarnIgnoredProjectConfig(ui)
+			paths := configpaths.Get()
+			image.WarnIgnoredProjectConfig(paths, ui)
 			a, err := resolveAgentFlag(cmd)
 			if err != nil {
 				return err
 			}
 			setting := resolveBuildDockerSetting(cmd)
-			projectDockerfile := image.ReadProjectDockerfile()
+			projectDockerfile := image.ReadProjectDockerfile(paths)
 			image.EmitProjectDockerfileDiagnostics(ui, projectDockerfile, setting)
 			agentVersion, _ := cmd.Flags().GetString(flagAgentVersion)
 			out, err := image.RenderProjectDockerfile(a, agentVersion, projectDockerfile, setting)
@@ -543,7 +569,7 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 			if err = confirmPrune(ui, dryRun); err != nil {
 				return err
 			}
-			report, pruneErr := pruning.Prune(cmd.Context(), age, dryRun, ui)
+			report, pruneErr := pruning.Prune(cmd.Context(), docker.Get(), age, dryRun, ui)
 			if report != nil {
 				cliout.RenderPruneReport(ui, mode,
 					func() { pruning.RenderPruneSummary(ui, report, dryRun) },
@@ -562,9 +588,15 @@ func buildImagePruneCmd(ui termio.UI) *cobra.Command {
 		Args:  cobra.NoArgs,
 		Short: "Prune cached runner images not in use",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runGroupPrune(cmd, ui, pruning.PruneImages,
+			return runGroupPrune(
+				cmd,
+				ui,
+				func(ctx context.Context, pruneState pruning.PruneState, dryRun bool, ui termio.UI) (pruning.ImageReport, error) {
+					return pruning.PruneImages(ctx, docker.Get(), pruneState, dryRun, ui)
+				},
 				func(report pruning.ImageReport, dryRun bool) { pruning.RenderImageReport(ui, report, dryRun) },
-				func(report pruning.ImageReport, dryRun bool) any { return view.NewImageReportJSON(report, dryRun) })
+				func(report pruning.ImageReport, dryRun bool) any { return view.NewImageReportJSON(report, dryRun) },
+			)
 		},
 	}
 	setPruneFlags(cmd)

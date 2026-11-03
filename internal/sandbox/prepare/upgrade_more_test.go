@@ -7,6 +7,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -32,6 +33,7 @@ func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 
 	_, _, _, err := resolveBuildVersion(
 		context.Background(),
+		docker.Get(),
 		k,
 		opencodeResolved(t),
 		ui,
@@ -62,6 +64,7 @@ func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
 
 	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
+		docker.Get(),
 		k,
 		opencodeResolved(t),
 		ui,
@@ -97,6 +100,7 @@ func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
 
 	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
+		docker.Get(),
 		k,
 		opencodeResolved(t),
 		ui,
@@ -122,6 +126,7 @@ func TestResolveBuildVersionWithoutUpgradeChecker(t *testing.T) {
 	seedAgentState(t, k, "1.5.0", state.AgentSourceTool)
 	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
+		docker.Get(),
 		k,
 		agent.Resolve(&fakeAgent{}),
 		&termio.Mock{},
@@ -152,6 +157,7 @@ func TestResolveBuildVersionWithoutUpgradeCheckerIgnoresImageLabel(t *testing.T)
 
 	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
+		docker.Get(),
 		k,
 		agent.Resolve(&fakeAgent{}),
 		&termio.Mock{},

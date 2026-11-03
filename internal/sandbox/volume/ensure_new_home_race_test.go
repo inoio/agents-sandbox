@@ -77,7 +77,7 @@ func TestEnsureNewHome_ConcurrentCommitAdoptsWinner(t *testing.T) {
 			}
 			ui := &termio.Mock{}
 
-			volName, hs, err := NewManager().EnsureNewHome(
+			volName, hs, err := NewManager(docker.Get()).EnsureNewHome(
 				context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, tt.priorRecorded, ui,
 			)
 
@@ -109,7 +109,7 @@ func TestEnsureNewHome_ReplacesStaleRecordedVolume(t *testing.T) {
 	}
 	ui := &termio.Mock{}
 
-	volName, _, err := NewManager().EnsureNewHome(
+	volName, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "gone-vol", ui,
 	)
 
@@ -137,7 +137,7 @@ func TestEnsureNewHome_ReplacesConcurrentEmptyHomeVolume(t *testing.T) {
 	}
 	ui := &termio.Mock{}
 
-	volName, _, err := NewManager().EnsureNewHome(
+	volName, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "gone-vol", ui,
 	)
 
@@ -173,7 +173,7 @@ func TestResolveHomeVolume_WinnerCommitsBeforeCreation(t *testing.T) {
 	}
 	ui := &termio.Mock{}
 
-	volName, _, err := NewManager().ResolveHomeVolume(
+	volName, _, err := NewManager(docker.Get()).ResolveHomeVolume(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "", ui,
 	)
 
@@ -207,7 +207,7 @@ func TestEnsureNewHome_NameCollisionRetries(t *testing.T) {
 	}
 	ui := &termio.Mock{}
 
-	volName, _, err := NewManager().EnsureNewHome(
+	volName, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "", ui,
 	)
 
@@ -232,7 +232,7 @@ func TestEnsureNewHome_NameCollisionGivesUp(t *testing.T) {
 	}
 	ui := &termio.Mock{}
 
-	_, _, err := NewManager().EnsureNewHome(
+	_, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "", ui,
 	)
 
@@ -255,7 +255,7 @@ func TestEnsureNewHome_CreateErrorDoesNotRetry(t *testing.T) {
 	}
 	ui := &termio.Mock{}
 
-	_, _, err := NewManager().EnsureNewHome(
+	_, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, state.Key{Slug: "failproj", Agent: "opencode"},
 		raceTestImage, false, state.Fingerprints{}, "", ui,
 	)

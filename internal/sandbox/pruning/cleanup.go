@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -22,6 +23,7 @@ var autoPruneDefaultThreshold = 30 * 24 * time.Hour
 // matters.
 func AutoPrune(
 	ctx context.Context,
+	dclient docker.Client,
 	threshold time.Duration,
 	dryRun bool,
 	ui termio.UI,
@@ -31,7 +33,7 @@ func AutoPrune(
 		threshold = autoPruneDefaultThreshold
 	}
 	autoPruneOnce.Do(func() {
-		report, err := Prune(ctx, threshold, dryRun, ui, retain...)
+		report, err := Prune(ctx, dclient, threshold, dryRun, ui, retain...)
 		if report != nil {
 			RenderPruneSummary(ui, report, dryRun)
 		}

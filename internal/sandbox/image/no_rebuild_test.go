@@ -24,7 +24,13 @@ func TestPlanRunnerImageNoRebuildReusesChangedImage(t *testing.T) {
 	runnerAndBaseMock(t, seededRunnerLabels(t, "debian:trixie-slim@sha256:old"), "sha256:new")
 
 	_, _, needsBuild, reasons, err := planRunnerImage(
-		context.Background(), agentOpencode(t), parseProjectDockerfile(nil), "proj", "1.2.3", "1.2.3",
+		context.Background(),
+		docker.Get(),
+		agentOpencode(t),
+		parseProjectDockerfile(nil),
+		"proj",
+		"1.2.3",
+		"1.2.3",
 		BuildOptions{Docker: dockerOff, NoRebuild: true},
 	)
 	if err != nil {
@@ -48,7 +54,13 @@ func TestPlanRunnerImageNoRebuildStillBuildsMissingImage(t *testing.T) {
 	})
 
 	_, _, needsBuild, reasons, err := planRunnerImage(
-		context.Background(), agentOpencode(t), parseProjectDockerfile(nil), "proj", "1.2.3", "1.2.3",
+		context.Background(),
+		docker.Get(),
+		agentOpencode(t),
+		parseProjectDockerfile(nil),
+		"proj",
+		"1.2.3",
+		"1.2.3",
 		BuildOptions{Docker: dockerOff, NoRebuild: true},
 	)
 	if err != nil {
@@ -67,8 +79,7 @@ func TestPlanRunnerImageNoRebuildStillBuildsMissingImage(t *testing.T) {
 func TestPreviewImageNoRebuildReportsReuseWithSkippedReasons(t *testing.T) {
 	runnerAndBaseMock(t, seededRunnerLabels(t, "debian:trixie-slim@sha256:old"), "sha256:new")
 
-	preview, err := previewRunnerImage(
-		context.Background(), agentOpencode(t), nil, "proj",
+	preview, err := previewRunnerImage(context.Background(), docker.Get(), agentOpencode(t), nil, "proj",
 		BuildOptions{AgentVersion: "1.2.3", Docker: dockerOff, NoRebuild: true}, &termio.Mock{},
 	)
 	if err != nil {
@@ -115,7 +126,7 @@ func TestLogBuildDecisionReuseWithoutChangesStaysVerbose(t *testing.T) {
 // release: the lookup needs the network, and a reused image never uses it.
 func TestEnsureImageNoRebuildReusesUnlabeledImageOffline(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
+	withMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
 		return "", errors.New("offline")
 	})
 	docker.WithDockerMock(t, &docker.MockDockerClient{
@@ -131,9 +142,7 @@ func TestEnsureImageNoRebuildReusesUnlabeledImageOffline(t *testing.T) {
 		},
 	})
 
-	info, err := EnsureImage(
-		context.Background(),
-		agentOpencode(t),
+	info, err := EnsureImage(context.Background(), docker.Get(), configpaths.Get(), agentOpencode(t),
 		"proj",
 		nil,
 		BuildOptions{NoRebuild: true},

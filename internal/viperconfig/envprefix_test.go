@@ -33,7 +33,7 @@ func TestResolverAgentsSandboxEnvPrefix(t *testing.T) {
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
 	t.Setenv("AGENTS_SANDBOX_CPUS", "6")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestResolverLegacyEnvPrefixStillWorks(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("OPENCODE_SANDBOX_CPUS", "6")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestResolverAgentsEnvTakesPrecedenceOverLegacy(t *testing.T) {
 	t.Setenv("AGENTS_SANDBOX_CPUS", "7")
 	t.Setenv("OPENCODE_SANDBOX_CPUS", "6")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestResolverDottedKeyUsesAgentsEnvPrefix(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "private")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}

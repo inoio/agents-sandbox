@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/humanize"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -24,6 +25,7 @@ type MsbClient = msb.Client
 // age, so a run's startup prune never reclaims the image it is about to import.
 func Prune(
 	ctx context.Context,
+	dclient docker.Client,
 	threshold time.Duration,
 	dryRun bool,
 	ui termio.UI,
@@ -35,7 +37,7 @@ func Prune(
 	}
 	vmReport, vmErr := PruneSandboxes(ctx, pruneState, dryRun, ui)
 	volReport, volErr := PruneVolumes(ctx, pruneState, dryRun, ui)
-	imgReport, imgErr := PruneImages(ctx, pruneState, dryRun, ui)
+	imgReport, imgErr := PruneImages(ctx, dclient, pruneState, dryRun, ui)
 	storageReport, storageErr := PruneStorage(ctx, pruneState, dryRun, ui)
 
 	report := &StaleReport{
