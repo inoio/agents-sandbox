@@ -230,14 +230,16 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 // serve-only flows: it resolves the agent from k, acquires a client lease, runs
 // body with that agent, explicitly releases the lease before reaping so
 // state.CountActiveClients reflects only OTHER live clients, then reaps on the
-// last client. body's error is returned unchanged; the deferred release is a
-// best-effort safety net (for a panicking body or reap).
+// last client when shouldReap reports the session's error as reap-able. body's
+// error is returned unchanged; the deferred release is a best-effort safety net
+// (for a panicking body or reap).
 func withClientSession(
 	ctx context.Context,
 	k state.Key,
 	sb msb.Sandbox,
 	policy options.ReapPolicy,
 	ui termio.UI,
+	shouldReap func(sessionErr error) bool,
 	body func(a agent.Agent) error,
 ) error {
 	a, _ := agent.Lookup(k.Agent)
@@ -263,16 +265,23 @@ func withClientSession(
 		release = nil
 	}
 
-	if err := reapOnLastClient(ctx, a, k, sb, policy, ui); err != nil {
-		ui.Warnf("reap failed: %v", err)
+	if shouldReap(sessionErr) {
+		if err := reapOnLastClient(ctx, a, k, sb, policy, ui); err != nil {
+			ui.Warnf("reap failed: %v", err)
+		}
 	}
 
 	return sessionErr
 }
 
+// alwaysReap is the attach reap predicate: an attach reaps on the last client
+// even when the attach itself failed.
+func alwaysReap(error) bool { return true }
+
 // runServeOnlySession supplies the serve-only payload around the shared client
 // session lifecycle: hold the VM (keeper exec) until ctx is done, then report a
-// clean exit.
+// clean exit. A payload error other than context.Canceled skips the reap, as an
+// abnormal end leaves the VM to its idle timeout.
 func runServeOnlySession(
 	ctx context.Context,
 	k state.Key,
@@ -281,12 +290,21 @@ func runServeOnlySession(
 	ui termio.UI,
 	hostPort int,
 ) error {
-	return withClientSession(ctx, k, sb, policy, ui, func(a agent.Agent) error {
-		if err := runServeOnly(ctx, a, sb, ui, hostPort); err != nil && !errors.Is(err, context.Canceled) {
-			return err
-		}
-		return &sandbox.ExitError{Code: 0}
-	})
+	sessionErr := withClientSession(
+		ctx,
+		k,
+		sb,
+		policy,
+		ui,
+		func(err error) bool { return err == nil || errors.Is(err, context.Canceled) },
+		func(a agent.Agent) error {
+			return runServeOnly(ctx, a, sb, ui, hostPort)
+		},
+	)
+	if sessionErr != nil && !errors.Is(sessionErr, context.Canceled) {
+		return sessionErr
+	}
+	return &sandbox.ExitError{Code: 0}
 }
 
 // Shell creates (or reuses) the project VM and drops the user into an
@@ -339,7 +357,7 @@ func runAttach(
 	opts options.RunOptions,
 	bashArgs ...string,
 ) error {
-	return withClientSession(ctx, k, sb, opts.ReapPolicy, ui, func(agent.Agent) error {
+	return withClientSession(ctx, k, sb, opts.ReapPolicy, ui, alwaysReap, func(agent.Agent) error {
 		attachOpts := []msbSdk.AttachOption{msbSdk.WithAttachCwd(guestCWD)}
 		if opts.Root {
 			attachOpts = append(attachOpts, msbSdk.WithAttachUser(sandbox.RootUser))

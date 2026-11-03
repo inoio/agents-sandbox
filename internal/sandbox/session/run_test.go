@@ -876,6 +876,7 @@ func TestWithClientSessionHandsResolvedAgentToBody(t *testing.T) {
 		&msb.MockSandbox{Name_: "test-vm"},
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
 		ui,
+		alwaysReap,
 		func(a agent.Agent) error {
 			got = a.Name()
 			return nil
@@ -905,12 +906,20 @@ func TestWithClientSessionReleasesLeaseBeforeReaping(t *testing.T) {
 		},
 	}
 
-	err := withClientSession(context.Background(), k, sb, options.ReapPolicy{}, ui, func(agent.Agent) error {
-		if got := state.CountActiveClients(k); got != 1 {
-			t.Errorf("body ran with %d active clients, want 1 (its own lease)", got)
-		}
-		return nil
-	})
+	err := withClientSession(
+		context.Background(),
+		k,
+		sb,
+		options.ReapPolicy{},
+		ui,
+		alwaysReap,
+		func(agent.Agent) error {
+			if got := state.CountActiveClients(k); got != 1 {
+				t.Errorf("body ran with %d active clients, want 1 (its own lease)", got)
+			}
+			return nil
+		},
+	)
 	if err != nil {
 		t.Fatalf("withClientSession: %v", err)
 	}
@@ -937,9 +946,17 @@ func TestWithClientSessionReturnsBodyErrorAfterReaping(t *testing.T) {
 	}
 	sentinel := errors.New("body boom")
 
-	err := withClientSession(context.Background(), k, sb, options.ReapPolicy{}, ui, func(agent.Agent) error {
-		return sentinel
-	})
+	err := withClientSession(
+		context.Background(),
+		k,
+		sb,
+		options.ReapPolicy{},
+		ui,
+		alwaysReap,
+		func(agent.Agent) error {
+			return sentinel
+		},
+	)
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("withClientSession = %v, want the body error", err)
 	}
@@ -966,6 +983,7 @@ func TestWithClientSessionLeaseFailureStillRunsBody(t *testing.T) {
 		&msb.MockSandbox{Name_: "test-vm"},
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
 		ui,
+		alwaysReap,
 		func(agent.Agent) error {
 			ran = true
 			return nil
@@ -986,6 +1004,68 @@ func TestWithClientSessionLeaseFailureStillRunsBody(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected a client lease warning, got %v", ui.WarnCalls)
+	}
+}
+
+// TestWithClientSessionReleasesLeaseOnPanic covers the deferred release: a
+// panicking body unwinds past the explicit release, so only the deferred
+// best-effort release drops the lease.
+func TestWithClientSessionReleasesLeaseOnPanic(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "withsessionpanic", Agent: "opencode"}
+	ui := &termio.Mock{}
+
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Error("expected the body panic to propagate")
+			}
+		}()
+		_ = withClientSession(
+			context.Background(),
+			k,
+			&msb.MockSandbox{Name_: "test-vm"},
+			options.ReapPolicy{AutoStopOnActiveSessions: true},
+			ui,
+			alwaysReap,
+			func(agent.Agent) error {
+				panic("body boom")
+			},
+		)
+	}()
+
+	if got := state.CountActiveClients(k); got != 0 {
+		t.Errorf("CountActiveClients after a panicking body = %d, want 0 (deferred release)", got)
+	}
+}
+
+// TestRunServeOnlySessionSkipsReapOnNonCanceledError pins the serve-only reap
+// predicate: a payload error other than context.Canceled (here a deadline) is
+// returned without reaping, so the VM is left to its idle timeout. Only a clean
+// or canceled exit reaps.
+func TestRunServeOnlySessionSkipsReapOnNonCanceledError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "serveonlyskipreap", Agent: "opencode"}
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{
+		Name_: "test-vm",
+		ShellOut: map[string]msb.ShellResult{
+			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+		},
+	}
+
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(50*time.Millisecond))
+	defer cancel()
+
+	err := runServeOnlySession(ctx, k, sb, options.ReapPolicy{}, ui, 4096)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("runServeOnlySession = %v, want context.DeadlineExceeded", err)
+	}
+	if containerProbeWarn(ui) {
+		t.Errorf("serve-only must not reap on a non-canceled error, got %v", ui.WarnCalls)
+	}
+	if got := state.CountActiveClients(k); got != 0 {
+		t.Errorf("CountActiveClients = %d, want 0 after the deferred release", got)
 	}
 }
 
