@@ -33,6 +33,4 @@ scopes substitution to named header fields, closing that reflected-header exfilt
 - The default stays all-headers. There is no built-in safe-field list; scoping is opt-in, because a
   guessed default silently breaks secrets sent in non-standard headers (GitLab `private-token`, Azure
   `api-key`, Google `x-goog-api-key`).
-- The reflected-header rationale and the proxy model live in
-  `guides/secret-placeholder-transcript-trap.md`; the user-facing surface is
-  `docs/configuration/secrets.md`.
+- The user-facing surface is `docs/configuration/secrets.md`.
