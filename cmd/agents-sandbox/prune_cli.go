@@ -19,7 +19,7 @@ import (
 // authorizes non-interactively through ui.Confirm's assume-yes path; a
 // non-interactive UI without --yes fails fast via ui.Confirm rather than
 // blocking.
-func confirmPrune(ui termio.UI, dryRun bool) error {
+func confirmPrune(ui termio.Prompter, dryRun bool) error {
 	if dryRun {
 		return nil
 	}
@@ -100,7 +100,7 @@ func resolvePruneFlags(cmd *cobra.Command) (time.Duration, bool, error) {
 	return age, dryRun, nil
 }
 
-func resolvePruneOutputMode(cmd *cobra.Command, ui termio.UI) (cliout.Mode, error) {
+func resolvePruneOutputMode(cmd *cobra.Command, ui termio.TerminalState) (cliout.Mode, error) {
 	format, _ := cmd.Flags().GetString(flagFormat)
 	return cliout.ResolveMode(format, ui.Quiet())
 }

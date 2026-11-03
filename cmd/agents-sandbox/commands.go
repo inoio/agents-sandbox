@@ -237,7 +237,7 @@ func buildTreeCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
 	return cmd
 }
 
-func buildVersionCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
+func buildVersionCmd(rootCmd *cobra.Command, ui termio.Output) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdVersion,
 		Args:  cobra.NoArgs,

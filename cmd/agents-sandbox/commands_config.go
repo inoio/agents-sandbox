@@ -99,7 +99,7 @@ const projectConfigDisplayPath = ".agents-sandbox/config.yaml"
 // reads the per-slug layer from slug (the effective config slug) but labels the
 // repo slug separately, so a bare root's pre-migration layer dir is not misread
 // as the repo slug.
-func printConfigLayers(ui termio.UI, slug, repoSlug string) {
+func printConfigLayers(ui termio.Output, slug, repoSlug string) {
 	ui.Outf("config layers (lowest to highest precedence):")
 	for _, layer := range viperconfig.ConfigLayers(slug) {
 		if layer.Path == "" {
@@ -201,7 +201,7 @@ func provisionHostConfigEnabled(c *cobra.Command) bool {
 // printConfigAgent renders the merged config, mirror files, and drop-in host
 // files that provisioning would copy into the VM.
 func printConfigAgent(
-	ui termio.UI,
+	ui termio.Output,
 	a agent.Agent,
 	source reprovision.ConfigSource,
 	merged []byte,

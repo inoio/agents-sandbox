@@ -144,7 +144,7 @@ func prepareVolumeOp(c *cobra.Command, ui termio.UI, dryRun bool) (state.Key, im
 	return key, info, nil
 }
 
-func buildDoctorCmd(ui termio.UI) *cobra.Command {
+func buildDoctorCmd(ui termio.Logger) *cobra.Command {
 	return &cobra.Command{
 		Use:   cmdDoctor,
 		Args:  cobra.NoArgs,

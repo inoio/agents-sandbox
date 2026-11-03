@@ -19,7 +19,7 @@ func PruneStorage(
 	ctx context.Context,
 	pruneState PruneState,
 	dryRun bool,
-	ui termio.UI,
+	ui termio.Logger,
 ) (StorageReport, error) {
 	report, err := msb.Get().PruneStorage(ctx, msbSdk.StoragePruneOptions{
 		DryRun:           dryRun,

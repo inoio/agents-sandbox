@@ -79,7 +79,7 @@ func projectSandboxes(ctx context.Context, sandboxName string) ([]msb.SandboxHan
 	return projects, nil
 }
 
-func reportCompactFailure(ui termio.UI, name string, err error) {
+func reportCompactFailure(ui termio.Logger, name string, err error) {
 	switch {
 	case msb.IsReplaced(err) || msb.IsNotFound(err):
 		ui.Verbosef("sandbox %s was already replaced or removed; skipping", name)
