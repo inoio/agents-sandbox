@@ -225,7 +225,7 @@ func commandNeedsMSBRuntime(cmd *cobra.Command) bool {
 	}
 }
 
-func buildTreeCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
+func buildTreeCmd(rootCmd *cobra.Command, ui termio.Logger) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdTree,
 		Args:  cobra.NoArgs,
@@ -249,7 +249,7 @@ func buildVersionCmd(rootCmd *cobra.Command, ui termio.Output) *cobra.Command {
 	return cmd
 }
 
-func buildUpgradeCmd(ui termio.UI) *cobra.Command {
+func buildUpgradeCmd(ui termio.Logger) *cobra.Command {
 	var channelFlag string
 	cmd := &cobra.Command{
 		Use:   cmdUpgrade,

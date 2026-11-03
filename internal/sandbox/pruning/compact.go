@@ -34,7 +34,7 @@ func CompactSandboxes(
 	ctx context.Context,
 	sandboxName string,
 	options msbSdk.DiskCompactionOptions,
-	ui termio.UI,
+	ui termio.Logger,
 ) (CompactReport, error) {
 	handles, err := projectSandboxes(ctx, sandboxName)
 	if err != nil {
