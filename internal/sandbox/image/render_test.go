@@ -536,6 +536,21 @@ func TestAgentBinaryFallsBackToProfileName(t *testing.T) {
 	}
 }
 
+// binaryNamedAgent exposes a VersionProvider whose command names a binary that
+// differs from the profile name, so agentBinary takes the command's first word
+// rather than falling back to the profile.
+type binaryNamedAgent struct{ agent.Agent }
+
+func (binaryNamedAgent) Name() string                        { return "binary-named" }
+func (binaryNamedAgent) VersionCmd() string                  { return "agent-bin --version" }
+func (binaryNamedAgent) ParseVersion(string) (string, error) { return "", nil }
+
+func TestAgentBinaryUsesVersionCmdBinary(t *testing.T) {
+	if got := agentBinary(agent.Resolve(binaryNamedAgent{})); got != "agent-bin" {
+		t.Errorf("agentBinary with a version command = %q, want its binary word %q", got, "agent-bin")
+	}
+}
+
 // TestRenderDockerfileChecksLauncherTools guards the host opener's custom-base
 // contract: the launcher replays a browser-login callback inside the VM with
 // curl, so every runner image must verify curl in the final stage, including

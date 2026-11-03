@@ -23,8 +23,15 @@ import (
 // fixture baseline version.
 func withExistingAgentVersion(t *testing.T) {
 	t.Helper()
+	withExistingAgentVersionValue(t, "1.0.0")
+}
+
+// withExistingAgentVersionValue makes the project's existing runner image report
+// version, restoring the seam afterwards.
+func withExistingAgentVersionValue(t *testing.T, version string) {
+	t.Helper()
 	orig := existingAgentVersion
-	existingAgentVersion = func(_ context.Context, _, _ string) (string, bool) { return "1.0.0", true }
+	existingAgentVersion = func(_ context.Context, _, _ string) (string, bool) { return version, true }
 	t.Cleanup(func() { existingAgentVersion = orig })
 }
 
