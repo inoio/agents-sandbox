@@ -14,7 +14,9 @@ import (
 	"path/filepath"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
@@ -128,6 +130,8 @@ func PrepareSandbox(
 	ui termio.UI,
 ) (*Session, error) {
 	client := msb.Get()
+	dclient := docker.Get()
+	paths := configpaths.Get()
 	var (
 		session       sessionIdentity
 		version       versionDecision
@@ -141,7 +145,7 @@ func PrepareSandbox(
 	stages := []lifecycle.Stage{
 		{ID: lifecycle.ResolveIdentity, Run: func() error {
 			var err error
-			session, err = resolveIdentityStage(ctx, client, opts.Agent, skipVM, ui)
+			session, err = resolveIdentityStage(ctx, client, paths, opts.Agent, skipVM, ui)
 			if err != nil {
 				return err
 			}
@@ -150,17 +154,27 @@ func PrepareSandbox(
 		}},
 		{ID: lifecycle.ResolveVersion, Run: func() error {
 			var err error
-			version, err = resolveVersionStage(ctx, session, opts, ui)
+			version, err = resolveVersionStage(ctx, paths, dclient, session, opts, ui)
 			return err
 		}},
 		{ID: lifecycle.EnsureImage, Run: func() error {
 			var err error
-			imageInfo, err = ensureImageStage(ctx, session, version, opts, ui)
+			imageInfo, err = ensureImageStage(ctx, dclient, paths, session, version, opts, ui)
 			return err
 		}},
 		{ID: lifecycle.EnsureHome, Run: func() error {
 			var err error
-			home, err = ensureHomeStage(ctx, client, session.key, imageInfo, version.offeredVersion, skipVM, opts, ui)
+			home, err = ensureHomeStage(
+				ctx,
+				client,
+				dclient,
+				session.key,
+				imageInfo,
+				version.offeredVersion,
+				skipVM,
+				opts,
+				ui,
+			)
 			return err
 		}},
 		{ID: lifecycle.PlanReconfig, Run: func() error {
@@ -217,6 +231,7 @@ type sessionIdentity struct {
 func resolveIdentityStage(
 	ctx context.Context,
 	client msb.Client,
+	paths configpaths.ConfigPaths,
 	agentName string,
 	skipVM bool,
 	ui termio.Logger,
@@ -225,7 +240,7 @@ func resolveIdentityStage(
 	if err != nil {
 		return sessionIdentity{}, err
 	}
-	a, identity, adoption, err := resolveSessionIdentity(ctx, client, cwd, agentName, skipVM, ui)
+	a, identity, adoption, err := resolveSessionIdentity(ctx, client, paths, cwd, agentName, skipVM, ui)
 	if err != nil {
 		return sessionIdentity{}, err
 	}
@@ -254,12 +269,16 @@ type versionDecision struct {
 // resolveBuildVersion for the decision rules.
 func resolveVersionStage(
 	ctx context.Context,
+	paths configpaths.ConfigPaths,
+	dclient docker.Client,
 	session sessionIdentity,
 	opts options.RunOptions,
 	ui termio.UI,
 ) (versionDecision, error) {
 	agentVersion, shallUpgrade, offeredVersion, err := determineAgentVersion(
 		ctx,
+		paths,
+		dclient,
 		session.key,
 		session.agent,
 		ui,
@@ -281,6 +300,8 @@ func resolveVersionStage(
 // image at the decided version and loads it into microsandbox.
 func ensureImageStage(
 	ctx context.Context,
+	dclient docker.Client,
+	paths configpaths.ConfigPaths,
 	session sessionIdentity,
 	version versionDecision,
 	opts options.RunOptions,
@@ -288,6 +309,8 @@ func ensureImageStage(
 ) (image.ImageInfo, error) {
 	imageInfo, err := image.EnsureImage(
 		ctx,
+		dclient,
+		paths,
 		session.agent.Profile,
 		session.key.Slug,
 		buildOptions(opts, version.buildVersion, opts.Rebuild, version.userProvided),
@@ -310,6 +333,7 @@ type preparedHome struct {
 	env          envsecret.EnvSecrets
 	fingerprints state.Fingerprints
 	client       msb.Client
+	dclient      docker.Client
 	volumes      *volume.Manager
 	homeVolume   string
 	homeState    state.HomeState
@@ -321,6 +345,7 @@ type preparedHome struct {
 func ensureHomeStage(
 	ctx context.Context,
 	client msb.Client,
+	dclient docker.Client,
 	k state.Key,
 	imageInfo image.ImageInfo,
 	offeredVersion string,
@@ -329,7 +354,16 @@ func ensureHomeStage(
 	ui termio.UI,
 ) (preparedHome, error) {
 	env, fingerprints := loadEnvFingerprints(opts, ui)
-	volumes, homeVolume, homeState, err := prepareHomeVolume(ctx, client, k, imageInfo, skipVM, fingerprints, ui)
+	volumes, homeVolume, homeState, err := prepareHomeVolume(
+		ctx,
+		client,
+		dclient,
+		k,
+		imageInfo,
+		skipVM,
+		fingerprints,
+		ui,
+	)
 	if err != nil {
 		return preparedHome{}, err
 	}
@@ -339,6 +373,7 @@ func ensureHomeStage(
 		env:          env,
 		fingerprints: fingerprints,
 		client:       client,
+		dclient:      dclient,
 		volumes:      volumes,
 		homeVolume:   homeVolume,
 		homeState:    homeState,
@@ -414,17 +449,18 @@ func ensureVMStage(
 	ui termio.UI,
 ) (msb.Sandbox, vm.VMBoot, error) {
 	sb, boot, err := vm.EnsureProjectVM(ctx, vm.ProjectVMCreation{
-		Client:     home.client,
-		Options:    opts,
-		Image:      imageInfo,
-		HomeVolume: plan.homeVolume,
-		RepoPath:   session.identity.BindRoot,
-		Key:        session.key,
-		Existing:   plan.existingVM,
-		RepoSlug:   session.identity.RepoSlug,
-		SkipVM:     skipVM,
-		Env:        home.env,
-		UI:         ui,
+		Client:       home.client,
+		DockerClient: home.dclient,
+		Options:      opts,
+		Image:        imageInfo,
+		HomeVolume:   plan.homeVolume,
+		RepoPath:     session.identity.BindRoot,
+		Key:          session.key,
+		Existing:     plan.existingVM,
+		RepoSlug:     session.identity.RepoSlug,
+		SkipVM:       skipVM,
+		Env:          home.env,
+		UI:           ui,
 	})
 	if err != nil {
 		// gomutants:disable-next-line RETURN_ZERO reason="EnsureProjectVM returns vm.VMBootConnected (the vm.VMBoot zero value, the first iota constant) on every error path, so a RETURN_ZERO replacement of boot is the identical constant"
@@ -484,6 +520,7 @@ func setupSandboxStage(
 func resolveSessionIdentity(
 	ctx context.Context,
 	client msb.Client,
+	paths configpaths.ConfigPaths,
 	cwd, agentName string,
 	skipVM bool,
 	ui termio.Logger,
@@ -496,7 +533,7 @@ func resolveSessionIdentity(
 	if err != nil {
 		return agent.Resolved{}, git.Identity{}, vm.IdentityAdoption{}, err
 	}
-	adoption, err := vm.AdoptLegacyIdentity(ctx, client, identity, a.Name(), !skipVM, ui)
+	adoption, err := vm.AdoptLegacyIdentity(ctx, paths, client, identity, a.Name(), !skipVM, ui)
 	if err != nil {
 		return agent.Resolved{}, git.Identity{}, vm.IdentityAdoption{}, err
 	}
@@ -508,13 +545,15 @@ func resolveSessionIdentity(
 // state.
 func determineAgentVersion(
 	ctx context.Context,
+	paths configpaths.ConfigPaths,
+	dclient docker.Client,
 	k state.Key,
 	a agent.Resolved,
 	ui termio.UI,
 	opts options.RunOptions,
 ) (string, bool, string, error) {
-	migrateLegacyUpdaterState(ui)
-	return resolveBuildVersion(ctx, k, a, ui, opts)
+	migrateLegacyUpdaterState(paths, ui)
+	return resolveBuildVersion(ctx, dclient, k, a, ui, opts)
 }
 
 func buildOptions(opts options.RunOptions, agentVersion string, force, userProvided bool) image.BuildOptions {
@@ -524,6 +563,10 @@ func buildOptions(opts options.RunOptions, agentVersion string, force, userProvi
 		AgentVersion: agentVersion,
 		UserProvided: userProvided,
 		Docker:       opts.Docker,
+		// Route the image build's release resolution through the prepare seam,
+		// which defaults to the same agentLatestVersion lookup the upgrade check
+		// uses.
+		ResolveVersion: buildVersionResolver,
 	}
 }
 
@@ -586,6 +629,7 @@ func resolveServeHostPort(opts options.RunOptions, planned int) int {
 func prepareHomeVolume(
 	ctx context.Context,
 	client msb.Client,
+	dclient docker.Client,
 	k state.Key,
 	imageInfo image.ImageInfo,
 	skipVM bool,
@@ -601,7 +645,7 @@ func prepareHomeVolume(
 		return nil, "", state.HomeState{}, fmt.Errorf("runtime home migration offer failed: %w", err)
 	}
 
-	volumes := volume.NewManager()
+	volumes := volume.NewManager(dclient)
 	recovered := liveHomeVolume(ctx, client, k, ui)
 	homeVol, vs, err := volumes.ResolveHomeVolume(
 		ctx, client, k, imageInfo, skipVM, fingerprints, recovered, ui,

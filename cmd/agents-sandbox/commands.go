@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -72,7 +73,7 @@ func effectiveConfigSlug(identity git.Identity) string {
 // slugHasUserConfig reports whether the per-slug user config dir for slug holds a
 // config file, using the same layer discovery NewResolver merges from.
 func slugHasUserConfig(slug string) bool {
-	for _, layer := range launcherconfig.ConfigLayers(slug) {
+	for _, layer := range launcherconfig.ConfigLayers(configpaths.Get(), slug) {
 		if layer.Name == launcherconfig.LayerNamePerSlugUserConfig {
 			return layer.Present
 		}
@@ -147,7 +148,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("resolve project identity: %w", err)
 		}
-		r, err := launcherconfig.NewResolver(cmd, effectiveConfigSlug(identity))
+		r, err := launcherconfig.NewResolver(cmd, configpaths.Get(), effectiveConfigSlug(identity))
 		if err != nil {
 			return err
 		}

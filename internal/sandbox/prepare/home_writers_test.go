@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -76,10 +77,16 @@ func TestHomeWritersPreserveUnrelatedFields(t *testing.T) {
 			run: func(t *testing.T, k state.Key) {
 				t.Helper()
 				orig := existingAgentVersion
-				existingAgentVersion = func(context.Context, string, string) (string, bool) { return "1.2.3", true }
+				existingAgentVersion = func(context.Context, docker.Client, string, string) (string, bool) { return "1.2.3", true }
 				t.Cleanup(func() { existingAgentVersion = orig })
 				// The recorded baseline disagrees, so the image label wins.
-				if got := recoverAgentVersion(context.Background(), k, "0.0.0", &termio.Mock{}); got != "1.2.3" {
+				if got := recoverAgentVersion(
+					context.Background(),
+					docker.Get(),
+					k,
+					"0.0.0",
+					&termio.Mock{},
+				); got != "1.2.3" {
 					t.Fatalf("recoverAgentVersion = %q, want 1.2.3", got)
 				}
 			},

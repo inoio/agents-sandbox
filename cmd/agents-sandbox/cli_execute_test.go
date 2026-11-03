@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -174,7 +175,7 @@ func TestRunShellInvokeStartupAutoPrune(t *testing.T) {
 			var called, gotDryRun bool
 			var gotRetainKeys []state.Key
 			original := autoPrune
-			autoPrune = func(_ context.Context, _ time.Duration, dryRun bool, _ termio.UI, retainKeys ...state.Key) {
+			autoPrune = func(_ context.Context, _ docker.Client, _ time.Duration, dryRun bool, _ termio.UI, retainKeys ...state.Key) {
 				called = true
 				gotDryRun = dryRun
 				gotRetainKeys = retainKeys

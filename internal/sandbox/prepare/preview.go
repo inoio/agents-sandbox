@@ -5,7 +5,9 @@ import (
 	"fmt"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -55,18 +57,21 @@ func PreviewSandbox(ctx context.Context, opts options.RunOptions, ui termio.Logg
 	if err != nil {
 		return Preview{}, err
 	}
+	// Resolve the process-wide factories once, at the entry point.
+	paths := configpaths.Get()
+	dclient := docker.Get()
+	client := msb.Get()
 	// Read-only adoption: apply=false so the preview never moves state, but it
 	// still resolves against the location a real run would find first (the
 	// legacy slug while a migration is pending), matching the volume dry runs.
-	client := msb.Get()
-	adoption, err := vm.AdoptLegacyIdentity(ctx, client, identity, a.Name(), false, ui)
+	adoption, err := vm.AdoptLegacyIdentity(ctx, paths, client, identity, a.Name(), false, ui)
 	if err != nil {
 		return Preview{}, err
 	}
 	k := state.Key{Slug: adoption.Slug, Agent: a.Name()}
 
 	_, userProvided := ResolveAgentVersionForBuild(k, opts.AgentVersion)
-	version := previewAgentVersion(ctx, k, opts, userProvided)
+	version := previewAgentVersion(ctx, dclient, k, opts, userProvided)
 	// A known version from the project's existing image label or its recorded
 	// cache is what a real run would bake without running the upgrade check, so
 	// disclose it. A pin is never upgraded and a user-provided agent is never
@@ -74,7 +79,7 @@ func PreviewSandbox(ctx context.Context, opts options.RunOptions, ui termio.Logg
 	upgradeCheckSkipped := version != "" && opts.AgentVersion == "" && !userProvided
 
 	img, err := image.PreviewImage(
-		ctx, a, k.Slug,
+		ctx, dclient, paths, a, k.Slug,
 		buildOptions(opts, version, opts.Rebuild, userProvided),
 		ui,
 	)
@@ -106,14 +111,20 @@ func PreviewSandbox(ctx context.Context, opts options.RunOptions, ui termio.Logg
 // version itself). Any other agent takes the pin, then the release the existing
 // image reports through its label, then the recorded cache as the fallback when
 // the image yields nothing.
-func previewAgentVersion(ctx context.Context, k state.Key, opts options.RunOptions, userProvided bool) string {
+func previewAgentVersion(
+	ctx context.Context,
+	dclient docker.Client,
+	k state.Key,
+	opts options.RunOptions,
+	userProvided bool,
+) string {
 	if userProvided {
 		return currentAgentVersion(k)
 	}
 	if opts.AgentVersion != "" {
 		return opts.AgentVersion
 	}
-	if recovered, ok := existingAgentVersion(ctx, k.Slug, k.Agent); ok {
+	if recovered, ok := existingAgentVersion(ctx, dclient, k.Slug, k.Agent); ok {
 		return recovered
 	}
 	return currentAgentVersion(k)

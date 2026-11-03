@@ -455,7 +455,7 @@ func TestVolumeMigrateWithPositionalArg(t *testing.T) {
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}
 	doctor.MockedCheckAll(t, true)
-	image.WithMockAgentVersion(t, "0.0.0-test")
+	withMockAgentVersion(t, "0.0.0-test")
 	docker.WithNoopDockerMock(t)
 	slug := git.MustCheckoutSlug()
 	seedHomeState(state.Key{Slug: slug, Agent: defaultAgentName}, state.HomeState{
@@ -489,7 +489,7 @@ func TestBuildVolumeOpsForwardsPositionalNameAndInfo(t *testing.T) {
 	initTestProjectDir(t)
 	configpaths.WithMockConfigPaths(t)
 	doctor.MockedCheckAll(t, true)
-	image.WithMockAgentVersion(t, "3.3.3")
+	withMockAgentVersion(t, "3.3.3")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
@@ -509,7 +509,7 @@ func TestBuildVolumeOpsForwardsPositionalNameAndInfo(t *testing.T) {
 	op := volumeOp{
 		name:       "probe",
 		removeHelp: "remove probe volume",
-		run: func(_ context.Context, _ state.Key, name string, info image.ImageInfo, _, _ bool, _ termio.UI) error {
+		run: func(_ context.Context, _ docker.Client, _ state.Key, name string, info image.ImageInfo, _, _ bool, _ termio.UI) error {
 			gotName = name
 			gotInfo = info
 			return nil
@@ -628,7 +628,7 @@ func TestVolumeOpsEnsureImageErrorWrapsCause(t *testing.T) {
 	initTestProjectDir(t)
 	configpaths.WithMockConfigPaths(t)
 	doctor.MockedCheckAll(t, true)
-	image.WithMockAgentVersion(t, "0.0.0-test")
+	withMockAgentVersion(t, "0.0.0-test")
 	docker.WithDefaultErrorDockerMock(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 
@@ -716,7 +716,7 @@ func (e *errStdOutUI) StdOut() io.Writer { return errWriter{e.err} }
 
 func TestBuildDockerfileStdOutError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	image.WithMockAgentVersion(t, "0.0.0-test")
+	withMockAgentVersion(t, "0.0.0-test")
 	ui := &errStdOutUI{err: errors.New("write failed")}
 
 	root := buildRootCmd(ui)

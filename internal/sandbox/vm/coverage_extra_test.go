@@ -113,7 +113,7 @@ func TestKillProjectVMDryRunRemove(t *testing.T) {
 	})
 	msb.WithMsbMock(t, client)
 
-	if err := KillProjectVM(context.Background(), true, true, &ui, "opencode"); err != nil {
+	if err := KillProjectVM(context.Background(), configpaths.Get(), true, true, &ui, "opencode"); err != nil {
 		t.Fatalf("KillProjectVM dry-run: %v", err)
 	}
 }
@@ -122,10 +122,10 @@ func TestKillProjectVMDryRunRemove(t *testing.T) {
 // in both StopProjectVM and KillProjectVM.
 func TestStopAndKillProjectVMUnknownAgent(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	if err := StopProjectVM(context.Background(), false, false, &ui, "no-such-agent"); err == nil {
+	if err := StopProjectVM(context.Background(), configpaths.Get(), false, false, &ui, "no-such-agent"); err == nil {
 		t.Fatal("expected error from StopProjectVM with an unknown agent")
 	}
-	if err := KillProjectVM(context.Background(), false, false, &ui, "no-such-agent"); err == nil {
+	if err := KillProjectVM(context.Background(), configpaths.Get(), false, false, &ui, "no-such-agent"); err == nil {
 		t.Fatal("expected error from KillProjectVM with an unknown agent")
 	}
 }

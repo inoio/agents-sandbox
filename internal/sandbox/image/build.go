@@ -16,6 +16,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/docslink"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -43,6 +44,10 @@ type BuildOptions struct {
 	// a stable identity and release resolution is deferred until a rebuild is
 	// needed.
 	UserProvided bool
+	// ResolveVersion resolves the agent release to bake when AgentVersion is
+	// empty. It is injected at the boundary so the image package holds no
+	// process-global test seam; nil uses DefaultAgentVersionResolver.
+	ResolveVersion AgentVersionResolver
 }
 
 // userProvidedImageIdentity keeps an unknown user-provided version stable
@@ -203,6 +208,7 @@ type buildRequest struct {
 // independent of whether a build is needed at all.
 func buildDockerImage(
 	ctx context.Context,
+	dclient docker.Client,
 	a agent.Agent,
 	req buildRequest,
 	tag, label string,
@@ -212,7 +218,7 @@ func buildDockerImage(
 	spinner := ui.Spinner(label)
 	line := func(s string) { ui.Verbose(s) }
 	ui.Verbosef("Building Docker image (noCache=%v)", noCache)
-	if err := buildImage(ctx, a, req, tag, noCache, line); err != nil {
+	if err := buildImage(ctx, dclient, a, req, tag, noCache, line); err != nil {
 		spinner.StopError(err)
 		return err
 	}
@@ -220,11 +226,12 @@ func buildDockerImage(
 	return nil
 }
 
-// buildImage builds a Docker image via docker.Get().ImageBuild and reports each
+// buildImage builds a Docker image via dclient.ImageBuild and reports each
 // decoded build output line to the given callback. noCache bypasses Docker's layer
 // cache; it is independent of whether a build is needed at all.
 func buildImage(
 	ctx context.Context,
+	dclient docker.Client,
 	a agent.Agent,
 	req buildRequest,
 	tag string,
@@ -236,7 +243,7 @@ func buildImage(
 	if err := writeDockerfileTar(&tarBuf, req.plan.rendered); err != nil {
 		return fmt.Errorf("create build context: %w", err)
 	}
-	buildResp, err := docker.Get().ImageBuild(ctx, &tarBuf, client.ImageBuildOptions{
+	buildResp, err := dclient.ImageBuild(ctx, &tarBuf, client.ImageBuildOptions{
 		Tags:      []string{tag},
 		Remove:    true,
 		NoCache:   noCache,
@@ -418,8 +425,10 @@ type dockerBuildMessage struct {
 // EnsureImageWithClient builds/inspects the runner Docker image. The resulting
 // env map is read back from the Docker image config. It does not load the image
 // into microsandbox; callers load it lazily via EnsureLoaded when a VM needs it.
+// The Docker client is threaded in explicitly, matching EnsureLoaded.
 func EnsureImageWithClient(
 	ctx context.Context,
+	dclient docker.Client,
 	a agent.Agent,
 	projectDockerfile []byte,
 	projectSlug string,
@@ -430,7 +439,7 @@ func EnsureImageWithClient(
 
 	agentVersion, identityVersion, deferResolve := initialBuildVersions(buildOpts)
 	if !deferResolve {
-		resolved, err := resolveAgentVersion(ctx, a, agentVersion)
+		resolved, err := buildOpts.resolveAgentVersion(ctx, a, agentVersion)
 		if err != nil {
 			return ImageInfo{}, fmt.Errorf("resolve agent version: %w", err)
 		}
@@ -438,14 +447,14 @@ func EnsureImageWithClient(
 	}
 
 	plan, rTag, needsBuild, reasons, err := planRunnerImage(
-		ctx, a, projectDockerfile, projectSlug, agentVersion, identityVersion, buildOpts,
+		ctx, dclient, a, projectDockerfile, projectSlug, agentVersion, identityVersion, buildOpts,
 	)
 	if err != nil {
 		return ImageInfo{}, fmt.Errorf("render Dockerfile: %w", err)
 	}
 
 	if needsBuild && deferResolve {
-		resolved, resolveErr := resolveAgentVersion(ctx, a, "")
+		resolved, resolveErr := buildOpts.resolveAgentVersion(ctx, a, "")
 		if resolveErr != nil {
 			return ImageInfo{}, fmt.Errorf("resolve agent version: %w", resolveErr)
 		}
@@ -460,12 +469,12 @@ func EnsureImageWithClient(
 	logBuildDecision(ui, rTag, needsBuild, reasons, a.Name(), agentVersion, buildOpts.AgentVersion)
 
 	if needsBuild {
-		if buildErr := buildFromPlan(ctx, a, plan, rTag, buildOpts, ui); buildErr != nil {
+		if buildErr := buildFromPlan(ctx, dclient, a, plan, rTag, buildOpts, ui); buildErr != nil {
 			return ImageInfo{}, buildErr
 		}
 	}
 
-	inspect, err := docker.Get().ImageInspect(ctx, rTag)
+	inspect, err := dclient.ImageInspect(ctx, rTag)
 	if err != nil {
 		return ImageInfo{}, fmt.Errorf("cannot inspect built image: %w", err)
 	}
@@ -477,7 +486,7 @@ func EnsureImageWithClient(
 		bakedVersion = agentReleaseFromLabels(inspect.Config.Labels)
 	}
 
-	env, err := readImageInfoFromDocker(ctx, rTag)
+	env, err := readImageInfoFromDocker(ctx, dclient, rTag)
 	if err != nil {
 		return ImageInfo{}, fmt.Errorf("inspect built image: %w", err)
 	}
@@ -587,6 +596,7 @@ func withHostUser(identity imageIdentity) imageIdentity {
 // was built from. It performs no build and no network access.
 func planRunnerImage(
 	ctx context.Context,
+	dclient docker.Client,
 	a agent.Agent,
 	projectDockerfile []byte,
 	projectSlug string,
@@ -597,9 +607,9 @@ func planRunnerImage(
 	if err != nil {
 		return buildPlan{}, "", false, nil, err
 	}
-	plan.identity.BaseImage = localBaseImage(ctx, baseImageRef(plan.rendered))
+	plan.identity.BaseImage = localBaseImage(ctx, dclient, baseImageRef(plan.rendered))
 	tag := runnerTag(projectSlug, a.Name())
-	needsBuild, reasons := buildDecision(ctx, tag, buildOpts, plan.dockerfileID, plan.identity)
+	needsBuild, reasons := buildDecision(ctx, dclient, tag, buildOpts, plan.dockerfileID, plan.identity)
 	return plan, tag, needsBuild, reasons, nil
 }
 
@@ -608,6 +618,7 @@ func planRunnerImage(
 // from its registry, so it is the way to pick up a newer published base.
 func buildFromPlan(
 	ctx context.Context,
+	dclient docker.Client,
 	a agent.Agent,
 	plan buildPlan,
 	rTag string,
@@ -615,12 +626,12 @@ func buildFromPlan(
 	ui termio.UI,
 ) error {
 	baseRef := baseImageRef(plan.rendered)
-	baseDigest, err := resolveBaseDigest(ctx, baseRef, buildOpts.Force, ui)
+	baseDigest, err := resolveBaseDigest(ctx, dclient, baseRef, buildOpts.Force, ui)
 	if err != nil {
 		return fmt.Errorf("resolve base image %s: %w", baseRef, err)
 	}
 	return buildDockerImage(
-		ctx, a,
+		ctx, dclient, a,
 		buildRequest{plan: plan, baseDigest: baseDigest, docker: buildOpts.Docker},
 		rTag, "Ensuring runner image", buildOpts.Force, ui,
 	)
@@ -663,7 +674,13 @@ func logBuildDecision(
 // cached image that records no digest is unknown content and is reloaded, never
 // trusted via the source-signature dockerfile-id label. Loading directly avoids
 // removing a manifest that an existing VM may still reference.
-func EnsureLoaded(ctx context.Context, mclient msb.Client, info ImageInfo, ui termio.UI) (ImageInfo, error) {
+func EnsureLoaded(
+	ctx context.Context,
+	dclient docker.Client,
+	mclient msb.Client,
+	info ImageInfo,
+	ui termio.UI,
+) (ImageInfo, error) {
 	anyCandidateCached := false
 	for _, candidate := range imageRefCandidates(info) {
 		if mclient.ImageGet(ctx, candidate) != nil {
@@ -686,7 +703,7 @@ func EnsureLoaded(ctx context.Context, mclient msb.Client, info ImageInfo, ui te
 	ui.Verbosef("loading image %s into microsandbox: %s", info.Ref, loadReason)
 
 	spin := ui.Spinner("Loading image into microsandbox")
-	saveResult, err := docker.Get().ImageSave(ctx, []string{info.DockerTag})
+	saveResult, err := dclient.ImageSave(ctx, []string{info.DockerTag})
 	if err != nil {
 		spin.StopError(err)
 		return ImageInfo{}, fmt.Errorf("cannot export Docker image: %w", err)
@@ -723,13 +740,15 @@ func cachedImageMatches(ctx context.Context, mclient msb.Client, ref string, inf
 // not load the image into microsandbox.
 func EnsureImage(
 	ctx context.Context,
+	dclient docker.Client,
+	paths configpaths.ConfigPaths,
 	a agent.Agent,
 	projectSlug string,
 	buildOpts BuildOptions,
 	ui termio.UI,
 ) (ImageInfo, error) {
-	WarnIgnoredProjectConfig(ui)
-	return EnsureImageWithClient(ctx, a, readProjectDockerfile(), projectSlug, buildOpts, ui)
+	WarnIgnoredProjectConfig(paths, ui)
+	return EnsureImageWithClient(ctx, dclient, a, readProjectDockerfile(paths), projectSlug, buildOpts, ui)
 }
 
 // Build ensures the runner image is built and loaded into the microsandbox
@@ -739,18 +758,20 @@ func EnsureImage(
 // handling are the caller's concern.
 func Build(
 	ctx context.Context,
+	dclient docker.Client,
 	client msb.Client,
+	paths configpaths.ConfigPaths,
 	a agent.Agent,
 	projectSlug string,
 	buildOpts BuildOptions,
 	ui termio.UI,
 ) (ImageInfo, error) {
-	WarnIgnoredProjectConfig(ui)
-	info, err := EnsureImageWithClient(ctx, a, readProjectDockerfile(), projectSlug, buildOpts, ui)
+	WarnIgnoredProjectConfig(paths, ui)
+	info, err := EnsureImageWithClient(ctx, dclient, a, readProjectDockerfile(paths), projectSlug, buildOpts, ui)
 	if err != nil {
 		return ImageInfo{}, err
 	}
-	return EnsureLoaded(ctx, client, info, ui)
+	return EnsureLoaded(ctx, dclient, client, info, ui)
 }
 
 // baseImageRef returns the image reference the rendered Dockerfile's final stage
@@ -787,33 +808,39 @@ func finalStageToken(rendered []byte) string {
 // call error and as a message inside the stream (moby's Wait), and draining the
 // stream without waiting would lose the latter and let the follow-up inspect
 // report a misleading "No such image".
-func resolveBaseDigest(ctx context.Context, baseRef string, refresh bool, ui termio.Logger) (string, error) {
+func resolveBaseDigest(
+	ctx context.Context,
+	dclient docker.Client,
+	baseRef string,
+	refresh bool,
+	ui termio.Logger,
+) (string, error) {
 	if refresh {
-		pullErr := pullBaseImage(ctx, baseRef)
+		pullErr := pullBaseImage(ctx, dclient, baseRef)
 		if pullErr == nil {
-			return inspectPulledBase(ctx, baseRef)
+			return inspectPulledBase(ctx, dclient, baseRef)
 		}
-		local := localBaseImage(ctx, baseRef)
+		local := localBaseImage(ctx, dclient, baseRef)
 		if local == "" {
 			return "", pullErr
 		}
 		ui.Warnf("could not refresh base image %s, building from the local copy: %v", baseRef, pullErr)
 		return local, nil
 	}
-	if local := localBaseImage(ctx, baseRef); local != "" {
+	if local := localBaseImage(ctx, dclient, baseRef); local != "" {
 		return local, nil
 	}
 	ui.Verbosef("base image %s not present locally, pulling", baseRef)
-	if err := pullBaseImage(ctx, baseRef); err != nil {
+	if err := pullBaseImage(ctx, dclient, baseRef); err != nil {
 		return "", err
 	}
-	return inspectPulledBase(ctx, baseRef)
+	return inspectPulledBase(ctx, dclient, baseRef)
 }
 
 // localBaseImage returns the provenance value of the locally cached base image,
 // or "" when it is not present. It never pulls.
-func localBaseImage(ctx context.Context, baseRef string) string {
-	inspect, err := docker.Get().ImageInspect(ctx, baseRef)
+func localBaseImage(ctx context.Context, dclient docker.Client, baseRef string) string {
+	inspect, err := dclient.ImageInspect(ctx, baseRef)
 	if err != nil || inspect.ID == "" {
 		return ""
 	}
@@ -821,8 +848,8 @@ func localBaseImage(ctx context.Context, baseRef string) string {
 }
 
 // pullBaseImage pulls baseRef and waits for the pull to finish.
-func pullBaseImage(ctx context.Context, baseRef string) error {
-	pull, err := docker.Get().ImagePull(ctx, baseRef, client.ImagePullOptions{})
+func pullBaseImage(ctx context.Context, dclient docker.Client, baseRef string) error {
+	pull, err := dclient.ImagePull(ctx, baseRef, client.ImagePullOptions{})
 	if err != nil {
 		return buildFailureError(fmt.Errorf("pull base image %s: %w", baseRef, err))
 	}
@@ -835,8 +862,8 @@ func pullBaseImage(ctx context.Context, baseRef string) error {
 }
 
 // inspectPulledBase returns the provenance value of a just-pulled base image.
-func inspectPulledBase(ctx context.Context, baseRef string) (string, error) {
-	inspect, err := docker.Get().ImageInspect(ctx, baseRef)
+func inspectPulledBase(ctx context.Context, dclient docker.Client, baseRef string) (string, error) {
+	inspect, err := dclient.ImageInspect(ctx, baseRef)
 	if err != nil {
 		return "", fmt.Errorf("inspect pulled base image %s: %w", baseRef, err)
 	}

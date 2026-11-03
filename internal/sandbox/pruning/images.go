@@ -34,6 +34,7 @@ type ImageReport struct {
 // private runtime home is foreign and never removed.
 func PruneImages(
 	ctx context.Context,
+	dclient docker.Client,
 	pruneState PruneState,
 	dryRun bool,
 	ui termio.UI,
@@ -84,17 +85,20 @@ func PruneImages(
 			report.BytesReclaimed = nativeReport.BytesReclaimed
 		}
 	}
-	report.DockerImagesPruned = pruneDockerImages(ctx, dryRun, ui)
+	report.DockerImagesPruned = pruneDockerImages(ctx, dclient, dryRun, ui)
 	return report, nil
 }
 
 // pruneDockerImages removes dangling (untagged) docker images created by us; skipped on dry-run.
-func pruneDockerImages(ctx context.Context, dryRun bool, ui termio.Logger) int {
+func pruneDockerImages(ctx context.Context, dclient docker.Client, dryRun bool, ui termio.Logger) int {
 	if dryRun {
 		return 0
 	}
-	result, err := docker.Get().
-		ImagePrune(ctx, client.ImagePruneOptions{Filters: client.Filters{}.Add("dangling", "true").Add("label", "org.agents-sandbox.managed=true").Add("until", "24h")})
+	result, err := dclient.ImagePrune(ctx, client.ImagePruneOptions{
+		Filters: client.Filters{}.Add("dangling", "true").
+			Add("label", "org.agents-sandbox.managed=true").
+			Add("until", "24h"),
+	})
 	if err != nil {
 		ui.Warnf("failed to prune docker images: %v", err)
 		return 0

@@ -95,7 +95,7 @@ func TestConfigEgressListsAreConfigFileOnly(t *testing.T) {
 	t.Setenv(envVarName(EnvPrefix, "network.egress-allow"), "env.example")
 	t.Setenv(envVarName(EnvPrefix, "network.egress-deny"), "env-deny.example")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestConfigAllowPlaceholderForEnvIsIgnored(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv(envVarName(EnvPrefix, key), "env-only.example")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestConfigAllowPlaceholderForFromFile(t *testing.T) {
 		},
 	})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestConfigAllowPlaceholderForEnvIgnoredWhenConfigFileSetsIt(t *testing.T) {
 	})
 	t.Setenv(envVarName(EnvPrefix, key), "env.example")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestResolverProvisionHostConfigEnv(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_PROVISION_HOST_CONFIG", "false")
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}

@@ -17,7 +17,7 @@ func TestConfigLayersOrderAndPaths(t *testing.T) {
 	// that resolve to a config file from the ones that do not.
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
 
-	layers := ConfigLayers("widget-bbb")
+	layers := ConfigLayers(configpaths.Get(), "widget-bbb")
 
 	wantNames := []string{
 		"generic user config",
@@ -85,7 +85,7 @@ func TestNewResolverMergesEveryFileLayer(t *testing.T) {
 		map[string]any{"tmp-size": "4G", "log-level": "error"},
 	)
 
-	r, err := NewResolver(nil, "widget-bbb")
+	r, err := NewResolver(nil, configpaths.Get(), "widget-bbb")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}

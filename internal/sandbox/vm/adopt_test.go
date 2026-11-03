@@ -87,7 +87,15 @@ func TestAdoptLegacyIdentityMovesStateAndDestroysVM(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	got, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("AdoptLegacyIdentity: %v", err)
 	}
@@ -132,9 +140,7 @@ func TestAdoptLegacyIdentityNoticeNamesEveryPath(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	if _, err := AdoptLegacyIdentity(
-		context.Background(),
-		client,
+	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
 		adoptAgentName,
 		true,
@@ -175,7 +181,15 @@ func TestAdoptLegacyIdentityNoticeWithoutHomeVolume(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, false, &ui)
+	got, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		false,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("AdoptLegacyIdentity: %v", err)
 	}
@@ -199,7 +213,15 @@ func TestAdoptLegacyIdentityNoLegacyState(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	got, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("AdoptLegacyIdentity: %v", err)
 	}
@@ -230,7 +252,15 @@ func TestAdoptLegacyIdentityAlreadyAtCheckoutSlug(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	got, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("AdoptLegacyIdentity: %v", err)
 	}
@@ -263,9 +293,7 @@ func TestAdoptLegacyIdentityUnparsableLegacyState(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	if _, err := AdoptLegacyIdentity(
-		context.Background(),
-		client,
+	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
 		adoptAgentName,
 		true,
@@ -300,7 +328,15 @@ func TestAdoptLegacyIdentityApplyFalseIsReadOnly(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, false, &ui)
+	got, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		false,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("AdoptLegacyIdentity: %v", err)
 	}
@@ -338,7 +374,15 @@ func TestAdoptLegacyIdentityLegacyVMAlreadyGone(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	got, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("AdoptLegacyIdentity: %v", err)
 	}
@@ -376,7 +420,15 @@ func TestAdoptLegacyIdentityLegacyVMReplacedFailsClosed(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	_, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	_, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected a replaced legacy VM to fail adoption")
 	}
@@ -424,7 +476,15 @@ func TestAdoptLegacyIdentityStrandedStateFileFailsLoudly(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	_, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	_, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected a stranded state file to fail adoption")
 	}
@@ -476,7 +536,15 @@ func TestAdoptLegacyIdentityUnparsableCheckoutStateSkipsMigration(t *testing.T) 
 	}}
 	ui := termio.NewTestMock(t)
 
-	adoption, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	adoption, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("a corrupt checkout state must not abort the run: %v", err)
 	}
@@ -508,7 +576,15 @@ func TestAdoptLegacyIdentityNonRepoCorruptStateDoesNotBlock(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	adoption, err := AdoptLegacyIdentity(context.Background(), client, identity, adoptAgentName, true, &ui)
+	adoption, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		identity,
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("a corrupt state outside a repo must not block the run: %v", err)
 	}
@@ -537,7 +613,15 @@ func TestAdoptLegacyIdentityStateMoveFailureFailsLoudly(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	_, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	_, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected a failed state move to fail adoption")
 	}
@@ -564,7 +648,15 @@ func TestAdoptLegacyIdentityGetSandboxErrorAborts(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	_, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	_, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected a GetSandbox failure to abort adoption")
 	}
@@ -595,7 +687,15 @@ func TestAdoptLegacyIdentityLegacyVMAlreadyGoneOnDestroy(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	got, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("AdoptLegacyIdentity: %v", err)
 	}
@@ -636,7 +736,15 @@ func TestAdoptLegacyIdentityDestroysEveryMovedAgentsVM(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	got, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("AdoptLegacyIdentity: %v", err)
 	}
@@ -680,7 +788,15 @@ func TestAdoptLegacyIdentityLosingTheLockRaceContinues(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	got, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("AdoptLegacyIdentity: %v", err)
 	}
@@ -713,7 +829,15 @@ func TestAdoptLegacyIdentityAdoptsBareRootLegacySlug(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(context.Background(), client, identity, adoptAgentName, true, &ui)
+	got, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		identity,
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("AdoptLegacyIdentity: %v", err)
 	}
@@ -747,7 +871,7 @@ func TestMigrateLegacyConfigDirsMovesBareRootConfig(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	identity := git.Identity{RepoSlug: "agents-sandbox-bbb", LegacyRepoSlugs: []string{"workspace-aaa"}}
 
-	if err := migrateLegacyConfigDirs(identity, &ui); err != nil {
+	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
 		t.Fatalf("migrateLegacyConfigDirs: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(to, "config.yaml")); err != nil {
@@ -789,7 +913,7 @@ func TestMigrateLegacyConfigDirsKeepsExistingTarget(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	identity := git.Identity{RepoSlug: "agents-sandbox-bbb", LegacyRepoSlugs: []string{"workspace-aaa"}}
 
-	if err := migrateLegacyConfigDirs(identity, &ui); err != nil {
+	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
 		t.Fatalf("migrateLegacyConfigDirs: %v", err)
 	}
 	body, err := os.ReadFile(filepath.Join(to, "config.yaml"))
@@ -837,7 +961,15 @@ func TestAdoptLegacyIdentityRecheckCorruptStateSkips(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	adoption, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	adoption, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("a corrupt re-check must not abort the run: %v", err)
 	}
@@ -886,7 +1018,7 @@ func TestMigrateLegacyConfigDirsSkipsRepoSlugAndMissingSource(t *testing.T) {
 		RepoSlug:        "agents-sandbox-bbb",
 		LegacyRepoSlugs: []string{"agents-sandbox-bbb", "workspace-absent"},
 	}
-	if err := migrateLegacyConfigDirs(identity, &ui); err != nil {
+	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
 		t.Fatalf("migrateLegacyConfigDirs: %v", err)
 	}
 	if len(ui.VerboseCalls) != 0 {
@@ -913,7 +1045,7 @@ func TestMigrateLegacyConfigDirsContinuesPastRepoSlug(t *testing.T) {
 		RepoSlug:        "agents-sandbox-bbb",
 		LegacyRepoSlugs: []string{"agents-sandbox-bbb", "workspace-aaa"},
 	}
-	if err := migrateLegacyConfigDirs(identity, &ui); err != nil {
+	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
 		t.Fatalf("migrateLegacyConfigDirs: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(paths.UserSlugConfigDir("agents-sandbox-bbb"), "config.yaml")); err != nil {
@@ -940,7 +1072,7 @@ func TestMigrateLegacyConfigDirsContinuesPastMissingSource(t *testing.T) {
 		RepoSlug:        "agents-sandbox-bbb",
 		LegacyRepoSlugs: []string{"workspace-absent", "workspace-aaa"},
 	}
-	if err := migrateLegacyConfigDirs(identity, &ui); err != nil {
+	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
 		t.Fatalf("migrateLegacyConfigDirs: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(paths.UserSlugConfigDir("agents-sandbox-bbb"), "config.yaml")); err != nil {
@@ -972,7 +1104,7 @@ func TestMigrateLegacyConfigDirsReportsEveryKeptTarget(t *testing.T) {
 		RepoSlug:        "agents-sandbox-bbb",
 		LegacyRepoSlugs: []string{"workspace-aaa", "workspace-ccc"},
 	}
-	if err := migrateLegacyConfigDirs(identity, &ui); err != nil {
+	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
 		t.Fatalf("migrateLegacyConfigDirs: %v", err)
 	}
 	var kept int
@@ -1004,7 +1136,7 @@ func TestMigrateLegacyConfigDirsReportsRenameFailure(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	identity := git.Identity{RepoSlug: "agents-sandbox-bbb", LegacyRepoSlugs: []string{"workspace-aaa"}}
-	err := migrateLegacyConfigDirs(identity, &ui)
+	err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui)
 	if err == nil {
 		t.Fatal("expected a rename failure to be reported")
 	}
@@ -1048,7 +1180,7 @@ func TestAdoptLegacyIdentityConfigMoveFailurePropagates(t *testing.T) {
 	identity.LegacyRepoSlugs = []string{"workspace-aaa"}
 	ui := termio.NewTestMock(t)
 
-	_, err := AdoptLegacyIdentity(context.Background(), client, identity, adoptAgentName, true, &ui)
+	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client, identity, adoptAgentName, true, &ui)
 	if err == nil {
 		t.Fatal("expected the config-move failure to abort adoption")
 	}
@@ -1081,7 +1213,15 @@ func TestAdoptLegacyIdentityDryRunReturnsFoundLegacySlug(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(context.Background(), client, identity, adoptAgentName, false, &ui)
+	got, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		identity,
+		adoptAgentName,
+		false,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("AdoptLegacyIdentity: %v", err)
 	}
@@ -1130,9 +1270,7 @@ func TestAdoptLegacyIdentityDestroyFailureLeavesStateForRetry(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	if _, err := AdoptLegacyIdentity(
-		context.Background(),
-		failingClient,
+	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), failingClient,
 		identity,
 		adoptAgentName,
 		true,
@@ -1153,7 +1291,15 @@ func TestAdoptLegacyIdentityDestroyFailureLeavesStateForRetry(t *testing.T) {
 	}}
 	retryUI := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(context.Background(), okClient, identity, adoptAgentName, true, &retryUI)
+	got, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		okClient,
+		identity,
+		adoptAgentName,
+		true,
+		&retryUI,
+	)
 	if err != nil {
 		t.Fatalf("retry AdoptLegacyIdentity: %v", err)
 	}
@@ -1189,7 +1335,15 @@ func TestAdoptLegacyIdentityAdoptsLiveLegacyVMWithoutState(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &ui)
+	got, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("AdoptLegacyIdentity: %v", err)
 	}
@@ -1234,9 +1388,7 @@ func TestAdoptLegacyIdentityPersistsVolumeBeforeDestroyFails(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	if _, err := AdoptLegacyIdentity(
-		context.Background(),
-		client,
+	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
 		adoptAgentName,
 		true,
@@ -1253,7 +1405,15 @@ func TestAdoptLegacyIdentityPersistsVolumeBeforeDestroyFails(t *testing.T) {
 	// leftover legacy VM is torn down and the marker survives for recovery.
 	handle.DestroyErr = nil
 	retryUI := termio.NewTestMock(t)
-	retry, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, true, &retryUI)
+	retry, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		true,
+		&retryUI,
+	)
 	if err != nil {
 		t.Fatalf("retry AdoptLegacyIdentity: %v", err)
 	}
@@ -1287,7 +1447,15 @@ func TestAdoptLegacyIdentityDryRunLiveLegacyVMIsReadOnly(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(context.Background(), client, adoptIdentity(), adoptAgentName, false, &ui)
+	got, err := AdoptLegacyIdentity(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		adoptIdentity(),
+		adoptAgentName,
+		false,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("AdoptLegacyIdentity: %v", err)
 	}
@@ -1319,9 +1487,7 @@ func TestAdoptLegacyIdentityLiveLegacyVMMountsErrorFailsClosed(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	if _, err := AdoptLegacyIdentity(
-		context.Background(),
-		client,
+	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
 		adoptAgentName,
 		true,
@@ -1365,7 +1531,13 @@ func TestAdoptLegacyIdentityClaimsSharedVolumeOnce(t *testing.T) {
 	}}
 	uiA := termio.NewTestMock(t)
 	if _, err := AdoptLegacyIdentity(
-		context.Background(), clientA, identityA, adoptAgentName, true, &uiA,
+		context.Background(),
+		configpaths.Get(),
+		clientA,
+		identityA,
+		adoptAgentName,
+		true,
+		&uiA,
 	); err == nil {
 		t.Fatal("expected clone A's destroy failure to abort adoption")
 	}
@@ -1384,7 +1556,13 @@ func TestAdoptLegacyIdentityClaimsSharedVolumeOnce(t *testing.T) {
 	}}
 	uiB := termio.NewTestMock(t)
 	if _, err := AdoptLegacyIdentity(
-		context.Background(), clientB, identityB, adoptAgentName, true, &uiB,
+		context.Background(),
+		configpaths.Get(),
+		clientB,
+		identityB,
+		adoptAgentName,
+		true,
+		&uiB,
 	); err != nil {
 		t.Fatalf("clone B adoption: %v", err)
 	}
@@ -1416,7 +1594,7 @@ func TestAdoptionNoticeSkipsLegacySlugThatIsTheCheckoutSlug(t *testing.T) {
 	identity := adoptIdentity()
 	identity.LegacyRepoSlugs = []string{adoptCheckoutSlug, otherLegacySlug}
 
-	notice := adoptionNotice(identity, adoptAgentName, adoptLegacyVolume, true)
+	notice := adoptionNotice(configpaths.Get(), identity, adoptAgentName, adoptLegacyVolume, true)
 
 	selfMove := state.SlugDir(adoptCheckoutSlug) + "  ->  " + state.SlugDir(adoptCheckoutSlug)
 	if strings.Contains(notice, selfMove) {

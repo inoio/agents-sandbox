@@ -45,8 +45,9 @@ func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
 	ui := &testUI
 
 	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
-		Client:  client,
-		Options: options.RunOptions{Memory: "1G"},
+		Client:       client,
+		DockerClient: docker.Get(),
+		Options:      options.RunOptions{Memory: "1G"},
 		Image: image.ImageInfo{
 			DockerTag: legacyRef,
 			Ref:       naming.RunnerImageRef(key.Slug, key.Agent),
@@ -107,8 +108,9 @@ func TestCreateProjectVMIdleTimeout(t *testing.T) {
 			ui := &testUI
 
 			_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
-				Client:  client,
-				Options: options.RunOptions{Memory: "1G", IdleTimeout: tc.opts},
+				Client:       client,
+				DockerClient: docker.Get(),
+				Options:      options.RunOptions{Memory: "1G", IdleTimeout: tc.opts},
 				Image: image.ImageInfo{
 					DockerTag: "agents-sandbox/runner-test:latest",
 					Ref:       "agents-sandbox/runner-test:latest",
@@ -142,8 +144,9 @@ func TestCreateProjectVMCreateSandboxError(t *testing.T) {
 	ui := &testUI
 
 	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
-		Client:  client,
-		Options: options.RunOptions{Memory: "1G"},
+		Client:       client,
+		DockerClient: docker.Get(),
+		Options:      options.RunOptions{Memory: "1G"},
 		Image: image.ImageInfo{
 			DockerTag: "agents-sandbox/runner-test:latest",
 			Ref:       "agents-sandbox/runner-test:latest",
@@ -170,7 +173,8 @@ func TestCreateProjectVMNetworkConfigError(t *testing.T) {
 	ui := &testUI
 
 	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
-		Client: client,
+		Client:       client,
+		DockerClient: docker.Get(),
 		Options: options.RunOptions{
 			Memory:  "1G",
 			Network: network.Policy{Profiles: []network.Profile{network.Profile("bogus-profile")}},

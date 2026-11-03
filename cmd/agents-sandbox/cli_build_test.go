@@ -17,7 +17,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
@@ -218,7 +217,7 @@ func TestBuildAgentVersionPrecedenceMatchesRun(t *testing.T) {
 			var resolverCalled bool
 			var buildDecisionRan bool
 			var resolvedBeforeBuildDecision bool
-			image.WithMockAgentVersionResolver(
+			withMockAgentVersionResolver(
 				t,
 				func(_ context.Context, _ agent.Agent, requested string) (string, error) {
 					resolvedVersion = requested

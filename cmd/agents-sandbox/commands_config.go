@@ -101,7 +101,7 @@ const projectConfigDisplayPath = ".agents-sandbox/config.yaml"
 // as the repo slug.
 func printConfigLayers(ui termio.Output, slug, repoSlug string) {
 	ui.Outf("config layers (lowest to highest precedence):")
-	for _, layer := range viperconfig.ConfigLayers(slug) {
+	for _, layer := range viperconfig.ConfigLayers(configpaths.Get(), slug) {
 		if layer.Path == "" {
 			ui.Outf("  %s%s", layer.Name, envLayerGlob(layer.Name))
 			continue

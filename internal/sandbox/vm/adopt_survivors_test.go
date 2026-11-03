@@ -193,9 +193,7 @@ func TestAdoptLegacyIdentityLiveLegacyVMWithoutHomeMountSkipsTheClaim(t *testing
 	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName()}
 	ui := termio.NewTestMock(t)
 
-	got, err := AdoptLegacyIdentity(
-		context.Background(),
-		legacyVMNotFound(handle),
+	got, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
 		adoptAgentName,
 		true,

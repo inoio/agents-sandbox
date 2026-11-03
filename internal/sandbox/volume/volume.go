@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -32,13 +33,19 @@ func HomeVolumeName(k state.Key) string {
 	return naming.HomeVolumeName(k.Slug, k.Agent, ts)
 }
 
-// Manager manages home-volume lifecycle for projects. It is stateless: each
-// operation takes the UI it reports through as a parameter.
-type Manager struct{}
+// Manager manages home-volume lifecycle for projects. It holds only the
+// injected Docker client (for loading the runner image into a throwaway
+// sandbox); each operation takes the UI it reports through as a parameter.
+type Manager struct {
+	dclient docker.Client
+}
 
-// NewManager returns a volume manager.
-func NewManager() *Manager {
-	return &Manager{}
+// NewManager returns a volume manager that loads the runner image through the
+// given Docker client, resolved once at the command boundary. A zero-value
+// Manager{} is not usable: the throwaway-sandbox path needs the client, so
+// always construct through NewManager.
+func NewManager(dclient docker.Client) *Manager {
+	return &Manager{dclient: dclient}
 }
 
 // PrefillVolume builds a throwaway sandbox from the given image, mounts the
@@ -51,7 +58,7 @@ func (vm *Manager) PrefillVolume(
 	info image.ImageInfo,
 	ui termio.UI,
 ) error {
-	return withThrowawaySandbox(ctx, client, k, info, throwawaySandbox{
+	return withThrowawaySandbox(ctx, vm.dclient, client, k, info, throwawaySandbox{
 		purpose: "prefill",
 		mounts: map[string]msbSdk.MountConfig{
 			homeMount: msbSdk.Mount.Named(volumeName, msbSdk.MountOptions{}),
@@ -156,7 +163,7 @@ func (vm *Manager) CopyVolume(
 	info image.ImageInfo,
 	ui termio.UI,
 ) error {
-	return withThrowawaySandbox(ctx, client, k, info, throwawaySandbox{
+	return withThrowawaySandbox(ctx, vm.dclient, client, k, info, throwawaySandbox{
 		purpose: "copy",
 		mounts: map[string]msbSdk.MountConfig{
 			srcMount: msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{}),

@@ -12,6 +12,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -47,7 +48,7 @@ func TestPrepareHomeVolumeAlwaysOffersRuntimeHomeMigration(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	if _, _, _, err := prepareHomeVolume(
-		context.Background(), client, k, sandboximage.ImageInfo{},
+		context.Background(), client, docker.Get(), k, sandboximage.ImageInfo{},
 		true, /* skipVM */
 		state.Fingerprints{},
 		&ui,
@@ -76,6 +77,7 @@ func TestPrepareHomeVolumeOfferErrorPropagates(t *testing.T) {
 	_, _, _, err := prepareHomeVolume(
 		context.Background(),
 		&msb.MockMsbClient{},
+		docker.Get(),
 		k,
 		sandboximage.ImageInfo{},
 		false,
@@ -221,6 +223,7 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 	volumes, homeVol, homeState, err := prepareHomeVolume(
 		context.Background(),
 		mock,
+		docker.Get(),
 		k,
 		sandboximage.ImageInfo{Digest: "sha256:def"},
 		false,
@@ -383,6 +386,7 @@ func TestPrepareHomeVolumeRecoversPersistedAdoptionVolume(t *testing.T) {
 	_, homeVol, _, err := prepareHomeVolume(
 		context.Background(),
 		mock,
+		docker.Get(),
 		k,
 		sandboximage.ImageInfo{Digest: "sha256:def"},
 		false,

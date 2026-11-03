@@ -254,7 +254,7 @@ func TestPruneAggregateParity(t *testing.T) {
 	cp.WithMockConfigPaths(t)
 
 	testUI := termio.NewTestMock(t)
-	if _, err := Prune(context.Background(), 7*24*time.Hour, false, &testUI); err != nil {
+	if _, err := Prune(context.Background(), docker.Get(), 7*24*time.Hour, false, &testUI); err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
 	if !staleHandle.DidRemove() {
@@ -285,7 +285,7 @@ func TestPruneRunsStoragePhase(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
 
-	report, err := Prune(context.Background(), 7*24*time.Hour, false, &termio.Mock{})
+	report, err := Prune(context.Background(), docker.Get(), 7*24*time.Hour, false, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestPruneJoinsStorageError(t *testing.T) {
 	cp.WithMockConfigPaths(t)
 
 	ui := &termio.Mock{}
-	_, err := Prune(context.Background(), 7*24*time.Hour, false, ui)
+	_, err := Prune(context.Background(), docker.Get(), 7*24*time.Hour, false, ui)
 	if err == nil || !strings.Contains(err.Error(), "storage boom") {
 		t.Fatalf("Prune error = %v, want the storage error joined", err)
 	}
@@ -333,7 +333,7 @@ func TestPrune_BuildStateError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	testUI := termio.NewTestMock(t)
-	_, err := Prune(context.Background(), 7*24*time.Hour, false, &testUI)
+	_, err := Prune(context.Background(), docker.Get(), 7*24*time.Hour, false, &testUI)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected buildPruneState error, got %v", err)
 	}
@@ -349,7 +349,7 @@ func TestPruneSurfacesSubPrunerError(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
-	_, err := Prune(context.Background(), 7*24*time.Hour, false, &testUI)
+	_, err := Prune(context.Background(), docker.Get(), 7*24*time.Hour, false, &testUI)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected the volume sub-pruner error to surface, got %v", err)
 	}
@@ -505,7 +505,7 @@ func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	testUI := termio.NewTestMock(t)
 
-	if _, err := Prune(context.Background(), time.Hour, false, &testUI, key); err != nil {
+	if _, err := Prune(context.Background(), docker.Get(), time.Hour, false, &testUI, key); err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
 	if len(client.RemovedImages) != 0 {

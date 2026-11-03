@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -39,6 +40,19 @@ func SetAgentLatestVersion(
 // touch a real docker daemon.
 var existingAgentVersion = image.ExistingAgentVersion
 
+// buildVersionResolver is the release resolver PrepareSandbox injects into the
+// image build (image.BuildOptions.ResolveVersion). It defaults to the shared
+// agentLatestVersion seam so a change to how a release is resolved lands in one
+// place; tests override it when they need to observe the requested version.
+var buildVersionResolver image.AgentVersionResolver = func(
+	ctx context.Context, a agent.Agent, requested string,
+) (string, error) {
+	if requested != "" {
+		return requested, nil
+	}
+	return agentLatestVersion(ctx, a)
+}
+
 // resolveBuildVersion decides the agent version to bake into the runner
 // image before the image is built, so a normal run never builds twice (once
 // for the current version and once for an upgrade). It returns the target
@@ -66,6 +80,7 @@ var existingAgentVersion = image.ExistingAgentVersion
 // choice would be forgotten for that project.
 func resolveBuildVersion(
 	ctx context.Context,
+	dclient docker.Client,
 	k state.Key,
 	a agent.Resolved,
 	ui termio.UI,
@@ -90,7 +105,7 @@ func resolveBuildVersion(
 		return currentAgentVersion(k), false, "", nil
 	}
 
-	current := recoverAgentVersion(ctx, k, currentAgentVersion(k), ui)
+	current := recoverAgentVersion(ctx, dclient, k, currentAgentVersion(k), ui)
 	if current == "" {
 		// No recorded baseline and no existing image to recover one from (e.g.,
 		// first run): resolve latest at build time rather than prompting against
@@ -345,8 +360,14 @@ func currentAgentSource(k state.Key) string {
 // leaves the recorded value as the authoritative offline fallback; a label that
 // disagrees with the recorded value wins, because the image is what is actually
 // installed, and the cache is rewritten. It returns the version to build.
-func recoverAgentVersion(ctx context.Context, k state.Key, recorded string, ui termio.Logger) string {
-	version, ok := existingAgentVersion(ctx, k.Slug, k.Agent)
+func recoverAgentVersion(
+	ctx context.Context,
+	dclient docker.Client,
+	k state.Key,
+	recorded string,
+	ui termio.Logger,
+) string {
+	version, ok := existingAgentVersion(ctx, dclient, k.Slug, k.Agent)
 	if !ok || version == recorded {
 		return recorded
 	}

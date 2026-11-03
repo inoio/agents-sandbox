@@ -139,8 +139,9 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
 	sb, created, err := createProjectVM(context.Background(), ProjectVMCreation{
-		Client:  client,
-		Options: options.RunOptions{Memory: "1G"},
+		Client:       client,
+		DockerClient: docker.Get(),
+		Options:      options.RunOptions{Memory: "1G"},
 		Image: image.ImageInfo{
 			DockerTag: "agents-sandbox/runner-test:latest",
 			Ref:       "agents-sandbox/runner-test:latest",
@@ -196,9 +197,13 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 	ui := &testUI
 
 	sb, created, err := createProjectVM(context.Background(), ProjectVMCreation{
-		Client:     client,
-		Options:    options.RunOptions{Memory: "1G"},
-		Image:      image.ImageInfo{DockerTag: "agents-sandbox/runner-test:abc", Ref: "agents-sandbox/runner-test:abc"},
+		Client:       client,
+		DockerClient: docker.Get(),
+		Options:      options.RunOptions{Memory: "1G"},
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:abc",
+			Ref:       "agents-sandbox/runner-test:abc",
+		},
 		HomeVolume: "test-home-vol",
 		RepoPath:   t.TempDir(),
 		Key:        testVMKey(),
@@ -238,7 +243,7 @@ func TestStopProjectVMUsesClient(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := StopProjectVM(context.Background(), false, false, ui, "opencode"); err != nil {
+	if err := StopProjectVM(context.Background(), configpaths.Get(), false, false, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM failed: %v", err)
 	}
 	if *resolutions != 1 {
@@ -632,8 +637,9 @@ func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	if _, _, err := createProjectVM(context.Background(), ProjectVMCreation{
-		Client:  client,
-		Options: options.RunOptions{Memory: "1G", DiskSize: "16G"},
+		Client:       client,
+		DockerClient: docker.Get(),
+		Options:      options.RunOptions{Memory: "1G", DiskSize: "16G"},
 		Image: image.ImageInfo{
 			DockerTag: "agents-sandbox/runner-test:latest",
 			Ref:       "agents-sandbox/runner-test:latest",
@@ -864,7 +870,7 @@ func TestKillProjectVMUsesClient(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := KillProjectVM(context.Background(), false, false, ui, "opencode"); err != nil {
+	if err := KillProjectVM(context.Background(), configpaths.Get(), false, false, ui, "opencode"); err != nil {
 		t.Fatalf("KillProjectVM failed: %v", err)
 	}
 	if *resolutions != 1 {
@@ -886,7 +892,7 @@ func TestStopProjectVMAlreadyStopped(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := StopProjectVM(context.Background(), false, false, ui, "opencode"); err != nil {
+	if err := StopProjectVM(context.Background(), configpaths.Get(), false, false, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM on already-stopped VM failed: %v", err)
 	}
 	if !strings.Contains(joinStrings(ui.InfoCalls), "already stopped") {
@@ -908,7 +914,7 @@ func TestStopProjectVMDryRunRemove(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := StopProjectVM(context.Background(), true, true, ui, "opencode"); err != nil {
+	if err := StopProjectVM(context.Background(), configpaths.Get(), true, true, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM dry-run with remove failed: %v", err)
 	}
 }
@@ -926,7 +932,7 @@ func TestStopProjectVMNotFound(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := StopProjectVM(context.Background(), false, false, ui, "opencode"); err != nil {
+	if err := StopProjectVM(context.Background(), configpaths.Get(), false, false, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM on missing VM failed: %v", err)
 	}
 	if !strings.Contains(joinStrings(ui.InfoCalls), "no project VM found") {

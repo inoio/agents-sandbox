@@ -19,15 +19,16 @@ var (
 	collectChecksFunc = collectChecks
 )
 
-// CheckDocker reports whether the docker binary is on PATH.
-func CheckDocker(ctx context.Context) error {
-	return checkDockerFunc(ctx)
+// CheckDocker reports whether the docker binary is on PATH. The Docker client
+// is injected from the command boundary rather than read from docker.Get().
+func CheckDocker(ctx context.Context, dclient docker.Client) error {
+	return checkDockerFunc(ctx, dclient)
 }
 
 // CheckAll runs every prerequisite check, rendering all failures and any
 // non-fatal warnings through ui. It returns true only when all checks pass.
-func CheckAll(ctx context.Context, ui termio.Logger) bool {
-	return checkAllFunc(ctx, ui)
+func CheckAll(ctx context.Context, dclient docker.Client, ui termio.Logger) bool {
+	return checkAllFunc(ctx, dclient, ui)
 }
 
 // checkResults is what a prerequisite run produced: informational messages and
@@ -38,8 +39,8 @@ type checkResults struct {
 }
 
 // realCheckAll aggregates the platform checks and reports the results.
-func realCheckAll(ctx context.Context, ui termio.Logger) bool {
-	results := collectChecksFunc(ctx)
+func realCheckAll(ctx context.Context, dclient docker.Client, ui termio.Logger) bool {
+	results := collectChecksFunc(ctx, dclient)
 	ok := len(results.errs) == 0
 	for _, info := range results.infos {
 		ui.Info(info)
@@ -53,11 +54,11 @@ func realCheckAll(ctx context.Context, ui termio.Logger) bool {
 // collectChecks runs every prerequisite check, collecting all failures so
 // CheckAll can report them together. checkPlatform is the only platform
 // specific check and comes first.
-func collectChecks(ctx context.Context) checkResults {
+func collectChecks(ctx context.Context, dclient docker.Client) checkResults {
 	var results checkResults
 	for _, err := range []error{
 		checkPlatform(),
-		CheckDocker(ctx),
+		CheckDocker(ctx, dclient),
 	} {
 		if err != nil {
 			results.errs = append(results.errs, err)
@@ -72,8 +73,8 @@ func collectChecks(ctx context.Context) checkResults {
 }
 
 // realCheckDocker pings the Docker daemon, describing how to fix it on failure.
-func realCheckDocker(ctx context.Context) error {
-	_, err := docker.Get().Ping(ctx, client.PingOptions{})
+func realCheckDocker(ctx context.Context, dclient docker.Client) error {
+	_, err := dclient.Ping(ctx, client.PingOptions{})
 	if err != nil {
 		return fmt.Errorf(
 			"docker API unreachable: %w\n%s",

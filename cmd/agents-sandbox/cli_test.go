@@ -460,7 +460,7 @@ func TestCLIConfigPrecedenceViaResolver(t *testing.T) {
 // mustResolver builds a resolver from a real command, failing the test on error.
 func mustResolver(t *testing.T, cmd *cobra.Command) *launcherconfig.Resolver {
 	t.Helper()
-	r, err := launcherconfig.NewResolver(cmd, "")
+	r, err := launcherconfig.NewResolver(cmd, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}

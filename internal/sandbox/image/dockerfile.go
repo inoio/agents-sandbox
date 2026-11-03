@@ -365,8 +365,12 @@ func EmitDockerfileDiagnostics(ui termio.Logger, d DockerfileDiagnostics) {
 
 // EmitProjectDockerfileDiagnostics reads the on-disk project Dockerfile and
 // emits its diagnostics. Convenience for callers that have no bytes in hand.
-func EmitProjectDockerfileDiagnostics(ui termio.Logger, setting options.DockerSetting) {
-	EmitDockerfileDiagnostics(ui, DiagnoseDockerfile(readProjectDockerfile(), setting))
+func EmitProjectDockerfileDiagnostics(
+	paths configpaths.ConfigPaths,
+	ui termio.Logger,
+	setting options.DockerSetting,
+) {
+	EmitDockerfileDiagnostics(ui, DiagnoseDockerfile(readProjectDockerfile(paths), setting))
 }
 
 // dockerMarkerKind reports whether line, ignoring surrounding whitespace, is
@@ -909,14 +913,19 @@ LABEL org.agents-sandbox.identity.user=$IDENTITY_USER
 // the on-disk project Dockerfile (if any), and the docker switch. It is the
 // single source of truth for previewing and building the image. An empty
 // version renders the agent instance stage without a pinned default.
-func RenderProjectDockerfile(a agent.Agent, agentVersion string, docker options.DockerSetting) ([]byte, error) {
-	return RenderDockerfile(a, agentVersion, readProjectDockerfile(), docker)
+func RenderProjectDockerfile(
+	paths configpaths.ConfigPaths,
+	a agent.Agent,
+	agentVersion string,
+	docker options.DockerSetting,
+) ([]byte, error) {
+	return RenderDockerfile(a, agentVersion, readProjectDockerfile(paths), docker)
 }
 
 // readProjectDockerfile returns the project Dockerfile bytes, or nil when none
-// exists.
-func readProjectDockerfile() []byte {
-	if data, err := os.ReadFile(configpaths.Get().ProjectDockerfile()); err == nil {
+// exists. Path resolution is injected rather than read from a package global.
+func readProjectDockerfile(paths configpaths.ConfigPaths) []byte {
+	if data, err := os.ReadFile(paths.ProjectDockerfile()); err == nil {
 		return data
 	}
 	return nil

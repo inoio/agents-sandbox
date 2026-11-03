@@ -8,6 +8,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -33,7 +34,7 @@ func TestResolveReconfigDecisionDetachErrorVerbose(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	volumes := volume.NewManager()
+	volumes := volume.NewManager(docker.Get())
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
 
 	ui := termio.NewTestMock(t)

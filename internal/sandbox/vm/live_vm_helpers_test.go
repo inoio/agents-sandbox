@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
@@ -20,5 +21,6 @@ func lookUpAndEnsureProjectVM(ctx context.Context, creation ProjectVMCreation) (
 		creation.Existing = existing
 	}
 	creation.Env = envsecret.EnvSecrets{}
+	creation.DockerClient = docker.Get()
 	return EnsureProjectVM(ctx, creation)
 }

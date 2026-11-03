@@ -7,6 +7,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -36,6 +37,7 @@ type throwawaySandbox struct {
 // reported.
 func withThrowawaySandbox(
 	ctx context.Context,
+	dclient docker.Client,
 	client msb.Client,
 	k state.Key,
 	info image.ImageInfo,
@@ -43,7 +45,7 @@ func withThrowawaySandbox(
 	ui termio.UI,
 	payload func(sb msb.Sandbox, spin termio.Spinner) error,
 ) error {
-	info, err := image.EnsureLoaded(ctx, client, info, ui)
+	info, err := image.EnsureLoaded(ctx, dclient, client, info, ui)
 	if err != nil {
 		return fmt.Errorf("load runner image: %w", err)
 	}

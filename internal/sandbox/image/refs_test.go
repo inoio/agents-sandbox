@@ -97,7 +97,7 @@ func TestImageRefCandidates(t *testing.T) {
 // keys the microsandbox reference, while the Docker tag stays the slug/agent name.
 func TestEnsureImageWithClientSetsContentRef(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -108,9 +108,7 @@ func TestEnsureImageWithClientSetsContentRef(t *testing.T) {
 		},
 	})
 
-	info, err := EnsureImageWithClient(
-		context.Background(),
-		a,
+	info, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"myproj-1abc1234defg5",
 		BuildOptions{},
@@ -137,7 +135,7 @@ func TestEnsureImageWithClientSetsContentRef(t *testing.T) {
 // prefix-free name reference rather than emitting a dangling content suffix.
 func TestEnsureImageWithClientFallsBackToNameRefWhenContentIDEmpty(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -145,9 +143,7 @@ func TestEnsureImageWithClientFallsBackToNameRefWhenContentIDEmpty(t *testing.T)
 		},
 	})
 
-	info, err := EnsureImageWithClient(
-		context.Background(),
-		a,
+	info, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"myproj-1abc1234defg5",
 		BuildOptions{},
@@ -183,9 +179,7 @@ func TestEnsureLoadedReusesContentRef(t *testing.T) {
 		},
 	}
 
-	info, err := EnsureLoaded(
-		context.Background(),
-		msbClient,
+	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: dockerTag, Ref: contentRef, Identity: testContentIdentity(), Digest: "sha256:same"},
 		&termio.Mock{},
 	)
@@ -222,9 +216,7 @@ func TestEnsureLoadedReusesNameRefForMigration(t *testing.T) {
 		},
 	}
 
-	info, err := EnsureLoaded(
-		context.Background(),
-		msbClient,
+	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: dockerTag, Ref: contentRef, Identity: testContentIdentity(), Digest: "sha256:same"},
 		&termio.Mock{},
 	)
@@ -260,9 +252,7 @@ func TestEnsureLoadedReusesNameRefFromIdentity(t *testing.T) {
 		},
 	}
 
-	info, err := EnsureLoaded(
-		context.Background(),
-		msbClient,
+	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{Ref: contentRef, Identity: testContentIdentity(), Digest: "sha256:same"},
 		&termio.Mock{},
 	)
@@ -297,9 +287,7 @@ func TestEnsureLoadedReusesLegacyPrefixedRefForMigration(t *testing.T) {
 		},
 	}
 
-	info, err := EnsureLoaded(
-		context.Background(),
-		msbClient,
+	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: dockerTag, Ref: contentRef, Identity: testContentIdentity(), Digest: "sha256:same"},
 		&termio.Mock{},
 	)
@@ -333,9 +321,7 @@ func TestEnsureLoadedLoadsUnderContentRefWhenNoCandidateMatches(t *testing.T) {
 	}
 	ui := &termio.Mock{}
 
-	info, err := EnsureLoaded(
-		context.Background(),
-		msbClient,
+	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: dockerTag, Ref: contentRef, Identity: testContentIdentity(), Digest: "sha256:new"},
 		ui,
 	)
@@ -378,9 +364,7 @@ func TestEnsureLoadedLoadsUnderContentRefWhenContentDiffers(t *testing.T) {
 	}
 	ui := &termio.Mock{}
 
-	info, err := EnsureLoaded(
-		context.Background(),
-		msbClient,
+	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: dockerTag, Ref: contentRef, Identity: testContentIdentity(), Digest: "sha256:new"},
 		ui,
 	)
@@ -412,9 +396,7 @@ func TestEnsureLoadedFallsBackToDockerTagWhenRefEmpty(t *testing.T) {
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 
-	info, err := EnsureLoaded(
-		context.Background(),
-		msbClient,
+	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: legacyRef, Ref: "", Digest: "sha256:new"},
 		&termio.Mock{},
 	)
@@ -450,9 +432,7 @@ func TestEnsureLoadedReusesLegacyRefWhenContentMatches(t *testing.T) {
 		},
 	}
 
-	info, err := EnsureLoaded(
-		context.Background(),
-		msbClient,
+	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: legacyRef, Ref: newRef, Digest: "sha256:same"},
 		&termio.Mock{},
 	)
@@ -484,9 +464,7 @@ func TestEnsureLoadedLoadsUnderNewRefWhenLegacyAbsent(t *testing.T) {
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 
-	info, err := EnsureLoaded(
-		context.Background(),
-		msbClient,
+	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: legacyRef, Ref: newRef, Digest: "sha256:new"},
 		&termio.Mock{},
 	)
@@ -527,9 +505,7 @@ func TestEnsureLoadedLoadsUnderNewRefWhenLegacyContentDiffers(t *testing.T) {
 		},
 	}
 
-	info, err := EnsureLoaded(
-		context.Background(),
-		msbClient,
+	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: legacyRef, Ref: newRef, Digest: "sha256:new"},
 		&termio.Mock{},
 	)

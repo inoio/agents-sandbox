@@ -7,6 +7,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -58,10 +59,10 @@ type volDryRunFunc func(oldVolume string) string
 
 // volMainFunc implements the operation's main behavior after volume
 // preflight (state read, active-VM check, volume creation, prefill). It
-// receives the operation's msb client, the resolved source volume and the
-// freshly created target volume; the project slug, image tag, and UI are
-// captured by the enclosing command's closure.
-type volMainFunc func(client msb.Client, oldVolume, newVolumeName string) error
+// receives the operation's msb and docker clients, the resolved source volume
+// and the freshly created target volume; the project slug, image tag, and UI
+// are captured by the enclosing command's closure.
+type volMainFunc func(client msb.Client, dclient docker.Client, oldVolume, newVolumeName string) error
 
 // volCallbacks contains the callbacks for each volume operation variant.
 type volCallbacks struct {
@@ -72,12 +73,13 @@ type volCallbacks struct {
 // CmdMigrate creates a new home volume, copies old files on top, updates state.
 func CmdMigrate(
 	ctx context.Context,
+	dclient docker.Client,
 	k state.Key, volumeName string,
 	info image.ImageInfo,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, k, volumeName, info, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, dclient, k, volumeName, info, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q, copy files from %q",
@@ -85,8 +87,8 @@ func CmdMigrate(
 				oldVolume,
 			)
 		},
-		main: func(client msb.Client, oldVolume, newVolumeName string) error {
-			if err := NewManager().CopyVolume(
+		main: func(client msb.Client, dclient docker.Client, oldVolume, newVolumeName string) error {
+			if err := NewManager(dclient).CopyVolume(
 				ctx, client, k, oldVolume, newVolumeName, info, ui,
 			); err != nil {
 				return err
@@ -100,12 +102,13 @@ func CmdMigrate(
 // CmdReset creates a new home volume from image only, no copy.
 func CmdReset(
 	ctx context.Context,
+	dclient docker.Client,
 	k state.Key, volumeName string,
 	info image.ImageInfo,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, k, volumeName, info, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, dclient, k, volumeName, info, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create fresh volume %q, remove %q",
@@ -113,7 +116,7 @@ func CmdReset(
 				oldVolume,
 			)
 		},
-		main: func(_ msb.Client, _ string, newVolumeName string) error {
+		main: func(_ msb.Client, _ docker.Client, _ string, newVolumeName string) error {
 			ui.Infof("reset to new home volume %q", newVolumeName)
 			return nil
 		},
@@ -123,12 +126,13 @@ func CmdReset(
 // CmdEdit creates a new volume alongside the old for manual transfer.
 func CmdEdit(
 	ctx context.Context,
+	dclient docker.Client,
 	k state.Key, volumeName string,
 	info image.ImageInfo,
 	rmOld, dryRun bool,
 	ui termio.UI,
 ) error {
-	return volumeOp(ctx, k, volumeName, info, rmOld, dryRun, volCallbacks{
+	return volumeOp(ctx, dclient, k, volumeName, info, rmOld, dryRun, volCallbacks{
 		dryRun: func(oldVolume string) string {
 			return fmt.Sprintf(
 				"dry-run: Would create volume %q alongside %q for manual transfer",
@@ -136,8 +140,17 @@ func CmdEdit(
 				oldVolume,
 			)
 		},
-		main: func(client msb.Client, oldVolume, newVolumeName string) error {
-			if err := editVolumesInteractively(ctx, client, k, oldVolume, newVolumeName, info, ui); err != nil {
+		main: func(client msb.Client, dclient docker.Client, oldVolume, newVolumeName string) error {
+			if err := editVolumesInteractively(
+				ctx,
+				dclient,
+				client,
+				k,
+				oldVolume,
+				newVolumeName,
+				info,
+				ui,
+			); err != nil {
 				return err
 			}
 			ui.Infof("exited interactive session, new volume: %q", newVolumeName)
@@ -149,6 +162,7 @@ func CmdEdit(
 // volumeOp is the shared implementation for migrate, reset, and edit operations.
 func volumeOp(
 	ctx context.Context,
+	dclient docker.Client,
 	k state.Key, volumeName string,
 	info image.ImageInfo,
 	rmOld, dryRun bool,
@@ -197,12 +211,12 @@ func volumeOp(
 		return fmt.Errorf("create volume %s: %w", newVolumeName, err)
 	}
 
-	vm := NewManager()
+	vm := NewManager(dclient)
 	if err := vm.PrefillVolume(ctx, client, k, newVol.Name(), info, ui); err != nil {
 		return fmt.Errorf("prefill new volume: %w", err)
 	}
 
-	if err := cbs.main(client, oldVolume, newVolumeName); err != nil {
+	if err := cbs.main(client, dclient, oldVolume, newVolumeName); err != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
 		defer cancel()
 		vm.cleanupVolume(cleanupCtx, client, newVolumeName, ui)
@@ -235,12 +249,13 @@ func volumeOp(
 // only reported, since the user may have finished the transfer regardless.
 func editVolumesInteractively(
 	ctx context.Context,
+	dclient docker.Client,
 	client msb.Client,
 	k state.Key, oldVolume, newVolumeName string,
 	info image.ImageInfo,
 	ui termio.UI,
 ) error {
-	return withThrowawaySandbox(ctx, client, k, info, throwawaySandbox{
+	return withThrowawaySandbox(ctx, dclient, client, k, info, throwawaySandbox{
 		purpose: "edit",
 		mounts: map[string]msbSdk.MountConfig{
 			srcMount: msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{}),

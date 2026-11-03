@@ -15,7 +15,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
-	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -32,7 +31,7 @@ func TestPrepareSandboxImageError(t *testing.T) {
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 
 	resolveErr := errors.New("cannot resolve opencode version")
-	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
+	withMockBuildVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "", resolveErr
 	})
 
@@ -78,9 +77,6 @@ func TestPrepareSandboxVersionResolutionError(t *testing.T) {
 func stubPrepareSandboxImage(t *testing.T) {
 	t.Helper()
 
-	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
-		return req, nil
-	})
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
