@@ -1,0 +1,5 @@
+interface:
+  display_name: "Maintain"
+  short_description: "Maintain the GitHub project: triage issues, merge dependabot, assess security"
+policy:
+  allow_implicit_invocation: false

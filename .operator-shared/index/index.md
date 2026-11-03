@@ -107,5 +107,7 @@ read_if: Navigating the codebase.
 
 ### `.agents/skills/` — Repo engineering skills
 
-- `release/` — The release runbook (tracked): `SKILL.md`'s release flow, `RELEASE-NOTES.md`, and `NON-GO-DEPS.md` (the pinned non-Go tool versions).
-- Everything else — local-only engineering skills (ask-matt, code-review, tdd, ...); untracked tooling, not shipped with the repo.
+- `release/` — The release runbook: `SKILL.md`'s release flow, `RELEASE-NOTES.md`, and `NON-GO-DEPS.md` (the pinned non-Go tool versions).
+- `bare-worktrees/` — The bare-checkout layout whose worktrees nest inside the bare root (the layout this repo uses).
+- `handle-pr-feedback/`, `maintain/`, `pr/` — Repo-adapted skills: the PR-mergeability loop (mutation-survivor / greptile / leftovers surfaces), the GitHub maintainer flow (issue state machine, dependabot, security alerts), and the PR-body template.
+- Everything else — local-only engineering skills (ask-matt, tdd, code-review, ...); untracked tooling, not shipped with the repo.
