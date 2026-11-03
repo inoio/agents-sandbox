@@ -303,8 +303,10 @@ print a one-time warning. A project Dockerfile using the legacy `runner-base-din
 marker keeps working and enables the engine, but warns on every run that ensures the runner image (including cached
 reuse).
 
-The Docker stage installs the engine from a docker static binary tarball plus `fuse-overlayfs` and its `libfuse3`
-runtime. The storage driver is selected **inside the VM** at start-up: `fuse-overlayfs` when the image provides the
+The Docker stage installs the engine from a docker static binary tarball; the embedded managed base image installs
+`fuse-overlayfs` and its `libfuse3` runtime (the runner copies only `/opt/agents-sandbox` from the Docker stage, so the
+base is where a system package has to live — a custom base must provide both itself, otherwise the driver falls back to
+`vfs`). The storage driver is selected **inside the VM** at start-up: `fuse-overlayfs` when the image provides the
 binary and `/dev/fuse` is usable, falling back to `vfs` otherwise (the microsandbox filesystem cannot back the kernel
 `overlay2` driver, which is why `vfs` was the only option before). `fuse-overlayfs` merges in userspace and exposes its
 own FUSE mount, so it copies layers on write instead of copying each one whole, which cuts build time and data-root disk

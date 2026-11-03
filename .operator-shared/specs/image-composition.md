@@ -241,8 +241,11 @@ enable the engine, and each warns on every ensure; `agents-sandbox/runner-base-d
 The kernel cannot back `overlay2` on the microsandbox filesystem (an overlay upper on the guest overlay, and virtiofs,
 are both rejected), so the launcher selects a driver the guest supports. `fuse-overlayfs` merges in userspace and
 exposes its own FUSE mount, so neither restriction applies, and its copy-on-write layers cut build time and data-root
-disk use versus `vfs`'s full copy per layer. To provide it, the `agents-sandbox-docker` stage installs
-`fuse-overlayfs libfuse3-4` from the tool base's apt (the pinned trixie packages), then the static docker tarball.
+disk use versus `vfs`'s full copy per layer. To provide it, the embedded managed base (`data/Dockerfile`) installs
+`fuse-overlayfs` and its `libfuse3` runtime from apt (the pinned trixie packages). The `agents-sandbox-docker` stage
+installs only the static docker tarball into `/opt/agents-sandbox`, because the runner copies nothing from that stage
+except `/opt/agents-sandbox` (`dockerMergeBlock`), so a system package installed there would not reach the image. A
+custom base must therefore provide `fuse-overlayfs` and `libfuse3` itself, or the probe falls back to `vfs`.
 
 The launcher selects the driver from `vm/dockerd.go` at VM start and never writes `/etc/docker/daemon.json`, so a
 user's edits to it are preserved. Before choosing a start command it reads the image's `/etc/docker/daemon.json`
@@ -259,9 +262,10 @@ left for dockerd to reject):
   the user's file or letting the conflict surface as the 30s readiness timeout.
 
 The old build-time `daemon.json` overwrite is removed; the build-time invariant still holds
-(`TestRenderDockerfileDockerStage` asserts no `daemon.json` is written, and that the fuse-overlayfs apt install is
-rendered). The kernel reason `overlay2` fails (an overlay upper on the guest overlay, or on virtiofs, is rejected) and
-the fuse-overlayfs spike are recorded on issue #489.
+(`TestRenderDockerfileDockerStage` asserts no `daemon.json` is written, and
+`TestRenderDockerfileManagedBaseInstallsFuseOverlayfs` asserts the managed base carries the driver packages). The
+kernel reason `overlay2` fails (an overlay upper on the guest overlay, or on virtiofs, is rejected) and the
+fuse-overlayfs spike are recorded on issue #489.
 
 ## Invariants
 

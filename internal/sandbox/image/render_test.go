@@ -280,7 +280,6 @@ func TestRenderDockerfileDockerStage(t *testing.T) {
 	for _, want := range []string{
 		"FROM agents-sandbox-toolbase AS agents-sandbox-docker",
 		"ARG DOCKER_VERSION=29.7.2",
-		"apt-get install -y --no-install-recommends fuse-overlayfs libfuse3-4",
 		"download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz",
 		"COPY --from=agents-sandbox-docker /opt/agents-sandbox /opt/agents-sandbox",
 		"> /etc/agents-sandbox/docker-source",
@@ -432,6 +431,20 @@ func TestRenderDockerfileChecksAgentRuntimeLibs(t *testing.T) {
 func TestRenderDockerfileManagedBaseInstallsLibatomic(t *testing.T) {
 	if !strings.Contains(string(embeddedBaseToolsBlock), "libatomic1") {
 		t.Errorf("the managed base must install libatomic1; got:\n%s", embeddedBaseToolsBlock)
+	}
+}
+
+// TestRenderDockerfileManagedBaseInstallsFuseOverlayfs pins the managed base's
+// storage-driver packages: the docker stage installs only the static docker
+// tarball into toolDir, which is all the runner copies from it, so the
+// fuse-overlayfs binary and its libfuse3 runtime must come from the base. They
+// are what vm/dockerd.go probes for to select fuse-overlayfs over vfs (#489).
+func TestRenderDockerfileManagedBaseInstallsFuseOverlayfs(t *testing.T) {
+	base := string(embeddedBaseToolsBlock)
+	for _, pkg := range []string{"fuse-overlayfs", "libfuse3-4"} {
+		if !strings.Contains(base, pkg) {
+			t.Errorf("the managed base must install %s; got:\n%s", pkg, base)
+		}
 	}
 }
 

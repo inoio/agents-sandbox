@@ -594,20 +594,21 @@ RUN mkdir -p %s && %s
 // dockerStage renders the optional Docker tool stage on the tool base. It
 // installs the static Docker binaries into toolBin unconditionally: the fixed
 // tool base never carries dockerd, and a base-provided engine is handled by the
-// runner's PATH precedence and recorded by adoption. It also installs
-// fuse-overlayfs and its libfuse3 runtime from the tool base's apt, so the
-// guest has a copy-on-write storage driver dockerd can use (the kernel rejects
-// overlay2 here; the selection contract is in specs/image-composition.md). It
-// does not check the runtime prerequisites (iptables, git, ps, xz): the check
-// runs in the final stage instead (dockerAdoptionBlock), after the user body,
-// so a body that installs them is accepted.
+// runner's PATH precedence and recorded by adoption. It does not check the
+// runtime prerequisites (iptables, git, ps, xz): the check runs in the final
+// stage instead (dockerAdoptionBlock), after the user body, so a body that
+// installs them is accepted.
+//
+// It deliberately installs no system package: only toolDir is copied into the
+// runner (dockerMergeBlock), so a package installed here would not reach the
+// image. The storage driver's copy-on-write runtime (fuse-overlayfs + libfuse3)
+// is a system package, so the embedded managed base installs it instead; a
+// custom base must provide it or the launcher falls back to vfs. See
+// specs/image-composition.md.
 func dockerStage() string {
 	return fmt.Sprintf(`FROM %s AS %s
 USER root
 ARG DOCKER_VERSION=%s
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends fuse-overlayfs libfuse3-4 && \
-    rm -rf /var/lib/apt/lists/*
 RUN set -e; mkdir -p %s && \
     curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz" \
       | tar -xz -C %s --strip-components=1
