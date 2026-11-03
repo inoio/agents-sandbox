@@ -89,8 +89,9 @@ func TestBuildDockerImageError(t *testing.T) {
 		},
 	})
 	err := buildDockerImage(
-		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", "label", false, "v", "base", "id", false, imageIdentity{}, &termio.Mock{},
+		context.Background(), a,
+		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
+		"tag", "label", false, &termio.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected buildDockerImage to return an error when the build fails")
@@ -108,8 +109,9 @@ func TestBuildDockerImageForwardsStreamLines(t *testing.T) {
 		},
 	})
 	if err := buildDockerImage(
-		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", "label", false, "v", "base", "id", false, imageIdentity{}, ui,
+		context.Background(), a,
+		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
+		"tag", "label", false, ui,
 	); err != nil {
 		t.Fatalf("buildDockerImage: %v", err)
 	}
@@ -132,8 +134,9 @@ func TestBuildImageReturnsErrorOnImageBuild(t *testing.T) {
 		},
 	})
 	err := buildImage(
-		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", false, "v", "base", "id", false, imageIdentity{}, func(string) {},
+		context.Background(), a,
+		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
+		"tag", false, func(string) {},
 	)
 	if err == nil || !strings.Contains(err.Error(), "docker image build failed") {
 		t.Errorf("buildImage error = %v, want a docker build failure", err)
@@ -152,8 +155,9 @@ func TestBuildImageDetectsPullAccessDenied(t *testing.T) {
 		},
 	})
 	err := buildImage(
-		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", false, "v", "base", "id", false, imageIdentity{}, func(string) {},
+		context.Background(), a,
+		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
+		"tag", false, func(string) {},
 	)
 	if err == nil || !strings.Contains(err.Error(), "base image not found or not logged in") {
 		t.Errorf("buildImage error = %v, want a pull-access-denied hint", err)
@@ -170,8 +174,9 @@ func TestBuildImageReturnsGenericBuildError(t *testing.T) {
 		},
 	})
 	err := buildImage(
-		context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-		"tag", false, "v", "base", "id", false, imageIdentity{}, func(string) {},
+		context.Background(), a,
+		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
+		"tag", false, func(string) {},
 	)
 	if err == nil || !strings.Contains(err.Error(), "some other failure") ||
 		strings.Contains(err.Error(), "not found or not logged in") {
@@ -217,8 +222,9 @@ func TestBuildImageHintsTroubleshootingOnUnresolvedName(t *testing.T) {
 				},
 			})
 			err := buildImage(
-				context.Background(), a, []byte("FROM debian:trixie-slim\n"),
-				"tag", false, "v", "base", "id", false, imageIdentity{}, func(string) {},
+				context.Background(), a,
+				testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
+				"tag", false, func(string) {},
 			)
 			if err == nil || !strings.Contains(err.Error(), "troubleshooting.html#the-base-image-cannot-be-found") {
 				t.Errorf("buildImage error = %v, want a troubleshooting pointer", err)

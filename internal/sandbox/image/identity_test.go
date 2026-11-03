@@ -163,7 +163,10 @@ func TestUserBuildArgsCarryIdentityComponents(t *testing.T) {
 		Docker:                "false",
 		User:                  "1000:1000",
 	}
-	args := userBuildArgs(1000, 1000, agentOpencode(t).ImageSpec(), "1.2.3", "base", "id", false, id)
+	args := userBuildArgs(
+		1000, 1000, agentOpencode(t).ImageSpec(),
+		testBuildRequest(nil, "1.2.3", "base", "id", id),
+	)
 	for key, want := range map[string]string{
 		projectDockerfileHashArg: "hash",
 		agentVersionArg:          "1.2.3",
