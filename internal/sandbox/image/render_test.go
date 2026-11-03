@@ -513,6 +513,29 @@ func TestGuestToolsBlockEmptyListEmitsNothing(t *testing.T) {
 	}
 }
 
+// versionlessAgent has no VersionProvider, so agentBinary falls back to the
+// profile name.
+type versionlessAgent struct{ agent.Agent }
+
+func (versionlessAgent) Name() string { return "versionless" }
+
+// emptyVersionCmdAgent exposes a VersionProvider whose command carries no
+// binary word, so agentBinary also falls back to the profile name.
+type emptyVersionCmdAgent struct{ agent.Agent }
+
+func (emptyVersionCmdAgent) Name() string                        { return "empty-cmd" }
+func (emptyVersionCmdAgent) VersionCmd() string                  { return "" }
+func (emptyVersionCmdAgent) ParseVersion(string) (string, error) { return "", nil }
+
+func TestAgentBinaryFallsBackToProfileName(t *testing.T) {
+	if got := agentBinary(agent.Resolve(versionlessAgent{})); got != "versionless" {
+		t.Errorf("agentBinary without a VersionProvider = %q, want the profile name %q", got, "versionless")
+	}
+	if got := agentBinary(agent.Resolve(emptyVersionCmdAgent{})); got != "empty-cmd" {
+		t.Errorf("agentBinary with an empty VersionCmd = %q, want the profile name %q", got, "empty-cmd")
+	}
+}
+
 // TestRenderDockerfileChecksLauncherTools guards the host opener's custom-base
 // contract: the launcher replays a browser-login callback inside the VM with
 // curl, so every runner image must verify curl in the final stage, including
