@@ -106,6 +106,12 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 		t.Fatalf("EnsureDaemon failed: %v", err)
 	}
 	assertDetachedHelperLaunch(t, *calls, "agent-daemon", "opencode")
+	// The daemon runs as the sandbox default user, so its detached launch
+	// carries no exec-user option; a helper that added one would launch it as
+	// the wrong user.
+	if len((*calls)[0].Opts) != 0 {
+		t.Errorf("daemon launch exec options = %d, want 0 (default user)", len((*calls)[0].Opts))
+	}
 	if !slices.Contains(testUI.VerboseCalls, "opencode daemon is healthy") {
 		t.Errorf("expected a verbose healthy note, got %v", testUI.VerboseCalls)
 	}
