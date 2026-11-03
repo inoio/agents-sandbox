@@ -234,7 +234,7 @@ func resolveIdentityStage(
 		guestCWD: guestWorkspacePath(identity.BindRoot, cwd),
 		agent:    a,
 		identity: identity,
-		key:      state.Key{Slug: adoption.Slug, Agent: a.Agent.Name()},
+		key:      state.Key{Slug: adoption.Slug, Agent: a.Profile.Name()},
 	}, nil
 }
 
@@ -261,7 +261,7 @@ func resolveVersionStage(
 	agentVersion, shallUpgrade, offeredVersion, err := determineAgentVersion(
 		ctx,
 		session.key,
-		session.agent.Agent,
+		session.agent,
 		ui,
 		opts,
 	)
@@ -288,7 +288,7 @@ func ensureImageStage(
 ) (image.ImageInfo, error) {
 	imageInfo, err := image.EnsureImage(
 		ctx,
-		session.agent.Agent,
+		session.agent.Profile,
 		session.key.Slug,
 		buildOptions(opts, version.buildVersion, opts.Rebuild, version.userProvided),
 		ui,
@@ -297,7 +297,7 @@ func ensureImageStage(
 		return image.ImageInfo{}, fmt.Errorf("ensuring image failed: %w", err)
 	}
 	if version.shallUpgrade {
-		ui.Verbosef("runner image rebuilt with a newer %s version", session.agent.Agent.Name())
+		ui.Verbosef("runner image rebuilt with a newer %s version", session.agent.Profile.Name())
 	}
 	ui.Verbosef("Using image '%s' (digest=%s)", imageInfo.Ref, imageInfo.Digest)
 	return imageInfo, nil
@@ -368,12 +368,12 @@ func planReconfigStage(
 	opts options.RunOptions,
 	ui termio.UI,
 ) (reconfigPlan, error) {
-	configFiles, err := reprovision.LoadConfigFiles(session.agent.Agent, ui, provisionHostConfig(opts))
+	configFiles, err := reprovision.LoadConfigFiles(session.agent.Profile, ui, provisionHostConfig(opts))
 	if err != nil {
 		return reconfigPlan{}, err
 	}
 	reprovision.WarnUnprovisionedDependencies(
-		session.agent.Agent, configFiles, mounts.MountTargets(opts.Mounts), provisionHostConfig(opts), ui,
+		session.agent.Profile, configFiles, mounts.MountTargets(opts.Mounts), provisionHostConfig(opts), ui,
 	)
 	live, err := readLiveProjectVM(ctx, home.client, session.key, configFiles.Keys, ui)
 	if err != nil {
@@ -500,7 +500,7 @@ func resolveSessionIdentity(
 func determineAgentVersion(
 	ctx context.Context,
 	k state.Key,
-	a agent.Agent,
+	a agent.Resolved,
 	ui termio.UI,
 	opts options.RunOptions,
 ) (string, bool, string, error) {

@@ -59,26 +59,26 @@ func ensureDaemon(
 
 	if !force {
 		if probe := probeDaemonHealth(ctx, sb, provider); probe.healthy {
-			ui.Verbosef("%s daemon already healthy", a.Agent.Name())
+			ui.Verbosef("%s daemon already healthy", a.Profile.Name())
 			return nil
 		} else if probe.detail != "" {
-			ui.Verbosef("%s daemon not healthy: %s", a.Agent.Name(), probe.detail)
+			ui.Verbosef("%s daemon not healthy: %s", a.Profile.Name(), probe.detail)
 		}
 	}
 
 	command := provider.DaemonCommand(serveOnly)
-	ui.Verbosef("starting %s serve daemon", a.Agent.Name())
+	ui.Verbosef("starting %s serve daemon", a.Profile.Name())
 	helper := agentDaemonHelper(command.Binary)
 	killJobs(ctx, sb, helper, ui)
 
 	binary, args := helper.markedCommand(command.Args)
 	job, startErr := sb.ExecDetached(ctx, binary, args)
 	if startErr != nil {
-		return fmt.Errorf("start %s serve: %w", a.Agent.Name(), startErr)
+		return fmt.Errorf("start %s serve: %w", a.Profile.Name(), startErr)
 	}
 	defer func() {
 		if closeErr := job.Close(); closeErr != nil {
-			ui.Verbosef("closing %s job handle failed: %v", a.Agent.Name(), closeErr)
+			ui.Verbosef("closing %s job handle failed: %v", a.Profile.Name(), closeErr)
 		}
 	}()
 
@@ -89,7 +89,7 @@ func ensureDaemon(
 	onUnhealthy := func(detail string) {
 		ui.Verbosef("Polling for daemon health: %s", detail)
 	}
-	label := a.Agent.Name() + " daemon"
+	label := a.Profile.Name() + " daemon"
 	if readyErr := awaitJobReady(
 		ctx,
 		job,
@@ -101,7 +101,7 @@ func ensureDaemon(
 	); readyErr != nil {
 		return readyErr
 	}
-	ui.Verbosef("%s daemon is healthy", a.Agent.Name())
+	ui.Verbosef("%s daemon is healthy", a.Profile.Name())
 	return nil
 }
 

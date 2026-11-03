@@ -13,9 +13,11 @@ import (
 )
 
 // SetUpSandbox consumes the run's already-resolved agent capabilities (the
-// caller holds them) instead of re-resolving opts.Agent, so an opts.Agent the
-// registry does not know — the resolution now happens at the run boundary — must
-// not fail it.
+// caller holds them) instead of re-resolving opts.Agent. The mismatched
+// opts.Agent ("does-not-exist") is deliberate: production always passes the pair
+// produced together at the run boundary, and this contradictory pair is the only
+// way to prove SetUpSandbox reads the threaded value rather than opts.Agent —
+// were it still resolving opts.Agent, an unknown name would fail here.
 func TestSetUpSandboxUsesTheThreadedResolvedAgent(t *testing.T) {
 	healthyOpencodeDaemon(t)
 	configpaths.WithMockConfigPaths(t)

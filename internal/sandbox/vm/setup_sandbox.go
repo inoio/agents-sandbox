@@ -122,7 +122,7 @@ func SetUpSandbox(
 // agent-config change is picked up. Env/secret changes are never routed
 // here: they require a VM rebuild and are handled by the recreate path instead.
 func restartDaemons(ctx context.Context, a agent.Resolved, sb msb.Sandbox, serveOnly bool, ui termio.Logger) {
-	ui.Infof("%s serve restarting…", a.Agent.Name())
+	ui.Infof("%s serve restarting…", a.Profile.Name())
 	// ensureDaemon no-ops for an agent without a DaemonProvider.
 	if err := ensureDaemon(ctx, a, serveOnly, true, sb, ui); err != nil {
 		ui.Warnf("daemon restart failed: %v (using existing)", err)

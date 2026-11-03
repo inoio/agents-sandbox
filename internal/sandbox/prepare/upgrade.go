@@ -67,7 +67,7 @@ var existingAgentVersion = image.ExistingAgentVersion
 func resolveBuildVersion(
 	ctx context.Context,
 	k state.Key,
-	a agent.Agent,
+	a agent.Resolved,
 	ui termio.UI,
 	opts options.RunOptions,
 ) (string, bool, string, error) {
@@ -86,7 +86,7 @@ func resolveBuildVersion(
 
 	// Without an upgrade checker there is nothing to check against; reuse the
 	// recorded version so the image identity stays stable.
-	if _, ok := agent.AsUpgradeChecker(a); !ok {
+	if a.Upgrade == nil {
 		return currentAgentVersion(k), false, "", nil
 	}
 
@@ -107,7 +107,7 @@ func resolveBuildVersion(
 		return current, false, "", nil
 	}
 
-	chosen, promptErr := promptUpgrade(ui, a, current, latest)
+	chosen, promptErr := promptUpgrade(ui, a.Profile, current, latest)
 	if promptErr != nil {
 		return "", false, "", promptErr
 	}
@@ -180,14 +180,15 @@ func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (string,
 // window open.
 func pendingUpgrade(
 	ctx context.Context,
-	a agent.Agent,
+	a agent.Resolved,
 	k state.Key,
 	ui termio.Logger,
 	currentVersion string,
 ) (string, bool) {
-	checker, hasChecker := agent.AsUpgradeChecker(a)
+	checker := a.Upgrade
+	hasChecker := checker != nil
 
-	entry, checked := checkAgentUpgrade(ctx, a, hasChecker, ui)
+	entry, checked := checkAgentUpgrade(ctx, a.Profile, hasChecker, ui)
 	if !checked || !hasChecker {
 		return "", false
 	}

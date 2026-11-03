@@ -113,8 +113,8 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.Logger) (optio
 	// The experimental notice is informational, so it is emitted only once all
 	// validation has passed: an invalid invocation errors without first printing
 	// the info line.
-	if a.Agent.Experimental() {
-		ui.Infof("%s is experimental — not well tested with agents-sandbox", a.Agent.Name())
+	if a.Profile.Experimental() {
+		ui.Infof("%s is experimental — not well tested with agents-sandbox", a.Profile.Name())
 	}
 
 	return opts, nil
@@ -263,10 +263,10 @@ func resolveNotify(
 			if override, _ := notifyEnvOverride(); cmd.Flags().Changed(FlagNotify) || override != "" {
 				return fmt.Errorf(
 					"--notify is not supported by agent %q (no daemon/event stream)",
-					a.Agent.Name(),
+					a.Profile.Name(),
 				)
 			}
-			ui.Warnf("notifications not supported by agent %q (no daemon/event stream); ignoring", a.Agent.Name())
+			ui.Warnf("notifications not supported by agent %q (no daemon/event stream); ignoring", a.Profile.Name())
 			opts.Notify = notify.Config{Audio: notify.AudioOff}
 		}
 	}

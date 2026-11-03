@@ -59,7 +59,7 @@ func TestResolveBuildVersionSkipsCheckForUserAgentSource(t *testing.T) {
 	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		&termio.Mock{},
 		options.RunOptions{Agent: "opencode"},
 	)
@@ -93,7 +93,7 @@ func TestResolveBuildVersionUserAgentEmptyVersionLeavesResolutionToImageBuild(t 
 	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		&termio.Mock{},
 		options.RunOptions{Agent: "opencode"},
 	)
@@ -189,7 +189,7 @@ func TestResolveOpenCodeVersionPinnedSkipsUpdateCheck(t *testing.T) {
 	opts := options.RunOptions{AgentVersion: "2.0.0"}
 	ui := &termio.Mock{}
 
-	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeResolved(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestResolveOpenCodeVersionRebuildStillChecksUpdate(t *testing.T) {
 	opts := options.RunOptions{Rebuild: true}
 	ui := &termio.Mock{}
 
-	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeResolved(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestResolveOpenCodeVersionUserProvidedWinsOverPin(t *testing.T) {
 	opts := options.RunOptions{AgentVersion: "9.9.9"}
 	ui := &termio.Mock{}
 
-	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeResolved(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestResolveOpenCodeVersionNoBaseline(t *testing.T) {
 	opts := options.RunOptions{Agent: "opencode"}
 	ui := &termio.Mock{}
 
-	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeResolved(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestResolveOpenCodeVersionRecoversBaselineFromExistingImage(t *testing.T) {
 	got, upgraded, offered, err := resolveBuildVersion(
 		context.Background(),
 		k,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		ui,
 		options.RunOptions{Agent: "opencode"},
 	)
@@ -443,7 +443,7 @@ func TestDeferredOfferedPersistedAfterStateRecreated(t *testing.T) {
 	withExistingAgentVersion(t)
 
 	_, _, offered, err := resolveBuildVersion(
-		context.Background(), k, opencodeAgent(t), &termio.Mock{}, options.RunOptions{Agent: "opencode"},
+		context.Background(), k, opencodeResolved(t), &termio.Mock{}, options.RunOptions{Agent: "opencode"},
 	)
 	if err != nil {
 		t.Fatalf("resolveBuildVersion: %v", err)
@@ -480,7 +480,7 @@ func TestResolveOpenCodeVersionRecoveryDoesNotCreatePartialState(t *testing.T) {
 	withExistingAgentVersion(t)
 
 	got, upgraded, _, err := resolveBuildVersion(
-		context.Background(), k, opencodeAgent(t), &termio.Mock{}, options.RunOptions{Agent: "opencode"},
+		context.Background(), k, opencodeResolved(t), &termio.Mock{}, options.RunOptions{Agent: "opencode"},
 	)
 	if err != nil {
 		t.Fatalf("resolveBuildVersion: %v", err)
@@ -508,7 +508,7 @@ func TestResolveOpenCodeVersionRecoveredBaselineReusedOffline(t *testing.T) {
 	withExistingAgentVersion(t)
 
 	got, upgraded, _, err := resolveBuildVersion(
-		context.Background(), k, opencodeAgent(t), &termio.Mock{}, options.RunOptions{Agent: "opencode"},
+		context.Background(), k, opencodeResolved(t), &termio.Mock{}, options.RunOptions{Agent: "opencode"},
 	)
 	if err != nil {
 		t.Fatalf("resolveBuildVersion: %v", err)
@@ -536,7 +536,7 @@ func TestResolveBuildVersionReconcilesStaleBaselineWithImage(t *testing.T) {
 	withExistingAgentVersion(t)                          // seam returns "1.0.0", true
 
 	got, upgraded, _, err := resolveBuildVersion(
-		context.Background(), k, opencodeAgent(t), &termio.Mock{}, options.RunOptions{Agent: "opencode"},
+		context.Background(), k, opencodeResolved(t), &termio.Mock{}, options.RunOptions{Agent: "opencode"},
 	)
 	if err != nil {
 		t.Fatalf("resolveBuildVersion: %v", err)
@@ -565,7 +565,7 @@ func TestResolveBuildVersionPinWinsOverImageLabel(t *testing.T) {
 	withExistingAgentVersion(t) // image reports 1.0.0
 
 	got, _, _, err := resolveBuildVersion(
-		context.Background(), k, opencodeAgent(t), &termio.Mock{},
+		context.Background(), k, opencodeResolved(t), &termio.Mock{},
 		options.RunOptions{Agent: "opencode", AgentVersion: "3.0.0"},
 	)
 	if err != nil {
@@ -590,7 +590,7 @@ func TestResolveBuildVersionKeepsBaselineWhenImageAbsent(t *testing.T) {
 
 	ui := &termio.Mock{SelectFn: func(string, []termio.Choice, string) (string, error) { return "k", nil }}
 	got, upgraded, _, err := resolveBuildVersion(
-		context.Background(), k, opencodeAgent(t), ui, options.RunOptions{Agent: "opencode"},
+		context.Background(), k, opencodeResolved(t), ui, options.RunOptions{Agent: "opencode"},
 	)
 	if err != nil {
 		t.Fatalf("resolveBuildVersion: %v", err)
@@ -621,7 +621,7 @@ func TestResolveOpenCodeVersionRecoveryPersistFailureStillUsesVersion(t *testing
 	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		ui,
 		options.RunOptions{Agent: "opencode"},
 	)
@@ -650,7 +650,7 @@ func TestResolveOpenCodeVersionNoNewerVersion(t *testing.T) {
 	opts := options.RunOptions{Agent: "opencode"}
 	ui := &termio.Mock{}
 
-	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeResolved(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -673,7 +673,7 @@ func TestResolveOpenCodeVersionNonInteractiveLogsUpgradeAvailable(t *testing.T) 
 	opts := options.RunOptions{Agent: "opencode"}
 	ui := &termio.Mock{IsInteractiveResult: false}
 
-	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeResolved(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -705,7 +705,7 @@ func TestResolveOpenCodeVersionInteractiveRebuild(t *testing.T) {
 		},
 	}
 
-	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeResolved(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -738,7 +738,7 @@ func TestResolveOpenCodeVersionSkipsCheckWhenCheckedToday(t *testing.T) {
 	opts := options.RunOptions{Agent: "opencode"}
 	ui := &termio.Mock{IsInteractiveResult: false}
 
-	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeResolved(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -778,7 +778,7 @@ func TestResolveOpenCodeVersionDoesNotReOfferVersion(t *testing.T) {
 	opts := options.RunOptions{Agent: "opencode"}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeResolved(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -802,7 +802,7 @@ func TestResolveOpenCodeVersionRecordsOfferedBeforePrompt(t *testing.T) {
 	opts := options.RunOptions{Agent: "opencode"}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	if _, _, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts); err != nil {
+	if _, _, _, err := resolveBuildVersion(context.Background(), k, opencodeResolved(t), ui, opts); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -838,7 +838,7 @@ func TestResolveOpenCodeVersionUnparsableLatestKeepsCurrent(t *testing.T) {
 	opts := options.RunOptions{Agent: "opencode"}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeResolved(t), ui, opts)
 	if err != nil {
 		t.Fatalf("unparsable latest version must not fail the session, got: %v", err)
 	}
@@ -864,7 +864,7 @@ func TestResolveOpenCodeVersionOfflineDoesNotUpdateLastChecked(t *testing.T) {
 	opts := options.RunOptions{Agent: "opencode"}
 	ui := &termio.Mock{IsInteractiveResult: true}
 
-	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	got, upgraded, _, err := resolveBuildVersion(context.Background(), k, opencodeResolved(t), ui, opts)
 	if err != nil {
 		t.Fatalf("offline check must not fail the session, got: %v", err)
 	}
@@ -908,7 +908,7 @@ func TestResolveOpenCodeVersionInteractiveQuit(t *testing.T) {
 		},
 	}
 
-	_, _, _, err := resolveBuildVersion(context.Background(), k, opencodeAgent(t), ui, opts)
+	_, _, _, err := resolveBuildVersion(context.Background(), k, opencodeResolved(t), ui, opts)
 	if !errors.Is(err, errUpgradeQuit) {
 		t.Fatalf("expected errUpgradeQuit, got %v", err)
 	}
@@ -942,7 +942,7 @@ func TestResolveBuildVersionPromptNamesThisProjectsVersion(t *testing.T) {
 	if _, _, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		ui,
 		options.RunOptions{Agent: "opencode"},
 	); err != nil {
@@ -1002,7 +1002,7 @@ func TestPendingUpgradeLockHeldDefers(t *testing.T) {
 				return "r", nil
 			},
 		}
-		latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, ui, "1.0.0")
+		latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0")
 		if offer || latest != "" {
 			t.Errorf("pendingUpgrade = (%q, %v), want no offer with a held lock", latest, offer)
 		}
@@ -1035,7 +1035,7 @@ func TestPendingUpgradeSuppressedWhenAlreadyOffered(t *testing.T) {
 
 	latest, offer := pendingUpgrade(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		k,
 		&termio.Mock{IsInteractiveResult: true},
 		"1.0.0",
@@ -1059,12 +1059,12 @@ func TestPendingUpgradeClaimSuppressesNextOffer(t *testing.T) {
 		t.Fatalf("seedRootState: %v", err)
 	}
 
-	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, &termio.Mock{}, "1.0.0")
+	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, &termio.Mock{}, "1.0.0")
 	if !offer || latest != "2.0.0" {
 		t.Fatalf("first pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
 	}
 
-	latest, offer = pendingUpgrade(context.Background(), opencodeAgent(t), k, &termio.Mock{}, "1.0.0")
+	latest, offer = pendingUpgrade(context.Background(), opencodeResolved(t), k, &termio.Mock{}, "1.0.0")
 	if offer || latest != "" {
 		t.Errorf("second pendingUpgrade = (%q, %v), want no offer after the first claimed it", latest, offer)
 	}
@@ -1101,7 +1101,7 @@ func TestPendingUpgradeOfferedWritePreservesFingerprints(t *testing.T) {
 	}
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
-	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, &termio.Mock{}, "1.0.0")
+	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, &termio.Mock{}, "1.0.0")
 	if !offer || latest != "2.0.0" {
 		t.Fatalf("pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
 	}
@@ -1147,7 +1147,7 @@ func TestPendingUpgradeRootStateReadErrorDoesNotClobber(t *testing.T) {
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
 	ui := &termio.Mock{}
-	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, ui, "1.0.0")
+	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0")
 	if offer || latest != "" {
 		t.Errorf("pendingUpgrade = (%q, %v), want no offer on a root-state read error", latest, offer)
 	}
@@ -1196,7 +1196,7 @@ func TestPendingUpgradeWarnsOnRootStateWriteError(t *testing.T) {
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
 	ui := &termio.Mock{}
-	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, ui, "1.0.0")
+	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0")
 	if !offer || latest != "2.0.0" {
 		t.Fatalf("pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
 	}
@@ -1216,7 +1216,7 @@ func TestPendingUpgradeNoOfferWhenLatestEmpty(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "", nil }
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
-	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, &termio.Mock{}, "1.0.0")
+	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, &termio.Mock{}, "1.0.0")
 	if offer || latest != "" {
 		t.Errorf("pendingUpgrade = (%q, %v), want no offer for an empty latest", latest, offer)
 	}
@@ -1241,7 +1241,7 @@ func TestPendingUpgradeWarnsOnProjectStateReadError(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, ui, "1.0.0")
+	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0")
 	if offer || latest != "" {
 		t.Errorf("pendingUpgrade = (%q, %v), want no offer on a project-state read error", latest, offer)
 	}
@@ -1264,7 +1264,7 @@ func TestPendingUpgradeOffersWhenProjectStateMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, &termio.Mock{}, "1.0.0")
+	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, &termio.Mock{}, "1.0.0")
 	if !offer || latest != "2.0.0" {
 		t.Fatalf("pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
 	}
@@ -1295,7 +1295,7 @@ func TestPendingUpgradeWarnsOnProjectStateWriteError(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(keyDir, 0o700) })
 
 	ui := &termio.Mock{}
-	latest, offer := pendingUpgrade(context.Background(), opencodeAgent(t), k, ui, "1.0.0")
+	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0")
 	if !offer || latest != "2.0.0" {
 		t.Fatalf("pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
 	}

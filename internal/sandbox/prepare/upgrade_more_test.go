@@ -33,7 +33,7 @@ func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 	_, _, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		ui,
 		options.RunOptions{Agent: "opencode"},
 	)
@@ -63,7 +63,7 @@ func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
 	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		ui,
 		options.RunOptions{Agent: "opencode"},
 	)
@@ -98,7 +98,7 @@ func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
 	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		ui,
 		options.RunOptions{Agent: "opencode"},
 	)
@@ -123,7 +123,7 @@ func TestResolveBuildVersionWithoutUpgradeChecker(t *testing.T) {
 	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
-		&fakeAgent{},
+		agent.Resolve(&fakeAgent{}),
 		&termio.Mock{},
 		options.RunOptions{Agent: "opencode"},
 	)
@@ -143,7 +143,7 @@ func TestResolveBuildVersionWithoutUpgradeChecker(t *testing.T) {
 func TestPendingUpgradeWithoutUpgradeChecker(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "fake"}
-	latest, offer := pendingUpgrade(context.Background(), &fakeAgent{}, k, &termio.Mock{}, "1.0.0")
+	latest, offer := pendingUpgrade(context.Background(), agent.Resolve(&fakeAgent{}), k, &termio.Mock{}, "1.0.0")
 	if offer {
 		t.Errorf("expected no upgrade offer for an agent without a checker, got latest=%q", latest)
 	}

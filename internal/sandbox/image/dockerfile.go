@@ -442,7 +442,7 @@ func RenderDockerfile(
 	blocks := make([]string, 0, 7)
 	blocks = append(blocks, earlier, toolbaseStage())
 	agentParent := toolbaseStageAlias
-	if resolved.Agent.ImageSpec().RequiresNode {
+	if resolved.Profile.ImageSpec().RequiresNode {
 		blocks = append(blocks, nodeStage())
 		agentParent = nodeStageAlias
 	}
@@ -633,12 +633,12 @@ func runnerStage(a agent.Resolved, baseAlias, body string, docker, dockerInjecte
 		parts = append(parts, dockerMergeBlock())
 	}
 	parts = append(parts,
-		agentToolTreeCopy(a.Agent),
+		agentToolTreeCopy(a.Profile),
 		agentAdoptionBlock(a),
-		agentImageConfigBlock(a.Agent),
+		agentImageConfigBlock(a.Profile),
 		finalizationBlock(),
 		guestToolsBlock(a),
-		runtimeLibsBlock(a.Agent),
+		runtimeLibsBlock(a.Profile),
 		launcherToolsBlock(),
 	)
 	return joinBlocks(parts...)
@@ -749,7 +749,7 @@ func guestToolsBlock(a agent.Resolved) string {
 	if a.GuestTools == nil {
 		return ""
 	}
-	return guestToolCheck(a.GuestTools.GuestTools(), "agent runtime tool missing", "required by "+a.Agent.Name())
+	return guestToolCheck(a.GuestTools.GuestTools(), "agent runtime tool missing", "required by "+a.Profile.Name())
 }
 
 // guestToolCheck renders the RUN loop that fails the build when any of tools is
@@ -824,7 +824,7 @@ func agentBinary(a agent.Resolved) string {
 			return fields[0]
 		}
 	}
-	return a.Agent.Name()
+	return a.Profile.Name()
 }
 
 // joinBlocks concatenates non-empty blocks with a newline between them, so empty
