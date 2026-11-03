@@ -25,8 +25,9 @@ an external project. Let the maintainer pick.
 
 1. **Gather context.** Read the full issue (body, comments, labels, author,
    dates). Parse any prior notes so you don't re-ask resolved questions.
-   Explore the codebase using the project's domain glossary, respecting ADRs in
-   the area. Run two checks: (a) **redundancy**: search for an existing
+   Explore the codebase using the project's domain glossary and the decision
+   records in the operator brain (`.operator-shared/specs/`, or the private
+   `.operator/specs/`) for the area. Run two checks: (a) **redundancy**: search for an existing
    implementation by domain concept (not just the request's wording) and report
    where you looked — if found, it's an already-implemented `wontfix`
    (step 5); (b) **prior rejection**: read `.out-of-scope/*.md` and surface any
@@ -46,8 +47,8 @@ an external project. Let the maintainer pick.
 
 4. **Grill (if needed).** If the request needs fleshing out, call the Skill tool
    twice, for "grilling" and "domain-modeling", and grill it into shape a round
-   of questions at a time, sharpening domain terms and updating
-   `GLOSSARY.md`/ADRs inline as decisions land.
+   of questions at a time, sharpening domain terms and updating `GLOSSARY.md`
+   and the operator brain's `specs/` inline as decisions land.
 
 5. **Apply the outcome** (as an approved plan row):
    - `ready-for-agent`: post an agent brief comment ([AGENT-BRIEF.md](AGENT-BRIEF.md)).

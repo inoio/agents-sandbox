@@ -67,9 +67,9 @@ they are not part of the state machine. The dependabot ecosystem labels
 (`dependencies`, `github_actions`, `go`) are out of scope: dependabot applies
 them to PRs, which `maintain` does not triage.
 
-These are canonical role names; the actual label strings are defined by the
-tracker mapping (see `setup-matt-pocock-skills/triage-labels.md`). If the mapping
-is missing, tell the user to run `/setup-matt-pocock-skills`.
+These are canonical role names. The actual label strings, plus the `gh` commands
+for every operation, are in
+[`.operator-shared/guides/github-issue-workflow.md`](../../../.operator-shared/guides/github-issue-workflow.md).
 
 State transitions and the full per-issue flow live in
 [ISSUE-TRIAGE.md](ISSUE-TRIAGE.md).
@@ -86,7 +86,7 @@ language. Dispatch to the matching area and act through a batch plan:
 - "Merge #120" / "Close #42 wontfix" → direct action, still confirmed in a plan
 
 The repo does **not** treat external PRs as a request surface (see the
-issue-tracker config), so non-dependabot PRs are not a maintenance target. To
+issue-tracker workflow), so non-dependabot PRs are not a maintenance target. To
 triage a named PR anyway, ask the maintainer first.
 
 ## Survey
