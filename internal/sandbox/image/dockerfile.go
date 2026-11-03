@@ -286,8 +286,8 @@ func EmitProjectDockerfileDiagnostics(ui termio.Logger, project []byte, setting 
 
 // dockerMarkerKind reports whether line, ignoring surrounding whitespace, is
 // the current or legacy docker injection marker, returning the matched marker.
-// It is the single place the marker comparison lives, shared by the warning
-// scan and injectDockerBlock so the two cannot drift.
+// It is the single place the marker comparison lives, shared by the diagnostic
+// scan and firstMarkerIndex so the two cannot drift.
 func dockerMarkerKind(line string) (string, bool) {
 	marker := strings.TrimSpace(line)
 	switch marker {
