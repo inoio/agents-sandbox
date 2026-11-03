@@ -232,6 +232,7 @@ func buildImage(
 	line func(string),
 ) error {
 	var tarBuf bytes.Buffer
+	// gomutants:disable-next-line BRANCH_IF reason="writeDockerfileTar writes only into this in-memory bytes.Buffer, whose Write is documented to always return a nil error, so the call cannot fail here and the branch body never executes"
 	if err := writeDockerfileTar(&tarBuf, req.plan.rendered); err != nil {
 		return fmt.Errorf("create build context: %w", err)
 	}
