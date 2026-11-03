@@ -25,6 +25,7 @@ type countingSandbox struct {
 	cleanupErr              error
 	readyCalls              int
 	readyCallsBeforeHealthy int
+	execArgs                *[]string
 }
 
 func (s *countingSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecOption) (msb.ShellResult, error) {
@@ -54,6 +55,11 @@ func (s *countingSandbox) ExecDetached(
 	s.execCalls++
 	if s.execErr != nil {
 		return nil, s.execErr
+	}
+	if s.execArgs == nil {
+		s.execArgs = &args
+	} else {
+		*s.execArgs = args
 	}
 	return s.MockSandbox.ExecDetached(ctx, cmd, args, opts...)
 }
@@ -106,11 +112,26 @@ func TestStartDockerdIfPresentStartsAndBecomesReady(t *testing.T) {
 	if sb.execCalls != 1 {
 		t.Errorf("expected one detach attempt, got %d", sb.execCalls)
 	}
-	if !slices.Contains(ui.VerboseCalls, "starting dockerd with vfs storage driver") {
-		t.Errorf("expected a verbose start note, got %v", ui.VerboseCalls)
+	if !slices.Contains(ui.VerboseCalls, "starting dockerd with fuse-overlayfs storage driver") {
+		t.Errorf("expected a verbose start note naming the selected driver, got %v", ui.VerboseCalls)
 	}
 	if !slices.Contains(ui.VerboseCalls, "dockerd is ready") {
 		t.Errorf("expected a verbose ready note, got %v", ui.VerboseCalls)
+	}
+}
+
+// TestStartDockerdIfPresentUsesFuseOverlayfsDefault guards #489 end to end from
+// the start path: countingSandbox reports the fuse-overlayfs probe as available,
+// so the detached dockerd job must be launched with --storage-driver=fuse-overlayfs.
+func TestStartDockerdIfPresentUsesFuseOverlayfsDefault(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	sb := newCountingSandbox(1)
+
+	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
+		t.Fatalf("startDockerdIfPresent: %v", err)
+	}
+	if sb.execArgs == nil || !slices.Contains(*sb.execArgs, "--storage-driver="+fuseOverlayfsStorageDriver) {
+		t.Fatalf("expected dockerd launched with the fuse-overlayfs driver; got %v", sb.execArgs)
 	}
 }
 
