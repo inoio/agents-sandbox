@@ -72,6 +72,37 @@ func TestHermesImageSpec(t *testing.T) {
 	}
 }
 
+// TestHermesImageSpecPrunesBuildOnlyTrees pins the build-only prune. The
+// installer's completion tail writes install-stamp.json, so version_info reads
+// the stamp before git and `hermes --version` survives dropping .git; the other
+// trees are not read at runtime. The prune must run after the launcher guard,
+// so a failed install never reaches it.
+func TestHermesImageSpecPrunesBuildOnlyTrees(t *testing.T) {
+	a, _ := agent.Lookup("hermes")
+	cmd := a.ImageSpec().InstallCommand
+
+	prunePaths := []string{
+		"/opt/agents-sandbox/hermes/.git",
+		"/opt/agents-sandbox/hermes/tests",
+		"/opt/agents-sandbox/hermes/website",
+		"/opt/agents-sandbox/hermes/apps",
+		"/opt/agents-sandbox/hermes-home/cache/uv",
+	}
+	if !strings.Contains(cmd, "rm -rf "+strings.Join(prunePaths, " ")) {
+		t.Errorf("InstallCommand = %q, want it to prune %v", cmd, prunePaths)
+	}
+	// optional-skills feeds the skills hub (tools/skills_sync_optional.py), so
+	// it stays even though it is build-only-ish.
+	if strings.Contains(cmd, "optional-skills") {
+		t.Errorf("InstallCommand = %q must keep optional-skills (the skills hub reads it)", cmd)
+	}
+	guard := strings.Index(cmd, "install layout changed")
+	prune := strings.LastIndex(cmd, "rm -rf")
+	if guard < 0 || prune < 0 || prune < guard {
+		t.Errorf("prune must run after the launcher guard: %q", cmd)
+	}
+}
+
 func TestHermesAttachCommand(t *testing.T) {
 	a, _ := agent.Lookup("hermes")
 	runner, ok := agent.AsAttachRunner(a)
