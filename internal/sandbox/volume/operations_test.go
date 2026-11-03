@@ -25,9 +25,7 @@ func TestVolumeOps_DryRun(t *testing.T) {
 		{
 			name: "migrate",
 			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termio.Mock) error {
-				return CmdMigrate(
-					ctx,
-					state.Key{Slug: slug, Agent: "opencode"},
+				return CmdMigrate(ctx, docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 					"",
 					image.ImageInfo{DockerTag: imageTag, Ref: imageTag, Digest: "sha256:abc"},
 					rmOld,
@@ -40,9 +38,7 @@ func TestVolumeOps_DryRun(t *testing.T) {
 		{
 			name: "reset",
 			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termio.Mock) error {
-				return CmdReset(
-					ctx,
-					state.Key{Slug: slug, Agent: "opencode"},
+				return CmdReset(ctx, docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 					"",
 					image.ImageInfo{DockerTag: imageTag, Ref: imageTag, Digest: "sha256:abc"},
 					rmOld,
@@ -55,9 +51,7 @@ func TestVolumeOps_DryRun(t *testing.T) {
 		{
 			name: "edit",
 			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termio.Mock) error {
-				return CmdEdit(
-					ctx,
-					state.Key{Slug: slug, Agent: "opencode"},
+				return CmdEdit(ctx, docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 					"",
 					image.ImageInfo{DockerTag: imageTag, Ref: imageTag, Digest: "sha256:abc"},
 					rmOld,
@@ -104,9 +98,7 @@ func TestCmdReset_Success(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
-	err := CmdReset(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
@@ -148,9 +140,7 @@ func TestVolumeOp_RecordsCurrentImageDigest(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
-	err := CmdReset(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
@@ -193,9 +183,7 @@ func TestVolumeOp_PreservesEnvSecretFingerprints(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	err := CmdReset(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
@@ -224,9 +212,7 @@ func TestVolumeOp_PreservesEnvSecretFingerprints(t *testing.T) {
 
 func TestCmdMigrate_NoStateFile(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
-	err := CmdMigrate(
-		context.Background(),
-		state.Key{Slug: "noproject", Agent: "opencode"},
+	err := CmdMigrate(context.Background(), docker.Get(), state.Key{Slug: "noproject", Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
@@ -252,9 +238,7 @@ func TestVolumeOp_CreateVolumeFails(t *testing.T) {
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
 		return nil, errors.New("create failed")
 	}
-	err := CmdReset(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
@@ -277,9 +261,7 @@ func TestCmdReset_WithExplicitOldVolume(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "from-state-vol", ImageDigest: "sha256:abc"},
 	)
-	err := CmdReset(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"explicit-vol",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
@@ -311,9 +293,7 @@ func TestVolumeOp_ActiveVM_ReturnsError(t *testing.T) {
 	mock.Sandboxes = []msb.SandboxHandle{
 		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-testproj-aBc1234D", Status_: msbSdk.SandboxStatusRunning},
 	}
-	err := CmdReset(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
@@ -350,9 +330,7 @@ func TestVolumeOp_MainFails_RemovesNewVolume(t *testing.T) {
 		createdVol = name
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
-	err := CmdMigrate(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdMigrate(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
@@ -388,9 +366,7 @@ func TestCmdEdit_DryRun(t *testing.T) {
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
 
-	err := CmdEdit(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdEdit(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
 		false,
@@ -428,9 +404,7 @@ func TestCmdEdit_MainPath(t *testing.T) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	err := CmdEdit(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdEdit(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
 		false,
@@ -475,9 +449,7 @@ func TestCmdEdit_MainFails_RemovesVolume(t *testing.T) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	err := CmdEdit(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdEdit(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
 		false,
@@ -522,9 +494,7 @@ func TestCmdEdit_AttachError_Warns(t *testing.T) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	err := CmdEdit(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdEdit(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
 		false,
@@ -563,13 +533,12 @@ func TestVolumeOpAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	err := volumeOp(
-		context.Background(), key, "",
+	err := volumeOp(context.Background(), docker.Get(), key, "",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false, false,
 		volCallbacks{
 			dryRun: func(string) string { return "" },
-			main: func(_ msb.Client, oldVolume, _ string) error {
+			main: func(_ msb.Client, _ docker.Client, oldVolume, _ string) error {
 				if oldVolume != "vol-1" {
 					t.Fatalf("snapshot home volume = %q, want vol-1", oldVolume)
 				}
@@ -643,9 +612,7 @@ func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	err := CmdMigrate(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdMigrate(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,
@@ -691,9 +658,7 @@ func TestCmdReset_RemOldVolume(t *testing.T) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	err := CmdReset(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		true,
@@ -731,9 +696,7 @@ func TestVolumeOp_ExplicitOldVolume(t *testing.T) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	err := CmdReset(
-		context.Background(),
-		state.Key{Slug: slug, Agent: "opencode"},
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"explicit-vol",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
 		false,
@@ -770,7 +733,7 @@ func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
 	}
 
 	mockUI := &termio.Mock{}
-	vm := NewManager()
+	vm := NewManager(docker.Get())
 	_, _, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -817,7 +780,7 @@ func TestResolveHomeVolume_MissingRecordedVolumeStartsFresh(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager()
+	vm := NewManager(docker.Get())
 	volName, st, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -865,9 +828,7 @@ func TestVolumeOp_UsesRecoveredHomeVolumeAsSource(t *testing.T) {
 	seedHomeState(key, state.HomeState{RecoveredHomeVolume: recovered})
 	seedAdoptionClaim(t, "widget-aaa", "opencode", key.Slug, recovered)
 
-	err := CmdReset(
-		context.Background(),
-		key,
+	err := CmdReset(context.Background(), docker.Get(), key,
 		"",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		true,
@@ -916,9 +877,7 @@ func TestVolumeOp_ClearsRecoveredHomeVolumeWithExplicitSource(t *testing.T) {
 	key := state.Key{Slug: "testproj-aBc1234D", Agent: "opencode"}
 	seedHomeState(key, state.HomeState{RecoveredHomeVolume: "stale-marker"})
 
-	err := CmdReset(
-		context.Background(),
-		key,
+	err := CmdReset(context.Background(), docker.Get(), key,
 		"explicit-vol",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		false,

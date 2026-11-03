@@ -16,8 +16,8 @@ type runnerImageState struct {
 
 // inspectRunnerImage reads the runner image's identity labels. A missing image
 // or one without config is reported as absent so the caller rebuilds.
-func inspectRunnerImage(ctx context.Context, rTag string) runnerImageState {
-	inspect, err := docker.Get().ImageInspect(ctx, rTag)
+func inspectRunnerImage(ctx context.Context, dclient docker.Client, rTag string) runnerImageState {
+	inspect, err := dclient.ImageInspect(ctx, rTag)
 	if err != nil || inspect.Config == nil {
 		return runnerImageState{}
 	}
@@ -36,8 +36,8 @@ func inspectRunnerImage(ctx context.Context, rTag string) runnerImageState {
 // dropped the global current_version). It returns false when the image is
 // absent, predates the label, or carries a non-release sentinel
 // (none / user-provided).
-func ExistingAgentVersion(ctx context.Context, projectSlug, agentName string) (string, bool) {
-	state := inspectRunnerImage(ctx, runnerTag(projectSlug, agentName))
+func ExistingAgentVersion(ctx context.Context, dclient docker.Client, projectSlug, agentName string) (string, bool) {
+	state := inspectRunnerImage(ctx, dclient, runnerTag(projectSlug, agentName))
 	if !state.Present {
 		return "", false
 	}
@@ -61,6 +61,7 @@ func agentReleaseFromLabels(labels map[string]string) string {
 // would have rebuilt it are still returned so the caller can name them.
 func buildDecision(
 	ctx context.Context,
+	dclient docker.Client,
 	rTag string,
 	buildOpts BuildOptions,
 	dockerfileID string,
@@ -69,7 +70,7 @@ func buildDecision(
 	if buildOpts.Force {
 		return true, []string{"forced by --rebuild"}
 	}
-	state := inspectRunnerImage(ctx, rTag)
+	state := inspectRunnerImage(ctx, dclient, rTag)
 	needsBuild, reasons := buildReasons(state, dockerfileID, identity)
 	if buildOpts.NoRebuild && state.Present {
 		return false, reasons
@@ -147,8 +148,8 @@ func hasIdentityLabels(labels map[string]string) bool {
 // image. The loaded microsandbox image is a passthrough of the Docker image, so
 // reading from Docker is equivalent to reading from microsandbox and avoids
 // requiring the image to be loaded first.
-func readImageInfoFromDocker(ctx context.Context, rTag string) (map[string]string, error) {
-	inspect, err := docker.Get().ImageInspect(ctx, rTag)
+func readImageInfoFromDocker(ctx context.Context, dclient docker.Client, rTag string) (map[string]string, error) {
+	inspect, err := dclient.ImageInspect(ctx, rTag)
 	if err != nil {
 		return nil, err
 	}

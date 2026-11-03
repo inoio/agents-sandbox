@@ -14,7 +14,7 @@ import (
 
 func TestEnsureImageReportsBakedAgentVersion(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	rendered, err := RenderDockerfile(a, "1.2.3", nil, dockerOff)
 	if err != nil {
@@ -36,7 +36,15 @@ func TestEnsureImageReportsBakedAgentVersion(t *testing.T) {
 		},
 	})
 
-	info, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{})
+	info, err := EnsureImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		a,
+		"proj",
+		BuildOptions{},
+		&termio.Mock{},
+	)
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -47,7 +55,7 @@ func TestEnsureImageReportsBakedAgentVersion(t *testing.T) {
 
 func TestEnsureImageReportsEmptyForSentinelLabel(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	rendered, err := RenderDockerfile(a, "1.2.3", nil, dockerOff)
 	if err != nil {
@@ -69,7 +77,15 @@ func TestEnsureImageReportsEmptyForSentinelLabel(t *testing.T) {
 		},
 	})
 
-	info, err := EnsureImage(context.Background(), a, "proj", BuildOptions{}, &termio.Mock{})
+	info, err := EnsureImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		a,
+		"proj",
+		BuildOptions{},
+		&termio.Mock{},
+	)
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}

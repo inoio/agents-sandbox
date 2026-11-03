@@ -8,7 +8,10 @@ read_if: Adding or changing host config/home path resolution, or writing tests t
 ## Contract
 
 `internal/configpaths` is the single authority for the **host** paths agents-sandbox resolves. `configpaths.Get()`
-returns a `ConfigPaths`; production code obtains host paths through it, never by hand-building them.
+returns a `ConfigPaths`; production code obtains host paths through it, never by hand-building them. Since #502 the
+resolver is also injected below each entry point (image render helpers, `vm.AdoptLegacyIdentity`, `viperconfig`, the
+prepare/upgrade migrations) so those call sites take a `ConfigPaths` parameter; `Get()` remains the boundary factory and
+the process-root residue (`state`, `runtime`/`MSBHome`, `homeconfig`) — see `client-injection.md`.
 
 - Methods cover the tool's XDG dirs (`UserConfigDir`/`UserCacheDir`/`UserStateDir`/`UserDataDir`), the per-agent
   config dirs, the project config dir, the env/secret/Dockerfile paths, and `UserHomeDir() (string, error)` — the host

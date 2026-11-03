@@ -96,6 +96,7 @@ var renameConfigDir = os.Rename
 // (#333).
 func AdoptLegacyIdentity(
 	ctx context.Context,
+	paths configpaths.ConfigPaths,
 	client msb.Client,
 	identity git.Identity,
 	agentName string,
@@ -115,7 +116,7 @@ func AdoptLegacyIdentity(
 
 	notAdopted := IdentityAdoption{Slug: source.Slug, Pending: true}
 	if !apply {
-		ui.Warnf("%s", adoptionNotice(identity, agentName, source.HomeVolume, false))
+		ui.Warnf("%s", adoptionNotice(paths, identity, agentName, source.HomeVolume, false))
 		// Resolve the caller's remaining work against the source the state was
 		// actually found under, not always the repo slug: for a bare root the
 		// pending state can live under the path-derived legacy slug, and a
@@ -141,9 +142,10 @@ func AdoptLegacyIdentity(
 			result = IdentityAdoption{Slug: identity.CheckoutSlug}
 			return nil
 		}
-		ui.Warnf("%s", adoptionNotice(identity, agentName, source.HomeVolume, true))
+		ui.Warnf("%s", adoptionNotice(paths, identity, agentName, source.HomeVolume, true))
 		if adoptErr := adoptLegacyIdentity(
 			ctx,
+			paths,
 			client,
 			identity,
 			slugs,
@@ -377,6 +379,7 @@ func legacyAdoptionPending(
 // every moved key's per-key locks (see adoptionLockKeys).
 func adoptLegacyIdentity(
 	ctx context.Context,
+	paths configpaths.ConfigPaths,
 	client msb.Client,
 	identity git.Identity,
 	slugs []string,
@@ -406,7 +409,7 @@ func adoptLegacyIdentity(
 		if adoptKeysLockedHook != nil {
 			adoptKeysLockedHook()
 		}
-		return migrateLegacyState(ctx, client, identity, slugs, checkoutKey, source, ui)
+		return migrateLegacyState(ctx, paths, client, identity, slugs, checkoutKey, source, ui)
 	})
 }
 
@@ -415,6 +418,7 @@ func adoptLegacyIdentity(
 // held (see adoptLegacyIdentity).
 func migrateLegacyState(
 	ctx context.Context,
+	paths configpaths.ConfigPaths,
 	client msb.Client,
 	identity git.Identity,
 	slugs []string,
@@ -453,7 +457,7 @@ func migrateLegacyState(
 		adoptKeysLockedHook()
 	}
 
-	if err := migrateLegacyConfigDirs(identity, ui); err != nil {
+	if err := migrateLegacyConfigDirs(paths, identity, ui); err != nil {
 		return err
 	}
 
@@ -563,8 +567,7 @@ func destroyLegacyVM(ctx context.Context, client msb.Client, repoKey state.Key, 
 // bare root's path-derived slug); a source whose slug is the repo slug already
 // reads the right directory. An absent legacy directory, or an existing target,
 // is left alone.
-func migrateLegacyConfigDirs(identity git.Identity, ui termio.Logger) error {
-	paths := configpaths.Get()
+func migrateLegacyConfigDirs(paths configpaths.ConfigPaths, identity git.Identity, ui termio.Logger) error {
 	for _, slug := range identity.LegacyRepoSlugs {
 		if slug == identity.RepoSlug {
 			continue
@@ -591,7 +594,12 @@ func migrateLegacyConfigDirs(identity git.Identity, ui termio.Logger) error {
 // work starts, so its rows are prospective ("destroyed", "recreated") rather
 // than a receipt, and one Warnf call carries it because the notice must survive
 // --quiet — it changes where the project's state lives.
-func adoptionNotice(identity git.Identity, agentName, legacyVolume string, apply bool) string {
+func adoptionNotice(
+	paths configpaths.ConfigPaths,
+	identity git.Identity,
+	agentName, legacyVolume string,
+	apply bool,
+) string {
 	headline := "Migrating this checkout to its own project identity (repository + checkout slugs)."
 	if !apply {
 		headline = "Would migrate this checkout to its own project identity (repository + checkout slugs)."
@@ -614,7 +622,6 @@ func adoptionNotice(identity git.Identity, agentName, legacyVolume string, apply
 		)
 	}
 	if len(identity.LegacyRepoSlugs) > 0 {
-		paths := configpaths.Get()
 		fmt.Fprintf(
 			&configRow,
 			"\n  config dir    %s  ->  %s   (if present)",

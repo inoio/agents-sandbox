@@ -1265,7 +1265,7 @@ func TestRenderProjectDockerfileReadsProjectFile(t *testing.T) {
 	configpaths.Get = func() configpaths.ConfigPaths { return &projectDockerfilePaths{dir: dir} }
 	t.Cleanup(func() { configpaths.Get = orig })
 
-	out, err := RenderProjectDockerfile(a, testAgentVersion, dockerOff)
+	out, err := RenderProjectDockerfile(configpaths.Get(), a, testAgentVersion, dockerOff)
 	if err != nil {
 		t.Fatalf("RenderProjectDockerfile: %v", err)
 	}
@@ -1287,7 +1287,7 @@ func TestRenderProjectDockerfileNoProjectFile(t *testing.T) {
 	configpaths.Get = func() configpaths.ConfigPaths { return &projectDockerfilePaths{dir: dir} }
 	t.Cleanup(func() { configpaths.Get = orig })
 
-	out, err := RenderProjectDockerfile(a, testAgentVersion, dockerOff)
+	out, err := RenderProjectDockerfile(configpaths.Get(), a, testAgentVersion, dockerOff)
 	if err != nil {
 		t.Fatalf("RenderProjectDockerfile: %v", err)
 	}

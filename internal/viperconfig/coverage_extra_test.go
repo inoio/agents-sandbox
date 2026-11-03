@@ -25,7 +25,7 @@ func TestNewResolverPerSlugMergeError(t *testing.T) {
 	}
 	testutil.WriteFile(t, slugDir, "config.yaml", "cpus: 2\n  memory: [\n")
 
-	_, err := NewResolver(nil, "slug")
+	_, err := NewResolver(nil, configpaths.Get(), "slug")
 	if err == nil {
 		t.Fatal("expected error for malformed per-slug config")
 	}
@@ -37,7 +37,7 @@ func TestNewResolverProjectMergeError(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "cpus: 2\n  memory: [\n")
 
-	_, err := NewResolver(nil, "")
+	_, err := NewResolver(nil, configpaths.Get(), "")
 	if err == nil {
 		t.Fatal("expected error for malformed project config")
 	}
@@ -51,7 +51,7 @@ func TestNewResolverUnreadableConfig(t *testing.T) {
 		t.Fatalf("mkdir config.yaml: %v", err)
 	}
 
-	_, err := NewResolver(nil, "")
+	_, err := NewResolver(nil, configpaths.Get(), "")
 	if err == nil {
 		t.Fatal("expected error reading a directory as config")
 	}
@@ -69,7 +69,7 @@ func TestNewResolverInvalidJSON5(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserConfigDir(), "config.json5", `{"cpus": }`)
 
-	_, err := NewResolver(nil, "")
+	_, err := NewResolver(nil, configpaths.Get(), "")
 	if err == nil {
 		t.Fatal("expected error for malformed json5 config")
 	}
@@ -88,7 +88,7 @@ func TestNewResolverJSON5MarshalError(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserConfigDir(), "config.json5", `{"cpus": NaN}`)
 
-	_, err := NewResolver(nil, "")
+	_, err := NewResolver(nil, configpaths.Get(), "")
 	if err == nil {
 		t.Fatal("expected error for non-serializable json5 config")
 	}
@@ -107,7 +107,7 @@ func TestNewResolverInvalidJSON(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserConfigDir(), "config.json", `{"cpus": }`)
 
-	_, err := NewResolver(nil, "")
+	_, err := NewResolver(nil, configpaths.Get(), "")
 	if err == nil {
 		t.Fatal("expected error for malformed json config")
 	}
@@ -125,7 +125,7 @@ func TestNewResolverInvalidAutoStopTimeout(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"auto-stop-timeout": 0})
 
-	_, err := NewResolver(nil, "")
+	_, err := NewResolver(nil, configpaths.Get(), "")
 	if err == nil {
 		t.Fatal("expected error for auto-stop-timeout 0")
 	}
@@ -137,7 +137,7 @@ func TestNewResolverValidPruneAge(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"auto-prune-age": "7d"})
 
-	r, err := NewResolver(nil, "")
+	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestNewResolverSurfacesDecodeError(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"memory": []any{1, 2}})
 
-	_, err := NewResolver(nil, "")
+	_, err := NewResolver(nil, configpaths.Get(), "")
 	if err == nil {
 		t.Fatal("expected a decode error for a list-valued memory key")
 	}

@@ -23,8 +23,8 @@ import (
 // (generic user dir, per-slug user dir when slug is non-empty, project dir,
 // legacy env, env, flags). NewResolver merges the file layers from this slice,
 // so the order shown to the user and the order actually merged cannot drift.
-func ConfigLayers(slug string) []ConfigLayer {
-	cfg := configpaths.Get()
+func ConfigLayers(paths configpaths.ConfigPaths, slug string) []ConfigLayer {
+	cfg := paths
 	layers := []ConfigLayer{
 		fileLayer(LayerNameGenericUserConfig, cfg.UserConfigDir()),
 	}
@@ -55,10 +55,10 @@ func fileLayer(name, dir string) ConfigLayer {
 // flags. The file layers and their order come from ConfigLayers so the merged
 // order matches the order ConfigLayers reports. cmd may be nil to skip flag
 // binding.
-func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
+func NewResolver(cmd *cobra.Command, paths configpaths.ConfigPaths, slug string) (*Resolver, error) {
 	v := viper.New()
 
-	for _, layer := range ConfigLayers(slug) {
+	for _, layer := range ConfigLayers(paths, slug) {
 		// mergeDir with an empty path is a no-op, so the env and flag
 		// layers need no guard here.
 		if err := mergeDir(v, layer.Path); err != nil {
@@ -112,8 +112,8 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	cfg.Notify = decodeNotify(v)
 
 	homeLayers, hasHome, err := homeconfig.LoadLayers([]string{
-		configpaths.Get().UserConfigDir(),
-		configpaths.Get().ProjectConfigDir(),
+		paths.UserConfigDir(),
+		paths.ProjectConfigDir(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("decode launcher config: %w", err)

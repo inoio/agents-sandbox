@@ -17,7 +17,6 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
-	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -179,8 +178,8 @@ func startJourney(
 func runRealStartupPrune(t *testing.T) {
 	t.Helper()
 	original := autoPrune
-	autoPrune = func(ctx context.Context, age time.Duration, dryRun bool, ui termio.UI, retain ...state.Key) {
-		if _, err := pruning.Prune(ctx, age, dryRun, ui, retain...); err != nil {
+	autoPrune = func(ctx context.Context, dclient docker.Client, age time.Duration, dryRun bool, ui termio.UI, retain ...state.Key) {
+		if _, err := pruning.Prune(ctx, dclient, age, dryRun, ui, retain...); err != nil {
 			t.Errorf("startup prune: %v", err)
 		}
 	}
@@ -275,16 +274,12 @@ func TestAgentVersionFollowsTheImageLabel(t *testing.T) {
 // that requests a specific release gets that release.
 func withLatestAgentRelease(t *testing.T, version string) {
 	t.Helper()
-	image.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, requested string) (string, error) {
+	withMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, requested string) (string, error) {
 		if requested != "" {
 			return requested, nil
 		}
 		return version, nil
 	})
-	original := prepare.SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
-		return version, nil
-	})
-	t.Cleanup(func() { prepare.SetAgentLatestVersion(original) })
 }
 
 // expireAgentUpgradeCheck clears the machine-global agent upgrade check so the

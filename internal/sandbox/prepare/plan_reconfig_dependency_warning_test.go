@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -39,7 +40,7 @@ func TestPlanReconfigStageWarnsAboutUnprovisionedConfigDirDependencies(t *testin
 	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
 	home := preparedHome{
 		client:     client,
-		volumes:    volume.NewManager(),
+		volumes:    volume.NewManager(docker.Get()),
 		homeVolume: "vol",
 		homeState:  state.HomeState{HomeVolume: "vol"},
 	}

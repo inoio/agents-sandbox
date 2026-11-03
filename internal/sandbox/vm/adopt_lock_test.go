@@ -121,7 +121,7 @@ func TestAdoptLegacyIdentityFailsWhenALaterLegacySlugIsUnreadable(t *testing.T) 
 	}}
 	ui := termio.NewTestMock(t)
 
-	_, err := AdoptLegacyIdentity(context.Background(), client, identity, adoptAgentName, true, &ui)
+	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client, identity, adoptAgentName, true, &ui)
 	if err == nil {
 		t.Fatal("expected an unreadable later legacy slug to abort adoption")
 	}
@@ -179,9 +179,7 @@ func TestAdoptLegacyIdentityHoldsKeyLocksAcrossTheMove(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	if _, err := AdoptLegacyIdentity(
-		context.Background(),
-		client,
+	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
 		adoptAgentName,
 		true,
@@ -208,9 +206,7 @@ func TestAdoptLegacyIdentityReleasesKeyLocksOnDestroyFailure(t *testing.T) {
 	}}
 	ui := termio.NewTestMock(t)
 
-	if _, err := AdoptLegacyIdentity(
-		context.Background(),
-		client,
+	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
 		adoptAgentName,
 		true,

@@ -13,8 +13,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
@@ -171,7 +173,7 @@ func runStartupStages(
 	r := resolverFromContext(cmd.Context())
 	isDryRun := mode.Previews()
 	opts.Trace.Record(lifecycle.Preflight)
-	if !isDryRun && !doctor.CheckAll(cmd.Context(), ui) {
+	if !isDryRun && !doctor.CheckAll(cmd.Context(), docker.Get(), ui) {
 		return false, errors.New("preflight failed")
 	}
 	opts.Trace.Record(lifecycle.UpgradeCheck)
@@ -185,6 +187,7 @@ func runStartupStages(
 	if r != nil {
 		autoPrune(
 			cmd.Context(),
+			docker.Get(),
 			r.AutoPruneAge(),
 			isDryRun,
 			&autoPruneOutToVerboseRedirect{UI: ui},
@@ -241,6 +244,7 @@ func checkForUpgrade(ctx context.Context, r *launcherconfig.Resolver, ui termio.
 		AllowAnyVersion: upgradeAnyVersionEnabled(),
 		UI:              ui,
 		Store:           launcherStore{},
+		Paths:           configpaths.Get(),
 	})
 	if err != nil {
 		return false, err

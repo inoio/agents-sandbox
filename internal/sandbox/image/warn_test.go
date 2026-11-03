@@ -73,7 +73,7 @@ func TestWarnIgnoredProjectConfigWarnsForBareWorktreeConfig(t *testing.T) {
 	bareBase := filepath.Join(physicalPath(t, filepath.Dir(worktree)), ".agents-sandbox")
 
 	ui := &termio.Mock{}
-	WarnIgnoredProjectConfig(ui)
+	WarnIgnoredProjectConfig(configpaths.Get(), ui)
 
 	if len(ui.WarnCalls) != 1 {
 		t.Fatalf("WarnCalls = %v, want exactly one warning", ui.WarnCalls)
@@ -96,7 +96,7 @@ func TestWarnIgnoredProjectConfigSilentWithoutWorktreeConfig(t *testing.T) {
 	synthesizeBareWorktree(t, false)
 
 	ui := &termio.Mock{}
-	WarnIgnoredProjectConfig(ui)
+	WarnIgnoredProjectConfig(configpaths.Get(), ui)
 
 	if len(ui.WarnCalls) != 0 {
 		t.Errorf("WarnCalls = %v, want no warning", ui.WarnCalls)
@@ -114,7 +114,7 @@ func TestWarnIgnoredProjectConfigWarnsFromWorktreeSubdirectory(t *testing.T) {
 	t.Chdir(sub)
 
 	ui := &termio.Mock{}
-	WarnIgnoredProjectConfig(ui)
+	WarnIgnoredProjectConfig(configpaths.Get(), ui)
 
 	ignored := physicalPath(t, filepath.Join(worktree, ".agents-sandbox"))
 	if len(ui.WarnCalls) != 1 {

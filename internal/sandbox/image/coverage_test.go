@@ -18,7 +18,7 @@ import (
 
 func TestEnsureImageSuccess(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -29,7 +29,15 @@ func TestEnsureImageSuccess(t *testing.T) {
 		},
 	})
 
-	info, err := EnsureImage(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{})
+	info, err := EnsureImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		a,
+		"test-project",
+		BuildOptions{},
+		&termio.Mock{},
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -40,13 +48,11 @@ func TestEnsureImageSuccess(t *testing.T) {
 
 func TestEnsureImageReturnsError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
 	docker.WithDefaultErrorDockerMock(t)
 
-	_, err := EnsureImage(
-		context.Background(),
-		a,
+	_, err := EnsureImage(context.Background(), docker.Get(), configpaths.Get(), a,
 		"test-project",
 		BuildOptions{Force: true},
 		&termio.Mock{},
@@ -58,7 +64,7 @@ func TestEnsureImageReturnsError(t *testing.T) {
 
 func TestBuildSuccess(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -74,7 +80,16 @@ func TestBuildSuccess(t *testing.T) {
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
-	if _, err := Build(context.Background(), msbClient, a, "test-project", BuildOptions{}, &termio.Mock{}); err != nil {
+	if _, err := Build(
+		context.Background(),
+		docker.Get(),
+		msbClient,
+		configpaths.Get(),
+		a,
+		"test-project",
+		BuildOptions{},
+		&termio.Mock{},
+	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(msbClient.LoadedImages) != 1 {
@@ -84,12 +99,10 @@ func TestBuildSuccess(t *testing.T) {
 
 func TestBuildReturnsErrorWhenImageBuildFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
 	docker.WithDefaultErrorDockerMock(t)
-	if _, err := Build(
-		context.Background(),
-		&msb.MockMsbClient{},
+	if _, err := Build(context.Background(), docker.Get(), &msb.MockMsbClient{}, configpaths.Get(),
 		a,
 		"test-project",
 		BuildOptions{Force: true},
@@ -101,7 +114,7 @@ func TestBuildReturnsErrorWhenImageBuildFails(t *testing.T) {
 
 func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -118,7 +131,16 @@ func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 
-	if _, err := Build(context.Background(), msbClient, a, "test-project", BuildOptions{}, &termio.Mock{}); err == nil {
+	if _, err := Build(
+		context.Background(),
+		docker.Get(),
+		msbClient,
+		configpaths.Get(),
+		a,
+		"test-project",
+		BuildOptions{},
+		&termio.Mock{},
+	); err == nil {
 		t.Error("expected Build to return an error when loading the image into microsandbox fails")
 	}
 }
@@ -126,11 +148,10 @@ func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 func TestEnsureImageReturnsErrorWhenVersionResolveFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a, _ := agent.Lookup("opencode")
-	WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
+	withMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "", errors.New("resolve boom")
 	})
-	_, err := EnsureImageWithClient(
-		context.Background(), a, []byte("FROM x\n"), "test-project",
+	_, err := EnsureImageWithClient(context.Background(), docker.Get(), a, []byte("FROM x\n"), "test-project",
 		BuildOptions{}, &termio.Mock{},
 	)
 	if err == nil {
@@ -141,7 +162,7 @@ func TestEnsureImageReturnsErrorWhenVersionResolveFails(t *testing.T) {
 func TestEnsureImageReturnsErrorWhenDeferredVersionResolveFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a, _ := agent.Lookup("opencode")
-	WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, requested string) (string, error) {
+	withMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, requested string) (string, error) {
 		if requested != "" {
 			t.Errorf("resolver requested = %q, want empty version", requested)
 		}
@@ -155,8 +176,7 @@ func TestEnsureImageReturnsErrorWhenDeferredVersionResolveFails(t *testing.T) {
 					Labels: map[string]string{dockerfileIDLabelKey: "stale"}}}, nil
 		},
 	})
-	_, err := EnsureImageWithClient(
-		context.Background(), a, []byte("FROM x\n"), "test-project",
+	_, err := EnsureImageWithClient(context.Background(), docker.Get(), a, []byte("FROM x\n"), "test-project",
 		BuildOptions{UserProvided: true}, &termio.Mock{},
 	)
 	if err == nil {

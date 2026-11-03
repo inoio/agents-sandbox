@@ -196,7 +196,7 @@ func TestConfigDockerSource(t *testing.T) {
 				}
 			}
 
-			r, err := NewResolver(cmd, "")
+			r, err := NewResolver(cmd, configpaths.Get(), "")
 			if err != nil {
 				t.Fatalf("NewResolver: %v", err)
 			}
@@ -213,7 +213,7 @@ func TestConfigDockerSourceWithoutDockerFlag(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	root := &cobra.Command{Use: "root"}
 
-	r, err := NewResolver(root, "")
+	r, err := NewResolver(root, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}

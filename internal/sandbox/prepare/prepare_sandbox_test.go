@@ -17,7 +17,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
-	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -38,7 +37,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	// The resolver records the requested version and returns it, so the test
 	// observes exactly what PrepareSandbox passed instead of a network lookup.
 	var requested string
-	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
+	withMockBuildVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
 		requested = req
 		return req, nil
 	})
@@ -220,7 +219,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "home:\n  missing-file.txt: missing-file.txt\n")
 
 	// Pin the resolved opencode version so image resolution needs no network.
-	sandboximage.WithMockAgentVersion(t, "1.0.0")
+	withMockAgentLatestVersion(t, "1.0.0")
 
 	// The image is considered up to date: the same version is "latest", so
 	// resolveBuildVersion does not offer a rebuild.
@@ -326,9 +325,6 @@ func TestPrepareSandboxLoadsEnvSecretsOnce(t *testing.T) {
 	// warning; the loaded value is threaded instead, so it warns once (#342).
 	testutil.WriteFile(t, cp.ProjectConfigDir(), configpaths.EnvSecretFileName, "TOKEN=missing-host\n")
 
-	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
-		return req, nil
-	})
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
@@ -420,9 +416,6 @@ func TestPrepareSandboxBakesAndFingerprintsTheLoadedEnv(t *testing.T) {
 	testutil.WriteFile(t, cp.UserConfigDir(), configpaths.EnvFileName, "FROM_HOST=yes\n")
 	testutil.WriteFile(t, cp.UserConfigDir(), configpaths.EnvSecretFileName, "TOKEN=value-a@api.example.com\n")
 
-	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
-		return req, nil
-	})
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
@@ -526,7 +519,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 			"    hook: startup\n"+
 			"    root: true\n")
 
-	sandboximage.WithMockAgentVersion(t, "1.0.0")
+	withMockAgentLatestVersion(t, "1.0.0")
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.0.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
@@ -609,9 +602,6 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
-		return req, nil
-	})
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
@@ -703,9 +693,6 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 func TestPrepareSandboxBlocksOnPendingRuntimeHomeMigration(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
-		return req, nil
-	})
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
@@ -769,9 +756,6 @@ func TestPrepareSandboxBlocksOnPendingRuntimeHomeMigration(t *testing.T) {
 func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
-		return req, nil
-	})
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
@@ -869,9 +853,6 @@ func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
-		return req, nil
-	})
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
@@ -960,7 +941,7 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 func TestPrepareSandboxRecordsBakedAgentVersion(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
+	withMockBuildVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "9.9.9", nil
 	})
 	origUpgradeInfo := agentLatestVersion
@@ -1034,9 +1015,6 @@ func TestPrepareSandboxRecordsBakedAgentVersion(t *testing.T) {
 func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	sandboximage.WithMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, req string) (string, error) {
-		return req, nil
-	})
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })

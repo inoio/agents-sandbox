@@ -94,8 +94,8 @@ func mockedCollectChecks(t *testing.T, warnings []string, errs []error) {
 	t.Cleanup(func() { collectChecksFunc = orig })
 }
 
-func collectChecksMockFunc(warnings []string, errs []error) func(context.Context) checkResults {
-	return func(context.Context) checkResults { return checkResults{infos: warnings, errs: errs} }
+func collectChecksMockFunc(warnings []string, errs []error) func(context.Context, docker.Client) checkResults {
+	return func(context.Context, docker.Client) checkResults { return checkResults{infos: warnings, errs: errs} }
 }
 
 func TestCheckAllAggregatesAllFailures(t *testing.T) {
@@ -105,7 +105,7 @@ func TestCheckAllAggregatesAllFailures(t *testing.T) {
 		errors.New("git broken"),
 	})
 
-	if realCheckAll(context.Background(), &testUI) {
+	if realCheckAll(context.Background(), docker.Get(), &testUI) {
 		t.Fatal("expected CheckAll to return false when checks fail")
 	}
 
@@ -122,7 +122,7 @@ func TestCheckAllRendersWarningsWhenAllPass(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	mockedCollectChecks(t, []string{"msb not in PATH"}, nil)
 
-	if !realCheckAll(context.Background(), &testUI) {
+	if !realCheckAll(context.Background(), docker.Get(), &testUI) {
 		t.Fatal("expected CheckAll to return true when there are no fatal failures")
 	}
 	if !slices.Contains(testUI.InfoCalls, "msb not in PATH") {
@@ -137,7 +137,7 @@ func TestRealCheckDockerPingUnreachable(t *testing.T) {
 		},
 	})
 
-	err := realCheckDocker(context.Background())
+	err := realCheckDocker(context.Background(), docker.Get())
 	if err == nil {
 		t.Fatal("expected realCheckDocker to fail when the daemon is unreachable")
 	}
@@ -158,7 +158,7 @@ func TestRealCheckDockerPingUnreachable(t *testing.T) {
 func TestRealCheckDockerPingOK(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{})
 
-	if err := realCheckDocker(context.Background()); err != nil {
+	if err := realCheckDocker(context.Background(), docker.Get()); err != nil {
 		t.Errorf("expected realCheckDocker to succeed when the ping succeeds, got %v", err)
 	}
 }
@@ -169,7 +169,7 @@ func TestCollectChecksAggregatesFailures(t *testing.T) {
 	MockedEnsureInstalled(t, false)
 	t.Setenv("PATH", "/nonexistent")
 
-	results := collectChecks(context.Background())
+	results := collectChecks(context.Background(), docker.Get())
 	if len(results.errs) == 0 {
 		t.Fatal("expected collectChecks to collect the docker failure")
 	}
@@ -191,7 +191,7 @@ func TestCollectChecksMsbInfoNamesPrivateHome(t *testing.T) {
 	MockedEnsureInstalled(t, false)
 	t.Setenv("PATH", "/nonexistent")
 
-	results := collectChecks(context.Background())
+	results := collectChecks(context.Background(), docker.Get())
 	for _, err := range results.errs {
 		if strings.Contains(err.Error(), "binary missing") || strings.Contains(err.Error(), "msb") {
 			t.Fatalf("expected no msb error, got %v", err)
@@ -217,7 +217,7 @@ func TestCollectChecksCollectsMsbError(t *testing.T) {
 	MockedCheckDocker(t, true)
 	MockedEnsureInstalled(t, true)
 
-	results := collectChecks(context.Background())
+	results := collectChecks(context.Background(), docker.Get())
 	joined := strings.Join(errStrings(results.errs), " ")
 	if !strings.Contains(joined, "msb runtime setup failed") {
 		t.Errorf("expected an msb setup failure, got %q", joined)
@@ -256,7 +256,7 @@ func TestCheckAllDelegates(t *testing.T) {
 	checkAllFunc = realCheckAll
 	t.Cleanup(func() { checkAllFunc = orig })
 
-	if CheckAll(context.Background(), &testUI) {
+	if CheckAll(context.Background(), docker.Get(), &testUI) {
 		t.Fatal("expected CheckAll to return false when a check fails")
 	}
 }
@@ -282,7 +282,7 @@ func TestCheckAllReportsMsbRuntimeFailureWithDocsLink(t *testing.T) {
 	t.Cleanup(func() { checkDockerFunc = origCheckDocker })
 
 	testUI := termio.NewTestMock(t)
-	if CheckAll(context.Background(), &testUI) {
+	if CheckAll(context.Background(), docker.Get(), &testUI) {
 		t.Fatal("expected CheckAll to fail when the msb runtime cannot be ensured")
 	}
 

@@ -137,6 +137,7 @@ func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	if err := buildImage(
 		context.Background(),
+		docker.Get(),
 		a,
 		testBuildRequest(dockerfile, "", "debian:trixie-slim", "", imageIdentity{}),
 		"tag",
@@ -173,7 +174,7 @@ func TestBuildImageNoCacheFollowsParameter(t *testing.T) {
 			docker.WithDockerMock(t, m)
 
 			if err := buildImage(
-				context.Background(), a,
+				context.Background(), docker.Get(), a,
 				testBuildRequest(dockerfile, "", "debian:trixie-slim", "", imageIdentity{}),
 				"tag",
 				noCache, func(string) {},
@@ -331,9 +332,7 @@ func TestEnsureImageReturnsErrorWhenBuildFails(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	l := &termio.Mock{}
 	docker.WithDefaultErrorDockerMock(t)
-	_, err := EnsureImageWithClient(
-		context.Background(),
-		a,
+	_, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
 		nil,
 		"test-project",
 		BuildOptions{Force: true},
@@ -382,7 +381,7 @@ func TestReferencesImageDindDoesNotMatchBase(t *testing.T) {
 func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	var tagged []string
 	m := &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -396,9 +395,7 @@ func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
 	docker.WithDockerMock(t, m)
 
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	_, err := EnsureImageWithClient(
-		context.Background(),
-		a,
+	_, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
 		dockerfile,
 		"test-project",
 		BuildOptions{},
@@ -415,7 +412,7 @@ func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
 func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
@@ -430,9 +427,7 @@ func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 		},
 	}
 	dockerfile := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo hi\n")
-	_, err := EnsureImageWithClient(
-		context.Background(),
-		a,
+	_, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
 		dockerfile,
 		"test-project",
 		BuildOptions{Force: false},
@@ -449,11 +444,11 @@ func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 func TestBuildImagePassesAgentVersionBuildArg(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
-	orig := resolveAgentVersion
-	resolveAgentVersion = func(_ context.Context, _ agent.Agent, requested string) (string, error) {
+	orig := defaultAgentVersionResolver
+	defaultAgentVersionResolver = func(_ context.Context, _ agent.Agent, requested string) (string, error) {
 		return requested, nil
 	}
-	t.Cleanup(func() { resolveAgentVersion = orig })
+	t.Cleanup(func() { defaultAgentVersionResolver = orig })
 
 	m := &docker.MockDockerClient{}
 	var captured map[string]*string
@@ -466,9 +461,7 @@ func TestBuildImagePassesAgentVersionBuildArg(t *testing.T) {
 	}
 	docker.WithDockerMock(t, m)
 
-	_, err := EnsureImageWithClient(
-		context.Background(),
-		a,
+	_, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: true, AgentVersion: "1.2.3"},
@@ -499,11 +492,11 @@ func TestBuildImagePassesAgentVersionBuildArg(t *testing.T) {
 func TestEnsureImageResolvesBaseDigestByRenderedRef(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
-	orig := resolveAgentVersion
-	resolveAgentVersion = func(_ context.Context, _ agent.Agent, requested string) (string, error) {
+	orig := defaultAgentVersionResolver
+	defaultAgentVersionResolver = func(_ context.Context, _ agent.Agent, requested string) (string, error) {
 		return requested, nil
 	}
-	t.Cleanup(func() { resolveAgentVersion = orig })
+	t.Cleanup(func() { defaultAgentVersionResolver = orig })
 
 	for _, tc := range []struct {
 		name             string
@@ -546,9 +539,7 @@ func TestEnsureImageResolvesBaseDigestByRenderedRef(t *testing.T) {
 			}
 			docker.WithDockerMock(t, m)
 
-			if _, err := EnsureImageWithClient(
-				context.Background(),
-				a,
+			if _, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
 				tc.project,
 				"test-project",
 				BuildOptions{Force: true, AgentVersion: "1.2.3"},
@@ -579,11 +570,11 @@ func TestEnsureImageResolvesBaseDigestByRenderedRef(t *testing.T) {
 func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
-	orig := resolveAgentVersion
-	resolveAgentVersion = func(_ context.Context, _ agent.Agent, _ string) (string, error) {
+	orig := defaultAgentVersionResolver
+	defaultAgentVersionResolver = func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "2.0.0", nil
 	}
-	t.Cleanup(func() { resolveAgentVersion = orig })
+	t.Cleanup(func() { defaultAgentVersionResolver = orig })
 
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -598,9 +589,7 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 
-	info, err := EnsureImageWithClient(
-		context.Background(),
-		a,
+	info, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
@@ -620,7 +609,7 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersion(t, "1.2.3")
+	withMockAgentVersion(t, "1.2.3")
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
@@ -631,9 +620,7 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 			}, nil
 		},
 	})
-	info, err := EnsureImageWithClient(
-		context.Background(),
-		a,
+	info, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
@@ -651,11 +638,11 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)
-	orig := resolveAgentVersion
-	resolveAgentVersion = func(_ context.Context, _ agent.Agent, _ string) (string, error) {
+	orig := defaultAgentVersionResolver
+	defaultAgentVersionResolver = func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "3.0.0", nil
 	}
-	t.Cleanup(func() { resolveAgentVersion = orig })
+	t.Cleanup(func() { defaultAgentVersionResolver = orig })
 
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -668,9 +655,7 @@ func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 
 	msbClient := &msb.MockMsbClient{}
 
-	info, err := EnsureImageWithClient(
-		context.Background(),
-		a,
+	info, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
@@ -771,7 +756,13 @@ func TestEnsureLoadedDecision(t *testing.T) {
 					return &msbSdk.ImageConfig{Digest: tc.msbDigest, Labels: tc.msbLabels}, nil
 				},
 			}
-			if _, err := EnsureLoaded(context.Background(), msbClient, tc.info, &termio.Mock{}); err != nil {
+			if _, err := EnsureLoaded(
+				context.Background(),
+				docker.Get(),
+				msbClient,
+				tc.info,
+				&termio.Mock{},
+			); err != nil {
 				t.Fatalf("EnsureLoaded: %v", err)
 			}
 			if hostInspected {
@@ -812,7 +803,7 @@ func TestEnsureLoadedReloadsStaleContentUnderSameRef(t *testing.T) {
 	}
 	ui := &termio.Mock{}
 	info := ImageInfo{DockerTag: rTag, Ref: rTag, Digest: "sha256:docker-new", DockerfileID: "abc"}
-	if _, err := EnsureLoaded(context.Background(), msbClient, info, ui); err != nil {
+	if _, err := EnsureLoaded(context.Background(), docker.Get(), msbClient, info, ui); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
 	if removeCalled {
@@ -834,7 +825,7 @@ func TestEnsureLoadedSkipsWhenCachedContentMatches(t *testing.T) {
 		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error { removed = true; return nil },
 	}
 	info := ImageInfo{DockerTag: "ref", Ref: "ref", Digest: "sha256:same"}
-	if _, err := EnsureLoaded(context.Background(), msbClient, info, &termio.Mock{}); err != nil {
+	if _, err := EnsureLoaded(context.Background(), docker.Get(), msbClient, info, &termio.Mock{}); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
 	if removed {
@@ -865,7 +856,7 @@ func TestEnsureLoadedReloadsLegacyImageWithoutDigest(t *testing.T) {
 		},
 	}
 	info := ImageInfo{DockerTag: "ref", Ref: "ref", Digest: "sha256:new", DockerfileID: "abc123"}
-	if _, err := EnsureLoaded(context.Background(), msbClient, info, &termio.Mock{}); err != nil {
+	if _, err := EnsureLoaded(context.Background(), docker.Get(), msbClient, info, &termio.Mock{}); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
 	if len(msbClient.LoadedImages) != 1 {
@@ -887,9 +878,7 @@ func TestEnsureLoadedLoadsWhenNotCached(t *testing.T) {
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
-	if _, err := EnsureLoaded(
-		context.Background(),
-		msbClient,
+	if _, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{
 			DockerTag: "agents-sandbox/runner-test-project:abc",
 			Ref:       "agents-sandbox/runner-test-project:abc",
@@ -922,9 +911,7 @@ func TestEnsureLoadedReturnsErrorWhenSaveFails(t *testing.T) {
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
-	_, err := EnsureLoaded(
-		context.Background(),
-		msbClient,
+	_, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{
 			DockerTag: "agents-sandbox/runner-test-project:abc",
 			Ref:       "agents-sandbox/runner-test-project:abc",

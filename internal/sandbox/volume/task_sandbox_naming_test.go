@@ -24,7 +24,7 @@ func TestPrefillSandboxNameIsPrefixFreeAndLabelled(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	ui := termio.NewTestMock(t)
 	client := &msb.MockMsbClient{CreatedSandbox: &msb.MockSandbox{Name_: "prefill"}}
-	vm := NewManager()
+	vm := NewManager(docker.Get())
 
 	err := vm.PrefillVolume(
 		context.Background(),
@@ -66,7 +66,7 @@ func TestCopySandboxNameIsPrefixFreeAndLabelled(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	ui := termio.NewTestMock(t)
 	client := &msb.MockMsbClient{CreatedSandbox: &msb.MockSandbox{Name_: "copy"}}
-	vm := NewManager()
+	vm := NewManager(docker.Get())
 
 	err := vm.CopyVolume(
 		context.Background(),

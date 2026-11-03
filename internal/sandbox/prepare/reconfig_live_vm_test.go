@@ -8,6 +8,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -155,7 +156,7 @@ func TestResolveReconfigDecisionAgentConfigDrivesRestart(t *testing.T) {
 
 			decision, err := resolveReconfigDecision(
 				context.Background(),
-				volume.NewManager(),
+				volume.NewManager(docker.Get()),
 				testVMKey(),
 				options.RunOptions{Agent: "opencode"},
 				image.ImageInfo{Ref: "img:tag", Digest: persisted.ImageDigest},
@@ -190,7 +191,7 @@ func TestPlanReconfigStageLiveVMReadError(t *testing.T) {
 	provisionHostConfig := false
 	opts := options.RunOptions{Agent: "opencode", ProvisionHostConfig: &provisionHostConfig}
 	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
-	home := preparedHome{client: client, volumes: volume.NewManager(), homeVolume: "vol"}
+	home := preparedHome{client: client, volumes: volume.NewManager(docker.Get()), homeVolume: "vol"}
 
 	_, err := planReconfigStage(context.Background(), session, image.ImageInfo{}, home, false, opts, &ui)
 	if !errors.Is(err, lookupErr) {
@@ -217,7 +218,7 @@ func TestResolveReconfigDecisionNeedsNoVMAccess(t *testing.T) {
 
 	decision, err := resolveReconfigDecision(
 		context.Background(),
-		volume.NewManager(),
+		volume.NewManager(docker.Get()),
 		testVMKey(),
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{Digest: "sha256:same"},
@@ -254,7 +255,7 @@ func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {
 	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
 	home := preparedHome{
 		client:     client,
-		volumes:    volume.NewManager(),
+		volumes:    volume.NewManager(docker.Get()),
 		homeVolume: "vol",
 		homeState:  state.HomeState{HomeVolume: "vol"},
 	}

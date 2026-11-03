@@ -70,7 +70,7 @@ func newShellCommand() *cobra.Command {
 // mustResolver builds a resolver from a real command, failing the test on error.
 func mustResolver(t *testing.T, cmd *cobra.Command) *viperconfig.Resolver {
 	t.Helper()
-	r, err := viperconfig.NewResolver(cmd, "")
+	r, err := viperconfig.NewResolver(cmd, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}

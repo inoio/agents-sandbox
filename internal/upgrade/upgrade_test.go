@@ -70,6 +70,7 @@ func mockOptions(t *testing.T, version string, mode Mode) Options {
 		Mode:           mode,
 		Interval:       time.Hour,
 		Store:          &fakeStore{},
+		Paths:          configpaths.Get(),
 		UI:             &termio.Mock{},
 	}
 }
@@ -501,7 +502,7 @@ func TestCheckFoldFailureIsDeferred(t *testing.T) {
 	opts.UI = &ui
 
 	// A directory at the legacy path makes the fold's read fail.
-	if err := os.Mkdir(legacyStatePath(), 0o700); err != nil {
+	if err := os.Mkdir(legacyStatePath(configpaths.Get()), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -854,7 +855,7 @@ func TestCheckNilStoreLeavesLegacyFileInPlace(t *testing.T) {
 	if _, err := Check(context.Background(), opts); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, err := os.Stat(legacyStatePath()); err != nil {
+	if _, err := os.Stat(legacyStatePath(configpaths.Get())); err != nil {
 		t.Fatalf("nil Store deleted the legacy upgrade.json: %v", err)
 	}
 }

@@ -99,7 +99,16 @@ var throwawayImage = image.ImageInfo{
 }
 
 func (f *throwawayFixture) run(spec throwawaySandbox, payload func(msb.Sandbox, termio.Spinner) error) error {
-	return withThrowawaySandbox(context.Background(), f.client, throwawayKey, throwawayImage, spec, f.ui, payload)
+	return withThrowawaySandbox(
+		context.Background(),
+		docker.Get(),
+		f.client,
+		throwawayKey,
+		throwawayImage,
+		spec,
+		f.ui,
+		payload,
+	)
 }
 
 func (f *throwawayFixture) createdConfig(t *testing.T) msbSdk.SandboxConfig {

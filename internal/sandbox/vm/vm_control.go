@@ -7,6 +7,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -112,7 +113,7 @@ func StopProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agent
 		return err
 	}
 	client := msb.Get()
-	adoption, err := AdoptLegacyIdentity(ctx, client, identity, a.Name(), !dryRun, ui)
+	adoption, err := AdoptLegacyIdentity(ctx, configpaths.Get(), client, identity, a.Name(), !dryRun, ui)
 	if err != nil {
 		return err
 	}
@@ -134,7 +135,7 @@ func KillProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agent
 		return err
 	}
 	client := msb.Get()
-	adoption, err := AdoptLegacyIdentity(ctx, client, identity, a.Name(), !dryRun, ui)
+	adoption, err := AdoptLegacyIdentity(ctx, configpaths.Get(), client, identity, a.Name(), !dryRun, ui)
 	if err != nil {
 		return err
 	}

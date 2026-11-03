@@ -6,6 +6,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -27,7 +28,11 @@ func TestResolveBuildVersionNoRebuildSkipsUpgradeCheck(t *testing.T) {
 	withExistingAgentVersion(t)
 
 	got, upgraded, offered, err := resolveBuildVersion(
-		context.Background(), k, opencodeResolved(t), &termio.Mock{},
+		context.Background(),
+		docker.Get(),
+		k,
+		opencodeResolved(t),
+		&termio.Mock{},
 		options.RunOptions{Agent: "opencode", NoRebuild: true},
 	)
 	if err != nil {

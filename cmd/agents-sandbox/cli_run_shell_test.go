@@ -17,7 +17,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
@@ -452,7 +451,7 @@ func TestRunShellInvalidSizeFlags(t *testing.T) {
 // direct per-test field change on the caller's mock.
 func setupAbsentImagePreviewMocks(t *testing.T, mock *sandboxmsb.MockMsbClient) {
 	t.Helper()
-	image.WithMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
+	withMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
 		t.Fatal("the --dry-run preview must not resolve an agent version")
 		return "", nil
 	})

@@ -149,6 +149,22 @@ seams such as `agentLatestVersion`, `probeHostPort`, `watchReconnectPolicy`, `sp
 that repeats a package) into the next iteration. The suite must be idempotent: `go test -count=2 ./...` must agree with
 `-count=1`.
 
+### Injected clients vs. the remaining seams
+
+Per `client-injection.md`, the Docker client and the path resolver are explicit
+parameters below each entry point, and `image` no longer imports `"testing"`:
+its agent-release resolution is injected through `BuildOptions.ResolveVersion`,
+and image's own tests override the unexported `defaultAgentVersionResolver`
+default (via `withMockAgentVersion*`), never an exported hook. The
+`docker.InstallFailFastGet` and `configpaths.InstallFailFastConfigPaths`
+installers stay required: `docker.Get`/`configpaths.Get` are still the boundary
+factories and still fail fast under tests, and the process-root residue named in
+`client-injection.md` reads them. The remaining exported behavior hooks
+(`vm.SetProjectVMLock`, `vm.SetDaemonHealthFunc`, `prepare.SetAgentLatestVersion`,
+`prepare.SetRuntimeHomeMigrationOffer`) are still mutated package state and are
+restored per `t.Cleanup`; removing them needs a cmd→run dependency route and is
+a follow-up.
+
 The incident: `TestResolveBuildVersionPromptNamesThisProjectsVersion` replaced `agentLatestVersion` without restoring
 it, so the coverage tests asserting the real default closure passed at `-count=1` (alphabetical file order runs them
 first) but failed 19/20 at `-count=20`.

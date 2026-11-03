@@ -139,8 +139,9 @@ func TestCreateProjectVMCallsClientCreateSandbox(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
 	sb, created, err := createProjectVM(context.Background(), ProjectVMCreation{
-		Client:  client,
-		Options: options.RunOptions{Memory: "1G"},
+		Client:       client,
+		DockerClient: docker.Get(),
+		Options:      options.RunOptions{Memory: "1G"},
 		Image: image.ImageInfo{
 			DockerTag: "agents-sandbox/runner-test:latest",
 			Ref:       "agents-sandbox/runner-test:latest",
@@ -196,9 +197,13 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 	ui := &testUI
 
 	sb, created, err := createProjectVM(context.Background(), ProjectVMCreation{
-		Client:     client,
-		Options:    options.RunOptions{Memory: "1G"},
-		Image:      image.ImageInfo{DockerTag: "agents-sandbox/runner-test:abc", Ref: "agents-sandbox/runner-test:abc"},
+		Client:       client,
+		DockerClient: docker.Get(),
+		Options:      options.RunOptions{Memory: "1G"},
+		Image: image.ImageInfo{
+			DockerTag: "agents-sandbox/runner-test:abc",
+			Ref:       "agents-sandbox/runner-test:abc",
+		},
 		HomeVolume: "test-home-vol",
 		RepoPath:   t.TempDir(),
 		Key:        testVMKey(),
@@ -632,8 +637,9 @@ func TestCreateProjectVMAppliesRootDiskWhenDiskSizeSet(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	if _, _, err := createProjectVM(context.Background(), ProjectVMCreation{
-		Client:  client,
-		Options: options.RunOptions{Memory: "1G", DiskSize: "16G"},
+		Client:       client,
+		DockerClient: docker.Get(),
+		Options:      options.RunOptions{Memory: "1G", DiskSize: "16G"},
 		Image: image.ImageInfo{
 			DockerTag: "agents-sandbox/runner-test:latest",
 			Ref:       "agents-sandbox/runner-test:latest",

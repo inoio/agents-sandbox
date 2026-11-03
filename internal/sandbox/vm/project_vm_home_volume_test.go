@@ -7,6 +7,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
@@ -96,16 +97,17 @@ func TestSetProjectVMLockReplacesTheCreationLock(t *testing.T) {
 	ui := termio.NewTestMock(t)
 
 	_, _, err := EnsureProjectVM(context.Background(), ProjectVMCreation{
-		Client:     &msb.MockMsbClient{},
-		Options:    options.RunOptions{},
-		Image:      image.ImageInfo{},
-		HomeVolume: "home-vol",
-		RepoPath:   "/repo",
-		Key:        testVMKey(),
-		RepoSlug:   "repo",
-		SkipVM:     false,
-		Env:        envsecret.EnvSecrets{},
-		UI:         &ui,
+		Client:       &msb.MockMsbClient{},
+		DockerClient: docker.Get(),
+		Options:      options.RunOptions{},
+		Image:        image.ImageInfo{},
+		HomeVolume:   "home-vol",
+		RepoPath:     "/repo",
+		Key:          testVMKey(),
+		RepoSlug:     "repo",
+		SkipVM:       false,
+		Env:          envsecret.EnvSecrets{},
+		UI:           &ui,
 	})
 	if !errors.Is(err, lockErr) {
 		t.Fatalf("EnsureProjectVM error = %v, want the replaced lock's %v", err, lockErr)

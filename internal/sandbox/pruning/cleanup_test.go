@@ -27,7 +27,7 @@ func withAutoPruneMocks(t *testing.T) {
 func TestAutoPruneDoesNotPanic(t *testing.T) {
 	withAutoPruneMocks(t)
 	testUI := termio.NewTestMock(t)
-	AutoPrune(context.Background(), time.Hour, true, &testUI)
+	AutoPrune(context.Background(), docker.Get(), time.Hour, true, &testUI)
 }
 
 func TestAutoPruneIsIdempotent(t *testing.T) {
@@ -36,8 +36,8 @@ func TestAutoPruneIsIdempotent(t *testing.T) {
 	// but we can verify no panic on repeated calls.
 	withAutoPruneMocks(t)
 	testUI := termio.NewTestMock(t)
-	AutoPrune(context.Background(), time.Hour, true, &testUI)
-	AutoPrune(context.Background(), time.Hour, true, &testUI)
+	AutoPrune(context.Background(), docker.Get(), time.Hour, true, &testUI)
+	AutoPrune(context.Background(), docker.Get(), time.Hour, true, &testUI)
 }
 
 func TestAutoPruneWarnsOnPruneError(t *testing.T) {
@@ -51,7 +51,7 @@ func TestAutoPruneWarnsOnPruneError(t *testing.T) {
 	})
 	docker.WithNoopDockerMock(t)
 	testUI := termio.NewTestMock(t)
-	AutoPrune(context.Background(), time.Hour, false, &testUI)
+	AutoPrune(context.Background(), docker.Get(), time.Hour, false, &testUI)
 	if len(testUI.WarnCalls) != 1 {
 		t.Fatalf("WarnCalls = %v, want one auto-prune failure warning", testUI.WarnCalls)
 	}
@@ -65,5 +65,5 @@ func TestAutoPruneDefaultsToSevenDays(t *testing.T) {
 	// We can't directly assert the threshold used, but we verify zero doesn't panic.
 	withAutoPruneMocks(t)
 	testUI := termio.NewTestMock(t)
-	AutoPrune(context.Background(), 0, true, &testUI)
+	AutoPrune(context.Background(), docker.Get(), 0, true, &testUI)
 }
