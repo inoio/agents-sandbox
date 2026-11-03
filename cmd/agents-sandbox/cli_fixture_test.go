@@ -12,7 +12,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -36,12 +35,13 @@ func withMockAgentVersionResolver(t *testing.T, resolve image.AgentVersionResolv
 	t.Helper()
 	origResolver := agentVersionResolver
 	agentVersionResolver = resolve
-	origPrepare := prepare.SetAgentLatestVersion(func(ctx context.Context, a agent.Agent) (string, error) {
+	origSeams := runSeams
+	runSeams.AgentLatestVersion = func(ctx context.Context, a agent.Agent) (string, error) {
 		return resolve(ctx, a, "")
-	})
+	}
 	t.Cleanup(func() {
 		agentVersionResolver = origResolver
-		prepare.SetAgentLatestVersion(origPrepare)
+		runSeams = origSeams
 	})
 }
 

@@ -42,7 +42,8 @@ Option 2. The orchestration lives in `internal/sandbox/prepare`; the layering is
   precedence rule.
 - `vm` keeps the capabilities and exports the ones `prepare` calls: `FindProjectVM`, `ProjectVMName`,
   `ProjectVMHomeVolume`, `EnsureProjectVM` (with `VMBoot` and its `ProjectVMCreation` request), `SetUpSandbox`,
-  `AdoptLegacyIdentity`. `SetProjectVMLock` is a test seam so tests outside `vm` can fail `ensure-vm` at its lock.
+  `AdoptLegacyIdentity`. `ProjectVMCreation.Seams` is a test seam so tests outside `vm` can fail `ensure-vm` at its
+  lock without mutating package state.
 - Identity adoption stays in `vm`: `StopProjectVM`/`KillProjectVM` call it, and it needs `FindProjectVM` and the
   handle destroy, so a separate package would form an import cycle.
 - `session` is not extended with the stages. It owns attach, the client lease, the reaper and the host opener, and

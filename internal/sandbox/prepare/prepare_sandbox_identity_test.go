@@ -100,19 +100,6 @@ func installPrepareSandboxMSBMock(t *testing.T) *msb.MockMsbClient {
 	return mock
 }
 
-// installPrepareSandboxDaemonMock makes the agent daemon look healthy inside the
-// VM so PrepareSandbox does not wait for it.
-func installPrepareSandboxDaemonMock(t *testing.T) {
-	t.Helper()
-	origDaemon := vm.SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == opencodeProvider(t).DaemonHealthCmd() {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	})
-	t.Cleanup(func() { vm.SetDaemonHealthFunc(origDaemon) })
-}
-
 // seedMatchingHomeState seeds a home state whose image/agent version matches the
 // mocked image, so home resolution reuses the volume without prompting.
 func seedMatchingHomeState(t *testing.T, k state.Key) {
@@ -178,7 +165,6 @@ func TestPrepareSandboxUsesCheckoutSlugForStateAndRepoSlugForLabel(t *testing.T)
 	}
 
 	inspectedTag := installPrepareSandboxDockerMock(t)
-	installPrepareSandboxDaemonMock(t)
 	ui := termio.NewTestMock(t)
 
 	t.Chdir(firstClone)
@@ -187,7 +173,7 @@ func TestPrepareSandboxUsesCheckoutSlugForStateAndRepoSlugForLabel(t *testing.T)
 	firstMock := installPrepareSandboxMSBMock(t)
 	firstSession, err := PrepareSandbox(
 		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
 		false,
 		&ui,
 	)
@@ -205,7 +191,7 @@ func TestPrepareSandboxUsesCheckoutSlugForStateAndRepoSlugForLabel(t *testing.T)
 	secondMock := installPrepareSandboxMSBMock(t)
 	secondSession, err := PrepareSandbox(
 		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
 		false,
 		&ui,
 	)
@@ -274,7 +260,6 @@ func TestPrepareSandboxOutsideWorktreeUsesItsOwnKey(t *testing.T) {
 	}
 
 	inspectedTag := installPrepareSandboxDockerMock(t)
-	installPrepareSandboxDaemonMock(t)
 	ui := termio.NewTestMock(t)
 
 	t.Chdir(outside)
@@ -284,7 +269,7 @@ func TestPrepareSandboxOutsideWorktreeUsesItsOwnKey(t *testing.T) {
 
 	session, err := PrepareSandbox(
 		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
 		false,
 		&ui,
 	)
@@ -364,14 +349,13 @@ func TestPrepareSandboxSkipVMKeepsLegacySlugWhileMigrationPending(t *testing.T) 
 	seedMatchingHomeState(t, legacyKey)
 
 	inspectedTag := installPrepareSandboxDockerMock(t)
-	installPrepareSandboxDaemonMock(t)
 	ui := termio.NewTestMock(t)
 	t.Chdir(clone)
 	installPrepareSandboxMSBMock(t)
 
 	session, err := PrepareSandbox(
 		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
 		true,
 		&ui,
 	)
@@ -420,7 +404,6 @@ func TestPrepareSandboxMigratesOnFirstRun(t *testing.T) {
 		ConnectSb: msb.NewMockSandbox(msb.SandboxOpts{}),
 	}
 	inspectedTag := installPrepareSandboxDockerMock(t)
-	installPrepareSandboxDaemonMock(t)
 	ui := termio.NewTestMock(t)
 
 	mock := installPrepareSandboxMSBMock(t)
@@ -434,7 +417,7 @@ func TestPrepareSandboxMigratesOnFirstRun(t *testing.T) {
 	t.Chdir(clone)
 	session, err := PrepareSandbox(
 		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
 		false,
 		&ui,
 	)
@@ -480,7 +463,7 @@ func TestPrepareSandboxAdoptionFailureReturnsError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	if _, err := PrepareSandbox(
 		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
 		false,
 		&ui,
 	); err == nil ||

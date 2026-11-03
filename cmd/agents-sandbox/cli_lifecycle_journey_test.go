@@ -20,7 +20,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
-	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -300,11 +299,12 @@ func expireAgentUpgradeCheck(t *testing.T) {
 // assert the run actually reached the network.
 func withOfflineUpgradeCheck(t *testing.T, consulted func()) {
 	t.Helper()
-	original := prepare.SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
+	original := runSeams
+	runSeams.AgentLatestVersion = func(context.Context, agent.Agent) (string, error) {
 		consulted()
 		return "", errors.New("offline")
-	})
-	t.Cleanup(func() { prepare.SetAgentLatestVersion(original) })
+	}
+	t.Cleanup(func() { runSeams = original })
 }
 
 func assertRecordedAgentVersion(t *testing.T, k state.Key, want string) {

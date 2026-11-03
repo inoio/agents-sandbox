@@ -11,7 +11,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -50,7 +49,9 @@ func TestPrepareSandboxRunsDefaultAgentDaemon(t *testing.T) {
 	// markers, keeping the mock agnostic to which profile is the default.
 	var commands []string
 	healthProbes := 0
-	origDaemon := vm.SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	opts := options.RunOptions{Seams: options.Seams{DaemonHealth: func(
+		_ context.Context, _ msb.Sandbox, command string,
+	) (string, int, error) {
 		commands = append(commands, command)
 		if command == provider.DaemonHealthCmd() {
 			healthProbes++
@@ -60,11 +61,10 @@ func TestPrepareSandboxRunsDefaultAgentDaemon(t *testing.T) {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
-	})
-	t.Cleanup(func() { vm.SetDaemonHealthFunc(origDaemon) })
+	}}}
 
 	ui := termio.NewTestMock(t)
-	sess, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{}), false, &ui)
+	sess, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, opts), false, &ui)
 	if err != nil {
 		t.Fatalf("PrepareSandbox(default %q): %v", agent.DefaultAgentName, err)
 	}

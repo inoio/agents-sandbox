@@ -244,16 +244,18 @@ func TestPreviewSandboxPinnedVersionWinsAndNeverChecksNetwork(t *testing.T) {
 	absentImageDockerMock(t)
 	noVolumeCreateMock(t)
 
-	orig := SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
+	fatalLatest := func(context.Context, agent.Agent) (string, error) {
 		t.Fatal("PreviewSandbox must not run the upgrade check")
 		return "", nil
-	})
-	t.Cleanup(func() { SetAgentLatestVersion(orig) })
+	}
 
 	ui := termio.NewTestMock(t)
 	p, err := PreviewSandbox(
 		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", AgentVersion: "2.0.0"}),
+		resolvedRunOptions(t, options.RunOptions{
+			Agent: "opencode", AgentVersion: "2.0.0",
+			Seams: options.Seams{AgentLatestVersion: fatalLatest},
+		}),
 		&ui,
 	)
 	if err != nil {
@@ -377,16 +379,18 @@ func TestPreviewSandboxUserProvidedAgentIgnoresPin(t *testing.T) {
 	noVolumeCreateMock(t)
 	seedAgentState(t, k, "1.0.0", state.AgentSourceUser)
 
-	orig := SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
+	fatalLatest := func(context.Context, agent.Agent) (string, error) {
 		t.Fatal("PreviewSandbox must not run the upgrade check for a user-provided agent")
 		return "", nil
-	})
-	t.Cleanup(func() { SetAgentLatestVersion(orig) })
+	}
 
 	ui := termio.NewTestMock(t)
 	p, err := PreviewSandbox(
 		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", AgentVersion: "9.9.9"}),
+		resolvedRunOptions(t, options.RunOptions{
+			Agent: "opencode", AgentVersion: "9.9.9",
+			Seams: options.Seams{AgentLatestVersion: fatalLatest},
+		}),
 		&ui,
 	)
 	if err != nil {

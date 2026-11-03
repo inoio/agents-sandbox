@@ -87,26 +87,18 @@ func (s *Session) Key() state.Key {
 }
 
 // offerRuntimeHomeMigration is the session-start hook for the opt-in legacy
-// home-volume copy. It is a variable so tests can stub the offer without a real
-// legacy home; production always uses runtimemigration.Offer.
+// home-volume copy: the production default a test overrides through
+// options.Seams.RuntimeHomeMigrationOffer. Production always uses
+// runtimemigration.Offer.
 var offerRuntimeHomeMigration = runtimemigration.Offer
 
-// SetRuntimeHomeMigrationOffer replaces the session-start migration offer used
-// by PrepareSandbox and returns the previous value. Tests in any package use it
-// to seal PrepareSandbox off from the developer's real legacy home:
-//
-//	orig := prepare.SetRuntimeHomeMigrationOffer(func(context.Context, msb.Client, termio.UI) error {
-//		return nil
-//	})
-//	t.Cleanup(func() { prepare.SetRuntimeHomeMigrationOffer(orig) })
-//
-//deadcode:ignore reason="test seam replacing the runtime migration offer"
-func SetRuntimeHomeMigrationOffer(
-	f func(ctx context.Context, client msb.Client, ui termio.UI) error,
-) func(ctx context.Context, client msb.Client, ui termio.UI) error {
-	orig := offerRuntimeHomeMigration
-	offerRuntimeHomeMigration = f
-	return orig
+// runtimeHomeMigrationOffer returns the offer to use for this run: the injected
+// seam when a test set one, else runtimemigration.Offer.
+func runtimeHomeMigrationOffer(seams options.Seams) func(context.Context, msb.Client, termio.UI) error {
+	if seams.RuntimeHomeMigrationOffer != nil {
+		return seams.RuntimeHomeMigrationOffer
+	}
+	return offerRuntimeHomeMigration
 }
 
 // PrepareSandbox builds (or reuses) the project VM, provisions config, and
@@ -367,6 +359,7 @@ func ensureHomeStage(
 		skipVM,
 		fingerprints,
 		ui,
+		runtimeHomeMigrationOffer(opts.Seams),
 	)
 	if err != nil {
 		return preparedHome{}, err
@@ -465,6 +458,7 @@ func ensureVMStage(
 		SkipVM:       skipVM,
 		Env:          home.env,
 		UI:           ui,
+		Seams:        opts.Seams,
 	})
 	if err != nil {
 		// gomutants:disable-next-line RETURN_ZERO reason="EnsureProjectVM returns vm.VMBootConnected (the vm.VMBoot zero value, the first iota constant) on every error path, so a RETURN_ZERO replacement of boot is the identical constant"
@@ -499,6 +493,7 @@ func setupSandboxStage(
 			sb,
 			session.agent,
 			opts,
+			opts.Seams,
 			plan.configFiles,
 			ui,
 			plan.decision.Restart,
@@ -564,10 +559,11 @@ func buildOptions(opts options.RunOptions, agentVersion string, force, userProvi
 		AgentVersion: agentVersion,
 		UserProvided: userProvided,
 		Docker:       opts.Docker,
-		// Route the image build's release resolution through the prepare seam,
-		// which defaults to the same agentLatestVersion lookup the upgrade check
-		// uses.
-		ResolveVersion: buildVersionResolver,
+		// Route the image build's release resolution through the prepare seam
+		// (buildVersionResolver by default, or the injected options.Seams
+		// AgentLatestVersion), which defaults to the same agentLatestVersion
+		// lookup the upgrade check uses.
+		ResolveVersion: agentVersionResolverFor(opts.Seams),
 	}
 }
 
@@ -636,8 +632,9 @@ func prepareHomeVolume(
 	skipVM bool,
 	fingerprints state.Fingerprints,
 	ui termio.UI,
+	offerMigration func(context.Context, msb.Client, termio.UI) error,
 ) (*volume.Manager, string, state.HomeState, error) {
-	if err := offerRuntimeHomeMigration(ctx, client, ui); err != nil {
+	if err := offerMigration(ctx, client, ui); err != nil {
 		// A pending migration is a deliberate block, not an offer failure:
 		// return it as-is so the user sees the guidance, not a wrapper.
 		if errors.Is(err, runtimemigration.ErrMigrationPending) {

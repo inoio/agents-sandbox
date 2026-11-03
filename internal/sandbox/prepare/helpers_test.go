@@ -1,6 +1,7 @@
 package prepare
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -204,6 +205,30 @@ func assertDetachedHelperLaunch(t *testing.T, calls []msb.MockDetachedCall, mark
 // the VM. A mock answering it with a failure keeps a PrepareSandbox test from
 // starting dockerd; it must match the command in package vm.
 const dockerdBinaryCheckCmd = "command -v dockerd >/dev/null 2>&1"
+
+// daemonHealthSeams returns options.Seams with the daemon health probe stubbed
+// healthy for the opencode provider, so a PrepareSandbox test never probes a
+// real daemon.
+func daemonHealthSeams(t *testing.T) options.Seams {
+	t.Helper()
+	return options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+		if command == opencodeProvider(t).DaemonHealthCmd() {
+			return `{"healthy":true,"version":"test"}`, 0, nil
+		}
+		return "", 0, nil
+	}}
+}
+
+// sandboxRunOptions resolves opts' capabilities and, unless a test already set
+// one, stubs the daemon health probe via daemonHealthSeams: the options a
+// PrepareSandbox test that reaches setup-sandbox needs.
+func sandboxRunOptions(t *testing.T, opts options.RunOptions) options.RunOptions {
+	t.Helper()
+	if opts.Seams.DaemonHealth == nil {
+		opts.Seams.DaemonHealth = daemonHealthSeams(t).DaemonHealth
+	}
+	return resolvedRunOptions(t, opts)
+}
 
 func (fakeAgent) Name() string { return "fake" }
 

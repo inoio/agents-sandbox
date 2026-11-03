@@ -159,6 +159,10 @@ All measured on this VM on 2026-10-21 with `golang.org/x/tools/cmd/deadcode@v0.5
   `image.RunnerDockerfileID` (exported so higher-layer preview tests can seed a matching label) and
   `prepare.SetAgentLatestVersion` (keeps the upgrade check off the network) — both marked in the same declaration-scope
   category, with no change to the mechanism.
+- **#518 removed four of these markers** (`vm.SetProjectVMLock`, `vm.SetDaemonHealthFunc`,
+  `prepare.SetAgentLatestVersion`, `prepare.SetRuntimeHomeMigrationOffer`): their behavior moved to the injected
+  `options.Seams` value on `options.RunOptions`, so the seams are no longer package state and no longer need a marker.
+  The totals above are a record of the gate's introduction; the mechanism and the remaining markers are unchanged.
 - **Resolved by the builder:** markers are additive, so if the BuildKit plan (issue #15) removes `internal/sandbox/docker`
   first, the 24 `docker/testmock.go` markers disappear with the package and the totals in this document are stale while the
   mechanism is unaffected.

@@ -87,6 +87,10 @@ type RunOptions struct {
 	// Trace records the lifecycle stages the invocation reaches. cmd creates
 	// it; the stages in vm and session record into it. Nil records nothing.
 	Trace *lifecycle.Trace
+	// Seams carries the run's behavior test seams. The zero value is
+	// production (every stage uses its package default); only tests populate a
+	// field.
+	Seams Seams
 }
 
 // ServeOnlyBindAddr is the loopback address the agent server binds to

@@ -52,6 +52,7 @@ func TestPrepareHomeVolumeAlwaysOffersRuntimeHomeMigration(t *testing.T) {
 		true, /* skipVM */
 		state.Fingerprints{},
 		&ui,
+		offerRuntimeHomeMigration,
 	); err != nil {
 		t.Fatalf("prepareHomeVolume() error = %v", err)
 	}
@@ -83,6 +84,7 @@ func TestPrepareHomeVolumeOfferErrorPropagates(t *testing.T) {
 		false,
 		state.Fingerprints{},
 		&ui,
+		offerRuntimeHomeMigration,
 	)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("prepareHomeVolume() error = %v, want %v", err, wantErr)
@@ -229,6 +231,7 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 		false,
 		state.Fingerprints{},
 		&ui,
+		offerRuntimeHomeMigration,
 	)
 	if err != nil {
 		t.Fatalf("prepareHomeVolume() error = %v", err)
@@ -397,6 +400,7 @@ func TestPrepareHomeVolumeRecoversPersistedAdoptionVolume(t *testing.T) {
 		false,
 		state.Fingerprints{},
 		&ui,
+		offerRuntimeHomeMigration,
 	)
 	if err != nil {
 		t.Fatalf("prepareHomeVolume() error = %v", err)

@@ -12,7 +12,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -37,7 +36,6 @@ func TestPrepareSandboxSkipVMRecordsStagesInOrder(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	clone := newOriginClone(t)
 	installPrepareSandboxDockerMock(t)
-	installPrepareSandboxDaemonMock(t)
 	ui := termio.NewTestMock(t)
 	t.Chdir(clone)
 	installPrepareSandboxMSBMock(t)
@@ -87,8 +85,7 @@ func TestPrepareSandboxTraceEndsAtTheFailingStage(t *testing.T) {
 func TestEnsureVMStageFailureSkipsFingerprints(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	lockErr := errors.New("flock boom")
-	origLock := vm.SetProjectVMLock(func(state.Key) (func(), error) { return nil, lockErr })
-	t.Cleanup(func() { vm.SetProjectVMLock(origLock) })
+	seams := options.Seams{ProjectVMLock: func(state.Key) (func(), error) { return nil, lockErr }}
 	k := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	ui := termio.NewTestMock(t)
 
@@ -99,7 +96,7 @@ func TestEnsureVMStageFailureSkipsFingerprints(t *testing.T) {
 		preparedHome{client: &msb.MockMsbClient{}},
 		reconfigPlan{homeVolume: "home-vol"},
 		false,
-		options.RunOptions{},
+		options.RunOptions{Seams: seams},
 		&ui,
 	)
 	if !errors.Is(err, lockErr) {
@@ -121,19 +118,17 @@ func TestPrepareSandboxVMStageFailureStopsAtEnsureVM(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	clone := newOriginClone(t)
 	installPrepareSandboxDockerMock(t)
-	installPrepareSandboxDaemonMock(t)
 	ui := termio.NewTestMock(t)
 	t.Chdir(clone)
 	installPrepareSandboxMSBMock(t)
 
 	lockErr := errors.New("flock boom")
-	origLock := vm.SetProjectVMLock(func(state.Key) (func(), error) { return nil, lockErr })
-	t.Cleanup(func() { vm.SetProjectVMLock(origLock) })
+	seams := options.Seams{ProjectVMLock: func(state.Key) (func(), error) { return nil, lockErr }}
 
 	trace := &lifecycle.Trace{}
 	_, err := PrepareSandbox(
 		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", Trace: trace}),
+		sandboxRunOptions(t, options.RunOptions{Agent: "opencode", Trace: trace, Seams: seams}),
 		false,
 		&ui,
 	)

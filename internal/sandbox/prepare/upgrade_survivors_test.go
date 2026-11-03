@@ -60,7 +60,13 @@ func TestCheckAgentUpgradeDefersWhenRootLockHeld(t *testing.T) {
 	}
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
-	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, &termio.Mock{})
+	entry, checked := checkAgentUpgrade(
+		context.Background(),
+		opencodeAgent(t),
+		true,
+		&termio.Mock{},
+		agentLatestVersion,
+	)
 	if checked {
 		t.Error("checkAgentUpgrade must defer while the root lock is held")
 	}
@@ -91,7 +97,7 @@ func TestCheckAgentUpgradeDefersWhenRootStateUnreadable(t *testing.T) {
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
 	ui := &termio.Mock{}
-	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, ui)
+	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, ui, agentLatestVersion)
 	if checked {
 		t.Error("checkAgentUpgrade must defer when the root state is unreadable")
 	}
@@ -122,7 +128,7 @@ func TestCheckAgentUpgradeDefersWhenVersionRequestFails(t *testing.T) {
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
 	ui := &termio.Mock{}
-	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, ui)
+	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, ui, agentLatestVersion)
 	if checked {
 		t.Error("checkAgentUpgrade must defer when the version request fails")
 	}
@@ -151,7 +157,13 @@ func TestCheckAgentUpgradeCheckerLessAgentSkipsVersionRequest(t *testing.T) {
 	}
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
-	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), false, &termio.Mock{})
+	entry, checked := checkAgentUpgrade(
+		context.Background(),
+		opencodeAgent(t),
+		false,
+		&termio.Mock{},
+		agentLatestVersion,
+	)
 	if !checked {
 		t.Error("a checker-less agent still returns its cached state")
 	}
@@ -197,7 +209,13 @@ func TestCheckAgentUpgradeDefersWhenRootLockHeldDuringWrite(t *testing.T) {
 		<-done
 	})
 
-	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, &termio.Mock{})
+	entry, checked := checkAgentUpgrade(
+		context.Background(),
+		opencodeAgent(t),
+		true,
+		&termio.Mock{},
+		agentLatestVersion,
+	)
 	if checked {
 		t.Error("checkAgentUpgrade must defer when the write transaction is contended")
 	}

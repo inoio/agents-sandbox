@@ -1,5 +1,5 @@
 ---
-description: Contract for resolving the external clients (msb, docker, config-paths) once at an entry point and threading them explicitly, replacing the remaining process globals after #345; the four exported behavior test seams (to be injected as one struct on RunOptions), and the process-root configpaths.Get() reads that stay global by design.
+description: Contract for resolving the external clients (msb, docker, config-paths) once at an entry point and threading them explicitly, replacing the remaining process globals after #345; the four behavior test seams as one injected struct on RunOptions, and the process-root configpaths.Get() reads that stay global by design.
 read_if: Changing a docker.Get()/configpaths.Get() call site, image.EnsureImage*/EnsureLoaded/Build/PreviewImage or the image render helpers, adding a client or path resolver parameter to a run/build/doctor/prune entry point, or the image build's agent-release resolver.
 ---
 
@@ -29,8 +29,9 @@ and 16 non-test `configpaths.Get()` sites. The rule is the same for all three:
   the global; the renderer and the diagnostics helper
   (`RenderProjectDockerfile`, `EmitProjectDockerfileDiagnostics`) take the
   project Dockerfile's bytes, which the boundary read once. So does
-  `vm.StopProjectVM`/`KillProjectVM`, which receive it from their `cmd` callers;
-  only `msb.Get()` still resolves inside them.
+  `vm.StopProjectVM`/`KillProjectVM`, which now take the msb client as an
+  explicit parameter from their `cmd` callers: no `msb.Get()` resolves below the
+  command boundary there.
 
 ## The image build's release resolver
 
@@ -47,15 +48,19 @@ injected, not a package-global hook:
 
 ## Residue
 
-Two families remain beyond the threaded clients.
+One family remains beyond the threaded clients.
 
-**Behavior test seams (to be injected).** The four exported hooks
+**Behavior test seams (injected).** The four former exported hooks
 (`vm.SetProjectVMLock`, `vm.SetDaemonHealthFunc`,
-`prepare.SetAgentLatestVersion`, `prepare.SetRuntimeHomeMigrationOffer`) mutate
-package-level state; their resolution is one injected struct of functions carried
-on `options.RunOptions`, defaulted to the production impls, so tests stop
-touching package state. Tracked by **#518**. Unlike the clients, these are
-behavior seams, not per-operation dependencies.
+`prepare.SetAgentLatestVersion`, `prepare.SetRuntimeHomeMigrationOffer`) are one
+injected struct of functions, `options.Seams`, carried on
+`options.RunOptions` (#518). Its zero value is production: each consumer
+(`projectVMLock`, `daemonHealth`, `agentLatestVersionFor`,
+`runtimeHomeMigrationOffer`, and `prepare`'s `agentVersionResolverFor`) uses the
+package default when its field is nil, so tests stop touching package state.
+`cmd` threads the struct into the run stages through the boundary seam var
+`runSeams` (the cmd→run route). Unlike the clients, these are behavior seams, not
+per-operation dependencies.
 
 **Process-root path lookups (by design).** `configpaths.Get()` stays at these
 process-global roots, too numerous or too cross-cutting to thread:
