@@ -48,7 +48,8 @@ injected, not a package-global hook:
 
 ## Residue
 
-One family remains beyond the threaded clients.
+Two things sit outside the threaded clients: the behavior test seams — now injected rather than
+globals — and the process-root path lookups that stay global by design.
 
 **Behavior test seams (injected).** The four former exported hooks
 (`vm.SetProjectVMLock`, `vm.SetDaemonHealthFunc`,
@@ -78,3 +79,8 @@ process-global roots, too numerous or too cross-cutting to thread:
 
 These are the run's process-global roots, not per-operation clients; they are not
 a threading backlog.
+
+One `msb.Get()` remains below the boundary outside these roots: `session`'s
+`resolveHomeVolumePath` (`internal/sandbox/session/host_opener.go`), the
+host-opener home-volume probe reached from `session.Run` when `--open-links` is
+on. It is not a per-operation client and is left for a later pass.
