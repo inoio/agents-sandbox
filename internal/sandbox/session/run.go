@@ -200,7 +200,7 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 	}
 
 	opts.Trace.Record(lifecycle.Attach)
-	projectSlug := ses.Key().Slug
+	k := ses.Key()
 
 	a, _ := agent.Lookup(opts.Agent)
 	var streamSpec *agent.EventStreamSpec
@@ -208,13 +208,13 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 		eventStream := provider.EventStream()
 		streamSpec = &eventStream
 	}
-	stopNotify := startNotifyWatcher(ctx, sb, opts.Notify, ui, streamSpec, projectSlug)
+	stopNotify := startNotifyWatcher(ctx, sb, opts.Notify, ui, streamSpec, k.Slug)
 	defer logNotifyWatcherError(stopNotify, ui)
 	stopHostOpener := startHostOpener(ctx, ses, opts.OpenLinks, ui)
 	defer stopHostOpener()
 
 	if opts.ServeOnly {
-		return runServeOnlySession(ctx, a, sb, opts, ui, ses.ServeHostPort(), projectSlug)
+		return runServeOnlySession(ctx, k, sb, opts.ReapPolicy, ui, ses.ServeHostPort())
 	}
 
 	setup := buildAttachCommand(a, ses.Target(), opts.Args)
@@ -223,21 +223,28 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 	// putting tools installed under /usr/local/go/bin and ~/go/bin on
 	// PATH for the agent and its child shells. The image's composed PATH
 	// is restored by the /etc/profile.d/agents-sandbox-path.sh merge.
-	return runAttach(ctx, sb, projectSlug, ses.GuestCWD(), ui, opts, "-l", "-c", setup)
+	return runAttach(ctx, k, sb, ses.GuestCWD(), ui, opts, "-l", "-c", setup)
 }
 
-// runServeOnlySession owns the lease acquire/serve/release/reap sequence for
-// serve-only mode.
-func runServeOnlySession(
+// withClientSession owns the client-lease lifecycle shared by the attach and
+// serve-only flows: it resolves the agent from k, acquires a client lease, runs
+// body with that agent, explicitly releases the lease before reaping so
+// state.CountActiveClients reflects only OTHER live clients, then reaps on the
+// last client when shouldReap reports the session's error as reap-able. body's
+// error is returned unchanged; the deferred release is a best-effort safety net
+// (for a panicking body or reap).
+func withClientSession(
 	ctx context.Context,
-	a agent.Agent,
+	k state.Key,
 	sb msb.Sandbox,
-	opts options.RunOptions,
+	policy options.ReapPolicy,
 	ui termio.UI,
-	hostPort int,
-	projectSlug string,
+	shouldReap func(sessionErr error) bool,
+	body func(a agent.Agent) error,
 ) error {
-	k := state.Key{Slug: projectSlug, Agent: a.Name()}
+	a, _ := agent.Lookup(k.Agent)
+
+	// Acquire a client lease so state tracks this session.
 	release, acquireErr := state.AcquireClientLease(k)
 	if acquireErr != nil {
 		ui.Warnf("client lease failed: %v", acquireErr)
@@ -247,15 +254,63 @@ func runServeOnlySession(
 			release()
 		}
 	}()
-	if err := runServeOnly(ctx, a, sb, ui, hostPort); err != nil && !errors.Is(err, context.Canceled) {
-		return err
-	}
+
+	sessionErr := body(a)
+
+	// Explicitly release the lease after the payload returns, before reaping.
+	// This ensures state.CountActiveClients reflects only OTHER live clients.
+	// The deferred release above is a safety net.
 	if acquireErr == nil {
 		release()
 		release = nil
 	}
-	if err := reapOnLastClient(ctx, a, k, sb, opts.ReapPolicy, ui); err != nil {
-		ui.Warnf("reap failed: %v", err)
+
+	if shouldReap(sessionErr) {
+		if err := reapOnLastClient(ctx, a, k, sb, policy, ui); err != nil {
+			ui.Warnf("reap failed: %v", err)
+		}
+	}
+
+	return sessionErr
+}
+
+// alwaysReap is the attach reap predicate: an attach reaps on the last client
+// even when the attach itself failed.
+func alwaysReap(error) bool { return true }
+
+// serveOnlyShouldReap reports whether a serve-only session's end is reap-able: a
+// clean exit (nil) or a user cancel reaps, while any other payload error is an
+// abnormal end that skips the reap, leaving the VM to its idle timeout. The same
+// predicate classifies the result the caller sees: a reap-able exit reports a
+// clean ExitError 0, an abnormal one is returned to the caller.
+func serveOnlyShouldReap(sessionErr error) bool {
+	return sessionErr == nil || errors.Is(sessionErr, context.Canceled)
+}
+
+// runServeOnlySession supplies the serve-only payload around the shared client
+// session lifecycle: hold the VM (keeper exec) until ctx is done, then report a
+// clean exit.
+func runServeOnlySession(
+	ctx context.Context,
+	k state.Key,
+	sb msb.Sandbox,
+	policy options.ReapPolicy,
+	ui termio.UI,
+	hostPort int,
+) error {
+	sessionErr := withClientSession(
+		ctx,
+		k,
+		sb,
+		policy,
+		ui,
+		serveOnlyShouldReap,
+		func(a agent.Agent) error {
+			return runServeOnly(ctx, a, sb, ui, hostPort)
+		},
+	)
+	if !serveOnlyShouldReap(sessionErr) {
+		return sessionErr
 	}
 	return &sandbox.ExitError{Code: 0}
 }
@@ -285,8 +340,7 @@ func Shell(ctx context.Context, opts options.RunOptions, mode options.Mode, ui t
 	stopHostOpener := startHostOpener(ctx, ses, opts.OpenLinks, ui)
 	defer stopHostOpener()
 
-	projectSlug := ses.Key().Slug
-	return runAttach(ctx, sb, projectSlug, ses.GuestCWD(), ui, opts, "-l")
+	return runAttach(ctx, ses.Key(), sb, ses.GuestCWD(), ui, opts, "-l")
 }
 
 func finalizeRun(attachErr error, exitCode int) error {
@@ -299,53 +353,24 @@ func finalizeRun(attachErr error, exitCode int) error {
 	return &sandbox.ExitError{Code: exitCode}
 }
 
-// runAttach performs the shared lease-acquire, attach, explicit release,
-// reap-on-last-client, and finalize sequence for Run and Shell. The guest CWD
-// is applied to every agent attach; pi and Claude Code ignore the attach
-// target and rely solely on the working directory.
+// runAttach supplies the attach payload around the shared client session
+// lifecycle. The guest CWD is applied to every agent attach; pi and Claude Code
+// ignore the attach target and rely solely on the working directory.
 func runAttach(
 	ctx context.Context,
+	k state.Key,
 	sb msb.Sandbox,
-	projectSlug string,
 	guestCWD string,
 	ui termio.UI,
 	opts options.RunOptions,
 	bashArgs ...string,
 ) error {
-	a, _ := agent.Lookup(opts.Agent)
-	k := state.Key{Slug: projectSlug, Agent: a.Name()}
-
-	// Acquire a client lease so state tracks this session.
-	release, acquireErr := state.AcquireClientLease(k)
-	if acquireErr != nil {
-		ui.Warnf("client lease failed: %v", acquireErr)
-	}
-	defer func() {
-		if acquireErr == nil && release != nil {
-			release()
+	return withClientSession(ctx, k, sb, opts.ReapPolicy, ui, alwaysReap, func(agent.Agent) error {
+		attachOpts := []msbSdk.AttachOption{msbSdk.WithAttachCwd(guestCWD)}
+		if opts.Root {
+			attachOpts = append(attachOpts, msbSdk.WithAttachUser(sandbox.RootUser))
 		}
-	}()
-
-	// Attach to the sandbox and capture its exit code.
-	var exitCode int
-	var attachErr error
-	attachOpts := []msbSdk.AttachOption{msbSdk.WithAttachCwd(guestCWD)}
-	if opts.Root {
-		attachOpts = append(attachOpts, msbSdk.WithAttachUser(sandbox.RootUser))
-	}
-	exitCode, attachErr = sb.AttachWith(ctx, "/bin/bash", bashArgs, attachOpts...)
-
-	// Explicitly release the lease after attach returns, before reaping.
-	// This ensures state.CountActiveClients reflects only OTHER live clients.
-	// The deferred release above is a safety net.
-	if acquireErr == nil {
-		release()
-		release = nil
-	}
-
-	if err := reapOnLastClient(ctx, a, k, sb, opts.ReapPolicy, ui); err != nil {
-		ui.Warnf("reap failed: %v", err)
-	}
-
-	return finalizeRun(attachErr, exitCode)
+		exitCode, attachErr := sb.AttachWith(ctx, "/bin/bash", bashArgs, attachOpts...)
+		return finalizeRun(attachErr, exitCode)
+	})
 }

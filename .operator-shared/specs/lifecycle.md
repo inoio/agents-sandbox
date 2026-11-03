@@ -136,7 +136,8 @@ plan asked for it), and resolves the attach target, including `--worktree` (`Res
 
 **`attach`.** Opens the interactive session as a login shell (`runAttach`), with the notify watcher and host link
 opener alongside; `shell` attaches a plain login shell. Under `--serve-only` the attach is replaced by a keeper that
-holds a client lease until EOF/SIGINT/SIGTERM (`runServeOnlySession`). Under `--dry-run-vm` it prints the would-start
+holds the VM until EOF/SIGINT/SIGTERM (`runServeOnlySession`); both flows hold the client lease through
+`withClientSession`, which releases it before the last-client reap. Under `--dry-run-vm` it prints the would-start
 line and returns.
 
 ## Cross-stage authorities
