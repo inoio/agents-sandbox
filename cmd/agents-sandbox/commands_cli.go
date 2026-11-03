@@ -376,7 +376,7 @@ func buildStopCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, ui, a.Name())
+			return sandbox.StopProjectVM(cmd.Context(), configpaths.Get(), force, dryRun, ui, a.Name())
 		},
 	}
 	bindAgentFlag(cmd)
@@ -401,7 +401,7 @@ func buildKillCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, ui, a.Name())
+			return sandbox.KillProjectVM(cmd.Context(), configpaths.Get(), force, dryRun, ui, a.Name())
 		},
 	}
 	bindAgentFlag(cmd)

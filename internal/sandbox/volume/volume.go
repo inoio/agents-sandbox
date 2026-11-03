@@ -41,7 +41,9 @@ type Manager struct {
 }
 
 // NewManager returns a volume manager that loads the runner image through the
-// given Docker client, resolved once at the command boundary.
+// given Docker client, resolved once at the command boundary. A zero-value
+// Manager{} is not usable: the throwaway-sandbox path needs the client, so
+// always construct through NewManager.
 func NewManager(dclient docker.Client) *Manager {
 	return &Manager{dclient: dclient}
 }

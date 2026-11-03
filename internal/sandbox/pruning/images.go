@@ -94,15 +94,11 @@ func pruneDockerImages(ctx context.Context, dclient docker.Client, dryRun bool, 
 	if dryRun {
 		return 0
 	}
-	result, err := dclient.
-		ImagePrune(
-			ctx,
-			client.ImagePruneOptions{
-				Filters: client.Filters{}.Add("dangling", "true").
-					Add("label", "org.agents-sandbox.managed=true").
-					Add("until", "24h"),
-			},
-		)
+	result, err := dclient.ImagePrune(ctx, client.ImagePruneOptions{
+		Filters: client.Filters{}.Add("dangling", "true").
+			Add("label", "org.agents-sandbox.managed=true").
+			Add("until", "24h"),
+	})
 	if err != nil {
 		ui.Warnf("failed to prune docker images: %v", err)
 		return 0

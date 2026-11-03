@@ -34,14 +34,14 @@ func TestStopKillProjectVMAdoptionFailureFailsClosed(t *testing.T) {
 
 	for _, action := range []struct {
 		name string
-		run  func(context.Context, bool, bool, termio.UI, string) error
+		run  func(context.Context, configpaths.ConfigPaths, bool, bool, termio.UI, string) error
 	}{
 		{"stop", StopProjectVM},
 		{"kill", KillProjectVM},
 	} {
 		t.Run(action.name, func(t *testing.T) {
 			ui := termio.NewTestMock(t)
-			err := action.run(context.Background(), false, false, &ui, "opencode")
+			err := action.run(context.Background(), configpaths.Get(), false, false, &ui, "opencode")
 			if err == nil || !strings.Contains(err.Error(), "check for a pending legacy identity") {
 				t.Fatalf("error = %v, want the fail-closed predicate error", err)
 			}

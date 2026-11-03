@@ -163,7 +163,7 @@ factories and still fail fast under tests, and the process-root residue named in
 (`vm.SetProjectVMLock`, `vm.SetDaemonHealthFunc`, `prepare.SetAgentLatestVersion`,
 `prepare.SetRuntimeHomeMigrationOffer`) are still mutated package state and are
 restored per `t.Cleanup`; removing them needs a cmd→run dependency route and is
-a follow-up.
+tracked by #518 (see `client-injection.md`).
 
 The incident: `TestResolveBuildVersionPromptNamesThisProjectsVersion` replaced `agentLatestVersion` without restoring
 it, so the coverage tests asserting the real default closure passed at `-count=1` (alphabetical file order runs them

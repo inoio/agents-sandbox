@@ -57,18 +57,21 @@ func PreviewSandbox(ctx context.Context, opts options.RunOptions, ui termio.Logg
 	if err != nil {
 		return Preview{}, err
 	}
+	// Resolve the process-wide factories once, at the entry point.
+	paths := configpaths.Get()
+	dclient := docker.Get()
+	client := msb.Get()
 	// Read-only adoption: apply=false so the preview never moves state, but it
 	// still resolves against the location a real run would find first (the
 	// legacy slug while a migration is pending), matching the volume dry runs.
-	client := msb.Get()
-	adoption, err := vm.AdoptLegacyIdentity(ctx, configpaths.Get(), client, identity, a.Name(), false, ui)
+	adoption, err := vm.AdoptLegacyIdentity(ctx, paths, client, identity, a.Name(), false, ui)
 	if err != nil {
 		return Preview{}, err
 	}
 	k := state.Key{Slug: adoption.Slug, Agent: a.Name()}
 
 	_, userProvided := ResolveAgentVersionForBuild(k, opts.AgentVersion)
-	version := previewAgentVersion(ctx, docker.Get(), k, opts, userProvided)
+	version := previewAgentVersion(ctx, dclient, k, opts, userProvided)
 	// A known version from the project's existing image label or its recorded
 	// cache is what a real run would bake without running the upgrade check, so
 	// disclose it. A pin is never upgraded and a user-provided agent is never
@@ -76,7 +79,7 @@ func PreviewSandbox(ctx context.Context, opts options.RunOptions, ui termio.Logg
 	upgradeCheckSkipped := version != "" && opts.AgentVersion == "" && !userProvided
 
 	img, err := image.PreviewImage(
-		ctx, docker.Get(), configpaths.Get(), a, k.Slug,
+		ctx, dclient, paths, a, k.Slug,
 		buildOptions(opts, version, opts.Rebuild, userProvided),
 		ui,
 	)
