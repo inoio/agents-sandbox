@@ -20,7 +20,7 @@ func buildInspectCmd[T any](
 	argName, short string,
 	inspect func(ctx context.Context, name string) (T, error),
 	identifier func(T) string,
-	human func(termio.UI, T),
+	human func(termio.Output, T),
 	jsonValue func(T) any,
 ) *cobra.Command {
 	var format string

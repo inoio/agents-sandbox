@@ -10,7 +10,7 @@ import (
 )
 
 // buildStateCmd groups the launcher-state maintenance commands under `state`.
-func buildStateCmd(ui termio.UI) *cobra.Command {
+func buildStateCmd(ui termio.Output) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdState,
 		Args:  cobra.NoArgs,
@@ -23,7 +23,7 @@ func buildStateCmd(ui termio.UI) *cobra.Command {
 // buildStateRepairCmd builds `state repair`, the explicit recovery path for a
 // corrupt launcher-global state file (#332): it moves the file aside instead of
 // deleting it, so the next run starts from a fresh launcher state.
-func buildStateRepairCmd(ui termio.UI) *cobra.Command {
+func buildStateRepairCmd(ui termio.Output) *cobra.Command {
 	return &cobra.Command{
 		Use:   cmdRepair,
 		Args:  cobra.NoArgs,

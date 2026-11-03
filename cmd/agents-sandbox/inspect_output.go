@@ -23,7 +23,7 @@ const (
 // under quiet, a structured value under --format json, or the default human
 // key/value block. Callers pass the identifier printed by quiet mode, the
 // human renderer, and the JSON DTO.
-func printInspect(ui termio.UI, mode cliout.Mode, identifier string, human func(), jsonValue any) error {
+func printInspect(ui termio.Output, mode cliout.Mode, identifier string, human func(), jsonValue any) error {
 	switch mode {
 	case cliout.ModeIdentifiers:
 		ui.Print(identifier)
@@ -37,7 +37,7 @@ func printInspect(ui termio.UI, mode cliout.Mode, identifier string, human func(
 
 // printKeyValues renders an aligned "key:  value" block, padding keys to the
 // widest key so the values line up.
-func printKeyValues(ui termio.UI, rows [][2]string) {
+func printKeyValues(ui termio.Output, rows [][2]string) {
 	// gomutants:disable-next-line INTEGER_DECREMENT,INTEGER_INCREMENT reason="every row key is non-empty, so the initial width is always replaced by a real key length"
 	width := 0
 	for _, row := range rows {
@@ -104,7 +104,7 @@ func nonNilStrings(values []string) []string {
 
 // -- volume --
 
-func printVolumeInspect(ui termio.UI, detail volume.VolumeDetail) {
+func printVolumeInspect(ui termio.Output, detail volume.VolumeDetail) {
 	printKeyValues(ui, [][2]string{
 		{"name", detail.Name},
 		{"kind", detail.Kind},
@@ -149,7 +149,7 @@ func newVolumeInspectJSON(detail volume.VolumeDetail) jsonVolumeInspect {
 
 // -- image --
 
-func printImageInspect(ui termio.UI, detail image.ImageDetail) {
+func printImageInspect(ui termio.Output, detail image.ImageDetail) {
 	printKeyValues(ui, [][2]string{
 		{"reference", detail.Reference},
 		{"digest", detail.Digest},
@@ -232,7 +232,7 @@ func newImageInspectJSON(detail image.ImageDetail) jsonImageInspect {
 
 // -- sandbox --
 
-func printSandboxInspect(ui termio.UI, detail sandbox.SandboxDetail) {
+func printSandboxInspect(ui termio.Output, detail sandbox.SandboxDetail) {
 	printKeyValues(ui, [][2]string{
 		{"name", detail.Name},
 		{"id", detail.ID},
