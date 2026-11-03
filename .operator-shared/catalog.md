@@ -50,6 +50,9 @@
 - `github-issue-workflow.md`
   - Description: How this repo tracks work on GitHub with the `gh` CLI: the issue CRUD commands, the actual triage label vocabulary (`bug`/`enhancement`/`chore`/`documentation`, the `needs-triage`/`needs-info`/`ready-for-agent`/`ready-for-human`/`wontfix` states, the `upstream` marker, the orthogonal `priority:*` set), and that external PRs are not a request surface.
   - Read If: Creating, reading, labeling, or closing a GitHub issue; resolving the label vocabulary the `maintain` skill uses; or working through a skill that publishes to or reads from the issue tracker.
+- `secret-placeholder-transcript-trap.md`
+  - Description: Why a session dies once a microsandbox secret placeholder reaches the model context — the LLM transport POSTs the whole conversation, so a placeholder anywhere in history blocks every later turn — how to observe the block in `runtime.log` (the zero `LogOptions` misses it; it is a `LogSourceSystem` read), and the launcher's config-file-only `secrets.common.allow-placeholder-for` repair (`Allow`/`Passthrough` disjointness, the `placeholderHostsFor` invariants, the digest change that forces one recreate).
+  - Read If: Diagnosing a model turn blocked by a secret violation, working on `secrets.common.allow-placeholder-for`, `BuildSecretsFromSpecs`/`placeholderHostsFor`, or `envsecret` passthrough hosts.
 
 ### `specs/` - System contracts for this partition
 
@@ -224,6 +227,9 @@
 - `yaml-library.md`
   - Description: Contract for the YAML dependency: every parse/serialize goes through the maintained `go.yaml.in/yaml/v3`, never `gopkg.in/yaml.v3` v3.0.1, whose emitter drops a leading blank line on marshal.
   - Read If: Adding a YAML parse/serialize path, touching `go.mod`'s YAML dependency, or triaging a `FuzzParseState` serialization-stability failure.
+- `tool-tree-ownership.md`
+  - Description: Design for #490 (part of #488) to set the runner image's agent tool-tree ownership at copy time (`COPY --chown=dev:dev`) instead of a follow-up full-tree `chown` layer, which records a second copy of the tree and doubles the Hermes runner image; requires guaranteeing the `dev` group for every base (unconditional `groupadd -f` in `devUserBlock`) so the name resolves on the production classic builder, and retires `agentOwnershipBlock`. Supersedes `image-composition.md`'s tool-ownership paragraph on landing.
+  - Read If: Changing the runner image's tool-tree ownership (`agentOwnershipBlock`, `ImageSpec.OwnsToolTree`, `devUserBlock`'s dev user/group, the `dev` group contract, `COPY --chown` in `runnerStage`); or diagnosing a doubled Hermes runner image, a `can't find gid for group dev` build failure, or a volume prefill/migrate `chown -R dev:dev` failure on a custom base.
 
 ### `plans/` - TDD implementation plans
 
