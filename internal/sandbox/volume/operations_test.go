@@ -770,7 +770,7 @@ func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
 	}
 
 	mockUI := &termio.Mock{}
-	vm := NewManager(mockUI)
+	vm := NewManager()
 	_, _, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -817,7 +817,7 @@ func TestResolveHomeVolume_MissingRecordedVolumeStartsFresh(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	volName, st, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,

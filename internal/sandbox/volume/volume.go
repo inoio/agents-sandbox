@@ -32,14 +32,13 @@ func HomeVolumeName(k state.Key) string {
 	return naming.HomeVolumeName(k.Slug, k.Agent, ts)
 }
 
-// Manager manages home-volume lifecycle for projects.
-type Manager struct {
-	ui termio.Logger
-}
+// Manager manages home-volume lifecycle for projects. It is stateless: each
+// operation takes the UI it reports through as a parameter.
+type Manager struct{}
 
-// NewManager returns a volume manager backed by the given UI.
-func NewManager(ui termio.Logger) *Manager {
-	return &Manager{ui: ui}
+// NewManager returns a volume manager.
+func NewManager() *Manager {
+	return &Manager{}
 }
 
 // PrefillVolume builds a throwaway sandbox from the given image, mounts the

@@ -44,7 +44,7 @@ func TestApplyReconfigHomeActionQuit(t *testing.T) {
 			return "", nil
 		},
 	}
-	volumes := volume.NewManager(ui)
+	volumes := volume.NewManager()
 
 	persisted := state.HomeState{
 		HomeVolume:  "vol",

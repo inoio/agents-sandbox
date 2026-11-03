@@ -185,7 +185,7 @@ func TestResolveReconfigDecision_NetworkChangedWithPersistedState(t *testing.T) 
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
 
-	volumes := volume.NewManager(&termio.Mock{})
+	volumes := volume.NewManager()
 
 	// Zero network state (no policy recorded yet) + a non-empty desired policy
 	// => recreate to apply the policy.
@@ -229,7 +229,7 @@ func TestResolveReconfigDecision_NetworkUnchangedNoRecreate(t *testing.T) {
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
 
-	volumes := volume.NewManager(&termio.Mock{})
+	volumes := volume.NewManager()
 
 	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}}
 	persistedState := state.HomeState{
@@ -327,7 +327,7 @@ func TestResolveReconfigDecision_EnvChangedWithPersistedState(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 	configpaths.WithMockConfigPaths(t)
 
-	volumes := volume.NewManager(&termio.Mock{})
+	volumes := volume.NewManager()
 
 	// Write state with env hash that differs from desired (nil desired = empty env)
 	// Use matching imageDigest to skip home-volume path
@@ -377,7 +377,7 @@ func TestResolveReconfigDecision_EnvUnchangedWithPersistedState(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 	configpaths.WithMockConfigPaths(t)
 
-	volumes := volume.NewManager(&termio.Mock{})
+	volumes := volume.NewManager()
 
 	// Write env file and state with matching hash
 	testutil.WriteFile(t, userDir, configpaths.EnvFileName, "FOO=bar\n")
@@ -428,7 +428,7 @@ func TestResolveReconfigDecision_SecretsChangedWithPersistedState(t *testing.T) 
 	msb.WithMsbMock(t, mock)
 	configpaths.WithMockConfigPaths(t)
 
-	volumes := volume.NewManager(&termio.Mock{})
+	volumes := volume.NewManager()
 
 	// Write state with different secret hash than desired (nil desired = no secrets)
 	// Use matching imageDigest to skip home-volume path
@@ -478,7 +478,7 @@ func TestResolveReconfigDecision_ZeroPersistedStateNoSpuriousChange(t *testing.T
 	msb.WithMsbMock(t, mock)
 	configpaths.WithMockConfigPaths(t)
 
-	volumes := volume.NewManager(&termio.Mock{})
+	volumes := volume.NewManager()
 
 	// Write empty env file → desired is empty.
 	// State has no env_state → zero value (first run).
@@ -635,7 +635,7 @@ func TestResolveReconfigDecision_PersistedSecretsMatchDesired(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 	configpaths.WithMockConfigPaths(t)
 
-	volumes := volume.NewManager(&termio.Mock{})
+	volumes := volume.NewManager()
 
 	testutil.WriteFile(t, userDir, configpaths.EnvFileName, "K=V\n")
 	desiredEnv := envsecret.MergeEnvMaps(envsecret.BuildEnvMap(filepath.Join(userDir, configpaths.EnvFileName)))
@@ -710,7 +710,7 @@ func TestResolveReconfigDecision_HomePromptDeferredWhenRebuildDeferred(t *testin
 			return "", nil
 		},
 	}
-	volumes := volume.NewManager(ui)
+	volumes := volume.NewManager()
 
 	persisted := state.HomeState{
 		HomeVolume:  "vol",
@@ -787,7 +787,7 @@ func TestResolveReconfigDecision_HomePromptAskedWhenRebuildConfirmed(t *testing.
 			return "", nil
 		},
 	}
-	volumes := volume.NewManager(ui)
+	volumes := volume.NewManager()
 
 	persisted := state.HomeState{
 		HomeVolume:  "vol",
@@ -874,7 +874,7 @@ func TestResolveReconfigDecision_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	volumes := volume.NewManager(&termio.Mock{})
+	volumes := volume.NewManager()
 	persisted := state.HomeState{
 		HomeVolume:   "vol",
 		ImageDigest:  "sha256:same",

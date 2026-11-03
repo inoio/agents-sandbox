@@ -155,7 +155,7 @@ func TestResolveReconfigDecisionAgentConfigDrivesRestart(t *testing.T) {
 
 			decision, err := resolveReconfigDecision(
 				context.Background(),
-				volume.NewManager(&ui),
+				volume.NewManager(),
 				testVMKey(),
 				options.RunOptions{Agent: "opencode"},
 				image.ImageInfo{Ref: "img:tag", Digest: persisted.ImageDigest},
@@ -190,7 +190,7 @@ func TestPlanReconfigStageLiveVMReadError(t *testing.T) {
 	provisionHostConfig := false
 	opts := options.RunOptions{Agent: "opencode", ProvisionHostConfig: &provisionHostConfig}
 	session := sessionIdentity{key: testVMKey(), agent: opencodeAgent(t)}
-	home := preparedHome{client: client, volumes: volume.NewManager(&ui), homeVolume: "vol"}
+	home := preparedHome{client: client, volumes: volume.NewManager(), homeVolume: "vol"}
 
 	_, err := planReconfigStage(context.Background(), session, image.ImageInfo{}, home, false, opts, &ui)
 	if !errors.Is(err, lookupErr) {
@@ -217,7 +217,7 @@ func TestResolveReconfigDecisionNeedsNoVMAccess(t *testing.T) {
 
 	decision, err := resolveReconfigDecision(
 		context.Background(),
-		volume.NewManager(&ui),
+		volume.NewManager(),
 		testVMKey(),
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{Digest: "sha256:same"},
@@ -254,7 +254,7 @@ func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {
 	session := sessionIdentity{key: testVMKey(), agent: opencodeAgent(t)}
 	home := preparedHome{
 		client:     client,
-		volumes:    volume.NewManager(&ui),
+		volumes:    volume.NewManager(),
 		homeVolume: "vol",
 		homeState:  state.HomeState{HomeVolume: "vol"},
 	}

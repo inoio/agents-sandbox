@@ -576,7 +576,7 @@ func prepareHomeVolume(
 		return nil, "", state.HomeState{}, fmt.Errorf("runtime home migration offer failed: %w", err)
 	}
 
-	volumes := volume.NewManager(ui)
+	volumes := volume.NewManager()
 	recovered := liveHomeVolume(ctx, client, k, ui)
 	homeVol, vs, err := volumes.ResolveHomeVolume(
 		ctx, client, k, imageInfo, skipVM, fingerprints, recovered, ui,

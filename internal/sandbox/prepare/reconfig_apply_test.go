@@ -34,7 +34,7 @@ func TestApplyReconfigHomeActionReturnsNewVolume(t *testing.T) {
 	newVolume, err := applyReconfigHomeAction(
 		context.Background(),
 		&msb.MockMsbClient{},
-		volume.NewManager(&ui),
+		volume.NewManager(),
 		key,
 		oldVolume,
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},

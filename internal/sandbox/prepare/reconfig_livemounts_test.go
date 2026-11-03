@@ -66,7 +66,7 @@ func newReconfigFixtureForImage(
 	}
 	return reconfigFixture{
 		client:  client,
-		volumes: volume.NewManager(&ui),
+		volumes: volume.NewManager(),
 		ui:      &ui,
 		cfs:     cfs,
 		homeVol: "vol",
