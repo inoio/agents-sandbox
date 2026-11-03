@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/spf13/viper"
+
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
-
-	"github.com/spf13/viper"
 )
 
 func validate(v *viper.Viper) error {

@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/moby/moby/client"
-
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"

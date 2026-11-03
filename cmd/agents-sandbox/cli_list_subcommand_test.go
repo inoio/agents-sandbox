@@ -17,7 +17,8 @@ import (
 var errBoom = errors.New("boom")
 
 func runListCmdTest(t *testing.T, cmdArgs []string, mockSetup func(m *sandboxmsb.MockMsbClient), wantOut,
-	wantInfo []string, wantErr bool, wantErrContains string) {
+	wantInfo []string, wantErr bool, wantErrContains string,
+) {
 	t.Helper()
 	mock := &sandboxmsb.MockMsbClient{}
 	mockSetup(mock)

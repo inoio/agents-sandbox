@@ -5,10 +5,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/testutil"
-
-	"github.com/stretchr/testify/require"
 )
 
 // writeFile builds a state tree entry, creating the parent directories, so a

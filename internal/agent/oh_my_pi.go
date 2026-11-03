@@ -85,9 +85,11 @@ func (ohMyPiProfile) NewerThan(a, b string) (bool, error) { return newerVersionT
 // SnippetPattern matches YAML snippets under either extension; they merge into
 // config.yml as YAML.
 func (ohMyPiProfile) SnippetPattern() string { return "config*.{yml,yaml}" }
+
 func (ohMyPiProfile) VMConfigPath(home string) string {
 	return filepath.Join(home, ohMyPiConfigDir, ohMyPiConfigFileName)
 }
+
 func (ohMyPiProfile) ConfigFileNames() []string {
 	return []string{ohMyPiConfigFileName, ohMyPiConfigFileNameAlt}
 }

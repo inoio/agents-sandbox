@@ -29,6 +29,7 @@ func TestApplyHomeSetsMSBHome(t *testing.T) {
 		t.Errorf("MSB_HOME = %q, want %q", os.Getenv("MSB_HOME"), home)
 	}
 }
+
 func TestApplyHomeWrapsSetenvError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	wantErr := errors.New("setenv boom")

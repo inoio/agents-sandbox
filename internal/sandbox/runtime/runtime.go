@@ -10,15 +10,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/inoio/agents-sandbox/internal/hostlock"
-
 	"github.com/Masterminds/semver/v3"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/hostlock"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 const (

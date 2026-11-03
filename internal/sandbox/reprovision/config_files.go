@@ -14,12 +14,11 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	config "github.com/inoio/agents-sandbox/internal/configmerge"
+	cp "github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
-
-	cp "github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/homeconfig"
 )
 
 // evalProvisionRules is a seam over agent.EvalProvisionRules so tests can

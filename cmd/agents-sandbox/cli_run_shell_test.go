@@ -31,7 +31,8 @@ import (
 // callers can inspect its call history, and installs a daemon shell stub that
 // reports the sandbox healthy.
 func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,
-	args ...string) (*cobra.Command, *termio.Mock) {
+	args ...string,
+) (*cobra.Command, *termio.Mock) {
 	t.Helper()
 	mock.CreatedSandbox = sandboxToReturn
 
@@ -58,7 +59,8 @@ func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn
 // setupShellRunMocks is like setupRunMocks but adds shell output for worktree creation.
 // Worktree scenarios need the mock sandbox to return valid JSON for the worktree curl commands.
 func setupShellRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,
-	args ...string) (*cobra.Command, *termio.Mock) {
+	args ...string,
+) (*cobra.Command, *termio.Mock) {
 	t.Helper()
 
 	// Ensure shell responses include a JSON worktree response for curl commands.

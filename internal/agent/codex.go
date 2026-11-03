@@ -45,6 +45,7 @@ func (codexProfile) NewerThan(a, b string) (bool, error) { return newerVersionTh
 
 // SnippetPattern matches TOML snippets, which merge into config.toml as TOML.
 func (codexProfile) SnippetPattern() string { return "config*.toml" }
+
 func (codexProfile) VMConfigPath(home string) string {
 	return filepath.Join(home, ".codex", codexConfigFileName)
 }

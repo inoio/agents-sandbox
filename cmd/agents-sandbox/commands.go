@@ -132,6 +132,7 @@ type autoPruneOutToVerboseRedirect struct {
 func (v *autoPruneOutToVerboseRedirect) Out(msg string) {
 	v.Verbose(msg)
 }
+
 func (v *autoPruneOutToVerboseRedirect) Outf(format string, args ...any) {
 	v.Verbosef(format, args...)
 }

@@ -7,10 +7,10 @@ import (
 	"slices"
 	"testing"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 func TestParseSecretSpecLegacyCreatesEntry(t *testing.T) {

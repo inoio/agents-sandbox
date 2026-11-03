@@ -72,10 +72,20 @@ func TestIsBareWorktreeConfigBooleanSpellings(t *testing.T) {
 		value string
 		want  bool
 	}{
-		{"true", true}, {"True", true}, {"yes", true}, {"YES", true}, {"on", true},
-		{"1", true}, {"2", true}, {"-1", true},
-		{"false", false}, {"no", false}, {"off", false}, {"0", false},
-		{"", false}, {"nonsense", false},
+		{"true", true},
+		{"True", true},
+		{"yes", true},
+		{"YES", true},
+		{"on", true},
+		{"1", true},
+		{"2", true},
+		{"-1", true},
+		{"false", false},
+		{"no", false},
+		{"off", false},
+		{"0", false},
+		{"", false},
+		{"nonsense", false},
 	} {
 		t.Run(tc.value, func(t *testing.T) {
 			shared := "[core]\n\trepositoryformatversion = 1\n[extensions]\n\tworktreeConfig = " + tc.value + "\n"
