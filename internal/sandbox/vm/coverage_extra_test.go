@@ -239,6 +239,9 @@ func TestEnsureProjectVMSkipVM(t *testing.T) {
 	if boot != VMBootConnected {
 		t.Errorf("expected VMBootConnected for dry-run, got %v", boot)
 	}
+	if !verboseContains(ui.VerboseCalls, "dry-run: VM lifecycle skipped") {
+		t.Errorf("verbose output = %v, want the dry-run skip note", ui.VerboseCalls)
+	}
 }
 
 // TestEnsureProjectVMGetSandboxFatalError covers the non-not-found GetSandbox

@@ -51,6 +51,7 @@ func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
 			DockerTag: legacyRef,
 			Ref:       naming.RunnerImageRef(key.Slug, key.Agent),
 			Digest:    "sha256:same",
+			Env:       map[string]string{"FOO": "bar"},
 		},
 		HomeVolume: "test-home-vol",
 		RepoPath:   t.TempDir(),
@@ -77,6 +78,9 @@ func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
 	}
 	if got := cfg.Labels[naming.LabelImage]; got != legacyRef {
 		t.Errorf("LabelImage = %q, want %q", got, legacyRef)
+	}
+	if !verboseContains(ui.VerboseCalls, "adding docker env definitions to project VM environment: map[FOO:bar]") {
+		t.Errorf("verbose output = %v, want the docker env note", ui.VerboseCalls)
 	}
 }
 
