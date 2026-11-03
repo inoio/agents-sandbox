@@ -435,10 +435,14 @@ func RenderDockerfile(
 
 	body, dockerInjected := injectDockerBlock(body, dockerEnabled)
 
+	// Resolve the profile's capabilities once for the whole render, so the
+	// block builders read them instead of each re-asserting an interface.
+	resolved := agent.Resolve(a)
+
 	blocks := make([]string, 0, 7)
 	blocks = append(blocks, earlier, toolbaseStage())
 	agentParent := toolbaseStageAlias
-	if a.ImageSpec().RequiresNode {
+	if resolved.Profile.ImageSpec().RequiresNode {
 		blocks = append(blocks, nodeStage())
 		agentParent = nodeStageAlias
 	}
@@ -446,7 +450,7 @@ func RenderDockerfile(
 	if dockerEnabled {
 		blocks = append(blocks, dockerStage())
 	}
-	blocks = append(blocks, baseStage, runnerStage(a, baseAlias, body, dockerEnabled, dockerInjected))
+	blocks = append(blocks, baseStage, runnerStage(resolved, baseAlias, body, dockerEnabled, dockerInjected))
 	return []byte(joinBlocks(blocks...)), nil
 }
 
@@ -618,7 +622,7 @@ RUN set -e; mkdir -p %s && \
 // runnerStage renders the final image stage: it creates the dev user, runs the
 // user body without the tool trees available, merges the tool trees with COPY,
 // records provenance, and finalizes the image contract.
-func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected bool) string {
+func runnerStage(a agent.Resolved, baseAlias, body string, docker, dockerInjected bool) string {
 	parts := []string{
 		fmt.Sprintf("FROM %s AS %s\n", baseAlias, runnerStageAlias),
 		devUserBlock(),
@@ -629,12 +633,12 @@ func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected b
 		parts = append(parts, dockerMergeBlock())
 	}
 	parts = append(parts,
-		agentToolTreeCopy(a),
+		agentToolTreeCopy(a.Profile),
 		agentAdoptionBlock(a),
-		agentImageConfigBlock(a),
+		agentImageConfigBlock(a.Profile),
 		finalizationBlock(),
 		guestToolsBlock(a),
-		runtimeLibsBlock(a),
+		runtimeLibsBlock(a.Profile),
 		launcherToolsBlock(),
 	)
 	return joinBlocks(parts...)
@@ -710,7 +714,7 @@ RUN set -e; mkdir -p /etc/agents-sandbox; \
 // or the tool. It resets to root so a project body ending in a non-root USER
 // cannot break the block. PATH prefers base binaries, so a base-provided agent
 // resolves outside toolDir.
-func agentAdoptionBlock(a agent.Agent) string {
+func agentAdoptionBlock(a agent.Resolved) string {
 	return fmt.Sprintf(`USER root
 RUN set -e; mkdir -p /etc/agents-sandbox; \
     bin="$(command -v %s 2>/dev/null || true)"; \
@@ -741,12 +745,11 @@ func launcherToolsBlock() string {
 // commands will; a tool installed only there is still found. It fails the build
 // naming the missing tool instead of failing at runtime. Agents that run no
 // daemon declare no tools and emit nothing.
-func guestToolsBlock(a agent.Agent) string {
-	requirer, ok := agent.AsGuestToolRequirer(a)
-	if !ok {
+func guestToolsBlock(a agent.Resolved) string {
+	if a.GuestTools == nil {
 		return ""
 	}
-	return guestToolCheck(requirer.GuestTools(), "agent runtime tool missing", "required by "+a.Name())
+	return guestToolCheck(a.GuestTools.GuestTools(), "agent runtime tool missing", "required by "+a.Profile.Name())
 }
 
 // guestToolCheck renders the RUN loop that fails the build when any of tools is
@@ -815,13 +818,13 @@ func agentImageConfigBlock(a agent.Agent) string {
 }
 
 // agentBinary returns the command name the agent installs.
-func agentBinary(a agent.Agent) string {
-	if provider, ok := agent.AsVersionProvider(a); ok {
+func agentBinary(a agent.Resolved) string {
+	if provider := a.Version; provider != nil {
 		if fields := strings.Fields(provider.VersionCmd()); len(fields) > 0 {
 			return fields[0]
 		}
 	}
-	return a.Name()
+	return a.Profile.Name()
 }
 
 // joinBlocks concatenates non-empty blocks with a newline between them, so empty

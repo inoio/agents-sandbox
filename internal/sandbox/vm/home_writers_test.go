@@ -47,7 +47,7 @@ func TestHomeWritersPreserveUnrelatedFields(t *testing.T) {
 						dockerSourcePath: []byte(state.AgentSourceUser + "\n"),
 					}, nil),
 				}
-				recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, &termio.Mock{})
+				recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termio.Mock{})
 			},
 			want: func() state.HomeState {
 				w := seed()

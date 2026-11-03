@@ -28,6 +28,14 @@ func opencodeAgent(t *testing.T) agent.Agent {
 	return a
 }
 
+// opencodeResolved returns the default opencode profile with its capabilities
+// resolved, for tests that build a sessionIdentity or drive a resolved-value
+// consumer directly.
+func opencodeResolved(t *testing.T) agent.Resolved {
+	t.Helper()
+	return agent.Resolve(opencodeAgent(t))
+}
+
 // opencodeProvider returns the opencode profile's DaemonProvider so tests can
 // build the exact commands the production path shells out with.
 func opencodeProvider(t *testing.T) agent.DaemonProvider {

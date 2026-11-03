@@ -25,7 +25,7 @@ const (
 // set survive, and a no-op when no state file exists: at that point home
 // resolution has not landed, so creating a document here would persist
 // home_volume: "" (#183, #430). Failures are logged, never fatal.
-func recordImageProvenance(ctx context.Context, k state.Key, a agent.Agent, sb msb.Sandbox, ui termio.Logger) {
+func recordImageProvenance(ctx context.Context, k state.Key, a agent.Resolved, sb msb.Sandbox, ui termio.Logger) {
 	agentSource, err := sb.FS().ReadString(ctx, agentSourcePath)
 	if err != nil {
 		ui.Verbosef("no agent-source file in image (pre-provenance image); skipping")
@@ -59,9 +59,9 @@ func recordImageProvenance(ctx context.Context, k state.Key, a agent.Agent, sb m
 // detectToolAgentVersion detects the installed agent version via the agent's
 // VersionProvider. The bool reports success; on failure the caller keeps any
 // previously recorded version. Failures are logged, never fatal.
-func detectToolAgentVersion(ctx context.Context, a agent.Agent, sb msb.Sandbox, ui termio.Logger) (string, bool) {
-	provider, ok := agent.AsVersionProvider(a)
-	if !ok {
+func detectToolAgentVersion(ctx context.Context, a agent.Resolved, sb msb.Sandbox, ui termio.Logger) (string, bool) {
+	provider := a.Version
+	if provider == nil {
 		return "", false
 	}
 	out, runErr := sb.Shell(ctx, provider.VersionCmd(), msbSdk.WithExecUser(DefaultSandboxUser))

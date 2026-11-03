@@ -40,7 +40,12 @@ func TestListSandboxesError(t *testing.T) {
 // TestDetectToolAgentVersionNotProvider covers the branch where the agent does
 // not implement VersionProvider: no version is detected.
 func TestDetectToolAgentVersionNotProvider(t *testing.T) {
-	version, ok := detectToolAgentVersion(context.Background(), &fakeAgent{}, &msb.MockSandbox{}, &termio.Mock{})
+	version, ok := detectToolAgentVersion(
+		context.Background(),
+		agent.Resolve(&fakeAgent{}),
+		&msb.MockSandbox{},
+		&termio.Mock{},
+	)
 	if ok || version != "" {
 		t.Errorf("expected no detection, got (%q, %v)", version, ok)
 	}
@@ -52,7 +57,7 @@ func TestDetectToolAgentVersionNotProvider(t *testing.T) {
 func TestDetectToolAgentVersionShellError(t *testing.T) {
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{ShellErr: errors.New("shell failed")}
-	version, ok := detectToolAgentVersion(context.Background(), opencodeAgent(t), sb, ui)
+	version, ok := detectToolAgentVersion(context.Background(), opencodeResolved(t), sb, ui)
 	if ok || version != "" {
 		t.Errorf("expected no detection on shell error, got (%q, %v)", version, ok)
 	}
@@ -71,7 +76,7 @@ func TestDetectToolAgentVersionParseError(t *testing.T) {
 			"opencode --version": msb.NewTestResult(true, 0, "not a version string", "", nil),
 		},
 	}
-	version, ok := detectToolAgentVersion(context.Background(), opencodeAgent(t), sb, ui)
+	version, ok := detectToolAgentVersion(context.Background(), opencodeResolved(t), sb, ui)
 	if ok || version != "" {
 		t.Errorf("expected no detection on parse error, got (%q, %v)", version, ok)
 	}
@@ -95,7 +100,7 @@ func TestRecordImageProvenanceLoadError(t *testing.T) {
 	}, nil)
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{FSValue_: fs}
-	recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, ui)
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, ui)
 	if !contains(joinStrings(ui.WarnCalls), "read state for transaction") {
 		t.Errorf("expected a warning about the unreadable project state, got %v", ui.WarnCalls)
 	}
@@ -123,7 +128,7 @@ func TestRecordImageProvenancePersistError(t *testing.T) {
 	}, nil)
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{FSValue_: fs}
-	recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, ui)
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, ui)
 	if !contains(joinStrings(ui.WarnCalls), "could not persist project state") {
 		t.Errorf("expected a warning about the failed persist, got %v", ui.WarnCalls)
 	}
@@ -171,7 +176,7 @@ func TestResolveTargetCreateShellError(t *testing.T) {
 	sb := &errOnCmdSandbox{Sandbox: base, cmd: createCmd}
 	_, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -298,7 +303,7 @@ func TestEnsureDaemonContextCancelled(t *testing.T) {
 	t.Cleanup(func() { daemonPollInterval = origPoll })
 	daemonPollInterval = time.Millisecond
 
-	err := ensureDaemon(ctx, opencodeAgent(t), false, false, &msb.MockSandbox{}, &termio.Mock{})
+	err := ensureDaemon(ctx, opencodeResolved(t), false, false, &msb.MockSandbox{}, &termio.Mock{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}

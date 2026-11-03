@@ -27,7 +27,7 @@ func TestResolveBuildVersionNoRebuildSkipsUpgradeCheck(t *testing.T) {
 	withExistingAgentVersion(t)
 
 	got, upgraded, offered, err := resolveBuildVersion(
-		context.Background(), k, opencodeAgent(t), &termio.Mock{},
+		context.Background(), k, opencodeResolved(t), &termio.Mock{},
 		options.RunOptions{Agent: "opencode", NoRebuild: true},
 	)
 	if err != nil {

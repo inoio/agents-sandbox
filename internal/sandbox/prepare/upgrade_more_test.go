@@ -33,7 +33,7 @@ func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
 	_, _, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		ui,
 		options.RunOptions{Agent: "opencode"},
 	)
@@ -63,7 +63,7 @@ func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
 	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		ui,
 		options.RunOptions{Agent: "opencode"},
 	)
@@ -98,7 +98,7 @@ func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
 	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		ui,
 		options.RunOptions{Agent: "opencode"},
 	)
@@ -123,7 +123,7 @@ func TestResolveBuildVersionWithoutUpgradeChecker(t *testing.T) {
 	got, upgraded, _, err := resolveBuildVersion(
 		context.Background(),
 		k,
-		&fakeAgent{},
+		agent.Resolve(&fakeAgent{}),
 		&termio.Mock{},
 		options.RunOptions{Agent: "opencode"},
 	)
@@ -138,12 +138,45 @@ func TestResolveBuildVersionWithoutUpgradeChecker(t *testing.T) {
 	}
 }
 
+// TestResolveBuildVersionWithoutUpgradeCheckerIgnoresImageLabel pins the
+// no-checker guard's purpose: the recorded version is reused verbatim, never
+// reconciled against the existing image label. Reconciliation is the
+// upgrade-check path's job, and a checker-less agent must not silently adopt a
+// version the image reports (which would defeat the stable image identity the
+// guard preserves).
+func TestResolveBuildVersionWithoutUpgradeCheckerIgnoresImageLabel(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "fake"}
+	seedAgentState(t, k, "1.5.0", state.AgentSourceTool)
+	withExistingAgentVersionValue(t, "2.0.0")
+
+	got, upgraded, _, err := resolveBuildVersion(
+		context.Background(),
+		k,
+		agent.Resolve(&fakeAgent{}),
+		&termio.Mock{},
+		options.RunOptions{Agent: "opencode"},
+	)
+	if err != nil {
+		t.Fatalf("resolveBuildVersion: %v", err)
+	}
+	if got != "1.5.0" {
+		t.Errorf(
+			"resolveBuildVersion = %q, want the recorded 1.5.0 (a checker-less agent must not adopt the image's 2.0.0)",
+			got,
+		)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false for an agent without an upgrade checker")
+	}
+}
+
 // TestPendingUpgradeWithoutUpgradeChecker covers the no-checker branch of
 // pendingUpgrade: it never offers an upgrade for an agent lacking a checker.
 func TestPendingUpgradeWithoutUpgradeChecker(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "fake"}
-	latest, offer := pendingUpgrade(context.Background(), &fakeAgent{}, k, &termio.Mock{}, "1.0.0")
+	latest, offer := pendingUpgrade(context.Background(), agent.Resolve(&fakeAgent{}), k, &termio.Mock{}, "1.0.0")
 	if offer {
 		t.Errorf("expected no upgrade offer for an agent without a checker, got latest=%q", latest)
 	}

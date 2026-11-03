@@ -41,6 +41,7 @@ func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 		context.Background(),
 		testVMKey(),
 		sb,
+		opencodeResolved(t),
 		options.RunOptions{Agent: "opencode"},
 		cfs,
 		ui,

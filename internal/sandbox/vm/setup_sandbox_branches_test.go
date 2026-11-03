@@ -39,7 +39,15 @@ func setUpOpencodeSandbox(
 ) error {
 	t.Helper()
 	_, err := SetUpSandbox(
-		context.Background(), testVMKey(), sb, options.RunOptions{Agent: "opencode"}, cfs, ui, false, boot,
+		context.Background(),
+		testVMKey(),
+		sb,
+		opencodeResolved(t),
+		options.RunOptions{Agent: "opencode"},
+		cfs,
+		ui,
+		false,
+		boot,
 		mounts.WorkspaceMountPath,
 	)
 	return err
@@ -154,8 +162,16 @@ func TestSetUpSandboxReportsWhatItDoes(t *testing.T) {
 		t.Fatalf("SetUpSandbox: %v", err)
 	}
 	if _, err := SetUpSandbox(
-		context.Background(), testVMKey(), sb, options.RunOptions{Agent: "opencode"}, cfs, &ui, true,
-		VMBootConnected, mounts.WorkspaceMountPath,
+		context.Background(),
+		testVMKey(),
+		sb,
+		opencodeResolved(t),
+		options.RunOptions{Agent: "opencode"},
+		cfs,
+		&ui,
+		true,
+		VMBootConnected,
+		mounts.WorkspaceMountPath,
 	); err != nil {
 		t.Fatalf("SetUpSandbox (restart): %v", err)
 	}

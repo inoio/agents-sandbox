@@ -201,11 +201,12 @@ func PrepareSandbox(
 }
 
 // sessionIdentity is what resolve-identity hands to the later stages: the
-// workspace directory, the agent, the resolved identity and the effective key.
+// workspace directory, the resolved agent capabilities, the resolved identity
+// and the effective key.
 type sessionIdentity struct {
 	cwd      string
 	guestCWD string
-	agent    agent.Agent
+	agent    agent.Resolved
 	identity git.Identity
 	key      state.Key
 }
@@ -233,7 +234,7 @@ func resolveIdentityStage(
 		guestCWD: guestWorkspacePath(identity.BindRoot, cwd),
 		agent:    a,
 		identity: identity,
-		key:      state.Key{Slug: adoption.Slug, Agent: a.Name()},
+		key:      state.Key{Slug: adoption.Slug, Agent: a.Profile.Name()},
 	}, nil
 }
 
@@ -257,7 +258,13 @@ func resolveVersionStage(
 	opts options.RunOptions,
 	ui termio.UI,
 ) (versionDecision, error) {
-	agentVersion, shallUpgrade, offeredVersion, err := determineAgentVersion(ctx, session.key, session.agent, ui, opts)
+	agentVersion, shallUpgrade, offeredVersion, err := determineAgentVersion(
+		ctx,
+		session.key,
+		session.agent,
+		ui,
+		opts,
+	)
 	if err != nil {
 		return versionDecision{}, err
 	}
@@ -281,7 +288,7 @@ func ensureImageStage(
 ) (image.ImageInfo, error) {
 	imageInfo, err := image.EnsureImage(
 		ctx,
-		session.agent,
+		session.agent.Profile,
 		session.key.Slug,
 		buildOptions(opts, version.buildVersion, opts.Rebuild, version.userProvided),
 		ui,
@@ -290,7 +297,7 @@ func ensureImageStage(
 		return image.ImageInfo{}, fmt.Errorf("ensuring image failed: %w", err)
 	}
 	if version.shallUpgrade {
-		ui.Verbosef("runner image rebuilt with a newer %s version", session.agent.Name())
+		ui.Verbosef("runner image rebuilt with a newer %s version", session.agent.Profile.Name())
 	}
 	ui.Verbosef("Using image '%s' (digest=%s)", imageInfo.Ref, imageInfo.Digest)
 	return imageInfo, nil
@@ -361,12 +368,12 @@ func planReconfigStage(
 	opts options.RunOptions,
 	ui termio.UI,
 ) (reconfigPlan, error) {
-	configFiles, err := reprovision.LoadConfigFiles(session.agent, ui, provisionHostConfig(opts))
+	configFiles, err := reprovision.LoadConfigFiles(session.agent.Profile, ui, provisionHostConfig(opts))
 	if err != nil {
 		return reconfigPlan{}, err
 	}
 	reprovision.WarnUnprovisionedDependencies(
-		session.agent, configFiles, mounts.MountTargets(opts.Mounts), provisionHostConfig(opts), ui,
+		session.agent.Profile, configFiles, mounts.MountTargets(opts.Mounts), provisionHostConfig(opts), ui,
 	)
 	live, err := readLiveProjectVM(ctx, home.client, session.key, configFiles.Keys, ui)
 	if err != nil {
@@ -447,7 +454,16 @@ func setupSandboxStage(
 	} else {
 		var err error
 		sandboxTarget, err = vm.SetUpSandbox(
-			ctx, session.key, sb, opts, plan.configFiles, ui, plan.decision.Restart, boot, session.guestCWD,
+			ctx,
+			session.key,
+			sb,
+			session.agent,
+			opts,
+			plan.configFiles,
+			ui,
+			plan.decision.Restart,
+			boot,
+			session.guestCWD,
 		)
 		if err != nil {
 			return "", err
@@ -471,20 +487,20 @@ func resolveSessionIdentity(
 	cwd, agentName string,
 	skipVM bool,
 	ui termio.Logger,
-) (agent.Agent, git.Identity, vm.IdentityAdoption, error) {
+) (agent.Resolved, git.Identity, vm.IdentityAdoption, error) {
 	a, ok := agent.Lookup(agentName)
 	if !ok {
-		return nil, git.Identity{}, vm.IdentityAdoption{}, fmt.Errorf("unknown agent %q", agentName)
+		return agent.Resolved{}, git.Identity{}, vm.IdentityAdoption{}, fmt.Errorf("unknown agent %q", agentName)
 	}
 	identity, err := git.ResolveIdentity(cwd)
 	if err != nil {
-		return nil, git.Identity{}, vm.IdentityAdoption{}, err
+		return agent.Resolved{}, git.Identity{}, vm.IdentityAdoption{}, err
 	}
 	adoption, err := vm.AdoptLegacyIdentity(ctx, client, identity, a.Name(), !skipVM, ui)
 	if err != nil {
-		return nil, git.Identity{}, vm.IdentityAdoption{}, err
+		return agent.Resolved{}, git.Identity{}, vm.IdentityAdoption{}, err
 	}
-	return a, identity, adoption, nil
+	return agent.Resolve(a), identity, adoption, nil
 }
 
 // determineAgentVersion decides the agent version for the run: the upgrade
@@ -493,7 +509,7 @@ func resolveSessionIdentity(
 func determineAgentVersion(
 	ctx context.Context,
 	k state.Key,
-	a agent.Agent,
+	a agent.Resolved,
 	ui termio.UI,
 	opts options.RunOptions,
 ) (string, bool, string, error) {

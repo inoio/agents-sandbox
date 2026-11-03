@@ -30,7 +30,7 @@ func TestRecordImageProvenanceDetectsToolAgentVersion(t *testing.T) {
 	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
-	recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, &termio.Mock{})
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termio.Mock{})
 
 	hs, err := state.ReadState(k)
 	if err != nil {
@@ -54,7 +54,7 @@ func TestRecordImageProvenanceSkipsMissingState(t *testing.T) {
 	}, nil)
 	sb := &msb.MockSandbox{FSValue_: fs}
 
-	recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, &termio.Mock{})
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termio.Mock{})
 
 	if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
 		t.Fatalf("ReadState error = %v, want ErrStateNotFound (no state created)", err)
@@ -74,7 +74,7 @@ func TestRecordImageProvenanceSkipsVersionForUserAgent(t *testing.T) {
 	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
-	recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, &termio.Mock{})
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termio.Mock{})
 
 	hs, err := state.ReadState(k)
 	if err != nil {
@@ -95,7 +95,7 @@ func TestRecordImageProvenanceSkipsWhenFileAbsent(t *testing.T) {
 		t.Fatal(err)
 	}
 	fs := msb.NewTestFS(nil, nil)
-	recordImageProvenance(context.Background(), k, opencodeAgent(t), &msb.MockSandbox{FSValue_: fs}, &termio.Mock{})
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), &msb.MockSandbox{FSValue_: fs}, &termio.Mock{})
 
 	hs, err := state.ReadState(k)
 	if err != nil {
@@ -128,7 +128,7 @@ func TestRecordImageProvenancePreservesExistingFields(t *testing.T) {
 			"opencode --version": msb.NewTestResult(true, 0, "0.5.0\n", "", nil),
 		},
 	}
-	recordImageProvenance(context.Background(), k, opencodeAgent(t), sb, &termio.Mock{})
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termio.Mock{})
 
 	hs, err := state.ReadState(k)
 	if err != nil {
@@ -159,7 +159,7 @@ func TestRecordImageProvenanceReadErrorLeavesStateUntouched(t *testing.T) {
 	}
 	fs := msb.NewTestFS(nil, nil) // every ReadString fails: no provenance files
 	ui := termio.NewTestMock(t)
-	recordImageProvenance(context.Background(), k, opencodeAgent(t), &msb.MockSandbox{FSValue_: fs}, &ui)
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), &msb.MockSandbox{FSValue_: fs}, &ui)
 
 	hs, err := state.ReadState(k)
 	if err != nil {

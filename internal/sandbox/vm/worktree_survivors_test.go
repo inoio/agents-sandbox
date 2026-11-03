@@ -44,7 +44,7 @@ func (s createErrorSandbox) Shell(
 // TestWorktreeDetachedNoteEmptyForBranchReporter pins that a reporter whose
 // daemon keeps a branch is silent: the note is only for a detached HEAD.
 func TestWorktreeDetachedNoteEmptyForBranchReporter(t *testing.T) {
-	if note := worktreeDetachedNote(branchWorktreeAgent{}); note != "" {
+	if note := worktreeDetachedNote(agent.Resolve(branchWorktreeAgent{})); note != "" {
 		t.Errorf("worktreeDetachedNote = %q, want empty for a branch-keeping reporter", note)
 	}
 }
@@ -59,7 +59,7 @@ func TestResolveTargetWrapsResolveShellError(t *testing.T) {
 
 	_, err := ResolveTarget(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -83,7 +83,7 @@ func TestResolveTargetWrapsListShellError(t *testing.T) {
 
 	_, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -112,7 +112,7 @@ func TestResolveTargetAbortsWhenListExitNonZero(t *testing.T) {
 
 	_, err := ResolveTarget(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -145,7 +145,7 @@ func TestResolveTargetWrapsCreateShellError(t *testing.T) {
 
 	_, err := ResolveTarget(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -174,7 +174,7 @@ func TestResolveTargetAbortsWhenCreateExitNonZero(t *testing.T) {
 
 	_, err := ResolveTarget(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -206,7 +206,7 @@ func TestResolveTargetWrapsBaseValidationError(t *testing.T) {
 
 	_, err := ResolveTarget(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		sb,
 		options.WorktreeSpec{Name: "feat-x", Base: "develop"},
 		mounts.WorkspaceMountPath,

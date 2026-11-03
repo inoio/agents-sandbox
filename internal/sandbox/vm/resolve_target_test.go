@@ -20,7 +20,7 @@ func TestResolveTargetListError(t *testing.T) {
 	sb := &msb.MockSandbox{ShellErr: errors.New("list failed")}
 	_, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -39,7 +39,7 @@ func TestResolveTargetResolveError(t *testing.T) {
 	sb := &msb.MockSandbox{ShellErr: errors.New("resolve failed"), ShellCalls: &[]string{}}
 	_, err := ResolveTarget(
 		context.Background(),
-		opencode2Agent(t),
+		agent.Resolve(opencode2Agent(t)),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -75,7 +75,7 @@ func TestResolveTargetListNonSuccessDoesNotCreate(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -104,7 +104,7 @@ func TestResolveTargetCreateNonSuccess(t *testing.T) {
 	}
 	_, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -129,7 +129,7 @@ func TestResolveTargetParseError(t *testing.T) {
 	}
 	_, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,

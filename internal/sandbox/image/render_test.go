@@ -508,8 +508,46 @@ func (emptyGuestToolsAgent) Name() string         { return "stub" }
 func (emptyGuestToolsAgent) GuestTools() []string { return nil }
 
 func TestGuestToolsBlockEmptyListEmitsNothing(t *testing.T) {
-	if got := guestToolsBlock(emptyGuestToolsAgent{}); got != "" {
+	if got := guestToolsBlock(agent.Resolve(emptyGuestToolsAgent{})); got != "" {
 		t.Errorf("guestToolsBlock with an empty tool list = %q, want empty", got)
+	}
+}
+
+// versionlessAgent has no VersionProvider, so agentBinary falls back to the
+// profile name.
+type versionlessAgent struct{ agent.Agent }
+
+func (versionlessAgent) Name() string { return "versionless" }
+
+// emptyVersionCmdAgent exposes a VersionProvider whose command carries no
+// binary word, so agentBinary also falls back to the profile name.
+type emptyVersionCmdAgent struct{ agent.Agent }
+
+func (emptyVersionCmdAgent) Name() string                        { return "empty-cmd" }
+func (emptyVersionCmdAgent) VersionCmd() string                  { return "" }
+func (emptyVersionCmdAgent) ParseVersion(string) (string, error) { return "", nil }
+
+func TestAgentBinaryFallsBackToProfileName(t *testing.T) {
+	if got := agentBinary(agent.Resolve(versionlessAgent{})); got != "versionless" {
+		t.Errorf("agentBinary without a VersionProvider = %q, want the profile name %q", got, "versionless")
+	}
+	if got := agentBinary(agent.Resolve(emptyVersionCmdAgent{})); got != "empty-cmd" {
+		t.Errorf("agentBinary with an empty VersionCmd = %q, want the profile name %q", got, "empty-cmd")
+	}
+}
+
+// binaryNamedAgent exposes a VersionProvider whose command names a binary that
+// differs from the profile name, so agentBinary takes the command's first word
+// rather than falling back to the profile.
+type binaryNamedAgent struct{ agent.Agent }
+
+func (binaryNamedAgent) Name() string                        { return "binary-named" }
+func (binaryNamedAgent) VersionCmd() string                  { return "agent-bin --version" }
+func (binaryNamedAgent) ParseVersion(string) (string, error) { return "", nil }
+
+func TestAgentBinaryUsesVersionCmdBinary(t *testing.T) {
+	if got := agentBinary(agent.Resolve(binaryNamedAgent{})); got != "agent-bin" {
+		t.Errorf("agentBinary with a version command = %q, want its binary word %q", got, "agent-bin")
 	}
 }
 

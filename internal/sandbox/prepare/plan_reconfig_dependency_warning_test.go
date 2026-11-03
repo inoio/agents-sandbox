@@ -36,7 +36,7 @@ func TestPlanReconfigStageWarnsAboutUnprovisionedConfigDirDependencies(t *testin
 	ui := termio.NewTestMock(t)
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
-	session := sessionIdentity{key: testVMKey(), agent: opencodeAgent(t)}
+	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
 	home := preparedHome{
 		client:     client,
 		volumes:    volume.NewManager(),
