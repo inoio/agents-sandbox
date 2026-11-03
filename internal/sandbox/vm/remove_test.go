@@ -298,7 +298,7 @@ func TestRemoveSandboxDeclinedConfirmation(t *testing.T) {
 // classification: a prefix-free project VM (a parsed slug that is not a task) is
 // a project VM, so RemoveSandbox accepts it rather than rejecting it as foreign.
 func TestIsProjectVMNameAcceptsPrefixFreeProjectVM(t *testing.T) {
-	name := projectVMName(state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"})
+	name := ProjectVMName(state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"})
 	if !isProjectVMName(name) {
 		t.Errorf("isProjectVMName(%q) = false, want true for a prefix-free project VM", name)
 	}

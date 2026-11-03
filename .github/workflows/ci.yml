@@ -121,6 +121,7 @@ jobs:
       - run: make validate-fmt
       - run: make docs-linkcheck
       - run: make docs-linkcheck-test
+      - run: make cleanup-branches-test
 
   test:
     name: test

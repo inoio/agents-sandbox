@@ -15,6 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
@@ -122,7 +123,13 @@ func prepareVolumeOp(c *cobra.Command, ui termio.UI, dryRun bool) (state.Key, im
 		c.Context(),
 		a,
 		adoption.Slug,
-		image.BuildOptions{Force: false, AgentVersion: "", UserProvided: false, Docker: resolveBuildDockerSetting(c)},
+		image.BuildOptions{
+			Force:        false,
+			NoRebuild:    false,
+			AgentVersion: "",
+			UserProvided: false,
+			Docker:       resolveBuildDockerSetting(c),
+		},
 		ui,
 	)
 	if err != nil {
@@ -179,7 +186,7 @@ func buildListCmd(ui termio.UI) *cobra.Command {
 				return err
 			}
 			var lim *uint32
-			if cmd.Flags().Changed(flagLimit) && limit != 0 {
+			if limit != 0 {
 				lim = &limit
 			}
 			opt := sandbox.ListOption{
@@ -223,6 +230,19 @@ func parseLabelFlags(values []string) (map[string]string, error) {
 // docker/dind precedence the run path uses, so a build and a run of one project
 // cannot disagree — reading the resolver from the command context (a nil one
 // resolves from the changed flags alone).
+// resolveBuildAgentVersion resolves the agent version for the build command:
+// --agent-version wins, falling back to the deprecated --opencode-version alias
+// only when --agent-version was not given explicitly.
+func resolveBuildAgentVersion(cmd *cobra.Command) string {
+	agentVersion, _ := cmd.Flags().GetString(flagAgentVersion)
+	// The fallback reads the deprecated alias whenever --agent-version was not
+	// given; an unchanged alias is empty, so no separate Changed check is needed.
+	if !cmd.Flags().Changed(flagAgentVersion) {
+		agentVersion, _ = cmd.Flags().GetString(flagOpenCodeVersion)
+	}
+	return agentVersion
+}
+
 func resolveBuildDockerSetting(cmd *cobra.Command) options.DockerSetting {
 	// Resolver.Config tolerates a nil resolver, so the flag-only path (no
 	// resolver on the context) resolves from the flags alone.
@@ -237,10 +257,7 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			force, _ := cmd.Flags().GetBool(flagRebuild)
 			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			openCodeVersion, _ := cmd.Flags().GetString(flagAgentVersion)
-			if !cmd.Flags().Changed(flagAgentVersion) && cmd.Flags().Changed(flagOpenCodeVersion) {
-				openCodeVersion, _ = cmd.Flags().GetString(flagOpenCodeVersion)
-			}
+			openCodeVersion := resolveBuildAgentVersion(cmd)
 			a, err := resolveAgentFlag(cmd)
 			if err != nil {
 				return err
@@ -261,22 +278,24 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			client := msb.Get()
 			adoption, err := sandbox.AdoptLegacyIdentity(
-				cmd.Context(), msb.Get(), identity, a.Name(), !dryRun, ui,
+				cmd.Context(), client, identity, a.Name(), !dryRun, ui,
 			)
 			if err != nil {
-				return err
+				return fmt.Errorf("adopt legacy identity: %w", err)
 			}
 			if dryRun {
 				ui.Infof("dry-run: Would build runner image")
 				return nil
 			}
-			agentVersion, userProvided := sandbox.ResolveAgentVersionForBuild(
+			agentVersion, userProvided := prepare.ResolveAgentVersionForBuild(
 				state.Key{Slug: adoption.Slug, Agent: a.Name()},
 				openCodeVersion,
 			)
-			info, err := image.Build(cmd.Context(), a, adoption.Slug, image.BuildOptions{
+			info, err := image.Build(cmd.Context(), client, a, adoption.Slug, image.BuildOptions{
 				Force:        force,
+				NoRebuild:    false,
 				AgentVersion: agentVersion,
 				UserProvided: userProvided,
 				Docker:       resolveBuildDockerSetting(cmd),

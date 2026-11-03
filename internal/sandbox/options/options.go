@@ -38,6 +38,9 @@ type RunOptions struct {
 	IdleTimeout time.Duration
 	CPUs        uint8
 	Rebuild     bool
+	// NoRebuild reuses the existing runner image even when its inputs changed
+	// and skips the agent upgrade check. A missing image is still built.
+	NoRebuild bool
 	// Docker is the resolved docker capability: whether the tool's Docker
 	// engine block is baked into the runner image and whether that value was
 	// set explicitly.
@@ -62,6 +65,10 @@ type RunOptions struct {
 	Network network.Policy
 	// Mounts are additional host directories bind-mounted at absolute guest paths.
 	Mounts mounts.Mounts
+	// AllowPlaceholderFor lists hosts that may receive any secret's placeholder
+	// unchanged. It comes from the config-file-only
+	// secrets.common.allow-placeholder-for key.
+	AllowPlaceholderFor []string
 	// AgentVersion pins the agent version baked into the runner image on
 	// rebuild. Empty means resolve the latest at build time.
 	AgentVersion string

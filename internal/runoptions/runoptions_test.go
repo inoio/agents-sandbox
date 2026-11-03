@@ -33,6 +33,7 @@ func wantNetworkProfiles(t *testing.T, policy network.Policy, want ...network.Pr
 func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().String(FlagWorktree, "", "worktree")
 	cmd.Flags().Bool(FlagRebuild, false, "rebuild")
+	cmd.Flags().Bool(FlagNoRebuild, false, "no-rebuild")
 	cmd.Flags().String(FlagAgentVersion, "", "agent-version")
 	cmd.Flags().Bool(FlagDryRun, false, "dry-run")
 	cmd.Flags().Bool(FlagDryRunVM, false, "dry-run-vm")
@@ -172,6 +173,24 @@ func TestBuildOpenLinksFromFlagWithoutConfig(t *testing.T) {
 	}
 	if !opts.OpenLinks {
 		t.Fatal("opts.OpenLinks = false, want true from the flag")
+	}
+}
+
+// TestBuildAllowPlaceholderForFromConfig pins that the config-file-only
+// allow-placeholder-for list reaches RunOptions, where the env/secret load
+// reads it to build the secret entries' placeholder passthrough.
+func TestBuildAllowPlaceholderForFromConfig(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{
+		Secrets: viperconfig.Secrets{
+			Common: viperconfig.SecretCommon{AllowPlaceholderFor: []string{"model.example"}},
+		},
+	})
+	opts, err := Build(r.Config(), newRunCommand(), &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !slices.Equal(opts.AllowPlaceholderFor, []string{"model.example"}) {
+		t.Errorf("AllowPlaceholderFor = %v, want [model.example]", opts.AllowPlaceholderFor)
 	}
 }
 
@@ -775,6 +794,128 @@ func TestBuildAgentOpencode2(t *testing.T) {
 	}
 	if opts.Agent != "opencode2" {
 		t.Errorf("Agent = %q; want opencode2", opts.Agent)
+	}
+}
+
+func TestBuildNoticesExperimentalAgents(t *testing.T) {
+	cases := []struct {
+		agent string
+		want  bool
+	}{
+		{"pi", true},
+		{"claude-code", true},
+		{"codex", true},
+		{"hermes", true},
+		{"oh-my-pi", true},
+		{"opencode", false},
+		{"opencode2", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.agent, func(t *testing.T) {
+			cmd := newRunCommand()
+			if err := cmd.Flags().Set(FlagAgent, tc.agent); err != nil {
+				t.Fatalf("set agent: %v", err)
+			}
+			ui := &termio.Mock{}
+			var r *viperconfig.Resolver
+			if _, err := Build(r.Config(), cmd, ui); err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			got := experimentalNoticePrinted(ui)
+			if got != tc.want {
+				t.Errorf(
+					"experimental notice for %q = %v, want %v (InfoCalls=%q)",
+					tc.agent,
+					got,
+					tc.want,
+					ui.InfoCalls,
+				)
+			}
+		})
+	}
+}
+
+// experimentalNoticePrinted reports whether ui received the experimental-agent
+// info notice.
+func experimentalNoticePrinted(ui *termio.Mock) bool {
+	return slices.ContainsFunc(ui.InfoCalls, func(m string) bool {
+		return strings.Contains(m, "experimental")
+	})
+}
+
+// TestBuildEmptyAgentResolvesToDefaultWithoutNotice pins that an explicitly
+// empty --agent resolves to the default profile and prints no notice.
+func TestBuildEmptyAgentResolvesToDefaultWithoutNotice(t *testing.T) {
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagAgent, ""); err != nil {
+		t.Fatalf("set agent: %v", err)
+	}
+	ui := &termio.Mock{}
+	var r *viperconfig.Resolver
+	opts, err := Build(r.Config(), cmd, ui)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.Agent != "opencode2" {
+		t.Errorf("Agent = %q; want opencode2 (the default)", opts.Agent)
+	}
+	if experimentalNoticePrinted(ui) {
+		t.Errorf("experimental notice printed for the default agent: %q", ui.InfoCalls)
+	}
+}
+
+// TestBuildInvalidInvocationPrintsNoExperimentalNotice pins that the
+// experimental notice is emitted only after option resolution succeeds: an
+// invalid invocation errors without first printing the info line.
+func TestBuildInvalidInvocationPrintsNoExperimentalNotice(t *testing.T) {
+	cases := []struct {
+		name      string
+		agent     string
+		configure func(t *testing.T, cmd *cobra.Command)
+	}{
+		{
+			name:  "unknown agent",
+			agent: "does-not-exist",
+		},
+		{
+			name:  "experimental agent with notify it does not support",
+			agent: "pi",
+			configure: func(t *testing.T, cmd *cobra.Command) {
+				t.Helper()
+				if err := cmd.Flags().Set(FlagNotify, "on"); err != nil {
+					t.Fatalf("set notify: %v", err)
+				}
+			},
+		},
+		{
+			name:  "experimental agent with an invalid network profile",
+			agent: "pi",
+			configure: func(t *testing.T, cmd *cobra.Command) {
+				t.Helper()
+				if err := cmd.Flags().Set(FlagNetwork, "bogus"); err != nil {
+					t.Fatalf("set network: %v", err)
+				}
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := newRunCommand()
+			if err := cmd.Flags().Set(FlagAgent, tc.agent); err != nil {
+				t.Fatalf("set agent: %v", err)
+			}
+			if tc.configure != nil {
+				tc.configure(t, cmd)
+			}
+			ui := &termio.Mock{}
+			var r *viperconfig.Resolver
+			if _, err := Build(r.Config(), cmd, ui); err == nil {
+				t.Fatal("expected an error")
+			}
+			if experimentalNoticePrinted(ui) {
+				t.Errorf("experimental notice printed before the error: %q", ui.InfoCalls)
+			}
+		})
 	}
 }
 

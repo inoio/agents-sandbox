@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 
 	"github.com/spf13/pflag"
 )
@@ -34,6 +35,25 @@ func TestConfigEnvKeysGoldenSet(t *testing.T) {
 	}
 }
 
+// envKeys is the env-binding surface. With AutomaticEnv gone, a key missing
+// here has no env var at all, so every derived env key and every notify dotted
+// key must be present. The bare "notify" key is deliberately absent: it would
+// collide with the notify.* keys in viper and is read by runoptions directly.
+func TestEnvKeysCoverEveryEnvironmentVariable(t *testing.T) {
+	for _, key := range slices.Concat(configEnvKeys, notifyEnvKeys) {
+		if !slices.Contains(envKeys, key) {
+			t.Errorf("envKeys is missing %q", key)
+		}
+	}
+	wantNotify := []string{keyNotifyDesktop, keyNotifyAudio, keyNotifyOnInput, keyNotifyOnDone, keyNotifyOnError}
+	if !slices.Equal(notifyEnvKeys, wantNotify) {
+		t.Errorf("notifyEnvKeys = %v, want %v", notifyEnvKeys, wantNotify)
+	}
+	if slices.Contains(envKeys, "notify") {
+		t.Error(`envKeys must not contain the bare "notify" key (it collides with notify.* and is read by runoptions)`)
+	}
+}
+
 // configBindKeys is offered to bindConfigFlags, which skips keys with no
 // matching flag. It must cover every config-backed flag and must not contain
 // the deprecated dind alias: binding --dind to viper would make
@@ -54,25 +74,120 @@ func TestConfigBindKeysCoverTheConfigBackedFlags(t *testing.T) {
 }
 
 // network.egress-allow/egress-deny are documented as config-file-only
-// (docs/configuration/networking.md). The env:"-" tag on network.Policy keeps
-// the derived env list from binding them; this asserts both the list and the
-// end-to-end effect.
+// (docs/configuration/networking.md). env:"-" keeps them out of envKeys, and
+// NewResolver binds no env var for them (no AutomaticEnv), so an
+// AGENTS_SANDBOX_NETWORK_EGRESS_* variable is ignored even when a config file
+// sets the same key.
 func TestConfigEgressListsAreConfigFileOnly(t *testing.T) {
 	for _, key := range []string{"network.egress-allow", "network.egress-deny"} {
-		if slices.Contains(configEnvKeys, key) {
-			t.Errorf("configEnvKeys must not contain the config-file-only key %q", key)
+		if slices.Contains(envKeys, key) {
+			t.Errorf("envKeys must not contain the config-file-only key %q", key)
 		}
 	}
 
 	configpaths.WithMockConfigPaths(t)
-	t.Setenv(envVarName(EnvPrefix, "network.egress-allow"), "host")
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"network": map[string]any{
+			"egress-allow": []string{"file.example"},
+			"egress-deny":  []string{"deny.example"},
+		},
+	})
+	t.Setenv(envVarName(EnvPrefix, "network.egress-allow"), "env.example")
+	t.Setenv(envVarName(EnvPrefix, "network.egress-deny"), "env-deny.example")
 
 	r, err := NewResolver(nil, "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
-	if len(r.cfg.Network.EgressAllow) != 0 {
-		t.Errorf("Network.EgressAllow = %v, want none (its env var is not honored)", r.cfg.Network.EgressAllow)
+	if want := []string{"file.example"}; !slices.Equal(r.cfg.Network.EgressAllow, want) {
+		t.Errorf(
+			"Network.EgressAllow = %v, want %v (the config file wins; the env var is not honored)",
+			r.cfg.Network.EgressAllow,
+			want,
+		)
+	}
+	if want := []string{"deny.example"}; !slices.Equal(r.cfg.Network.EgressDeny, want) {
+		t.Errorf(
+			"Network.EgressDeny = %v, want %v (the config file wins; the env var is not honored)",
+			r.cfg.Network.EgressDeny,
+			want,
+		)
+	}
+}
+
+// allow-placeholder-for is config-file-only like the network egress lists:
+// env:"-" keeps it out of envKeys, and NewResolver binds no env var for it, so
+// an AGENTS_SANDBOX_SECRETS_COMMON_ALLOW_PLACEHOLDER_FOR is not honored.
+func TestConfigAllowPlaceholderForEnvIsIgnored(t *testing.T) {
+	const key = "secrets.common.allow-placeholder-for"
+	if slices.Contains(envKeys, key) {
+		t.Errorf("envKeys must not contain the config-file-only key %q", key)
+	}
+
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv(envVarName(EnvPrefix, key), "env-only.example")
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if len(r.cfg.Secrets.Common.AllowPlaceholderFor) != 0 {
+		t.Errorf(
+			"Secrets.Common.AllowPlaceholderFor = %v, want none (its env var is not honored)",
+			r.cfg.Secrets.Common.AllowPlaceholderFor,
+		)
+	}
+}
+
+// TestConfigAllowPlaceholderForFromFile pins that the config-file-only
+// secrets.common.allow-placeholder-for key reaches Config.
+func TestConfigAllowPlaceholderForFromFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
+		"secrets": map[string]any{
+			"common": map[string]any{
+				"allow-placeholder-for": []string{"model.example"},
+			},
+		},
+	})
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	want := []string{"model.example"}
+	if got := r.cfg.Secrets.Common.AllowPlaceholderFor; !slices.Equal(got, want) {
+		t.Errorf("Secrets.Common.AllowPlaceholderFor = %v, want %v", got, want)
+	}
+}
+
+// A config file that sets secrets.common.allow-placeholder-for must win over an
+// AGENTS_SANDBOX_SECRETS_COMMON_ALLOW_PLACEHOLDER_FOR variable: with no
+// AutomaticEnv and no binding for the key, the variable is not honored at all.
+func TestConfigAllowPlaceholderForEnvIgnoredWhenConfigFileSetsIt(t *testing.T) {
+	const key = "secrets.common.allow-placeholder-for"
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"secrets": map[string]any{
+			"common": map[string]any{
+				"allow-placeholder-for": []string{"file.example"},
+			},
+		},
+	})
+	t.Setenv(envVarName(EnvPrefix, key), "env.example")
+
+	r, err := NewResolver(nil, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	want := []string{"file.example"}
+	if got := r.cfg.Secrets.Common.AllowPlaceholderFor; !slices.Equal(got, want) {
+		t.Errorf(
+			"Secrets.Common.AllowPlaceholderFor = %v, want %v (the config file wins over its env var)",
+			got,
+			want,
+		)
 	}
 }
 

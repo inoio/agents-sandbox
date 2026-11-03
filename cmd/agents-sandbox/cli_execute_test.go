@@ -95,6 +95,54 @@ func TestExecuteWarnsOnDockerDindAlias(t *testing.T) {
 	}
 }
 
+// TestExecuteSilencesUsageAndErrors pins that execute suppresses cobra's own
+// usage and error printing so main() is the sole reporter.
+func TestExecuteSilencesUsageAndErrors(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+
+	if err := execute([]string{"config", "agent", "bogus"}, ui); err == nil {
+		t.Fatal("expected an unknown-agent error")
+	}
+	if got := ui.StdOutBuffer.String(); strings.Contains(got, "Usage:") {
+		t.Errorf("cobra usage should be silenced, got %q", got)
+	}
+	if got := ui.StdErrBuffer.String(); strings.Contains(got, "unknown agent") {
+		t.Errorf("cobra error printing should be silenced, got %q", got)
+	}
+}
+
+// TestBuildRootCmdRoutesErrorToUIStderr pins that buildRootCmd wires cmd's error
+// stream to the UI (execute no longer re-sets it).
+func TestBuildRootCmdRoutesErrorToUIStderr(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"config", "agent", "bogus"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("expected an unknown-agent error")
+	}
+	if got := ui.StdErrBuffer.String(); !strings.Contains(got, "unknown agent") {
+		t.Errorf("error output = %q, want it routed to the UI stderr", got)
+	}
+}
+
+// TestExecutePreviewHomeErrorPropagates pins that a previewing command surfaces
+// the preview-home redirection error instead of swallowing it.
+func TestExecutePreviewHomeErrorPropagates(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	orig := applyPreviewHome
+	applyPreviewHome = func() error { return errors.New("preview home failed") }
+	t.Cleanup(func() { applyPreviewHome = orig })
+
+	ui := &termio.Mock{}
+	err := execute([]string{"run", "--dry-run"}, ui)
+	if err == nil || !strings.Contains(err.Error(), "preview home failed") {
+		t.Fatalf("execute run --dry-run: error = %v, want the preview-home failure", err)
+	}
+}
+
 func TestAutoPruneOutToVerboseRedirect(t *testing.T) {
 	ui := &termio.Mock{}
 	redirect := &autoPruneOutToVerboseRedirect{UI: ui}
@@ -174,6 +222,9 @@ func TestMainProcess(t *testing.T) {
 		out, exitCode := runMainHelper(t, []string{"run", "--agent", "bogus"})
 		if exitCode != 1 {
 			t.Fatalf("exit code = %d, want 1; output: %s", exitCode, out)
+		}
+		if !strings.Contains(out, "Error") {
+			t.Errorf("expected main to report the error, got %q", out)
 		}
 	})
 

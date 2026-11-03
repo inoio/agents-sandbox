@@ -1,6 +1,6 @@
 ---
-description: Contract for reading a live project VM's mounts. The microsandbox Go SDK's `SandboxConfig.UnmarshalJSON` drops the persisted `mounts`, so `cfg.Volumes` is always empty on a read-back; the launcher instead decodes the persisted config JSON through `msb.SandboxHandle.ConfigMounts()`. Consumers — the reconfig tmp-size/workspace-quota/home-volume detectors, home-volume recovery via `vm.projectVMHomeVolume` (fail-closed), and `sandbox inspect` — all read mounts from that source; `reconfig` and `vm.liveHomeVolume` degrade rather than fail when it is unavailable.
-read_if: Reading or changing how the launcher learns a live VM's mounts, or diagnosing an empty `cfg.Volumes` / `mounts (0)` / silently ignored `tmp_size` or `workspace-quota` change (`internal/sandbox/reconfig/plan.go`, `internal/sandbox/vm/inspect.go`, `projectVMHomeVolume`/`liveHomeVolume`).
+description: Contract for reading a live project VM's mounts. The microsandbox Go SDK's `SandboxConfig.UnmarshalJSON` drops the persisted `mounts`, so `cfg.Volumes` is always empty on a read-back; the launcher instead decodes the persisted config JSON through `msb.SandboxHandle.ConfigMounts()`. Consumers — the reconfig tmp-size/workspace-quota/home-volume detectors, home-volume recovery via `vm.ProjectVMHomeVolume` (fail-closed), and `sandbox inspect` — all read mounts from that source; `reconfig` and `prepare.liveHomeVolume` degrade rather than fail when it is unavailable.
+read_if: Reading or changing how the launcher learns a live VM's mounts, or diagnosing an empty `cfg.Volumes` / `mounts (0)` / silently ignored `tmp_size` or `workspace-quota` change (`internal/sandbox/reconfig/plan.go`, `internal/sandbox/vm/inspect.go`, `ProjectVMHomeVolume`/`liveHomeVolume`).
 ---
 
 # Live VM mounts come from the persisted config JSON
@@ -46,11 +46,11 @@ lossless for everything the launcher sets.
   - `reconfig.PlanReconfig` via `resolveReconfigDecision` — `tmpSizeChange` (`size_mib` at `/tmp`), `workspaceQuotaChange`
     (`quota_mib` at `/workspace`), `homeVolumeChange` (the `name` of the `Named` mount at `/home/dev`). It degrades,
     never fails: a parse/lookup failure is logged and the run proceeds with no mounts.
-  - `vm.projectVMHomeVolume` — the same `Named` mount for home-volume recovery (#219,
-    `specs/home-volume-recovery.md`); the shared reader behind both `vm.liveHomeVolume` and the #144 adoption path.
+  - `vm.ProjectVMHomeVolume` — the same `Named` mount for home-volume recovery (#219,
+    `specs/home-volume-recovery.md`); the shared reader behind both `prepare.liveHomeVolume` and the #144 adoption path.
     It returns `(volume, exists, err)` and is **fail-closed**: a mounts-read failure returns `exists=true` with the
     error, so a caller that might destroy the VM on the strength of the result can fail closed instead of dropping its
-    volume. `vm.liveHomeVolume` is a verbose-logging wrapper that discards the error (so home-volume recovery and the
+    volume. `prepare.liveHomeVolume` is a verbose-logging wrapper that discards the error (so home-volume recovery and the
     dry-run preview keep the previous degrade behaviour), while `vm.legacyAdoptionPending` propagates it and aborts
     adoption.
   - `vm.InspectSandbox` — the mount list rendered by `sandbox inspect`

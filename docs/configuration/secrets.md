@@ -93,6 +93,37 @@ $MSB_<SECRET_NAME>
 
 For example, the guest value of `GITHUB_TOKEN` is `$MSB_GITHUB_TOKEN`.
 
+## Placeholders in request bodies
+
+The proxy blocks a placeholder that reaches a host the secret neither allows nor passes through. That is fatal when
+the placeholder travels in a request the agent does not control. A coding agent sends its whole conversation as the
+completion request body, so once a placeholder enters the transcript — a tool that prints the environment, for
+example — every later completion request is blocked and the session cannot continue.
+
+`secrets.common.allow-placeholder-for` lists the hosts that may receive **any** secret's placeholder unchanged. Set it
+to the agent's model endpoint:
+
+```yaml
+# ~/.config/agents-sandbox/config.yaml
+secrets:
+  common:
+    allow-placeholder-for:
+      - model.example.com
+```
+
+The key is config-file-only: it has no environment variable and no CLI flag, so trusting a host with placeholders is
+a deliberate edit. A forwarded placeholder is inert — the real value stays on the host, and the proxy rewrites a
+placeholder to the real value only for a host in the secret's `host`/`hosts`.
+
+A host cannot be both substituted for and placeholder-passthrough. Two rules keep the lists disjoint:
+
+- A host a secret already lists in `host`/`hosts` keeps substitution and is dropped from that secret's passthrough
+  hosts. The credential that authenticates to the model host is unaffected.
+- A secret with `allow_any_host_dangerous: true` and no explicit `host` or `hosts` substitutes for every host, so it
+  gets no placeholder-passthrough hosts.
+
+Changing this key changes the VM's secret fingerprint, so the next run recreates the project VM once.
+
 ## Trusting the CA in applications
 
 Replacing a placeholder requires the proxy to terminate TLS towards the allowed host. The VM trusts a microsandbox CA
@@ -186,6 +217,50 @@ network:
   egress-allow:
     - api.githubcopilot.com
 ```
+
+### GitHub Copilot on GitHub Enterprise (GHE.com)
+
+With a GitHub Enterprise account, OpenCode stores the enterprise domain as `enterpriseUrl` in `auth.json` and sends the
+tokens to that domain's Copilot endpoints instead of `api.githubcopilot.com`. Allow the secrets for those hosts, and
+allow the domain in the network policy. For example, for the enterprise domain `example.ghe.com`:
+
+```json
+// ~/.config/agents-sandbox/opencode/auth.json
+{
+  "github-copilot": {
+    "type": "oauth",
+    "access": "$MSB_GH_COPILOT_ACCESS_TOKEN",
+    "refresh": "$MSB_GH_COPILOT_REFRESH_TOKEN",
+    "expires": 0,
+    "enterpriseUrl": "example.ghe.com"
+  }
+}
+```
+
+```yaml
+# ~/.config/agents-sandbox/env.secret.yaml
+GH_COPILOT_ACCESS_TOKEN:
+  value: "<access-token>"
+  hosts:
+    - copilot-api.example.ghe.com
+    - api.example.ghe.com
+GH_COPILOT_REFRESH_TOKEN:
+  value: "<refresh-token>"
+  hosts:
+    - copilot-api.example.ghe.com
+    - api.example.ghe.com
+```
+
+```yaml
+# ~/.config/agents-sandbox/config.yaml
+network:
+  egress-allow:
+    - .example.ghe.com
+```
+
+If a secret's hosts do not match the endpoint OpenCode calls, the request fails with
+`Forbidden: Request blocked by secret policy.` The proxy refuses to forward a placeholder to a host the secret is not
+allowed for. Add the host from the failing request to the secret's `hosts`.
 
 Use `agents-sandbox config home` to verify the `home:` mapping. `agents-sandbox config agent` shows the agent mirror and
 drop-in candidates, but does not show `home:` mappings or files already present in the persistent home volume.

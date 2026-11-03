@@ -96,7 +96,7 @@ func TestPlanRunnerImageRebuildsWhenLocalBaseAdvanced(t *testing.T) {
 	runnerAndBaseMock(t, seededRunnerLabels(t, "debian:trixie-slim@sha256:old"), "sha256:new")
 
 	_, _, needsBuild, reasons, err := planRunnerImage(
-		context.Background(), agentOpencode(t), nil, "proj", dockerOff, "1.2.3", "1.2.3", false,
+		context.Background(), agentOpencode(t), nil, "proj", "1.2.3", "1.2.3", BuildOptions{Docker: dockerOff},
 	)
 	if err != nil {
 		t.Fatalf("planRunnerImage: %v", err)
@@ -118,7 +118,7 @@ func TestPlanRunnerImageReusesImageWhenBaseUnchangedOrAbsent(t *testing.T) {
 			runnerAndBaseMock(t, seededRunnerLabels(t, "debian:trixie-slim@sha256:same"), tc.baseID)
 
 			_, _, needsBuild, reasons, err := planRunnerImage(
-				context.Background(), agentOpencode(t), nil, "proj", dockerOff, "1.2.3", "1.2.3", false,
+				context.Background(), agentOpencode(t), nil, "proj", "1.2.3", "1.2.3", BuildOptions{Docker: dockerOff},
 			)
 			if err != nil {
 				t.Fatalf("planRunnerImage: %v", err)

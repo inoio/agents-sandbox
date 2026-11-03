@@ -64,3 +64,23 @@ func TestApplyCLISettingsNilCommandOrResolverNoop(t *testing.T) {
 		t.Errorf("Level() = %v, want untouched LevelError", ui.Level())
 	}
 }
+
+// TestApplyCLISettingsNilCommandDoesNotApply pins that a nil command is a no-op
+// even when the resolver is present, and that a nil resolver is a no-op even
+// when the command is present (no nil-dereference).
+func TestApplyCLISettingsNilCommandDoesNotApply(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{LogLevel: "error", Yes: true, Quiet: true})
+
+	if err := applyCLISettings(nil, &ui, r); err != nil {
+		t.Fatalf("applyCLISettings(nil cmd): %v", err)
+	}
+	if ui.AssumeYes() || ui.Quiet() {
+		t.Error("settings must not be applied for a nil command")
+	}
+
+	ui2 := termio.NewTestMock(t)
+	if err := applyCLISettings(&cobra.Command{}, &ui2, nil); err != nil {
+		t.Fatalf("applyCLISettings(nil resolver): %v", err)
+	}
+}

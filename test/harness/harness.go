@@ -79,7 +79,7 @@ var isolatedEnvKeep = []string{
 const publicNetwork = "public"
 
 // Terminal keys that leave a harness's full-screen TUI: Ctrl-D is `opencode`'s,
-// `opencode2`'s, and `pi`'s documented `app_exit`/`app.exit`, and Ctrl-C is the
+// `opencode2`'s, `pi`'s, and `oh-my-pi`'s documented `app_exit`/`app.exit`, and Ctrl-C is the
 // interrupt `claude-code` announces as its exit ("Press Ctrl-C again to exit")
 // and `codex` quits on.
 const (
@@ -119,6 +119,17 @@ var harnessSpecs = map[string]harnessSpec{
 		ReadyMarker:       hermesReadyMarker,
 		ReadyTimeout:      heavyweightReadyTimeout,
 		SeedHomeFiles:     map[string]string{hermesConfigPath: hermesSmokeConfig},
+	},
+	// oh-my-pi reaches its TUI without credentials, like pi, which it forks.
+	// Its renderer keeps the terminal's normal buffer (it borrows the alternate
+	// screen only while resizing or for fullscreen overlays), so readiness is
+	// the settle. The subtest seeds a home config that turns off the first-run
+	// setup wizard, a fullscreen overlay that would otherwise come up before the
+	// editor. It needs no egress, so it runs under the default `--network none`.
+	"oh-my-pi": {
+		QuitKey:           []byte{ctrlD},
+		KeepsNormalBuffer: true,
+		SeedHomeFiles:     map[string]string{ohMyPiConfigPath: ohMyPiSmokeConfig},
 	},
 	// opencode's editor owns Ctrl-C, so its TUI leaves on Ctrl-D.
 	"opencode":  {QuitKey: []byte{ctrlD}, Network: "", KeepsNormalBuffer: false},
@@ -198,6 +209,16 @@ telemetry:
     enabled: false
     send: false
     offer_version: 2
+`
+
+// ohMyPiConfigPath is omp's global config file, home-relative, provisioned
+// into the guest from the host's ~/.omp/agent/config.yml.
+const ohMyPiConfigPath = ".omp/agent/config.yml"
+
+// ohMyPiSmokeConfig turns off omp's first-run setup wizard (provider sign-in,
+// model, and theme scenes), so the smoke test lands in the editor.
+const ohMyPiSmokeConfig = `startup:
+  setupWizard: false
 `
 
 // readyTimeout returns the readiness wait for this harness: its per-harness

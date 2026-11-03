@@ -14,13 +14,14 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // preparedSandbox is the subset of a prepared session that Run and Shell use.
-// It is satisfied by *sandbox.Session and by the fake used in tests.
+// It is satisfied by *prepare.Session and by the fake used in tests.
 type preparedSandbox interface {
 	Cleanup()
 	Sandbox() msb.Sandbox
@@ -33,14 +34,14 @@ type preparedSandbox interface {
 
 // prepareSandbox is a test seam swapped in tests to avoid real VM setup.
 var prepareSandbox = func(ctx context.Context, opts options.RunOptions, skipVM bool, ui termio.UI) (preparedSandbox, error) {
-	return sandbox.PrepareSandbox(ctx, opts, skipVM, ui)
+	return prepare.PrepareSandbox(ctx, opts, skipVM, ui)
 }
 
 // previewSandbox is a test seam swapped in tests to avoid real host inspection.
-var previewSandbox = sandbox.PreviewSandbox
+var previewSandbox = prepare.PreviewSandbox
 
 // renderPreview reports what a real run would do, without doing it.
-func renderPreview(ui termio.UI, p sandbox.Preview, shell bool) {
+func renderPreview(ui termio.UI, p prepare.Preview, shell bool) {
 	switch {
 	case p.ResolveVersionAtBuild:
 		ui.Infof("dry-run: agent version resolved at build time")
@@ -49,9 +50,13 @@ func renderPreview(ui termio.UI, p sandbox.Preview, shell bool) {
 	default:
 		ui.Infof("dry-run: agent version %s", p.AgentVersion)
 	}
-	if p.BuildImage {
+	switch {
+	case p.BuildImage:
 		ui.Infof("dry-run: would build runner image %s (%s)", p.ImageTag, strings.Join(p.BuildReasons, "; "))
-	} else {
+	case len(p.BuildReasons) > 0:
+		ui.Infof("dry-run: would reuse runner image %s despite changes (--no-rebuild): %s",
+			p.ImageTag, strings.Join(p.BuildReasons, "; "))
+	default:
 		ui.Infof("dry-run: would reuse runner image %s", p.ImageTag)
 	}
 	if p.CreateHome {

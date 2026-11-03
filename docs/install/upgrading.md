@@ -72,21 +72,21 @@ deleted for you.
 
 `~/.microsandbox` holds two different things:
 
-- **Ours**, safe to remove:
+- **Leftovers from earlier agents-sandbox versions**, safe to remove once they are copied:
   - `~/.microsandbox/volumes/agents-sandbox-home-*`
   - `~/.microsandbox/sandboxes/agents-sandbox-vm-*`
   - `~/.microsandbox/sandboxes/agents-sandbox-task-*`
-- **Yours** — any other microsandbox data. agents-sandbox never touches it.
+- **Your own microsandbox data** — anything else. agents-sandbox never touches it.
 
 The notice names every legacy home volume that was not verifiably copied into
 the private home — a failed copy, a volume you chose not to migrate, or one whose
 private counterpart's contents are unverified. Those volumes still hold data and
 must not be removed. While any remain, the notice withholds both
 the wholesale `rm -rf ~/.microsandbox` and the `agents-sandbox-home-*` glob,
-since both match an uncopied volume: remove the other volumes individually and
-leave the uncopied ones in place.
+since both match an uncopied volume. It prints one removal command per copied
+volume instead.
 
-Remove just our leftovers:
+When every volume was copied, remove the leftovers with:
 
 ```console
 rm -rf ~/.microsandbox/volumes/agents-sandbox-home-*
@@ -107,6 +107,7 @@ do not remove the whole folder while one remains.
 Removing `~/.microsandbox` does not uninstall a system-wide microsandbox by
 itself. Since agents-sandbox no longer requires the system-wide `msb` command,
 you can also uninstall a system-wide microsandbox the way you installed it.
+To remove agents-sandbox itself, see [Uninstalling]({% link install/uninstall.md %}).
 
 ## A footnote: renamed flags and commands
 

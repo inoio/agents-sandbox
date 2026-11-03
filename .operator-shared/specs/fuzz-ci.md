@@ -10,7 +10,7 @@ read_if: Changing `.github/workflows/fuzz.yml`, the `make fuzz` target or its `F
 `.github/workflows/fuzz.yml` explores every fuzz target discovered in the module — the persisted state files
 (`state.FuzzParseState`, both the per-project and launcher-global documents), size and `--worktree` specs
 (`options.FuzzParseOptions`), configured mount-target validation (`mounts.FuzzResolveMountTarget`), the retired
-`updater.yaml` (`vm.FuzzParseLegacyUpdaterState`), the project Dockerfile (`image.FuzzRenderDockerfile`), the `home:`
+`updater.yaml` (`prepare.FuzzParseLegacyUpdaterState`), the project Dockerfile (`image.FuzzRenderDockerfile`), the `home:`
 manifest (`homeconfig.FuzzParseHomeSection`), `--older-than` durations (`viperconfig.FuzzParseHumanDuration`), and
 the naming package's artifact-name, content-image-reference, and runner-image-reference round-trips
 (`naming.FuzzArtifactNameRoundTrip`, `naming.FuzzContentImageRefRoundTrip`,

@@ -1,5 +1,5 @@
 ---
-description: How to close gomutants survivors in this repo — the recurring mutant types, the assertion that kills each, the equivalent/near-equivalent traps (including false "returns nil on error" equivalence claims, unparameterized clamp bounds, yaml.v3's partial decode, map-iteration randomization, seam call-counting, a guard whose error is re-derived downstream, a blocking-flock seam, a negative "drop" sentinel, and a wall-clock budget constant), and the record-with-a-reason fallback.
+description: How to close gomutants survivors in this repo — the recurring mutant types, the assertion that kills each (including the `errors.Unwrap` kill for a `%w`→`%v` whose cause has no sentinel), the equivalent/near-equivalent traps (including false "returns nil on error" equivalence claims, unparameterized clamp bounds, yaml.v3's partial decode, map-iteration randomization, seam call-counting, a guard whose error is re-derived downstream, cobra's Find-vs-ValidateArgs default, a test double's interactivity gate, a lone-return `RETURN_ERROR_NIL` that will not compile, a sub-unit factor below a rounding threshold, a blocking-flock seam, a negative "drop" sentinel, and a wall-clock budget constant), and the record-with-a-reason fallback.
 read_if: Triaging LIVED mutants from a `make mutation` sweep, or deciding whether to strengthen a test or record a `// gomutants:disable` reason.
 ---
 
@@ -16,6 +16,10 @@ This is the field guide for doing it. It was distilled from the first full sweep
   `*url.Error` (both `http.NewRequestWithContext` on a malformed URL and `client.Do`),
   `*json.SyntaxError` (`json.Unmarshal` and `json.NewDecoder(...).Decode`), `semver.ErrInvalidSemVer` (returned
   unwrapped by `semver.NewVersion`), `context.Canceled` (reached through `client.Do`'s `*url.Error`).
+- **When the wrapped cause has no sentinel, assert the wrap itself.** `%w` yields a `*fmt.wrapError` (reachable through
+  `errors.Unwrap`), while `%v` yields an unwrappable error with the same message. `errors.Unwrap(err) != nil` kills the
+  `ERRORF_WRAP` when the cause is a fresh `errors.New` from a mock (e.g. `doctor`'s docker check, `docker`'s
+  default-error mock) and `errors.Is` to a sentinel is unavailable.
 - **`BRANCH_IF` (body removal)** hides behind a *later* error on the same path: deleting an `if resp.StatusCode != 200`
   guard still fails, later, while decoding the error body, so `err != nil` stays true. Kill it by asserting the branch's
   own message (`strings.Contains(err.Error(), "unexpected status")`) or a value the branch alone produces.
@@ -82,6 +86,22 @@ This is the field guide for doing it. It was distilled from the first full sweep
   directory and `isLinkedWorktree`'s `worktreeRegistration(root, "")` rejects it. Delete the redundant operand instead
   (drop the stat; let `os.ReadFile` reject the directory), which removes the mutant family rather than recording a new
   one.
+- **`cmd.Args = cobra.ArbitraryArgs` is only observable through `Command.Find`, not `ValidateArgs`.** cobra's
+  `ValidateArgs` defaults to `ArbitraryArgs` when `Command.Args` is nil, so a `ValidateArgs` assertion passes under the
+  removal; `Find` instead falls back to `legacyArgs`, which rejects extra args on a root with subcommands. Call
+  `cmd.Find([]string{"<bare-positional>"})` — a `--flag value` pair is stripped before `Find` checks, so it would not
+  reach the fallback.
+- **A `termio.Mock` needs `IsInteractiveResult` (or `assumeYes`) for `Confirm` to reach the code under test.** With
+  neither, `Confirm` returns `ErrConfirmationRequired` before the prompt, so a test that sets only `ConfirmResult` never
+  exercises the path it meant to — a `RETURN_ERROR_NIL` on the pruner's error return stayed green that way.
+- **A `RETURN_ERROR_NIL` on a function's sole `return x` orphans the variable and fails to compile (`NOT VIABLE`).**
+  Wrap it as `if x != nil { return x }; return nil` so the mutant compiles; the non-nil branch is then killable.
+- **A guard whose error is re-derived identically downstream needs to add its own context.** `buildBuildCmd`'s adoption
+  failure fell through to a later step that re-raised the same "check for a pending legacy identity" message, so the
+  branch-body removal was invisible; wrapping the guard as `fmt.Errorf("adopt legacy identity: %w", err)` makes the
+  wrapper text (kills the `BRANCH_IF`) and the preserved cause (kills the `ERRORF_WRAP`) observable.
+- **A sub-unit factor mutant can be equivalent over small inputs; test one near a unit boundary.** `mibString`'s
+  `1024`→`1025` leaves `mibString(1) == "1 MiB"` unchanged, but `mibString(1023)` flips `"1023 MiB"`→`"1024 MiB"`.
 - **A guard can be operationally equivalent to its fall-through.** `if err := json.Unmarshal(...); err != nil { return
   "", false }` is indistinguishable from falling through to `return resp.Directory, resp.Directory != ""` for every
   payload *except* one that sets the field and then errors — a duplicate JSON key

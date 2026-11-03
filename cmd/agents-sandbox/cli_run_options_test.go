@@ -71,3 +71,4 @@ type noDaemonAgent struct{ name string }
 func (a noDaemonAgent) Name() string             { return a.name }
 func (noDaemonAgent) ConfigDirName() string      { return "nod" }
 func (noDaemonAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
+func (noDaemonAgent) Experimental() bool         { return false }

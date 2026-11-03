@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test fuzz test-race test-integration test-msb compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint fmt validate-fmt run cleanup-branches check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test fuzz test-race test-integration test-msb compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint fmt validate-fmt run cleanup-branches cleanup-branches-test check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test docs-serve
 
 VERSION ?= dev
 
@@ -261,12 +261,16 @@ run:
 cleanup-branches:
 	./scripts/cleanup-merged-branches.sh $(ARGS)
 
-check: fmt lint test compile-all docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test
+# Test the branch/worktree cleanup script itself (fixtures only: never touches this repo).
+cleanup-branches-test:
+	./scripts/test-cleanup-merged-branches.sh
+
+check: fmt lint test compile-all docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test cleanup-branches-test
 
 # Read-only check for CI parity: fmt-check + lint + test + race + vulncheck (does not modify files).
-verify: validate-fmt lint test test-race compile-all vulncheck deadcode docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test
+verify: validate-fmt lint test test-race compile-all vulncheck deadcode docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test cleanup-branches-test
 
-all: fmt lint test docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test build
+all: fmt lint test docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test build cleanup-branches-test
 
 clean:
 	rm -f agents-sandbox

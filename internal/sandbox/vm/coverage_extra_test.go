@@ -3,19 +3,15 @@ package vm
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -32,22 +28,22 @@ func joinStrings(parts []string) string {
 }
 
 func TestProjectVMNameIncludesAgent(t *testing.T) {
-	got := projectVMName(state.Key{Slug: "myproject-aBc1234DeF", Agent: "pi"})
+	got := ProjectVMName(state.Key{Slug: "myproject-aBc1234DeF", Agent: "pi"})
 	want := "myproject-aBc1234DeF-pi"
 	if got != want {
-		t.Errorf("projectVMName = %q, want %q", got, want)
+		t.Errorf("ProjectVMName = %q, want %q", got, want)
 	}
-	got = projectVMName(state.Key{Slug: "myproject-aBc1234DeF", Agent: "opencode"})
+	got = ProjectVMName(state.Key{Slug: "myproject-aBc1234DeF", Agent: "opencode"})
 	want = "myproject-aBc1234DeF-opencode"
 	if got != want {
-		t.Errorf("projectVMName = %q, want %q", got, want)
+		t.Errorf("ProjectVMName = %q, want %q", got, want)
 	}
 }
 
 func TestProjectVMNameTruncationPreservesAgent(t *testing.T) {
 	long := "x" + string(make([]byte, options.MaxSandboxNameLen))
 	k := state.Key{Slug: long, Agent: "pi"}
-	got := projectVMName(k)
+	got := ProjectVMName(k)
 	if len(got) > options.MaxSandboxNameLen {
 		t.Fatalf("name %d bytes > max %d", len(got), options.MaxSandboxNameLen)
 	}
@@ -57,67 +53,15 @@ func TestProjectVMNameTruncationPreservesAgent(t *testing.T) {
 }
 
 // TestProjectVMNameExtremeAgentCoversFinalCut covers the final hard cut in
-// projectVMName, reachable only when the agent name itself exceeds the max
+// ProjectVMName, reachable only when the agent name itself exceeds the max
 // name length. The full name is cut at the byte limit and the agent suffix
 // may be lost, so we only assert the length bound.
 func TestProjectVMNameExtremeAgentCoversFinalCut(t *testing.T) {
 	slug := "proj"
 	agent := "a" + string(make([]byte, options.MaxSandboxNameLen))
-	got := projectVMName(state.Key{Slug: slug, Agent: agent})
+	got := ProjectVMName(state.Key{Slug: slug, Agent: agent})
 	if len(got) != options.MaxSandboxNameLen {
 		t.Errorf("expected name cut to exactly %d bytes, got %d", options.MaxSandboxNameLen, len(got))
-	}
-}
-
-// TestCurrentAgentVersionIgnoresCorruptFile covers the read-error branch of
-// currentAgentVersion (a corrupt project state file must yield "").
-func TestCurrentAgentVersionIgnoresCorruptFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	sdir := filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent)
-	if err := os.MkdirAll(sdir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(sdir, "state.yaml"), []byte("::: not yaml :::"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := currentAgentVersion(k); got != "" {
-		t.Errorf("currentAgentVersion() = %q, want empty for corrupt file", got)
-	}
-}
-
-// TestPersistConfigHashesCoversEnvSecretAndNetwork covers the previously
-// entirely-uncovered persistConfigHashes function: it persists the desired
-// env/secret/network fingerprints after a fresh VM creation.
-func TestPersistConfigHashesCoversEnvSecretAndNetwork(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := termio.NewTestMock(t)
-
-	slug := "hashproj"
-	k := state.Key{Slug: slug, Agent: "opencode"}
-	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
-		t.Fatalf("seedHomeState: %v", err)
-	}
-	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}}
-
-	persistConfigHashes(
-		k,
-		state.Fingerprints{
-			Network: state.BuildNetworkState(policy),
-			Mount:   state.BuildMountState(nil),
-		},
-		&ui,
-	)
-
-	st, err := state.ReadState(k)
-	if err != nil {
-		t.Fatalf("ReadState after persistConfigHashes: %v", err)
-	}
-	if st.NetworkState.Hash == "" {
-		t.Error("expected network state hash to be persisted")
-	}
-	if st.MountState.Hash == "" {
-		t.Error("expected mount state hash to be persisted")
 	}
 }
 
@@ -186,7 +130,7 @@ func TestStopAndKillProjectVMUnknownAgent(t *testing.T) {
 }
 
 // TestSetUpSandboxProvisionError covers the provision-failure branch of
-// setUpSandbox: a provision failure is logged as a warning and the setup
+// SetUpSandbox: a provision failure is logged as a warning and the setup
 // continues (config provisioning is non-disruptive and never fatal).
 func TestSetUpSandboxProvisionError(t *testing.T) {
 	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
@@ -211,7 +155,7 @@ func TestSetUpSandboxProvisionError(t *testing.T) {
 	}
 
 	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte("{}")}
-	if _, err := setUpSandbox(
+	if _, err := SetUpSandbox(
 		context.Background(),
 		testVMKey(),
 		sb,
@@ -219,10 +163,10 @@ func TestSetUpSandboxProvisionError(t *testing.T) {
 		cfs,
 		&ui,
 		false,
-		vmBootStarted,
+		VMBootStarted,
 		mounts.WorkspaceMountPath,
 	); err != nil {
-		t.Fatalf("setUpSandbox: %v", err)
+		t.Fatalf("SetUpSandbox: %v", err)
 	}
 
 	joined := joinStrings(ui.WarnCalls)
@@ -275,8 +219,9 @@ func TestRestartDaemonsNoProvider(t *testing.T) {
 // TestEnsureProjectVMSkipVM covers the skip-VM early-return branch.
 func TestEnsureProjectVMSkipVM(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	sb, boot, err := ensureProjectVM(
+	sb, boot, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		&msb.MockMsbClient{},
 		options.RunOptions{},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -284,22 +229,21 @@ func TestEnsureProjectVMSkipVM(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		true,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err != nil {
-		t.Fatalf("ensureProjectVM dry-run: %v", err)
+		t.Fatalf("EnsureProjectVM dry-run: %v", err)
 	}
 	if sb != nil {
 		t.Error("expected nil sandbox for dry-run-vm")
 	}
-	if boot != vmBootConnected {
-		t.Errorf("expected vmBootConnected for dry-run, got %v", boot)
+	if boot != VMBootConnected {
+		t.Errorf("expected VMBootConnected for dry-run, got %v", boot)
 	}
 }
 
 // TestEnsureProjectVMGetSandboxFatalError covers the non-not-found GetSandbox
-// error branch in ensureProjectVM.
+// error branch in EnsureProjectVM.
 func TestEnsureProjectVMGetSandboxFatalError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
@@ -307,8 +251,9 @@ func TestEnsureProjectVMGetSandboxFatalError(t *testing.T) {
 	client.SetGetSandboxErr(errors.New("boom"))
 	msb.WithMsbMock(t, client)
 
-	_, _, err := ensureProjectVM(
+	_, _, err := lookUpAndEnsureProjectVM(
 		context.Background(),
+		client,
 		options.RunOptions{Agent: "opencode"},
 		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag"},
 		"vol",
@@ -316,7 +261,6 @@ func TestEnsureProjectVMGetSandboxFatalError(t *testing.T) {
 		testVMKey(),
 		testVMKey().Slug,
 		false,
-		envsecret.EnvSecrets{},
 		&ui,
 	)
 	if err == nil {

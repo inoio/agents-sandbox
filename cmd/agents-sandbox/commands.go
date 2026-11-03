@@ -164,7 +164,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 		// points the SDK at the private home so its read-only inspection
 		// (volumes, sandboxes) reports the objects a real run would use (#424).
 		if runoptions.ResolveMode(cmd).Previews() {
-			return msbruntime.ApplyPreviewHome()
+			return applyPreviewHome()
 		}
 		return prepareMSBRuntime(cmd.Context(), ui, version)
 	}
@@ -196,6 +196,10 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 }
 
 var prepareMSBRuntime = msbruntime.PrepareRuntime
+
+// applyPreviewHome is the preview path's home redirection, a seam so a test can
+// drive its error branch.
+var applyPreviewHome = msbruntime.ApplyPreviewHome
 
 // commandNeedsMSBRuntime reports whether the root preflight should provision the
 // microsandbox runtime before the command body runs. Commands that only inspect
@@ -267,6 +271,9 @@ func buildUpgradeCmd(ui termio.UI) *cobra.Command {
 				CurrentVersion:  version,
 				Channel:         channel,
 				AllowAnyVersion: upgradeAnyVersionEnabled(),
+				// Only an explicit --channel may move a prerelease install to an
+				// older stable release; a configured channel never downgrades.
+				AllowChannelSwitch: cmd.Flags().Changed(flagChannel),
 			})
 		},
 	}

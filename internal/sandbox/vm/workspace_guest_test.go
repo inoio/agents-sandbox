@@ -6,40 +6,12 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
-
-func TestGuestWorkspacePath(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		bindRoot string
-		cwd      string
-		want     string
-	}{
-		{"cwd is bind root", "/workspace", "/workspace", "/workspace"},
-		{"nested directory", "/repo", "/repo/internal/foo", "/workspace/internal/foo"},
-		{"nested worktree root", "/root/wt", "/root/wt", "/workspace"},
-		{"rel error falls back to mount path", "relative/bind", "/repo", mounts.WorkspaceMountPath},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := guestWorkspacePath(tc.bindRoot, tc.cwd); got != tc.want {
-				t.Errorf("guestWorkspacePath(%q, %q) = %q, want %q", tc.bindRoot, tc.cwd, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestSessionGuestCWD(t *testing.T) {
-	s := &Session{guestCWD: "/workspace/sub"}
-	if got := s.GuestCWD(); got != "/workspace/sub" {
-		t.Errorf("GuestCWD() = %q, want %q", got, "/workspace/sub")
-	}
-}
 
 func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 	origDaemon := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
@@ -54,7 +26,10 @@ func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
-	snippet := filepath.Join(configpaths.MustDir(cp.UserAgentConfigDir(opencodeAgent(t))), "opencode-x.json5")
+	snippet := filepath.Join(
+		configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), opencodeAgent(t).ConfigDirName())),
+		"opencode-x.json5",
+	)
 	testutil.WritePath(t, snippet, `{"model":"x"}`)
 
 	ui := &termio.Mock{}
@@ -62,7 +37,7 @@ func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-	target, err := setUpSandbox(
+	target, err := SetUpSandbox(
 		context.Background(),
 		testVMKey(),
 		sb,
@@ -70,11 +45,11 @@ func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 		cfs,
 		ui,
 		false,
-		vmBootStarted,
+		VMBootStarted,
 		"/workspace/sub",
 	)
 	if err != nil {
-		t.Fatalf("setUpSandbox: %v", err)
+		t.Fatalf("SetUpSandbox: %v", err)
 	}
 	if target != "/workspace/sub" {
 		t.Errorf("target = %q, want %q", target, "/workspace/sub")

@@ -63,7 +63,7 @@ document that exists; no new project-level file is introduced (see Non-goals).
 
 ## Flow
 
-### Upgrade check (`vm.resolveBuildVersion` -> `vm.pendingUpgrade`)
+### Upgrade check (`prepare.resolveBuildVersion` -> `prepare.pendingUpgrade`)
 
 `resolveBuildVersion` takes the project `state.Key` (available in `PrepareSandbox`) and reads
 `current`/`agent_source` from that key's `HomeState` instead of the global file.
@@ -141,7 +141,7 @@ image is absent (pruned, host docker cleaned), which keeps offline reuse working
 
 ### Provenance (`vm.recordImageProvenance`)
 
-`setUpSandbox` threads the project `state.Key` into `recordImageProvenance` (the caller already holds `k`). On boot it
+`SetUpSandbox` threads the project `state.Key` into `recordImageProvenance` (the caller already holds `k`). On boot it
 reads `HomeState(k)` and updates it in place — `agent_source`/`docker_source`, and for a tool-installed agent the version
 the `VersionProvider` detects, written to `agent_version` — so fingerprints and the offered set survive. It is a no-op
 when no state file exists, like every other pre-home-resolution writer

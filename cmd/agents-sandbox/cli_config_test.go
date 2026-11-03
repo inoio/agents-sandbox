@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/testutil"
+	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
 // mustOpencode returns the built-in opencode agent profile, failing the test if
@@ -29,7 +31,7 @@ func mustOpencode(t *testing.T) agent.Agent {
 func TestConfigAgentPrintsMergedAndHostFiles(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
 	snippetPath := filepath.Join(
-		configpaths.MustDir(configpaths.Get().UserAgentConfigDir(mustOpencode(t))),
+		configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode(t).ConfigDirName())),
 		"opencode-x.json5",
 	)
 	testutil.WritePath(t, snippetPath, `{"model":"x"}`)
@@ -63,6 +65,18 @@ func TestConfigAgentPrintsMergedAndHostFiles(t *testing.T) {
 	if !strings.Contains(joined, "opencode.jsonc") {
 		t.Errorf("expected host drop-in file in output, got:\n%s", joined)
 	}
+	if !strings.Contains(joined, "agent: opencode") {
+		t.Errorf("expected the agent header line, got:\n%s", joined)
+	}
+	sawMerged := false
+	for _, line := range ui.OutCalls {
+		if strings.HasPrefix(line, "  merged ") {
+			sawMerged = true
+		}
+	}
+	if !sawMerged {
+		t.Errorf("expected a 'merged' host-file status, got:\n%s", joined)
+	}
 }
 
 func TestConfigHomeListsMappings(t *testing.T) {
@@ -75,6 +89,12 @@ func TestConfigHomeListsMappings(t *testing.T) {
 	joined := strings.Join(ui.OutCalls, "\n")
 	if !strings.Contains(joined, "/home/dev/.gitconfig") {
 		t.Errorf("expected home target in output, got:\n%s", joined)
+	}
+	for _, line := range ui.OutCalls {
+		parts := strings.SplitN(line, "  <-  ", 2)
+		if len(parts) == 2 && (parts[0] == "" || parts[1] == "" || parts[0] == parts[1]) {
+			t.Errorf("mapping line must join two distinct values, got %q", line)
+		}
 	}
 }
 
@@ -130,7 +150,10 @@ func TestConfigHomeEmptyManifest(t *testing.T) {
 func TestConfigAgentNoSnippetFiles(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
 	a, _ := agent.Lookup("opencode")
-	if err := os.MkdirAll(configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), 0o755); err != nil {
+	if err := os.MkdirAll(
+		configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+		0o755,
+	); err != nil {
 		t.Fatal(err)
 	}
 
@@ -140,6 +163,38 @@ func TestConfigAgentNoSnippetFiles(t *testing.T) {
 	joined := strings.Join(ui.OutCalls, "\n")
 	if !strings.Contains(joined, "No snippet files found") {
 		t.Errorf("expected no-snippets message, got:\n%s", joined)
+	}
+	if strings.Contains(joined, "mirror files:") {
+		t.Errorf("did not expect a mirror files section with no mirror files:\n%s", joined)
+	}
+}
+
+// TestConfigAgentRejectsTwoArgs pins the config-agent arity bound with two
+// otherwise-valid agent names, so the error can only be the arity check.
+func TestConfigAgentRejectsTwoArgs(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "config", "agent", "pi", "claude-code")
+	if err := cmd.Execute(); err == nil {
+		t.Error("expected an error for two positional args")
+	}
+}
+
+// TestConfigAgentSameFlagAndPositionalNotAmbiguous pins that an identical
+// --agent and positional argument is not treated as a conflict.
+func TestConfigAgentSameFlagAndPositionalNotAmbiguous(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "config", "agent", "--agent", "pi", "pi")
+	if err := cmd.Execute(); err != nil {
+		t.Errorf("identical --agent and positional must not be ambiguous, got %v", err)
+	}
+}
+
+// TestProvisionHostConfigEnabledReadsResolver pins that a resolver's setting is
+// returned rather than a hard-coded false.
+func TestProvisionHostConfigEnabledReadsResolver(t *testing.T) {
+	r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{ProvisionHostConfig: true})
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil), r))
+	if !provisionHostConfigEnabled(cmd) {
+		t.Error("provisionHostConfigEnabled() = false, want the resolver's true")
 	}
 }
 
@@ -159,7 +214,7 @@ func TestConfigAgentCodexPrintsMergedTOML(t *testing.T) {
 	a, _ := agent.Lookup("codex")
 	testutil.WriteFile(
 		t,
-		configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)),
+		configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
 		"config-model.toml",
 		"model = \"gpt-5\"\n",
 	)
@@ -169,6 +224,29 @@ func TestConfigAgentCodexPrintsMergedTOML(t *testing.T) {
 	}
 	joined := strings.Join(ui.OutCalls, "\n")
 	for _, want := range []string{"config-model.toml", "model = 'gpt-5'", "merged agent config:"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("output missing %q, got:\n%s", want, joined)
+		}
+	}
+}
+
+// TestConfigAgentOhMyPiMergesBothYAMLExtensions verifies that oh-my-pi
+// snippets under either YAML extension merge into one YAML document.
+func TestConfigAgentOhMyPiMergesBothYAMLExtensions(t *testing.T) {
+	cmd, ui := setupCommandFixtures(t, "config", "agent", "oh-my-pi")
+	a, _ := agent.Lookup("oh-my-pi")
+	dir := configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName()))
+	testutil.WriteFile(t, dir, "config-model.yml", "modelRoles:\n  default: anthropic/claude\n")
+	testutil.WriteFile(t, dir, "config-startup.yaml", "startup:\n  quiet: true\n")
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("config agent oh-my-pi: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	for _, want := range []string{
+		"config-model.yml", "config-startup.yaml", "merged agent config:",
+		"default: anthropic/claude", "quiet: true",
+	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("output missing %q, got:\n%s", want, joined)
 		}
@@ -205,7 +283,7 @@ func TestConfigHomeManifestError(t *testing.T) {
 
 func TestConfigAgentPrintsMirrorFiles(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
-	agentDir := configpaths.MustDir(configpaths.Get().UserAgentConfigDir(mustOpencode(t)))
+	agentDir := configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode(t).ConfigDirName()))
 	testutil.WriteFile(t, agentDir, "tui.json", `{"theme":"dark"}`)
 
 	if err := cmd.Execute(); err != nil {
@@ -259,7 +337,7 @@ func TestConfigAgentOpencode2ShowsLegacyFallback(t *testing.T) {
 
 func TestConfigAgentOpencode2UsesOwnDir(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "--agent", "opencode2")
-	srcDir := configpaths.MustDir(configpaths.Get().UserAgentConfigDir(mustOpencode2(t)))
+	srcDir := configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode2(t).ConfigDirName()))
 	testutil.WriteFile(t, srcDir, "opencode-model.json", `{"model":"v2"}`)
 
 	if err := cmd.Execute(); err != nil {
@@ -382,7 +460,7 @@ func TestConfigAgentMarksMissingConfigDirs(t *testing.T) {
 
 func TestConfigAgentDoesNotMarkExistingConfigDir(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "--agent", "opencode2")
-	userDir := configpaths.MustDir(configpaths.Get().UserAgentConfigDir(mustOpencode2(t)))
+	userDir := configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode2(t).ConfigDirName()))
 	if err := os.MkdirAll(userDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

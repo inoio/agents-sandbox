@@ -74,9 +74,7 @@ func TestBuildSuccess(t *testing.T) {
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
-	msb.WithMsbMock(t, msbClient)
-
-	if _, err := Build(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{}); err != nil {
+	if _, err := Build(context.Background(), msbClient, a, "test-project", BuildOptions{}, &termio.Mock{}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(msbClient.LoadedImages) != 1 {
@@ -89,9 +87,14 @@ func TestBuildReturnsErrorWhenImageBuildFails(t *testing.T) {
 	WithMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
 	docker.WithDefaultErrorDockerMock(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
-
-	if _, err := Build(context.Background(), a, "test-project", BuildOptions{Force: true}, &termio.Mock{}); err == nil {
+	if _, err := Build(
+		context.Background(),
+		&msb.MockMsbClient{},
+		a,
+		"test-project",
+		BuildOptions{Force: true},
+		&termio.Mock{},
+	); err == nil {
 		t.Error("expected Build to return an error when image build fails")
 	}
 }
@@ -111,11 +114,11 @@ func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 			return nil, errors.New("docker save failed")
 		},
 	})
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
-	})
+	}
 
-	if _, err := Build(context.Background(), a, "test-project", BuildOptions{}, &termio.Mock{}); err == nil {
+	if _, err := Build(context.Background(), msbClient, a, "test-project", BuildOptions{}, &termio.Mock{}); err == nil {
 		t.Error("expected Build to return an error when loading the image into microsandbox fails")
 	}
 }

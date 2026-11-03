@@ -66,7 +66,7 @@ retention contract is `specs/image-ref-content-addressing.md`.
 
 ## Version selection
 
-`vm.ResolveAgentVersionForBuild(k, requested)` is the one precedence rule both `build` and `run`/`shell` apply: a
+`prepare.ResolveAgentVersionForBuild(k, requested)` is the one precedence rule both `build` and `run`/`shell` apply: a
 user-provided agent (`agent-source=user`) ignores the requested version and returns the recorded one with
 `UserProvided=true`; every other project honors the requested version with `UserProvided=false`. `resolveBuildVersion`
 (run/shell) builds on it for the version to bake, with this precedence:
@@ -76,7 +76,7 @@ user-provided agent (`agent-source=user`) ignores the requested version and retu
 2. **`--agent-version <v>` pin** → `v`, no upgrade check.
 3. **No upgrade checker** → recorded version, no check.
 4. **No recorded baseline, or one that disagrees with the existing image's label** → take the release the image reports
-   through its `agent-version` label (`vm.recoverAgentVersion` via `image.ExistingAgentVersion`) and rewrite the cache,
+   through its `agent-version` label (`prepare.recoverAgentVersion` via `image.ExistingAgentVersion`) and rewrite the cache,
    then continue to the upgrade check below. The image is the authority; a disagreeing record is stale and never drives
    a build. Only when no image (or no release label) yields a version does an empty record resolve to latest at build
    time.

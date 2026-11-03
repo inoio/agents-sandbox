@@ -74,6 +74,7 @@ func runUsageFunc(cmd *cobra.Command) error {
 	args := argsFromAnnotations(cmd)
 	for _, a := range args {
 		fmt.Fprintf(&out, " %s", a.Name)
+		// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="maxLen = len(a.Name) is idempotent when the lengths are equal, so >= assigns the same value"
 		if len(a.Name) > maxLen {
 			maxLen = len(a.Name)
 		}
@@ -271,17 +272,14 @@ var serveOnlyStdinReader = func() io.Reader {
 // stdin is not watched: it relies on SIGINT/SIGTERM for shutdown.
 func serveOnlyContext(base context.Context) (context.Context, func()) {
 	ctx, stop := signal.NotifyContext(base, os.Interrupt, syscall.SIGTERM)
-	cancelCtx, cancel := context.WithCancel(ctx)
 	if stdin := serveOnlyStdinReader(); stdin != nil {
 		go func() {
 			_, _ = io.Copy(io.Discard, stdin)
-			cancel()
+			// Ctrl-D reaches the same teardown as a signal.
+			stop()
 		}()
 	}
-	return cancelCtx, func() {
-		stop()
-		cancel()
-	}
+	return ctx, stop
 }
 
 func buildShellCmd(ui termio.UI) *cobra.Command {
@@ -329,7 +327,11 @@ func registerRunFlags(cmd *cobra.Command) {
 func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Rebuild the runner image before starting")
 	cmd.Flags().
+		Bool(flagNoRebuild, false, "Reuse the existing runner image even if its inputs changed (skips the agent upgrade check)")
+	cmd.Flags().
 		String(flagAgentVersion, "", "Pin the agent version baked into the runner image (default: latest release)")
+	cmd.MarkFlagsMutuallyExclusive(flagNoRebuild, flagRebuild)
+	cmd.MarkFlagsMutuallyExclusive(flagNoRebuild, flagAgentVersion)
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Dry run without starting anything")
 	cmd.Flags().Bool(flagDryRunVM, false, "Skip VM lifecycle but prepare everything else")
 	cmd.Flags().Uint8P(flagCpus, flagCpus[:1], 0, "Number of CPUs (default: all)")

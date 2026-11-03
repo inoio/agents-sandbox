@@ -26,7 +26,7 @@ func envVarName(prefix, key string) string {
 // legacyEnvVarsInUse reports which deprecated-prefix variables are in effect.
 // A legacy variable is ignored when its AGENTS_SANDBOX_ counterpart is set.
 func legacyEnvVarsInUse() []string {
-	keys := slices.Concat(configEnvKeys, []string{"notify"})
+	keys := slices.Concat(envKeys, []string{"notify"})
 	var inUse []string
 	for _, key := range keys {
 		legacy := envVarName(LegacyEnvPrefix, key)

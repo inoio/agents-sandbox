@@ -26,7 +26,7 @@ func previewRunnerImage(
 	EmitDockerfileDiagnostics(ui, DiagnoseDockerfile(projectDockerfile, buildOpts.Docker))
 	agentVersion, identityVersion, _ := initialBuildVersions(buildOpts)
 	_, tag, needsBuild, reasons, err := planRunnerImage(
-		ctx, a, projectDockerfile, projectSlug, buildOpts.Docker, agentVersion, identityVersion, buildOpts.Force,
+		ctx, a, projectDockerfile, projectSlug, agentVersion, identityVersion, buildOpts,
 	)
 	if err != nil {
 		return ImagePreview{}, err

@@ -1,6 +1,6 @@
 ---
 description: Contract for how the per-project runner Dockerfile is composed into per-tool multistage stages so tool-owned layers (apt tools, node, agent, docker) cache independently of the user body, the base, and each other; includes when the node stage is emitted (agent node dependency), the native vs npm agent install methods, and the `dind` → `docker` rename with deprecated aliases.
-read_if: Changing RenderDockerfile/stage composition, image layer caching, which agents need node, agent install methods (native installer vs npm), the `ImageSpec.OwnedToolPaths` ownership handover or `agentOwnershipBlock`, the dind/docker switch or marker, the Dockerfile-content docker enablement, its explicit-config precedence and the shared docker/dind source precedence (`viperconfig.EffectiveDockerSource`), the unified dockerfile diagnostics, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd storage driver (fuse-overlayfs with a vfs fallback).
+read_if: Changing RenderDockerfile/stage composition, image layer caching, which agents need node, agent install methods (native installer vs npm), the `ImageSpec.OwnsToolTree` tool-tree ownership (`COPY --chown=dev:dev`, the `devUserBlock` `dev`-group guarantee), the dind/docker switch or marker, the Dockerfile-content docker enablement, its explicit-config precedence and the shared docker/dind source precedence (`viperconfig.EffectiveDockerSource`), the unified dockerfile diagnostics, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd storage driver (fuse-overlayfs with a vfs fallback).
 ---
 
 # Runner image composition and tool-layer caching
@@ -44,14 +44,20 @@ The tool stages build on the tool-owned `agents-sandbox-toolbase` (a pinned `deb
 and the tool layers cache across bases. The tool base is never part of the runner's lineage; the runner still builds on
 `agents-sandbox-base` (the managed block or the custom base).
 
-**Tool-tree ownership handover.** A `COPY --from=agents-sandbox-agent /opt/agents-sandbox` preserves the source stage's
-root ownership. An agent whose install self-writes at runtime (Hermes keeps its dependency ledger and bytecode markers in
-its checkout) declares the affected paths in `ImageSpec.OwnedToolPaths`; the runner emits `agentOwnershipBlock` — a
-`USER root` + `RUN chown -R dev:$(id -g dev) <paths>` — after the `COPY` and before `finalizationBlock` switches to
-`USER dev`. It resolves the group from the `dev` user's own entry rather than assuming a `dev` group or the
-`USER_UID`/`USER_GID` build args: `devUserBlock` skips creation entirely when a custom base already provides `dev`
-(which need not come with a `dev` group, so `dev:dev` would fail the build), and `groupadd -f` can leave the `dev` group
-on a GID other than a pinned host GID. Agents that declare no paths emit nothing.
+**Tool-tree ownership handover.** A plain `COPY --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox`
+preserves the source stage's root ownership, so the runner sets the owner at copy time. An agent whose install self-writes
+at runtime (Hermes keeps its dependency ledger and bytecode markers in its checkout) sets `ImageSpec.OwnsToolTree`; the
+runner then emits `COPY --chown=dev:dev --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox`, handing the
+whole copied tree (`bin/hermes` included) to `dev`. There is no follow-up `chown`: a chown that rewrites ownership
+on every file records a second full copy of the tree in its layer diff, so the image would carry the tree twice — the
+doubling is a property of the diff, present under every storage driver and in `docker save`/`msb` import alike.
+
+`--chown=dev:dev` names the group, so it must always resolve. `devUserBlock` guarantees it for every base by running
+`groupadd -f -g "$USER_GID" dev` before the `dev` user guard: a custom base that pre-creates `dev` without a `dev` user
+group still gets one, and when `USER_GID` is already taken (macOS `dialout`/20) the group lands on the next free GID and
+the name still resolves to it. This matters because the production classic builder (`client.ImageBuild`) fails on an
+unresolvable `--chown` group name, where BuildKit silently falls back to the user's primary group. Agents that do not set
+`OwnsToolTree` get the plain, root-owned copy.
 
 ### Pinned versions are rendered into the content
 

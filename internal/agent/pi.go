@@ -13,6 +13,7 @@ type piProfile struct{}
 
 func (piProfile) Name() string          { return piName }
 func (piProfile) ConfigDirName() string { return "pi" }
+func (piProfile) Experimental() bool    { return true }
 
 func (piProfile) ImageSpec() ImageSpec {
 	return ImageSpec{
@@ -25,9 +26,9 @@ func (piProfile) ImageSpec() ImageSpec {
 		InstallCommand: "npm install -g --ignore-scripts --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent@$PI_VERSION",
 		// The published package is a #!/usr/bin/env node bundle, so pi needs
 		// node at install and runtime; it is the only agent that does.
-		RequiresNode:   true,
-		OwnedToolPaths: nil,
-		RuntimeLibs:    nil,
+		RequiresNode: true,
+		OwnsToolTree: false,
+		RuntimeLibs:  nil,
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 type plainAgent struct{}
 
 func (plainAgent) Name() string          { return "plain" }
+func (plainAgent) Experimental() bool    { return false }
 func (plainAgent) ConfigDirName() string { return "plain" }
 func (plainAgent) ImageSpec() agent.ImageSpec {
 	return agent.ImageSpec{InstallCommand: "true"}
@@ -139,7 +140,7 @@ func TestLoadConfigFilesNoMergedForNonConfigMerger(t *testing.T) {
 	// merged config because only ConfigMerger agents merge snippets.
 	testutil.WriteFile(
 		t,
-		configpaths.MustDir(cp.UserAgentConfigDir(plainAgent{})),
+		configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), plainAgent{}.ConfigDirName())),
 		"opencode-model.json",
 		`{"model":"x"}`,
 	)

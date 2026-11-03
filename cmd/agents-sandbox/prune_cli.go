@@ -85,7 +85,10 @@ func runGroupPrune[R any](
 	cliout.RenderPruneReport(ui, mode,
 		func() { render(report, dryRun) },
 		jsonValue(report, dryRun))
-	return pruneErr
+	if pruneErr != nil {
+		return pruneErr
+	}
+	return nil
 }
 
 func resolvePruneFlags(cmd *cobra.Command) (time.Duration, bool, error) {
