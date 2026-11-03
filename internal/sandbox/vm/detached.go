@@ -114,7 +114,7 @@ func jobAlreadyStopped(err error) bool {
 // never keeps the socket, port, or pid file a fresh launch needs. Failures are
 // reported as verbose diagnostics and never fatal: the readiness probe that
 // follows decides.
-func killJobs(ctx context.Context, sb msb.Sandbox, helper detachedHelper, ui termio.UI) {
+func killJobs(ctx context.Context, sb msb.Sandbox, helper detachedHelper, ui termio.Logger) {
 	// The default listing is scoped to the current runtime generation: it returns
 	// the runtime's active jobs. WithAllJobs would also return retained terminal
 	// records — jobs that already finished, including ones an earlier boot left

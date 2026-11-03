@@ -16,7 +16,7 @@ import (
 // set, refuses a reference that is still in use — recorded by a project state or
 // held by a live project/task sandbox — naming the referencing projects, so an
 // in-use image is never silently deleted. Both guards fail closed.
-func RemoveImages(ctx context.Context, refs []string, force bool, ui termio.UI) error {
+func RemoveImages(ctx context.Context, refs []string, force bool, ui termio.Prompter) error {
 	if err := refuseNonRunnerRefs(refs); err != nil {
 		return err
 	}

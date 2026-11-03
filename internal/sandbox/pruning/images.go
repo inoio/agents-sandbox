@@ -89,7 +89,7 @@ func PruneImages(
 }
 
 // pruneDockerImages removes dangling (untagged) docker images created by us; skipped on dry-run.
-func pruneDockerImages(ctx context.Context, dryRun bool, ui termio.UI) int {
+func pruneDockerImages(ctx context.Context, dryRun bool, ui termio.Logger) int {
 	if dryRun {
 		return 0
 	}

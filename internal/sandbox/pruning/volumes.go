@@ -73,7 +73,7 @@ func pruneHomeVolumes(
 	pruneState PruneState,
 	references map[string][]state.Key,
 	dryRun bool,
-	ui termio.UI,
+	ui termio.Logger,
 	report *VolumeReport,
 ) map[state.Key]int {
 	removed := map[state.Key]int{}
@@ -118,7 +118,7 @@ func pruneHomeVolumes(
 // snapshot — committed to the state under the home lock — is never orphaned
 // (#335). Keys are visited in a stable order so a skipped key never determines
 // whether a later one is processed.
-func removeStateForGoneKeys(ui termio.UI, removed, exists map[state.Key]int) {
+func removeStateForGoneKeys(ui termio.Logger, removed, exists map[state.Key]int) {
 	for _, key := range slices.SortedFunc(maps.Keys(removed), compareStateKey) {
 		if removed[key] < exists[key] {
 			continue

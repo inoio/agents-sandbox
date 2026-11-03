@@ -79,7 +79,7 @@ type EnvSecrets struct {
 // the user files. allowPlaceholderFor lists hosts that may receive any secret's
 // placeholder unchanged (the secrets.common.allow-placeholder-for config key);
 // each secret still substitutes for the hosts it allows.
-func LoadEnvAndSecrets(ui termio.UI, allowPlaceholderFor []string) EnvSecrets {
+func LoadEnvAndSecrets(ui termio.Logger, allowPlaceholderFor []string) EnvSecrets {
 	return EnvSecrets{
 		Vars: MergeEnvMaps(
 			BuildEnvMap(cp.Get().UserEnvFile()),

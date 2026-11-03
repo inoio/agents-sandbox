@@ -87,7 +87,7 @@ func changeLabelList(changes []Change) string {
 
 // reportAloneChange logs the informational apply decision made without other
 // attached clients and, at verbose level, the change labels that drove it.
-func reportAloneChange(ui termio.UI, message, reasonLabel string, changes []Change) {
+func reportAloneChange(ui termio.Logger, message, reasonLabel string, changes []Change) {
 	ui.Infof("VM/config changed; %s (no other client attached)", message)
 	if summary := changeLabelList(changes); summary != "" {
 		ui.Verbosef("%s reasons: %s", reasonLabel, summary)

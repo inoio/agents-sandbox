@@ -144,7 +144,7 @@ func prepareVolumeOp(c *cobra.Command, ui termio.UI, dryRun bool) (state.Key, im
 	return key, info, nil
 }
 
-func buildDoctorCmd(ui termio.UI) *cobra.Command {
+func buildDoctorCmd(ui termio.Logger) *cobra.Command {
 	return &cobra.Command{
 		Use:   cmdDoctor,
 		Args:  cobra.NoArgs,
@@ -398,7 +398,7 @@ func buildImageCmd(ui termio.UI) *cobra.Command {
 // buildImageRemoveCmd builds `image remove <ref>...`, which deletes cached
 // runner images by reference. It refuses when an image is still in use unless
 // --force is set, and prompts unless --yes is set.
-func buildImageRemoveCmd(ui termio.UI) *cobra.Command {
+func buildImageRemoveCmd(ui termio.Prompter) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:     cmdRemove + " <ref>...",
@@ -455,7 +455,7 @@ func buildVolumeCmd(ui termio.UI) *cobra.Command {
 // buildVolumeRemoveCmd builds `volume remove <name>...`, which deletes home
 // volumes by name. It refuses when a project still references a volume unless
 // --force is set, and prompts unless --yes is set.
-func buildVolumeRemoveCmd(ui termio.UI) *cobra.Command {
+func buildVolumeRemoveCmd(ui termio.Prompter) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:     cmdRemove + " <name>...",
@@ -496,7 +496,7 @@ func buildSandboxCmd(ui termio.UI) *cobra.Command {
 // VM by name. It refuses a running VM unless --force is set (which stops it
 // first); the persisted project state is left intact so the next run reuses the
 // recorded home volume.
-func buildSandboxRemoveCmd(ui termio.UI) *cobra.Command {
+func buildSandboxRemoveCmd(ui termio.Prompter) *cobra.Command {
 	var force bool
 	cmd := &cobra.Command{
 		Use:     cmdRemove + " <name>",

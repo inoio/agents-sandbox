@@ -45,7 +45,7 @@ func TestResolveHomeVolumeSeedsFingerprints(t *testing.T) {
 		Network: state.BuildNetworkState(policy),
 		Mount:   state.BuildMountState(extraMounts),
 	}
-	_, homeState, err := volume.NewManager(&ui).ResolveHomeVolume(
+	_, homeState, err := volume.NewManager().ResolveHomeVolume(
 		context.Background(),
 		client,
 		k,

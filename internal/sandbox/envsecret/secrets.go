@@ -26,7 +26,7 @@ type SecretSpec struct {
 func BuildSecretsFromSpecs(
 	specs map[string]SecretSpec,
 	allowPlaceholderFor []string,
-	ui termio.UI,
+	ui termio.Logger,
 ) []msbSdk.SecretEntry {
 	envVars := make([]string, 0, len(specs))
 	for envVar := range specs {
@@ -83,7 +83,7 @@ func placeholderHostsFor(allowHosts, allowPlaceholderFor []string) []string {
 	return placeholderHosts
 }
 
-func ParseSecretSpecLegacy(filename string, ui termio.UI) map[string]SecretSpec {
+func ParseSecretSpecLegacy(filename string, ui termio.Logger) map[string]SecretSpec {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil
@@ -108,7 +108,7 @@ func ParseSecretSpecLegacy(filename string, ui termio.UI) map[string]SecretSpec 
 	return specs
 }
 
-func ParseSecretSpecYAML(filename string, ui termio.UI) map[string]SecretSpec {
+func ParseSecretSpecYAML(filename string, ui termio.Logger) map[string]SecretSpec {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil

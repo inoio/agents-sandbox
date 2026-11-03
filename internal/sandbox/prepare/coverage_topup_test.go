@@ -66,7 +66,7 @@ func TestResolveReconfigDecisionConfigError(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 
 	ui := termio.NewTestMock(t)
-	volumes := volume.NewManager(&ui)
+	volumes := volume.NewManager()
 
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
 
@@ -133,7 +133,7 @@ func TestResolveReconfigDecisionConfigErrorPromptsAttachedClients(t *testing.T) 
 			return "k", nil
 		},
 	}
-	volumes := volume.NewManager(ui)
+	volumes := volume.NewManager()
 
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
 
@@ -175,7 +175,7 @@ func TestResolveReconfigDecisionFindProjectVMError(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 
 	ui := termio.NewTestMock(t)
-	volumes := volume.NewManager(&ui)
+	volumes := volume.NewManager()
 
 	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
@@ -214,7 +214,7 @@ func TestResolveReconfigDecisionNoVMSkipsRecreate(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 
 	ui := termio.NewTestMock(t)
-	volumes := volume.NewManager(&ui)
+	volumes := volume.NewManager()
 
 	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
@@ -267,7 +267,7 @@ func TestResolveReconfigDecisionQuitAtRecreatePrompt(t *testing.T) {
 			return "q", nil
 		},
 	}
-	volumes := volume.NewManager(ui)
+	volumes := volume.NewManager()
 
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:old"}
 
@@ -313,7 +313,7 @@ func TestApplyReconfigHomeActionError(t *testing.T) {
 			return "", nil
 		},
 	}
-	volumes := volume.NewManager(ui)
+	volumes := volume.NewManager()
 
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:old"}
 

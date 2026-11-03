@@ -357,7 +357,7 @@ func nearMissDockerMarker(line string) bool {
 
 // EmitDockerfileDiagnostics writes every diagnostic message to the warn channel,
 // keeping stdout free for the rendered Dockerfile.
-func EmitDockerfileDiagnostics(ui termio.UI, d DockerfileDiagnostics) {
+func EmitDockerfileDiagnostics(ui termio.Logger, d DockerfileDiagnostics) {
 	for _, msg := range d.Messages {
 		ui.Warn(msg)
 	}
@@ -365,7 +365,7 @@ func EmitDockerfileDiagnostics(ui termio.UI, d DockerfileDiagnostics) {
 
 // EmitProjectDockerfileDiagnostics reads the on-disk project Dockerfile and
 // emits its diagnostics. Convenience for callers that have no bytes in hand.
-func EmitProjectDockerfileDiagnostics(ui termio.UI, setting options.DockerSetting) {
+func EmitProjectDockerfileDiagnostics(ui termio.Logger, setting options.DockerSetting) {
 	EmitDockerfileDiagnostics(ui, DiagnoseDockerfile(readProjectDockerfile(), setting))
 }
 

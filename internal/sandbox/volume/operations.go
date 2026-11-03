@@ -86,7 +86,7 @@ func CmdMigrate(
 			)
 		},
 		main: func(client msb.Client, oldVolume, newVolumeName string) error {
-			if err := NewManager(ui).CopyVolume(
+			if err := NewManager().CopyVolume(
 				ctx, client, k, oldVolume, newVolumeName, info, ui,
 			); err != nil {
 				return err
@@ -197,7 +197,7 @@ func volumeOp(
 		return fmt.Errorf("create volume %s: %w", newVolumeName, err)
 	}
 
-	vm := NewManager(ui)
+	vm := NewManager()
 	if err := vm.PrefillVolume(ctx, client, k, newVol.Name(), info, ui); err != nil {
 		return fmt.Errorf("prefill new volume: %w", err)
 	}

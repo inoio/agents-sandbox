@@ -55,7 +55,7 @@ func saveMigration(tx *state.RootTxn, m state.Migration) error {
 // deliberately held across the msb copy I/O (which can take minutes): a
 // non-blocking acquirer (the upgrade check or the legacy updater fold) defers to
 // a later run instead of racing a live copy.
-func CopyVolumes(ctx context.Context, client msb.Client, ui termio.UI) error {
+func CopyVolumes(ctx context.Context, client msb.Client, ui termio.Logger) error {
 	_, err := state.WithRootState(true, func(tx *state.RootTxn) error {
 		return copyVolumesLocked(ctx, client, ui, tx)
 	})
@@ -64,7 +64,7 @@ func CopyVolumes(ctx context.Context, client msb.Client, ui termio.UI) error {
 
 // copyVolumesLocked runs the campaign body with the root transaction's document
 // and lock held. It commits after each volume so an interruption resumes exactly.
-func copyVolumesLocked(ctx context.Context, client msb.Client, ui termio.UI, tx *state.RootTxn) error {
+func copyVolumesLocked(ctx context.Context, client msb.Client, ui termio.Logger, tx *state.RootTxn) error {
 	m, _ := tx.State().Migration(MigrationName)
 	if m.Status == state.MigrationCompleted || m.Status == state.MigrationDismissed ||
 		m.Status == state.MigrationAcknowledged {

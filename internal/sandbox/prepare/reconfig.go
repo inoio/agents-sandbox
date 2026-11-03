@@ -65,7 +65,7 @@ func readLiveProjectVM(
 	client msb.Client,
 	k state.Key,
 	agentConfigPaths []string,
-	ui termio.UI,
+	ui termio.Logger,
 ) (liveProjectVM, error) {
 	handle, found, lookupErr := vm.FindProjectVM(ctx, client, k)
 	if lookupErr != nil {
@@ -91,7 +91,7 @@ func readAgentConfigFiles(
 	ctx context.Context,
 	handle msb.SandboxHandle,
 	paths []string,
-	ui termio.UI,
+	ui termio.Logger,
 ) map[string][]byte {
 	sb, connectErr := handle.Connect(ctx)
 	if connectErr != nil {
@@ -228,7 +228,7 @@ func applyReconfigHomeAction(
 func readExistingVMConfig(
 	handle msb.SandboxHandle,
 	k state.Key,
-	ui termio.UI,
+	ui termio.Logger,
 ) (*msbSdk.SandboxConfig, bool) {
 	cfg, configReadErr := handle.Config()
 	configUnreadable := configReadErr != nil
@@ -247,7 +247,7 @@ func readExistingVMConfig(
 // it runs, cfg.Volumes is empty and the size/quota/home detectors see nothing. A
 // read failure is reported at verbose level and leaves cfg.Volumes untouched, so
 // the decision degrades to the pre-#223 behaviour instead of aborting the run.
-func applyLiveMounts(cfg *msbSdk.SandboxConfig, handle msb.SandboxHandle, ui termio.UI) {
+func applyLiveMounts(cfg *msbSdk.SandboxConfig, handle msb.SandboxHandle, ui termio.Logger) {
 	if cfg == nil {
 		return
 	}

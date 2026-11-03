@@ -21,7 +21,7 @@ type ImagePreview struct {
 // decided version. It never builds and never resolves a version over the network.
 func previewRunnerImage(
 	ctx context.Context, a agent.Agent, projectDockerfile []byte, projectSlug string,
-	buildOpts BuildOptions, ui termio.UI,
+	buildOpts BuildOptions, ui termio.Logger,
 ) (ImagePreview, error) {
 	EmitDockerfileDiagnostics(ui, DiagnoseDockerfile(projectDockerfile, buildOpts.Docker))
 	agentVersion, identityVersion, _ := initialBuildVersions(buildOpts)
@@ -39,7 +39,7 @@ func previewRunnerImage(
 
 // PreviewImage reports what EnsureImage would do without building anything.
 func PreviewImage(
-	ctx context.Context, a agent.Agent, projectSlug string, buildOpts BuildOptions, ui termio.UI,
+	ctx context.Context, a agent.Agent, projectSlug string, buildOpts BuildOptions, ui termio.Logger,
 ) (ImagePreview, error) {
 	WarnIgnoredProjectConfig(ui)
 	return previewRunnerImage(ctx, a, readProjectDockerfile(), projectSlug, buildOpts, ui)

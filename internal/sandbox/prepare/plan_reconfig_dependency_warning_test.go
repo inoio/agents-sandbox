@@ -39,7 +39,7 @@ func TestPlanReconfigStageWarnsAboutUnprovisionedConfigDirDependencies(t *testin
 	session := sessionIdentity{key: testVMKey(), agent: opencodeAgent(t)}
 	home := preparedHome{
 		client:     client,
-		volumes:    volume.NewManager(&ui),
+		volumes:    volume.NewManager(),
 		homeVolume: "vol",
 		homeState:  state.HomeState{HomeVolume: "vol"},
 	}

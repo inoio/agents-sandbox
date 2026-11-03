@@ -92,7 +92,7 @@ func TestStateRepairRejectsArguments(t *testing.T) {
 func TestStateRepairSkipsRuntimePreflight(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, cmdState, cmdRepair)
 	oldPrepare := prepareMSBRuntime
-	prepareMSBRuntime = func(context.Context, termio.UI, string) error {
+	prepareMSBRuntime = func(context.Context, termio.Logger, string) error {
 		return errors.New("runtime must not be prepared")
 	}
 	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })

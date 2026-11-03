@@ -13,7 +13,7 @@ const (
 )
 
 // PromptA handles the VM recreation prompt when there are active sessions.
-func PromptA(ui termio.UI, changes []Change, n int) (string, error) {
+func PromptA(ui termio.Prompter, changes []Change, n int) (string, error) {
 	prompt := fmt.Sprintf(
 		"%s\nApplying requires rebuilding the VM, which would disconnect %d active session(s).",
 		configChangeList(changes),
@@ -26,7 +26,7 @@ func PromptA(ui termio.UI, changes []Change, n int) (string, error) {
 }
 
 // PromptB handles the daemon restart prompt when there are active clients.
-func PromptB(ui termio.UI, changes []Change, n int) (string, error) {
+func PromptB(ui termio.Prompter, changes []Change, n int) (string, error) {
 	prompt := fmt.Sprintf(
 		"%s\nApplying requires restarting the server; %d active client(s) should reconnect automatically.",
 		configChangeList(changes),

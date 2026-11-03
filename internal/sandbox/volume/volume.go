@@ -32,14 +32,13 @@ func HomeVolumeName(k state.Key) string {
 	return naming.HomeVolumeName(k.Slug, k.Agent, ts)
 }
 
-// Manager manages home-volume lifecycle for projects.
-type Manager struct {
-	ui termio.UI
-}
+// Manager manages home-volume lifecycle for projects. It is stateless: each
+// operation takes the UI it reports through as a parameter.
+type Manager struct{}
 
-// NewManager returns a volume manager backed by the given UI.
-func NewManager(ui termio.UI) *Manager {
-	return &Manager{ui: ui}
+// NewManager returns a volume manager.
+func NewManager() *Manager {
+	return &Manager{}
 }
 
 // PrefillVolume builds a throwaway sandbox from the given image, mounts the
@@ -129,7 +128,7 @@ func (vm *Manager) ApplyHomeAction(
 
 // cleanupVolume removes the given volume best-effort after a failed operation
 // that created it, so an uncommitted volume does not linger as an orphan.
-func (vm *Manager) cleanupVolume(ctx context.Context, client msb.Client, name string, ui termio.UI) {
+func (vm *Manager) cleanupVolume(ctx context.Context, client msb.Client, name string, ui termio.Logger) {
 	if err := client.RemoveVolume(ctx, name); err != nil {
 		ui.Warnf("failed to remove new volume %q after error: %v", name, err)
 	}
@@ -140,7 +139,7 @@ func (vm *Manager) cleanupVolume(ctx context.Context, client msb.Client, name st
 // post-rename durability failure): deleting the volume then would leave the
 // saved state pointing at a removed volume.
 func (vm *Manager) cleanupUncommittedVolume(
-	ctx context.Context, client msb.Client, name string, commitErr error, ui termio.UI,
+	ctx context.Context, client msb.Client, name string, commitErr error, ui termio.Logger,
 ) {
 	if state.WriteInstalled(commitErr) {
 		return

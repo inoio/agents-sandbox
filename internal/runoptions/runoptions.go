@@ -65,7 +65,7 @@ func notifyEnvOverride() (string, string) {
 // nil config resolves the options from the command's flags alone, still applying
 // the agent default and the notify env override but leaving the config-derived
 // fields (policy, sizes, mounts, provisioning) at their zero values.
-func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.UI) (options.RunOptions, error) {
+func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.Logger) (options.RunOptions, error) {
 	opts, err := resolveFlags(cmd)
 	if err != nil {
 		return options.RunOptions{}, err
@@ -243,7 +243,7 @@ func resolveAgentAndValidate(
 
 // resolveNotify resolves the effective notify config (flag > env > config),
 // then validates agent support, warning or failing for agents without a daemon.
-func resolveNotify(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.UI, opts *options.RunOptions) error {
+func resolveNotify(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.Logger, opts *options.RunOptions) error {
 	nc, err := resolveNotifyConfig(cfg, cmd)
 	if err != nil {
 		return err

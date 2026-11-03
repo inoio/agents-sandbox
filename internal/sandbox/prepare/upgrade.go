@@ -182,7 +182,7 @@ func pendingUpgrade(
 	ctx context.Context,
 	a agent.Agent,
 	k state.Key,
-	ui termio.UI,
+	ui termio.Logger,
 	currentVersion string,
 ) (string, bool) {
 	checker, hasChecker := agent.AsUpgradeChecker(a)
@@ -248,7 +248,7 @@ func checkAgentUpgrade(
 	ctx context.Context,
 	a agent.Agent,
 	hasChecker bool,
-	ui termio.UI,
+	ui termio.Logger,
 ) (state.AgentCheckState, bool) {
 	entry, ok := readAgentCheck(a, ui)
 	if !ok {
@@ -274,7 +274,7 @@ func checkAgentUpgrade(
 // readAgentCheck reads this agent's cached machine-global check state under a
 // non-blocking root transaction. The bool is false when the root lock is held or
 // the root state is unreadable, so the caller defers the step to the next run.
-func readAgentCheck(a agent.Agent, ui termio.UI) (state.AgentCheckState, bool) {
+func readAgentCheck(a agent.Agent, ui termio.Logger) (state.AgentCheckState, bool) {
 	var entry state.AgentCheckState
 	ok, err := state.WithRootState(false, func(txn *state.RootTxn) error {
 		entry = txn.State().AgentCheck(a.Name())
@@ -296,7 +296,7 @@ func readAgentCheck(a agent.Agent, ui termio.UI) (state.AgentCheckState, bool) {
 // entry is returned, so concurrent due checks persist at most one refresh. A held
 // lock or unreadable state defers the step; a write failure is warned but the
 // freshly fetched entry is still returned, so the offer is not suppressed.
-func recordAgentCheck(a agent.Agent, refreshed state.AgentCheckState, ui termio.UI) (state.AgentCheckState, bool) {
+func recordAgentCheck(a agent.Agent, refreshed state.AgentCheckState, ui termio.Logger) (state.AgentCheckState, bool) {
 	entry := refreshed
 	ok, err := state.WithRootState(false, func(txn *state.RootTxn) error {
 		current := txn.State().AgentCheck(a.Name())
@@ -344,7 +344,7 @@ func currentAgentSource(k state.Key) string {
 // leaves the recorded value as the authoritative offline fallback; a label that
 // disagrees with the recorded value wins, because the image is what is actually
 // installed, and the cache is rewritten. It returns the version to build.
-func recoverAgentVersion(ctx context.Context, k state.Key, recorded string, ui termio.UI) string {
+func recoverAgentVersion(ctx context.Context, k state.Key, recorded string, ui termio.Logger) string {
 	version, ok := existingAgentVersion(ctx, k.Slug, k.Agent)
 	if !ok || version == recorded {
 		return recorded

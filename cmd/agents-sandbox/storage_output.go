@@ -32,7 +32,7 @@ func storageCategoryHeaders() []string {
 // printStorageReport renders the report in the shape of microsandbox's `df`:
 // a category totals table by default, or (with verbose) per-category item
 // blocks preceded by the reclaimable/accounting notes.
-func printStorageReport(ui termio.UI, report *storage.Report, verbose bool) {
+func printStorageReport(ui termio.Output, report *storage.Report, verbose bool) {
 	printStorageTable(ui, report)
 	if !verbose {
 		ui.Out(storageLogicalFooter)
@@ -44,7 +44,7 @@ func printStorageReport(ui termio.UI, report *storage.Report, verbose bool) {
 	printStorageVerbose(ui, report)
 }
 
-func printStorageTable(ui termio.UI, report *storage.Report) {
+func printStorageTable(ui termio.Output, report *storage.Report) {
 	table := ui.NewTable(storageCategoryHeaders()...)
 	for _, category := range report.Categories {
 		table.AddRow(
@@ -58,7 +58,7 @@ func printStorageTable(ui termio.UI, report *storage.Report) {
 	table.Print()
 }
 
-func printStorageVerbose(ui termio.UI, report *storage.Report) {
+func printStorageVerbose(ui termio.Output, report *storage.Report) {
 	ui.Out("")
 	ui.Out("Reclaimable shows logical bytes; '-' means unknown.")
 	ui.Out("Physical space freed may differ because files can share disk blocks.")

@@ -40,7 +40,7 @@ func ResolveMode(format string, quiet bool) (Mode, error) {
 
 // WriteJSON writes value as indented JSON on stdout. It is the shared
 // structured-output path for list, inspect, and storage renderers.
-func WriteJSON(ui termio.UI, value any) error {
+func WriteJSON(ui termio.Output, value any) error {
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err

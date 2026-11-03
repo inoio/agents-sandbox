@@ -40,7 +40,7 @@ func TestEnsureNewHomeSeedsFingerprints(t *testing.T) {
 		Mount:   state.BuildMountState(mounts.Mounts{"/host/data": {Source: "/host/data"}}),
 	}
 
-	_, hs, err := NewManager(ui).EnsureNewHome(
+	_, hs, err := NewManager().EnsureNewHome(
 		context.Background(),
 		client,
 		k,
@@ -87,7 +87,7 @@ func TestResolveHomeVolumeRepairsCorruptState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	volName, hs, err := NewManager(ui).ResolveHomeVolume(
+	volName, hs, err := NewManager().ResolveHomeVolume(
 		context.Background(),
 		client,
 		k,
@@ -139,7 +139,7 @@ func TestResolveHomeVolumeRepairCorruptSeedsFingerprintsAndClearsUpgradeFields(t
 		Network: state.BuildNetworkState(network.Policy{Profiles: []network.Profile{network.ProfileNone}}),
 		Mount:   state.BuildMountState(mounts.Mounts{"/host/data": {Source: "/host/data"}}),
 	}
-	_, hs, err := NewManager(ui).ResolveHomeVolume(
+	_, hs, err := NewManager().ResolveHomeVolume(
 		context.Background(),
 		client,
 		k,
@@ -195,7 +195,7 @@ func TestResolveHomeVolumeExistingStateKeepsFingerprints(t *testing.T) {
 	desired := state.Fingerprints{
 		Network: state.BuildNetworkState(network.Policy{Profiles: []network.Profile{network.ProfileNone}}),
 	}
-	_, hs, err := NewManager(ui).ResolveHomeVolume(
+	_, hs, err := NewManager().ResolveHomeVolume(
 		context.Background(),
 		client,
 		k,

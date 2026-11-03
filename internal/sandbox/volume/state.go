@@ -137,7 +137,7 @@ func (vm *Manager) recoverOrCreateHome(
 // clearAdoptionClaim retires a spent adoption claim (#144) after the recovered
 // volume has been folded into the project's own state. Best-effort: a stale
 // claim is harmless once the legacy VM is gone, so a failure only warns.
-func clearAdoptionClaim(k state.Key, volume string, ui termio.UI) {
+func clearAdoptionClaim(k state.Key, volume string, ui termio.Logger) {
 	if volume == "" {
 		return
 	}
@@ -325,7 +325,7 @@ func createHomeVolume(ctx context.Context, client msb.Client, k state.Key) (stri
 // current digest, preserving the tracked home volume. It is called after the
 // image-change prompt so subsequent runs no longer detect a mismatch and do
 // not re-prompt. Missing state is a no-op.
-func (vm *Manager) RecordHomeImage(k state.Key, currentDigest string, ui termio.UI) error {
+func (vm *Manager) RecordHomeImage(k state.Key, currentDigest string, ui termio.Logger) error {
 	if err := state.WithHomeState(k, func(cur *state.HomeState, exists bool) (bool, error) {
 		if !exists {
 			return false, nil

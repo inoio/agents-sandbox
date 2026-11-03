@@ -74,21 +74,13 @@ func TestHomeVolumeNameTimestamp(t *testing.T) {
 	}
 }
 
-func TestNewManager(t *testing.T) {
-	testUI := termio.NewTestMock(t)
-	vm := NewManager(&testUI)
-	if vm.ui == nil {
-		t.Error("expected ui to be set")
-	}
-}
-
 func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 	prefillSandbox := &msb.MockSandbox{Name_: "prefill"}
 	client := &msb.MockMsbClient{CreatedSandbox: prefillSandbox}
-	vm := NewManager(ui)
+	vm := NewManager()
 
 	err := vm.PrefillVolume(
 		context.Background(),
@@ -117,7 +109,7 @@ func TestPrefillVolume_DestroyToleratesReplaced(t *testing.T) {
 		DestroyErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"},
 	}
 	client := &msb.MockMsbClient{CreatedSandbox: prefillSandbox}
-	vm := NewManager(ui)
+	vm := NewManager()
 
 	err := vm.PrefillVolume(
 		context.Background(),
@@ -140,7 +132,7 @@ func TestPrefillVolume_DestroyFailureWarns(t *testing.T) {
 	ui := &termio.Mock{}
 	prefillSandbox := &msb.MockSandbox{Name_: "prefill", DestroyErr: errors.New("destroy failed")}
 	client := &msb.MockMsbClient{CreatedSandbox: prefillSandbox}
-	vm := NewManager(ui)
+	vm := NewManager()
 
 	err := vm.PrefillVolume(
 		context.Background(),
@@ -160,7 +152,7 @@ func TestPrefillVolume_DestroyFailureWarns(t *testing.T) {
 
 func TestResolveHomeAction_SameDigestReturnsKeep(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	vm := NewManager(&ui)
+	vm := NewManager()
 	action := vm.ResolveHomeAction(&ui, "same-digest", "same-digest")
 	if action != ActionKeep {
 		t.Errorf("expected ActionKeep for matching digests, got %v", action)
@@ -170,7 +162,7 @@ func TestResolveHomeAction_SameDigestReturnsKeep(t *testing.T) {
 func TestResolveHomeAction_DifferentDigestInNonInteractiveReturnsKeep(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	ui.IsInteractiveResult = false
-	vm := NewManager(&ui)
+	vm := NewManager()
 	action := vm.ResolveHomeAction(&ui, "old", "new")
 	if action != ActionKeep {
 		t.Errorf("expected ActionKeep in non-interactive mode, got %v", action)
@@ -190,7 +182,7 @@ func TestResolveHomeAction_DifferentDigestInInteractivePrompt(t *testing.T) {
 			return "m", nil
 		},
 	}
-	vm := NewManager(ui)
+	vm := NewManager()
 	action := vm.ResolveHomeAction(ui, "old", "new")
 	if action != ActionMigrate {
 		t.Errorf("expected ActionMigrate, got %v", action)
@@ -198,7 +190,7 @@ func TestResolveHomeAction_DifferentDigestInInteractivePrompt(t *testing.T) {
 }
 
 func TestResolveHomeAction_NonInteractiveExplains(t *testing.T) {
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 	ui := &termio.Mock{IsInteractiveResult: false}
 	action := vm.ResolveHomeAction(ui, "old", "new")
 	if action != ActionKeep {
@@ -217,7 +209,7 @@ func TestResolveHomeAction_ActionQuitReturnsQuit(t *testing.T) {
 			return "q", nil
 		},
 	}
-	vm := NewManager(ui)
+	vm := NewManager()
 	action := vm.ResolveHomeAction(ui, "old", "new")
 	if action != ActionQuit {
 		t.Errorf("expected ActionQuit, got %v", action)
@@ -232,7 +224,7 @@ func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
 		ImageDigest: "sha256:old",
 	})
 
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 	if err := vm.RecordHomeImage(
 		state.Key{Slug: "myproj", Agent: "opencode"},
 		"sha256:new",
@@ -256,7 +248,7 @@ func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
 func TestRecordHomeImage_MissingStateIsNoop(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 	if err := vm.RecordHomeImage(
 		state.Key{Slug: "nosuchproj", Agent: "opencode"},
 		"sha256:new",
@@ -287,7 +279,7 @@ func TestApplyHomeActionAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 		}
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	_, err := vm.ApplyHomeAction(
 		context.Background(),
@@ -319,7 +311,7 @@ func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	mock := &msb.MockMsbClient{}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	var createdVols int
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
@@ -374,7 +366,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 			)
 
 			mock := &msb.MockMsbClient{}
-			vm := NewManager(&termio.Mock{})
+			vm := NewManager()
 
 			newVol, err := vm.ApplyHomeAction(
 				context.Background(),
@@ -431,7 +423,7 @@ func TestApplyHomeAction_Reset_SkipVM_NoWrites(t *testing.T) {
 	)
 
 	mock := &msb.MockMsbClient{}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	var createdVols int
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
@@ -485,7 +477,7 @@ func TestApplyHomeAction_Migrate_SkipVM_NoStateWrite(t *testing.T) {
 	)
 
 	mock := &msb.MockMsbClient{}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	newVol, err := vm.ApplyHomeAction(
 		context.Background(),
@@ -544,7 +536,7 @@ func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 		createdVol = name
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	_, err := vm.ApplyHomeAction(
 		context.Background(),
@@ -620,7 +612,7 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 		ImageDigest: "sha256:abc",
 	})
 
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 	volName, st, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -651,7 +643,7 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 	volName, st, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -696,7 +688,7 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	_, _, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -736,7 +728,7 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 		ImageDigest: "sha256:abc",
 	})
 
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 	volName, st, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -782,7 +774,7 @@ func TestResolveHomeVolume_TransientRecordedErrorFailsClosed(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	_, _, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -825,7 +817,7 @@ func TestResolveHomeVolume_TransientRecoveryErrorFailsClosed(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	_, _, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -905,7 +897,7 @@ func TestResolveHomeVolume_RecoversLiveVMVolumeOnMissingState(t *testing.T) {
 
 	key := state.Key{Slug: "recoverproj", Agent: "opencode"}
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	volName, st, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -962,7 +954,7 @@ func TestResolveHomeVolume_RecoversPersistedAdoptionVolume(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	volName, hs, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -1014,7 +1006,7 @@ func TestResolveHomeVolume_RecoveredVolumeMissingStartsFresh(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	volName, _, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -1064,7 +1056,7 @@ func TestResolveHomeVolume_RecoversWhenRecordedVolumeGone(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	volName, _, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -1110,7 +1102,7 @@ func TestResolveHomeVolume_RecoveryStateFails(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	volName, _, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -1156,7 +1148,7 @@ func TestResolveHomeVolume_StateWinsOverRecoveredVolume(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	volName, _, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -1212,7 +1204,7 @@ func TestResolveHomeVolume_RecoveryPreservesFingerprints(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	volName, hs, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -1288,7 +1280,7 @@ func TestActionLabel(t *testing.T) {
 
 func TestCleanupVolume_Success(t *testing.T) {
 	mock := &msb.MockMsbClient{}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	vm.cleanupVolume(context.Background(), mock, "orphan-vol", &termio.Mock{})
 
@@ -1303,7 +1295,7 @@ func TestCleanupVolume_Failure(t *testing.T) {
 		return errors.New("volume busy")
 	}
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 
 	vm.cleanupVolume(context.Background(), mock, "orphan-vol", ui)
 
@@ -1339,7 +1331,7 @@ func TestCleanupUncommittedVolume(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &msb.MockMsbClient{}
-			vm := NewManager(&termio.Mock{})
+			vm := NewManager()
 
 			vm.cleanupUncommittedVolume(context.Background(), mock, "new-vol", tt.commitErr, &termio.Mock{})
 
@@ -1355,7 +1347,7 @@ func TestPrefillVolume_CreateSandboxFails(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("sandbox creation failed")
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	err := vm.PrefillVolume(
 		context.Background(),
@@ -1382,7 +1374,7 @@ func TestPrefillVolume_ExecFails(t *testing.T) {
 		}), nil
 	}
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 
 	err := vm.PrefillVolume(
 		context.Background(),
@@ -1417,7 +1409,7 @@ func TestPrefillVolume_ExecExitFailure(t *testing.T) {
 		}), nil
 	}
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 
 	err := vm.PrefillVolume(
 		context.Background(),
@@ -1439,7 +1431,7 @@ func TestCopyVolume_CreateSandboxFails(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("sandbox creation failed")
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	err := vm.CopyVolume(
 		context.Background(),
@@ -1467,7 +1459,7 @@ func TestCopyVolume_ExecFails(t *testing.T) {
 		}), nil
 	}
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 
 	err := vm.CopyVolume(
 		context.Background(),
@@ -1503,7 +1495,7 @@ func TestCopyVolume_ExecExitFailure(t *testing.T) {
 		}), nil
 	}
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 
 	err := vm.CopyVolume(
 		context.Background(),
@@ -1534,7 +1526,7 @@ func TestApplyHomeAction_Reset_Success(t *testing.T) {
 	)
 
 	mock := &msb.MockMsbClient{}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	newVol, err := vm.ApplyHomeAction(
 		context.Background(),
@@ -1593,7 +1585,7 @@ func TestApplyHomeAction_PreservesFingerprints(t *testing.T) {
 	)
 
 	mock := &msb.MockMsbClient{}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	if _, err := vm.ApplyHomeAction(
 		context.Background(),
@@ -1638,7 +1630,7 @@ func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
 
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("prefill sandbox creation failed")
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	_, err := vm.ApplyHomeAction(
 		context.Background(),
@@ -1669,7 +1661,7 @@ func TestEnsureNewHome_PrefillFails_RemovesVolume(t *testing.T) {
 		createdVolume = name
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	_, _, err := vm.EnsureNewHome(
 		context.Background(),
@@ -1735,7 +1727,7 @@ func TestEnsureNewHome_StateWriteFails(t *testing.T) {
 			}
 			ui := &termio.Mock{}
 
-			_, _, err := NewManager(ui).EnsureNewHome(
+			_, _, err := NewManager().EnsureNewHome(
 				context.Background(),
 				mock,
 				state.Key{Slug: "statewritefail", Agent: "opencode"},
@@ -1781,7 +1773,7 @@ func TestEnsureNewHome_PrefillCancelled_RemovesVolumeWithLiveContext(t *testing.
 		cleanupCtxErr = cleanupCtx.Err()
 		return nil
 	}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	_, _, err := vm.EnsureNewHome(
 		ctx,
@@ -1811,7 +1803,7 @@ func TestEnsureNewHome_SkipVM_NoSandbox(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	mock := &msb.MockMsbClient{}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	volName, _, err := vm.EnsureNewHome(
 		context.Background(),
@@ -1849,7 +1841,7 @@ func TestEnsureNewHome_SkipVM_CreatesNothing(t *testing.T) {
 	k := state.Key{Slug: "testproj", Agent: "opencode"}
 	ui := &termio.Mock{}
 
-	volName, hs, err := NewManager(ui).EnsureNewHome(
+	volName, hs, err := NewManager().EnsureNewHome(
 		context.Background(),
 		mock,
 		k,
@@ -1892,7 +1884,7 @@ func TestResolveHomeVolume_SkipVMThenRealRun_Prefills(t *testing.T) {
 	k := state.Key{Slug: "testproj", Agent: "opencode"}
 	info := image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"}
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 
 	if _, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1933,7 +1925,7 @@ func TestResolveHomeAction_PromptFails_ReturnsKeep(t *testing.T) {
 			return "", errors.New("select failed")
 		},
 	}
-	vm := NewManager(ui)
+	vm := NewManager()
 	action := vm.ResolveHomeAction(ui, "old", "new")
 	if action != ActionKeep {
 		t.Errorf("expected ActionKeep on prompt failure, got %v", action)
@@ -1976,7 +1968,7 @@ func TestResolveHomeVolume_ClearsAdoptionClaim(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	if _, _, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
@@ -2027,7 +2019,7 @@ func TestResolveHomeVolume_AdoptionClaimClearErrorWarns(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	if _, _, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,

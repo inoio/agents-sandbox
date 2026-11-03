@@ -17,7 +17,7 @@ type treeEntry struct {
 	desc   string
 }
 
-func printTree(rootCmd *cobra.Command, ui termio.UI) {
+func printTree(rootCmd *cobra.Command, ui termio.Logger) {
 	var entries []treeEntry
 	collectTreeEntries(&entries, rootCmd, rootCmd, "")
 

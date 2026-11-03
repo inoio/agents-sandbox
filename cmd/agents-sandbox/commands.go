@@ -37,7 +37,7 @@ const defaultAgentName = agent.DefaultAgentName
 
 // warnLegacyEnvVars emits a one-time deprecation warning for each
 // OPENCODE_SANDBOX_ variable still in effect.
-func warnLegacyEnvVars(ui termio.UI, r *launcherconfig.Resolver) {
+func warnLegacyEnvVars(ui termio.Logger, r *launcherconfig.Resolver) {
 	if legacy := r.LegacyEnvVars(); len(legacy) > 0 {
 		ui.Warnf(
 			"deprecated environment variable(s) %s in use; switch to the AGENTS_SANDBOX_ prefix",
@@ -225,7 +225,7 @@ func commandNeedsMSBRuntime(cmd *cobra.Command) bool {
 	}
 }
 
-func buildTreeCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
+func buildTreeCmd(rootCmd *cobra.Command, ui termio.Logger) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdTree,
 		Args:  cobra.NoArgs,
@@ -237,7 +237,7 @@ func buildTreeCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
 	return cmd
 }
 
-func buildVersionCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
+func buildVersionCmd(rootCmd *cobra.Command, ui termio.Output) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdVersion,
 		Args:  cobra.NoArgs,
@@ -249,7 +249,7 @@ func buildVersionCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
 	return cmd
 }
 
-func buildUpgradeCmd(ui termio.UI) *cobra.Command {
+func buildUpgradeCmd(ui termio.Logger) *cobra.Command {
 	var channelFlag string
 	cmd := &cobra.Command{
 		Use:   cmdUpgrade,

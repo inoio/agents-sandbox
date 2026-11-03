@@ -22,7 +22,7 @@ func reconcileResourceConfig(
 	ctx context.Context,
 	handle msb.SandboxHandle,
 	opts options.RunOptions,
-	ui termio.UI,
+	ui termio.Logger,
 ) error {
 	cfg, err := handle.Config()
 	if err != nil || cfg == nil {

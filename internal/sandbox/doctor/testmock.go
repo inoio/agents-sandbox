@@ -38,8 +38,8 @@ func ensureInstalledMockFunc(raise bool) func(ctx context.Context) error {
 	}
 }
 
-func checkAllMockFunc(success bool) func(context.Context, termio.UI) bool {
-	return func(_ context.Context, _ termio.UI) bool { return success }
+func checkAllMockFunc(success bool) func(context.Context, termio.Logger) bool {
+	return func(_ context.Context, _ termio.Logger) bool { return success }
 }
 
 func checkDockerMockFunc(success bool) func(context.Context) error {
@@ -64,7 +64,7 @@ func MockedCheckDocker(t *testing.T, success bool) {
 }
 
 func InstallFailFast() {
-	checkAllFunc = func(context.Context, termio.UI) bool {
+	checkAllFunc = func(context.Context, termio.Logger) bool {
 		panic("doctor.CheckAll not mocked; use doctor.MockedCheckAll(t, ...) in the test")
 	}
 	checkDockerFunc = func(context.Context) error {

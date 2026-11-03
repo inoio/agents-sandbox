@@ -177,7 +177,7 @@ var inspectRuntimeFunc = inspectRuntime
 
 // PrepareRuntime inspects and resolves the runtime before any SDK operation.
 // Mock msb clients used by command tests do not need host runtime setup.
-func PrepareRuntime(ctx context.Context, ui termio.UI, launcherVersion string) error {
+func PrepareRuntime(ctx context.Context, ui termio.Logger, launcherVersion string) error {
 	if !runtimeClientIsReal() {
 		return nil
 	}
@@ -199,7 +199,7 @@ func ApplyPreviewHome() error {
 	return nil
 }
 
-func prepareRuntime(ctx context.Context, ui termio.UI, launcherVersion string) error {
+func prepareRuntime(ctx context.Context, ui termio.Logger, launcherVersion string) error {
 	runtimeState.mutex.Lock()
 	defer runtimeState.mutex.Unlock()
 	if runtimeState.prepared {

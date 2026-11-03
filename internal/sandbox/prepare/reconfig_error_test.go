@@ -33,7 +33,7 @@ func TestResolveReconfigDecisionDetachErrorVerbose(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	volumes := volume.NewManager(&termio.Mock{})
+	volumes := volume.NewManager()
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
 
 	ui := termio.NewTestMock(t)

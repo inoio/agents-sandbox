@@ -393,7 +393,7 @@ func TestPrefillVolume_LoadImageFails(t *testing.T) {
 	docker.WithDefaultErrorDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 	err := vm.PrefillVolume(
 		context.Background(),
 		mock,
@@ -416,7 +416,7 @@ func TestCopyVolume_DestroyFailureWarns(t *testing.T) {
 		return &msb.MockSandbox{DestroyErr: errors.New("destroy failed")}, nil
 	}
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 
 	err := vm.CopyVolume(
 		context.Background(),
@@ -486,7 +486,7 @@ func TestCopyVolume_LoadImageFails(t *testing.T) {
 	docker.WithDefaultErrorDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 	err := vm.CopyVolume(
 		context.Background(),
 		mock,
@@ -508,7 +508,7 @@ func TestEnsureNewHome_CreateVolumeFails(t *testing.T) {
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
 		return nil, errors.New("create failed")
 	}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 	_, _, err := vm.EnsureNewHome(
 		context.Background(),
 		mock,
@@ -533,7 +533,7 @@ func TestRecordHomeImage_ReadStateError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 	err := vm.RecordHomeImage(state.Key{Slug: slug, Agent: "opencode"}, "sha256:new", &termio.Mock{})
 	if err == nil {
 		t.Fatal("expected error for unreadable state, got nil")
@@ -560,7 +560,7 @@ func TestRecordHomeImage_WriteStateFails(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	err := vm.RecordHomeImage(state.Key{Slug: slug, Agent: "opencode"}, "sha256:new", ui)
 	if err == nil {
 		t.Fatal("expected write-state error, got nil")
@@ -587,7 +587,7 @@ func TestApplyHomeAction_KeepRecordImageFails_Warns(t *testing.T) {
 
 	mock := &msb.MockMsbClient{}
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 
 	vol, err := vm.ApplyHomeAction(
 		context.Background(),
@@ -623,7 +623,7 @@ func TestApplyHomeAction_CreateVolumeFails(t *testing.T) {
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
 		return nil, errors.New("create failed")
 	}
-	vm := NewManager(&termio.Mock{})
+	vm := NewManager()
 
 	_, err := vm.ApplyHomeAction(
 		context.Background(),
@@ -671,7 +671,7 @@ func TestApplyHomeAction_WriteStateFails_ReturnsError(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	vm := NewManager(ui)
+	vm := NewManager()
 	_, err := vm.ApplyHomeAction(
 		context.Background(),
 		mock,
