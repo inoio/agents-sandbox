@@ -280,6 +280,7 @@ func TestRenderDockerfileDockerStage(t *testing.T) {
 	for _, want := range []string{
 		"FROM agents-sandbox-toolbase AS agents-sandbox-docker",
 		"ARG DOCKER_VERSION=29.7.2",
+		"apt-get install -y --no-install-recommends fuse-overlayfs libfuse3-4",
 		"download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz",
 		"COPY --from=agents-sandbox-docker /opt/agents-sandbox /opt/agents-sandbox",
 		"> /etc/agents-sandbox/docker-source",
