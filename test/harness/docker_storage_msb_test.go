@@ -22,8 +22,8 @@ import (
 //
 // The disk saving that motivates fuse-overlayfs (its copy-on-write layers versus
 // vfs's full copy per layer) is not asserted here: measuring it needs a second
-// dockerd on the same backing and is inherently noisy. See the figures in
-// `.operator-shared/guides/docker-storage-driver-in-vm.md`.
+// dockerd on the same backing and is inherently noisy. The figures measured for
+// #489 are recorded on the issue.
 func TestDockerStorageDriverIsFuseOverlayfs(t *testing.T) {
 	preflight(t)
 	root, binary := prepareIsolated(t)

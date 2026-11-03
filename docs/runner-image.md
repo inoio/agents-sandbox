@@ -303,15 +303,18 @@ print a one-time warning. A project Dockerfile using the legacy `runner-base-din
 marker keeps working and enables the engine, but warns on every run that ensures the runner image (including cached
 reuse).
 
-The Docker stage installs the engine from a docker static binary tarball. The `vfs` storage driver is forced **inside
-the VM** at start-up — the image never writes `/etc/docker/daemon.json`, so your edits to it are preserved. If your
-`daemon.json` already sets `"storage-driver": "vfs"`, agents-sandbox leaves the file alone and starts dockerd without
-the flag (passing both makes dockerd refuse to start); if it sets any other driver, start-up fails with an error, because
-the microsandbox filesystem requires `vfs`. The launcher starts dockerd (and the agent's `serve` daemon) as a
-microsandbox runtime-owned detached job inside the VM: startup is confirmed by health probe, and if the job fails the
-launcher reports its exit code and a log tail (there is no `dockerd.log`). `buildx` and `docker compose` are **not**
-installed — install them in your project Dockerfile if you need them. The static tarball's platform is selected by
-`uname -m` (`x86_64`/`aarch64`).
+The Docker stage installs the engine from a docker static binary tarball plus `fuse-overlayfs` and its `libfuse3`
+runtime. The storage driver is selected **inside the VM** at start-up: `fuse-overlayfs` when the image provides the
+binary and `/dev/fuse` is usable, falling back to `vfs` otherwise (the microsandbox filesystem cannot back the kernel
+`overlay2` driver, which is why `vfs` was the only option before). `fuse-overlayfs` merges in userspace and exposes its
+own FUSE mount, so it copies layers on write instead of copying each one whole, which cuts build time and data-root disk
+use. The image never writes `/etc/docker/daemon.json`, so your edits to it are preserved: if your `daemon.json` already
+sets `"storage-driver"` to `vfs` or `fuse-overlayfs`, agents-sandbox leaves the file alone and starts dockerd without the
+flag (passing both makes dockerd refuse to start); if it sets any other driver, start-up fails with an error naming the
+two accepted drivers. The launcher starts dockerd (and the agent's `serve` daemon) as a microsandbox runtime-owned
+detached job inside the VM: startup is confirmed by health probe, and if the job fails the launcher reports its exit code
+and a log tail (there is no `dockerd.log`). `buildx` and `docker compose` are **not** installed — install them in your
+project Dockerfile if you need them. The static tarball's platform is selected by `uname -m` (`x86_64`/`aarch64`).
 
 With a custom base, a thin `COPY --from=agents-sandbox-docker` plus an adopt step is appended after your Dockerfile body
 by default, so steps after it see `docker` (the heavy download stays in the cacheable Docker stage). To run your own steps
