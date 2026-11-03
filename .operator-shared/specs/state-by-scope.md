@@ -131,10 +131,3 @@ noted in `CHANGELOG.md` and here, following the `updater.yaml` precedent (#225).
   (`migrations:`) survive. This is accepted — the state root is internal 0.x
   state and the alternative (a transitional dual-write of the legacy keys) would
   contradict the one-document rule. No dual-write.
-
-## Left to the builder
-
-- The exact shape of the `internal/upgrade` store seam and its wiring in `cmd`.
-- The call site and ordering of the `upgrade.json` fold relative to
-  `upgrade.Check` and `migrateLegacyUpdaterState`.
-- Docs sync, if any user-facing page describes the state layout.

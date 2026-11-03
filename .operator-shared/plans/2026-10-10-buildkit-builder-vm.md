@@ -52,7 +52,7 @@ Inputs/conditions the spec implies but no happy-path test exercises; each gets a
 - Test: `internal/sandbox/builder/vm_test.go`
 
 **Interfaces:**
-- Consumes: `internal/sandbox/msb` (`Client`, `Sandbox`, `SandboxHandle`, errors), `internal/sandbox/options` (`FirstFreeHostPort`, `DefaultVMIdleTimeout` if reused), `internal/sandbox/state` (`FlockExclusive`), `internal/configpaths`, `msbSdk`.
+- Consumes: `internal/sandbox/msb` (`Client`, `Sandbox`, `SandboxHandle`, errors), `internal/sandbox/options` (`FirstFreeHostPort`, `DefaultVMIdleTimeout` if reused), `internal/hostlock` (`AcquireExclusive`), `internal/configpaths`, `msbSdk`.
 - Produces:
   - Constants: `buildkitVersion = "v0.25.2"`, `builderImage = "moby/buildkit:" + buildkitVersion`, `builderGuestPort uint16 = 1234`, `cacheVolumeName = "agents-sandbox-buildkit-cache"`, `cacheMountPath = "/var/lib/buildkit"`, `builderHostPortBase = 11234`, `builderIdleTimeout = 5 * time.Minute`, `buildkitdCommand = "exec buildkitd --oci-worker-snapshotter native --addr tcp://0.0.0.0:1234"`.
   - `func builderSandboxName() string` → `"agents-sandbox-buildkit-" + buildkitVersion`.
@@ -77,7 +77,7 @@ Expected: FAIL — package/identifiers undefined.
 
 `vm.go` `Ensure`:
 1. `name := builderSandboxName()`.
-2. Acquire a host-wide flock at `filepath.Join(configpaths.Get().UserStateDir(), "builder-vm.lock")` (`os.MkdirAll` then `state.FlockExclusive`), defer release.
+2. Acquire a host-wide flock at `filepath.Join(configpaths.Get().UserStateDir(), "builder-vm.lock")` (`os.MkdirAll` then `hostlock.AcquireExclusive`), defer release.
 3. `handle, err := v.Msb.GetSandbox(ctx, name)`; if found, read host port from `handle.Config()`; if `> 0`, return it (do not restart `buildkitd`; readiness is Task 2's concern).
 4. Ensure the cache volume: `v.Msb.CreateVolume(ctx, cacheVolumeName)`; tolerate an already-exists error (compare `msbSdk.IsKind(err, msbSdk.ErrVolumeAlreadyExists)`; if the wrapper does not surface it, treat any error whose string contains "exists" as success — the spike did the former).
 5. `hostPort := options.FirstFreeHostPort(builderHostPortBase)`.

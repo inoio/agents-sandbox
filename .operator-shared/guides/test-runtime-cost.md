@@ -83,7 +83,7 @@ before failing. The catchable package vars and their production values:
   `dockerdPollInterval` 1 s; `sandboxLifecyclePollInterval` 100 ms.
 - `session`: `waitQuiescentPollInterval` 2 s.
 - `termio`: `spinnerInterval` 100 ms.
-- `options`: `SandboxStopTimeout` / `DefaultVMIdleTimeout` 30 s (consts).
+- `options`: `SandboxStopTimeout` 30 s; `DefaultVMIdleTimeout` 10 s (consts).
 - `notify`: `backoffStart` 1 s / `backoffMax` 30 s / `longLived` 30 s; HTTP clients in `agent`/`upgrade` use
   10 s (and a 5 min download).
 

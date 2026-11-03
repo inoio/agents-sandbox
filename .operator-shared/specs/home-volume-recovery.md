@@ -1,6 +1,6 @@
 ---
 description: Contract for recovering a project's home volume when its state.yaml is lost — reuse the live VM's mounted volume instead of minting a duplicate and orphaning the original.
-read_if: Changing home-volume resolution (volume.Manager.ResolveHomeVolume / recoverOrCreateHome), liveHomeVolume in the vm package, or diagnosing a duplicate/orphaned home volume after state loss.
+read_if: Changing home-volume resolution (volume.Manager.ResolveHomeVolume / recoverOrCreateHome), liveHomeVolume in `internal/sandbox/prepare` (delegating to `vm.ProjectVMHomeVolume`), or diagnosing a duplicate/orphaned home volume after state loss.
 ---
 
 # Home-volume recovery on lost state
@@ -20,8 +20,9 @@ cannot. Resolution order (`volume.Manager.ResolveHomeVolume`):
 1. **State** — if `state.yaml` names a volume that still resolves, reuse it (unchanged).
 2. **Live VM** — when state is absent or its recorded volume is gone, adopt the home volume the project VM still
    mounts, if that volume still exists. The mount is read from the VM's persisted config JSON as the `Named` mount at
-   `mounts.VMHomeDir` (`msb.SandboxHandle.ConfigMounts()`, `specs/live-mount-readback.md`); the vm package supplies it
-   via `liveHomeVolume` (`client.GetSandbox(ProjectVMName(k))`), because the volume package cannot import vm.
+   `mounts.VMHomeDir` (`msb.SandboxHandle.ConfigMounts()`, `specs/live-mount-readback.md`); the `prepare` package supplies it
+   via `liveHomeVolume`, which delegates to `vm.ProjectVMHomeVolume` (`client.GetSandbox(ProjectVMName(k))`), because the
+   volume package cannot import vm.
 3. **Fresh prefill** — otherwise `EnsureNewHome` creates a new volume, as before.
 
 A fresh prefill that fails removes the volume it just created before returning the error (the same cleanup

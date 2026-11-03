@@ -1,7 +1,7 @@
 # Design: notify for opencode2 + subagent-session filtering
 
 Date: 2026-10-20
-Status: implemented (PR #245, pending merge). The review-driven refinements — event-id input identity, the `NewSessionList` seed value, per-request claim files — are in "Review fixes (PR #245)" below.
+Status: implemented.
 
 ## Problem
 
@@ -279,54 +279,6 @@ Parse: parseOpencodeV1Event
 - `internal/notify/*_test.go`: `NewTracker` specs gain the new fields; `agent.StreamEvent` replaces
   `notify.Event`; the parser table test moves to the agent package; add child-suppression tests.
 
-## Implementation approach
-
-- `internal/agent`: add `StreamEvent`, add `Parse` to `EventStreamSpec`, add the two decoders and
-  `EventStream()` to `opencode2Profile`, extend the `opencodeProfile` spec, update tests.
-- `internal/notify`: drop the `Event` type and the JSON shape in `parseSSEBlock` (SSE framing only,
-  delegating to `spec.Parse`); use `agent.StreamEvent`; `Tracker.children` + `SeedChildren`;
-  `watchOnce` seeding; update `event_test.go`/`watch_test.go`/`watch_extra_test.go`.
-- No change to `internal/sandbox/session/run.go`: it already passes whatever spec the provider
-  returns.
-- `docs/configuration/notifications.md` and `docs/commands.md`: opencode2 is supported; document that
-  only top-level sessions notify.
-- `CHANGELOG.md`: `[Unreleased]` line.
-
-## Testing
-
-- `internal/agent`:
-  - Decoder table tests: v1 block → `{type, sessionID, parentID}`; v2 block → same; v2
-    `form.created` → sessionID from `data.form.sessionID`; v2 `{sessionID, info}` shape → parentID
-    from `info`; a typeless payload → not an event.
-  - `opencode2Profile.EventStream()` field contents (with `Parse` compared separately);
-    `opencodeProfile` spec gains the two new fields and keeps its others; capability table updated.
-- `internal/notify`:
-  - Tracker: a child's `session.execution.succeeded` after `session.execution.started` produces no
-    notification; a top-level session produces `done`; a child announced by `session.created`
-    (`parentID` set) then suppressed; `SeedChildren` suppresses without a `session.created`; a
-    top-level `session.updated` still marks busy (v1 regression guard).
-  - SSE framing: a `data:`-less block is not an event; `spec.Parse` is invoked with the extracted
-    payload.
-  - `watchOnce` seeding: seed command output marks children and the stream still processes events.
-- Existing notify/session/CLI tests keep passing; `make check` green.
-
-## Documentation & changelog
-
-- `docs/configuration/notifications.md`: replace "Only the opencode agent …" with opencode and
-  opencode2; add a line that top-level sessions notify and subagent sessions are skipped.
-- `docs/commands.md`: the `--notify` row currently says "Only applies to the opencode agent"; update.
-- `CHANGELOG.md`: `[Unreleased]` — notify now works for opencode2, and notifications are skipped for
-  subagent sessions.
-
-## Files touched (anticipated)
-
-- `internal/agent/capabilities.go` (`StreamEvent`, `Parse`), `internal/agent/opencode.go`
-  (`parseOpencodeV1Event`), `internal/agent/opencode2.go` (`parseOpencodeV2Event`, `EventStream()`)
-  (+ `capabilities_test.go`, `opencode_test.go`, `opencode2_test.go`).
-- `internal/notify/watch.go` (SSE framing only), `internal/notify/event.go` (uses
-  `agent.StreamEvent`) (+ `watch_test.go`, `watch_extra_test.go`, `event_test.go`).
-- `docs/configuration/notifications.md`, `docs/commands.md`, `CHANGELOG.md`.
-
 ## Calls made (decide-and-note)
 
 - **The harness's JSON shape lives in the agent, not in `notify`.** Instead of teaching
@@ -365,92 +317,3 @@ Parse: parseOpencodeV1Event
   fire a false done — the idle arm requires a busy or awaiting-input state.
 - **v1's `session.error` latch is unchanged.** The latch's origin was a coverage commit (`dc360d91`),
   not a documented contract; keeping v1 sticky preserves today's behavior exactly.
-
-## Review fixes (PR #245)
-
-Three Greptile findings on the first review, all fixed on the rebased branch:
-
-1. **Later input requests in a v2 turn were silent (P1).** A v2 turn is one
-   `session.execution.started`/`succeeded` pair with many steps, so after the first
-   `permission.asked`/`form.created` the session stayed in `stateAwaitingInput`; a second request in the
-   same turn matched neither the busy nor the idle arm of `Handle` and produced no notification, and the
-   `(session, TriggerInput)` dedup claim from the first request stayed held. Fix: add
-   `session.step.started` — an already-observed v2 event — to `BusyEvents`. A step start re-arms busy and
-   `handleEvent` releases the session's claims (via `SessionBusy`), so the next request notifies and the
-   first request is not repeated. Tests: `TestTrackerSecondInputInTurnFiresInput` and
-   `TestHandleEventSecondInputInTurnNotifies`. **Residual uncertainty:** the fix relies on a
-   `session.step.started` occurring between two input requests in one turn. That holds when each request
-   gates its own step; if two requests fall inside one step (e.g. parallel tool calls) the second still
-   cannot re-arm. A live probe of a two-permission turn is still needed to close this.
-2. **v1's seed command had no time limit (P2).** `watchOnce` runs the session-list command synchronously
-   before reading the stream, so a stalled `/session` would stop all notifications for the run. The v1
-   command gained `-m 30`, matching v2's `opencode2CurlFlags`.
-3. **`StickyErrorEvents` comment was wrong (P2).** It claimed the latch lasted "until the watcher
-   reconnects", but `Watch` reuses one `Tracker` across reconnects, so the latch lasts the watcher's
-   lifetime. Comment corrected; behavior unchanged.
-
-A second review (on the rebased head) added:
-
-4. **Custom runners miss child filtering (P2).** The seed command used `jq` to normalise the session
-   list, but the tool-owned toolbase is not in the runner's lineage, so a custom base need not have
-   `jq`; the command would fail and seeding would silently no-op, letting a child created before the
-   watcher attached alert. Fix: `EventStreamSpec` gained `SessionListParse`, the list's JSON shape
-   moved into the agents (`parseOpencodeV1SessionList`, `parseOpencodeV2SessionList`), and the
-   command became a bare `curl`. Tests: the two `parseOpencode*SessionList` tables and the updated
-   `TestWatchOnceSeedsChildrenFromListCommand`.
-5. **The seed step's failure modes were untested, and the nil-parser skip was silent (P2).** A later
-   Greptile comment on the rebased head found the seed-failure test no longer reached the command: a
-   nil `SessionListParse` short-circuited it. The deeper issue was the seam — two independent fields
-   let a profile declare a list command and silently lose seeding by omitting the parser, the same
-   silent-no-op class as finding 4. Fix: the pair is one value, `*agent.SessionListSpec`, built only
-   by `NewSessionList`, whose unexported fields and panic on an empty command or nil parser make an
-   incomplete pair unrepresentable, so `watchOnce`'s guard is a plain `spec.SessionList != nil`.
-   Tests pin all three seed outcomes: shell error, non-zero exit
-   (`TestWatchOnceSeedNonSuccessDoesNotBlockNotifications`, the custom-base `jq: command not found`
-   case), and an unparsable body (`TestWatchOnceSeedUnparsableDoesNotBlockNotifications`), each
-   asserting the command ran and the done notification still fired;
-   `TestNewSessionListRejectsIncompletePairs` pins the constructor's invariant.
-6. **Two input requests in one step (P1, the last thread left open).** Finding 1 fixed the cross-step
-   case by re-arming busy on `session.step.started`, but that was a proxy for "work resumed" and left
-   the same-step case. A live probe (a session with `shell` set to `effect: ask`, prompted to run two
-   commands — see the `opencode2-live-event-probe.md` guide) settled it: opencode2 emits the two
-   `permission.asked` events **back to back in one step**, with only `session.tool.*` events between
-   the request and the tools, and no `session.step.started`. So no step boundary re-arms, and the
-   `(session, TriggerInput)` claim from the first request is still held. A resume rule cannot fix this
-   (there is no resume event between the two asks); request identity is required. Fix:
-   `agent.StreamEvent` gained `EventID` (the envelope id — v1 `.payload.id`, v2 top-level `.id`, both
-   unique per emission), the tracker notifies a same-state input request only when its `EventID` is
-   new (and carries it on the notification), and `Dedup` gives each input request its own token (the
-   envelope id is part of the claim key), so distinct requests each alert and no client's delivery
-   depends on another client's stream. `session.step.started` stays in `BusyEvents` (a step start is
-   still busy), it is just no longer the mechanism. Tests:
-   `TestTrackerSameStepInputRequestsBothFire`, `TestTrackerRepeatedInputEventFiresOnce`,
-   `TestHandleEventSameStepInputRequestsBothNotify`, `TestHandleEventRepeatedInputEventNotifiesOnce`,
-   plus the parser tables' `EventID` cases. Mutation-verified: reverting the tracker's id check fails
-   the repeated-input test.
-7. **Per-request tokens must not leak (P2), and a shared token must not couple clients (P1).**
-   Keying the token on the event id (finding 6) left a claim file per request, because
-   `state.AcquireClaim` created `<key>.claim` and release only closed the file. Greptile flagged that
-   leak, so a first pass shared one input token per session — which then coupled a later request to
-   the token holder's stream: if the holder's stream dropped it never saw the later request, and the
-   other client dropped it too, so **neither** client alerted (a P1). The two constraints together
-   force per-request tokens *and* removal: the token stays per (session, trigger, event id), and
-   `state.AcquireClaim`'s release now removes the file while holding the flock, with an inode check
-   (`sameFile`) so a caller that opened a file another holder removed retries on a fresh one instead
-   of claiming a removed token. Bounded because release happens on the busy events (`SessionBusy`).
-   Tests: `TestDedupReleasesInputClaims` (no files left after release),
-   `TestDedupLaterInputNotBlockedByAnotherClient`, `TestDedupCrossClientInputsDeliveredOnce`,
-   `TestDedupSameInputEventDeliveredOnce`, `TestAcquireClaimReleaseRemovesFile`,
-   `TestAcquireClaimRetriesWhenFileRemovedUnderIt` and `TestAcquireClaimFlockErrorSurfaces` (via the
-   `claimOpened` test seam), and `TestSameFile`. Mutation-verified: a per-session token fails the
-   liveness test, and a non-removing release fails the cleanup test.
-
-The review also surfaced an unrelated **latent race in `internal/sandbox/state.AcquireClientLease`/
-`CountActiveClients`** (not part of this change): a lease file is created and only then flocked, and
-`CountActiveClients` removed any file it could lock, so a poll landing between create and flock deleted the
-lease and the live client became invisible. This made
-`internal/sandbox/session.TestReapOnLastClient_ClientReattachesDuringWait` hang to its 10-minute timeout on
-CI. Fixed separately in #298: `CountActiveClients` counts an unlocked lease younger than a grace window
-(1s) as live, and removes an older one only while holding its own probe lock; `AcquireClientLease`
-re-checks with `sameFile` after locking and retries on a fresh name when a poll unlinked the file first,
-so a lease is never left locked on an anonymous inode.

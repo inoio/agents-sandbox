@@ -1,5 +1,5 @@
 ---
-description: Contract for termio's UI seam and backends - the role-interface split (Logger/Output/Prompter/SpinnerFactory/TerminalState/Streams) composed into termio.UI, the OPENCODE_SANDBOX_PROMPT prompt switch, the decision to confine huh to modal prompts, and the accessibility/non-TTY invariants.
+description: Contract for termio's UI seam — the landed role-interface split (Logger/Output/Prompter/SpinnerFactory/TerminalState/Streams) composed into termio.UI — plus the deferred (not-on-main) design for a huh-backed prompt switch and the accessibility/non-TTY invariants.
 read_if: Changing a termio role interface, `termio.UI` or `New`, which UI surface a caller depends on, the termio mock, interactive prompts or spinners, swapping in or scoping a UI library (huh, bubbletea, ...), or reasoning about mockability and non-TTY/accessibility behavior.
 ---
 
@@ -43,7 +43,13 @@ uses it (e.g. `session.startNotifyWatcher` logs from a watcher goroutine alongsi
 therefore guards its recorded calls with a mutex; any new implementation of a role interface must tolerate
 concurrent use.
 
-## Decision: huh for prompts only; ambient output stays hand-rolled
+## Deferred design (not on main)
+
+The following is design for a prompt backend that is **not on `main`**: there is no `termio.ParsePromptBackend`, no
+`OPENCODE_SANDBOX_PROMPT`, and no `huh`/`bubbletea`/`charm` dependency in `go.mod`. It is retained here as the scoping
+rationale for any future prompt-backend work and is subject to change when implemented.
+
+### Decision: huh for prompts only; ambient output stays hand-rolled
 
 - **`huh` is used only for interactive prompts** (`Select`/`Input`, arrow-key menus). The `huh` and `huh-accessible` values of
   `OPENCODE_SANDBOX_PROMPT` select it.
@@ -53,14 +59,14 @@ concurrent use.
 - Rule of thumb: a UI library that drives the terminal is safe only for **modal** interactions, where the app exclusively owns the
   terminal while blocked on the user. Never use it for ambient output that races with other writers.
 
-## Prompt switch
+### Prompt switch
 
 `OPENCODE_SANDBOX_PROMPT` (env only, parsed by `termio.ParsePromptBackend`) selects the **prompt** backend. Values: `line`
 (default), `huh`, `huh-accessible`. `huh` and `huh-accessible` use charmbracelet/huh for `Select`/`Input`; `line` is the original
 hand-rolled line prompts. Spinners and all other output are unaffected by this setting. Non-interactive invocations (piped input
 or `--yes`) always return the default choice regardless of backend.
 
-## Accessibility / non-interactivity is a huh-layer feature, not bubbletea
+### Accessibility / non-interactivity is a huh-layer feature, not bubbletea
 
 bubbletea has **no** accessibility or non-interactive/screen-reader mode. It only offers `WithoutRenderer()` (plain output, no
 redraw), `WithInput(nil)` (disable input), and `WithWindowSize(...)` for non-interactive environments. huh implements
@@ -72,13 +78,13 @@ backend is that path; `huh-accessible` is huh's. A bubbletea-native component ge
 line/accessible branch behind the `Prompter` role interface. Prefer huh's accessible patterns (injected `io.Reader`/`io.Writer`, no event loop) as
 the deterministic, testable path.
 
-## bubbletea inline vs. window
+### bubbletea inline vs. window
 
 bubbletea v2 is **inline by default**: the alternate screen ("window") is opt-in via `View.AltScreen`, so line-oriented output in
 normal scrollback is the natural mode. The interactive `huh` prompts render inline (to stderr) and leave scrollback intact. Any
 interactive backend that needs a real terminal must fall back to the line backend when output is not a TTY.
 
-## Why the huh spinner was rejected (ambient output corruption)
+### Why the huh spinner was rejected (ambient output corruption)
 
 bubbletea's renderer assumes it **exclusively owns the output stream**: it tracks the previous frame and redraws only changed
 cells, relying on unchanged content (the title) remaining on screen. When other code writes to the same stderr concurrently, the
@@ -96,21 +102,21 @@ output becomes a bigger problem.
 
 ## Rollout
 
-S1 is the only contract change; S2-S6 are mechanical consumer migrations, independent of one another once S1
-is in (they can land in any order or in parallel). **Narrowing rule:** a symbol (function parameter, struct
-field, variable, func type) is narrowed exactly when it uses a single role; a symbol that uses two or more
-roles - the CLI wiring root, the session/worktree runners, the `pruning`/`volume`/`upgrade` aggregates -
-keeps `termio.UI`. Spinner consumers almost always log alongside the spinner and prompt consumers often log
-alongside the prompt, so S5 is expected to be near-empty and S4 small.
+The role split is a single contract change; each consumer's narrowing is mechanical and independent of the others.
+**Narrowing rule:** a symbol (function parameter, struct field, variable, func type) is narrowed exactly when it uses a
+single role; a symbol that uses two or more roles keeps `termio.UI`.
 
-| Slice | Scope |
-|-------|-------|
-| S1 | Define the six role interfaces in `internal/termio`; make `UI` embed them (`New` still returns `UI`); narrow `Table` to `{Header, Out}` and `ConfirmAction` to `Prompter`; add compile-time `var _ <Role> = (*printer)(nil)` and `(*Mock)` assertions. No other consumer changes. |
-| S2 | Migrate log-only consumers to `termio.Logger` (the bulk: `internal/sandbox/**` leaves, `image`, `vm`, `prepare`, `reprovision`, `envsecret`, `doctor`, `runoptions`, `cmd` tree/warnings). |
-| S3 | Migrate rendering-only consumers to `termio.Output` (`internal/cliout` report/JSON writers, the `cmd/agents-sandbox` inspectors, storage/`df` output). |
-| S4 | Migrate prompting-only consumers to `termio.Prompter` (`reconfig/prompts.go`, the image/volume/vm `Remove*` entry points; `ConfirmAction` moved in S1). |
-| S5 | Migrate spinner-only consumers to `termio.SpinnerFactory` (expected empty - every spinner consumer also logs, so those symbols keep `UI`). |
-| S6 | Migrate terminal-state consumers to `termio.TerminalState` (`cmd/agents-sandbox`'s `applyCLISettings`); no `Streams`-only consumer exists (`buildRootCmd` spans roles and keeps `UI`). |
+| Surface | Role |
+|---------|------|
+| CLI wiring root (`buildRootCmd`), the session runners (`session.Run`/`Shell`/the reaper), the `pruning`/`volume` aggregates, the build-status redirect (`autoPruneOutToVerboseRedirect`) | `termio.UI` |
+| `internal/sandbox/**` leaves, `image`/`vm`/`prepare`/`reprovision`/`envsecret`/`doctor`/`runoptions`, `notify`, the cmd tree/warnings and `buildUpgradeCmd`, and `upgrade.Upgrade` | `termio.Logger` |
+| `internal/cliout`'s JSON/report writers, the cmd inspectors and the `storage`/`df`/`config` output, `buildVersionCmd` | `termio.Output` |
+| removal/confirmation entry points (`volume.RemoveVolumes`, `image.RemoveImages`, `vm.RemoveSandbox`, the `reconfig` prompts, `ConfirmAction`) | `termio.Prompter` |
+| `applyCLISettings`, `resolvePruneOutputMode` | `termio.TerminalState` |
+
+No `SpinnerFactory`-only consumer exists — every spinner consumer also logs, so it keeps `UI`. `upgrade.Upgrade` takes
+`termio.Logger`; only `upgrade.Check`'s `Options` still holds a `termio.UI`. No `Streams`-only consumer exists
+(`buildRootCmd` spans roles and keeps `UI`).
 
 ## Non-goals
 

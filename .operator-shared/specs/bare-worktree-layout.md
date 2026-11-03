@@ -1,5 +1,5 @@
 ---
-description: Contract for making git worktrees a contained, host-and-VM-consistent thing (issue #145): a bare checkout whose worktrees live inside it, bound as `/workspace`, plus the minimal mount rule that makes worktrees the source of truth. Covers the pattern priority order (non-bare checkout default, non-repo folder, bare-with-worktrees esoteric), the generalized bind rule (bind the smallest enclosing checkout that contains the CWD, so a worktree session always exposes its worktree), guest-CWD derivation for subdirectories, the outside-worktree case (bind its own root, run it as its own checkout, with a shared git dir that stays unmounted — #426; identity is superseded by checkout-identity.md), the deliberately convention-only folder taxonomy (recipe + skill + AGENTS.md), and non-goals.
+description: Contract for making git worktrees a contained, host-and-VM-consistent thing (issue #145): a bare checkout whose worktrees live inside it, bound as `/workspace`, plus the minimal mount rule that makes worktrees the source of truth. Covers the pattern priority order (non-bare checkout default, non-repo folder, bare-with-worktrees esoteric), the generalized bind rule (bind the smallest enclosing checkout that contains the CWD, so a worktree session always exposes its worktree), guest-CWD derivation for subdirectories, the outside-worktree case (bind its own root, run it as its own checkout with its shared git dir mounted at the recorded path — #426; identity is superseded by checkout-identity.md), the deliberately convention-only folder taxonomy (recipe + skill + AGENTS.md), and non-goals.
 read_if: Implementing or reviewing issue #145 (bare checkout with worktrees inside), the `/workspace` bind-source resolution, guest-CWD derivation, or the worktree-layout recipe/skill.
 ---
 
@@ -94,13 +94,10 @@ For the bare layout the bare root contains every worktree, so all sessions share
 the main checkout contains it.
 
 **Outside worktrees bind their own root.** When the resolved worktree sits outside its checkout, the launcher binds the
-worktree itself. That leaves its `.git` pointer aimed at a shared git dir outside the mount, so `git` commands inside the
-VM may not resolve the repository.
-
-> **Superseded by [`checkout-identity.md`](checkout-identity.md) (#144).** This section originally had the launcher also
-> emit a `termio` warning that an outside worktree is unsupported. That warning no longer exists: under per-checkout
-> identity an outside worktree runs as its own checkout, hashing its worktree root, with its own VM and home volume. The
-> unmounted shared git dir is the remaining limitation, tracked in #426 (the recipe page states it to readers).
+worktree itself and runs it as its own checkout (hashing its worktree root, with its own VM and home volume —
+[checkout-identity.md](checkout-identity.md)). Its `.git` pointer aims at a shared git dir outside the mount, so the
+launcher also bind-mounts that git dir at the path the worktree's `.git` file records (`prepare.withSharedGitDirMount`,
+from `git.Identity.SharedGitDir`/`RecordedSharedGitDir`), and git resolves inside the VM (#426).
 
 The `git rev-parse` phrasing above describes the *facts*, not the implementation. The derivation reuses the existing
 host-side, go-git-based repository inspection (`projectSlugAt` / `resolveGitDir` in `internal/git`); a host `git`
@@ -140,13 +137,6 @@ How `guestCWD` reaches the agent (see Background):
   `AttachWith`) **unconditionally** — every attach, not only in a subdirectory — which sets the PTY working
   directory for clients that ignore the attach target.
 - **`--worktree`** keeps overriding the target with the daemon-created directory (unchanged).
-
-## VM / State Identity
-
-> **Superseded by [`checkout-identity.md`](checkout-identity.md) (#144).** Identity is split per checkout (state, VM,
-> home volume, image). The "one origin, one project VM" premise, the warn-and-bind-CWD behavior for an outside
-> worktree, and the "names are byte-identical / no migration" statements this section carried are no longer true; the
-> slug is the checkout-scoped slug defined there. The mount rule and guest-CWD derivation above stand.
 
 ## Conventions (deliberately not code)
 
@@ -230,8 +220,9 @@ is out of scope beyond not regressing it.
 - Nested non-bare worktree and bare-with-worktrees: `/workspace` is the enclosing root; all sibling worktrees are
   visible; the session reuses the project's shared VM; the agent starts in the launched worktree.
 - Outside non-bare worktree: the worktree root is bound and the worktree runs as its own checkout — its own VM and home
-  volume; `git` inside the VM may not resolve the repository (#426).
-- Naming: VM/volume/state/image names are **unchanged** for every case (no migration); the name parsers are untouched.
+  volume, with its shared git dir mounted so `git` resolves inside the VM.
+- Naming: VM/volume/state/image names are **unchanged** for the non-bare and bare-layout cases; the outside-worktree case
+  gets its own checkout identity ([checkout-identity.md](checkout-identity.md)). The name parsers are untouched.
 - The recipe page and the skill are present and identical in content; docs link check passes.
 
 ## Settled decisions

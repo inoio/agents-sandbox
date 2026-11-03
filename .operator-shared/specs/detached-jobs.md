@@ -55,9 +55,11 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
 - **dockerd teardown keeps residue cleanup.** Killing the dockerd job does not necessarily reap its `containerd` child,
   so a minimal shell cleanup (`pkill containerd` plus `/run`,`/var/run` pid/socket deletion) still runs before a
   restart. The job kill replaces `pkill dockerd`.
-- **dockerd's storage driver.** The vfs request is built as arguments (`dockerdArgs`) and passed to `ExecDetached`, not
-  as a shell string. It keeps the #287 rule: request `--storage-driver=vfs` unless the image's `daemon.json` already
-  sets vfs (then the flag is dropped), and fail when it sets any other driver.
+- **dockerd's storage driver.** The driver request is built as arguments (`dockerdArgs`) and passed to `ExecDetached`,
+  not as a shell string. The default driver is `fuse-overlayfs` when `guestSupportsFuseOverlayfs` passes (the
+  `fuse-overlayfs` binary and a usable `/dev/fuse`), otherwise `vfs`. It keeps the #287 rule: request
+  `--storage-driver=<driver>` unless the image's `daemon.json` already sets a driver (then the flag is dropped), and
+  fail when the file sets any driver other than those two.
 - **Agent command shape.** `agent.DaemonProvider` exposes a structured `DaemonCommand{Binary, Args}` for the detached
   launch (health command/parse unchanged); it no longer exposes shell start/kill strings or a log path. Serve-only binds
   `0.0.0.0` (loopback `127.0.0.1` otherwise) so the host's published-port forwarder reaches the guest.

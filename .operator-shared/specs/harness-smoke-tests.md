@@ -53,13 +53,13 @@ Two other signals cover the harnesses that never emit `ESC [ ? 1049 h`.
 **A ready marker.** A normal-buffer harness whose CLI prints a stable startup line declares it in `ReadyMarker`, and
 its subtest ends the readiness wait as soon as that line appears. The match ignores escape sequences and whitespace, so
 a diff-painting TUI (claude-code's Ink) still matches when it interleaves escapes or renders spaces as cursor moves
-(`Welcome to Claude Code` arrives space-less). Both normal-buffer harnesses use one: `hermes` prints
+(`Welcome to Claude Code` arrives space-less). The two marker-bearing normal-buffer harnesses use one: `hermes` prints
 `Hermes Agent v<version> (<date>)` (`show_banner`) before it accepts input, so the spec waits for `Hermes Agent v`, and
 `claude-code`'s startup splash prints its product name. The markers are version-independent; the versions themselves
 are not pinned.
 
-**A wall-clock settle (fallback).** A normal-buffer harness with no marker would wait out the launcher instead; two
-measurements shape that wait, kept as the fallback for a future harness whose CLI prints nothing stable.
+**A wall-clock settle (fallback).** A normal-buffer harness with no marker (`oh-my-pi`) waits out the launcher
+instead; two measurements shape that wait, the fallback for any future harness whose CLI prints nothing stable.
 
 - **quiet output does not mean the harness has rendered.** The launcher loads an image and starts a VM before the
   harness runs, printing nothing for seconds at a time while it does, so a quiescence-based fallback fires on
@@ -85,8 +85,14 @@ coverage.
 | --- | --- | --- |
 | `opencode`, `opencode2` | `0x04` (Ctrl-D) | their documented `app_exit`; they leave once a tap lands after the TUI has finished coming up |
 | `pi` | `0x04` (Ctrl-D) | documented `app.exit`; leaves on the first tap |
+| `oh-my-pi` | `0x04` (Ctrl-D) | documented `app.exit`, inherited from pi, which it forks; readied on the settle |
 | `claude-code` | `0x03` (Ctrl-C) | repeated presses leave it — its screen announces "Press Ctrl-C again to exit", and three is what a user found; readied on its startup-splash marker |
+| `codex` | `0x03` (Ctrl-C) | quits on Ctrl-C; its TUI uses the alternate screen, so readiness is the alternate-screen marker |
 | `hermes` | `0x04` (Ctrl-D) | its classic CLI's REPL exits on Ctrl-D; readied on its banner marker and seeded (below) so it starts the REPL instead of its first-run setup guard |
+
+Three harnesses keep the terminal's normal buffer (`KeepsNormalBuffer`): `claude-code` and `hermes`, readied by a
+marker, and `oh-my-pi`, readied by the settle. The alternate-screen harnesses are `opencode`, `opencode2`, `pi`, and
+`codex`.
 
 **Seeded home files.** A harness whose host-side state decides whether its CLI starts headful declares `SeedHomeFiles`,
 a map of home-relative path to content written under the isolated HOME (`<root>/home`) before the run; the launcher
@@ -94,7 +100,9 @@ provisions it into the VM the way it provisions a real `~/.hermes/config.yaml`. 
 classic CLI stops at a first-run setup guard that always exits `1` (`_first_run_setup_guard`), so no quit key could
 leave it `0`. The seed makes a dummy, loopback provider count as configured (and settles the shared-metrics offer) so
 hermes reaches its REPL, where Ctrl-D exits `0`. The seed is a config, not a credential: the endpoint is a closed
-loopback port and no request leaves the VM before a message is submitted.
+loopback port and no request leaves the VM before a message is submitted. `oh-my-pi` likewise seeds
+`.omp/agent/config.yml` (`startup.setupWizard: false`) so its first-run setup wizard — a fullscreen overlay that would
+otherwise come up before the editor — is skipped.
 
 **Tap until it goes, then assert the exit.** `quit` taps the harness's key every `quitPressInterval` (400ms) until the
 process exits, for at most `quitTimeout` (15s), then asserts exit code 0. A fixed sequence is wrong for two measured
@@ -142,9 +150,10 @@ build behind a `sync.Once`, then the isolated-env docker preflight, then the per
 behind its own `sync.Once`, then the harnesses.
 
 **Network.** A harness runs with `--network none` (the secure default) unless the table overrides it, and `claude-code`
-does, with `public`: offline it exits `1` (`ECONNREFUSED api.anthropic.com`), because it checks in with its API before
-drawing anything. `hermes` runs under the default `none` — its seeded provider endpoint is loopback, so it needs no
-egress to reach its REPL. The other four render identically with and without egress.
+and `codex` do, with `public`: `claude-code` offline exits `1` (`ECONNREFUSED api.anthropic.com`), because it checks
+in with its API before drawing anything, and `codex` may reach its API at startup. `hermes` runs under the default
+`none` — its seeded provider endpoint is loopback, so it needs no egress to reach its REPL. The other four
+(`opencode`, `opencode2`, `pi`, `oh-my-pi`) render identically with and without egress.
 
 **Preflight.** Skip, never fail, when the environment cannot run the suite: `/dev/kvm` missing on Linux, a
 non-Linux/non-darwin platform, or an unreachable docker daemon. The platform/KVM check runs before anything
@@ -180,5 +189,5 @@ sandbox sweep stays separate because it needs the binary and a reachable docker 
   update the seed, not the harness.
 - The quit tap is a bound, not a diagnosis: a harness that starts ignoring its key fails after `quitTimeout` of taps
   rather than reporting why.
-- Six harnesses mean six runner-image builds on a cold home; the image prebuild pays for them before any
+- Seven harnesses mean seven runner-image builds on a cold home; the image prebuild pays for them before any
   harness's TUI window opens, and the host-only placement absorbs the cost.

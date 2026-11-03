@@ -1,63 +1,22 @@
 # Design: fork the opencode2 launcher config namespace
 
-Date: 2026-10-19
-Status: implemented (pending merge).
-
 ## Intent
 
-`opencode` (v1) and `opencode2` currently share one launcher config directory
+`opencode` (v1) and `opencode2` share one launcher config directory
 (`~/.config/agents-sandbox/opencode/` and the project equivalent), because
 `opencode2Profile` embeds `opencodeConfig`, whose `ConfigDirName()` returns
-`"opencode"`. As a result the two agents' merged snippets and verbatim mirror
-are byte-identical by construction: there is **no way to give v1 and v2
-divergent launcher config**, which is the whole motivation. v2 has a native
-config schema (e.g. structured `providers.*.models.*.capabilities.reasoning`)
-that v1 does not understand, so a snippet written for one agent is unavoidably
-fed to the other.
+`"opencode"`. The two agents' merged snippets and verbatim mirror would then be
+byte-identical by construction, so there is **no way to give v1 and v2 divergent
+launcher config**. That is the whole motivation: v2 has a native config schema
+(e.g. structured `providers.*.models.*.capabilities.reasoning`) that v1 does not
+understand, so a snippet written for one agent is unavoidably fed to the other.
 
-We want opencode2 to own its launcher namespace (`.../opencode2/`) so the two
+`opencode2` therefore owns its launcher namespace (`.../opencode2/`) so the two
 can diverge, **without** changing anything the VM sees. The guest config path
 stays `~/.config/opencode/opencode.jsonc` and the host drop-in stays
 `~/.config/opencode/` (v2 reads the same on-disk locations as v1 — confirmed
 against the v2 docs — so redirecting them is neither possible via config-dir
 naming nor desirable).
-
-## Goals
-
-- Give opencode2 a distinct launcher config dir name, `opencode2`, covering both
-  the user (`~/.config/agents-sandbox/opencode2/`) and project
-  (`.agents-sandbox/opencode2/`) scopes.
-- Keep the guest target (`VMConfigPath`) and the host drop-in
-  (`ProvisionRules`) exactly `opencode`.
-- Preserve existing users' opencode2 config, which lives in the shared
-  `.../opencode/` dir today, via a fallback.
-- Leave opencode (v1) behavior unchanged. The one deliberate exception: the
-  shared resolver now `os.Stat`s candidate dirs for every agent, so a
-  non-"not exist" stat error on a candidate surfaces instead of being swallowed
-  (previously `scanSnippets`/`filewalk` ignored such errors). v1 declares no
-  alias, so its dir selection and warning behavior are identical; only the
-  error-propagation edge differs.
-
-## Non-goals
-
-- No change to guest/VM paths, the host drop-in rules, the `home:` manifest, or
-  startup hooks. The `home:` manifest and hooks are read from the launcher
-  **root** (`~/.config/agents-sandbox/`), one level above the agent subdir, and
-  are already agent-independent; they stay shared.
-- No per-file fallback. Resolution is directory-granular.
-- No deprecation-register entry (see Deprecation stance). No
-  `CHANGELOG`/register alias cycle.
-- No auto-migration (rename/copy) of existing files.
-- No guest-side redirect via `OPENCODE_CONFIG_DIR` (v2's handling of it is
-  inconsistent — upstream issue #32825 — and the docs no longer mention it).
-- No change to VM/home-volume/state scoping.
-
-## Anti-goals
-
-- Reading **both** the primary and legacy dirs and merging across them. At any
-  time the agent reads exactly one source per scope.
-- Auto-creating `.../opencode2/`. The directory's existence is the switch;
-  creating it eagerly would defeat the signal.
 
 ## Decisions
 
@@ -68,57 +27,59 @@ Snippet merge and mirror then read `.../opencode2/`, while
 `VMConfigPath`/`ProvisionRules`/`ConfigFileNames`/`SnippetPattern` continue to
 come from the embedded `opencodeConfig` and remain `opencode`.
 
+Leave opencode (v1) behavior unchanged. The one deliberate exception: the shared
+resolver `os.Stat`s candidate dirs for every agent, so a non-"not exist" stat
+error on a candidate surfaces instead of being swallowed (previously
+`scanSnippets`/`filewalk` ignored such errors). v1 declares no alias, so its dir
+selection and warning behavior are identical; only the error-propagation edge
+differs. The `home:` manifest and hooks are read from the launcher **root**
+(`~/.config/agents-sandbox/`), one level above the agent subdir, and stay shared.
+
 ### Fallback: declarative aliases + consumer-side resolver
 
-Chosen over "agent resolves concrete paths" (violates the config-paths seam and
-puts host I/O in pure profiles) and over "configpaths stats the filesystem"
-(smears an I/O decision into the pure path factory). Responsibilities:
+`opencode2Profile` implements the optional `ConfigDirAliaser` capability
+(`agent.ConfigDirAliaser`, `agent.AsConfigDirAliaser` in
+`internal/agent/capabilities.go`), returning `[]string{"opencode"}`; agents that
+never shared a dir (opencode, pi, claude-code) do not implement it, so the agent
+owns declarative names only. This is chosen over "agent resolves concrete paths"
+(violates the config-paths seam and puts host I/O in pure profiles) and over
+"configpaths stats the filesystem" (smears an I/O decision into the pure path
+factory).
 
-- **agent** — declarative names only. New optional capability:
-  ```go
-  type ConfigDirAliaser interface { ConfigDirAliases() []string }
-  func AsConfigDirAliaser(a Agent) (ConfigDirAliaser, bool)
-  ```
-  `opencode2Profile` returns `[]string{"opencode"}`; agents that never shared a
-  dir (opencode, pi, claude-code) do not implement it.
-- **configpaths** — name→path, pure, no I/O. New methods:
-  ```go
-  UserAgentConfigDirCandidates(a agent.Agent) []string    // [primary, alias1, ...]
-  ProjectAgentConfigDirCandidates(a agent.Agent) []string
-  ```
-  Built as `filepath.Join(base, name)` over `ConfigDirName()` then
-  `ConfigDirAliases()`. The project base is `ProjectConfigDirAbs()` (absolute),
-  so the dirs resolution reads are the same dirs display reports — one source of
-  truth, no second derivation of the project root.
-  `UserAgentConfigDir`/`ProjectAgentConfigDir` stay (primary path) and are also
-  absolute for the project scope. Each name is validated to be a single clean path element
-  (rejecting `""`, `.`, `..`, and any name containing the path separator —
-  including a bare `/`) and a bad name panics; the primary path constructors
-  (`UserAgentConfigDir`/`ProjectAgentConfigDir`) validate too, so the guard is
-  intrinsic rather than call-order-dependent. Without this:
-  `filepath.Join` cleans `..`, so an unvalidated name like `..` would resolve to
-  the launcher config root and the mirror would copy its files — including
-  `env.secret` — into the VM, bypassing the msb-secret rule.
-- **reprovision** — existence/precedence/warning. A resolver picks the source:
-  ```go
-  type ConfigSource struct {
-      UserDir    string
-      ProjectDir string
-      Fallback   string // legacy dir name actually in use; "" for primary
-  }
-  func ResolveConfigSource(a agent.Agent) (ConfigSource, error)
-  ```
-  The resolver rejects an empty or length-mismatched candidate pair, and a
-  `os.Stat` error other than "not exist" is propagated rather than silently
-  treated as absent. Two intended edge behaviors: a stat error on the
-  **primary** aborts resolution before aliases are considered (fail-closed — an
-  unreadable primary never silently falls back to the legacy namespace), and
-  when one scope is unreadable but the other resolves, resolution proceeds with
-  the readable scope and emits no warning (the warning is keyed to `Fallback`).
-  The `config agent` view labels the effective source without flagging the
-  empty-primary case (the spec's silent-empty tradeoff stands).
+Name→path resolution is a pure function, `agent.ConfigDirNames(a) ([]string,
+error)` (`internal/agent/config_dir.go`): the primary `ConfigDirName()` first,
+then each alias. `reprovision.joinUnder` joins those names under
+`configpaths.Get().UserConfigDir()` and `configpaths.Get().ProjectConfigDirAbs()`
+(absolute, so the dirs resolution reads are the dirs display reports — one source
+of truth for the project root). Each name is validated as a single clean path
+element (rejecting `""`, `.`, `..`, and any name containing the path separator —
+including a bare `/`) by `validateConfigDirName`, which **returns an error**;
+`ConfigDirNames` and `ResolveConfigSource` propagate it. Without this:
+`filepath.Join` cleans `..`, so an unvalidated name like `..` would resolve to
+the launcher config root and the mirror would copy its files — including
+`env.secret` — into the VM, bypassing the msb-secret rule. Resolution is pure
+name→path and never creates a directory.
+
+`reprovision.ResolveConfigSource(a agent.Agent) (ConfigSource, error)` owns
+existence/precedence/warning. `ConfigSource` carries the resolved
+`UserDir`/`ProjectDir`, the `Fallback` legacy dir name actually in use (`""` for
+primary), and the primary `PrimaryUserDir`/`PrimaryProjectDir` the agent migrates
+to (carried from resolution so a caller need not re-derive, and re-validate,
+them). The resolver rejects an empty or length-mismatched candidate pair, and an
+`os.Stat` error other than "not exist" is propagated rather than silently treated
+as absent. Two intended edge behaviors: a stat error on the **primary** aborts
+resolution before aliases are considered (fail-closed — an unreadable primary
+never silently falls back to the legacy namespace), and when one scope is
+unreadable but the other resolves, resolution proceeds with the readable scope
+and emits no warning (the warning is keyed to `Fallback`). The `config agent`
+view labels the effective source without flagging the empty-primary case (the
+silent-empty tradeoff stands).
 
 ### The signal: "an opencode2 dir anywhere"
+
+At any time the agent reads exactly one source per scope — never both, and never
+merged; resolution is directory-granular, with no per-file fallback.
+`.../opencode2/` is never auto-created: the directory's existence is the switch.
 
 Existence check is on directories (`os.Stat` + `IsDir`) across **both scopes**:
 
@@ -148,61 +109,44 @@ Behavior matrix (user/project, opencode2 = primary, opencode = legacy):
 
 ### Warning
 
-Emitted at the single config-load boundary when `Fallback != ""` (which by
-construction implies a legacy dir exists), always — not gated to once. It names
-the agent, the full legacy user/project paths actually read, and the primary
-user/project paths to migrate into, and says **copy** (do not move) because the
-legacy dir is also the `opencode` agent's live dir; it states that an
-`opencode2` dir in either scope switches both scopes, and that the guest
-`~/.config/opencode` path is unchanged. Paths are absolute: the project dir is
-resolved through the `configpaths.ProjectConfigDirAbs` seam method (the relative
-`ProjectConfigDir` resolved against the cwd, degrading to the relative form only
-if the cwd is unreadable), so `config agent` and the warning show explicit
-locations rather than a cwd-relative path. `reprovision.SourceDirs` returns the
-resolved source's dirs verbatim (display cannot diverge from what was read), and
-`reprovision.PrimaryDirs` reads candidate[0] from the non-creating candidate
-lists — naming the migration target must never manufacture the primary dir,
-since its existence is the switch. It names only the scopes whose dir exists.
-The load runs exactly once per process today
-(`run_orchestrate.go`: "Load the merged agent config … exactly once per
-startup"), and `config agent` invokes it once; a regression test asserts the
-warning fires exactly once per load. If a future path loads more than once, the
-warning must be deduped there.
+Emitted at the single config-load boundary (`reprovision.LoadConfigFilesForHost`)
+when `Fallback != ""` (which by construction implies a legacy dir exists), always
+— not gated to once. It names the agent, the full legacy user/project paths
+actually read (`reprovision.SourceDirs`, which returns the resolved source's dirs
+verbatim so display cannot diverge from what was read), and the primary
+user/project paths to migrate into (`ConfigSource.PrimaryUserDir`/
+`PrimaryProjectDir`). It says **copy** (do not move) because the legacy dir is
+also the `opencode` agent's live dir; it states that an `opencode2` dir in either
+scope switches both scopes, that a partial copy will not fall back for the rest,
+and that the guest `~/.config/opencode` path is unchanged. It names only the
+legacy scopes whose dir exists. Paths are absolute: the project dir is resolved
+through the `configpaths.ProjectConfigDirAbs` seam method. The load runs exactly
+once per process today, and `config agent` invokes it once; a regression test
+asserts the warning fires exactly once per load. If a future path loads more than
+once, the warning must be deduped there.
 
 ### Deprecation stance
 
 No register entry and no alias cycle: the legacy **path** is not a
 flag/key/env/command, so `deprecation-policy.md` does not apply. The fallback is
-open-ended (it warns for as long as it is used). The behavior change is recorded
-in `CHANGELOG.md` (`Unreleased` → `Changed`) and in the agent docs.
+open-ended (it warns for as long as it is used).
 
 ### Reconfig / fingerprints
 
 Guest keys (`ConfigFiles.Keys` = VM paths) are unchanged, so reconfig
-fingerprints are unaffected. Content differences between v1 and v2 dirs
-naturally produce different materialized config per agent VM, as designed.
-Known pre-existing limitation (now reachable via the source switch):
+fingerprints are unaffected. Content differences between v1 and v2 dirs naturally
+produce different materialized config per agent VM, as designed. Known
+pre-existing limitation (now reachable via the source switch):
 `AgentConfigEqual` compares content but not mirror *removals*, so moving to a
 source with strictly fewer mirror files leaves the stale VM copies in place
 without a daemon restart. Out of scope here; noted for a follow-up.
 
-### Candidate-method purity (test seam)
-
-The new `configpaths` candidate methods are **pure name→path** and never create
-directories, in both `realConfigPaths` and the mock. `UserAgentConfigDir` /
-`ProjectAgentConfigDir` keep their current behavior (the mock eagerly creates the
-primary dir), so existing tests are unaffected. Fallback fixtures are built with
-explicitly created dirs (`os.MkdirAll`), since `testutil.WriteFile` does not
-create parents.
-
 ### Where the effective dir lives
 
 `ResolveConfigSource` lives in `reprovision` — the module that already owns
-reading the agent config and its precedence. `UserAgentConfigDir` /
-`ProjectAgentConfigDir` remain primary-only path constructors. No shared
-"effective agent config dir" API is introduced until a real consumer needs one
-(YAGNI): the config-migration/onboarding flow that would ask for it is unmerged,
-and importing `reprovision` there would drag in the sandbox/msb stack.
+reading the agent config and its precedence. No shared "effective agent config
+dir" API is introduced until a real consumer needs one (YAGNI): a consumer that
+needs the primary dirs takes them from `ConfigSource`.
 
 ### Accepted tradeoff
 
@@ -214,38 +158,3 @@ silently drops the leftovers — the warning does **not** fire in either case,
 because it is tied to `Fallback != ""`. This is the deliberate cost of "existence
 is the signal". The warning is deliberately **not** widened to fire on partial
 migration (a primary dir plus leftover legacy files): that case stays silent.
-
-## Touch points
-
-- `internal/agent/opencode_shared.go`, `opencode.go`, `opencode2.go` — override
-  `ConfigDirName` on opencode2; add `ConfigDirAliases`; update the comments that
-  currently assert the two share a config dir.
-- `internal/agent/capabilities.go` — `ConfigDirAliaser` + `AsConfigDirAliaser`.
-- `internal/configpaths/configpaths.go` + `testmock.go` + fail-fast — candidate
-  methods; interface churn (mock + fail-fast) per `test-isolation.md`.
-- `internal/sandbox/reprovision/config_files.go` — `ConfigSource` +
-  `ResolveConfigSource`; feed resolved dirs into `buildMergedConfig`,
-  `buildMirror`, and `mirrorFilesFromConfig`; carry `ConfigSource` on
-  `ConfigFiles`; emit the warning.
-- `internal/sandbox/reprovision/*_test.go` — resolver + behavior-matrix +
-  exactly-once-warning tests.
-- `docs/configuration/agent.md` — opencode2 section: own launcher dir, unchanged
-  guest path/drop-in, fallback behavior.
-- `README.md` — the built-in-agents list's opencode2 bullet: own launcher dir,
-  unchanged guest path/drop-in.
-- `CHANGELOG.md` — `Unreleased` → `Changed`.
-
-Implementation notes: `configpaths.agentConfigDirCandidates` does no
-de-duplication (aliases are distinct legacy names by contract), and
-`anyDirExists` tries every candidate before surfacing an error. `config agent`
-prints the effective source plus a legacy-fallback marker. `ConfigFiles.Source`
-is set once per load and reused by `Describe`.
-
-## Left to the builder
-
-- Exact naming of the alias capability/methods and the resolver.
-- Warning wording.
-- Whether `ConfigSource` is stored on `ConfigFiles` and reused by `Describe`
-  (preferred, avoids re-resolving for `mirrorFilesFromConfig`) or resolved
-  twice.
-- Test layout.
