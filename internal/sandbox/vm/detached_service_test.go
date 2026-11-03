@@ -35,6 +35,20 @@ func scriptedProbe(outcomes ...detachedProbeOutcome) func(context.Context) (bool
 	}
 }
 
+// orderRecordingJob is a MockJob whose Kill appends the given event to a shared
+// call-order log, so a test can place the stale kill in the restart sequence
+// rather than only observing that it happened.
+type orderRecordingJob struct {
+	*msb.MockJob
+
+	onKill func()
+}
+
+func (j orderRecordingJob) Kill(ctx context.Context) error {
+	j.onKill()
+	return j.MockJob.Kill(ctx)
+}
+
 // testDetachedService is the ingredient table the ensureDetachedService tests
 // vary one field at a time from: a dockerd-shaped service whose pre-check is
 // healthy, launching under the dockerd helper marker.
@@ -80,13 +94,20 @@ func TestEnsureDetachedServiceLeavesHealthyServiceRunning(t *testing.T) {
 func TestEnsureDetachedServiceKillsStaleThenLaunchesAndAwaits(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	calls := &[]msb.MockDetachedCall{}
+	var sequence []string
 	stale := &msb.MockJob{ID_: "stale"}
 	sb := &msb.MockSandbox{
 		ExecDetachedCalls: calls,
+		ExecDetachedFn: func(context.Context, string, []string, ...msbSdk.JobExecOption) (msb.Job, error) {
+			sequence = append(sequence, "launch")
+			return &msb.MockJob{ID_: "fresh"}, nil
+		},
 		Jobs: []msbSdk.JobInfo{
 			{ID: "stale", Command: []string{"env", "AGENTS_SANDBOX_DETACHED_JOB=dockerd", "dockerd"}},
 		},
-		GetJobFn: func(context.Context, string) (msb.Job, error) { return stale, nil },
+		GetJobFn: func(context.Context, string) (msb.Job, error) {
+			return &orderRecordingJob{MockJob: stale, onKill: func() { sequence = append(sequence, "kill") }}, nil
+		},
 	}
 	service := testDetachedService()
 	service.probe = scriptedProbe(
@@ -95,11 +116,20 @@ func TestEnsureDetachedServiceKillsStaleThenLaunchesAndAwaits(t *testing.T) {
 		detachedProbeOutcome{healthy: true},
 	)
 	service.preCheckUnhealthyNote = "pre-check: %s"
+	service.cleanup = func(context.Context) error {
+		sequence = append(sequence, "cleanup")
+		return nil
+	}
 	var unhealthy []string
 	service.onUnhealthy = func(detail string) { unhealthy = append(unhealthy, detail) }
 
 	if err := ensureDetachedService(context.Background(), sb, &ui, service); err != nil {
 		t.Fatalf("ensureDetachedService: %v", err)
+	}
+	// The stale kill and the residue cleanup must precede the fresh launch, or
+	// the stale process keeps the socket/port the launch needs (#343).
+	if want := []string{"kill", "cleanup", "launch"}; !slices.Equal(sequence, want) {
+		t.Errorf("restart sequence = %v, want %v", sequence, want)
 	}
 	if !stale.DidKill {
 		t.Error("the stale service job was not killed before the launch")
@@ -240,6 +270,29 @@ func TestEnsureDetachedServiceSkipsEmptyPreCheckDetail(t *testing.T) {
 	for _, call := range ui.VerboseCalls {
 		if strings.Contains(call, "secret why") {
 			t.Errorf("pre-check detail leaked without a note template: %v", ui.VerboseCalls)
+		}
+	}
+}
+
+// TestEnsureDetachedServiceSkipsBlankPreCheckDetail pins that an unhealthy
+// pre-check that reports no diagnostic detail does not log a blank note line
+// (the note template is rendered only when there is a detail to render).
+func TestEnsureDetachedServiceSkipsBlankPreCheckDetail(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	sb := &msb.MockSandbox{}
+	service := testDetachedService()
+	service.preCheckUnhealthyNote = "pre-check: %s"
+	service.probe = scriptedProbe(
+		detachedProbeOutcome{healthy: false, detail: ""},
+		detachedProbeOutcome{healthy: true},
+	)
+
+	if err := ensureDetachedService(context.Background(), sb, &ui, service); err != nil {
+		t.Fatalf("ensureDetachedService: %v", err)
+	}
+	for _, call := range ui.VerboseCalls {
+		if strings.Contains(call, "pre-check:") {
+			t.Errorf("blank pre-check note was logged: %v", ui.VerboseCalls)
 		}
 	}
 }
