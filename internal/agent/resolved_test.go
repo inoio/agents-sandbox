@@ -38,6 +38,11 @@ func TestResolveMaterializesEveryConsumedCapability(t *testing.T) {
 					r.DetachedWorktree != nil,
 					capabilityPresent(agent.AsDetachedWorktreeReporter(a)),
 				},
+				{"ConfigMerger", r.ConfigMerger != nil, capabilityPresent(agent.AsConfigMerger(a))},
+				{"Provisioner", r.Provisioner != nil, capabilityPresent(agent.AsProvisioner(a))},
+				{"AttachRunner", r.Attach != nil, capabilityPresent(agent.AsAttachRunner(a))},
+				{"EventStreamProvider", r.EventStream != nil, capabilityPresent(agent.AsEventStreamProvider(a))},
+				{"SessionStatusProvider", r.SessionStatus != nil, capabilityPresent(agent.AsSessionStatusProvider(a))},
 			}
 			for _, c := range cases {
 				if c.resolved != c.asserted {
@@ -64,6 +69,11 @@ func TestResolveOfPlainProfileHasNoCapabilities(t *testing.T) {
 		{"UpgradeChecker", r.Upgrade != nil},
 		{"GuestToolRequirer", r.GuestTools != nil},
 		{"DetachedWorktreeReporter", r.DetachedWorktree != nil},
+		{"ConfigMerger", r.ConfigMerger != nil},
+		{"Provisioner", r.Provisioner != nil},
+		{"AttachRunner", r.Attach != nil},
+		{"EventStreamProvider", r.EventStream != nil},
+		{"SessionStatusProvider", r.SessionStatus != nil},
 	}
 	for _, c := range absent {
 		if c.present {

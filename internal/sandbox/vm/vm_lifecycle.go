@@ -91,21 +91,19 @@ func decideVMAction(notFoundErr error, status msbSdk.SandboxStatus) (vmAction, e
 }
 
 // acquireProjectVMLock takes the per-(slug, agent) creation lock that serializes
-// a project VM's create and destroy. It is a behavior seam so tests can observe
-// the lock boundary; production uses the shared host flock.
+// a project VM's create and destroy. It is the production default a test
+// overrides through ProjectVMCreation.Seams.ProjectVMLock.
 var acquireProjectVMLock = func(k state.Key) (func(), error) {
 	return hostlock.AcquireExclusive(state.ProjectVMLockDir(k), state.ProjectVMLockName)
 }
 
-// SetProjectVMLock replaces the per-project creation lock taken by
-// EnsureProjectVM and returns the previous one, so tests outside this package
-// can fail or observe the ensure-vm stage at its lock boundary.
-//
-//deadcode:ignore reason="test seam replacing the project VM creation lock"
-func SetProjectVMLock(f func(k state.Key) (func(), error)) func(k state.Key) (func(), error) {
-	orig := acquireProjectVMLock
-	acquireProjectVMLock = f
-	return orig
+// projectVMLock returns the creation lock for this ensure: the injected seam
+// when a test set one, else the shared host flock.
+func projectVMLock(seams options.Seams) func(state.Key) (func(), error) {
+	if seams.ProjectVMLock != nil {
+		return seams.ProjectVMLock
+	}
+	return acquireProjectVMLock
 }
 
 // ProjectVMCreation is the whole input to creating (or attaching to) a project
@@ -132,6 +130,7 @@ type ProjectVMCreation struct {
 	SkipVM       bool
 	Env          envsecret.EnvSecrets
 	UI           termio.UI
+	Seams        options.Seams
 }
 
 // EnsureProjectVM returns a live *msb.Sandbox for the project VM and how it
@@ -174,7 +173,7 @@ func EnsureProjectVM(ctx context.Context, creation ProjectVMCreation) (msb.Sandb
 	// Slow path: hold the per-project flock so concurrent invocations don't both
 	// create (and clobber via WithReplace), and so a recreate destroy cannot race
 	// a VM another invocation just created.
-	release, lockErr := acquireProjectVMLock(creation.Key)
+	release, lockErr := projectVMLock(creation.Seams)(creation.Key)
 	if lockErr != nil {
 		return nil, VMBootConnected, fmt.Errorf("acquire project flock: %w", lockErr)
 	}

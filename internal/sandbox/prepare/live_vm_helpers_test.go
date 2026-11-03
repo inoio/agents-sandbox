@@ -19,7 +19,7 @@ import (
 func loadOpencodeConfigFiles(t *testing.T, ui termio.UI) *reprovision.ConfigFiles {
 	t.Helper()
 	configFiles, err := reprovision.LoadConfigFilesForHost(
-		opencodeAgent(t),
+		opencodeResolved(t),
 		t.TempDir(),
 		reprovision.VMHomeDir,
 		ui,

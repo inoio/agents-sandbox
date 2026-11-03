@@ -213,6 +213,7 @@ func TestSetUpSandboxDockerdError(t *testing.T) {
 		sb,
 		opencodeResolved(t),
 		options.RunOptions{Agent: "opencode"},
+		options.Seams{},
 		cfs,
 		&ui,
 		false,
@@ -227,10 +228,9 @@ func TestSetUpSandboxDockerdError(t *testing.T) {
 // TestSetUpSandboxEnsureDaemonError covers the ensureDaemon failure branch in
 // SetUpSandbox: the daemon never becomes healthy and starting it fails.
 func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
-	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
+	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return "", 0, errors.New("daemon shell failed")
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
+	}}
 
 	ui := termio.NewTestMock(t)
 	sb := &msb.MockSandbox{
@@ -252,6 +252,7 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 		sb,
 		opencodeResolved(t),
 		options.RunOptions{Agent: "opencode"},
+		seams,
 		cfs,
 		&ui,
 		false,
@@ -267,13 +268,12 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 // SetUpSandbox (config files are provisioned but the write fails; this is
 // logged as a warning and does not fail the sandbox setup).
 func TestSetUpSandboxProvisionWarn(t *testing.T) {
-	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
+	}}
 
 	fs := msb.NewTestFS(nil, nil)
 	fs.WriteErr = errors.New("write denied")
@@ -288,6 +288,7 @@ func TestSetUpSandboxProvisionWarn(t *testing.T) {
 		sb,
 		opencodeResolved(t),
 		options.RunOptions{Agent: "opencode"},
+		seams,
 		cfs,
 		&ui,
 		false,

@@ -19,7 +19,7 @@ import (
 // way to prove SetUpSandbox reads the threaded value rather than opts.Agent —
 // were it still resolving opts.Agent, an unknown name would fail here.
 func TestSetUpSandboxUsesTheThreadedResolvedAgent(t *testing.T) {
-	healthyOpencodeDaemon(t)
+	seams := healthyOpencodeDaemon(t)
 	configpaths.WithMockConfigPaths(t)
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil, nil)}
 	ui := termio.NewTestMock(t)
@@ -30,6 +30,7 @@ func TestSetUpSandboxUsesTheThreadedResolvedAgent(t *testing.T) {
 		sb,
 		opencodeResolved(t),
 		options.RunOptions{Agent: "does-not-exist"},
+		seams,
 		&reprovision.ConfigFiles{},
 		&ui,
 		false,

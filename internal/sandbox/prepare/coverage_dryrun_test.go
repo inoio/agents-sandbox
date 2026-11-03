@@ -74,17 +74,13 @@ func TestPrepareSandboxDryRunVM(t *testing.T) {
 			AgentSource:  state.AgentSourceTool,
 		},
 	)
-
-	origDaemon := vm.SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == opencodeProvider(t).DaemonHealthCmd() {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	})
-	t.Cleanup(func() { vm.SetDaemonHealthFunc(origDaemon) })
-
 	ui := termio.NewTestMock(t)
-	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, true, &ui)
+	sess, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Seams: daemonHealthSeams(t)}),
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("PrepareSandbox (dry-run-vm): %v", err)
 	}
@@ -144,7 +140,7 @@ func TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 
 	ui := termio.NewTestMock(t)
-	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, true, &ui)
+	sess, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{}), true, &ui)
 	if err != nil {
 		t.Fatalf("PrepareSandbox (dry-run-vm): %v", err)
 	}
@@ -193,7 +189,7 @@ func TestPrepareSandboxDryRunVMServeOnlyPublishesPort(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	opts := options.RunOptions{Agent: "opencode", ServeOnly: true}
-	sess, err := PrepareSandbox(context.Background(), opts, true, &ui)
+	sess, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, opts), true, &ui)
 	if err != nil {
 		t.Fatalf("PrepareSandbox (dry-run-vm, serve-only): %v", err)
 	}
@@ -259,17 +255,13 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 			AgentSource:  state.AgentSourceTool,
 		},
 	)
-
-	origDaemon := vm.SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == opencodeProvider(t).DaemonHealthCmd() {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	})
-	t.Cleanup(func() { vm.SetDaemonHealthFunc(origDaemon) })
-
 	ui := termio.NewTestMock(t)
-	sess, err := PrepareSandbox(context.Background(), options.RunOptions{}, true, &ui)
+	sess, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Seams: daemonHealthSeams(t)}),
+		true,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("PrepareSandbox (dry-run-vm, subdirectory): %v", err)
 	}
@@ -323,18 +315,14 @@ func TestPrepareSandboxVolumeError(t *testing.T) {
 		state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"},
 		state.HomeState{AgentVersion: "1.5.0", AgentSource: state.AgentSourceTool},
 	)
-
-	origDaemon := vm.SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == opencodeProvider(t).DaemonHealthCmd() {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	})
-	t.Cleanup(func() { vm.SetDaemonHealthFunc(origDaemon) })
-
 	ui := termio.NewTestMock(t)
 	// A real run: under skip-VM a fresh home volume is never created (#429).
-	if _, err := PrepareSandbox(context.Background(), options.RunOptions{}, false, &ui); err == nil {
+	if _, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Seams: daemonHealthSeams(t)}),
+		false,
+		&ui,
+	); err == nil {
 		t.Fatal("expected error when the home volume cannot be created")
 	}
 }
@@ -388,17 +376,13 @@ func TestPrepareSandboxEnsureVMError(t *testing.T) {
 			AgentSource:  state.AgentSourceTool,
 		},
 	)
-
-	origDaemon := vm.SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == opencodeProvider(t).DaemonHealthCmd() {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	})
-	t.Cleanup(func() { vm.SetDaemonHealthFunc(origDaemon) })
-
 	ui := termio.NewTestMock(t)
-	if _, err := PrepareSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, false, &ui); err == nil {
+	if _, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", Seams: daemonHealthSeams(t)}),
+		false,
+		&ui,
+	); err == nil {
 		t.Fatal("expected error when the VM lookup fails")
 	}
 }
@@ -457,17 +441,13 @@ func TestPrepareSandboxSetUpError(t *testing.T) {
 			AgentSource:  state.AgentSourceTool,
 		},
 	)
-
-	origDaemon := vm.SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == opencodeProvider(t).DaemonHealthCmd() {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	})
-	t.Cleanup(func() { vm.SetDaemonHealthFunc(origDaemon) })
-
 	ui := termio.NewTestMock(t)
-	if _, err := PrepareSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, false, &ui); err == nil {
+	if _, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", Seams: daemonHealthSeams(t)}),
+		false,
+		&ui,
+	); err == nil {
 		t.Fatal("expected error when vm.SetUpSandbox fails")
 	}
 }

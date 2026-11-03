@@ -18,16 +18,30 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// opencodeAgent returns the registered opencode profile, which implements
-// SessionStatusProvider (the v1 session-status endpoints the quiescence wait
-// polls).
-func opencodeAgent(t *testing.T) agent.Agent {
+// opencodeResolved returns the registered opencode profile with its
+// capabilities resolved, which implements SessionStatusProvider (the v1
+// session-status endpoints the quiescence wait polls).
+func opencodeResolved(t *testing.T) agent.Resolved {
 	t.Helper()
 	a, ok := agent.Lookup("opencode")
 	if !ok {
 		t.Fatal("opencode agent not registered")
 	}
-	return a
+	return agent.Resolve(a)
+}
+
+// resolvedRunOptions returns opts with ResolvedAgent set as runoptions.Build
+// would: the profile named by opts.Agent (the default when empty), with its
+// capabilities resolved. Tests that construct RunOptions directly use it so the
+// session layer reads the run boundary's resolved agent.
+func resolvedRunOptions(t *testing.T, opts options.RunOptions) options.RunOptions {
+	t.Helper()
+	a, ok := agent.Lookup(opts.Agent)
+	if !ok {
+		return opts
+	}
+	opts.ResolvedAgent = agent.Resolve(a)
+	return opts
 }
 
 // noSessionStatusAgent implements agent.Agent without SessionStatusProvider,
@@ -53,7 +67,7 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 
 	err := reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -86,7 +100,7 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 
 	err = reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -109,7 +123,7 @@ func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing
 
 	err := reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
@@ -161,7 +175,7 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 
 	err := reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -190,7 +204,7 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 
 	err := reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -228,7 +242,7 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 
 	err := reapOnLastClient(
 		shortCtx,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: "ctxproj", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -259,7 +273,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
 	}
 	err := reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -291,7 +305,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.
 	}
 	err := reapOnLastClient(
 		shortCtx,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -320,7 +334,7 @@ func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
 			ui := &termio.Mock{}
 			err := reapOnLastClient(
 				context.Background(),
-				opencodeAgent(t),
+				opencodeResolved(t),
 				state.Key{Slug: "nilproj", Agent: "opencode"},
 				nil,
 				tt.policy,
@@ -344,7 +358,7 @@ func TestReapOnLastClient_NoSessionStatusProvider_SkipsWait(t *testing.T) {
 
 	err := reapOnLastClient(
 		context.Background(),
-		noSessionStatusAgent{},
+		agent.Resolve(noSessionStatusAgent{}),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -391,7 +405,7 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 
 	err = reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -417,7 +431,7 @@ func TestReapOnLastClientSkipsNonDaemonAgent(t *testing.T) {
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 	if err := reapOnLastClient(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		state.Key{Slug: "slug", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -902,7 +916,7 @@ func TestReapOnLastClient_CanceledContextStillWarns(t *testing.T) {
 
 	err := reapOnLastClient(
 		ctx,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: "canceledprobe", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
@@ -932,7 +946,7 @@ func TestReapOnLastClient_WarnsWhenContainersRunning(t *testing.T) {
 
 	err := reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: "dockerwarnproj", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
@@ -963,7 +977,7 @@ func TestReapOnLastClient_WarnsWhenContainersRunningWithoutAutoStop(t *testing.T
 	// not need a session-status stub; the warning runs before that branch.
 	err := reapOnLastClient(
 		context.Background(),
-		noSessionStatusAgent{},
+		agent.Resolve(noSessionStatusAgent{}),
 		state.Key{Slug: "dockerwarnholdproj", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -991,7 +1005,7 @@ func TestReapOnLastClient_ProbesRegardlessOfDockerSetting(t *testing.T) {
 
 	err := reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: "nodockerproj", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
@@ -1017,7 +1031,7 @@ func TestReapOnLastClient_NoContainerProbeWhenSandboxNil(t *testing.T) {
 
 	err := reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: "nilsandboxproj", Agent: "opencode"},
 		nil,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
@@ -1052,7 +1066,7 @@ func TestReapOnLastClient_SandboxReplacedOrGoneStopsWaiting(t *testing.T) {
 
 			err := reapOnLastClient(
 				context.Background(),
-				opencodeAgent(t),
+				opencodeResolved(t),
 				state.Key{Slug: "replacedproj-" + tc.name, Agent: "opencode"},
 				sb,
 				options.ReapPolicy{},

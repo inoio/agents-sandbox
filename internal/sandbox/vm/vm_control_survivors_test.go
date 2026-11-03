@@ -107,7 +107,7 @@ func TestStopProjectVMWrapsStopError(t *testing.T) {
 
 	t.Chdir(testutil.InitRepo(t))
 
-	err := StopProjectVM(context.Background(), configpaths.Get(), false, false, &ui, "opencode")
+	err := StopProjectVM(context.Background(), configpaths.Get(), client, false, false, &ui, "opencode")
 	if err == nil {
 		t.Fatal("expected the stop failure to propagate out of StopProjectVM")
 	}
@@ -132,7 +132,7 @@ func TestKillProjectVMWrapsKillError(t *testing.T) {
 
 	t.Chdir(testutil.InitRepo(t))
 
-	err := KillProjectVM(context.Background(), configpaths.Get(), false, false, &ui, "opencode")
+	err := KillProjectVM(context.Background(), configpaths.Get(), client, false, false, &ui, "opencode")
 	if err == nil {
 		t.Fatal("expected the kill failure to propagate out of KillProjectVM")
 	}
@@ -165,14 +165,16 @@ func TestStopKillProjectVMDryRunLeavesLegacyState(t *testing.T) {
 
 	for _, action := range []struct {
 		name string
-		run  func(context.Context, configpaths.ConfigPaths, bool, bool, termio.UI, string) error
+		run  func(context.Context, configpaths.ConfigPaths, msb.Client, bool, bool, termio.UI, string) error
 	}{
 		{"stop", StopProjectVM},
 		{"kill", KillProjectVM},
 	} {
 		t.Run(action.name, func(t *testing.T) {
 			ui := termio.NewTestMock(t)
-			if err := action.run(context.Background(), configpaths.Get(), false, true, &ui, "opencode"); err != nil {
+			if err := action.run(
+				context.Background(), configpaths.Get(), client, false, true, &ui, "opencode",
+			); err != nil {
 				t.Fatalf("%s dry run: %v", action.name, err)
 			}
 			if !statePresent(t, legacyKey) {

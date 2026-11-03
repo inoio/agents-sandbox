@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -16,14 +17,16 @@ func TestStopKillProjectVMErrorsWhenIdentityUnresolvable(t *testing.T) {
 
 	for _, action := range []struct {
 		name string
-		run  func(context.Context, configpaths.ConfigPaths, bool, bool, termio.UI, string) error
+		run  func(context.Context, configpaths.ConfigPaths, msb.Client, bool, bool, termio.UI, string) error
 	}{
 		{"stop", StopProjectVM},
 		{"kill", KillProjectVM},
 	} {
 		t.Run(action.name, func(t *testing.T) {
 			ui := termio.NewTestMock(t)
-			if err := action.run(context.Background(), configpaths.Get(), false, false, &ui, "opencode"); err == nil {
+			if err := action.run(
+				context.Background(), configpaths.Get(), &msb.MockMsbClient{}, false, false, &ui, "opencode",
+			); err == nil {
 				t.Fatal("succeeded with an unresolvable identity, want an error")
 			}
 		})

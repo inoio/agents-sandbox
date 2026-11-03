@@ -72,6 +72,7 @@ func SetUpSandbox(
 	sb msb.Sandbox,
 	a agent.Resolved,
 	opts options.RunOptions,
+	seams options.Seams,
 	cfs *reprovision.ConfigFiles,
 	ui termio.Logger,
 	restart bool,
@@ -98,7 +99,7 @@ func SetUpSandbox(
 
 	if restart {
 		if provisioned {
-			restartDaemons(ctx, a, sb, opts.ServeOnly, ui)
+			restartDaemons(ctx, a, sb, opts.ServeOnly, ui, seams)
 		}
 		return ResolveTarget(ctx, a, sb, opts.Worktree, guestCWD, ui)
 	}
@@ -111,7 +112,7 @@ func SetUpSandbox(
 		return "", fmt.Errorf("docker startup: %w", dockerErr)
 	}
 
-	if daemonErr := ensureDaemon(ctx, a, opts.ServeOnly, false, sb, ui); daemonErr != nil {
+	if daemonErr := ensureDaemon(ctx, a, opts.ServeOnly, false, sb, ui, seams); daemonErr != nil {
 		return "", daemonErr
 	}
 
@@ -121,10 +122,12 @@ func SetUpSandbox(
 // restartDaemons restarts the agent's daemon so an already-provisioned
 // agent-config change is picked up. Env/secret changes are never routed
 // here: they require a VM rebuild and are handled by the recreate path instead.
-func restartDaemons(ctx context.Context, a agent.Resolved, sb msb.Sandbox, serveOnly bool, ui termio.Logger) {
+func restartDaemons(
+	ctx context.Context, a agent.Resolved, sb msb.Sandbox, serveOnly bool, ui termio.Logger, seams options.Seams,
+) {
 	ui.Infof("%s serve restarting…", a.Profile.Name())
 	// ensureDaemon no-ops for an agent without a DaemonProvider.
-	if err := ensureDaemon(ctx, a, serveOnly, true, sb, ui); err != nil {
+	if err := ensureDaemon(ctx, a, serveOnly, true, sb, ui, seams); err != nil {
 		ui.Warnf("daemon restart failed: %v (using existing)", err)
 	}
 }

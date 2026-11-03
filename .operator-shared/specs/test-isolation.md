@@ -159,11 +159,20 @@ default (via `withMockAgentVersion*`), never an exported hook. The
 `docker.InstallFailFastGet` and `configpaths.InstallFailFastConfigPaths`
 installers stay required: `docker.Get`/`configpaths.Get` are still the boundary
 factories and still fail fast under tests, and the process-root residue named in
-`client-injection.md` reads them. The remaining exported behavior hooks
-(`vm.SetProjectVMLock`, `vm.SetDaemonHealthFunc`, `prepare.SetAgentLatestVersion`,
-`prepare.SetRuntimeHomeMigrationOffer`) are still mutated package state and are
-restored per `t.Cleanup`; removing them needs a cmd→run dependency route and is
-tracked by #518 (see `client-injection.md`).
+`client-injection.md` reads them.
+
+The former exported behavior hooks (`vm.SetProjectVMLock`,
+`vm.SetDaemonHealthFunc`, `prepare.SetAgentLatestVersion`,
+`prepare.SetRuntimeHomeMigrationOffer`) are gone (#518). Their behavior is one
+`options.Seams` value carried on `options.RunOptions` (the vm stages receive it
+through `ProjectVMCreation.Seams` and the `SetUpSandbox` seams parameter); its
+zero value is production, and each consumer falls back to its package var when a
+field is nil. `cmd` threads the struct through its boundary `runSeams` var, so
+no test outside a package mutates that package's state to stub these behaviors.
+The package vars those seams default to (`daemonHealthFunc`,
+`acquireProjectVMLock`, `agentLatestVersion`, `offerRuntimeHomeMigration`,
+`buildVersionResolver`) stay unexported, and an in-package test that overrides
+one must still restore it with `t.Cleanup`/`defer`.
 
 The incident: `TestResolveBuildVersionPromptNamesThisProjectsVersion` replaced `agentLatestVersion` without restoring
 it, so the coverage tests asserting the real default closure passed at `-count=1` (alphabetical file order runs them

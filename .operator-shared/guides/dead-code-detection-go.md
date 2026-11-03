@@ -38,7 +38,7 @@ What is left over is production files whose functions only tests reach. Real exa
 - `internal/upgrade/upgrade.go:193 IsNewer` (its own test is named `TestIsNewerExportedWrapper`)
 - `internal/homeconfig/homeconfig.go:176 MergeManifests`
 - `internal/sandbox/runtime/runtime.go:107 InspectRuntime`
-- `internal/agent/agent.go:55 Register`, `internal/sandbox/reprovision/config_files.go:154 AgentConfigPath`, `internal/sandbox/state/root_txn.go:28 RootTxn.Exists`, `internal/viperconfig/load.go:182 NewResolverWithConfig`, … plus intentional seams installed by tests (`vm.SetDaemonHealthFunc`, `vm.SetRuntimeHomeMigrationOffer`, `image.WithMockAgentVersion*`).
+- `internal/agent/agent.go:55 Register`, `internal/sandbox/reprovision/config_files.go:154 AgentConfigPath`, `internal/sandbox/state/root_txn.go:28 RootTxn.Exists`, `internal/viperconfig/load.go:182 NewResolverWithConfig`, … plus intentional test-support seams (`agent.Register`, `git.RepoSlug`/`CheckoutSlug`, `image.WithMockAgentVersion*`).
 
 Seams are legitimate; the rest are either dead or a missing wiring. `deadcode -whylive=<pkg.Func>` explains why something is *not* dead by printing a shortest call path from `main`, which is the fastest way to tell a seam from an accident.
 

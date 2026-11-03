@@ -102,10 +102,12 @@ func removePersistedState(ctx context.Context, handle msb.SandboxHandle, ui term
 
 // StopProjectVM gracefully stops the project VM for the current directory and
 // agent. If remove is true, it also removes the VM's persisted state; an
-// inactive VM is not stopped, only removed.
+// inactive VM is not stopped, only removed. mclient is resolved at the command
+// boundary and threaded, never read from the process global here.
 func StopProjectVM(
 	ctx context.Context,
 	paths configpaths.ConfigPaths,
+	mclient msb.Client,
 	remove, dryRun bool,
 	ui termio.UI,
 	agentName string,
@@ -118,22 +120,23 @@ func StopProjectVM(
 	if err != nil {
 		return err
 	}
-	client := msb.Get()
-	adoption, err := AdoptLegacyIdentity(ctx, paths, client, identity, a.Name(), !dryRun, ui)
+	adoption, err := AdoptLegacyIdentity(ctx, paths, mclient, identity, a.Name(), !dryRun, ui)
 	if err != nil {
 		return err
 	}
 	k := state.Key{Slug: adoption.Slug, Agent: a.Name()}
-	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "stop", "Stopping", client,
+	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "stop", "Stopping", mclient,
 		func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
 }
 
 // KillProjectVM force-kills the project VM for the current directory and agent.
 // If remove is true, it also removes the VM's persisted state; an inactive VM
-// is not killed, only removed.
+// is not killed, only removed. mclient is resolved at the command boundary and
+// threaded, never read from the process global here.
 func KillProjectVM(
 	ctx context.Context,
 	paths configpaths.ConfigPaths,
+	mclient msb.Client,
 	remove, dryRun bool,
 	ui termio.UI,
 	agentName string,
@@ -146,12 +149,11 @@ func KillProjectVM(
 	if err != nil {
 		return err
 	}
-	client := msb.Get()
-	adoption, err := AdoptLegacyIdentity(ctx, paths, client, identity, a.Name(), !dryRun, ui)
+	adoption, err := AdoptLegacyIdentity(ctx, paths, mclient, identity, a.Name(), !dryRun, ui)
 	if err != nil {
 		return err
 	}
 	k := state.Key{Slug: adoption.Slug, Agent: a.Name()}
-	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "kill", "Force-killing", client,
+	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "kill", "Force-killing", mclient,
 		func(h msb.SandboxHandle, c context.Context) error { return h.Kill(c) })
 }

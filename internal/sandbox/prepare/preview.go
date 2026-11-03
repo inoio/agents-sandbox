@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
@@ -49,8 +48,8 @@ func PreviewSandbox(ctx context.Context, opts options.RunOptions, ui termio.Logg
 		return Preview{}, err
 	}
 
-	a, ok := agent.Lookup(opts.Agent)
-	if !ok {
+	a := opts.ResolvedAgent.Profile
+	if a == nil {
 		return Preview{}, fmt.Errorf("unknown agent %q", opts.Agent)
 	}
 	identity, err := git.ResolveIdentity(cwd)

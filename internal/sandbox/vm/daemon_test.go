@@ -12,6 +12,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -26,21 +27,18 @@ func (fakeAgent) ImageSpec() agent.ImageSpec {
 	return agent.ImageSpec{}
 }
 
-// healthQueue installs a SetDaemonHealthFunc returning queued probe responses
-// in order, restoring the original on cleanup. When the queue is exhausted the
-// probe reports healthy.
-func healthQueue(t *testing.T, responses ...mockShellResp) {
-	t.Helper()
+// healthQueue returns a daemon-health seam returning queued probe responses in
+// order. When the queue is exhausted the probe reports healthy.
+func healthQueue(responses ...mockShellResp) options.Seams {
 	index := 0
-	orig := SetDaemonHealthFunc(func(context.Context, msb.Sandbox, string) (string, int, error) {
+	return options.Seams{DaemonHealth: func(context.Context, msb.Sandbox, string) (string, int, error) {
 		if index >= len(responses) {
 			return `{"healthy":true}`, 0, nil
 		}
 		response := responses[index]
 		index++
 		return response.stdout, response.exitCode, response.err
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
+	}}
 }
 
 func unhealthy() mockShellResp { return mockShellResp{stdout: "", exitCode: 1} }
@@ -86,7 +84,9 @@ func TestEnsureDaemonNoDaemonProvider(t *testing.T) {
 	ui := &termio.Mock{}
 	calls := &[]msb.MockDetachedCall{}
 	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
-	if err := ensureDaemon(context.Background(), agent.Resolve(&fakeAgent{}), false, false, sb, ui); err != nil {
+	if err := ensureDaemon(
+		context.Background(), agent.Resolve(&fakeAgent{}), false, false, sb, ui, options.Seams{},
+	); err != nil {
 		t.Fatalf("expected nil for an agent without a DaemonProvider, got %v", err)
 	}
 	if len(*calls) != 0 {
@@ -97,12 +97,12 @@ func TestEnsureDaemonNoDaemonProvider(t *testing.T) {
 func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	fastDaemonPoll(t)
-	healthQueue(t, unhealthy(), unhealthy(), healthy())
+	seams := healthQueue(unhealthy(), unhealthy(), healthy())
 
 	calls := &[]msb.MockDetachedCall{}
 	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
 
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
 	}
 	assertDetachedHelperLaunch(t, *calls, "agent-daemon", "opencode")
@@ -127,12 +127,12 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 func TestEnsureDaemonStartsServeOnlyOnExternalInterface(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	fastDaemonPoll(t)
-	healthQueue(t, unhealthy(), healthy())
+	seams := healthQueue(unhealthy(), healthy())
 
 	calls := &[]msb.MockDetachedCall{}
 	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
 
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), true, false, sb, &testUI); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), true, false, sb, &testUI, seams); err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
 	}
 	if len(*calls) != 1 {
@@ -150,7 +150,7 @@ func TestEnsureDaemonStartsServeOnlyOnExternalInterface(t *testing.T) {
 // daemon.
 func TestEnsureDaemonProbesBeforeWaiting(t *testing.T) {
 	testUI := termio.NewTestMock(t)
-	healthQueue(t, unhealthy(), healthy())
+	seams := healthQueue(unhealthy(), healthy())
 
 	origTimeout, origInterval := daemonReadyTimeout, daemonPollInterval
 	t.Cleanup(func() {
@@ -162,7 +162,7 @@ func TestEnsureDaemonProbesBeforeWaiting(t *testing.T) {
 
 	sb := &msb.MockSandbox{}
 	start := time.Now()
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
 		t.Fatalf("ensureDaemon: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed >= 500*time.Millisecond {
@@ -176,12 +176,12 @@ func TestEnsureDaemonProbesBeforeWaiting(t *testing.T) {
 func TestEnsureDaemonSkipsHealthyDaemon(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	fastDaemonPoll(t)
-	healthQueue(t, healthy())
+	seams := healthQueue(healthy())
 
 	calls := &[]msb.MockDetachedCall{}
 	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
 
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
 		t.Fatalf("ensureDaemon: %v", err)
 	}
 	if len(*calls) != 0 {
@@ -197,12 +197,12 @@ func TestEnsureDaemonSkipsHealthyDaemon(t *testing.T) {
 func TestEnsureDaemonLogsUnhealthyProbeDetail(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	fastDaemonPoll(t)
-	healthQueue(t, unhealthy(), healthy())
+	seams := healthQueue(unhealthy(), healthy())
 
 	calls := &[]msb.MockDetachedCall{}
 	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
 
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
 		t.Fatalf("ensureDaemon: %v", err)
 	}
 	want := "opencode daemon not healthy: health probe exit 1: (no output)"
@@ -215,12 +215,12 @@ func TestEnsureDaemonForceRestartsHealthy(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	fastDaemonPoll(t)
 	// force skips the pre-check; the first health probe is the post-launch one.
-	healthQueue(t, healthy())
+	seams := healthQueue(healthy())
 
 	calls := &[]msb.MockDetachedCall{}
 	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
 
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, true, sb, &testUI); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, true, sb, &testUI, seams); err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
 	}
 	if len(*calls) != 1 {
@@ -231,7 +231,7 @@ func TestEnsureDaemonForceRestartsHealthy(t *testing.T) {
 func TestEnsureDaemonKillsStaleJobByChangedArgs(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	fastDaemonPoll(t)
-	healthQueue(t, unhealthy(), healthy())
+	seams := healthQueue(unhealthy(), healthy())
 
 	stale := &msb.MockJob{ID_: "stale-daemon"}
 	// The stale daemon was launched by a release that bound the previous
@@ -243,7 +243,7 @@ func TestEnsureDaemonKillsStaleJobByChangedArgs(t *testing.T) {
 		GetJobFn: func(context.Context, string) (msb.Job, error) { return stale, nil },
 	}
 
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
 	}
 	if !stale.DidKill {
@@ -254,10 +254,10 @@ func TestEnsureDaemonKillsStaleJobByChangedArgs(t *testing.T) {
 func TestEnsureDaemonReportsCloseFailure(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	fastDaemonPoll(t)
-	healthQueue(t, unhealthy(), healthy())
+	seams := healthQueue(unhealthy(), healthy())
 
 	sb := &msb.MockSandbox{Job_: &msb.MockJob{ID_: "daemon", CloseErr: errors.New("close boom")}}
-	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI); err != nil {
+	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
 		t.Fatalf("ensureDaemon failed: %v", err)
 	}
 	if !strings.Contains(strings.Join(testUI.VerboseCalls, "\n"), "closing opencode job handle") {
@@ -268,7 +268,7 @@ func TestEnsureDaemonReportsCloseFailure(t *testing.T) {
 func TestEnsureDaemonCrashSurfacesExitAndLogs(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	fastDaemonPoll(t)
-	healthQueue(t, unhealthy())
+	seams := healthQueue(unhealthy())
 
 	code := 2
 	sb := &msb.MockSandbox{
@@ -278,7 +278,7 @@ func TestEnsureDaemonCrashSurfacesExitAndLogs(t *testing.T) {
 		},
 	}
 
-	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI)
+	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams)
 	if err == nil || !strings.Contains(err.Error(), "exit 2") || !strings.Contains(err.Error(), "serve exploded") {
 		t.Fatalf("ensureDaemon() = %v, want exit-code and log tail", err)
 	}
@@ -287,7 +287,7 @@ func TestEnsureDaemonCrashSurfacesExitAndLogs(t *testing.T) {
 func TestEnsureDaemonExecError(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	fastDaemonPoll(t)
-	healthQueue(t, unhealthy())
+	seams := healthQueue(unhealthy())
 
 	wantErr := errors.New("connection lost")
 	sb := &msb.MockSandbox{
@@ -298,7 +298,7 @@ func TestEnsureDaemonExecError(t *testing.T) {
 		},
 	}
 
-	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI)
+	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams)
 	if err == nil || !strings.Contains(err.Error(), "start opencode serve") {
 		t.Fatalf("ensureDaemon() = %v, want start failure", err)
 	}
@@ -319,12 +319,11 @@ func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
 	daemonPollInterval = time.Millisecond
 
 	// A health func that is always unhealthy forces the timeout path.
-	orig := SetDaemonHealthFunc(func(context.Context, msb.Sandbox, string) (string, int, error) {
+	seams := options.Seams{DaemonHealth: func(context.Context, msb.Sandbox, string) (string, int, error) {
 		return "", 1, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
+	}}
 
-	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, &msb.MockSandbox{}, &testUI)
+	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, &msb.MockSandbox{}, &testUI, seams)
 	if err == nil {
 		t.Fatal("expected error after timeout")
 	}
@@ -351,12 +350,11 @@ func (fakeDaemonProvider) DaemonAuthHint() string { return "" }
 // that reports the daemon as unhealthy: the raw body (non-empty here) is kept as
 // the detail rather than the empty-body placeholder.
 func TestProbeDaemonHealthReportsUnhealthyBody(t *testing.T) {
-	prev := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
+	health := func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return `{"healthy":false}`, 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(prev) })
+	}
 
-	probe := probeDaemonHealth(context.Background(), nil, fakeDaemonProvider{
+	probe := probeDaemonHealth(context.Background(), health, nil, fakeDaemonProvider{
 		healthCmd: "health",
 		parse:     func(string) (bool, error) { return false, nil },
 	})
@@ -372,12 +370,11 @@ func TestProbeDaemonHealthReportsUnhealthyBody(t *testing.T) {
 // probe is unhealthy and its detail names the failure, rather than falling
 // through to the exit-code classification.
 func TestProbeDaemonHealthReportsProbeError(t *testing.T) {
-	prev := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
+	health := func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return "", -1, errors.New("dial refused")
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(prev) })
+	}
 
-	probe := probeDaemonHealth(context.Background(), nil, fakeDaemonProvider{healthCmd: "health"})
+	probe := probeDaemonHealth(context.Background(), health, nil, fakeDaemonProvider{healthCmd: "health"})
 	if probe.healthy {
 		t.Fatal("probe reported healthy for a failed health command")
 	}
@@ -390,12 +387,11 @@ func TestProbeDaemonHealthReportsProbeError(t *testing.T) {
 // the detail names the parse failure, rather than falling through to the
 // server-reported-unhealthy branch.
 func TestProbeDaemonHealthReportsParseError(t *testing.T) {
-	prev := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
+	health := func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return "garbage", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(prev) })
+	}
 
-	probe := probeDaemonHealth(context.Background(), nil, fakeDaemonProvider{
+	probe := probeDaemonHealth(context.Background(), health, nil, fakeDaemonProvider{
 		healthCmd: "health",
 		parse:     func(string) (bool, error) { return false, errors.New("bad json") },
 	})
@@ -426,20 +422,19 @@ func TestDaemonReadinessDefaults(t *testing.T) {
 func TestEnsureDaemonPollingReportsProbeDetail(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	provider := opencodeProvider(t)
-	prev := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == provider.DaemonHealthCmd() {
 			return "", 22, nil // non-zero probe exit, e.g. connection refused (7)
 		}
 		return "", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(prev) })
+	}}
 
 	origTimeout, origInterval := daemonReadyTimeout, daemonPollInterval
 	t.Cleanup(func() { daemonReadyTimeout, daemonPollInterval = origTimeout, origInterval })
 	daemonReadyTimeout = 5 * time.Millisecond
 	daemonPollInterval = time.Millisecond
 
-	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, &msb.MockSandbox{}, &testUI)
+	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, &msb.MockSandbox{}, &testUI, seams)
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
@@ -463,13 +458,12 @@ func TestEnsureDaemonPollingReportsProbeDetail(t *testing.T) {
 func TestEnsureDaemonTimeoutIncludesJobLogs(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	provider := opencodeProvider(t)
-	prev := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == provider.DaemonHealthCmd() {
 			return "", 7, nil // connection refused: nothing listening
 		}
 		return "", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(prev) })
+	}}
 
 	origTimeout, origInterval := daemonReadyTimeout, daemonPollInterval
 	t.Cleanup(func() { daemonReadyTimeout, daemonPollInterval = origTimeout, origInterval })
@@ -482,7 +476,7 @@ func TestEnsureDaemonTimeoutIncludesJobLogs(t *testing.T) {
 		},
 	}
 
-	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI)
+	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams)
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}

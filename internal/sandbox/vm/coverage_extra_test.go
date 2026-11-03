@@ -113,7 +113,7 @@ func TestKillProjectVMDryRunRemove(t *testing.T) {
 	})
 	msb.WithMsbMock(t, client)
 
-	if err := KillProjectVM(context.Background(), configpaths.Get(), true, true, &ui, "opencode"); err != nil {
+	if err := KillProjectVM(context.Background(), configpaths.Get(), client, true, true, &ui, "opencode"); err != nil {
 		t.Fatalf("KillProjectVM dry-run: %v", err)
 	}
 }
@@ -122,10 +122,27 @@ func TestKillProjectVMDryRunRemove(t *testing.T) {
 // in both StopProjectVM and KillProjectVM.
 func TestStopAndKillProjectVMUnknownAgent(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	if err := StopProjectVM(context.Background(), configpaths.Get(), false, false, &ui, "no-such-agent"); err == nil {
+	client := &msb.MockMsbClient{}
+	if err := StopProjectVM(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		false,
+		false,
+		&ui,
+		"no-such-agent",
+	); err == nil {
 		t.Fatal("expected error from StopProjectVM with an unknown agent")
 	}
-	if err := KillProjectVM(context.Background(), configpaths.Get(), false, false, &ui, "no-such-agent"); err == nil {
+	if err := KillProjectVM(
+		context.Background(),
+		configpaths.Get(),
+		client,
+		false,
+		false,
+		&ui,
+		"no-such-agent",
+	); err == nil {
 		t.Fatal("expected error from KillProjectVM with an unknown agent")
 	}
 }
@@ -134,13 +151,12 @@ func TestStopAndKillProjectVMUnknownAgent(t *testing.T) {
 // SetUpSandbox: a provision failure is logged as a warning and the setup
 // continues (config provisioning is non-disruptive and never fatal).
 func TestSetUpSandboxProvisionError(t *testing.T) {
-	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
+	}}
 
 	configpaths.WithMockConfigPaths(t)
 
@@ -162,6 +178,7 @@ func TestSetUpSandboxProvisionError(t *testing.T) {
 		sb,
 		opencodeResolved(t),
 		options.RunOptions{Agent: "opencode"},
+		seams,
 		cfs,
 		&ui,
 		false,
@@ -181,10 +198,9 @@ func TestSetUpSandboxProvisionError(t *testing.T) {
 // restartDaemons: the failure is reported as a verbose diagnostic and the
 // daemon is still (re)started.
 func TestRestartDaemonsKillError(t *testing.T) {
-	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
+	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return `{"healthy":true,"version":"test"}`, 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
+	}}
 
 	ui := termio.NewTestMock(t)
 	stale := &msb.MockJob{ID_: "stale", KillErr: errors.New("kill failed")}
@@ -197,7 +213,7 @@ func TestRestartDaemonsKillError(t *testing.T) {
 		GetJobFn: func(context.Context, string) (msb.Job, error) { return stale, nil },
 	}
 
-	restartDaemons(context.Background(), opencodeResolved(t), sb, false, &ui)
+	restartDaemons(context.Background(), opencodeResolved(t), sb, false, &ui, seams)
 
 	if !contains(joinStrings(ui.VerboseCalls), "killing job") {
 		t.Errorf("expected a kill-failure verbose message, got %v", ui.VerboseCalls)
@@ -211,7 +227,7 @@ func TestRestartDaemonsNoProvider(t *testing.T) {
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs, ShellCalls: &[]string{}}
 
-	restartDaemons(context.Background(), agent.Resolve(&fakeAgent{}), sb, false, &ui)
+	restartDaemons(context.Background(), agent.Resolve(&fakeAgent{}), sb, false, &ui, options.Seams{})
 
 	if len(*sb.ShellCalls) != 0 {
 		t.Errorf("expected no shell calls for an agent without a DaemonProvider, got %v", *sb.ShellCalls)

@@ -73,7 +73,7 @@ func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
 
 	err := reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -164,7 +164,7 @@ func TestRunServeOnlyClientLeaseFailureWarns(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}, options.ModeRun, ui)
+		done <- Run(ctx, resolvedRunOptions(t, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}), options.ModeRun, ui)
 	}()
 	cancel()
 
@@ -221,7 +221,7 @@ func TestRunUsesSessionKeyForLease(t *testing.T) {
 
 	if err := Run(
 		context.Background(),
-		options.RunOptions{Agent: "opencode", ReapPolicy: options.NewReapPolicy(true, 5)},
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", ReapPolicy: options.NewReapPolicy(true, 5)}),
 		options.ModeRun,
 		ui,
 	); err != nil {
@@ -259,7 +259,7 @@ func TestRunServeOnlyReturnsDeadlineExceeded(t *testing.T) {
 
 	err := Run(
 		ctx,
-		options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)},
+		resolvedRunOptions(t, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}),
 		options.ModeRun,
 		ui,
 	)
@@ -277,7 +277,7 @@ func TestRunAttachClientLeaseFailureWarns(t *testing.T) {
 	sb := &msb.MockSandbox{AttachCode: 0}
 
 	err := runAttach(context.Background(), state.Key{Slug: slug, Agent: "opencode"}, sb, "/workspace", ui,
-		options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}, "-l")
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
 	if err != nil {
 		t.Fatalf("runAttach: expected success despite lease failure, got %v", err)
 	}

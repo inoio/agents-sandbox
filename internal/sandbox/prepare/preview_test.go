@@ -69,7 +69,7 @@ func TestPreviewSandboxReportsBuildAndCreate(t *testing.T) {
 	resolutions := noVolumeCreateMock(t)
 
 	ui := termio.NewTestMock(t)
-	p, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, &ui)
+	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
 	}
@@ -124,7 +124,7 @@ func TestPreviewSandboxReportsReuse(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	p, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, &ui)
+	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
 	}
@@ -188,7 +188,7 @@ func TestPreviewSandboxReconcilesStaleRecordedVersionWithImageLabel(t *testing.T
 	}
 
 	ui := termio.NewTestMock(t)
-	p, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, &ui)
+	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
 	}
@@ -221,7 +221,7 @@ func TestPreviewSandboxRecoversVersionFromImageLabelReadOnly(t *testing.T) {
 	noVolumeCreateMock(t)
 
 	ui := termio.NewTestMock(t)
-	p, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, &ui)
+	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
 	}
@@ -244,14 +244,20 @@ func TestPreviewSandboxPinnedVersionWinsAndNeverChecksNetwork(t *testing.T) {
 	absentImageDockerMock(t)
 	noVolumeCreateMock(t)
 
-	orig := SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
+	fatalLatest := func(context.Context, agent.Agent) (string, error) {
 		t.Fatal("PreviewSandbox must not run the upgrade check")
 		return "", nil
-	})
-	t.Cleanup(func() { SetAgentLatestVersion(orig) })
+	}
 
 	ui := termio.NewTestMock(t)
-	p, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "opencode", AgentVersion: "2.0.0"}, &ui)
+	p, err := PreviewSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{
+			Agent: "opencode", AgentVersion: "2.0.0",
+			Seams: options.Seams{AgentLatestVersion: fatalLatest},
+		}),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
 	}
@@ -277,7 +283,7 @@ func TestPreviewSandboxCorruptStateReportsCreate(t *testing.T) {
 	testutil.WriteFile(t, state.KeyDir(k), "state.yaml", string(corrupt))
 
 	ui := termio.NewTestMock(t)
-	p, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, &ui)
+	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v, want a tolerated corrupt state", err)
 	}
@@ -305,7 +311,11 @@ func TestPreviewSandboxSurfacesRenderError(t *testing.T) {
 	testutil.WritePath(t, dockerfilePath, "FROM ubuntu:24.04 AS agents-sandbox-base\n")
 
 	ui := termio.NewTestMock(t)
-	if _, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, &ui); err == nil {
+	if _, err := PreviewSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		&ui,
+	); err == nil {
 		t.Fatal("expected the render error for a reserved stage alias to surface")
 	}
 }
@@ -314,7 +324,11 @@ func TestPreviewSandboxUnknownAgentErrors(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	ui := termio.NewTestMock(t)
-	if _, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "nope"}, &ui); err == nil {
+	if _, err := PreviewSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "nope"}),
+		&ui,
+	); err == nil {
 		t.Fatal("expected an error for an unknown agent")
 	}
 }
@@ -329,7 +343,11 @@ func TestPreviewSandboxWorkspaceDirError(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	if _, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, &ui); err == nil {
+	if _, err := PreviewSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		&ui,
+	); err == nil {
 		t.Fatal("expected an error when the workspace directory cannot be resolved")
 	}
 }
@@ -361,14 +379,20 @@ func TestPreviewSandboxUserProvidedAgentIgnoresPin(t *testing.T) {
 	noVolumeCreateMock(t)
 	seedAgentState(t, k, "1.0.0", state.AgentSourceUser)
 
-	orig := SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
+	fatalLatest := func(context.Context, agent.Agent) (string, error) {
 		t.Fatal("PreviewSandbox must not run the upgrade check for a user-provided agent")
 		return "", nil
-	})
-	t.Cleanup(func() { SetAgentLatestVersion(orig) })
+	}
 
 	ui := termio.NewTestMock(t)
-	p, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "opencode", AgentVersion: "9.9.9"}, &ui)
+	p, err := PreviewSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{
+			Agent: "opencode", AgentVersion: "9.9.9",
+			Seams: options.Seams{AgentLatestVersion: fatalLatest},
+		}),
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
 	}
@@ -400,7 +424,7 @@ func TestPreviewSandboxUserProvidedAgentNeverRecoversVersion(t *testing.T) {
 	t.Cleanup(func() { existingAgentVersion = orig })
 
 	ui := termio.NewTestMock(t)
-	p, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, &ui)
+	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
 	}
@@ -428,7 +452,11 @@ func TestPreviewSandboxSurfacesAdoptionError(t *testing.T) {
 	testutil.WriteFile(t, state.KeyDir(legacyKey), "state.yaml", `": [`)
 
 	ui := termio.NewTestMock(t)
-	if _, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, &ui); err == nil {
+	if _, err := PreviewSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		&ui,
+	); err == nil {
 		t.Fatal("expected the pending-identity check error to surface")
 	}
 }
@@ -450,7 +478,11 @@ func TestPreviewSandboxSurfacesHomeVolumeLookupError(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	if _, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, &ui); err == nil {
+	if _, err := PreviewSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		&ui,
+	); err == nil {
 		t.Fatal("expected the home-volume lookup error to surface")
 	}
 }
@@ -461,7 +493,7 @@ func TestPreviewSandboxForcedRebuildReportsBuild(t *testing.T) {
 	noVolumeCreateMock(t)
 
 	ui := termio.NewTestMock(t)
-	p, err := PreviewSandbox(context.Background(), options.RunOptions{Rebuild: true}, &ui)
+	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Rebuild: true}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
 	}
