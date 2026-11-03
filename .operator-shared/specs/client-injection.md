@@ -1,5 +1,5 @@
 ---
-description: Contract for resolving the external clients (msb, docker, config-paths) once at an entry point and threading them explicitly, replacing the remaining process globals after #345; and the residue still resolved through configpaths.Get() (tracked by #518).
+description: Contract for resolving the external clients (msb, docker, config-paths) once at an entry point and threading them explicitly, replacing the remaining process globals after #345; the four exported behavior test seams (to be injected as one struct on RunOptions), and the process-root configpaths.Get() reads that stay global by design.
 read_if: Changing a docker.Get()/configpaths.Get() call site, image.EnsureImage*/EnsureLoaded/Build/PreviewImage or the image render helpers, adding a client or path resolver parameter to a run/build/doctor/prune entry point, or the image build's agent-release resolver.
 ---
 
@@ -45,15 +45,20 @@ injected, not a package-global hook:
   when none is injected. Production always injects one; only `image`'s own tests
   override the package default (via `withMockAgentVersion*`).
 
-## Residue (deliberately not threaded)
+## Residue
 
-The four exported behavior hooks (`vm.SetProjectVMLock`,
-`vm.SetDaemonHealthFunc`, `prepare.SetAgentLatestVersion`,
-`prepare.SetRuntimeHomeMigrationOffer`) and the process-root reads below are the
-remaining globals; they are tracked by **#518**.
+Two families remain beyond the threaded clients.
 
-`configpaths.Get()` remains at these process-root lookups, whose call sites are
-too numerous or too cross-cutting to thread in this change:
+**Behavior test seams (to be injected).** The four exported hooks
+(`vm.SetProjectVMLock`, `vm.SetDaemonHealthFunc`,
+`prepare.SetAgentLatestVersion`, `prepare.SetRuntimeHomeMigrationOffer`) mutate
+package-level state; their resolution is one injected struct of functions carried
+on `options.RunOptions`, defaulted to the production impls, so tests stop
+touching package state. Tracked by **#518**. Unlike the clients, these are
+behavior seams, not per-operation dependencies.
+
+**Process-root path lookups (by design).** `configpaths.Get()` stays at these
+process-global roots, too numerous or too cross-cutting to thread:
 
 - `state.stateRoot()` (`internal/sandbox/state/state.go`) — ~40 exported state
   functions reach it, with hundreds of call sites across
@@ -66,5 +71,5 @@ too numerous or too cross-cutting to thread in this change:
 - `homeconfig.ResolveManifestSource` (`internal/homeconfig/homeconfig.go`) — the
   host `$HOME` fallback of the home manifest resolver.
 
-These are the run's process-global roots, not per-operation clients; #518 covers
-giving them an injected resolver when their own call graphs are touched.
+These are the run's process-global roots, not per-operation clients; they are not
+a threading backlog.
