@@ -1,6 +1,7 @@
 package prepare
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,6 +10,8 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -295,5 +298,37 @@ func TestFoldFlatFieldIntoOpencodeIgnoresZeroLastChecked(t *testing.T) {
 	foldFlatFieldIntoOpencode(&legacy)
 	if legacy.Agents != nil {
 		t.Errorf("a zero flat last_checked must not create an agents entry, got %v", legacy.Agents)
+	}
+}
+
+// TestDetermineAgentVersionRunsLegacyUpdaterMigration pins that the version
+// decision runs the retired updater.yaml fold: determineAgentVersion is its only
+// production caller, so a removed call would silently drop the migration. An
+// explicit pin makes resolveBuildVersion return without touching the network or
+// the injected docker client.
+func TestDetermineAgentVersionRunsLegacyUpdaterMigration(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := os.WriteFile(
+		legacyUpdaterStatePath(configpaths.Get()),
+		[]byte("agents:\n  opencode:\n    last_checked: 2020-01-01T00:00:00Z\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, _, err := determineAgentVersion(
+		context.Background(),
+		configpaths.Get(),
+		&docker.MockDockerClient{},
+		testVMKey(),
+		opencodeResolved(t),
+		&termio.Mock{},
+		options.RunOptions{AgentVersion: "1.2.3"},
+	); err != nil {
+		t.Fatalf("determineAgentVersion: %v", err)
+	}
+
+	if _, err := os.Stat(legacyUpdaterStatePath(configpaths.Get())); !os.IsNotExist(err) {
+		t.Fatal("determineAgentVersion must run the legacy updater.yaml migration")
 	}
 }

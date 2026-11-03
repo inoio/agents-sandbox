@@ -1,6 +1,7 @@
 package image
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,8 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -123,4 +126,75 @@ func TestWarnIgnoredProjectConfigWarnsFromWorktreeSubdirectory(t *testing.T) {
 	if !strings.Contains(ui.WarnCalls[0], ignored) {
 		t.Errorf("warning %q does not name the ignored directory %q", ui.WarnCalls[0], ignored)
 	}
+}
+
+// assertWarnsIgnoredWorktreeConfig fails unless ui recorded the bare-checkout
+// warning, pinning that an exported entry point still runs the warning after the
+// path resolver moved from a package global onto an injected argument.
+func assertWarnsIgnoredWorktreeConfig(t *testing.T, ui *termio.Mock) {
+	t.Helper()
+	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "read from the bare root, not the worktree") {
+		t.Errorf("WarnCalls = %v, want the ignored-worktree-config warning", ui.WarnCalls)
+	}
+}
+
+// TestEnsureImageWarnsIgnoredWorktreeConfig pins that the exported EnsureImage
+// entry still warns about an ignored worktree-level .agents-sandbox. The warning
+// runs before any docker work, so a docker failure is immaterial to the assert.
+func TestEnsureImageWarnsIgnoredWorktreeConfig(t *testing.T) {
+	synthesizeBareWorktree(t, true)
+	docker.WithDefaultErrorDockerMock(t)
+	ui := &termio.Mock{}
+
+	_, _ = EnsureImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		agentOpencode(t),
+		"slug",
+		BuildOptions{AgentVersion: testAgentVersion},
+		ui,
+	)
+
+	assertWarnsIgnoredWorktreeConfig(t, ui)
+}
+
+// TestBuildWarnsIgnoredWorktreeConfig pins the same warning on the Build entry.
+func TestBuildWarnsIgnoredWorktreeConfig(t *testing.T) {
+	synthesizeBareWorktree(t, true)
+	docker.WithDefaultErrorDockerMock(t)
+	ui := &termio.Mock{}
+
+	_, _ = Build(
+		context.Background(),
+		docker.Get(),
+		&msb.MockMsbClient{},
+		configpaths.Get(),
+		agentOpencode(t),
+		"slug",
+		BuildOptions{AgentVersion: testAgentVersion},
+		ui,
+	)
+
+	assertWarnsIgnoredWorktreeConfig(t, ui)
+}
+
+// TestPreviewImageWarnsIgnoredWorktreeConfig pins the same warning on the
+// PreviewImage entry.
+func TestPreviewImageWarnsIgnoredWorktreeConfig(t *testing.T) {
+	synthesizeBareWorktree(t, true)
+	docker.WithDefaultErrorDockerMock(t)
+	ui := &termio.Mock{}
+
+	_, _ = PreviewImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		agentOpencode(t),
+		"slug",
+		BuildOptions{AgentVersion: testAgentVersion},
+		ui,
+	)
+
+	assertWarnsIgnoredWorktreeConfig(t, ui)
 }

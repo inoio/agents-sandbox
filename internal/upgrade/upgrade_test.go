@@ -845,18 +845,43 @@ func TestCheckDefaultsIntervalAndStore(t *testing.T) {
 
 // A nil Store keeps the check in memory, so Check must not run the legacy-file
 // fold: the fold would save into the ephemeral memory store and then delete the
-// real upgrade.json, losing the dismissals and cadence for good.
+// real upgrade.json, losing the dismissals and cadence for good. Paths is a real
+// resolver so the nil Store, not a nil Paths, is what suppresses the fold.
 func TestCheckNilStoreLeavesLegacyFileInPlace(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	writeLegacy(t, `{"dismissed_versions":["1.5.2"]}`)
 	serveLatest(t, "2.0.0", nil)
 	ui := termio.Mock{}
-	opts := Options{CurrentVersion: "1.0.0", Mode: ModeNotify, Interval: time.Hour, UI: &ui}
+	opts := Options{
+		CurrentVersion: "1.0.0",
+		Mode:           ModeNotify,
+		Interval:       time.Hour,
+		Paths:          configpaths.Get(),
+		UI:             &ui,
+	}
 	if _, err := Check(context.Background(), opts); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if _, err := os.Stat(legacyStatePath(configpaths.Get())); err != nil {
 		t.Fatalf("nil Store deleted the legacy upgrade.json: %v", err)
+	}
+}
+
+// A non-nil Store with a nil Paths resolver must skip the fold, not call
+// FoldLegacyState: the resolver is what locates upgrade.json, and Options
+// documents that a nil resolver folds nothing rather than crashing. The recent
+// LastChecked throttles the check, so no network is touched.
+func TestCheckNilPathsSkipsLegacyFold(t *testing.T) {
+	ui := termio.Mock{}
+	opts := Options{
+		CurrentVersion: "1.0.0",
+		Mode:           ModeNotify,
+		Interval:       time.Hour,
+		Store:          &fakeStore{state: LauncherState{LastChecked: time.Now()}},
+		UI:             &ui,
+	}
+	if _, err := Check(context.Background(), opts); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
