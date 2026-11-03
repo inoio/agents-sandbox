@@ -10,9 +10,12 @@ rows.
   rebase are disabled) → `gh pr merge --merge`.
 - `delete_branch_on_merge` is off → delete the branch explicitly with
   `--delete-branch`.
-- Branch protection has **no required status checks and 0 required approvals**.
-  "CI green" is a policy this skill verifies, not something GitHub enforces, so
-  the gate must be checked by hand.
+- The `protect main` ruleset requires **0 approvals** but enforces five status
+  checks — `lint`, `test`, `race`, `deadcode`, and `changelog` — plus a **merge
+  queue**. `gh pr merge --merge` adds the PR to the queue; the queue rebuilds it
+  on top of current `main` and re-runs those checks there, ejecting the PR if
+  any fails. GitHub enforces the five checks, not this skill's semver and
+  check-survey gate, so the gate below is still verified by hand.
 - Re-verify these settings if merges ever behave unexpectedly.
 
 ## Policy
