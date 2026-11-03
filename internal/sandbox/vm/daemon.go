@@ -41,10 +41,11 @@ func SetDaemonHealthFunc(
 }
 
 // ensureDaemon guarantees the agent's serve daemon is healthy inside the VM as
-// a runtime-owned detached job. It health checks via the provider's command; if
-// unhealthy (or force is set, as for a config restart), it kills any stale
-// daemon job, launches a fresh one via ExecDetached, and waits until healthy or
-// timeout. An agent without a daemon provider is a no-op.
+// a runtime-owned detached job, through the shared ensureDetachedService recipe.
+// It health checks via the provider's command; if unhealthy (or force is set, as
+// for a config restart), it kills any stale daemon job, launches a fresh one,
+// and waits until healthy or timeout. An agent without a daemon provider is a
+// no-op.
 func ensureDaemon(
 	ctx context.Context,
 	a agent.Resolved,
@@ -57,52 +58,29 @@ func ensureDaemon(
 		return nil
 	}
 
-	if !force {
-		if probe := probeDaemonHealth(ctx, sb, provider); probe.healthy {
-			ui.Verbosef("%s daemon already healthy", a.Profile.Name())
-			return nil
-		} else if probe.detail != "" {
-			ui.Verbosef("%s daemon not healthy: %s", a.Profile.Name(), probe.detail)
-		}
-	}
-
 	command := provider.DaemonCommand(serveOnly)
-	ui.Verbosef("starting %s serve daemon", a.Profile.Name())
-	helper := agentDaemonHelper(command.Binary)
-	killJobs(ctx, sb, helper, ui)
-
-	binary, args := helper.markedCommand(command.Args)
-	job, startErr := sb.ExecDetached(ctx, binary, args)
-	if startErr != nil {
-		return fmt.Errorf("start %s serve: %w", a.Profile.Name(), startErr)
-	}
-	defer func() {
-		if closeErr := job.Close(); closeErr != nil {
-			ui.Verbosef("closing %s job handle failed: %v", a.Profile.Name(), closeErr)
-		}
-	}()
-
-	probe := func(probeCtx context.Context) (bool, string) {
-		p := probeDaemonHealth(probeCtx, sb, provider)
-		return p.healthy, p.detail
-	}
-	onUnhealthy := func(detail string) {
-		ui.Verbosef("Polling for daemon health: %s", detail)
-	}
-	label := a.Profile.Name() + " daemon"
-	if readyErr := awaitJobReady(
-		ctx,
-		job,
-		label,
-		probe,
-		onUnhealthy,
-		daemonReadyTimeout,
-		daemonPollInterval,
-	); readyErr != nil {
-		return readyErr
-	}
-	ui.Verbosef("%s daemon is healthy", a.Profile.Name())
-	return nil
+	return ensureDetachedService(ctx, sb, ui, detachedService{
+		helper: agentDaemonHelper(command.Binary),
+		probe: func(probeCtx context.Context) (bool, string) {
+			health := probeDaemonHealth(probeCtx, sb, provider)
+			return health.healthy, health.detail
+		},
+		onUnhealthy: func(detail string) {
+			ui.Verbosef("Polling for daemon health: %s", detail)
+		},
+		label:      a.Profile.Name() + " daemon",
+		startLabel: a.Profile.Name() + " serve",
+		launchArgs: func(context.Context) ([]string, string, error) {
+			return command.Args, "starting " + a.Profile.Name() + " serve daemon", nil
+		},
+		timeout:               daemonReadyTimeout,
+		pollInterval:          daemonPollInterval,
+		skipPreCheck:          force,
+		alreadyHealthyNote:    a.Profile.Name() + " daemon already healthy",
+		preCheckUnhealthyNote: a.Profile.Name() + " daemon not healthy: %s",
+		readyNote:             a.Profile.Name() + " daemon is healthy",
+		closeNote:             "closing " + a.Profile.Name() + " job handle failed: %v",
+	})
 }
 
 // daemonProbe is the outcome of a single health probe, carrying enough detail
