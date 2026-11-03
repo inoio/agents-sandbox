@@ -431,7 +431,6 @@ func (s configSubject) applyPrecedence(
 	// Home files override the drop-in copy.
 	for path := range homeFiles {
 		delete(provisioned, path)
-		delete(modes, path)
 	}
 	// The merged config overrides the drop-in copy when snippets exist.
 	if hasSnippets {
@@ -439,7 +438,8 @@ func (s configSubject) applyPrecedence(
 		// gomutants:disable-next-line STATEMENT_REMOVE reason="the mirror-override block below removes this same key from modes under the identical hasSnippets condition, so dropping the statement leaves ConfigFiles.Modes unchanged"
 		delete(modes, s.vmConfigPath)
 	}
-	// The mirror's and then the home files' modes take effect; home wins.
+	// The mirror's modes take effect, then the home files' modes are applied
+	// last so they win over both the drop-in copy and the mirror.
 	maps.Copy(modes, mirrorModes)
 	// The mirror overrides the drop-in copy.
 	for path := range mirror {
@@ -448,7 +448,6 @@ func (s configSubject) applyPrecedence(
 	// Home files and the merged config override the mirror.
 	for path := range homeFiles {
 		delete(mirror, path)
-		delete(modes, path)
 	}
 	if hasSnippets {
 		delete(mirror, s.vmConfigPath)

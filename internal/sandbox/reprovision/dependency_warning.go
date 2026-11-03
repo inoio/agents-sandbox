@@ -35,6 +35,7 @@ func WarnUnprovisionedDependencies(
 		return
 	}
 	subject := resolveConfigSubject(a, VMHomeDir)
+	// gomutants:disable-next-line BRANCH_IF reason="resolveConfigSubject sets provisionRules only together with a non-nil provisioner, and unprovisionedDependencyManifests over nil rules returns no manifests, so removing the guard resolves the host home and then warns identically"
 	if subject.provisioner == nil {
 		return
 	}
