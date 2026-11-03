@@ -61,7 +61,7 @@ func TestRootCommandReturnsRuntimePreparationError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	oldPrepare := prepareMSBRuntime
-	prepareMSBRuntime = func(context.Context, termio.UI, string) error {
+	prepareMSBRuntime = func(context.Context, termio.Logger, string) error {
 		return errors.New("runtime mismatch")
 	}
 	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
@@ -81,7 +81,7 @@ func TestDryRunPreviewsSkipPreflightRuntimeInstall(t *testing.T) {
 	skipRuntimeInstall := func(t *testing.T) {
 		t.Helper()
 		oldPrepare := prepareMSBRuntime
-		prepareMSBRuntime = func(context.Context, termio.UI, string) error {
+		prepareMSBRuntime = func(context.Context, termio.Logger, string) error {
 			t.Fatal("a dry-run preview must not install the msb runtime (#424)")
 			return nil
 		}
@@ -116,7 +116,7 @@ func TestRootCommandReturnsInvalidCLISettingsError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	oldPrepare := prepareMSBRuntime
-	prepareMSBRuntime = func(context.Context, termio.UI, string) error {
+	prepareMSBRuntime = func(context.Context, termio.Logger, string) error {
 		t.Fatal("runtime preparation must not run after invalid CLI settings")
 		return nil
 	}
@@ -140,7 +140,7 @@ func TestDoctorRunsItsOwnChecksWithoutPreflightRuntimeInstall(t *testing.T) {
 	doctor.MockedCheckAll(t, false)
 
 	oldPrepare := prepareMSBRuntime
-	prepareMSBRuntime = func(context.Context, termio.UI, string) error {
+	prepareMSBRuntime = func(context.Context, termio.Logger, string) error {
 		t.Fatal("doctor must not provision the msb runtime in the root preflight (#423)")
 		return nil
 	}

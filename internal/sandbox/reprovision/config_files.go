@@ -187,7 +187,7 @@ type ConfigFiles struct {
 // LoadConfigFiles builds the desired VM state for the given agent using the
 // host home from the config-paths seam. The agent determines its own config
 // directories.
-func LoadConfigFiles(a agent.Agent, ui termio.UI, provisionHostConfig bool) (*ConfigFiles, error) {
+func LoadConfigFiles(a agent.Agent, ui termio.Logger, provisionHostConfig bool) (*ConfigFiles, error) {
 	hostHome, _ := cp.Get().UserHomeDir()
 	return LoadConfigFilesForHost(a, hostHome, VMHomeDir, ui, provisionHostConfig)
 }
@@ -203,7 +203,7 @@ func LoadConfigFiles(a agent.Agent, ui termio.UI, provisionHostConfig bool) (*Co
 func LoadConfigFilesForHost(
 	a agent.Agent,
 	hostHome, vmHome string,
-	ui termio.UI,
+	ui termio.Logger,
 	provisionHostConfig bool,
 ) (*ConfigFiles, error) {
 	src, err := ResolveConfigSource(a)
@@ -317,7 +317,7 @@ func reservedHomeTargets(mergedPath, vmHome string) ([]string, error) {
 func loadHomeFiles(
 	baseUserConfigDir, vmHome string,
 	reserved []string,
-	ui termio.UI,
+	ui termio.Logger,
 ) (map[string][]byte, map[string]os.FileMode, error) {
 	homeSources, missing, _, err := homeconfig.BuildHomeFilesWithModes(
 		baseUserConfigDir, // user config lives one level above the agent subdir
@@ -372,7 +372,7 @@ func ensureHookExecutable(modes map[string]os.FileMode, hooks []homeconfig.HookS
 func loadProvisioned(
 	a agent.Agent,
 	hostHome, vmHome string,
-	ui termio.UI,
+	ui termio.Logger,
 	enabled bool,
 ) (map[string][]byte, map[string]os.FileMode, error) {
 	provisioned := make(map[string][]byte)
@@ -577,7 +577,7 @@ type MirrorFile struct {
 func Describe(
 	a agent.Agent,
 	hostHome, vmHome string,
-	ui termio.UI,
+	ui termio.Logger,
 	provisionHostConfig bool,
 ) ([]byte, []string, []HostFile, []MirrorFile, ConfigSource, error) {
 	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, ui, provisionHostConfig)
@@ -654,7 +654,7 @@ func hostPathForDst(dst, hostHome, vmHome string) string {
 
 // ReadVMConfig reads the given absolute VM paths, returning a map of path to
 // content for files that exist.
-func ReadVMConfig(ctx context.Context, sb msb.Sandbox, paths []string, ui termio.UI) map[string][]byte {
+func ReadVMConfig(ctx context.Context, sb msb.Sandbox, paths []string, ui termio.Logger) map[string][]byte {
 	result := make(map[string][]byte)
 	for _, p := range paths {
 		data, err := sb.FS().Read(ctx, p)

@@ -92,7 +92,7 @@ func ResolveTarget(
 	sb msb.Sandbox,
 	spec options.WorktreeSpec,
 	defaultDir string,
-	ui termio.UI,
+	ui termio.Logger,
 ) (string, error) {
 	provider, hasWorktree := agent.AsWorktreeProvider(a)
 	if !hasWorktree {

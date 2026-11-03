@@ -75,7 +75,7 @@ func TestRunServeOnlyWrapsContextForCancellation(t *testing.T) {
 	initTestProjectDir(t)
 
 	oldPrepare := prepareMSBRuntime
-	prepareMSBRuntime = func(context.Context, termio.UI, string) error { return nil }
+	prepareMSBRuntime = func(context.Context, termio.Logger, string) error { return nil }
 	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
 
 	origCheck := upgradeCheck

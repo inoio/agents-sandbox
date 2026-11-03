@@ -41,7 +41,7 @@ type Preview struct {
 // release the existing image reports through its label, else the recorded cache
 // — recovered for reporting only, never recorded. A user-provided agent ignores
 // the pin and never recovers a version, matching a real run.
-func PreviewSandbox(ctx context.Context, opts options.RunOptions, ui termio.UI) (Preview, error) {
+func PreviewSandbox(ctx context.Context, opts options.RunOptions, ui termio.Logger) (Preview, error) {
 	cwd, err := resolveWorkspaceDir()
 	if err != nil {
 		return Preview{}, err

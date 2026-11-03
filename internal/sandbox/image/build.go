@@ -632,7 +632,7 @@ func buildFromPlan(
 // logBuildDecision reports whether the image was rebuilt and which release
 // version was resolved, at verbose level.
 func logBuildDecision(
-	ui termio.UI,
+	ui termio.Logger,
 	rTag string,
 	needsBuild bool,
 	reasons []string,
@@ -790,7 +790,7 @@ func finalStageToken(rendered []byte) string {
 // call error and as a message inside the stream (moby's Wait), and draining the
 // stream without waiting would lose the latter and let the follow-up inspect
 // report a misleading "No such image".
-func resolveBaseDigest(ctx context.Context, baseRef string, refresh bool, ui termio.UI) (string, error) {
+func resolveBaseDigest(ctx context.Context, baseRef string, refresh bool, ui termio.Logger) (string, error) {
 	if refresh {
 		pullErr := pullBaseImage(ctx, baseRef)
 		if pullErr == nil {

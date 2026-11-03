@@ -212,7 +212,7 @@ func Check(ctx context.Context, opts Options) (Result, error) {
 // It writes through Update and unions the dismissals, so a dismissal recorded by
 // a concurrent launcher after this process read the state survives. LastChecked
 // is set outright: this run's check is the most recent.
-func persistBestEffort(store Store, st LauncherState, ui termio.UI) {
+func persistBestEffort(store Store, st LauncherState, ui termio.Logger) {
 	err := store.Update(func(current *LauncherState) {
 		current.LastChecked = st.LastChecked
 		for _, version := range st.DismissedVersions {
@@ -308,7 +308,7 @@ func applyMode(
 }
 
 // notify reports a newer release without installing it.
-func notify(ui termio.UI, current, latest string) {
+func notify(ui termio.Logger, current, latest string) {
 	ui.Infof(
 		"A new version of agents-sandbox is available: %s (you have %s). "+
 			"Run `agents-sandbox upgrade` to install it, or set upgrade.mode in your config.",
@@ -381,7 +381,7 @@ type UpgradeOptions struct {
 // counterpart to Check's automatic modes. Homebrew-managed installs are directed
 // to `brew upgrade` instead of replacing the keg binary out from under
 // Homebrew.
-func Upgrade(ctx context.Context, ui termio.UI, opts UpgradeOptions) error {
+func Upgrade(ctx context.Context, ui termio.Logger, opts UpgradeOptions) error {
 	if !opts.AllowAnyVersion && (opts.CurrentVersion == "" || opts.CurrentVersion == devVersion) {
 		return errors.New("cannot upgrade a development build; use the released binary")
 	}

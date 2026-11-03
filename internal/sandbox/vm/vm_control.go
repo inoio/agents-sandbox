@@ -91,7 +91,7 @@ func stopOrKillProjectVM(
 
 // removePersistedState deletes a sandbox's persisted state, warning rather than
 // failing the command when the removal does not succeed.
-func removePersistedState(ctx context.Context, handle msb.SandboxHandle, ui termio.UI, name string) {
+func removePersistedState(ctx context.Context, handle msb.SandboxHandle, ui termio.Logger, name string) {
 	if err := handle.Remove(ctx); err != nil {
 		ui.Warnf("failed to remove sandbox state: %v", err)
 		return

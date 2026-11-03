@@ -37,7 +37,7 @@ const defaultAgentName = agent.DefaultAgentName
 
 // warnLegacyEnvVars emits a one-time deprecation warning for each
 // OPENCODE_SANDBOX_ variable still in effect.
-func warnLegacyEnvVars(ui termio.UI, r *launcherconfig.Resolver) {
+func warnLegacyEnvVars(ui termio.Logger, r *launcherconfig.Resolver) {
 	if legacy := r.LegacyEnvVars(); len(legacy) > 0 {
 		ui.Warnf(
 			"deprecated environment variable(s) %s in use; switch to the AGENTS_SANDBOX_ prefix",

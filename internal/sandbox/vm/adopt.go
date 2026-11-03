@@ -100,7 +100,7 @@ func AdoptLegacyIdentity(
 	identity git.Identity,
 	agentName string,
 	apply bool,
-	ui termio.UI,
+	ui termio.Logger,
 ) (IdentityAdoption, error) {
 	checkoutKey := state.Key{Slug: identity.CheckoutSlug, Agent: agentName}
 	slugs := legacySlugs(identity)
@@ -383,7 +383,7 @@ func adoptLegacyIdentity(
 	checkoutKey state.Key,
 	source legacyPendingSource,
 	txn *state.RootTxn,
-	ui termio.UI,
+	ui termio.Logger,
 ) error {
 	// The VM-only arm destroys the only record of its home volume, so the
 	// recovered reference must be durable first. See persistAdoptionOwnership.
@@ -420,7 +420,7 @@ func migrateLegacyState(
 	slugs []string,
 	checkoutKey state.Key,
 	source legacyPendingSource,
-	ui termio.UI,
+	ui termio.Logger,
 ) error {
 	primary := slugs[0]
 
@@ -492,7 +492,7 @@ func migrateLegacyState(
 // whole set matters because the whole slug directory is moved: leaving a sibling
 // agent's VM running would let it keep writing the shared home volume while a
 // later run recreates that agent under the checkout name over the same volume.
-func destroyLegacyVMs(ctx context.Context, client msb.Client, slug, agentName string, ui termio.UI) error {
+func destroyLegacyVMs(ctx context.Context, client msb.Client, slug, agentName string, ui termio.Logger) error {
 	toDestroy, err := legacyAgentsToMigrate(slug, agentName)
 	if err != nil {
 		return err
@@ -527,7 +527,7 @@ func legacyAgentsToMigrate(slug, agentName string) ([]string, error) {
 // name that is already gone needs no destroy, but a handle whose identity was
 // replaced belongs to a sandbox this run did not create, so adopting it would
 // destroy a stranger's VM and the adoption stops instead.
-func destroyLegacyVM(ctx context.Context, client msb.Client, repoKey state.Key, ui termio.UI) error {
+func destroyLegacyVM(ctx context.Context, client msb.Client, repoKey state.Key, ui termio.Logger) error {
 	name := ProjectVMName(repoKey)
 
 	handle, found, err := FindProjectVM(ctx, client, repoKey)
@@ -563,7 +563,7 @@ func destroyLegacyVM(ctx context.Context, client msb.Client, repoKey state.Key, 
 // bare root's path-derived slug); a source whose slug is the repo slug already
 // reads the right directory. An absent legacy directory, or an existing target,
 // is left alone.
-func migrateLegacyConfigDirs(identity git.Identity, ui termio.UI) error {
+func migrateLegacyConfigDirs(identity git.Identity, ui termio.Logger) error {
 	paths := configpaths.Get()
 	for _, slug := range identity.LegacyRepoSlugs {
 		if slug == identity.RepoSlug {

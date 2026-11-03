@@ -119,7 +119,7 @@ func guestStorageDriver(ctx context.Context, sb msb.Sandbox) (string, error) {
 // detached job if the docker image is in use, or does nothing otherwise. It is
 // safe to call on every VM bootstrap because it checks for the dockerd binary
 // and handles the case where dockerd is already running.
-func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.UI) error {
+func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.Logger) error {
 	out, checkErr := sb.Shell(ctx, dockerdBinaryCheckCmd, msbSdk.WithExecUser(RootUser))
 	if checkErr != nil {
 		return fmt.Errorf("while checking dockerd binary: %w", checkErr)

@@ -68,7 +68,7 @@ func withThrowawaySandbox(
 	return payload(sb, spin)
 }
 
-func destroyThrowawaySandbox(sb msb.Sandbox, sandboxName, purpose string, ui termio.UI) {
+func destroyThrowawaySandbox(sb msb.Sandbox, sandboxName, purpose string, ui termio.Logger) {
 	destroyCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
 	defer cancel()
 	if err := sb.Destroy(destroyCtx); err != nil && !msb.IsReplaced(err) && !msb.IsNotFound(err) {

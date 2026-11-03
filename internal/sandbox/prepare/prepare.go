@@ -218,7 +218,7 @@ func resolveIdentityStage(
 	client msb.Client,
 	agentName string,
 	skipVM bool,
-	ui termio.UI,
+	ui termio.Logger,
 ) (sessionIdentity, error) {
 	cwd, err := resolveWorkspaceDir()
 	if err != nil {
@@ -430,7 +430,7 @@ func setupSandboxStage(
 	boot vm.VMBoot,
 	plan reconfigPlan,
 	opts options.RunOptions,
-	ui termio.UI,
+	ui termio.Logger,
 ) (string, error) {
 	sandboxTarget := session.guestCWD
 	if sb == nil {
@@ -461,7 +461,7 @@ func resolveSessionIdentity(
 	client msb.Client,
 	cwd, agentName string,
 	skipVM bool,
-	ui termio.UI,
+	ui termio.Logger,
 ) (agent.Agent, git.Identity, vm.IdentityAdoption, error) {
 	a, ok := agent.Lookup(agentName)
 	if !ok {
@@ -593,7 +593,7 @@ func prepareHomeVolume(
 // exists. It is the writer of record: unlike boot-time provenance it does not
 // depend on the profile implementing a VersionProvider. A failure only warns;
 // the next run reconciles from the image label.
-func persistAgentVersion(k state.Key, version string, ui termio.UI) {
+func persistAgentVersion(k state.Key, version string, ui termio.Logger) {
 	if err := state.RecordAgentVersion(k, version); err != nil {
 		ui.Warnf("could not persist the agent version: %v (continuing)", err)
 	}
@@ -604,7 +604,7 @@ func persistAgentVersion(k state.Key, version string, ui termio.UI) {
 // when a state file already exists; this deferred record covers the case where
 // the state was recreated by home resolution in this same run, so a "don't
 // remind again" choice still sticks.
-func persistOfferedVersion(k state.Key, version string, ui termio.UI) {
+func persistOfferedVersion(k state.Key, version string, ui termio.Logger) {
 	if version == "" {
 		return
 	}
@@ -626,7 +626,7 @@ func persistOfferedVersion(k state.Key, version string, ui termio.UI) {
 // leaves cfg.Volumes empty on a read-back (specs/live-mount-readback.md). A
 // not-found VM is expected (first run); any other lookup error is logged so a
 // transient failure is visible rather than silently orphaning the volume.
-func liveHomeVolume(ctx context.Context, client msb.Client, k state.Key, ui termio.UI) string {
+func liveHomeVolume(ctx context.Context, client msb.Client, k state.Key, ui termio.Logger) string {
 	volume, _, err := vm.ProjectVMHomeVolume(ctx, client, k)
 	if err != nil {
 		ui.Verbosef("project VM lookup for home-volume recovery failed: %v (continuing)", err)
@@ -639,7 +639,7 @@ func liveHomeVolume(ctx context.Context, client msb.Client, k state.Key, ui term
 // derives the VM-config fingerprints from that single read, so the persisted
 // fingerprints and the env/secrets baked into a newly created VM cannot
 // disagree (#342).
-func loadEnvFingerprints(opts options.RunOptions, ui termio.UI) (envsecret.EnvSecrets, state.Fingerprints) {
+func loadEnvFingerprints(opts options.RunOptions, ui termio.Logger) (envsecret.EnvSecrets, state.Fingerprints) {
 	env := envsecret.LoadEnvAndSecrets(ui, opts.AllowPlaceholderFor)
 	return env, desiredFingerprints(opts, env)
 }
@@ -663,7 +663,7 @@ func desiredFingerprints(opts options.RunOptions, env envsecret.EnvSecrets) stat
 // fingerprints when a project VM is freshly created (or recreated), so
 // subsequent runs can detect changes. It persists the fingerprints computed by
 // desiredFingerprints, so the seeded and persisted sets cannot diverge.
-func persistConfigHashes(k state.Key, fingerprints state.Fingerprints, ui termio.UI) {
+func persistConfigHashes(k state.Key, fingerprints state.Fingerprints, ui termio.Logger) {
 	if err := persistFingerprints(k, fingerprints); err != nil {
 		ui.Warnf("persisting config fingerprints on VM creation: %v (continuing)", err)
 	}

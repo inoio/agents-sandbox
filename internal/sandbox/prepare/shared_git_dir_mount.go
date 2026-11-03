@@ -17,7 +17,7 @@ import (
 // When no such mount can make git resolve — the recorded path is relative, or
 // it collides with a managed guest mount — it warns and leaves the mounts
 // unchanged. A configured mount at the same target wins.
-func withSharedGitDirMount(configured mounts.Mounts, identity git.Identity, ui termio.UI) mounts.Mounts {
+func withSharedGitDirMount(configured mounts.Mounts, identity git.Identity, ui termio.Logger) mounts.Mounts {
 	if !identity.OutsideWorktree {
 		return configured
 	}

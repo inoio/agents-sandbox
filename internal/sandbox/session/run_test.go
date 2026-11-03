@@ -213,7 +213,7 @@ func (f *fakePrepared) HomeVolume() string   { return f.homeVolume }
 func stubPreviewSandbox(t *testing.T, preview prepare.Preview) {
 	t.Helper()
 	orig := previewSandbox
-	previewSandbox = func(context.Context, options.RunOptions, termio.UI) (prepare.Preview, error) {
+	previewSandbox = func(context.Context, options.RunOptions, termio.Logger) (prepare.Preview, error) {
 		return preview, nil
 	}
 	t.Cleanup(func() { previewSandbox = orig })
@@ -372,7 +372,7 @@ func TestRunDryRunPropagatesPreviewError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	orig := previewSandbox
-	previewSandbox = func(context.Context, options.RunOptions, termio.UI) (prepare.Preview, error) {
+	previewSandbox = func(context.Context, options.RunOptions, termio.Logger) (prepare.Preview, error) {
 		return prepare.Preview{}, errors.New("preview boom")
 	}
 	t.Cleanup(func() { previewSandbox = orig })
@@ -692,7 +692,7 @@ func TestShellDryRunPropagatesPreviewError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	orig := previewSandbox
-	previewSandbox = func(context.Context, options.RunOptions, termio.UI) (prepare.Preview, error) {
+	previewSandbox = func(context.Context, options.RunOptions, termio.Logger) (prepare.Preview, error) {
 		return prepare.Preview{}, errors.New("preview boom")
 	}
 	t.Cleanup(func() { previewSandbox = orig })

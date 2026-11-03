@@ -236,7 +236,7 @@ func resolveExistingVM(
 	handle msb.SandboxHandle,
 	opts options.RunOptions,
 	name string,
-	ui termio.UI,
+	ui termio.Logger,
 	spin termio.Spinner,
 ) (msb.Sandbox, VMBoot, error) {
 	action, actionErr := decideVMAction(nil, handle.Status())
@@ -292,7 +292,7 @@ func connectRunningVM(
 	handle msb.SandboxHandle,
 	opts options.RunOptions,
 	name string,
-	ui termio.UI,
+	ui termio.Logger,
 	spin termio.Spinner,
 ) (msb.Sandbox, VMBoot, error) {
 	sb, connErr := handle.Connect(ctx)
@@ -314,7 +314,7 @@ func resumeAfterConnectFailure(
 	handle msb.SandboxHandle,
 	opts options.RunOptions,
 	name string,
-	ui termio.UI,
+	ui termio.Logger,
 	spin termio.Spinner,
 	connErr error,
 ) (msb.Sandbox, VMBoot, error) {
@@ -400,7 +400,7 @@ func createOrAttachAfterLock(
 }
 
 // reconcileResources best-effort reconciles live VM resources with opts.
-func reconcileResources(ctx context.Context, handle msb.SandboxHandle, opts options.RunOptions, ui termio.UI) {
+func reconcileResources(ctx context.Context, handle msb.SandboxHandle, opts options.RunOptions, ui termio.Logger) {
 	if recErr := reconcileResourceConfig(ctx, handle, opts, ui); recErr != nil {
 		ui.Warnf("could not reconcile VM resources: %v", recErr)
 	}

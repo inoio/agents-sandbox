@@ -29,7 +29,7 @@ func WarnUnprovisionedDependencies(
 	files *ConfigFiles,
 	mountTargets []string,
 	provisionHostConfig bool,
-	ui termio.UI,
+	ui termio.Logger,
 ) {
 	if !provisionHostConfig {
 		return

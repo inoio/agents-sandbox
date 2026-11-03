@@ -45,7 +45,7 @@ func legacyUpdaterStatePath() string {
 // empty, or corrupt files fold nothing but are still removed. A contended root
 // lock (typically a copy campaign holding it) or a failed write leaves the file
 // in place so the migration retries.
-func migrateLegacyUpdaterState(ui termio.UI) {
+func migrateLegacyUpdaterState(ui termio.Logger) {
 	path := legacyUpdaterStatePath()
 	data, err := os.ReadFile(path)
 	if err != nil {

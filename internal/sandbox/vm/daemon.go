@@ -50,7 +50,7 @@ func ensureDaemon(
 	a agent.Agent,
 	serveOnly, force bool,
 	sb msb.Sandbox,
-	ui termio.UI,
+	ui termio.Logger,
 ) error {
 	provider, ok := agent.AsDaemonProvider(a)
 	if !ok {

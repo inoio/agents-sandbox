@@ -101,7 +101,7 @@ const containerProbeTimeout = 5 * time.Second
 // reaper runs, and the SDK aborts Shell on a canceled context, which would
 // silently suppress the warning. WithoutCancel keeps ctx's values but drops its
 // cancellation, and the timeout bounds the probe.
-func warnRunningContainers(ctx context.Context, sb msb.Sandbox, ui termio.UI) {
+func warnRunningContainers(ctx context.Context, sb msb.Sandbox, ui termio.Logger) {
 	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), containerProbeTimeout)
 	defer cancel()
 	out, err := sb.Shell(probeCtx, runningContainersProbeCmd)
@@ -201,7 +201,7 @@ func pollQuiescence(
 	sb msb.Sandbox,
 	provider agent.SessionStatusProvider,
 	maxRetry int,
-	ui termio.UI,
+	ui termio.Logger,
 ) sessionPoll {
 	states, err := sessionStates(ctx, sb, provider.SessionStatusCmd())
 	if err != nil {

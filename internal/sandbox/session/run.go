@@ -41,7 +41,7 @@ var prepareSandbox = func(ctx context.Context, opts options.RunOptions, skipVM b
 var previewSandbox = prepare.PreviewSandbox
 
 // renderPreview reports what a real run would do, without doing it.
-func renderPreview(ui termio.UI, p prepare.Preview, shell bool) {
+func renderPreview(ui termio.Logger, p prepare.Preview, shell bool) {
 	switch {
 	case p.ResolveVersionAtBuild:
 		ui.Infof("dry-run: agent version resolved at build time")
@@ -74,7 +74,7 @@ func renderPreview(ui termio.UI, p prepare.Preview, shell bool) {
 // previewAndRender resolves the read-only preview and reports it, returning nil
 // so a dry run ends here: nothing is built, created, written, started, or
 // attached.
-func previewAndRender(ctx context.Context, opts options.RunOptions, ui termio.UI, shell bool) error {
+func previewAndRender(ctx context.Context, opts options.RunOptions, ui termio.Logger, shell bool) error {
 	p, err := previewSandbox(ctx, opts, ui)
 	if err != nil {
 		return err
@@ -96,7 +96,7 @@ func startNotifyWatcher(
 	ctx context.Context,
 	sb msb.Sandbox,
 	cfg notify.Config,
-	ui termio.UI,
+	ui termio.Logger,
 	spec *agent.EventStreamSpec,
 	projectSlug string,
 ) func() error {
@@ -139,7 +139,7 @@ func buildAttachCommand(a agent.Agent, target string, args []string) string {
 // logNotifyWatcherError stops the notify watcher and logs its drop-summary
 // error, if any. It is deferred from Run so it runs only after the attach TUI
 // has closed and can no longer be corrupted by the message.
-func logNotifyWatcherError(stop func() error, ui termio.UI) {
+func logNotifyWatcherError(stop func() error, ui termio.Logger) {
 	if err := stop(); err != nil {
 		ui.Verbosef("notify watcher: %v", err)
 	}
@@ -162,7 +162,7 @@ func serveOnlyMessage(a agent.Agent, host, port string) string {
 // runServeOnly keeps the VM alive and blocks until ctx is done (CTRL-D or
 // SIGINT), without attaching an in-VM TUI. It holds the VM via a keeper exec so
 // the msb idle timeout does not stop it while serving.
-func runServeOnly(ctx context.Context, a agent.Agent, sb msb.Sandbox, ui termio.UI, hostPort int) error {
+func runServeOnly(ctx context.Context, a agent.Agent, sb msb.Sandbox, ui termio.Logger, hostPort int) error {
 	host := options.ServeOnlyBindAddr
 	port := strconv.Itoa(hostPort)
 	ui.Infof("%s", serveOnlyMessage(a, host, port))

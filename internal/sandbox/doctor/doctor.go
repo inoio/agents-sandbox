@@ -26,7 +26,7 @@ func CheckDocker(ctx context.Context) error {
 
 // CheckAll runs every prerequisite check, rendering all failures and any
 // non-fatal warnings through ui. It returns true only when all checks pass.
-func CheckAll(ctx context.Context, ui termio.UI) bool {
+func CheckAll(ctx context.Context, ui termio.Logger) bool {
 	return checkAllFunc(ctx, ui)
 }
 
@@ -38,7 +38,7 @@ type checkResults struct {
 }
 
 // realCheckAll aggregates the platform checks and reports the results.
-func realCheckAll(ctx context.Context, ui termio.UI) bool {
+func realCheckAll(ctx context.Context, ui termio.Logger) bool {
 	results := collectChecksFunc(ctx)
 	ok := len(results.errs) == 0
 	for _, info := range results.infos {

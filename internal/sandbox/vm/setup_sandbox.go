@@ -32,7 +32,7 @@ const defaultHookInterpreter = "/bin/sh"
 // on the host source. The hook's HOME is set so scripts can rely on it. The
 // agent waits for the attach to finish; a hook that must outlive the attach is
 // responsible for daemonizing itself. Failures are logged, not fatal.
-func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.UI) {
+func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.HookSpec, ui termio.Logger) {
 	for _, h := range hooks {
 		user := DefaultSandboxUser
 		home := "/home/dev"
@@ -71,7 +71,7 @@ func SetUpSandbox(
 	sb msb.Sandbox,
 	opts options.RunOptions,
 	cfs *reprovision.ConfigFiles,
-	ui termio.UI,
+	ui termio.Logger,
 	restart bool,
 	boot VMBoot,
 	guestCWD string,
@@ -124,7 +124,7 @@ func SetUpSandbox(
 // restartDaemons restarts the agent's daemon so an already-provisioned
 // agent-config change is picked up. Env/secret changes are never routed
 // here: they require a VM rebuild and are handled by the recreate path instead.
-func restartDaemons(ctx context.Context, a agent.Agent, sb msb.Sandbox, serveOnly bool, ui termio.UI) {
+func restartDaemons(ctx context.Context, a agent.Agent, sb msb.Sandbox, serveOnly bool, ui termio.Logger) {
 	ui.Infof("%s serve restarting…", a.Name())
 	// ensureDaemon no-ops for an agent without a DaemonProvider.
 	if err := ensureDaemon(ctx, a, serveOnly, true, sb, ui); err != nil {
