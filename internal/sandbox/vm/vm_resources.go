@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strings"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // reconcileResourceConfig applies requested CPUs/memory changes to an existing

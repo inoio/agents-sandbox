@@ -12,8 +12,10 @@ import (
 
 // planSlug and planContentID identify the runner image the plan tests compare
 // their persisted VM image against.
-const planSlug = "proj-1mjusbm3wikhb0"
-const planContentID = "9f2c1a7b4d6e0f31"
+const (
+	planSlug      = "proj-1mjusbm3wikhb0"
+	planContentID = "9f2c1a7b4d6e0f31"
+)
 
 // planImage is the launcher-side structured identity most tests compare a
 // persisted VM image against: the fixture project and agent, pinned to one

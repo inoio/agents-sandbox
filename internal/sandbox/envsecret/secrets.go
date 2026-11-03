@@ -7,10 +7,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/inoio/agents-sandbox/internal/termio"
-
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 	"go.yaml.in/yaml/v3"
+
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // SecretSpec describes a secret to provision into the VM.

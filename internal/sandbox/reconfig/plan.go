@@ -17,10 +17,12 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-const changeLabelPublishedPorts = "published port(s)"
-const changeLabelNetworkPolicy = "network policy"
-const changeLabelBindMounts = "host bind mounts"
-const changeLabelImage = "image"
+const (
+	changeLabelPublishedPorts = "published port(s)"
+	changeLabelNetworkPolicy  = "network policy"
+	changeLabelBindMounts     = "host bind mounts"
+	changeLabelImage          = "image"
+)
 
 // Change describes one changed setting for prompt display. Values are
 // shown for simple sizes/counts; env/secrets/config carry labels only (Old/New empty).

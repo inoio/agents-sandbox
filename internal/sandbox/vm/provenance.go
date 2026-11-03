@@ -4,12 +4,12 @@ import (
 	"context"
 	"strings"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // Provenance files baked into the image by the agent and docker blocks.

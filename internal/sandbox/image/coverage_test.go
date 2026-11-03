@@ -178,7 +178,9 @@ func TestEnsureImageReturnsErrorWhenDeferredVersionResolveFails(t *testing.T) {
 			return client.ImageInspectResult{
 				ID: "sha256:existing",
 				Config: &dockerspec.DockerOCIImageConfig{
-					Labels: map[string]string{dockerfileIDLabelKey: "stale"}}}, nil
+					Labels: map[string]string{dockerfileIDLabelKey: "stale"},
+				},
+			}, nil
 		},
 	})
 	_, err := EnsureImageWithClient(context.Background(), docker.Get(), a, []byte("FROM x\n"), "test-project",

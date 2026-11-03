@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/atomicwrite"
-
 	"go.yaml.in/yaml/v3"
+
+	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 )
 
 // RootState is the launcher-global state document at the top of the state root,

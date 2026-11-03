@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -11,8 +13,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // DefaultSandboxUser is the user hooks run as unless the hook opts into root.

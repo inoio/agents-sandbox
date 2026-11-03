@@ -17,18 +17,16 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
-	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/upgrade"
-	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
-
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/session"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/upgrade"
+	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
 const minUsagePadding = 25

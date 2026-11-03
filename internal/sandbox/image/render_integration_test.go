@@ -314,9 +314,11 @@ func TestRenderDockerfileOwnsToolTreeOnPreProvidedDevBase(t *testing.T) {
 		project []byte
 		wantGID string
 	}{
-		{"dev-with-group", []byte(fmt.Sprintf(basePrelude+
-			"RUN groupadd -g %[1]d dev && useradd -m -u 1001 -g dev dev\nFROM predev\n", devGroupGID)),
-			fmt.Sprintf("%d", devGroupGID)},
+		{
+			"dev-with-group", []byte(fmt.Sprintf(basePrelude+
+				"RUN groupadd -g %[1]d dev && useradd -m -u 1001 -g dev dev\nFROM predev\n", devGroupGID)),
+			fmt.Sprintf("%d", devGroupGID),
+		},
 		{"dev-without-group", []byte(basePrelude +
 			"RUN useradd -m -u 1001 -g nogroup dev\nFROM predev\n"), ""},
 		{"user-gid-taken", []byte(fmt.Sprintf(basePrelude+

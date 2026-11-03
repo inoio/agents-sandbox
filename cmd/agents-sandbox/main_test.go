@@ -8,7 +8,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/termio"
-
 	mocks "github.com/inoio/agents-sandbox/internal/testutil/mocks"
 )
 

@@ -7,11 +7,11 @@ import (
 	"slices"
 	"time"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
-
-	"go.yaml.in/yaml/v3"
 )
 
 // legacyUpdaterStateFile is the retired machine-global updater state file.

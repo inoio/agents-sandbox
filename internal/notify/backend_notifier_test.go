@@ -24,8 +24,11 @@ func TestNewBackendActiveConfigs(t *testing.T) {
 		cfg  Config
 		want []Backend
 	}{
-		{"desktop+system", Config{Desktop: true, Audio: AudioSystem},
-			[]Backend{&DesktopNotifier{}, &SystemAudioNotifier{}}},
+		{
+			"desktop+system",
+			Config{Desktop: true, Audio: AudioSystem},
+			[]Backend{&DesktopNotifier{}, &SystemAudioNotifier{}},
+		},
 		{"desktop+off", Config{Desktop: true, Audio: AudioOff}, []Backend{&DesktopNotifier{}}},
 		{"bell only", Config{Desktop: false, Audio: AudioBell}, []Backend{&BellNotifier{}}},
 		{"system only", Config{Desktop: false, Audio: AudioSystem}, []Backend{&SystemAudioNotifier{}}},

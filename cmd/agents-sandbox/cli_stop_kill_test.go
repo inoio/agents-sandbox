@@ -24,6 +24,7 @@ func initTestProjectDir(t *testing.T) {
 	t.Helper()
 	t.Chdir(t.TempDir())
 }
+
 func notFoundErr() error {
 	return &msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}
 }

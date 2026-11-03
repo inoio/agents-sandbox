@@ -457,6 +457,7 @@ func (m *MockSandboxHandle) Image() string {
 	}
 	return ""
 }
+
 func (m *MockSandboxHandle) Connect(_ context.Context) (Sandbox, error) {
 	if m.ConnectErr != nil {
 		return nil, m.ConnectErr
@@ -466,12 +467,14 @@ func (m *MockSandboxHandle) Connect(_ context.Context) (Sandbox, error) {
 	}
 	return &MockSandbox{Name_: m.Name_}, nil
 }
+
 func (m *MockSandboxHandle) Refresh(ctx context.Context) (SandboxHandle, error) {
 	if m.RefreshFn != nil {
 		return m.RefreshFn(ctx)
 	}
 	return m, nil
 }
+
 func (m *MockSandboxHandle) Start(ctx context.Context) (Sandbox, error) {
 	if m.StartFn != nil {
 		return m.StartFn(ctx)
@@ -484,14 +487,17 @@ func (m *MockSandboxHandle) Start(ctx context.Context) (Sandbox, error) {
 	}
 	return &MockSandbox{Name_: m.Name_}, nil
 }
+
 func (m *MockSandboxHandle) Stop(_ context.Context, _ ...msbSdk.StopOption) error {
 	m.DidStop = true
 	return m.StopErr
 }
+
 func (m *MockSandboxHandle) Kill(_ context.Context, _ ...msbSdk.KillOption) error {
 	m.DidKill = true
 	return m.KillErr
 }
+
 func (m *MockSandboxHandle) Remove(_ context.Context) error {
 	if m.RemoveErr != nil {
 		return m.RemoveErr
@@ -534,6 +540,7 @@ func (m *MockSandboxHandle) Modify(
 	m.ModifiedOptions = append(m.ModifiedOptions, opts)
 	return m.Plan, m.ModifyErr
 }
+
 func (m *MockSandboxHandle) Compact(
 	_ context.Context,
 	opts msbSdk.DiskCompactionOptions,
@@ -609,6 +616,7 @@ func (m *MockSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecO
 	// Return successful result when no override is configured.
 	return &TestResult{success: true}, nil
 }
+
 func (m *MockSandbox) Exec(
 	_ context.Context,
 	command string,
@@ -849,6 +857,7 @@ func (t *TestFS) Mkdir(_ context.Context, path string) error {
 	t.Mkdirs = append(t.Mkdirs, path)
 	return nil
 }
+
 func (t *TestFS) Write(_ context.Context, path string, data []byte) error {
 	if t.WriteErr != nil {
 		return t.WriteErr
@@ -859,6 +868,7 @@ func (t *TestFS) Write(_ context.Context, path string, data []byte) error {
 	t.Writes[path] = data
 	return nil
 }
+
 func (t *TestFS) Read(_ context.Context, path string) ([]byte, error) {
 	if t.ReadErr != nil {
 		return nil, t.ReadErr
@@ -868,6 +878,7 @@ func (t *TestFS) Read(_ context.Context, path string) ([]byte, error) {
 	}
 	return nil, fmt.Errorf("file not found: %s", path)
 }
+
 func (t *TestFS) Remove(_ context.Context, path string) error {
 	t.Removed = append(t.Removed, path)
 	return nil
