@@ -1,6 +1,7 @@
 // Package agent provides built-in coding-agent profiles. The active agent is
 // selected by name; optional capabilities are discovered by type assertion, so
-// agents without a capability simply lack it and degrade gracefully.
+// agents without a capability simply lack it and degrade gracefully. Resolve
+// materializes a selected profile's capabilities once at a run boundary.
 package agent
 
 import "sort"

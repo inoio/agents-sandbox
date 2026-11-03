@@ -8,6 +8,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
@@ -159,6 +160,7 @@ func TestSetUpSandboxProvisionError(t *testing.T) {
 		context.Background(),
 		testVMKey(),
 		sb,
+		opencodeResolved(t),
 		options.RunOptions{Agent: "opencode"},
 		cfs,
 		&ui,
@@ -195,7 +197,7 @@ func TestRestartDaemonsKillError(t *testing.T) {
 		GetJobFn: func(context.Context, string) (msb.Job, error) { return stale, nil },
 	}
 
-	restartDaemons(context.Background(), opencodeAgent(t), sb, false, &ui)
+	restartDaemons(context.Background(), opencodeResolved(t), sb, false, &ui)
 
 	if !contains(joinStrings(ui.VerboseCalls), "killing job") {
 		t.Errorf("expected a kill-failure verbose message, got %v", ui.VerboseCalls)
@@ -209,7 +211,7 @@ func TestRestartDaemonsNoProvider(t *testing.T) {
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs, ShellCalls: &[]string{}}
 
-	restartDaemons(context.Background(), &fakeAgent{}, sb, false, &ui)
+	restartDaemons(context.Background(), agent.Resolve(&fakeAgent{}), sb, false, &ui)
 
 	if len(*sb.ShellCalls) != 0 {
 		t.Errorf("expected no shell calls for an agent without a DaemonProvider, got %v", *sb.ShellCalls)

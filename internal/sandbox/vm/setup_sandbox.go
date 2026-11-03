@@ -63,12 +63,14 @@ func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.Hoo
 // It writes the agent config files, records image provenance on a fresh boot,
 // and then either restarts the agent daemon (restart, for a config change the
 // running VM must pick up) or runs the startup hooks, starts dockerd and
-// ensures the agent daemon. The target is resolved from guestCWD and
-// opts.Worktree.
+// ensures the agent daemon. It consumes the run's already-resolved agent
+// capabilities (a) rather than re-looking-up the agent. The target is resolved
+// from guestCWD and opts.Worktree.
 func SetUpSandbox(
 	ctx context.Context,
 	k state.Key,
 	sb msb.Sandbox,
+	a agent.Resolved,
 	opts options.RunOptions,
 	cfs *reprovision.ConfigFiles,
 	ui termio.Logger,
@@ -76,11 +78,6 @@ func SetUpSandbox(
 	boot VMBoot,
 	guestCWD string,
 ) (string, error) {
-	a, ok := agent.Lookup(opts.Agent)
-	if !ok {
-		return "", fmt.Errorf("unknown agent %q", opts.Agent)
-	}
-
 	ui.Verbosef("expected config files: %v", cfs.Keys)
 
 	// Provisioning (writing files) is idempotent and non-disruptive, so it is
@@ -124,8 +121,8 @@ func SetUpSandbox(
 // restartDaemons restarts the agent's daemon so an already-provisioned
 // agent-config change is picked up. Env/secret changes are never routed
 // here: they require a VM rebuild and are handled by the recreate path instead.
-func restartDaemons(ctx context.Context, a agent.Agent, sb msb.Sandbox, serveOnly bool, ui termio.Logger) {
-	ui.Infof("%s serve restarting…", a.Name())
+func restartDaemons(ctx context.Context, a agent.Resolved, sb msb.Sandbox, serveOnly bool, ui termio.Logger) {
+	ui.Infof("%s serve restarting…", a.Agent.Name())
 	// ensureDaemon no-ops for an agent without a DaemonProvider.
 	if err := ensureDaemon(ctx, a, serveOnly, true, sb, ui); err != nil {
 		ui.Warnf("daemon restart failed: %v (using existing)", err)

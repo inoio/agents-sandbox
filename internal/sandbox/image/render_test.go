@@ -508,7 +508,7 @@ func (emptyGuestToolsAgent) Name() string         { return "stub" }
 func (emptyGuestToolsAgent) GuestTools() []string { return nil }
 
 func TestGuestToolsBlockEmptyListEmitsNothing(t *testing.T) {
-	if got := guestToolsBlock(emptyGuestToolsAgent{}); got != "" {
+	if got := guestToolsBlock(agent.Resolve(emptyGuestToolsAgent{})); got != "" {
 		t.Errorf("guestToolsBlock with an empty tool list = %q, want empty", got)
 	}
 }

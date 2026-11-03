@@ -83,7 +83,7 @@ func TestResolveTargetResolvesThenPassesProjectToProvider(t *testing.T) {
 	}}
 	dir, err := ResolveTarget(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -121,7 +121,7 @@ func TestResolveTargetAbortsWhenResolveFails(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -147,7 +147,7 @@ func TestResolveTargetAbortsWhenProjectUnparsable(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -177,7 +177,7 @@ func TestResolveTargetAbortsWhenListUnparsable(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -208,7 +208,7 @@ func TestResolveTargetV1SkipsResolveStep(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -226,7 +226,7 @@ func TestResolveTargetEmptySpecReturnsWorkspace(t *testing.T) {
 	sb := &msb.MockSandbox{ShellCalls: &[]string{}}
 	dir, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{},
 		mounts.WorkspaceMountPath,
@@ -248,7 +248,7 @@ func TestResolveTargetNoDaemonProvider(t *testing.T) {
 	sb := &msb.MockSandbox{ShellCalls: &[]string{}}
 	dir, err := ResolveTarget(
 		context.Background(),
-		&fakeAgent{},
+		agent.Resolve(&fakeAgent{}),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -277,7 +277,7 @@ func TestResolveTargetReusesExistingWorktree(t *testing.T) {
 	}
 	dir, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "bugfix-exit-zero"},
 		mounts.WorkspaceMountPath,
@@ -308,7 +308,7 @@ func TestResolveTargetReuseWarnsIgnoredBase(t *testing.T) {
 	}
 	_, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "foo", Base: "main"},
 		mounts.WorkspaceMountPath,
@@ -361,7 +361,7 @@ func TestResolveTargetReuseIgnoresUnresolvableBase(t *testing.T) {
 	}
 	dir, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "foo", Base: "main"},
 		mounts.WorkspaceMountPath,
@@ -411,7 +411,7 @@ func TestResolveTargetCreatesWithoutBase(t *testing.T) {
 	}
 	dir, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -454,7 +454,7 @@ func TestResolveTargetCreatesWithBaseValidatesAndSendsStartCommand(t *testing.T)
 	}
 	dir, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x", Base: "main"},
 		mounts.WorkspaceMountPath,
@@ -509,7 +509,7 @@ func TestResolveTargetCreateFailsOnUnresolvableBase(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x", Base: "nope"},
 		mounts.WorkspaceMountPath,
@@ -571,7 +571,7 @@ func TestResolveTargetCreateReportsWorktree(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -600,7 +600,7 @@ func TestResolveTargetReuseReportsWorktree(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -634,7 +634,7 @@ func TestResolveTargetOpencode2ReportsDetachedHead(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -671,7 +671,7 @@ func TestResolveTargetOpencode2ReuseDoesNotClaimDetachedHead(t *testing.T) {
 	}
 	got, err := ResolveTarget(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -712,7 +712,7 @@ func TestResolveTargetOpencodeDoesNotReportDetachedHead(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -747,7 +747,7 @@ func TestResolveTargetWarnsOnRenamedWorktree(t *testing.T) {
 	}
 	dir, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,

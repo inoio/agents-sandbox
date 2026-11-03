@@ -189,7 +189,7 @@ func TestPlanReconfigStageLiveVMReadError(t *testing.T) {
 	msb.WithMsbMock(t, client)
 	provisionHostConfig := false
 	opts := options.RunOptions{Agent: "opencode", ProvisionHostConfig: &provisionHostConfig}
-	session := sessionIdentity{key: testVMKey(), agent: opencodeAgent(t)}
+	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
 	home := preparedHome{client: client, volumes: volume.NewManager(), homeVolume: "vol"}
 
 	_, err := planReconfigStage(context.Background(), session, image.ImageInfo{}, home, false, opts, &ui)
@@ -251,7 +251,7 @@ func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {
 	msb.WithMsbMock(t, client)
 	provisionHostConfig := false
 	opts := options.RunOptions{Agent: "opencode", ProvisionHostConfig: &provisionHostConfig}
-	session := sessionIdentity{key: testVMKey(), agent: opencodeAgent(t)}
+	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
 	home := preparedHome{
 		client:     client,
 		volumes:    volume.NewManager(),

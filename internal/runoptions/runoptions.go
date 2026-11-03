@@ -76,7 +76,7 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.Logger) (optio
 		return options.RunOptions{}, err
 	}
 
-	if err = resolveNotify(cfg, cmd, ui, &opts); err != nil {
+	if err = resolveNotify(cfg, cmd, ui, &opts, a); err != nil {
 		return options.RunOptions{}, err
 	}
 
@@ -113,8 +113,8 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.Logger) (optio
 	// The experimental notice is informational, so it is emitted only once all
 	// validation has passed: an invalid invocation errors without first printing
 	// the info line.
-	if a.Experimental() {
-		ui.Infof("%s is experimental — not well tested with agents-sandbox", a.Name())
+	if a.Agent.Experimental() {
+		ui.Infof("%s is experimental — not well tested with agents-sandbox", a.Agent.Name())
 	}
 
 	return opts, nil
@@ -207,12 +207,12 @@ func ResolveMode(cmd *cobra.Command) options.Mode {
 
 // resolveAgentAndValidate resolves the agent (default > config > flag),
 // rejecting unknown names and unsupported --worktree/--serve-only combinations,
-// and returns the validated profile.
+// and returns the validated profile and its resolved capabilities.
 func resolveAgentAndValidate(
 	cfg *viperconfig.Config,
 	cmd *cobra.Command,
 	opts *options.RunOptions,
-) (agent.Agent, error) {
+) (agent.Resolved, error) {
 	opts.Agent = defaultAgentName
 	if cfg != nil && cfg.Agent != "" {
 		opts.Agent = cfg.Agent
@@ -221,44 +221,52 @@ func resolveAgentAndValidate(
 		opts.Agent = name
 	}
 	if !slices.Contains(agent.Names(), opts.Agent) {
-		return nil, fmt.Errorf(
+		return agent.Resolved{}, fmt.Errorf(
 			"unknown agent %q: must be one of %s",
 			opts.Agent,
 			strings.Join(agent.Names(), ", "),
 		)
 	}
 	a, _ := agent.Lookup(opts.Agent)
+	resolved := agent.Resolve(a)
 	if opts.Worktree.Name != "" {
-		if _, ok := agent.AsWorktreeProvider(a); !ok {
-			return nil, fmt.Errorf("--worktree is not supported by agent %q", a.Name())
+		if resolved.Worktree == nil {
+			return agent.Resolved{}, fmt.Errorf("--worktree is not supported by agent %q", a.Name())
 		}
 	}
 	if opts.ServeOnly {
-		if _, ok := agent.AsDaemonProvider(a); !ok {
-			return nil, fmt.Errorf("--serve-only is not supported by agent %q", a.Name())
+		if resolved.Daemon == nil {
+			return agent.Resolved{}, fmt.Errorf("--serve-only is not supported by agent %q", a.Name())
 		}
 	}
-	return a, nil
+	return resolved, nil
 }
 
 // resolveNotify resolves the effective notify config (flag > env > config),
 // then validates agent support, warning or failing for agents without a daemon.
-func resolveNotify(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.Logger, opts *options.RunOptions) error {
+// It reads the run's already-resolved capabilities instead of re-looking-up the
+// agent.
+func resolveNotify(
+	cfg *viperconfig.Config,
+	cmd *cobra.Command,
+	ui termio.Logger,
+	opts *options.RunOptions,
+	a agent.Resolved,
+) error {
 	nc, err := resolveNotifyConfig(cfg, cmd)
 	if err != nil {
 		return err
 	}
 	opts.Notify = nc
 	if nc.Active() {
-		a, _ := agent.Lookup(opts.Agent)
-		if _, ok := agent.AsDaemonProvider(a); !ok {
+		if a.Daemon == nil {
 			if override, _ := notifyEnvOverride(); cmd.Flags().Changed(FlagNotify) || override != "" {
 				return fmt.Errorf(
 					"--notify is not supported by agent %q (no daemon/event stream)",
-					a.Name(),
+					a.Agent.Name(),
 				)
 			}
-			ui.Warnf("notifications not supported by agent %q (no daemon/event stream); ignoring", a.Name())
+			ui.Warnf("notifications not supported by agent %q (no daemon/event stream); ignoring", a.Agent.Name())
 			opts.Notify = notify.Config{Audio: notify.AudioOff}
 		}
 	}

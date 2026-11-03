@@ -30,7 +30,7 @@ func TestRestartDaemonsEnsureDaemonError(t *testing.T) {
 		},
 	}
 
-	restartDaemons(context.Background(), opencodeAgent(t), sb, false, &ui)
+	restartDaemons(context.Background(), opencodeResolved(t), sb, false, &ui)
 
 	if !contains(joinStrings(ui.WarnCalls), "daemon restart failed") {
 		t.Errorf("expected a daemon-restart-failure warning, got %v", ui.WarnCalls)
