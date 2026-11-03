@@ -52,6 +52,16 @@ type Mock struct {
 	InputFn  func(prompt, defaultValue string) (string, error)
 }
 
+var (
+	_ Logger         = (*Mock)(nil)
+	_ Output         = (*Mock)(nil)
+	_ Prompter       = (*Mock)(nil)
+	_ SpinnerFactory = (*Mock)(nil)
+	_ TerminalState  = (*Mock)(nil)
+	_ Streams        = (*Mock)(nil)
+	_ UI             = (*Mock)(nil)
+)
+
 type mockSpinner struct{ owner *Mock }
 
 func (s *mockSpinner) Stop() {
