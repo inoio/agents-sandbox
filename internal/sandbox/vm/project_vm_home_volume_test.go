@@ -86,14 +86,11 @@ func TestProjectVMHomeVolume(t *testing.T) {
 	}
 }
 
-// TestSetProjectVMLockReplacesTheCreationLock pins the test seam: EnsureProjectVM
-// takes the replaced lock on its create path, and the seam hands back the lock it
-// replaced so a test can restore it.
-func TestSetProjectVMLockReplacesTheCreationLock(t *testing.T) {
+// TestProjectVMCreationProjectVMLockSeam pins the injected creation-lock seam:
+// EnsureProjectVM takes the lock from creation.Seams.ProjectVMLock on its create
+// path.
+func TestProjectVMCreationProjectVMLockSeam(t *testing.T) {
 	lockErr := errors.New("lock boom")
-	failingLock := func(state.Key) (func(), error) { return nil, lockErr }
-	orig := SetProjectVMLock(failingLock)
-	t.Cleanup(func() { SetProjectVMLock(orig) })
 	ui := termio.NewTestMock(t)
 
 	_, _, err := EnsureProjectVM(context.Background(), ProjectVMCreation{
@@ -108,13 +105,11 @@ func TestSetProjectVMLockReplacesTheCreationLock(t *testing.T) {
 		SkipVM:       false,
 		Env:          envsecret.EnvSecrets{},
 		UI:           &ui,
+		Seams: options.Seams{ProjectVMLock: func(state.Key) (func(), error) {
+			return nil, lockErr
+		}},
 	})
 	if !errors.Is(err, lockErr) {
-		t.Fatalf("EnsureProjectVM error = %v, want the replaced lock's %v", err, lockErr)
-	}
-
-	replaced := SetProjectVMLock(orig)
-	if _, err := replaced(testVMKey()); !errors.Is(err, lockErr) {
-		t.Errorf("SetProjectVMLock returned a lock with error %v, want the one it replaced (%v)", err, lockErr)
+		t.Fatalf("EnsureProjectVM error = %v, want the injected lock's %v", err, lockErr)
 	}
 }

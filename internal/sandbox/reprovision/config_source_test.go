@@ -81,7 +81,13 @@ func (invalidConfigDirAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpe
 func TestLoadConfigFilesRejectsInvalidProfileName(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFilesForHost(invalidConfigDirAgent{}, t.TempDir(), t.TempDir(), &ui, true); err == nil {
+	if _, err := LoadConfigFilesForHost(
+		agent.Resolve(invalidConfigDirAgent{}),
+		t.TempDir(),
+		t.TempDir(),
+		&ui,
+		true,
+	); err == nil {
 		t.Fatal("LoadConfigFilesForHost with an invalid config-dir name = nil error, want error")
 	}
 }
@@ -91,7 +97,7 @@ func TestLoadAndDescribePropagateResolveError(t *testing.T) {
 
 	a := invalidConfigDirAgent{}
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFilesForHost(a, t.TempDir(), t.TempDir(), &ui, true); err == nil {
+	if _, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), t.TempDir(), &ui, true); err == nil {
 		t.Error("expected LoadConfigFilesForHost to propagate the resolution error")
 	}
 	if _, _, _, _, _, err := Describe(a, t.TempDir(), t.TempDir(), &ui, true); err == nil {

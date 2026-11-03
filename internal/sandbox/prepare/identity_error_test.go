@@ -19,7 +19,7 @@ func TestResolveSessionIdentityErrorsWhenIdentityUnresolvable(t *testing.T) {
 		&msb.MockMsbClient{},
 		configpaths.Get(),
 		unresolvableIdentityDir(t),
-		"opencode",
+		opencodeResolved(t),
 		false,
 		&ui,
 	)
@@ -34,7 +34,7 @@ func TestPreviewSandboxErrorsWhenIdentityUnresolvable(t *testing.T) {
 	t.Chdir(unresolvableIdentityDir(t))
 
 	ui := termio.NewTestMock(t)
-	_, err := PreviewSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, &ui)
+	_, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err == nil {
 		t.Fatal("PreviewSandbox succeeded with an unresolvable identity, want an error")
 	}

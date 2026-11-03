@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"slices"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-
-	"go.yaml.in/yaml/v3"
 )
 
 // Key identifies a project artifact by project slug and agent.

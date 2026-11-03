@@ -56,7 +56,7 @@ func (relMergedConfigAgent) ConfigFileNames() []string { return []string{"merged
 func TestLoadConfigFilesReservedTargetError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
-	_, err := LoadConfigFilesForHost(relMergedConfigAgent{}, t.TempDir(), t.TempDir(), &ui, true)
+	_, err := LoadConfigFilesForHost(agent.Resolve(relMergedConfigAgent{}), t.TempDir(), t.TempDir(), &ui, true)
 	if err == nil || !strings.Contains(err.Error(), "reserved home target") {
 		t.Fatalf("LoadConfigFilesForHost error = %v, want reserved home target error", err)
 	}
@@ -74,7 +74,7 @@ func TestLoadConfigFilesHomeFilesError(t *testing.T) {
 			"    source: somefile\n")
 
 	ui := termio.NewTestMock(t)
-	_, err := LoadConfigFilesForHost(opencodeTestAgent(), t.TempDir(), t.TempDir(), &ui, true)
+	_, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), t.TempDir(), t.TempDir(), &ui, true)
 	if err == nil || !strings.Contains(err.Error(), "must be relative to the home directory") {
 		t.Fatalf("LoadConfigFilesForHost error = %v, want home-target resolution error", err)
 	}
@@ -97,7 +97,7 @@ func TestLoadConfigFilesProvisionError(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	_, err := LoadConfigFilesForHost(badProvisionerAgent{}, t.TempDir(), t.TempDir(), &ui, true)
+	_, err := LoadConfigFilesForHost(agent.Resolve(badProvisionerAgent{}), t.TempDir(), t.TempDir(), &ui, true)
 	if !errors.Is(err, boom) {
 		t.Fatalf("LoadConfigFilesForHost error = %v, want %v", err, boom)
 	}
@@ -128,7 +128,7 @@ func TestLoadConfigFilesNoMergedForNonConfigMerger(t *testing.T) {
 
 	// No snippets: a non-ConfigMerger agent yields no merged config.
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(plainAgent{}, hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(plainAgent{}), hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestLoadConfigFilesNoMergedForNonConfigMerger(t *testing.T) {
 		"opencode-model.json",
 		`{"model":"x"}`,
 	)
-	cf, err = LoadConfigFilesForHost(plainAgent{}, hostHome, vmHome, &ui, true)
+	cf, err = LoadConfigFilesForHost(agent.Resolve(plainAgent{}), hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestLoadConfigFilesWarnsOnMalformedProvisionRules(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(badProvisionerAgent{}, hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(badProvisionerAgent{}), hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}

@@ -287,7 +287,7 @@ func TestEnsureDaemonContextCancelled(t *testing.T) {
 
 	provider := opencodeProvider(t)
 	healthChecks := 0
-	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == provider.DaemonHealthCmd() {
 			healthChecks++
 			if healthChecks == 3 {
@@ -296,14 +296,13 @@ func TestEnsureDaemonContextCancelled(t *testing.T) {
 			return "", 1, nil
 		}
 		return "", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
+	}}
 
 	origPoll := daemonPollInterval
 	t.Cleanup(func() { daemonPollInterval = origPoll })
 	daemonPollInterval = time.Millisecond
 
-	err := ensureDaemon(ctx, opencodeResolved(t), false, false, &msb.MockSandbox{}, &termio.Mock{})
+	err := ensureDaemon(ctx, opencodeResolved(t), false, false, &msb.MockSandbox{}, &termio.Mock{}, seams)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
@@ -312,19 +311,14 @@ func TestEnsureDaemonContextCancelled(t *testing.T) {
 // TestDefaultDaemonHealthFuncSuccess covers the default daemonHealthFunc success
 // path: it forwards stdout and the exit code from sb.Shell.
 func TestDefaultDaemonHealthFuncSuccess(t *testing.T) {
-	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
-		return "", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
-
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
 			"cmd": msb.NewTestResult(true, 7, "hello", "", nil),
 		},
 	}
-	// orig is the default daemonHealthFunc closure; invoking it directly
+	// daemonHealthFunc is the production default closure; invoking it directly
 	// exercises the production success path.
-	stdout, code, err := orig(context.Background(), sb, "cmd")
+	stdout, code, err := daemonHealthFunc(context.Background(), sb, "cmd")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -490,13 +484,8 @@ func TestCreateProjectVMServeOnlyPublishesExactPort(t *testing.T) {
 // TestDefaultDaemonHealthFuncErrorBranch covers the error branch of the default
 // daemonHealthFunc closure: a failed sb.Shell yields exit code -1.
 func TestDefaultDaemonHealthFuncErrorBranch(t *testing.T) {
-	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
-		return "", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
-
 	sb := &msb.MockSandbox{ShellErr: errors.New("shell failed")}
-	stdout, code, err := orig(context.Background(), sb, "cmd")
+	stdout, code, err := daemonHealthFunc(context.Background(), sb, "cmd")
 	if err == nil {
 		t.Fatal("expected error from the default daemonHealthFunc")
 	}

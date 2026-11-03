@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
-
 	"go.yaml.in/yaml/v3"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
 // homeStateSchemaFields and rootStateSchemaFields pin the persisted field set of

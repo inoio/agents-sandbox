@@ -1031,7 +1031,7 @@ func TestPendingUpgradeLockHeldDefers(t *testing.T) {
 				return "r", nil
 			},
 		}
-		latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0")
+		latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0", agentLatestVersion)
 		if offer || latest != "" {
 			t.Errorf("pendingUpgrade = (%q, %v), want no offer with a held lock", latest, offer)
 		}
@@ -1068,6 +1068,7 @@ func TestPendingUpgradeSuppressedWhenAlreadyOffered(t *testing.T) {
 		k,
 		&termio.Mock{IsInteractiveResult: true},
 		"1.0.0",
+		agentLatestVersion,
 	)
 	if offer || latest != "" {
 		t.Errorf("pendingUpgrade = (%q, %v), want no offer for an already-offered version", latest, offer)
@@ -1088,12 +1089,26 @@ func TestPendingUpgradeClaimSuppressesNextOffer(t *testing.T) {
 		t.Fatalf("seedRootState: %v", err)
 	}
 
-	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, &termio.Mock{}, "1.0.0")
+	latest, offer := pendingUpgrade(
+		context.Background(),
+		opencodeResolved(t),
+		k,
+		&termio.Mock{},
+		"1.0.0",
+		agentLatestVersion,
+	)
 	if !offer || latest != "2.0.0" {
 		t.Fatalf("first pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
 	}
 
-	latest, offer = pendingUpgrade(context.Background(), opencodeResolved(t), k, &termio.Mock{}, "1.0.0")
+	latest, offer = pendingUpgrade(
+		context.Background(),
+		opencodeResolved(t),
+		k,
+		&termio.Mock{},
+		"1.0.0",
+		agentLatestVersion,
+	)
 	if offer || latest != "" {
 		t.Errorf("second pendingUpgrade = (%q, %v), want no offer after the first claimed it", latest, offer)
 	}
@@ -1130,7 +1145,14 @@ func TestPendingUpgradeOfferedWritePreservesFingerprints(t *testing.T) {
 	}
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
-	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, &termio.Mock{}, "1.0.0")
+	latest, offer := pendingUpgrade(
+		context.Background(),
+		opencodeResolved(t),
+		k,
+		&termio.Mock{},
+		"1.0.0",
+		agentLatestVersion,
+	)
 	if !offer || latest != "2.0.0" {
 		t.Fatalf("pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
 	}
@@ -1176,7 +1198,7 @@ func TestPendingUpgradeRootStateReadErrorDoesNotClobber(t *testing.T) {
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
 	ui := &termio.Mock{}
-	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0")
+	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0", agentLatestVersion)
 	if offer || latest != "" {
 		t.Errorf("pendingUpgrade = (%q, %v), want no offer on a root-state read error", latest, offer)
 	}
@@ -1225,7 +1247,7 @@ func TestPendingUpgradeWarnsOnRootStateWriteError(t *testing.T) {
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
 	ui := &termio.Mock{}
-	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0")
+	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0", agentLatestVersion)
 	if !offer || latest != "2.0.0" {
 		t.Fatalf("pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
 	}
@@ -1245,7 +1267,14 @@ func TestPendingUpgradeNoOfferWhenLatestEmpty(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "", nil }
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
-	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, &termio.Mock{}, "1.0.0")
+	latest, offer := pendingUpgrade(
+		context.Background(),
+		opencodeResolved(t),
+		k,
+		&termio.Mock{},
+		"1.0.0",
+		agentLatestVersion,
+	)
 	if offer || latest != "" {
 		t.Errorf("pendingUpgrade = (%q, %v), want no offer for an empty latest", latest, offer)
 	}
@@ -1270,7 +1299,7 @@ func TestPendingUpgradeWarnsOnProjectStateReadError(t *testing.T) {
 	}
 
 	ui := &termio.Mock{}
-	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0")
+	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0", agentLatestVersion)
 	if offer || latest != "" {
 		t.Errorf("pendingUpgrade = (%q, %v), want no offer on a project-state read error", latest, offer)
 	}
@@ -1293,7 +1322,14 @@ func TestPendingUpgradeOffersWhenProjectStateMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, &termio.Mock{}, "1.0.0")
+	latest, offer := pendingUpgrade(
+		context.Background(),
+		opencodeResolved(t),
+		k,
+		&termio.Mock{},
+		"1.0.0",
+		agentLatestVersion,
+	)
 	if !offer || latest != "2.0.0" {
 		t.Fatalf("pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
 	}
@@ -1324,7 +1360,7 @@ func TestPendingUpgradeWarnsOnProjectStateWriteError(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(keyDir, 0o700) })
 
 	ui := &termio.Mock{}
-	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0")
+	latest, offer := pendingUpgrade(context.Background(), opencodeResolved(t), k, ui, "1.0.0", agentLatestVersion)
 	if !offer || latest != "2.0.0" {
 		t.Fatalf("pendingUpgrade = (%q, %v), want (2.0.0, true)", latest, offer)
 	}
@@ -1359,7 +1395,13 @@ func TestCheckAgentUpgradeNetworkRunsWithoutRootLock(t *testing.T) {
 	}
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
-	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, &termio.Mock{})
+	entry, checked := checkAgentUpgrade(
+		context.Background(),
+		opencodeAgent(t),
+		true,
+		&termio.Mock{},
+		agentLatestVersion,
+	)
 	if !checked {
 		t.Fatal("checkAgentUpgrade deferred unexpectedly")
 	}
@@ -1401,7 +1443,13 @@ func TestCheckAgentUpgradeSkipsWriteWhenWindowRefreshedConcurrently(t *testing.T
 	}
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
-	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, &termio.Mock{})
+	entry, checked := checkAgentUpgrade(
+		context.Background(),
+		opencodeAgent(t),
+		true,
+		&termio.Mock{},
+		agentLatestVersion,
+	)
 	if !checked {
 		t.Fatal("checkAgentUpgrade deferred unexpectedly")
 	}
@@ -1440,7 +1488,7 @@ func TestCheckAgentUpgradeSecondReadErrorDefers(t *testing.T) {
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
 	ui := &termio.Mock{}
-	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, ui)
+	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, ui, agentLatestVersion)
 	if checked {
 		t.Error("checkAgentUpgrade must defer when the root state becomes unreadable")
 	}

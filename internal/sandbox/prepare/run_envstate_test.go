@@ -197,7 +197,7 @@ func TestResolveReconfigDecision_NetworkChangedWithPersistedState(t *testing.T) 
 	opts := options.RunOptions{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestResolveReconfigDecision_NetworkUnchangedNoRecreate(t *testing.T) {
 	opts := options.RunOptions{Network: policy}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestResolveReconfigDecision_EnvChangedWithPersistedState(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -395,7 +395,7 @@ func TestResolveReconfigDecision_EnvUnchangedWithPersistedState(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -443,7 +443,7 @@ func TestResolveReconfigDecision_SecretsChangedWithPersistedState(t *testing.T) 
 	}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestResolveReconfigDecision_ZeroPersistedStateNoSpuriousChange(t *testing.T
 	testutil.WriteFile(t, userDir, configpaths.EnvFileName, "# nothing here\n")
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -655,7 +655,7 @@ func TestResolveReconfigDecision_PersistedSecretsMatchDesired(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -718,7 +718,7 @@ func TestResolveReconfigDecision_HomePromptDeferredWhenRebuildDeferred(t *testin
 		ImageDigest: "sha256:old",
 	}
 
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -797,7 +797,7 @@ func TestResolveReconfigDecision_HomePromptAskedWhenRebuildConfirmed(t *testing.
 	slug := git.MustCheckoutSlug()
 	seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, persisted)
 
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -883,7 +883,7 @@ func TestResolveReconfigDecision_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}

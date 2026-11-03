@@ -36,7 +36,7 @@ Test-support code that lives in **non-`_test.go`** files can never be reached fr
 
 What is left over is production files whose functions only tests reach. Triage (recorded in `specs/dead-code-gate.md`) sorts this class three ways:
 
-- **An intentional seam**, kept in production and marked in source with `//deadcode:ignore reason="…"` — `agent.Register`, `viperconfig.NewResolverWithConfig`, `git.MustRepoSlug`/`git.MustCheckoutSlug`, `vm.SetDaemonHealthFunc`/`vm.SetProjectVMLock`, `prepare.SetRuntimeHomeMigrationOffer`/`prepare.SetAgentLatestVersion`, `image.RunnerDockerfileID`, `docker.RealClient`.
+- **An intentional seam**, kept in production and marked in source with `//deadcode:ignore reason="…"` — `agent.Register`, `viperconfig.NewResolverWithConfig`, `git.MustRepoSlug`/`git.MustCheckoutSlug`, `image.RunnerDockerfileID`, `docker.RealClient`, `lifecycle.Order`/`(*lifecycle.Trace).Stages`.
 - **A convenience helper** reached only from `_test.go`, moved into test code.
 - **Genuinely dead code**, deleted.
 

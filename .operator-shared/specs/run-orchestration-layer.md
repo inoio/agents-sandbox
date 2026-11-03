@@ -42,11 +42,16 @@ Option 2. The orchestration lives in `internal/sandbox/prepare`; the layering is
   precedence rule.
 - `vm` keeps the capabilities and exports the ones `prepare` calls: `FindProjectVM`, `ProjectVMName`,
   `ProjectVMHomeVolume`, `EnsureProjectVM` (with `VMBoot` and its `ProjectVMCreation` request), `SetUpSandbox`,
-  `AdoptLegacyIdentity`. `SetProjectVMLock` is a test seam so tests outside `vm` can fail `ensure-vm` at its lock.
+  `AdoptLegacyIdentity`. `ProjectVMCreation.Seams` is a test seam so tests outside `vm` can fail `ensure-vm` at its
+  lock without mutating package state.
 - Identity adoption stays in `vm`: `StopProjectVM`/`KillProjectVM` call it, and it needs `FindProjectVM` and the
   handle destroy, so a separate package would form an import cycle.
 - `session` is not extended with the stages. It owns attach, the client lease, the reaper and the host opener, and
   calls `PrepareSandbox` through a test seam; keeping the stages in their own package keeps both focused.
+- The selected agent is resolved once, at `runoptions.Build`, into an `agent.Resolved` carried on
+  `options.RunOptions` (#516); `prepare`, `session`, and `reprovision` read capabilities off it rather than
+  re-looking-up the profile. `agent.Resolved` is immutable, so it is not the shared mutable stage `State` Option 1
+  rejected; `options` imports `agent` for it (`agent` does not import `options`).
 
 The move kept names, signatures, stage ids and the trace unchanged; `cmd`'s `TestRunShellRecordTheLifecycleTrace` and
 `prepare`'s `TestPrepareSandboxSkipVMRecordsStagesInOrder` pin the sequence across it.

@@ -75,6 +75,7 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.Logger) (optio
 	if err != nil {
 		return options.RunOptions{}, err
 	}
+	opts.ResolvedAgent = a
 
 	if err = resolveNotify(cfg, cmd, ui, &opts, a); err != nil {
 		return options.RunOptions{}, err

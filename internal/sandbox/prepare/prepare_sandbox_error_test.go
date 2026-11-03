@@ -36,7 +36,12 @@ func TestPrepareSandboxImageError(t *testing.T) {
 	})
 
 	ui := termio.NewTestMock(t)
-	_, err := PrepareSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, false, &ui)
+	_, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		false,
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected error when the opencode version cannot be resolved")
 	}
@@ -66,7 +71,12 @@ func TestPrepareSandboxVersionResolutionError(t *testing.T) {
 		},
 	}
 
-	if _, err := PrepareSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, false, ui); err == nil {
+	if _, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		false,
+		ui,
+	); err == nil {
 		t.Fatal("expected error when the opencode version prompt fails")
 	}
 }
@@ -150,7 +160,12 @@ func TestPrepareSandboxReconfigDecisionError(t *testing.T) {
 		return "q", nil
 	}
 
-	if _, err := PrepareSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, false, &ui); err == nil {
+	if _, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		false,
+		&ui,
+	); err == nil {
 		t.Fatal("expected PrepareSandbox to fail when the rebuild prompt is quit")
 	}
 }
@@ -197,7 +212,12 @@ func TestPrepareSandboxReconfigApplyHomeActionError(t *testing.T) {
 		return "", nil
 	}
 
-	_, err := PrepareSandbox(context.Background(), options.RunOptions{Agent: "opencode"}, false, &ui)
+	_, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		false,
+		&ui,
+	)
 	if err == nil {
 		t.Fatal("expected PrepareSandbox to fail when the home-volume migrate fails")
 	}

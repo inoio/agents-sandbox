@@ -71,7 +71,7 @@ func newDefaultErrorDockerClient() *MockDockerClient {
 
 func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 	defaultErr := errors.New("cannot connect to Docker daemon")
-	var buildErr, inspectErr, saveErr, removeErr = defaultErr, defaultErr, defaultErr, defaultErr
+	buildErr, inspectErr, saveErr, removeErr := defaultErr, defaultErr, defaultErr, defaultErr
 	if mockErrs.buildErr != nil {
 		buildErr = mockErrs.buildErr
 	}
@@ -147,7 +147,8 @@ func (m *MockDockerClient) ImageInspect(
 		return m.ImageInspectFn(ctx, ref, opts...)
 	}
 	result := client.ImageInspectResult{
-		Config: &dockerspec.DockerOCIImageConfig{}}
+		Config: &dockerspec.DockerOCIImageConfig{},
+	}
 	return result, nil
 }
 

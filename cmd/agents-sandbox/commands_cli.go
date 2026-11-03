@@ -17,18 +17,17 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
-	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/upgrade"
-	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
-
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/session"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/upgrade"
+	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
 const minUsagePadding = 25
@@ -42,6 +41,19 @@ var autoPrune = pruning.AutoPrune
 // stages into (specs/lifecycle.md). It is a seam so a test can keep the trace it
 // hands out and assert the recorded stage order.
 var newLifecycleTrace = func() *lifecycle.Trace { return &lifecycle.Trace{} }
+
+// runSeams carries the run's behavior test seams (options.Seams) from the
+// command boundary into the run/shell stages, the cmd→run route that replaced
+// the vm/prepare exported seam setters (#518). Production leaves it zero (every
+// stage uses its package default); tests set a field to stub a behavior.
+var runSeams options.Seams
+
+// withRunSeams sets opts.Seams for a run/shell from the boundary seam var so the
+// stages receive the injected behavior seams the command was built with.
+func withRunSeams(opts options.RunOptions) options.RunOptions {
+	opts.Seams = runSeams
+	return opts
+}
 
 func buildRunCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
@@ -142,6 +154,7 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 		}
 		opts.Args = args
 		opts.Trace = newLifecycleTrace()
+		opts = withRunSeams(opts)
 
 		ctx := cmd.Context()
 		if opts.ServeOnly {
@@ -300,6 +313,7 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 				return err
 			}
 			opts.Trace = newLifecycleTrace()
+			opts = withRunSeams(opts)
 			mode := runoptions.ResolveMode(cmd)
 			exit, err := runStartupStages(cmd.Context(), cmd, mode, opts, ui)
 			if err != nil || exit {
@@ -369,15 +383,7 @@ func buildStopCmd(ui termio.UI) *cobra.Command {
 		Annotations: map[string]string{
 			annotationAlsoAs: "sandbox stop",
 		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			force, _ := cmd.Flags().GetBool(flagForce)
-			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			a, err := resolveAgentFlag(cmd)
-			if err != nil {
-				return err
-			}
-			return sandbox.StopProjectVM(cmd.Context(), configpaths.Get(), force, dryRun, ui, a.Name())
-		},
+		RunE: projectVMControlRunE(ui, sandbox.StopProjectVM),
 	}
 	bindAgentFlag(cmd)
 	cmd.Flags().
@@ -394,19 +400,29 @@ func buildKillCmd(ui termio.UI) *cobra.Command {
 		Annotations: map[string]string{
 			annotationAlsoAs: "sandbox kill",
 		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			force, _ := cmd.Flags().GetBool(flagForce)
-			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			a, err := resolveAgentFlag(cmd)
-			if err != nil {
-				return err
-			}
-			return sandbox.KillProjectVM(cmd.Context(), configpaths.Get(), force, dryRun, ui, a.Name())
-		},
+		RunE: projectVMControlRunE(ui, sandbox.KillProjectVM),
 	}
 	bindAgentFlag(cmd)
 	cmd.Flags().
 		BoolP(flagForce, flagForce[:1], false, "Remove the VM's persisted state (also a stopped or never-started VM)")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be killed without killing")
 	return cmd
+}
+
+// projectVMControlRunE builds the shared run body of the stop and kill commands:
+// it reads the force/dry-run flags, resolves the agent, then applies the action
+// with the msb client resolved once at this command boundary.
+func projectVMControlRunE(
+	ui termio.UI,
+	apply func(context.Context, configpaths.ConfigPaths, msb.Client, bool, bool, termio.UI, string) error,
+) func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, _ []string) error {
+		force, _ := cmd.Flags().GetBool(flagForce)
+		dryRun, _ := cmd.Flags().GetBool(flagDryRun)
+		a, err := resolveAgentFlag(cmd)
+		if err != nil {
+			return err
+		}
+		return apply(cmd.Context(), configpaths.Get(), msb.Get(), force, dryRun, ui, a.Name())
+	}
 }

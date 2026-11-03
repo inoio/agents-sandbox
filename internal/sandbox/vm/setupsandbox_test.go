@@ -189,13 +189,7 @@ func TestSetUpSandboxProvisionsConfigOnReuseWithEmptyDir(t *testing.T) {
 
 func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 	t.Helper()
-	origDaemon := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == opencodeProvider(t).DaemonHealthCmd() {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(origDaemon) })
+	seams := healthyOpencodeDaemon(t)
 
 	fs := msb.NewTestFS(nil, nil) // empty FS simulates a VM with empty config dir
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
@@ -211,7 +205,7 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 	testutil.WritePath(t, snippet, `{"model":"x"}`)
 
 	ui := &termio.Mock{}
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -221,6 +215,7 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 		sb,
 		opencodeResolved(t),
 		options.RunOptions{Agent: "opencode"},
+		seams,
 		cfs,
 		ui,
 		false,
@@ -245,10 +240,9 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 }
 
 func TestRestartDaemonsRestartsServe(t *testing.T) {
-	savedHealth := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
+	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return `{"healthy":true,"version":"x"}`, 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(savedHealth) })
+	}}
 
 	calls := &[]msb.MockDetachedCall{}
 	sb := &msb.MockSandbox{Name_: "vm", ExecDetachedCalls: calls}
@@ -259,6 +253,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 		sb,
 		false,
 		&ui,
+		seams,
 	)
 
 	if len(*calls) != 1 {
@@ -268,10 +263,9 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 }
 
 func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
-	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
+	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return `{"healthy":true,"version":"x"}`, 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
+	}}
 
 	calls := &[]msb.MockDetachedCall{}
 	fs := msb.NewTestFS(nil, nil)
@@ -281,15 +275,15 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	// SetUpSandbox's signature is
-	//   (ctx, k, sb, opts, cfs, ui, restart, boot, guestCWD).
+	//   (ctx, k, sb, opts, seams, cfs, ui, restart, boot, guestCWD).
 	// Pass restart=true to force the daemon-restart path on a reused VM.
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
 	target, err := SetUpSandbox(
 		context.Background(), testVMKey(), sb, opencodeResolved(t), options.RunOptions{Agent: "opencode"},
-		cfs, &ui, true, VMBootStarted, mounts.WorkspaceMountPath,
+		seams, cfs, &ui, true, VMBootStarted, mounts.WorkspaceMountPath,
 	)
 	if err != nil {
 		t.Fatalf("SetUpSandbox: %v", err)
@@ -309,14 +303,13 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 // daemon commands are issued, but a target is still returned.
 func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 	var commands []string
-	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		commands = append(commands, command)
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"x"}`, 0, nil
 		}
 		return "", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
+	}}
 
 	configpaths.WithMockConfigPaths(t)
 
@@ -332,6 +325,7 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 		sb,
 		opencodeResolved(t),
 		options.RunOptions{Agent: "opencode"},
+		seams,
 		cfs,
 		&ui,
 		true,
@@ -355,13 +349,7 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 }
 
 func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
-	origDaemon := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == opencodeProvider(t).DaemonHealthCmd() {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(origDaemon) })
+	seams := healthyOpencodeDaemon(t)
 
 	// The VM already contains an OLD opencode.json (content differs from desired).
 	// This simulates attaching to a running VM and choosing "keep": no daemon
@@ -385,7 +373,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 	testutil.WritePath(t, snippet, `{"model":"new"}`)
 
 	ui := &termio.Mock{}
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -395,6 +383,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 		sb,
 		opencodeResolved(t),
 		options.RunOptions{Agent: "opencode"},
+		seams,
 		cfs,
 		ui,
 		false, // restart=false (user chose "keep")
@@ -415,13 +404,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 // when the VM transitioned to running this run (started/created), and are
 // skipped when the VM was already running and merely connected to.
 func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
-	origDaemon := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == opencodeProvider(t).DaemonHealthCmd() {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(origDaemon) })
+	seams := healthyOpencodeDaemon(t)
 
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
@@ -451,6 +434,7 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 				sb,
 				opencodeResolved(t),
 				options.RunOptions{Agent: "opencode"},
+				seams,
 				cfs,
 				ui,
 				false,
@@ -480,13 +464,7 @@ func contains(s, sub string) bool {
 // TestSetUpSandboxProvisionsMirrorOnly verifies that a ConfigFiles carrying
 // only mirror files still triggers provisioning.
 func TestSetUpSandboxProvisionsMirrorOnly(t *testing.T) {
-	origDaemon := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == opencodeProvider(t).DaemonHealthCmd() {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(origDaemon) })
+	seams := healthyOpencodeDaemon(t)
 
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
@@ -503,6 +481,7 @@ func TestSetUpSandboxProvisionsMirrorOnly(t *testing.T) {
 		sb,
 		opencodeResolved(t),
 		options.RunOptions{Agent: "opencode"},
+		seams,
 		cfs,
 		ui,
 		false,

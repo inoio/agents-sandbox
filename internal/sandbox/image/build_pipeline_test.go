@@ -85,7 +85,8 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 			}
 			return client.ImageInspectResult{
 				ID:     id,
-				Config: &dockerspec.DockerOCIImageConfig{Labels: labels}}, nil
+				Config: &dockerspec.DockerOCIImageConfig{Labels: labels},
+			}, nil
 		},
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			built = true
@@ -151,7 +152,8 @@ func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
 				ID: "sha256:existing",
 				Config: &dockerspec.DockerOCIImageConfig{
 					Labels: map[string]string{dockerfileIDLabelKey: "stale"},
-				}}, nil
+				},
+			}, nil
 		},
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			built = true
@@ -278,7 +280,9 @@ func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) 
 			return client.ImageInspectResult{
 				ID: "sha256:existing",
 				Config: &dockerspec.DockerOCIImageConfig{
-					Labels: map[string]string{dockerfileIDLabelKey: wantID}}}, nil
+					Labels: map[string]string{dockerfileIDLabelKey: wantID},
+				},
+			}, nil
 		},
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			buildCalled = true
@@ -320,7 +324,9 @@ func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
 			return client.ImageInspectResult{
 				ID: "sha256:existing",
 				Config: &dockerspec.DockerOCIImageConfig{
-					Labels: map[string]string{dockerfileIDLabelKey: "stale"}}}, nil
+					Labels: map[string]string{dockerfileIDLabelKey: "stale"},
+				},
+			}, nil
 		},
 		ImageBuildFn: func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			gotArgs = opts.BuildArgs

@@ -16,6 +16,11 @@ type Resolved struct {
 	Upgrade          UpgradeChecker
 	GuestTools       GuestToolRequirer
 	DetachedWorktree DetachedWorktreeReporter
+	ConfigMerger     ConfigMerger
+	Provisioner      Provisioner
+	Attach           AttachRunner
+	EventStream      EventStreamProvider
+	SessionStatus    SessionStatusProvider
 }
 
 // Resolve resolves the capabilities the run consumes from a once. A caller at
@@ -31,5 +36,10 @@ func Resolve(a Agent) Resolved {
 	r.Upgrade, _ = AsUpgradeChecker(a)
 	r.GuestTools, _ = AsGuestToolRequirer(a)
 	r.DetachedWorktree, _ = AsDetachedWorktreeReporter(a)
+	r.ConfigMerger, _ = AsConfigMerger(a)
+	r.Provisioner, _ = AsProvisioner(a)
+	r.Attach, _ = AsAttachRunner(a)
+	r.EventStream, _ = AsEventStreamProvider(a)
+	r.SessionStatus, _ = AsSessionStatusProvider(a)
 	return r
 }

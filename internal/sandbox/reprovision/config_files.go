@@ -14,12 +14,11 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	config "github.com/inoio/agents-sandbox/internal/configmerge"
+	cp "github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
-
-	cp "github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/homeconfig"
 )
 
 // evalProvisionRules is a seam over agent.EvalProvisionRules so tests can
@@ -203,18 +202,18 @@ type configSubject struct {
 // VM config path (against vmHome), snippet pattern and config-file family, and
 // the provisioner's rules. An agent with neither capability yields the zero
 // subject, so the builders keep their no-merger/no-provisioner behavior.
-func resolveConfigSubject(a agent.Agent, vmHome string) configSubject {
+func resolveConfigSubject(a agent.Resolved, vmHome string) configSubject {
 	var subject configSubject
 	subject.vmHome = vmHome
-	if cm, ok := agent.AsConfigMerger(a); ok {
-		subject.merger = cm
-		subject.vmConfigPath = cm.VMConfigPath(vmHome)
-		subject.snippetPattern = cm.SnippetPattern()
-		subject.familyNames = cm.ConfigFileNames()
+	if a.ConfigMerger != nil {
+		subject.merger = a.ConfigMerger
+		subject.vmConfigPath = a.ConfigMerger.VMConfigPath(vmHome)
+		subject.snippetPattern = a.ConfigMerger.SnippetPattern()
+		subject.familyNames = a.ConfigMerger.ConfigFileNames()
 	}
-	if p, ok := agent.AsProvisioner(a); ok {
-		subject.provisioner = p
-		subject.provisionRules = p.ProvisionRules()
+	if a.Provisioner != nil {
+		subject.provisioner = a.Provisioner
+		subject.provisionRules = a.Provisioner.ProvisionRules()
 	}
 	return subject
 }
@@ -222,7 +221,7 @@ func resolveConfigSubject(a agent.Agent, vmHome string) configSubject {
 // LoadConfigFiles builds the desired VM state for the given agent using the
 // host home from the config-paths seam. The agent determines its own config
 // directories.
-func LoadConfigFiles(a agent.Agent, ui termio.Logger, provisionHostConfig bool) (*ConfigFiles, error) {
+func LoadConfigFiles(a agent.Resolved, ui termio.Logger, provisionHostConfig bool) (*ConfigFiles, error) {
 	hostHome, _ := cp.Get().UserHomeDir()
 	return LoadConfigFilesForHost(a, hostHome, VMHomeDir, ui, provisionHostConfig)
 }
@@ -236,12 +235,12 @@ func LoadConfigFiles(a agent.Agent, ui termio.Logger, provisionHostConfig bool) 
 // override provisioned defaults for the same VM path. The agent's merged-config
 // path is reserved: a home target colliding with it is rejected.
 func LoadConfigFilesForHost(
-	a agent.Agent,
+	a agent.Resolved,
 	hostHome, vmHome string,
 	ui termio.Logger,
 	provisionHostConfig bool,
 ) (*ConfigFiles, error) {
-	src, err := ResolveConfigSource(a)
+	src, err := ResolveConfigSource(a.Profile)
 	if err != nil {
 		return nil, err
 	}
@@ -288,11 +287,11 @@ func LoadConfigFilesForHost(
 			"agent %s is reading launcher config from the legacy shared %q dir (%s), which agent opencode also uses; "+
 				"a %q dir in either the user or project scope switches both scopes, so copy (do not move) everything you need in one go into the %q namespace (%s): "+
 				"a partial copy will not fall back for the rest. The guest ~/.config/opencode path is unchanged.",
-			a.Name(),
+			a.Profile.Name(),
 			src.Fallback,
 			describeConfigScopes(legacyUser, legacyProject, true),
-			a.ConfigDirName(),
-			a.ConfigDirName(),
+			a.Profile.ConfigDirName(),
+			a.Profile.ConfigDirName(),
 			describeConfigScopes(src.PrimaryUserDir, src.PrimaryProjectDir, false),
 		)
 	}
@@ -300,7 +299,7 @@ func LoadConfigFilesForHost(
 		ui.Infof(
 			"No launcher config dir for agent %s yet (user: %q, project: %q); create one to add config snippets, "+
 				"mirrored files, and hooks. Run 'agents-sandbox config agent' to inspect what gets provisioned.",
-			a.Name(), src.PrimaryUserDir, src.PrimaryProjectDir,
+			a.Profile.Name(), src.PrimaryUserDir, src.PrimaryProjectDir,
 		)
 	}
 	return &ConfigFiles{
@@ -603,11 +602,12 @@ func Describe(
 	ui termio.Logger,
 	provisionHostConfig bool,
 ) ([]byte, []string, []HostFile, []MirrorFile, ConfigSource, error) {
-	cf, err := LoadConfigFilesForHost(a, hostHome, vmHome, ui, provisionHostConfig)
+	resolved := agent.Resolve(a)
+	cf, err := LoadConfigFilesForHost(resolved, hostHome, vmHome, ui, provisionHostConfig)
 	if err != nil {
 		return nil, nil, nil, nil, ConfigSource{}, err
 	}
-	subject := resolveConfigSubject(a, vmHome)
+	subject := resolveConfigSubject(resolved, vmHome)
 	hostFiles := subject.hostFilesFromProvisioner(hostHome, cf)
 	return cf.Merged, cf.Sources, hostFiles, subject.mirrorFilesFromConfig(cf.Source), cf.Source, nil
 }

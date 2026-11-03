@@ -19,7 +19,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -32,7 +31,8 @@ import (
 // callers can inspect its call history, and installs a daemon shell stub that
 // reports the sandbox healthy.
 func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,
-	args ...string) (*cobra.Command, *termio.Mock) {
+	args ...string,
+) (*cobra.Command, *termio.Mock) {
 	t.Helper()
 	mock.CreatedSandbox = sandboxToReturn
 
@@ -42,17 +42,16 @@ func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn
 	// so EnsureProjectVM treats it as "not found → create" rather than a real error.
 	sandboxmsb.WithMsbMock(t, mock.SetGetSandboxErr(&msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}))
 
-	origShell := sandbox.SetDaemonHealthFunc(
-		func(ctx context.Context, sb sandboxmsb.Sandbox, command string) (string, int, error) {
-			_ = ctx
-			_ = sb
-			_ = command
-			// A body both daemon parsers accept: v1 reads `healthy`, v2 reads a
-			// version from its ServerInfo.
-			return `{"healthy":true,"version":"0.0.0-test"}`, 0, nil
-		},
-	)
-	t.Cleanup(func() { sandbox.SetDaemonHealthFunc(origShell) })
+	origSeams := runSeams
+	runSeams.DaemonHealth = func(ctx context.Context, sb sandboxmsb.Sandbox, command string) (string, int, error) {
+		_ = ctx
+		_ = sb
+		_ = command
+		// A body both daemon parsers accept: v1 reads `healthy`, v2 reads a
+		// version from its ServerInfo.
+		return `{"healthy":true,"version":"0.0.0-test"}`, 0, nil
+	}
+	t.Cleanup(func() { runSeams = origSeams })
 
 	return cmd, ui
 }
@@ -60,7 +59,8 @@ func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn
 // setupShellRunMocks is like setupRunMocks but adds shell output for worktree creation.
 // Worktree scenarios need the mock sandbox to return valid JSON for the worktree curl commands.
 func setupShellRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,
-	args ...string) (*cobra.Command, *termio.Mock) {
+	args ...string,
+) (*cobra.Command, *termio.Mock) {
 	t.Helper()
 
 	// Ensure shell responses include a JSON worktree response for curl commands.
@@ -545,11 +545,12 @@ func TestShellDryRunPreviewCLI(t *testing.T) {
 func TestRunDryRunWithPinnedVersionReportsPin(t *testing.T) {
 	initTestProjectDir(t)
 
-	orig := prepare.SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
+	origSeams := runSeams
+	runSeams.AgentLatestVersion = func(context.Context, agent.Agent) (string, error) {
 		t.Error("the --dry-run preview must not run the agent latest-version check")
 		return "", nil
-	})
-	t.Cleanup(func() { prepare.SetAgentLatestVersion(orig) })
+	}
+	t.Cleanup(func() { runSeams = origSeams })
 
 	mock := &sandboxmsb.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run", "--agent-version", "9.9.9")

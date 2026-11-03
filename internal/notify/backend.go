@@ -1,12 +1,11 @@
 package notify
 
 import (
+	_ "embed"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
-
-	_ "embed"
 
 	"github.com/inoio/agents-sandbox/internal/termio"
 )

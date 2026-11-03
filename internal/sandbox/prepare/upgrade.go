@@ -20,19 +20,17 @@ var errUpgradeQuit = errors.New("agent upgrade cancelled")
 // agentLatestVersion resolves an agent's newest release for the upgrade check.
 // It is the same resolution the image build uses for a deferred version
 // (agent.LatestVersion), so a change to how a release is resolved lands in one
-// place; the alias keeps the lookup injectable, so no test hits the network.
+// place; the production default a test overrides through
+// options.Seams.AgentLatestVersion, so no test hits the network.
 var agentLatestVersion = agent.LatestVersion
 
-// SetAgentLatestVersion replaces the agent-latest-version seam and returns the
-// previous value. Tests use it to keep the upgrade check off the network.
-//
-//deadcode:ignore reason="test seam replacing the agent latest-version lookup"
-func SetAgentLatestVersion(
-	f func(ctx context.Context, a agent.Agent) (string, error),
-) func(ctx context.Context, a agent.Agent) (string, error) {
-	orig := agentLatestVersion
-	agentLatestVersion = f
-	return orig
+// agentLatestVersionFor returns the latest-release lookup to use for this run:
+// the injected seam when a test set one, else agent.LatestVersion.
+func agentLatestVersionFor(seams options.Seams) func(context.Context, agent.Agent) (string, error) {
+	if seams.AgentLatestVersion != nil {
+		return seams.AgentLatestVersion
+	}
+	return agentLatestVersion
 }
 
 // existingAgentVersion reports the agent release baked into a project's existing
@@ -51,6 +49,22 @@ var buildVersionResolver image.AgentVersionResolver = func(
 		return requested, nil
 	}
 	return agentLatestVersion(ctx, a)
+}
+
+// agentVersionResolverFor returns the release resolver the image build uses: the
+// shared buildVersionResolver default, or a resolver over options.Seams
+// AgentLatestVersion when a test injected one, so a run's upgrade check and its
+// image build resolve a release the same way.
+func agentVersionResolverFor(seams options.Seams) image.AgentVersionResolver {
+	if seams.AgentLatestVersion == nil {
+		return buildVersionResolver
+	}
+	return func(ctx context.Context, a agent.Agent, requested string) (string, error) {
+		if requested != "" {
+			return requested, nil
+		}
+		return seams.AgentLatestVersion(ctx, a)
+	}
 }
 
 // resolveBuildVersion decides the agent version to bake into the runner
@@ -117,7 +131,7 @@ func resolveBuildVersion(
 		return current, false, "", nil
 	}
 
-	latest, offer := pendingUpgrade(ctx, a, k, ui, current)
+	latest, offer := pendingUpgrade(ctx, a, k, ui, current, agentLatestVersionFor(opts.Seams))
 	if !offer {
 		return current, false, "", nil
 	}
@@ -199,11 +213,12 @@ func pendingUpgrade(
 	k state.Key,
 	ui termio.Logger,
 	currentVersion string,
+	latestVersion func(context.Context, agent.Agent) (string, error),
 ) (string, bool) {
 	checker := a.Upgrade
 	hasChecker := checker != nil
 
-	entry, checked := checkAgentUpgrade(ctx, a.Profile, hasChecker, ui)
+	entry, checked := checkAgentUpgrade(ctx, a.Profile, hasChecker, ui, latestVersion)
 	if !checked || !hasChecker {
 		return "", false
 	}
@@ -265,6 +280,7 @@ func checkAgentUpgrade(
 	a agent.Agent,
 	hasChecker bool,
 	ui termio.Logger,
+	latestVersion func(context.Context, agent.Agent) (string, error),
 ) (state.AgentCheckState, bool) {
 	entry, ok := readAgentCheck(a, ui)
 	if !ok {
@@ -274,7 +290,7 @@ func checkAgentUpgrade(
 		return entry, true
 	}
 
-	latest, latestErr := agentLatestVersion(ctx, a)
+	latest, latestErr := latestVersion(ctx, a)
 	if latestErr != nil {
 		// Offline or unreachable: never fail the session, and leave the
 		// once-per-day window open so the next online run retries.

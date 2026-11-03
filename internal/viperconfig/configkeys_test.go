@@ -5,10 +5,10 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/spf13/pflag"
+
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/testutil"
-
-	"github.com/spf13/pflag"
 )
 
 // The launcher's env-var and CLI-flag key sets are derived from the Config

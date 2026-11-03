@@ -83,6 +83,10 @@ enforce.
   `needs: [lint, test, integration]`, exactly like `vulncheck`. A release tag can therefore publish past a failing
   dead-code gate; this matches the existing deliberate budget choice for `vulncheck`. The gate's enforcement point is the
   pull request.
+- **Behavior seams carry no marker after #518.** The four run behavior seams (`vm.SetProjectVMLock`,
+  `vm.SetDaemonHealthFunc`, `prepare.SetAgentLatestVersion`, `prepare.SetRuntimeHomeMigrationOffer`) moved to the
+  injected `options.Seams` value on `options.RunOptions`, so they are no longer package state and need no
+  `//deadcode:ignore` (see `client-injection.md`).
 - **Tag configurations included despite being inert.** The `integration` and `msb` tag sets add no findings today,
   because every file behind those tags is a `_test.go` file and deadcode skips `_test.go` files by default. They are kept
   because the failure mode they guard against is silent: the first non-`_test.go` file to land behind

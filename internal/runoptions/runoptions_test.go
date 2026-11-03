@@ -737,6 +737,27 @@ func TestBuildUnknownAgent(t *testing.T) {
 	}
 }
 
+// Build resolves the selected agent once into RunOptions.ResolvedAgent, so
+// prepare, session, and reprovision read capabilities off it instead of
+// re-looking-up the profile.
+func TestBuildResolvesAgent(t *testing.T) {
+	cmd := newRunCommand()
+	var r *viperconfig.Resolver
+	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.ResolvedAgent.Profile == nil {
+		t.Fatal("ResolvedAgent.Profile is nil; want the selected profile")
+	}
+	if got := opts.ResolvedAgent.Profile.Name(); got != opts.Agent {
+		t.Errorf("ResolvedAgent.Profile.Name() = %q; want %q", got, opts.Agent)
+	}
+	if opts.ResolvedAgent.ConfigMerger == nil {
+		t.Errorf("ResolvedAgent.ConfigMerger is nil for agent %q; want its ConfigMerger", opts.Agent)
+	}
+}
+
 // The agent can be selected via the AGENTS_SANDBOX_AGENT env var.
 func TestBuildAgentFromEnv(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)

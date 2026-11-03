@@ -14,13 +14,7 @@ import (
 )
 
 func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
-	origDaemon := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == opencodeProvider(t).DaemonHealthCmd() {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(origDaemon) })
+	seams := healthyOpencodeDaemon(t)
 
 	fs := msb.NewTestFS(nil, nil)
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
@@ -33,7 +27,7 @@ func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 	testutil.WritePath(t, snippet, `{"model":"x"}`)
 
 	ui := &termio.Mock{}
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeAgent(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -43,6 +37,7 @@ func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 		sb,
 		opencodeResolved(t),
 		options.RunOptions{Agent: "opencode"},
+		seams,
 		cfs,
 		ui,
 		false,

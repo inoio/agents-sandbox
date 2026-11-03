@@ -128,12 +128,11 @@ func startNotifyWatcher(
 	}
 }
 
-func buildAttachCommand(a agent.Agent, target string, args []string) string {
-	runner, ok := agent.AsAttachRunner(a)
-	if !ok {
+func buildAttachCommand(a agent.Resolved, target string, args []string) string {
+	if a.Attach == nil {
 		return ""
 	}
-	return runner.AttachCommand(target, args)
+	return a.Attach.AttachCommand(target, args)
 }
 
 // logNotifyWatcherError stops the notify watcher and logs its drop-summary
@@ -149,10 +148,10 @@ func logNotifyWatcherError(stop func() error, ui termio.Logger) {
 // external clients such as desktop apps. The basic-auth guidance is
 // agent-specific: opencode's is opt-in, opencode2's is mandatory with a baked
 // credential, so a client can only connect with the right hint.
-func serveOnlyMessage(a agent.Agent, host, port string) string {
+func serveOnlyMessage(a agent.Resolved, host, port string) string {
 	authHint := ""
-	if provider, ok := agent.AsDaemonProvider(a); ok {
-		if hint := provider.DaemonAuthHint(); hint != "" {
+	if a.Daemon != nil {
+		if hint := a.Daemon.DaemonAuthHint(); hint != "" {
 			authHint = hint + "\n"
 		}
 	}
@@ -162,7 +161,7 @@ func serveOnlyMessage(a agent.Agent, host, port string) string {
 // runServeOnly keeps the VM alive and blocks until ctx is done (CTRL-D or
 // SIGINT), without attaching an in-VM TUI. It holds the VM via a keeper exec so
 // the msb idle timeout does not stop it while serving.
-func runServeOnly(ctx context.Context, a agent.Agent, sb msb.Sandbox, ui termio.Logger, hostPort int) error {
+func runServeOnly(ctx context.Context, a agent.Resolved, sb msb.Sandbox, ui termio.Logger, hostPort int) error {
 	host := options.ServeOnlyBindAddr
 	port := strconv.Itoa(hostPort)
 	ui.Infof("%s", serveOnlyMessage(a, host, port))
@@ -202,10 +201,10 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 	opts.Trace.Record(lifecycle.Attach)
 	k := ses.Key()
 
-	a, _ := agent.Lookup(opts.Agent)
+	a := opts.ResolvedAgent
 	var streamSpec *agent.EventStreamSpec
-	if provider, ok := agent.AsEventStreamProvider(a); ok {
-		eventStream := provider.EventStream()
+	if a.EventStream != nil {
+		eventStream := a.EventStream.EventStream()
 		streamSpec = &eventStream
 	}
 	stopNotify := startNotifyWatcher(ctx, sb, opts.Notify, ui, streamSpec, k.Slug)
@@ -214,7 +213,7 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 	defer stopHostOpener()
 
 	if opts.ServeOnly {
-		return runServeOnlySession(ctx, k, sb, opts.ReapPolicy, ui, ses.ServeHostPort())
+		return runServeOnlySession(ctx, a, k, sb, opts.ReapPolicy, ui, ses.ServeHostPort())
 	}
 
 	setup := buildAttachCommand(a, ses.Target(), opts.Args)
@@ -227,8 +226,8 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 }
 
 // withClientSession owns the client-lease lifecycle shared by the attach and
-// serve-only flows: it resolves the agent from k, acquires a client lease, runs
-// body with that agent, explicitly releases the lease before reaping so
+// serve-only flows: it acquires a client lease for the run's resolved agent,
+// runs body, explicitly releases the lease before reaping so
 // state.CountActiveClients reflects only OTHER live clients, then reaps on the
 // last client when shouldReap reports the session's error as reap-able. body's
 // error is returned unchanged; the deferred release is a best-effort safety net
@@ -240,10 +239,9 @@ func withClientSession(
 	policy options.ReapPolicy,
 	ui termio.UI,
 	shouldReap func(sessionErr error) bool,
-	body func(a agent.Agent) error,
+	a agent.Resolved,
+	body func(a agent.Resolved) error,
 ) error {
-	a, _ := agent.Lookup(k.Agent)
-
 	// Acquire a client lease so state tracks this session.
 	release, acquireErr := state.AcquireClientLease(k)
 	if acquireErr != nil {
@@ -292,6 +290,7 @@ func serveOnlyShouldReap(sessionErr error) bool {
 // clean exit.
 func runServeOnlySession(
 	ctx context.Context,
+	a agent.Resolved,
 	k state.Key,
 	sb msb.Sandbox,
 	policy options.ReapPolicy,
@@ -305,7 +304,8 @@ func runServeOnlySession(
 		policy,
 		ui,
 		serveOnlyShouldReap,
-		func(a agent.Agent) error {
+		a,
+		func(a agent.Resolved) error {
 			return runServeOnly(ctx, a, sb, ui, hostPort)
 		},
 	)
@@ -365,12 +365,21 @@ func runAttach(
 	opts options.RunOptions,
 	bashArgs ...string,
 ) error {
-	return withClientSession(ctx, k, sb, opts.ReapPolicy, ui, alwaysReap, func(agent.Agent) error {
-		attachOpts := []msbSdk.AttachOption{msbSdk.WithAttachCwd(guestCWD)}
-		if opts.Root {
-			attachOpts = append(attachOpts, msbSdk.WithAttachUser(sandbox.RootUser))
-		}
-		exitCode, attachErr := sb.AttachWith(ctx, "/bin/bash", bashArgs, attachOpts...)
-		return finalizeRun(attachErr, exitCode)
-	})
+	return withClientSession(
+		ctx,
+		k,
+		sb,
+		opts.ReapPolicy,
+		ui,
+		alwaysReap,
+		opts.ResolvedAgent,
+		func(agent.Resolved) error {
+			attachOpts := []msbSdk.AttachOption{msbSdk.WithAttachCwd(guestCWD)}
+			if opts.Root {
+				attachOpts = append(attachOpts, msbSdk.WithAttachUser(sandbox.RootUser))
+			}
+			exitCode, attachErr := sb.AttachWith(ctx, "/bin/bash", bashArgs, attachOpts...)
+			return finalizeRun(attachErr, exitCode)
+		},
+	)
 }

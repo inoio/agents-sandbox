@@ -17,17 +17,16 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// healthyOpencodeDaemon makes the opencode daemon answer its health probe, so
-// SetUpSandbox finds it running and starts nothing.
-func healthyOpencodeDaemon(t *testing.T) {
+// healthyOpencodeDaemon returns options.Seams whose daemon health probe answers
+// healthy, so SetUpSandbox finds the opencode daemon running and starts nothing.
+func healthyOpencodeDaemon(t *testing.T) options.Seams {
 	t.Helper()
-	orig := SetDaemonHealthFunc(func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
+	return options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
 		}
 		return "", 0, nil
-	})
-	t.Cleanup(func() { SetDaemonHealthFunc(orig) })
+	}}
 }
 
 func setUpOpencodeSandbox(
@@ -36,6 +35,7 @@ func setUpOpencodeSandbox(
 	cfs *reprovision.ConfigFiles,
 	ui termio.UI,
 	boot VMBoot,
+	seams options.Seams,
 ) error {
 	t.Helper()
 	_, err := SetUpSandbox(
@@ -44,6 +44,7 @@ func setUpOpencodeSandbox(
 		sb,
 		opencodeResolved(t),
 		options.RunOptions{Agent: "opencode"},
+		seams,
 		cfs,
 		ui,
 		false,
@@ -79,13 +80,13 @@ func TestSetUpSandboxProvisionsEachConfigKind(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			healthyOpencodeDaemon(t)
+			seams := healthyOpencodeDaemon(t)
 			configpaths.WithMockConfigPaths(t)
 			fs := msb.NewTestFS(map[string][]byte{path: []byte("old")}, nil)
 			sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
 			ui := termio.NewTestMock(t)
 
-			if err := setUpOpencodeSandbox(t, sb, tc.cfs, &ui, VMBootConnected); err != nil {
+			if err := setUpOpencodeSandbox(t, sb, tc.cfs, &ui, VMBootConnected, seams); err != nil {
 				t.Fatalf("SetUpSandbox: %v", err)
 			}
 			if !tc.provisioned(fs) {
@@ -108,7 +109,7 @@ func TestSetUpSandboxRecordsProvenanceOnlyOnBoot(t *testing.T) {
 		{name: "started", boot: VMBootStarted, wantSource: state.AgentSourceUser},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			healthyOpencodeDaemon(t)
+			seams := healthyOpencodeDaemon(t)
 			configpaths.WithMockConfigPaths(t)
 			if err := seedHomeState(testVMKey(), state.HomeState{AgentSource: state.AgentSourceTool}); err != nil {
 				t.Fatalf("seed home state: %v", err)
@@ -117,7 +118,7 @@ func TestSetUpSandboxRecordsProvenanceOnlyOnBoot(t *testing.T) {
 			sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
 			ui := termio.NewTestMock(t)
 
-			if err := setUpOpencodeSandbox(t, sb, &reprovision.ConfigFiles{}, &ui, tc.boot); err != nil {
+			if err := setUpOpencodeSandbox(t, sb, &reprovision.ConfigFiles{}, &ui, tc.boot, seams); err != nil {
 				t.Fatalf("SetUpSandbox: %v", err)
 			}
 			hs, err := state.ReadState(testVMKey())
@@ -139,7 +140,7 @@ func TestSetUpSandboxWrapsDockerdError(t *testing.T) {
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil, nil), ShellErr: shellErr}
 	ui := termio.NewTestMock(t)
 
-	err := setUpOpencodeSandbox(t, sb, &reprovision.ConfigFiles{}, &ui, VMBootConnected)
+	err := setUpOpencodeSandbox(t, sb, &reprovision.ConfigFiles{}, &ui, VMBootConnected, options.Seams{})
 	if !errors.Is(err, shellErr) {
 		t.Fatalf("SetUpSandbox error = %v, want it to wrap %v", err, shellErr)
 	}
@@ -149,7 +150,7 @@ func TestSetUpSandboxWrapsDockerdError(t *testing.T) {
 // sandbox is set up: the expected config files, each startup hook, and a
 // daemon restart.
 func TestSetUpSandboxReportsWhatItDoes(t *testing.T) {
-	healthyOpencodeDaemon(t)
+	seams := healthyOpencodeDaemon(t)
 	configpaths.WithMockConfigPaths(t)
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil, nil)}
 	ui := termio.NewTestMock(t)
@@ -158,7 +159,7 @@ func TestSetUpSandboxReportsWhatItDoes(t *testing.T) {
 		Hooks: []homeconfig.HookSpec{{Target: "/home/dev/.hello.sh", Source: "x", HasShebang: true}},
 	}
 
-	if err := setUpOpencodeSandbox(t, sb, cfs, &ui, VMBootStarted); err != nil {
+	if err := setUpOpencodeSandbox(t, sb, cfs, &ui, VMBootStarted, seams); err != nil {
 		t.Fatalf("SetUpSandbox: %v", err)
 	}
 	if _, err := SetUpSandbox(
@@ -167,6 +168,7 @@ func TestSetUpSandboxReportsWhatItDoes(t *testing.T) {
 		sb,
 		opencodeResolved(t),
 		options.RunOptions{Agent: "opencode"},
+		seams,
 		cfs,
 		&ui,
 		true,

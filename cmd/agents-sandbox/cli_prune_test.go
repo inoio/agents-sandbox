@@ -302,7 +302,6 @@ func TestPrune(t *testing.T) {
 				docker.WithDefaultErrorDockerMock(t)
 
 				err := cmd.Execute()
-
 				if err != nil {
 					t.Fatalf("expected no error; got %s", err)
 				}

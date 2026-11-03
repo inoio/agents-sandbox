@@ -7,15 +7,15 @@ import (
 	"os"
 	"strings"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/homeconfig"
-	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/agents-sandbox/internal/yamlfmt"
-
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/titanous/json5"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
 
 // ConfigLayers returns the launcher-config layers from lowest to highest

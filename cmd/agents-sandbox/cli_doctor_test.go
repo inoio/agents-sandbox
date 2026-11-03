@@ -38,6 +38,7 @@ func expectDoctorSuccess(t *testing.T, ui *termio.Mock, err error) {
 		t.Errorf("expected info 'doctor: all checks passed'; got: %v", ui.InfoCalls)
 	}
 }
+
 func TestDoctorAllChecksFail(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "doctor")
 	doctor.MockedCheckAll(t, false)

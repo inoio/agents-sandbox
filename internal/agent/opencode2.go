@@ -239,6 +239,7 @@ func (opencode2Profile) NewerThan(a, b string) (bool, error) {
 // the other profiles'. Without them the baseline stayed empty and a build could
 // silently push the image back to the recorded release.
 func (opencode2Profile) VersionCmd() string { return "opencode2 --version" }
+
 func (opencode2Profile) ParseVersion(stdout string) (string, error) {
 	return extractSemverFromOutput(stdout)
 }

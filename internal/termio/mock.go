@@ -169,6 +169,7 @@ func (m *Mock) Spinner(msg string) Spinner {
 	m.SpinnerCalls = append(m.SpinnerCalls, msg)
 	return &mockSpinner{owner: m}
 }
+
 func (m *Mock) Spinnerf(format string, args ...any) Spinner {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -81,6 +81,9 @@ Run these from the module root:
 ### Formatting
 
 Use `make fmt` (which runs `golangci-lint fmt`). Do not hand-format or use plain `go fmt`.
+The formatters are `gofumpt`, `gci`, and `golines` (120-column): imports are grouped into standard
+library, third-party, and this module (in that order) by `gci`, and `goimports`/`gofmt` are not used
+(their behavior is fully covered by `gofumpt` + `gci`). CI enforces this with `make validate-fmt`.
 
 ### Linting
 

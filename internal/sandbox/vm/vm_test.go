@@ -8,11 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/moby/moby/client"
-
-	"github.com/inoio/agents-sandbox/internal/termio"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
@@ -21,6 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -243,11 +241,11 @@ func TestStopProjectVMUsesClient(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := StopProjectVM(context.Background(), configpaths.Get(), false, false, ui, "opencode"); err != nil {
+	if err := StopProjectVM(context.Background(), configpaths.Get(), client, false, false, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM failed: %v", err)
 	}
-	if *resolutions != 1 {
-		t.Errorf("msb.Get resolved %d times, want once per StopProjectVM", *resolutions)
+	if *resolutions != 0 {
+		t.Errorf("msb.Get resolved %d times, want 0: StopProjectVM takes its client", *resolutions)
 	}
 }
 
@@ -870,11 +868,11 @@ func TestKillProjectVMUsesClient(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := KillProjectVM(context.Background(), configpaths.Get(), false, false, ui, "opencode"); err != nil {
+	if err := KillProjectVM(context.Background(), configpaths.Get(), client, false, false, ui, "opencode"); err != nil {
 		t.Fatalf("KillProjectVM failed: %v", err)
 	}
-	if *resolutions != 1 {
-		t.Errorf("msb.Get resolved %d times, want once per KillProjectVM", *resolutions)
+	if *resolutions != 0 {
+		t.Errorf("msb.Get resolved %d times, want 0: KillProjectVM takes its client", *resolutions)
 	}
 }
 
@@ -892,7 +890,7 @@ func TestStopProjectVMAlreadyStopped(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := StopProjectVM(context.Background(), configpaths.Get(), false, false, ui, "opencode"); err != nil {
+	if err := StopProjectVM(context.Background(), configpaths.Get(), client, false, false, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM on already-stopped VM failed: %v", err)
 	}
 	if !strings.Contains(joinStrings(ui.InfoCalls), "already stopped") {
@@ -914,7 +912,7 @@ func TestStopProjectVMDryRunRemove(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := StopProjectVM(context.Background(), configpaths.Get(), true, true, ui, "opencode"); err != nil {
+	if err := StopProjectVM(context.Background(), configpaths.Get(), client, true, true, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM dry-run with remove failed: %v", err)
 	}
 }
@@ -932,7 +930,7 @@ func TestStopProjectVMNotFound(t *testing.T) {
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 
-	if err := StopProjectVM(context.Background(), configpaths.Get(), false, false, ui, "opencode"); err != nil {
+	if err := StopProjectVM(context.Background(), configpaths.Get(), client, false, false, ui, "opencode"); err != nil {
 		t.Fatalf("StopProjectVM on missing VM failed: %v", err)
 	}
 	if !strings.Contains(joinStrings(ui.InfoCalls), "no project VM found") {

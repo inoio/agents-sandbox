@@ -110,12 +110,13 @@ Create}` plus the session line) so it is asserted as data in unit tests and as t
 ### Test seam
 
 `prepare.agentLatestVersion` is the upgrade check's release lookup; the image build's injected resolver
-(`BuildOptions.ResolveVersion`, supplied by `prepare.buildVersionResolver`) reads it too. The run/shell CLI tests run
+(`BuildOptions.ResolveVersion`, supplied by `prepare.agentVersionResolverFor`) reads it too. The run/shell CLI tests run
 `--dry-run-vm`, so they reach `resolveBuildVersion`, whose `pendingUpgrade` calls it when a project has a recorded
-baseline and the check is due — a real network request. `prepare.SetAgentLatestVersion` replaces it, and `cmd`'s
-`TestMain` (beside the migration-offer default) installs a **fail-fast** default that panics: a test that reaches the
-network path fails loudly and opts in with an explicit stub, rather than silently bypassing it. This is not an
-`InstallFailFast*` family, so the `seamFamilies` registry in `internal/testutil` is untouched.
+baseline and the check is due — a real network request. `options.Seams.AgentLatestVersion` (on `options.RunOptions`)
+replaces it; `cmd`'s `TestMain` (beside the migration-offer default) installs a **fail-fast** default on the boundary
+`runSeams` var that panics: a test that reaches the network path fails loudly and opts in with an explicit stub, rather
+than silently bypassing it. This is not an `InstallFailFast*` family, so the `seamFamilies` registry in
+`internal/testutil` is untouched.
 
 The preview itself needs no new seam: it composes the existing docker (`WithNoopDockerMock`) and msb (`WithMsbMock`)
 mocks. Its purity is pinned by tests that install a resolver/`agentLatestVersion` which fails the test if called, and by

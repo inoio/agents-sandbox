@@ -182,7 +182,9 @@ func TestResolveBuildVersionWithoutUpgradeCheckerIgnoresImageLabel(t *testing.T)
 func TestPendingUpgradeWithoutUpgradeChecker(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "fake"}
-	latest, offer := pendingUpgrade(context.Background(), agent.Resolve(&fakeAgent{}), k, &termio.Mock{}, "1.0.0")
+	latest, offer := pendingUpgrade(
+		context.Background(), agent.Resolve(&fakeAgent{}), k, &termio.Mock{}, "1.0.0", agentLatestVersion,
+	)
 	if offer {
 		t.Errorf("expected no upgrade offer for an agent without a checker, got latest=%q", latest)
 	}
