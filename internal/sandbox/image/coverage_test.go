@@ -35,6 +35,7 @@ func TestEnsureImageSuccess(t *testing.T) {
 		configpaths.Get(),
 		a,
 		"test-project",
+		nil,
 		BuildOptions{},
 		&termio.Mock{},
 	)
@@ -54,6 +55,7 @@ func TestEnsureImageReturnsError(t *testing.T) {
 
 	_, err := EnsureImage(context.Background(), docker.Get(), configpaths.Get(), a,
 		"test-project",
+		nil,
 		BuildOptions{Force: true},
 		&termio.Mock{},
 	)
@@ -87,6 +89,7 @@ func TestBuildSuccess(t *testing.T) {
 		configpaths.Get(),
 		a,
 		"test-project",
+		nil,
 		BuildOptions{},
 		&termio.Mock{},
 	); err != nil {
@@ -105,6 +108,7 @@ func TestBuildReturnsErrorWhenImageBuildFails(t *testing.T) {
 	if _, err := Build(context.Background(), docker.Get(), &msb.MockMsbClient{}, configpaths.Get(),
 		a,
 		"test-project",
+		nil,
 		BuildOptions{Force: true},
 		&termio.Mock{},
 	); err == nil {
@@ -138,6 +142,7 @@ func TestBuildReturnsErrorWhenLoadFails(t *testing.T) {
 		configpaths.Get(),
 		a,
 		"test-project",
+		nil,
 		BuildOptions{},
 		&termio.Mock{},
 	); err == nil {

@@ -192,8 +192,8 @@ func TestNearMissDockerMarker(t *testing.T) {
 	}
 }
 
-// TestEmitProjectDockerfileDiagnostics verifies the on-disk convenience reads
-// the project Dockerfile and routes its diagnostics to the UI's warn channel.
+// TestEmitProjectDockerfileDiagnostics verifies the diagnostics emitter routes a
+// caller-read project Dockerfile's diagnostics to the UI's warn channel.
 func TestEmitProjectDockerfileDiagnostics(t *testing.T) {
 	dir := t.TempDir()
 	projectFile := filepath.Join(dir, configpaths.DockerFileName)
@@ -209,7 +209,7 @@ func TestEmitProjectDockerfileDiagnostics(t *testing.T) {
 	t.Cleanup(func() { configpaths.Get = orig })
 
 	ui := &termio.Mock{}
-	EmitProjectDockerfileDiagnostics(configpaths.Get(), ui, dockerOff)
+	EmitProjectDockerfileDiagnostics(ui, ReadProjectDockerfile(configpaths.Get()), dockerOff)
 
 	joined := strings.Join(ui.WarnCalls, "\n")
 	for _, want := range []string{"docker: on (project Dockerfile marker)", "# agents-sandbox:dind"} {

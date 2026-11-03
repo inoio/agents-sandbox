@@ -23,10 +23,12 @@ and 16 non-test `configpaths.Get()` sites. The rule is the same for all three:
 - **No nested reads.** A function below the entry point takes the value as an
   explicit parameter. `image.EnsureImageWithClient` and `image.EnsureLoaded` are
   the model: both take the Docker client (and `EnsureLoaded` the msb client too),
-  so the two halves of the image-ensure path agree. The image render/identity
-  helpers (`readProjectDockerfile`, `WarnIgnoredProjectConfig`,
-  `RenderProjectDockerfile`, `EmitProjectDockerfileDiagnostics`) take the
-  `configpaths.ConfigPaths` instead of reading the global. So does
+  so the two halves of the image-ensure path agree. The image reader and
+  identity helper (`ReadProjectDockerfile`, `WarnIgnoredProjectConfig`,
+  `RunnerDockerfileID`) take the `configpaths.ConfigPaths` instead of reading
+  the global; the renderer and the diagnostics helper
+  (`RenderProjectDockerfile`, `EmitProjectDockerfileDiagnostics`) take the
+  project Dockerfile's bytes, which the boundary read once. So does
   `vm.StopProjectVM`/`KillProjectVM`, which receive it from their `cmd` callers;
   only `msb.Get()` still resolves inside them.
 

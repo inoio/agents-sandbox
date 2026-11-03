@@ -152,6 +152,7 @@ func TestEnsureImageWarnsIgnoredWorktreeConfig(t *testing.T) {
 		configpaths.Get(),
 		agentOpencode(t),
 		"slug",
+		nil,
 		BuildOptions{AgentVersion: testAgentVersion},
 		ui,
 	)
@@ -172,6 +173,7 @@ func TestBuildWarnsIgnoredWorktreeConfig(t *testing.T) {
 		configpaths.Get(),
 		agentOpencode(t),
 		"slug",
+		nil,
 		BuildOptions{AgentVersion: testAgentVersion},
 		ui,
 	)
@@ -192,6 +194,7 @@ func TestPreviewImageWarnsIgnoredWorktreeConfig(t *testing.T) {
 		configpaths.Get(),
 		agentOpencode(t),
 		"slug",
+		nil,
 		BuildOptions{AgentVersion: testAgentVersion},
 		ui,
 	)

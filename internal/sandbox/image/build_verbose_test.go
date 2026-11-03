@@ -57,6 +57,7 @@ func TestEnsureImageVerboseNamesChangedInputs(t *testing.T) {
 		configpaths.Get(),
 		a,
 		"proj",
+		nil,
 		BuildOptions{},
 		ui,
 	); err != nil {
@@ -101,6 +102,7 @@ func TestEnsureImageVerboseReportsReuse(t *testing.T) {
 		configpaths.Get(),
 		a,
 		"proj",
+		nil,
 		BuildOptions{},
 		ui,
 	); err != nil {
@@ -132,6 +134,7 @@ func TestEnsureImageVerboseReportsForcedRebuild(t *testing.T) {
 		configpaths.Get(),
 		a,
 		"proj",
+		nil,
 		BuildOptions{Force: true},
 		ui,
 	); err != nil {

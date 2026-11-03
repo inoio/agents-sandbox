@@ -27,7 +27,7 @@ func TestPlanRunnerImageNoRebuildReusesChangedImage(t *testing.T) {
 		context.Background(),
 		docker.Get(),
 		agentOpencode(t),
-		nil,
+		parseProjectDockerfile(nil),
 		"proj",
 		"1.2.3",
 		"1.2.3",
@@ -57,7 +57,7 @@ func TestPlanRunnerImageNoRebuildStillBuildsMissingImage(t *testing.T) {
 		context.Background(),
 		docker.Get(),
 		agentOpencode(t),
-		nil,
+		parseProjectDockerfile(nil),
 		"proj",
 		"1.2.3",
 		"1.2.3",
@@ -144,6 +144,7 @@ func TestEnsureImageNoRebuildReusesUnlabeledImageOffline(t *testing.T) {
 
 	info, err := EnsureImage(context.Background(), docker.Get(), configpaths.Get(), agentOpencode(t),
 		"proj",
+		nil,
 		BuildOptions{NoRebuild: true},
 		&termio.Mock{},
 	)

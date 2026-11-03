@@ -98,6 +98,7 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 		configpaths.Get(),
 		a,
 		"proj",
+		nil,
 		BuildOptions{},
 		&termio.Mock{},
 	)
@@ -163,6 +164,7 @@ func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
 		configpaths.Get(),
 		a,
 		"proj",
+		nil,
 		BuildOptions{},
 		&termio.Mock{},
 	); err != nil {
@@ -195,6 +197,7 @@ func TestEnsureImageBuildArgsIncludeBaseAndAgentVersion(t *testing.T) {
 		configpaths.Get(),
 		a,
 		"proj",
+		nil,
 		BuildOptions{},
 		&termio.Mock{},
 	)
@@ -237,6 +240,7 @@ func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
 		configpaths.Get(),
 		a,
 		"proj",
+		nil,
 		BuildOptions{},
 		&termio.Mock{},
 	); err != nil {
@@ -283,6 +287,7 @@ func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) 
 	})
 	if _, err := EnsureImage(context.Background(), docker.Get(), configpaths.Get(), a,
 		"proj",
+		nil,
 		BuildOptions{UserProvided: true},
 		&termio.Mock{},
 	); err != nil {
@@ -327,6 +332,7 @@ func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
 	})
 	if _, err := EnsureImage(context.Background(), docker.Get(), configpaths.Get(), a,
 		"proj",
+		nil,
 		BuildOptions{UserProvided: true},
 		&termio.Mock{},
 	); err != nil {
@@ -359,6 +365,7 @@ func TestEnsureImageDockerAddsDockerVersionArg(t *testing.T) {
 	})
 	if _, err := EnsureImage(context.Background(), docker.Get(), configpaths.Get(), a,
 		"proj",
+		nil,
 		BuildOptions{Docker: dockerOn},
 		&termio.Mock{},
 	); err != nil {

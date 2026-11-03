@@ -136,7 +136,7 @@ func TestRunnerDockerfileIDMatchesTheRenderedPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunnerDockerfileID: %v", err)
 	}
-	rendered, err := RenderProjectDockerfile(configpaths.Get(), a, testAgentVersion, dockerOff)
+	rendered, err := RenderProjectDockerfile(a, testAgentVersion, nil, dockerOff)
 	if err != nil {
 		t.Fatalf("RenderProjectDockerfile: %v", err)
 	}
@@ -163,10 +163,10 @@ func TestRunnerDockerfileIDSurfacesRenderError(t *testing.T) {
 	}
 }
 
-// TestPreviewImageReadsProjectDockerfile exercises the exported entry: it warns
-// ignored project config, reads the project Dockerfile, and delegates to the
-// read-only plan path.
-func TestPreviewImageReadsProjectDockerfile(t *testing.T) {
+// TestPreviewImageDelegatesToReadOnlyPlan exercises the exported entry: it warns
+// ignored project config and delegates to the read-only plan path with the
+// caller-supplied project Dockerfile bytes.
+func TestPreviewImageDelegatesToReadOnlyPlan(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	withMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
 		t.Fatal("PreviewImage must not resolve the agent version")
@@ -181,6 +181,7 @@ func TestPreviewImageReadsProjectDockerfile(t *testing.T) {
 		configpaths.Get(),
 		a,
 		"slug",
+		nil,
 		BuildOptions{AgentVersion: testAgentVersion},
 		&termio.Mock{},
 	)

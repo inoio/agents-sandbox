@@ -81,7 +81,7 @@ func runnerAndBaseMock(t *testing.T, runnerLabels map[string]string, baseID stri
 // current plan with the given base provenance label.
 func seededRunnerLabels(t *testing.T, baseLabel string) map[string]string {
 	t.Helper()
-	plan, err := renderBuildPlan(agentOpencode(t), nil, dockerOff, "1.2.3", "1.2.3")
+	plan, err := renderBuildPlan(agentOpencode(t), parseProjectDockerfile(nil), dockerOff, "1.2.3", "1.2.3")
 	if err != nil {
 		t.Fatalf("renderBuildPlan: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestPlanRunnerImageRebuildsWhenLocalBaseAdvanced(t *testing.T) {
 		context.Background(),
 		docker.Get(),
 		agentOpencode(t),
-		nil,
+		parseProjectDockerfile(nil),
 		"proj",
 		"1.2.3",
 		"1.2.3",
@@ -128,7 +128,7 @@ func TestPlanRunnerImageReusesImageWhenBaseUnchangedOrAbsent(t *testing.T) {
 				context.Background(),
 				docker.Get(),
 				agentOpencode(t),
-				nil,
+				parseProjectDockerfile(nil),
 				"proj",
 				"1.2.3",
 				"1.2.3",

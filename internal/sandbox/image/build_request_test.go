@@ -63,7 +63,7 @@ func TestUserBuildArgsDockerVersionFollowsRequestSetting(t *testing.T) {
 // so this locks the behavior.
 func TestBuildRequestKeepsRawAndEffectiveDockerApart(t *testing.T) {
 	project := []byte("FROM debian:trixie-slim\n# agents-sandbox:docker\nRUN echo hi\n")
-	plan, err := renderBuildPlan(agentOpencode(t), project, dockerOff, "1.2.3", "1.2.3")
+	plan, err := renderBuildPlan(agentOpencode(t), parseProjectDockerfile(project), dockerOff, "1.2.3", "1.2.3")
 	if err != nil {
 		t.Fatalf("renderBuildPlan: %v", err)
 	}

@@ -126,8 +126,9 @@ func prepareVolumeOp(c *cobra.Command, ui termio.UI, dryRun bool) (state.Key, im
 	if err != nil {
 		return state.Key{}, image.ImageInfo{}, err
 	}
+	paths := configpaths.Get()
 	adoption, err := sandbox.AdoptLegacyIdentity(
-		c.Context(), configpaths.Get(), msb.Get(), identity, a.Name(), !dryRun, ui,
+		c.Context(), paths, msb.Get(), identity, a.Name(), !dryRun, ui,
 	)
 	if err != nil {
 		return state.Key{}, image.ImageInfo{}, err
@@ -139,9 +140,10 @@ func prepareVolumeOp(c *cobra.Command, ui termio.UI, dryRun bool) (state.Key, im
 	info, err := image.EnsureImage(
 		c.Context(),
 		docker.Get(),
-		configpaths.Get(),
+		paths,
 		a,
 		adoption.Slug,
+		image.ReadProjectDockerfile(paths),
 		image.BuildOptions{
 			Force:          false,
 			NoRebuild:      false,
@@ -299,8 +301,9 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 				return err
 			}
 			client := msb.Get()
+			paths := configpaths.Get()
 			adoption, err := sandbox.AdoptLegacyIdentity(
-				cmd.Context(), configpaths.Get(), client, identity, a.Name(), !dryRun, ui,
+				cmd.Context(), paths, client, identity, a.Name(), !dryRun, ui,
 			)
 			if err != nil {
 				return fmt.Errorf("adopt legacy identity: %w", err)
@@ -317,9 +320,10 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 				cmd.Context(),
 				docker.Get(),
 				client,
-				configpaths.Get(),
+				paths,
 				a,
 				adoption.Slug,
+				image.ReadProjectDockerfile(paths),
 				image.BuildOptions{
 					Force:          force,
 					NoRebuild:      false,
@@ -373,9 +377,10 @@ func buildDockerfileCmd(ui termio.UI) *cobra.Command {
 				return err
 			}
 			setting := resolveBuildDockerSetting(cmd)
-			image.EmitProjectDockerfileDiagnostics(paths, ui, setting)
+			projectDockerfile := image.ReadProjectDockerfile(paths)
+			image.EmitProjectDockerfileDiagnostics(ui, projectDockerfile, setting)
 			agentVersion, _ := cmd.Flags().GetString(flagAgentVersion)
-			out, err := image.RenderProjectDockerfile(paths, a, agentVersion, setting)
+			out, err := image.RenderProjectDockerfile(a, agentVersion, projectDockerfile, setting)
 			if err != nil {
 				return err
 			}

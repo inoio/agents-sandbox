@@ -49,13 +49,13 @@ func identityLabels(id imageIdentity) map[string]string {
 
 func TestEffectiveDindImpliedByManagedDindBase(t *testing.T) {
 	project := []byte("FROM agents-sandbox/runner-base-dind:latest\n")
-	if !effectiveDocker(project, dockerOff) {
+	if !parseProjectDockerfile(project).effectiveDocker(dockerOff) {
 		t.Error("expected docker to be implied by the managed dind base")
 	}
-	if effectiveDocker(nil, dockerOff) {
+	if parseProjectDockerfile(nil).effectiveDocker(dockerOff) {
 		t.Error("expected docker to be off without a flag or managed docker base")
 	}
-	if !effectiveDocker(nil, dockerOn) {
+	if !parseProjectDockerfile(nil).effectiveDocker(dockerOn) {
 		t.Error("expected docker to be on when the flag is set")
 	}
 }
@@ -96,7 +96,7 @@ func TestEffectiveDockerContentSignals(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := effectiveDocker(tc.project, tc.setting); got != tc.want {
+			if got := parseProjectDockerfile(tc.project).effectiveDocker(tc.setting); got != tc.want {
 				t.Errorf("effectiveDocker = %v, want %v", got, tc.want)
 			}
 		})
@@ -231,7 +231,7 @@ func TestBuildReasonsCombinesSourceAndHostChanges(t *testing.T) {
 }
 
 func TestRenderBuildPlanRecordsHostUser(t *testing.T) {
-	plan, err := renderBuildPlan(agentOpencode(t), nil, dockerOff, "1.2.3", "1.2.3")
+	plan, err := renderBuildPlan(agentOpencode(t), parseProjectDockerfile(nil), dockerOff, "1.2.3", "1.2.3")
 	if err != nil {
 		t.Fatalf("renderBuildPlan: %v", err)
 	}

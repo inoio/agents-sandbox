@@ -79,7 +79,7 @@ func PreviewSandbox(ctx context.Context, opts options.RunOptions, ui termio.Logg
 	upgradeCheckSkipped := version != "" && opts.AgentVersion == "" && !userProvided
 
 	img, err := image.PreviewImage(
-		ctx, dclient, paths, a, k.Slug,
+		ctx, dclient, paths, a, k.Slug, image.ReadProjectDockerfile(paths),
 		buildOptions(opts, version, opts.Rebuild, userProvided),
 		ui,
 	)

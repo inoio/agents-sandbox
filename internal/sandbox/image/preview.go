@@ -25,10 +25,11 @@ func previewRunnerImage(
 	ctx context.Context, dclient docker.Client, a agent.Agent, projectDockerfile []byte, projectSlug string,
 	buildOpts BuildOptions, ui termio.Logger,
 ) (ImagePreview, error) {
-	EmitDockerfileDiagnostics(ui, DiagnoseDockerfile(projectDockerfile, buildOpts.Docker))
+	project := parseProjectDockerfile(projectDockerfile)
+	EmitDockerfileDiagnostics(ui, project.diagnostics(buildOpts.Docker))
 	agentVersion, identityVersion, _ := initialBuildVersions(buildOpts)
 	_, tag, needsBuild, reasons, err := planRunnerImage(
-		ctx, dclient, a, projectDockerfile, projectSlug, agentVersion, identityVersion, buildOpts,
+		ctx, dclient, a, project, projectSlug, agentVersion, identityVersion, buildOpts,
 	)
 	if err != nil {
 		return ImagePreview{}, err
@@ -39,24 +40,26 @@ func previewRunnerImage(
 	}, nil
 }
 
-// PreviewImage reports what EnsureImage would do without building anything.
+// PreviewImage reports what EnsureImage would do without building anything. The
+// project Dockerfile's bytes are an explicit input (see ReadProjectDockerfile).
 func PreviewImage(
 	ctx context.Context,
 	dclient docker.Client,
 	paths configpaths.ConfigPaths,
 	a agent.Agent,
 	projectSlug string,
+	projectDockerfile []byte,
 	buildOpts BuildOptions,
 	ui termio.Logger,
 ) (ImagePreview, error) {
 	WarnIgnoredProjectConfig(paths, ui)
-	return previewRunnerImage(ctx, dclient, a, readProjectDockerfile(paths), projectSlug, buildOpts, ui)
+	return previewRunnerImage(ctx, dclient, a, projectDockerfile, projectSlug, buildOpts, ui)
 }
 
-// RunnerDockerfileID returns the content identity of the runner image this
-// project would build for the pinned agent version: the rendered Dockerfile
-// (agent profile plus on-disk project Dockerfile), the build-context assets, and
-// the version folded together. It is the value the build decision compares an
+// RunnerDockerfileID returns the content identity of the runner image a project
+// would build for the pinned agent version: the rendered Dockerfile (agent
+// profile plus on-disk project Dockerfile), the build-context assets, and the
+// version folded together. It is the value the build decision compares an
 // existing image's dockerfile-id label against. Exposed so callers outside this
 // package (e.g. higher-layer preview tests) can seed an image whose label
 // matches the plan this package computes.
@@ -68,7 +71,7 @@ func RunnerDockerfileID(
 	agentVersion string,
 	docker options.DockerSetting,
 ) (string, error) {
-	rendered, err := RenderProjectDockerfile(paths, a, agentVersion, docker)
+	rendered, err := RenderProjectDockerfile(a, agentVersion, ReadProjectDockerfile(paths), docker)
 	if err != nil {
 		return "", err
 	}

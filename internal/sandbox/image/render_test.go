@@ -816,6 +816,14 @@ func TestRenderDockerfileDindFromImpliesDocker(t *testing.T) {
 	if !strings.Contains(s, "agents-sandbox-docker") {
 		t.Error("a runner-base-dind FROM must imply docker")
 	}
+	// The dind base is a managed base, so its final FROM must resolve to the
+	// embedded base tools block, not be kept as a custom base.
+	if !strings.Contains(s, "FROM "+distroBaseRef+" AS "+baseStageAlias) {
+		t.Errorf("a managed dind base must be replaced with the embedded base tools block; got:\n%s", s)
+	}
+	if strings.Contains(s, "agents-sandbox/runner-base-dind") {
+		t.Errorf("the managed dind base reference must be replaced, not kept; got:\n%s", s)
+	}
 }
 
 func TestRenderDockerfileDockerFromImpliesDocker(t *testing.T) {
@@ -824,6 +832,14 @@ func TestRenderDockerfileDockerFromImpliesDocker(t *testing.T) {
 	s := mustRender(t, a, project, dockerOff)
 	if !strings.Contains(s, "agents-sandbox-docker") {
 		t.Error("a runner-base-docker FROM must imply docker")
+	}
+	// The docker base is a managed base, so its final FROM must resolve to the
+	// embedded base tools block, not be kept as a custom base.
+	if !strings.Contains(s, "FROM "+distroBaseRef+" AS "+baseStageAlias) {
+		t.Errorf("a managed docker base must be replaced with the embedded base tools block; got:\n%s", s)
+	}
+	if strings.Contains(s, "agents-sandbox/runner-base-docker") {
+		t.Errorf("the managed docker base reference must be replaced, not kept; got:\n%s", s)
 	}
 }
 
@@ -930,7 +946,7 @@ func TestRenderDockerfileDeterministic(t *testing.T) {
 }
 
 func TestSplitFinalStageNoProjectDockerfile(t *testing.T) {
-	earlier, base, body := splitFinalStage(nil)
+	earlier, base, body := splitFinalStageForTest(nil)
 	if earlier != "" {
 		t.Errorf("earlier = %q, want empty", earlier)
 	}
@@ -944,7 +960,7 @@ func TestSplitFinalStageNoProjectDockerfile(t *testing.T) {
 
 func TestSplitFinalStageManagedBase(t *testing.T) {
 	project := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo managed\n")
-	earlier, base, body := splitFinalStage(project)
+	earlier, base, body := splitFinalStageForTest(project)
 	if earlier != "" {
 		t.Errorf("earlier = %q, want empty", earlier)
 	}
@@ -958,7 +974,7 @@ func TestSplitFinalStageManagedBase(t *testing.T) {
 
 func TestSplitFinalStageCustomBase(t *testing.T) {
 	project := []byte("FROM ubuntu:24.04\nRUN echo custom\n")
-	earlier, base, body := splitFinalStage(project)
+	earlier, base, body := splitFinalStageForTest(project)
 	if earlier != "" {
 		t.Errorf("earlier = %q, want empty", earlier)
 	}
@@ -975,7 +991,7 @@ func TestSplitFinalStageMultiStage(t *testing.T) {
 		"FROM golang:1.24 AS build\nRUN go build\n" +
 			"FROM debian:trixie-slim AS final\nCOPY --from=build /app /app\n",
 	)
-	earlier, base, body := splitFinalStage(project)
+	earlier, base, body := splitFinalStageForTest(project)
 	wantEarlier := "FROM golang:1.24 AS build\nRUN go build\n"
 	if earlier != wantEarlier {
 		t.Errorf("earlier = %q, want %q", earlier, wantEarlier)
@@ -990,7 +1006,7 @@ func TestSplitFinalStageMultiStage(t *testing.T) {
 
 func TestSplitFinalStageLowercaseFrom(t *testing.T) {
 	project := []byte("from debian:trixie-slim\nRUN echo hi\n")
-	earlier, base, body := splitFinalStage(project)
+	earlier, base, body := splitFinalStageForTest(project)
 	if earlier != "" {
 		t.Errorf("earlier = %q, want empty", earlier)
 	}
@@ -1004,7 +1020,7 @@ func TestSplitFinalStageLowercaseFrom(t *testing.T) {
 
 func TestSplitFinalStageMixedCaseFrom(t *testing.T) {
 	project := []byte("From debian:trixie-slim\nRUN echo hi\n")
-	earlier, base, body := splitFinalStage(project)
+	earlier, base, body := splitFinalStageForTest(project)
 	if earlier != "" {
 		t.Errorf("earlier = %q, want empty", earlier)
 	}
@@ -1021,7 +1037,7 @@ func TestSplitFinalStageLowercaseMultiStage(t *testing.T) {
 		"from golang:1.24 as build\nRUN go build\n" +
 			"from debian:trixie-slim as final\nCOPY --from=build /app /app\n",
 	)
-	earlier, base, body := splitFinalStage(project)
+	earlier, base, body := splitFinalStageForTest(project)
 	wantEarlier := "from golang:1.24 as build\nRUN go build\n"
 	if earlier != wantEarlier {
 		t.Errorf("earlier = %q, want %q", earlier, wantEarlier)
@@ -1036,7 +1052,7 @@ func TestSplitFinalStageLowercaseMultiStage(t *testing.T) {
 
 func TestSplitFinalStageIgnoresFromage(t *testing.T) {
 	project := []byte("FROMAGE debian:trixie-slim\nRUN echo hi\n")
-	earlier, base, body := splitFinalStage(project)
+	earlier, base, body := splitFinalStageForTest(project)
 	if earlier != "" {
 		t.Errorf("earlier = %q, want empty", earlier)
 	}
@@ -1134,6 +1150,54 @@ func TestRenderDockerfileHeredocMarkerIsInert(t *testing.T) {
 	}
 }
 
+// TestRenderDockerfileEscapeContinuationSwallowsMarker pins that the marker scan
+// reads the file-level lex: under a file-level `# escape=` (backtick), a backtick
+// line continuation swallows the following marker line as instruction content, so
+// the marker neither enables nor positions docker. The removed body-level re-lex
+// re-derived the escape from the body (defaulting to backslash), read the comment
+// as a top-level marker, and enabled docker.
+func TestRenderDockerfileEscapeContinuationSwallowsMarker(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	project := []byte("# escape=`\n" +
+		"FROM debian:trixie-slim\n" +
+		"RUN echo hi `\n" +
+		"# agents-sandbox:docker\n" +
+		"RUN echo bye\n")
+	p := parseProjectDockerfile(project)
+	if p.marker != "" || p.asksDocker() {
+		t.Errorf("marker = %q, asksDocker = %v, want none: a backtick continuation swallows the marker",
+			p.marker, p.asksDocker())
+	}
+	s := mustRender(t, a, project, dockerOff)
+	if strings.Contains(s, " AS "+dockerStageAlias) {
+		t.Errorf("a marker swallowed by a backtick continuation must not enable docker; got:\n%s", s)
+	}
+	if !strings.Contains(s, "# agents-sandbox:docker") {
+		t.Errorf("the swallowed marker must stay verbatim in the body; got:\n%s", s)
+	}
+}
+
+// TestRenderDockerfileFromContinuationSwallowsMarker pins the same file-level lex
+// for a final FROM whose own line continuation consumes the following marker
+// comment: the walk reads the comment as instruction content, not a top-level
+// line, so it never enables docker. The removed body-level re-lex started after
+// the FROM line and read the comment fresh as a marker.
+func TestRenderDockerfileFromContinuationSwallowsMarker(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	project := []byte("FROM debian:trixie-slim \\\n" +
+		"# agents-sandbox:docker\n" +
+		"RUN echo hi\n")
+	p := parseProjectDockerfile(project)
+	if p.marker != "" || p.asksDocker() {
+		t.Errorf("marker = %q, asksDocker = %v, want none: the FROM continuation swallows the marker",
+			p.marker, p.asksDocker())
+	}
+	s := mustRender(t, a, project, dockerOff)
+	if strings.Contains(s, " AS "+dockerStageAlias) {
+		t.Errorf("a marker swallowed by the FROM continuation must not enable docker; got:\n%s", s)
+	}
+}
+
 func TestAgentImageConfigBlock(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	block := agentImageConfigBlock(a)
@@ -1153,7 +1217,7 @@ func TestAgentImageConfigBlock(t *testing.T) {
 
 func TestInjectDockerBlockAtMarker(t *testing.T) {
 	body := "RUN install-prereqs\n# agents-sandbox:docker\nRUN configure\n"
-	got, injected := injectDockerBlock(body, true)
+	got, injected := injectDockerBlockForTest(body, true)
 	if !injected {
 		t.Fatal("expected injection at the marker")
 	}
@@ -1163,8 +1227,33 @@ func TestInjectDockerBlockAtMarker(t *testing.T) {
 	}
 }
 
+// TestInjectDockerBlockAtFirstBodyLine pins markerAt == 0: a marker that is the
+// very first body line must still inject, so the guard rejects only a position
+// below zero (a concrete sentinel, not "the first line").
+func TestInjectDockerBlockAtFirstBodyLine(t *testing.T) {
+	body := "# agents-sandbox:docker\nRUN configure\n"
+	got, injected := injectDockerBlockForTest(body, true)
+	if !injected {
+		t.Fatal("expected injection at a marker that is the first body line")
+	}
+	want := dockerMergeBlock() + "RUN configure\n"
+	if got != want {
+		t.Errorf("injectDockerBlock = %q, want %q", got, want)
+	}
+}
+
+// TestInjectDockerBlockDisabledWithMarkerLeavesBody pins that a present marker
+// does not inject when docker is disabled: the body must be returned untouched.
+func TestInjectDockerBlockDisabledWithMarkerLeavesBody(t *testing.T) {
+	body := "RUN install-prereqs\n# agents-sandbox:docker\nRUN configure\n"
+	got, injected := injectDockerBlockForTest(body, false)
+	if injected || got != body {
+		t.Errorf("injectDockerBlock = %q (injected=%v), want the body unchanged", got, injected)
+	}
+}
+
 func TestInjectDockerBlockAppendsWithoutMarker(t *testing.T) {
-	got, injected := injectDockerBlock("RUN install-prereqs\n", true)
+	got, injected := injectDockerBlockForTest("RUN install-prereqs\n", true)
 	if injected {
 		t.Error("expected append, not marker injection")
 	}
@@ -1178,7 +1267,7 @@ func TestInjectDockerBlockAppendsWithoutMarker(t *testing.T) {
 // instead of overwriting the copied file.
 func TestInjectDockerBlockSkipsHeredocMarker(t *testing.T) {
 	body := "COPY <<EOF /tmp/example.Dockerfile\n# agents-sandbox:docker\nEOF\n"
-	got, injected := injectDockerBlock(body, true)
+	got, injected := injectDockerBlockForTest(body, true)
 	if injected {
 		t.Error("a marker inside a heredoc body must not be an injection point")
 	}
@@ -1188,7 +1277,7 @@ func TestInjectDockerBlockSkipsHeredocMarker(t *testing.T) {
 }
 
 func TestInjectDockerBlockNoopWhenDisabled(t *testing.T) {
-	got, injected := injectDockerBlock("RUN x\n", false)
+	got, injected := injectDockerBlockForTest("RUN x\n", false)
 	if injected || got != "RUN x\n" {
 		t.Errorf("injectDockerBlock = %q (injected=%v), want unchanged", got, injected)
 	}
@@ -1253,7 +1342,10 @@ func (p *projectDockerfilePaths) ProjectEnvSecretFile() string     { return "" }
 func (p *projectDockerfilePaths) ProjectEnvSecretYAMLFile() string { return "" }
 func (p *projectDockerfilePaths) IgnoredWorktreeConfigDir() string { return "" }
 
-func TestRenderProjectDockerfileReadsProjectFile(t *testing.T) {
+// TestRenderProjectDockerfileRendersProjectFile pins that the caller-read
+// project Dockerfile bytes reach the rendered output: the reader is the
+// boundary, and RenderProjectDockerfile renders only what it is given.
+func TestRenderProjectDockerfileRendersProjectFile(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	dir := t.TempDir()
 	projectFile := filepath.Join(dir, configpaths.DockerFileName)
@@ -1265,7 +1357,7 @@ func TestRenderProjectDockerfileReadsProjectFile(t *testing.T) {
 	configpaths.Get = func() configpaths.ConfigPaths { return &projectDockerfilePaths{dir: dir} }
 	t.Cleanup(func() { configpaths.Get = orig })
 
-	out, err := RenderProjectDockerfile(configpaths.Get(), a, testAgentVersion, dockerOff)
+	out, err := RenderProjectDockerfile(a, testAgentVersion, ReadProjectDockerfile(configpaths.Get()), dockerOff)
 	if err != nil {
 		t.Fatalf("RenderProjectDockerfile: %v", err)
 	}
@@ -1287,7 +1379,7 @@ func TestRenderProjectDockerfileNoProjectFile(t *testing.T) {
 	configpaths.Get = func() configpaths.ConfigPaths { return &projectDockerfilePaths{dir: dir} }
 	t.Cleanup(func() { configpaths.Get = orig })
 
-	out, err := RenderProjectDockerfile(configpaths.Get(), a, testAgentVersion, dockerOff)
+	out, err := RenderProjectDockerfile(a, testAgentVersion, ReadProjectDockerfile(configpaths.Get()), dockerOff)
 	if err != nil {
 		t.Fatalf("RenderProjectDockerfile: %v", err)
 	}

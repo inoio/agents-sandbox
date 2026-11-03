@@ -42,6 +42,7 @@ func TestEnsureImageReportsBakedAgentVersion(t *testing.T) {
 		configpaths.Get(),
 		a,
 		"proj",
+		nil,
 		BuildOptions{},
 		&termio.Mock{},
 	)
@@ -83,6 +84,7 @@ func TestEnsureImageReportsEmptyForSentinelLabel(t *testing.T) {
 		configpaths.Get(),
 		a,
 		"proj",
+		nil,
 		BuildOptions{},
 		&termio.Mock{},
 	)
