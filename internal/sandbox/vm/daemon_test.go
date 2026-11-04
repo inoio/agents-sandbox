@@ -156,8 +156,10 @@ func TestEnsureDaemonProbesBeforeWaiting(t *testing.T) {
 		daemonReadyTimeout = origTimeout
 		daemonPollInterval = origInterval
 	})
-	daemonReadyTimeout = 2 * time.Second
-	daemonPollInterval = 2 * time.Second
+	// A poll interval longer than the expected elapsed time makes a wait
+	// before the first probe visible.
+	daemonReadyTimeout = time.Second
+	daemonPollInterval = time.Second
 
 	sb := &msb.MockSandbox{}
 	start := time.Now()
@@ -546,6 +548,6 @@ func fastDaemonPoll(t *testing.T) {
 		daemonReadyTimeout = origTimeout
 		daemonPollInterval = origInterval
 	})
-	daemonReadyTimeout = 2 * time.Second
+	daemonReadyTimeout = 200 * time.Millisecond
 	daemonPollInterval = time.Millisecond
 }

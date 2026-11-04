@@ -414,8 +414,8 @@ func TestStartDockerdIfPresentProbesBeforeWaiting(t *testing.T) {
 		dockerdReadyTimeout = origTimeout
 		dockerdPollInterval = origInterval
 	})
-	dockerdReadyTimeout = 2 * time.Second
-	dockerdPollInterval = 2 * time.Second
+	dockerdReadyTimeout = time.Second
+	dockerdPollInterval = time.Second
 
 	start := time.Now()
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
