@@ -5,8 +5,6 @@ import (
 	"strings"
 )
 
-// opencodeGitHubLatestURL is a var (not const) so the tests can point it at an httptest
-// server via overrideLatestURL.
 var opencodeGitHubLatestURL = "https://api.github.com/repos/anomalyco/opencode/releases/latest"
 
 // latestOpenCodeVersion returns the newest stable opencode release string (leading "v"

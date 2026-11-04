@@ -7,8 +7,7 @@ import (
 	sandboxstate "github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
-// claimer acquires named cross-process claims. It is an interface so tests can
-// substitute a fake; production uses StateClaimer.
+// claimer acquires named cross-process claims. Production uses StateClaimer.
 type claimer interface {
 	Acquire(slug, key string) (release func(), claimed bool, err error)
 }

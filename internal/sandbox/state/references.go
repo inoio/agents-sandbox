@@ -60,7 +60,7 @@ func projectStateReferences(extract func(Key, *HomeState) []string) (map[string]
 // HomeVolumeReferences maps each home volume name recorded in a project state
 // file to the project keys that reference it, so a destructive removal can fail
 // closed on an unreadable or corrupt state (see projectStateReferences). A
-// pending RecoveredHomeVolume (a VM-only identity adoption, #144) counts: the
+// pending RecoveredHomeVolume (a VM-only identity adoption) counts: the
 // volume is still the project's saved home until home resolution recovers it.
 func HomeVolumeReferences() (map[string][]Key, error) {
 	return projectStateReferences(func(_ Key, st *HomeState) []string {

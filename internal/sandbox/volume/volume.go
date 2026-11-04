@@ -22,8 +22,7 @@ const (
 	dstMount  = "/dst"
 )
 
-// homeVolumeClock is the clock HomeVolumeName timestamps from. It is a seam so
-// tests can control the generated names.
+// homeVolumeClock is the clock HomeVolumeName timestamps from.
 var homeVolumeClock = time.Now
 
 // HomeVolumeName generates a prefix-free volume name for the given

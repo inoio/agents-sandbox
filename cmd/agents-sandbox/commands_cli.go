@@ -43,8 +43,7 @@ var autoPrune = pruning.AutoPrune
 var newLifecycleTrace = func() *lifecycle.Trace { return &lifecycle.Trace{} }
 
 // runSeams carries the run's behavior test seams (options.Seams) from the
-// command boundary into the run/shell stages, the cmd→run route that replaced
-// the vm/prepare exported seam setters (#518). Production leaves it zero (every
+// command boundary into the run/shell stages. Production leaves it zero (every
 // stage uses its package default); tests set a field to stub a behavior.
 var runSeams options.Seams
 
@@ -273,8 +272,7 @@ var serveOnlyIsTerminal = term.IsTerminal
 // serveOnlyStdinReader returns the reader whose EOF stops serve-only mode, or
 // nil when stdin must not be watched. Only an interactive terminal can deliver
 // a deliberate Ctrl-D; a non-TTY stdin (CI, `< /dev/null`, a background job) is
-// already at EOF, so watching it would cancel the run immediately (#387). It is
-// a seam so tests can drive both paths.
+// already at EOF, so watching it would cancel the run immediately.
 var serveOnlyStdinReader = func() io.Reader {
 	if serveOnlyIsTerminal(int(os.Stdin.Fd())) {
 		return os.Stdin

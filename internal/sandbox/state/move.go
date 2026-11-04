@@ -18,7 +18,7 @@ func SlugDir(slug string) string {
 // StatefulAgentNames returns the agent names that have a state file under slug,
 // i.e. the agents whose state a slug-directory move will carry. It is how the
 // identity adoption learns every agent it must tear down before moving the whole
-// directory (#144): migrating one agent moves all of their state, so every moved
+// directory: migrating one agent moves all of their state, so every moved
 // agent's legacy VM has to be destroyed, not only the one the current command
 // names. A missing slug directory, or a subdirectory without a state file, is
 // not an agent and is skipped.
@@ -45,7 +45,7 @@ func StatefulAgentNames(slug string) ([]string, error) {
 
 // MoveSlugDir moves the entries of SlugDir(fromSlug) into SlugDir(toSlug) and
 // returns the source-relative path of every entry it left behind. It is the
-// state-moving half of the per-checkout identity adoption (#144).
+// state-moving half of the per-checkout identity adoption.
 //
 // The move is a recursive merge that never overwrites an existing file. A
 // destination name that is free is renamed; where both sides are directories the

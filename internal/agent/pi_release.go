@@ -2,8 +2,7 @@ package agent
 
 import "context"
 
-// piDevLatestURL returns the latest pi release. It is a var (not const) so the
-// tests can point it at an httptest server.
+// piDevLatestURL returns the latest pi release.
 var piDevLatestURL = "https://pi.dev/api/latest-version"
 
 // latestPIVersion returns the newest stable pi release string by querying

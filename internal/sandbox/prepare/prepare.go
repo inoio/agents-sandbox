@@ -515,8 +515,8 @@ func setupSandboxStage(
 }
 
 // resolveSessionIdentity derives the workspace identity for cwd from the
-// run's already-resolved agent, then adopts a legacy origin-keyed identity
-// (#144). Adoption runs before any other work so its notice explains the pause
+// run's already-resolved agent, then adopts a legacy origin-keyed identity.
+// Adoption runs before any other work so its notice explains the pause
 // and the runner image builds under the effective (checkout-scoped) tag; a
 // skipVM prepare makes it read-only, so the rest of the run keeps resolving
 // against the legacy location. It returns the adoption so the caller can use the
@@ -657,7 +657,7 @@ func resolveServeHostPort(opts options.RunOptions, planned int) (int, error) {
 // project's home volume and its state. It returns the volume manager for the
 // caller's subsequent reconfig/VM steps.
 //
-// A home volume preserved by a VM-only identity adoption (#144) is not passed
+// A home volume preserved by a VM-only identity adoption is not passed
 // here: adoption records it in the checkout state's RecoveredHomeVolume, which
 // ResolveHomeVolume recovers, so the reference survives any caller that discards
 // the adoption result or any step that fails before home resolution.
@@ -726,7 +726,7 @@ func persistOfferedVersion(k state.Key, version string, ui termio.Logger) {
 
 // liveHomeVolume returns the home volume currently mounted by the project VM,
 // or "" when the project has no VM or its mounts cannot be read. It lets home
-// resolution recover the volume when the state file was lost (issue #219). The
+// resolution recover the volume when the state file was lost. The
 // mount is read from the VM's persisted config, because the SDK's Config()
 // leaves cfg.Volumes empty on a read-back (specs/live-mount-readback.md). A
 // not-found VM is expected (first run); any other lookup error is logged so a
@@ -743,7 +743,7 @@ func liveHomeVolume(ctx context.Context, client msb.Client, k state.Key, ui term
 // loadEnvFingerprints reads the host env and secret files once per run and
 // derives the VM-config fingerprints from that single read, so the persisted
 // fingerprints and the env/secrets baked into a newly created VM cannot
-// disagree (#342).
+// disagree.
 func loadEnvFingerprints(opts options.RunOptions, ui termio.Logger) (envsecret.EnvSecrets, state.Fingerprints) {
 	env := envsecret.LoadEnvAndSecrets(ui, opts.AllowPlaceholderFor)
 	return env, desiredFingerprints(opts, env)

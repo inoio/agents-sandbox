@@ -8,8 +8,7 @@ import (
 	"time"
 )
 
-// spinnerInterval is the delay between spinner animation frames. It is a
-// variable so tests can shrink it instead of waiting out the production interval.
+// spinnerInterval is the delay between spinner animation frames.
 var spinnerInterval = 100 * time.Millisecond
 
 var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}

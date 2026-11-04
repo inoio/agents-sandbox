@@ -54,7 +54,7 @@ type Identity struct {
 // It returns an error when cwd or the checkout's git dir cannot be resolved,
 // instead of hashing a fallback path: a transient symlink or permission failure
 // would otherwise yield a different checkout slug — a new state file, VM and
-// home volume — for an existing project, with no diagnostic (#354).
+// home volume — for an existing project, with no diagnostic.
 //
 // Symlinks are resolved internally so every entry point (run, stop, kill, volume
 // ops, build) hashes the same physical path — otherwise /tmp and /private/tmp on
@@ -108,11 +108,11 @@ func ResolveIdentity(cwd string) (Identity, error) {
 		identity.RecordedSharedGitDir = recordedSharedGitDir(worktreeRoot)
 	}
 	// The bare root is not a linked worktree, so bindRoot is the worktree root
-	// itself: this is the cwd that predates the split with a path-derived slug.
-	// A bare root named "<name>.git" was keyed under that same slug as a
-	// non-repo folder (#433). Its checkout slug can equal it, which needs no
-	// state move, but the per-slug config is read through the repo slug and
-	// these legacy slugs, so it is still listed unless it is the repo slug.
+	// itself. Its legacy slug is the path-derived one a non-repo folder of the
+	// same name gets ("<name>.git" included). Its checkout slug
+	// can equal it, which needs no state move, but the per-slug config is read
+	// through the repo slug and these legacy slugs, so it is still listed unless
+	// it is the repo slug.
 	if bare && bindRoot == worktreeRoot {
 		if legacy := projectSlug(
 			sanitizeFolderName(filepath.Base(worktreeRoot)),
@@ -127,7 +127,7 @@ func ResolveIdentity(cwd string) (Identity, error) {
 // MustRepoSlug returns the repo slug of the current working directory: the value
 // shared by every clone of the same origin. It is a cwd-derived convenience for
 // tests; production reads the ResolveIdentity fields. An unresolvable cwd panics
-// rather than returning a slug derived from a degraded path (#354).
+// rather than returning a slug derived from a degraded path.
 //
 //deadcode:ignore reason="cwd-derived convenience for tests; production reads the ResolveIdentity fields"
 func MustRepoSlug() string {
@@ -141,7 +141,7 @@ func MustRepoSlug() string {
 // MustCheckoutSlug returns the checkout slug of the current working directory.
 // It is a cwd-derived convenience for tests; production reads the
 // ResolveIdentity fields. An unresolvable cwd panics rather than returning a
-// slug derived from a degraded path (#354).
+// slug derived from a degraded path.
 //
 //deadcode:ignore reason="cwd-derived convenience for tests; production reads the ResolveIdentity fields"
 func MustCheckoutSlug() string {
@@ -159,7 +159,7 @@ func MustCheckoutSlug() string {
 //
 // It reports an error rather than substituting a fallback. A degraded path —
 // the raw input or the unresolved absolute path — would be hashed into a slug
-// and silently change a project's identity, so the error is the point (#354).
+// and silently change a project's identity, so the error is the point.
 func resolvePath(path string) (string, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
@@ -234,7 +234,7 @@ func checkoutRootOf(commonGitDir string) string {
 // "foo-<hashA>"/"foo-<hashB>", and the repo slug hashes the origin URL. Without
 // one, both fall back to bindRoot — the checkout root for a plain checkout or an
 // inside-worktree, the worktree root for an outside worktree — so an
-// inside-worktree shares its checkout's repo slug (#434). The checkout slug
+// inside-worktree shares its checkout's repo slug. The checkout slug
 // hashes checkoutHashInput: the resolved common git dir a checkout and its
 // inside-worktrees share, or the worktree root for an outside worktree.
 func identitySlugs(worktreeRoot, bindRoot, checkoutHashInput string) (string, string) {

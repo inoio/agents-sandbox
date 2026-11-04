@@ -6,12 +6,8 @@ import (
 	"os"
 )
 
-// procMeminfoPath is overridable so tests can exercise the parse error path
-// without a real /proc/meminfo.
 var procMeminfoPath = "/proc/meminfo"
 
-// readMeminfo is overridable so tests can exercise the read error path,
-// including a partial read, without a real /proc/meminfo.
 var readMeminfo = os.ReadFile
 
 func TotalMemoryGiB() int {

@@ -115,8 +115,8 @@ func pruneHomeVolumes(
 // references. The count guard holds back a key with a surviving volume (for
 // example one a failed removal left behind); the state-content guard holds back
 // a key whose state names a home volume, so a volume created since the prune
-// snapshot — committed to the state under the home lock — is never orphaned
-// (#335). Keys are visited in a stable order so a skipped key never determines
+// snapshot — committed to the state under the home lock — is never orphaned.
+// Keys are visited in a stable order so a skipped key never determines
 // whether a later one is processed.
 func removeStateForGoneKeys(ui termio.Logger, removed, exists map[state.Key]int) {
 	for _, key := range slices.SortedFunc(maps.Keys(removed), compareStateKey) {

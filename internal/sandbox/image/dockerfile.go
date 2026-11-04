@@ -221,7 +221,7 @@ func computeDockerfileID(rendered []byte, agentVersion string) string {
 // Pinned third-party versions baked into the image. Node stays on the v24 line:
 // the v26 tarballs gained a hard libatomic.so.1 dependency the managed base does
 // not provide, while v24 (no libatomic on x86_64/arm64) satisfies every npm
-// agent (#132).
+// agent.
 const (
 	nodeVersion   = "v24.22.1"
 	dockerVersion = "29.7.2"

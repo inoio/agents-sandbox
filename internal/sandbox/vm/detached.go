@@ -51,7 +51,7 @@ func jobTailLogs(ctx context.Context, job msb.Job) string {
 // `env <marker> <binary> <args…>` and rediscovered by the marker. Because the
 // marker does not depend on the helper's arguments, a helper left behind by an
 // older launcher (a different storage-driver flag, serve hostname, or log
-// format) is still targeted (#343).
+// format) is still targeted.
 const jobMarkerEnv = "AGENTS_SANDBOX_DETACHED_JOB"
 
 // jobMarkerBinary is the launcher that takes the marker assignment and then

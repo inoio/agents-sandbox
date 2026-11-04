@@ -407,8 +407,7 @@ func reconcileResources(ctx context.Context, handle msb.SandboxHandle, opts opti
 }
 
 // sandboxLifecyclePollInterval is the delay between status refreshes while a
-// sandbox is starting. It is a variable so tests can shrink it instead of
-// waiting out the production interval.
+// sandbox is starting.
 var sandboxLifecyclePollInterval = 100 * time.Millisecond
 
 func startExistingVM(ctx context.Context, handle msb.SandboxHandle) (msb.Sandbox, VMBoot, error) {
