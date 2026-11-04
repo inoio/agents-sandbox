@@ -106,10 +106,7 @@ func EnsureImageWithClient(
 		agentVersion, identityVersion = resolved, resolved
 		// Re-render so the resolved version becomes the agent stage's ARG
 		// default (the deferred render above had no version).
-		plan, err = renderBuildPlan(a, project, buildOpts.Docker, agentVersion, identityVersion)
-		if err != nil {
-			return ImageInfo{}, fmt.Errorf("render Dockerfile: %w", err)
-		}
+		plan = validBuildPlan(a, project, buildOpts.Docker, agentVersion, identityVersion)
 	}
 	logBuildDecision(ui, rTag, needsBuild, reasons, a.Name(), agentVersion, buildOpts.AgentVersion)
 
@@ -199,10 +196,21 @@ func renderBuildPlan(
 	docker options.DockerSetting,
 	agentVersion, identityVersion string,
 ) (buildPlan, error) {
-	rendered, err := project.render(a, agentVersion, docker)
-	if err != nil {
+	if err := project.reservedAliasError(); err != nil {
 		return buildPlan{}, err
 	}
+	return validBuildPlan(a, project, docker, agentVersion, identityVersion), nil
+}
+
+// validBuildPlan is renderBuildPlan for a project Dockerfile without reserved
+// stage aliases, which cannot fail (see renderValid).
+func validBuildPlan(
+	a agent.Agent,
+	project parsedProjectDockerfile,
+	docker options.DockerSetting,
+	agentVersion, identityVersion string,
+) buildPlan {
+	rendered := project.renderValid(a, agentVersion, docker)
 	return buildPlan{
 		rendered: rendered,
 		identity: withHostUser(computeImageIdentity(
@@ -210,7 +218,7 @@ func renderBuildPlan(
 		)),
 		dockerfileID: computeDockerfileID(rendered, identityVersion),
 		agentVersion: agentVersion,
-	}, nil
+	}
 }
 
 // withHostUser returns identity with the current host user's uid/gid, which

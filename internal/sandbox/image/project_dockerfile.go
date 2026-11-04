@@ -242,6 +242,18 @@ func (p parsedProjectDockerfile) render(
 	if err := p.reservedAliasError(); err != nil {
 		return nil, err
 	}
+	return p.renderValid(a, agentVersion, docker), nil
+}
+
+// renderValid renders a project Dockerfile that declares no reserved stage
+// alias, the only reason render fails. That depends on the project Dockerfile
+// alone, not on the agent version or docker setting, so a re-render of an
+// accepted project cannot fail.
+func (p parsedProjectDockerfile) renderValid(
+	a agent.Agent,
+	agentVersion string,
+	docker options.DockerSetting,
+) []byte {
 	dockerEnabled := p.effectiveDocker(docker)
 
 	var baseStage, baseAlias string
@@ -271,5 +283,5 @@ func (p parsedProjectDockerfile) render(
 		blocks = append(blocks, dockerStage())
 	}
 	blocks = append(blocks, baseStage, runnerStage(resolved, baseAlias, body, dockerEnabled, dockerInjected))
-	return []byte(joinBlocks(blocks...)), nil
+	return []byte(joinBlocks(blocks...))
 }
