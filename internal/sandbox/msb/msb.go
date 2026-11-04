@@ -280,16 +280,17 @@ func GetVMStatus(status msbSdk.SandboxStatus) (VMStatusKind, error) {
 // active runtime transition. Starting is included to protect a VM that another
 // caller is booting, although it is not ready for commands yet.
 func IsSandboxActive(status msbSdk.SandboxStatus) bool {
-	kind, err := GetVMStatus(status)
-	return err == nil && (kind == VMStatusStarting || kind == VMStatusActive)
+	// An unknown status reads as VMStatusUnknown, which is neither.
+	kind, _ := GetVMStatus(status)
+	return kind == VMStatusStarting || kind == VMStatusActive
 }
 
 // IsSandboxInactive reports whether a sandbox has no live runtime and is safe
 // to treat as a stopped resource. Unknown statuses return false so callers
 // that remove or reuse resources fail closed.
 func IsSandboxInactive(status msbSdk.SandboxStatus) bool {
-	kind, err := GetVMStatus(status)
-	return err == nil && (kind == VMStatusCreated || kind == VMStatusStopped)
+	kind, _ := GetVMStatus(status)
+	return kind == VMStatusCreated || kind == VMStatusStopped
 }
 
 // IsNotFound reports whether err is the microsandbox "sandbox does not exist"
