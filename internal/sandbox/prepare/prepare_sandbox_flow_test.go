@@ -205,6 +205,40 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 	}
 }
 
+// TestPrepareSandboxRecordsTheOfferedUpgradeOnAFreshProject pins that an
+// upgrade offered before the project has any state is remembered once home
+// resolution creates the state, so the next run does not offer the same
+// release again.
+func TestPrepareSandboxRecordsTheOfferedUpgradeOnAFreshProject(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Chdir(newOriginClone(t))
+	installPrepareSandboxDockerMock(t)
+	installPrepareSandboxMSBMock(t)
+	withExistingAgentVersionValue(t, "1.0.0")
+	withMockAgentLatestVersion(t, "2.0.0")
+	k := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
+	ui := termio.NewTestMock(t)
+
+	sess, err := PrepareSandbox(
+		context.Background(),
+		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		false,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("PrepareSandbox: %v", err)
+	}
+	defer sess.Cleanup()
+
+	hs, err := state.ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if !hs.Offered("2.0.0") {
+		t.Errorf("offered versions = %v, want 2.0.0 recorded", hs.OfferedVersions)
+	}
+}
+
 // TestPrepareSandboxLoadsHomeYamlOnce verifies that a full startup loads the
 // home manifests exactly once: a missing host source is warned about a
 // single time. This guards against the regression where config files were

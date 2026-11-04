@@ -496,49 +496,6 @@ func TestResolveBuildVersionRecoversBaselineFromExistingImage(t *testing.T) {
 	}
 }
 
-// TestDeferredOfferedPersistedAfterStateRecreated is the regression test for the
-// "don't remind again" choice being forgotten when the project state was
-// missing: the offered release returned by resolveBuildVersion is persisted
-// after home resolution recreates the state.
-func TestDeferredOfferedPersistedAfterStateRecreated(t *testing.T) {
-	origLatest := agentLatestVersion
-	defer func() { agentLatestVersion = origLatest }()
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
-
-	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	withExistingAgentVersion(t)
-
-	_, _, offered, err := resolveBuildVersion(
-		context.Background(),
-		docker.Get(),
-		k,
-		opencodeResolved(t),
-		&termio.Mock{},
-		options.RunOptions{Agent: "opencode"},
-	)
-	if err != nil {
-		t.Fatalf("resolveBuildVersion: %v", err)
-	}
-	if offered != "2.0.0" {
-		t.Fatalf("offered = %q, want 2.0.0", offered)
-	}
-
-	// Home resolution recreates the state, then the deferred mark is recorded.
-	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol"}); err != nil {
-		t.Fatalf("seedHomeState: %v", err)
-	}
-	persistOfferedVersion(k, offered, &termio.Mock{})
-
-	hs, err := state.ReadState(k)
-	if err != nil {
-		t.Fatalf("ReadState: %v", err)
-	}
-	if !hs.Offered("2.0.0") {
-		t.Errorf("offered set not persisted after state recreation: %v", hs.OfferedVersions)
-	}
-}
-
 func TestResolveBuildVersionRecoveryDoesNotCreatePartialState(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
@@ -1095,10 +1052,16 @@ func TestPromptUpgradeNamesBothVersions(t *testing.T) {
 }
 
 // TestPendingUpgradeWithoutUpgradeChecker pins that an agent without an upgrade
-// checker is never offered an upgrade.
+// checker is never offered an upgrade, even when a newer release is cached for
+// its name (there is no checker to compare versions with).
 func TestPendingUpgradeWithoutUpgradeChecker(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "fake"}
+	if err := seedRootState(state.RootState{Updates: state.Updates{Agents: map[string]state.AgentCheckState{
+		(&fakeAgent{}).Name(): {LastChecked: now().Add(-time.Hour), LatestVersion: "2.0.0"},
+	}}}); err != nil {
+		t.Fatal(err)
+	}
 	latest, offer := pendingUpgrade(
 		context.Background(), agent.Resolve(&fakeAgent{}), k, &termio.Mock{}, "1.0.0", agentLatestVersion,
 	)
