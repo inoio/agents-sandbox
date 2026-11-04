@@ -21,11 +21,13 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+// vmAction is what EnsureProjectVM does with a VM it found. The zero value is
+// no action; decideVMAction returns it only with an error.
 type vmAction int
 
 const (
-	vmActionCreate vmAction = iota
-	vmActionConnect
+	// gomutants:disable-next-line ARITHMETIC_BASE,INTEGER_INCREMENT,INTEGER_DECREMENT reason="the offset only keeps the zero value free for no action; actions are compared only with each other and the zero value is returned only beside an error"
+	vmActionConnect vmAction = iota + 1
 	vmActionStart
 	vmActionWait
 )
@@ -58,15 +60,10 @@ func (b VMBoot) Booted() bool {
 
 // defaultVMIdleTimeout moved to internal/sandbox/options.
 
-// decideVMAction maps a GetSandbox result to the lifecycle action.
-// notFound=true means the sandbox doesn't exist → create.
-// Otherwise the status determines connect (running) vs start (stopped/crashed).
-//
-//nolint:nilerr // Returning nil error for notFoundErr is expected behavior - not found means create
-func decideVMAction(notFoundErr error, status msbSdk.SandboxStatus) (vmAction, error) {
-	if notFoundErr != nil {
-		return vmActionCreate, nil
-	}
+// decideVMAction maps a found VM's status to the lifecycle action: connect a
+// running VM, wait for a starting one, start a created, stopped or crashed one.
+// Any other status cannot take a new client.
+func decideVMAction(status msbSdk.SandboxStatus) (vmAction, error) {
 	switch status {
 	case msbSdk.SandboxStatusCreated, msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
 		return vmActionStart, nil
@@ -75,9 +72,11 @@ func decideVMAction(notFoundErr error, status msbSdk.SandboxStatus) (vmAction, e
 	case msbSdk.SandboxStatusRunning:
 		return vmActionConnect, nil
 	case msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
-		return vmActionCreate, fmt.Errorf("sandbox %q is not available for a new client: status is %q", status, status)
+		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="every caller discards the action returned with an error"
+		return 0, fmt.Errorf("sandbox is not available for a new client: status is %q", status)
 	default:
-		return vmActionCreate, fmt.Errorf("unexpected sandbox status: %q", status)
+		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="every caller discards the action returned with an error"
+		return 0, fmt.Errorf("unexpected sandbox status: %q", status)
 	}
 }
 
@@ -249,7 +248,7 @@ func resolveExistingVM(
 	ui termio.Logger,
 	spin termio.Spinner,
 ) (msb.Sandbox, VMBoot, error) {
-	action, actionErr := decideVMAction(nil, handle.Status())
+	action, actionErr := decideVMAction(handle.Status())
 	if actionErr != nil {
 		stopSpinnerError(spin, actionErr)
 		return nil, VMBootConnected, actionErr
@@ -339,7 +338,7 @@ func resumeAfterConnectFailure(
 		)
 	}
 	retryStatus := handle2.Status()
-	if _, retryActionErr := decideVMAction(nil, retryStatus); retryActionErr != nil {
+	if _, retryActionErr := decideVMAction(retryStatus); retryActionErr != nil {
 		stopSpinnerError(spin, retryActionErr)
 		return nil, VMBootConnected, retryActionErr
 	}
@@ -393,15 +392,11 @@ func createOrAttachAfterLock(
 		return nil, VMBootConnected, fmt.Errorf("re-check sandbox %q: %w", name, err)
 	}
 
-	sb, created, err := createProjectVM(ctx, creation, name)
+	sb, err := createProjectVM(ctx, creation, name)
 	if err != nil {
 		return nil, VMBootConnected, err
 	}
-	boot := VMBootConnected
-	if created {
-		boot = VMBootCreated
-	}
-	return sb, boot, nil
+	return sb, VMBootCreated, nil
 }
 
 // reconcileResources best-effort reconciles live VM resources with opts.
@@ -478,10 +473,10 @@ func waitForSandboxLifecycle(ctx context.Context) error {
 	}
 }
 
-func createProjectVM(ctx context.Context, creation ProjectVMCreation, name string) (msb.Sandbox, bool, error) {
+func createProjectVM(ctx context.Context, creation ProjectVMCreation, name string) (msb.Sandbox, error) {
 	info, err := image.EnsureLoaded(ctx, creation.DockerClient, creation.Client, creation.Image, creation.UI)
 	if err != nil {
-		return nil, false, fmt.Errorf("load runner image: %w", err)
+		return nil, fmt.Errorf("load runner image: %w", err)
 	}
 	opts := creation.Options
 	cpus := opts.CPUs
@@ -536,23 +531,24 @@ func createProjectVM(ctx context.Context, creation ProjectVMCreation, name strin
 	if opts.DiskSize != "" {
 		optsList = append(optsList, msbSdk.WithRootDisk(msbSdk.RootDisk.Managed(options.ParseMemory(opts.DiskSize))))
 	}
-	if bindings := ports.PublishBindings(opts.ServeOnly, opts.ServeHostPort, opts.Ports); len(bindings) > 0 {
-		optsList = append(optsList, msbSdk.WithPortBindings(bindings...))
-	}
+	optsList = append(
+		optsList,
+		msbSdk.WithPortBindings(ports.PublishBindings(opts.ServeOnly, opts.ServeHostPort, opts.Ports)...),
+	)
 	netCfg, err := opts.Network.Config()
 	if err != nil {
 		spin.StopError(err)
-		return nil, false, fmt.Errorf("network config: %w", err)
+		return nil, fmt.Errorf("network config: %w", err)
 	}
 	optsList = append(optsList, msbSdk.WithNetwork(netCfg))
 	sb, err := creation.Client.CreateSandbox(ctx, name, optsList...)
 	if err != nil {
 		spin.StopError(err)
-		return nil, false, fmt.Errorf("create sandbox: %w", err)
+		return nil, fmt.Errorf("create sandbox: %w", err)
 	}
 	spin.Stop()
 	creation.UI.Infof("created new project VM: %s", name)
-	return sb, true, nil
+	return sb, nil
 }
 
 // tmpMountPath is the mount point used for the sandbox tmpfs.

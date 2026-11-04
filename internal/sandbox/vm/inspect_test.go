@@ -12,6 +12,27 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
+// TestInspectSandboxWrapsLookupError pins the sandbox-lookup wrap: a GetSandbox
+// failure preserves its cause and names the requested VM.
+func TestInspectSandboxWrapsLookupError(t *testing.T) {
+	sentinel := errors.New("lookup boom")
+	mock := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+		return nil, sentinel
+	}}
+	msb.WithMsbMock(t, mock)
+
+	_, err := InspectSandbox(context.Background(), "agents-sandbox-vm-abc")
+	if err == nil {
+		t.Fatal("expected a lookup failure to abort")
+	}
+	if !errors.Is(err, sentinel) {
+		t.Errorf("error = %v, want it to wrap the lookup cause", err)
+	}
+	if !strings.Contains(err.Error(), "agents-sandbox-vm-abc") {
+		t.Errorf("error = %v, want it to name the requested VM", err)
+	}
+}
+
 func TestInspectSandboxPopulatesDetail(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
 		Image:        "agents-sandbox/runner-proj:latest",
@@ -113,23 +134,43 @@ func TestInspectSandboxMissing(t *testing.T) {
 	}
 }
 
-func TestMountSource(t *testing.T) {
-	cases := []struct {
-		name  string
-		mount msbSdk.MountConfig
-		want  string
-	}{
-		{"bind", msbSdk.Mount.Bind("/host/workspace", msbSdk.MountOptions{}), "/host/workspace"},
-		{"named", msbSdk.Mount.Named("vol-name", msbSdk.MountOptions{}), "vol-name"},
-		{"disk", msbSdk.Mount.Disk("/host/data.img", msbSdk.DiskOptions{}), "/host/data.img"},
-		{"owned", msbSdk.Mount.Owned(msbSdk.OwnedVolumeOptions{}), string(msbSdk.VolumeKindDir)},
-		{"tmpfs", msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{}), ""},
-		{"unknown", msbSdk.MountConfig{}, ""},
+// TestMountDetailsSortsGuestPaths pins the end-to-end ordering across a map
+// whose iteration order is randomized.
+func TestMountDetailsSortsGuestPaths(t *testing.T) {
+	volumes := map[string]msbSdk.MountConfig{
+		"/z": {},
+		"/a": {},
+		"/m": {},
+		"/b": {},
+		"/y": {},
 	}
-	for _, tc := range cases {
-		if got := mountSource(tc.mount); got != tc.want {
-			t.Errorf("mountSource(%s) = %q, want %q", tc.name, got, tc.want)
+	got := mountDetails(volumes)
+	want := []string{"/a", "/b", "/m", "/y", "/z"}
+	if len(got) != len(want) {
+		t.Fatalf("mountDetails returned %d mounts, want %d", len(got), len(want))
+	}
+	for i, path := range want {
+		if got[i].GuestPath != path {
+			t.Fatalf("mountDetails[%d].GuestPath = %q, want %q (got %+v)", i, got[i].GuestPath, path, got)
 		}
+	}
+}
+
+// TestLessMountByGuestPathIsStrict pins the comparator as a strict weak ordering:
+// it orders distinct paths by value and never orders a path before itself, so a
+// "<=" boundary or a constant-true body is observable.
+func TestLessMountByGuestPathIsStrict(t *testing.T) {
+	a := MountDetail{GuestPath: "/a"}
+	b := MountDetail{GuestPath: "/b"}
+
+	if !lessMountByGuestPath(a, b) {
+		t.Error("lessMountByGuestPath(/a, /b) = false, want true")
+	}
+	if lessMountByGuestPath(b, a) {
+		t.Error("lessMountByGuestPath(/b, /a) = true, want false")
+	}
+	if lessMountByGuestPath(a, a) {
+		t.Error("lessMountByGuestPath(/a, /a) = true, want false (irreflexive)")
 	}
 }
 
@@ -146,6 +187,26 @@ func TestMountKindString(t *testing.T) {
 	for kind, want := range cases {
 		if got := mountKindString(kind); got != want {
 			t.Errorf("mountKindString(%d) = %q, want %q", kind, got, want)
+		}
+	}
+}
+
+func TestMountSource(t *testing.T) {
+	cases := []struct {
+		name  string
+		mount msbSdk.MountConfig
+		want  string
+	}{
+		{"bind", msbSdk.Mount.Bind("/host/workspace", msbSdk.MountOptions{}), "/host/workspace"},
+		{"named", msbSdk.Mount.Named("vol-name", msbSdk.MountOptions{}), "vol-name"},
+		{"disk", msbSdk.Mount.Disk("/host/data.img", msbSdk.DiskOptions{}), "/host/data.img"},
+		{"owned", msbSdk.Mount.Owned(msbSdk.OwnedVolumeOptions{}), string(msbSdk.VolumeKindDir)},
+		{"tmpfs", msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{}), ""},
+		{"unknown", msbSdk.MountConfig{}, ""},
+	}
+	for _, tc := range cases {
+		if got := mountSource(tc.mount); got != tc.want {
+			t.Errorf("mountSource(%s) = %q, want %q", tc.name, got, tc.want)
 		}
 	}
 }
