@@ -93,7 +93,7 @@ func TestEnsureDetachedServiceKillsStaleThenLaunchesAndAwaits(t *testing.T) {
 	}
 }
 
-// TestEnsureDetachedServiceSkipPreCheckForcesLaunch covers the daemon's force
+// TestEnsureDetachedServiceSkipPreCheckForcesLaunch pins the daemon's force
 // path: with the pre-check skipped, an already-healthy probe must not stop the
 // restart.
 func TestEnsureDetachedServiceSkipPreCheckForcesLaunch(t *testing.T) {
