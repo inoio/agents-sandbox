@@ -21,10 +21,11 @@ func TestFormatVolumeTime(t *testing.T) {
 }
 
 func TestListVolumesShowsBothSchemes(t *testing.T) {
+	// A non-home volume comes first, so a filter that stopped the scan is caught.
 	mock := &msb.MockMsbClient{Volumes: []msb.VolumeHandle{
+		&msb.MockVolumeHandle{Name_: "some-other-volume"},
 		&msb.MockVolumeHandle{Name_: "agents-sandbox-home-myproj-1mjusbm3wikhb0-opencode-20260812T123456"},
 		&msb.MockVolumeHandle{Name_: "myproj-1mjusbm3wikhb0-opencode-20260812T123457"},
-		&msb.MockVolumeHandle{Name_: "some-other-volume"},
 	}}
 	msb.WithMsbMock(t, mock)
 

@@ -26,7 +26,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// TestEnsureNewHome_NameCollisionRetries covers the same-second case of #431:
+// TestEnsureNewHome_NameCollisionRetries pins the same-second case of #431:
 // HomeVolumeName has second granularity, so two racing sessions can generate
 // the same name. The loser waits for the next name instead of failing.
 func TestEnsureNewHome_NameCollisionRetries(t *testing.T) {
@@ -116,7 +116,7 @@ func TestEnsureNewHome_CreateVolumeFails(t *testing.T) {
 		"",
 		&termio.Mock{},
 	)
-	if err == nil || !strings.Contains(err.Error(), "create volume") {
+	if err == nil || !strings.Contains(err.Error(), "create volume") || errors.Unwrap(err) == nil {
 		t.Fatalf("expected create volume error, got: %v", err)
 	}
 }
@@ -173,7 +173,7 @@ func TestRecordHomeImage_WriteStateFails(t *testing.T) {
 	}
 }
 
-// TestEnsureNewHome_ConcurrentCommitAdoptsWinner covers #431: when another
+// TestEnsureNewHome_ConcurrentCommitAdoptsWinner pins #431: when another
 // session commits a fresh home volume while this one is creating its own, the
 // later commit must not clobber the earlier one. It adopts the committed volume
 // and removes its own, so no volume is left unrecorded.
@@ -275,7 +275,7 @@ func TestEnsureNewHome_ReplacesConcurrentEmptyHomeVolume(t *testing.T) {
 	require.Equal(t, volName, persisted.HomeVolume)
 }
 
-// TestResolveHomeVolume_WinnerCommitsBeforeCreation covers a winner that
+// TestResolveHomeVolume_WinnerCommitsBeforeCreation pins a winner that
 // commits after resolution found the recorded volume gone but before the fresh
 // volume is created: the compare-and-set must use the state resolution
 // observed, not a later re-read that already names the winner.
@@ -900,12 +900,12 @@ func TestRecordHomeImage_MissingStateIsNoop(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	vm := NewManager(docker.Get())
-	if err := vm.RecordHomeImage(
-		state.Key{Slug: "nosuchproj", Agent: "opencode"},
-		"sha256:new",
-		&termio.Mock{},
-	); err != nil {
+	k := state.Key{Slug: "nosuchproj", Agent: "opencode"}
+	if err := vm.RecordHomeImage(k, "sha256:new", &termio.Mock{}); err != nil {
 		t.Fatalf("RecordHomeImage should not error on missing state, got: %v", err)
+	}
+	if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
+		t.Errorf("ReadState after RecordHomeImage = %v, want no state created", err)
 	}
 }
 
@@ -975,7 +975,7 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 	}
 }
 
-// TestResolveHomeVolume_CorruptStateFile covers an unreadable state file (a
+// TestResolveHomeVolume_CorruptStateFile pins an unreadable state file (a
 // non-not-found read error): the caller warns about it and falls back to a
 // fresh home volume. A directory in place of the state file cannot be repaired
 // by the fallback's wholesale write either, so the write error now surfaces
@@ -1197,7 +1197,7 @@ func TestResolveHomeVolume_RecoversLiveVMVolumeOnMissingState(t *testing.T) {
 	}
 }
 
-// TestResolveHomeVolume_RecoversPersistedAdoptionVolume covers the durable
+// TestResolveHomeVolume_RecoversPersistedAdoptionVolume pins the durable
 // VM-only identity adoption (#144): the checkout state records the home volume a
 // destroyed legacy VM mounted, and resolution finishes the recovery into
 // HomeVolume with the current digest, seeds fingerprints, and clears the marker.
@@ -1299,7 +1299,7 @@ func TestResolveHomeVolume_RecoveredVolumeMissingStartsFresh(t *testing.T) {
 	}
 }
 
-// TestResolveHomeVolume_RecoversWhenRecordedVolumeGone covers the case where
+// TestResolveHomeVolume_RecoversWhenRecordedVolumeGone pins the case where
 // state exists but its recorded volume vanished while the VM still mounts a
 // different, existing home volume: the VM's volume is adopted.
 func TestResolveHomeVolume_RecoversWhenRecordedVolumeGone(t *testing.T) {
@@ -1343,7 +1343,7 @@ func TestResolveHomeVolume_RecoversWhenRecordedVolumeGone(t *testing.T) {
 	}
 }
 
-// TestResolveHomeVolume_RecoveryStateFails covers the branch where the recovery
+// TestResolveHomeVolume_RecoveryStateFails pins the branch where the recovery
 // transaction cannot run (e.g. a directory sits at the state path, so the state
 // read fails): the volume is still returned and a warning is emitted.
 func TestResolveHomeVolume_RecoveryStateFails(t *testing.T) {
@@ -1546,7 +1546,7 @@ func TestEnsureNewHome_PrefillFails_RemovesVolume(t *testing.T) {
 	}
 }
 
-// TestEnsureNewHome_StateWriteFails covers #428: the state write is the record
+// TestEnsureNewHome_StateWriteFails pins #428: the state write is the record
 // of the volume a run is about to use, so a failed write must surface an error
 // and remove the uncommitted volume rather than warn and report success. A
 // post-rename durability failure is the exception — the installed state already
@@ -1740,7 +1740,7 @@ func TestResolveHomeVolume_SkipVMThenRealRun_Prefills(t *testing.T) {
 	}
 }
 
-// TestResolveHomeVolume_ClearsAdoptionClaim covers pruning the ownership record:
+// TestResolveHomeVolume_ClearsAdoptionClaim pins pruning the ownership record:
 // once recovery folds the preserved volume into the project's own state, the
 // claim that guarded it is spent and must be retired.
 func TestResolveHomeVolume_ClearsAdoptionClaim(t *testing.T) {
@@ -1784,7 +1784,7 @@ func TestResolveHomeVolume_ClearsAdoptionClaim(t *testing.T) {
 	}
 }
 
-// TestResolveHomeVolume_AdoptionClaimClearErrorWarns covers the best-effort
+// TestResolveHomeVolume_AdoptionClaimClearErrorWarns pins the best-effort
 // clear: a spent claim that cannot be retired (an unreadable root state document)
 // only warns, because the recovery itself already succeeded.
 func TestResolveHomeVolume_AdoptionClaimClearErrorWarns(t *testing.T) {

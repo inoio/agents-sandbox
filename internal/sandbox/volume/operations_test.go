@@ -20,146 +20,112 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-func TestCheckForActiveVMs_ListSandboxesError(t *testing.T) {
-	mock, _ := setupVolumeOpsFixtures(t)
-	mock.ListSandboxesErr = errors.New("boom")
-
-	err := checkForActiveVMs(context.Background(), mock, state.Key{Slug: "someproj", Agent: "opencode"})
-	if err == nil || !strings.Contains(err.Error(), "list sandboxes") {
-		t.Fatalf("expected list sandboxes error, got: %v", err)
+// TestCheckForActiveVMs pins which sandboxes block a volume migrate or reset:
+// a project VM of the same slug that is running or starting, or whose status is
+// not known to be inactive. Task sandboxes (by name or by label, the label
+// winning), other slugs' VMs and stopped VMs do not block, and the scan goes on
+// past them. A sandbox list that cannot be read fails with its cause.
+func TestCheckForActiveVMs(t *testing.T) {
+	const slug = "someproj-1mjusbm3wikhb0"
+	running := msbSdk.SandboxStatusRunning
+	project := func(status msbSdk.SandboxStatus) *msb.MockSandboxHandle {
+		return &msb.MockSandboxHandle{Name_: slug + "-opencode", Status_: status}
 	}
-}
-
-func TestCheckForActiveVMs_IgnoresNonVMSandboxes(t *testing.T) {
-	mock, _ := setupVolumeOpsFixtures(t)
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-task-someproj", Status_: msbSdk.SandboxStatusRunning},
-	}
-
-	if err := checkForActiveVMs(
-		context.Background(),
-		mock,
-		state.Key{Slug: "someproj", Agent: "opencode"},
-	); err != nil {
-		t.Fatalf("expected no error for non-VM sandbox, got: %v", err)
-	}
-}
-
-func TestCheckForActiveVMs_MatchesPrefixFreeProjectVM(t *testing.T) {
-	mock, _ := setupVolumeOpsFixtures(t)
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "someproj-1mjusbm3wikhb0-opencode", Status_: msbSdk.SandboxStatusRunning},
-	}
-
-	err := checkForActiveVMs(context.Background(), mock, state.Key{Slug: "someproj-1mjusbm3wikhb0", Agent: "opencode"})
-	if err == nil {
-		t.Fatal("expected a running prefix-free project VM to block volume operations")
-	}
-}
-
-func TestCheckForActiveVMs_IgnoresPrefixFreeTaskSandbox(t *testing.T) {
-	mock, _ := setupVolumeOpsFixtures(t)
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{
-			Name_:   "someproj-1mjusbm3wikhb0-opencode-1729000000000000000",
-			Status_: msbSdk.SandboxStatusRunning,
+	listFailed := errors.New("boom")
+	cases := []struct {
+		name      string
+		sandboxes []msb.SandboxHandle
+		listErr   error
+		wantText  string // "" means not blocked
+	}{
+		{
+			name:      "running project VM",
+			sandboxes: []msb.SandboxHandle{project(running)},
+			wantText:  "VM still running for slug",
 		},
-	}
-
-	if err := checkForActiveVMs(
-		context.Background(),
-		mock,
-		state.Key{Slug: "someproj-1mjusbm3wikhb0", Agent: "opencode"},
-	); err != nil {
-		t.Fatalf("a prefix-free task sandbox must not block volume operations, got: %v", err)
-	}
-}
-
-// TestCheckForActiveVMs_UsesLabelsForTaskSandbox pins that a sandbox whose name
-// looks like a project VM but whose labels mark it a task does not block volume
-// operations: the label is authoritative over the name shape.
-func TestCheckForActiveVMs_UsesLabelsForTaskSandbox(t *testing.T) {
-	mock, _ := setupVolumeOpsFixtures(t)
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{
-			Name_:   "someproj-1mjusbm3wikhb0-opencode",
-			Status_: msbSdk.SandboxStatusRunning,
-			Cfg: &msbSdk.SandboxConfig{
-				Labels: map[string]string{naming.LabelType: naming.SandboxTypeTask},
+		{
+			name:      "starting project VM",
+			sandboxes: []msb.SandboxHandle{project(msbSdk.SandboxStatusStarting)},
+			wantText:  "VM still running for slug",
+		},
+		{
+			name:      "unknown status",
+			sandboxes: []msb.SandboxHandle{project("future-status")},
+			wantText:  `VM status "future-status" is not safely inactive`,
+		},
+		{
+			name: "legacy-named project VM",
+			sandboxes: []msb.SandboxHandle{
+				&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-" + slug, Status_: running},
+			},
+			wantText: "VM still running for slug",
+		},
+		{name: "stopped project VM", sandboxes: []msb.SandboxHandle{project(msbSdk.SandboxStatusStopped)}},
+		{
+			name: "task sandboxes by name",
+			sandboxes: []msb.SandboxHandle{
+				&msb.MockSandboxHandle{Name_: "agents-sandbox-task-someproj", Status_: running},
+				&msb.MockSandboxHandle{Name_: slug + "-opencode-1729000000000000000", Status_: running},
 			},
 		},
+		{
+			name: "task sandbox by label",
+			sandboxes: []msb.SandboxHandle{&msb.MockSandboxHandle{
+				Name_:   slug + "-opencode",
+				Status_: running,
+				Cfg:     &msbSdk.SandboxConfig{Labels: map[string]string{naming.LabelType: naming.SandboxTypeTask}},
+			}},
+		},
+		{
+			name:      "another agent's VM of the same slug",
+			sandboxes: []msb.SandboxHandle{&msb.MockSandboxHandle{Name_: slug + "-pi", Status_: running}},
+		},
+		{
+			name: "another slug's VM",
+			sandboxes: []msb.SandboxHandle{
+				&msb.MockSandboxHandle{Name_: "otherproj-1mjusbm3wikhb1-opencode", Status_: running},
+			},
+		},
+		{
+			name: "blocking VM after ignored sandboxes",
+			sandboxes: []msb.SandboxHandle{
+				&msb.MockSandboxHandle{Name_: "agents-sandbox-task-someproj", Status_: running},
+				project(msbSdk.SandboxStatusStopped),
+				project(running),
+			},
+			wantText: "VM still running for slug",
+		},
+		{name: "list fails", listErr: listFailed, wantText: "list sandboxes: boom"},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mock, _ := setupVolumeOpsFixtures(t)
+			mock.Sandboxes = tc.sandboxes
+			mock.ListSandboxesErr = tc.listErr
 
-	if err := checkForActiveVMs(
-		context.Background(),
-		mock,
-		state.Key{Slug: "someproj-1mjusbm3wikhb0", Agent: "opencode"},
-	); err != nil {
-		t.Fatalf("a label-identified task sandbox must not block volume operations, got: %v", err)
-	}
-}
+			err := checkForActiveVMs(context.Background(), mock, state.Key{Slug: slug, Agent: "opencode"})
 
-func TestCheckForActiveVMs_OtherSlugVMIsIgnored(t *testing.T) {
-	mock, _ := setupVolumeOpsFixtures(t)
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-otherproj", Status_: msbSdk.SandboxStatusRunning},
-	}
-
-	if err := checkForActiveVMs(
-		context.Background(),
-		mock,
-		state.Key{Slug: "someproj", Agent: "opencode"},
-	); err != nil {
-		t.Fatalf("expected no error for a VM of another slug, got: %v", err)
-	}
-}
-
-func TestCheckForActiveVMs_InactiveVMSameSlugIsIgnored(t *testing.T) {
-	mock, _ := setupVolumeOpsFixtures(t)
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-someproj", Status_: msbSdk.SandboxStatusStopped},
-	}
-
-	if err := checkForActiveVMs(
-		context.Background(),
-		mock,
-		state.Key{Slug: "someproj", Agent: "opencode"},
-	); err != nil {
-		t.Fatalf("expected no error for an inactive VM, got: %v", err)
-	}
-}
-
-func TestCheckForActiveVMs_StartingVMSameSlugIsBlocked(t *testing.T) {
-	mock, _ := setupVolumeOpsFixtures(t)
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-someproj", Status_: msbSdk.SandboxStatusStarting},
-	}
-
-	if err := checkForActiveVMs(
-		context.Background(),
-		mock,
-		state.Key{Slug: "someproj", Agent: "opencode"},
-	); err == nil {
-		t.Fatal("expected a starting VM to block volume operations")
+			if tc.wantText == "" {
+				if err != nil {
+					t.Fatalf("checkForActiveVMs: %v, want not blocked", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantText) {
+				t.Fatalf("error = %v, want %q", err, tc.wantText)
+			}
+			if tc.listErr != nil && !errors.Is(err, tc.listErr) {
+				t.Errorf("error = %v, want it to wrap %v", err, tc.listErr)
+			}
+		})
 	}
 }
 
-func TestCheckForActiveVMs_UnknownVMSameSlugIsBlocked(t *testing.T) {
-	mock, _ := setupVolumeOpsFixtures(t)
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-someproj", Status_: msbSdk.SandboxStatus("future-status")},
-	}
-
-	if err := checkForActiveVMs(
-		context.Background(),
-		mock,
-		state.Key{Slug: "someproj", Agent: "opencode"},
-	); err == nil {
-		t.Fatal("expected an unknown VM status to block volume operations")
-	}
-}
-
-func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
+// TestVolumeOpWarnsWhenTheNewVolumeCannotBeCleanedUp pins that when the op's
+// copy fails, the new volume is removed again, and a removal that fails too is
+// a warning beside the copy's error.
+func TestVolumeOpWarnsWhenTheNewVolumeCannotBeCleanedUp(t *testing.T) {
+	copyFailed := errors.New("create copy sandbox failed")
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
 	seedHomeState(
@@ -171,7 +137,7 @@ func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
 		sandboxCount++
 		if sandboxCount == 2 {
-			return nil, errors.New("create copy sandbox failed")
+			return nil, copyFailed
 		}
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
@@ -189,8 +155,8 @@ func TestVolumeOp_MainFails_CleanupVolumeFailsWarns(t *testing.T) {
 		false,
 		ui,
 	)
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	if !errors.Is(err, copyFailed) {
+		t.Fatalf("error = %v, want the copy failure %v", err, copyFailed)
 	}
 	var warned bool
 	for _, c := range ui.WarnCalls {
@@ -405,7 +371,9 @@ func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
 	}
 }
 
-func TestVolumeOp_ReadStateCorruptError(t *testing.T) {
+// TestVolumeOpRefusesAnUnreadableState pins that a volume op on a project
+// whose state cannot be read stops before touching any volume.
+func TestVolumeOpRefusesAnUnreadableState(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
 	slug := "corruptproj-read"
 	statePath := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode", "state.yaml")
@@ -420,12 +388,14 @@ func TestVolumeOp_ReadStateCorruptError(t *testing.T) {
 		false,
 		ui,
 	)
-	if err == nil || !strings.Contains(err.Error(), "read state") {
+	if err == nil || !strings.Contains(err.Error(), "read state") || errors.Unwrap(err) == nil {
 		t.Fatalf("expected read state error, got: %v", err)
 	}
 }
 
-func TestVolumeOp_NoVolumeToOperate(t *testing.T) {
+// TestVolumeOpRefusesAProjectWithoutAHomeVolume pins that a volume op needs a
+// recorded home volume to work on.
+func TestVolumeOpRefusesAProjectWithoutAHomeVolume(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
 	slug := "novolproj"
 	seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{})
@@ -442,14 +412,17 @@ func TestVolumeOp_NoVolumeToOperate(t *testing.T) {
 	}
 }
 
-func TestVolumeOp_PrefillFails(t *testing.T) {
+// TestVolumeOpReportsAFailedPrefill pins that a new volume that cannot be
+// prefilled fails the op with the cause.
+func TestVolumeOpReportsAFailedPrefill(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
 	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
-	mock.CreateSandboxErr = errors.New("prefill failed")
+	prefillFailed := errors.New("prefill failed")
+	mock.CreateSandboxErr = prefillFailed
 
 	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
@@ -458,12 +431,15 @@ func TestVolumeOp_PrefillFails(t *testing.T) {
 		false,
 		ui,
 	)
-	if err == nil || !strings.Contains(err.Error(), "prefill new volume") {
-		t.Fatalf("expected prefill error, got: %v", err)
+	if !errors.Is(err, prefillFailed) || !strings.Contains(err.Error(), "prefill new volume") {
+		t.Fatalf("error = %v, want the prefill failure wrapping %v", err, prefillFailed)
 	}
 }
 
-func TestVolumeOp_WriteStateFails_ReturnsError(t *testing.T) {
+// TestVolumeOpKeepsTheOldVolumeWhenStateCannotBeWritten pins that a state
+// write that fails after the copy fails the op and leaves the recorded home
+// volume unchanged.
+func TestVolumeOpKeepsTheOldVolumeWhenStateCannotBeWritten(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
 	seedHomeState(
@@ -511,7 +487,9 @@ func TestVolumeOp_WriteStateFails_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestVolumeOp_RemoveOldFails_Warns(t *testing.T) {
+// TestVolumeOpWarnsWhenTheOldVolumeCannotBeRemoved pins that removing the old
+// volume after a successful op is best effort: a failure only warns.
+func TestVolumeOpWarnsWhenTheOldVolumeCannotBeRemoved(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 	slug := "testproj-aBc1234D"
 	oldVol := "agents-sandbox-home-" + slug + "-old"
@@ -828,7 +806,7 @@ func TestVolumeOp_ExplicitOldVolume(t *testing.T) {
 	// The reset message should reference the new volume, not the explicit one (reset doesn't copy)
 }
 
-// TestVolumeOp_UsesRecoveredHomeVolumeAsSource covers the VM-only adoption marker
+// TestVolumeOp_UsesRecoveredHomeVolumeAsSource pins the VM-only adoption marker
 // (#144): a first volume op after adoption has only RecoveredHomeVolume set, so
 // volumeOp must use it as the source volume instead of failing with "state has no
 // home_volume set", and must clear the marker once it commits.
@@ -880,7 +858,7 @@ func TestVolumeOp_UsesRecoveredHomeVolumeAsSource(t *testing.T) {
 	}
 }
 
-// TestVolumeOp_ClearsRecoveredHomeVolumeWithExplicitSource covers the marker left
+// TestVolumeOp_ClearsRecoveredHomeVolumeWithExplicitSource pins the marker left
 // next to an explicit source volume: the commit must clear it, or the next home
 // resolution would recover the old volume and undo the operation.
 func TestVolumeOp_ClearsRecoveredHomeVolumeWithExplicitSource(t *testing.T) {
@@ -926,7 +904,7 @@ func TestCmdEdit_LoadImageFails(t *testing.T) {
 		false,
 		ui,
 	)
-	if err == nil || !strings.Contains(err.Error(), "load runner image") {
+	if err == nil || !strings.Contains(err.Error(), "load runner image") || errors.Unwrap(err) == nil {
 		t.Fatalf("expected load runner image error, got: %v", err)
 	}
 }
@@ -994,7 +972,7 @@ func TestCmdEdit_LoadImageFailsInMain(t *testing.T) {
 		false,
 		ui,
 	)
-	if err == nil || !strings.Contains(err.Error(), "load runner image") {
+	if err == nil || !strings.Contains(err.Error(), "load runner image") || errors.Unwrap(err) == nil {
 		t.Fatalf("expected load runner image error, got: %v", err)
 	}
 }

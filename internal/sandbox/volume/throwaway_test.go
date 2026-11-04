@@ -169,6 +169,7 @@ func TestWithThrowawaySandbox_LoadImageFailureSkipsEverything(t *testing.T) {
 	)
 
 	require.ErrorContains(t, err, "load runner image")
+	require.Error(t, errors.Unwrap(err), "the cause must stay wrapped")
 	require.False(t, payloadRan)
 	require.NotContains(t, fixture.log.events, "spinner start: Preparing")
 	require.NotContains(t, fixture.log.events, "create")
@@ -192,6 +193,7 @@ func TestWithThrowawaySandbox_CreateFailureStopsSpinnerAndSkipsPayload(t *testin
 	)
 
 	require.ErrorContains(t, err, "create edit sandbox: boom")
+	require.Error(t, errors.Unwrap(err), "the cause must stay wrapped")
 	require.False(t, payloadRan)
 	require.Equal(t, []string{"spinner start: Starting", "create", "spinner error: boom"}, fixture.log.events)
 }

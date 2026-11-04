@@ -102,7 +102,7 @@ func TestPrefillVolume_LoadImageFails(t *testing.T) {
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag"},
 		&termio.Mock{},
 	)
-	if err == nil || !strings.Contains(err.Error(), "load runner image") {
+	if err == nil || !strings.Contains(err.Error(), "load runner image") || errors.Unwrap(err) == nil {
 		t.Fatalf("expected load runner image error, got: %v", err)
 	}
 }
@@ -156,7 +156,7 @@ func TestCopyVolume_LoadImageFails(t *testing.T) {
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag"},
 		&termio.Mock{},
 	)
-	if err == nil || !strings.Contains(err.Error(), "load runner image") {
+	if err == nil || !strings.Contains(err.Error(), "load runner image") || errors.Unwrap(err) == nil {
 		t.Fatalf("expected load runner image error, got: %v", err)
 	}
 }
@@ -220,7 +220,7 @@ func TestApplyHomeAction_CreateVolumeFails(t *testing.T) {
 		false,
 		&termio.Mock{},
 	)
-	if err == nil || !strings.Contains(err.Error(), "create volume") {
+	if err == nil || !strings.Contains(err.Error(), "create volume") || errors.Unwrap(err) == nil {
 		t.Fatalf("expected create volume error, got: %v", err)
 	}
 }
@@ -316,7 +316,7 @@ func TestPrefillSandboxNameIsPrefixFreeAndLabelled(t *testing.T) {
 	require.Equal(t, "opencode", cfg.Labels[naming.LabelAgent])
 }
 
-// TestCopySandboxNameIsPrefixFreeAndLabelled covers the second creation site.
+// TestCopySandboxNameIsPrefixFreeAndLabelled pins the second creation site.
 func TestCopySandboxNameIsPrefixFreeAndLabelled(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	ui := termio.NewTestMock(t)
@@ -839,8 +839,8 @@ func TestPrefillVolume_ExecFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "prefill cp") {
-		t.Errorf("unexpected error: %v", err)
+	if !strings.Contains(err.Error(), "prefill cp") || errors.Unwrap(err) == nil {
+		t.Errorf("error = %v, want the prefill copy failure wrapping its cause", err)
 	}
 }
 
@@ -875,7 +875,7 @@ func TestPrefillVolume_ExecExitFailure(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), "prefill cp failed") {
-		t.Errorf("unexpected error: %v", err)
+		t.Errorf("error = %v, want the prefill copy failure with its exit status", err)
 	}
 }
 

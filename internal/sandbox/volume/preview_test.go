@@ -316,7 +316,7 @@ func TestPreviewHomeVolumeTransientErrorFailsClosed(t *testing.T) {
 	})
 }
 
-// TestPreviewHomeVolumeCorruptStateReportsCreate covers a state file that
+// TestPreviewHomeVolumeCorruptStateReportsCreate pins a state file that
 // cannot be read: the preview must report a create rather than fail, and leave
 // the corrupt document untouched for the real run to repair.
 func TestPreviewHomeVolumeCorruptStateReportsCreate(t *testing.T) {
