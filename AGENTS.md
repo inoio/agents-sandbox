@@ -106,6 +106,7 @@ Always use your superpowers for appropriate tasks, never skip user approval.
 - Make sure that new/changed CLI commands/flags are thoroughly tested in the cmd/agents-sandbox/cli_*_test.go tests
 - Also write valuable unit tests for internal functionality with every implementation.
 - Test a unit in exactly one file named after it (`foo.go` → `foo_test.go`), grouping tests by behaviour inside it.
+  Allow separate unit-named test files when different build tags require them.
   Never name tests or test files after coverage or mutation work (`coverage_*_test.go`, `*_survivors_test.go`).
 
 ## Documentation
