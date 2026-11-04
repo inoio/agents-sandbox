@@ -109,7 +109,9 @@ Always use your superpowers for appropriate tasks, never skip user approval.
   large test file is fine. Allow separate unit-named test files when different build tags require them.
 - A test that drives a flow across several units through the package's exported entry point goes into
   `<flow>_flow_test.go` (e.g. `prepare_sandbox_flow_test.go`). Tests that need real external dependencies keep the
-  `integration` build tag instead.
+  `integration` build tag instead, in `<unit>_integration_test.go`.
+- A contract of the whole package that no single unit owns (its import boundary, exported API surface, or the narrow
+  roles its builders accept) goes into `<topic>_contract_test.go` (e.g. `boundary_contract_test.go`).
 - Never name tests or test files after coverage or mutation work (`coverage_*_test.go`, `*_survivors_test.go`).
 
 ## Documentation

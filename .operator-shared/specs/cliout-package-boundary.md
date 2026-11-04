@@ -22,7 +22,7 @@ lives in `internal/view`.
 - `internal/view` holds the domain renderers: `SandboxPrinter`/`ImagePrinter`/`VolumePrinter` (the
   `cliout.Printer` implementations, including digest truncation and the volume SIZE-column rules) and the
   prune/compact report JSON DTOs with their constructors.
-- `internal/cliout/boundary_test.go` enforces the rule by reading the package's own non-test imports, so a new
+- `internal/cliout/boundary_contract_test.go` enforces the rule by reading the package's own non-test imports, so a new
   domain import fails the suite rather than shipping.
 - `internal/view` is importable like every other `internal/` package but is the launcher's presentation of the
   domain, imported only by `cmd/agents-sandbox` today. Adding a renderer for another domain belongs there, not
