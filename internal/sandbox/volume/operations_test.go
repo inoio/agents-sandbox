@@ -3,6 +3,9 @@ package volume
 import (
 	"context"
 	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,9 +15,159 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+// TestCheckForActiveVMs pins which sandboxes block a volume migrate or reset:
+// a project VM of the same slug that is running or starting, or whose status is
+// not known to be inactive. Task sandboxes (by name or by label, the label
+// winning), other slugs' VMs and stopped VMs do not block, and the scan goes on
+// past them. A sandbox list that cannot be read fails with its cause.
+func TestCheckForActiveVMs(t *testing.T) {
+	const slug = "someproj-1mjusbm3wikhb0"
+	running := msbSdk.SandboxStatusRunning
+	project := func(status msbSdk.SandboxStatus) *msb.MockSandboxHandle {
+		return &msb.MockSandboxHandle{Name_: slug + "-opencode", Status_: status}
+	}
+	listFailed := errors.New("boom")
+	cases := []struct {
+		name      string
+		sandboxes []msb.SandboxHandle
+		listErr   error
+		wantText  string // "" means not blocked
+	}{
+		{
+			name:      "running project VM",
+			sandboxes: []msb.SandboxHandle{project(running)},
+			wantText:  "VM still running for slug",
+		},
+		{
+			name:      "starting project VM",
+			sandboxes: []msb.SandboxHandle{project(msbSdk.SandboxStatusStarting)},
+			wantText:  "VM still running for slug",
+		},
+		{
+			name:      "unknown status",
+			sandboxes: []msb.SandboxHandle{project("future-status")},
+			wantText:  `VM status "future-status" is not safely inactive`,
+		},
+		{
+			name: "legacy-named project VM",
+			sandboxes: []msb.SandboxHandle{
+				&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-" + slug, Status_: running},
+			},
+			wantText: "VM still running for slug",
+		},
+		{name: "stopped project VM", sandboxes: []msb.SandboxHandle{project(msbSdk.SandboxStatusStopped)}},
+		{
+			name: "task sandboxes by name",
+			sandboxes: []msb.SandboxHandle{
+				&msb.MockSandboxHandle{Name_: "agents-sandbox-task-someproj", Status_: running},
+				&msb.MockSandboxHandle{Name_: slug + "-opencode-1729000000000000000", Status_: running},
+			},
+		},
+		{
+			name: "task sandbox by label",
+			sandboxes: []msb.SandboxHandle{&msb.MockSandboxHandle{
+				Name_:   slug + "-opencode",
+				Status_: running,
+				Cfg:     &msbSdk.SandboxConfig{Labels: map[string]string{naming.LabelType: naming.SandboxTypeTask}},
+			}},
+		},
+		{
+			name:      "another agent's VM of the same slug",
+			sandboxes: []msb.SandboxHandle{&msb.MockSandboxHandle{Name_: slug + "-pi", Status_: running}},
+		},
+		{
+			name: "another slug's VM",
+			sandboxes: []msb.SandboxHandle{
+				&msb.MockSandboxHandle{Name_: "otherproj-1mjusbm3wikhb1-opencode", Status_: running},
+			},
+		},
+		{
+			name: "blocking VM after ignored sandboxes",
+			sandboxes: []msb.SandboxHandle{
+				&msb.MockSandboxHandle{Name_: "agents-sandbox-task-someproj", Status_: running},
+				project(msbSdk.SandboxStatusStopped),
+				project(running),
+			},
+			wantText: "VM still running for slug",
+		},
+		{name: "list fails", listErr: listFailed, wantText: "list sandboxes: boom"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mock, _ := setupVolumeOpsFixtures(t)
+			mock.Sandboxes = tc.sandboxes
+			mock.ListSandboxesErr = tc.listErr
+
+			err := checkForActiveVMs(context.Background(), mock, state.Key{Slug: slug, Agent: "opencode"})
+
+			if tc.wantText == "" {
+				if err != nil {
+					t.Fatalf("checkForActiveVMs: %v, want not blocked", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantText) {
+				t.Fatalf("error = %v, want %q", err, tc.wantText)
+			}
+			if tc.listErr != nil && !errors.Is(err, tc.listErr) {
+				t.Errorf("error = %v, want it to wrap %v", err, tc.listErr)
+			}
+		})
+	}
+}
+
+// TestVolumeOpWarnsWhenTheNewVolumeCannotBeCleanedUp pins that when the op's
+// copy fails, the new volume is removed again, and a removal that fails too is
+// a warning beside the copy's error.
+func TestVolumeOpWarnsWhenTheNewVolumeCannotBeCleanedUp(t *testing.T) {
+	copyFailed := errors.New("create copy sandbox failed")
+	mock, ui := setupVolumeOpsFixtures(t)
+	slug := "testproj-aBc1234D"
+	seedHomeState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
+	)
+
+	var sandboxCount int
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		sandboxCount++
+		if sandboxCount == 2 {
+			return nil, copyFailed
+		}
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+	mock.RemoveVolumeFn = func(_ context.Context, _ string) error {
+		return errors.New("volume busy")
+	}
+
+	err := CmdMigrate(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
+		false,
+		false,
+		ui,
+	)
+	if !errors.Is(err, copyFailed) {
+		t.Fatalf("error = %v, want the copy failure %v", err, copyFailed)
+	}
+	var warned bool
+	for _, c := range ui.WarnCalls {
+		if strings.Contains(c, "failed to remove new volume") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("expected cleanup warning, got: %v", ui.WarnCalls)
+	}
+}
 
 func TestVolumeOps_DryRun(t *testing.T) {
 	tests := []struct {
@@ -86,6 +239,296 @@ func TestVolumeOps_DryRun(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCmdMigrate_NoStateFile(t *testing.T) {
+	_, ui := setupVolumeOpsFixtures(t)
+	err := CmdMigrate(context.Background(), docker.Get(), state.Key{Slug: "noproject", Agent: "opencode"},
+		"",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
+		false,
+		false,
+		ui,
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "no state file found") {
+		t.Errorf("expected 'no state file found' error, got: %v", err)
+	}
+}
+
+func TestVolumeOp_MainFails_RemovesNewVolume(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+
+	slug := "testproj-aBc1234D"
+	seedHomeState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
+	)
+
+	var createdVol string
+	var sandboxCount int
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		sandboxCount++
+		if sandboxCount == 2 {
+			return nil, errors.New("create copy sandbox failed")
+		}
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		createdVol = name
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+	err := CmdMigrate(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
+		false,
+		false,
+		ui,
+	)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "create copy sandbox") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if createdVol == "" {
+		t.Fatal("expected new volume to have been created")
+	}
+	var cleanedUp bool
+	for _, v := range mock.RemovedVolumes {
+		if v == createdVol {
+			cleanedUp = true
+		}
+	}
+	if !cleanedUp {
+		t.Errorf("expected new volume %q to be removed on main failure; removed=%v", createdVol, mock.RemovedVolumes)
+	}
+}
+
+func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+	resolutions := msb.WithCountingMsbMock(t, mock)
+
+	slug := "testproj-aBc1234D"
+	seedHomeState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"},
+	)
+
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{
+			ExecOut: map[string]msb.ShellResult{
+				"sh -c cp -a /home/dev/. /mnt/home/ && chown -R dev:dev /mnt/home": msb.NewTestResult(
+					true,
+					0,
+					"",
+					"",
+					nil,
+				),
+				"sh -c cp -a /src/. /dst/ && chown -R dev:dev /dst": msb.NewTestResult(
+					true,
+					0,
+					"",
+					"",
+					nil,
+				),
+			},
+		}), nil
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	err := CmdMigrate(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
+		false,
+		false,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if *resolutions != 1 {
+		t.Errorf("msb.Get resolved %d times, want once per CmdMigrate", *resolutions)
+	}
+	if len(mock.CreatedSandboxes) != 2 {
+		t.Errorf("expected 2 sandboxes (prefill + copy), got %d", len(mock.CreatedSandboxes))
+	}
+
+	st, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.HomeVolume == "" {
+		t.Error("expected HomeVolume to be set in new state")
+	}
+	if st.ImageDigest != "sha256:new" {
+		t.Errorf("ImageDigest = %q, want %q", st.ImageDigest, "sha256:new")
+	}
+}
+
+// TestVolumeOpRefusesAnUnreadableState pins that a volume op on a project
+// whose state cannot be read stops before touching any volume.
+func TestVolumeOpRefusesAnUnreadableState(t *testing.T) {
+	_, ui := setupVolumeOpsFixtures(t)
+	slug := "corruptproj-read"
+	statePath := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode", "state.yaml")
+	if err := os.MkdirAll(statePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
+		false,
+		false,
+		ui,
+	)
+	if err == nil || !strings.Contains(err.Error(), "read state") || errors.Unwrap(err) == nil {
+		t.Fatalf("expected read state error, got: %v", err)
+	}
+}
+
+// TestVolumeOpRefusesAProjectWithoutAHomeVolume pins that a volume op needs a
+// recorded home volume to work on.
+func TestVolumeOpRefusesAProjectWithoutAHomeVolume(t *testing.T) {
+	_, ui := setupVolumeOpsFixtures(t)
+	slug := "novolproj"
+	seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{})
+
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
+		false,
+		false,
+		ui,
+	)
+	if err == nil || !strings.Contains(err.Error(), "no volume to operate") {
+		t.Fatalf("expected no-volume error, got: %v", err)
+	}
+}
+
+// TestVolumeOpReportsAFailedPrefill pins that a new volume that cannot be
+// prefilled fails the op with the cause.
+func TestVolumeOpReportsAFailedPrefill(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+	slug := "testproj-aBc1234D"
+	seedHomeState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
+	)
+	prefillFailed := errors.New("prefill failed")
+	mock.CreateSandboxErr = prefillFailed
+
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
+		false,
+		false,
+		ui,
+	)
+	if !errors.Is(err, prefillFailed) || !strings.Contains(err.Error(), "prefill new volume") {
+		t.Fatalf("error = %v, want the prefill failure wrapping %v", err, prefillFailed)
+	}
+}
+
+// TestVolumeOpKeepsTheOldVolumeWhenStateCannotBeWritten pins that a state
+// write that fails after the copy fails the op and leaves the recorded home
+// volume unchanged.
+func TestVolumeOpKeepsTheOldVolumeWhenStateCannotBeWritten(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+	slug := "testproj-aBc1234D"
+	seedHomeState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"},
+	)
+
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: a read-only directory does not block writes")
+	}
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
+	// A read-only state dir makes the atomic temp-file creation fail, so the
+	// state write fails while reads (needing only execute) still succeed.
+	if err := os.Chmod(sdir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
+
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
+		false,
+		false,
+		ui,
+	)
+	if err == nil {
+		t.Fatal("expected a state-write error, got nil")
+	}
+	if !strings.Contains(err.Error(), "write state") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	st, readErr := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
+	if readErr != nil {
+		t.Fatalf("ReadState: %v", readErr)
+	}
+	if st.HomeVolume != "old-vol" {
+		t.Errorf("HomeVolume = %q, want the uncommitted write to leave old-vol in place", st.HomeVolume)
+	}
+}
+
+// TestVolumeOpWarnsWhenTheOldVolumeCannotBeRemoved pins that removing the old
+// volume after a successful op is best effort: a failure only warns.
+func TestVolumeOpWarnsWhenTheOldVolumeCannotBeRemoved(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+	slug := "testproj-aBc1234D"
+	oldVol := "agents-sandbox-home-" + slug + "-old"
+	seedHomeState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
+	)
+
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+	mock.RemoveVolumeFn = func(_ context.Context, name string) error {
+		if name == oldVol {
+			return errors.New("busy")
+		}
+		return nil
+	}
+
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
+		true,
+		false,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var warned bool
+	for _, c := range ui.WarnCalls {
+		if strings.Contains(c, "failed to remove old volume") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("expected remove-old warning, got: %v", ui.WarnCalls)
 	}
 }
 
@@ -210,23 +653,6 @@ func TestVolumeOp_PreservesEnvSecretFingerprints(t *testing.T) {
 	}
 }
 
-func TestCmdMigrate_NoStateFile(t *testing.T) {
-	_, ui := setupVolumeOpsFixtures(t)
-	err := CmdMigrate(context.Background(), docker.Get(), state.Key{Slug: "noproject", Agent: "opencode"},
-		"",
-		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
-		false,
-		false,
-		ui,
-	)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "no state file found") {
-		t.Errorf("expected 'no state file found' error, got: %v", err)
-	}
-}
-
 func TestVolumeOp_CreateVolumeFails(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
@@ -308,7 +734,220 @@ func TestVolumeOp_ActiveVM_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestVolumeOp_MainFails_RemovesNewVolume(t *testing.T) {
+func TestCmdReset_RemOldVolume(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+
+	slug := "testproj-aBc1234D"
+	oldVol := "agents-sandbox-home-" + slug + "-old"
+	seedHomeState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
+	)
+
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
+		true,
+		false,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// With rmOld=true, the old volume should be removed
+	var foundOld bool
+	for _, v := range mock.RemovedVolumes {
+		if v == oldVol {
+			foundOld = true
+		}
+	}
+	if !foundOld {
+		t.Errorf("expected old volume %q to be removed, got %v", oldVol, mock.RemovedVolumes)
+	}
+}
+
+func TestVolumeOp_ExplicitOldVolume(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+
+	slug := "testproj-aBc1234D"
+	seedHomeState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "state-vol", ImageDigest: "sha256:abc"},
+	)
+
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return &msb.MockVolumeHandle{Name_: name}, nil
+	}
+
+	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
+		"explicit-vol",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
+		false,
+		false,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should use explicit volume, not state volume
+	if len(ui.InfoCalls) == 0 {
+		t.Fatal("expected info calls")
+	}
+	// The reset message should reference the new volume, not the explicit one (reset doesn't copy)
+}
+
+// TestVolumeOp_UsesRecoveredHomeVolumeAsSource pins the VM-only adoption marker
+// (#144): a first volume op after adoption has only RecoveredHomeVolume set, so
+// volumeOp must use it as the source volume instead of failing with "state has no
+// home_volume set", and must clear the marker once it commits.
+func TestVolumeOp_UsesRecoveredHomeVolumeAsSource(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+
+	key := state.Key{Slug: "testproj-aBc1234D", Agent: "opencode"}
+	const recovered = "agents-sandbox-home-widget-aaa-opencode-7"
+	seedHomeState(key, state.HomeState{RecoveredHomeVolume: recovered})
+	seedAdoptionClaim(t, "widget-aaa", key.Slug, recovered)
+
+	err := CmdReset(context.Background(), docker.Get(), key,
+		"",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
+		true,
+		false,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var removed bool
+	for _, v := range mock.RemovedVolumes {
+		if v == recovered {
+			removed = true
+		}
+	}
+	if !removed {
+		t.Errorf("recovered volume %q not used as the source, removed %v", recovered, mock.RemovedVolumes)
+	}
+
+	st, err := state.ReadState(key)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.HomeVolume == "" {
+		t.Error("expected HomeVolume to be set after the operation")
+	}
+	if st.RecoveredHomeVolume != "" {
+		t.Errorf("RecoveredHomeVolume = %q, want the marker cleared", st.RecoveredHomeVolume)
+	}
+	root, err := state.ReadRootState()
+	if err != nil {
+		t.Fatalf("ReadRootState: %v", err)
+	}
+	if _, ok := root.AdoptedHomeVolume("widget-aaa", "opencode"); ok {
+		t.Errorf("adoption claim not cleared after the volume op: %+v", root.AdoptedHomeVolumes)
+	}
+}
+
+// TestVolumeOp_ClearsRecoveredHomeVolumeWithExplicitSource pins the marker left
+// next to an explicit source volume: the commit must clear it, or the next home
+// resolution would recover the old volume and undo the operation.
+func TestVolumeOp_ClearsRecoveredHomeVolumeWithExplicitSource(t *testing.T) {
+	_, ui := setupVolumeOpsFixtures(t)
+
+	key := state.Key{Slug: "testproj-aBc1234D", Agent: "opencode"}
+	seedHomeState(key, state.HomeState{RecoveredHomeVolume: "stale-marker"})
+
+	err := CmdReset(context.Background(), docker.Get(), key,
+		"explicit-vol",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
+		false,
+		false,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	st, err := state.ReadState(key)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.RecoveredHomeVolume != "" {
+		t.Errorf("RecoveredHomeVolume = %q, want the marker cleared", st.RecoveredHomeVolume)
+	}
+}
+
+func TestCmdEdit_LoadImageFails(t *testing.T) {
+	_, ui := setupVolumeOpsFixtures(t)
+	docker.WithDefaultErrorDockerMock(t)
+
+	slug := "testproj-aBc1234D"
+	seedHomeState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
+	)
+
+	err := CmdEdit(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
+		false,
+		false,
+		ui,
+	)
+	if err == nil || !strings.Contains(err.Error(), "load runner image") || errors.Unwrap(err) == nil {
+		t.Fatalf("expected load runner image error, got: %v", err)
+	}
+}
+
+func TestCmdEdit_DestroyFailureWarns(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+	slug := "testproj-aBc1234D"
+	seedHomeState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
+	)
+
+	callCount := 0
+	mock.CreateSandboxFn = func(_ context.Context, name string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		callCount++
+		if callCount == 2 {
+			return &msb.MockSandbox{Name_: name, DestroyErr: errors.New("destroy failed")}, nil
+		}
+		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+	}
+
+	err := CmdEdit(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
+		"",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
+		false,
+		false,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("CmdEdit: %v", err)
+	}
+	var warned bool
+	for _, c := range ui.WarnCalls {
+		if strings.Contains(c, "failed to destroy edit sandbox") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("expected an edit destroy-failure warning, got %v", ui.WarnCalls)
+	}
+}
+
+func TestCmdEdit_LoadImageFailsInMain(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
 
 	slug := "testproj-aBc1234D"
@@ -317,43 +956,24 @@ func TestVolumeOp_MainFails_RemovesNewVolume(t *testing.T) {
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
 
-	var createdVol string
-	var sandboxCount int
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
-		sandboxCount++
-		if sandboxCount == 2 {
-			return nil, errors.New("create copy sandbox failed")
+	loadCalls := 0
+	mock.ImageLoadFn = func(_ context.Context, _ string, _ io.Reader) error {
+		loadCalls++
+		if loadCalls == 2 {
+			return errors.New("image load failed")
 		}
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+		return nil
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
-		createdVol = name
-		return &msb.MockVolumeHandle{Name_: name}, nil
-	}
-	err := CmdMigrate(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
+
+	err := CmdEdit(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
-		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
 		false,
 		false,
 		ui,
 	)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !strings.Contains(err.Error(), "create copy sandbox") {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if createdVol == "" {
-		t.Fatal("expected new volume to have been created")
-	}
-	var cleanedUp bool
-	for _, v := range mock.RemovedVolumes {
-		if v == createdVol {
-			cleanedUp = true
-		}
-	}
-	if !cleanedUp {
-		t.Errorf("expected new volume %q to be removed on main failure; removed=%v", createdVol, mock.RemovedVolumes)
+	if err == nil || !strings.Contains(err.Error(), "load runner image") || errors.Unwrap(err) == nil {
+		t.Fatalf("expected load runner image error, got: %v", err)
 	}
 }
 
@@ -578,321 +1198,36 @@ func TestVolumeOpAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 	}
 }
 
-func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
-	mock, ui := setupVolumeOpsFixtures(t)
-	resolutions := msb.WithCountingMsbMock(t, mock)
-
-	slug := "testproj-aBc1234D"
-	seedHomeState(
-		state.Key{Slug: slug, Agent: "opencode"},
-		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"},
-	)
-
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{
-			ExecOut: map[string]msb.ShellResult{
-				"sh -c cp -a /home/dev/. /mnt/home/ && chown -R dev:dev /mnt/home": msb.NewTestResult(
-					true,
-					0,
-					"",
-					"",
-					nil,
-				),
-				"sh -c cp -a /src/. /dst/ && chown -R dev:dev /dst": msb.NewTestResult(
-					true,
-					0,
-					"",
-					"",
-					nil,
-				),
-			},
-		}), nil
-	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
-		return &msb.MockVolumeHandle{Name_: name}, nil
-	}
-
-	err := CmdMigrate(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
-		"",
-		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
-		false,
-		false,
-		ui,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if *resolutions != 1 {
-		t.Errorf("msb.Get resolved %d times, want once per CmdMigrate", *resolutions)
-	}
-	if len(mock.CreatedSandboxes) != 2 {
-		t.Errorf("expected 2 sandboxes (prefill + copy), got %d", len(mock.CreatedSandboxes))
-	}
-
-	st, err := state.ReadState(state.Key{Slug: slug, Agent: "opencode"})
-	if err != nil {
-		t.Fatalf("ReadState: %v", err)
-	}
-	if st.HomeVolume == "" {
-		t.Error("expected HomeVolume to be set in new state")
-	}
-	if st.ImageDigest != "sha256:new" {
-		t.Errorf("ImageDigest = %q, want %q", st.ImageDigest, "sha256:new")
-	}
-}
-
-func TestCmdReset_RemOldVolume(t *testing.T) {
-	mock, ui := setupVolumeOpsFixtures(t)
-
-	slug := "testproj-aBc1234D"
-	oldVol := "agents-sandbox-home-" + slug + "-old"
-	seedHomeState(
-		state.Key{Slug: slug, Agent: "opencode"},
-		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
-	)
-
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
-	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
-		return &msb.MockVolumeHandle{Name_: name}, nil
-	}
-
-	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
-		"",
-		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
-		true,
-		false,
-		ui,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// With rmOld=true, the old volume should be removed
-	var foundOld bool
-	for _, v := range mock.RemovedVolumes {
-		if v == oldVol {
-			foundOld = true
-		}
-	}
-	if !foundOld {
-		t.Errorf("expected old volume %q to be removed, got %v", oldVol, mock.RemovedVolumes)
-	}
-}
-
-func TestVolumeOp_ExplicitOldVolume(t *testing.T) {
-	mock, ui := setupVolumeOpsFixtures(t)
-
-	slug := "testproj-aBc1234D"
-	seedHomeState(
-		state.Key{Slug: slug, Agent: "opencode"},
-		state.HomeState{HomeVolume: "state-vol", ImageDigest: "sha256:abc"},
-	)
-
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
-	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
-		return &msb.MockVolumeHandle{Name_: name}, nil
-	}
-
-	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
-		"explicit-vol",
-		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"},
-		false,
-		false,
-		ui,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Should use explicit volume, not state volume
-	if len(ui.InfoCalls) == 0 {
-		t.Fatal("expected info calls")
-	}
-	// The reset message should reference the new volume, not the explicit one (reset doesn't copy)
-}
-
-func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
+// setupVolumeOpsFixtures installs the isolate state dir and the default msb
+// mock needed by the volume operations tests and returns the mock handles.
+// Tests that need a pre-existing home state or a customized msb mock declare
+// it after the call.
+func setupVolumeOpsFixtures(t *testing.T) (*msb.MockMsbClient, *termio.Mock) {
+	t.Helper()
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
-
-	slug := "myproj"
-	seedHomeState(
-		state.Key{Slug: slug, Agent: "opencode"},
-		state.HomeState{HomeVolume: "agents-sandbox-home-myproj-old", ImageDigest: "sha256:abc"},
-	)
-
 	mock := &msb.MockMsbClient{}
-	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
-		var vh msb.VolumeHandle
-		return vh, volumeNotFoundError(name)
-	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
-		return msb.MockVolumeHandle{Name_: name}, nil
-	}
-
-	mockUI := &termio.Mock{}
-	vm := NewManager(docker.Get())
-	_, _, err := vm.ResolveHomeVolume(
-		context.Background(),
-		mock,
-		state.Key{Slug: slug, Agent: "opencode"},
-		image.ImageInfo{DockerTag: "latest", Ref: "latest", Digest: "sha256:def"},
-		false,
-		state.Fingerprints{},
-		"",
-		mockUI,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(mockUI.WarnCalls) == 0 {
-		t.Error("expected warning about volume not found")
-	}
+	msb.WithMsbMock(t, mock)
+	docker.WithNoopDockerMock(t)
+	return mock, &termio.Mock{}
 }
 
-// TestResolveHomeVolume_MissingRecordedVolumeStartsFresh pins the clean-break
-// stale-state contract: after the private-home change, a project's recorded home
-// volume no longer resolves. ResolveHomeVolume must detect the missing volume,
-// create a fresh one, rewrite state to the new name, and return no error —
-// rather than failing the session.
-func TestResolveHomeVolume_MissingRecordedVolumeStartsFresh(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
-
-	key := state.Key{Slug: "stalehome", Agent: "opencode"}
-	const recordedVolume = "agents-sandbox-home-stalehome-legacy"
-	seedHomeState(key, state.HomeState{
-		HomeVolume:  recordedVolume,
-		ImageDigest: "sha256:legacy",
-	})
-
-	var createdName string
-	mock := &msb.MockMsbClient{}
-	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
-		var vh msb.VolumeHandle
-		return vh, volumeNotFoundError(name)
-	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
-		createdName = name
-		return msb.MockVolumeHandle{Name_: name}, nil
-	}
-
-	ui := &termio.Mock{}
-	vm := NewManager(docker.Get())
-	volName, st, err := vm.ResolveHomeVolume(
-		context.Background(),
-		mock,
-		key,
-		image.ImageInfo{DockerTag: "latest", Ref: "latest", Digest: "sha256:def"},
-		false,
-		state.Fingerprints{},
-		"",
-		ui,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if createdName == "" {
-		t.Fatal("expected a fresh volume to be created")
-	}
-	if volName != createdName {
-		t.Errorf("returned volume = %q, want created volume %q", volName, createdName)
-	}
-	if volName == recordedVolume {
-		t.Errorf("returned volume = %q, must not reuse the stale recorded name", recordedVolume)
-	}
-
-	persisted, err := state.ReadState(key)
-	if err != nil {
-		t.Fatalf("state not rewritten: %v", err)
-	}
-	if persisted.HomeVolume != volName {
-		t.Errorf("persisted home volume = %q, want %q", persisted.HomeVolume, volName)
-	}
-	if st.ImageDigest != "sha256:def" {
-		t.Errorf("digest = %q, want %q", st.ImageDigest, "sha256:def")
-	}
-}
-
-// TestVolumeOp_UsesRecoveredHomeVolumeAsSource covers the VM-only adoption marker
-// (#144): a first volume op after adoption has only RecoveredHomeVolume set, so
-// volumeOp must use it as the source volume instead of failing with "state has no
-// home_volume set", and must clear the marker once it commits.
-func TestVolumeOp_UsesRecoveredHomeVolumeAsSource(t *testing.T) {
+// TestVolumeOpReportsAFailedVolumeCreate pins that a new home volume that
+// cannot be created fails the op with the cause, before anything is prefilled.
+func TestVolumeOpReportsAFailedVolumeCreate(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
-
-	key := state.Key{Slug: "testproj-aBc1234D", Agent: "opencode"}
-	const recovered = "agents-sandbox-home-widget-aaa-opencode-7"
-	seedHomeState(key, state.HomeState{RecoveredHomeVolume: recovered})
-	seedAdoptionClaim(t, "widget-aaa", key.Slug, recovered)
-
-	err := CmdReset(context.Background(), docker.Get(), key,
-		"",
-		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
-		true,
-		false,
-		ui,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	k := state.Key{Slug: "testproj-aBc1234D", Agent: "opencode"}
+	seedHomeState(k, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+	createFailed := errors.New("disk full")
+	mock.CreateVolumeFn = func(context.Context, string, ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return nil, createFailed
 	}
 
-	var removed bool
-	for _, v := range mock.RemovedVolumes {
-		if v == recovered {
-			removed = true
-		}
+	err := CmdReset(context.Background(), docker.Get(), k, "",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"}, false, false, ui)
+	if !errors.Is(err, createFailed) || !strings.Contains(err.Error(), "create volume") {
+		t.Fatalf("error = %v, want the create failure wrapping %v", err, createFailed)
 	}
-	if !removed {
-		t.Errorf("recovered volume %q not used as the source, removed %v", recovered, mock.RemovedVolumes)
-	}
-
-	st, err := state.ReadState(key)
-	if err != nil {
-		t.Fatalf("ReadState: %v", err)
-	}
-	if st.HomeVolume == "" {
-		t.Error("expected HomeVolume to be set after the operation")
-	}
-	if st.RecoveredHomeVolume != "" {
-		t.Errorf("RecoveredHomeVolume = %q, want the marker cleared", st.RecoveredHomeVolume)
-	}
-	root, err := state.ReadRootState()
-	if err != nil {
-		t.Fatalf("ReadRootState: %v", err)
-	}
-	if _, ok := root.AdoptedHomeVolume("widget-aaa", "opencode"); ok {
-		t.Errorf("adoption claim not cleared after the volume op: %+v", root.AdoptedHomeVolumes)
-	}
-}
-
-// TestVolumeOp_ClearsRecoveredHomeVolumeWithExplicitSource covers the marker left
-// next to an explicit source volume: the commit must clear it, or the next home
-// resolution would recover the old volume and undo the operation.
-func TestVolumeOp_ClearsRecoveredHomeVolumeWithExplicitSource(t *testing.T) {
-	_, ui := setupVolumeOpsFixtures(t)
-
-	key := state.Key{Slug: "testproj-aBc1234D", Agent: "opencode"}
-	seedHomeState(key, state.HomeState{RecoveredHomeVolume: "stale-marker"})
-
-	err := CmdReset(context.Background(), docker.Get(), key,
-		"explicit-vol",
-		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
-		false,
-		false,
-		ui,
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	st, err := state.ReadState(key)
-	if err != nil {
-		t.Fatalf("ReadState: %v", err)
-	}
-	if st.RecoveredHomeVolume != "" {
-		t.Errorf("RecoveredHomeVolume = %q, want the marker cleared", st.RecoveredHomeVolume)
+	if len(mock.CreatedSandboxes) != 0 {
+		t.Errorf("created sandboxes %v, want no prefill after the failed create", mock.CreatedSandboxes)
 	}
 }

@@ -2,6 +2,7 @@ package volume
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -55,7 +56,7 @@ func TestInspectVolumePopulatesDetail(t *testing.T) {
 func TestInspectVolumeMissing(t *testing.T) {
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	_, err := InspectVolume(context.Background(), "agents-sandbox-home-missing")
-	if err == nil || !strings.Contains(err.Error(), "inspect volume") {
+	if err == nil || !strings.Contains(err.Error(), "inspect volume") || errors.Unwrap(err) == nil {
 		t.Fatalf("InspectVolume() error = %v, want inspect volume error", err)
 	}
 }
