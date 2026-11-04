@@ -37,8 +37,8 @@ There is no separate prerequisites page. `docs/install/installation.md` is the o
   container-engine requirement, and names the standalone `agents-sandbox doctor` run as an optional check available once
   installed.
 
-Installation ends with a fork to the two onboarding paths: switching an existing agent (`switch.md`) or a first sandbox
-(`tutorial.md`).
+Installation ends with the next step spelled out — run your first agent (`tutorial.md`) — and routes readers who already
+use an agent to `switch.md` and readers who want a self-contained setup to `manage-config.md`.
 
 Pages about running agents-sandbox — the tutorial and the README quick start — do not tell the reader to run `doctor`,
 because the preflight already runs it. Only the Installation prerequisites section and the troubleshooting page name it

@@ -1,14 +1,18 @@
 ---
-title: Your first sandbox
-description: "Take an agent from install to a running sandbox: install agents-sandbox, run an agent, and see what appears."
+title: Your first agent
+description: "Run an agent for the first time: install agents-sandbox, start an agent in a sandbox, and see what appears."
 layout: default
 parent: Get started
 nav_order: 25
 ---
 
-# Your first sandbox
+# Your first agent
 
-By the end of this page you have a coding agent running inside a sandbox, with your project mounted at `/workspace`.
+This is the clean-start path: install agents-sandbox and run an agent for the first time. By the end of this page you
+have a coding agent running inside a sandbox, with your project mounted at `/workspace`.
+
+If you already use a coding agent on this host, the same command also brings your existing setup — see
+[Switch from your existing agent]({% link switch.md %}).
 
 ## Install agents-sandbox
 

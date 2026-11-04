@@ -156,8 +156,8 @@
   - Description: Design for #15: build the runner image without host Docker by running `buildkitd` inside a microsandbox VM, driven by a host-side BuildKit Go client over a published TCP port; covers the free/unique-port invariant, `native` snapshotter, `ImageLoad` delivery, identity/reuse, and removal of `internal/sandbox/docker`.
   - Read If: Changing the Docker-free BuildKit builder (#15), the `internal/sandbox/builder` package, or the image build/inspect/load pipeline and doctor prerequisites.
 - `runtime-management-commands.md`
-  - Description: Contract for the CLI's microsandbox management surface: `volume`/`image`/`sandbox inspect`, `image remove`/`sandbox remove`, a top-level `df` plus a `storage` alias, and uniform `-q`/`--format json`/`--yes`/`--older-than` conventions.
-  - Read If: Adding or reviewing volume/image/sandbox inspect and removal, the `df`/`storage` commands, prune confirmation/format flags, or command-surface consistency conventions.
+  - Description: Contract for the CLI's microsandbox management surface: `volume`/`image`/`sandbox inspect`, `image remove`/`sandbox remove`, `sandbox compact`, a top-level `df` plus a `storage` alias, and uniform `-q`/`--format json`/`--yes`/`--older-than` conventions.
+  - Read If: Adding or reviewing volume/image/sandbox inspect and removal, sandbox disk compaction, the `df`/`storage` commands, prune confirmation/format flags, or command-surface consistency conventions.
 - `cliout-package-boundary.md`
   - Description: Contract for the CLI output package boundary (#357): `internal/cliout` stays domain-free (generic mode/list/JSON rendering plus `RenderPruneReport`), while the sandbox-shaped `Printer` implementations and prune/compact report JSON DTOs live in `internal/view`, enforced by an import-boundary test.
   - Read If: Moving a Printer, report-JSON DTO, or renderer between `internal/cliout` and the launcher's view package, or deciding where new list/inspect/report rendering belongs.
