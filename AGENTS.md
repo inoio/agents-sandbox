@@ -105,9 +105,12 @@ Always use your superpowers for appropriate tasks, never skip user approval.
 - Default to TDD - writing tests first, validating they compile and fail, implementing changes, validating passing tests
 - Make sure that new/changed CLI commands/flags are thoroughly tested in the cmd/agents-sandbox/cli_*_test.go tests
 - Also write valuable unit tests for internal functionality with every implementation.
-- Test a unit in exactly one file named after it (`foo.go` → `foo_test.go`), grouping tests by behaviour inside it.
-  Allow separate unit-named test files when different build tags require them.
-  Never name tests or test files after coverage or mutation work (`coverage_*_test.go`, `*_survivors_test.go`).
+- Test a unit in exactly one file named after it (`foo.go` → `foo_test.go`), grouping tests by behaviour inside it; a
+  large test file is fine. Allow separate unit-named test files when different build tags require them.
+- A test that drives a flow across several units through the package's exported entry point goes into
+  `<flow>_flow_test.go` (e.g. `prepare_sandbox_flow_test.go`). Tests that need real external dependencies keep the
+  `integration` build tag instead.
+- Never name tests or test files after coverage or mutation work (`coverage_*_test.go`, `*_survivors_test.go`).
 
 ## Documentation
 
