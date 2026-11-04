@@ -81,8 +81,8 @@
   - Description: Contract for verifying a downloaded release asset before the self-update installs it (#338): one published `checksums.txt` in `sha256sum` format, the download → verify → replace path in `installRelease`, fail-closed handling of a mismatch/missing/malformed entry, and the same-channel-checksum limitation (cosign is the follow-up).
   - Read If: Changing the self-update download/verify/replace path, the release job's asset or checksums publishing, or `internal/upgrade`'s checksum handling.
 - `test-coverage.md`
-  - Description: Contract for coverage on added and changed lines: every added line must be executed by a test (error/transport/status branches included); an unreachable-by-construction branch must be removed, not left uncovered; match the sibling you mirror.
-  - Read If: Adding or changing production code and deciding what to test, reviewing a diff for coverage gaps, or triaging a failing `codecov/patch` or `codecov/project` check on a PR.
+  - Description: Contract for coverage on added and changed lines: every added line must be executed by a test (error/transport/status branches included); an unreachable-by-construction branch must be removed, not left uncovered; match the sibling you mirror; test doubles (`testmock.go`) are excluded from coverage and their tests pin only fail-open contracts.
+  - Read If: Adding or changing production code and deciding what to test, reviewing a diff for coverage gaps, triaging a failing `codecov/patch` or `codecov/project` check on a PR, or deciding what to test on a test double.
 - `dead-code-gate.md`
   - Description: Contract for the CI gate that fails when production code is unreachable from any `main` package: a pinned x/tools `deadcode`, a reason-bearing `//deadcode:ignore` marker with file and declaration scope, `ci/check-deadcode.sh`, and the `verify`-not-`check` wiring.
   - Read If: Changing the `make deadcode` target, the `//deadcode:ignore` marker convention, `ci/check-deadcode.sh`/`ci/deadcodecheck`, the `DEADCODE_VERSION` pin, or the dead-code CI job; or diagnosing an unmarked finding, a stale marker, or an untrusted-analysis (exit 2) failure.
