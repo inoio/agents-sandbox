@@ -14,62 +14,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// detachedProbeOutcome is one scripted health-probe result.
-type detachedProbeOutcome struct {
-	healthy bool
-	detail  string
-}
-
-// scriptedProbe returns a health probe that reports each outcome in order and is
-// healthy once the script is exhausted, so a test can drive the pre-check and
-// the readiness polls independently.
-func scriptedProbe(outcomes ...detachedProbeOutcome) func(context.Context) (bool, string) {
-	index := 0
-	return func(context.Context) (bool, string) {
-		if index >= len(outcomes) {
-			return true, ""
-		}
-		outcome := outcomes[index]
-		index++
-		return outcome.healthy, outcome.detail
-	}
-}
-
-// orderRecordingJob is a MockJob whose Kill appends the given event to a shared
-// call-order log, so a test can place the stale kill in the restart sequence
-// rather than only observing that it happened.
-type orderRecordingJob struct {
-	*msb.MockJob
-
-	onKill func()
-}
-
-func (j orderRecordingJob) Kill(ctx context.Context) error {
-	j.onKill()
-	return j.MockJob.Kill(ctx)
-}
-
-// testDetachedService is the ingredient table the ensureDetachedService tests
-// vary one field at a time from: a dockerd-shaped service whose pre-check is
-// healthy, launching under the dockerd helper marker.
-func testDetachedService() detachedService {
-	return detachedService{
-		helper:     dockerdHelper(),
-		probe:      func(context.Context) (bool, string) { return true, "" },
-		label:      "dockerd",
-		startLabel: "dockerd",
-		launchArgs: func(context.Context) ([]string, string, error) {
-			return []string{dockerdSocketFlag, dockerdSocket}, "starting dockerd", nil
-		},
-		timeout:            time.Second,
-		pollInterval:       time.Millisecond,
-		alreadyHealthyNote: "already healthy",
-		readyNote:          "ready",
-		closeNote:          "closing job handle failed: %v",
-		cleanupNote:        "cleanup failed: %v",
-	}
-}
-
 func TestEnsureDetachedServiceLeavesHealthyServiceRunning(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	calls := &[]msb.MockDetachedCall{}
@@ -294,5 +238,47 @@ func TestEnsureDetachedServiceSkipsBlankPreCheckDetail(t *testing.T) {
 		if strings.Contains(call, "pre-check:") {
 			t.Errorf("blank pre-check note was logged: %v", ui.VerboseCalls)
 		}
+	}
+}
+
+// detachedProbeOutcome is one scripted health-probe result.
+type detachedProbeOutcome struct {
+	healthy bool
+	detail  string
+}
+
+// scriptedProbe returns a health probe that reports each outcome in order and is
+// healthy once the script is exhausted, so a test can drive the pre-check and
+// the readiness polls independently.
+func scriptedProbe(outcomes ...detachedProbeOutcome) func(context.Context) (bool, string) {
+	index := 0
+	return func(context.Context) (bool, string) {
+		if index >= len(outcomes) {
+			return true, ""
+		}
+		outcome := outcomes[index]
+		index++
+		return outcome.healthy, outcome.detail
+	}
+}
+
+// testDetachedService is the ingredient table the ensureDetachedService tests
+// vary one field at a time from: a dockerd-shaped service whose pre-check is
+// healthy, launching under the dockerd helper marker.
+func testDetachedService() detachedService {
+	return detachedService{
+		helper:     dockerdHelper(),
+		probe:      func(context.Context) (bool, string) { return true, "" },
+		label:      "dockerd",
+		startLabel: "dockerd",
+		launchArgs: func(context.Context) ([]string, string, error) {
+			return []string{dockerdSocketFlag, dockerdSocket}, "starting dockerd", nil
+		},
+		timeout:            time.Second,
+		pollInterval:       time.Millisecond,
+		alreadyHealthyNote: "already healthy",
+		readyNote:          "ready",
+		closeNote:          "closing job handle failed: %v",
+		cleanupNote:        "cleanup failed: %v",
 	}
 }

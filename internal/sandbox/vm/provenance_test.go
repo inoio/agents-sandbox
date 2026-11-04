@@ -5,14 +5,131 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+// TestRecordImageProvenanceLoadError covers the branch where the project state
+// cannot be read: a warning is emitted and recording is skipped.
+func TestRecordImageProvenanceLoadError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	// Make the state file resolve to a directory so os.ReadFile fails with a
+	// non-not-exist error, forcing ReadState to return an error.
+	if err := os.MkdirAll(filepath.Join(state.KeyDir(k), "state.yaml"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fs := msb.NewTestFS(map[string][]byte{
+		"/etc/agents-sandbox/agent-source": []byte("tool\n"),
+	}, nil)
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{FSValue_: fs}
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, ui)
+	if !contains(joinStrings(ui.WarnCalls), "read state for transaction") {
+		t.Errorf("expected a warning about the unreadable project state, got %v", ui.WarnCalls)
+	}
+}
+
+// TestRecordImageProvenancePersistError covers the branch where persisting the
+// project state fails after a successful read: a warning is emitted.
+func TestRecordImageProvenancePersistError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	// Persist an initial state first so the subsequent ReadState call succeeds,
+	// then make the state directory read-only so the atomic write fails while
+	// loading still works.
+	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
+		t.Fatal(err)
+	}
+	dir := state.KeyDir(k)
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Skipf("cannot chmod state dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	fs := msb.NewTestFS(map[string][]byte{
+		"/etc/agents-sandbox/agent-source": []byte("user\n"),
+	}, nil)
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{FSValue_: fs}
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, ui)
+	if !contains(joinStrings(ui.WarnCalls), "could not persist project state") {
+		t.Errorf("expected a warning about the failed persist, got %v", ui.WarnCalls)
+	}
+}
+
+// TestHomeWritersPreserveUnrelatedFields is a property guard over the boot
+// provenance HomeState writer: each writer owns a small set of fields and must leave every
+// other field of the existing document untouched. Each case seeds a fully
+// populated state, runs one writer, and compares the result against the seed
+// with only the writer's owned fields advanced.
+func TestHomeWritersPreserveUnrelatedFields(t *testing.T) {
+	seed := func() state.HomeState {
+		return state.HomeState{
+			HomeVolume:      "vol",
+			ImageDigest:     "d",
+			AgentVersion:    "1.0.0",
+			AgentSource:     state.AgentSourceTool,
+			DockerSource:    state.AgentSourceTool,
+			OfferedVersions: []string{"1.1.0"},
+			EnvState:        state.EnvState{Hash: "e"},
+			SecretState:     state.SecretState{Hash: "s"},
+			NetworkState:    state.NetworkState{Hash: "n"},
+			MountState:      state.MountState{Hash: "m"},
+		}
+	}
+
+	cases := []struct {
+		name string
+		run  func(t *testing.T, k state.Key)
+		want func() state.HomeState
+	}{
+		{
+			name: "recordImageProvenance",
+			run: func(t *testing.T, k state.Key) {
+				t.Helper()
+				sb := &msb.MockSandbox{
+					FSValue_: msb.NewTestFS(map[string][]byte{
+						agentSourcePath:  []byte(state.AgentSourceUser + "\n"),
+						dockerSourcePath: []byte(state.AgentSourceUser + "\n"),
+					}, nil),
+				}
+				recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termio.Mock{})
+			},
+			want: func() state.HomeState {
+				w := seed()
+				w.AgentSource = state.AgentSourceUser
+				w.DockerSource = state.AgentSourceUser
+				return w
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			k := state.Key{Slug: "proj", Agent: "opencode"}
+			if err := seedHomeState(k, seed()); err != nil {
+				t.Fatalf("seed home state: %v", err)
+			}
+			tc.run(t, k)
+			got, err := state.ReadState(k)
+			if err != nil {
+				t.Fatalf("ReadState: %v", err)
+			}
+			if want := tc.want(); !reflect.DeepEqual(*got, want) {
+				t.Errorf("writer changed unrelated fields:\n got %+v\nwant %+v", *got, want)
+			}
+		})
+	}
+}
 
 func TestRecordImageProvenanceDetectsToolAgentVersion(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -171,5 +288,53 @@ func TestRecordImageProvenanceReadErrorLeavesStateUntouched(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "no agent-source file in image") {
 		t.Errorf("expected the pre-provenance verbose note, got %v", ui.VerboseCalls)
+	}
+}
+
+// TestDetectToolAgentVersionNotProvider covers the branch where the agent does
+// not implement VersionProvider: no version is detected.
+func TestDetectToolAgentVersionNotProvider(t *testing.T) {
+	version, ok := detectToolAgentVersion(
+		context.Background(),
+		agent.Resolve(&fakeAgent{}),
+		&msb.MockSandbox{},
+		&termio.Mock{},
+	)
+	if ok || version != "" {
+		t.Errorf("expected no detection, got (%q, %v)", version, ok)
+	}
+}
+
+// TestDetectToolAgentVersionShellError covers the branch where detecting the
+// agent version via Shell fails: a warning is emitted and no version is
+// detected.
+func TestDetectToolAgentVersionShellError(t *testing.T) {
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{ShellErr: errors.New("shell failed")}
+	version, ok := detectToolAgentVersion(context.Background(), opencodeResolved(t), sb, ui)
+	if ok || version != "" {
+		t.Errorf("expected no detection on shell error, got (%q, %v)", version, ok)
+	}
+	if !contains(joinStrings(ui.WarnCalls), "could not detect agent version") {
+		t.Errorf("expected a warning about the failed version detection, got %v", ui.WarnCalls)
+	}
+}
+
+// TestDetectToolAgentVersionParseError covers the branch where the agent
+// version output cannot be parsed: a warning is emitted and no version is
+// detected.
+func TestDetectToolAgentVersionParseError(t *testing.T) {
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{
+		ShellOut: map[string]msb.ShellResult{
+			"opencode --version": msb.NewTestResult(true, 0, "not a version string", "", nil),
+		},
+	}
+	version, ok := detectToolAgentVersion(context.Background(), opencodeResolved(t), sb, ui)
+	if ok || version != "" {
+		t.Errorf("expected no detection on parse error, got (%q, %v)", version, ok)
+	}
+	if !contains(joinStrings(ui.WarnCalls), "could not parse agent version") {
+		t.Errorf("expected a warning about the parse failure, got %v", ui.WarnCalls)
 	}
 }

@@ -14,22 +14,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// reconcileHandle builds a handle whose boot config reports 2 CPUs and 2048 MiB,
-// the given CPU and memory boot maxima, and a plan that applies cleanly. The
-// boot values stay below every requested count, so a change always registers
-// unless a test intends none.
-func reconcileHandle(maxCPUs uint8, maxMemoryMiB uint32) *msb.MockSandboxHandle {
-	return &msb.MockSandboxHandle{
-		Cfg: &msbSdk.SandboxConfig{
-			CPUs:         2,
-			MaxCPUs:      maxCPUs,
-			MemoryMiB:    2048,
-			MaxMemoryMiB: maxMemoryMiB,
-		},
-		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
-	}
-}
-
 // TestReconcileResourceConfigConfigErrorIsNoop pins the read-failure no-op: a
 // handle whose Config errors is left untouched, even when it also returns a
 // non-nil config (which the `|| cfg == nil` half alone would not catch).
@@ -175,5 +159,175 @@ func TestReconcileResourceConfigModifyErrorWrapsCause(t *testing.T) {
 	}
 	if !errors.Is(err, sentinel) {
 		t.Errorf("error = %v, want it to wrap the Modify cause", err)
+	}
+}
+
+// TestReconcileResourceConfigClampsCpusToMax verifies that CPU/memory requests
+// above the boot-time maximum are clamped (not rejected).
+func TestReconcileResourceConfigClampsCpusToMax(t *testing.T) {
+	handle := &msb.MockSandboxHandle{
+		Cfg:  &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8, MemoryMiB: 4096, MaxMemoryMiB: 8192},
+		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
+	}
+	ui := termio.NewTestMock(t)
+	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{CPUs: 16, Memory: "4G"}, &ui)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if len(handle.ModifiedOptions) != 1 {
+		t.Fatalf("expected 1 Modify, got %d", len(handle.ModifiedOptions))
+	}
+	mo := handle.ModifiedOptions[0]
+	if mo.CPUs != 8 {
+		t.Errorf("expected clamped CPUs=8, got %d", mo.CPUs)
+	}
+	if mo.MemoryMiB != 0 {
+		t.Errorf("expected no memory change (already 4G), got %d", mo.MemoryMiB)
+	}
+}
+
+// applySandboxOpts applies captured functional options to a fresh SandboxConfig
+// so tests can assert what createProjectVM configured.
+func TestReconcileResourceConfigAppliesCPUsAndMemory(t *testing.T) {
+	handle := &msb.MockSandboxHandle{
+		Cfg:  &msbSdk.SandboxConfig{CPUs: 2, MemoryMiB: 2048},
+		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
+	}
+	ctx := context.Background()
+	ui := termio.NewTestMock(t)
+	if err := reconcileResourceConfig(ctx, handle, options.RunOptions{CPUs: 8, Memory: "4G"}, &ui); err != nil {
+		t.Fatalf("reconcileResourceConfig failed: %v", err)
+	}
+	if len(handle.ModifiedOptions) != 1 {
+		t.Fatalf("expected 1 Modify call, got %d", len(handle.ModifiedOptions))
+	}
+	mo := handle.ModifiedOptions[0]
+	if mo.CPUs != 8 || mo.MemoryMiB != 4096 {
+		t.Errorf("ModifyOptions = CPUs=%d Mem=%d, want 8 / 4096", mo.CPUs, mo.MemoryMiB)
+	}
+}
+
+func TestReconcileResourceConfigNoopWhenSame(t *testing.T) {
+	handle := &msb.MockSandboxHandle{
+		Cfg:  &msbSdk.SandboxConfig{CPUs: 8, MemoryMiB: 4096},
+		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
+	}
+	ui := termio.NewTestMock(t)
+	if err := reconcileResourceConfig(
+		context.Background(),
+		handle,
+		options.RunOptions{CPUs: 8, Memory: "4G"},
+		&ui,
+	); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(handle.ModifiedOptions) != 0 {
+		t.Errorf("expected no Modify call, got %d", len(handle.ModifiedOptions))
+	}
+}
+
+func TestReconcileResourceConfig_AppliesCPUsAndMemory(t *testing.T) {
+	handle := &msb.MockSandboxHandle{
+		Cfg:  &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8, MemoryMiB: 2048, MaxMemoryMiB: 8192},
+		Plan: &msbSdk.SandboxModificationPlan{},
+	}
+	ui := termio.NewTestMock(t)
+
+	opts := options.RunOptions{CPUs: 4, Memory: "4G"}
+	if err := reconcileResourceConfig(context.Background(), handle, opts, &ui); err != nil {
+		t.Fatalf("reconcileResourceConfig() error = %v", err)
+	}
+	if len(handle.ModifiedOptions) != 1 {
+		t.Fatalf("expected 1 Modify call, got %d", len(handle.ModifiedOptions))
+	}
+	mo := handle.ModifiedOptions[0]
+	if mo.CPUs != 4 || mo.MemoryMiB != 4096 {
+		t.Errorf("Modify options = %+v, want CPUs=4 MemoryMiB=4096", mo)
+	}
+	if mo.Policy != msbSdk.ModificationPolicyNoRestart {
+		t.Errorf("Modify policy = %v, want NoRestart", mo.Policy)
+	}
+}
+
+func TestReconcileResourceConfig_ClampsToBootMax(t *testing.T) {
+	handle := &msb.MockSandboxHandle{
+		Cfg:  &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 4, MemoryMiB: 2048, MaxMemoryMiB: 4096},
+		Plan: &msbSdk.SandboxModificationPlan{},
+	}
+	ui := termio.NewTestMock(t)
+
+	opts := options.RunOptions{CPUs: 16, Memory: "16G"}
+	if err := reconcileResourceConfig(context.Background(), handle, opts, &ui); err != nil {
+		t.Fatalf("reconcileResourceConfig() error = %v", err)
+	}
+	if len(handle.ModifiedOptions) != 1 {
+		t.Fatalf("expected 1 Modify call, got %d", len(handle.ModifiedOptions))
+	}
+	mo := handle.ModifiedOptions[0]
+	if mo.CPUs != 4 || mo.MemoryMiB != 4096 {
+		t.Errorf("Modify options = %+v, want clamped CPUs=4 MemoryMiB=4096", mo)
+	}
+}
+
+func TestReconcileResourceConfig_NoChangeSkipsModify(t *testing.T) {
+	handle := &msb.MockSandboxHandle{
+		Cfg: &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8, MemoryMiB: 2048, MaxMemoryMiB: 8192},
+	}
+	ui := termio.NewTestMock(t)
+
+	if err := reconcileResourceConfig(
+		context.Background(),
+		handle,
+		options.RunOptions{CPUs: 2, Memory: "2048"},
+		&ui,
+	); err != nil {
+		t.Fatalf("reconcileResourceConfig() error = %v", err)
+	}
+	if len(handle.ModifiedOptions) != 0 {
+		t.Errorf("expected no Modify call when nothing changes, got %d", len(handle.ModifiedOptions))
+	}
+}
+
+func TestReconcileResourceConfig_ConflictsError(t *testing.T) {
+	handle := &msb.MockSandboxHandle{
+		Cfg: &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8, MemoryMiB: 2048, MaxMemoryMiB: 8192},
+		Plan: &msbSdk.SandboxModificationPlan{
+			Conflicts: []msbSdk.ModificationConflict{{Field: "cpus", Message: "conflict"}},
+		},
+	}
+	ui := termio.NewTestMock(t)
+
+	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{CPUs: 4}, &ui)
+	if err == nil {
+		t.Fatal("expected error when plan has conflicts")
+	}
+}
+
+func TestSummarizeConflicts(t *testing.T) {
+	cs := []msbSdk.ModificationConflict{
+		{Field: "cpus", Message: "too high"},
+		{Field: "memory", Message: "not enough"},
+	}
+	if got := summarizeConflicts(cs); got != "cpus: too high; memory: not enough" {
+		t.Errorf("summarizeConflicts() = %q, want joined string", got)
+	}
+	if got := summarizeConflicts(nil); got != "" {
+		t.Errorf("summarizeConflicts(nil) = %q, want empty", got)
+	}
+}
+
+// reconcileHandle builds a handle whose boot config reports 2 CPUs and 2048 MiB,
+// the given CPU and memory boot maxima, and a plan that applies cleanly. The
+// boot values stay below every requested count, so a change always registers
+// unless a test intends none.
+func reconcileHandle(maxCPUs uint8, maxMemoryMiB uint32) *msb.MockSandboxHandle {
+	return &msb.MockSandboxHandle{
+		Cfg: &msbSdk.SandboxConfig{
+			CPUs:         2,
+			MaxCPUs:      maxCPUs,
+			MemoryMiB:    2048,
+			MaxMemoryMiB: maxMemoryMiB,
+		},
+		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
 	}
 }

@@ -14,60 +14,286 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// countingSandbox is an msb.MockSandbox that records how many detached jobs it
-// launched and models dockerd becoming ready after a number of readiness
-// probes, so tests can assert which branches startDockerdIfPresent took.
-type countingSandbox struct {
-	*msb.MockSandbox
-
-	execCalls               int
-	execErr                 error
-	cleanupErr              error
-	readyCalls              int
-	readyCallsBeforeHealthy int
-	execArgs                *[]string
+func TestDockerdArgsDefaultsToVFSFlag(t *testing.T) {
+	args, driver, err := dockerdArgs(context.Background(), daemonJSONSandbox(""))
+	if err != nil {
+		t.Fatalf("dockerdArgs: %v", err)
+	}
+	if driver != vfsStorageDriver {
+		t.Errorf("driver = %q, want %q when fuse-overlayfs is unavailable", driver, vfsStorageDriver)
+	}
+	if !slices.Contains(args, "--storage-driver="+vfsStorageDriver) {
+		t.Errorf("expected the vfs flag when daemon.json is absent; got %v", args)
+	}
 }
 
-func (s *countingSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecOption) (msb.ShellResult, error) {
-	switch command {
-	case dockerdBinaryCheckCmd:
-		return msb.NewTestResult(true, 0, "", "", nil), nil
-	case dockerdReadyCmd:
-		s.readyCalls++
-		if s.readyCalls > s.readyCallsBeforeHealthy {
-			return msb.NewTestResult(true, 0, "", "", nil), nil
+// TestDockerdArgsUsesFuseOverlayfsWhenAvailable guards the #489 default: when
+// the image's daemon.json sets no driver and the guest provides the
+// fuse-overlayfs binary and a usable /dev/fuse, dockerd is asked for
+// fuse-overlayfs, whose copy-on-write layers beat vfs's full copy per layer.
+func TestDockerdArgsUsesFuseOverlayfsWhenAvailable(t *testing.T) {
+	args, driver, err := dockerdArgs(context.Background(), daemonJSONSandboxWithFuse("", true))
+	if err != nil {
+		t.Fatalf("dockerdArgs: %v", err)
+	}
+	if driver != fuseOverlayfsStorageDriver {
+		t.Errorf("driver = %q, want %q when fuse-overlayfs is available", driver, fuseOverlayfsStorageDriver)
+	}
+	if !slices.Contains(args, "--storage-driver="+fuseOverlayfsStorageDriver) {
+		t.Errorf("expected the fuse-overlayfs flag; got %v", args)
+	}
+}
+
+// TestDockerdArgsAcceptsFuseOverlayfsFromDaemonJSON guards the #287 rule for the
+// new driver: a daemon.json that already forces fuse-overlayfs is honored with
+// no --storage-driver flag (dockerd rejects a directive set both ways).
+func TestDockerdArgsAcceptsFuseOverlayfsFromDaemonJSON(t *testing.T) {
+	args, driver, err := dockerdArgs(
+		context.Background(),
+		daemonJSONSandboxWithFuse(`{"storage-driver":"fuse-overlayfs"}`, false),
+	)
+	if err != nil {
+		t.Fatalf("dockerdArgs: %v", err)
+	}
+	if driver != fuseOverlayfsStorageDriver {
+		t.Errorf("driver = %q, want %q", driver, fuseOverlayfsStorageDriver)
+	}
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--storage-driver") {
+			t.Errorf("must not pass the flag when daemon.json already sets the driver; got %v", args)
 		}
-		return msb.NewTestResult(false, 1, "", "", nil), nil
-	case dockerdCleanupCmd:
-		if s.cleanupErr != nil {
-			return msb.NewTestResult(false, 1, "", "", nil), s.cleanupErr
+	}
+}
+
+// TestDockerdArgsFallsBackToVFSOnProbeError guards the failure mode: a probe
+// transport error must not fail the VM start; selection falls back to vfs.
+func TestDockerdArgsFallsBackToVFSOnProbeError(t *testing.T) {
+	sb := &msb.MockSandbox{
+		FSValue_: msb.NewTestFS(nil, nil),
+		ShellErr: errors.New("probe boom"),
+	}
+	args, driver, err := dockerdArgs(context.Background(), sb)
+	if err != nil {
+		t.Fatalf("dockerdArgs: %v", err)
+	}
+	if driver != vfsStorageDriver {
+		t.Errorf("driver = %q, want %q after a probe error", driver, vfsStorageDriver)
+	}
+	if !slices.Contains(args, "--storage-driver="+vfsStorageDriver) {
+		t.Errorf("expected the vfs fallback flag; got %v", args)
+	}
+}
+
+func TestDockerdArgsKeepsFlagForUnrelatedKeys(t *testing.T) {
+	args, _, err := dockerdArgs(
+		context.Background(),
+		daemonJSONSandbox(`{"registry-mirrors":["https://mirror.example"]}`),
+	)
+	if err != nil {
+		t.Fatalf("dockerdArgs: %v", err)
+	}
+	if !slices.Contains(args, "--storage-driver="+vfsStorageDriver) {
+		t.Errorf("expected the vfs flag when daemon.json sets no storage driver; got %v", args)
+	}
+}
+
+// TestDockerdArgsDropsFlagWhenDaemonJSONSetsVFS guards #287: when the image
+// already forces vfs in daemon.json, passing --storage-driver=vfs as well makes
+// dockerd refuse to start ("specified both as a flag and in the configuration
+// file").
+func TestDockerdArgsDropsFlagWhenDaemonJSONSetsVFS(t *testing.T) {
+	args, _, err := dockerdArgs(
+		context.Background(),
+		daemonJSONSandbox(`{"storage-driver":"vfs"}`),
+	)
+	if err != nil {
+		t.Fatalf("dockerdArgs: %v", err)
+	}
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--storage-driver") {
+			t.Errorf("must not pass the flag when daemon.json already sets vfs; got %v", args)
 		}
 	}
-	return msb.NewTestResult(true, 0, "", "", nil), nil
+	if !slices.Contains(args, dockerdSocket) {
+		t.Errorf("expected dockerd to still be started on its socket; got %v", args)
+	}
 }
 
-func (s *countingSandbox) ExecDetached(
-	ctx context.Context,
-	cmd string,
-	args []string,
-	opts ...msbSdk.JobExecOption,
-) (msb.Job, error) {
-	s.execCalls++
-	if s.execErr != nil {
-		return nil, s.execErr
+func TestDockerdArgsFailsOnOtherStorageDriver(t *testing.T) {
+	_, _, err := dockerdArgs(
+		context.Background(),
+		daemonJSONSandbox(`{"storage-driver":"overlay2"}`),
+	)
+	if err == nil {
+		t.Fatal("expected an error when daemon.json requests a non-vfs driver")
 	}
-	if s.execArgs == nil {
-		s.execArgs = &args
-	} else {
-		*s.execArgs = args
+	if !strings.Contains(err.Error(), "overlay2") ||
+		!strings.Contains(err.Error(), vfsStorageDriver) ||
+		!strings.Contains(err.Error(), fuseOverlayfsStorageDriver) {
+		t.Errorf("error should name the offending and both accepted drivers, got: %v", err)
 	}
-	return s.MockSandbox.ExecDetached(ctx, cmd, args, opts...)
 }
 
-func newCountingSandbox(readyCallsBeforeHealthy int) *countingSandbox {
-	return &countingSandbox{
-		MockSandbox:             &msb.MockSandbox{},
-		readyCallsBeforeHealthy: readyCallsBeforeHealthy,
+func TestDockerdArgsMalformedDaemonJSONFallsBackToFlag(t *testing.T) {
+	args, _, err := dockerdArgs(
+		context.Background(),
+		daemonJSONSandbox(`{"storage-driver":`),
+	)
+	if err != nil {
+		t.Fatalf("dockerdArgs: %v", err)
+	}
+	if !slices.Contains(args, "--storage-driver="+vfsStorageDriver) {
+		t.Errorf("expected the vfs flag when daemon.json cannot be parsed; got %v", args)
+	}
+}
+
+func TestDockerdArgsNullStorageDriverFallsBackToFlag(t *testing.T) {
+	args, _, err := dockerdArgs(
+		context.Background(),
+		daemonJSONSandbox(`{"storage-driver":null}`),
+	)
+	if err != nil {
+		t.Fatalf("dockerdArgs: %v", err)
+	}
+	if !slices.Contains(args, "--storage-driver="+vfsStorageDriver) {
+		t.Errorf("expected the vfs flag when storage-driver is null; got %v", args)
+	}
+}
+
+func TestDockerdArgsNonStringStorageDriverFails(t *testing.T) {
+	_, _, err := dockerdArgs(
+		context.Background(),
+		daemonJSONSandbox(`{"storage-driver":42}`),
+	)
+	if err == nil {
+		t.Fatal("expected an error for a non-string storage-driver value")
+	}
+}
+
+func TestDockerdArgsReadErrorFails(t *testing.T) {
+	fs := msb.NewTestFS(map[string][]byte{dockerdDaemonConfigPath: []byte(`{}`)}, nil)
+	readErr := errors.New("read boom")
+	fs.ReadErr = readErr
+	sb := &msb.MockSandbox{FSValue_: fs}
+	_, _, err := dockerdArgs(context.Background(), sb)
+	if err == nil {
+		t.Fatal("expected an error when daemon.json cannot be read")
+	}
+	if !errors.Is(err, readErr) {
+		t.Errorf("error = %v, want it to wrap the read cause", err)
+	}
+}
+
+// TestGuestStorageDriverExistsErrorWrapsCause pins the inspect-failure branch:
+// an FS.Exists error aborts with the daemon.json path named and its cause
+// preserved, rather than being treated as "absent".
+func TestGuestStorageDriverExistsErrorWrapsCause(t *testing.T) {
+	sentinel := errors.New("exists boom")
+	sb := &msb.MockSandbox{FSValue_: existsErrorFS{TestFS: msb.NewTestFS(nil, nil), err: sentinel}}
+
+	driver, err := guestStorageDriver(context.Background(), sb)
+	if err == nil {
+		t.Fatalf("expected an Exists failure to abort, got driver %q", driver)
+	}
+	if driver != "" {
+		t.Errorf("driver = %q, want empty on error", driver)
+	}
+	if !errors.Is(err, sentinel) {
+		t.Errorf("error = %v, want it to wrap the Exists cause", err)
+	}
+}
+
+// TestStartDockerdNilProbeResult covers the branch where the dockerd readiness
+// probe returns a nil result during polling: the probe is treated as unhealthy
+// and startup times out rather than panicking.
+func TestStartDockerdNilProbeResult(t *testing.T) {
+	origTimeout, origInterval := dockerdReadyTimeout, dockerdPollInterval
+	t.Cleanup(func() {
+		dockerdReadyTimeout = origTimeout
+		dockerdPollInterval = origInterval
+	})
+	dockerdReadyTimeout = 50 * time.Millisecond
+	dockerdPollInterval = time.Millisecond
+
+	ui := termio.NewTestMock(t)
+	sb := &nilResultDockerd{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{})}
+
+	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	if err == nil {
+		t.Fatal("expected error when dockerd never becomes ready")
+	}
+}
+
+func TestStartDockerdUsesConfigDrivenArgsWhenDaemonJSONSetsVFS(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	sb, detached := newDockerdStartSandbox(`{"storage-driver":"vfs"}`)
+
+	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
+		t.Fatalf("startDockerdIfPresent: %v", err)
+	}
+	if len(*detached) != 1 {
+		t.Fatalf("ExecDetached calls = %+v, want one dockerd launch", *detached)
+	}
+	for _, arg := range (*detached)[0].Args {
+		if strings.HasPrefix(arg, "--storage-driver") {
+			t.Errorf("must not pass --storage-driver when daemon.json sets vfs; got %v", (*detached)[0].Args)
+		}
+	}
+}
+
+func TestStartDockerdFailsOnOtherStorageDriver(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	sb, detached := newDockerdStartSandbox(`{"storage-driver":"overlay2"}`)
+
+	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	if err == nil {
+		t.Fatal("expected startDockerdIfPresent to fail for a non-vfs driver")
+	}
+	if !strings.Contains(err.Error(), "overlay2") {
+		t.Errorf("error should name the offending driver, got: %v", err)
+	}
+	if len(*detached) != 0 {
+		t.Errorf("dockerd must not be started when the driver conflicts, got %+v", *detached)
+	}
+}
+
+// TestStartDockerdCtxDone covers the context-cancellation branch inside the
+// dockerd readiness poll loop: when the context is cancelled, the poll aborts
+// with the context error.
+func TestStartDockerdCtxDone(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	sb := &msb.MockSandbox{
+		ShellOut: map[string]msb.ShellResult{
+			dockerdBinaryCheckCmd: msb.NewTestResult(true, 0, "", "", nil),
+			dockerdReadyCmd:       msb.NewTestResult(false, 1, "", "", nil),
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := startDockerdIfPresent(ctx, sb, &ui); err == nil {
+		t.Fatal("expected an error when the context is cancelled during dockerd startup")
+	}
+	if err := ctx.Err(); err == nil {
+		t.Fatal("expected the context to be cancelled")
+	}
+}
+
+// TestStartDockerdIfPresentBinaryCheckErrorWrapsCause pins the binary-probe
+// failure: a Shell error checking for dockerd aborts with its cause preserved,
+// rather than being read as "not present".
+func TestStartDockerdIfPresentBinaryCheckErrorWrapsCause(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	sentinel := errors.New("shell boom")
+	sb := msb.NewMockSandbox(msb.SandboxOpts{ShellErr: sentinel})
+
+	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	if err == nil {
+		t.Fatal("expected a binary-check Shell failure to abort")
+	}
+	if !errors.Is(err, sentinel) {
+		t.Errorf("error = %v, want it to wrap the Shell cause", err)
 	}
 }
 
@@ -269,6 +495,34 @@ func TestStartDockerdIfPresentReportsCloseFailure(t *testing.T) {
 	}
 }
 
+func TestTimeoutErrorIncludesJobLog(t *testing.T) {
+	origTimeout, origInterval := dockerdReadyTimeout, dockerdPollInterval
+	t.Cleanup(func() {
+		dockerdReadyTimeout = origTimeout
+		dockerdPollInterval = origInterval
+	})
+	dockerdReadyTimeout = 50 * time.Millisecond
+	dockerdPollInterval = time.Millisecond
+
+	const sentinel = "failed to start containerd: timeout waiting for containerd to start"
+	sb := newCountingSandbox(1 << 30)
+	sb.Job_ = &msb.MockJob{
+		Logs_: []msbSdk.JobLogEntry{{Data: []byte(sentinel)}},
+	}
+	ui := termio.NewTestMock(t)
+
+	err := startDockerdIfPresent(context.Background(), sb, &ui)
+	if err == nil {
+		t.Fatal("expected error when dockerd never becomes ready")
+	}
+	if !strings.Contains(err.Error(), sentinel) {
+		t.Errorf("timeout error should embed the job log, got: %v", err)
+	}
+	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "dockerd not ready:") {
+		t.Errorf("expected a verbose not-ready probe detail, got %v", ui.VerboseCalls)
+	}
+}
+
 func TestDockerdCleanupCmdRemovesContainerdResidue(t *testing.T) {
 	for _, want := range []string{
 		"pkill containerd",
@@ -303,30 +557,45 @@ func TestDockerdReadyTimeoutAllowsFailOver(t *testing.T) {
 	}
 }
 
-func TestTimeoutErrorIncludesJobLog(t *testing.T) {
-	origTimeout, origInterval := dockerdReadyTimeout, dockerdPollInterval
-	t.Cleanup(func() {
-		dockerdReadyTimeout = origTimeout
-		dockerdPollInterval = origInterval
-	})
-	dockerdReadyTimeout = 50 * time.Millisecond
-	dockerdPollInterval = time.Millisecond
+// daemonJSONSandbox returns a MockSandbox whose guest has the given
+// /etc/docker/daemon.json contents (omitted when content is empty) and reports
+// fuse-overlayfs as unavailable, exercising the vfs fallback.
+func daemonJSONSandbox(content string) *msb.MockSandbox {
+	return daemonJSONSandboxWithFuse(content, false)
+}
 
-	const sentinel = "failed to start containerd: timeout waiting for containerd to start"
-	sb := newCountingSandbox(1 << 30)
-	sb.Job_ = &msb.MockJob{
-		Logs_: []msbSdk.JobLogEntry{{Data: []byte(sentinel)}},
+// daemonJSONSandboxWithFuse returns a MockSandbox with the given daemon.json
+// contents whose guest probe reports the fuse-overlayfs binary and /dev/fuse as
+// available or not.
+func daemonJSONSandboxWithFuse(content string, fuseAvailable bool) *msb.MockSandbox {
+	files := map[string][]byte{}
+	if content != "" {
+		files[dockerdDaemonConfigPath] = []byte(content)
 	}
-	ui := termio.NewTestMock(t)
+	return &msb.MockSandbox{
+		FSValue_: msb.NewTestFS(files, nil),
+		ShellOut: map[string]msb.ShellResult{
+			fuseOverlayfsProbeCmd: msb.NewTestResult(fuseAvailable, 0, "", "", nil),
+		},
+	}
+}
 
-	err := startDockerdIfPresent(context.Background(), sb, &ui)
-	if err == nil {
-		t.Fatal("expected error when dockerd never becomes ready")
+func newDockerdStartSandbox(content string) (*dockerdStartSandbox, *[]msb.MockDetachedCall) {
+	files := map[string][]byte{}
+	if content != "" {
+		files[dockerdDaemonConfigPath] = []byte(content)
 	}
-	if !strings.Contains(err.Error(), sentinel) {
-		t.Errorf("timeout error should embed the job log, got: %v", err)
+	detachedCalls := &[]msb.MockDetachedCall{}
+	mock := &msb.MockSandbox{
+		FSValue_:          msb.NewTestFS(files, nil),
+		ExecDetachedCalls: detachedCalls,
 	}
-	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "dockerd not ready:") {
-		t.Errorf("expected a verbose not-ready probe detail, got %v", ui.VerboseCalls)
+	return &dockerdStartSandbox{Sandbox: mock}, detachedCalls
+}
+
+func newCountingSandbox(readyCallsBeforeHealthy int) *countingSandbox {
+	return &countingSandbox{
+		MockSandbox:             &msb.MockSandbox{},
+		readyCallsBeforeHealthy: readyCallsBeforeHealthy,
 	}
 }

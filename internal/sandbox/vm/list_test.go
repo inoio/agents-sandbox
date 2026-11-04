@@ -12,8 +12,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
 
-func intPtr(n uint32) *uint32 { return new(n) }
-
 func TestFormatTime(t *testing.T) {
 	tests := []struct {
 		name string
@@ -33,6 +31,18 @@ func TestFormatTime(t *testing.T) {
 				t.Errorf("FormatTime(%v) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestListSandboxesError(t *testing.T) {
+	mock := &msb.MockMsbClient{}
+	mock.ListSandboxesFn = func(_ context.Context, _ map[string]string) ([]msb.SandboxHandle, error) {
+		return nil, errors.New("list failed")
+	}
+	msb.WithMsbMock(t, mock)
+
+	if _, err := ListSandboxes(context.Background()); err == nil {
+		t.Fatal("expected error when the msb ListSandboxes fails")
 	}
 }
 
@@ -281,3 +291,5 @@ func TestListSandboxesWrapsListError(t *testing.T) {
 		t.Errorf("error = %v, want it to wrap the list cause", err)
 	}
 }
+
+func intPtr(n uint32) *uint32 { return new(n) }

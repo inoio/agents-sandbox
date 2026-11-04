@@ -15,11 +15,26 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// assumeYesUI returns a non-interactive UI that authorizes any confirmation.
-func assumeYesUI() *termio.Mock {
-	ui := &termio.Mock{}
-	ui.SetAssumeYes(true)
-	return ui
+// TestIsProjectVMNameAcceptsPrefixFreeProjectVM pins the second half of the
+// classification: a prefix-free project VM (a parsed slug that is not a task) is
+// a project VM, so RemoveSandbox accepts it rather than rejecting it as foreign.
+func TestIsProjectVMNameAcceptsPrefixFreeProjectVM(t *testing.T) {
+	name := ProjectVMName(state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"})
+	if !isProjectVMName(name) {
+		t.Errorf("isProjectVMName(%q) = false, want true for a prefix-free project VM", name)
+	}
+}
+
+// TestIsProjectVMNameRejectsNamesWithoutASlug pins the parsed-slug guard: a
+// name that parses to no slug (empty, a home volume, a runner image) is not a
+// project VM. Only the slug operand makes this false; a lone "not a task" test
+// would accept such a name, since ParseVMName reports Task=false for it.
+func TestIsProjectVMNameRejectsNamesWithoutASlug(t *testing.T) {
+	for _, name := range []string{"", naming.LegacyHomePrefix + "proj", "agents-sandbox/runner-proj:latest"} {
+		if isProjectVMName(name) {
+			t.Errorf("isProjectVMName(%q) = true, want false for a name that parses to no slug", name)
+		}
+	}
 }
 
 func TestRemoveSandboxRefusesTaskSandboxName(t *testing.T) {
@@ -294,24 +309,9 @@ func TestRemoveSandboxDeclinedConfirmation(t *testing.T) {
 	}
 }
 
-// TestIsProjectVMNameAcceptsPrefixFreeProjectVM pins the second half of the
-// classification: a prefix-free project VM (a parsed slug that is not a task) is
-// a project VM, so RemoveSandbox accepts it rather than rejecting it as foreign.
-func TestIsProjectVMNameAcceptsPrefixFreeProjectVM(t *testing.T) {
-	name := ProjectVMName(state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"})
-	if !isProjectVMName(name) {
-		t.Errorf("isProjectVMName(%q) = false, want true for a prefix-free project VM", name)
-	}
-}
-
-// TestIsProjectVMNameRejectsNamesWithoutASlug pins the parsed-slug guard: a
-// name that parses to no slug (empty, a home volume, a runner image) is not a
-// project VM. Only the slug operand makes this false; a lone "not a task" test
-// would accept such a name, since ParseVMName reports Task=false for it.
-func TestIsProjectVMNameRejectsNamesWithoutASlug(t *testing.T) {
-	for _, name := range []string{"", naming.LegacyHomePrefix + "proj", "agents-sandbox/runner-proj:latest"} {
-		if isProjectVMName(name) {
-			t.Errorf("isProjectVMName(%q) = true, want false for a name that parses to no slug", name)
-		}
-	}
+// assumeYesUI returns a non-interactive UI that authorizes any confirmation.
+func assumeYesUI() *termio.Mock {
+	ui := &termio.Mock{}
+	ui.SetAssumeYes(true)
+	return ui
 }
