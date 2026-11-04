@@ -41,7 +41,7 @@ func TestListSandboxesError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	if _, err := ListSandboxes(context.Background()); err == nil {
+	if _, err := ListSandboxes(context.Background(), ListOption{}); err == nil {
 		t.Fatal("expected error when the msb ListSandboxes fails")
 	}
 }
@@ -61,7 +61,7 @@ func TestListSandboxesPopulatesInfo(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	got, err := ListSandboxes(context.Background())
+	got, err := ListSandboxes(context.Background(), ListOption{})
 	if err != nil {
 		t.Fatalf("ListSandboxes() error = %v", err)
 	}
@@ -189,7 +189,7 @@ func TestListSandboxesPopulatesInfoFields(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	infos, err := ListSandboxes(context.Background())
+	infos, err := ListSandboxes(context.Background(), ListOption{})
 	if err != nil {
 		t.Fatalf("ListSandboxes: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestListSandboxesHidesTaskSandboxesBothSchemes(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	infos, err := ListSandboxes(context.Background())
+	infos, err := ListSandboxes(context.Background(), ListOption{})
 	if err != nil {
 		t.Fatalf("ListSandboxes: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestListSandboxesContinuesPastTaskSandbox(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	infos, err := ListSandboxes(context.Background())
+	infos, err := ListSandboxes(context.Background(), ListOption{})
 	if err != nil {
 		t.Fatalf("ListSandboxes: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestListSandboxesWrapsListError(t *testing.T) {
 	}}
 	msb.WithMsbMock(t, mock)
 
-	_, err := ListSandboxes(context.Background())
+	_, err := ListSandboxes(context.Background(), ListOption{})
 	if err == nil {
 		t.Fatal("expected a list failure to abort")
 	}
