@@ -14,20 +14,106 @@ import (
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
-var opencodeLikeRule = agent.ProvisionRule{
-	Dir:      ".config/opencode",
-	Patterns: []string{"**", "!node_modules/", "!package*.json", "!.gitignore"},
+func TestWarnUnprovisionedDependenciesWarnsForTheOpencodeConfigDir(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	hostHome, _ := configpaths.Get().UserHomeDir()
+	manifest := writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
+	opencode, _ := agent.Lookup("opencode")
+	ui := termio.NewTestMock(t)
+
+	WarnUnprovisionedDependencies(agent.Resolve(opencode), &ConfigFiles{}, nil, true, &ui)
+
+	if len(ui.WarnCalls) != 1 {
+		t.Fatalf("warnings = %v, want exactly one", ui.WarnCalls)
+	}
+	warning := ui.WarnCalls[0]
+	for _, want := range []string{manifest, "node_modules", "package.json", "continuing", "recipes/opencode-plugin-dependencies.html"} {
+		if !strings.Contains(warning, want) {
+			t.Errorf("warning %q does not mention %q", warning, want)
+		}
+	}
 }
 
-func writeHostManifest(t *testing.T, hostHome, content string) string {
-	t.Helper()
-	dir := filepath.Join(hostHome, ".config", "opencode")
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		t.Fatalf("create %s: %v", dir, err)
+func TestWarnUnprovisionedDependenciesSilentWhenHostProvisioningIsDisabled(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	hostHome, _ := configpaths.Get().UserHomeDir()
+	writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
+	opencode, _ := agent.Lookup("opencode")
+	ui := termio.NewTestMock(t)
+
+	WarnUnprovisionedDependencies(agent.Resolve(opencode), &ConfigFiles{}, nil, false, &ui)
+
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none", ui.WarnCalls)
 	}
-	path := filepath.Join(dir, "package.json")
-	testutil.WritePath(t, path, content)
-	return path
+}
+
+func TestWarnUnprovisionedDependenciesSilentWhenHomeOrMirrorSuppliesTheManifest(t *testing.T) {
+	suppliedManifest := map[string][]byte{"/home/dev/.config/opencode/package.json": []byte("{}")}
+	cases := map[string]*ConfigFiles{
+		"home":   {HomeFiles: suppliedManifest},
+		"mirror": {Mirror: suppliedManifest},
+	}
+	for name, files := range cases {
+		t.Run(name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			hostHome, _ := configpaths.Get().UserHomeDir()
+			writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
+			opencode, _ := agent.Lookup("opencode")
+			ui := termio.NewTestMock(t)
+
+			WarnUnprovisionedDependencies(agent.Resolve(opencode), files, nil, true, &ui)
+
+			if len(ui.WarnCalls) != 0 {
+				t.Errorf("warnings = %v, want none", ui.WarnCalls)
+			}
+		})
+	}
+}
+
+func TestWarnUnprovisionedDependenciesSilentForAgentsNotProvisioningTheOpencodeDir(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	hostHome, _ := configpaths.Get().UserHomeDir()
+	writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
+	claude, _ := agent.Lookup("claude-code")
+	ui := termio.NewTestMock(t)
+
+	WarnUnprovisionedDependencies(agent.Resolve(claude), &ConfigFiles{}, nil, true, &ui)
+
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none", ui.WarnCalls)
+	}
+}
+
+func TestWarnUnprovisionedDependenciesSilentForAgentsWithoutProvisionRules(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	hostHome, _ := configpaths.Get().UserHomeDir()
+	writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
+	ui := termio.NewTestMock(t)
+
+	WarnUnprovisionedDependencies(agent.Resolve(plainAgent{}), &ConfigFiles{}, nil, true, &ui)
+
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none", ui.WarnCalls)
+	}
+}
+
+// TestWarnUnprovisionedDependenciesNeverResolvesAgainstTheWorkingDirectory
+// pins that an unknown host home skips the check instead of reading the
+// config dir relative to the current directory.
+func TestWarnUnprovisionedDependenciesNeverResolvesAgainstTheWorkingDirectory(t *testing.T) {
+	configpaths.WithMockConfigPathsHomeError(t, errors.New("no home"))
+	workingDir := t.TempDir()
+	writeHostManifest(t, workingDir, `{"dependencies": {"zod": "4.1.8"}}`)
+	t.Chdir(workingDir)
+	opencode, _ := agent.Lookup("opencode")
+	ui := termio.NewTestMock(t)
+
+	WarnUnprovisionedDependencies(agent.Resolve(opencode), &ConfigFiles{}, nil, true, &ui)
+
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none", ui.WarnCalls)
+	}
 }
 
 func TestUnprovisionedDependencyManifestsReportsDeclaredDependencies(t *testing.T) {
@@ -193,90 +279,6 @@ func TestUnprovisionedDependencyManifestsNotSuppressedByUnrelatedMountTargets(t 
 	}
 }
 
-func TestWarnUnprovisionedDependenciesWarnsForTheOpencodeConfigDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	hostHome, _ := configpaths.Get().UserHomeDir()
-	manifest := writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
-	opencode, _ := agent.Lookup("opencode")
-	ui := termio.NewTestMock(t)
-
-	WarnUnprovisionedDependencies(agent.Resolve(opencode), &ConfigFiles{}, nil, true, &ui)
-
-	if len(ui.WarnCalls) != 1 {
-		t.Fatalf("warnings = %v, want exactly one", ui.WarnCalls)
-	}
-	warning := ui.WarnCalls[0]
-	for _, want := range []string{manifest, "node_modules", "package.json", "continuing", "recipes/opencode-plugin-dependencies.html"} {
-		if !strings.Contains(warning, want) {
-			t.Errorf("warning %q does not mention %q", warning, want)
-		}
-	}
-}
-
-func TestWarnUnprovisionedDependenciesSilentWhenHostProvisioningIsDisabled(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	hostHome, _ := configpaths.Get().UserHomeDir()
-	writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
-	opencode, _ := agent.Lookup("opencode")
-	ui := termio.NewTestMock(t)
-
-	WarnUnprovisionedDependencies(agent.Resolve(opencode), &ConfigFiles{}, nil, false, &ui)
-
-	if len(ui.WarnCalls) != 0 {
-		t.Errorf("warnings = %v, want none", ui.WarnCalls)
-	}
-}
-
-func TestWarnUnprovisionedDependenciesSilentWhenHomeOrMirrorSuppliesTheManifest(t *testing.T) {
-	suppliedManifest := map[string][]byte{"/home/dev/.config/opencode/package.json": []byte("{}")}
-	cases := map[string]*ConfigFiles{
-		"home":   {HomeFiles: suppliedManifest},
-		"mirror": {Mirror: suppliedManifest},
-	}
-	for name, files := range cases {
-		t.Run(name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
-			hostHome, _ := configpaths.Get().UserHomeDir()
-			writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
-			opencode, _ := agent.Lookup("opencode")
-			ui := termio.NewTestMock(t)
-
-			WarnUnprovisionedDependencies(agent.Resolve(opencode), files, nil, true, &ui)
-
-			if len(ui.WarnCalls) != 0 {
-				t.Errorf("warnings = %v, want none", ui.WarnCalls)
-			}
-		})
-	}
-}
-
-func TestWarnUnprovisionedDependenciesSilentForAgentsNotProvisioningTheOpencodeDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	hostHome, _ := configpaths.Get().UserHomeDir()
-	writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
-	claude, _ := agent.Lookup("claude-code")
-	ui := termio.NewTestMock(t)
-
-	WarnUnprovisionedDependencies(agent.Resolve(claude), &ConfigFiles{}, nil, true, &ui)
-
-	if len(ui.WarnCalls) != 0 {
-		t.Errorf("warnings = %v, want none", ui.WarnCalls)
-	}
-}
-
-func TestWarnUnprovisionedDependenciesSilentForAgentsWithoutProvisionRules(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	hostHome, _ := configpaths.Get().UserHomeDir()
-	writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
-	ui := termio.NewTestMock(t)
-
-	WarnUnprovisionedDependencies(agent.Resolve(plainAgent{}), &ConfigFiles{}, nil, true, &ui)
-
-	if len(ui.WarnCalls) != 0 {
-		t.Errorf("warnings = %v, want none", ui.WarnCalls)
-	}
-}
-
 // TestUnprovisionedDependencyManifestsChecksEveryRule pins that a rule skipped
 // for any reason does not end the scan: the reportable rule comes last.
 func TestUnprovisionedDependencyManifestsChecksEveryRule(t *testing.T) {
@@ -302,6 +304,22 @@ func TestUnprovisionedDependencyManifestsChecksEveryRule(t *testing.T) {
 	}
 }
 
+var opencodeLikeRule = agent.ProvisionRule{
+	Dir:      ".config/opencode",
+	Patterns: []string{"**", "!node_modules/", "!package*.json", "!.gitignore"},
+}
+
+func writeHostManifest(t *testing.T, hostHome, content string) string {
+	t.Helper()
+	dir := filepath.Join(hostHome, ".config", "opencode")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatalf("create %s: %v", dir, err)
+	}
+	path := filepath.Join(dir, "package.json")
+	testutil.WritePath(t, path, content)
+	return path
+}
+
 // mkdirAll creates dir and returns the path of name inside it.
 func mkdirAll(t *testing.T, dir, name string) string {
 	t.Helper()
@@ -309,22 +327,4 @@ func mkdirAll(t *testing.T, dir, name string) string {
 		t.Fatalf("create %s: %v", dir, err)
 	}
 	return filepath.Join(dir, name)
-}
-
-// TestWarnUnprovisionedDependenciesNeverResolvesAgainstTheWorkingDirectory
-// pins that an unknown host home skips the check instead of reading the
-// config dir relative to the current directory.
-func TestWarnUnprovisionedDependenciesNeverResolvesAgainstTheWorkingDirectory(t *testing.T) {
-	configpaths.WithMockConfigPathsHomeError(t, errors.New("no home"))
-	workingDir := t.TempDir()
-	writeHostManifest(t, workingDir, `{"dependencies": {"zod": "4.1.8"}}`)
-	t.Chdir(workingDir)
-	opencode, _ := agent.Lookup("opencode")
-	ui := termio.NewTestMock(t)
-
-	WarnUnprovisionedDependencies(agent.Resolve(opencode), &ConfigFiles{}, nil, true, &ui)
-
-	if len(ui.WarnCalls) != 0 {
-		t.Errorf("warnings = %v, want none", ui.WarnCalls)
-	}
 }

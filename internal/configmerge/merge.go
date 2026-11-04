@@ -251,17 +251,14 @@ type MirrorEntry struct {
 // names (reserved for the merged output). Project entries override user entries
 // with the same destination path. Entries are sorted by VMPath for
 // determinism. Unreadable files are skipped, never fatal.
-func ScanMirror(pattern string, family []string, userDir, projectDir, destDir string) ([]MirrorEntry, error) {
+func ScanMirror(pattern string, family []string, userDir, projectDir, destDir string) []MirrorEntry {
 	byDest := make(map[string]MirrorEntry)
 	for _, dir := range []string{userDir, projectDir} {
 		// gomutants:disable-next-line BRANCH_IF reason="filewalk.Walk of an empty path swallows its Lstat error and visits nothing, so skipping it agrees with walking it"
 		if dir == "" {
 			continue
 		}
-		// gomutants:disable-next-line BRANCH_IF reason="filewalk.Walk never returns a non-nil error, so this guard is unreachable"
-		if err := scanMirrorDir(pattern, family, dir, destDir, byDest); err != nil {
-			return nil, err
-		}
+		scanMirrorDir(pattern, family, dir, destDir, byDest)
 	}
 	dests := make([]string, 0, len(byDest))
 	for dest := range byDest {
@@ -272,13 +269,14 @@ func ScanMirror(pattern string, family []string, userDir, projectDir, destDir st
 	for _, dest := range dests {
 		entries = append(entries, byDest[dest])
 	}
-	return entries, nil
+	return entries
 }
 
 // scanMirrorDir walks dir and adds every mirrorable file to byDest, keyed by
-// its VM destination path under destDir.
-func scanMirrorDir(pattern string, family []string, dir, destDir string, byDest map[string]MirrorEntry) error {
-	return filewalk.Walk(
+// its VM destination path under destDir. The walk cannot fail: it skips
+// unreadable entries and its visit never returns an error.
+func scanMirrorDir(pattern string, family []string, dir, destDir string, byDest map[string]MirrorEntry) {
+	_ = filewalk.Walk(
 		dir,
 		func(rel string, isDir bool) bool {
 			if isDir {

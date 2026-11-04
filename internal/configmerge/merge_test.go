@@ -327,10 +327,7 @@ func TestScanMirrorBasic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entries, err := ScanMirror("opencode*.json*", nil, user, "", dest)
-	if err != nil {
-		t.Fatalf("ScanMirror: %v", err)
-	}
+	entries := ScanMirror("opencode*.json*", nil, user, "", dest)
 	if len(entries) != 3 {
 		t.Fatalf("entries = %d, want 3: %+v", len(entries), entries)
 	}
@@ -365,10 +362,7 @@ func TestScanMirrorSkipsSnippetPatternAndFamily(t *testing.T) {
 	testutil.WriteFile(t, user, "tui.json", `{"theme":"dark"}`)
 
 	family := []string{"config.json", "opencode.json", "opencode.jsonc", "opencode.json5"}
-	entries, err := ScanMirror("opencode*.json*", family, user, "", dest)
-	if err != nil {
-		t.Fatalf("ScanMirror: %v", err)
-	}
+	entries := ScanMirror("opencode*.json*", family, user, "", dest)
 	if len(entries) != 1 {
 		t.Fatalf("entries = %d, want 1 (only tui.json): %+v", len(entries), entries)
 	}
@@ -390,10 +384,7 @@ func TestScanMirrorProjectOverridesUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entries, err := ScanMirror("opencode*.json*", nil, user, proj, dest)
-	if err != nil {
-		t.Fatalf("ScanMirror: %v", err)
-	}
+	entries := ScanMirror("opencode*.json*", nil, user, proj, dest)
 	if len(entries) != 1 {
 		t.Fatalf("entries = %d, want 1", len(entries))
 	}
@@ -409,10 +400,7 @@ func TestScanMirrorProjectOverridesUser(t *testing.T) {
 }
 
 func TestScanMirrorEmptyDirs(t *testing.T) {
-	entries, err := ScanMirror("opencode*.json*", nil, t.TempDir(), t.TempDir(), t.TempDir())
-	if err != nil {
-		t.Fatalf("ScanMirror: %v", err)
-	}
+	entries := ScanMirror("opencode*.json*", nil, t.TempDir(), t.TempDir(), t.TempDir())
 	if len(entries) != 0 {
 		t.Errorf("entries = %+v, want none", entries)
 	}
@@ -423,10 +411,7 @@ func TestScanMirrorSkipsEmptyDirAndScansNext(t *testing.T) {
 	dest := t.TempDir()
 	testutil.WriteFile(t, proj, "tui.json", `{"theme":"dark"}`)
 
-	entries, err := ScanMirror("opencode*.json*", nil, "", proj, dest)
-	if err != nil {
-		t.Fatalf("ScanMirror: %v", err)
-	}
+	entries := ScanMirror("opencode*.json*", nil, "", proj, dest)
 	if len(entries) != 1 || entries[0].HostPath != filepath.Join(proj, "tui.json") {
 		t.Fatalf("entries = %+v, want the project file", entries)
 	}
@@ -442,10 +427,7 @@ func TestScanMirrorSortsEntriesByVMPath(t *testing.T) {
 	// A removed sort leaves map-iteration order, so repeat to make the
 	// non-determinism observable rather than a coin flip.
 	for range 50 {
-		entries, err := ScanMirror("opencode*.json*", nil, user, "", dest)
-		if err != nil {
-			t.Fatalf("ScanMirror: %v", err)
-		}
+		entries := ScanMirror("opencode*.json*", nil, user, "", dest)
 		if len(entries) != 3 {
 			t.Fatalf("entries = %d, want 3", len(entries))
 		}
@@ -466,10 +448,7 @@ func TestScanMirrorDescendsIntoDirectoryMatchingPattern(t *testing.T) {
 	}
 	testutil.WriteFile(t, matchingDir, "inner.txt", "inner")
 
-	entries, err := ScanMirror("opencode*.json*", nil, user, "", dest)
-	if err != nil {
-		t.Fatalf("ScanMirror: %v", err)
-	}
+	entries := ScanMirror("opencode*.json*", nil, user, "", dest)
 	want := filepath.Join(dest, "opencode-dir.json", "inner.txt")
 	if len(entries) != 1 || entries[0].VMPath != want {
 		t.Fatalf("entries = %+v, want the nested file %q", entries, want)
@@ -485,10 +464,7 @@ func TestScanMirrorMirrorsNestedFileMatchingPattern(t *testing.T) {
 	}
 	testutil.WriteFile(t, sub, "opencode-x.json", `{"x":1}`)
 
-	entries, err := ScanMirror("opencode*.json*", nil, user, "", dest)
-	if err != nil {
-		t.Fatalf("ScanMirror: %v", err)
-	}
+	entries := ScanMirror("opencode*.json*", nil, user, "", dest)
 	want := filepath.Join(dest, "sub", "opencode-x.json")
 	if len(entries) != 1 || entries[0].VMPath != want {
 		t.Fatalf("entries = %+v, want the nested file %q", entries, want)
@@ -500,10 +476,7 @@ func TestScanMirrorSkipsFamilyFileWithoutPatternMatch(t *testing.T) {
 	dest := t.TempDir()
 	testutil.WriteFile(t, user, "tui.json", `{"theme":"dark"}`)
 
-	entries, err := ScanMirror("opencode*.json*", []string{"tui.json"}, user, "", dest)
-	if err != nil {
-		t.Fatalf("ScanMirror: %v", err)
-	}
+	entries := ScanMirror("opencode*.json*", []string{"tui.json"}, user, "", dest)
 	if len(entries) != 0 {
 		t.Fatalf("entries = %+v, want none (tui.json is reserved by the family)", entries)
 	}
