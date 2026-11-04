@@ -52,7 +52,7 @@ The `<folder>-<hash>` identifier derived from a project's origin remote URL; it 
 _Avoid_: project slug
 
 **Checkout slug**:
-The `<folder>-<hash>` identifier derived from a checkout's git common directory; it names the checkout's state directory, project VM, home volume, locks, and runner-image tag.
+The `<folder>-<hash>` identifier derived from a checkout's git common directory, or from the worktree root for a worktree outside its checkout; it names the checkout's state directory, project VM, home volume, locks, and runner-image tag.
 _Avoid_: project slug; state slug
 
 **Checkout**:
@@ -76,7 +76,7 @@ A checkout's pre-split, origin-keyed identity — the repo slug that was its onl
 _Avoid_: old slug
 
 **Identity adoption**:
-The automatic, noticed, once-only migration that moves a project's pre-split artifacts (state directory, VM, home volume, image tag) onto its checkout slug.
+The automatic, noticed, once-only migration to a project's checkout slug: it moves the state directory, keeps the existing home volume and its name, destroys and recreates the VM, and rebuilds the runner image under the checkout-scoped tag.
 _Avoid_: migration
 
 **Session**:
