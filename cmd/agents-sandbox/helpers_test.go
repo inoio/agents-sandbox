@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
 // mustIdentity resolves a fixture cwd to its project identity, failing the test
@@ -31,4 +32,13 @@ func unresolvableIdentityDir(t testing.TB) string {
 		0o644,
 	))
 	return dir
+}
+
+// seedHomeState writes hs as the key's HomeState through the recovery
+// transaction. Tests only.
+func seedHomeState(k state.Key, hs state.HomeState) error {
+	return state.RecoverHomeState(k, func(cur *state.HomeState, _ bool) (bool, error) {
+		*cur = hs
+		return true, nil
+	})
 }
