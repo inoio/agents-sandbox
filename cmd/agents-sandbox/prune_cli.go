@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -23,14 +22,7 @@ func confirmPrune(ui termio.Prompter, dryRun bool) error {
 	if dryRun {
 		return nil
 	}
-	ok, err := ui.Confirm("Prune stale runtime objects?", false)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return errors.New("prune cancelled")
-	}
-	return nil
+	return termio.ConfirmAction(ui, "Prune stale runtime objects?")
 }
 
 // resolvePruneAge returns the effective prune threshold for a manual prune:

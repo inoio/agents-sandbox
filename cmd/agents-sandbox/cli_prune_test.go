@@ -447,8 +447,8 @@ func TestPruneDeclined(t *testing.T) {
 	ui.ConfirmResult = false
 
 	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "cancelled") {
-		t.Fatalf("expected cancelled error, got: %v", err)
+	if !errors.Is(err, termio.ErrCancelled) {
+		t.Fatalf("expected termio.ErrCancelled, got: %v", err)
 	}
 	if vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
 		t.Error("expected no removals")
