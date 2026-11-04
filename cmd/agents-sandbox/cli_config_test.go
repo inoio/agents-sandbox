@@ -435,8 +435,7 @@ func TestConfigCommandsWorkOutsideWorktree(t *testing.T) {
 	})
 }
 
-// TestSlugHasUserConfigEmptySlugIsFalse covers the guard for a slug-less
-// identity: ConfigLayers omits the per-slug layer for an empty slug, so there is
+// TestSlugHasUserConfigEmptySlugIsFalse pins a slug-less identity: ConfigLayers omits the per-slug layer for an empty slug, so there is
 // no per-slug user config to read.
 func TestSlugHasUserConfigEmptySlugIsFalse(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -476,42 +475,53 @@ func TestConfigAgentDoesNotMarkExistingConfigDir(t *testing.T) {
 	}
 }
 
-func TestResolveConfigAgentNameFromResolver(t *testing.T) {
-	ui := &termio.Mock{}
-	cmd := buildConfigAgentCmd(ui)
-	ctx := context.WithValue(context.Background(), (*launcherConfigKey)(nil),
-		launcherconfig.NewResolverWithConfig(launcherconfig.Config{Agent: "pi"}))
-	cmd.SetContext(ctx)
+// TestResolveConfigAgentName pins that `config agent` without an argument
+// shows the configured agent, and the default agent when none is configured.
+func TestResolveConfigAgentName(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		config launcherconfig.Config
+		want   string
+	}{
+		{name: "configured agent", config: launcherconfig.Config{Agent: "pi"}, want: "pi"},
+		{name: "no agent configured", want: defaultAgentName},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := buildConfigAgentCmd(&termio.Mock{})
+			cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil),
+				launcherconfig.NewResolverWithConfig(tc.config)))
 
-	name, err := resolveConfigAgentName(cmd, nil)
-	if err != nil {
-		t.Fatalf("resolveConfigAgentName: %v", err)
-	}
-	if name != "pi" {
-		t.Errorf("resolveConfigAgentName = %q, want pi (from resolver)", name)
-	}
-}
-
-func TestResolveConfigAgentNameResolverEmptyAgent(t *testing.T) {
-	ui := &termio.Mock{}
-	cmd := buildConfigAgentCmd(ui)
-	ctx := context.WithValue(context.Background(), (*launcherConfigKey)(nil),
-		launcherconfig.NewResolverWithConfig(launcherconfig.Config{}))
-	cmd.SetContext(ctx)
-
-	name, err := resolveConfigAgentName(cmd, nil)
-	if err != nil {
-		t.Fatalf("resolveConfigAgentName: %v", err)
-	}
-	if name != defaultAgentName {
-		t.Errorf("resolveConfigAgentName = %q, want %q", name, defaultAgentName)
+			name, err := resolveConfigAgentName(cmd, nil)
+			if err != nil || name != tc.want {
+				t.Errorf("resolveConfigAgentName = %q, %v; want %q", name, err, tc.want)
+			}
+		})
 	}
 }
 
-func TestReservedHomeConfigTargetsNonMerger(t *testing.T) {
-	got := reservedHomeConfigTargets(noDaemonAgent{name: "nod"}, "/home/dev")
-	if got != nil {
-		t.Errorf("reservedHomeConfigTargets = %v, want nil for non-merger agent", got)
+// TestReservedHomeConfigTargets pins the home-relative path an agent's merged
+// config occupies, which home provisioning must not overwrite: none for an
+// agent without merged config, none when the path does not relate to the home.
+func TestReservedHomeConfigTargets(t *testing.T) {
+	opencode, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+	for _, tc := range []struct {
+		name  string
+		agent agent.Agent
+		home  string
+		want  []string
+	}{
+		{name: "merged config", agent: opencode, home: "/home/dev", want: []string{".config/opencode/opencode.jsonc"}},
+		{name: "no merged config", agent: noDaemonAgent{name: "nod"}, home: "/home/dev"},
+		{name: "path not under the home", agent: relErrConfigMerger{noDaemonAgent{name: "x"}}, home: "/different/home"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := reservedHomeConfigTargets(tc.agent, tc.home); !slices.Equal(got, tc.want) {
+				t.Errorf("reservedHomeConfigTargets = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -525,24 +535,6 @@ func (relErrConfigMerger) SnippetPattern() string { return "" }
 func (relErrConfigMerger) VMConfigPath(_ string) string { return "relative/path" }
 
 func (relErrConfigMerger) ConfigFileNames() []string { return nil }
-
-func TestReservedHomeConfigTargetsRelError(t *testing.T) {
-	got := reservedHomeConfigTargets(relErrConfigMerger{name: "x"}, "/different/home")
-	if got != nil {
-		t.Errorf("reservedHomeConfigTargets = %v, want nil on filepath.Rel error", got)
-	}
-}
-
-func TestReservedHomeConfigTargetsOK(t *testing.T) {
-	a, ok := agent.Lookup("opencode")
-	if !ok {
-		t.Fatal("opencode agent not registered")
-	}
-	got := reservedHomeConfigTargets(a, "/home/dev")
-	if len(got) != 1 {
-		t.Fatalf("reservedHomeConfigTargets = %v, want one reserved target", got)
-	}
-}
 
 // TestEffectiveConfigSlugPrefersRepoSlug pins that the repo slug's per-slug
 // config wins over a legacy slug's during a bare-root config migration.
@@ -559,12 +551,14 @@ func TestEffectiveConfigSlugPrefersRepoSlug(t *testing.T) {
 	}
 }
 
-func TestConfigAgentHomeManifestError(t *testing.T) {
+// TestConfigAgentRejectsAHomeTargetOutsideTheHome pins that `config agent`
+// refuses a home manifest entry that would escape the home directory.
+func TestConfigAgentRejectsAHomeTargetOutsideTheHome(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "config", "agent", "opencode")
 	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "home:\n  ../escape:\n")
 
 	err := cmd.Execute()
-	if err == nil {
-		t.Fatal("expected an error from an escaping home target")
+	if err == nil || !strings.Contains(err.Error(), `home manifest target "../escape" escapes the home directory`) {
+		t.Fatalf("error = %v, want the escaping target refused", err)
 	}
 }

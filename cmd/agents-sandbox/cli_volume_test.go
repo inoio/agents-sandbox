@@ -331,9 +331,9 @@ func TestVolumeOpsKeepLegacySlugWhileMigrationPending(t *testing.T) {
 	}
 }
 
-// TestVolumeOpAppliesLegacyIdentity closes the apply-path gap: a non-dry-run
-// volume op on a legacy layout must move the state onto the checkout key and do
-// its work under that key. It observes the moved key both as the state
+// TestVolumeOpAppliesLegacyIdentity pins that a non-dry-run volume op on a
+// legacy layout moves the state onto the checkout key and does its work under
+// that key. It observes the moved key both as the state
 // directory and as the runner image the op ensured.
 func TestVolumeOpAppliesLegacyIdentity(t *testing.T) {
 	clone := newOriginClone(t)

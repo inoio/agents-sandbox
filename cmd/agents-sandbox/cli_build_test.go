@@ -26,7 +26,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
-	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
 func TestBuildCommand(t *testing.T) {
@@ -502,89 +501,65 @@ func TestBuildDockerfileCommandReportsReservedAlias(t *testing.T) {
 	}
 }
 
-func TestResolveBuildDockerSettingDefault(t *testing.T) {
-	cmd := buildDockerfileCmd(&termio.Mock{})
-	if resolveBuildDockerSetting(cmd).Enabled {
-		t.Error("resolveBuildDockerSetting = true, want false (no flag, no resolver)")
+// TestResolveBuildDockerSetting pins the build's docker/dind precedence, the
+// same one the run path uses: --docker beats the deprecated --dind, either flag
+// beats the config, and a config value is explicit too, so a `docker: false`
+// overrides a project-Dockerfile content signal. Without any source docker is
+// off and not explicit.
+func TestResolveBuildDockerSetting(t *testing.T) {
+	cases := []struct {
+		name   string
+		flags  map[string]string
+		config map[string]any // user config.yaml; nil means no resolver
+		want   options.DockerSetting
+	}{
+		{name: "no source", want: options.DockerSetting{}},
+		{
+			name:  "--docker",
+			flags: map[string]string{flagDocker: "true"},
+			want:  options.DockerSetting{Enabled: true, Explicit: true},
+		},
+		{
+			name:  "deprecated --dind",
+			flags: map[string]string{flagDind: "true"},
+			want:  options.DockerSetting{Enabled: true, Explicit: true},
+		},
+		{
+			name:  "--docker beats --dind",
+			flags: map[string]string{flagDind: "true", flagDocker: "false"},
+			want:  options.DockerSetting{Explicit: true},
+		},
+		{
+			name:   "config on",
+			config: map[string]any{"docker": true},
+			want:   options.DockerSetting{Enabled: true, Explicit: true},
+		},
+		{name: "config off", config: map[string]any{"docker": false}, want: options.DockerSetting{Explicit: true}},
+		{
+			name:   "config off beats --dind",
+			flags:  map[string]string{flagDind: "true"},
+			config: map[string]any{"docker": false},
+			want:   options.DockerSetting{Explicit: true},
+		},
 	}
-}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			cmd := buildDockerfileCmd(&termio.Mock{})
+			for name, value := range tc.flags {
+				if err := cmd.Flags().Set(name, value); err != nil {
+					t.Fatalf("set %s: %v", name, err)
+				}
+			}
+			if tc.config != nil {
+				testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", tc.config)
+				cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd)))
+			}
 
-func TestResolveBuildDockerSettingFlag(t *testing.T) {
-	cmd := buildDockerfileCmd(&termio.Mock{})
-	if err := cmd.Flags().Set(flagDocker, "true"); err != nil {
-		t.Fatalf("set docker: %v", err)
-	}
-	got := resolveBuildDockerSetting(cmd)
-	if !got.Enabled || !got.Explicit {
-		t.Errorf("resolveBuildDockerSetting = %+v, want enabled and explicit (flag set)", got)
-	}
-}
-
-func TestResolveBuildDeprecatedDindFlagSetting(t *testing.T) {
-	cmd := buildDockerfileCmd(&termio.Mock{})
-	if err := cmd.Flags().Set(flagDind, "true"); err != nil {
-		t.Fatalf("set dind: %v", err)
-	}
-	got := resolveBuildDockerSetting(cmd)
-	if !got.Enabled || !got.Explicit {
-		t.Errorf("resolveBuildDockerSetting = %+v, want enabled and explicit (deprecated --dind set)", got)
-	}
-}
-
-func TestResolveBuildDockerSettingFlagWinsOverDind(t *testing.T) {
-	cmd := buildDockerfileCmd(&termio.Mock{})
-	if err := cmd.Flags().Set(flagDind, "true"); err != nil {
-		t.Fatalf("set dind: %v", err)
-	}
-	if err := cmd.Flags().Set(flagDocker, "false"); err != nil {
-		t.Fatalf("set docker: %v", err)
-	}
-	if resolveBuildDockerSetting(cmd).Enabled {
-		t.Error("resolveBuildDockerSetting = true, want --docker to win over --dind")
-	}
-}
-
-func TestResolveBuildDockerSettingFromResolver(t *testing.T) {
-	ui := &termio.Mock{}
-	cmd := buildDockerfileCmd(ui)
-	ctx := context.WithValue(context.Background(), (*launcherConfigKey)(nil),
-		launcherconfig.NewResolverWithConfig(launcherconfig.Config{Docker: true}))
-	cmd.SetContext(ctx)
-	if !resolveBuildDockerSetting(cmd).Enabled {
-		t.Error("resolveBuildDockerSetting = false, want true (from resolver)")
-	}
-}
-
-// The build path resolves the deprecated --dind flag through the same shared
-// precedence as the run path, so a canonical docker config beats it here too.
-func TestResolveBuildDindFlagLosesToDockerConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"docker": false})
-
-	cmd := buildDockerfileCmd(&termio.Mock{})
-	if err := cmd.Flags().Set(flagDind, "true"); err != nil {
-		t.Fatalf("set dind: %v", err)
-	}
-	cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd)))
-
-	got := resolveBuildDockerSetting(cmd)
-	if want := (options.DockerSetting{Enabled: false, Explicit: true}); got != want {
-		t.Errorf("resolveBuildDockerSetting = %+v, want %+v", got, want)
-	}
-}
-
-// A user config `docker: false` is an explicit source: the build path must carry
-// the explicitness through, so it overrides any project-Dockerfile content signal.
-func TestResolveBuildDockerSettingFromResolverExplicitOff(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"docker": false})
-
-	cmd := buildDockerfileCmd(&termio.Mock{})
-	cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd)))
-
-	got := resolveBuildDockerSetting(cmd)
-	if want := (options.DockerSetting{Enabled: false, Explicit: true}); got != want {
-		t.Errorf("resolveBuildDockerSetting = %+v, want %+v", got, want)
+			if got := resolveBuildDockerSetting(cmd); got != tc.want {
+				t.Errorf("resolveBuildDockerSetting = %+v, want %+v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -781,26 +756,16 @@ func TestBuildAdoptionFailureFailsClosed(t *testing.T) {
 	}
 }
 
-func TestBuildCommandOpenCodeVersionFallback(t *testing.T) {
-	cmd, _ := setupCommandFixtures(t, "build", "--opencode-version", "1.2.3", "--dry-run")
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("build --opencode-version --dry-run: %v", err)
-	}
-}
-
-func TestBuildCommandUnknownAgent(t *testing.T) {
-	cmd, _ := setupCommandFixtures(t, "build", "--agent", "bogus")
-	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "unknown agent") {
-		t.Fatalf("expected unknown agent error, got %v", err)
-	}
-}
-
-func TestBuildDockerfileUnknownAgent(t *testing.T) {
-	cmd, _ := setupCommandFixtures(t, "build", "dockerfile", "--agent", "bogus")
-	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "unknown agent") {
-		t.Fatalf("expected unknown agent error, got %v", err)
+// TestBuildCommandsRejectAnUnknownAgent pins that `build` and `build
+// dockerfile` refuse an agent name that is not registered.
+func TestBuildCommandsRejectAnUnknownAgent(t *testing.T) {
+	for _, args := range [][]string{{"build", "--agent", "bogus"}, {"build", "dockerfile", "--agent", "bogus"}} {
+		t.Run(strings.Join(args[:len(args)-2], " "), func(t *testing.T) {
+			cmd, _ := setupCommandFixtures(t, args...)
+			if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), `unknown agent "bogus"`) {
+				t.Fatalf("error = %v, want the unknown agent refused", err)
+			}
+		})
 	}
 }
 

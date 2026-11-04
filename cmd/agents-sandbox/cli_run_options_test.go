@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -94,9 +95,8 @@ func (noDaemonAgent) ConfigDirName() string      { return "nod" }
 func (noDaemonAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 func (noDaemonAgent) Experimental() bool         { return false }
 
-// TestBuildInvalidNotifyFlag exercises the --notify flag override
-// error branch in runoptions.Build (an invalid value passed directly on the
-// flag, not via the env var), with a nil resolver.
+// TestBuildInvalidNotifyFlag pins that an invalid --notify value given on the
+// flag (not through the env var) is rejected with the accepted values.
 func TestBuildInvalidNotifyFlag(t *testing.T) {
 	ui := &termio.Mock{}
 	cmd := buildRunCmd(ui)
@@ -104,7 +104,8 @@ func TestBuildInvalidNotifyFlag(t *testing.T) {
 		t.Fatalf("set notify: %v", err)
 	}
 	var r *launcherconfig.Resolver
-	if _, err := runoptions.Build(r.Config(), cmd, ui); err == nil {
-		t.Fatal("expected error for invalid --notify flag value")
+	_, err := runoptions.Build(r.Config(), cmd, ui)
+	if err == nil || !strings.Contains(err.Error(), `invalid --notify value "loud" (want on, off, desktop, or audio)`) {
+		t.Fatalf("error = %v, want the invalid --notify value rejected", err)
 	}
 }

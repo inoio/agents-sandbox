@@ -135,10 +135,9 @@ func TestServeOnlyStdinReaderSelectsOnTerminal(t *testing.T) {
 	}
 }
 
-// TestRunFuncServeOnlyContextError drives runFunc directly with --serve-only
-// and a failing preflight so it takes the serve-only context branch and then
-// returns the preflight error from runFunc itself.
-func TestRunFuncServeOnlyContextError(t *testing.T) {
+// TestRunFuncServeOnlyReportsAFailedPreflight pins that a serve-only run whose
+// prerequisite checks fail stops with the preflight error.
+func TestRunFuncServeOnlyReportsAFailedPreflight(t *testing.T) {
 	initTestProjectDir(t)
 	configpaths.WithMockConfigPaths(t)
 	doctor.MockedCheckAll(t, false)

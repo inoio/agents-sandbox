@@ -811,8 +811,8 @@ func checkSummary(t *testing.T, outCalls []string, expected string) {
 	}
 }
 
-// TestPruneCatalogError covers the live-state build failing during prune, which
-// surfaces the raw ListSandboxes error from the command.
+// TestPruneCatalogError pins that prune stops when it cannot list the live
+// sandboxes, surfacing the ListSandboxes error.
 func TestPruneCatalogError(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "prune", "--age", "7d", "--yes")
 	mock := &sandboxmsb.MockMsbClient{}
