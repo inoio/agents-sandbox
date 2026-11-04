@@ -1,39 +1,12 @@
 package msb
 
 import (
+	"errors"
 	"slices"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
-
-// persistedConfigWithPorts mirrors the real persisted shape: SandboxConfig
-// flattens SandboxSpec, whose NetworkSpec carries published ports as
-// PublishedPortSpec values (microsandbox-types domain.rs) — snake_case fields,
-// the protocol spelled as the Rust variant name, host_bind always written.
-const persistedConfigWithPorts = `{
-  "name": "agents-sandbox-vm-proj-opencode",
-  "memory_mib": 16384,
-  "network": {
-    "enabled": true,
-    "ports": [
-      {"host_port":4096,"guest_port":4096,"protocol":"Tcp","host_bind":"127.0.0.1"},
-      {"host_port":3000,"guest_port":3000,"host_bind":"127.0.0.1"},
-      {"host_port":8080,"guest_port":5173,"protocol":"Udp","host_bind":"127.0.0.1"},
-      {"host_port":9000,"guest_port":9000,"protocol":"Sctp","host_bind":"127.0.0.1"}
-    ]
-  }
-}`
-
-// TestRealSandboxHandleConfigPorts covers the real handle's delegation to
-// ParseConfigPorts: a handle without persisted config JSON reports the decode
-// error rather than a silent empty binding list, mirroring ConfigMounts.
-func TestRealSandboxHandleConfigPorts(t *testing.T) {
-	h := &realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
-	if _, err := h.ConfigPorts(); err == nil {
-		t.Error("ConfigPorts() error = nil, want an error for a handle without config JSON")
-	}
-}
 
 func TestParseConfigPortsMapsEveryProtocol(t *testing.T) {
 	got, err := ParseConfigPorts(persistedConfigWithPorts)
@@ -86,3 +59,50 @@ func TestParseConfigPortsRejectsMalformedJSON(t *testing.T) {
 		t.Error("ParseConfigPorts(malformed) = no error, want one")
 	}
 }
+
+// TestRealSandboxHandleConfigPorts covers the real handle's delegation to
+// ParseConfigPorts: a handle without persisted config JSON reports the decode
+// error rather than a silent empty binding list, mirroring ConfigMounts.
+func TestRealSandboxHandleConfigPorts(t *testing.T) {
+	h := &realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+	if _, err := h.ConfigPorts(); err == nil {
+		t.Error("ConfigPorts() error = nil, want an error for a handle without config JSON")
+	}
+}
+
+func TestMockSandboxHandleConfigPorts(t *testing.T) {
+	want := []msbSdk.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+	}
+	m := &MockSandboxHandle{PortBindings: want}
+	got, err := m.ConfigPorts()
+	if err != nil {
+		t.Fatalf("ConfigPorts() error = %v", err)
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("ConfigPorts() = %+v, want the seeded bindings", got)
+	}
+
+	failing := &MockSandboxHandle{PortsErr: errors.New("ports boom")}
+	if _, err := failing.ConfigPorts(); err == nil {
+		t.Error("ConfigPorts() error = nil, want the configured PortsErr")
+	}
+}
+
+// persistedConfigWithPorts mirrors the real persisted shape: SandboxConfig
+// flattens SandboxSpec, whose NetworkSpec carries published ports as
+// PublishedPortSpec values (microsandbox-types domain.rs) — snake_case fields,
+// the protocol spelled as the Rust variant name, host_bind always written.
+const persistedConfigWithPorts = `{
+  "name": "agents-sandbox-vm-proj-opencode",
+  "memory_mib": 16384,
+  "network": {
+    "enabled": true,
+    "ports": [
+      {"host_port":4096,"guest_port":4096,"protocol":"Tcp","host_bind":"127.0.0.1"},
+      {"host_port":3000,"guest_port":3000,"host_bind":"127.0.0.1"},
+      {"host_port":8080,"guest_port":5173,"protocol":"Udp","host_bind":"127.0.0.1"},
+      {"host_port":9000,"guest_port":9000,"protocol":"Sctp","host_bind":"127.0.0.1"}
+    ]
+  }
+}`

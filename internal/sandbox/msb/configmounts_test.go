@@ -1,26 +1,11 @@
 package msb
 
 import (
+	"errors"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
-
-// persistedConfigWithMounts mirrors the real persisted shape: SandboxConfig
-// flattens SandboxSpec, whose mounts are an internally tagged VolumeMount array
-// (microsandbox-types domain.rs). Note that stat_virtualization and
-// host_permissions sit next to `options`, not inside it.
-const persistedConfigWithMounts = `{
-  "name": "agents-sandbox-vm-proj-opencode",
-  "memory_mib": 16384,
-  "mounts": [
-    {"type":"Named","name":"agents-sandbox-home-proj-opencode-20261016T101010","guest":"/home/dev","options":{"readonly":false},"stat_virtualization":"strict","host_permissions":"private","follow_root_symlinks":false},
-    {"type":"Bind","host":"/host/proj","guest":"/workspace","options":{"readonly":false},"stat_virtualization":"strict","host_permissions":"mirror","follow_root_symlinks":false,"quota_mib":16384},
-    {"type":"Tmpfs","guest":"/tmp","size_mib":2048,"options":{}},
-    {"type":"Owned","guest":"/data","storage":{"kind":"directory","quota_mib":512},"options":{},"stat_virtualization":"strict","host_permissions":"private"},
-    {"type":"DiskImage","host":"/images/seed.img","guest":"/disk","format":"Raw","fstype":"ext4","options":{"readonly":true}}
-  ]
-}`
 
 func TestParseConfigMountsMapsEveryVariant(t *testing.T) {
 	got, err := ParseConfigMounts(persistedConfigWithMounts)
@@ -149,3 +134,38 @@ func TestParseConfigMountsOwnedDiskKind(t *testing.T) {
 		t.Errorf("owned mount size/quota = %d/%d, want capacity_mib/quota_mib 1024/512", owned.SizeMiB, owned.QuotaMiB)
 	}
 }
+
+func TestMockSandboxHandleConfigMounts(t *testing.T) {
+	want := map[string]msbSdk.MountConfig{
+		"/tmp": msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{SizeMiB: 2048}),
+	}
+	m := &MockSandboxHandle{Mounts: want}
+	got, err := m.ConfigMounts()
+	if err != nil {
+		t.Fatalf("ConfigMounts() error = %v", err)
+	}
+	if got["/tmp"].SizeMiB != 2048 {
+		t.Errorf("ConfigMounts() = %+v, want the seeded mounts", got)
+	}
+
+	failing := &MockSandboxHandle{MountsErr: errors.New("mounts boom")}
+	if _, err := failing.ConfigMounts(); err == nil {
+		t.Error("ConfigMounts() error = nil, want the configured MountsErr")
+	}
+}
+
+// persistedConfigWithMounts mirrors the real persisted shape: SandboxConfig
+// flattens SandboxSpec, whose mounts are an internally tagged VolumeMount array
+// (microsandbox-types domain.rs). Note that stat_virtualization and
+// host_permissions sit next to `options`, not inside it.
+const persistedConfigWithMounts = `{
+  "name": "agents-sandbox-vm-proj-opencode",
+  "memory_mib": 16384,
+  "mounts": [
+    {"type":"Named","name":"agents-sandbox-home-proj-opencode-20261016T101010","guest":"/home/dev","options":{"readonly":false},"stat_virtualization":"strict","host_permissions":"private","follow_root_symlinks":false},
+    {"type":"Bind","host":"/host/proj","guest":"/workspace","options":{"readonly":false},"stat_virtualization":"strict","host_permissions":"mirror","follow_root_symlinks":false,"quota_mib":16384},
+    {"type":"Tmpfs","guest":"/tmp","size_mib":2048,"options":{}},
+    {"type":"Owned","guest":"/data","storage":{"kind":"directory","quota_mib":512},"options":{},"stat_virtualization":"strict","host_permissions":"private"},
+    {"type":"DiskImage","host":"/images/seed.img","guest":"/disk","format":"Raw","fstype":"ext4","options":{"readonly":true}}
+  ]
+}`
