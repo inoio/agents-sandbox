@@ -317,9 +317,13 @@ func TestResolveServeHostPortNotServeOnly(t *testing.T) {
 	}
 }
 
+// TestResolveServeHostPortPassthrough pins that a serve-only run keeps the
+// port the reconfig plan carried over from the existing VM. The planned port
+// is not ServeOnlyBasePort, so probing for a free port instead would differ.
 func TestResolveServeHostPortPassthrough(t *testing.T) {
-	if got := resolveServeHostPort(options.RunOptions{ServeOnly: true}, 4096); got != 4096 {
-		t.Errorf("resolveServeHostPort(planned 4096) = %d, want 4096", got)
+	planned := options.ServeOnlyBasePort + 17
+	if got := resolveServeHostPort(options.RunOptions{ServeOnly: true}, planned); got != planned {
+		t.Errorf("resolveServeHostPort(planned %d) = %d, want %d", planned, got, planned)
 	}
 }
 
@@ -902,8 +906,14 @@ func TestSessionServeHostPort(t *testing.T) {
 	}
 }
 
+// TestSessionAccessors pins the Session accessors and that Cleanup detaches
+// the sandbox handle, and is a no-op on a session without one.
 func TestSessionAccessors(t *testing.T) {
-	sb := &msb.MockSandbox{}
+	detached := false
+	sb := &msb.MockSandbox{DetachFn: func(context.Context) error {
+		detached = true
+		return nil
+	}}
 	s := &Session{sb: sb, name: "vm-name", target: "/tmp/target", cwd: "/workspace", homeVolume: "home-vol"}
 	if got := s.HomeVolume(); got != "home-vol" {
 		t.Errorf("HomeVolume() = %q, want home-vol", got)
@@ -913,6 +923,10 @@ func TestSessionAccessors(t *testing.T) {
 	}
 	if got := s.Target(); got != "/tmp/target" {
 		t.Errorf("Target() = %q, want /tmp/target", got)
+	}
+	s.Cleanup()
+	if !detached {
+		t.Error("Cleanup() did not detach the sandbox")
 	}
 
 	nilSession := &Session{}
