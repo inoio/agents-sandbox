@@ -1210,3 +1210,24 @@ func setupVolumeOpsFixtures(t *testing.T) (*msb.MockMsbClient, *termio.Mock) {
 	docker.WithNoopDockerMock(t)
 	return mock, &termio.Mock{}
 }
+
+// TestVolumeOpReportsAFailedVolumeCreate pins that a new home volume that
+// cannot be created fails the op with the cause, before anything is prefilled.
+func TestVolumeOpReportsAFailedVolumeCreate(t *testing.T) {
+	mock, ui := setupVolumeOpsFixtures(t)
+	k := state.Key{Slug: "testproj-aBc1234D", Agent: "opencode"}
+	seedHomeState(k, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
+	createFailed := errors.New("disk full")
+	mock.CreateVolumeFn = func(context.Context, string, ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		return nil, createFailed
+	}
+
+	err := CmdReset(context.Background(), docker.Get(), k, "",
+		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"}, false, false, ui)
+	if !errors.Is(err, createFailed) || !strings.Contains(err.Error(), "create volume") {
+		t.Fatalf("error = %v, want the create failure wrapping %v", err, createFailed)
+	}
+	if len(mock.CreatedSandboxes) != 0 {
+		t.Errorf("created sandboxes %v, want no prefill after the failed create", mock.CreatedSandboxes)
+	}
+}

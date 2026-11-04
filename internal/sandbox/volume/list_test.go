@@ -2,6 +2,7 @@ package volume
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -76,8 +77,8 @@ func TestListVolumes_ErrorFromMsb(t *testing.T) {
 	msb.WithMsbMock(t, mockClient)
 
 	_, err := ListVolumes(context.Background())
-	if err == nil {
-		t.Fatal("expected error from ListVolumes, got nil")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ListVolumes error = %v, want it to wrap %v", err, context.Canceled)
 	}
 }
 

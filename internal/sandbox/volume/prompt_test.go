@@ -62,12 +62,20 @@ func TestFromKey(t *testing.T) {
 	}
 }
 
+// TestResolveHomeAction_SameDigestReturnsKeep pins that an unchanged image
+// keeps the home volume without asking, even in an interactive session.
 func TestResolveHomeAction_SameDigestReturnsKeep(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(string, []termio.Choice, string) (string, error) {
+			t.Error("prompted although the image is unchanged")
+			return "r", nil
+		},
+	}
 	vm := NewManager(docker.Get())
-	action := vm.ResolveHomeAction(&ui, "same-digest", "same-digest")
-	if action != ActionKeep {
-		t.Errorf("expected ActionKeep for matching digests, got %v", action)
+	action := vm.ResolveHomeAction(ui, "same-digest", "same-digest")
+	if action != ActionKeep || len(ui.InfoCalls) != 0 {
+		t.Errorf("action %v, info %v; want ActionKeep and nothing reported", action, ui.InfoCalls)
 	}
 }
 
