@@ -3,6 +3,8 @@ package session
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -10,7 +12,9 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -19,6 +23,111 @@ import (
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+func TestStartNotifyWatcherReturnsWatchError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	origWatch := notifyWatch
+	defer func() { notifyWatch = origWatch }()
+	notifyWatch = func(_ context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, _ notify.Backend) error {
+		return errors.New("watch boom")
+	}
+	spec := agent.EventStreamSpec{
+		StreamCommand: "curl -N -s http://127.0.0.1:9999/events",
+		BusyEvents:    []string{"busy.evt"},
+		AwaitingInput: []string{"ask.evt"},
+		IdleEvents:    []string{"idle.evt"},
+		ErrorEvents:   []string{"fail.evt"},
+		Name:          "pi",
+	}
+
+	stop := startNotifyWatcher(
+		context.Background(),
+		msb.NewMockSandbox(msb.SandboxOpts{}),
+		notify.Config{Desktop: true, Audio: notify.AudioOff, OnInput: true, OnDone: true, OnError: true},
+		ui,
+		&spec,
+		"slug",
+	)
+	err := stop()
+	if err == nil || !strings.Contains(err.Error(), "watch boom") {
+		t.Fatalf("stop() error = %v, want 'watch boom'", err)
+	}
+}
+
+func TestStartNotifyWatcherNoOpWithoutSpec(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	origWatch := notifyWatch
+	defer func() { notifyWatch = origWatch }()
+	called := false
+	notifyWatch = func(_ context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, _ notify.Backend) error {
+		called = true
+		return nil
+	}
+
+	stop := startNotifyWatcher(
+		context.Background(),
+		msb.NewMockSandbox(msb.SandboxOpts{}),
+		notify.Config{
+			Desktop: true,
+			Audio:   notify.AudioOff,
+			OnInput: true,
+			OnDone:  true,
+			OnError: true,
+		},
+		ui,
+		nil,
+		"slug",
+	)
+	stop()
+	if called {
+		t.Error("startNotifyWatcher should be a no-op without an EventStreamSpec")
+	}
+}
+
+func TestStartNotifyWatcherUsesSpec(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	origWatch := notifyWatch
+	defer func() { notifyWatch = origWatch }()
+	got := make(chan agent.EventStreamSpec, 1)
+	notifyWatch = func(_ context.Context, _ notify.StreamOpener, spec agent.EventStreamSpec, _ notify.Backend) error {
+		got <- spec
+		return nil
+	}
+	spec := agent.EventStreamSpec{
+		StreamCommand: "curl -N -s http://127.0.0.1:9999/events",
+		BusyEvents:    []string{"busy.evt"},
+		AwaitingInput: []string{"ask.evt"},
+		IdleEvents:    []string{"idle.evt"},
+		ErrorEvents:   []string{"fail.evt"},
+		Name:          "pi",
+	}
+	stop := startNotifyWatcher(
+		context.Background(),
+		msb.NewMockSandbox(msb.SandboxOpts{}),
+		notify.Config{
+			Desktop: true,
+			Audio:   notify.AudioOff,
+			OnInput: true,
+			OnDone:  true,
+			OnError: true,
+		},
+		ui,
+		&spec,
+		"slug",
+	)
+	defer stop()
+	select {
+	case received := <-got:
+		if received.StreamCommand != spec.StreamCommand || received.Name != spec.Name {
+			t.Errorf("notifyWatch spec = %+v, want %+v", received, spec)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("notifyWatch was not called")
+	}
+}
 
 func TestBuildAttachCommand(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
@@ -64,15 +173,6 @@ func TestBuildAttachCommandOpencode(t *testing.T) {
 		t.Errorf("attach = %q, want %q", got, want)
 	}
 }
-
-// nonAttachAgent implements agent.Agent but not agent.AttachRunner, so
-// buildAttachCommand must return "" for it.
-type nonAttachAgent struct{}
-
-func (nonAttachAgent) Name() string               { return "nonattach" }
-func (nonAttachAgent) Experimental() bool         { return false }
-func (nonAttachAgent) ConfigDirName() string      { return "nonattach" }
-func (nonAttachAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 
 func TestBuildAttachCommandNoAttachRunner(t *testing.T) {
 	got := buildAttachCommand(agent.Resolve(nonAttachAgent{}), "/workspace/x", nil)
@@ -138,108 +238,119 @@ func TestRunServeOnlyBlocksUntilCancel(t *testing.T) {
 	}
 }
 
-func TestRunAttachUsesAttachWithForRoot(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
+func TestRunServeOnlyClientLeaseFailureWarns(t *testing.T) {
+	key := state.Key{Slug: "serveonlyleasefail", Agent: "opencode"}
+	blockClientLease(t, key.Slug)
 	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 0}
-
-	release, err := state.AcquireClientLease(state.Key{Slug: "roottest", Agent: "opencode"})
-	if err != nil {
-		t.Fatalf("state.AcquireClientLease: %v", err)
+	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, key: key}, nil
 	}
-	release()
+	defer func() { prepareSandbox = orig }()
 
-	err = runAttach(context.Background(), state.Key{Slug: "roottest", Agent: "opencode"}, sb, "/workspace/sub", ui,
-		resolvedRunOptions(t, options.RunOptions{Root: true, ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
-	if err != nil {
-		t.Fatalf("runAttach failed: %v", err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(ctx, resolvedRunOptions(t, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}), options.ModeRun, ui)
+	}()
+	cancel()
+
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run serve-only did not return after cancel")
 	}
-	if sb.AttachUser != "root" {
-		t.Errorf("AttachUser = %q, want %q", sb.AttachUser, "root")
+	if err == nil {
+		t.Fatal("expected ExitError from serve-only path")
 	}
-	if sb.AttachCwd != "/workspace/sub" {
-		t.Errorf("AttachCwd = %q, want %q", sb.AttachCwd, "/workspace/sub")
+	var exitErr *sandbox.ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 0 {
+		t.Errorf("err = %v, want ExitError code 0", err)
 	}
-}
-
-func TestRunAttachDefaultDoesNotUseRoot(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 0}
-
-	release, err := state.AcquireClientLease(state.Key{Slug: "defaulttest", Agent: "opencode"})
-	if err != nil {
-		t.Fatalf("state.AcquireClientLease: %v", err)
-	}
-	release()
-
-	err = runAttach(context.Background(), state.Key{Slug: "defaulttest", Agent: "opencode"}, sb, "/workspace/sub", ui,
-		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
-	if err != nil {
-		t.Fatalf("runAttach failed: %v", err)
-	}
-	if sb.AttachUser != "" {
-		t.Errorf("AttachUser = %q, want empty for default (non-root) attach", sb.AttachUser)
-	}
-	if sb.AttachCwd != "/workspace/sub" {
-		t.Errorf("AttachCwd = %q, want %q", sb.AttachCwd, "/workspace/sub")
-	}
-}
-
-type fakePrepared struct {
-	sb            msb.Sandbox
-	target        string
-	serveHostPort int
-	guestCWD      string
-	key           state.Key
-	homeVolume    string
-}
-
-func (f *fakePrepared) Cleanup()             {}
-func (f *fakePrepared) Sandbox() msb.Sandbox { return f.sb }
-func (f *fakePrepared) Target() string       { return f.target }
-func (f *fakePrepared) ServeHostPort() int   { return f.serveHostPort }
-func (f *fakePrepared) GuestCWD() string     { return f.guestCWD }
-func (f *fakePrepared) Key() state.Key       { return f.key }
-func (f *fakePrepared) HomeVolume() string   { return f.homeVolume }
-
-// --- Run: dry-run ---
-
-// stubPreviewSandbox swaps the preview seam for a fixed preview and restores it
-// on cleanup. Tests that run with options.ModePreview must use it so the real
-// PreviewSandbox never touches host state.
-func stubPreviewSandbox(t *testing.T, preview prepare.Preview) {
-	t.Helper()
-	orig := previewSandbox
-	previewSandbox = func(context.Context, options.RunOptions, termio.Logger) (prepare.Preview, error) {
-		return preview, nil
-	}
-	t.Cleanup(func() { previewSandbox = orig })
-}
-
-func assertInfoCalls(t *testing.T, ui *termio.Mock, want []string) {
-	t.Helper()
-	if len(ui.InfoCalls) != len(want) {
-		t.Fatalf("info calls = %v, want %v", ui.InfoCalls, want)
-	}
-	for i, line := range want {
-		if ui.InfoCalls[i] != line {
-			t.Errorf("info call %d = %q, want %q", i, ui.InfoCalls[i], line)
+	found := false
+	for _, w := range ui.WarnCalls {
+		if strings.Contains(w, "client lease failed") {
+			found = true
+			break
 		}
 	}
+	if !found {
+		t.Errorf("expected client lease warning, got %v", ui.WarnCalls)
+	}
 }
 
-// hasDryRunMessage reports whether any info line is the skip-VM dry-run notice
-// that Run and Shell print only for a skip-VM mode.
-func hasDryRunMessage(infoCalls []string) bool {
-	for _, line := range infoCalls {
-		if strings.HasPrefix(line, "dry-run: Would start") {
-			return true
-		}
+// TestRunUsesSessionKeyForLease pins the session-key wiring: Run keys the client
+// lease (and therefore the reap) off the key PrepareSandbox prepared instead of
+// re-resolving identity from the cwd, so the lease lands under the session's
+// checkout slug. The lease file is removed on release, but its clients/
+// directory remains, which is what the assertion observes.
+func TestRunUsesSessionKeyForLease(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	key := state.Key{Slug: "sessionkeyslug", Agent: "opencode"}
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	sb.ShellOut = map[string]msb.ShellResult{
+		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
+		),
 	}
-	return false
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+	}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, target: "/workspace", key: key}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	if err := Run(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", ReapPolicy: options.NewReapPolicy(true, 5)}),
+		options.ModeRun,
+		ui,
+	); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(state.KeyDir(key), "clients")); statErr != nil {
+		t.Errorf("client lease did not land under the session key dir %s: %v", state.KeyDir(key), statErr)
+	}
+
+	ambientSlug := git.MustCheckoutSlug()
+	if ambientSlug == key.Slug {
+		t.Fatalf("fixture session slug %q must differ from the ambient slug", key.Slug)
+	}
+	ambientKeyDir := filepath.Join(state.KeyDir(state.Key{Slug: ambientSlug, Agent: "opencode"}), "clients")
+	if _, statErr := os.Stat(ambientKeyDir); statErr == nil {
+		t.Errorf("client lease landed under the ambient checkout slug %q; Run re-resolved identity", ambientSlug)
+	}
+}
+
+func TestRunServeOnlyReturnsDeadlineExceeded(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, serveHostPort: 4096}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(100*time.Millisecond))
+	defer cancel()
+
+	err := Run(
+		ctx,
+		resolvedRunOptions(t, options.RunOptions{ServeOnly: true, ReapPolicy: options.NewReapPolicy(true, 5)}),
+		options.ModeRun,
+		ui,
+	)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
+	}
 }
 
 func TestRunDryRunRendersPreview(t *testing.T) {
@@ -587,21 +698,6 @@ func TestRunServeOnlyWarnsAboutContainersAfterCancel(t *testing.T) {
 	}
 }
 
-func TestShellPrepareSandboxError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	orig := prepareSandbox
-	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		return nil, errors.New("prepare boom")
-	}
-	defer func() { prepareSandbox = orig }()
-
-	err := Shell(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModeRun, ui)
-	if err == nil || !strings.Contains(err.Error(), "prepare boom") {
-		t.Errorf("err = %v, want prepareSandbox error", err)
-	}
-}
-
 func TestRunNormalCallsRunAttach(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
@@ -652,227 +748,157 @@ func TestRunNormalCallsRunAttach(t *testing.T) {
 	}
 }
 
-// --- Shell ---
-
-func TestShellDryRunRendersPreview(t *testing.T) {
+func TestRunStartsNotifyWatcher(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
-	stubPreviewSandbox(t, prepare.Preview{
-		AgentVersion: "1.0.0",
-		ImageTag:     "agents-sandbox-runner-x",
-		BuildImage:   true,
-		BuildReasons: []string{"runner image not present locally"},
-		HomeVolume:   "agents-sandbox-home-abc",
-	})
-
-	err := Shell(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
-	if err != nil {
-		t.Fatalf("Shell dry-run: %v", err)
-	}
-	assertInfoCalls(t, ui, []string{
-		"dry-run: agent version 1.0.0",
-		"dry-run: would build runner image agents-sandbox-runner-x (runner image not present locally)",
-		"dry-run: would reuse home volume agents-sandbox-home-abc",
-		"dry-run: would start interactive shell session",
-	})
-}
-
-func TestShellDryRunDoesNotPrepareSandbox(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	stubPreviewSandbox(t, prepare.Preview{AgentVersion: "1.0.0", ImageTag: "tag", HomeVolume: "vol"})
-	orig := prepareSandbox
+	origPrepare := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		t.Error("prepareSandbox must not run in dry-run mode")
-		return &fakePrepared{}, nil
+		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
 	}
-	t.Cleanup(func() { prepareSandbox = orig })
+	defer func() { prepareSandbox = origPrepare }()
 
-	if err := Shell(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{}),
-		options.ModePreview,
-		ui,
-	); err != nil {
-		t.Fatalf("Shell dry-run: %v", err)
+	origWatch := notifyWatch
+	defer func() { notifyWatch = origWatch }()
+	started := make(chan struct{})
+	notifyWatch = func(_ context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, _ notify.Backend) error {
+		close(started)
+		return nil
 	}
-}
 
-func TestShellDryRunPropagatesPreviewError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	orig := previewSandbox
-	previewSandbox = func(context.Context, options.RunOptions, termio.Logger) (prepare.Preview, error) {
-		return prepare.Preview{}, errors.New("preview boom")
-	}
-	t.Cleanup(func() { previewSandbox = orig })
-
-	err := Shell(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
-	if err == nil || !strings.Contains(err.Error(), "preview boom") {
-		t.Errorf("err = %v, want preview error", err)
-	}
-}
-
-func TestShellDryRunVM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	var gotSkipVM bool
-	orig := prepareSandbox
-	prepareSandbox = func(_ context.Context, _ options.RunOptions, skipVM bool, _ termio.UI) (preparedSandbox, error) {
-		gotSkipVM = skipVM
-		return &fakePrepared{}, nil
-	}
-	defer func() { prepareSandbox = orig }()
-
-	err := Shell(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModeSkipVM, ui)
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
+		ReapPolicy: options.NewReapPolicy(true, 5),
+		Notify: notify.Config{
+			Desktop: true, Audio: notify.AudioOff,
+			OnInput: true, OnDone: true, OnError: true,
+		},
+	}), options.ModeRun, ui)
 	if err != nil {
-		t.Fatalf("Shell dry-run-vm: %v", err)
+		t.Fatalf("Run: %v", err)
 	}
-	if !gotSkipVM {
-		t.Error("prepareSandbox got skipVM=false under --dry-run-vm, want true")
-	}
-	if len(ui.InfoCalls) == 0 || ui.InfoCalls[0] != "dry-run: Would start interactive shell session" {
-		t.Errorf("info = %v, want dry-run shell message", ui.InfoCalls)
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("notify watcher was not started for active notify config")
 	}
 }
 
-func TestShellNormalCallsRunAttach(t *testing.T) {
+func TestRunDoesNotStartNotifyWatcherWhenInactive(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
-	sb.ShellOut = map[string]msb.ShellResult{
-		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
-			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
-		),
-	}
-	sb.ExecOut = map[string]msb.ShellResult{
-		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
-	}
-	orig := prepareSandbox
+	origPrepare := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: sb, target: "/workspace"}, nil
+		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
 	}
-	defer func() { prepareSandbox = orig }()
+	defer func() { prepareSandbox = origPrepare }()
 
-	trace := &lifecycle.Trace{}
-	err := Shell(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5), Trace: trace}),
-		options.ModeRun,
-		ui,
-	)
+	origWatch := notifyWatch
+	defer func() { notifyWatch = origWatch }()
+	called := false
+	notifyWatch = func(_ context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, _ notify.Backend) error {
+		called = true
+		return nil
+	}
+
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
+		ReapPolicy: options.NewReapPolicy(true, 5),
+	}), options.ModeRun, ui)
 	if err != nil {
-		t.Fatalf("Shell normal: %v", err)
+		t.Fatalf("Run: %v", err)
 	}
-	if hasDryRunMessage(ui.InfoCalls) {
-		t.Errorf("a real shell run must not take the dry-run-vm path, got info calls %v", ui.InfoCalls)
-	}
-	if got, want := trace.Stages(), []lifecycle.StageID{lifecycle.Attach}; !slices.Equal(got, want) {
-		t.Errorf("trace = %v, want %v (attach recorded once)", got, want)
+	if called {
+		t.Error("notify watcher should not start when notify config is inactive")
 	}
 }
 
-func TestShellUsesGuestCWD(t *testing.T) {
+func TestRunLogsNotifyWatcherErrorAfterStop(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
-	sb.ShellOut = map[string]msb.ShellResult{
-		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
-			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
-		),
-	}
-	sb.ExecOut = map[string]msb.ShellResult{
-		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
-	}
-	orig := prepareSandbox
+	origPrepare := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: sb, target: "/workspace", guestCWD: "/workspace/sub"}, nil
+		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
 	}
-	defer func() { prepareSandbox = orig }()
+	defer func() { prepareSandbox = origPrepare }()
 
-	err := Shell(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}),
-		options.ModeRun,
-		ui,
-	)
+	origWatch := notifyWatch
+	defer func() { notifyWatch = origWatch }()
+	notifyWatch = func(_ context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, _ notify.Backend) error {
+		return errors.New("watch boom")
+	}
+
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
+		ReapPolicy: options.NewReapPolicy(true, 5),
+		Notify: notify.Config{
+			Desktop: true, Audio: notify.AudioOff,
+			OnInput: true, OnDone: true, OnError: true,
+		},
+	}), options.ModeRun, ui)
 	if err != nil {
-		t.Fatalf("Shell: %v", err)
-	}
-	if sb.AttachCwd != "/workspace/sub" {
-		t.Errorf("AttachCwd = %q, want %q", sb.AttachCwd, "/workspace/sub")
-	}
-}
-
-// --- runAttach error paths ---
-
-func TestRunAttachPropagatesAttachError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachErr: errors.New("attach boom")}
-
-	err := runAttach(context.Background(), state.Key{Slug: "errproj", Agent: "opencode"}, sb, "/workspace", ui,
-		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
-	if err == nil {
-		t.Fatal("expected error when attach fails")
-	}
-	if !strings.Contains(err.Error(), "agent session failed") {
-		t.Errorf("err = %q, want wrapped attach failure", err.Error())
-	}
-}
-
-func TestRunAttachReturnsExitErrorForNonZeroCode(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 3}
-
-	err := runAttach(context.Background(), state.Key{Slug: "exitproj", Agent: "opencode"}, sb, "/workspace", ui,
-		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
-	var exitErr *sandbox.ExitError
-	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
-		t.Errorf("err = %v, want ExitError code 3", err)
-	}
-}
-
-func TestRunAttachWarnsOnReapFailure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
-	sb.ShellErr = errors.New("shell failed")
-
-	// A cancelled context makes waitQuiescent abort on its next poll, so
-	// reapOnLastClient returns an error that runAttach must warn about.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := runAttach(ctx, state.Key{Slug: "reaperrproj", Agent: "opencode"}, sb, "/workspace", ui,
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
-	if err != nil {
-		t.Fatalf("runAttach should not fail on reap error: %v", err)
+		t.Fatalf("Run: %v", err)
 	}
 	found := false
-	for _, w := range ui.WarnCalls {
-		if strings.Contains(w, "reap failed") {
+	for _, v := range ui.VerboseCalls {
+		if strings.Contains(v, "notify watcher") && strings.Contains(v, "watch boom") {
 			found = true
-			break
 		}
 	}
 	if !found {
-		t.Errorf("expected reap warning, got %v", ui.WarnCalls)
+		t.Fatal("expected notify watcher error logged via Verbosef after stop")
 	}
 }
 
-// --- withClientSession ---
-
-// containerProbeWarn reports whether the last-client reap probed for running
-// containers, which it only does once this session's own lease is gone.
-func containerProbeWarn(ui *termio.Mock) bool {
-	for _, w := range ui.WarnCalls {
-		if strings.Contains(w, "running container") {
-			return true
-		}
+func TestRunDoesNotStartNotifyWatcherWithoutEventStreamProvider(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	origPrepare := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
 	}
-	return false
+	defer func() { prepareSandbox = origPrepare }()
+
+	origWatch := notifyWatch
+	defer func() { notifyWatch = origWatch }()
+	called := false
+	notifyWatch = func(_ context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, _ notify.Backend) error {
+		called = true
+		return nil
+	}
+
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
+		Agent:      "pi",
+		ReapPolicy: options.NewReapPolicy(true, 5),
+		Notify: notify.Config{
+			Desktop: true, Audio: notify.AudioOff,
+			OnInput: true, OnDone: true, OnError: true,
+		},
+	}), options.ModeRun, ui)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if called {
+		t.Error("notify watcher should not start for an agent without EventStreamProvider")
+	}
+}
+
+func TestRunDryRunRendersNoRebuildReuseWithSkippedReasons(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	stubPreviewSandbox(t, prepare.Preview{
+		AgentVersion: "1.2.3",
+		ImageTag:     "agents-sandbox-runner-y",
+		BuildReasons: []string{"project Dockerfile changed"},
+		HomeVolume:   "agents-sandbox-home-abc",
+	})
+
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
+	if err != nil {
+		t.Fatalf("Run dry-run: %v", err)
+	}
+	assertInfoCalls(t, ui, []string{
+		"dry-run: agent version 1.2.3",
+		"dry-run: would reuse runner image agents-sandbox-runner-y despite changes (--no-rebuild): project Dockerfile changed",
+		"dry-run: would reuse home volume agents-sandbox-home-abc",
+		"dry-run: would start agent session",
+	})
 }
 
 func TestWithClientSessionHandsResolvedAgentToBody(t *testing.T) {
@@ -1063,6 +1089,29 @@ func TestWithClientSessionReleasesLeaseOnPanic(t *testing.T) {
 	}
 }
 
+// TestServeOnlyShouldReap pins the serve-only predicate directly, including the
+// nil clean-exit case the runServeOnlySession path cannot reach: runServeOnly
+// always returns its ctx.Err(), so no session error observed through it is nil.
+func TestServeOnlyShouldReap(t *testing.T) {
+	cases := []struct {
+		name       string
+		sessionErr error
+		want       bool
+	}{
+		{"clean exit", nil, true},
+		{"canceled", context.Canceled, true},
+		{"deadline exceeded", context.DeadlineExceeded, false},
+		{"other error", errors.New("boom"), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := serveOnlyShouldReap(tc.sessionErr); got != tc.want {
+				t.Errorf("serveOnlyShouldReap(%v) = %v, want %v", tc.sessionErr, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestRunServeOnlySessionSkipsReapOnNonCanceledError pins the serve-only reap
 // predicate: a payload error other than context.Canceled (here a deadline) is
 // returned without reaping, so the VM is left to its idle timeout. Only a clean
@@ -1093,26 +1142,201 @@ func TestRunServeOnlySessionSkipsReapOnNonCanceledError(t *testing.T) {
 	}
 }
 
-// TestServeOnlyShouldReap pins the serve-only predicate directly, including the
-// nil clean-exit case the runServeOnlySession path cannot reach: runServeOnly
-// always returns its ctx.Err(), so no session error observed through it is nil.
-func TestServeOnlyShouldReap(t *testing.T) {
-	cases := []struct {
-		name       string
-		sessionErr error
-		want       bool
-	}{
-		{"clean exit", nil, true},
-		{"canceled", context.Canceled, true},
-		{"deadline exceeded", context.DeadlineExceeded, false},
-		{"other error", errors.New("boom"), false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := serveOnlyShouldReap(tc.sessionErr); got != tc.want {
-				t.Errorf("serveOnlyShouldReap(%v) = %v, want %v", tc.sessionErr, got, tc.want)
+// TestShellAndRunServeHostOpenerWhileAttached covers the wiring: both session
+// kinds start the host opener for the session's home volume when open-links is
+// on, and stop it when the session ends.
+func TestShellAndRunServeHostOpenerWhileAttached(t *testing.T) {
+	for _, session := range []struct {
+		name  string
+		start func(context.Context, options.RunOptions, options.Mode, termio.UI) error
+	}{{"shell", Shell}, {"run", Run}} {
+		t.Run(session.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			watched := stubHostOpener(t, "/host/volumes/home-vol", opener.Report{}, nil)
+			sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+			sb.ShellOut = map[string]msb.ShellResult{
+				"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(true, 0, `{}`, "", nil),
+			}
+			sb.ExecOut = map[string]msb.ShellResult{"sleep 1h": msb.NewTestResult(true, 0, "", "", nil)}
+			original := prepareSandbox
+			prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+				return &fakePrepared{sb: sb, target: "/workspace", homeVolume: "home-vol"}, nil
+			}
+			t.Cleanup(func() { prepareSandbox = original })
+
+			opts := options.RunOptions{OpenLinks: true, ReapPolicy: options.NewReapPolicy(true, 5)}
+			if err := session.start(context.Background(), opts, options.ModeRun, &termio.Mock{}); err != nil {
+				t.Fatalf("%s: %v", session.name, err)
+			}
+			if len(*watched) != 1 {
+				t.Fatalf("host opener started %d times, want 1", len(*watched))
 			}
 		})
+	}
+}
+
+func TestShellPrepareSandboxError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return nil, errors.New("prepare boom")
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Shell(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModeRun, ui)
+	if err == nil || !strings.Contains(err.Error(), "prepare boom") {
+		t.Errorf("err = %v, want prepareSandbox error", err)
+	}
+}
+
+func TestShellDryRunRendersPreview(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	stubPreviewSandbox(t, prepare.Preview{
+		AgentVersion: "1.0.0",
+		ImageTag:     "agents-sandbox-runner-x",
+		BuildImage:   true,
+		BuildReasons: []string{"runner image not present locally"},
+		HomeVolume:   "agents-sandbox-home-abc",
+	})
+
+	err := Shell(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
+	if err != nil {
+		t.Fatalf("Shell dry-run: %v", err)
+	}
+	assertInfoCalls(t, ui, []string{
+		"dry-run: agent version 1.0.0",
+		"dry-run: would build runner image agents-sandbox-runner-x (runner image not present locally)",
+		"dry-run: would reuse home volume agents-sandbox-home-abc",
+		"dry-run: would start interactive shell session",
+	})
+}
+
+func TestShellDryRunDoesNotPrepareSandbox(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	stubPreviewSandbox(t, prepare.Preview{AgentVersion: "1.0.0", ImageTag: "tag", HomeVolume: "vol"})
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		t.Error("prepareSandbox must not run in dry-run mode")
+		return &fakePrepared{}, nil
+	}
+	t.Cleanup(func() { prepareSandbox = orig })
+
+	if err := Shell(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{}),
+		options.ModePreview,
+		ui,
+	); err != nil {
+		t.Fatalf("Shell dry-run: %v", err)
+	}
+}
+
+func TestShellDryRunPropagatesPreviewError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	orig := previewSandbox
+	previewSandbox = func(context.Context, options.RunOptions, termio.Logger) (prepare.Preview, error) {
+		return prepare.Preview{}, errors.New("preview boom")
+	}
+	t.Cleanup(func() { previewSandbox = orig })
+
+	err := Shell(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
+	if err == nil || !strings.Contains(err.Error(), "preview boom") {
+		t.Errorf("err = %v, want preview error", err)
+	}
+}
+
+func TestShellDryRunVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	var gotSkipVM bool
+	orig := prepareSandbox
+	prepareSandbox = func(_ context.Context, _ options.RunOptions, skipVM bool, _ termio.UI) (preparedSandbox, error) {
+		gotSkipVM = skipVM
+		return &fakePrepared{}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Shell(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModeSkipVM, ui)
+	if err != nil {
+		t.Fatalf("Shell dry-run-vm: %v", err)
+	}
+	if !gotSkipVM {
+		t.Error("prepareSandbox got skipVM=false under --dry-run-vm, want true")
+	}
+	if len(ui.InfoCalls) == 0 || ui.InfoCalls[0] != "dry-run: Would start interactive shell session" {
+		t.Errorf("info = %v, want dry-run shell message", ui.InfoCalls)
+	}
+}
+
+func TestShellNormalCallsRunAttach(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	sb.ShellOut = map[string]msb.ShellResult{
+		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
+		),
+	}
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+	}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, target: "/workspace"}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	trace := &lifecycle.Trace{}
+	err := Shell(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5), Trace: trace}),
+		options.ModeRun,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("Shell normal: %v", err)
+	}
+	if hasDryRunMessage(ui.InfoCalls) {
+		t.Errorf("a real shell run must not take the dry-run-vm path, got info calls %v", ui.InfoCalls)
+	}
+	if got, want := trace.Stages(), []lifecycle.StageID{lifecycle.Attach}; !slices.Equal(got, want) {
+		t.Errorf("trace = %v, want %v (attach recorded once)", got, want)
+	}
+}
+
+func TestShellUsesGuestCWD(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	sb.ShellOut = map[string]msb.ShellResult{
+		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
+		),
+	}
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+	}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, target: "/workspace", guestCWD: "/workspace/sub"}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Shell(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}),
+		options.ModeRun,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("Shell: %v", err)
+	}
+	if sb.AttachCwd != "/workspace/sub" {
+		t.Errorf("AttachCwd = %q, want %q", sb.AttachCwd, "/workspace/sub")
 	}
 }
 
@@ -1132,229 +1356,228 @@ func TestFinalizeRun(t *testing.T) {
 	}
 }
 
-func TestRunStartsNotifyWatcher(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+func TestRunAttachClientLeaseFailureWarns(t *testing.T) {
+	slug := "attachleasefail"
+	blockClientLease(t, slug)
 	ui := &termio.Mock{}
-	origPrepare := prepareSandbox
-	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
-	}
-	defer func() { prepareSandbox = origPrepare }()
+	sb := &msb.MockSandbox{AttachCode: 0}
 
-	origWatch := notifyWatch
-	defer func() { notifyWatch = origWatch }()
-	started := make(chan struct{})
-	notifyWatch = func(_ context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, _ notify.Backend) error {
-		close(started)
-		return nil
-	}
-
-	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
-		ReapPolicy: options.NewReapPolicy(true, 5),
-		Notify: notify.Config{
-			Desktop: true, Audio: notify.AudioOff,
-			OnInput: true, OnDone: true, OnError: true,
-		},
-	}), options.ModeRun, ui)
+	err := runAttach(context.Background(), state.Key{Slug: slug, Agent: "opencode"}, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
 	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	select {
-	case <-started:
-	case <-time.After(2 * time.Second):
-		t.Fatal("notify watcher was not started for active notify config")
-	}
-}
-
-func TestRunDoesNotStartNotifyWatcherWhenInactive(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	origPrepare := prepareSandbox
-	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
-	}
-	defer func() { prepareSandbox = origPrepare }()
-
-	origWatch := notifyWatch
-	defer func() { notifyWatch = origWatch }()
-	called := false
-	notifyWatch = func(_ context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, _ notify.Backend) error {
-		called = true
-		return nil
+		t.Fatalf("runAttach: expected success despite lease failure, got %v", err)
 	}
 
-	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
-		ReapPolicy: options.NewReapPolicy(true, 5),
-	}), options.ModeRun, ui)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if called {
-		t.Error("notify watcher should not start when notify config is inactive")
-	}
-}
-
-func TestStartNotifyWatcherNoOpWithoutSpec(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	origWatch := notifyWatch
-	defer func() { notifyWatch = origWatch }()
-	called := false
-	notifyWatch = func(_ context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, _ notify.Backend) error {
-		called = true
-		return nil
-	}
-
-	stop := startNotifyWatcher(
-		context.Background(),
-		msb.NewMockSandbox(msb.SandboxOpts{}),
-		notify.Config{
-			Desktop: true,
-			Audio:   notify.AudioOff,
-			OnInput: true,
-			OnDone:  true,
-			OnError: true,
-		},
-		ui,
-		nil,
-		"slug",
-	)
-	stop()
-	if called {
-		t.Error("startNotifyWatcher should be a no-op without an EventStreamSpec")
-	}
-}
-
-func TestStartNotifyWatcherUsesSpec(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	origWatch := notifyWatch
-	defer func() { notifyWatch = origWatch }()
-	got := make(chan agent.EventStreamSpec, 1)
-	notifyWatch = func(_ context.Context, _ notify.StreamOpener, spec agent.EventStreamSpec, _ notify.Backend) error {
-		got <- spec
-		return nil
-	}
-	spec := agent.EventStreamSpec{
-		StreamCommand: "curl -N -s http://127.0.0.1:9999/events",
-		BusyEvents:    []string{"busy.evt"},
-		AwaitingInput: []string{"ask.evt"},
-		IdleEvents:    []string{"idle.evt"},
-		ErrorEvents:   []string{"fail.evt"},
-		Name:          "pi",
-	}
-	stop := startNotifyWatcher(
-		context.Background(),
-		msb.NewMockSandbox(msb.SandboxOpts{}),
-		notify.Config{
-			Desktop: true,
-			Audio:   notify.AudioOff,
-			OnInput: true,
-			OnDone:  true,
-			OnError: true,
-		},
-		ui,
-		&spec,
-		"slug",
-	)
-	defer stop()
-	select {
-	case received := <-got:
-		if received.StreamCommand != spec.StreamCommand || received.Name != spec.Name {
-			t.Errorf("notifyWatch spec = %+v, want %+v", received, spec)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("notifyWatch was not called")
-	}
-}
-
-func TestRunLogsNotifyWatcherErrorAfterStop(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	origPrepare := prepareSandbox
-	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
-	}
-	defer func() { prepareSandbox = origPrepare }()
-
-	origWatch := notifyWatch
-	defer func() { notifyWatch = origWatch }()
-	notifyWatch = func(_ context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, _ notify.Backend) error {
-		return errors.New("watch boom")
-	}
-
-	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
-		ReapPolicy: options.NewReapPolicy(true, 5),
-		Notify: notify.Config{
-			Desktop: true, Audio: notify.AudioOff,
-			OnInput: true, OnDone: true, OnError: true,
-		},
-	}), options.ModeRun, ui)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
 	found := false
-	for _, v := range ui.VerboseCalls {
-		if strings.Contains(v, "notify watcher") && strings.Contains(v, "watch boom") {
+	for _, w := range ui.WarnCalls {
+		if strings.Contains(w, "client lease failed") {
 			found = true
+			break
 		}
 	}
 	if !found {
-		t.Fatal("expected notify watcher error logged via Verbosef after stop")
+		t.Errorf("expected client lease warning, got %v", ui.WarnCalls)
 	}
 }
 
-func TestRunDoesNotStartNotifyWatcherWithoutEventStreamProvider(t *testing.T) {
+func TestRunAttachUsesAttachWithForRoot(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+
 	ui := &termio.Mock{}
-	origPrepare := prepareSandbox
-	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
-	}
-	defer func() { prepareSandbox = origPrepare }()
+	sb := &msb.MockSandbox{AttachCode: 0}
 
-	origWatch := notifyWatch
-	defer func() { notifyWatch = origWatch }()
-	called := false
-	notifyWatch = func(_ context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, _ notify.Backend) error {
-		called = true
-		return nil
-	}
-
-	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{
-		Agent:      "pi",
-		ReapPolicy: options.NewReapPolicy(true, 5),
-		Notify: notify.Config{
-			Desktop: true, Audio: notify.AudioOff,
-			OnInput: true, OnDone: true, OnError: true,
-		},
-	}), options.ModeRun, ui)
+	release, err := state.AcquireClientLease(state.Key{Slug: "roottest", Agent: "opencode"})
 	if err != nil {
-		t.Fatalf("Run: %v", err)
+		t.Fatalf("state.AcquireClientLease: %v", err)
 	}
-	if called {
-		t.Error("notify watcher should not start for an agent without EventStreamProvider")
+	release()
+
+	err = runAttach(context.Background(), state.Key{Slug: "roottest", Agent: "opencode"}, sb, "/workspace/sub", ui,
+		resolvedRunOptions(t, options.RunOptions{Root: true, ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
+	if err != nil {
+		t.Fatalf("runAttach failed: %v", err)
+	}
+	if sb.AttachUser != "root" {
+		t.Errorf("AttachUser = %q, want %q", sb.AttachUser, "root")
+	}
+	if sb.AttachCwd != "/workspace/sub" {
+		t.Errorf("AttachCwd = %q, want %q", sb.AttachCwd, "/workspace/sub")
 	}
 }
 
-func TestRunDryRunRendersNoRebuildReuseWithSkippedReasons(t *testing.T) {
+func TestRunAttachDefaultDoesNotUseRoot(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 0}
+
+	release, err := state.AcquireClientLease(state.Key{Slug: "defaulttest", Agent: "opencode"})
+	if err != nil {
+		t.Fatalf("state.AcquireClientLease: %v", err)
+	}
+	release()
+
+	err = runAttach(context.Background(), state.Key{Slug: "defaulttest", Agent: "opencode"}, sb, "/workspace/sub", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
+	if err != nil {
+		t.Fatalf("runAttach failed: %v", err)
+	}
+	if sb.AttachUser != "" {
+		t.Errorf("AttachUser = %q, want empty for default (non-root) attach", sb.AttachUser)
+	}
+	if sb.AttachCwd != "/workspace/sub" {
+		t.Errorf("AttachCwd = %q, want %q", sb.AttachCwd, "/workspace/sub")
+	}
+}
+
+func TestRunAttachPropagatesAttachError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
-	stubPreviewSandbox(t, prepare.Preview{
-		AgentVersion: "1.2.3",
-		ImageTag:     "agents-sandbox-runner-y",
-		BuildReasons: []string{"project Dockerfile changed"},
-		HomeVolume:   "agents-sandbox-home-abc",
-	})
+	sb := &msb.MockSandbox{AttachErr: errors.New("attach boom")}
 
-	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModePreview, ui)
-	if err != nil {
-		t.Fatalf("Run dry-run: %v", err)
+	err := runAttach(context.Background(), state.Key{Slug: "errproj", Agent: "opencode"}, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
+	if err == nil {
+		t.Fatal("expected error when attach fails")
 	}
-	assertInfoCalls(t, ui, []string{
-		"dry-run: agent version 1.2.3",
-		"dry-run: would reuse runner image agents-sandbox-runner-y despite changes (--no-rebuild): project Dockerfile changed",
-		"dry-run: would reuse home volume agents-sandbox-home-abc",
-		"dry-run: would start agent session",
-	})
+	if !strings.Contains(err.Error(), "agent session failed") {
+		t.Errorf("err = %q, want wrapped attach failure", err.Error())
+	}
+}
+
+func TestRunAttachReturnsExitErrorForNonZeroCode(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 3}
+
+	err := runAttach(context.Background(), state.Key{Slug: "exitproj", Agent: "opencode"}, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
+	var exitErr *sandbox.ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 3 {
+		t.Errorf("err = %v, want ExitError code 3", err)
+	}
+}
+
+func TestRunAttachWarnsOnReapFailure(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	sb.ShellErr = errors.New("shell failed")
+
+	// A cancelled context makes waitQuiescent abort on its next poll, so
+	// reapOnLastClient returns an error that runAttach must warn about.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := runAttach(ctx, state.Key{Slug: "reaperrproj", Agent: "opencode"}, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
+	if err != nil {
+		t.Fatalf("runAttach should not fail on reap error: %v", err)
+	}
+	found := false
+	for _, w := range ui.WarnCalls {
+		if strings.Contains(w, "reap failed") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected reap warning, got %v", ui.WarnCalls)
+	}
+}
+
+// TestPrepareSandboxSeamDelegatesToVM calls the real, unstubbed prepareSandbox
+// so its delegation to prepare.PrepareSandbox is covered. An unknown agent name
+// makes the real path fail deterministically before it can touch host state,
+// the mocked config paths, or the fail-fast msb client.
+func TestPrepareSandboxSeamDelegatesToVM(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	_, err := prepareSandbox(
+		context.Background(),
+		options.RunOptions{Agent: "no-such-agent"},
+		false,
+		&termio.Mock{},
+	)
+	if err == nil {
+		t.Fatal("expected the real PrepareSandbox to error for an unknown agent")
+	}
+	if !strings.Contains(err.Error(), "unknown agent") {
+		t.Fatalf("error = %v, want an unknown-agent error from the real path", err)
+	}
+}
+
+// blockClientLease makes state.AcquireClientLease fail for slug by placing a
+// regular file where the slug's state directory would live, so MkdirAll of the
+// nested clients dir fails.
+func blockClientLease(t *testing.T, slug string) {
+	t.Helper()
+	configpaths.WithMockConfigPaths(t)
+	root := configpaths.Get().UserStateDir()
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatalf("mkdir state root: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, slug), nil, 0o600); err != nil {
+		t.Fatalf("block client lease for %q: %v", slug, err)
+	}
+}
+
+// resolvedRunOptions returns opts with ResolvedAgent set as runoptions.Build
+// would: the profile named by opts.Agent (the default when empty), with its
+// capabilities resolved. Tests that construct RunOptions directly use it so the
+// session layer reads the run boundary's resolved agent.
+func resolvedRunOptions(t *testing.T, opts options.RunOptions) options.RunOptions {
+	t.Helper()
+	a, ok := agent.Lookup(opts.Agent)
+	if !ok {
+		return opts
+	}
+	opts.ResolvedAgent = agent.Resolve(a)
+	return opts
+}
+
+// stubPreviewSandbox swaps the preview seam for a fixed preview and restores it
+// on cleanup. Tests that run with options.ModePreview must use it so the real
+// PreviewSandbox never touches host state.
+func stubPreviewSandbox(t *testing.T, preview prepare.Preview) {
+	t.Helper()
+	orig := previewSandbox
+	previewSandbox = func(context.Context, options.RunOptions, termio.Logger) (prepare.Preview, error) {
+		return preview, nil
+	}
+	t.Cleanup(func() { previewSandbox = orig })
+}
+
+func assertInfoCalls(t *testing.T, ui *termio.Mock, want []string) {
+	t.Helper()
+	if len(ui.InfoCalls) != len(want) {
+		t.Fatalf("info calls = %v, want %v", ui.InfoCalls, want)
+	}
+	for i, line := range want {
+		if ui.InfoCalls[i] != line {
+			t.Errorf("info call %d = %q, want %q", i, ui.InfoCalls[i], line)
+		}
+	}
+}
+
+// hasDryRunMessage reports whether any info line is the skip-VM dry-run notice
+// that Run and Shell print only for a skip-VM mode.
+func hasDryRunMessage(infoCalls []string) bool {
+	for _, line := range infoCalls {
+		if strings.HasPrefix(line, "dry-run: Would start") {
+			return true
+		}
+	}
+	return false
+}
+
+// containerProbeWarn reports whether the last-client reap probed for running
+// containers, which it only does once this session's own lease is gone.
+func containerProbeWarn(ui *termio.Mock) bool {
+	for _, w := range ui.WarnCalls {
+		if strings.Contains(w, "running container") {
+			return true
+		}
+	}
+	return false
 }
