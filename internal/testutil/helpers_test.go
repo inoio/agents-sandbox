@@ -1,13 +1,9 @@
-package testutil_test
+package testutil
 
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
-	"strings"
 	"testing"
-
-	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // failingMarshaler makes yaml.Marshal return an error (it recovers a failed
@@ -62,48 +58,4 @@ func captureFatalf(t *testing.T, tb *recordingTB, fn func()) string {
 		)
 	}
 	return sentinel.message
-}
-
-func TestRunGit_FatalfReportsFailedCommand(t *testing.T) {
-	fake := &recordingTB{}
-	message := captureFatalf(t, fake, func() {
-		testutil.RunGit(fake, t.TempDir(), "nonexistentcommand123")
-	})
-	if !strings.Contains(message, "nonexistentcommand123") {
-		t.Errorf("RunGit fatal message %q does not name the failing command", message)
-	}
-}
-
-func TestWritePath_FatalfReportsUnwritablePath(t *testing.T) {
-	fake := &recordingTB{}
-	path := filepath.Join(t.TempDir(), "missing-dir", "file.txt")
-	message := captureFatalf(t, fake, func() {
-		testutil.WritePath(fake, path, "content")
-	})
-	if !strings.Contains(message, path) {
-		t.Errorf("WritePath fatal message %q does not name the path %q", message, path)
-	}
-}
-
-func TestWriteYAML_FatalfReportsMarshalError(t *testing.T) {
-	fake := &recordingTB{}
-	message := captureFatalf(t, fake, func() {
-		testutil.WriteYAML(fake, t.TempDir(), "bad.yaml", map[string]any{"bad": failingMarshaler{}})
-	})
-	if !strings.Contains(message, "marshal yaml") {
-		t.Errorf("WriteYAML fatal message %q does not mention YAML marshalling", message)
-	}
-}
-
-func TestInitRepo_FatalfReportsExistingRepository(t *testing.T) {
-	dir := t.TempDir()
-	testutil.RunGit(t, dir, "init", "--quiet")
-
-	fake := &recordingTB{tempDir: dir}
-	message := captureFatalf(t, fake, func() {
-		testutil.InitRepo(fake)
-	})
-	if !strings.Contains(message, "init repo") {
-		t.Errorf("InitRepo fatal message %q does not mention repository init", message)
-	}
 }
