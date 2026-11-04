@@ -21,6 +21,11 @@ func TestRuntimePreparationHelpers(t *testing.T) {
 	if !IsRealClient() {
 		t.Fatal("default client should be real")
 	}
+	WithMsbMock(t, &MockMsbClient{})
+	if IsRealClient() {
+		t.Fatal("a mock client must not report as real")
+	}
+	Get = realGetFactory
 	previous := skipRuntimeInstall
 	t.Cleanup(func() { skipRuntimeInstall = previous })
 	SkipRuntimeInstall()
@@ -906,24 +911,25 @@ func TestRealMsbClientAdapterErrors(t *testing.T) {
 func TestRealMsbClientLists(t *testing.T) {
 	ctx := context.Background()
 	swapSeam(t, &listSandboxesWith, func(context.Context, ...msbSdk.SandboxListOption) (*msbSdk.SandboxPage, error) {
-		return &msbSdk.SandboxPage{Sandboxes: []*msbSdk.SandboxHandle{{}}}, nil
+		return &msbSdk.SandboxPage{Sandboxes: []*msbSdk.SandboxHandle{{}, {}}}, nil
 	})
 	swapSeam(t, &listVolumes, func(context.Context) ([]*msbSdk.VolumeHandle, error) {
-		return []*msbSdk.VolumeHandle{{}}, nil
+		return []*msbSdk.VolumeHandle{{}, {}}, nil
 	})
 	swapSeam(t, &imageList, func(context.Context) ([]*msbSdk.ImageHandle, error) {
-		return []*msbSdk.ImageHandle{{}}, nil
+		return []*msbSdk.ImageHandle{{}, {}}, nil
 	})
 
+	// Two of each, so a loop that stops after the first is caught.
 	c := &realMsbClient{}
-	if handles, err := c.ListSandboxes(ctx, nil); err != nil || len(handles) != 1 {
-		t.Errorf("ListSandboxes() = %d handles, %v; want 1, nil", len(handles), err)
+	if handles, err := c.ListSandboxes(ctx, nil); err != nil || len(handles) != 2 || handles[1] == nil {
+		t.Errorf("ListSandboxes() = %v, %v; want 2 handles", handles, err)
 	}
-	if handles, err := c.ListVolumes(ctx); err != nil || len(handles) != 1 {
-		t.Errorf("ListVolumes() = %d handles, %v; want 1, nil", len(handles), err)
+	if handles, err := c.ListVolumes(ctx); err != nil || len(handles) != 2 || handles[1] == nil {
+		t.Errorf("ListVolumes() = %v, %v; want 2 handles", handles, err)
 	}
-	if handles, err := c.ImageList(ctx); err != nil || len(handles) != 1 {
-		t.Errorf("ImageList() = %d handles, %v; want 1, nil", len(handles), err)
+	if handles, err := c.ImageList(ctx); err != nil || len(handles) != 2 || handles[1] == nil {
+		t.Errorf("ImageList() = %v, %v; want 2 handles", handles, err)
 	}
 }
 
@@ -994,8 +1000,8 @@ func TestRealMsbClientCreateRemoveVolume(t *testing.T) {
 	})
 
 	c := &realMsbClient{}
-	if _, err := c.CreateVolume(ctx, "vol"); err != nil {
-		t.Fatalf("CreateVolume() error = %v, want nil", err)
+	if h, err := c.CreateVolume(ctx, "vol"); err != nil || h == nil {
+		t.Fatalf("CreateVolume() = %v, %v; want a handle", h, err)
 	}
 	if err := c.RemoveVolume(ctx, "vol"); err != nil {
 		t.Errorf("RemoveVolume() error = %v, want nil", err)

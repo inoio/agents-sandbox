@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -104,8 +105,8 @@ func TestTestFS(t *testing.T) {
 	if _, err := fs.Read(ctx, "missing"); err == nil {
 		t.Fatal("Read(missing) should error")
 	}
-	if err := fs.Remove(ctx, "a.txt"); err != nil {
-		t.Fatalf("Remove = %v", err)
+	if err := fs.Remove(ctx, "a.txt"); err != nil || !slices.Equal(fs.Removed, []string{"a.txt"}) {
+		t.Fatalf("Remove = %v, removed %v; want a.txt recorded", err, fs.Removed)
 	}
 }
 
@@ -159,33 +160,88 @@ func TestTestResult(t *testing.T) {
 		t.Fatalf("TestResult accessors wrong: %+v", r)
 	}
 	fallback := NewTestResult(false, 2, "so", "", nil)
-	if string(fallback.StdoutBytes()) != "so" {
-		t.Fatalf("StdoutBytes fallback = %q, want %q", fallback.StdoutBytes(), "so")
+	if fallback.Success() || fallback.ExitCode() != 2 || string(fallback.StdoutBytes()) != "so" {
+		t.Fatalf("failed result = success %v, exit %d, stdout %q; want false, 2, so",
+			fallback.Success(), fallback.ExitCode(), fallback.StdoutBytes())
 	}
 }
 
-func TestWithMsbMockAndResetGetFn(t *testing.T) {
-	prevGet := Get
-	defer func() { Get = prevGet }()
-
+// TestWithMsbMock pins that WithMsbMock installs the mock as msb.Get for one
+// test and restores the previous factory when the test ends.
+func TestWithMsbMock(t *testing.T) {
 	mock := &MockMsbClient{}
-
-	WithMsbMock(t, mock)
-	if Get() != mock {
-		t.Fatal("Get should return mock after WithMsbMock")
+	t.Run("install", func(t *testing.T) {
+		WithMsbMock(t, mock)
+		if Get() != mock {
+			t.Fatal("Get should return the mock after WithMsbMock")
+		}
+	})
+	if Get() == mock {
+		t.Error("WithMsbMock must restore the previous factory on cleanup")
 	}
-
-	prev := ResetGetFn(func() Client { return mock })
-	if prev == nil {
-		t.Fatal("ResetGetFn should return previous factory")
-	}
-	ResetGetFn(prev)
 }
 
-func TestInstallFailFastGet_OptInMockDoesNotPanic(t *testing.T) {
-	WithMsbMock(t, &MockMsbClient{})
-	Get().EnsureInstalled(context.Background())
-	// no panic -> pass
+// TestFailFastClientPanics pins that every method of the fail-fast client
+// panics, so a test that reaches msb without installing a mock fails loudly
+// instead of touching the real runtime.
+func TestFailFastClientPanics(t *testing.T) {
+	ctx := context.Background()
+	f := &failFastMsbClient{}
+	cases := []struct {
+		name string
+		fn   func()
+	}{
+		{"EnsureInstalled", func() { _ = f.EnsureInstalled(ctx) }},
+		{"GetSandbox", func() { _, _ = f.GetSandbox(ctx, "x") }},
+		{"CreateSandbox", func() { _, _ = f.CreateSandbox(ctx, "x") }},
+		{"ListSandboxes", func() { _, _ = f.ListSandboxes(ctx, nil) }},
+		{"GetVolume", func() { _, _ = f.GetVolume(ctx, "x") }},
+		{"CreateVolume", func() { _, _ = f.CreateVolume(ctx, "x") }},
+		{"ListVolumes", func() { _, _ = f.ListVolumes(ctx) }},
+		{"RemoveVolume", func() { _ = f.RemoveVolume(ctx, "x") }},
+		{"ImageGet", func() { _ = f.ImageGet(ctx, "x") }},
+		{"ImageList", func() { _, _ = f.ImageList(ctx) }},
+		{"ImagePrune", func() { _, _ = f.ImagePrune(ctx) }},
+		{"PruneStorage", func() { _, _ = f.PruneStorage(ctx, msbSdk.StoragePruneOptions{}) }},
+		{"ImageRemove", func() { _ = f.ImageRemove(ctx, "x", false) }},
+		{"ImageLoad", func() { _ = f.ImageLoad(ctx, "x", strings.NewReader("")) }},
+		{"ImageInspect", func() { _, _ = f.ImageInspect(ctx, "x") }},
+		{"ImageInspectDetail", func() { _, _ = f.ImageInspectDetail(ctx, "x") }},
+		{"StorageUsage", func() { _, _ = f.StorageUsage(ctx) }},
+		{"ShellStream", func() { _, _ = f.ShellStream(ctx, "cmd") }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("expected panic from fail-fast client")
+				}
+			}()
+			tc.fn()
+		})
+	}
+}
+
+// TestInstallFailFastGet pins that installing the fail-fast client replaces
+// whatever msb.Get returned, so msb.Get panics until a test installs a mock,
+// and works once one is.
+func TestInstallFailFastGet(t *testing.T) {
+	t.Run("replaces a factory", func(t *testing.T) {
+		WithMsbMock(t, &MockMsbClient{})
+		InstallFailFastGet()
+		defer func() {
+			if recover() == nil {
+				t.Fatal("msb.Get did not panic after InstallFailFastGet")
+			}
+		}()
+		_ = Get().EnsureInstalled(context.Background())
+	})
+	t.Run("with a mock", func(t *testing.T) {
+		WithMsbMock(t, &MockMsbClient{})
+		if err := Get().EnsureInstalled(context.Background()); err != nil {
+			t.Fatalf("EnsureInstalled through the mock: %v", err)
+		}
+	})
 }
 
 func TestWithCountingMsbMockCountsResolutionsAndRestores(t *testing.T) {
@@ -209,16 +265,6 @@ func TestWithCountingMsbMockCountsResolutionsAndRestores(t *testing.T) {
 	if Get() == mock {
 		t.Error("WithCountingMsbMock must restore the previous factory on cleanup")
 	}
-}
-
-func TestInstallFailFastGet_CausesPanicWithoutMock(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("fail-fast msb.Get should panic when no mock is installed, but did not")
-		}
-	}()
-	InstallFailFastGet()
-	Get().EnsureInstalled(context.Background())
 }
 
 func TestMockMsbClientEnsureInstalled(t *testing.T) {
@@ -261,8 +307,10 @@ func TestMockMsbClientGetSandbox(t *testing.T) {
 		t.Fatalf("GetSandbox via SetGotSandbox = %v, %v", got, err)
 	}
 
-	m3 := &MockMsbClient{}
-	m3.SetGotSandbox(nil)
+	m3 := (&MockMsbClient{}).SetGotSandbox(h)
+	if got := m3.SetGotSandbox(nil); got != m3 {
+		t.Fatal("SetGotSandbox should return the receiver")
+	}
 	if _, err := m3.GetSandbox(ctx, "x"); err == nil {
 		t.Fatal("SetGotSandbox(nil) should clear override")
 	}
@@ -291,6 +339,13 @@ func TestMockMsbClientCreateSandbox(t *testing.T) {
 	}
 	if len(m.CreatedSandboxCalls) != 1 || m.CreatedSandboxCalls[0].Name != "default" {
 		t.Fatalf("CreatedSandboxCalls = %v", m.CreatedSandboxCalls)
+	}
+	if _, err := m.CreateSandbox(
+		ctx,
+		"second",
+	); err != nil ||
+		!slices.Equal(m.CreatedSandboxes, []string{"default", "second"}) {
+		t.Fatalf("second CreateSandbox = %v, recorded %v; want every call recorded", err, m.CreatedSandboxes)
 	}
 
 	m2 := &MockMsbClient{CreateSandboxErr: errors.New("fail")}
@@ -349,10 +404,12 @@ func TestMockMsbClientGetVolume(t *testing.T) {
 	if _, err := m.GetVolume(ctx, "vol"); err == nil {
 		t.Fatal("expected SetGetVolumeErr error")
 	}
-	m2 := &MockMsbClient{}
-	m2.SetGetVolumeErr(nil)
-	if _, err := m2.GetVolume(ctx, "vol"); err == nil {
-		t.Fatal("SetGetVolumeErr(nil) should restore not-found behavior")
+	m2 := (&MockMsbClient{Volumes: []VolumeHandle{v}}).SetGetVolumeErr(errors.New("fail"))
+	if got := m2.SetGetVolumeErr(nil); got != m2 {
+		t.Fatal("SetGetVolumeErr should return the receiver")
+	}
+	if got, err := m2.GetVolume(ctx, "vol"); err != nil || got != v {
+		t.Fatalf("SetGetVolumeErr(nil) should restore the collection lookup, got %v, %v", got, err)
 	}
 	m3 := &MockMsbClient{GetVolumeFn: func(_ context.Context, _ string) (VolumeHandle, error) {
 		return nil, errors.New("fn")
@@ -376,11 +433,6 @@ func TestMockMsbClientCreateVolume(t *testing.T) {
 	}
 	if _, err := m2.CreateVolume(ctx, "x"); err == nil {
 		t.Fatal("expected CreateVolumeFn error")
-	}
-	m3 := &MockMsbClient{}
-	m3.createVolumeErr = errors.New("fail")
-	if _, err := m3.CreateVolume(ctx, "x"); err == nil {
-		t.Fatal("expected createVolumeErr")
 	}
 }
 
@@ -412,10 +464,6 @@ func TestMockMsbClientRemoveVolume(t *testing.T) {
 	if len(m.RemovedVolumes) != 1 || m.RemovedVolumes[0] != "rv" {
 		t.Fatalf("RemovedVolumes = %v", m.RemovedVolumes)
 	}
-	m.removeVolumeErr = errors.New("fail")
-	if err := m.RemoveVolume(ctx, "rv2"); err == nil {
-		t.Fatal("expected removeVolumeErr")
-	}
 	m2 := &MockMsbClient{RemoveVolumeFn: func(_ context.Context, _ string) error {
 		return errors.New("fn")
 	}}
@@ -432,11 +480,6 @@ func TestMockMsbClientImage(t *testing.T) {
 	}}
 	if err := m.ImageGet(ctx, "ref"); err == nil {
 		t.Fatal("expected ImageGetFn error")
-	}
-	m2 := &MockMsbClient{}
-	m2.imageGetErr = errors.New("fail")
-	if err := m2.ImageGet(ctx, "ref"); err == nil {
-		t.Fatal("expected imageGetErr")
 	}
 
 	img := &MockImageHandle{Reference_: "img"}
@@ -462,10 +505,6 @@ func TestMockMsbClientImage(t *testing.T) {
 	if len(m5.RemovedImages) != 1 || m5.RemovedImages[0].Ref != "ref" || !m5.RemovedImages[0].Force {
 		t.Fatalf("RemovedImages = %v", m5.RemovedImages)
 	}
-	m5.removeImageErr = errors.New("fail")
-	if err := m5.ImageRemove(ctx, "ref", false); err == nil {
-		t.Fatal("expected removeImageErr")
-	}
 	m6 := &MockMsbClient{ImageRemoveFn: func(_ context.Context, _ string, _ bool) error {
 		return errors.New("fn")
 	}}
@@ -479,10 +518,6 @@ func TestMockMsbClientImage(t *testing.T) {
 	}
 	if len(m7.LoadedImages) != 1 || m7.LoadedImages[0] != "ref" {
 		t.Fatalf("LoadedImages = %v", m7.LoadedImages)
-	}
-	m7.imageLoadErr = errors.New("fail")
-	if err := m7.ImageLoad(ctx, "ref", strings.NewReader("x")); err == nil {
-		t.Fatal("expected imageLoadErr")
 	}
 	m8 := &MockMsbClient{ImageLoadFn: func(_ context.Context, _ string, _ io.Reader) error {
 		return errors.New("fn")
@@ -721,6 +756,15 @@ func TestMockSandboxAttach(t *testing.T) {
 	if code, err := m3.AttachWith(ctx, "pwd", nil); code != 0 || err != nil {
 		t.Fatalf("AttachWith no opts = %d, %v", code, err)
 	}
+
+	attachErr := errors.New("attach failed")
+	m4 := &MockSandbox{AttachErr: attachErr}
+	if _, err := m4.AttachWith(ctx, "pwd", nil, msbSdk.WithAttachCwd("/workspace")); !errors.Is(err, attachErr) {
+		t.Fatalf("AttachWith error = %v, want %v", err, attachErr)
+	}
+	if m4.AttachCwd != "/workspace" {
+		t.Errorf("AttachWith cwd = %q, want /workspace", m4.AttachCwd)
+	}
 }
 
 func TestMockSandboxDetachStopClose(t *testing.T) {
@@ -776,8 +820,10 @@ func TestTestFSErrors(t *testing.T) {
 	if _, err := fs.List(ctx, "/"); err == nil {
 		t.Fatal("expected ListErr")
 	}
-	if _, err := fs.ReadString(ctx, "x"); err == nil {
-		t.Fatal("expected ReadErr")
+	// The read error wins even for a file that exists.
+	fs.Contents = map[string][]byte{"x": []byte("present")}
+	if _, err := fs.ReadString(ctx, "x"); !errors.Is(err, fs.ReadErr) {
+		t.Fatalf("ReadString error = %v, want ReadErr", err)
 	}
 	if _, err := fs.ReadStream(ctx, "x"); err == nil {
 		t.Fatal("expected ReadErr on ReadStream")
@@ -788,8 +834,8 @@ func TestTestFSErrors(t *testing.T) {
 	if err := fs.Mkdir(ctx, "/d"); err == nil {
 		t.Fatal("expected MkdirErr")
 	}
-	if _, err := fs.Read(ctx, "x"); err == nil {
-		t.Fatal("expected ReadErr on Read")
+	if _, err := fs.Read(ctx, "x"); !errors.Is(err, fs.ReadErr) {
+		t.Fatalf("Read error = %v, want ReadErr", err)
 	}
 }
 
@@ -812,8 +858,8 @@ func TestMockVolumeHandle(t *testing.T) {
 	}
 
 	def := &MockVolumeHandle{}
-	if def.Kind() != msbSdk.VolumeKindDir {
-		t.Fatalf("Kind default = %v, want VolumeKindDir", def.Kind())
+	if def.Kind() != msbSdk.VolumeKindDir || def.IsDefault() {
+		t.Fatalf("zero handle kind %v, default %v; want VolumeKindDir, false", def.Kind(), def.IsDefault())
 	}
 }
 
@@ -824,39 +870,6 @@ func TestMockImageHandle(t *testing.T) {
 	if h.Reference() != "r" || h.ManifestDigest() != "d" || !h.LastUsedAt().Equal(now) ||
 		h.SizeBytes() != &sz || !h.CreatedAt().Equal(now) {
 		t.Fatalf("MockImageHandle accessors wrong")
-	}
-}
-
-func TestFailFastClientPanics(t *testing.T) {
-	ctx := context.Background()
-	f := &failFastMsbClient{}
-	cases := []struct {
-		name string
-		fn   func()
-	}{
-		{"GetSandbox", func() { _, _ = f.GetSandbox(ctx, "x") }},
-		{"CreateSandbox", func() { _, _ = f.CreateSandbox(ctx, "x") }},
-		{"ListSandboxes", func() { _, _ = f.ListSandboxes(ctx, nil) }},
-		{"GetVolume", func() { _, _ = f.GetVolume(ctx, "x") }},
-		{"CreateVolume", func() { _, _ = f.CreateVolume(ctx, "x") }},
-		{"ListVolumes", func() { _, _ = f.ListVolumes(ctx) }},
-		{"RemoveVolume", func() { _ = f.RemoveVolume(ctx, "x") }},
-		{"ImageGet", func() { _ = f.ImageGet(ctx, "x") }},
-		{"ImageList", func() { _, _ = f.ImageList(ctx) }},
-		{"ImageRemove", func() { _ = f.ImageRemove(ctx, "x", false) }},
-		{"ImageLoad", func() { _ = f.ImageLoad(ctx, "x", strings.NewReader("")) }},
-		{"ImageInspect", func() { _, _ = f.ImageInspect(ctx, "x") }},
-		{"PruneStorage", func() { _, _ = f.PruneStorage(ctx, msbSdk.StoragePruneOptions{}) }},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			defer func() {
-				if recover() == nil {
-					t.Fatal("expected panic from fail-fast client")
-				}
-			}()
-			tc.fn()
-		})
 	}
 }
 
@@ -1072,46 +1085,10 @@ func TestMockSandboxDetach(t *testing.T) {
 	}
 }
 
-// TestMockMsbClientGetSandboxInternalBranches covers the getSandboxErr and
-// gotSandbox override branches of MockMsbClient.GetSandbox that are not reached
-// through the Set* helpers.
-func TestMockMsbClientGetSandboxInternalBranches(t *testing.T) {
-	ctx := context.Background()
-
-	m := &MockMsbClient{getSandboxErr: errors.New("fail")}
-	if _, err := m.GetSandbox(ctx, "x"); err == nil {
-		t.Fatal("expected getSandboxErr")
-	}
-
-	h := &MockSandboxHandle{Name_: "s"}
-	m2 := &MockMsbClient{gotSandbox: h}
-	if got, err := m2.GetSandbox(ctx, "x"); err != nil || got != h {
-		t.Fatalf("GetSandbox via gotSandbox = %v, %v; want %v", got, err, h)
-	}
-}
-
-// TestMockMsbClientGetVolumeInternalBranches covers the GetVolumeErr and
-// gotVolume override branches of MockMsbClient.GetVolume not reached through
-// the Set* helpers.
-func TestMockMsbClientGetVolumeInternalBranches(t *testing.T) {
-	ctx := context.Background()
-
-	m := &MockMsbClient{GetVolumeErr: errors.New("fail")}
-	if _, err := m.GetVolume(ctx, "x"); err == nil {
-		t.Fatal("expected GetVolumeErr")
-	}
-
-	v := &MockVolumeHandle{Name_: "vol"}
-	m2 := &MockMsbClient{gotVolume: v}
-	if got, err := m2.GetVolume(ctx, "x"); err != nil || got != v {
-		t.Fatalf("GetVolume via gotVolume = %v, %v; want %v", got, err, v)
-	}
-}
-
 // TestSetGetSandboxErrNil covers the else branch of SetGetSandboxErr clearing
 // the override.
 func TestSetGetSandboxErrNil(t *testing.T) {
-	m := &MockMsbClient{}
+	m := (&MockMsbClient{}).SetGetSandboxErr(errors.New("fail"))
 	if got := m.SetGetSandboxErr(nil); got != m {
 		t.Fatal("SetGetSandboxErr(nil) should return the receiver")
 	}
@@ -1158,29 +1135,6 @@ func TestEmptyStreamHandleClose(t *testing.T) {
 	}
 }
 
-// TestFailFastShellStreamPanics covers the otherwise-unreachable ShellStream
-// method on the fail-fast client.
-func TestFailFastShellStreamPanics(t *testing.T) {
-	f := &failFastMsbClient{}
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected panic from fail-fast ShellStream")
-		}
-	}()
-	_, _ = f.ShellStream(context.Background(), "cmd")
-}
-
-// TestFailFastImagePrunePanics covers the fail-fast ImagePrune method.
-func TestFailFastImagePrunePanics(t *testing.T) {
-	f := &failFastMsbClient{}
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected panic from fail-fast ImagePrune")
-		}
-	}()
-	_, _ = f.ImagePrune(context.Background())
-}
-
 // TestMockImageInspectDetail covers the mock's callback and default branches.
 func TestMockImageInspectDetail(t *testing.T) {
 	m := &MockMsbClient{ImageInspectDetailFn: func(_ context.Context, _ string) (*ImageDetail, error) {
@@ -1195,17 +1149,6 @@ func TestMockImageInspectDetail(t *testing.T) {
 	if err != nil || got.Reference != "ref" {
 		t.Fatalf("ImageInspectDetail default = %+v, %v", got, err)
 	}
-}
-
-// TestFailFastImageInspectDetailPanics covers the fail-fast ImageInspectDetail.
-func TestFailFastImageInspectDetailPanics(t *testing.T) {
-	f := &failFastMsbClient{}
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected panic from fail-fast ImageInspectDetail")
-		}
-	}()
-	_, _ = f.ImageInspectDetail(context.Background(), "ref")
 }
 
 // TestMockSandboxHandleID covers the mock handle's stable-identity accessor.
@@ -1285,16 +1228,6 @@ func TestMockStorageUsageDefaultsAndError(t *testing.T) {
 	if _, err := m.StorageUsage(context.Background()); err == nil {
 		t.Fatal("StorageUsage() with SetStorageUsageErr = nil error, want boom")
 	}
-}
-
-func TestFailFastStorageUsagePanics(t *testing.T) {
-	f := &failFastMsbClient{}
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected panic from fail-fast StorageUsage")
-		}
-	}()
-	_, _ = f.StorageUsage(context.Background())
 }
 
 func TestMockImageHandleNewAccessors(t *testing.T) {
