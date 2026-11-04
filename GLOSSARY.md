@@ -72,11 +72,11 @@ The short-lived sandbox a volume operation starts to prefill, copy, or edit a ho
 _Avoid_: temp VM
 
 **Legacy identity**:
-A checkout's pre-split, origin-keyed identity — the repo slug that was its only slug before the repo and checkout identities were separated.
+A checkout's pre-split identity — the origin-derived repo slug that was its only slug before the repo and checkout identities were separated, plus the path-derived slug a bare root or non-repo folder records.
 _Avoid_: old slug
 
 **Identity adoption**:
-The automatic, noticed, once-only migration to a project's checkout slug: it moves the state directory, keeps the existing home volume and its name, destroys and recreates the VM, and rebuilds the runner image under the checkout-scoped tag.
+The automatic, noticed, once-only migration to a project's checkout slug: it destroys the legacy project VM first, then merges the state directory into the checkout location, preserves the existing home volume and its name, and rebuilds the runner image under the checkout-scoped tag. A second clone adopting the same shared legacy VM claims the volume and starts with a fresh one instead.
 _Avoid_: migration
 
 **Session**:

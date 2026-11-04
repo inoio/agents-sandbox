@@ -38,7 +38,9 @@ There is no separate prerequisites page. `docs/install/installation.md` is the o
   installed.
 
 Installation ends with the next step spelled out — run your first agent (`tutorial.md`) — and routes readers who already
-use an agent to `switch.md` and readers who want a self-contained setup to `manage-config.md`.
+use an agent to `switch.md` and readers who want a self-contained setup to `manage-config.md`. The Get started page
+lists its four child pages as a labelled sequence (Installation → Your first agent → Switch → Manage config), and the
+tutorial is titled "Your first agent" (filename unchanged, so its URL is stable).
 
 Pages about running agents-sandbox — the tutorial and the README quick start — do not tell the reader to run `doctor`,
 because the preflight already runs it. Only the Installation prerequisites section and the troubleshooting page name it

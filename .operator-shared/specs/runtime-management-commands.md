@@ -1,6 +1,6 @@
 ---
 description: Contract for agents-sandbox's microsandbox management surface — volume/image/sandbox inspection, image and sandbox removal, sandbox disk compaction, a top-level `df` plus a `storage` group alias, and uniform `-q`/`--format json`/`--yes`/`--older-than` conventions — deliberately bounded, not a mirror of msb's lifecycle, data-portability, registry, cloud, or self-install surface.
-read_if: Adding or reviewing volume/image/sandbox inspection and removal commands, the `df`/`storage` accounting commands, prune confirmation/format flags, or command-surface consistency conventions.
+read_if: Adding or reviewing volume/image/sandbox inspection, removal, and disk-compaction commands, the `df`/`storage` accounting commands, prune confirmation/format flags, or command-surface consistency conventions.
 ---
 
 # Runtime management commands
@@ -90,10 +90,11 @@ portability features.
 - `sandbox inspect <name>` — status, image, labels, mounts, resources, `ID`, and
   backend kind.
 - `sandbox remove <name>` (`rm`) — remove an agents-sandbox project VM by name;
-  refuses a running VM unless `-f/--force` (stops it first). Ownership is a hard
-  name-shape check that `--force` cannot override: the name must parse to a
-  project-VM key and not be a task sandbox (project-VM names are prefix-free,
-  though a legacy `agents-sandbox-vm-*` name is still accepted; see
+  refuses a running VM unless `-f/--force` (stops it first). A hard name-shape
+  classification guard that `--force` cannot override gates the name: a legacy
+  `agents-sandbox-vm-*` name is accepted, and otherwise the name must not parse as
+  a task sandbox or a home-volume/runner-image name. This is a project-vs-task
+  classification, not artifact ownership (which is positional; see
   `artifact-naming.md`). It does **not** drop the persisted state, so the
   recorded home volume survives and the next run recreates the VM against it.
 - `sandbox compact [name]` — merge the oldest sealed copy-on-write disk layers of
@@ -101,7 +102,8 @@ portability features.
   Opt-in only: it never runs on the automatic prune path, and named volumes such
   as the home volume are never compacted. Flags: `--dry-run`, `--disk` (one guest
   mount, mutually exclusive with `--root-only`), `--root-only`, `--layers` (the
-  oldest N sealed layers, minimum 2; default all), and `--format json`.
+  oldest N sealed layers, minimum 2; default all), `-q/--quiet` (identifiers only),
+  and `--format json`.
 - `sandbox copy`/`cp` — dropped: host↔VM transfer is the excluded
   data-portability surface, not part of the bounded management surface.
 - `sandbox start`/`restart`/`exec`/`logs`/`metrics`/`pause`/`resume`/`wait` —

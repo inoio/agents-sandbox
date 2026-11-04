@@ -608,7 +608,8 @@ agents-sandbox sandbox inspect <name> --quiet         # name only
 
 Remove a project sandbox VM by name. Only project VMs are accepted — the
 prefix-free `<slug>-<agent>` name or a name created by an earlier version
-(`agents-sandbox-vm-*`). Refuses a running VM unless `--force` is
+(`agents-sandbox-vm-*`). A task sandbox name is refused, and `--force` does not
+override that. Refuses a running VM unless `--force` is
 set, which stops it first. The project's persisted state is left intact, so the
 next run recreates the VM against the same recorded home volume. Prompts for
 confirmation unless the global `--yes` is set; non-interactively, `--yes` is
