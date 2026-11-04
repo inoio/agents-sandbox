@@ -23,6 +23,7 @@ func TestFailFastConfigPathsPanics(t *testing.T) {
 		{"UserSlugConfigDir", func() { f.UserSlugConfigDir("widget-bbb") }},
 		{"UserCacheDir", func() { f.UserCacheDir() }},
 		{"UserStateDir", func() { f.UserStateDir() }},
+		{"UserDataDir", func() { f.UserDataDir() }},
 		{"UserHomeDir", func() { _, _ = f.UserHomeDir() }},
 		{"UserEnvFile", func() { f.UserEnvFile() }},
 		{"UserEnvSecretFile", func() { f.UserEnvSecretFile() }},
@@ -150,6 +151,9 @@ func TestMockConfigPaths(t *testing.T) {
 	}
 	if got := cfgPaths.UserStateDir(); got != filepath.Join(base, "userstate") {
 		t.Errorf("UserStateDir() = %q, want %q", got, filepath.Join(base, "userstate"))
+	}
+	if got := cfgPaths.UserDataDir(); got != filepath.Join(base, "userdata") {
+		t.Errorf("UserDataDir() = %q, want %q", got, filepath.Join(base, "userdata"))
 	}
 	home, err := cfgPaths.UserHomeDir()
 	if err != nil {
