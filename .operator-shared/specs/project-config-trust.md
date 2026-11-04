@@ -1,5 +1,5 @@
 ---
-description: Contract for the project config trust guard (#229): the project config layer is untrusted in its entirety, whatever the launcher consumes from it requires approval-on-change recorded per checkout, an unapproved change refuses to start non-interactively, and the prompt shows the resolved old → new values and their source.
+description: Contract for the project config trust guard (#229): the project config layer is untrusted in its entirety, whatever the launcher consumes from it requires approval-on-change recorded per checkout, an unapproved change refuses to start non-interactively, and the prompt shows the resolved old → new effect and its source.
 read_if: Working on project config trust (#229), the approve-on-change gate, project-layer provenance, or `config harden`; or diagnosing a run that refuses to start because `.agents-sandbox` changed.
 ---
 
@@ -71,7 +71,7 @@ are.
   - **structured launcher config** → the resolved values of every key the project layer sets.
   - **secret files** → the substitution structure (env-var names, hosts, header fields, flags, the
     `secrets.common.allow-placeholder-for` passthrough), **not** the values. A value rotation does not
-    re-prompt, and the prompt never prints a secret value.
+    re-prompt, and the prompt never prints a value from the secret files.
   - **file inputs** (the Dockerfile, agent snippets and mirrored files) → the file's content.
 - The projection is the project layer's **own declared contribution**, not composed with the higher
   layers: a change to the user layer or a flag must not invalidate an approval, and a project value
@@ -85,12 +85,21 @@ are.
   - **No recorded digest** with a non-empty projection (first run, a fresh clone, lost state) → treated as
     changed.
   - **Differ** → approval is required.
-- Approval is interactive. The prompt names each changed input with its **resolved old → new value and the
-  source file** (this is #230's requirement, owned here for project-sourced changes), then asks to
-  continue. Approving records the new digest; declining aborts the run before any side effect and returns a
-  cancellation the caller treats as a user decline.
-- The recorded digest is written through the `RootState` transaction (`state.WithRootState`,
-  `project-state-transactions.md`) and preserves every field it does not own.
+- Approval is interactive. The prompt names each changed input with its **resolved old → new effect and
+  the source file** — resolved values for config and file inputs, structure for secret files (so no value
+  from a secret file is shown; this is #230's requirement, owned here for project-sourced changes) — then
+  asks to continue. The old side is diffed from the previously approved projection (State), so it is recoverable
+  even though the project files have already changed. Approving records the new projection and its digest;
+  declining aborts the run before any side effect and returns a cancellation the caller treats as a user
+  decline.
+- The approved projection and its digest are written through the `RootState` transaction
+  (`state.WithRootState`, `project-state-transactions.md`), preserving every field the transaction does not
+  own. The projection is stored canonically. It holds no value from the project secret files (their effect
+  is structure-only by construction), while launcher-config values and file inputs are stored in their
+  resolved/content form — so it is safe at rest only to the same degree the project files themselves are; a
+  literal secret a launcher-config value or a Dockerfile carries is stored as written. A file input is
+  stored by content for a human diff; a large or binary input may be stored as a digest where a content
+  diff is not useful.
 
 ## Non-interactive behavior
 
@@ -107,8 +116,15 @@ are.
 
 - In `prepare` (`prepare.PrepareSandbox`), before any build, volume, state, VM, or network side effect — in
   particular **before the image build** (`EnsureImage`), so a project `docker` or Dockerfile cannot be
-  baked before approval. The gate reads the project layer itself (see Provenance); it does not wait for the
-  later, single host env/secret read (`envsecret.LoadEnvAndSecrets`).
+  baked before approval.
+- The gate is the project layer's only reader. It reads each consumed project input once — every launcher
+  config key including `mounts` and `home` (resolved per-layer; see Provenance), the project env and secret
+  files, the agent snippets and mirrored files, the Dockerfile, `provision-host-config`, and `docker` — and
+  the values it approves are the ones later stages use: the single host env/secret load
+  (`envsecret.LoadEnvAndSecrets`, the same call `reconfig-decision.md` names), the provisioned files, the
+  build, and the VM config all take their values from the gated resolution. No stage re-reads
+  `<project-config>` after the gate, so a guest edit during approval or the image build cannot slip
+  unreviewed content into the VM.
 - The image-build entry points (`build`, `image build`) never call `PrepareSandbox` and would otherwise
   bypass the gate: they must run the same check before building, since they read the project Dockerfile and
   the project `docker` setting.
@@ -118,19 +134,22 @@ are.
 ## Provenance
 
 The projection must be computed from the project layer alone, not from viper's merged view, because the
-merge discards which file set a key. The project layer is re-read on its own — the files are named by
+merge discards which file set a key. The project layer is read on its own — the files are named by
 `configpaths.ProjectConfigDir()`, the project secret-file accessors, and `reprovision.ResolveConfigSource`
 (which resolves the project agent config dir). `homeconfig.LoadLayers` already keeps one `Layer` per config
 dir and can attribute its entries; `mounts` is loaded through the merged `viper` view today and needs the
-same per-layer treatment. Provenance is used only to build the projection; only the digest is persisted.
+same per-layer treatment. Provenance is used only to build the projection; the projection and its digest
+are persisted (State), nothing else.
 
 ## State
 
 - The approval is per **checkout**, not per agent: one checkout's config content is approved once and its
   agents share that approval. It is a section keyed by the checkout slug (`checkout-identity.md`) in the
   machine-global `RootState` — the per-`(slug, agent)` `HomeState` is the wrong scope, and a new file is
-  forbidden (`state-by-scope.md`, `project-state-transactions.md`). Losing `RootState` loses the approval,
-  so the next run re-approves — the safe direction.
+  forbidden (`state-by-scope.md`, `project-state-transactions.md`). The section holds the approved
+  projection and its digest; the projection is retained so a later change can be shown as resolved
+  old → new, and it holds no value from the project secret files. Losing `RootState` loses the approval, so
+  the next run re-approves — the safe direction.
 
 ## Defense in depth (related, not this contract)
 
@@ -148,7 +167,7 @@ still reaches the host run:
 - Not a sandbox-escape or VM-boundary fix: it governs the launcher's trust in the project config layer, not
   the VM boundary itself.
 - Not the general reconfiguration-visibility feature (#230), though it owns #230's requirement that a
-  project-sourced change be shown with resolved values.
+  project-sourced change be shown with its resolved effect.
 - The user layer is never gated, and no setting is gated for the user layer.
 - No `--yes` override and no non-interactive approval path in v1.
 
