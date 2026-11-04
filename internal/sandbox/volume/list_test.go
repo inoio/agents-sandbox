@@ -5,17 +5,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
-	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
-func TestListVolumesParseRoundTrip(t *testing.T) {
-	name := HomeVolumeName(state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"})
-	info := naming.ParseHomeVolumeName(name)
-	if info.Slug != "proj-1mjusbm3wikhb0" || info.Agent != "opencode" {
-		t.Errorf("ParseHomeVolumeName(%q) = %+v, want slug=proj-1mjusbm3wikhb0 agent=opencode", name, info)
+func TestFormatVolumeTime(t *testing.T) {
+	utc := time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC)
+	if got := FormatVolumeTime(utc); got != "2026-08-17 10:42:36" {
+		t.Errorf("FormatVolumeTime(nonzero) = %q, want %q", got, "2026-08-17 10:42:36")
 	}
+	if got := FormatVolumeTime(time.Time{}); got != "-" {
+		t.Errorf("FormatVolumeTime(zero) = %q, want %q", got, "-")
+	}
+}
+
+func TestListVolumesShowsBothSchemes(t *testing.T) {
+	mock := &msb.MockMsbClient{Volumes: []msb.VolumeHandle{
+		&msb.MockVolumeHandle{Name_: "agents-sandbox-home-myproj-1mjusbm3wikhb0-opencode-20260812T123456"},
+		&msb.MockVolumeHandle{Name_: "myproj-1mjusbm3wikhb0-opencode-20260812T123457"},
+		&msb.MockVolumeHandle{Name_: "some-other-volume"},
+	}}
+	msb.WithMsbMock(t, mock)
+
+	got, err := ListVolumes(context.Background())
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Equal(t, "myproj-1mjusbm3wikhb0-opencode-20260812T123457", got[1].Name)
 }
 
 func TestListVolumes_ReturnsOnlyHomeVolumes(t *testing.T) {
@@ -110,15 +126,5 @@ func TestListVolumes_PopulatesMetadata(t *testing.T) {
 	}
 	if v.CreatedAt != "2026-08-17 10:42:36" {
 		t.Errorf("CreatedAt = %q, want %q", v.CreatedAt, "2026-08-17 10:42:36")
-	}
-}
-
-func TestFormatVolumeTime(t *testing.T) {
-	utc := time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC)
-	if got := FormatVolumeTime(utc); got != "2026-08-17 10:42:36" {
-		t.Errorf("FormatVolumeTime(nonzero) = %q, want %q", got, "2026-08-17 10:42:36")
-	}
-	if got := FormatVolumeTime(time.Time{}); got != "-" {
-		t.Errorf("FormatVolumeTime(zero) = %q, want %q", got, "-")
 	}
 }
