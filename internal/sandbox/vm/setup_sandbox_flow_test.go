@@ -232,13 +232,19 @@ func TestSetUpSandboxStopsWhenDockerdCannotStart(t *testing.T) {
 		ExecDetachedCalls: calls,
 	}
 	ui := termio.NewTestMock(t)
+	// An unhealthy daemon would be probed and launched if the setup went on.
+	probes := 0
+	seams := options.Seams{DaemonHealth: func(context.Context, msb.Sandbox, string) (string, int, error) {
+		probes++
+		return "", 1, nil
+	}}
 
-	err := setUpOpencodeSandbox(t, sb, &reprovision.ConfigFiles{}, &ui, VMBootConnected, healthyOpencodeDaemon(t))
+	err := setUpOpencodeSandbox(t, sb, &reprovision.ConfigFiles{}, &ui, VMBootConnected, seams)
 	if !errors.Is(err, shellErr) || !strings.Contains(err.Error(), "docker startup") {
 		t.Fatalf("SetUpSandbox error = %v, want the docker startup failure wrapping %v", err, shellErr)
 	}
-	if len(*calls) != 0 {
-		t.Errorf("detached launches = %+v, want none after dockerd failed", *calls)
+	if probes != 0 || len(*calls) != 0 {
+		t.Errorf("daemon probed %d times and launched %+v, want neither after dockerd failed", probes, *calls)
 	}
 }
 

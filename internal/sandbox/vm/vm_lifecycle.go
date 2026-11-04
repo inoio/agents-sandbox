@@ -26,6 +26,7 @@ import (
 type vmAction int
 
 const (
+	// gomutants:disable-next-line ARITHMETIC_BASE,INTEGER_INCREMENT,INTEGER_DECREMENT reason="the offset only keeps the zero value free for no action; actions are compared only with each other and the zero value is returned only beside an error"
 	vmActionConnect vmAction = iota + 1
 	vmActionStart
 	vmActionWait
@@ -71,8 +72,10 @@ func decideVMAction(status msbSdk.SandboxStatus) (vmAction, error) {
 	case msbSdk.SandboxStatusRunning:
 		return vmActionConnect, nil
 	case msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
+		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="every caller discards the action returned with an error"
 		return 0, fmt.Errorf("sandbox is not available for a new client: status is %q", status)
 	default:
+		// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT reason="every caller discards the action returned with an error"
 		return 0, fmt.Errorf("unexpected sandbox status: %q", status)
 	}
 }
