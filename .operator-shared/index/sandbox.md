@@ -34,7 +34,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `image/` — Runner image build, Dockerfile, fetch, inspect, tags
 
-- `build.go`, `fetch.go`, `image.go`, `format.go`, `inspect.go`, `inspect_detail.go` (`InspectImage`), `list.go`, `remove.go`, `references.go` (`InUseImageReferences`: the fail-closed in-use guard), `tags.go`, `embed.go` — image build/inspect/list/remove pipeline
+- `build.go` (options, `ImageInfo`, build plan, `EnsureImage`/`Build`), `from_stages.go` (FROM/stage parsing), `docker_build.go` (Docker build, build context, failure classification), `load.go` (`EnsureLoaded` into msb), `base_digest.go` (base-image digest/pull), `fetch.go`, `image.go`, `format.go`, `inspect.go`, `inspect_detail.go` (`InspectImage`), `list.go`, `remove.go`, `references.go` (`InUseImageReferences`: the fail-closed in-use guard), `tags.go`, `embed.go` — image build/inspect/list/remove pipeline
 - `dockerfile.go`, `dockerfile_lines.go`, `instructions.go`, `project_dockerfile.go`, `warn.go` — `RenderDockerfile` stage composition and the project-Dockerfile parse/docker-decision (`specs/image-composition.md`)
 - `preview.go` — `PreviewImage`: the `--dry-run` image plan (`specs/dry-run-preview.md`)
 - `data/` — build-context assets embedded into the image: the managed-base `Dockerfile`, `agents-sandbox-path.sh` (profile.d `PATH` merge, 0644), `msb-trust.sh` (the vendored CA-trust helper, installed 0755; `msb-trust.LICENSE` beside it records provenance and is neither embedded nor shipped; see `specs/ca-trust-helper.md`), and `xdg-open.sh` (the in-VM opener shim, installed 0755; see `guides/agent-link-opening.md`)
