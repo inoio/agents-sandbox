@@ -68,7 +68,19 @@ func TestHomeVolumeResolution_PreviewMatchesRealDecision(t *testing.T) {
 			want:    wantRecover, wantVolume: "mark-1",
 		},
 		{
+			name:          "live volume recovered when recorded state is empty",
+			seed:          true,
+			liveCandidate: "live-1",
+			present:       []string{"live-1"},
+			want:          wantRecover, wantVolume: "live-1",
+		},
+		{
 			name: "fresh volume when nothing survives",
+			want: wantCreate,
+		},
+		{
+			name: "fresh volume when recorded state is empty and nothing survives",
+			seed: true,
 			want: wantCreate,
 		},
 		{
