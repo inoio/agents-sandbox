@@ -41,11 +41,10 @@ func TestProjectVMNameTruncationPreservesAgent(t *testing.T) {
 	}
 }
 
-// TestProjectVMNameExtremeAgentCoversFinalCut covers the final hard cut in
-// ProjectVMName, reachable only when the agent name itself exceeds the max
-// name length. The full name is cut at the byte limit and the agent suffix
-// may be lost, so we only assert the length bound.
-func TestProjectVMNameExtremeAgentCoversFinalCut(t *testing.T) {
+// TestProjectVMNameCutsAnOverlongAgentToTheMaximum pins that an agent name
+// longer than the maximum name length still yields a name of exactly that
+// length; the agent suffix may then be cut.
+func TestProjectVMNameCutsAnOverlongAgentToTheMaximum(t *testing.T) {
 	slug := "proj"
 	agent := "a" + string(make([]byte, options.MaxSandboxNameLen))
 	got := ProjectVMName(state.Key{Slug: slug, Agent: agent})
@@ -92,111 +91,67 @@ func TestTruncateProjectVMNameKeepsAtLeastZeroSlugBytes(t *testing.T) {
 	require.Len(t, got, options.MaxSandboxNameLen)
 }
 
-// TestFindProjectVMPropagatesNewNameProbeError pins the first probe's failure
-// handling: a non-not-found error under the new name aborts with an error naming
-// that name and found=false, rather than falling through to the legacy probe.
-func TestFindProjectVMPropagatesNewNameProbeError(t *testing.T) {
+// TestFindProjectVM pins the lookup order: the project VM is found under its
+// current name, else under its legacy prefixed name, else reported missing. A
+// lookup that fails for another reason, under either name, fails closed with
+// the cause and the name it probed.
+func TestFindProjectVM(t *testing.T) {
 	k := state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		if name == ProjectVMName(k) {
-			return nil, errVMNameBoom
-		}
-		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
-	}}
-
-	handle, found, err := FindProjectVM(context.Background(), client, k)
-	require.ErrorIs(t, err, errVMNameBoom)
-	require.False(t, found)
-	require.Nil(t, handle)
-	require.Contains(t, err.Error(), ProjectVMName(k))
-}
-
-// TestFindProjectVMPropagatesLegacyProbeErrorFailsClosed pins the legacy probe's
-// failure handling: a non-not-found error under the legacy name aborts with
-// found=false and an error naming the legacy name.
-func TestFindProjectVMPropagatesLegacyProbeErrorFailsClosed(t *testing.T) {
-	k := state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		if name == ProjectVMName(k) {
-			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
-		}
-		return nil, errVMNameBoom
-	}}
-
-	handle, found, err := FindProjectVM(context.Background(), client, k)
-	require.ErrorIs(t, err, errVMNameBoom)
-	require.False(t, found)
-	require.Nil(t, handle)
-	require.Contains(t, err.Error(), legacyProjectVMName(k))
-}
-
-func TestFindProjectVMFallsBackToLegacyName(t *testing.T) {
-	k := state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"}
-	legacy := &msb.MockSandboxHandle{
-		Name_:   legacyProjectVMName(k),
-		Status_: msbSdk.SandboxStatusRunning,
+	current, legacy := ProjectVMName(k), legacyProjectVMName(k)
+	cases := []struct {
+		name      string
+		sandboxes map[string]error // name -> lookup error; nil means the VM exists
+		wantName  string
+		wantErr   error
+		wantProbe string
+	}{
+		{name: "current name", sandboxes: map[string]error{current: nil, legacy: nil}, wantName: current},
+		{name: "legacy name", sandboxes: map[string]error{legacy: nil}, wantName: legacy},
+		{name: "neither"},
+		{
+			name:      "current lookup fails",
+			sandboxes: map[string]error{current: errVMNameBoom, legacy: nil},
+			wantErr:   errVMNameBoom,
+			wantProbe: current,
+		},
+		{
+			name:      "legacy lookup fails",
+			sandboxes: map[string]error{legacy: errVMNameBoom},
+			wantErr:   errVMNameBoom,
+			wantProbe: legacy,
+		},
 	}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		if name == legacy.Name_ {
-			return legacy, nil
-		}
-		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
-	}}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+				lookupErr, exists := tc.sandboxes[name]
+				switch {
+				case !exists:
+					return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
+				case lookupErr != nil:
+					return nil, lookupErr
+				}
+				return &msb.MockSandboxHandle{Name_: name}, nil
+			}}
 
-	handle, found, err := FindProjectVM(context.Background(), client, k)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, legacy.Name_, handle.Name())
-}
+			handle, found, err := FindProjectVM(context.Background(), client, k)
 
-func TestFindProjectVMPrefersNewName(t *testing.T) {
-	k := state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"}
-	project := &msb.MockSandboxHandle{Name_: ProjectVMName(k), Status_: msbSdk.SandboxStatusRunning}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		if name == project.Name_ {
-			return project, nil
-		}
-		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
-	}}
-
-	handle, found, err := FindProjectVM(context.Background(), client, k)
-	require.NoError(t, err)
-	require.True(t, found)
-	require.Equal(t, project.Name_, handle.Name())
-}
-
-func TestFindProjectVMNotFoundWhenNeitherExists(t *testing.T) {
-	k := state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
-	}}
-
-	handle, found, err := FindProjectVM(context.Background(), client, k)
-	require.NoError(t, err)
-	require.False(t, found)
-	require.Nil(t, handle)
-}
-
-func TestFindProjectVMPropagatesLegacyProbeError(t *testing.T) {
-	k := state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		if name == ProjectVMName(k) {
-			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
-		}
-		return nil, context.DeadlineExceeded
-	}}
-
-	_, _, err := FindProjectVM(context.Background(), client, k)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-}
-
-func TestFindProjectVMSurfacesOtherErrors(t *testing.T) {
-	k := state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"}
-	client := &msb.MockMsbClient{}
-	client.SetGetSandboxErr(context.DeadlineExceeded)
-
-	_, _, err := FindProjectVM(context.Background(), client, k)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				require.Contains(t, err.Error(), tc.wantProbe)
+				require.False(t, found)
+				require.Nil(t, handle)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.wantName != "", found)
+			if tc.wantName == "" {
+				require.Nil(t, handle)
+				return
+			}
+			require.Equal(t, tc.wantName, handle.Name())
+		})
+	}
 }
 
 // TestProjectVMHomeVolume pins the home volume read every caller relies on: a
