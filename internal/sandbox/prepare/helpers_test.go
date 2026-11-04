@@ -16,6 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
@@ -109,6 +110,16 @@ func unresolvableIdentityDir(t testing.TB) string {
 		0o644,
 	))
 	return dir
+}
+
+// exhaustedPortMappings claims every host port in the serve-only probe range,
+// so a serve-only resolution finds no free port to publish the agent on.
+func exhaustedPortMappings() []ports.PortMapping {
+	mappings := make([]ports.PortMapping, 0, ports.ProbeRange)
+	for port := ports.ServeOnlyBasePort; port < ports.ServeOnlyBasePort+ports.ProbeRange; port++ {
+		mappings = append(mappings, ports.PortMapping{HostPort: port, GuestPort: port})
+	}
+	return mappings
 }
 
 func contains(s, sub string) bool {

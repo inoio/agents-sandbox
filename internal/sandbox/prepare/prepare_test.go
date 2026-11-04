@@ -293,6 +293,19 @@ func TestResolveServeHostPortProbesAroundUserPorts(t *testing.T) {
 	}
 }
 
+// TestResolveServeHostPortExhausted covers the error branch: when every host
+// port in the probe range is claimed by a user mapping, publishing the agent
+// server is impossible, so the resolution fails loudly instead of colliding.
+func TestResolveServeHostPortExhausted(t *testing.T) {
+	_, err := resolveServeHostPort(options.RunOptions{ServeOnly: true, Ports: exhaustedPortMappings()}, 0)
+	if err == nil {
+		t.Fatal("expected an error when every candidate host port is claimed")
+	}
+	if !strings.Contains(err.Error(), "no free host port") {
+		t.Errorf("error = %v, want it to mention no free host port", err)
+	}
+}
+
 func TestReportActivePortsFreshCreate(t *testing.T) {
 	ui := &termio.Mock{}
 	opts := options.RunOptions{Ports: []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}}

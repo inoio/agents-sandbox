@@ -25,6 +25,16 @@ const persistedConfigWithPorts = `{
   }
 }`
 
+// TestRealSandboxHandleConfigPorts covers the real handle's delegation to
+// ParseConfigPorts: a handle without persisted config JSON reports the decode
+// error rather than a silent empty binding list, mirroring ConfigMounts.
+func TestRealSandboxHandleConfigPorts(t *testing.T) {
+	h := &realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+	if _, err := h.ConfigPorts(); err == nil {
+		t.Error("ConfigPorts() error = nil, want an error for a handle without config JSON")
+	}
+}
+
 func TestParseConfigPortsMapsEveryProtocol(t *testing.T) {
 	got, err := ParseConfigPorts(persistedConfigWithPorts)
 	if err != nil {

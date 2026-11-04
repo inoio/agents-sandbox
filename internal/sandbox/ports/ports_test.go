@@ -270,3 +270,31 @@ func TestResolveServeHostPortSkipsAgentPortClaimedByNewMapping(t *testing.T) {
 		t.Errorf("ResolveServeHostPort = %d, want a port the new --port mapping does not claim", got)
 	}
 }
+
+// TestParsePortMappingsAcceptsValidSpecs covers the success return: valid specs
+// are parsed into their mappings rather than rejected.
+func TestParsePortMappingsAcceptsValidSpecs(t *testing.T) {
+	got, err := ParsePortMappings([]string{"3000", "8080:5173"})
+	if err != nil {
+		t.Fatalf("ParsePortMappings() error = %v", err)
+	}
+	want := []PortMapping{
+		{HostPort: 3000, GuestPort: 3000},
+		{HostPort: 8080, GuestPort: 5173},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("ParsePortMappings() = %+v, want %+v", got, want)
+	}
+}
+
+// TestResolveServeHostPortFallsBackToUntaggedBinding covers the fallback for a
+// persisted binding that read back without its guest port: with no serve
+// binding to match, the first binding no user port claims is reused.
+func TestResolveServeHostPortFallsBackToUntaggedBinding(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
+		{Bind: ServeOnlyBindAddr, HostPort: 5000, GuestPort: 4000, Protocol: msbSdk.PortProtocolTCP},
+	}}
+	if got := ResolveServeHostPort(cfg, true, nil); got != 5000 {
+		t.Errorf("ResolveServeHostPort = %d, want 5000 (the untagged binding's host port)", got)
+	}
+}
