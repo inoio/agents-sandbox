@@ -21,9 +21,9 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// evalProvisionRules is a seam over agent.EvalProvisionRules so tests can
-// exercise the provisioning-error path. A direct call cannot fail because the
-// copy callback only records files in memory.
+// evalProvisionRules is indirect because a direct call cannot fail (the copy
+// callback only records files in memory), so only a substitute reaches the
+// provisioning-error path.
 var evalProvisionRules = agent.EvalProvisionRules
 
 // VMHomeDir is the sandbox home mount point. It is fixed by the project VM

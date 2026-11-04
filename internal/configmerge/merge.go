@@ -86,8 +86,6 @@ func deepMerge(base, override map[string]any) map[string]any {
 	return result
 }
 
-// readDir is overridable so tests can exercise the partial-read error path
-// without provoking a real directory-read fault.
 var readDir = os.ReadDir
 
 // scanSnippets reads every file whose basename matches pattern across dirs and

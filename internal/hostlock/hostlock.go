@@ -11,8 +11,6 @@ import (
 	"syscall"
 )
 
-// flock is a seam so tests can exercise the failure path, which a real file
-// cannot trigger.
 var flock = syscall.Flock
 
 // AcquireExclusive creates dir (0700) if needed, opens dir/name (0600) and

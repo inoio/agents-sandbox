@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-// ohMyPiGitHubLatestURL is a var (not const) so the tests can point it at an
-// httptest server.
 var ohMyPiGitHubLatestURL = "https://api.github.com/repos/can1357/oh-my-pi/releases/latest"
 
 // latestOhMyPiVersion returns the newest Oh My Pi release (leading "v"

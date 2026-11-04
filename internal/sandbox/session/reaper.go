@@ -23,8 +23,7 @@ const (
 const defaultMaxSessionRetries = 10
 
 // waitQuiescentPollInterval is the delay between session-status polls while
-// waiting for active sessions to finish. It is a variable so tests can shrink
-// it instead of waiting out the production interval.
+// waiting for active sessions to finish.
 var waitQuiescentPollInterval = 2 * time.Second
 
 // SessionStatus is the decoded server-side /session/status entry. Busy and idle are

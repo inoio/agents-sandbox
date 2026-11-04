@@ -30,8 +30,7 @@ func IsRealClient() bool {
 // replacement-capable installer after runtime preparation has made a decision.
 func SkipRuntimeInstall() { skipRuntimeInstall = true }
 
-// resolveRuntime/ensureRuntime wrap the SDK setup calls so tests can observe the
-// RuntimeConfig passed to them. Both name the private home explicitly so
+// resolveRuntime and ensureRuntime name the private home explicitly, so
 // resolution does not depend on whether ApplyHome already set MSB_HOME.
 var (
 	resolveRuntime = msbSdk.ResolveRuntime
