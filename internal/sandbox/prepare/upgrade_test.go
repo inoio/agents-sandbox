@@ -1051,22 +1051,47 @@ func TestPromptUpgradeNamesBothVersions(t *testing.T) {
 	}
 }
 
-// TestPendingUpgradeWithoutUpgradeChecker pins that an agent without an upgrade
-// checker is never offered an upgrade, even when a newer release is cached for
-// its name (there is no checker to compare versions with).
-func TestPendingUpgradeWithoutUpgradeChecker(t *testing.T) {
+// TestPendingUpgradeDefersWhenRootLockIsTakenDuringTheCheck pins that a root
+// lock another process takes while the version request runs defers the offer
+// to the next run, even though the request found a newer release.
+func TestPendingUpgradeDefersWhenRootLockIsTakenDuringTheCheck(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "fake"}
-	if err := seedRootState(state.RootState{Updates: state.Updates{Agents: map[string]state.AgentCheckState{
-		(&fakeAgent{}).Name(): {LastChecked: now().Add(-time.Hour), LatestVersion: "2.0.0"},
-	}}}); err != nil {
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
+	if err := seedRootState(dueRootState()); err != nil {
 		t.Fatal(err)
 	}
+
+	held := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	latestVersion := func(context.Context, agent.Agent) (string, error) {
+		go func() {
+			defer close(done)
+			_, _ = state.WithRootState(true, func(*state.RootTxn) error {
+				close(held)
+				<-release
+				return nil
+			})
+		}()
+		<-held
+		return "2.0.0", nil
+	}
+	t.Cleanup(func() {
+		close(release)
+		<-done
+	})
+
 	latest, offer := pendingUpgrade(
-		context.Background(), agent.Resolve(&fakeAgent{}), k, &termio.Mock{}, "1.0.0", agentLatestVersion,
+		context.Background(),
+		opencodeResolved(t),
+		k,
+		&termio.Mock{},
+		"1.0.0",
+		latestVersion,
 	)
-	if offer {
-		t.Errorf("expected no upgrade offer for an agent without a checker, got latest=%q", latest)
+	if offer || latest != "" {
+		t.Errorf("pendingUpgrade = (%q, %v), want the offer deferred while the root lock is held", latest, offer)
 	}
 }
 
@@ -1462,7 +1487,6 @@ func TestCheckAgentUpgradeDefersWhenRootLockHeld(t *testing.T) {
 	entry, checked := checkAgentUpgrade(
 		context.Background(),
 		opencodeAgent(t),
-		true,
 		&termio.Mock{},
 		agentLatestVersion,
 	)
@@ -1496,7 +1520,7 @@ func TestCheckAgentUpgradeDefersWhenRootStateUnreadable(t *testing.T) {
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
 	ui := &termio.Mock{}
-	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, ui, agentLatestVersion)
+	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), ui, agentLatestVersion)
 	if checked {
 		t.Error("checkAgentUpgrade must defer when the root state is unreadable")
 	}
@@ -1527,7 +1551,7 @@ func TestCheckAgentUpgradeDefersWhenVersionRequestFails(t *testing.T) {
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
 	ui := &termio.Mock{}
-	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, ui, agentLatestVersion)
+	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), ui, agentLatestVersion)
 	if checked {
 		t.Error("checkAgentUpgrade must defer when the version request fails")
 	}
@@ -1539,45 +1563,10 @@ func TestCheckAgentUpgradeDefersWhenVersionRequestFails(t *testing.T) {
 	}
 }
 
-// TestCheckAgentUpgradeCheckerLessAgentSkipsVersionRequest pins the hasChecker
-// operand: a checker-less agent returns its cached entry without running the
-// version request, even when the entry is due.
-func TestCheckAgentUpgradeCheckerLessAgentSkipsVersionRequest(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	if err := seedRootState(dueRootState()); err != nil {
-		t.Fatal(err)
-	}
-
-	latestCalled := false
-	origLatest := agentLatestVersion
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
-		latestCalled = true
-		return "2.0.0", nil
-	}
-	t.Cleanup(func() { agentLatestVersion = origLatest })
-
-	entry, checked := checkAgentUpgrade(
-		context.Background(),
-		opencodeAgent(t),
-		false,
-		&termio.Mock{},
-		agentLatestVersion,
-	)
-	if !checked {
-		t.Error("a checker-less agent still returns its cached state")
-	}
-	if entry.LatestVersion != "1.0.0" {
-		t.Errorf("entry.LatestVersion = %q, want the cached 1.0.0", entry.LatestVersion)
-	}
-	if latestCalled {
-		t.Error("a checker-less agent must not run the version request")
-	}
-}
-
 // TestCheckAgentUpgradeDefersWhenRootLockHeldDuringWrite pins the post-request
 // lock contention: if another process takes the root lock while the version
-// request runs, the write is skipped and the step defers, but the freshly
-// fetched entry is still returned so the caller can offer it.
+// request runs, the write is skipped and the check reports itself unchecked,
+// so the caller defers the offer to the next run.
 func TestCheckAgentUpgradeDefersWhenRootLockHeldDuringWrite(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	if err := seedRootState(dueRootState()); err != nil {
@@ -1611,7 +1600,6 @@ func TestCheckAgentUpgradeDefersWhenRootLockHeldDuringWrite(t *testing.T) {
 	entry, checked := checkAgentUpgrade(
 		context.Background(),
 		opencodeAgent(t),
-		true,
 		&termio.Mock{},
 		agentLatestVersion,
 	)
@@ -1651,7 +1639,6 @@ func TestCheckAgentUpgradeNetworkRunsWithoutRootLock(t *testing.T) {
 	entry, checked := checkAgentUpgrade(
 		context.Background(),
 		opencodeAgent(t),
-		true,
 		&termio.Mock{},
 		agentLatestVersion,
 	)
@@ -1699,7 +1686,6 @@ func TestCheckAgentUpgradeSkipsWriteWhenWindowRefreshedConcurrently(t *testing.T
 	entry, checked := checkAgentUpgrade(
 		context.Background(),
 		opencodeAgent(t),
-		true,
 		&termio.Mock{},
 		agentLatestVersion,
 	)
@@ -1741,7 +1727,7 @@ func TestCheckAgentUpgradeSecondReadErrorDefers(t *testing.T) {
 	t.Cleanup(func() { agentLatestVersion = origLatest })
 
 	ui := &termio.Mock{}
-	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, ui, agentLatestVersion)
+	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), ui, agentLatestVersion)
 	if checked {
 		t.Error("checkAgentUpgrade must defer when the root state becomes unreadable")
 	}

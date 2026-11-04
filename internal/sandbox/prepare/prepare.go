@@ -598,12 +598,12 @@ func resolveWorkspacePath(dir string) (string, error) {
 }
 
 // guestWorkspacePath maps the host cwd to the directory the agent should start
-// in inside the VM, given the host directory bound at /workspace. When cwd is
-// the bind root (or cannot be related to it) the workspace mount path itself is
-// returned; otherwise the relative path is appended using POSIX separators.
+// in inside the VM, given the host directory bound at /workspace: the cwd's
+// path relative to the bind root, appended with POSIX separators. A cwd that
+// cannot be related to the bind root starts at the workspace mount path.
 func guestWorkspacePath(bindRoot, cwd string) string {
 	rel, err := filepath.Rel(bindRoot, cwd)
-	if err != nil || rel == "." {
+	if err != nil {
 		return mounts.WorkspaceMountPath
 	}
 	return path.Join(mounts.WorkspaceMountPath, filepath.ToSlash(rel))
