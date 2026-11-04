@@ -230,6 +230,13 @@ func TestIsBare(t *testing.T) {
 // git has moved core.bare out of the shared config into the main worktree's
 // config.worktree, which it does when extensions.worktreeConfig is set (for
 // example once sparse-checkout is used).
+func TestIsBareReadsWorktreeConfig(t *testing.T) {
+	gitDir := writeWorktreeConfigFixture(t, worktreeConfigOn, "[core]\n\tbare = true\n")
+	if !isBare(gitDir) {
+		t.Errorf("isBare(%q) = false, want true when core.bare is in config.worktree", gitDir)
+	}
+}
+
 // TestIsBareUnreadableWorktreeConfigIsNotBare pins that a config.worktree
 // that cannot be read does not claim the repository is bare.
 func TestIsBareUnreadableWorktreeConfigIsNotBare(t *testing.T) {
@@ -239,13 +246,6 @@ func TestIsBareUnreadableWorktreeConfigIsNotBare(t *testing.T) {
 	}
 	if isBare(gitDir) {
 		t.Errorf("isBare(%q) = true, want false for an unreadable config.worktree", gitDir)
-	}
-}
-
-func TestIsBareReadsWorktreeConfig(t *testing.T) {
-	gitDir := writeWorktreeConfigFixture(t, worktreeConfigOn, "[core]\n\tbare = true\n")
-	if !isBare(gitDir) {
-		t.Errorf("isBare(%q) = false, want true when core.bare is in config.worktree", gitDir)
 	}
 }
 
