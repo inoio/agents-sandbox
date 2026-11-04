@@ -10,115 +10,68 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
-	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
-	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// eventLog records the order of lifecycle events across the UI, client and
-// sandbox fakes.
-type eventLog struct{ events []string }
-
-func (l *eventLog) add(event string) { l.events = append(l.events, event) }
-
-// imageLoadSpinnerLabel is the spinner image.EnsureLoaded shows while loading
-// the runner image; it is not part of the throwaway lifecycle under test.
-const imageLoadSpinnerLabel = "Loading image into microsandbox"
-
-// recordingUI is a termio.Mock whose spinners log their lifecycle.
-type recordingUI struct {
-	termio.Mock
-
-	log *eventLog
-}
-
-func (u *recordingUI) Spinner(msg string) termio.Spinner {
-	if msg == imageLoadSpinnerLabel {
-		return u.Mock.Spinner(msg)
-	}
-	u.log.add("spinner start: " + msg)
-	return &recordingSpinner{log: u.log}
-}
-
-type recordingSpinner struct{ log *eventLog }
-
-func (s *recordingSpinner) Stop()               { s.log.add("spinner stop") }
-func (s *recordingSpinner) StopError(err error) { s.log.add("spinner error: " + err.Error()) }
-
-// trackingSandbox is a MockSandbox that logs Destroy and Close attempts,
-// including failed ones.
-type trackingSandbox struct {
-	*msb.MockSandbox
-
-	log *eventLog
-}
-
-func (s *trackingSandbox) Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error {
-	s.log.add("destroy")
-	return s.MockSandbox.Destroy(ctx, opts...)
-}
-
-func (s *trackingSandbox) Close() error {
-	s.log.add("close")
-	return s.MockSandbox.Close()
-}
-
-type throwawayFixture struct {
-	log     *eventLog
-	ui      *recordingUI
-	sandbox *trackingSandbox
-	client  *msb.MockMsbClient
-}
-
-func newThrowawayFixture(t *testing.T) *throwawayFixture {
-	t.Helper()
-	docker.WithNoopDockerMock(t)
-	log := &eventLog{}
-	sandbox := &trackingSandbox{MockSandbox: &msb.MockSandbox{Name_: "throwaway"}, log: log}
-	fixture := &throwawayFixture{
-		log:     log,
-		ui:      &recordingUI{log: log},
-		sandbox: sandbox,
-	}
-	fixture.client = &msb.MockMsbClient{
-		CreateSandboxFn: func(context.Context, string, ...msbSdk.SandboxOption) (msb.Sandbox, error) {
-			log.add("create")
-			return sandbox, nil
+func TestRunShell(t *testing.T) {
+	const script = "cp -a /src/. /dst/"
+	for _, testCase := range []struct {
+		name        string
+		execOut     msb.ShellResult
+		execErr     error
+		wantErr     string
+		wantSpinner string
+	}{
+		{name: "success", wantSpinner: "spinner stop"},
+		{
+			name:        "exec error",
+			execErr:     errors.New("no exec"),
+			wantErr:     "copy files: no exec",
+			wantSpinner: "spinner error: no exec",
 		},
+		{
+			name:        "non-zero exit",
+			execOut:     msb.NewTestResult(false, 3, "", "denied", nil),
+			wantErr:     "copy failed (exit 3): denied",
+			wantSpinner: "spinner error: copy failed (exit 3): denied",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			log := &eventLog{}
+			sandbox := &msb.MockSandbox{ExecErr: testCase.execErr}
+			if testCase.execOut != nil {
+				sandbox.ExecOut = map[string]msb.ShellResult{"sh -c " + script: testCase.execOut}
+			}
+
+			err := runShell(context.Background(), sandbox, &recordingSpinner{log: log}, shellStep{
+				execErrPrefix: "copy files",
+				failurePrefix: "copy failed",
+				script:        script,
+			})
+
+			if testCase.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, testCase.wantErr)
+			}
+			require.Equal(t, []string{testCase.wantSpinner}, log.events)
+		})
 	}
-	return fixture
 }
 
-var throwawayKey = state.Key{Slug: "myproject", Agent: "opencode"}
-
-var throwawayImage = image.ImageInfo{
-	DockerTag: "agents-sandbox/runner-test:latest",
-	Ref:       "agents-sandbox/runner-test:latest",
-}
-
-func (f *throwawayFixture) run(spec throwawaySandbox, payload func(msb.Sandbox, termio.Spinner) error) error {
-	return withThrowawaySandbox(
-		context.Background(),
-		docker.Get(),
-		f.client,
-		throwawayKey,
-		throwawayImage,
-		spec,
-		f.ui,
-		payload,
-	)
-}
-
-func (f *throwawayFixture) createdConfig(t *testing.T) msbSdk.SandboxConfig {
-	t.Helper()
-	require.Len(t, f.client.CreatedSandboxCalls, 1)
-	var cfg msbSdk.SandboxConfig
-	for _, opt := range f.client.CreatedSandboxCalls[0].Opts {
-		opt(&cfg)
-	}
-	return cfg
+// TestTaskSandboxNameStaysWithinNameLimit pins the longest realistic task
+// sandbox name (a long folder, the hyphenated `claude-code` agent, and a
+// 19-digit nanos): it must fit the sandbox-name limit and round-trip to the same
+// slug, agent and task flag, so it cannot be truncated into another artifact's
+// namespace.
+func TestTaskSandboxNameStaysWithinNameLimit(t *testing.T) {
+	slug := strings.Repeat("a", 30) + "-1mjusbm3wikhb0"
+	name := naming.TaskSandboxName(slug, "claude-code", 1729000000000000000)
+	require.LessOrEqual(t, len(name), options.MaxSandboxNameLen, "name %q is too long", name)
+	require.Equal(t, naming.ArtifactInfo{Slug: slug, Agent: "claude-code", Task: true}, naming.ParseVMName(name))
 }
 
 func TestWithThrowawaySandbox_CreatesLabelledReplaceableTaskSandbox(t *testing.T) {
@@ -216,6 +169,7 @@ func TestWithThrowawaySandbox_LoadImageFailureSkipsEverything(t *testing.T) {
 	)
 
 	require.ErrorContains(t, err, "load runner image")
+	require.Error(t, errors.Unwrap(err), "the cause must stay wrapped")
 	require.False(t, payloadRan)
 	require.NotContains(t, fixture.log.events, "spinner start: Preparing")
 	require.NotContains(t, fixture.log.events, "create")
@@ -239,6 +193,7 @@ func TestWithThrowawaySandbox_CreateFailureStopsSpinnerAndSkipsPayload(t *testin
 	)
 
 	require.ErrorContains(t, err, "create edit sandbox: boom")
+	require.Error(t, errors.Unwrap(err), "the cause must stay wrapped")
 	require.False(t, payloadRan)
 	require.Equal(t, []string{"spinner start: Starting", "create", "spinner error: boom"}, fixture.log.events)
 }
@@ -274,48 +229,21 @@ func TestWithThrowawaySandbox_NoSpinnerLabelStartsNoSpinner(t *testing.T) {
 	require.Equal(t, []string{"create", "destroy", "close"}, fixture.log.events)
 }
 
-func TestRunShell(t *testing.T) {
-	const script = "cp -a /src/. /dst/"
-	for _, testCase := range []struct {
-		name        string
-		execOut     msb.ShellResult
-		execErr     error
-		wantErr     string
-		wantSpinner string
-	}{
-		{name: "success", wantSpinner: "spinner stop"},
-		{
-			name:        "exec error",
-			execErr:     errors.New("no exec"),
-			wantErr:     "copy files: no exec",
-			wantSpinner: "spinner error: no exec",
-		},
-		{
-			name:        "non-zero exit",
-			execOut:     msb.NewTestResult(false, 3, "", "denied", nil),
-			wantErr:     "copy failed (exit 3): denied",
-			wantSpinner: "spinner error: copy failed (exit 3): denied",
-		},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			log := &eventLog{}
-			sandbox := &msb.MockSandbox{ExecErr: testCase.execErr}
-			if testCase.execOut != nil {
-				sandbox.ExecOut = map[string]msb.ShellResult{"sh -c " + script: testCase.execOut}
-			}
-
-			err := runShell(context.Background(), sandbox, &recordingSpinner{log: log}, shellStep{
-				execErrPrefix: "copy files",
-				failurePrefix: "copy failed",
-				script:        script,
-			})
-
-			if testCase.wantErr == "" {
-				require.NoError(t, err)
-			} else {
-				require.EqualError(t, err, testCase.wantErr)
-			}
-			require.Equal(t, []string{testCase.wantSpinner}, log.events)
-		})
+func newThrowawayFixture(t *testing.T) *throwawayFixture {
+	t.Helper()
+	docker.WithNoopDockerMock(t)
+	log := &eventLog{}
+	sandbox := &trackingSandbox{MockSandbox: &msb.MockSandbox{Name_: "throwaway"}, log: log}
+	fixture := &throwawayFixture{
+		log:     log,
+		ui:      &recordingUI{log: log},
+		sandbox: sandbox,
 	}
+	fixture.client = &msb.MockMsbClient{
+		CreateSandboxFn: func(context.Context, string, ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+			log.add("create")
+			return sandbox, nil
+		},
+	}
+	return fixture
 }
