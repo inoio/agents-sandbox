@@ -266,6 +266,21 @@ This is the field guide for doing it. It was distilled from the first full sweep
   the ceiling) all survived a test that compared the spec field *to the constant itself*; a test asserting
   `heavyweightReadyTimeout != 120*time.Second` — a literal expected value in the test file, as for
   `autoPruneDefaultThreshold` — kills the whole family.
+- **A "nothing happens" assertion is vacuous when the fixture lacks what would make it happen.** Three
+  `resolveReconfigDecision` "fingerprint unchanged → no recreate" tests ran without a live VM, and without a VM the
+  decision never recreates; their env file was also written to a directory nothing read. Hand-apply the *inverse*
+  mutant (`envHasChanged := true`): a negative test that stays green is vacuous. Rebuild it from a fixture where the
+  outcome is reachable and change one input per case.
+- **A fixture value equal to the fallback's result hides the fallback.** A pass-through test planned port 4096, which
+  is `ServeOnlyBasePort`, so `planned == 0` → `true` (probe a free port instead) returned the same value. Pick a value
+  the fallback cannot produce.
+- **A unit test that calls the next pipeline step by hand does not pin the wiring.** A test that returned the offered
+  release from `resolveBuildVersion` and then called `persistOfferedVersion` itself stayed green with the call removed
+  from `ensureHomeStage`. Pin a hand-off between stages with a flow test through the entry point.
+- **A failure-path test must stub every wait seam it can fall through to.** When a mutant drops an error return, the
+  run continues into later stages; a case without the daemon-health stub then waits out the production probe timeout
+  and the mutant reports `TIMED OUT` instead of `KILLED`. A jump in `TIMED OUT` against a baseline sweep of the same
+  package is the signal; re-run those ids with `--run-mutant-id` to see which test hangs.
 
 ## Operational
 
