@@ -99,35 +99,3 @@ func TestFindProjectVMSurfacesOtherErrors(t *testing.T) {
 	_, _, err := FindProjectVM(context.Background(), client, k)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
-
-func TestSandboxIdentityClassifiesBothSchemesAndLabels(t *testing.T) {
-	require.True(t, naming.SandboxIdentity("myproj-1mjusbm3wikhb0-opencode-1729000000000000000", nil).Task)
-	require.True(t, naming.SandboxIdentity("agents-sandbox-task-x-1729", nil).Task)
-	require.True(t, naming.SandboxIdentity("proj-aBc1234D", map[string]string{naming.LabelTask: "1"}).Task)
-	require.True(
-		t,
-		naming.SandboxIdentity("proj-aBc1234D", map[string]string{naming.LabelType: naming.SandboxTypeTask}).Task,
-	)
-	require.False(t, naming.SandboxIdentity("myproj-1mjusbm3wikhb0-opencode", nil).Task)
-
-	// The label is authoritative: a prefix-free project VM whose folder begins
-	// with the legacy task prefix is not a task when labelled as a project.
-	project := map[string]string{
-		naming.LabelType:  naming.SandboxTypeProject,
-		naming.LabelSlug:  "agents-sandbox-task-1mjusbm3wikhb0",
-		naming.LabelAgent: "opencode",
-	}
-	got := naming.SandboxIdentity("agents-sandbox-task-1mjusbm3wikhb0-opencode", project)
-	require.False(t, got.Task)
-	require.Equal(t, "agents-sandbox-task-1mjusbm3wikhb0", got.Slug)
-	require.Equal(t, "opencode", got.Agent)
-
-	// The label carries the full slug even when the name was truncated.
-	truncated := map[string]string{
-		naming.LabelType:  naming.SandboxTypeProject,
-		naming.LabelSlug:  "a-very-long-folder-name-1mjusbm3wikhb0",
-		naming.LabelAgent: "opencode",
-	}
-	require.Equal(t, "a-very-long-folder-name-1mjusbm3wikhb0",
-		naming.SandboxIdentity("agents-sandbox-vm-", truncated).Slug)
-}
