@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -15,11 +16,23 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// assumeYesUI returns a non-interactive UI that authorizes any confirmation.
-func assumeYesUI() *termio.Mock {
-	ui := &termio.Mock{}
-	ui.SetAssumeYes(true)
-	return ui
+// TestIsProjectVMName pins which names RemoveSandbox treats as project VMs: a
+// prefixed legacy name and a prefix-free name that parses to a slug and is not
+// a task. A name that parses to no slug (empty, a home volume, a runner image)
+// is not one, although ParseVMName reports it as no task.
+func TestIsProjectVMName(t *testing.T) {
+	for name, want := range map[string]bool{
+		ProjectVMName(state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"}): true,
+		naming.LegacyVMPrefix + "proj-aBc1234D":                                    true,
+		naming.LegacyTaskPrefix + "x-1729":                                         false,
+		"":                                                                         false,
+		naming.LegacyHomePrefix + "proj":                                           false,
+		"agents-sandbox/runner-proj:latest":                                        false,
+	} {
+		if got := isProjectVMName(name); got != want {
+			t.Errorf("isProjectVMName(%q) = %v, want %v", name, got, want)
+		}
+	}
 }
 
 func TestRemoveSandboxRefusesTaskSandboxName(t *testing.T) {
@@ -85,77 +98,87 @@ func TestRemoveSandboxForceStopsThenRemoves(t *testing.T) {
 	}
 }
 
-func TestRemoveSandboxForceDeclinedConfirmationDoesNotStop(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	handle := &msb.MockSandboxHandle{
-		Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
-		Status_: msbSdk.SandboxStatusRunning,
+// TestRemoveSandboxRemovesNothingWithoutConfirmation pins that a removal that
+// is not confirmed (a non-interactive run without --yes, or a declined prompt)
+// neither stops nor removes the sandbox, with or without --force.
+func TestRemoveSandboxRemovesNothingWithoutConfirmation(t *testing.T) {
+	cases := []struct {
+		name    string
+		status  msbSdk.SandboxStatus
+		force   bool
+		ui      *termio.Mock
+		wantErr error
+	}{
+		{
+			name:    "non-interactive",
+			status:  msbSdk.SandboxStatusStopped,
+			ui:      &termio.Mock{},
+			wantErr: termio.ErrConfirmationRequired,
+		},
+		{
+			name:    "declined",
+			status:  msbSdk.SandboxStatusStopped,
+			ui:      &termio.Mock{IsInteractiveResult: true, ConfirmResult: false},
+			wantErr: termio.ErrCancelled,
+		},
+		{
+			name:    "declined with force on a running VM",
+			status:  msbSdk.SandboxStatusRunning,
+			force:   true,
+			ui:      &termio.Mock{IsInteractiveResult: true, ConfirmResult: false},
+			wantErr: termio.ErrCancelled,
+		},
 	}
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-	msb.WithMsbMock(t, client)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			handle := &msb.MockSandboxHandle{Name_: naming.LegacyVMPrefix + "proj-aBc1234D", Status_: tc.status}
+			client := &msb.MockMsbClient{}
+			client.SetGotSandbox(handle)
+			msb.WithMsbMock(t, client)
 
-	ui := &termio.Mock{IsInteractiveResult: true, ConfirmResult: false}
-	err := RemoveSandbox(context.Background(), handle.Name_, true, ui)
-	if !errors.Is(err, termio.ErrCancelled) {
-		t.Fatalf("RemoveSandbox(forced, declined) = %v, want ErrCancelled", err)
-	}
-	if handle.DidStop {
-		t.Error("a declined confirmation must not stop the sandbox")
-	}
-	if handle.DidRmv {
-		t.Error("a declined confirmation must not remove the sandbox")
+			err := RemoveSandbox(context.Background(), handle.Name_, tc.force, tc.ui)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("RemoveSandbox = %v, want %v", err, tc.wantErr)
+			}
+			if handle.DidStop || handle.DidRmv {
+				t.Errorf("stopped %v, removed %v; want neither without confirmation", handle.DidStop, handle.DidRmv)
+			}
+		})
 	}
 }
 
-func TestRemoveSandboxForceKeepsState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
-	if err := seedHomeState(
-		key,
-		state.HomeState{HomeVolume: "agents-sandbox-home-proj-1mjusbm3wikhb0-opencode-20260812T123456"},
-	); err != nil {
-		t.Fatalf("seed state: %v", err)
-	}
-	handle := &msb.MockSandboxHandle{
-		Name_:   naming.LegacyVMPrefix + key.Slug + "-" + key.Agent,
-		Status_: msbSdk.SandboxStatusStopped,
-	}
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-	msb.WithMsbMock(t, client)
+// TestRemoveSandboxKeepsTheProjectState pins that removing a project VM, forced
+// or not, leaves its persisted project state, so the next run reuses the
+// recorded home volume.
+func TestRemoveSandboxKeepsTheProjectState(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		t.Run(fmt.Sprintf("force=%v", force), func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
+			const homeVolume = "agents-sandbox-home-proj-1mjusbm3wikhb0-opencode-20260812T123456"
+			if err := seedHomeState(key, state.HomeState{HomeVolume: homeVolume}); err != nil {
+				t.Fatalf("seed state: %v", err)
+			}
+			handle := &msb.MockSandboxHandle{
+				Name_:   naming.LegacyVMPrefix + key.Slug + "-" + key.Agent,
+				Status_: msbSdk.SandboxStatusStopped,
+			}
+			client := &msb.MockMsbClient{}
+			client.SetGotSandbox(handle)
+			msb.WithMsbMock(t, client)
 
-	if err := RemoveSandbox(context.Background(), handle.Name_, true, assumeYesUI()); err != nil {
-		t.Fatalf("RemoveSandbox(force) = %v", err)
-	}
-	st, err := state.ReadState(key)
-	if err != nil {
-		t.Fatalf("state must survive a forced removal, got %v", err)
-	}
-	if st.HomeVolume == "" {
-		t.Error("the recorded home volume must survive a forced removal")
-	}
-}
-
-func TestRemoveSandboxWithoutForceKeepsState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
-	if err := seedHomeState(key, state.HomeState{}); err != nil {
-		t.Fatalf("seed state: %v", err)
-	}
-	handle := &msb.MockSandboxHandle{
-		Name_:   naming.LegacyVMPrefix + key.Slug + "-" + key.Agent,
-		Status_: msbSdk.SandboxStatusStopped,
-	}
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-	msb.WithMsbMock(t, client)
-
-	if err := RemoveSandbox(context.Background(), handle.Name_, false, assumeYesUI()); err != nil {
-		t.Fatalf("RemoveSandbox(no force) = %v", err)
-	}
-	if _, err := state.ReadState(key); err != nil {
-		t.Fatalf("state must survive a non-forced removal, got %v", err)
+			if err := RemoveSandbox(context.Background(), handle.Name_, force, assumeYesUI()); err != nil {
+				t.Fatalf("RemoveSandbox: %v", err)
+			}
+			if !handle.DidRmv {
+				t.Fatal("the sandbox was not removed")
+			}
+			st, err := state.ReadState(key)
+			if err != nil || st.HomeVolume != homeVolume {
+				t.Errorf("state after removal = %+v, %v; want the recorded home volume kept", st, err)
+			}
+		})
 	}
 }
 
@@ -222,18 +245,19 @@ func TestRemoveSandboxSurfacesStopError(t *testing.T) {
 
 func TestRemoveSandboxSurfacesRemoveError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	removeErr := errors.New("remove failed")
 	handle := &msb.MockSandboxHandle{
 		Name_:     naming.LegacyVMPrefix + "proj-aBc1234D",
 		Status_:   msbSdk.SandboxStatusStopped,
-		RemoveErr: errors.New("remove failed"),
+		RemoveErr: removeErr,
 	}
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)
 
 	err := RemoveSandbox(context.Background(), handle.Name_, false, assumeYesUI())
-	if err == nil || !strings.Contains(err.Error(), "remove failed") {
-		t.Fatalf("RemoveSandbox(remove error) = %v, want the remove error", err)
+	if !errors.Is(err, removeErr) {
+		t.Fatalf("RemoveSandbox(remove error) = %v, want it to wrap %v", err, removeErr)
 	}
 	if msb.IsReplaced(err) || msb.IsNotFound(err) {
 		t.Errorf("a generic remove error must not be classified as replaced/not-found: %v", err)
@@ -255,63 +279,9 @@ func TestRemoveSandboxBarePrefixRemoves(t *testing.T) {
 	}
 }
 
-func TestRemoveSandboxNonInteractiveRequiresConfirmation(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	handle := &msb.MockSandboxHandle{
-		Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
-		Status_: msbSdk.SandboxStatusStopped,
-	}
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-	msb.WithMsbMock(t, client)
-
-	err := RemoveSandbox(context.Background(), handle.Name_, false, &termio.Mock{})
-	if !errors.Is(err, termio.ErrConfirmationRequired) {
-		t.Fatalf("RemoveSandbox(non-interactive) = %v, want ErrConfirmationRequired", err)
-	}
-	if handle.DidRmv {
-		t.Error("the sandbox must not be removed without confirmation")
-	}
-}
-
-func TestRemoveSandboxDeclinedConfirmation(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	handle := &msb.MockSandboxHandle{
-		Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
-		Status_: msbSdk.SandboxStatusStopped,
-	}
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-	msb.WithMsbMock(t, client)
-
-	ui := &termio.Mock{IsInteractiveResult: true, ConfirmResult: false}
-	err := RemoveSandbox(context.Background(), handle.Name_, false, ui)
-	if !errors.Is(err, termio.ErrCancelled) {
-		t.Fatalf("RemoveSandbox(declined) = %v, want ErrCancelled", err)
-	}
-	if handle.DidRmv {
-		t.Error("a declined confirmation must not remove the sandbox")
-	}
-}
-
-// TestIsProjectVMNameAcceptsPrefixFreeProjectVM pins the second half of the
-// classification: a prefix-free project VM (a parsed slug that is not a task) is
-// a project VM, so RemoveSandbox accepts it rather than rejecting it as foreign.
-func TestIsProjectVMNameAcceptsPrefixFreeProjectVM(t *testing.T) {
-	name := ProjectVMName(state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"})
-	if !isProjectVMName(name) {
-		t.Errorf("isProjectVMName(%q) = false, want true for a prefix-free project VM", name)
-	}
-}
-
-// TestIsProjectVMNameRejectsNamesWithoutASlug pins the parsed-slug guard: a
-// name that parses to no slug (empty, a home volume, a runner image) is not a
-// project VM. Only the slug operand makes this false; a lone "not a task" test
-// would accept such a name, since ParseVMName reports Task=false for it.
-func TestIsProjectVMNameRejectsNamesWithoutASlug(t *testing.T) {
-	for _, name := range []string{"", naming.LegacyHomePrefix + "proj", "agents-sandbox/runner-proj:latest"} {
-		if isProjectVMName(name) {
-			t.Errorf("isProjectVMName(%q) = true, want false for a name that parses to no slug", name)
-		}
-	}
+// assumeYesUI returns a non-interactive UI that authorizes any confirmation.
+func assumeYesUI() *termio.Mock {
+	ui := &termio.Mock{}
+	ui.SetAssumeYes(true)
+	return ui
 }

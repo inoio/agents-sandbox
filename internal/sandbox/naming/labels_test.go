@@ -67,3 +67,35 @@ func TestSandboxIdentityNameFallback(t *testing.T) {
 	require.Equal(t, ArtifactInfo{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"},
 		SandboxIdentity("proj-1mjusbm3wikhb0-opencode", nil))
 }
+
+func TestSandboxIdentityClassifiesBothSchemesAndLabels(t *testing.T) {
+	require.True(t, SandboxIdentity("myproj-1mjusbm3wikhb0-opencode-1729000000000000000", nil).Task)
+	require.True(t, SandboxIdentity("agents-sandbox-task-x-1729", nil).Task)
+	require.True(t, SandboxIdentity("proj-aBc1234D", map[string]string{LabelTask: "1"}).Task)
+	require.True(
+		t,
+		SandboxIdentity("proj-aBc1234D", map[string]string{LabelType: SandboxTypeTask}).Task,
+	)
+	require.False(t, SandboxIdentity("myproj-1mjusbm3wikhb0-opencode", nil).Task)
+
+	// The label is authoritative: a prefix-free project VM whose folder begins
+	// with the legacy task prefix is not a task when labelled as a project.
+	project := map[string]string{
+		LabelType:  SandboxTypeProject,
+		LabelSlug:  "agents-sandbox-task-1mjusbm3wikhb0",
+		LabelAgent: "opencode",
+	}
+	got := SandboxIdentity("agents-sandbox-task-1mjusbm3wikhb0-opencode", project)
+	require.False(t, got.Task)
+	require.Equal(t, "agents-sandbox-task-1mjusbm3wikhb0", got.Slug)
+	require.Equal(t, "opencode", got.Agent)
+
+	// The label carries the full slug even when the name was truncated.
+	truncated := map[string]string{
+		LabelType:  SandboxTypeProject,
+		LabelSlug:  "a-very-long-folder-name-1mjusbm3wikhb0",
+		LabelAgent: "opencode",
+	}
+	require.Equal(t, "a-very-long-folder-name-1mjusbm3wikhb0",
+		SandboxIdentity("agents-sandbox-vm-", truncated).Slug)
+}
