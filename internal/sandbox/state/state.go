@@ -86,7 +86,7 @@ type HomeState struct {
 	NetworkState    NetworkState `yaml:"network_state,omitempty"`
 	MountState      MountState   `yaml:"mount_state,omitempty"`
 
-	// RecoveredHomeVolume is the home volume a VM-only identity adoption (#144)
+	// RecoveredHomeVolume is the home volume a VM-only identity adoption
 	// preserved by destroying a legacy VM whose state file was lost. Adoption
 	// records it before the destroy, because the legacy VM is then gone and its
 	// mount can no longer be read; home resolution recovers it into HomeVolume

@@ -15,15 +15,12 @@ const RepairRootStateCommand = "agents-sandbox state repair"
 // repairs in the same second from overwriting each other's evidence.
 const quarantineSuffixLayout = "20060102T150405.000000000Z"
 
-// now is a seam over time.Now for deterministic quarantine names in tests.
 var now = time.Now
 
-// renameRootStateFile is a seam over os.Rename so tests can exercise the
-// quarantine's rename-failure path deterministically.
 var renameRootStateFile = os.Rename
 
 // RepairRootState is the explicit recovery path for a corrupt launcher-global
-// document (#332). Under the blocking root lock it moves an unparsable
+// document. Under the blocking root lock it moves an unparsable
 // <root>/state.yaml aside to state.yaml.corrupt-<UTC timestamp> and returns that
 // path; the next transaction then starts from a zero RootState. Nothing is
 // deleted, so the quarantined bytes remain available for inspection.
