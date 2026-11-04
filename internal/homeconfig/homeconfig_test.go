@@ -242,8 +242,8 @@ func TestReadHomeFromConfigDirNoConfigNonNilManifest(t *testing.T) {
 	if err != nil || has {
 		t.Fatalf("ReadHomeFromConfigDir: has=%v err=%v", has, err)
 	}
-	if m == nil {
-		t.Error("expected a non-nil empty manifest")
+	if m == nil || len(m) != 0 {
+		t.Errorf("manifest = %v, want a non-nil empty manifest", m)
 	}
 }
 
