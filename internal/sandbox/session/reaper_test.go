@@ -1022,11 +1022,13 @@ func checkQuiescence(t *testing.T, name string, busy int, stuck bool, wantBusy i
 	}
 }
 
-// blockingExecSandbox runs Exec until its context is cancelled.
+// blockingExecSandbox runs Exec until its context is cancelled and the test
+// releases it, so a test can hold the command open after cancellation.
 type blockingExecSandbox struct {
 	msb.Sandbox
 
-	finished chan struct{}
+	cancelled chan struct{}
+	release   chan struct{}
 }
 
 func (s *blockingExecSandbox) Exec(
@@ -1036,14 +1038,19 @@ func (s *blockingExecSandbox) Exec(
 	_ ...msbSdk.ExecOption,
 ) (msb.ShellResult, error) {
 	<-ctx.Done()
-	close(s.finished)
+	close(s.cancelled)
+	<-s.release
 	return nil, ctx.Err()
 }
 
 // TestKeepVMAliveStopEndsTheKeeper pins that stopping the keep-alive cancels
-// its command and waits for it to end before returning.
+// its command and blocks until that command has ended.
 func TestKeepVMAliveStopEndsTheKeeper(t *testing.T) {
-	sb := &blockingExecSandbox{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{}), finished: make(chan struct{})}
+	sb := &blockingExecSandbox{
+		Sandbox:   msb.NewMockSandbox(msb.SandboxOpts{}),
+		cancelled: make(chan struct{}),
+		release:   make(chan struct{}),
+	}
 	stop := keepVMAlive(context.Background(), sb)
 	stopped := make(chan struct{})
 	go func() {
@@ -1051,14 +1058,20 @@ func TestKeepVMAliveStopEndsTheKeeper(t *testing.T) {
 		close(stopped)
 	}()
 	select {
-	case <-stopped:
+	case <-sb.cancelled:
 	case <-time.After(2 * time.Second):
-		t.Fatal("stop() did not end the keeper")
+		t.Fatal("stop() did not cancel the keeper command")
 	}
 	select {
-	case <-sb.finished:
-	default:
-		t.Error("stop() returned before the keeper command ended")
+	case <-stopped:
+		t.Fatal("stop() returned while the keeper command was still running")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(sb.release)
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stop() did not return after the keeper command ended")
 	}
 }
 
