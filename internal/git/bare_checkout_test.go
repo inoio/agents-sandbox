@@ -8,17 +8,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
-// writeInsideBareCheckout builds a bare checkout whose worktree lives inside the
-// bare root: root/.git is a bare clone and root/main is a worktree of it.
-func writeInsideBareCheckout(t *testing.T) string {
-	t.Helper()
-	origin := testutil.InitRepo(t)
-	root := mustResolvePath(t, t.TempDir())
-	testutil.RunGit(t, root, "clone", "--bare", origin, ".git")
-	testutil.RunGit(t, filepath.Join(root, ".git"), "worktree", "add", filepath.Join(root, "main"))
-	return root
-}
-
 func TestBareCheckoutRootsInsideBareCheckout(t *testing.T) {
 	root := writeInsideBareCheckout(t)
 	worktree := filepath.Join(root, "main")
@@ -79,4 +68,15 @@ func TestBareCheckoutRootsOutsideBareCheckout(t *testing.T) {
 			}
 		})
 	}
+}
+
+// writeInsideBareCheckout builds a bare checkout whose worktree lives inside the
+// bare root: root/.git is a bare clone and root/main is a worktree of it.
+func writeInsideBareCheckout(t *testing.T) string {
+	t.Helper()
+	origin := testutil.InitRepo(t)
+	root := mustResolvePath(t, t.TempDir())
+	testutil.RunGit(t, root, "clone", "--bare", origin, ".git")
+	testutil.RunGit(t, filepath.Join(root, ".git"), "worktree", "add", filepath.Join(root, "main"))
+	return root
 }
