@@ -8,18 +8,80 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 )
 
-func TestSplitFinalStageNoFrom(t *testing.T) {
-	earlier, base, body := splitFinalStageForTest([]byte("RUN echo hi\n"))
-	if earlier != "" || body != "" {
-		t.Errorf(
-			"splitFinalStage without a FROM must return the input as the base, got earlier=%q base=%q body=%q",
-			earlier,
-			base,
-			body,
-		)
-	}
-	if base != "RUN echo hi\n" {
-		t.Errorf("base = %q, want the input", base)
+// TestParseProjectDockerfileSplitsTheFinalStage pins how a project Dockerfile
+// splits into the stages before the final one, the final stage's FROM, and its
+// body. No file, or a managed base, yields the embedded tools block as the base.
+// A file without a FROM instruction is all base. FROM matches in any case, but
+// not as a prefix of another word.
+func TestParseProjectDockerfileSplitsTheFinalStage(t *testing.T) {
+	tools := string(embeddedBaseToolsBlock)
+	for _, tc := range []struct {
+		name                     string
+		project                  string
+		earlier, finalBase, body string
+	}{
+		{name: "no project Dockerfile", finalBase: tools},
+		{name: "no FROM", project: "RUN echo hi\n", finalBase: "RUN echo hi\n"},
+		{
+			name:      "FROMAGE is no FROM",
+			project:   "FROMAGE debian:trixie-slim\nRUN echo hi\n",
+			finalBase: "FROMAGE debian:trixie-slim\nRUN echo hi\n",
+		},
+		{
+			name:      "managed base",
+			project:   "FROM agents-sandbox/runner-base:latest\nRUN echo managed\n",
+			finalBase: tools,
+			body:      "RUN echo managed\n",
+		},
+		{
+			name:      "custom base",
+			project:   "FROM ubuntu:24.04\nRUN echo custom\n",
+			finalBase: "FROM ubuntu:24.04\n",
+			body:      "RUN echo custom\n",
+		},
+		{
+			name:      "lowercase FROM",
+			project:   "from debian:trixie-slim\nRUN echo hi\n",
+			finalBase: "from debian:trixie-slim\n",
+			body:      "RUN echo hi\n",
+		},
+		{
+			name:      "mixed-case FROM",
+			project:   "From debian:trixie-slim\nRUN echo hi\n",
+			finalBase: "From debian:trixie-slim\n",
+			body:      "RUN echo hi\n",
+		},
+		{
+			name:      "multi-stage",
+			project:   "FROM golang:1.24 AS build\nRUN go build\nFROM debian:trixie-slim AS final\nCOPY --from=build /app /app\n",
+			earlier:   "FROM golang:1.24 AS build\nRUN go build\n",
+			finalBase: "FROM debian:trixie-slim AS final\n",
+			body:      "COPY --from=build /app /app\n",
+		},
+		{
+			name:      "lowercase multi-stage",
+			project:   "from golang:1.24 as build\nRUN go build\nfrom debian:trixie-slim as final\nCOPY --from=build /app /app\n",
+			earlier:   "from golang:1.24 as build\nRUN go build\n",
+			finalBase: "from debian:trixie-slim as final\n",
+			body:      "COPY --from=build /app /app\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var project []byte
+			if tc.project != "" {
+				project = []byte(tc.project)
+			}
+			p := parseProjectDockerfile(project)
+			if p.earlier != tc.earlier {
+				t.Errorf("earlier = %q, want %q", p.earlier, tc.earlier)
+			}
+			if p.finalBase != tc.finalBase {
+				t.Errorf("finalBase = %q, want %q", p.finalBase, tc.finalBase)
+			}
+			if p.body != tc.body {
+				t.Errorf("body = %q, want %q", p.body, tc.body)
+			}
+		})
 	}
 }
 
@@ -40,126 +102,7 @@ func TestParseProjectDockerfileNoFromMarkerIsNotABodyMarker(t *testing.T) {
 	}
 }
 
-func TestSplitFinalStageNoProjectDockerfile(t *testing.T) {
-	earlier, base, body := splitFinalStageForTest(nil)
-	if earlier != "" {
-		t.Errorf("earlier = %q, want empty", earlier)
-	}
-	if base != string(embeddedBaseToolsBlock) {
-		t.Errorf("base = %q, want the embedded tools block", base)
-	}
-	if body != "" {
-		t.Errorf("body = %q, want empty", body)
-	}
-}
-
-func TestSplitFinalStageManagedBase(t *testing.T) {
-	project := []byte("FROM agents-sandbox/runner-base:latest\nRUN echo managed\n")
-	earlier, base, body := splitFinalStageForTest(project)
-	if earlier != "" {
-		t.Errorf("earlier = %q, want empty", earlier)
-	}
-	if base != string(embeddedBaseToolsBlock) {
-		t.Errorf("base = %q, want the embedded tools block", base)
-	}
-	if body != "RUN echo managed\n" {
-		t.Errorf("body = %q, want the user body", body)
-	}
-}
-
-func TestSplitFinalStageCustomBase(t *testing.T) {
-	project := []byte("FROM ubuntu:24.04\nRUN echo custom\n")
-	earlier, base, body := splitFinalStageForTest(project)
-	if earlier != "" {
-		t.Errorf("earlier = %q, want empty", earlier)
-	}
-	if base != "FROM ubuntu:24.04\n" {
-		t.Errorf("base = %q, want the user's final FROM", base)
-	}
-	if body != "RUN echo custom\n" {
-		t.Errorf("body = %q, want the user body", body)
-	}
-}
-
-func TestSplitFinalStageMultiStage(t *testing.T) {
-	project := []byte(
-		"FROM golang:1.24 AS build\nRUN go build\n" +
-			"FROM debian:trixie-slim AS final\nCOPY --from=build /app /app\n",
-	)
-	earlier, base, body := splitFinalStageForTest(project)
-	wantEarlier := "FROM golang:1.24 AS build\nRUN go build\n"
-	if earlier != wantEarlier {
-		t.Errorf("earlier = %q, want %q", earlier, wantEarlier)
-	}
-	if base != "FROM debian:trixie-slim AS final\n" {
-		t.Errorf("base = %q, want the final FROM", base)
-	}
-	if body != "COPY --from=build /app /app\n" {
-		t.Errorf("body = %q, want the final-stage body", body)
-	}
-}
-
-func TestSplitFinalStageLowercaseFrom(t *testing.T) {
-	project := []byte("from debian:trixie-slim\nRUN echo hi\n")
-	earlier, base, body := splitFinalStageForTest(project)
-	if earlier != "" {
-		t.Errorf("earlier = %q, want empty", earlier)
-	}
-	if base != "from debian:trixie-slim\n" {
-		t.Errorf("base = %q, want the user's lowercase FROM line", base)
-	}
-	if body != "RUN echo hi\n" {
-		t.Errorf("body = %q, want the user body", body)
-	}
-}
-
-func TestSplitFinalStageMixedCaseFrom(t *testing.T) {
-	project := []byte("From debian:trixie-slim\nRUN echo hi\n")
-	earlier, base, body := splitFinalStageForTest(project)
-	if earlier != "" {
-		t.Errorf("earlier = %q, want empty", earlier)
-	}
-	if base != "From debian:trixie-slim\n" {
-		t.Errorf("base = %q, want the user's mixed-case FROM line", base)
-	}
-	if body != "RUN echo hi\n" {
-		t.Errorf("body = %q, want the user body", body)
-	}
-}
-
-func TestSplitFinalStageLowercaseMultiStage(t *testing.T) {
-	project := []byte(
-		"from golang:1.24 as build\nRUN go build\n" +
-			"from debian:trixie-slim as final\nCOPY --from=build /app /app\n",
-	)
-	earlier, base, body := splitFinalStageForTest(project)
-	wantEarlier := "from golang:1.24 as build\nRUN go build\n"
-	if earlier != wantEarlier {
-		t.Errorf("earlier = %q, want %q", earlier, wantEarlier)
-	}
-	if base != "from debian:trixie-slim as final\n" {
-		t.Errorf("base = %q, want the final lowercase FROM", base)
-	}
-	if body != "COPY --from=build /app /app\n" {
-		t.Errorf("body = %q, want the final-stage body", body)
-	}
-}
-
-func TestSplitFinalStageIgnoresFromage(t *testing.T) {
-	project := []byte("FROMAGE debian:trixie-slim\nRUN echo hi\n")
-	earlier, base, body := splitFinalStageForTest(project)
-	if earlier != "" {
-		t.Errorf("earlier = %q, want empty", earlier)
-	}
-	if base != string(project) {
-		t.Errorf("base = %q, want the whole file (no FROM instruction)", base)
-	}
-	if body != "" {
-		t.Errorf("body = %q, want empty", body)
-	}
-}
-
-func TestReferencesImageSkipsFromWithoutImage(t *testing.T) {
+func TestReferencesImageIgnoresFromWithoutImage(t *testing.T) {
 	if parseProjectDockerfile([]byte("FROM --platform=linux/amd64\n")).referencesImage("debian") {
 		t.Error("expected referencesImage=false for a FROM line carrying only flags")
 	}
@@ -421,11 +364,4 @@ func TestReservedAliasErrorSortsCollisions(t *testing.T) {
 			t.Fatalf("reservedAliasError() = %v, want %q", got, want)
 		}
 	}
-}
-
-// splitFinalStageForTest exposes the parsed final-stage split for the split
-// tests. Production renders through parsedProjectDockerfile.render.
-func splitFinalStageForTest(data []byte) (string, string, string) {
-	p := parseProjectDockerfile(data)
-	return p.earlier, p.finalBase, p.body
 }

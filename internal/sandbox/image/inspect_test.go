@@ -195,7 +195,7 @@ func TestBuildReasonsCombinesSourceAndHostChanges(t *testing.T) {
 	}
 }
 
-func TestReadImageInfoFromDockerNilConfig(t *testing.T) {
+func TestReadImageInfoFromDockerReportsNoEnvWithoutConfig(t *testing.T) {
 	docker.WithDockerMock(t, &docker.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{InspectResponse: image.InspectResponse{}}, nil

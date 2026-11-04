@@ -7,21 +7,23 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
-func TestResolveAgentVersionFallsBackToEmpty(t *testing.T) {
-	got, err := DefaultAgentVersionResolver(context.Background(), plainAgent{}, "")
-	if err != nil {
-		t.Fatalf("resolveAgentVersion: %v", err)
-	}
-	if got != "" {
-		t.Errorf(
-			"resolveAgentVersion = %q, want empty for an agent without an UpgradeChecker and no requested version",
-			got,
-		)
+// TestDefaultAgentVersionResolverWithoutUpgradeCheckerKeepsTheRequestedVersion
+// pins that an agent with no UpgradeChecker resolves to exactly what was
+// requested, including nothing.
+func TestDefaultAgentVersionResolverWithoutUpgradeCheckerKeepsTheRequestedVersion(t *testing.T) {
+	for _, requested := range []string{"", "1.2.3"} {
+		got, err := DefaultAgentVersionResolver(context.Background(), plainAgent{}, requested)
+		if err != nil {
+			t.Fatalf("DefaultAgentVersionResolver(%q): %v", requested, err)
+		}
+		if got != requested {
+			t.Errorf("DefaultAgentVersionResolver(%q) = %q, want the requested version", requested, got)
+		}
 	}
 }
 
 // The agent's own UpgradeChecker must drive the resolved version, not opencode's.
-func TestResolveAgentVersionUsesAgentsOwnChecker(t *testing.T) {
+func TestDefaultAgentVersionResolverUsesTheAgentsOwnChecker(t *testing.T) {
 	got, err := DefaultAgentVersionResolver(context.Background(), fakeUpgradeAgent{latest: "7.7.7"}, "")
 	if err != nil {
 		t.Fatalf("resolveAgentVersion error: %v", err)
@@ -31,17 +33,7 @@ func TestResolveAgentVersionUsesAgentsOwnChecker(t *testing.T) {
 	}
 }
 
-func TestResolveAgentVersionWithoutUpgradeChecker(t *testing.T) {
-	got, err := DefaultAgentVersionResolver(context.Background(), plainAgent{}, "1.2.3")
-	if err != nil {
-		t.Fatalf("resolveAgentVersion error: %v", err)
-	}
-	if got != "1.2.3" {
-		t.Errorf("resolveAgentVersion = %q, want requested version 1.2.3", got)
-	}
-}
-
-func TestResolveOpenCodeVersionRequestsLatest(t *testing.T) {
+func TestResolveAgentVersionUsesTheDefaultResolver(t *testing.T) {
 	withMockAgentVersion(t, "9.9.9")
 	got, err := BuildOptions{}.resolveAgentVersion(context.Background(), plainAgent{}, "")
 	if err != nil {
