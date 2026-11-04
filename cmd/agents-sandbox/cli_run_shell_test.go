@@ -775,3 +775,11 @@ func TestRunSkipsDependencyWarningWhenHostProvisioningIsDisabled(t *testing.T) {
 		t.Errorf("warnings mentioning %s = %d, want 0; got: %v", manifest, n, ui.WarnCalls)
 	}
 }
+
+func TestShellCommandInvalidSize(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "shell", "--tmp-size", "bogus")
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "invalid --tmp-size") {
+		t.Fatalf("expected invalid --tmp-size error, got %v", err)
+	}
+}

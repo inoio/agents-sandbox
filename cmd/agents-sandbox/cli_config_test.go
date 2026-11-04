@@ -13,6 +13,8 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -471,5 +473,98 @@ func TestConfigAgentDoesNotMarkExistingConfigDir(t *testing.T) {
 	want := fmt.Sprintf("config dir: user=%q  project=%q (missing)  (primary)", userDir, projectDir)
 	if !slices.Contains(ui.OutCalls, want) {
 		t.Errorf("expected line %q, got:\n%s", want, strings.Join(ui.OutCalls, "\n"))
+	}
+}
+
+func TestResolveConfigAgentNameFromResolver(t *testing.T) {
+	ui := &termio.Mock{}
+	cmd := buildConfigAgentCmd(ui)
+	ctx := context.WithValue(context.Background(), (*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{Agent: "pi"}))
+	cmd.SetContext(ctx)
+
+	name, err := resolveConfigAgentName(cmd, nil)
+	if err != nil {
+		t.Fatalf("resolveConfigAgentName: %v", err)
+	}
+	if name != "pi" {
+		t.Errorf("resolveConfigAgentName = %q, want pi (from resolver)", name)
+	}
+}
+
+func TestResolveConfigAgentNameResolverEmptyAgent(t *testing.T) {
+	ui := &termio.Mock{}
+	cmd := buildConfigAgentCmd(ui)
+	ctx := context.WithValue(context.Background(), (*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{}))
+	cmd.SetContext(ctx)
+
+	name, err := resolveConfigAgentName(cmd, nil)
+	if err != nil {
+		t.Fatalf("resolveConfigAgentName: %v", err)
+	}
+	if name != defaultAgentName {
+		t.Errorf("resolveConfigAgentName = %q, want %q", name, defaultAgentName)
+	}
+}
+
+func TestReservedHomeConfigTargetsNonMerger(t *testing.T) {
+	got := reservedHomeConfigTargets(noDaemonAgent{name: "nod"}, "/home/dev")
+	if got != nil {
+		t.Errorf("reservedHomeConfigTargets = %v, want nil for non-merger agent", got)
+	}
+}
+
+// relErrConfigMerger is an Agent that implements ConfigMerger but whose
+// VMConfigPath returns a relative path, so filepath.Rel fails against an
+// absolute home.
+type relErrConfigMerger struct{ noDaemonAgent }
+
+func (relErrConfigMerger) SnippetPattern() string { return "" }
+
+func (relErrConfigMerger) VMConfigPath(_ string) string { return "relative/path" }
+
+func (relErrConfigMerger) ConfigFileNames() []string { return nil }
+
+func TestReservedHomeConfigTargetsRelError(t *testing.T) {
+	got := reservedHomeConfigTargets(relErrConfigMerger{name: "x"}, "/different/home")
+	if got != nil {
+		t.Errorf("reservedHomeConfigTargets = %v, want nil on filepath.Rel error", got)
+	}
+}
+
+func TestReservedHomeConfigTargetsOK(t *testing.T) {
+	a, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+	got := reservedHomeConfigTargets(a, "/home/dev")
+	if len(got) != 1 {
+		t.Fatalf("reservedHomeConfigTargets = %v, want one reserved target", got)
+	}
+}
+
+// TestEffectiveConfigSlugPrefersRepoSlug pins that the repo slug's per-slug
+// config wins over a legacy slug's during a bare-root config migration.
+func TestEffectiveConfigSlugPrefersRepoSlug(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	repoSlug := "repo-slug"
+	legacySlug := "legacy-slug"
+	testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(repoSlug), "config.yaml", "yes: true\n")
+	testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(legacySlug), "config.yaml", "yes: true\n")
+
+	got := effectiveConfigSlug(git.Identity{RepoSlug: repoSlug, LegacyRepoSlugs: []string{legacySlug}})
+	if got != repoSlug {
+		t.Errorf("effectiveConfigSlug = %q, want the repo slug %q", got, repoSlug)
+	}
+}
+
+func TestConfigAgentHomeManifestError(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "config", "agent", "opencode")
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "home:\n  ../escape:\n")
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected an error from an escaping home target")
 	}
 }

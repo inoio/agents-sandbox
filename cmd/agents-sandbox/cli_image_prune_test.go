@@ -168,3 +168,11 @@ func TestImagePruneFormatJSONIncludesNativeReport(t *testing.T) {
 		t.Errorf("native report fields = %+v", got)
 	}
 }
+
+func TestImagePruneInvalidAge(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "image", "prune", "--age", "bogus", "--yes")
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "invalid age") {
+		t.Fatalf("expected invalid age error, got %v", err)
+	}
+}
