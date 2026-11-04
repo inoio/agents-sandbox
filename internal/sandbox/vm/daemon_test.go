@@ -49,9 +49,8 @@ func TestDaemonHealthSeamResolution(t *testing.T) {
 	}
 }
 
-// TestEnsureDaemonContextCancelled covers the branch where the poll loop is
-// aborted because the context is cancelled while waiting for the daemon to
-// become healthy.
+// TestEnsureDaemonContextCancelled pins that the poll loop stops with the
+// context's cancellation while it waits for the daemon to become healthy.
 func TestEnsureDaemonContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -402,98 +401,80 @@ func TestEnsureDaemonTimeoutIncludesJobLogs(t *testing.T) {
 	}
 }
 
-// TestProbeDaemonHealthReportsUnhealthyBody covers a parseable health response
-// that reports the daemon as unhealthy: the raw body (non-empty here) is kept as
-// the detail rather than the empty-body placeholder.
-func TestProbeDaemonHealthReportsUnhealthyBody(t *testing.T) {
-	health := func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
-		return `{"healthy":false}`, 0, nil
-	}
-
-	probe := probeDaemonHealth(context.Background(), health, nil, fakeDaemonProvider{
-		healthCmd: "health",
-		parse:     func(string) (bool, error) { return false, nil },
-	})
-	if probe.healthy {
-		t.Fatal("probe reported healthy for a server-reported-unhealthy response")
-	}
-	if want := `server reported unhealthy: {"healthy":false}`; probe.detail != want {
-		t.Errorf("detail = %q, want %q", probe.detail, want)
-	}
-}
-
-// TestProbeDaemonHealthReportsProbeError covers the health-command failure: the
-// probe is unhealthy and its detail names the failure, rather than falling
-// through to the exit-code classification.
-func TestProbeDaemonHealthReportsProbeError(t *testing.T) {
-	health := func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
-		return "", -1, errors.New("dial refused")
-	}
-
-	probe := probeDaemonHealth(context.Background(), health, nil, fakeDaemonProvider{healthCmd: "health"})
-	if probe.healthy {
-		t.Fatal("probe reported healthy for a failed health command")
-	}
-	if want := "health probe failed: dial refused"; probe.detail != want {
-		t.Errorf("detail = %q, want %q", probe.detail, want)
-	}
-}
-
-// TestProbeDaemonHealthReportsParseError covers an unparsable health response:
-// the detail names the parse failure, rather than falling through to the
-// server-reported-unhealthy branch.
-func TestProbeDaemonHealthReportsParseError(t *testing.T) {
-	health := func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
-		return "garbage", 0, nil
-	}
-
-	probe := probeDaemonHealth(context.Background(), health, nil, fakeDaemonProvider{
-		healthCmd: "health",
-		parse:     func(string) (bool, error) { return false, errors.New("bad json") },
-	})
-	if probe.healthy {
-		t.Fatal("probe reported healthy for an unparsable response")
-	}
-	if want := "health response unparsable: bad json: garbage"; probe.detail != want {
-		t.Errorf("detail = %q, want %q", probe.detail, want)
-	}
-}
-
-// TestDefaultDaemonHealthFuncSuccess covers the default daemonHealthFunc success
-// path: it forwards stdout and the exit code from sb.Shell.
-func TestDefaultDaemonHealthFuncSuccess(t *testing.T) {
-	sb := &msb.MockSandbox{
-		ShellOut: map[string]msb.ShellResult{
-			"cmd": msb.NewTestResult(true, 7, "hello", "", nil),
+// TestProbeDaemonHealth pins how one health probe is classified: healthy only
+// for a successful command whose response the provider parses as healthy, and
+// otherwise unhealthy with a detail that names why (the command failure, its
+// exit code and body, a parse failure, or the server's own verdict).
+func TestProbeDaemonHealth(t *testing.T) {
+	cases := []struct {
+		name        string
+		stdout      string
+		exitCode    int
+		probeErr    error
+		parse       func(string) (bool, error)
+		wantHealthy bool
+		wantDetail  string
+	}{
+		{
+			name:        "healthy",
+			stdout:      `{"healthy":true}`,
+			parse:       func(string) (bool, error) { return true, nil },
+			wantHealthy: true,
+		},
+		{
+			name:       "command fails",
+			exitCode:   -1,
+			probeErr:   errors.New("dial refused"),
+			wantDetail: "health probe failed: dial refused",
+		},
+		{
+			name:       "non-zero exit without output",
+			exitCode:   7,
+			wantDetail: "health probe exit 7: (no output)",
+		},
+		{
+			name:       "unparsable response",
+			stdout:     "garbage",
+			parse:      func(string) (bool, error) { return false, errors.New("bad json") },
+			wantDetail: "health response unparsable: bad json: garbage",
+		},
+		{
+			name:       "server reports unhealthy",
+			stdout:     `{"healthy":false}`,
+			parse:      func(string) (bool, error) { return false, nil },
+			wantDetail: `server reported unhealthy: {"healthy":false}`,
 		},
 	}
-	// daemonHealthFunc is the production default closure; invoking it directly
-	// exercises the production success path.
-	stdout, code, err := daemonHealthFunc(context.Background(), sb, "cmd")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if stdout != "hello" {
-		t.Errorf("stdout = %q, want hello", stdout)
-	}
-	if code != 7 {
-		t.Errorf("exit code = %d, want 7", code)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			health := func(context.Context, msb.Sandbox, string) (string, int, error) {
+				return tc.stdout, tc.exitCode, tc.probeErr
+			}
+			probe := probeDaemonHealth(context.Background(), health, nil, fakeDaemonProvider{
+				healthCmd: "health",
+				parse:     tc.parse,
+			})
+			if probe.healthy != tc.wantHealthy || probe.detail != tc.wantDetail {
+				t.Errorf("probe = %+v, want healthy %v with detail %q", probe, tc.wantHealthy, tc.wantDetail)
+			}
+		})
 	}
 }
 
-// TestDefaultDaemonHealthFuncErrorBranch covers the error branch of the default
-// daemonHealthFunc closure: a failed sb.Shell yields exit code -1.
-func TestDefaultDaemonHealthFuncErrorBranch(t *testing.T) {
-	sb := &msb.MockSandbox{ShellErr: errors.New("shell failed")}
+// TestDaemonHealthFunc pins the production health probe: it runs the command
+// in the sandbox and forwards stdout and the exit code, and a command that
+// cannot run reports exit code -1 with its cause.
+func TestDaemonHealthFunc(t *testing.T) {
+	sb := &msb.MockSandbox{ShellOut: map[string]msb.ShellResult{"cmd": msb.NewTestResult(true, 7, "hello", "", nil)}}
 	stdout, code, err := daemonHealthFunc(context.Background(), sb, "cmd")
-	if err == nil {
-		t.Fatal("expected error from the default daemonHealthFunc")
+	if err != nil || stdout != "hello" || code != 7 {
+		t.Errorf("daemonHealthFunc = (%q, %d, %v), want (hello, 7, nil)", stdout, code, err)
 	}
-	if code != -1 {
-		t.Errorf("exit code = %d, want -1", code)
-	}
-	if stdout != "" {
-		t.Errorf("stdout = %q, want empty", stdout)
+
+	shellErr := errors.New("shell failed")
+	stdout, code, err = daemonHealthFunc(context.Background(), &msb.MockSandbox{ShellErr: shellErr}, "cmd")
+	if !errors.Is(err, shellErr) || stdout != "" || code != -1 {
+		t.Errorf("daemonHealthFunc on a failed shell = (%q, %d, %v), want (\"\", -1, %v)", stdout, code, err, shellErr)
 	}
 }
 
@@ -507,22 +488,6 @@ func TestDaemonReadinessDefaults(t *testing.T) {
 	}
 	if capturedDaemonPollInterval != 2*time.Second {
 		t.Errorf("daemon poll interval = %s, want 2s", capturedDaemonPollInterval)
-	}
-}
-
-// TestDefaultDaemonHealthFuncError covers the default daemonHealthFunc closure
-// (the production default): when sb.Shell fails, it returns exit code -1.
-func TestDefaultDaemonHealthFuncError(t *testing.T) {
-	sb := &msb.MockSandbox{ShellErr: errors.New("shell failed")}
-	stdout, code, err := daemonHealthFunc(context.Background(), sb, "some-command")
-	if err == nil {
-		t.Fatal("expected error from default daemonHealthFunc")
-	}
-	if code != -1 {
-		t.Errorf("expected exit code -1 on error, got %d", code)
-	}
-	if stdout != "" {
-		t.Errorf("expected empty stdout on error, got %q", stdout)
 	}
 }
 
