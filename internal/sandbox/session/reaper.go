@@ -170,9 +170,6 @@ func waitQuiescent(
 		}
 
 		poll := pollQuiescence(ctx, sb, provider, maxRetry, ui)
-		if poll.terminal {
-			return nil
-		}
 		if poll.failed {
 			continue
 		}
@@ -182,8 +179,7 @@ func waitQuiescent(
 	}
 }
 
-// sessionPoll is the outcome of one quiescence poll. terminal reports that the
-// held sandbox was replaced or removed, so waiting can stop; failed reports a
+// sessionPoll is the outcome of one quiescence poll. failed reports a
 // transient poll error, so the caller keeps waiting.
 //
 //exhaustruct:ignore
@@ -191,7 +187,6 @@ type sessionPoll struct {
 	busy       int
 	stuckRetry bool
 	failed     bool
-	terminal   bool
 }
 
 // pollQuiescence reads the provider's session-status endpoint once and reports
@@ -207,7 +202,7 @@ func pollQuiescence(
 	if err != nil {
 		if msb.IsReplaced(err) || msb.IsNotFound(err) {
 			ui.Verbosef("sandbox was replaced or removed; stopping reaper wait")
-			return sessionPoll{terminal: true}
+			return sessionPoll{} // nothing is left to wait for
 		}
 		ui.Verbosef("session status poll failed: %v", err)
 		return sessionPoll{failed: true}
@@ -265,6 +260,7 @@ func pendingQuestionSessionIDs(ctx context.Context, sb msb.Sandbox, cmd string) 
 // a map of sessionID to SessionStatus. Returns an empty map for empty input.
 func decodeSessionStates(data string) (map[string]SessionStatus, error) {
 	if data == "" {
+		// gomutants:disable-next-line RETURN_ZERO reason="callers only range over and index the map, so an empty and a nil map read the same"
 		return map[string]SessionStatus{}, nil
 	}
 	var states map[string]SessionStatus
@@ -276,6 +272,7 @@ func decodeSessionStates(data string) (map[string]SessionStatus, error) {
 
 func decodeQuestionRequests(data string) ([]QuestionRequest, error) {
 	if data == "" {
+		// gomutants:disable-next-line RETURN_ZERO reason="callers only range over the slice, so an empty and a nil slice read the same"
 		return []QuestionRequest{}, nil
 	}
 	var reqs []QuestionRequest
