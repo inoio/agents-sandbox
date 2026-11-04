@@ -87,7 +87,7 @@ A dependency-free leaf package with the site root and one composer:
   name without `.md` (e.g. `troubleshooting`).
 
 `doctor` drops `docsBaseURL`, `troubleshootingURL` and `troubleshootingURL("…")` at call sites for
-`docslink.SectionURL("troubleshooting", "…")`; `image/build.go` drops its own `docsBaseURL` for the same call. The
+`docslink.SectionURL("troubleshooting", "…")`; `image/docker_build.go` drops its own `docsBaseURL` for the same call. The
 five current anchors are unchanged: `microsandbox-runtime`, `kvm-unavailable`, `docker-not-running`,
 `not-apple-silicon`, `the-base-image-cannot-be-found`.
 

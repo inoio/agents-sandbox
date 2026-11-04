@@ -20,6 +20,27 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+func verboseContains(ui *termio.Mock, substr string) bool {
+	for _, call := range ui.VerboseCalls {
+		if strings.Contains(call, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// dockerConfigWith builds a Docker image config carrying the given agent label
+// and environment for mocked ImageInspect results.
+func dockerConfigWith(version string, env []string) *dockerspec.DockerOCIImageConfig {
+	labels := map[string]string{}
+	if version != "" {
+		labels[agentLabelKey] = version
+	}
+	return &dockerspec.DockerOCIImageConfig{
+		Env: env, Labels: labels,
+	}
+}
+
 // runnerAndBaseMock serves the runner image under its tag with runnerLabels and
 // the distro base under its ref with baseID (an empty baseID means the base is
 // absent). Any pull fails the test: the build decision must stay local.
