@@ -402,31 +402,46 @@ func TestKillJobsKillsMatches(t *testing.T) {
 	}
 }
 
-// TestKillJobsContinuesAfterKillFailure verifies a failed kill does not
-// abandon the remaining matching jobs.
-func TestKillJobsContinuesAfterKillFailure(t *testing.T) {
-	failing := &msb.MockJob{ID_: "a", KillErr: errors.New("kill boom")}
-	healthy := &msb.MockJob{ID_: "b"}
+// TestKillJobsContinuesPastAJobItCannotKill pins that a matching job that
+// cannot be resolved or killed is a verbose diagnostic and the remaining
+// matching jobs are still killed; a job whose kill failed is still closed.
+func TestKillJobsContinuesPastAJobItCannotKill(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	killFails := &msb.MockJob{ID_: "b", KillErr: errors.New("kill boom")}
+	healthy := &msb.MockJob{ID_: "c"}
 	sb := &msb.MockSandbox{
 		Jobs: []msbSdk.JobInfo{
 			{ID: "a", Command: []string{"dockerd"}},
 			{ID: "b", Command: []string{"dockerd"}},
+			{ID: "c", Command: []string{"dockerd"}},
 		},
 		GetJobFn: func(_ context.Context, id string) (msb.Job, error) {
-			if id == "a" {
-				return failing, nil
+			switch id {
+			case "a":
+				return nil, errors.New("get boom")
+			case "b":
+				return killFails, nil
 			}
 			return healthy, nil
 		},
 	}
-	killJobs(context.Background(), sb, dockerdHelper(), &termio.Mock{})
+	killJobs(context.Background(), sb, dockerdHelper(), &ui)
 
+	joined := strings.Join(ui.VerboseCalls, "\n")
+	if !strings.Contains(joined, "resolving job") || !strings.Contains(joined, "killing job") {
+		t.Errorf("expected verbose resolve and kill failures, got %v", ui.VerboseCalls)
+	}
+	if !killFails.DidClose {
+		t.Error("job handle was not closed when Kill failed")
+	}
 	if !healthy.DidKill {
-		t.Error("a kill failure must not stop later matching jobs from being killed")
+		t.Error("a failed job must not stop later matching jobs from being killed")
 	}
 }
 
-func TestKillJobsToleratesFailures(t *testing.T) {
+// TestKillJobsReportsAListFailure pins that jobs that cannot be listed are a
+// verbose diagnostic, not a failure: there is nothing to kill.
+func TestKillJobsReportsAListFailure(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	sb := &msb.MockSandbox{
 		ListJobsFn: func(context.Context, ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error) {
@@ -436,32 +451,6 @@ func TestKillJobsToleratesFailures(t *testing.T) {
 	killJobs(context.Background(), sb, dockerdHelper(), &ui)
 	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "listing jobs") {
 		t.Errorf("expected a verbose listing failure, got %v", ui.VerboseCalls)
-	}
-}
-
-func TestKillJobsToleratesGetAndKillErrors(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	killFailJob := &msb.MockJob{ID_: "b", KillErr: errors.New("kill boom")}
-	sb := &msb.MockSandbox{
-		Jobs: []msbSdk.JobInfo{
-			{ID: "a", Command: []string{"dockerd"}},
-			{ID: "b", Command: []string{"dockerd"}},
-		},
-		GetJobFn: func(_ context.Context, id string) (msb.Job, error) {
-			if id == "a" {
-				return nil, errors.New("get boom")
-			}
-			return killFailJob, nil
-		},
-	}
-	killJobs(context.Background(), sb, dockerdHelper(), &ui)
-
-	joined := strings.Join(ui.VerboseCalls, "\n")
-	if !strings.Contains(joined, "resolving job") || !strings.Contains(joined, "killing job") {
-		t.Errorf("expected verbose get/kill failures, got %v", ui.VerboseCalls)
-	}
-	if !killFailJob.DidClose {
-		t.Error("job handle was not closed when Kill failed")
 	}
 }
 
@@ -600,7 +589,7 @@ func TestProbeHealthy(t *testing.T) {
 	}
 }
 
-// TestProbeHealthyReportsFailedCommandDetail covers the diagnostic detail a
+// TestProbeHealthyReportsFailedCommandDetail pins the diagnostic detail a
 // failing (but executing) probe returns: stderr preferred, then stdout, then an
 // empty-body placeholder.
 func TestProbeHealthyReportsFailedCommandDetail(t *testing.T) {
