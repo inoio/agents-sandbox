@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -63,6 +64,9 @@ type Plan struct {
 	// ServeHostPort is the resolved published host port for serve-only mode (0
 	// when not serving).
 	ServeHostPort int
+	// PortsChanged reports whether the desired published port bindings differ
+	// from the ones the existing VM carries.
+	PortsChanged bool
 }
 
 func configChangeList(changes []Change) string {
@@ -151,9 +155,8 @@ func PlanReconfig(
 	// since microsandbox published ports can only be set at VM creation.
 	// Network policy is creation-only too; its comparison is fingerprint-based
 	// (NetworkChanged) because the SDK does not round-trip network config.
-	hostPort, portsChanged := publishReconfig(opts, cfg)
-	d.ServeHostPort = hostPort
-	if portsChanged {
+	d.ServeHostPort, d.PortsChanged = publishReconfig(opts, cfg)
+	if d.PortsChanged {
 		d.addRecreate(Change{Label: changeLabelPublishedPorts})
 	}
 	if flags.Network {
@@ -293,14 +296,11 @@ func rootDiskChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change,
 }
 
 // publishReconfig returns the resolved serve-only host port and whether the
-// published port bindings differ from the configured ones.
+// desired published port bindings differ from the ones the VM carries.
 func publishReconfig(opts options.RunOptions, cfg *msbSdk.SandboxConfig) (int, bool) {
-	wantPorts := desiredPublishBindings(opts.ServeOnly, cfg)
-	hostPort := 0
-	if len(wantPorts) > 0 {
-		hostPort = int(wantPorts[0].HostPort)
-	}
-	return hostPort, !portBindingsEqual(wantPorts, cfg.PortBindings)
+	want := desiredPublishBindings(opts, cfg)
+	hostPort, _ := ports.ServeHostBinding(want)
+	return hostPort, !ports.BindingsEqual(want, cfg.PortBindings)
 }
 
 // resourceModification returns the live cpu/memory modification to stage, or nil
@@ -388,23 +388,10 @@ func diskMiBOr0(cfg *msbSdk.SandboxConfig) uint32 {
 }
 
 // desiredPublishBindings returns the port bindings agents-sandbox wants on the
-// project VM. Serve-only publishes the agent port on the host loopback;
-// otherwise nothing is published.
-func desiredPublishBindings(serveOnly bool, cfg *msbSdk.SandboxConfig) []msbSdk.PortBinding {
-	if !serveOnly {
-		return nil
-	}
-	return options.ServeOnlyBindings(options.ResolveServeHostPort(cfg, true))
-}
-
-func portBindingsEqual(a, b []msbSdk.PortBinding) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+// project VM, composed by the single ports authority: the serve-only agent
+// binding (with its resolved host port) plus the user-published mappings.
+func desiredPublishBindings(opts options.RunOptions, cfg *msbSdk.SandboxConfig) []msbSdk.PortBinding {
+	return ports.PublishBindings(
+		opts.ServeOnly, ports.ResolveServeHostPort(cfg, opts.ServeOnly, opts.Ports), opts.Ports,
+	)
 }

@@ -842,6 +842,152 @@ func TestNetworkInvalidDNSServersRejected(t *testing.T) {
 	}
 }
 
+func TestPortsInvalidRejected(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  any
+	}{
+		{name: "garbage from env", raw: "3000,not a port"},
+		{name: "port out of range", raw: "70000"},
+		{name: "too many parts", raw: "8080:3000:5"},
+		{name: "empty entry from config", raw: []any{"3000", ""}},
+		{name: "non-string entry", raw: []any{42}},
+		{name: "scalar number", raw: 42},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			if s, ok := tc.raw.(string); ok {
+				t.Setenv("AGENTS_SANDBOX_PORTS", s)
+			} else {
+				testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+					"ports": tc.raw,
+				})
+			}
+			if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
+				t.Fatal("expected error for invalid ports")
+			}
+		})
+	}
+}
+
+func TestPortsValidConfigAccepted(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"ports": []string{"3000", "8080:5173"},
+	})
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	want := []string{"3000", "8080:5173"}
+	if len(r.cfg.Ports) != len(want) {
+		t.Fatalf("Ports = %v, want %v", r.cfg.Ports, want)
+	}
+	for i := range want {
+		if r.cfg.Ports[i] != want[i] {
+			t.Errorf("Ports[%d] = %q, want %q", i, r.cfg.Ports[i], want[i])
+		}
+	}
+}
+
+func portsTestCmd(t *testing.T, publishValues []string) *cobra.Command {
+	t.Helper()
+	root := &cobra.Command{Use: "root"}
+	root.Flags().StringSliceP("port", "p", nil, "")
+	args := []string{}
+	for _, v := range publishValues {
+		args = append(args, "--port", v)
+	}
+	if err := root.ParseFlags(args); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
+	}
+	return root
+}
+
+func TestPortsPublishFlagOverridesInvalidConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"ports": "not a port",
+	})
+	r, err := NewResolver(portsTestCmd(t, []string{"3000"}), configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !slices.Equal(r.cfg.Ports, []string{"3000"}) {
+		t.Errorf("Ports = %v, want [3000] from the --port flag", r.cfg.Ports)
+	}
+}
+
+func TestPortsInvalidPublishFlagRejected(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if _, err := NewResolver(portsTestCmd(t, []string{"not a port"}), configpaths.Get(), ""); err == nil {
+		t.Fatal("expected error for an invalid --port flag value")
+	}
+}
+
+func TestPortsUnspecifiedPublishFlagKeepsConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"ports": []string{"3000", "8080:5173"},
+	})
+	r, err := NewResolver(portsTestCmd(t, nil), configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	want := []string{"3000", "8080:5173"}
+	if !slices.Equal(r.cfg.Ports, want) {
+		t.Errorf("Ports = %v, want %v (the config values, untouched by the bound flag default)", r.cfg.Ports, want)
+	}
+}
+
+func TestPortsDocumentedExampleLoads(t *testing.T) {
+	// The example lives in docs/configuration/networking.md, under
+	// "## Published ports". Loading it here keeps the docs honest: the bare
+	// port must stay quoted, because an unquoted 3000 reaches validation as a
+	// YAML int and is rejected (see the "non-string entry" case above).
+	const docsPath = "../../docs/configuration/networking.md"
+	raw, err := os.ReadFile(docsPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", docsPath, err)
+	}
+	example, ok := documentedPortsExample(string(raw))
+	if !ok {
+		t.Fatalf("no ports example found in %s; keep the doc example and this test in sync", docsPath)
+	}
+	configpaths.WithMockConfigPaths(t)
+	path := filepath.Join(configpaths.Get().UserConfigDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(example), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver(%q): %v", example, err)
+	}
+	want := []string{"3000", "8080:3000"}
+	if !slices.Equal(r.cfg.Ports, want) {
+		t.Errorf("Ports = %v, want %v", r.cfg.Ports, want)
+	}
+}
+
+// documentedPortsExample extracts the fenced yaml block that follows the
+// "## Published ports" heading in the networking docs.
+func documentedPortsExample(docs string) (string, bool) {
+	_, section, found := strings.Cut(docs, "## Published ports")
+	if !found {
+		return "", false
+	}
+	_, block, found := strings.Cut(section, "```yaml\n")
+	if !found {
+		return "", false
+	}
+	snippet, _, found := strings.Cut(block, "```")
+	if !found {
+		return "", false
+	}
+	return snippet, true
+}
+
 func TestDockerFromConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {

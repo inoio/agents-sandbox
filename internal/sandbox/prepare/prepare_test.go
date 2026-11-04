@@ -17,6 +17,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -255,21 +256,125 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 }
 
 func TestResolveServeHostPortNotServeOnly(t *testing.T) {
-	if got := resolveServeHostPort(options.RunOptions{Agent: "opencode"}, 0); got != 0 {
-		t.Errorf("resolveServeHostPort(not serve-only) = %d, want 0", got)
+	got, err := resolveServeHostPort(options.RunOptions{Agent: "opencode"}, 0)
+	if err != nil || got != 0 {
+		t.Errorf("resolveServeHostPort(not serve-only) = %d, %v; want 0, nil", got, err)
 	}
 }
 
 func TestResolveServeHostPortPassthrough(t *testing.T) {
-	if got := resolveServeHostPort(options.RunOptions{ServeOnly: true}, 4096); got != 4096 {
-		t.Errorf("resolveServeHostPort(planned 4096) = %d, want 4096", got)
+	got, err := resolveServeHostPort(options.RunOptions{ServeOnly: true}, 4096)
+	if err != nil || got != 4096 {
+		t.Errorf("resolveServeHostPort(planned 4096) = %d, %v; want 4096, nil", got, err)
 	}
 }
 
 func TestResolveServeHostPortProbesWhenZero(t *testing.T) {
-	got := resolveServeHostPort(options.RunOptions{ServeOnly: true}, 0)
-	if got == 0 || got < options.ServeOnlyBasePort {
-		t.Errorf("resolveServeHostPort(planned 0) = %d, want a probed port >= %d", got, options.ServeOnlyBasePort)
+	got, err := resolveServeHostPort(options.RunOptions{ServeOnly: true}, 0)
+	if err != nil {
+		t.Fatalf("resolveServeHostPort(planned 0): %v", err)
+	}
+	if got == 0 || got < ports.ServeOnlyBasePort {
+		t.Errorf("resolveServeHostPort(planned 0) = %d, want a probed port >= %d", got, ports.ServeOnlyBasePort)
+	}
+}
+
+func TestResolveServeHostPortProbesAroundUserPorts(t *testing.T) {
+	opts := options.RunOptions{
+		ServeOnly: true,
+		Ports:     []ports.PortMapping{{HostPort: ports.ServeOnlyBasePort, GuestPort: 3000}},
+	}
+	got, err := resolveServeHostPort(opts, 0)
+	if err != nil {
+		t.Fatalf("resolveServeHostPort(planned 0): %v", err)
+	}
+	if got == ports.ServeOnlyBasePort {
+		t.Errorf("resolveServeHostPort = %d, want a port no user mapping claims", got)
+	}
+}
+
+// TestResolveServeHostPortExhausted covers the error branch: when every host
+// port in the probe range is claimed by a user mapping, publishing the agent
+// server is impossible, so the resolution fails loudly instead of colliding.
+func TestResolveServeHostPortExhausted(t *testing.T) {
+	_, err := resolveServeHostPort(options.RunOptions{ServeOnly: true, Ports: exhaustedPortMappings()}, 0)
+	if err == nil {
+		t.Fatal("expected an error when every candidate host port is claimed")
+	}
+	if !strings.Contains(err.Error(), "no free host port") {
+		t.Errorf("error = %v, want it to mention no free host port", err)
+	}
+}
+
+func TestReportActivePortsFreshCreate(t *testing.T) {
+	ui := &termio.Mock{}
+	opts := options.RunOptions{Ports: []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}}
+	reportActivePorts(opts, reconfigPlan{}, ui)
+	if len(ui.InfoCalls) != 1 {
+		t.Errorf("fresh create: InfoCalls = %v, want the published-port line", ui.InfoCalls)
+	}
+}
+
+func TestReportActivePortsRecreate(t *testing.T) {
+	ui := &termio.Mock{}
+	opts := options.RunOptions{Ports: []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}}
+	plan := reconfigPlan{decision: reconfigDecision{Recreate: true}}
+	reportActivePorts(opts, plan, ui)
+	if len(ui.InfoCalls) != 1 {
+		t.Errorf("recreate: InfoCalls = %v, want the published-port line", ui.InfoCalls)
+	}
+}
+
+func TestReportActivePortsKeptUnchanged(t *testing.T) {
+	ui := &termio.Mock{}
+	opts := options.RunOptions{Ports: []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}}
+	plan := reconfigPlan{
+		existingVM: &msb.MockSandboxHandle{},
+		decision:   reconfigDecision{PortsChanged: false},
+	}
+	reportActivePorts(opts, plan, ui)
+	if len(ui.InfoCalls) != 1 {
+		t.Errorf("kept, ports unchanged: InfoCalls = %v, want the published-port line", ui.InfoCalls)
+	}
+}
+
+func TestReportActivePortsSkipsDeferred(t *testing.T) {
+	ui := &termio.Mock{}
+	opts := options.RunOptions{Ports: []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}}
+	plan := reconfigPlan{
+		existingVM: &msb.MockSandboxHandle{},
+		decision:   reconfigDecision{PortsChanged: true},
+	}
+	reportActivePorts(opts, plan, ui)
+	if len(ui.InfoCalls) != 0 {
+		t.Errorf("kept, ports deferred: InfoCalls = %v, want none", ui.InfoCalls)
+	}
+}
+
+func TestReportActivePortsNothingRequested(t *testing.T) {
+	ui := &termio.Mock{}
+	reportActivePorts(options.RunOptions{}, reconfigPlan{}, ui)
+	if len(ui.InfoCalls) != 0 {
+		t.Errorf("no ports requested: InfoCalls = %v, want none", ui.InfoCalls)
+	}
+}
+
+func TestExistingServeHostPort(t *testing.T) {
+	if got := existingServeHostPort(nil, 4100); got != 4100 {
+		t.Errorf("existingServeHostPort(nil, 4100) = %d, want the fallback", got)
+	}
+	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP},
+		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: ports.ServeOnlyBasePort, Protocol: msbSdk.PortProtocolTCP},
+	}}
+	if got := existingServeHostPort(cfg, 4100); got != 4096 {
+		t.Errorf("existingServeHostPort = %d, want 4096 (the agent guest port binding)", got)
+	}
+	userOnly := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP},
+	}}
+	if got := existingServeHostPort(userOnly, 4100); got != 4100 {
+		t.Errorf("existingServeHostPort(no serve binding) = %d, want the fallback", got)
 	}
 }
 

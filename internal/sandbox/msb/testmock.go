@@ -434,6 +434,8 @@ type MockSandboxHandle struct {
 	ConfigErr        error
 	Mounts           map[string]msbSdk.MountConfig
 	MountsErr        error
+	PortBindings     []msbSdk.PortBinding
+	PortsErr         error
 	ModifyErr        error
 	Plan             *msbSdk.SandboxModificationPlan
 	ModifiedOptions  []msbSdk.ModifyOptions
@@ -531,6 +533,16 @@ func (m *MockSandboxHandle) ConfigMounts() (map[string]msbSdk.MountConfig, error
 		return nil, m.MountsErr
 	}
 	return m.Mounts, nil
+}
+
+// ConfigPorts is seeded like ConfigMounts: the real handle's ParseConfigPorts
+// over ConfigJSON() needs the FFI runtime, so the mock carries the decoded
+// bindings directly and the parser carries the decode tests.
+func (m *MockSandboxHandle) ConfigPorts() ([]msbSdk.PortBinding, error) {
+	if m.PortsErr != nil {
+		return nil, m.PortsErr
+	}
+	return m.PortBindings, nil
 }
 
 func (m *MockSandboxHandle) Modify(

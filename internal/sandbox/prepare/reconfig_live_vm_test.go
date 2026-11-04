@@ -275,3 +275,19 @@ func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {
 		t.Errorf("project VM looked up %d times, want once", lookups)
 	}
 }
+
+// TestApplyLivePortsReadFailureDegrades covers the read-back failure branch:
+// when the live VM's published ports cannot be read, the bindings are left
+// untouched and the failure is reported at verbose level instead of aborting.
+func TestApplyLivePortsReadFailureDegrades(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{}
+	failing := &msb.MockSandboxHandle{PortsErr: errors.New("ports boom")}
+	ui := termio.NewTestMock(t)
+
+	applyLivePorts(cfg, failing, &ui)
+
+	if cfg.PortBindings != nil {
+		t.Errorf("PortBindings = %+v, want untouched (nil) after a read failure", cfg.PortBindings)
+	}
+	assertVerbose(t, &ui, "reading VM ports failed")
+}

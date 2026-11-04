@@ -225,3 +225,42 @@ func TestPrepareSandboxReconfigApplyHomeActionError(t *testing.T) {
 		t.Errorf("error = %v, want it to mention the apply home action failure", err)
 	}
 }
+
+// TestPrepareSandboxServeOnlyPortExhausted covers the PlanReconfig stage's
+// resolveServeHostPort error: a serve-only run whose user mappings claim the
+// whole probe range aborts before any VM work rather than publishing the agent
+// on a colliding port.
+func TestPrepareSandboxServeOnlyPortExhausted(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	stubPrepareSandboxImage(t)
+
+	k := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{
+				Env:    []string{"PATH=/usr/bin"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+			}, nil
+		},
+		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+	}
+	msb.WithMsbMock(t, mock)
+
+	if err := seedHomeState(k, state.HomeState{
+		HomeVolume:   "home-vol",
+		ImageDigest:  "sha256:abc123",
+		AgentVersion: "1.5.0",
+		AgentSource:  state.AgentSourceTool,
+	}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+
+	ui := termio.NewTestMock(t)
+	opts := options.RunOptions{Agent: "opencode", ServeOnly: true, Ports: exhaustedPortMappings()}
+	if _, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, opts), true, &ui); err == nil {
+		t.Fatal("expected PrepareSandbox to fail when no free serve host port remains")
+	} else if !strings.Contains(err.Error(), "no free host port") {
+		t.Errorf("error = %v, want it to mention no free host port", err)
+	}
+}

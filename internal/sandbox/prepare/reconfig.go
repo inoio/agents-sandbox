@@ -10,6 +10,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -32,11 +33,28 @@ const unreadableVMConfigChangeLabel = "unreadable VM config"
 type reconfigDecision struct {
 	Recreate bool
 	Restart  bool
+	// PortsChanged reports whether the requested user ports differ from the
+	// bindings the existing VM carries. When the VM is kept despite a ports
+	// change, the change is deferred to the next recreate.
+	PortsChanged bool
 	// HomeAction is the resolved home-volume disposition when the VM is
 	// recreated for a changed image digest; nil when no home action applies.
 	// applyReconfigHomeAction applies it.
 	HomeAction    *volume.VolumeAction
 	ServeHostPort int
+}
+
+// existingServeHostPort returns the host port the running VM's config
+// publishes for the agent guest port, or fallback when it carries no such
+// binding (a freshly created VM, or a read-back that lost the guest port).
+func existingServeHostPort(cfg *msbSdk.SandboxConfig, fallback int) int {
+	if cfg == nil {
+		return fallback
+	}
+	if port, ok := ports.ServeHostBinding(cfg.PortBindings); ok {
+		return port
+	}
+	return fallback
 }
 
 // liveProjectVM is what the launcher reads from the existing project VM before
@@ -174,10 +192,18 @@ func resolveReconfigDecision(
 
 	// ResolveReconfig reports a daemon restart only when the plan does not
 	// recreate, so actions.Restart already implies !actions.Recreate && !plan.Recreate.
+	portsChanged := plan.PortsChanged
+	serveHostPort := plan.ServeHostPort
+	if !actions.Recreate && portsChanged {
+		// A kept VM defers the ports change and keeps serving on its existing
+		// agent binding; the freshly probed port applies at the next recreate.
+		serveHostPort = existingServeHostPort(live.config, serveHostPort)
+	}
 	decision := reconfigDecision{
 		Recreate:      actions.Recreate,
 		Restart:       actions.Restart,
-		ServeHostPort: plan.ServeHostPort,
+		PortsChanged:  portsChanged,
+		ServeHostPort: serveHostPort,
 	}
 
 	// The home-volume question only matters when we are actually switching to
@@ -239,6 +265,7 @@ func readExistingVMConfig(
 		)
 	}
 	applyLiveMounts(cfg, handle, ui)
+	applyLivePorts(cfg, handle, ui)
 	return cfg, configUnreadable
 }
 
@@ -257,4 +284,22 @@ func applyLiveMounts(cfg *msbSdk.SandboxConfig, handle msb.SandboxHandle, ui ter
 		return
 	}
 	cfg.Volumes = liveMounts
+}
+
+// applyLivePorts fills cfg.PortBindings with the published ports the persisted
+// config records, which the SDK's Config() drops just like mounts
+// (specs/live-mount-readback.md). Until it runs, cfg.PortBindings is empty and
+// the ports detectors would see every run as changed. A read failure is
+// reported at verbose level and leaves the bindings untouched, so the decision
+// degrades instead of aborting the run.
+func applyLivePorts(cfg *msbSdk.SandboxConfig, handle msb.SandboxHandle, ui termio.Logger) {
+	if cfg == nil {
+		return
+	}
+	livePorts, err := handle.ConfigPorts()
+	if err != nil {
+		ui.Verbosef("reading VM ports failed: %v (continuing)", err)
+		return
+	}
+	cfg.PortBindings = livePorts
 }

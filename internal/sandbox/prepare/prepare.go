@@ -23,6 +23,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtimemigration"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -176,7 +177,11 @@ func PrepareSandbox(
 				return err
 			}
 			opts.Recreate = plan.decision.Recreate
-			opts.ServeHostPort = resolveServeHostPort(opts, plan.decision.ServeHostPort)
+			serveHostPort, err := resolveServeHostPort(opts, plan.decision.ServeHostPort)
+			if err != nil {
+				return err
+			}
+			opts.ServeHostPort = serveHostPort
 			return nil
 		}},
 		{ID: lifecycle.EnsureVM, Run: func() error {
@@ -503,6 +508,7 @@ func setupSandboxStage(
 		if err != nil {
 			return "", err
 		}
+		reportActivePorts(opts, plan, ui)
 	}
 	ui.Verbosef("attach target: %s", sandboxTarget)
 	return sandboxTarget, nil
@@ -603,16 +609,48 @@ func guestWorkspacePath(bindRoot, cwd string) string {
 	return path.Join(mounts.WorkspaceMountPath, filepath.ToSlash(rel))
 }
 
-// resolveServeHostPort returns the host port to publish in serve-only mode. When
-// the reconfig plan produced one (an existing VM reuses its published port) it
-// is used; otherwise a free host port is probed so the VM-creation port (read
-// from opts.ServeHostPort) and the serve-message port (read from the Session)
-// agree on the very first run.
-func resolveServeHostPort(opts options.RunOptions, planned int) int {
-	if opts.ServeOnly && planned == 0 {
-		return options.FirstFreeHostPort(options.ServeOnlyBasePort)
+// reportPublishedPorts prints the requested user mappings. Whether the running
+// VM actually carries them — the gating — is decided by reportActivePorts.
+func reportPublishedPorts(opts options.RunOptions, ui termio.Logger) {
+	for _, mapping := range opts.Ports {
+		ui.Infof("published port: 127.0.0.1:%d → guest port %d", mapping.HostPort, mapping.GuestPort)
 	}
-	return planned
+}
+
+// reportActivePorts reports the requested user ports only when the running VM
+// actually carries them: on a fresh create, a recreate, or a kept VM whose
+// ports did not change. A kept VM defers a ports change to the next recreate
+// and still runs the old bindings, so the deferral is warned about instead.
+func reportActivePorts(opts options.RunOptions, plan reconfigPlan, ui termio.Logger) {
+	if len(opts.Ports) == 0 {
+		return
+	}
+	if plan.existingVM != nil && !plan.decision.Recreate && plan.decision.PortsChanged {
+		ui.Warnf("ports change deferred: the running VM keeps its published ports until the next recreate")
+		return
+	}
+	reportPublishedPorts(opts, ui)
+}
+
+// resolveServeHostPort returns the host port to publish in serve-only mode: the
+// reconfig plan's port when it produced one (an existing VM reuses its
+// published port), else a free probe, so the VM-creation binding (read from
+// opts.ServeHostPort) and the serve message (read from the Session) agree on
+// the very first run. It errors when no free host port remains in the probe
+// range: publishing the agent server is then impossible, and a silent fallback
+// would hand out a port that is already taken.
+func resolveServeHostPort(opts options.RunOptions, planned int) (int, error) {
+	if !opts.ServeOnly || planned != 0 {
+		return planned, nil
+	}
+	probed := ports.ResolveServeHostPort(nil, true, opts.Ports)
+	if probed == 0 {
+		return 0, fmt.Errorf(
+			"no free host port for the agent server in %d-%d; free a loopback port or publish fewer user ports",
+			ports.ServeOnlyBasePort, ports.ServeOnlyBasePort+ports.ProbeRange-1,
+		)
+	}
+	return probed, nil
 }
 
 // prepareHomeVolume offers the opt-in legacy home-volume copy, then resolves the

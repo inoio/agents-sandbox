@@ -38,8 +38,13 @@ type Config struct {
 
 	// Network holds the egress policy. Only Profiles is settable via env/flag.
 	Network network.Policy `mapstructure:"network"`
+
 	// Secrets holds secret-global settings that apply to every secret.
 	Secrets Secrets `mapstructure:"secrets"`
+
+	// Ports are user-published VM ports ("<port>" or "<host>:<guest>"), exposed
+	// on the host loopback at VM creation.
+	Ports []string `mapstructure:"ports"`
 	// Mounts is excluded from viper.Unmarshal (mapstructure:"-") and decoded
 	// from v.Get("mounts") instead: viper flattens dotted guest paths such as
 	// /home/dev/.m2 into nested keys, which would corrupt the map keys.
@@ -138,6 +143,7 @@ const (
 	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
 	keyNetworkProfile            = "network.profile"
 	keyNetworkDNSServers         = "network.dns-servers"
+	keyPorts                     = "ports"
 	keyAgent                     = "agent"
 	// KeyDocker is the config key and CLI flag name for the docker capability.
 	KeyDocker = "docker"
