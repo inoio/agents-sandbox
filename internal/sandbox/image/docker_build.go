@@ -79,12 +79,7 @@ func buildImage(
 	noCache bool,
 	line func(string),
 ) error {
-	var tarBuf bytes.Buffer
-	// gomutants:disable-next-line BRANCH_IF reason="writeDockerfileTar writes only into this in-memory bytes.Buffer, whose Write is documented to always return a nil error, so the call cannot fail here and the branch body never executes"
-	if err := writeDockerfileTar(&tarBuf, req.plan.rendered); err != nil {
-		return fmt.Errorf("create build context: %w", err)
-	}
-	buildResp, err := dclient.ImageBuild(ctx, &tarBuf, client.ImageBuildOptions{
+	buildResp, err := dclient.ImageBuild(ctx, buildContextTar(req.plan.rendered), client.ImageBuildOptions{
 		Tags:      []string{tag},
 		Remove:    true,
 		NoCache:   noCache,
@@ -204,6 +199,22 @@ func writeDockerfileTar(w io.Writer, dockerfile []byte) error {
 		return fmt.Errorf("tar close: %w", err)
 	}
 	return nil
+}
+
+// buildContextTar returns the build context for dockerfile as an in-memory tar.
+// Writing the fixed entries into a bytes.Buffer cannot fail, so a failure is a
+// programming error.
+func buildContextTar(dockerfile []byte) *bytes.Buffer {
+	var buildContext bytes.Buffer
+	mustWriteBuildContext(writeDockerfileTar(&buildContext, dockerfile))
+	return &buildContext
+}
+
+// mustWriteBuildContext panics on an in-memory build-context write error.
+func mustWriteBuildContext(err error) {
+	if err != nil {
+		panic(fmt.Sprintf("write in-memory build context: %v", err))
+	}
 }
 
 // writeTarEntry writes one regular file to the context tar.

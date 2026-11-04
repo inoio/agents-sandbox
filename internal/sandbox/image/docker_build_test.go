@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"reflect"
@@ -179,6 +180,34 @@ func TestBuildImageClassifiesBuildFailures(t *testing.T) {
 				t.Errorf("buildImage error = %v, must not contain %q", err, tc.wantAbsent)
 			}
 		})
+	}
+}
+
+// TestBuildImageSendsTheRenderedDockerfileAsBuildContext pins that the engine
+// receives a tar build context whose Dockerfile is the rendered one.
+func TestBuildImageSendsTheRenderedDockerfileAsBuildContext(t *testing.T) {
+	rendered := []byte("FROM debian:trixie-slim\nRUN echo context\n")
+	var dockerfile []byte
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, buildContext io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			tr := tar.NewReader(buildContext)
+			for header, err := tr.Next(); err == nil; header, err = tr.Next() {
+				if header.Name == "Dockerfile" {
+					dockerfile, _ = io.ReadAll(tr)
+				}
+			}
+			return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
+		},
+	})
+	if err := buildImage(
+		context.Background(), docker.Get(), agentOpencode(t),
+		testBuildRequest(rendered, "", "debian:trixie-slim", "", imageIdentity{}),
+		"tag", false, func(string) {},
+	); err != nil {
+		t.Fatalf("buildImage: %v", err)
+	}
+	if !bytes.Equal(dockerfile, rendered) {
+		t.Errorf("build context Dockerfile = %q, want the rendered %q", dockerfile, rendered)
 	}
 }
 
@@ -549,4 +578,13 @@ func readTarEntries(t *testing.T, r io.Reader) (map[string]string, map[string]in
 		entries[header.Name] = string(content)
 		modes[header.Name] = header.Mode
 	}
+}
+
+func TestMustWriteBuildContextPanicsOnAWriteError(t *testing.T) {
+	defer func() {
+		if recovered := recover(); recovered == nil || !strings.Contains(fmt.Sprint(recovered), "disk full") {
+			t.Errorf("recovered %v, want a panic naming the write error", recovered)
+		}
+	}()
+	mustWriteBuildContext(errors.New("disk full"))
 }
