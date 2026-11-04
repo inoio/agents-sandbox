@@ -10,21 +10,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-func outsideWorktreeIdentity(recordedSharedGitDir string) git.Identity {
-	return git.Identity{
-		BindRoot:             "/srv/worktrees/wt",
-		CheckoutRoot:         "/srv/repo",
-		WorktreeRoot:         "/srv/worktrees/wt",
-		OutsideWorktree:      true,
-		SharedGitDir:         "/srv/repo/.git",
-		RecordedSharedGitDir: recordedSharedGitDir,
-		Bare:                 false,
-		RepoSlug:             "repo-abc",
-		CheckoutSlug:         "wt-def",
-		LegacyRepoSlugs:      nil,
-	}
-}
-
 func TestWithSharedGitDirMountLeavesNonOutsideIdentityAlone(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	configured := mounts.Mounts{"/data": {Source: "/host/data", Readonly: true}}
@@ -89,12 +74,27 @@ func TestWithSharedGitDirMountKeepsConfiguredMountAtSameTarget(t *testing.T) {
 	require.Empty(t, ui.WarnCalls)
 }
 
-// TestWithSharedGitDirMountWithoutConfiguredMounts covers a run with no mounts
-// configured: the nil map must still receive the shared git dir mount.
+// TestWithSharedGitDirMountWithoutConfiguredMounts pins that a run without
+// configured mounts still gets the shared git dir mount.
 func TestWithSharedGitDirMountWithoutConfiguredMounts(t *testing.T) {
 	ui := termio.NewTestMock(t)
 
 	got := withSharedGitDirMount(nil, outsideWorktreeIdentity("/srv/repo/.git"), &ui)
 
 	require.Equal(t, mounts.Mounts{"/srv/repo/.git": {Source: "/srv/repo/.git", Readonly: false}}, got)
+}
+
+func outsideWorktreeIdentity(recordedSharedGitDir string) git.Identity {
+	return git.Identity{
+		BindRoot:             "/srv/worktrees/wt",
+		CheckoutRoot:         "/srv/repo",
+		WorktreeRoot:         "/srv/worktrees/wt",
+		OutsideWorktree:      true,
+		SharedGitDir:         "/srv/repo/.git",
+		RecordedSharedGitDir: recordedSharedGitDir,
+		Bare:                 false,
+		RepoSlug:             "repo-abc",
+		CheckoutSlug:         "wt-def",
+		LegacyRepoSlugs:      nil,
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -24,44 +25,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
-
-// dockerfileIDLabel is the image label carrying the runner image content
-// identity (image.dockerfileIDLabelKey, which is unexported).
-const dockerfileIDLabel = "org.agents-sandbox.dockerfile-id"
-
-// agentVersionLabel is the image label carrying the baked agent release
-// (image.agentVersionLabelKey, which is unexported).
-const agentVersionLabel = "org.agents-sandbox.identity.agent-version"
-
-// absentImageDockerMock makes the local image inspect report a missing image, so
-// the preview reports "would build" for the "not present locally" reason.
-func absentImageDockerMock(t *testing.T) {
-	t.Helper()
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(
-			context.Context, string, ...client.ImageInspectOption,
-		) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{}, errors.New("no such image")
-		},
-	})
-}
-
-// noVolumeCreateMock fails the test if the preview ever creates a volume.
-func noVolumeCreateMock(t *testing.T) *int {
-	t.Helper()
-	return msb.WithCountingMsbMock(t, &msb.MockMsbClient{
-		CreateVolumeFn: func(
-			context.Context, string, ...msbSdk.VolumeOption,
-		) (msb.VolumeHandle, error) {
-			t.Fatal("PreviewSandbox must not create a volume")
-			return nil, errors.New("unexpected CreateVolume")
-		},
-	})
-}
-
-func previewKey() state.Key {
-	return state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
-}
 
 func TestPreviewSandboxReportsBuildAndCreate(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -299,59 +262,6 @@ func TestPreviewSandboxCorruptStateReportsCreate(t *testing.T) {
 	}
 }
 
-func TestPreviewSandboxSurfacesRenderError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
-	noVolumeCreateMock(t)
-
-	dockerfilePath := configpaths.Get().ProjectDockerfile()
-	if err := os.MkdirAll(filepath.Dir(dockerfilePath), 0o700); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	testutil.WritePath(t, dockerfilePath, "FROM ubuntu:24.04 AS agents-sandbox-base\n")
-
-	ui := termio.NewTestMock(t)
-	if _, err := PreviewSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
-		&ui,
-	); err == nil {
-		t.Fatal("expected the render error for a reserved stage alias to surface")
-	}
-}
-
-func TestPreviewSandboxUnknownAgentErrors(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	ui := termio.NewTestMock(t)
-	if _, err := PreviewSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "nope"}),
-		&ui,
-	); err == nil {
-		t.Fatal("expected an error for an unknown agent")
-	}
-}
-
-func TestPreviewSandboxWorkspaceDirError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	dir := t.TempDir()
-	t.Chdir(dir)
-	if err := os.Remove(dir); err != nil {
-		t.Skipf("cannot remove cwd: %v", err)
-	}
-
-	ui := termio.NewTestMock(t)
-	if _, err := PreviewSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
-		&ui,
-	); err == nil {
-		t.Fatal("expected an error when the workspace directory cannot be resolved")
-	}
-}
-
 // TestPreviewSandboxUserProvidedAgentIgnoresPin pins the user-provided-agent
 // precedence: like resolveBuildVersion, the preview ignores --agent-version for
 // an agent the tool does not own, so it reports the recorded version and the
@@ -436,9 +346,93 @@ func TestPreviewSandboxUserProvidedAgentNeverRecoversVersion(t *testing.T) {
 	}
 }
 
-// TestPreviewSandboxSurfacesAdoptionError covers the pending-legacy-identity
-// error arm: a corrupt legacy state document must surface from the read-only
-// adoption check rather than be silently ignored.
+func TestPreviewSandboxForcedRebuildReportsBuild(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
+	noVolumeCreateMock(t)
+
+	ui := termio.NewTestMock(t)
+	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Rebuild: true}), &ui)
+	if err != nil {
+		t.Fatalf("PreviewSandbox() error = %v", err)
+	}
+	if !p.BuildImage {
+		t.Error("BuildImage = false, want true for --rebuild")
+	}
+	if !slices.Contains(p.BuildReasons, "forced by --rebuild") {
+		t.Errorf("BuildReasons = %v, want the forced reason", p.BuildReasons)
+	}
+}
+
+func TestPreviewSandboxUnknownAgentErrors(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	ui := termio.NewTestMock(t)
+	if _, err := PreviewSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "nope"}),
+		&ui,
+	); err == nil {
+		t.Fatal("expected an error for an unknown agent")
+	}
+}
+
+// TestPreviewSandboxWorkspaceDirError pins that a deleted working directory
+// fails the preview with the not-exist cause.
+func TestPreviewSandboxWorkspaceDirError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.Remove(dir); err != nil {
+		t.Skipf("cannot remove cwd: %v", err)
+	}
+
+	ui := termio.NewTestMock(t)
+	if _, err := PreviewSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		&ui,
+	); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("PreviewSandbox error = %v, want fs.ErrNotExist", err)
+	}
+}
+
+// TestPreviewSandboxErrorsWhenIdentityUnresolvable pins #354 on the dry-run
+// preview path, which resolves the cwd before it derives an identity.
+func TestPreviewSandboxErrorsWhenIdentityUnresolvable(t *testing.T) {
+	t.Chdir(unresolvableIdentityDir(t))
+
+	ui := termio.NewTestMock(t)
+	_, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
+	if err == nil {
+		t.Fatal("PreviewSandbox succeeded with an unresolvable identity, want an error")
+	}
+}
+
+func TestPreviewSandboxSurfacesRenderError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	docker.WithNoopDockerMock(t)
+	noVolumeCreateMock(t)
+
+	dockerfilePath := configpaths.Get().ProjectDockerfile()
+	if err := os.MkdirAll(filepath.Dir(dockerfilePath), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	testutil.WritePath(t, dockerfilePath, "FROM ubuntu:24.04 AS agents-sandbox-base\n")
+
+	ui := termio.NewTestMock(t)
+	if _, err := PreviewSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+		&ui,
+	); err == nil {
+		t.Fatal("expected the render error for a reserved stage alias to surface")
+	}
+}
+
+// TestPreviewSandboxSurfacesAdoptionError pins that a corrupt legacy state
+// document surfaces from the read-only adoption check instead of being ignored.
 func TestPreviewSandboxSurfacesAdoptionError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacySlug := git.MustRepoSlug()
@@ -461,10 +455,9 @@ func TestPreviewSandboxSurfacesAdoptionError(t *testing.T) {
 	}
 }
 
-// TestPreviewSandboxSurfacesHomeVolumeLookupError covers the home-volume
-// lookup-error arm: a recorded volume whose lookup fails transiently (not true
-// absence) must surface from PreviewHomeVolume rather than be reported as
-// "would create", matching the real run's fail-closed check.
+// TestPreviewSandboxSurfacesHomeVolumeLookupError pins that a recorded volume
+// whose lookup fails transiently (not true absence) is reported as an error,
+// not as "would create", matching the real run's fail-closed check.
 func TestPreviewSandboxSurfacesHomeVolumeLookupError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
@@ -487,20 +480,40 @@ func TestPreviewSandboxSurfacesHomeVolumeLookupError(t *testing.T) {
 	}
 }
 
-func TestPreviewSandboxForcedRebuildReportsBuild(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
-	noVolumeCreateMock(t)
+// dockerfileIDLabel is the image label carrying the runner image content
+// identity (image.dockerfileIDLabelKey, which is unexported).
+const dockerfileIDLabel = "org.agents-sandbox.dockerfile-id"
 
-	ui := termio.NewTestMock(t)
-	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Rebuild: true}), &ui)
-	if err != nil {
-		t.Fatalf("PreviewSandbox() error = %v", err)
-	}
-	if !p.BuildImage {
-		t.Error("BuildImage = false, want true for --rebuild")
-	}
-	if !slices.Contains(p.BuildReasons, "forced by --rebuild") {
-		t.Errorf("BuildReasons = %v, want the forced reason", p.BuildReasons)
-	}
+// agentVersionLabel is the image label carrying the baked agent release
+// (image.agentVersionLabelKey, which is unexported).
+const agentVersionLabel = "org.agents-sandbox.identity.agent-version"
+
+// absentImageDockerMock makes the local image inspect report a missing image, so
+// the preview reports "would build" for the "not present locally" reason.
+func absentImageDockerMock(t *testing.T) {
+	t.Helper()
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(
+			context.Context, string, ...client.ImageInspectOption,
+		) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{}, errors.New("no such image")
+		},
+	})
+}
+
+// noVolumeCreateMock fails the test if the preview ever creates a volume.
+func noVolumeCreateMock(t *testing.T) *int {
+	t.Helper()
+	return msb.WithCountingMsbMock(t, &msb.MockMsbClient{
+		CreateVolumeFn: func(
+			context.Context, string, ...msbSdk.VolumeOption,
+		) (msb.VolumeHandle, error) {
+			t.Fatal("PreviewSandbox must not create a volume")
+			return nil, errors.New("unexpected CreateVolume")
+		},
+	})
+}
+
+func previewKey() state.Key {
+	return state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
 }
