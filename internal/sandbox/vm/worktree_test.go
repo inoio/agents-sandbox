@@ -3,6 +3,8 @@ package vm
 import (
 	"context"
 	"errors"
+	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -14,67 +16,63 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// TestValidateWorktreeBaseExecError covers the sb.Exec failure branch of
-// validateWorktreeBase.
-func TestValidateWorktreeBaseExecError(t *testing.T) {
-	sb := &msb.MockSandbox{ExecErr: errors.New("exec failed")}
-	if err := validateWorktreeBase(context.Background(), sb, "/w/feat", "main"); err == nil {
-		t.Error("expected error when the base-check exec fails")
-	}
-}
+// TestValidateWorktreeBase pins that a base must resolve to a commit in the
+// local checkout (no fetch is performed), and that a check that cannot run
+// keeps its cause.
+func TestValidateWorktreeBase(t *testing.T) {
+	const check = "git -C /w/feat rev-parse --verify %s^{commit}"
+	execFailed := errors.New("exec failed")
 
-func TestValidateWorktreeBaseOK(t *testing.T) {
 	sb := &msb.MockSandbox{ExecOut: map[string]msb.ShellResult{
-		"git -C /w/feat rev-parse --verify main^{commit}": msb.NewTestResult(true, 0, "abc123", "", nil),
+		fmt.Sprintf(check, "main"): msb.NewTestResult(true, 0, "abc123", "", nil),
+		fmt.Sprintf(check, "nope"): msb.NewTestResult(false, 128, "", "unknown revision", nil),
 	}}
 	if err := validateWorktreeBase(context.Background(), sb, "/w/feat", "main"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Errorf("resolvable base: %v", err)
+	}
+	if err := validateWorktreeBase(context.Background(), sb, "/w/feat", "nope"); err == nil ||
+		!strings.Contains(err.Error(), `base "nope" does not resolve locally`) {
+		t.Errorf("unresolvable base error = %v, want it refused", err)
+	}
+	err := validateWorktreeBase(context.Background(), &msb.MockSandbox{ExecErr: execFailed}, "/w/feat", "main")
+	if !errors.Is(err, execFailed) {
+		t.Errorf("failed check error = %v, want it to wrap %v", err, execFailed)
 	}
 }
 
-func TestValidateWorktreeBaseMissing(t *testing.T) {
-	sb := &msb.MockSandbox{ExecOut: map[string]msb.ShellResult{
-		"git -C /w/feat rev-parse --verify nope^{commit}": msb.NewTestResult(false, 128, "", "unknown revision", nil),
-	}}
-	if err := validateWorktreeBase(context.Background(), sb, "/w/feat", "nope"); err == nil {
-		t.Error("expected error for unresolvable base")
+// TestFindWorktreeDir pins that a worktree is found by its directory's base
+// name, the first match winning, and that no match reports not found.
+func TestFindWorktreeDir(t *testing.T) {
+	const root = "/home/dev/.local/share/opencode/worktree/abc/"
+	cases := []struct {
+		name    string
+		dirs    []string
+		want    string
+		wantHit bool
+	}{
+		{
+			name:    "later entry matches",
+			dirs:    []string{root + "review-test", root + "bugfix"},
+			want:    root + "bugfix",
+			wantHit: true,
+		},
+		{
+			name:    "first match wins",
+			dirs:    []string{root + "bugfix", "/other/bugfix"},
+			want:    root + "bugfix",
+			wantHit: true,
+		},
+		{name: "no match", dirs: []string{root + "other-topic"}},
+		{name: "a name containing the slug is no match", dirs: []string{root + "bugfix-2"}},
+		{name: "empty list"},
 	}
-}
-
-func TestFindWorktreeDirSkipsNonMatching(t *testing.T) {
-	// A non-matching entry is skipped so a later one can match.
-	dir, ok := findWorktreeDir([]string{"/w/bar", "/w/foo"}, "foo")
-	if !ok || dir != "/w/foo" {
-		t.Errorf("findWorktreeDir = %q, %v; want /w/foo, true", dir, ok)
-	}
-}
-
-func TestFindWorktreeDirMatch(t *testing.T) {
-	dirs := []string{
-		"/home/dev/.local/share/opencode/worktree/abc/review-test",
-		"/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero",
-	}
-	dir, ok := findWorktreeDir(dirs, "bugfix-exit-zero")
-	if !ok {
-		t.Fatal("expected to find existing worktree for slug bugfix-exit-zero")
-	}
-	if want := "/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"; dir != want {
-		t.Errorf("got dir %q, want %q", dir, want)
-	}
-}
-
-func TestFindWorktreeDirNoMatch(t *testing.T) {
-	if _, ok := findWorktreeDir(
-		[]string{"/home/dev/.local/share/opencode/worktree/abc/other-topic"},
-		"bugfix-exit-zero",
-	); ok {
-		t.Error("expected no match for a slug absent from the list")
-	}
-}
-
-func TestFindWorktreeDirEmpty(t *testing.T) {
-	if _, ok := findWorktreeDir(nil, "bugfix-exit-zero"); ok {
-		t.Error("expected no match for an empty list")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, ok := findWorktreeDir(tc.dirs, "bugfix")
+			if dir != tc.want || ok != tc.wantHit {
+				t.Errorf("findWorktreeDir = %q, %v; want %q, %v", dir, ok, tc.want, tc.wantHit)
+			}
+		})
 	}
 }
 
@@ -86,327 +84,119 @@ func TestWorktreeDetachedNoteEmptyForBranchReporter(t *testing.T) {
 	}
 }
 
-// TestResolveTargetCreateShellError covers the branch where the worktree create
-// command fails at the Shell level.
-func TestResolveTargetCreateShellError(t *testing.T) {
-	ui := &termio.Mock{}
-	provider := mustWorktreeProvider(t)
-	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{})
-	base := &msb.MockSandbox{
-		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0, `[]`, "", nil),
+// TestResolveTargetStopsAtTheFailingStep pins that each step of resolving a
+// worktree (resolving the daemon project, listing its worktrees, validating the
+// base, creating the worktree) fails the resolution with its cause and runs no
+// later step. In particular a failed or unparsable list is never read as "no
+// worktrees", which would abandon an existing worktree for a new
+// server-suffixed one and hide a daemon route or field rename.
+func TestResolveTargetStopsAtTheFailingStep(t *testing.T) {
+	cause := errors.New("step failed")
+	ok := func(stdout string) msb.ShellResult { return msb.NewTestResult(true, 0, stdout, "", nil) }
+	cases := []struct {
+		name     string
+		agent    *recordingWorktreeAgent
+		base     string
+		outputs  map[string]msb.ShellResult
+		failing  string // the command whose shell call fails with cause
+		execErr  error
+		wantText []string
+		wantNot  []string // commands that must not run
+	}{
+		{
+			name:     "resolve shell failure",
+			failing:  "resolve",
+			wantText: []string{`resolve project for "/workspace"`},
+			wantNot:  []string{"list", "create"},
 		},
-		ShellCalls: &[]string{},
-	}
-	sb := &errOnCmdSandbox{Sandbox: base, cmd: createCmd}
-	_, err := ResolveTarget(
-		context.Background(),
-		opencodeResolved(t),
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	)
-	if err == nil {
-		t.Fatal("expected error when the worktree create shell command fails")
-	}
-}
-
-// TestResolveTargetListError covers the worktree-list failure branch of
-// ResolveTarget: a shell error listing worktrees is propagated.
-func TestResolveTargetListError(t *testing.T) {
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{ShellErr: errors.New("list failed")}
-	_, err := ResolveTarget(
-		context.Background(),
-		opencodeResolved(t),
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	)
-	if err == nil {
-		t.Fatal("expected error when listing worktrees fails")
-	}
-}
-
-// TestResolveTargetResolveError covers the project-resolve transport failure
-// branch of ResolveTarget: a shell error resolving the project is propagated
-// before any list call.
-func TestResolveTargetResolveError(t *testing.T) {
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{ShellErr: errors.New("resolve failed"), ShellCalls: &[]string{}}
-	_, err := ResolveTarget(
-		context.Background(),
-		agent.Resolve(opencode2Agent(t)),
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	)
-	if err == nil {
-		t.Fatal("expected error when resolving the project fails")
-	}
-	if len(*sb.ShellCalls) != 1 {
-		t.Errorf("resolve failure must abort before the list; calls: %v", *sb.ShellCalls)
-	}
-}
-
-// TestResolveTargetListNonSuccessDoesNotCreate pins that a non-success worktree
-// list fails the resolution instead of falling through to create. A transport
-// failure or a non-array payload must never be read as "no worktrees": that
-// would silently abandon an existing worktree for a new server-suffixed one and
-// hide a future route or field rename. v1's list returns a successful JSON array
-// (empty when the project has no worktrees), so a non-success result is always a
-// genuine failure and the strictness is safe to apply to both providers.
-func TestResolveTargetListNonSuccessDoesNotCreate(t *testing.T) {
-	ui := &termio.Mock{}
-	provider := mustWorktreeProvider(t)
-	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{})
-	calls := &[]string{}
-	sb := &msb.MockSandbox{
-		ShellCalls: calls,
-		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(
-				false, 22, "", "curl: (22) The requested URL returned error: 404", nil),
-			createCmd: msb.NewTestResult(true, 0, `{"directory":"/workspace/worktrees/feat-x"}`, "", nil),
+		{
+			name:     "resolve exits non-zero",
+			outputs:  map[string]msb.ShellResult{"resolve": msb.NewTestResult(false, 1, "", "boom", nil)},
+			wantText: []string{`resolve project for "/workspace" failed (exit 1): boom`},
+			wantNot:  []string{"list", "create"},
+		},
+		{
+			name:     "unparsable project",
+			agent:    &recordingWorktreeAgent{badProject: true},
+			wantText: []string{`resolve project for "/workspace" returned an unexpected payload`},
+			wantNot:  []string{"list", "create"},
+		},
+		{
+			name:     "list shell failure",
+			failing:  "list",
+			wantText: []string{`list worktrees for "feat-x"`},
+			wantNot:  []string{"create"},
+		},
+		{
+			name:     "list exits non-zero",
+			outputs:  map[string]msb.ShellResult{"list": msb.NewTestResult(false, 3, "", "boom", nil)},
+			wantText: []string{`list worktrees for "feat-x" failed (exit 3): boom`},
+			wantNot:  []string{"create"},
+		},
+		{
+			name:     "unparsable list",
+			agent:    &recordingWorktreeAgent{badList: true},
+			wantText: []string{`list worktrees for "feat-x" returned an unexpected payload`},
+			wantNot:  []string{"create"},
+		},
+		{
+			name:     "base cannot be checked",
+			base:     "develop",
+			execErr:  cause,
+			wantText: []string{`worktree "feat-x"`},
+			wantNot:  []string{"create"},
+		},
+		{
+			name:     "create shell failure",
+			failing:  "create",
+			wantText: []string{`create worktree "feat-x"`},
+		},
+		{
+			name:     "create exits non-zero",
+			outputs:  map[string]msb.ShellResult{"create": msb.NewTestResult(false, 4, "", "boom", nil)},
+			wantText: []string{`create worktree "feat-x" failed (exit 4): boom`, "may still have created it"},
+		},
+		{
+			name:     "unparsable create response",
+			agent:    &recordingWorktreeAgent{badDir: true},
+			wantText: []string{`parse worktree response for "feat-x"`},
 		},
 	}
-	if _, err := ResolveTarget(
-		context.Background(),
-		opencodeResolved(t),
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	); err == nil {
-		t.Fatal("expected error when the worktree list exits non-zero")
-	}
-	for _, call := range *calls {
-		if strings.Contains(call, "POST") {
-			t.Errorf("must not create a worktree after a failed list; calls: %v", *calls)
-		}
-	}
-}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			outputs := map[string]msb.ShellResult{"resolve": ok(`{}`), "list": ok(`[]`), "create": ok(`{}`)}
+			maps.Copy(outputs, tc.outputs)
+			calls := &[]string{}
+			mock := &msb.MockSandbox{ShellOut: outputs, ShellCalls: calls, ExecErr: tc.execErr}
+			var sb msb.Sandbox = mock
+			if tc.failing != "" {
+				sb = failingCommandSandbox{MockSandbox: mock, command: tc.failing, err: cause}
+			}
+			a := tc.agent
+			if a == nil {
+				a = &recordingWorktreeAgent{}
+			}
 
-// TestResolveTargetCreateNonSuccess covers the non-success create-result branch
-// of ResolveTarget.
-func TestResolveTargetCreateNonSuccess(t *testing.T) {
-	ui := &termio.Mock{}
-	provider := mustWorktreeProvider(t)
-	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{})
-	sb := &msb.MockSandbox{
-		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0, `[]`, "", nil),
-			createCmd: msb.NewTestResult(false, 1, "", "failed", nil),
-		},
-	}
-	_, err := ResolveTarget(
-		context.Background(),
-		opencodeResolved(t),
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	)
-	if err == nil {
-		t.Fatal("expected error when the create command exits non-zero")
-	}
-}
+			_, err := ResolveTarget(context.Background(), agent.Resolve(a), sb,
+				options.WorktreeSpec{Name: "feat-x", Base: tc.base}, mounts.WorkspaceMountPath, &termio.Mock{})
 
-// TestResolveTargetParseError covers the parse-response failure branch of
-// ResolveTarget: the create command succeeds but returns non-JSON output.
-func TestResolveTargetParseError(t *testing.T) {
-	ui := &termio.Mock{}
-	provider := mustWorktreeProvider(t)
-	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{})
-	sb := &msb.MockSandbox{
-		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0, `[]`, "", nil),
-			createCmd: msb.NewTestResult(true, 0, "not-json", "", nil),
-		},
-	}
-	_, err := ResolveTarget(
-		context.Background(),
-		opencodeResolved(t),
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	)
-	if err == nil {
-		t.Fatal("expected error when parsing the create response fails")
-	}
-}
-
-// TestResolveTargetWrapsResolveShellError pins the resolve-error wrap: a shell
-// failure resolving the daemon project preserves its cause.
-func TestResolveTargetWrapsResolveShellError(t *testing.T) {
-	ui := &termio.Mock{}
-	a := &recordingWorktreeAgent{}
-	sentinel := errors.New("resolve shell boom")
-	sb := &msb.MockSandbox{ShellErr: sentinel, ShellCalls: &[]string{}}
-
-	_, err := ResolveTarget(
-		context.Background(),
-		agent.Resolve(a),
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	)
-	if err == nil {
-		t.Fatal("expected a resolve shell failure to abort")
-	}
-	if !errors.Is(err, sentinel) {
-		t.Errorf("error = %v, want it to wrap the resolve cause", err)
-	}
-}
-
-// TestResolveTargetWrapsListShellError pins the list-error wrap: a v1 agent has
-// no resolve command, so its first shell call is the list, whose failure must
-// preserve its cause.
-func TestResolveTargetWrapsListShellError(t *testing.T) {
-	ui := &termio.Mock{}
-	sentinel := errors.New("list shell boom")
-	sb := &msb.MockSandbox{ShellErr: sentinel, ShellCalls: &[]string{}}
-
-	_, err := ResolveTarget(
-		context.Background(),
-		opencodeResolved(t),
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	)
-	if err == nil {
-		t.Fatal("expected a list shell failure to abort")
-	}
-	if !errors.Is(err, sentinel) {
-		t.Errorf("error = %v, want it to wrap the list cause", err)
-	}
-}
-
-// TestResolveTargetAbortsWhenListExitNonZero pins that a non-zero list exit
-// aborts before create rather than reading as "no worktrees".
-func TestResolveTargetAbortsWhenListExitNonZero(t *testing.T) {
-	ui := &termio.Mock{}
-	a := &recordingWorktreeAgent{}
-	sb := &msb.MockSandbox{
-		ShellOut: map[string]msb.ShellResult{
-			"resolve": msb.NewTestResult(true, 0, `{}`, "", nil),
-			"list":    msb.NewTestResult(false, 3, "", "boom", nil),
-		},
-		ShellCalls: &[]string{},
-	}
-
-	_, err := ResolveTarget(
-		context.Background(),
-		agent.Resolve(a),
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	)
-	if err == nil {
-		t.Fatal("expected a non-zero list exit to abort")
-	}
-	if !strings.Contains(err.Error(), `list worktrees for "feat-x" failed (exit 3)`) {
-		t.Errorf("error = %v, want the list-failure detail", err)
-	}
-	if slices.Contains(*sb.ShellCalls, "create") {
-		t.Errorf("must not create after a failed list; calls: %v", *sb.ShellCalls)
-	}
-}
-
-// TestResolveTargetWrapsCreateShellError pins the create-error wrap: a shell
-// failure creating the worktree preserves its cause.
-func TestResolveTargetWrapsCreateShellError(t *testing.T) {
-	ui := &termio.Mock{}
-	a := &recordingWorktreeAgent{}
-	sentinel := errors.New("create shell boom")
-	sb := createErrorSandbox{
-		MockSandbox: &msb.MockSandbox{ShellOut: map[string]msb.ShellResult{
-			"resolve": msb.NewTestResult(true, 0, `{}`, "", nil),
-			"list":    msb.NewTestResult(true, 0, `[]`, "", nil),
-		}},
-		err: sentinel,
-	}
-
-	_, err := ResolveTarget(
-		context.Background(),
-		agent.Resolve(a),
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	)
-	if err == nil {
-		t.Fatal("expected a create shell failure to abort")
-	}
-	if !errors.Is(err, sentinel) {
-		t.Errorf("error = %v, want it to wrap the create cause", err)
-	}
-}
-
-// TestResolveTargetAbortsWhenCreateExitNonZero pins the create-failure detail: a
-// non-zero create exit names the exit and the timed-out-request caveat.
-func TestResolveTargetAbortsWhenCreateExitNonZero(t *testing.T) {
-	ui := &termio.Mock{}
-	a := &recordingWorktreeAgent{}
-	sb := &msb.MockSandbox{
-		ShellOut: map[string]msb.ShellResult{
-			"resolve": msb.NewTestResult(true, 0, `{}`, "", nil),
-			"list":    msb.NewTestResult(true, 0, `[]`, "", nil),
-			"create":  msb.NewTestResult(false, 4, "", "boom", nil),
-		},
-	}
-
-	_, err := ResolveTarget(
-		context.Background(),
-		agent.Resolve(a),
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	)
-	if err == nil {
-		t.Fatal("expected a non-zero create exit to abort")
-	}
-	for _, want := range []string{`create worktree "feat-x" failed (exit 4)`, "may still have created it"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error = %v, want it to contain %q", err, want)
-		}
-	}
-}
-
-// TestResolveTargetWrapsBaseValidationError pins the base-validation wrap: an
-// exec failure checking the base preserves its cause through both layers.
-func TestResolveTargetWrapsBaseValidationError(t *testing.T) {
-	ui := &termio.Mock{}
-	a := &recordingWorktreeAgent{}
-	sentinel := errors.New("exec boom")
-	sb := &msb.MockSandbox{
-		ShellOut: map[string]msb.ShellResult{
-			"resolve": msb.NewTestResult(true, 0, `{}`, "", nil),
-			"list":    msb.NewTestResult(true, 0, `[]`, "", nil),
-		},
-		ExecErr: sentinel,
-	}
-
-	_, err := ResolveTarget(
-		context.Background(),
-		agent.Resolve(a),
-		sb,
-		options.WorktreeSpec{Name: "feat-x", Base: "develop"},
-		mounts.WorkspaceMountPath,
-		ui,
-	)
-	if err == nil {
-		t.Fatal("expected a base-validation exec failure to abort")
-	}
-	if !errors.Is(err, sentinel) {
-		t.Errorf("error = %v, want it to wrap the exec cause", err)
+			if err == nil {
+				t.Fatal("ResolveTarget succeeded, want the step's failure")
+			}
+			if (tc.failing != "" || tc.execErr != nil) && !errors.Is(err, cause) {
+				t.Errorf("error = %v, want it to wrap %v", err, cause)
+			}
+			for _, want := range tc.wantText {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %v, want it to contain %q", err, want)
+				}
+			}
+			for _, command := range tc.wantNot {
+				if slices.Contains(*calls, command) {
+					t.Errorf("ran %q after the failing step; calls: %v", command, *calls)
+				}
+			}
+		})
 	}
 }
 
@@ -444,88 +234,6 @@ func TestResolveTargetResolvesThenPassesProjectToProvider(t *testing.T) {
 	}
 	if a.createSpec.Name != "feat-x" {
 		t.Errorf("create spec = %+v, want Name feat-x", a.createSpec)
-	}
-}
-
-// TestResolveTargetAbortsWhenResolveFails pins that a non-zero resolve exit
-// aborts before the list, so no worktree request is sent.
-func TestResolveTargetAbortsWhenResolveFails(t *testing.T) {
-	ui := &termio.Mock{}
-	a := &recordingWorktreeAgent{}
-	sb := &msb.MockSandbox{
-		ShellOut:   map[string]msb.ShellResult{"resolve": msb.NewTestResult(false, 1, "", "boom", nil)},
-		ShellCalls: &[]string{},
-	}
-	if _, err := ResolveTarget(
-		context.Background(),
-		agent.Resolve(a),
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	); err == nil {
-		t.Fatal("expected an error when the resolve command exits non-zero")
-	}
-	for _, call := range *sb.ShellCalls {
-		if call == "list" || call == "create" {
-			t.Errorf("must not list or create after a failed resolve; calls: %v", *sb.ShellCalls)
-		}
-	}
-}
-
-// TestResolveTargetAbortsWhenProjectUnparsable pins that an unusable project
-// response aborts before the list, so no request is sent with an empty id.
-func TestResolveTargetAbortsWhenProjectUnparsable(t *testing.T) {
-	ui := &termio.Mock{}
-	a := &recordingWorktreeAgent{badProject: true}
-	sb := &msb.MockSandbox{
-		ShellOut:   map[string]msb.ShellResult{"resolve": msb.NewTestResult(true, 0, "garbage", "", nil)},
-		ShellCalls: &[]string{},
-	}
-	if _, err := ResolveTarget(
-		context.Background(),
-		agent.Resolve(a),
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	); err == nil {
-		t.Fatal("expected an error when the project cannot be parsed")
-	}
-	for _, call := range *sb.ShellCalls {
-		if call == "list" || call == "create" {
-			t.Errorf("must not list or create after an unparsable resolve; calls: %v", *sb.ShellCalls)
-		}
-	}
-}
-
-// TestResolveTargetAbortsWhenListUnparsable pins that a list payload the
-// provider's parser rejects aborts before create: a malformed list must never
-// read as "no worktrees" and spawn a duplicate.
-func TestResolveTargetAbortsWhenListUnparsable(t *testing.T) {
-	ui := &termio.Mock{}
-	a := &recordingWorktreeAgent{badList: true}
-	sb := &msb.MockSandbox{
-		ShellOut: map[string]msb.ShellResult{
-			"resolve": msb.NewTestResult(true, 0, `{}`, "", nil),
-			"list":    msb.NewTestResult(true, 0, "garbage", "", nil),
-		},
-		ShellCalls: &[]string{},
-	}
-	if _, err := ResolveTarget(
-		context.Background(),
-		agent.Resolve(a),
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	); err == nil {
-		t.Fatal("expected an error when the list payload cannot be parsed")
-	}
-	for _, call := range *sb.ShellCalls {
-		if call == "create" {
-			t.Errorf("must not create after an unparsable list; calls: %v", *sb.ShellCalls)
-		}
 	}
 }
 

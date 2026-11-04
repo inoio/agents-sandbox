@@ -3,13 +3,11 @@ package vm
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
@@ -31,8 +29,7 @@ func statePresent(t *testing.T, k state.Key) bool {
 }
 
 // nilResultDockerd models a sandbox whose dockerd readiness probe returns a
-// nil (nil, nil) result during polling, exercising the nil-result guard in
-// probeHealthy.
+// nil (nil, nil) result during polling.
 type nilResultDockerd struct {
 	msb.Sandbox
 
@@ -55,15 +52,6 @@ func (s *nilResultDockerd) Shell(
 		return msb.NewTestResult(false, 1, "", "", nil), nil
 	}
 	return s.Sandbox.Shell(ctx, command, opts...)
-}
-
-func joinStrings(parts []string) string {
-	var b strings.Builder
-	for _, p := range parts {
-		b.WriteString(p)
-		b.WriteByte('|')
-	}
-	return b.String()
 }
 
 // retryConnectHandle is a SandboxHandle whose Connect fails on the first call
@@ -90,25 +78,6 @@ func (h *retryConnectHandle) Refresh(context.Context) (msb.SandboxHandle, error)
 		return nil, h.refreshErr
 	}
 	return h.refresh, nil
-}
-
-// errOnCmdSandbox is a sandbox stub that returns an error for exactly one
-// command and delegates everything else to the wrapped sandbox.
-type errOnCmdSandbox struct {
-	msb.Sandbox
-
-	cmd string
-}
-
-func (s *errOnCmdSandbox) Shell(
-	ctx context.Context,
-	command string,
-	opts ...msbSdk.ExecOption,
-) (msb.ShellResult, error) {
-	if command == s.cmd {
-		return nil, errors.New("shell failed")
-	}
-	return s.Sandbox.Shell(ctx, command, opts...)
 }
 
 // fakeAgent implements only the core Agent interface with no capabilities, so
@@ -274,27 +243,6 @@ func (s *countingSandbox) ExecDetached(
 	return s.MockSandbox.ExecDetached(ctx, cmd, args, opts...)
 }
 
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
-
-// failingStateDirConfigPaths overrides only the state directory, delegating
-// every other path to the (nil) embedded interface. It is used to force
-// read/write errors on the per-project state file by pointing UserStateDir at a
-// regular file, so the parent "directory" cannot be created or read.
-type failingStateDirConfigPaths struct {
-	configpaths.ConfigPaths
-
-	stateDir string
-}
-
-func (f failingStateDirConfigPaths) UserStateDir() string { return f.stateDir }
-
 // seedHomeState writes hs as the key's HomeState through the recovery
 // transaction, overwriting any existing document. Tests only.
 func seedHomeState(k state.Key, hs state.HomeState) error {
@@ -311,19 +259,20 @@ type branchWorktreeAgent struct{ fakeAgent }
 
 func (branchWorktreeAgent) WorktreeCreatesDetachedHead() bool { return false }
 
-// createErrorSandbox fails the worktree create shell call while letting the
-// resolve and list calls through, so ResolveTarget's create-error wrap can be
-// exercised independently of the other shell calls.
-type createErrorSandbox struct {
+// failingCommandSandbox fails one shell command with err and lets every other
+// command through to the embedded mock, so a test can fail one step of a
+// multi-command flow.
+type failingCommandSandbox struct {
 	*msb.MockSandbox
 
-	err error
+	command string
+	err     error
 }
 
-func (s createErrorSandbox) Shell(
+func (s failingCommandSandbox) Shell(
 	ctx context.Context, command string, opts ...msbSdk.ExecOption,
 ) (msb.ShellResult, error) {
-	if command == "create" {
+	if command == s.command {
 		return nil, s.err
 	}
 	return s.MockSandbox.Shell(ctx, command, opts...)
@@ -340,6 +289,7 @@ type recordingWorktreeAgent struct {
 	resolveCalls  int
 	badProject    bool
 	badList       bool
+	badDir        bool
 	listProject   agent.WorktreeProject
 	createSpec    agent.WorktreeSpec
 	createProject agent.WorktreeProject
@@ -377,5 +327,8 @@ func (r *recordingWorktreeAgent) WorktreeCreateCmd(spec agent.WorktreeSpec, proj
 }
 
 func (r *recordingWorktreeAgent) WorktreeParseDir(string) (string, bool) {
+	if r.badDir {
+		return "", false
+	}
 	return "/workspace/wt/feat-x", true
 }
