@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -727,8 +728,14 @@ func TestDropSummaryAtTheBound(t *testing.T) {
 		s.record(i, "reason")
 	}
 	err := s.err()
-	if err == nil || strings.Contains(err.Error(), "more") || !strings.Contains(err.Error(), "over 0s") {
-		t.Fatalf("summary = %v, want every drop listed over 0s with no more marker", err)
+	if err == nil || strings.Contains(err.Error(), "more") || !strings.Contains(err.Error(), "over 0s") ||
+		!strings.Contains(err.Error(), fmt.Sprintf("dropped %d times", summaryFirstDrops)) {
+		t.Fatalf("summary = %v, want %d drops over 0s with no more marker", err, summaryFirstDrops)
+	}
+	for i := 1; i <= summaryFirstDrops; i++ {
+		if !strings.Contains(err.Error(), fmt.Sprintf("attempt %d: reason", i)) {
+			t.Errorf("summary = %v, want attempt %d listed", err, i)
+		}
 	}
 }
 

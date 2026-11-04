@@ -42,8 +42,18 @@ func TestApplyOverride(t *testing.T) {
 	}{
 		{mode: OverrideOn, from: disabled, wantDesktop: true, wantAudio: AudioSystem},
 		{mode: OverrideOff, from: enabled, wantDesktop: false, wantAudio: AudioOff},
-		{mode: OverrideDesktop, from: Config{Audio: AudioSystem}, wantDesktop: true, wantAudio: AudioOff},
-		{mode: OverrideAudio, from: Config{Desktop: true}, wantDesktop: false, wantAudio: AudioSystem},
+		{
+			mode:        OverrideDesktop,
+			from:        Config{Audio: AudioSystem, OnInput: true, OnError: true},
+			wantDesktop: true,
+			wantAudio:   AudioOff,
+		},
+		{
+			mode:        OverrideAudio,
+			from:        Config{Desktop: true, OnInput: true, OnDone: true},
+			wantDesktop: false,
+			wantAudio:   AudioSystem,
+		},
 		{mode: OverrideNone, from: enabled, wantDesktop: true, wantAudio: AudioSystem},
 	}
 	for _, tc := range cases {
