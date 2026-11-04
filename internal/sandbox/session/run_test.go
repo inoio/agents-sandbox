@@ -55,34 +55,77 @@ func TestStartNotifyWatcherReturnsWatchError(t *testing.T) {
 	}
 }
 
-func TestStartNotifyWatcherNoOpWithoutSpec(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	origWatch := notifyWatch
-	defer func() { notifyWatch = origWatch }()
-	called := false
-	notifyWatch = func(_ context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, _ notify.Backend) error {
-		called = true
-		return nil
-	}
+// activeNotifyConfig enables notifications on the desktop for every trigger.
+func activeNotifyConfig() notify.Config {
+	return notify.Config{Desktop: true, Audio: notify.AudioOff, OnInput: true, OnDone: true, OnError: true}
+}
 
-	stop := startNotifyWatcher(
-		context.Background(),
-		msb.NewMockSandbox(msb.SandboxOpts{}),
-		notify.Config{
-			Desktop: true,
-			Audio:   notify.AudioOff,
-			OnInput: true,
-			OnDone:  true,
-			OnError: true,
-		},
-		ui,
-		nil,
-		"slug",
-	)
-	stop()
-	if called {
-		t.Error("startNotifyWatcher should be a no-op without an EventStreamSpec")
+// TestStartNotifyWatcherNeedsASandboxConfigAndSpec pins that the watcher
+// starts only with a sandbox, an active notify config and an event stream
+// spec; without any of them the returned stop does nothing.
+func TestStartNotifyWatcherNeedsASandboxConfigAndSpec(t *testing.T) {
+	spec := &agent.EventStreamSpec{Name: "pi"}
+	cases := []struct {
+		name string
+		sb   msb.Sandbox
+		cfg  notify.Config
+		spec *agent.EventStreamSpec
+	}{
+		{"no sandbox", nil, activeNotifyConfig(), spec},
+		{"inactive config", msb.NewMockSandbox(msb.SandboxOpts{}), notify.Config{}, spec},
+		{"no spec", msb.NewMockSandbox(msb.SandboxOpts{}), activeNotifyConfig(), nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			origWatch := notifyWatch
+			t.Cleanup(func() { notifyWatch = origWatch })
+			notifyWatch = func(context.Context, notify.StreamOpener, agent.EventStreamSpec, notify.Backend) error {
+				t.Error("the notify watcher started")
+				return nil
+			}
+
+			stop := startNotifyWatcher(context.Background(), tc.sb, tc.cfg, &termio.Mock{}, tc.spec, "slug")
+			if err := stop(); err != nil {
+				t.Errorf("stop() = %v, want nil", err)
+			}
+		})
+	}
+}
+
+// TestStartNotifyWatcherDedupsForAKnownProject pins that a watcher for a known
+// project slug notifies through the cross-client dedup, so two clients of one
+// project do not both alert, and that stop cancels the running watch.
+func TestStartNotifyWatcherDedupsForAKnownProject(t *testing.T) {
+	for _, tc := range []struct {
+		slug      string
+		wantDedup bool
+	}{{"slug", true}, {"", false}} {
+		t.Run("slug="+tc.slug, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			origWatch := notifyWatch
+			t.Cleanup(func() { notifyWatch = origWatch })
+			backends := make(chan notify.Backend, 1)
+			notifyWatch = func(ctx context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, b notify.Backend) error {
+				backends <- b
+				<-ctx.Done()
+				return nil
+			}
+
+			stop := startNotifyWatcher(context.Background(), msb.NewMockSandbox(msb.SandboxOpts{}),
+				activeNotifyConfig(), &termio.Mock{}, &agent.EventStreamSpec{Name: "pi"}, tc.slug)
+			_, isDedup := (<-backends).(*notify.Dedup)
+			stopped := make(chan error, 1)
+			go func() { stopped <- stop() }()
+			select {
+			case <-stopped:
+			case <-time.After(2 * time.Second):
+				t.Fatal("stop() did not cancel the watch")
+			}
+			if isDedup != tc.wantDedup {
+				t.Errorf("dedup backend = %v, want %v", isDedup, tc.wantDedup)
+			}
+		})
 	}
 }
 
@@ -1344,10 +1387,9 @@ func TestFinalizeRun(t *testing.T) {
 	if err := finalizeRun(nil, 0); err != nil {
 		t.Errorf("finalizeRun(nil, 0) = %v, want nil", err)
 	}
-	if err := finalizeRun(errors.New("boom"), 1); err == nil {
-		t.Error("finalizeRun(error, code) should return wrapped error")
-	} else if !strings.Contains(err.Error(), "agent session failed") {
-		t.Errorf("finalizeRun error = %q, want wrapped session failure", err.Error())
+	boom := errors.New("boom")
+	if err := finalizeRun(boom, 1); !errors.Is(err, boom) || !strings.Contains(err.Error(), "agent session failed") {
+		t.Errorf("finalizeRun error = %v, want the session failure wrapping %v", err, boom)
 	}
 	err := finalizeRun(nil, 3)
 	var exitErr *sandbox.ExitError

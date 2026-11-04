@@ -249,7 +249,7 @@ func withClientSession(
 		ui.Warnf("client lease failed: %v", acquireErr)
 	}
 	defer func() {
-		if acquireErr == nil && release != nil {
+		if release != nil {
 			release()
 		}
 	}()

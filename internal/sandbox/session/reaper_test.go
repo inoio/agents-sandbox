@@ -84,7 +84,8 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 	defer release()
 
 	ui := &termio.Mock{}
-	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+	var shellCalls, execCalls []string
+	sb := &msb.MockSandbox{Name_: "test-vm", ShellCalls: &shellCalls, ExecCalls: &execCalls}
 
 	err := reapOnLastClient(
 		context.Background(),
@@ -96,6 +97,13 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(shellCalls) != 0 || len(execCalls) != 0 {
+		t.Errorf(
+			"reaper touched the sandbox while another client is attached: shell %v, exec %v",
+			shellCalls,
+			execCalls,
+		)
 	}
 
 	for _, w := range ui.WarnCalls {
@@ -326,6 +334,11 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.
 	)
 	if err == nil {
 		t.Fatal("expected error when context times out (session stays busy)")
+	}
+	if !slices.ContainsFunc(ui.VerboseCalls, func(line string) bool {
+		return strings.Contains(line, "question status poll failed")
+	}) {
+		t.Errorf("expected the question poll failure logged, got %v", ui.VerboseCalls)
 	}
 }
 
@@ -813,107 +826,48 @@ func TestPendingQuestionSessionIDsShellError(t *testing.T) {
 	}
 }
 
-func TestDecodeSessionStates_ValidJSON(t *testing.T) {
-	input := `{"s1":{"type":"busy","attempt":3},"s2":{"type":"idle","attempt":0}}`
-	got, err := decodeSessionStates(input)
-	if err != nil {
-		t.Fatalf("decodeSessionStates: %v", err)
+// TestDecodeSessionStates pins the /session/status decoding: an object of
+// session id to status, nothing for an empty body, and a refusal that keeps the
+// JSON error for anything else.
+func TestDecodeSessionStates(t *testing.T) {
+	got, err := decodeSessionStates(`{"s1":{"type":"busy","attempt":3},"s2":{"type":"idle","attempt":0}}`)
+	if err != nil || len(got) != 2 || got["s1"] != (SessionStatus{Type: "busy", Attempt: 3}) ||
+		got["s2"] != (SessionStatus{Type: "idle", Attempt: 0}) {
+		t.Fatalf("decodeSessionStates = %+v, %v; want s1 busy/3 and s2 idle/0", got, err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(got))
+	for _, empty := range []string{"", `{}`} {
+		if got, err := decodeSessionStates(empty); err != nil || len(got) != 0 {
+			t.Errorf("decodeSessionStates(%q) = %v, %v; want no sessions", empty, got, err)
+		}
 	}
-	if got["s1"].Type != "busy" || got["s1"].Attempt != 3 {
-		t.Errorf("s1 = %+v, want {Type:busy Attempt:3}", got["s1"])
-	}
-	if got["s2"].Type != "idle" || got["s2"].Attempt != 0 {
-		t.Errorf("s2 = %+v, want {Type:idle Attempt:0}", got["s2"])
-	}
-}
-
-func TestDecodeSessionStates_EmptyJSON(t *testing.T) {
-	got, err := decodeSessionStates(`{}`)
-	if err != nil {
-		t.Fatalf("decodeSessionStates: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("expected 0 entries, got %d", len(got))
+	for _, bad := range []string{`{invalid json`, `"string"`, `[]`} {
+		_, err := decodeSessionStates(bad)
+		if err == nil || !strings.Contains(err.Error(), "decode session status") || errors.Unwrap(err) == nil {
+			t.Errorf("decodeSessionStates(%q) error = %v, want the decode failure wrapping its cause", bad, err)
+		}
 	}
 }
 
-func TestDecodeSessionStates_EmptyString(t *testing.T) {
-	got, err := decodeSessionStates("")
-	if err != nil {
-		t.Fatalf("decodeSessionStates: %v", err)
+// TestDecodeQuestionRequests pins the question-list decoding: an array of
+// requests, nothing for an empty body, and a refusal that keeps the JSON error
+// for anything else.
+func TestDecodeQuestionRequests(t *testing.T) {
+	got, err := decodeQuestionRequests(
+		`[{"id":"que_1","sessionID":"ses_a","questions":[{"question":"q"}]},{"id":"que_2","sessionID":"ses_b","questions":[{"question":"r"}]}]`,
+	)
+	if err != nil || len(got) != 2 || got[0].SessionID != "ses_a" || got[1].SessionID != "ses_b" {
+		t.Fatalf("decodeQuestionRequests = %+v, %v; want ses_a and ses_b", got, err)
 	}
-	if len(got) != 0 {
-		t.Errorf("expected 0 entries, got %d", len(got))
+	for _, empty := range []string{"", `[]`} {
+		if got, err := decodeQuestionRequests(empty); err != nil || len(got) != 0 {
+			t.Errorf("decodeQuestionRequests(%q) = %v, %v; want no requests", empty, got, err)
+		}
 	}
-}
-
-func TestDecodeSessionStates_MalformedJSON(t *testing.T) {
-	_, err := decodeSessionStates(`{invalid json`)
-	if err == nil {
-		t.Fatal("expected error for malformed JSON")
-	}
-}
-
-func TestDecodeSessionStates_StringType(t *testing.T) {
-	_, err := decodeSessionStates(`"string"`)
-	if err == nil {
-		t.Fatal("expected error for non-object JSON type")
-	}
-}
-
-func TestDecodeSessionStates_ArrayType(t *testing.T) {
-	_, err := decodeSessionStates(`[]`)
-	if err == nil {
-		t.Fatal("expected error for array JSON type")
-	}
-}
-
-func TestDecodeQuestionRequests_ValidArray(t *testing.T) {
-	input := `[{"id":"que_1","sessionID":"ses_a","questions":[{"question":"q"}]},{"id":"que_2","sessionID":"ses_b","questions":[{"question":"r"}]}]`
-	got, err := decodeQuestionRequests(input)
-	if err != nil {
-		t.Fatalf("decodeQuestionRequests: %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(got))
-	}
-	if got[0].SessionID != "ses_a" || got[1].SessionID != "ses_b" {
-		t.Errorf("unexpected sessionIDs: %+v", got)
-	}
-}
-
-func TestDecodeQuestionRequests_EmptyArray(t *testing.T) {
-	got, err := decodeQuestionRequests(`[]`)
-	if err != nil {
-		t.Fatalf("decodeQuestionRequests: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("expected 0 entries, got %d", len(got))
-	}
-}
-
-func TestDecodeQuestionRequests_EmptyString(t *testing.T) {
-	got, err := decodeQuestionRequests("")
-	if err != nil {
-		t.Fatalf("decodeQuestionRequests: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("expected 0 entries, got %d", len(got))
-	}
-}
-
-func TestDecodeQuestionRequests_MalformedJSON(t *testing.T) {
-	if _, err := decodeQuestionRequests(`{invalid`); err == nil {
-		t.Fatal("expected error for malformed JSON")
-	}
-}
-
-func TestDecodeQuestionRequests_NonArray(t *testing.T) {
-	if _, err := decodeQuestionRequests(`{}`); err == nil {
-		t.Fatal("expected error for non-array JSON")
+	for _, bad := range []string{`{invalid`, `{}`} {
+		_, err := decodeQuestionRequests(bad)
+		if err == nil || !strings.Contains(err.Error(), "decode question requests") || errors.Unwrap(err) == nil {
+			t.Errorf("decodeQuestionRequests(%q) error = %v, want the decode failure wrapping its cause", bad, err)
+		}
 	}
 }
 
@@ -1065,5 +1019,70 @@ func checkQuiescence(t *testing.T, name string, busy int, stuck bool, wantBusy i
 	}
 	if stuck != wantStuck {
 		t.Errorf("%s: stuckRetry = %v, want %v", name, stuck, wantStuck)
+	}
+}
+
+// blockingExecSandbox runs Exec until its context is cancelled.
+type blockingExecSandbox struct {
+	msb.Sandbox
+
+	finished chan struct{}
+}
+
+func (s *blockingExecSandbox) Exec(
+	ctx context.Context,
+	_ string,
+	_ []string,
+	_ ...msbSdk.ExecOption,
+) (msb.ShellResult, error) {
+	<-ctx.Done()
+	close(s.finished)
+	return nil, ctx.Err()
+}
+
+// TestKeepVMAliveStopEndsTheKeeper pins that stopping the keep-alive cancels
+// its command and waits for it to end before returning.
+func TestKeepVMAliveStopEndsTheKeeper(t *testing.T) {
+	sb := &blockingExecSandbox{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{}), finished: make(chan struct{})}
+	stop := keepVMAlive(context.Background(), sb)
+	stopped := make(chan struct{})
+	go func() {
+		_ = stop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stop() did not end the keeper")
+	}
+	select {
+	case <-sb.finished:
+	default:
+		t.Error("stop() returned before the keeper command ended")
+	}
+}
+
+// TestReapOnLastClient_IdleSessionsSkipTheQuestionPoll pins that questions
+// are only listed when a session is busy, since only a busy session can be
+// waiting on one.
+func TestReapOnLastClient_IdleSessionsSkipTheQuestionPoll(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	var shellCalls []string
+	sb := &msb.MockSandbox{
+		Name_:      "test-vm",
+		ShellCalls: &shellCalls,
+		ShellOut: map[string]msb.ShellResult{
+			"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+				true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
+			),
+		},
+	}
+	err := reapOnLastClient(context.Background(), opencodeResolved(t), state.Key{Slug: "idleq", Agent: "opencode"}, sb,
+		options.ReapPolicy{}, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("reapOnLastClient: %v", err)
+	}
+	if slices.Contains(shellCalls, "curl -sf http://127.0.0.1:4096/question") {
+		t.Errorf("question list polled with no busy session: %v", shellCalls)
 	}
 }
