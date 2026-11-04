@@ -7,31 +7,23 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
-// plainAgent is an Agent that implements no optional capabilities, so
-// resolveAgentVersion takes the fallback branch.
-type plainAgent struct{}
-
-func (plainAgent) Name() string          { return "plain" }
-func (plainAgent) Experimental() bool    { return false }
-func (plainAgent) ConfigDirName() string { return "plain" }
-func (plainAgent) ImageSpec() agent.ImageSpec {
-	return agent.ImageSpec{InstallCommand: "true"}
+// TestDefaultAgentVersionResolverWithoutUpgradeCheckerKeepsTheRequestedVersion
+// pins that an agent with no UpgradeChecker resolves to exactly what was
+// requested, including nothing.
+func TestDefaultAgentVersionResolverWithoutUpgradeCheckerKeepsTheRequestedVersion(t *testing.T) {
+	for _, requested := range []string{"", "1.2.3"} {
+		got, err := DefaultAgentVersionResolver(context.Background(), plainAgent{}, requested)
+		if err != nil {
+			t.Fatalf("DefaultAgentVersionResolver(%q): %v", requested, err)
+		}
+		if got != requested {
+			t.Errorf("DefaultAgentVersionResolver(%q) = %q, want the requested version", requested, got)
+		}
+	}
 }
-
-// fakeUpgradeAgent implements Agent + UpgradeChecker with a controllable latest.
-type fakeUpgradeAgent struct{ latest string }
-
-func (fakeUpgradeAgent) Name() string          { return "fake-upgrade" }
-func (fakeUpgradeAgent) Experimental() bool    { return false }
-func (fakeUpgradeAgent) ConfigDirName() string { return "fake-upgrade" }
-func (fakeUpgradeAgent) ImageSpec() agent.ImageSpec {
-	return agent.ImageSpec{InstallCommand: "true"}
-}
-func (f fakeUpgradeAgent) LatestVersion(_ context.Context) (string, error) { return f.latest, nil }
-func (fakeUpgradeAgent) NewerThan(_, _ string) (bool, error)               { return false, nil }
 
 // The agent's own UpgradeChecker must drive the resolved version, not opencode's.
-func TestResolveAgentVersionUsesAgentsOwnChecker(t *testing.T) {
+func TestDefaultAgentVersionResolverUsesTheAgentsOwnChecker(t *testing.T) {
 	got, err := DefaultAgentVersionResolver(context.Background(), fakeUpgradeAgent{latest: "7.7.7"}, "")
 	if err != nil {
 		t.Fatalf("resolveAgentVersion error: %v", err)
@@ -41,17 +33,7 @@ func TestResolveAgentVersionUsesAgentsOwnChecker(t *testing.T) {
 	}
 }
 
-func TestResolveAgentVersionWithoutUpgradeChecker(t *testing.T) {
-	got, err := DefaultAgentVersionResolver(context.Background(), plainAgent{}, "1.2.3")
-	if err != nil {
-		t.Fatalf("resolveAgentVersion error: %v", err)
-	}
-	if got != "1.2.3" {
-		t.Errorf("resolveAgentVersion = %q, want requested version 1.2.3", got)
-	}
-}
-
-func TestResolveOpenCodeVersionRequestsLatest(t *testing.T) {
+func TestResolveAgentVersionUsesTheDefaultResolver(t *testing.T) {
 	withMockAgentVersion(t, "9.9.9")
 	got, err := BuildOptions{}.resolveAgentVersion(context.Background(), plainAgent{}, "")
 	if err != nil {
@@ -61,3 +43,34 @@ func TestResolveOpenCodeVersionRequestsLatest(t *testing.T) {
 		t.Errorf("resolveAgentVersion = %q, want 9.9.9", got)
 	}
 }
+
+// plainAgent is an Agent that implements no optional capabilities, so
+// resolveAgentVersion takes the fallback branch.
+type plainAgent struct{}
+
+func (plainAgent) Name() string { return "plain" }
+
+func (plainAgent) Experimental() bool { return false }
+
+func (plainAgent) ConfigDirName() string { return "plain" }
+
+func (plainAgent) ImageSpec() agent.ImageSpec {
+	return agent.ImageSpec{InstallCommand: "true"}
+}
+
+// fakeUpgradeAgent implements Agent + UpgradeChecker with a controllable latest.
+type fakeUpgradeAgent struct{ latest string }
+
+func (fakeUpgradeAgent) Name() string { return "fake-upgrade" }
+
+func (fakeUpgradeAgent) Experimental() bool { return false }
+
+func (fakeUpgradeAgent) ConfigDirName() string { return "fake-upgrade" }
+
+func (fakeUpgradeAgent) ImageSpec() agent.ImageSpec {
+	return agent.ImageSpec{InstallCommand: "true"}
+}
+
+func (f fakeUpgradeAgent) LatestVersion(_ context.Context) (string, error) { return f.latest, nil }
+
+func (fakeUpgradeAgent) NewerThan(_, _ string) (bool, error) { return false, nil }
