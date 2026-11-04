@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -116,8 +117,10 @@ func TestWatchRetriesUntilCancelled(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a compound error after drops")
 	}
-	if !strings.Contains(err.Error(), "dropped") {
-		t.Errorf("unexpected error: %v", err)
+	if !strings.Contains(err.Error(), "dropped") ||
+		strings.Contains(err.Error(), "attempt 0: ") ||
+		!strings.Contains(err.Error(), "attempt 1: ") || !strings.Contains(err.Error(), "attempt 2: ") {
+		t.Errorf("error = %v, want the drops numbered from attempt 1", err)
 	}
 	if attempts.Load() < 5 {
 		t.Errorf("expected >=5 attempts before cancel, got %d", attempts.Load())
@@ -726,5 +729,52 @@ func TestDropSummaryAtTheBound(t *testing.T) {
 	err := s.err()
 	if err == nil || strings.Contains(err.Error(), "more") || !strings.Contains(err.Error(), "over 0s") {
 		t.Fatalf("summary = %v, want every drop listed over 0s with no more marker", err)
+	}
+}
+
+// busyRecorder is a sink that records the sessions it is told are busy.
+type busyRecorder struct {
+	recordBackend
+
+	busy []string
+}
+
+func (b *busyRecorder) SessionBusy(sessionID string) { b.busy = append(b.busy, sessionID) }
+
+// TestHandleEventReleasesClaimsOnlyForBusySessions pins that a busy event with
+// a session tells a dedup sink the session is busy again, and that a busy event
+// without a session or any other event does not.
+func TestHandleEventReleasesClaimsOnlyForBusySessions(t *testing.T) {
+	tracker := NewTracker(opencodeSpec())
+	sink := &busyRecorder{}
+	handleEvent(tracker, sink, agent.StreamEvent{Type: "message.part.updated"})
+	handleEvent(tracker, sink, agent.StreamEvent{Type: "session.idle", SessionID: "ses_1"})
+	handleEvent(tracker, sink, agent.StreamEvent{Type: "message.part.updated", SessionID: "ses_1"})
+	if !slices.Equal(sink.busy, []string{"ses_1"}) {
+		t.Errorf("busy sessions = %v, want only ses_1 from its busy event", sink.busy)
+	}
+}
+
+// TestWatchOnceReadsLongEventLines pins that an event line longer than the
+// scanner's default 64 KiB token is still read, so a large payload does not end
+// the stream.
+func TestWatchOnceReadsLongEventLines(t *testing.T) {
+	spec := opencodeSpec()
+	pad := strings.Repeat("x", 100*1024)
+	long := "data: {\"payload\":{\"type\":\"session.idle\",\"properties\":{\"sessionID\":\"ses_1\"},\"pad\":\"" + pad + "\"}}\n\n"
+	stream := &queuedHandle{
+		events: []msb.StreamEvent{
+			{Kind: msb.StreamEventStdout, Data: sseBlockFor("message.part.updated", "ses_1")},
+			{Kind: msb.StreamEventStdout, Data: []byte(long)},
+		},
+		err: io.EOF,
+	}
+	sink := &recordBackend{}
+	err := watchOnce(context.Background(), stubStreams{handle: stream}, NewTracker(spec), sink, spec)
+	if err == nil || err.Error() != "stream ended cleanly" {
+		t.Fatalf("watchOnce() = %v, want the stream read to its end", err)
+	}
+	if sink.count() != 1 {
+		t.Errorf("notifications = %d, want the done from the long event", sink.count())
 	}
 }

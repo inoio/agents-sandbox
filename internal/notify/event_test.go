@@ -341,3 +341,17 @@ func TestTrackerLatchedErrorMutesInputRequests(t *testing.T) {
 		t.Fatalf("input request after a sticky error notified: %+v", n)
 	}
 }
+
+// TestTrackerIgnoresParentOnSessionlessEvents pins that a session event
+// without a session id marks nothing as a child, so events that carry no
+// session still notify.
+func TestTrackerIgnoresParentOnSessionlessEvents(t *testing.T) {
+	spec := opencodeSpec()
+	spec.SessionEvents = []string{"session.created"}
+	tr := NewTracker(spec)
+
+	tr.Handle(agent.StreamEvent{Type: "session.created", ParentID: "ses_root"})
+	if n := tr.Handle(agent.StreamEvent{Type: "session.error"}); n == nil || n.Trigger != TriggerError {
+		t.Fatalf("session-less error = %+v, want an error notification", n)
+	}
+}
