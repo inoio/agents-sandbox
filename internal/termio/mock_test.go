@@ -75,6 +75,41 @@ func TestMockSpinnerRecordsStopsAndStopErrors(t *testing.T) {
 	}
 }
 
+func TestMockSpinnerfRecordsFormattedMessage(t *testing.T) {
+	m := &Mock{}
+	m.Spinnerf("build %d", 42).Stop()
+	if len(m.SpinnerCalls) != 1 || m.SpinnerCalls[0] != "build 42" {
+		t.Errorf("SpinnerCalls = %v, want [build 42]", m.SpinnerCalls)
+	}
+}
+
+func TestNewTestMockReportsConfiguredSettings(t *testing.T) {
+	m := NewTestMock(t)
+	m.SetLevel(LevelVerbose)
+	m.SetQuiet(true)
+	if m.Level() != LevelVerbose {
+		t.Errorf("Level() = %v, want verbose", m.Level())
+	}
+	if !m.Quiet() {
+		t.Error("Quiet() = false after SetQuiet(true)")
+	}
+	m.SetQuiet(false)
+	if m.Quiet() {
+		t.Error("Quiet() = true after SetQuiet(false)")
+	}
+	m.SetAssumeYes(true)
+	if !m.AssumeYes() {
+		t.Error("AssumeYes() = false after SetAssumeYes(true)")
+	}
+	m.IsInteractiveResult = true
+	if !m.IsInteractive() {
+		t.Error("IsInteractive() = false with IsInteractiveResult set")
+	}
+	if m.StdOut() == nil || m.StdErr() == nil {
+		t.Error("StdOut()/StdErr() must not be nil")
+	}
+}
+
 // TestMockSpinnerWithNilOwnerIsNoOp pins the guard that lets a mockSpinner be
 // used without a Mock: both methods return instead of dereferencing a nil owner.
 func TestMockSpinnerWithNilOwnerIsNoOp(t *testing.T) {
