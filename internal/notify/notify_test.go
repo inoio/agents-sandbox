@@ -13,45 +13,55 @@ func TestParseAudioMode(t *testing.T) {
 	}
 }
 
+// TestParseOverride pins the accepted --notify values, each returned as given,
+// and that anything else, including an empty value, is refused.
 func TestParseOverride(t *testing.T) {
 	for _, in := range []string{"on", "off", "desktop", "audio"} {
-		if _, err := ParseOverride(in); err != nil {
-			t.Errorf("ParseOverride(%q) error = %v", in, err)
+		if got, err := ParseOverride(in); err != nil || got != OverrideMode(in) {
+			t.Errorf("ParseOverride(%q) = %q, %v; want %q", in, got, err, in)
 		}
 	}
-	if _, err := ParseOverride("bogus"); err == nil {
-		t.Error("expected error for unknown override")
+	for _, in := range []string{"bogus", ""} {
+		if _, err := ParseOverride(in); err == nil {
+			t.Errorf("ParseOverride(%q) error = nil, want a refusal", in)
+		}
 	}
 }
 
-func TestApplyOverrideOn(t *testing.T) {
-	base := Config{Desktop: false, Audio: AudioOff, OnInput: true, OnDone: true, OnError: true}
-	got := ApplyOverride(base, OverrideOn)
-	if !got.Desktop || got.Audio != AudioSystem {
-		t.Errorf("OverrideOn should enable desktop + system audio, got %+v", got)
-	}
-	if !got.OnInput || !got.OnDone || !got.OnError {
-		t.Errorf("OverrideOn should preserve triggers, got %+v", got)
-	}
-}
-
+// TestApplyOverride pins that an override sets only the channels, from
+// whatever the config had, and keeps the per-trigger toggles; no override
+// leaves the config as it is.
 func TestApplyOverride(t *testing.T) {
-	base := Config{Desktop: true, Audio: AudioSystem, OnInput: true, OnDone: true, OnError: true}
-	if got := ApplyOverride(base, OverrideOff); got.Active() {
-		t.Errorf("OverrideOff should deactivate, got %+v", got)
+	enabled := Config{Desktop: true, Audio: AudioSystem, OnInput: true, OnDone: false, OnError: true}
+	disabled := Config{Desktop: false, Audio: AudioOff, OnInput: true, OnDone: false, OnError: true}
+	cases := []struct {
+		mode        OverrideMode
+		from        Config
+		wantDesktop bool
+		wantAudio   AudioMode
+	}{
+		{mode: OverrideOn, from: disabled, wantDesktop: true, wantAudio: AudioSystem},
+		{mode: OverrideOff, from: enabled, wantDesktop: false, wantAudio: AudioOff},
+		{mode: OverrideDesktop, from: Config{Audio: AudioSystem}, wantDesktop: true, wantAudio: AudioOff},
+		{mode: OverrideAudio, from: Config{Desktop: true}, wantDesktop: false, wantAudio: AudioSystem},
+		{mode: OverrideNone, from: enabled, wantDesktop: true, wantAudio: AudioSystem},
 	}
-	if got := ApplyOverride(base, OverrideDesktop); got.Desktop != true || got.Audio != AudioOff {
-		t.Errorf("OverrideDesktop got %+v", got)
-	}
-	if got := ApplyOverride(base, OverrideAudio); got.Desktop || got.Audio != AudioSystem {
-		t.Errorf("OverrideAudio got %+v", got)
-	}
-	if got := ApplyOverride(base, OverrideNone); got.Desktop != true || got.Audio != AudioSystem {
-		t.Errorf("OverrideNone should leave config untouched, got %+v", got)
-	}
-	// Triggers are preserved through overrides.
-	if got := ApplyOverride(base, OverrideAudio); !got.OnInput || !got.OnDone || !got.OnError {
-		t.Errorf("triggers should be preserved, got %+v", got)
+	for _, tc := range cases {
+		t.Run(string(tc.mode), func(t *testing.T) {
+			got := ApplyOverride(tc.from, tc.mode)
+			if got.Desktop != tc.wantDesktop || got.Audio != tc.wantAudio {
+				t.Errorf(
+					"channels = desktop %v, audio %v; want %v, %v",
+					got.Desktop,
+					got.Audio,
+					tc.wantDesktop,
+					tc.wantAudio,
+				)
+			}
+			if got.OnInput != tc.from.OnInput || got.OnDone != tc.from.OnDone || got.OnError != tc.from.OnError {
+				t.Errorf("triggers changed: %+v from %+v", got, tc.from)
+			}
+		})
 	}
 }
 

@@ -260,6 +260,15 @@ func TestTrackerErrorStickiness(t *testing.T) {
 			},
 		},
 		{
+			name: "turn-scoped error leaves the session idle",
+			spec: turnScoped,
+			steps: []step{
+				{event: "session.execution.started"},
+				{event: "session.execution.failed", want: "error"},
+				{event: "session.execution.succeeded"},
+			},
+		},
+		{
 			name: "sticky error latches the session",
 			spec: sticky,
 			steps: []step{
@@ -290,5 +299,45 @@ func TestTrackerErrorStickiness(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestTrackerLearnsChildrenOnlyFromSessionEvents pins that a parent id on an
+// event outside SessionEvents does not mark the session as a child.
+func TestTrackerLearnsChildrenOnlyFromSessionEvents(t *testing.T) {
+	spec := opencodeSpec()
+	spec.SessionEvents = []string{"session.created"}
+	tr := NewTracker(spec)
+
+	tr.Handle(agent.StreamEvent{Type: "message.part.updated", SessionID: "ses_1", ParentID: "ses_root"})
+	if n := tr.Handle(
+		agent.StreamEvent{Type: "session.idle", SessionID: "ses_1"},
+	); n == nil ||
+		n.Trigger != TriggerDone {
+		t.Fatalf("idle = %+v, want done for a session that is not a child", n)
+	}
+}
+
+// TestTrackerAwaitingInputNeedsANewEnvelopeID pins that, while a session
+// already awaits input, only a request with a new, non-empty envelope id
+// notifies again.
+func TestTrackerAwaitingInputNeedsANewEnvelopeID(t *testing.T) {
+	tr := NewTracker(opencodeSpec())
+	tr.Handle(agent.StreamEvent{Type: "message.part.updated", SessionID: "ses_1"})
+	if n := tr.Handle(agent.StreamEvent{Type: "permission.asked", SessionID: "ses_1", EventID: "e1"}); n == nil {
+		t.Fatal("first request did not notify")
+	}
+	if n := tr.Handle(agent.StreamEvent{Type: "permission.asked", SessionID: "ses_1"}); n != nil {
+		t.Fatalf("request without an envelope id notified again: %+v", n)
+	}
+}
+
+// TestTrackerLatchedErrorMutesInputRequests pins that a session latched by a
+// sticky error does not notify for a later input request, even a new one.
+func TestTrackerLatchedErrorMutesInputRequests(t *testing.T) {
+	tr := NewTracker(opencodeSpec())
+	tr.Handle(agent.StreamEvent{Type: "session.error", SessionID: "ses_1"})
+	if n := tr.Handle(agent.StreamEvent{Type: "permission.asked", SessionID: "ses_1", EventID: "e1"}); n != nil {
+		t.Fatalf("input request after a sticky error notified: %+v", n)
 	}
 }

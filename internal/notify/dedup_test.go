@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -194,4 +195,23 @@ func countClaimFiles(t *testing.T, dir string) int {
 		}
 	}
 	return count
+}
+
+// TestClaimKey pins the dedup token: an input request carries its envelope id,
+// so two requests in one step get distinct tokens and a re-delivery the same;
+// other triggers, and an input without an id, key by session and trigger only.
+func TestClaimKey(t *testing.T) {
+	cases := []struct {
+		n    Notification
+		want string
+	}{
+		{Notification{SessionID: "s", Trigger: TriggerInput, EventID: "e1"}, fmt.Sprintf("s-%d-e1", int(TriggerInput))},
+		{Notification{SessionID: "s", Trigger: TriggerInput}, fmt.Sprintf("s-%d", int(TriggerInput))},
+		{Notification{SessionID: "s", Trigger: TriggerDone, EventID: "e1"}, fmt.Sprintf("s-%d", int(TriggerDone))},
+	}
+	for _, tc := range cases {
+		if got := claimKey(tc.n); got != tc.want {
+			t.Errorf("claimKey(%+v) = %q, want %q", tc.n, got, tc.want)
+		}
+	}
 }

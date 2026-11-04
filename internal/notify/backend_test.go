@@ -201,9 +201,28 @@ func TestSystemAudioNotifierSurvivesTempWAVError(t *testing.T) {
 	(&SystemAudioNotifier{}).Notify(Notification{Trigger: TriggerDone})
 }
 
-func TestCompositeBackendTriggerEnabledUnknown(t *testing.T) {
-	cb := &compositeBackend{cfg: Config{OnInput: true, OnDone: true, OnError: true}, parts: nil}
-	if cb.triggerEnabled(Trigger(99)) {
+// TestCompositeBackendTriggerEnabled pins that each trigger follows its own
+// toggle alone, and that an unknown trigger is never enabled.
+func TestCompositeBackendTriggerEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		trigger Trigger
+		only    Config
+	}{
+		{TriggerInput, Config{OnInput: true}},
+		{TriggerDone, Config{OnDone: true}},
+		{TriggerError, Config{OnError: true}},
+	} {
+		on := &compositeBackend{cfg: tc.only}
+		if !on.triggerEnabled(tc.trigger) {
+			t.Errorf("trigger %d with only its toggle on = disabled, want enabled", tc.trigger)
+		}
+		others := Config{OnInput: !tc.only.OnInput, OnDone: !tc.only.OnDone, OnError: !tc.only.OnError}
+		if off := (&compositeBackend{cfg: others}); off.triggerEnabled(tc.trigger) {
+			t.Errorf("trigger %d with only its toggle off = enabled, want disabled", tc.trigger)
+		}
+	}
+	all := &compositeBackend{cfg: Config{OnInput: true, OnDone: true, OnError: true}}
+	if all.triggerEnabled(Trigger(99)) {
 		t.Error("unknown trigger should be disabled")
 	}
 }

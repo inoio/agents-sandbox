@@ -196,12 +196,10 @@ func TestWatchBackoffResetsAfterLongLived(t *testing.T) {
 	}
 }
 
-// TestWatchStopsDuringReconnectBackoff exercises cancelling the context while
-// Watch waits out a reconnect backoff. The other Watch tests use a zero
-// backoff, where the "wait" races an immediate reconnect, so whether the
-// ctx.Done case of that select runs is timing-dependent (and coverage flaky).
-// Here jitter fires just before the wait and cancels the context, so the
-// select deterministically takes the ctx.Done branch.
+// TestWatchStopsDuringReconnectBackoff pins that cancelling the context while
+// Watch waits out a reconnect backoff ends the watch. Jitter fires just before
+// the wait and cancels the context, so the cancellation lands inside the wait
+// rather than racing an immediate reconnect.
 func TestWatchStopsDuringReconnectBackoff(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -545,60 +543,70 @@ func TestSandboxStreamOpenerPropagatesErrors(t *testing.T) {
 	}
 }
 
-func TestStreamReaderIgnoresStderr(t *testing.T) {
-	h := &queuedHandle{
-		events: []msb.StreamEvent{
-			{Kind: msb.StreamEventStderr, Data: []byte("noise")},
-			{Kind: msb.StreamEventStdout, Data: []byte("hello")},
+// TestStreamReader pins how a shell stream becomes an io.Reader: stdout is
+// read across calls in pieces as small as the caller's buffer, stderr is
+// skipped, an exited or failed stream ends the read with an error naming it, and
+// a receive error is returned as is.
+func TestStreamReader(t *testing.T) {
+	recvFailed := errors.New("recv failed")
+	cases := []struct {
+		name    string
+		events  []msb.StreamEvent
+		recvErr error
+		bufSize int
+		want    string
+		wantErr func(error) bool
+	}{
+		{
+			name:    "stdout in pieces",
+			events:  []msb.StreamEvent{{Kind: msb.StreamEventStdout, Data: []byte("abcdef")}},
+			recvErr: io.EOF,
+			bufSize: 2,
+			want:    "abcdef",
+			wantErr: func(err error) bool { return errors.Is(err, io.EOF) },
 		},
-		err: errors.New("done"),
+		{
+			name: "stderr skipped",
+			events: []msb.StreamEvent{
+				{Kind: msb.StreamEventStderr, Data: []byte("noise")},
+				{Kind: msb.StreamEventStdout, Data: []byte("hello")},
+			},
+			recvErr: recvFailed,
+			bufSize: 16,
+			want:    "hello",
+			wantErr: func(err error) bool { return errors.Is(err, recvFailed) },
+		},
+		{
+			name:    "exited",
+			events:  []msb.StreamEvent{{Kind: msb.StreamEventExited, ExitCode: 3}},
+			bufSize: 16,
+			wantErr: func(err error) bool { return err != nil && err.Error() == "stream exited with code 3" },
+		},
+		{
+			name:    "failed",
+			events:  []msb.StreamEvent{{Kind: msb.StreamEventFailed}},
+			bufSize: 16,
+			wantErr: func(err error) bool { return err != nil && err.Error() == "stream failed" },
+		},
 	}
-	r := &streamReader{ctx: context.Background(), handle: h}
-	buf := make([]byte, 16)
-	n, err := r.Read(buf)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if string(buf[:n]) != "hello" {
-		t.Errorf("got %q, want %q", buf[:n], "hello")
-	}
-}
-
-func TestStreamReaderExitedReturnsError(t *testing.T) {
-	h := &queuedHandle{events: []msb.StreamEvent{{Kind: msb.StreamEventExited, ExitCode: 3}}}
-	r := &streamReader{ctx: context.Background(), handle: h}
-	_, err := r.Read(make([]byte, 16))
-	if err == nil || !strings.Contains(err.Error(), "code 3") {
-		t.Errorf("expected exit-code error, got %v", err)
-	}
-}
-
-func TestStreamReaderFailedReturnsError(t *testing.T) {
-	h := &queuedHandle{events: []msb.StreamEvent{{Kind: msb.StreamEventFailed}}}
-	r := &streamReader{ctx: context.Background(), handle: h}
-	_, err := r.Read(make([]byte, 16))
-	if err == nil || !strings.Contains(err.Error(), "failed") {
-		t.Errorf("expected failed error, got %v", err)
-	}
-}
-
-func TestStreamReaderSplitsChunks(t *testing.T) {
-	h := &queuedHandle{
-		events: []msb.StreamEvent{{Kind: msb.StreamEventStdout, Data: []byte("abcdef")}},
-		err:    io.EOF,
-	}
-	r := &streamReader{ctx: context.Background(), handle: h}
-	buf := make([]byte, 2)
-	var got strings.Builder
-	for {
-		n, err := r.Read(buf)
-		got.Write(buf[:n])
-		if err != nil {
-			break
-		}
-	}
-	if got.String() != "abcdef" {
-		t.Errorf("got %q, want %q", got.String(), "abcdef")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &streamReader{ctx: context.Background(), handle: &queuedHandle{events: tc.events, err: tc.recvErr}}
+			buf := make([]byte, tc.bufSize)
+			var got strings.Builder
+			var err error
+			for {
+				var n int
+				n, err = r.Read(buf)
+				got.Write(buf[:n])
+				if err != nil {
+					break
+				}
+			}
+			if got.String() != tc.want || !tc.wantErr(err) {
+				t.Errorf("read %q, ended with %v; want %q", got.String(), err, tc.want)
+			}
+		})
 	}
 }
 
@@ -665,5 +673,58 @@ func assertOneDoneNotification(t *testing.T, sb *msb.MockSandbox, spec agent.Eve
 	}
 	if backend.count() != 1 || backend.notification(0).Trigger != TriggerDone {
 		t.Fatalf("expected one done notification despite seed failure, got %+v", backend.got)
+	}
+}
+
+// TestWatchOnceReportsWhyTheStreamEnded pins the reason a stream drop carries:
+// a stream that cannot be opened or read keeps its cause, a cancelled watch is
+// not a drop.
+func TestWatchOnceReportsWhyTheStreamEnded(t *testing.T) {
+	spec := opencodeSpec()
+	readFailed := errors.New("read failed")
+	t.Run("read failure", func(t *testing.T) {
+		streams := stubStreams{handle: &queuedHandle{err: readFailed}}
+		err := watchOnce(context.Background(), streams, NewTracker(spec), &recordBackend{}, spec)
+		if !errors.Is(err, readFailed) || !strings.Contains(err.Error(), "reading stream") {
+			t.Fatalf("watchOnce() error = %v, want the read failure wrapping %v", err, readFailed)
+		}
+	})
+	t.Run("open failure", func(t *testing.T) {
+		openFailed := errors.New("open failed")
+		sb := msb.NewMockSandbox(msb.SandboxOpts{ShellStreamFn: func(string) (msb.StreamHandle, error) {
+			return nil, openFailed
+		}})
+		err := watchOnce(
+			context.Background(),
+			SandboxStreamOpener{Sandbox: sb},
+			NewTracker(spec),
+			&recordBackend{},
+			spec,
+		)
+		if !errors.Is(err, openFailed) || !strings.Contains(err.Error(), "opening stream") {
+			t.Fatalf("watchOnce() error = %v, want the open failure wrapping %v", err, openFailed)
+		}
+	})
+	t.Run("cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		streams := stubStreams{handle: &queuedHandle{err: readFailed}}
+		if err := watchOnce(ctx, streams, NewTracker(spec), &recordBackend{}, spec); err != nil {
+			t.Fatalf("watchOnce() on a cancelled watch = %v, want nil", err)
+		}
+	})
+}
+
+// TestDropSummaryAtTheBound pins that exactly summaryFirstDrops drops are all
+// listed with no "more" marker, and that the elapsed time runs from the first
+// drop.
+func TestDropSummaryAtTheBound(t *testing.T) {
+	s := &dropSummary{}
+	for i := 1; i <= summaryFirstDrops; i++ {
+		s.record(i, "reason")
+	}
+	err := s.err()
+	if err == nil || strings.Contains(err.Error(), "more") || !strings.Contains(err.Error(), "over 0s") {
+		t.Fatalf("summary = %v, want every drop listed over 0s with no more marker", err)
 	}
 }
