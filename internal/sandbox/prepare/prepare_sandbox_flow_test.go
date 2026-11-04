@@ -1445,252 +1445,295 @@ func TestPrepareSandboxAdoptionFailureReturnsError(t *testing.T) {
 	}
 }
 
-// TestPrepareSandboxLoadConfigFilesError covers the config-loading failure
-// branch of PrepareSandbox: a malformed home manifest aborts setup after the
-// home volume is resolved but before any VM is created.
-func TestPrepareSandboxLoadConfigFilesError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	// A non-string source value is rejected while reading the home manifest.
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
-		"home:\n"+
-			"  .tool/x:\n"+
-			"    source: 123\n")
-
-	origUpgradeInfo := agentLatestVersion
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
-	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
-
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:abc123",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Env:    []string{"PATH=/usr/bin"},
-					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-				},
-			}, nil
-		},
-	})
-
-	mock := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
-				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-			}, nil
-		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+// TestPrepareSandboxStopsAtTheFailingStage pins how the pipeline fails: the
+// first failing stage is the last one recorded in the trace, no later stage
+// runs, and the stage's cause reaches the caller.
+func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
+	type arrangement struct {
+		opts   options.RunOptions
+		skipVM bool
+		ui     termio.UI
 	}
-	msb.WithMsbMock(t, mock)
-
-	seedHomeState(
-		state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"},
-		state.HomeState{
+	interactiveUI := func(t *testing.T, choose func(prompt string) (string, error)) termio.UI {
+		ui := termio.NewTestMock(t)
+		ui.IsInteractiveResult = true
+		ui.SelectFn = func(prompt string, _ []termio.Choice, _ string) (string, error) { return choose(prompt) }
+		return &ui
+	}
+	nonInteractiveUI := func(t *testing.T) termio.UI {
+		ui := termio.NewTestMock(t)
+		return &ui
+	}
+	// seedReusableHome records a home volume and image digest that match the
+	// stubbed runner image, so a run reuses them unless the case changes that.
+	seedReusableHome := func(t *testing.T, k state.Key, imageDigest string) {
+		t.Helper()
+		if err := seedHomeState(k, state.HomeState{
 			HomeVolume:   "home-vol",
-			ImageDigest:  "sha256:abc123",
+			ImageDigest:  imageDigest,
 			AgentVersion: "1.5.0",
 			AgentSource:  state.AgentSourceTool,
-		},
-	)
-
-	ui := termio.NewTestMock(t)
-	if _, err := PrepareSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
-		false,
-		&ui,
-	); err == nil {
-		t.Fatal("expected error for a malformed home manifest")
-	}
-}
-
-// TestPrepareSandboxImageError covers the image-setup failure branch of
-// PrepareSandbox: when the opencode version cannot be resolved, the image
-// cannot be built and PrepareSandbox returns an error wrapping the cause, so a
-// caller can still reach it with errors.Is.
-func TestPrepareSandboxImageError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
-
-	resolveErr := errors.New("cannot resolve opencode version")
-	withMockBuildVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
-		return "", resolveErr
-	})
-
-	ui := termio.NewTestMock(t)
-	_, err := PrepareSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
-		false,
-		&ui,
-	)
-	if err == nil {
-		t.Fatal("expected error when the opencode version cannot be resolved")
-	}
-	if !errors.Is(err, resolveErr) {
-		t.Errorf("error = %v, want it to wrap %v", err, resolveErr)
-	}
-}
-
-// TestPrepareSandboxVersionResolutionError covers the branch where resolving
-// the opencode version up front fails (before the image is touched): the
-// interactive upgrade prompt errors, so PrepareSandbox returns the error
-// without attempting to build the image.
-func TestPrepareSandboxVersionResolutionError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	seedHomeState(
-		state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"},
-		state.HomeState{AgentVersion: "1.0.0", AgentSource: state.AgentSourceTool},
-	)
-	origUpgradeInfo := agentLatestVersion
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
-	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
-
-	ui := &termio.Mock{
-		IsInteractiveResult: true,
-		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
-			return "", errors.New("selection failed")
-		},
-	}
-
-	if _, err := PrepareSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
-		false,
-		ui,
-	); err == nil {
-		t.Fatal("expected error when the opencode version prompt fails")
-	}
-}
-
-// TestPrepareSandboxReconfigDecisionError covers the resolveReconfigDecision
-// error branch of PrepareSandbox: a change that needs a rebuild while another
-// client is attached prompts for the rebuild, and answering "quit" aborts the
-// startup before any VM work.
-func TestPrepareSandboxReconfigDecisionError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	stubPrepareSandboxImage(t)
-
-	k := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
-	existing := existingProjectVMHandle(k)
-	mock := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		Volumes:    []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
-	}
-	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-		return existing, nil
-	}
-	msb.WithMsbMock(t, mock)
-
-	// An empty NetworkState counts as changed against the live VM, so the run
-	// wants a rebuild; the image digest otherwise matches.
-	if err := seedHomeState(k, state.HomeState{
-		HomeVolume:   "home-vol",
-		ImageDigest:  "sha256:abc123",
-		AgentVersion: "1.5.0",
-		AgentSource:  state.AgentSourceTool,
-	}); err != nil {
-		t.Fatalf("seedHomeState: %v", err)
-	}
-
-	// Another attached client turns the rebuild into a prompt; quitting aborts.
-	lease, err := state.AcquireClientLease(k)
-	if err != nil {
-		t.Fatalf("AcquireClientLease: %v", err)
-	}
-	defer lease()
-
-	ui := termio.NewTestMock(t)
-	ui.IsInteractiveResult = true
-	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
-		return "q", nil
-	}
-
-	if _, err := PrepareSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
-		false,
-		&ui,
-	); err == nil {
-		t.Fatal("expected PrepareSandbox to fail when the rebuild prompt is quit")
-	}
-}
-
-// TestPrepareSandboxReconfigApplyHomeActionError covers the
-// applyReconfigHomeAction error branch of PrepareSandbox: switching to a new
-// image while reusing the home volume asks how to handle the volume, and a
-// failing migrate aborts the startup.
-func TestPrepareSandboxReconfigApplyHomeActionError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	stubPrepareSandboxImage(t)
-
-	k := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
-	existing := existingProjectVMHandle(k)
-	mock := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		Volumes:    []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
-		CreateVolumeFn: func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
-			return nil, errors.New("create volume failed")
-		},
-	}
-	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-		return existing, nil
-	}
-	msb.WithMsbMock(t, mock)
-
-	// A home-volume digest that differs from the built sha256:abc123 makes the
-	// run switch images and ask how to handle the home volume.
-	if err := seedHomeState(k, state.HomeState{
-		HomeVolume:   "home-vol",
-		ImageDigest:  "sha256:old",
-		AgentVersion: "1.5.0",
-		AgentSource:  state.AgentSourceTool,
-	}); err != nil {
-		t.Fatalf("seedHomeState: %v", err)
-	}
-
-	ui := termio.NewTestMock(t)
-	ui.IsInteractiveResult = true
-	ui.SelectFn = func(prompt string, _ []termio.Choice, _ string) (string, error) {
-		if strings.Contains(prompt, "Docker image changed") {
-			return "m", nil
+		}); err != nil {
+			t.Fatalf("seedHomeState: %v", err)
 		}
-		return "", nil
 	}
+	projectKey := func() state.Key { return state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"} }
 
-	_, err := PrepareSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
-		false,
-		&ui,
-	)
-	if err == nil {
-		t.Fatal("expected PrepareSandbox to fail when the home-volume migrate fails")
+	cases := []struct {
+		name string
+		// arrange installs the failure; cause is the error it injects, or nil
+		// when the failure is not an injectable value (e.g. an unknown agent).
+		arrange       func(t *testing.T, cause error) arrangement
+		cause         error
+		wantLastStage lifecycle.StageID
+	}{
+		{
+			name: "unknown agent",
+			arrange: func(t *testing.T, _ error) arrangement {
+				t.Chdir(newOriginClone(t))
+				return arrangement{
+					opts:   resolvedRunOptions(t, options.RunOptions{Agent: "no-such-agent"}),
+					skipVM: true,
+					ui:     nonInteractiveUI(t),
+				}
+			},
+			wantLastStage: lifecycle.ResolveIdentity,
+		},
+		{
+			name: "workspace directory removed",
+			arrange: func(t *testing.T, _ error) arrangement {
+				dir := t.TempDir()
+				t.Chdir(dir)
+				if err := os.Remove(dir); err != nil {
+					t.Skipf("cannot remove cwd: %v", err)
+				}
+				return arrangement{
+					opts: resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					ui:   nonInteractiveUI(t),
+				}
+			},
+			wantLastStage: lifecycle.ResolveIdentity,
+		},
+		{
+			name:  "upgrade prompt fails",
+			cause: errors.New("selection failed"),
+			arrange: func(t *testing.T, cause error) arrangement {
+				t.Chdir(testutil.InitRepo(t))
+				if err := seedHomeState(
+					projectKey(),
+					state.HomeState{AgentVersion: "1.0.0", AgentSource: state.AgentSourceTool},
+				); err != nil {
+					t.Fatalf("seedHomeState: %v", err)
+				}
+				withMockAgentLatestVersion(t, "2.0.0")
+				return arrangement{
+					opts: resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					ui:   interactiveUI(t, func(string) (string, error) { return "", cause }),
+				}
+			},
+			wantLastStage: lifecycle.ResolveVersion,
+		},
+		{
+			name:  "agent release cannot be resolved for the build",
+			cause: errors.New("cannot resolve opencode version"),
+			arrange: func(t *testing.T, cause error) arrangement {
+				t.Chdir(testutil.InitRepo(t))
+				msb.WithMsbMock(t, &msb.MockMsbClient{})
+				withMockBuildVersionResolver(
+					t,
+					func(context.Context, agent.Agent, string) (string, error) { return "", cause },
+				)
+				return arrangement{
+					opts: resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					ui:   nonInteractiveUI(t),
+				}
+			},
+			wantLastStage: lifecycle.EnsureImage,
+		},
+		{
+			name:  "home volume cannot be created",
+			cause: errors.New("volume creation failed"),
+			arrange: func(t *testing.T, cause error) arrangement {
+				t.Chdir(testutil.InitRepo(t))
+				stubPrepareSandboxImage(t)
+				msb.WithMsbMock(t, &msb.MockMsbClient{
+					ImageGetFn: func(context.Context, string) error { return nil },
+					CreateVolumeFn: func(context.Context, string, ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+						return nil, cause
+					},
+				})
+				if err := seedHomeState(
+					projectKey(),
+					state.HomeState{AgentVersion: "1.5.0", AgentSource: state.AgentSourceTool},
+				); err != nil {
+					t.Fatalf("seedHomeState: %v", err)
+				}
+				// A real run: under skip-VM a fresh home volume is never created.
+				return arrangement{
+					opts: sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					ui:   nonInteractiveUI(t),
+				}
+			},
+			wantLastStage: lifecycle.EnsureHome,
+		},
+		{
+			name: "home manifest is malformed",
+			arrange: func(t *testing.T, _ error) arrangement {
+				t.Chdir(testutil.InitRepo(t))
+				// A non-string source value is rejected while reading the home manifest.
+				testutil.WriteFile(t, configpaths.Get().ProjectConfigDir(), "config.yaml",
+					"home:\n  .tool/x:\n    source: 123\n")
+				stubPrepareSandboxImage(t)
+				msb.WithMsbMock(t, &msb.MockMsbClient{
+					ImageGetFn: func(context.Context, string) error { return nil },
+					Volumes:    []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+				})
+				seedReusableHome(t, projectKey(), "sha256:abc123")
+				return arrangement{
+					opts: resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					ui:   nonInteractiveUI(t),
+				}
+			},
+			wantLastStage: lifecycle.PlanReconfig,
+		},
+		{
+			name: "rebuild prompt is quit while another client is attached",
+			arrange: func(t *testing.T, _ error) arrangement {
+				t.Chdir(testutil.InitRepo(t))
+				stubPrepareSandboxImage(t)
+				k := projectKey()
+				existing := existingProjectVMHandle(k)
+				msb.WithMsbMock(t, &msb.MockMsbClient{
+					ImageGetFn:   func(context.Context, string) error { return nil },
+					Volumes:      []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+					GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) { return existing, nil },
+				})
+				// An empty NetworkState counts as changed against the live VM, so
+				// the run wants a rebuild; the attached client turns it into a prompt.
+				seedReusableHome(t, k, "sha256:abc123")
+				release, err := state.AcquireClientLease(k)
+				if err != nil {
+					t.Fatalf("AcquireClientLease: %v", err)
+				}
+				t.Cleanup(release)
+				return arrangement{
+					opts: resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					ui:   interactiveUI(t, func(string) (string, error) { return "q", nil }),
+				}
+			},
+			wantLastStage: lifecycle.PlanReconfig,
+		},
+		{
+			name:  "home volume migration fails after an image switch",
+			cause: errors.New("create volume failed"),
+			arrange: func(t *testing.T, cause error) arrangement {
+				t.Chdir(testutil.InitRepo(t))
+				stubPrepareSandboxImage(t)
+				k := projectKey()
+				existing := existingProjectVMHandle(k)
+				msb.WithMsbMock(t, &msb.MockMsbClient{
+					ImageGetFn:   func(context.Context, string) error { return nil },
+					Volumes:      []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+					GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) { return existing, nil },
+					CreateVolumeFn: func(context.Context, string, ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+						return nil, cause
+					},
+				})
+				// A recorded digest other than the built sha256:abc123 makes the run
+				// switch images and ask how to handle the home volume.
+				seedReusableHome(t, k, "sha256:old")
+				return arrangement{
+					opts: resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					ui: interactiveUI(t, func(prompt string) (string, error) {
+						if strings.Contains(prompt, "Docker image changed") {
+							return "m", nil
+						}
+						return "", nil
+					}),
+				}
+			},
+			wantLastStage: lifecycle.PlanReconfig,
+		},
+		{
+			name:  "project VM lookup fails",
+			cause: errors.New("lookup failed"),
+			arrange: func(t *testing.T, cause error) arrangement {
+				t.Chdir(testutil.InitRepo(t))
+				stubPrepareSandboxImage(t)
+				msb.WithMsbMock(t, &msb.MockMsbClient{
+					ImageGetFn:   func(context.Context, string) error { return nil },
+					Volumes:      []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+					GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) { return nil, cause },
+				})
+				seedReusableHome(t, projectKey(), "sha256:abc123")
+				return arrangement{
+					opts: sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					ui:   nonInteractiveUI(t),
+				}
+			},
+			wantLastStage: lifecycle.PlanReconfig,
+		},
+		{
+			name:  "project VM lock cannot be acquired",
+			cause: errors.New("flock boom"),
+			arrange: func(t *testing.T, cause error) arrangement {
+				t.Chdir(newOriginClone(t))
+				installPrepareSandboxDockerMock(t)
+				installPrepareSandboxMSBMock(t)
+				seams := options.Seams{ProjectVMLock: func(state.Key) (func(), error) { return nil, cause }}
+				return arrangement{
+					opts: sandboxRunOptions(t, options.RunOptions{Agent: "opencode", Seams: seams}),
+					ui:   nonInteractiveUI(t),
+				}
+			},
+			wantLastStage: lifecycle.EnsureVM,
+		},
+		{
+			name:  "sandbox setup fails",
+			cause: errors.New("shell failed"),
+			arrange: func(t *testing.T, cause error) arrangement {
+				t.Chdir(testutil.InitRepo(t))
+				stubPrepareSandboxImage(t)
+				k := projectKey()
+				mock := &msb.MockMsbClient{
+					ImageGetFn: func(context.Context, string) error { return nil },
+					Volumes:    []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+				}
+				mock.SetGotSandbox(&msb.MockSandboxHandle{
+					Name_:     vm.ProjectVMName(k),
+					Status_:   msbSdk.SandboxStatusRunning,
+					ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil, nil), ShellErr: cause},
+				})
+				msb.WithMsbMock(t, mock)
+				seedReusableHome(t, k, "sha256:abc123")
+				return arrangement{
+					opts: sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					ui:   nonInteractiveUI(t),
+				}
+			},
+			wantLastStage: lifecycle.SetupSandbox,
+		},
 	}
-	if !strings.Contains(err.Error(), "apply home action") {
-		t.Errorf("error = %v, want it to mention the apply home action failure", err)
-	}
-}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			run := tc.arrange(t, tc.cause)
+			trace := &lifecycle.Trace{}
+			run.opts.Trace = trace
 
-// TestPrepareSandboxUnknownAgent covers the unknown-agent branch of
-// PrepareSandbox.
-func TestPrepareSandboxUnknownAgent(t *testing.T) {
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-	ui := termio.NewTestMock(t)
+			_, err := PrepareSandbox(context.Background(), run.opts, run.skipVM, run.ui)
 
-	if _, err := PrepareSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "no-such-agent"}),
-		false,
-		&ui,
-	); err == nil {
-		t.Fatal("expected error for an unknown agent")
+			if err == nil {
+				t.Fatal("PrepareSandbox succeeded, want an error")
+			}
+			if tc.cause != nil && !errors.Is(err, tc.cause) {
+				t.Errorf("error = %v, want it to wrap %v", err, tc.cause)
+			}
+			stages := trace.Stages()
+			if len(stages) == 0 || stages[len(stages)-1] != tc.wantLastStage {
+				t.Errorf("trace = %v, want it to end at %s", stages, tc.wantLastStage)
+			}
+		})
 	}
 }
 
@@ -1942,185 +1985,6 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 	}
 }
 
-// TestPrepareSandboxVolumeError covers the home-volume resolution failure branch of
-// PrepareSandbox: a volume-creation failure is propagated.
-func TestPrepareSandboxVolumeError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	origUpgradeInfo := agentLatestVersion
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
-	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
-
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:abc123",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Env:    []string{"PATH=/usr/bin"},
-					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-				},
-			}, nil
-		},
-	})
-
-	mock := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
-				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-			}, nil
-		},
-	}
-	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
-		return nil, errors.New("volume creation failed")
-	}
-	msb.WithMsbMock(t, mock)
-
-	seedHomeState(
-		state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"},
-		state.HomeState{AgentVersion: "1.5.0", AgentSource: state.AgentSourceTool},
-	)
-	ui := termio.NewTestMock(t)
-	// A real run: under skip-VM a fresh home volume is never created (#429).
-	if _, err := PrepareSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Seams: daemonHealthSeams(t)}),
-		false,
-		&ui,
-	); err == nil {
-		t.Fatal("expected error when the home volume cannot be created")
-	}
-}
-
-// TestPrepareSandboxEnsureVMError covers the vm.EnsureProjectVM failure branch of
-// PrepareSandbox: a VM-lookup error is propagated.
-func TestPrepareSandboxEnsureVMError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	origUpgradeInfo := agentLatestVersion
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
-	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
-
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:abc123",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Env:    []string{"PATH=/usr/bin"},
-					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-				},
-			}, nil
-		},
-	})
-
-	slug := git.MustCheckoutSlug()
-	mock := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
-				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-			}, nil
-		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
-	}
-	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-		return nil, errors.New("lookup failed")
-	}
-	msb.WithMsbMock(t, mock)
-
-	seedHomeState(
-		state.Key{Slug: slug, Agent: "opencode"},
-		state.HomeState{
-			HomeVolume:   "home-vol",
-			ImageDigest:  "sha256:abc123",
-			AgentVersion: "1.5.0",
-			AgentSource:  state.AgentSourceTool,
-		},
-	)
-	ui := termio.NewTestMock(t)
-	if _, err := PrepareSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", Seams: daemonHealthSeams(t)}),
-		false,
-		&ui,
-	); err == nil {
-		t.Fatal("expected error when the VM lookup fails")
-	}
-}
-
-// TestPrepareSandboxSetUpError covers the vm.SetUpSandbox failure branch of
-// PrepareSandbox: a dockerd-startup failure is propagated.
-func TestPrepareSandboxSetUpError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	origUpgradeInfo := agentLatestVersion
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
-	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
-
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:abc123",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Env:    []string{"PATH=/usr/bin"},
-					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-				},
-			}, nil
-		},
-	})
-
-	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil, nil)
-	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellErr: errors.New("shell failed")}
-	sh := &msb.MockSandboxHandle{
-		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
-		Status_:   msbSdk.SandboxStatusRunning,
-		ConnectSb: connectSb,
-	}
-	mock := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
-				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-			}, nil
-		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
-	}
-	mock.SetGotSandbox(sh)
-	msb.WithMsbMock(t, mock)
-
-	seedHomeState(
-		state.Key{Slug: slug, Agent: "opencode"},
-		state.HomeState{
-			HomeVolume:   "home-vol",
-			ImageDigest:  "sha256:abc123",
-			AgentVersion: "1.5.0",
-			AgentSource:  state.AgentSourceTool,
-		},
-	)
-	ui := termio.NewTestMock(t)
-	if _, err := PrepareSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", Seams: daemonHealthSeams(t)}),
-		false,
-		&ui,
-	); err == nil {
-		t.Fatal("expected error when vm.SetUpSandbox fails")
-	}
-}
-
 // TestPrepareSandboxSkipVMRecordsStagesInOrder pins the recorded order of a
 // --dry-run-vm prepare: every prepare-owned stage is reached in lifecycle order, the
 // VM ones included, so reordering, adding or removing a stage in
@@ -2147,82 +2011,6 @@ func TestPrepareSandboxSkipVMRecordsStagesInOrder(t *testing.T) {
 
 	if got, want := trace.Stages(), prepareOwnedStages(t); !slices.Equal(got, want) {
 		t.Errorf("trace = %v, want %v", got, want)
-	}
-}
-
-// TestPrepareSandboxTraceEndsAtTheFailingStage pins that a failing stage is
-// the last one recorded: an unknown agent fails resolve-identity, so no later
-// stage is reached.
-func TestPrepareSandboxTraceEndsAtTheFailingStage(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	t.Chdir(newOriginClone(t))
-	ui := termio.NewTestMock(t)
-
-	trace := &lifecycle.Trace{}
-	if _, err := PrepareSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "no-such-agent", Trace: trace}),
-		true,
-		&ui,
-	); err == nil {
-		t.Fatal("PrepareSandbox with an unknown agent: want an error")
-	}
-	if got, want := trace.Stages(), []lifecycle.StageID{lifecycle.ResolveIdentity}; !slices.Equal(got, want) {
-		t.Errorf("trace = %v, want %v", got, want)
-	}
-}
-
-// TestPrepareSandboxVMStageFailureStopsAtEnsureVM pins the ensure-vm error path
-// through the ordered runner: a failing per-project flock acquisition fails
-// ensure-vm, so the trace ends there — setup-sandbox is never reached — and the
-// error propagates to the caller.
-func TestPrepareSandboxVMStageFailureStopsAtEnsureVM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	clone := newOriginClone(t)
-	installPrepareSandboxDockerMock(t)
-	ui := termio.NewTestMock(t)
-	t.Chdir(clone)
-	installPrepareSandboxMSBMock(t)
-
-	lockErr := errors.New("flock boom")
-	seams := options.Seams{ProjectVMLock: func(state.Key) (func(), error) { return nil, lockErr }}
-
-	trace := &lifecycle.Trace{}
-	_, err := PrepareSandbox(
-		context.Background(),
-		sandboxRunOptions(t, options.RunOptions{Agent: "opencode", Trace: trace, Seams: seams}),
-		false,
-		&ui,
-	)
-	if !errors.Is(err, lockErr) {
-		t.Fatalf("PrepareSandbox error = %v, want %v", err, lockErr)
-	}
-	owned := prepareOwnedStages(t)
-	want := owned[:len(owned)-1] // resolve-identity .. ensure-vm, without setup-sandbox
-	if got := trace.Stages(); !slices.Equal(got, want) {
-		t.Errorf("trace = %v, want %v (ends at the failing ensure-vm)", got, want)
-	}
-}
-
-// TestPrepareSandboxResolveWorkspaceDirError covers the propagation of a
-// workspace-directory resolution failure through PrepareSandbox.
-func TestPrepareSandboxResolveWorkspaceDirError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	dir := t.TempDir()
-	t.Chdir(dir)
-	if err := os.Remove(dir); err != nil {
-		t.Skipf("cannot remove cwd: %v", err)
-	}
-
-	ui := termio.NewTestMock(t)
-	if _, err := PrepareSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
-		false,
-		&ui,
-	); err == nil {
-		t.Fatal("expected error when the workspace directory cannot be resolved")
 	}
 }
 
