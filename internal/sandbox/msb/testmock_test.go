@@ -1281,12 +1281,16 @@ func TestMockSandboxHandleConfig(t *testing.T) {
 	}
 }
 
-// TestMockMsbClientRecordsEveryCall pins that the recording methods keep every
-// call, not only the first: tests assert the full sequence of removals and
-// loads.
+// TestMockMsbClientRecordsEveryCall pins the mock's defaults without a
+// callback: ImageGet finds the image, and the recording methods keep every
+// call, not only the first, so tests can assert the full sequence of removals
+// and loads.
 func TestMockMsbClientRecordsEveryCall(t *testing.T) {
 	ctx := context.Background()
 	m := &MockMsbClient{}
+	if err := m.ImageGet(ctx, "ref"); err != nil {
+		t.Fatalf("ImageGet without a callback = %v, want the image found", err)
+	}
 	for _, name := range []string{"a", "b"} {
 		_ = m.RemoveVolume(ctx, name)
 		_ = m.ImageRemove(ctx, name, false)
