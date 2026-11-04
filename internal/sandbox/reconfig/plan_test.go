@@ -15,7 +15,10 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-func TestFormatSizeSpecEmptyRaw(t *testing.T) {
+// TestFormatSizeSpecKeepsTheRawSpellingOnlyWhenItMatches pins that the user's
+// spelling is shown only when it parses to the value; otherwise, and without
+// one, the value is shown in MiB.
+func TestFormatSizeSpecKeepsTheRawSpellingOnlyWhenItMatches(t *testing.T) {
 	cases := []struct {
 		valueMiB uint32
 		raw      string
@@ -26,6 +29,7 @@ func TestFormatSizeSpecEmptyRaw(t *testing.T) {
 		{4096, "", "4096M"},
 		{2048, "2G", "2G"},
 		{2048, "3G", "2048M"},
+		{3500, "2G", "3500M"},
 	}
 	for _, tc := range cases {
 		if got := FormatSizeSpec(tc.valueMiB, tc.raw); got != tc.want {
@@ -34,35 +38,11 @@ func TestFormatSizeSpecEmptyRaw(t *testing.T) {
 	}
 }
 
-func TestFormatSizeSpecVerbatimWhenMatches(t *testing.T) {
-	if got := FormatSizeSpec(2048, "2G"); got != "2G" {
-		t.Errorf("expected verbatim 2G, got %q", got)
-	}
-	if got := FormatSizeSpec(3500, "2G"); got != "3500M" {
-		t.Errorf("expected fallback 3500M, got %q", got)
-	}
-	if got := FormatSizeSpec(2048, ""); got != "2048M" {
-		t.Errorf("expected 2048M for empty raw, got %q", got)
-	}
-}
-
 func TestSizeChangeFormatting(t *testing.T) {
 	// user-provided "2G" parses to 2048 MiB
 	c := SizeChange("/tmp tmpfs size", 2048, 4096, "2G", "4G")
 	if c.Label != "/tmp tmpfs size" || c.Old != "2G" || c.New != "4G" {
 		t.Errorf("unexpected SizeChange: %+v", c)
-	}
-}
-
-// TestConfigChangeListLabelOnly verifies the default formatting branch when Old
-// or New is empty.
-func TestConfigChangeListLabelOnly(t *testing.T) {
-	got := configChangeList([]Change{
-		{Label: "environment variables"},
-		{Label: "size", Old: "1", New: "2"},
-	})
-	if got == "" {
-		t.Fatal("expected a non-empty change list")
 	}
 }
 
@@ -89,10 +69,10 @@ func TestConfigChangeList(t *testing.T) {
 	}
 }
 
-// TestPlanReconfigDiskChangeWithNilRootDisk verifies the disk recreate trigger
-// when RootDisk is nil (diskMiBOr0 nil branch) and exercises the disk change
-// formatting.
-func TestPlanReconfigDiskChangeWithNilRootDisk(t *testing.T) {
+// TestPlanReconfigRecreatesOnDiskSizeWithoutARecordedRootDisk pins that a VM
+// whose config records no root disk counts as 0M, so a requested disk size
+// recreates it.
+func TestPlanReconfigRecreatesOnDiskSizeWithoutARecordedRootDisk(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{Image: naming.RunnerImageRef(planSlug, "opencode")}
 	plan := PlanReconfig(cfg, planImage(), options.RunOptions{DiskSize: "8G"}, ChangeFlags{}, "")
 	if !plan.Recreate {
@@ -453,21 +433,31 @@ func TestPlanReconfigUserPortsWithServeOnly(t *testing.T) {
 	}
 }
 
-func TestPlanReconfigNetworkChangeTriggersRecreate(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{}
-	opts := options.RunOptions{}
-	plan := PlanReconfig(cfg, planImage(), opts, ChangeFlags{Network: true}, "")
-	if !plan.Recreate {
-		t.Fatal("expected Recreate when network policy changes")
-	}
-}
-
-func TestPlanReconfigNetworkSameNoRecreate(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{}
-	opts := options.RunOptions{}
-	plan := PlanReconfig(cfg, planImage(), opts, ChangeFlags{}, "")
-	if plan.Recreate {
-		t.Fatal("expected no Recreate when network policy is unchanged")
+// TestPlanReconfigChangeFlagsDecideRecreateOrRestart pins what each change the
+// launcher detects from a fingerprint does: env, secrets, network and host bind
+// mounts cannot be applied live and recreate the VM, while an agent config
+// change only restarts the daemon. With no flag set nothing happens.
+func TestPlanReconfigChangeFlagsDecideRecreateOrRestart(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		flags        ChangeFlags
+		wantRecreate bool
+		wantRestart  bool
+	}{
+		{name: "nothing changed"},
+		{name: "env", flags: ChangeFlags{Env: true}, wantRecreate: true},
+		{name: "secrets", flags: ChangeFlags{Secrets: true}, wantRecreate: true},
+		{name: "network", flags: ChangeFlags{Network: true}, wantRecreate: true},
+		{name: "agent config", flags: ChangeFlags{AgentConfig: true}, wantRestart: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &msbSdk.SandboxConfig{Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096}
+			plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, tc.flags, "")
+			if plan.Recreate != tc.wantRecreate || plan.RestartDaemons != tc.wantRestart {
+				t.Errorf("PlanReconfig: recreate=%v restart=%v, want recreate=%v restart=%v",
+					plan.Recreate, plan.RestartDaemons, tc.wantRecreate, tc.wantRestart)
+			}
+		})
 	}
 }
 
@@ -659,45 +649,6 @@ func TestPlanReconfigNoActionsWhenUnchanged(t *testing.T) {
 		ChangeFlags{}, "")
 	if d.Recreate || d.RestartDaemons || d.Resources != nil {
 		t.Errorf("expected no actions, got %+v", d)
-	}
-}
-
-func TestPlanReconfigEnvChangeRebuildsVM(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096}
-	d := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{Env: true}, "") // envChanged=true
-	if !d.Recreate {
-		t.Error("expected recreate on env change (env cannot be applied live)")
-	}
-	if d.RestartDaemons {
-		t.Error("unexpected daemon restart for env change (folded into recreate)")
-	}
-}
-
-func TestPlanReconfigAgentConfigChangeRestartsDaemon(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096}
-	d := PlanReconfig(
-		cfg,
-		planImage(),
-		options.RunOptions{},
-		ChangeFlags{AgentConfig: true},
-		"",
-	) // agentConfigChanged=true
-	if !d.RestartDaemons {
-		t.Error("expected restartDaemons on agent config change")
-	}
-	if d.Recreate {
-		t.Error("expected NO VM recreate for agent-config-only change")
-	}
-}
-
-func TestPlanReconfigSecretsChangeRebuildsVM(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096}
-	d := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{Secrets: true}, "") // secretsChanged=true
-	if !d.Recreate {
-		t.Error("expected recreate on secrets change (secrets cannot be applied live)")
-	}
-	if d.RestartDaemons {
-		t.Error("unexpected daemon restart for secrets change (folded into recreate)")
 	}
 }
 
@@ -1005,96 +956,69 @@ func TestResourceModificationNilWhenUnchanged(t *testing.T) {
 	}
 }
 
-// TestResolveReconfigPromptAError verifies that a prompt selection error is
-// swallowed without applying.
-func TestResolveReconfigPromptAError(t *testing.T) {
-	plan := &Plan{Recreate: true}
-	ui := &termio.Mock{}
-	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
-		return "", errors.New("select boom")
-	}
-	actions, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
-	if err != nil {
-		t.Errorf("expected select error to be swallowed, got %v", err)
-	}
-	if actions.Recreate {
-		t.Error("expected no recreate when the select errored")
-	}
-}
-
-// TestResolveReconfigPromptADefer verifies that selecting keep defers the change.
-func TestResolveReconfigPromptADefer(t *testing.T) {
-	plan := &Plan{Recreate: true}
-	ui := &termio.Mock{}
-	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return keepKey, nil }
-	actions, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if actions.Recreate {
-		t.Error("expected no recreate when keep is selected")
-	}
-}
-
-// TestResolveReconfigPromptBError verifies that a PromptB select error is
-// swallowed without applying a restart.
-func TestResolveReconfigPromptBError(t *testing.T) {
-	plan := &Plan{RestartDaemons: true}
-	ui := &termio.Mock{}
-	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
-		return "", errors.New("select boom")
-	}
-	actions, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
-	if err != nil {
-		t.Errorf("expected select error to be swallowed, got %v", err)
-	}
-	if actions.Restart {
-		t.Error("expected no restart when the select errored")
-	}
-}
-
-// TestResolveReconfigRestartAlone verifies the silent restart path with no
-// other clients attached.
-func TestResolveReconfigRestartAlone(t *testing.T) {
-	plan := &Plan{RestartDaemons: true}
-	ui := &termio.Mock{}
-	actions, err := ResolveReconfig(context.Background(), ui, plan, 0, plan.Changes)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if actions.Recreate {
-		t.Error("expected no recreate")
-	}
-	if !actions.Restart {
-		t.Error("expected restart when alone")
-	}
-	if len(ui.InfoCalls) == 0 {
-		t.Error("expected an informational line when restarting silently")
-	}
-}
-
-// TestResolveReconfigNoAction verifies the no-op branch when the plan has no
-// recreate or restart requirement.
-func TestResolveReconfigNoAction(t *testing.T) {
-	ui := &termio.Mock{}
-	actions, err := ResolveReconfig(context.Background(), ui, &Plan{}, 1, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if actions.Recreate || actions.Restart {
-		t.Errorf("expected no actions, got recreate=%v restart=%v", actions.Recreate, actions.Restart)
-	}
-}
-
-func TestResolveReconfigSilentWhenAlone(t *testing.T) {
-	plan := &Plan{Recreate: true}
-	ui := &termio.Mock{}
-	actions, err := ResolveReconfig(context.Background(), ui, plan, 0, nil)
-	if err != nil || !actions.Recreate {
-		t.Errorf("alone recreate should apply silently, got %v %v", actions.Recreate, err)
-	}
-	if len(ui.InfoCalls) == 0 {
-		t.Error("expected at least an informational line when recreating silently")
+// TestResolveReconfigAppliesAloneAndAsksWithAttachedClients pins the apply
+// decision. Without other clients a recreate or restart applies with an
+// informational line. With attached clients the prompt decides: keep defers,
+// quit aborts with an error, restart applies a restart, and a failed prompt
+// defers even when it also reports the quit key.
+func TestResolveReconfigAppliesAloneAndAsksWithAttachedClients(t *testing.T) {
+	recreate := &Plan{Recreate: true, Changes: []Change{{Label: "root disk size"}}}
+	restart := &Plan{RestartDaemons: true, Changes: []Change{{Label: "agent config"}}}
+	for _, tc := range []struct {
+		name         string
+		plan         *Plan
+		otherClients int
+		selectKey    string
+		selectErr    error
+		want         ApplyActions
+		wantErr      bool
+	}{
+		{name: "nothing to apply", plan: &Plan{}, otherClients: 1},
+		{name: "recreate alone", plan: recreate, want: ApplyActions{Recreate: true}},
+		{name: "recreate, keep", plan: recreate, otherClients: 1, selectKey: keepKey},
+		{name: "recreate, quit", plan: recreate, otherClients: 1, selectKey: quitKey, wantErr: true},
+		{
+			name: "recreate, prompt fails", plan: recreate, otherClients: 1,
+			selectKey: quitKey, selectErr: errors.New("select failed"),
+		},
+		{name: "restart alone", plan: restart, want: ApplyActions{Restart: true}},
+		{name: "restart, keep", plan: restart, otherClients: 1, selectKey: keepKey},
+		{name: "restart, quit", plan: restart, otherClients: 1, selectKey: quitKey, wantErr: true},
+		{
+			name: "restart, restart", plan: restart, otherClients: 1, selectKey: restartKey,
+			want: ApplyActions{Restart: true},
+		},
+		{
+			name: "restart, prompt fails", plan: restart, otherClients: 1,
+			selectKey: quitKey, selectErr: errors.New("select failed"),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ui := &termio.Mock{}
+			var prompt string
+			ui.SelectFn = func(message string, _ []termio.Choice, _ string) (string, error) {
+				prompt = message
+				return tc.selectKey, tc.selectErr
+			}
+			actions, err := ResolveReconfig(context.Background(), ui, tc.plan, tc.otherClients, tc.plan.Changes)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("ResolveReconfig error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if actions != tc.want {
+				t.Errorf("ResolveReconfig = %+v, want %+v", actions, tc.want)
+			}
+			prompted := tc.selectKey != ""
+			if prompted && !strings.Contains(prompt, tc.plan.Changes[0].Label) {
+				t.Errorf("prompt = %q, want it to list the change %q", prompt, tc.plan.Changes[0].Label)
+			}
+			if !prompted && prompt != "" {
+				t.Errorf("prompted %q, want no prompt", prompt)
+			}
+			appliedAlone := tc.otherClients == 0 && (tc.want.Recreate || tc.want.Restart)
+			if appliedAlone && len(ui.InfoCalls) == 0 {
+				t.Error("expected an informational line when applying alone")
+			}
+		})
 	}
 }
 
@@ -1126,135 +1050,6 @@ func TestResolveReconfigVerboseReportsRestartReasons(t *testing.T) {
 	joined := strings.Join(ui.VerboseCalls, "\n")
 	if !strings.Contains(joined, "restart reasons: agent config") {
 		t.Errorf("verbose calls = %v, want the restart reasons", ui.VerboseCalls)
-	}
-}
-
-func TestResolveReconfigPromptAKeep(t *testing.T) {
-	plan := &Plan{Recreate: true, Changes: []Change{{Label: "root disk size"}}}
-	ui := &termio.Mock{}
-	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
-		return "q", nil // quit
-	}
-	actions, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
-	if err == nil {
-		t.Error("expected quit to abort (return an error)")
-	}
-	if actions.Recreate {
-		t.Error("quit must not apply recreate")
-	}
-	if actions.Restart {
-		t.Error("quit must not apply restart")
-	}
-}
-
-func TestResolveReconfigPromptBKeepReturnsNoRestart(t *testing.T) {
-	plan := &Plan{RestartDaemons: true}
-	ui := &termio.Mock{}
-	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "k", nil }
-	actions, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
-	if err != nil {
-		t.Fatalf("keep should not error: %v", err)
-	}
-	if actions.Restart {
-		t.Error("keep must not restart daemons")
-	}
-}
-
-func TestResolveReconfigPromptBQuit(t *testing.T) {
-	plan := &Plan{RestartDaemons: true}
-	ui := &termio.Mock{}
-	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "q", nil }
-	actions, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
-	if err == nil {
-		t.Error("expected quit to abort (return an error)")
-	}
-	if actions.Recreate || actions.Restart {
-		t.Error("quit must not apply recreate or restart daemons")
-	}
-}
-
-func TestResolveReconfigPromptBRestart(t *testing.T) {
-	plan := &Plan{RestartDaemons: true}
-	ui := &termio.Mock{}
-	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "r", nil }
-	actions, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
-	if err != nil {
-		t.Fatalf("restart should not error: %v", err)
-	}
-	if actions.Recreate {
-		t.Error("restart must not apply recreate")
-	}
-	if !actions.Restart {
-		t.Error("expected Restart=true for restart selection")
-	}
-}
-
-func TestResolveReconfigAloneRecreateNoRestart(t *testing.T) {
-	actions, err := ResolveReconfig(
-		context.Background(), &termio.Mock{}, &Plan{Recreate: true}, 0, nil)
-	if err != nil || !actions.Recreate || actions.Restart {
-		t.Errorf("alone recreate: recreate=%v restart=%v err=%v", actions.Recreate, actions.Restart, err)
-	}
-}
-
-func TestResolveReconfigAloneRestartNoRecreate(t *testing.T) {
-	actions, err := ResolveReconfig(
-		context.Background(), &termio.Mock{}, &Plan{RestartDaemons: true}, 0, nil)
-	if err != nil || actions.Recreate || !actions.Restart {
-		t.Errorf("alone restart: recreate=%v restart=%v err=%v", actions.Recreate, actions.Restart, err)
-	}
-}
-
-func TestResolveReconfigNoActionReturnsNothing(t *testing.T) {
-	actions, err := ResolveReconfig(
-		context.Background(), &termio.Mock{}, &Plan{}, 0, nil)
-	if err != nil || actions.Recreate || actions.Restart {
-		t.Errorf("no-action: recreate=%v restart=%v err=%v", actions.Recreate, actions.Restart, err)
-	}
-}
-
-// TestResolveReconfigPromptAKeepDefers pins the keep path: a non-quit answer to
-// the recreate prompt returns without applying anything.
-func TestResolveReconfigPromptAKeepDefers(t *testing.T) {
-	ui := &termio.Mock{}
-	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return keepKey, nil }
-	actions, err := ResolveReconfig(
-		context.Background(), ui, &Plan{Recreate: true}, 1, nil)
-	if err != nil || actions.Recreate || actions.Restart {
-		t.Errorf("keep: recreate=%v restart=%v err=%v", actions.Recreate, actions.Restart, err)
-	}
-}
-
-// TestResolveReconfigPromptAErrorDefers pins that a prompt error is swallowed
-// even when the prompt also reports the quit key.
-func TestResolveReconfigPromptAErrorDefers(t *testing.T) {
-	ui := &termio.Mock{}
-	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
-		return quitKey, errors.New("select failed")
-	}
-	actions, err := ResolveReconfig(
-		context.Background(), ui, &Plan{Recreate: true}, 1, nil)
-	if err != nil || actions.Recreate || actions.Restart {
-		t.Errorf("prompt A error: recreate=%v restart=%v err=%v", actions.Recreate, actions.Restart, err)
-	}
-}
-
-func TestResolveReconfigPromptBErrorDefers(t *testing.T) {
-	ui := &termio.Mock{}
-	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
-		return quitKey, errors.New("select failed")
-	}
-	actions, err := ResolveReconfig(
-		context.Background(), ui, &Plan{RestartDaemons: true}, 1, nil)
-	if err != nil || actions.Recreate || actions.Restart {
-		t.Errorf("prompt B error: recreate=%v restart=%v err=%v", actions.Recreate, actions.Restart, err)
-	}
-}
-
-// TestDiskMiBOr0NilRootDisk verifies diskMiBOr0 returns 0 when RootDisk is nil.
-func TestDiskMiBOr0NilRootDisk(t *testing.T) {
-	if got := diskMiBOr0(&msbSdk.SandboxConfig{}); got != 0 {
-		t.Errorf("expected 0 for nil RootDisk, got %d", got)
 	}
 }
 
@@ -1296,33 +1091,6 @@ func TestDesiredPublishBindingsIncludeUserPorts(t *testing.T) {
 	}
 	if got[0].HostPort != 8080 || got[0].GuestPort != 5173 {
 		t.Errorf("binding = %+v, want host 8080 guest 5173", got[0])
-	}
-}
-
-// TestPortBindingsEqualLengthMismatch verifies the length-mismatch branch.
-func TestPortBindingsEqualLengthMismatch(t *testing.T) {
-	a := []msbSdk.PortBinding{{Bind: "localhost"}}
-	if ports.BindingsEqual(a, nil) {
-		t.Error("expected false for differing lengths")
-	}
-}
-
-// TestPortBindingsEqualElementMismatch verifies the element-mismatch branch for
-// equal-length bindings.
-func TestPortBindingsEqualElementMismatch(t *testing.T) {
-	a := []msbSdk.PortBinding{{Bind: "localhost", HostPort: 1}}
-	b := []msbSdk.PortBinding{{Bind: "localhost", HostPort: 2}}
-	if ports.BindingsEqual(a, b) {
-		t.Error("expected false for differing elements")
-	}
-}
-
-// TestPortBindingsEqualMatch verifies the equal branch.
-func TestPortBindingsEqualMatch(t *testing.T) {
-	a := []msbSdk.PortBinding{{Bind: "localhost", HostPort: 1}}
-	b := []msbSdk.PortBinding{{Bind: "localhost", HostPort: 1}}
-	if !ports.BindingsEqual(a, b) {
-		t.Error("expected true for matching bindings")
 	}
 }
 
