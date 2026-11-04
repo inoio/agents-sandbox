@@ -9,6 +9,16 @@ The rule lives in `specs/mutation-testing.md`: every LIVED mutant is closed by a
 This is the field guide for doing it. It was distilled from the first full sweep of `internal/agent`
 (`make mutation FULL=1 PKG=./internal/agent/`): 36 survivors from 322 mutants, all under-asserted tests, no defects.
 
+## Redundant production code: delete it
+
+A survivor that no input can kill because the code it mutates is implied by other code points at code to delete, in
+the same change. It is one of the most valuable sweep results. Prove the redundancy before deleting: trace every
+caller and every return of the helpers involved. In `prepare`'s `pendingUpgrade`, the `latest == ""` guard and the
+always-true `hasChecker` flag (its only caller returns earlier for a checker-less agent) were redundant, but the
+`!checked` guard was not: a root lock taken during the version request returns the fresh entry with `checked=false`,
+and only that guard defers the offer. Its survivor was a missing test. An early `return err` whose error the next step
+would re-derive is not redundant code either: dropping it would ignore an error, so record it as equivalent.
+
 ## Recurring mutant types and their kills
 
 - **`ERRORF_WRAP` (`%w` → `%v`)** is invisible to `err != nil` because the message text is unchanged; only the wrapping
