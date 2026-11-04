@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -1775,7 +1776,8 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 			wantLastStage: lifecycle.ResolveIdentity,
 		},
 		{
-			name: "workspace directory removed",
+			name:  "workspace directory removed",
+			cause: fs.ErrNotExist,
 			arrange: func(t *testing.T, _ error) arrangement {
 				dir := t.TempDir()
 				t.Chdir(dir)

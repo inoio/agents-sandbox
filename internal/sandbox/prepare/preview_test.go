@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -376,6 +377,8 @@ func TestPreviewSandboxUnknownAgentErrors(t *testing.T) {
 	}
 }
 
+// TestPreviewSandboxWorkspaceDirError pins that a deleted working directory
+// fails the preview with the not-exist cause.
 func TestPreviewSandboxWorkspaceDirError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -390,8 +393,8 @@ func TestPreviewSandboxWorkspaceDirError(t *testing.T) {
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
 		&ui,
-	); err == nil {
-		t.Fatal("expected an error when the workspace directory cannot be resolved")
+	); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("PreviewSandbox error = %v, want fs.ErrNotExist", err)
 	}
 }
 

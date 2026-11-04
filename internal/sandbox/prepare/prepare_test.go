@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -255,7 +256,7 @@ func TestResolveWorkspaceDirResolvesSymlinkInCwd(t *testing.T) {
 }
 
 // TestResolveWorkspaceDirGetwdError pins that a working directory deleted while
-// running is reported as an error.
+// running is reported as a not-exist error the caller can recognize.
 func TestResolveWorkspaceDirGetwdError(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -263,8 +264,8 @@ func TestResolveWorkspaceDirGetwdError(t *testing.T) {
 		t.Skipf("cannot remove cwd: %v", err)
 	}
 
-	if _, err := resolveWorkspaceDir(); err == nil {
-		t.Fatal("expected error when the current directory no longer exists")
+	if _, err := resolveWorkspaceDir(); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("resolveWorkspaceDir error = %v, want fs.ErrNotExist", err)
 	}
 }
 
@@ -280,11 +281,13 @@ func TestResolveWorkspacePathResolvesSymlink(t *testing.T) {
 	}
 }
 
+// TestResolveWorkspacePathError pins that a missing path is reported as a
+// not-exist error the caller can recognize.
 func TestResolveWorkspacePathError(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "does-not-exist")
 
-	if _, err := resolveWorkspacePath(missing); err == nil {
-		t.Fatal("expected error when the path does not exist")
+	if _, err := resolveWorkspacePath(missing); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("resolveWorkspacePath error = %v, want fs.ErrNotExist", err)
 	}
 }
 
