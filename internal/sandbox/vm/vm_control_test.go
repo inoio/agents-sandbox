@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,127 +20,192 @@ import (
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
-// TestStopProjectVMGetSandboxError covers the non-not-found GetSandbox error
-// branch in stopOrKillProjectVM.
-func TestStopProjectVMGetSandboxError(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	client := &msb.MockMsbClient{}
-	client.SetGetSandboxErr(errors.New("boom"))
-	msb.WithMsbMock(t, client)
+// TestStopOrKillProjectVM pins how stop and kill act on the project VM by its
+// status: a running VM is stopped or killed (and its persisted state removed on
+// request), an inactive one is left as it is and only removed on request, and
+// a paused or unknown one is refused. A dry run only reports what it would do;
+// a failed removal is a warning, a failed stop or kill keeps its cause.
+func TestStopOrKillProjectVM(t *testing.T) {
+	lookupFailed := errors.New("lookup failed")
+	actionFailed := errors.New("action failed")
+	cases := []struct {
+		name      string
+		handle    *msb.MockSandboxHandle // nil: no project VM
+		lookupErr error
+		action    string
+		remove    bool
+		dryRun    bool
+		actionErr error
 
-	err := stopOrKillProjectVM(context.Background(), false, false, &ui, testVMKey(), "stop", "Stopping", client,
-		func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
-	if err == nil {
-		t.Fatal("expected error from GetSandbox")
+		wantErr     func(error) bool
+		wantActed   bool
+		wantRemoved bool
+		wantInfo    string
+		wantNoInfo  string
+		wantWarn    string
+		wantVerbose string
+	}{
+		{name: "no project VM", action: "stop", wantInfo: "no project VM found: testproj-opencode"},
+		{
+			name:      "lookup fails",
+			lookupErr: lookupFailed,
+			action:    "stop",
+			wantErr:   func(err error) bool { return errors.Is(err, lookupFailed) },
+		},
+		{
+			name:      "running VM is stopped under its resolved name",
+			handle:    &msb.MockSandboxHandle{Name_: "resolved-name", Status_: msbSdk.SandboxStatusRunning},
+			action:    "stop",
+			wantActed: true,
+			wantInfo:  "stopped project VM: resolved-name",
+		},
+		{
+			name:      "running VM is killed",
+			handle:    &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning},
+			action:    "kill",
+			wantActed: true,
+			wantInfo:  "killed project VM: vm",
+		},
+		{
+			name:        "running VM is stopped and removed",
+			handle:      &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning},
+			action:      "stop",
+			remove:      true,
+			wantActed:   true,
+			wantRemoved: true,
+			wantVerbose: "persisted state removed: vm",
+		},
+		{
+			name: "failed removal after a stop warns",
+			handle: &msb.MockSandboxHandle{
+				Name_: "vm", Status_: msbSdk.SandboxStatusRunning, RemoveErr: errors.New("remove failed"),
+			},
+			action:    "stop",
+			remove:    true,
+			wantActed: true,
+			wantWarn:  "failed to remove sandbox state: remove failed",
+		},
+		{
+			name:      "failed stop keeps its cause and removes nothing",
+			handle:    &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning},
+			action:    "stop",
+			remove:    true,
+			actionErr: actionFailed,
+			wantErr:   func(err error) bool { return errors.Is(err, actionFailed) },
+			wantActed: true,
+		},
+		{
+			name:        "inactive VM is only removed",
+			handle:      inactiveHandle(msbSdk.SandboxStatusStopped),
+			action:      "stop",
+			remove:      true,
+			wantRemoved: true,
+			wantInfo:    "project VM already stopped: vm",
+		},
+		{
+			name: "failed removal of an inactive VM warns",
+			handle: &msb.MockSandboxHandle{
+				Name_:     "vm",
+				Status_:   msbSdk.SandboxStatusStopped,
+				RemoveErr: errors.New("remove failed"),
+			},
+			action:   "kill",
+			remove:   true,
+			wantInfo: "project VM already killed: vm",
+			wantWarn: "failed to remove sandbox state: remove failed",
+		},
+		{
+			name:     "dry run on an inactive VM removes nothing",
+			handle:   inactiveHandle(msbSdk.SandboxStatusStopped),
+			action:   "stop",
+			remove:   true,
+			dryRun:   true,
+			wantInfo: "dry-run: Would remove persisted state of stopped project VM: vm",
+		},
+		{
+			name:       "dry run stop",
+			handle:     &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning},
+			action:     "stop",
+			dryRun:     true,
+			wantInfo:   "dry-run: Would stop project VM: vm",
+			wantNoInfo: "would remove",
+		},
+		{
+			name:     "dry run kill with removal",
+			handle:   &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning},
+			action:   "kill",
+			remove:   true,
+			dryRun:   true,
+			wantInfo: "dry-run: Would kill project VM: vm (also would remove persisted state)",
+		},
+		{
+			name:    "paused VM is refused",
+			handle:  &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusPaused},
+			action:  "stop",
+			wantErr: func(err error) bool { return strings.Contains(err.Error(), `cannot stop paused sandbox "vm"`) },
+		},
+		{
+			name:   "unknown status is refused",
+			handle: &msb.MockSandboxHandle{Name_: "vm", Status_: "future-status"},
+			action: "kill",
+			wantErr: func(err error) bool {
+				return strings.Contains(err.Error(), `cannot kill sandbox "vm" with unexpected status "future-status"`)
+			},
+		},
 	}
-}
-
-// TestStopProjectVMStopFnError covers the stopFn error branch and the remove
-// error branch (remove fails after a successful stop).
-func TestStopProjectVMStopFnError(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	handle := &msb.MockSandboxHandle{
-		Name_:   "agents-sandbox-vm-test",
-		Status_: msbSdk.SandboxStatusRunning,
-	}
-	handle.StopErr = errors.New("stop failed")
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-	msb.WithMsbMock(t, client)
-
-	err := stopOrKillProjectVM(context.Background(), false, false, &ui, testVMKey(), "stop", "Stopping", client,
-		func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
-	if err == nil {
-		t.Fatal("expected error from stopFn")
-	}
-}
-
-func TestStopOrKillProjectVMDryRunNoRemove(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(&msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning})
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-
-	err := stopOrKillProjectVM(context.Background(), false, true, &ui, testVMKey(), "stop", "Stopping",
-		client, func(_ msb.SandboxHandle, _ context.Context) error { return nil })
-	if err != nil {
-		t.Fatalf("dry-run without remove: %v", err)
-	}
-	joined := joinStrings(ui.InfoCalls)
-	if !contains(joined, "Would stop") {
-		t.Errorf("expected a dry-run info message, got %v", ui.InfoCalls)
-	}
-	if strings.Contains(joined, "would remove") {
-		t.Errorf("dry-run without remove should not mention removing state, got %v", ui.InfoCalls)
-	}
-}
-
-func TestStopOrKillProjectVMRemoveSuccess(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	handle := &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning}
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-
-	err := stopOrKillProjectVM(context.Background(), true, false, &ui, testVMKey(), "stop", "Stopping",
-		client, func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
-	if err != nil {
-		t.Fatalf("remove success: %v", err)
-	}
-	if !handle.DidRmv {
-		t.Error("expected the sandbox handle to be removed")
-	}
-	if !contains(joinStrings(ui.VerboseCalls), "persisted state removed") {
-		t.Errorf("expected a verbose message about removing state, got %v", ui.VerboseCalls)
-	}
-}
-
-func TestStopOrKillProjectVMRemoveError(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	handle := &msb.MockSandboxHandle{
-		Name_:     "vm",
-		Status_:   msbSdk.SandboxStatusRunning,
-		RemoveErr: errors.New("remove failed"),
-	}
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-
-	err := stopOrKillProjectVM(context.Background(), true, false, &ui, testVMKey(), "stop", "Stopping",
-		client, func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
-	if err != nil {
-		t.Fatalf("remove error should be non-fatal: %v", err)
-	}
-	if !contains(joinStrings(ui.WarnCalls), "failed to remove sandbox state") {
-		t.Errorf("expected a warning about the failed remove, got %v", ui.WarnCalls)
-	}
-}
-
-func TestStopOrKillProjectVMRejectsUnsafeStatuses(t *testing.T) {
-	for _, status := range []msbSdk.SandboxStatus{
-		msbSdk.SandboxStatusPaused,
-		msbSdk.SandboxStatus("future-status"),
-	} {
-		t.Run(string(status), func(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			ui := termio.NewTestMock(t)
 			client := &msb.MockMsbClient{}
-			client.SetGotSandbox(&msb.MockSandboxHandle{Name_: "vm", Status_: status})
-			err := stopOrKillProjectVM(
-				context.Background(),
-				false,
-				false,
-				&ui,
-				testVMKey(),
-				"stop",
-				"Stopping",
-				client,
-				func(msb.SandboxHandle, context.Context) error { return nil },
-			)
-			if err == nil {
-				t.Fatalf("expected unsafe status %q to be rejected", status)
+			switch {
+			case tc.lookupErr != nil:
+				client.SetGetSandboxErr(tc.lookupErr)
+			case tc.handle != nil:
+				client.SetGotSandbox(tc.handle)
+			default:
+				client.GetSandboxFn = func(context.Context, string) (msb.SandboxHandle, error) {
+					return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
+				}
+			}
+			acted := false
+			act := func(msb.SandboxHandle, context.Context) error {
+				acted = true
+				return tc.actionErr
+			}
+
+			err := stopOrKillProjectVM(context.Background(), tc.remove, tc.dryRun, &ui, testVMKey(),
+				tc.action, "Acting on", client, act)
+
+			if tc.wantErr != nil {
+				if err == nil || !tc.wantErr(err) {
+					t.Fatalf("error = %v, want the expected failure", err)
+				}
+			} else if err != nil {
+				t.Fatalf("stopOrKillProjectVM: %v", err)
+			}
+			if acted != tc.wantActed {
+				t.Errorf("acted = %v, want %v", acted, tc.wantActed)
+			}
+			if tc.wantActed && tc.actionErr == nil && (ui.SpinnerStops != 1 || len(ui.SpinnerStopErrors) != 0) {
+				t.Errorf("spinner stops %d, errors %v; want one clean stop", ui.SpinnerStops, ui.SpinnerStopErrors)
+			}
+			if tc.actionErr != nil && len(ui.SpinnerStopErrors) != 1 {
+				t.Errorf("spinner stop errors = %v, want the action's error", ui.SpinnerStopErrors)
+			}
+			if tc.handle != nil && tc.handle.DidRemove() != tc.wantRemoved {
+				t.Errorf("removed = %v, want %v", tc.handle.DidRemove(), tc.wantRemoved)
+			}
+			for _, want := range []struct {
+				calls []string
+				text  string
+			}{{ui.InfoCalls, tc.wantInfo}, {ui.WarnCalls, tc.wantWarn}, {ui.VerboseCalls, tc.wantVerbose}} {
+				if want.text != "" &&
+					!slices.ContainsFunc(want.calls, func(c string) bool { return strings.Contains(c, want.text) }) {
+					t.Errorf("messages %v, want %q", want.calls, want.text)
+				}
+			}
+			if tc.wantNoInfo != "" && strings.Contains(strings.Join(ui.InfoCalls, "\n"), tc.wantNoInfo) {
+				t.Errorf("info %v must not mention %q", ui.InfoCalls, tc.wantNoInfo)
 			}
 		})
 	}
@@ -163,7 +229,7 @@ func TestStopOrKillProjectVMInactiveWithoutRemoveLeavesState(t *testing.T) {
 			if handle.DidRemove() {
 				t.Error("removal must not run without remove")
 			}
-			if !strings.Contains(joinStrings(ui.InfoCalls), "already stopped") {
+			if !strings.Contains(strings.Join(ui.InfoCalls, "\n"), "already stopped") {
 				t.Errorf("expected the already-stopped note, got %v", ui.InfoCalls)
 			}
 		})
@@ -188,151 +254,75 @@ func TestStopOrKillProjectVMInactiveRemoveRemovesState(t *testing.T) {
 			if !handle.DidRemove() {
 				t.Error("expected remove to delete state on an inactive sandbox")
 			}
-			if !strings.Contains(joinStrings(ui.VerboseCalls), "persisted state removed") {
+			if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "persisted state removed") {
 				t.Errorf("expected a verbose removal note, got %v", ui.VerboseCalls)
 			}
 		})
 	}
 }
 
-// TestStopOrKillProjectVMInactiveRemoveDryRunRemovesNothing pins that a dry run
-// removes nothing even for an inactive sandbox, and says it would remove.
-func TestStopOrKillProjectVMInactiveRemoveDryRunRemovesNothing(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	handle := inactiveHandle(msbSdk.SandboxStatusStopped)
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
+// stopAndKillCommands are the two exported commands over stopOrKillProjectVM.
+var stopAndKillCommands = []struct {
+	name string
+	run  func(context.Context, configpaths.ConfigPaths, msb.Client, bool, bool, termio.UI, string) error
+}{
+	{"stop", StopProjectVM},
+	{"kill", KillProjectVM},
+}
 
-	err := stopOrKillProjectVM(context.Background(), true, true, &ui, testVMKey(), "stop", "Stopping",
-		client, failingStopFn(t))
-	if err != nil {
-		t.Fatalf("stop: %v", err)
-	}
-	if handle.DidRemove() {
-		t.Error("a dry run must remove nothing")
-	}
-	if !strings.Contains(joinStrings(ui.InfoCalls), "dry-run: Would remove persisted state") {
-		t.Errorf("expected a dry-run removal note, got %v", ui.InfoCalls)
+// TestStopAndKillProjectVMRunTheirAction pins that StopProjectVM stops and
+// KillProjectVM kills the current checkout's project VM through the client the
+// command resolved (never the process global), returning the action's failure
+// with its cause.
+func TestStopAndKillProjectVMRunTheirAction(t *testing.T) {
+	for _, command := range stopAndKillCommands {
+		t.Run(command.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			t.Chdir(testutil.InitRepo(t))
+			handle := &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning}
+			if command.name == "stop" {
+				handle.StopErr = errVMSentinel
+			} else {
+				handle.KillErr = errVMSentinel
+			}
+			client := &msb.MockMsbClient{}
+			client.SetGotSandbox(handle)
+			resolutions := msb.WithCountingMsbMock(t, client)
+			ui := termio.NewTestMock(t)
+
+			err := command.run(context.Background(), configpaths.Get(), client, false, false, &ui, "opencode")
+			if !errors.Is(err, errVMSentinel) {
+				t.Errorf("error = %v, want the %s failure %v", err, command.name, errVMSentinel)
+			}
+			if handle.DidStop != (command.name == "stop") || handle.DidKill != (command.name == "kill") {
+				t.Errorf("stopped %v, killed %v; want only %s", handle.DidStop, handle.DidKill, command.name)
+			}
+			if *resolutions != 0 {
+				t.Errorf("msb.Get resolved %d times, want 0: the command takes its client", *resolutions)
+			}
+		})
 	}
 }
 
-// TestStopOrKillProjectVMInactiveRemoveFailureWarns pins the non-fatal warning
-// on the inactive path, mirroring the active path.
-func TestStopOrKillProjectVMInactiveRemoveFailureWarns(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	handle := inactiveHandle(msbSdk.SandboxStatusStopped)
-	handle.RemoveErr = errors.New("remove failed")
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-
-	err := stopOrKillProjectVM(context.Background(), true, false, &ui, testVMKey(), "stop", "Stopping",
-		client, failingStopFn(t))
-	if err != nil {
-		t.Fatalf("removal failure must be non-fatal: %v", err)
-	}
-	if !strings.Contains(joinStrings(ui.WarnCalls), "failed to remove sandbox state") {
-		t.Errorf("expected a warning about the failed removal, got %v", ui.WarnCalls)
-	}
-}
-
-// TestStopOrKillProjectVMReportsResolvedHandleName pins that the user-facing
-// message names the handle's resolved name (which can differ from the requested
-// one) and that a successful call stops its spinner.
-func TestStopOrKillProjectVMReportsResolvedHandleName(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	handle := &msb.MockSandboxHandle{Name_: "resolved-sandbox-name", Status_: msbSdk.SandboxStatusRunning}
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-
-	err := stopOrKillProjectVM(context.Background(), false, false, &ui, testVMKey(), "stop", "Stopping",
-		client, func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
-	if err != nil {
-		t.Fatalf("stop: %v", err)
-	}
-	joined := joinStrings(ui.InfoCalls)
-	if !strings.Contains(joined, "resolved-sandbox-name") {
-		t.Errorf("expected the resolved handle name in the message, got %v", ui.InfoCalls)
-	}
-	if !strings.Contains(joined, "stopped project VM") {
-		t.Errorf("expected the past-tense stop message, got %v", ui.InfoCalls)
-	}
-	if ui.SpinnerStops != 1 {
-		t.Errorf("spinner stops = %d, want one", ui.SpinnerStops)
-	}
-}
-
-// TestStopOrKillProjectVMDryRunKillWithRemove pins the kill action word and the
-// remove note on a dry run: the action word distinguishes kill from stop, and the
-// remove note names the persisted state the caller also asked to remove.
-func TestStopOrKillProjectVMDryRunKillWithRemove(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(&msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning})
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-
-	err := stopOrKillProjectVM(context.Background(), true, true, &ui, testVMKey(), "kill", "Force-killing",
-		client, func(msb.SandboxHandle, context.Context) error { return nil })
-	if err != nil {
-		t.Fatalf("kill dry-run with remove: %v", err)
-	}
-	joined := joinStrings(ui.InfoCalls)
-	if !strings.Contains(joined, "Would kill") {
-		t.Errorf("expected the kill action word, got %v", ui.InfoCalls)
-	}
-	if !strings.Contains(joined, "also would remove persisted state") {
-		t.Errorf("expected the remove note on a dry run, got %v", ui.InfoCalls)
-	}
-}
-
-// TestStopOrKillProjectVMStopErrorWrapsCauseAndStopsSpinner pins the failure
-// path: the stop function's cause is preserved and the spinner is stopped with
-// the error rather than left running.
-func TestStopOrKillProjectVMStopErrorWrapsCauseAndStopsSpinner(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(&msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning})
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-
-	err := stopOrKillProjectVM(context.Background(), false, false, &ui, testVMKey(), "stop", "Stopping", client,
-		func(msb.SandboxHandle, context.Context) error { return errVMSentinel })
-	if !errors.Is(err, errVMSentinel) {
-		t.Errorf("error = %v, want it to wrap the stop cause", err)
-	}
-	if len(ui.SpinnerStopErrors) != 1 {
-		t.Errorf("spinner stop errors = %v, want one", ui.SpinnerStopErrors)
-	}
-}
-
-// TestStopAndKillProjectVMUnknownAgent covers the unknown-agent error branch
-// in both StopProjectVM and KillProjectVM.
-func TestStopAndKillProjectVMUnknownAgent(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	client := &msb.MockMsbClient{}
-	if err := StopProjectVM(
-		context.Background(),
-		configpaths.Get(),
-		client,
-		false,
-		false,
-		&ui,
-		"no-such-agent",
-	); err == nil {
-		t.Fatal("expected error from StopProjectVM with an unknown agent")
-	}
-	if err := KillProjectVM(
-		context.Background(),
-		configpaths.Get(),
-		client,
-		false,
-		false,
-		&ui,
-		"no-such-agent",
-	); err == nil {
-		t.Fatal("expected error from KillProjectVM with an unknown agent")
+// TestStopAndKillProjectVMRejectAnUnknownAgent pins that both commands refuse
+// an agent name that is not registered.
+func TestStopAndKillProjectVMRejectAnUnknownAgent(t *testing.T) {
+	for _, command := range stopAndKillCommands {
+		t.Run(command.name, func(t *testing.T) {
+			ui := termio.NewTestMock(t)
+			err := command.run(
+				context.Background(),
+				configpaths.Get(),
+				&msb.MockMsbClient{},
+				false,
+				false,
+				&ui,
+				"no-such-agent",
+			)
+			if err == nil || !strings.Contains(err.Error(), `unknown agent "no-such-agent"`) {
+				t.Fatalf("error = %v, want the unknown agent refused", err)
+			}
+		})
 	}
 }
 
@@ -342,13 +332,7 @@ func TestStopAndKillProjectVMUnknownAgent(t *testing.T) {
 func TestStopKillProjectVMErrorsWhenIdentityUnresolvable(t *testing.T) {
 	t.Chdir(unresolvableIdentityDir(t))
 
-	for _, action := range []struct {
-		name string
-		run  func(context.Context, configpaths.ConfigPaths, msb.Client, bool, bool, termio.UI, string) error
-	}{
-		{"stop", StopProjectVM},
-		{"kill", KillProjectVM},
-	} {
+	for _, action := range stopAndKillCommands {
 		t.Run(action.name, func(t *testing.T) {
 			ui := termio.NewTestMock(t)
 			if err := action.run(
@@ -379,13 +363,7 @@ func TestStopKillProjectVMAdoptionFailureFailsClosed(t *testing.T) {
 
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 
-	for _, action := range []struct {
-		name string
-		run  func(context.Context, configpaths.ConfigPaths, msb.Client, bool, bool, termio.UI, string) error
-	}{
-		{"stop", StopProjectVM},
-		{"kill", KillProjectVM},
-	} {
+	for _, action := range stopAndKillCommands {
 		t.Run(action.name, func(t *testing.T) {
 			ui := termio.NewTestMock(t)
 			err := action.run(
@@ -395,31 +373,6 @@ func TestStopKillProjectVMAdoptionFailureFailsClosed(t *testing.T) {
 				t.Fatalf("error = %v, want the fail-closed predicate error", err)
 			}
 		})
-	}
-}
-
-// TestStopProjectVMWrapsStopError drives StopProjectVM end to end so its own
-// return of the teardown result is exercised: a failing handle stop propagates.
-func TestStopProjectVMWrapsStopError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := termio.NewTestMock(t)
-	handle := &msb.MockSandboxHandle{
-		Name_:   "vm",
-		Status_: msbSdk.SandboxStatusRunning,
-		StopErr: errVMSentinel,
-	}
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-	msb.WithMsbMock(t, client)
-
-	t.Chdir(testutil.InitRepo(t))
-
-	err := StopProjectVM(context.Background(), configpaths.Get(), client, false, false, &ui, "opencode")
-	if err == nil {
-		t.Fatal("expected the stop failure to propagate out of StopProjectVM")
-	}
-	if !errors.Is(err, errVMSentinel) {
-		t.Errorf("error = %v, want it to wrap the stop cause", err)
 	}
 }
 
@@ -445,13 +398,7 @@ func TestStopKillProjectVMDryRunLeavesLegacyState(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 
-	for _, action := range []struct {
-		name string
-		run  func(context.Context, configpaths.ConfigPaths, msb.Client, bool, bool, termio.UI, string) error
-	}{
-		{"stop", StopProjectVM},
-		{"kill", KillProjectVM},
-	} {
+	for _, action := range stopAndKillCommands {
 		t.Run(action.name, func(t *testing.T) {
 			ui := termio.NewTestMock(t)
 			if err := action.run(
@@ -463,155 +410,6 @@ func TestStopKillProjectVMDryRunLeavesLegacyState(t *testing.T) {
 				t.Error("a dry run must not apply the pending legacy migration")
 			}
 		})
-	}
-}
-
-func TestStopProjectVMUsesClient(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
-	ui := &testUI
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(&msb.MockSandboxHandle{
-		Name_:   "agents-sandbox-vm-test",
-		Status_: msbSdk.SandboxStatusRunning,
-	})
-	resolutions := msb.WithCountingMsbMock(t, client)
-
-	// CheckoutSlug depends on the current directory, so use a temp repo.
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-
-	if err := StopProjectVM(context.Background(), configpaths.Get(), client, false, false, ui, "opencode"); err != nil {
-		t.Fatalf("StopProjectVM failed: %v", err)
-	}
-	if *resolutions != 0 {
-		t.Errorf("msb.Get resolved %d times, want 0: StopProjectVM takes its client", *resolutions)
-	}
-}
-
-func TestStopProjectVMAlreadyStopped(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
-	ui := &testUI
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(&msb.MockSandboxHandle{
-		Name_:   "agents-sandbox-vm-test",
-		Status_: msbSdk.SandboxStatusStopped,
-	})
-	msb.WithMsbMock(t, client)
-
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-
-	if err := StopProjectVM(context.Background(), configpaths.Get(), client, false, false, ui, "opencode"); err != nil {
-		t.Fatalf("StopProjectVM on already-stopped VM failed: %v", err)
-	}
-	if !strings.Contains(joinStrings(ui.InfoCalls), "already stopped") {
-		t.Errorf("expected the already-stopped note, got %v", ui.InfoCalls)
-	}
-}
-
-func TestStopProjectVMDryRunRemove(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
-	ui := &testUI
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(&msb.MockSandboxHandle{
-		Name_:   "agents-sandbox-vm-test",
-		Status_: msbSdk.SandboxStatusRunning,
-	})
-	msb.WithMsbMock(t, client)
-
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-
-	if err := StopProjectVM(context.Background(), configpaths.Get(), client, true, true, ui, "opencode"); err != nil {
-		t.Fatalf("StopProjectVM dry-run with remove failed: %v", err)
-	}
-}
-
-func TestStopProjectVMNotFound(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
-	ui := &testUI
-	client := &msb.MockMsbClient{}
-	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
-	}
-	msb.WithMsbMock(t, client)
-
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-
-	if err := StopProjectVM(context.Background(), configpaths.Get(), client, false, false, ui, "opencode"); err != nil {
-		t.Fatalf("StopProjectVM on missing VM failed: %v", err)
-	}
-	if !strings.Contains(joinStrings(ui.InfoCalls), "no project VM found") {
-		t.Errorf("expected the missing-VM note, got %v", ui.InfoCalls)
-	}
-}
-
-// TestKillProjectVMDryRunRemove covers the kill dry-run branch and the
-// actionWord selection.
-func TestKillProjectVMDryRunRemove(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := termio.NewTestMock(t)
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(&msb.MockSandboxHandle{
-		Name_:   "agents-sandbox-vm-test",
-		Status_: msbSdk.SandboxStatusRunning,
-	})
-	msb.WithMsbMock(t, client)
-
-	if err := KillProjectVM(context.Background(), configpaths.Get(), client, true, true, &ui, "opencode"); err != nil {
-		t.Fatalf("KillProjectVM dry-run: %v", err)
-	}
-}
-
-// TestKillProjectVMWrapsKillError is the kill counterpart: KillProjectVM returns
-// its teardown result, with the kill cause preserved.
-func TestKillProjectVMWrapsKillError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := termio.NewTestMock(t)
-	handle := &msb.MockSandboxHandle{
-		Name_:   "vm",
-		Status_: msbSdk.SandboxStatusRunning,
-		KillErr: errVMSentinel,
-	}
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(handle)
-	msb.WithMsbMock(t, client)
-
-	t.Chdir(testutil.InitRepo(t))
-
-	err := KillProjectVM(context.Background(), configpaths.Get(), client, false, false, &ui, "opencode")
-	if err == nil {
-		t.Fatal("expected the kill failure to propagate out of KillProjectVM")
-	}
-	if !errors.Is(err, errVMSentinel) {
-		t.Errorf("error = %v, want it to wrap the kill cause", err)
-	}
-}
-
-func TestKillProjectVMUsesClient(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
-	ui := &testUI
-	client := &msb.MockMsbClient{}
-	client.SetGotSandbox(&msb.MockSandboxHandle{
-		Name_:   "agents-sandbox-vm-test",
-		Status_: msbSdk.SandboxStatusRunning,
-	})
-	resolutions := msb.WithCountingMsbMock(t, client)
-
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-
-	if err := KillProjectVM(context.Background(), configpaths.Get(), client, false, false, ui, "opencode"); err != nil {
-		t.Fatalf("KillProjectVM failed: %v", err)
-	}
-	if *resolutions != 0 {
-		t.Errorf("msb.Get resolved %d times, want 0: KillProjectVM takes its client", *resolutions)
 	}
 }
 
