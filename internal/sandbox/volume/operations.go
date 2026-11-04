@@ -183,7 +183,7 @@ func volumeOp(
 	if oldVolume == "" {
 		oldVolume = st.HomeVolume
 		if oldVolume == "" {
-			// A VM-only identity adoption (#144) records the legacy home volume in
+			// A VM-only identity adoption records the legacy home volume in
 			// RecoveredHomeVolume before destroying the legacy VM, leaving HomeVolume
 			// empty until home resolution runs. Use the pending volume as the source
 			// so a first volume op works instead of failing.
@@ -224,13 +224,13 @@ func volumeOp(
 	}
 
 	// The operation replaced the volume a pending recovered-volume marker may
-	// still record (#144), so commitNewHomeVolume clears it.
+	// still record, so commitNewHomeVolume clears it.
 	if err := commitNewHomeVolume(k, st.HomeVolume, newVolumeName, info.Digest, true); err != nil {
 		vm.cleanupUncommittedVolume(ctx, client, newVolumeName, err, ui)
 		return err
 	}
 	// If the operation replaced a volume an identity adoption preserved, its
-	// claim is spent; retire it so it is not left stale (#144).
+	// claim is spent; retire it so it is not left stale.
 	clearAdoptionClaim(k, oldVolume, ui)
 
 	if rmOld {

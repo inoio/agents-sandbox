@@ -28,7 +28,7 @@ const (
 // homeVolumePlan is the single reuse → recover → create decision. ResolveHomeVolume
 // commits it; PreviewHomeVolume reports it without writing. Keeping the decision
 // in one place is what stops the --dry-run preview from drifting from the real
-// path (#527).
+// path.
 //
 //exhaustruct:ignore
 type homeVolumePlan struct {
@@ -58,14 +58,14 @@ type homeVolumePlan struct {
 // read-only lookups; committing it is the caller's job. Resolution order:
 //
 //  1. a recorded volume that still resolves is reused;
-//  2. a pending RecoveredHomeVolume (a VM-only identity adoption, #144) is
-//     adopted;
+//  2. a pending RecoveredHomeVolume (recorded by a VM-only identity adoption)
+//     is adopted;
 //  3. the live VM's mounted volume (recoveredVolume) is adopted if it still
 //     exists, so a lost state file does not mint a duplicate volume and orphan
-//     the previous one (#219);
+//     the previous one;
 //  4. otherwise a fresh volume is created.
 //
-// A lookup error that is not true absence fails closed (#331), so a transient
+// A lookup error that is not true absence fails closed, so a transient
 // error can never be mistaken for a gone volume.
 func resolveHomeVolumePlan(
 	ctx context.Context,
@@ -80,7 +80,7 @@ func resolveHomeVolumePlan(
 		return plan, err
 	}
 
-	// A VM-only identity adoption (#144) destroyed the legacy VM and recorded its
+	// A VM-only identity adoption destroyed the legacy VM and recorded its
 	// home volume here first, because the VM is then gone and cannot be read.
 	// Finish that recovery so the volume becomes the project's HomeVolume.
 	if st.RecoveredHomeVolume != "" {
@@ -126,7 +126,7 @@ func planFromRecoveryCandidate(
 
 // ResolveHomeVolume determines the home volume to mount for a project run and
 // commits the decision: it repairs state and prefills a fresh volume. It shares
-// resolveHomeVolumePlan with PreviewHomeVolume so the two cannot drift (#527).
+// resolveHomeVolumePlan with PreviewHomeVolume so the two cannot drift.
 //
 // skipVM passes through to EnsureNewHome: a fresh home is neither created nor
 // recorded, because its prefill spawns a VM; the first real run creates it.
@@ -211,7 +211,7 @@ func (vm *Manager) commitHomeVolumePlan(
 	return plan.volume, recoveredState, nil
 }
 
-// clearAdoptionClaim retires a spent adoption claim (#144) after the recovered
+// clearAdoptionClaim retires a spent identity-adoption claim after the recovered
 // volume has been folded into the project's own state. Best-effort: a stale
 // claim is harmless once the legacy VM is gone, so a failure only warns.
 func clearAdoptionClaim(k state.Key, volume string, ui termio.Logger) {
@@ -225,10 +225,10 @@ func clearAdoptionClaim(k state.Key, volume string, ui termio.Logger) {
 
 // priorOrNil returns the readable prior document for carry-forward, or nil when
 // recovery is rebuilding from scratch. An identity-adoption marker
-// (RecoveredHomeVolume set, #144) is not a real prior: it holds no fingerprints
+// (RecoveredHomeVolume set) is not a real prior: it holds no fingerprints
 // or upgrade fields, so treating it as one would copy empty fingerprints forward.
-// Discarding it also seeds the desired fingerprints, the #183 rule for a state
-// whose contents were effectively lost.
+// Discarding it also seeds the desired fingerprints, as for a state whose
+// contents were effectively lost.
 func priorOrNil(cur *state.HomeState, exists bool) *state.HomeState {
 	if !exists || cur.RecoveredHomeVolume != "" {
 		return nil
@@ -257,7 +257,7 @@ func confirmedRecoveredVolume(ctx context.Context, client msb.Client, candidate 
 
 // recoveredHomeState builds the state for a recovered volume. It carries forward
 // the fingerprints of a still-readable prior state (they describe the live VM),
-// or seeds the desired fingerprints when the state was lost entirely (#183), so
+// or seeds the desired fingerprints when the state was lost entirely, so
 // recovery never leaves a fingerprint-less state beside a live VM.
 func recoveredHomeState(
 	recoveredVolume string,
@@ -281,30 +281,29 @@ func recoveredHomeState(
 }
 
 // recoverHomeState is the wholesale state transaction a fresh home volume's
-// state is written through. It is a seam: a state write fails only for
-// environmental reasons a test filesystem cannot force (a read-only state
-// directory, a full disk, a durability error, or an inode at the state path),
-// so a test substitutes a failing writer to exercise the error path.
+// state is written through. It is a seam because a state write fails only for
+// environmental reasons that cannot be forced in-process (a read-only state
+// directory, a full disk, a durability error, or an inode at the state path).
 var recoverHomeState = state.RecoverHomeState
 
 // EnsureNewHome creates a fresh home volume from the image and writes the state.
 // It seeds the state with the desired config fingerprints so a fresh state is
-// never fingerprint-less while its VM exists (issue #183).
+// never fingerprint-less while its VM exists.
 //
 // Under skipVM nothing is created or written: the prefill spawns a throwaway
 // VM, and recording an unprefilled volume would make every later run reuse an
-// empty home (#429). The would-be name and state are returned for the preview.
+// empty home. The would-be name and state are returned for the preview.
 //
 // A failed state write surfaces the error and removes the volume it just
 // created, so a run never proceeds against a volume the launcher has no record
-// of (#428). The volume is kept when the write error reports an
+// of. The volume is kept when the write error reports an
 // installed-but-not-durable document (state.WriteInstalled): the installed state
 // already names it, so rolling it back would strand the state on a removed
 // volume (see specs/atomicwrite-durability.md).
 //
 // The commit is a compare-and-set against observedHomeVolume, the home volume
 // the state named when the caller decided a fresh volume is needed ("" when the
-// state was missing or unreadable) (#431): when a concurrent session committed
+// state was missing or unreadable): when a concurrent session committed
 // its own fresh volume since, that volume is adopted and this one removed, so
 // neither is left unrecorded.
 func (vm *Manager) EnsureNewHome(
@@ -377,12 +376,12 @@ const homeVolumeNameAttempts = 3
 // waiting this long yields a new name.
 const homeVolumeNameGranularity = time.Second
 
-// sleepForNextHomeVolumeName is time.Sleep, a seam so tests do not sleep.
+// sleepForNextHomeVolumeName is the retry wait between home-volume name attempts.
 var sleepForNextHomeVolumeName = time.Sleep
 
 // createHomeVolume creates a fresh home volume and returns its name.
 // HomeVolumeName has second granularity, so two sessions starting in the same
-// second generate the same name (#431); the loser retries with the next name.
+// second generate the same name; the loser retries with the next name.
 func createHomeVolume(ctx context.Context, client msb.Client, k state.Key) (string, error) {
 	var err error
 	for attempt := 1; ; attempt++ {
