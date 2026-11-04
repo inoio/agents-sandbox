@@ -50,6 +50,7 @@ VM's reach beyond itself:
   not the value: a value rotation does not re-prompt, and the prompt never prints a secret value.
 - `provision-host-config` — copies host CLI config into the VM.
 - `docker` — enables a container engine inside the VM.
+- the project Dockerfile (`<project-config>/Dockerfile`) — code baked into the runner image.
 
 Every other project-layer setting (resources, image, notify, upgrade, output, …) is not host-affecting and
 is not gated: a change to it never prompts. The set is closed; adding a key is a deliberate change to this
@@ -64,7 +65,8 @@ contract.
 - The projection is the project layer's **own declared contribution**, resolved to canonical values but not
   composed with the higher layers. A change to the user layer or a flag must not invalidate an approval,
   and a project value currently shadowed by a flag is still gated (approval is about what the project layer
-  could impose, not this run's effective value).
+  could impose, not this run's effective value). An input that is **code rather than a value** — the project
+  Dockerfile — contributes a content hash instead of a resolved value.
 - Hash the projection and compare it with the digest recorded for the checkout.
   - **Match** → proceed silently.
   - **Empty projection** — a project layer that contributes no approval-set key — is silently allowed;
@@ -96,6 +98,9 @@ contract.
   particular **before the image build** (`EnsureImage`), so a project `docker` or Dockerfile cannot be
   baked before approval. The gate reads the project layer itself (see Provenance); it does not wait for the
   later, single host env/secret read (`envsecret.LoadEnvAndSecrets`).
+- The image-build entry points (`build`, `image build`) never call `PrepareSandbox` and would otherwise
+  bypass the gate: they must run the same check before building, since they read the project Dockerfile and
+  the project `docker` setting.
 - `--dry-run` is a read-only preview (`dry-run-preview.md`): it reports that approval would be required and
   what would change, and never prompts or writes.
 
@@ -137,10 +142,6 @@ still reaches the host run:
 
 ## Open questions
 
-- Whether `docker` and the project Dockerfile belong in the approval set (recommendation: yes to both —
-  `docker` grants a container engine, and the Dockerfile is code baked into the image). If so, the gate must
-  also cover the image-build entry points (`build`, `image build`), which never call `PrepareSandbox` and
-  would otherwise bypass the gate.
 - Whether the projection also covers the raw contributing files, so that a change of source path (same
   value) re-prompts.
 - The prompt's exact shape, and whether it reuses `config harden`'s finding/remediation machinery.
