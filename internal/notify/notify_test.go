@@ -1,27 +1,8 @@
 package notify
 
-import "testing"
-
-func TestConfigActive(t *testing.T) {
-	cases := []struct {
-		name string
-		cfg  Config
-		want bool
-	}{
-		{"empty", Config{}, false},
-		{"desktop", Config{Desktop: true}, true},
-		{"audio system", Config{Audio: AudioSystem}, true},
-		{"audio bell", Config{Audio: AudioBell}, true},
-		{"audio off", Config{Audio: AudioOff}, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := tc.cfg.Active(); got != tc.want {
-				t.Errorf("Active() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
+import (
+	"testing"
+)
 
 func TestParseAudioMode(t *testing.T) {
 	if m, err := ParseAudioMode("system"); err != nil || m != AudioSystem {
@@ -43,6 +24,17 @@ func TestParseOverride(t *testing.T) {
 	}
 }
 
+func TestApplyOverrideOn(t *testing.T) {
+	base := Config{Desktop: false, Audio: AudioOff, OnInput: true, OnDone: true, OnError: true}
+	got := ApplyOverride(base, OverrideOn)
+	if !got.Desktop || got.Audio != AudioSystem {
+		t.Errorf("OverrideOn should enable desktop + system audio, got %+v", got)
+	}
+	if !got.OnInput || !got.OnDone || !got.OnError {
+		t.Errorf("OverrideOn should preserve triggers, got %+v", got)
+	}
+}
+
 func TestApplyOverride(t *testing.T) {
 	base := Config{Desktop: true, Audio: AudioSystem, OnInput: true, OnDone: true, OnError: true}
 	if got := ApplyOverride(base, OverrideOff); got.Active() {
@@ -60,5 +52,26 @@ func TestApplyOverride(t *testing.T) {
 	// Triggers are preserved through overrides.
 	if got := ApplyOverride(base, OverrideAudio); !got.OnInput || !got.OnDone || !got.OnError {
 		t.Errorf("triggers should be preserved, got %+v", got)
+	}
+}
+
+func TestConfigActive(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  Config
+		want bool
+	}{
+		{"empty", Config{}, false},
+		{"desktop", Config{Desktop: true}, true},
+		{"audio system", Config{Audio: AudioSystem}, true},
+		{"audio bell", Config{Audio: AudioBell}, true},
+		{"audio off", Config{Audio: AudioOff}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.cfg.Active(); got != tc.want {
+				t.Errorf("Active() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
