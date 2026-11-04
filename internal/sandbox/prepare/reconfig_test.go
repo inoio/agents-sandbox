@@ -634,344 +634,130 @@ func TestResolveReconfigDecisionNoHomeActionOnUnchangedDigest(t *testing.T) {
 	}
 }
 
-func TestResolveReconfigDecision_NetworkChangedWithPersistedState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	mock := reconfigMockClient()
-	msb.WithMsbMock(t, mock)
-
-	volumes := volume.NewManager(docker.Get())
-
-	// Zero network state (no policy recorded yet) + a non-empty desired policy
-	// => recreate to apply the policy.
-	persistedState := state.HomeState{
-		HomeVolume:  "vol",
-		ImageDigest: "sha256:samedigest",
-	}
-	opts := options.RunOptions{Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}}}
-
-	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
-	}
-	decision, err := readAndResolveReconfigDecision(
-		context.Background(),
-		mock,
-		volumes,
-		state.Key{Slug: "testproj", Agent: "opencode"},
-		opts,
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:samedigest"},
-		"vol",
-		persistedState,
-		cfs,
-		&ui,
-	)
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if !decision.Recreate {
-		t.Error("expected recreate when network policy differs from persisted state (network cannot be applied live)")
-	}
-	if decision.Restart {
-		t.Error("expected no daemon restart for network change (folded into recreate)")
-	}
-}
-
-func TestResolveReconfigDecision_NetworkUnchangedNoRecreate(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	mock := reconfigMockClient()
-	msb.WithMsbMock(t, mock)
-
-	volumes := volume.NewManager(docker.Get())
-
+// TestResolveReconfigDecisionRecreatesWhenARecordedFingerprintDiffers pins how
+// the env, secret and network fingerprints recorded for a running VM drive the
+// decision: none of them can be applied live, so any difference recreates the
+// VM (never a daemon restart), and matching fingerprints reuse it. Each case
+// starts from a state matching the desired config and changes one fingerprint.
+func TestResolveReconfigDecisionRecreatesWhenARecordedFingerprintDiffers(t *testing.T) {
 	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}}
-	persistedState := state.HomeState{
-		HomeVolume:   "vol",
-		ImageDigest:  "sha256:samedigest",
-		NetworkState: state.BuildNetworkState(policy),
+	desired := envsecret.EnvSecrets{
+		Vars:    map[string]string{"FOO": "bar"},
+		Secrets: []msbSdk.SecretEntry{{EnvVar: "TOKEN", Value: "secret"}},
 	}
-	opts := options.RunOptions{Network: policy}
-
-	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
+	matching := func() state.HomeState {
+		return state.HomeState{
+			HomeVolume:   "vol",
+			ImageDigest:  "sha256:samedigest",
+			EnvState:     state.BuildEnvState(desired.Vars),
+			SecretState:  state.BuildSecretState(desired.Secrets),
+			NetworkState: state.BuildNetworkState(policy),
+		}
 	}
-	decision, err := readAndResolveReconfigDecision(
-		context.Background(),
-		mock,
-		volumes,
-		state.Key{Slug: "testproj", Agent: "opencode"},
-		opts,
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:samedigest"},
-		"vol",
-		persistedState,
-		cfs,
-		&ui,
-	)
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if decision.Recreate {
-		t.Error("expected no recreate when network policy matches persisted state")
-	}
-	if decision.Restart {
-		t.Error("expected no restart when network policy matches persisted state")
-	}
-}
-
-func TestResolveReconfigDecision_EnvChangedWithPersistedState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	// Set up handle so reconfig.PlanReconfig gets a non-nil cfg
-	mock := reconfigMockClient()
-	msb.WithMsbMock(t, mock)
-	configpaths.WithMockConfigPaths(t)
-
-	volumes := volume.NewManager(docker.Get())
-
-	// Write state with env hash that differs from desired (nil desired = empty env)
-	// Use matching imageDigest to skip home-volume path
-	persistedState := state.HomeState{
-		HomeVolume:  "vol",
-		ImageDigest: "sha256:samedigest",
-		EnvState: state.EnvState{
-			Hash:  "sha256:differenthash",
-			Names: []string{"OLD_KEY"},
+	cases := []struct {
+		name         string
+		recorded     func() state.HomeState
+		desired      envsecret.EnvSecrets
+		wantRecreate bool
+	}{
+		{name: "all fingerprints match", recorded: matching, desired: desired},
+		{
+			name: "nothing recorded and no env or secrets configured",
+			recorded: func() state.HomeState {
+				recorded := matching()
+				recorded.EnvState, recorded.SecretState = state.EnvState{}, state.SecretState{}
+				return recorded
+			},
+			desired: envsecret.EnvSecrets{},
+		},
+		{
+			name: "env differs",
+			recorded: func() state.HomeState {
+				recorded := matching()
+				recorded.EnvState = state.EnvState{Hash: "sha256:differenthash", Names: []string{"OLD_KEY"}}
+				return recorded
+			},
+			desired:      desired,
+			wantRecreate: true,
+		},
+		{
+			name: "secrets differ",
+			recorded: func() state.HomeState {
+				recorded := matching()
+				recorded.SecretState = state.SecretState{Hash: "sha256:oldsecrethash", Names: []string{"DB_PASS"}}
+				return recorded
+			},
+			desired:      desired,
+			wantRecreate: true,
+		},
+		{
+			name: "network policy differs",
+			recorded: func() state.HomeState {
+				recorded := matching()
+				recorded.NetworkState = state.BuildNetworkState(
+					network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
+				)
+				return recorded
+			},
+			desired:      desired,
+			wantRecreate: true,
+		},
+		{
+			name: "no network policy recorded yet",
+			recorded: func() state.HomeState {
+				recorded := matching()
+				recorded.NetworkState = state.NetworkState{}
+				return recorded
+			},
+			desired:      desired,
+			wantRecreate: true,
 		},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			mock := reconfigMockClient()
+			msb.WithMsbMock(t, mock)
+			ui := termio.NewTestMock(t)
+			configFiles := loadOpencodeConfigFiles(t, &ui)
+			k := state.Key{Slug: "testproj", Agent: "opencode"}
+			live, err := readLiveProjectVM(context.Background(), mock, k, configFiles.Keys, &ui)
+			if err != nil {
+				t.Fatalf("readLiveProjectVM: %v", err)
+			}
 
-	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
-	}
-	decision, err := readAndResolveReconfigDecision(
-		context.Background(),
-		mock,
-		volumes,
-		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:samedigest"},
-		"vol",
-		persistedState,
-		cfs,
-		&ui,
-	)
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if !decision.Recreate {
-		t.Error("expected recreate when env differs from persisted state (env cannot be applied live)")
-	}
-	if decision.Restart {
-		t.Error("expected no daemon restart for env change (folded into recreate)")
-	}
-}
-
-func TestResolveReconfigDecision_EnvUnchangedWithPersistedState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	userDir := t.TempDir()
-
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
-	configpaths.WithMockConfigPaths(t)
-
-	volumes := volume.NewManager(docker.Get())
-
-	// Write env file and state with matching hash
-	testutil.WriteFile(t, userDir, configpaths.EnvFileName, "FOO=bar\n")
-	envHash := computeEnvHash(filepath.Join(userDir, configpaths.EnvFileName))
-
-	// Build HomeState with matching env state
-	persistedState := state.HomeState{
-		HomeVolume:  "vol",
-		ImageDigest: "sha256:img1",
-		EnvState: state.EnvState{
-			Hash:  envHash,
-			Names: []string{"FOO"},
-		},
-	}
-
-	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
-	}
-	decision, err := readAndResolveReconfigDecision(
-		context.Background(),
-		mock,
-		volumes,
-		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:samedigest"},
-		"vol",
-		persistedState,
-		cfs,
-		&ui,
-	)
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if decision.Recreate {
-		t.Error("expected no recreate")
-	}
-	if decision.Restart {
-		t.Error("expected no restart when env matches persisted state")
+			decision, err := resolveReconfigDecision(
+				context.Background(),
+				volume.NewManager(docker.Get()),
+				k,
+				options.RunOptions{Agent: "opencode", Network: policy},
+				image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:samedigest"},
+				"vol",
+				tc.recorded(),
+				configFiles,
+				tc.desired,
+				live,
+				&ui,
+			)
+			if err != nil {
+				t.Fatalf("resolveReconfigDecision: %v", err)
+			}
+			if decision.Recreate != tc.wantRecreate {
+				t.Errorf(
+					"Recreate = %v, want %v (rebuild reasons: %v)",
+					decision.Recreate,
+					tc.wantRecreate,
+					ui.InfoCalls,
+				)
+			}
+			if decision.Restart {
+				t.Error("Restart = true, want false: a fingerprint change is folded into the recreate")
+			}
+		})
 	}
 }
 
-func TestResolveReconfigDecision_SecretsChangedWithPersistedState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	mock := reconfigMockClient()
-	msb.WithMsbMock(t, mock)
-	configpaths.WithMockConfigPaths(t)
-
-	volumes := volume.NewManager(docker.Get())
-
-	// Write state with different secret hash than desired (nil desired = no secrets)
-	// Use matching imageDigest to skip home-volume path
-	persistedState := state.HomeState{
-		HomeVolume:  "vol",
-		ImageDigest: "sha256:samedigest",
-		SecretState: state.SecretState{
-			Hash:  "sha256:oldsecrethash",
-			Names: []string{"DB_PASS"},
-		},
-	}
-
-	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
-	}
-	decision, err := readAndResolveReconfigDecision(
-		context.Background(),
-		mock,
-		volumes,
-		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:samedigest"},
-		"vol",
-		persistedState,
-		cfs,
-		&ui,
-	)
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if !decision.Recreate {
-		t.Error("expected recreate when secrets differ from persisted state (secrets cannot be applied live)")
-	}
-	if decision.Restart {
-		t.Error("expected no daemon restart for secrets change (folded into recreate)")
-	}
-}
-
-func TestResolveReconfigDecision_ZeroPersistedStateNoSpuriousChange(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	userDir := t.TempDir()
-
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
-	configpaths.WithMockConfigPaths(t)
-
-	volumes := volume.NewManager(docker.Get())
-
-	// Write empty env file → desired is empty.
-	// State has no env_state → zero value (first run).
-	// Zero applied + empty desired → NOT changed (per ruling)
-	testutil.WriteFile(t, userDir, configpaths.EnvFileName, "# nothing here\n")
-
-	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
-	}
-	decision, err := readAndResolveReconfigDecision(
-		context.Background(),
-		mock,
-		volumes,
-		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:samedigest"},
-		"vol",
-		state.HomeState{},
-		cfs,
-		&ui,
-	)
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if decision.Recreate {
-		t.Error("expected no recreate")
-	}
-	if decision.Restart {
-		t.Error("expected no restart when no env is configured (zero+empty)")
-	}
-}
-
-func TestResolveReconfigDecision_PersistedSecretsMatchDesired(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	userDir := t.TempDir()
-
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
-	configpaths.WithMockConfigPaths(t)
-
-	volumes := volume.NewManager(docker.Get())
-
-	testutil.WriteFile(t, userDir, configpaths.EnvFileName, "K=V\n")
-	desiredEnv := envsecret.MergeEnvMaps(envsecret.BuildEnvMap(filepath.Join(userDir, configpaths.EnvFileName)))
-	envHash := state.EnvContentHash(desiredEnv)
-
-	seedHomeState(state.Key{Slug: "myproj5", Agent: "opencode"}, state.HomeState{
-		HomeVolume:  "vol",
-		ImageDigest: "sha256:img",
-		EnvState:    state.EnvState{Hash: envHash, Names: []string{"K"}},
-	})
-
-	persistedState := state.HomeState{
-		HomeVolume:  "vol",
-		ImageDigest: "sha256:img",
-		EnvState:    state.EnvState{Hash: envHash, Names: []string{"K"}},
-	}
-
-	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
-	}
-	decision, err := readAndResolveReconfigDecision(
-		context.Background(),
-		mock,
-		volumes,
-		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img", Ref: "img", Digest: "sha256:img"},
-		"vol",
-		persistedState,
-		cfs,
-		&ui,
-	)
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if decision.Recreate {
-		t.Error("expected no recreate")
-	}
-	if decision.Restart {
-		t.Error("expected no restart when env matches persisted state and no secrets")
-	}
-}
-
-func TestResolveReconfigDecision_HomePromptDeferredWhenRebuildDeferred(t *testing.T) {
+func TestResolveReconfigDecisionHomePromptDeferredWhenRebuildDeferred(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
@@ -1059,7 +845,7 @@ func TestResolveReconfigDecision_HomePromptDeferredWhenRebuildDeferred(t *testin
 	}
 }
 
-func TestResolveReconfigDecision_HomePromptAskedWhenRebuildConfirmed(t *testing.T) {
+func TestResolveReconfigDecisionHomePromptAskedWhenRebuildConfirmed(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
@@ -1140,7 +926,7 @@ func TestResolveReconfigDecision_HomePromptAskedWhenRebuildConfirmed(t *testing.
 	}
 }
 
-func TestResolveReconfigDecision_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
+func TestResolveReconfigDecisionAgentConfigChangeOnStoppedVM(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	// Desired opencode config: a snippet producing {"model":"y"} (new config).
@@ -1586,9 +1372,4 @@ func reconfigMockClient() *msb.MockMsbClient {
 		return sh, nil
 	}
 	return mock
-}
-
-func computeEnvHash(envFile string) string {
-	env := envsecret.BuildEnvMap(envFile)
-	return state.EnvContentHash(env)
 }
