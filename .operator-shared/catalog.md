@@ -53,6 +53,9 @@
 - `secret-placeholder-transcript-trap.md`
   - Description: Why a session dies once a microsandbox secret placeholder reaches the model context — the LLM transport POSTs the whole conversation, so a placeholder anywhere in history blocks every later turn — how to observe the block in `runtime.log` (the zero `LogOptions` misses it; it is a `LogSourceSystem` read), and the launcher's config-file-only `secrets.common.allow-placeholder-for` repair (`Allow`/`Passthrough` disjointness, the `placeholderHostsFor` invariants, the digest change that forces one recreate).
   - Read If: Diagnosing a model turn blocked by a secret violation, working on `secrets.common.allow-placeholder-for`, `BuildSecretsFromSpecs`/`placeholderHostsFor`, or `envsecret` passthrough hosts.
+- `vm-oom-crash-resilience.md`
+  - Description: Research on how the microsandbox microVM enforces memory/disk/CPU limits (virtio-mem plugged cap, no swap/zram, no cgroup `memory.max`/`memory.events`, so the guest's global kernel OOM killer fires with default `oom_badness`), why an OOM kill is invisible from the launcher (guest signal deaths report exit code `-1`, `JobInfo` has no OOM field, no runtime OOM API), the two-layer host-terminal corruption (SDK Rust `scopeguard` restores termios on normal return but never the guest TUI's emulator modes) and its recovery, the confirmed `Metrics`/`LogSourceSystem` detection surface (the guest OOM printk reaches `LogSourceSystem`), the async live memory resize and the default managed root disk, the host-RAM capacity bound, and the ranked detect-and-propose mitigation path.
+  - Read If: Working on VM OOM/crash handling, a memory/disk/CPU limit-hit detector or "raise the limit" proposal, terminal corruption after an in-VM kill, or the daemon/dockerd re-ensure and supervision behaviour.
 
 ### `specs/` - System contracts for this partition
 
@@ -233,9 +236,15 @@
 - `yaml-library.md`
   - Description: Contract for the YAML dependency: every parse/serialize goes through the maintained `go.yaml.in/yaml/v3`, never `gopkg.in/yaml.v3` v3.0.1, whose emitter drops a leading blank line on marshal.
   - Read If: Adding a YAML parse/serialize path, touching `go.mod`'s YAML dependency, or triaging a `FuzzParseState` serialization-stability failure.
+- `resource-limit-proposal.md`
+  - Description: Contract for detecting a project VM resource-limit hit and prompting a raise: memory OOM via the guest kernel-log line (primary) with a metrics-headroom fallback watched during the session, the 90%/1 GiB threshold and 80% re-arm, the `HomeState` anti-nag marker, persistence to the owning config layer (project config when it would shadow, error on an env override), the async live memory apply and the memory-above-boot-max recreate, terminal reset after the attach, and the `/workspace`+`/tmp` in-guest probe with recreate-only apply (disk Phase 2).
+  - Read If: Working on the OOM/limit-hit detector or raise proposal, the `pressure`/`resourceproposal` packages, the `msb.Sandbox.Metrics`/`Logs` seam, per-project `memory` persistence, or the automatic terminal reset after an attach.
 
 ### `plans/` - TDD implementation plans
 
 - `2026-10-10-buildkit-builder-vm.md`
   - Description: TDD plan for `specs/buildkit-builder-vm.md`: the `internal/sandbox/builder` package, BuildKit deps, rewiring `image`, VM creation, cache pruning, and removing `internal/sandbox/docker` + `doctor.CheckDocker`.
   - Read If: Implementing the Docker-free BuildKit builder (#15) — `internal/sandbox/builder`, `buildkitd`, `ImageLoad`, or the image build/inspect/load pipeline and `doctor.CheckDocker` removal.
+- `2026-11-04-vm-memory-limit-proposal.md`
+  - Description: Phase 1 TDD plan for `specs/resource-limit-proposal.md` (#544, memory only): the `msb` `Metrics`/`Logs` seam, the `internal/sandbox/pressure` classifier, the `HomeState` marker, the session metrics watcher, terminal reset, the format-preserving config writer, the `resourceproposal` prompt/persist, the above-boot-max recreate rule, and the next-launch + post-attach hooks. Disk is a separate Phase 2 plan.
+  - Read If: Implementing the memory-limit detection and raise proposal (#544) — `pressure`, `resourceproposal`, `session.pressureWatch`, or the `prepare.resolveReconfigDecision` memory hook.
