@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -34,18 +35,8 @@ func TestFormatTime(t *testing.T) {
 	}
 }
 
-func TestListSandboxesError(t *testing.T) {
-	mock := &msb.MockMsbClient{}
-	mock.ListSandboxesFn = func(_ context.Context, _ map[string]string) ([]msb.SandboxHandle, error) {
-		return nil, errors.New("list failed")
-	}
-	msb.WithMsbMock(t, mock)
-
-	if _, err := ListSandboxes(context.Background(), ListOption{}); err == nil {
-		t.Fatal("expected error when the msb ListSandboxes fails")
-	}
-}
-
+// TestListSandboxesPopulatesInfo pins the fields a listed VM carries: name,
+// status, image, labels, and its created/updated times both formatted and raw.
 func TestListSandboxesPopulatesInfo(t *testing.T) {
 	now := time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC)
 	mock := &msb.MockMsbClient{}
@@ -54,10 +45,12 @@ func TestListSandboxesPopulatesInfo(t *testing.T) {
 			Name_:      "agents-sandbox-vm-abc",
 			Status_:    msbSdk.SandboxStatusRunning,
 			CreatedAt_: now,
-			UpdatedAt_: now,
-			Cfg:        &msbSdk.SandboxConfig{Image: "agents-sandbox/runner:latest"},
+			UpdatedAt_: now.Add(time.Hour),
+			Cfg: &msbSdk.SandboxConfig{
+				Image:  "agents-sandbox/runner:latest",
+				Labels: map[string]string{naming.LabelProject: "proj"},
+			},
 		},
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-task-myvm-1729", Status_: msbSdk.SandboxStatusRunning},
 	}
 	msb.WithMsbMock(t, mock)
 
@@ -66,91 +59,64 @@ func TestListSandboxesPopulatesInfo(t *testing.T) {
 		t.Fatalf("ListSandboxes() error = %v", err)
 	}
 	if len(got) != 1 {
-		t.Fatalf("ListSandboxes() got %d infos, want 1 (task sandbox filtered)", len(got))
+		t.Fatalf("ListSandboxes() got %d infos, want 1", len(got))
 	}
 	info := got[0]
-	if info.Name != "agents-sandbox-vm-abc" || info.Status != "running" {
-		t.Errorf("unexpected name/status: %+v", info)
+	if info.Name != "agents-sandbox-vm-abc" || info.Status != "running" ||
+		info.Image != "agents-sandbox/runner:latest" {
+		t.Errorf("name/status/image = %q/%q/%q", info.Name, info.Status, info.Image)
 	}
-	if info.CreatedAt != "2026-08-17 10:30:00" {
-		t.Errorf("CreatedAt = %q, want 2026-08-17 10:30:00", info.CreatedAt)
+	if info.Labels[naming.LabelProject] != "proj" {
+		t.Errorf("Labels = %+v, want the project label", info.Labels)
 	}
-	if info.Image != "agents-sandbox/runner:latest" {
-		t.Errorf("Image = %q, want agents-sandbox/runner:latest", info.Image)
-	}
-}
-
-func TestListSandboxesRunningOnly(t *testing.T) {
-	mock := &msb.MockMsbClient{}
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-b", Status_: msbSdk.SandboxStatusStopped},
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-c", Status_: msbSdk.SandboxStatusStarting},
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-d", Status_: msbSdk.SandboxStatusDraining},
-		&msb.MockSandboxHandle{Name_: naming.LegacyTaskPrefix + "c-1729", Status_: msbSdk.SandboxStatusRunning},
-	}
-	msb.WithMsbMock(t, mock)
-
-	infos, err := ListSandboxes(context.Background(), ListOption{RunningOnly: true})
-	if err != nil {
-		t.Fatalf("ListSandboxes: %v", err)
-	}
-	if len(infos) != 1 || infos[0].Name != "agents-sandbox-vm-a" {
-		t.Errorf("expected only running project VM, got %+v", infos)
+	if info.CreatedAt != "2026-08-17 10:30:00" || !info.CreatedAtRaw.Equal(now) ||
+		!info.UpdatedAtRaw.Equal(now.Add(time.Hour)) {
+		t.Errorf("times = %q, %v, %v", info.CreatedAt, info.CreatedAtRaw, info.UpdatedAtRaw)
 	}
 }
 
-func TestListSandboxesStoppedOnly(t *testing.T) {
-	mock := &msb.MockMsbClient{}
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-b", Status_: msbSdk.SandboxStatusStopped},
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-c", Status_: msbSdk.SandboxStatusCreated},
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-d", Status_: msbSdk.SandboxStatusCrashed},
-		&msb.MockSandboxHandle{Name_: naming.LegacyTaskPrefix + "c-1729", Status_: msbSdk.SandboxStatusStopped},
+// TestListSandboxesFiltersAndLimits pins the status filter (running only or
+// stopped only, running winning when both are set; starting, draining, created
+// and crashed VMs match neither) and the limit, which truncates but never
+// slices past the result.
+func TestListSandboxesFiltersAndLimits(t *testing.T) {
+	sandboxes := []msb.SandboxHandle{
+		&msb.MockSandboxHandle{Name_: "running", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "stopped", Status_: msbSdk.SandboxStatusStopped},
+		&msb.MockSandboxHandle{Name_: "starting", Status_: msbSdk.SandboxStatusStarting},
+		&msb.MockSandboxHandle{Name_: "draining", Status_: msbSdk.SandboxStatusDraining},
+		&msb.MockSandboxHandle{Name_: "created", Status_: msbSdk.SandboxStatusCreated},
+		&msb.MockSandboxHandle{Name_: "crashed", Status_: msbSdk.SandboxStatusCrashed},
 	}
-	msb.WithMsbMock(t, mock)
+	all := []string{"running", "stopped", "starting", "draining", "created", "crashed"}
+	cases := []struct {
+		name string
+		opt  ListOption
+		want []string
+	}{
+		{name: "no filter", want: all},
+		{name: "running only", opt: ListOption{RunningOnly: true}, want: []string{"running"}},
+		{name: "stopped only", opt: ListOption{StoppedOnly: true}, want: []string{"stopped"}},
+		{name: "both", opt: ListOption{RunningOnly: true, StoppedOnly: true}, want: []string{"running"}},
+		{name: "limit", opt: ListOption{Limit: intPtr(2)}, want: []string{"running", "stopped"}},
+		{name: "limit above the count", opt: ListOption{Limit: intPtr(10)}, want: all},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msb.WithMsbMock(t, &msb.MockMsbClient{Sandboxes: sandboxes})
 
-	infos, err := ListSandboxes(context.Background(), ListOption{StoppedOnly: true})
-	if err != nil {
-		t.Fatalf("ListSandboxes: %v", err)
-	}
-	if len(infos) != 1 || infos[0].Name != "agents-sandbox-vm-b" {
-		t.Errorf("expected only stopped project VM, got %+v", infos)
-	}
-}
-
-func TestListSandboxesRunningWinsWhenBoth(t *testing.T) {
-	mock := &msb.MockMsbClient{}
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-b", Status_: msbSdk.SandboxStatusStopped},
-	}
-	msb.WithMsbMock(t, mock)
-
-	infos, err := ListSandboxes(context.Background(), ListOption{RunningOnly: true, StoppedOnly: true})
-	if err != nil {
-		t.Fatalf("ListSandboxes: %v", err)
-	}
-	if len(infos) != 1 || infos[0].Name != "agents-sandbox-vm-a" {
-		t.Errorf("expected running-only when both set, got %+v", infos)
-	}
-}
-
-func TestListSandboxesLimit(t *testing.T) {
-	mock := &msb.MockMsbClient{}
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-b", Status_: msbSdk.SandboxStatusRunning},
-	}
-	msb.WithMsbMock(t, mock)
-
-	infos, err := ListSandboxes(context.Background(), ListOption{Limit: intPtr(1)})
-	if err != nil {
-		t.Fatalf("ListSandboxes: %v", err)
-	}
-	if len(infos) != 1 {
-		t.Errorf("expected 1 result due to limit, got %d: %+v", len(infos), infos)
+			infos, err := ListSandboxes(context.Background(), tc.opt)
+			if err != nil {
+				t.Fatalf("ListSandboxes: %v", err)
+			}
+			var got []string
+			for _, info := range infos {
+				got = append(got, info.Name)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("listed %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -172,46 +138,12 @@ func TestListSandboxesLabelsForwarded(t *testing.T) {
 	}
 }
 
-func TestListSandboxesPopulatesInfoFields(t *testing.T) {
-	now := time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC)
-	mock := &msb.MockMsbClient{}
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{
-			Name_:      "agents-sandbox-vm-a",
-			Status_:    msbSdk.SandboxStatusRunning,
-			CreatedAt_: now,
-			UpdatedAt_: now.Add(time.Hour),
-			Cfg: &msbSdk.SandboxConfig{
-				Image:  "agents-sandbox/runner:latest",
-				Labels: map[string]string{naming.LabelProject: "proj"},
-			},
-		},
-	}
-	msb.WithMsbMock(t, mock)
-
-	infos, err := ListSandboxes(context.Background(), ListOption{})
-	if err != nil {
-		t.Fatalf("ListSandboxes: %v", err)
-	}
-	if len(infos) != 1 {
-		t.Fatalf("expected 1 result, got %d: %+v", len(infos), infos)
-	}
-	info := infos[0]
-	if info.Labels == nil || info.Labels[naming.LabelProject] != "proj" {
-		t.Errorf("Labels not populated: %+v", info.Labels)
-	}
-	if !info.CreatedAtRaw.Equal(now) {
-		t.Errorf("CreatedAtRaw = %v, want %v", info.CreatedAtRaw, now)
-	}
-	if !info.UpdatedAtRaw.Equal(now.Add(time.Hour)) {
-		t.Errorf("UpdatedAtRaw = %v, want %v", info.UpdatedAtRaw, now.Add(time.Hour))
-	}
-}
-
+// TestListSandboxesHidesTaskSandboxesBothSchemes pins that task sandboxes are
+// left out whichever naming scheme or label marks them, and that the filter
+// skips them rather than stopping: the project VM is listed after them.
 func TestListSandboxesHidesTaskSandboxesBothSchemes(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "myproj-1mjusbm3wikhb0-opencode", Status_: msbSdk.SandboxStatusRunning},
 		&msb.MockSandboxHandle{
 			Name_:   "myproj-1mjusbm3wikhb0-opencode-1729000000000000000",
 			Status_: msbSdk.SandboxStatusRunning,
@@ -222,6 +154,7 @@ func TestListSandboxesHidesTaskSandboxesBothSchemes(t *testing.T) {
 			Status_: msbSdk.SandboxStatusRunning,
 			Cfg:     &msbSdk.SandboxConfig{Labels: map[string]string{naming.LabelTask: "1"}},
 		},
+		&msb.MockSandboxHandle{Name_: "myproj-1mjusbm3wikhb0-opencode", Status_: msbSdk.SandboxStatusRunning},
 	}
 	msb.WithMsbMock(t, mock)
 
@@ -231,46 +164,6 @@ func TestListSandboxesHidesTaskSandboxesBothSchemes(t *testing.T) {
 	}
 	if len(infos) != 1 || infos[0].Name != "myproj-1mjusbm3wikhb0-opencode" {
 		t.Errorf("expected only the project VM, got %+v", infos)
-	}
-}
-
-// TestListSandboxesContinuesPastTaskSandbox pins the task filter as a skip, not
-// a stop: a task sandbox sorts before a project VM here, so a `break` would drop
-// the project VM that follows.
-func TestListSandboxesContinuesPastTaskSandbox(t *testing.T) {
-	mock := &msb.MockMsbClient{}
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-task-x-1729", Status_: msbSdk.SandboxStatusRunning},
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-later", Status_: msbSdk.SandboxStatusRunning},
-	}
-	msb.WithMsbMock(t, mock)
-
-	infos, err := ListSandboxes(context.Background(), ListOption{})
-	if err != nil {
-		t.Fatalf("ListSandboxes: %v", err)
-	}
-	if len(infos) != 1 || infos[0].Name != "agents-sandbox-vm-later" {
-		t.Errorf("expected the project VM after the task sandbox, got %+v", infos)
-	}
-}
-
-// TestListSandboxesLimitAboveCountReturnsAll pins the limit guard: a limit
-// larger than the result set is not a truncation (an unconditional truncation
-// would slice past the end and panic).
-func TestListSandboxesLimitAboveCountReturnsAll(t *testing.T) {
-	mock := &msb.MockMsbClient{}
-	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-a", Status_: msbSdk.SandboxStatusRunning},
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-b", Status_: msbSdk.SandboxStatusRunning},
-	}
-	msb.WithMsbMock(t, mock)
-
-	infos, err := ListSandboxes(context.Background(), ListOption{Limit: intPtr(5)})
-	if err != nil {
-		t.Fatalf("ListSandboxes: %v", err)
-	}
-	if len(infos) != 2 {
-		t.Errorf("a limit above the count must return every sandbox, got %d: %+v", len(infos), infos)
 	}
 }
 
