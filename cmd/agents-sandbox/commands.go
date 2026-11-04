@@ -52,12 +52,12 @@ func warnLegacyEnvVars(ui termio.Logger, r *launcherconfig.Resolver) {
 
 // effectiveConfigSlug returns the slug whose per-slug user config directory the
 // launcher should read. It is the repo slug — shared by every clone of a remote —
-// except for a bare root before its legacy config directory has been migrated:
-// its pre-split config lives under the path-derived legacy slug
-// (Identity.LegacyRepoSlugs), which adoption renames onto the repo slug on the
-// first post-upgrade run (#144). The resolver is built before adoption runs, so
-// without this the triggering run would load defaults instead of the user's saved
-// settings. The fallback is read-only, so a dry run stays side-effect-free.
+// except for a bare root whose legacy config directory has not been migrated:
+// its legacy config lives under the path-derived legacy slug
+// (Identity.LegacyRepoSlugs), which adoption renames onto the repo slug. The
+// resolver is built before adoption runs, so without this the triggering run
+// would load defaults instead of the user's saved settings. The fallback is
+// read-only, so a dry run stays side-effect-free.
 func effectiveConfigSlug(identity git.Identity) string {
 	if slugHasUserConfig(identity.RepoSlug) {
 		return identity.RepoSlug
@@ -164,7 +164,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 		// A dry-run preview is documented to make no network request and no
 		// runtime download/install, so it must not provision the runtime. It still
 		// points the SDK at the private home so its read-only inspection
-		// (volumes, sandboxes) reports the objects a real run would use (#424).
+		// (volumes, sandboxes) reports the objects a real run would use.
 		if runoptions.ResolveMode(cmd).Previews() {
 			return applyPreviewHome()
 		}
@@ -209,7 +209,7 @@ var applyPreviewHome = msbruntime.ApplyPreviewHome
 // `state repair`, the recovery path for a corrupt launcher state file. `doctor` is
 // included among those: it runs the runtime check itself, so an install failure
 // is reported with its troubleshooting link alongside the KVM and Docker results
-// instead of aborting the preflight with a raw error (#423).
+// instead of aborting the preflight with a raw error.
 func commandNeedsMSBRuntime(cmd *cobra.Command) bool {
 	if cmd == nil {
 		return false

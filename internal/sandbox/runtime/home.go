@@ -26,8 +26,8 @@ func LegacyHome() (string, error) {
 	return filepath.Join(home, ".microsandbox"), nil
 }
 
-// setenv is a seam over os.Setenv so tests can exercise the failure path. A
-// real Setenv of a valid constant key cannot fail.
+// setenv is indirect because a real Setenv of a valid constant key cannot fail,
+// so only a substitute reaches the failure path.
 var setenv = os.Setenv
 
 // ApplyHome points the microsandbox SDK at the private home for this process by
