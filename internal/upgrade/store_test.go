@@ -26,15 +26,11 @@ func TestMemoryStoreRoundTrips(t *testing.T) {
 	}
 }
 
-// writeLegacy writes the retired upgrade.json at the legacy path, creating the
-// user state directory first.
-func writeLegacy(t *testing.T, body string) {
-	t.Helper()
-	if err := os.MkdirAll(configpaths.Get().UserStateDir(), 0o700); err != nil {
-		t.Fatalf("create user state dir: %v", err)
-	}
-	if err := os.WriteFile(legacyStatePath(configpaths.Get()), []byte(body), 0o600); err != nil {
-		t.Fatalf("write legacy state: %v", err)
+func TestLegacyStatePathLivesInUserStateDir(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	want := filepath.Join(configpaths.Get().UserStateDir(), "upgrade.json")
+	if got := legacyStatePath(configpaths.Get()); got != want {
+		t.Fatalf("legacyStatePath(configpaths.Get()) = %q, want %q", got, want)
 	}
 }
 
@@ -96,6 +92,41 @@ func TestFoldLegacyStateKeepsFileOnWriteFailure(t *testing.T) {
 	}
 }
 
+func TestFoldLegacyStateDoesNotClobberAConcurrentDismissal(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	writeLegacy(t, `{"dismissed_versions":["1.5.2"]}`)
+	s := &interleavingStore{}
+	if err := FoldLegacyState(s, configpaths.Get()); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(s.state.DismissedVersions, "9.9.9") {
+		t.Fatalf("fold clobbered a concurrent dismissal: %+v", s.state.DismissedVersions)
+	}
+	if !slices.Contains(s.state.DismissedVersions, "1.5.2") {
+		t.Fatalf("fold dropped the legacy dismissal: %+v", s.state.DismissedVersions)
+	}
+}
+
+func TestFoldLegacyStateUnreadableFileIsRetried(t *testing.T) {
+	// A read error other than "does not exist" leaves the file in place so a
+	// later check retries the fold.
+	configpaths.WithMockConfigPaths(t)
+	if err := os.Mkdir(legacyStatePath(configpaths.Get()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := FoldLegacyState(&fakeStore{}, configpaths.Get()); err == nil {
+		t.Fatal("expected a read error to surface")
+	}
+}
+
+func TestFoldLegacyStateMissingFileLeavesStoreUntouched(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	_ = os.Remove(legacyStatePath(configpaths.Get()))
+	if err := FoldLegacyState(&storeNotTouchedStore{t: t}, configpaths.Get()); err != nil {
+		t.Fatalf("missing file must be a no-op, got %v", err)
+	}
+}
+
 // interleavingStore simulates a concurrent launcher writing between the fold's
 // read and its write: Load hands back the pre-race snapshot, Update applies the
 // mutation after the race. The fold must use Update, so the merge sees the
@@ -125,33 +156,6 @@ func (s *interleavingStore) Update(mutate func(*LauncherState)) error {
 	return nil
 }
 
-func TestFoldLegacyStateDoesNotClobberAConcurrentDismissal(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	writeLegacy(t, `{"dismissed_versions":["1.5.2"]}`)
-	s := &interleavingStore{}
-	if err := FoldLegacyState(s, configpaths.Get()); err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Contains(s.state.DismissedVersions, "9.9.9") {
-		t.Fatalf("fold clobbered a concurrent dismissal: %+v", s.state.DismissedVersions)
-	}
-	if !slices.Contains(s.state.DismissedVersions, "1.5.2") {
-		t.Fatalf("fold dropped the legacy dismissal: %+v", s.state.DismissedVersions)
-	}
-}
-
-func TestFoldLegacyStateUnreadableFileIsRetried(t *testing.T) {
-	// A read error other than "does not exist" leaves the file in place so a
-	// later check retries the fold.
-	configpaths.WithMockConfigPaths(t)
-	if err := os.Mkdir(legacyStatePath(configpaths.Get()), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := FoldLegacyState(&fakeStore{}, configpaths.Get()); err == nil {
-		t.Fatal("expected a read error to surface")
-	}
-}
-
 // storeNotTouchedStore fails the test if Load or Update is called.
 type storeNotTouchedStore struct{ t *testing.T }
 
@@ -163,20 +167,4 @@ func (s *storeNotTouchedStore) Load() (LauncherState, error) {
 func (s *storeNotTouchedStore) Update(func(*LauncherState)) error {
 	s.t.Fatal("Update must not be called")
 	return nil
-}
-
-func TestFoldLegacyStateMissingFileLeavesStoreUntouched(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	_ = os.Remove(legacyStatePath(configpaths.Get()))
-	if err := FoldLegacyState(&storeNotTouchedStore{t: t}, configpaths.Get()); err != nil {
-		t.Fatalf("missing file must be a no-op, got %v", err)
-	}
-}
-
-func TestLegacyStatePathLivesInUserStateDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	want := filepath.Join(configpaths.Get().UserStateDir(), "upgrade.json")
-	if got := legacyStatePath(configpaths.Get()); got != want {
-		t.Fatalf("legacyStatePath(configpaths.Get()) = %q, want %q", got, want)
-	}
 }
