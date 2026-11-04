@@ -119,9 +119,9 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	}
 }
 
-// TestPrepareSandboxUpgradeRebuildsImage covers the upgrade branch of
-// PrepareSandbox: when the user accepts an opencode upgrade, the image is
-// force-rebuilt and the run reports the newer version being baked in.
+// TestPrepareSandboxUpgradeRebuildsImage pins that an accepted agent upgrade
+// force-rebuilds the image and that the run reports the newer version being
+// baked in.
 func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -1083,13 +1083,11 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 	}
 }
 
-// TestPrepareSandboxRunsDefaultAgentDaemon covers the default agent's daemon
-// path end to end through PrepareSandbox: a run with the default agent must
-// resolve to a daemon profile and drive that profile's own start and health
-// commands. The identity, migration, lifecycle, and preview tests pin the v1
-// agent explicitly (their subject is the project, not the agent), so this is
-// the test that keeps whichever agent is the default wired through
-// orchestration.
+// TestPrepareSandboxRunsDefaultAgentDaemon pins that a run with the default
+// agent resolves to a daemon profile and drives that profile's own start and
+// health commands. The other flow tests pin the v1 agent explicitly (their
+// subject is the project, not the agent), so this test keeps whichever agent is
+// the default wired through orchestration.
 func TestPrepareSandboxRunsDefaultAgentDaemon(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -1356,9 +1354,10 @@ func TestPrepareSandboxSkipVMKeepsLegacySlugWhileMigrationPending(t *testing.T) 
 	}
 }
 
-// TestPrepareSandboxMigratesOnFirstRun covers the real migration: with legacy
-// state and a legacy VM present, the first run destroys the legacy VM, moves the
-// state onto the checkout slug, and recreates the VM under the checkout name.
+// TestPrepareSandboxMigratesOnFirstRun pins the legacy-identity migration: with
+// legacy state and a legacy VM present, the first run destroys the legacy VM,
+// moves the state onto the checkout slug, and recreates the VM under the
+// checkout name.
 func TestPrepareSandboxMigratesOnFirstRun(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	clone := newOriginClone(t)
@@ -1737,11 +1736,11 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 	}
 }
 
-// TestPrepareSandboxDryRunVM covers the dry-run-vm branch of PrepareSandbox:
-// the VM lifecycle is skipped and the attach target falls back to the default
-// workspace directory. It launches from a checkout root so the target is
-// exactly /workspace regardless of where the test binary happens to run.
-func TestPrepareSandboxDryRunVM(t *testing.T) {
+// TestPrepareSandboxDryRunVMSkipsTheVM pins that --dry-run-vm skips the VM
+// lifecycle and attaches at the default workspace directory. It launches from a
+// checkout root so the target is exactly /workspace regardless of where the
+// test binary runs.
+func TestPrepareSandboxDryRunVMSkipsTheVM(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Chdir(testutil.InitRepo(t))
 
@@ -1868,10 +1867,9 @@ func TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome(t *testing.T) {
 	}
 }
 
-// TestPrepareSandboxDryRunVMServeOnlyPublishesPort covers the serve-only
-// ServeHostPort assignment in PrepareSandbox: with no existing published port
-// the run probes a free host port and records it on the Session, even on the
-// dry-run-vm path that skips the VM.
+// TestPrepareSandboxDryRunVMServeOnlyPublishesPort pins that a serve-only run
+// without a published port probes a free host port and records it on the
+// Session, even when --dry-run-vm skips the VM.
 func TestPrepareSandboxDryRunVMServeOnlyPublishesPort(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	stubPrepareSandboxImage(t)
@@ -1913,9 +1911,9 @@ func TestPrepareSandboxDryRunVMServeOnlyPublishesPort(t *testing.T) {
 	}
 }
 
-// TestPrepareSandboxDryRunVMLaunchSubdirectory covers the guest-CWD derivation:
-// when launched from a repository subdirectory the bound /workspace is the
-// checkout root and the agent starts in the launched subdirectory.
+// TestPrepareSandboxDryRunVMLaunchSubdirectory pins the guest working
+// directory: launched from a repository subdirectory, the bound /workspace is
+// the checkout root and the agent starts in the launched subdirectory.
 func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 

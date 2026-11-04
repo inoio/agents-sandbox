@@ -124,11 +124,11 @@ func TestReadLiveProjectVMConnectFailureKeepsHandle(t *testing.T) {
 	assertVerbose(t, &ui, "connecting to existing VM failed: not running")
 }
 
-// TestResolveReconfigDecisionConfigError covers the branch where reading the existing
-// VM config fails: the failure is surfaced as a warning and the decision is
-// forced to recreate, so the run cannot silently reuse a VM whose image, env,
-// or network may differ from the desired config (#339).
-func TestResolveReconfigDecisionConfigError(t *testing.T) {
+// TestResolveReconfigDecisionRecreatesWhenVMConfigIsUnreadable pins that an
+// unreadable existing VM config is warned about and forces a recreate, so the
+// run cannot silently reuse a VM whose image, env, or network may differ from
+// the desired config.
+func TestResolveReconfigDecisionRecreatesWhenVMConfigIsUnreadable(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	handle := &msb.MockSandboxHandle{
@@ -176,10 +176,10 @@ func TestResolveReconfigDecisionConfigError(t *testing.T) {
 	}
 }
 
-// TestResolveReconfigDecisionConfigErrorPromptsAttachedClients covers the attached-client
-// branch of the forced recreate: with another client attached, the unreadable
-// config is offered through the rebuild prompt, and choosing "keep" defers it.
-func TestResolveReconfigDecisionConfigErrorPromptsAttachedClients(t *testing.T) {
+// TestResolveReconfigDecisionOffersUnreadableVMConfigToAttachedClients pins
+// that with another client attached the forced recreate goes through the
+// rebuild prompt, and choosing "keep" defers it.
+func TestResolveReconfigDecisionOffersUnreadableVMConfigToAttachedClients(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
@@ -240,10 +240,10 @@ func TestResolveReconfigDecisionConfigErrorPromptsAttachedClients(t *testing.T) 
 	}
 }
 
-// TestResolveReconfigDecisionFindProjectVMError covers the fail-closed branch where the
-// VM lookup itself fails: resolveReconfigDecision returns the error instead of treating
-// the failure as "no VM" and silently skipping reconfiguration (#339).
-func TestResolveReconfigDecisionFindProjectVMError(t *testing.T) {
+// TestResolveReconfigDecisionFailsWhenVMLookupFails pins that a failing VM
+// lookup is returned instead of being treated as "no VM", which would silently
+// skip reconfiguration.
+func TestResolveReconfigDecisionFailsWhenVMLookupFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	mock := &msb.MockMsbClient{}
@@ -319,9 +319,9 @@ func TestResolveReconfigDecisionNoVMSkipsRecreate(t *testing.T) {
 	}
 }
 
-// TestResolveReconfigDecisionQuitAtRecreatePrompt covers the branch where ResolveReconfig
-// reports an error: with another client attached, an image change prompts the
-// user, and choosing "quit" aborts the reconfig with an error.
+// TestResolveReconfigDecisionQuitAtRecreatePrompt pins that with another client
+// attached an image change prompts the user, and choosing "quit" aborts with an
+// error.
 func TestResolveReconfigDecisionQuitAtRecreatePrompt(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	tmpRepo := testutil.InitRepo(t)
@@ -368,10 +368,9 @@ func TestResolveReconfigDecisionQuitAtRecreatePrompt(t *testing.T) {
 	}
 }
 
-// TestResolveReconfigDecisionDetachErrorVerbose covers the failed-detach verbose branch
-// in resolveReconfigDecision: a connected sandbox whose Detach fails is logged (not
-// fatal).
-func TestResolveReconfigDecisionDetachErrorVerbose(t *testing.T) {
+// TestResolveReconfigDecisionLogsDetachFailure pins that a failing detach from
+// the live VM is verbose-logged and does not fail the decision.
+func TestResolveReconfigDecisionLogsDetachFailure(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	sh := &msb.MockSandboxHandle{
 		Cfg: &msbSdk.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
@@ -1200,8 +1199,8 @@ func TestResolveReconfigDecision_OpenCodeConfigChanged_StoppedVM(t *testing.T) {
 	}
 }
 
-// TestApplyReconfigHomeActionError covers the branch where applying the
-// chosen home-volume action fails and the reconfig aborts with that error.
+// TestApplyReconfigHomeActionError pins that a failing home-volume action
+// aborts the reconfig with that error.
 func TestApplyReconfigHomeActionError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -1266,10 +1265,9 @@ func TestApplyReconfigHomeActionError(t *testing.T) {
 	}
 }
 
-// TestApplyReconfigHomeActionReturnsNewVolume covers the success path of
-// applyReconfigHomeAction: a resolved migrate action creates a fresh home
-// volume, and the new volume — not the old one — is returned so the run mounts
-// what the action actually produced.
+// TestApplyReconfigHomeActionReturnsNewVolume pins that a migrate action
+// returns the freshly created home volume, not the old one, so the run mounts
+// what the action produced.
 func TestApplyReconfigHomeActionReturnsNewVolume(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
@@ -1303,10 +1301,9 @@ func TestApplyReconfigHomeActionReturnsNewVolume(t *testing.T) {
 	}
 }
 
-// TestApplyReconfigHomeActionQuit covers the user-quit branch of the reconfig
-// decision: when the home-volume prompt is answered with "quit", the action
-// that resolveReconfigDecision resolves makes applyReconfigHomeAction abort the
-// session with a vm.ExitError.
+// TestApplyReconfigHomeActionQuit pins that answering the home-volume prompt
+// with "quit" makes applyReconfigHomeAction abort the session with a
+// vm.ExitError.
 func TestApplyReconfigHomeActionQuit(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -1433,9 +1430,9 @@ func TestResolveReconfigDecisionRecreatesOnWorkspaceQuotaChange(t *testing.T) {
 	assertRebuildReason(t, f.ui, "/workspace write quota")
 }
 
-// TestResolveReconfigDecisionRecreatesOnHomeVolumeChangeFromLiveMounts covers the third
-// detector the read-back restores: a live VM still mounting the previous home
-// volume must recreate when home resolution points at a different one.
+// TestResolveReconfigDecisionRecreatesOnHomeVolumeChangeFromLiveMounts pins
+// that a live VM still mounting the previous home volume is recreated when home
+// resolution points at a different one.
 func TestResolveReconfigDecisionRecreatesOnHomeVolumeChangeFromLiveMounts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 

@@ -151,9 +151,8 @@ func TestResolveBuildVersionAppliesTheUpgradePromptAnswer(t *testing.T) {
 	}
 }
 
-// TestResolveBuildVersionWithoutUpgradeChecker covers the fallback branch of
-// resolveBuildVersion: an agent with no upgrade checker reuses the recorded
-// version without prompting.
+// TestResolveBuildVersionWithoutUpgradeChecker pins that an agent without an
+// upgrade checker reuses the recorded version without prompting.
 func TestResolveBuildVersionWithoutUpgradeChecker(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "fake"}
@@ -275,7 +274,7 @@ func TestResolveBuildVersionUserAgentEmptyVersionLeavesResolutionToImageBuild(t 
 	}
 }
 
-func TestResolveOpenCodeVersionPinnedSkipsUpdateCheck(t *testing.T) {
+func TestResolveBuildVersionPinnedSkipsUpdateCheck(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	latestCalled := false
@@ -304,7 +303,7 @@ func TestResolveOpenCodeVersionPinnedSkipsUpdateCheck(t *testing.T) {
 	}
 }
 
-func TestResolveOpenCodeVersionRebuildStillChecksUpdate(t *testing.T) {
+func TestResolveBuildVersionRebuildStillChecksUpdate(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	latestCalled := false
@@ -334,7 +333,7 @@ func TestResolveOpenCodeVersionRebuildStillChecksUpdate(t *testing.T) {
 	}
 }
 
-func TestResolveOpenCodeVersionUserProvidedWinsOverPin(t *testing.T) {
+func TestResolveBuildVersionUserProvidedWinsOverPin(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	latestCalled := false
@@ -364,7 +363,7 @@ func TestResolveOpenCodeVersionUserProvidedWinsOverPin(t *testing.T) {
 	}
 }
 
-func TestResolveOpenCodeVersionNoBaseline(t *testing.T) {
+func TestResolveBuildVersionNoBaseline(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	latestCalled := false
@@ -393,7 +392,7 @@ func TestResolveOpenCodeVersionNoBaseline(t *testing.T) {
 	}
 }
 
-func TestResolveOpenCodeVersionRecoversBaselineFromExistingImage(t *testing.T) {
+func TestResolveBuildVersionRecoversBaselineFromExistingImage(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
@@ -491,7 +490,7 @@ func TestDeferredOfferedPersistedAfterStateRecreated(t *testing.T) {
 	}
 }
 
-func TestResolveOpenCodeVersionRecoveryDoesNotCreatePartialState(t *testing.T) {
+func TestResolveBuildVersionRecoveryDoesNotCreatePartialState(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
@@ -525,7 +524,7 @@ func TestResolveOpenCodeVersionRecoveryDoesNotCreatePartialState(t *testing.T) {
 	}
 }
 
-func TestResolveOpenCodeVersionRecoveredBaselineReusedOffline(t *testing.T) {
+func TestResolveBuildVersionRecoveredBaselineReusedOffline(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
@@ -646,7 +645,7 @@ func TestResolveBuildVersionKeepsBaselineWhenImageAbsent(t *testing.T) {
 	}
 }
 
-func TestResolveOpenCodeVersionRecoveryPersistFailureStillUsesVersion(t *testing.T) {
+func TestResolveBuildVersionRecoveryPersistFailureStillUsesVersion(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
@@ -680,7 +679,7 @@ func TestResolveOpenCodeVersionRecoveryPersistFailureStillUsesVersion(t *testing
 	}
 }
 
-func TestResolveOpenCodeVersionNoNewerVersion(t *testing.T) {
+func TestResolveBuildVersionNoNewerVersion(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
@@ -703,7 +702,7 @@ func TestResolveOpenCodeVersionNoNewerVersion(t *testing.T) {
 	}
 }
 
-func TestResolveOpenCodeVersionNonInteractiveLogsUpgradeAvailable(t *testing.T) {
+func TestResolveBuildVersionNonInteractiveLogsUpgradeAvailable(t *testing.T) {
 	origLatest := agentLatestVersion
 	defer func() { agentLatestVersion = origLatest }()
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
@@ -730,7 +729,7 @@ func TestResolveOpenCodeVersionNonInteractiveLogsUpgradeAvailable(t *testing.T) 
 	}
 }
 
-func TestResolveOpenCodeVersionSkipsCheckWhenCheckedToday(t *testing.T) {
+func TestResolveBuildVersionSkipsCheckWhenCheckedToday(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
@@ -766,7 +765,7 @@ func TestResolveOpenCodeVersionSkipsCheckWhenCheckedToday(t *testing.T) {
 	}
 }
 
-func TestResolveOpenCodeVersionDoesNotReOfferVersion(t *testing.T) {
+func TestResolveBuildVersionDoesNotReOfferVersion(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
@@ -803,7 +802,7 @@ func TestResolveOpenCodeVersionDoesNotReOfferVersion(t *testing.T) {
 	}
 }
 
-func TestResolveOpenCodeVersionRecordsOfferedBeforePrompt(t *testing.T) {
+func TestResolveBuildVersionRecordsOfferedBeforePrompt(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
@@ -845,7 +844,7 @@ func TestResolveOpenCodeVersionRecordsOfferedBeforePrompt(t *testing.T) {
 	}
 }
 
-func TestResolveOpenCodeVersionUnparsableLatestKeepsCurrent(t *testing.T) {
+func TestResolveBuildVersionUnparsableLatestKeepsCurrent(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
@@ -870,7 +869,7 @@ func TestResolveOpenCodeVersionUnparsableLatestKeepsCurrent(t *testing.T) {
 	}
 }
 
-func TestResolveOpenCodeVersionOfflineDoesNotUpdateLastChecked(t *testing.T) {
+func TestResolveBuildVersionOfflineDoesNotUpdateLastChecked(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
@@ -1046,8 +1045,8 @@ func TestPromptUpgradeNamesBothVersions(t *testing.T) {
 	}
 }
 
-// TestPendingUpgradeWithoutUpgradeChecker covers the no-checker branch of
-// pendingUpgrade: it never offers an upgrade for an agent lacking a checker.
+// TestPendingUpgradeWithoutUpgradeChecker pins that an agent without an upgrade
+// checker is never offered an upgrade.
 func TestPendingUpgradeWithoutUpgradeChecker(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "fake"}
@@ -1258,10 +1257,9 @@ func TestPendingUpgradeRootStateReadErrorDoesNotClobber(t *testing.T) {
 	}
 }
 
-// TestPendingUpgradeWarnsOnRootStateWriteError covers the root-state write
-// failure: the state directory is read-only, so ReadRootState succeeds but
-// WriteRootState cannot create its temp file. The step warns and the offer
-// still proceeds from the freshly fetched latest version.
+// TestPendingUpgradeWarnsOnRootStateWriteError pins that a failing root-state
+// write (a read-only state directory) is a warning, and the offer still
+// proceeds from the freshly fetched latest version.
 func TestPendingUpgradeWarnsOnRootStateWriteError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: a read-only directory does not block writes")
@@ -1300,8 +1298,8 @@ func TestPendingUpgradeWarnsOnRootStateWriteError(t *testing.T) {
 	}
 }
 
-// TestPendingUpgradeNoOfferWhenLatestEmpty covers the empty-cached-latest arm:
-// a successful check that yields no version never offers.
+// TestPendingUpgradeNoOfferWhenLatestEmpty pins that a successful check that
+// yields no version never offers.
 func TestPendingUpgradeNoOfferWhenLatestEmpty(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
@@ -1324,9 +1322,8 @@ func TestPendingUpgradeNoOfferWhenLatestEmpty(t *testing.T) {
 	}
 }
 
-// TestPendingUpgradeWarnsOnProjectStateReadError covers the non-not-found
-// HomeState read error: a directory at the project state file path makes
-// ReadState fail, so the step warns and offers nothing.
+// TestPendingUpgradeWarnsOnProjectStateReadError pins that an unreadable
+// project state (a directory at its path) is a warning and offers nothing.
 func TestPendingUpgradeWarnsOnProjectStateReadError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
@@ -1352,11 +1349,10 @@ func TestPendingUpgradeWarnsOnProjectStateReadError(t *testing.T) {
 	}
 }
 
-// TestPendingUpgradeOffersWhenProjectStateMissing covers the ErrStateNotFound
-// arm: with no project state file the offered set is empty, so the version is
-// offered, but it is not persisted: creating a state here (before home
-// resolution) would leave a fingerprint-less partial state that poisons home
-// recovery (#183).
+// TestPendingUpgradeOffersWhenProjectStateMissing pins that a project without
+// state is offered the version but nothing is persisted: creating a state
+// before home resolution would leave a fingerprint-less partial state that
+// poisons home recovery.
 func TestPendingUpgradeOffersWhenProjectStateMissing(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
@@ -1382,9 +1378,9 @@ func TestPendingUpgradeOffersWhenProjectStateMissing(t *testing.T) {
 	}
 }
 
-// TestPendingUpgradeWarnsOnProjectStateWriteError covers the HomeState write
-// failure: the key directory is read-only, so ReadState succeeds but WriteState
-// cannot create its temp file. The step still returns the offer.
+// TestPendingUpgradeWarnsOnProjectStateWriteError pins that a failing
+// project-state write (a read-only key directory) is a warning and the offer is
+// still returned.
 func TestPendingUpgradeWarnsOnProjectStateWriteError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: a read-only directory does not block writes")
@@ -1710,9 +1706,9 @@ func TestCheckAgentUpgradeSkipsWriteWhenWindowRefreshedConcurrently(t *testing.T
 	}
 }
 
-// TestCheckAgentUpgradeSecondReadErrorDefers covers the root state becoming
-// unreadable between the cached read and the post-fetch write: the step warns and
-// defers rather than persisting over an unknown document.
+// TestCheckAgentUpgradeSecondReadErrorDefers pins that a root state that
+// becomes unreadable between the cached read and the post-fetch write is warned
+// about and deferred, rather than overwritten.
 func TestCheckAgentUpgradeSecondReadErrorDefers(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	if err := seedRootState(state.RootState{Updates: state.Updates{Agents: map[string]state.AgentCheckState{

@@ -74,8 +74,8 @@ func TestWithSharedGitDirMountKeepsConfiguredMountAtSameTarget(t *testing.T) {
 	require.Empty(t, ui.WarnCalls)
 }
 
-// TestWithSharedGitDirMountWithoutConfiguredMounts covers a run with no mounts
-// configured: the nil map must still receive the shared git dir mount.
+// TestWithSharedGitDirMountWithoutConfiguredMounts pins that a run without
+// configured mounts still gets the shared git dir mount.
 func TestWithSharedGitDirMountWithoutConfiguredMounts(t *testing.T) {
 	ui := termio.NewTestMock(t)
 

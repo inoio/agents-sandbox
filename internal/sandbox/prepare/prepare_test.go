@@ -372,9 +372,8 @@ func TestResolveWorkspaceDirResolvesSymlinkInCwd(t *testing.T) {
 	}
 }
 
-// TestResolveWorkspaceDirGetwdError covers the branch where the current
-// working directory no longer exists (e.g. it was deleted while running), so
-// os.Getwd itself fails.
+// TestResolveWorkspaceDirGetwdError pins that a working directory deleted while
+// running is reported as an error.
 func TestResolveWorkspaceDirGetwdError(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -516,10 +515,10 @@ func TestPrepareHomeVolumeOfferErrorPropagates(t *testing.T) {
 	}
 }
 
-// TestPrepareHomeVolumeRecoversLostStateFromLiveVM covers issue #219 end to end
-// through the volume-setup entry point: with no state file but a project VM
-// that still mounts a home volume, the existing volume is reused (no duplicate
-// created) and state is rewritten to point at it.
+// TestPrepareHomeVolumeRecoversLostStateFromLiveVM pins home-volume recovery
+// after state loss: with no state file but a project VM that still mounts a
+// home volume, the existing volume is reused (no duplicate created) and state
+// is rewritten to point at it.
 func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -585,10 +584,9 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 	}
 }
 
-// TestPrepareHomeVolumeRecoversPersistedAdoptionVolume covers the lost-state
-// migration path (#144): adoption recorded the destroyed legacy VM's home volume
-// in the checkout state and the run never received it in memory, so home
-// resolution must recover it from the state rather than mint a fresh one.
+// TestPrepareHomeVolumeRecoversPersistedAdoptionVolume pins that a home volume
+// adoption recorded in the checkout state, but never handed to this run in
+// memory, is recovered from the state instead of a fresh one being created.
 func TestPrepareHomeVolumeRecoversPersistedAdoptionVolume(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -749,8 +747,8 @@ func TestLiveHomeVolumeNoVM(t *testing.T) {
 	}
 }
 
-// TestLiveHomeVolumeMountsError covers a mounts read failure on an otherwise
-// readable VM: the recovery falls back to an empty result instead of failing.
+// TestLiveHomeVolumeMountsError pins that a mounts read failure on an otherwise
+// readable VM yields no volume instead of failing the run.
 func TestLiveHomeVolumeMountsError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -773,8 +771,8 @@ func TestLiveHomeVolumeMountsError(t *testing.T) {
 	}
 }
 
-// TestLiveHomeVolumeLookupErrorLogs covers a transient (non-not-found) VM lookup
-// failure: it is verbose-logged rather than silently falling back to a fresh
+// TestLiveHomeVolumeLookupErrorLogs pins that a transient (non-not-found) VM
+// lookup failure is verbose-logged instead of silently falling back to a fresh
 // volume, which could orphan the surviving one.
 func TestLiveHomeVolumeLookupErrorLogs(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -795,7 +793,8 @@ func TestLiveHomeVolumeLookupErrorLogs(t *testing.T) {
 	}
 }
 
-// TestLiveHomeVolumeNilHandle covers the defensive nil-handle branch.
+// TestLiveHomeVolumeNilHandle pins that a lookup returning no handle and no
+// error yields no volume.
 func TestLiveHomeVolumeNilHandle(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -812,10 +811,9 @@ func TestLiveHomeVolumeNilHandle(t *testing.T) {
 	}
 }
 
-// TestPersistConfigHashesCoversEnvSecretAndNetwork covers the previously
-// entirely-uncovered persistConfigHashes function: it persists the desired
-// env/secret/network fingerprints after a fresh VM creation.
-func TestPersistConfigHashesCoversEnvSecretAndNetwork(t *testing.T) {
+// TestPersistConfigHashesRecordsFingerprints pins that the desired fingerprints
+// are persisted after a fresh VM creation.
+func TestPersistConfigHashesRecordsFingerprints(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 
@@ -847,9 +845,8 @@ func TestPersistConfigHashesCoversEnvSecretAndNetwork(t *testing.T) {
 	}
 }
 
-// TestPersistConfigHashesWarnsOnError covers the warning branches of
-// persistConfigHashes when the env/secret/network fingerprints cannot be
-// persisted (a corrupt state file makes the write fail).
+// TestPersistConfigHashesWarnsOnError pins that a failure to persist the
+// fingerprints (a corrupt state file) is a warning, not a run failure.
 func TestPersistConfigHashesWarnsOnError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)

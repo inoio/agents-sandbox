@@ -410,9 +410,8 @@ func TestPreviewSandboxUserProvidedAgentNeverRecoversVersion(t *testing.T) {
 	}
 }
 
-// TestPreviewSandboxSurfacesAdoptionError covers the pending-legacy-identity
-// error arm: a corrupt legacy state document must surface from the read-only
-// adoption check rather than be silently ignored.
+// TestPreviewSandboxSurfacesAdoptionError pins that a corrupt legacy state
+// document surfaces from the read-only adoption check instead of being ignored.
 func TestPreviewSandboxSurfacesAdoptionError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacySlug := git.MustRepoSlug()
@@ -435,10 +434,9 @@ func TestPreviewSandboxSurfacesAdoptionError(t *testing.T) {
 	}
 }
 
-// TestPreviewSandboxSurfacesHomeVolumeLookupError covers the home-volume
-// lookup-error arm: a recorded volume whose lookup fails transiently (not true
-// absence) must surface from PreviewHomeVolume rather than be reported as
-// "would create", matching the real run's fail-closed check.
+// TestPreviewSandboxSurfacesHomeVolumeLookupError pins that a recorded volume
+// whose lookup fails transiently (not true absence) is reported as an error,
+// not as "would create", matching the real run's fail-closed check.
 func TestPreviewSandboxSurfacesHomeVolumeLookupError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	docker.WithNoopDockerMock(t)
