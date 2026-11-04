@@ -1723,7 +1723,9 @@ func TestPrepareSandboxSkipVMRecordsStagesInOrder(t *testing.T) {
 
 // TestPrepareSandboxStopsAtTheFailingStage pins how the pipeline fails: the
 // first failing stage is the last one recorded in the trace, no later stage
-// runs, and the stage's cause reaches the caller.
+// runs, and the stage's cause reaches the caller. Every case stubs the daemon
+// health probe, so a regression that lets the run continue fails fast at the
+// stage assertion instead of waiting out the production probe timeout.
 func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 	type arrangement struct {
 		opts   options.RunOptions
@@ -1768,7 +1770,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 			arrange: func(t *testing.T, _ error) arrangement {
 				t.Chdir(newOriginClone(t))
 				return arrangement{
-					opts:   resolvedRunOptions(t, options.RunOptions{Agent: "no-such-agent"}),
+					opts:   sandboxRunOptions(t, options.RunOptions{Agent: "no-such-agent"}),
 					skipVM: true,
 					ui:     nonInteractiveUI(t),
 				}
@@ -1785,7 +1787,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 					t.Skipf("cannot remove cwd: %v", err)
 				}
 				return arrangement{
-					opts: resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					opts: sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
 					ui:   nonInteractiveUI(t),
 				}
 			},
@@ -1804,7 +1806,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 				}
 				withMockAgentLatestVersion(t, "2.0.0")
 				return arrangement{
-					opts: resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					opts: sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
 					ui:   interactiveUI(t, func(string) (string, error) { return "", cause }),
 				}
 			},
@@ -1821,7 +1823,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 					func(context.Context, agent.Agent, string) (string, error) { return "", cause },
 				)
 				return arrangement{
-					opts: resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					opts: sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
 					ui:   nonInteractiveUI(t),
 				}
 			},
@@ -1867,7 +1869,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 				})
 				seedReusableHome(t, projectKey(), "sha256:abc123")
 				return arrangement{
-					opts: resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					opts: sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
 					ui:   nonInteractiveUI(t),
 				}
 			},
@@ -1894,7 +1896,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 				}
 				t.Cleanup(release)
 				return arrangement{
-					opts: resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					opts: sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
 					ui:   interactiveUI(t, func(string) (string, error) { return "q", nil }),
 				}
 			},
@@ -1920,7 +1922,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 				// switch images and ask how to handle the home volume.
 				seedReusableHome(t, k, "sha256:old")
 				return arrangement{
-					opts: resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
+					opts: sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
 					ui: interactiveUI(t, func(prompt string) (string, error) {
 						if strings.Contains(prompt, "Docker image changed") {
 							return "m", nil
