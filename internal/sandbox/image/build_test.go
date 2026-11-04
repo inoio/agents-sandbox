@@ -2193,6 +2193,7 @@ func TestEnsureImageVerboseReportsForcedRebuild(t *testing.T) {
 // user-provided version that needs a rebuild, the build itself, and inspecting
 // the built image.
 func TestEnsureImageFailsWhenAStepFails(t *testing.T) {
+	readEnvErr := errors.New("read env boom")
 	failingResolver := func(t *testing.T) {
 		t.Helper()
 		withMockAgentVersionResolver(t, func(_ context.Context, _ agent.Agent, requested string) (string, error) {
@@ -2223,10 +2224,11 @@ func TestEnsureImageFailsWhenAStepFails(t *testing.T) {
 		}
 	}
 	for _, tc := range []struct {
-		name    string
-		setup   func(*testing.T)
-		opts    BuildOptions
-		wantErr string
+		name      string
+		setup     func(*testing.T)
+		opts      BuildOptions
+		wantErr   string
+		wantCause error
 	}{
 		{
 			name:    "version resolution fails",
@@ -2283,10 +2285,11 @@ func TestEnsureImageFailsWhenAStepFails(t *testing.T) {
 				if inspectAfterBuild == 1 {
 					return client.ImageInspectResult{ID: "sha256:built", Config: dockerConfigWith("", nil)}, nil
 				}
-				return client.ImageInspectResult{}, errors.New("read env boom")
+				return client.ImageInspectResult{}, readEnvErr
 			}),
-			opts:    BuildOptions{Force: true},
-			wantErr: "read env boom",
+			opts:      BuildOptions{Force: true},
+			wantErr:   "inspect built image",
+			wantCause: readEnvErr,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2297,6 +2300,9 @@ func TestEnsureImageFailsWhenAStepFails(t *testing.T) {
 			)
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Errorf("EnsureImageWithClient error = %v, want it to contain %q", err, tc.wantErr)
+			}
+			if tc.wantCause != nil && !errors.Is(err, tc.wantCause) {
+				t.Errorf("EnsureImageWithClient error = %v, want it to wrap %v", err, tc.wantCause)
 			}
 		})
 	}
