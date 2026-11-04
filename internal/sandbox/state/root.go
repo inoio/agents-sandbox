@@ -213,6 +213,8 @@ func rootStateFile() string {
 	return filepath.Join(stateRoot(), "state.yaml")
 }
 
+// marshalRootState is indirect because the concrete RootState shape cannot make
+// yaml.Marshal fail, so only a substitute reaches the marshal failure path.
 var marshalRootState = yaml.Marshal
 
 // ReadRootState loads the launcher-global state. A missing file yields a zero

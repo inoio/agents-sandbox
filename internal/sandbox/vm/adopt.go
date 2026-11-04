@@ -57,16 +57,22 @@ var renameConfigDir = os.Rename
 // to its checkout-scoped one when a legacy identity is pending for the agent.
 //
 // It destroys every legacy VM the move touches, then merges each legacy state
-// directory onto the checkout slug; the destroyed-then-moved order is
-// crash-safe, and the merge makes adoption idempotent (the legacy state file is
-// gone afterwards, so it cannot re-fire).
+// directory onto the checkout slug. That order is crash-safe: a crash in between
+// leaves the legacy state in place, so the next run re-adopts and merely
+// recreates the VM, whereas moving first could leave an untracked VM running
+// against the shared home volume. The merge makes adoption idempotent: the
+// legacy state file is gone afterwards, so it cannot re-fire.
 //
 // Every slug the caller resolved is adopted, in order, including a bare root's
-// extra path-derived slug, and the move carries every agent's state, so every
-// moved agent's legacy VM is destroyed. A surviving legacy VM is a pending
-// identity even when its state file was lost: its mounted home volume is
-// written durably into the checkout state before the destroy — the volume's
-// only other reference — and home resolution later recovers it.
+// extra path-derived slug. The move carries every agent's state, so every moved
+// agent's legacy VM is destroyed, not only the requested one; a still-running
+// sibling would otherwise recreate itself over the same home volume.
+//
+// A surviving legacy VM is a pending identity even when its state file was
+// lost; ignoring it would mint a fresh home volume and orphan the user's files.
+// Its mounted home volume is written durably into the checkout state before the
+// destroy, which removes the volume's only other reference, and home resolution
+// later recovers it.
 //
 // With apply=false (a dry run) it prints the notice and leaves everything in
 // place, returning the legacy slug so the rest of the pipeline keeps resolving

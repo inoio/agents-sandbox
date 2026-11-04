@@ -11,6 +11,8 @@ import (
 	"syscall"
 )
 
+// flock is indirect because a real, open lock file cannot make it fail, so only
+// a substitute reaches the failure path.
 var flock = syscall.Flock
 
 // AcquireExclusive creates dir (0700) if needed, opens dir/name (0600) and

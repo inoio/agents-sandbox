@@ -108,8 +108,8 @@ func ResolveIdentity(cwd string) (Identity, error) {
 		identity.RecordedSharedGitDir = recordedSharedGitDir(worktreeRoot)
 	}
 	// The bare root is not a linked worktree, so bindRoot is the worktree root
-	// itself: its legacy slug is path-derived. A bare root named "<name>.git"
-	// gets the same slug a non-repo folder of that name would. Its checkout slug
+	// itself. Its legacy slug is the path-derived one a non-repo folder of the
+	// same name gets ("<name>.git" included). Its checkout slug
 	// can equal it, which needs no state move, but the per-slug config is read
 	// through the repo slug and these legacy slugs, so it is still listed unless
 	// it is the repo slug.
