@@ -1,5 +1,5 @@
 ---
-description: Contract for the project config trust guard (#229): the project config layer is untrusted, the host-affecting settings it contributes require approval-on-change recorded per checkout, an unapproved change refuses to start non-interactively, and the prompt shows the resolved old → new values and their source.
+description: Contract for the project config trust guard (#229): the project config layer is untrusted in its entirety, whatever the launcher consumes from it requires approval-on-change recorded per checkout, an unapproved change refuses to start non-interactively, and the prompt shows the resolved old → new values and their source.
 read_if: Working on project config trust (#229), the approve-on-change gate, project-layer provenance, or `config harden`; or diagnosing a run that refuses to start because `.agents-sandbox` changed.
 ---
 
@@ -10,15 +10,21 @@ read_if: Working on project config trust (#229), the approve-on-change gate, pro
 The project-config directory — `<checkout>/.agents-sandbox`, or `<bare-root>/.agents-sandbox` in a bare
 layout (`configpaths.ProjectConfigDir`) — is merged **above** the user config (`viperconfig.ConfigLayers`:
 generic user dir, per-slug user dir, project dir, env, flags) and treated as fully trusted, while the
-sandbox can write into that same tree through the writable `/workspace` bind. An agent that edits
-`config.yaml`, or plants one in a repo, has the next host run apply it.
+sandbox can write into that same tree through the writable `/workspace` bind. An agent that edits a file
+there, or plants one in a repo, has the next host run act on it.
 
-Two settings do the damage: `mounts` exposes any host directory inside the VM (`mounts.ResolveBindMounts`
-only checks that the source exists and is a directory), and `home` copies any host file into the VM
-(`homeconfig` resolves the source as an absolute path or `~/…`). Both reach host paths the user never
-granted — the whole filesystem, the host Docker socket, `~/.ssh`, the user's own secret files. `network`
-(egress widening), `provision-host-config`, `docker`, and the project secret files widen the same
-boundary.
+Some config keys reach host state directly: `mounts` exposes any host directory inside the VM
+(`mounts.ResolveBindMounts` only checks that the source exists and is a directory), and `home` copies any
+host file into the VM (`homeconfig` resolves the source as an absolute path or `~/…`). Both reach host
+paths the user never granted — the whole filesystem, the host Docker socket, `~/.ssh`, the user's own
+secret files. `network` (egress), `provision-host-config`, `docker`, and the project secret files widen
+the same boundary.
+
+Host-affecting keys are not the only exposure, so a key list is the wrong boundary. Everything under the
+project config directory is agent-writable and the launcher acts on all of it: the agent config
+directories provision files into the VM — snippets, and files mirrored verbatim such as plugins — and a
+plugin or config directive can reach outside the sandbox. Trusting only the keys that happen to look
+dangerous today leaves the rest as a live path; the **layer**, not a key list, is the trust boundary.
 
 Guest-side file controls cannot enforce this trust decision: the deny-list (#12/#39) and ro-list (#536)
 act on the VM's view of `/workspace`, but the launcher reads the project config **host-side**, and a
@@ -29,62 +35,67 @@ host-side gate on the project layer.
 
 - Two layers, two trust levels. The **user layer** (the user's own config and secret files, authored on
   the host) is trusted and is never gated. The **project layer** (anything under the project-config
-  directory, inside the guest-writable checkout) is untrusted.
-- Approval is **by content, per checkout**. The user approves an exact host-affecting projection once;
-  every later run whose projection matches is silent. When the projection changes, it is gated again.
-- The gate is authority, not reconfiguration. It decides whether the project layer may impose a
-  host-affecting setting at all; it does **not** decide whether the VM must be recreated or restarted
-  (`reconfig-decision.md`). The two are separate decisions and separate prompts.
+  directory, inside the guest-writable checkout) is untrusted in its entirety.
+- Approval is **by content, per checkout**. The user approves an exact projection of the layer once; every
+  later run whose projection matches is silent. When the projection changes, it is gated again.
+- The gate is authority, not reconfiguration. It decides whether the project layer may contribute at all;
+  it does **not** decide whether the VM must be recreated or restarted (`reconfig-decision.md`). The two
+  are separate decisions and separate prompts.
 
-## The approval set
+## What is gated
 
-Only the settings the project layer contributes to are gated, and only those that affect the host or the
-VM's reach beyond itself:
+The **whole project config layer** is gated — every input the launcher consumes from `<project-config>/**`:
 
-- `mounts` — host directories exposed inside the VM.
-- `home` — host files copied into the VM.
-- `network` — the egress profile and rules.
-- `secrets` — the project secret files' substitution **structure** (`env.secret`, `env.secret.yaml`, the
-  structured secret file): env-var names, hosts, `header_fields`, `allow_any_host_dangerous`, and the
-  `secrets.common.allow-placeholder-for` passthrough list. The gate covers *where* a secret may be sent,
-  not the value: a value rotation does not re-prompt, and the prompt never prints a secret value.
-- `provision-host-config` — copies host CLI config into the VM.
-- `docker` — enables a container engine inside the VM.
-- the project Dockerfile (`<project-config>/Dockerfile`) — code baked into the runner image.
+- the launcher config file (`config.{yaml,yml,json,jsonc,json5}`) — every key it contributes, not a
+  dangerous subset.
+- the project env and secret files (`env`, `env.secret`, `env.secret.yaml`).
+- the project agent config directories (`<project-config>/<agent-config-dir>/`) — the snippets that merge
+  into the agent's VM config and the files mirrored verbatim (plugins, sub-configs, …).
+- the project Dockerfile.
 
-Every other project-layer setting (resources, image, notify, upgrade, output, …) is not host-affecting and
-is not gated: a change to it never prompts. The set is closed; adding a key is a deliberate change to this
-contract.
+Rationale: the directory sits in the guest-writable checkout, so the agent can rewrite any of it; config
+keys reach host state, and agent snippets configure the agent and its plugins, which run in the VM but can
+reach beyond it. Gating the whole layer is closed — there is no per-key list to keep current and no
+provisioned file to forget. The cost, that a benign project-layer edit re-prompts, is accepted, because
+the layer is untrusted by construction.
+
+Files the launcher does not consume (a stray `README`, say) are not gated; the layer's *consumed* inputs
+are.
 
 ## Approval contract
 
-- On each run that resolves the project layer, compute the **project trust projection**: the values of the
-  approval-set keys contributed by the project layer, together with the identity of the files that
-  contributed them. Canonicalize (sorted keys/entries) so reordering, comments, and non-gated key edits do
-  not change the digest.
-- The projection is the project layer's **own declared contribution**, resolved to canonical values but not
-  composed with the higher layers. A change to the user layer or a flag must not invalidate an approval,
-  and a project value currently shadowed by a flag is still gated (approval is about what the project layer
-  could impose, not this run's effective value). An input that is **code rather than a value** — the project
-  Dockerfile — contributes a content hash instead of a resolved value.
+- On each run that resolves the project layer, compute the **project trust projection**: for every input
+  the layer contributes, its source path and its canonical effect. Canonicalize (sorted paths and entries)
+  so reordering does not change the digest.
+- Effect depends on the input kind:
+  - **structured launcher config** → the resolved values of every key the project layer sets.
+  - **secret files** → the substitution structure (env-var names, hosts, header fields, flags, the
+    `secrets.common.allow-placeholder-for` passthrough), **not** the values. A value rotation does not
+    re-prompt, and the prompt never prints a secret value.
+  - **file inputs** (the Dockerfile, agent snippets and mirrored files) → the file's content.
+- The projection is the project layer's **own declared contribution**, not composed with the higher
+  layers: a change to the user layer or a flag must not invalidate an approval, and a project value
+  currently shadowed by a flag is still gated (approval is about what the project layer could impose, not
+  this run's effective value).
+- The projection carries each input's source path, so a rename or re-source counts as a change.
 - Hash the projection and compare it with the digest recorded for the checkout.
   - **Match** → proceed silently.
-  - **Empty projection** — a project layer that contributes no approval-set key — is silently allowed;
-    there is nothing to approve.
+  - **Empty projection** — a project layer that contributes nothing the launcher consumes — is silently
+    allowed; there is nothing to approve.
   - **No recorded digest** with a non-empty projection (first run, a fresh clone, lost state) → treated as
     changed.
   - **Differ** → approval is required.
-- Approval is interactive. The prompt names each changed setting with its **resolved old → new value and
-  the source file that set it** (this is #230's requirement, owned here for project-sourced changes), then
-  asks to continue. Approving records the new digest; declining aborts the run before any side effect and
-  returns a cancellation the caller treats as a user decline.
-- The recorded digest is written through the `HomeState` transaction (`state.WithHomeState`,
+- Approval is interactive. The prompt names each changed input with its **resolved old → new value and the
+  source file** (this is #230's requirement, owned here for project-sourced changes), then asks to
+  continue. Approving records the new digest; declining aborts the run before any side effect and returns a
+  cancellation the caller treats as a user decline.
+- The recorded digest is written through the `RootState` transaction (`state.WithRootState`,
   `project-state-transactions.md`) and preserves every field it does not own.
 
 ## Non-interactive behavior
 
 - When approval is required and no digest is recorded, a non-interactive run **refuses to start**. The
-  error names the changed settings and their sources and says how to resolve it (run once interactively to
+  error names the changed inputs and their sources and says how to resolve it (run once interactively to
   review and approve). "Non-interactive" is any UI without a TTY, including `--serve-only`.
 - The generic `--yes` flag does **not** satisfy the gate. `--yes` authorizes destructive actions; it must
   never be read as authorizing untrusted project input. There is no non-interactive approval path in v1:
@@ -108,10 +119,10 @@ contract.
 
 The projection must be computed from the project layer alone, not from viper's merged view, because the
 merge discards which file set a key. The project layer is re-read on its own — the files are named by
-`configpaths.ProjectConfigDir()` and the project secret-file accessors. `homeconfig.LoadLayers` already
-keeps one `Layer` per config dir and can attribute its entries; `mounts` is loaded through the merged
-`viper` view today and needs the same per-layer treatment. Provenance is used only to build the
-projection; only the digest is persisted.
+`configpaths.ProjectConfigDir()`, the project secret-file accessors, and `reprovision.ResolveConfigSource`
+(which resolves the project agent config dir). `homeconfig.LoadLayers` already keeps one `Layer` per config
+dir and can attribute its entries; `mounts` is loaded through the merged `viper` view today and needs the
+same per-layer treatment. Provenance is used only to build the projection; only the digest is persisted.
 
 ## State
 
@@ -134,7 +145,8 @@ still reaches the host run:
 
 ## Non-goals
 
-- Not a sandbox-escape or VM-boundary fix; it governs host-config authority only.
+- Not a sandbox-escape or VM-boundary fix: it governs the launcher's trust in the project config layer, not
+  the VM boundary itself.
 - Not the general reconfiguration-visibility feature (#230), though it owns #230's requirement that a
   project-sourced change be shown with resolved values.
 - The user layer is never gated, and no setting is gated for the user layer.
@@ -142,6 +154,6 @@ still reaches the host run:
 
 ## Open questions
 
-- Whether the projection also covers the raw contributing files, so that a change of source path (same
-  value) re-prompts.
 - The prompt's exact shape, and whether it reuses `config harden`'s finding/remediation machinery.
+- How the projection represents the merge of several snippet files: each file's content, or the merged
+  output the launcher actually provisions.
