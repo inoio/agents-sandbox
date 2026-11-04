@@ -289,9 +289,8 @@ func TestDurationDecodeHook(t *testing.T) {
 	}
 }
 
-// TestDecodeNotifyReadsEveryKeyIndependently sets one notify key at a time so
-// each operand of the "is any notify key set" guard is load-bearing: dropping
-// an operand, inverting it, or removing the early return changes the result.
+// TestDecodeNotifyReadsEveryKeyIndependently pins that each notify key alone
+// configures notifications: setting any single one is enough.
 func TestDecodeNotifyReadsEveryKeyIndependently(t *testing.T) {
 	off := notify.AudioOff
 	cases := []struct {

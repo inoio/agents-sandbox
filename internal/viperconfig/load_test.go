@@ -200,7 +200,7 @@ func TestResolverNotifyDefaults(t *testing.T) {
 	}
 }
 
-// TestResolverConfigReturnsACopy covers the accessor runoptions.Build consumes:
+// TestResolverConfigReturnsACopy pins the accessor runoptions.Build consumes:
 // a non-nil resolver returns a deep copy of its config, and a nil resolver
 // returns nil (which runoptions.Build treats as "no config").
 func TestResolverConfigReturnsACopy(t *testing.T) {

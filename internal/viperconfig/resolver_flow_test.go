@@ -102,121 +102,105 @@ func TestResolverProvisionHostConfigEnv(t *testing.T) {
 	}
 }
 
-// Per-slug mergeDir failure propagates out of NewResolver.
-func TestNewResolverPerSlugMergeError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	slugDir := filepath.Join(cp.UserConfigDir(), "slug")
-	if err := os.MkdirAll(slugDir, 0o755); err != nil {
-		t.Fatalf("mkdir per-slug: %v", err)
+// TestNewResolverReportsABrokenConfigLayer pins that a config layer that cannot
+// be read, parsed or decoded, at any level (user, per-slug, project), stops the
+// resolution with a message naming the failing step and the cause wrapped, and
+// that an invalid value is refused.
+func TestNewResolverReportsABrokenConfigLayer(t *testing.T) {
+	cases := []struct {
+		name     string
+		dir      func(cp configpaths.ConfigPaths) string
+		file     string
+		content  string
+		slug     string
+		wantText string
+	}{
+		{
+			name:     "malformed per-slug yaml",
+			dir:      perSlugDir,
+			file:     "config.yaml",
+			content:  "cpus: 2\n  memory: [\n",
+			slug:     "slug",
+			wantText: "contains invalid YAML (line 2)",
+		},
+		{
+			name:     "malformed project yaml",
+			dir:      projectDir,
+			file:     "config.yaml",
+			content:  "cpus: 2\n  memory: [\n",
+			wantText: "contains invalid YAML (line 2)",
+		},
+		{
+			name:     "malformed json5",
+			dir:      userDir,
+			file:     "config.json5",
+			content:  `{"cpus": }`,
+			wantText: "parse launcher config",
+		},
+		{
+			name:     "json5 that cannot be normalized",
+			dir:      userDir,
+			file:     "config.json5",
+			content:  `{"cpus": NaN}`,
+			wantText: "normalize launcher config",
+		},
+		{
+			name:     "malformed json",
+			dir:      userDir,
+			file:     "config.json",
+			content:  `{"cpus": }`,
+			wantText: "load launcher config",
+		},
+		{
+			name:     "list-valued memory",
+			dir:      userDir,
+			file:     "config.yaml",
+			content:  "memory: [1, 2]\n",
+			wantText: "memory",
+		},
 	}
-	testutil.WriteFile(t, slugDir, "config.yaml", "cpus: 2\n  memory: [\n")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			testutil.WriteFile(t, tc.dir(configpaths.Get()), tc.file, tc.content)
 
-	_, err := NewResolver(nil, configpaths.Get(), "slug")
-	if err == nil {
-		t.Fatal("expected error for malformed per-slug config")
+			_, err := NewResolver(nil, configpaths.Get(), tc.slug)
+			if err == nil || !strings.Contains(err.Error(), tc.wantText) || errors.Unwrap(err) == nil {
+				t.Fatalf("error = %v, want %q wrapping its cause", err, tc.wantText)
+			}
+		})
 	}
 }
 
-// Project dir mergeDir failure propagates out of NewResolver.
-func TestNewResolverProjectMergeError(t *testing.T) {
+// TestNewResolverReportsAnUnreadableConfig pins that a config path that cannot
+// be read (here a directory) names the read failure and keeps the path error.
+func TestNewResolverReportsAnUnreadableConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "cpus: 2\n  memory: [\n")
-
-	_, err := NewResolver(nil, configpaths.Get(), "")
-	if err == nil {
-		t.Fatal("expected error for malformed project config")
-	}
-}
-
-// A config.yaml that is a directory makes os.ReadFile fail inside mergeDir.
-func TestNewResolverUnreadableConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	if err := os.MkdirAll(filepath.Join(cp.UserConfigDir(), "config.yaml"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(configpaths.Get().UserConfigDir(), "config.yaml"), 0o755); err != nil {
 		t.Fatalf("mkdir config.yaml: %v", err)
 	}
 
 	_, err := NewResolver(nil, configpaths.Get(), "")
-	if err == nil {
-		t.Fatal("expected error reading a directory as config")
-	}
-	if !strings.Contains(err.Error(), "read launcher config") {
-		t.Errorf("error %q does not name the read failure", err)
-	}
-	if _, ok := errors.AsType[*os.PathError](err); !ok {
-		t.Errorf("error %q does not wrap the underlying path error", err)
+	if _, ok := errors.AsType[*os.PathError](err); !ok || !strings.Contains(err.Error(), "read launcher config") {
+		t.Fatalf("error = %v, want the read failure wrapping the path error", err)
 	}
 }
 
-// A malformed json5 config makes json5.Unmarshal fail inside mergeDir.
-func TestNewResolverInvalidJSON5(t *testing.T) {
+// TestNewResolverRefusesAZeroAutoStopTimeout pins that an auto-stop timeout of
+// zero is rejected rather than read as "never stop".
+func TestNewResolverRefusesAZeroAutoStopTimeout(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	testutil.WriteFile(t, cp.UserConfigDir(), "config.json5", `{"cpus": }`)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"auto-stop-timeout": 0})
 
 	_, err := NewResolver(nil, configpaths.Get(), "")
-	if err == nil {
-		t.Fatal("expected error for malformed json5 config")
-	}
-	if !strings.Contains(err.Error(), "parse launcher config") {
-		t.Errorf("error %q does not name the parse failure", err)
-	}
-	if errors.Unwrap(err) == nil {
-		t.Errorf("error %q does not wrap its cause", err)
+	if err == nil || !strings.Contains(err.Error(), "auto-stop-timeout must be > 0, got 0s") {
+		t.Fatalf("error = %v, want the zero auto-stop timeout refused", err)
 	}
 }
 
-// A json5 value that json.Marshal cannot serialize (NaN) makes the normalize
-// step fail inside mergeDir.
-func TestNewResolverJSON5MarshalError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	testutil.WriteFile(t, cp.UserConfigDir(), "config.json5", `{"cpus": NaN}`)
-
-	_, err := NewResolver(nil, configpaths.Get(), "")
-	if err == nil {
-		t.Fatal("expected error for non-serializable json5 config")
-	}
-	if !strings.Contains(err.Error(), "normalize launcher config") {
-		t.Errorf("error %q does not name the normalize failure", err)
-	}
-	if errors.Unwrap(err) == nil {
-		t.Errorf("error %q does not wrap its cause", err)
-	}
-}
-
-// A plain .json config with invalid JSON triggers the non-yaml MergeConfig
-// error path.
-func TestNewResolverInvalidJSON(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	testutil.WriteFile(t, cp.UserConfigDir(), "config.json", `{"cpus": }`)
-
-	_, err := NewResolver(nil, configpaths.Get(), "")
-	if err == nil {
-		t.Fatal("expected error for malformed json config")
-	}
-	if !strings.Contains(err.Error(), "load launcher config") {
-		t.Errorf("error %q does not name the load failure", err)
-	}
-	if errors.Unwrap(err) == nil {
-		t.Errorf("error %q does not wrap its cause", err)
-	}
-}
-
-// auto-stop-timeout of 0 makes validate() reject via validateAutoStopTimeout.
-func TestNewResolverInvalidAutoStopTimeout(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"auto-stop-timeout": 0})
-
-	_, err := NewResolver(nil, configpaths.Get(), "")
-	if err == nil {
-		t.Fatal("expected error for auto-stop-timeout 0")
-	}
-}
+func userDir(cp configpaths.ConfigPaths) string    { return cp.UserConfigDir() }
+func perSlugDir(cp configpaths.ConfigPaths) string { return cp.UserSlugConfigDir("slug") }
+func projectDir(cp configpaths.ConfigPaths) string { return cp.ProjectConfigDir() }
 
 // A positive prune age passes validatePruneAges without error.
 func TestNewResolverValidPruneAge(t *testing.T) {
@@ -230,25 +214,6 @@ func TestNewResolverValidPruneAge(t *testing.T) {
 	}
 	if r.AutoPruneAge() != 7*24*time.Hour {
 		t.Errorf("AutoPruneAge = %v, want 7d", r.AutoPruneAge())
-	}
-}
-
-// A config value of the wrong shape for a typed field (a list for the string
-// memory key) makes viper.Unmarshal fail, surfacing as a decode error.
-func TestNewResolverSurfacesDecodeError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"memory": []any{1, 2}})
-
-	_, err := NewResolver(nil, configpaths.Get(), "")
-	if err == nil {
-		t.Fatal("expected a decode error for a list-valued memory key")
-	}
-	if !strings.Contains(err.Error(), "memory") {
-		t.Errorf("error = %v, want it to name the offending memory key", err)
-	}
-	if errors.Unwrap(err) == nil {
-		t.Errorf("error = %v, want it to wrap its cause", err)
 	}
 }
 
@@ -427,98 +392,69 @@ func TestResolverProvisionHostConfigDefaultsOn(t *testing.T) {
 	}
 }
 
-// With no docker source at all, neither docker nor a legacy dind alias is
-// reported.
-func TestResolveDockerAliasWithoutAnySource(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+// TestNewResolverResolvesDockerAgainstTheDindAlias pins how the deprecated
+// dind config key meets the docker sources: without any source docker is off,
+// and an explicit docker env value or --docker flag beats `dind: true` and
+// reports no legacy alias. Whenever the dind key decides (`dind: false`, or
+// `dind: true` with --docker unset), it is reported as the alias used.
+func TestNewResolverResolvesDockerAgainstTheDindAlias(t *testing.T) {
+	cases := []struct {
+		name      string
+		dind      any // nil: no dind key
+		env       string
+		flag      []string // nil: no --docker flag defined
+		wantOn    bool
+		wantAlias string
+	}{
+		{name: "no source"},
+		{name: "dind false", dind: false, wantAlias: "the dind config key"},
+		{name: "docker env false beats dind true", dind: true, env: "false"},
+		{name: "--docker beats dind", dind: true, flag: []string{"--" + KeyDocker}, wantOn: true},
+		{
+			name:      "unset --docker leaves dind",
+			dind:      true,
+			flag:      []string{},
+			wantOn:    true,
+			wantAlias: "the dind config key",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			if tc.dind != nil {
+				testutil.WriteYAML(
+					t,
+					configpaths.Get().ProjectConfigDir(),
+					"config.yaml",
+					map[string]any{"dind": tc.dind},
+				)
+			}
+			if tc.env != "" {
+				t.Setenv("AGENTS_SANDBOX_DOCKER", tc.env)
+			}
+			var root *cobra.Command
+			if tc.flag != nil {
+				root = &cobra.Command{Use: "root"}
+				root.PersistentFlags().Bool(KeyDocker, false, "")
+				if err := root.ParseFlags(tc.flag); err != nil {
+					t.Fatalf("ParseFlags: %v", err)
+				}
+			}
 
-	r, err := NewResolver(nil, configpaths.Get(), "")
-	if err != nil {
-		t.Fatalf("NewResolver: %v", err)
-	}
-	if r.Config().Docker {
-		t.Error("Config().Docker = true, want false with no source")
-	}
-	if got := r.DockerLegacyAlias(); got != "" {
-		t.Errorf("DockerLegacyAlias() = %q, want empty", got)
-	}
-}
-
-// A dind config value of false is not a docker source.
-func TestDindConfigFalseDoesNotEnableDocker(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	testutil.WriteYAML(t, configpaths.Get().ProjectConfigDir(), "config.yaml", map[string]any{"dind": false})
-
-	r, err := NewResolver(nil, configpaths.Get(), "")
-	if err != nil {
-		t.Fatalf("NewResolver: %v", err)
-	}
-	if r.Config().Docker {
-		t.Error("Config().Docker = true, want false for dind: false")
-	}
-}
-
-// An explicit docker=false env beats a deprecated dind config.
-func TestDockerExplicitEnvFalseBeatsDindConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	t.Setenv("AGENTS_SANDBOX_DOCKER", "false")
-	testutil.WriteYAML(t, configpaths.Get().ProjectConfigDir(), "config.yaml", map[string]any{"dind": true})
-
-	r, err := NewResolver(nil, configpaths.Get(), "")
-	if err != nil {
-		t.Fatalf("NewResolver: %v", err)
-	}
-	if r.Config().Docker {
-		t.Error("Config().Docker = true, want the explicit docker=false to win")
-	}
-	if got := r.DockerLegacyAlias(); got != "" {
-		t.Errorf("DockerLegacyAlias() = %q, want empty for the explicit docker env", got)
-	}
-}
-
-// The changed --docker flag marks docker explicit, so the dind config is not
-// surfaced.
-func TestDockerFlagExplicitBeatsDindConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	testutil.WriteYAML(t, configpaths.Get().ProjectConfigDir(), "config.yaml", map[string]any{"dind": true})
-	root := &cobra.Command{Use: "root"}
-	root.PersistentFlags().Bool(KeyDocker, false, "")
-	if err := root.ParseFlags([]string{"--" + KeyDocker}); err != nil {
-		t.Fatalf("ParseFlags: %v", err)
-	}
-
-	r, err := NewResolver(root, configpaths.Get(), "some-slug")
-	if err != nil {
-		t.Fatalf("NewResolver: %v", err)
-	}
-	if !r.Config().Docker {
-		t.Error("Config().Docker = false, want the explicit --docker to win")
-	}
-	if got := r.DockerLegacyAlias(); got != "" {
-		t.Errorf("DockerLegacyAlias() = %q, want empty for the explicit --docker flag", got)
-	}
-}
-
-// A registered-but-unchanged --docker flag is not explicit, so the dind config
-// still wins.
-func TestDockerFlagUnchangedDoesNotBeatDind(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	testutil.WriteYAML(t, configpaths.Get().ProjectConfigDir(), "config.yaml", map[string]any{"dind": true})
-	root := &cobra.Command{Use: "root"}
-	root.PersistentFlags().Bool(KeyDocker, false, "")
-	if err := root.ParseFlags(nil); err != nil {
-		t.Fatalf("ParseFlags: %v", err)
-	}
-
-	r, err := NewResolver(root, configpaths.Get(), "some-slug")
-	if err != nil {
-		t.Fatalf("NewResolver: %v", err)
-	}
-	if !r.Config().Docker {
-		t.Error("Config().Docker = false, want the dind config to win when --docker is unset")
-	}
-	if got := r.DockerLegacyAlias(); got != "the dind config key" {
-		t.Errorf("DockerLegacyAlias() = %q, want the dind config key", got)
+			r, err := NewResolver(root, configpaths.Get(), "some-slug")
+			if err != nil {
+				t.Fatalf("NewResolver: %v", err)
+			}
+			if r.Config().Docker != tc.wantOn || r.DockerLegacyAlias() != tc.wantAlias {
+				t.Errorf(
+					"docker %v, alias %q; want %v, %q",
+					r.Config().Docker,
+					r.DockerLegacyAlias(),
+					tc.wantOn,
+					tc.wantAlias,
+				)
+			}
+		})
 	}
 }
 
@@ -1203,8 +1139,9 @@ func TestPortsInvalidRejected(t *testing.T) {
 					"ports": tc.raw,
 				})
 			}
-			if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
-				t.Fatal("expected error for invalid ports")
+			_, err := NewResolver(nil, configpaths.Get(), "")
+			if err == nil || !strings.Contains(err.Error(), "launcher config ports") || errors.Unwrap(err) == nil {
+				t.Fatalf("error = %v, want the invalid ports refused with the cause wrapped", err)
 			}
 		})
 	}
@@ -1263,6 +1200,20 @@ func TestPortsUnspecifiedPublishFlagKeepsConfig(t *testing.T) {
 	want := []string{"3000", "8080:5173"}
 	if !slices.Equal(r.cfg.Ports, want) {
 		t.Errorf("Ports = %v, want %v (the config values, untouched by the bound flag default)", r.cfg.Ports, want)
+	}
+}
+
+// TestPortsUnsetPublishFlagAddsNoPorts pins that an unset --port flag without
+// any configured ports resolves to none: its StringSlice default must not leak
+// in as a port.
+func TestPortsUnsetPublishFlagAddsNoPorts(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	r, err := NewResolver(portsTestCmd(t, nil), configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if len(r.cfg.Ports) != 0 {
+		t.Errorf("Ports = %q, want none for an unset --port flag", r.cfg.Ports)
 	}
 }
 

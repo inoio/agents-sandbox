@@ -40,15 +40,18 @@ func TestLegacyEnvVarsInUseSkipsShadowedAndContinues(t *testing.T) {
 		t.Setenv(envVarName(LegacyEnvPrefix, key), "")
 		t.Setenv(envVarName(EnvPrefix, key), "")
 	}
-	t.Setenv("OPENCODE_SANDBOX_CPUS", "6")
-	t.Setenv("AGENTS_SANDBOX_CPUS", "7")
-	t.Setenv("OPENCODE_SANDBOX_AGENT", "pi")
+	// The shadowed key is scanned first and the unshadowed one last, so a scan
+	// that stopped at the shadowed key is caught.
+	shadowed, later := envKeys[0], envKeys[len(envKeys)-1]
+	t.Setenv(envVarName(LegacyEnvPrefix, shadowed), "6")
+	t.Setenv(envVarName(EnvPrefix, shadowed), "7")
+	t.Setenv(envVarName(LegacyEnvPrefix, later), "pi")
 
 	got := legacyEnvVarsInUse()
-	if slices.Contains(got, "OPENCODE_SANDBOX_CPUS") {
+	if slices.Contains(got, envVarName(LegacyEnvPrefix, shadowed)) {
 		t.Error("a shadowed legacy variable should be skipped")
 	}
-	if !slices.Contains(got, "OPENCODE_SANDBOX_AGENT") {
-		t.Fatalf("legacyEnvVarsInUse() = %v, want OPENCODE_SANDBOX_AGENT", got)
+	if !slices.Contains(got, envVarName(LegacyEnvPrefix, later)) {
+		t.Fatalf("legacyEnvVarsInUse() = %v, want %s", got, envVarName(LegacyEnvPrefix, later))
 	}
 }
