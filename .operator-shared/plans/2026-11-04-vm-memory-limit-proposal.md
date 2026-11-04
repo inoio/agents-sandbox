@@ -29,6 +29,7 @@ The spec implies these but no single task's tests fully cover them; each is pinn
 3. **Non-interactive** runs (`--yes`, piped stdin, no TTY) must never block on the prompt (Tasks 7, 9).
 4. A **non-YAML config file** (`.json5`/`.jsonc`/`.json`) must never be rewritten as YAML; persistence skips with a warning (Task 6).
 5. A declined proposal at sustained high pressure must **not re-nag** on every launch (Tasks 3, 9).
+6. A **live memory resize is asynchronous** — `Modify` returns `STATE=converging` — so the raise is reported applied only after `Metrics.MemoryLimitBytes` reaches the requested value (Task 8b).
 
 ---
 
@@ -146,8 +147,8 @@ func TestFromSystemLogReturnsNewest(t *testing.T) { /* two OOM entries, distinct
 func TestUnderPressurePercentOrFloor(t *testing.T) {
     t8 := DefaultThreshold()
     if !UnderPressure(950, 1000, t8) { t.Error("95% should trip") }        // percent
-    if !UnderPressure(10, 100000, t8) { t.Error("10 MiB free should trip") } // floor
-    if UnderPressure(500, 1000, t8) { t.Error("50% must not trip") }
+    if !UnderPressure(2000, 3000, t8) { t.Error("1000 MiB free below the floor should trip") } // floor only: 66% < 90%
+    if UnderPressure(2048, 4096, t8) { t.Error("50% with 2 GiB free must not trip") }
 }
 func TestFromMetricsHeadroom(t *testing.T) {
     m := &msbSdk.Metrics{MemoryBytes: 950 << 20, MemoryLimitBytes: 1000 << 20}
@@ -204,8 +205,10 @@ type ResourcePressureState struct {
     Evidence  string    `yaml:"evidence,omitempty"`
     Victim    string    `yaml:"victim,omitempty"`
     OOMSeenAt time.Time `yaml:"oom_seen_at,omitempty"`
-    // OfferedAt is set when the user has been offered a raise for this hit, so
-    // it is not re-offered until the pressure re-arms.
+    // OfferedAt is set when the user has answered a raise offer for this hit
+    // (accepted or declined), so the same hit is not re-offered. It stays zero
+    // for a hit that was only observed (e.g. a non-interactive run), so the
+    // proposal survives to the next interactive launch.
     OfferedAt time.Time `yaml:"offered_at,omitempty"`
 }
 // field on HomeState:
@@ -248,7 +251,7 @@ git commit -m "feat(state): record a resource-pressure marker in HomeState"
 **Files:**
 - Create: `internal/sandbox/session/pressure_watch.go`
 - Test: `internal/sandbox/session/pressure_watch_test.go`
-- Modify: `internal/sandbox/session/run.go` (start/stop it beside `startNotifyWatcher`)
+- Modify: `internal/sandbox/session/run.go` (start/stop it inside the shared `runAttach`)
 
 **Interfaces:**
 - Consumes: `msb.Sandbox.Metrics`, `pressure.FromMetrics`, `pressure.Threshold`, `termio.Logger`.
@@ -284,9 +287,9 @@ Expected: FAIL.
 
 A goroutine on a ticker calls `sb.Metrics(ctx)`; on success computes `free/limit` and calls `pressure.FromMetrics`; on error logs at verbose and continues. `stop` cancels and waits (mirroring `startNotifyWatcher`'s cancel+done channel).
 
-- [ ] **Step 4: Wire it into `Run`**
+- [ ] **Step 4: Wire it into the shared `runAttach`**
 
-In `session.Run`, after `stopNotify := startNotifyWatcher(...)`, add `stopPressure := startPressureWatcher(ctx, sb, pressure.DefaultThreshold(), ui)` with a `defer` that captures the summary into a local (Task 10 consumes it). Do not start it in `previewSandbox`/dry-run paths.
+Start it inside `runAttach` (not `Run`), after the attach begins, so both `Run` and `Shell` — which each call `runAttach` — get one watcher. Stop it and read the `pressureSummary` inside `runAttach` before the post-attach check and before `withClientSession` releases the lease and reaps (Task 10 consumes it then). Do not start it in `previewSandbox`/dry-run paths.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
@@ -381,7 +384,7 @@ var ErrUnsupportedConfigFormat = errors.New("unsupported config file format for 
 
 - [ ] **Step 1: Write the failing tests**
 
-Pin: `LayerSettingOwner` picks the project dir when the project config sets `memory` and the user dir also does; picks the user-slug dir when only it sets the key; returns false when none does (use `testutil.WriteYAML` into `cp.UserConfigDir()`/`cp.UserSlugConfigDir(slug)`/`cp.ProjectConfigDir()` and `WithMockConfigPaths`). `WriteSetting` on an empty dir creates `config.yaml` and a re-read via the resolver sees `memory: 8G`; on a YAML file preserves an unrelated key; on a `.json5` file returns `ErrUnsupportedConfigFormat` and leaves the file byte-identical.
+Pin: `LayerSettingOwner` picks the project dir when the project config sets `memory` and the user dir also does; picks the user-slug dir when only it sets the key; returns false when none does (use `testutil.WriteYAML` into `cp.UserConfigDir()`/`cp.UserSlugConfigDir(slug)`/`cp.ProjectConfigDir()` and `WithMockConfigPaths`). `WriteSetting` on an empty dir creates `config.yaml` and a re-read via the resolver sees `memory: 8G`; on a YAML file preserves an unrelated key; **on a YAML file preserves a comment attached to an unrelated key and a top-of-file comment** (the writer must edit the node tree, not round-trip through a map); on a `.json5` file returns `ErrUnsupportedConfigFormat` and leaves the file byte-identical.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -390,7 +393,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
-`LayerSettingOwner` reads each layer's config file (via `FindConfigFile` + a small YAML/JSON decode) highest-precedence first and tests for the key. `WriteSetting`: if `FindConfigFile(dir)` reports a file whose extension is not `.yaml`/`.yml`, return `ErrUnsupportedConfigFormat`; otherwise merge the key into a `map[string]any` and write atomically (`atomicwrite`) after `yamlfmt` formatting. When no file exists, write `config.yaml`.
+`LayerSettingOwner` reads each layer's config file (via `FindConfigFile` + a small YAML/JSON decode) highest-precedence first and tests for the key. `WriteSetting`: if `FindConfigFile(dir)` reports a file whose extension is not `.yaml`/`.yml`, return `ErrUnsupportedConfigFormat`; otherwise **parse into a `yaml.Node` tree and set/insert the key on that tree — never round-trip through `map[string]any`, which drops the user's comments** — then marshal and write atomically (`atomicwrite`) after `yamlfmt` formatting. When no file exists, write `config.yaml`. When a format-preserving edit is not feasible, return an error rather than rewrite (surface the miss; the spec forbids corrupting the file).
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -431,13 +434,13 @@ func Ask(ui termio.Prompter, hit pressure.Signal, s Suggestion) (newMiB uint32, 
 
 // PersistMemory writes the accepted memory to the owning config layer and
 // returns the directory. It returns an error rather than write a shadowed value
-// when an environment variable supplies the key.
-func PersistMemory(paths configpaths.ConfigPaths, slug string, memoryMiB uint32) (string, error)
+// when an environment variable or the --memory flag supplies the key.
+func PersistMemory(paths configpaths.ConfigPaths, slug string, memoryMiB uint32, memoryFlagChanged bool) (string, error)
 ```
 
 - [ ] **Step 1: Write the failing tests**
 
-Pin: `SuggestRaise(4096, 0)` = `5120` (4→5 GiB); `SuggestRaise(4096, 4096)` clamps to `4096`; `Ask` with `termio.Mock{IsInteractiveResult:false}` returns `ok=false` without calling `Input`; with interactive + `InputResult:"6G"` returns `6<<10` and `ok=true`; a non-numeric input re-prompts or falls back to the default (pick one and pin it); `PersistMemory` with `AGENTS_SANDBOX_MEMORY` set returns an error and writes nothing; without it, writes `memory` into the owner layer and a resolver re-read yields the value.
+Pin: `SuggestRaise(4096, 0)` = `5120` (4→5 GiB); `SuggestRaise(4096, 4096)` clamps to `4096`; `Ask` with `termio.Mock{IsInteractiveResult:false}` returns `ok=false` without calling `Input`; with interactive + `InputResult:"6G"` returns `6<<10` and `ok=true`; a non-numeric input re-prompts or falls back to the default (pick one and pin it); `PersistMemory` with either `AGENTS_SANDBOX_MEMORY` or the deprecated `OPENCODE_SANDBOX_MEMORY` set returns an error and writes nothing; with `memoryFlagChanged` true returns an error and writes nothing; with none of those, writes `memory` into the owner layer and a resolver re-read yields the value.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -446,7 +449,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
-`Ask` builds the message from the hit (including `hit.Victim` when evidence is the OOM log), `Select`s raise/keep, then `Input`s the GB value with the suggestion as default and `options.ParseMemory` to parse. `PersistMemory` checks the env var name derived by the config-key registry for `memory`; else `dir, ok := LayerSettingOwner(paths, slug, "memory")`, defaulting to `paths.UserSlugConfigDir(slug)` when `!ok`, then `WriteSetting(dir, "memory", fmt.Sprintf("%dM", memoryMiB))`.
+`Ask` builds the message from the hit (including `hit.Victim` when evidence is the OOM log), `Select`s raise/keep, then `Input`s the GB value with the suggestion as default and `options.ParseMemory` to parse. `PersistMemory` returns an error (writing nothing) when `memoryFlagChanged` is true, or when either the registry-derived env name for `memory` (`AGENTS_SANDBOX_MEMORY`) **or its deprecated alias `OPENCODE_SANDBOX_MEMORY`** is set (`LegacyEnvPrefix` binds the same key — see `internal/viperconfig/load.go`); else `dir, ok := LayerSettingOwner(paths, slug, "memory")`, defaulting to `paths.UserSlugConfigDir(slug)` when `!ok`, then `WriteSetting(dir, "memory", fmt.Sprintf("%dM", memoryMiB))`. The caller passes `memoryFlagChanged` from `cmd.Flags().Changed("memory")` (spec §8).
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -507,6 +510,43 @@ git commit -m "feat(reconfig): recreate when a memory raise exceeds the boot max
 
 ---
 
+### Task 8b: Wait for a live memory resize to converge
+
+**Files:**
+- Modify: `internal/sandbox/vm/vm_resources.go` (`reconcileResourceConfig`) and the resource-proposal call path that reports the raise applied
+- Test: `internal/sandbox/vm/vm_resources_test.go`
+
+**Interfaces:**
+- Consumes: `msb.Sandbox.Metrics`, `msbSdk.Metrics.MemoryLimitBytes`, the requested MiB.
+- Produces: a bounded wait that polls `Metrics` until `MemoryLimitBytes` reaches the requested value; returns an error on timeout or a read error; runs only when a live memory `Modify` was staged (spec §5: the resize is asynchronous — `Modify` returns `STATE=converging` and the limit lags — so do not read once and do not report applied on the first read).
+
+- [ ] **Step 1: Write the failing tests**
+
+Pin: a mock whose `MemoryLimitBytes` reports the old value then the new one converges within the deadline; a mock that never converges returns a timeout error; a mock returning `MetricsErr` returns that error. Use an injectable short interval/deadline seam.
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `go test ./internal/sandbox/vm/ -run MemoryConverge -tags microsandbox_ffi_path`
+Expected: FAIL.
+
+- [ ] **Step 3: Implement**
+
+After `reconcileResourceConfig` stages a live memory increase, poll `Metrics.MemoryLimitBytes` on the seam-bounded interval until it reaches the requested limit or the deadline elapses; treat a metrics read error as terminal. The above-max/ recreate path never waits (the VM is rebuilt, not resized live).
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `go test ./internal/sandbox/vm/ -tags microsandbox_ffi_path`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add internal/sandbox/vm/
+git commit -m "feat(vm): wait for a live memory resize to converge"
+```
+
+---
+
 ### Task 9: Next-launch detection and proposal
 
 **Files:**
@@ -514,12 +554,12 @@ git commit -m "feat(reconfig): recreate when a memory raise exceeds the boot max
 - Test: `internal/sandbox/prepare/reconfig_*_test.go`
 
 **Interfaces:**
-- Consumes: `liveProjectVM.handle` (`msb.SandboxHandle` with `Logs`), `pressure.FromSystemLog`, `state.ResourcePressure` field + writers, `resourceproposal.Ask`/`PersistMemory`/`SuggestRaise`, `options.RunOptions`.
-- Produces: after `ResolveReconfig`, if the VM shows memory pressure not already offered (an OOM line newer than `hs.ResourcePressure.OOMSeenAt`, or a metrics/headroom trip), call `resourceproposal.Ask`; on accept `PersistMemory`; on either outcome `MarkResourcePressureOffered`.
+- Consumes: `liveProjectVM.handle` (`msb.SandboxHandle` with `Logs`), `pressure.FromSystemLog`/`FromMetrics`/`Threshold.ReArmPercent`, `state.ResourcePressure` field + writers, `resourceproposal.Ask`/`PersistMemory`/`SuggestRaise`, `options.RunOptions`.
+- Produces: after `ResolveReconfig`, offer a raise when there is an **unanswered** hit or a **newer** one. Define the marker semantics the helper relies on: `OOMSeenAt` is the fingerprint (timestamp) of the newest observed hit; `OfferedAt` is set only when the user actually answers. Offer when `OOMSeenAt` is set and `OfferedAt` is zero (recorded, never answered — e.g. a prior non-interactive run), or when the newest OOM line is newer than the recorded `OOMSeenAt`. On a headroom/metrics trip, apply the re-arm rule: offer once, and do not re-offer until headroom has recovered below `ReArmPercent` (0.80) and tripped again; keep the recorded OOM timestamp so clearing pressure never replays an already-answered kill. On accept `PersistMemory`; on an answer (accept **or** decline) `MarkResourcePressureOffered`.
 
 - [ ] **Step 1: Write the failing tests**
 
-Using `msb.MockSandboxHandle{LogsResult: []msbSdk.LogEntry{oomEntry}}` and a `termio.Mock`, pin: an OOM line newer than the marker calls `Ask` once; after a decline the marker is updated and a second `resolveReconfigDecision` with the *same* entry does not call `Ask`; a `LogsErr` yields no call and no error; a non-interactive mock logs and marks offered without blocking.
+Using `msb.MockSandboxHandle{LogsResult: []msbSdk.LogEntry{oomEntry}}` and a `termio.Mock`, pin: an OOM line newer than the marker's recorded kill calls `Ask` once; after a decline the marker is advanced and a second `resolveReconfigDecision` with the *same* entry does not call `Ask`; a `LogsErr` yields no call and no error; **a non-interactive launch records the hit but does not answer it, so a following interactive launch with the same entry DOES call `Ask`**; a headroom trip offers once, a further trip that has not first recovered below `ReArmPercent` does not re-offer, and a trip after recovery below `ReArmPercent` does — while that later trip never replays an already-answered OOM kill.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -528,7 +568,7 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
-Add a `detectAndOfferMemoryRaise(...)` helper called from `resolveReconfigDecision` (or its caller) after `PlanReconfig`; read `handle.Logs(ctx, msbSdk.LogOptions{Sources: []msbSdk.LogSource{msbSdk.LogSourceSystem}, Tail: 200})`, classify, dedup against `hs.ResourcePressure`, and prompt/persist.
+Add a `detectAndOfferMemoryRaise(...)` helper called from `resolveReconfigDecision` (or its caller) after `PlanReconfig`; read `handle.Logs(ctx, msbSdk.LogOptions{Sources: []msbSdk.LogSource{msbSdk.LogSourceSystem}, Tail: 200})`, classify, dedup against `hs.ResourcePressure` per the marker rule above, and prompt/persist. When `Ask` cannot run (non-interactive), record the hit but do **not** advance `OfferedAt`, so the proposal is retried on the next interactive run.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -626,10 +666,10 @@ git commit -m "docs: document memory-limit detection and the raise proposal"
 
 ## Self-Review
 
-- **Spec coverage:** §1a watcher → Task 4; §1b abnormal end → Tasks 4/10; §1c OOM attribution/log → Tasks 1/2/9/10; §1d marker + next launch → Tasks 3/9; §1e disk → Phase 2; §2 terminal recovery → Task 5; §3 prompt → Task 7; §4 persistence/precedence/env → Tasks 6/7; §5 apply (memory) → Tasks 7/8; §5 root disk → Phase 2; §6 memory → done, disk/cpu → Phase 2/later; §7 non-interactive/host-bound → Tasks 7/9 (host-bound probe is Phase 2 with the disk work). CPU is out of scope per the spec.
+- **Spec coverage:** §1a watcher → Task 4; §1b abnormal end → Tasks 4/10; §1c OOM attribution/log → Tasks 1/2/9/10; §1d marker + next launch → Tasks 3/9; §1e disk → Phase 2; §2 terminal recovery → Task 5; §3 prompt → Task 7; §4 persistence/precedence/env → Tasks 6/7; §5 apply (memory) → Tasks 7/8/8b; §5 root disk → Phase 2; §6 memory → done, disk/cpu → Phase 2/later; §7 non-interactive/host-bound → Tasks 7/9 (host-bound probe is Phase 2 with the disk work). CPU is out of scope per the spec.
 - **Placeholders:** none — the one open point (`FindConfigFile`'s exact return order) is a code step the implementer confirms against the symbol.
 - **Type consistency:** `pressure.Signal`/`Threshold`, `resourceproposal.Suggestion`/`Ask`/`PersistMemory`, `state.ResourcePressureState`, and the msb `Metrics`/`Logs` signatures are named once and reused verbatim.
-- **Review Focus:** (1) Task 8; (2) Tasks 4, 9; (3) Tasks 7, 9; (4) Task 6; (5) Tasks 3, 9.
+- **Review Focus:** (1) Task 8; (2) Tasks 4, 9; (3) Tasks 7, 9; (4) Task 6; (5) Tasks 3, 9; (6) Task 8b.
 - **Proportion:** the plan names signatures and tests rather than bodies; the only bodies are the reset constant and the threshold arithmetic.
 
 ## Deferred to Phase 2

@@ -94,16 +94,16 @@ terminal, the un-explained session death) rather than leaving the user to diagno
 
 Three mechanisms compose; the first two run in-session, the third covers everything else.
 
-**(a) Metrics watcher during the session.** In `session.Run`, alongside `startNotifyWatcher`,
-start a watcher goroutine that samples `sb.Metrics()` on an interval (default ~2 s, tunable via
+**(a) Metrics watcher during the session.** In the shared `session.runAttach` path, start a
+watcher goroutine that samples `sb.Metrics()` on an interval (default ~2 s, tunable via
 a `Session` option/seam) for the lifetime of the attach. It retains a compact summary: the
 minimum observed memory headroom (`MemoryLimitBytes - MemoryBytes`, or `MemoryAvailableBytes` —
 confirmed on a KVM host that `MemoryBytes` is guest-in-use and `MemoryAvailableBytes` tracks it),
 the peak `MemoryBytes`/`MemoryLimitBytes` ratio, and the minimum `UpperFreeBytes` when present
 (the `upper_*` fields are **null until the root disk is first written**, so absence is not
 "no pressure"). It must tolerate a metrics read failing (VM stopped) and never
-block session teardown. It is stopped (and its summary read) from the same deferred path that
-stops the notify watcher.
+block session teardown. It is stopped and its summary read inside `runAttach`, before the client
+lease is released and the VM reaped, so both `Run` and `Shell` get the watcher.
 
 **(b) Abnormal-end classification.** `session.runAttach` already funnels the guest exit
 through `finalizeRun(attachErr, exitCode)`. An exit code of `-1` (signal death) or a non-zero
@@ -128,8 +128,11 @@ lightweight per-project marker (`HomeState` field, e.g. `resource_pressure`) cap
 hit, when, and the evidence class (log vs headroom) — so a proposal survives to the next launch
 if the in-session prompt cannot run. The same check runs at the next launch inside
 `prepare.resolveReconfigDecision`, which already holds the live VM handle: it re-reads the
-kernel log and the marker, and proposes. The marker is cleared once a proposal is answered
-(accepted or declined) so it does not nag.
+kernel log and the marker, and proposes. The marker records the newest observed hit and whether
+it was answered; answering a proposal (accepted or declined) advances it so the same hit is not
+re-offered, while a hit only observed (a non-interactive run, or a mere offer nobody answered)
+stays pending and is proposed on the next interactive launch. Clearing pressure alone never
+replays an already-answered kill.
 
 **(e) Disk pressure.** Memory OOM ends the session cleanly (the harness dies, attach returns), so
 its offer happens right after. Disk pressure usually does **not** end the session — a command
@@ -148,11 +151,10 @@ it as a VM rebuild.
 offer when usage is **≥ 90% of the limit, or free space is ≤ 1 GiB** (first to trip), where
 `usage = used / (used + free)`. The ratio alone misjudges across sizes (95% of a 2 GiB `/tmp` is
 nearly exhausted; 95% of a 64 GiB root is 3 GiB free), hence the absolute floor. Anti-nag hysteresis:
-after an offer, do not re-offer until usage falls **below 80%** (re-arm) or climbs a further margin
-past the level already offered. The memory headroom fallback uses the same ratio+floor so there is
-one threshold concept. Mechanics: a root-disk ratio is only computable once `upper_*` are populated
-(null until first write ⇒ no offer, not 0% used), and `/workspace`'s total is the quota, not the
-host filesystem's size.
+after an offer, do not re-offer until usage falls **below 80%** (re-arm) and trips again. The memory
+headroom fallback uses the same ratio+floor so there is one threshold concept. Mechanics: a root-disk
+ratio is only computable once `upper_*` are populated (null until first write ⇒ no offer, not 0%
+used), and `/workspace`'s total is the quota, not the host filesystem's size.
 
 ### 2. Terminal recovery
 
@@ -194,9 +196,10 @@ host filesystem's size.
   write would be overridden. This needs a small "which file layer sets key K" helper (parsing
   each candidate layer file for the key), since only `docker` currently carries source tracking
   (`Config.dockerSource`).
-- **A non-file source wins.** If `memory` is supplied by env (`AGENTS_SANDBOX_MEMORY`) or a flag,
-  a persisted config value cannot take effect. In that case, tell the user the value comes from
-  a higher-precedence source and do not write a shadowed file value.
+- **A non-file source wins.** If `memory` is supplied by env (`AGENTS_SANDBOX_MEMORY`, or the
+  deprecated `OPENCODE_SANDBOX_MEMORY` alias) or a flag, a persisted config value cannot take
+  effect. In that case, tell the user the value comes from a higher-precedence source and do not
+  write a shadowed file value.
 - **Project config is untrusted** (`specs/project-config-trust.md`): writing the raise to a
   project config must also update the approved projection/digest so the trust gate does not
   reject the launcher's own change on the next run. If that proves too entangled, fall back to
@@ -236,7 +239,8 @@ host filesystem's size.
 
 ### 7. Non-interactive and host-bound
 
-- Non-interactive: never block; log + persist the marker for a later interactive run.
+- Non-interactive: never block; record the observed hit (so it survives) but leave the proposal
+  unanswered, so the next interactive run offers it.
 - Host-bound: a memory raise is bounded by `MaxMemoryMiB` (host RAM) and should warn when
   available host memory is low (spare VM memory is backed only as touched, so a raise is cheap
   until the guest uses it — but a host over-commit falls to the host OOM killer). `sysinfo`
@@ -252,15 +256,20 @@ These are the author's calls, not user decisions; a builder may follow them as w
   in the real-VM test before relying on it; if it is unsafe, give the watcher its own
   `SandboxHandle.Connect()` + `SandboxHandle.Metrics` lifecycle.
 - **Anti-nag dedup.** The `HomeState` marker is the dedup key, not the log. Next-launch detection
-  proposes only for an OOM log entry **newer** than the one the marker recorded (fingerprint by
-  timestamp); answering a proposal (accept or decline) advances the marker so the same kill is not
-  re-offered. An unmarked old OOM never re-proposes.
+  proposes when the newest OOM log entry is **newer** than the marker's recorded kill (fingerprint
+  by timestamp), or when a recorded hit was **never answered** (a non-interactive launch records
+  the hit but does not answer it, so the next interactive run offers it); answering a proposal
+  (accept or decline) advances the marker so the same kill is not re-offered. An unmarked old OOM
+  never re-proposes. The re-arm rule (§1: below 80%) governs re-offering a *headroom* condition
+  after an answered offer, but the recorded kill timestamp is retained, so clearing pressure and a
+  later trip never replays an OOM kill that was already answered.
 - **Enable the live root-disk grow** by having `resourceModification`/`reconcileResourceConfig`
   stage `RootDiskSizeMiB` (grow-only) and by reading `SandboxConfig.RootDisk`; `rootDiskChange`
   stops forcing a recreate for a pure increase.
 - **env/flag provenance.** Reuse the derived key registry's env-var name (see
-  `specs/config-key-registry.md`) plus `cmd.Flags().Changed("memory")`; when either supplies the
-  key, do not write a shadowed config value and tell the user the source.
+  `specs/config-key-registry.md`) — which includes the deprecated `OPENCODE_SANDBOX_` alias bound
+  for the same key — plus `cmd.Flags().Changed("memory")`; when either supplies the key, do not
+  write a shadowed config value and tell the user the source.
 - **Detection scope.** The watcher + post-attach handling live in the shared attach path so both
   `Run` and `Shell` get them. The detached serve-daemon death is handled at the `SetUpSandbox` /
   `ensureDaemon` re-ensure (next launch, via marker + log), not by a second watcher.
