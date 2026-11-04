@@ -541,37 +541,31 @@ func TestPersistBestEffortUnionsConcurrentDismissals(t *testing.T) {
 	}
 }
 
-func TestIsNewer(t *testing.T) {
+// TestIsNewerComparesSemanticVersions pins that only a strictly newer release
+// counts, a prerelease of the current version included, and that either side
+// failing to parse is an error.
+func TestIsNewerComparesSemanticVersions(t *testing.T) {
 	tests := []struct {
 		current, latest string
 		want            bool
+		wantErr         bool
 	}{
 		{current: "1.0.0", latest: "1.1.0", want: true},
 		{current: "1.10.0", latest: "1.9.0", want: false},
 		{current: "2.0.0", latest: "2.0.0", want: false},
 		{current: "v1.0.0", latest: "1.0.1", want: true},
 		{current: "1.0.0", latest: "1.0.0-beta.1", want: false},
+		{current: "dev", latest: "1.0.0", wantErr: true},
+		{current: "1.0.0", latest: "not-a-version", wantErr: true},
 	}
 	for _, tc := range tests {
 		got, err := isNewer(tc.current, tc.latest)
-		if err != nil {
-			t.Fatalf("isNewer(%q,%q): %v", tc.current, tc.latest, err)
+		if (err != nil) != tc.wantErr {
+			t.Fatalf("isNewer(%q,%q) error = %v, wantErr %v", tc.current, tc.latest, err, tc.wantErr)
 		}
 		if got != tc.want {
 			t.Errorf("isNewer(%q,%q) = %v, want %v", tc.current, tc.latest, got, tc.want)
 		}
-	}
-}
-
-func TestIsNewerInvalidVersion(t *testing.T) {
-	if _, err := isNewer("dev", "1.0.0"); err == nil {
-		t.Fatal("expected error for invalid version")
-	}
-}
-
-func TestIsNewerInvalidLatest(t *testing.T) {
-	if _, err := isNewer("1.0.0", "not-a-version"); err == nil {
-		t.Fatal("expected error for invalid latest version")
 	}
 }
 
@@ -929,11 +923,11 @@ func TestLatestReleaseDecodeError(t *testing.T) {
 	}
 }
 
-// TestUpdateExecutable exercises updateExecutable end to end in a child
+// TestUpdateExecutableReplacesTheRunningBinary exercises updateExecutable end to end in a child
 // process, since it atomically replaces the running executable. The child
 // re-runs a copy of this test binary with a helper marker and replaces its own
 // binary with the served asset.
-func TestUpdateExecutable(t *testing.T) {
+func TestUpdateExecutableReplacesTheRunningBinary(t *testing.T) {
 	if os.Getenv("UPGRADE_HELPER_PROCESS") == "1" {
 		downloadBase = os.Getenv("UPGRADE_DOWNLOAD_BASE")
 		if err := updateExecutable(context.Background(), "2.0.0"); err != nil {
@@ -954,7 +948,7 @@ func TestUpdateExecutable(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	childBinary := copyTestBinary(t)
-	cmd := exec.Command(childBinary, "-test.run=^TestUpdateExecutable$")
+	cmd := exec.Command(childBinary, "-test.run=^TestUpdateExecutableReplacesTheRunningBinary$")
 	cmd.Env = append(os.Environ(),
 		"UPGRADE_HELPER_PROCESS=1",
 		"UPGRADE_DOWNLOAD_BASE="+srv.URL,
@@ -972,7 +966,7 @@ func TestUpdateExecutable(t *testing.T) {
 	}
 }
 
-func TestUpdateExecutableDownloadFailure(t *testing.T) {
+func TestUpdateExecutableReportsADownloadFailure(t *testing.T) {
 	if os.Getenv("UPGRADE_HELPER_PROCESS") == "1" {
 		downloadBase = "http://127.0.0.1:1"
 		if err := updateExecutable(context.Background(), "2.0.0"); err == nil {
@@ -981,7 +975,7 @@ func TestUpdateExecutableDownloadFailure(t *testing.T) {
 		os.Exit(0)
 	}
 
-	cmd := exec.Command(copyTestBinary(t), "-test.run=^TestUpdateExecutableDownloadFailure$")
+	cmd := exec.Command(copyTestBinary(t), "-test.run=^TestUpdateExecutableReportsADownloadFailure$")
 	cmd.Env = append(os.Environ(), "UPGRADE_HELPER_PROCESS=1")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("helper failed: %v\n%s", err, out)
@@ -1141,33 +1135,73 @@ func TestInstallReleaseReplaceFailure(t *testing.T) {
 	}
 }
 
-func TestDownloadAssetCreateTempFails(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte("data"))
-	}))
-	t.Cleanup(srv.Close)
-	orig := downloadBase
-	downloadBase = srv.URL
-	t.Cleanup(func() { downloadBase = orig })
-
-	dir := filepath.Join(t.TempDir(), "does-not-exist")
-	if _, err := downloadAssetToDir(context.Background(), dir, "2.0.0"); err == nil {
-		t.Fatal("expected error when the destination directory does not exist")
+// TestDownloadAssetToDirFailsWhenTheDownloadFails pins that every way the
+// download can fail is reported: an unbuildable request (which keeps its URL
+// error), an unreachable endpoint, a non-200 response, a missing destination
+// directory, and a truncated body.
+func TestDownloadAssetToDirFailsWhenTheDownloadFails(t *testing.T) {
+	serve := func(t *testing.T, handler http.HandlerFunc) string {
+		t.Helper()
+		srv := httptest.NewServer(handler)
+		t.Cleanup(srv.Close)
+		return srv.URL
 	}
-}
-
-func TestDownloadAssetCopyFails(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Length", "100")
-		_, _ = w.Write([]byte("short"))
-	}))
-	t.Cleanup(srv.Close)
-	orig := downloadBase
-	downloadBase = srv.URL
-	t.Cleanup(func() { downloadBase = orig })
-
-	if _, err := downloadAssetToDir(context.Background(), t.TempDir(), "2.0.0"); err == nil {
-		t.Fatal("expected error when the response body is truncated")
+	for _, tc := range []struct {
+		name         string
+		base         func(*testing.T) string
+		missingDir   bool
+		wantURLError bool
+	}{
+		{
+			name:         "unbuildable request",
+			base:         func(*testing.T) string { return "://missing-scheme" },
+			wantURLError: true,
+		},
+		{
+			name: "unreachable endpoint",
+			base: func(*testing.T) string { return "http://127.0.0.1:1" },
+		},
+		{
+			name: "non-200 response",
+			base: func(t *testing.T) string {
+				return serve(t, func(w http.ResponseWriter, _ *http.Request) {
+					http.Error(w, "nope", http.StatusNotFound)
+				})
+			},
+		},
+		{
+			name: "missing destination directory",
+			base: func(t *testing.T) string {
+				return serve(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("data")) })
+			},
+			missingDir: true,
+		},
+		{
+			name: "truncated body",
+			base: func(t *testing.T) string {
+				return serve(t, func(w http.ResponseWriter, _ *http.Request) {
+					w.Header().Set("Content-Length", "100")
+					_, _ = w.Write([]byte("short"))
+				})
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			orig := downloadBase
+			downloadBase = tc.base(t)
+			t.Cleanup(func() { downloadBase = orig })
+			dir := t.TempDir()
+			if tc.missingDir {
+				dir = filepath.Join(dir, "does-not-exist")
+			}
+			_, err := downloadAssetToDir(context.Background(), dir, "2.0.0")
+			if err == nil {
+				t.Fatal("downloadAssetToDir error = nil, want a failure")
+			}
+			if _, ok := errors.AsType[*url.Error](err); tc.wantURLError && !ok {
+				t.Errorf("downloadAssetToDir error = %v, want the request's URL error preserved", err)
+			}
+		})
 	}
 }
 
@@ -1219,41 +1253,6 @@ func TestDownloadAssetUsesTaggedURL(t *testing.T) {
 	}
 }
 
-func TestDownloadAssetNon200(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "nope", http.StatusNotFound)
-	}))
-	t.Cleanup(srv.Close)
-	orig := downloadBase
-	downloadBase = srv.URL
-	t.Cleanup(func() { downloadBase = orig })
-	if _, err := downloadAssetToDir(context.Background(), t.TempDir(), "2.0.0"); err == nil {
-		t.Fatal("expected error on non-200 download")
-	}
-}
-
-func TestDownloadAssetNetworkError(t *testing.T) {
-	orig := downloadBase
-	downloadBase = "http://127.0.0.1:1"
-	t.Cleanup(func() { downloadBase = orig })
-	if _, err := downloadAssetToDir(context.Background(), t.TempDir(), "2.0.0"); err == nil {
-		t.Fatal("expected error on unreachable download endpoint")
-	}
-}
-
-func TestDownloadAssetBadURL(t *testing.T) {
-	orig := downloadBase
-	downloadBase = "://missing-scheme"
-	t.Cleanup(func() { downloadBase = orig })
-	_, err := downloadAssetToDir(context.Background(), t.TempDir(), "2.0.0")
-	if err == nil {
-		t.Fatal("expected error for an unbuildable download request")
-	}
-	if _, ok := errors.AsType[*url.Error](err); !ok {
-		t.Fatalf("expected the request error to be preserved, got %v", err)
-	}
-}
-
 func TestExecutablePath(t *testing.T) {
 	path, err := executablePath()
 	if err != nil {
@@ -1264,27 +1263,38 @@ func TestExecutablePath(t *testing.T) {
 	}
 }
 
-func TestReplaceExecutableChmodFails(t *testing.T) {
-	dir := t.TempDir()
-	target := filepath.Join(dir, "agents-sandbox")
-	_ = os.WriteFile(target, []byte("old"), 0o755)
-
-	asset := filepath.Join(dir, "missing-asset")
-	if err := replaceExecutable(asset, target); err == nil {
-		t.Fatal("expected error when the asset cannot be chmod'd")
-	}
-}
-
-func TestReplaceExecutableRenameFails(t *testing.T) {
-	dir := t.TempDir()
-	asset := filepath.Join(dir, "asset")
-	_ = os.WriteFile(asset, []byte("new"), 0o600)
-
-	exePath := filepath.Join(dir, "agents-sandbox")
-	_ = os.MkdirAll(exePath, 0o755)
-
-	if err := replaceExecutable(asset, exePath); err == nil {
-		t.Fatal("expected error when the rename target is a directory")
+// TestReplaceExecutableReportsAMissingAssetOrUnreplaceableTarget pins that a missing asset and an
+// unreplaceable target are reported.
+func TestReplaceExecutableReportsAMissingAssetOrUnreplaceableTarget(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(dir string) (asset, target string)
+	}{
+		{
+			name: "asset missing",
+			setup: func(dir string) (string, string) {
+				target := filepath.Join(dir, "agents-sandbox")
+				_ = os.WriteFile(target, []byte("old"), 0o755)
+				return filepath.Join(dir, "missing-asset"), target
+			},
+		},
+		{
+			name: "target is a directory",
+			setup: func(dir string) (string, string) {
+				asset := filepath.Join(dir, "asset")
+				_ = os.WriteFile(asset, []byte("new"), 0o600)
+				target := filepath.Join(dir, "agents-sandbox")
+				_ = os.MkdirAll(target, 0o755)
+				return asset, target
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			asset, target := tc.setup(t.TempDir())
+			if err := replaceExecutable(asset, target); err == nil {
+				t.Fatal("replaceExecutable error = nil, want a failure")
+			}
+		})
 	}
 }
 
