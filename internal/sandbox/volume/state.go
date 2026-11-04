@@ -15,14 +15,118 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// ResolveHomeVolume determines the home volume to mount for a project run.
+// homeVolumeDecision is the outcome of the shared home-volume resolution: reuse
+// the recorded volume, adopt a surviving one, or create fresh.
+type homeVolumeDecision int
+
+const (
+	homeDecisionReuse homeVolumeDecision = iota
+	homeDecisionRecover
+	homeDecisionCreate
+)
+
+// homeVolumePlan is the single reuse → recover → create decision. ResolveHomeVolume
+// commits it; PreviewHomeVolume reports it without writing. Keeping the decision
+// in one place is what stops the --dry-run preview from drifting from the real
+// path (#527).
 //
-// When the state file resolves to a volume that still exists, that volume is
-// reused. When it records a pending RecoveredHomeVolume (a VM-only identity
-// adoption, #144), that volume is recovered into the state. Otherwise the live
-// VM's mounted volume (recoveredVolume) is adopted if it still exists, so a lost
-// state file does not mint a duplicate volume and orphan the previous one (issue
-// #219). When none is available it falls back to EnsureNewHome.
+//exhaustruct:ignore
+type homeVolumePlan struct {
+	decision homeVolumeDecision
+	// volume is the recorded volume to reuse (homeDecisionReuse) or the
+	// surviving volume to adopt (homeDecisionRecover). Empty on create.
+	volume string
+	// candidate is the recovery candidate the decision was taken from, kept so
+	// the commit path can retire a spent adoption claim. Empty when no recovery
+	// was attempted (a recorded volume was reused).
+	candidate string
+	// observed is the HomeVolume the state named when the decision was taken,
+	// carried as the compare-and-set baseline for a fresh commit.
+	observed string
+	// recordedGone is true when the state named a volume that no longer
+	// resolves, so the real caller warns before recovering or creating.
+	recordedGone bool
+	// stateReadErr is the error from reading state (nil when the document
+	// read), so the real caller warns about a corrupt document.
+	stateReadErr error
+	// state is the document that was read, returned unchanged on the reuse
+	// decision (nil when state was missing or unreadable).
+	state *state.HomeState
+}
+
+// resolveHomeVolumePlan makes the shared reuse → recover → create decision with
+// read-only lookups; committing it is the caller's job. Resolution order:
+//
+//  1. a recorded volume that still resolves is reused;
+//  2. a pending RecoveredHomeVolume (a VM-only identity adoption, #144) is
+//     adopted;
+//  3. the live VM's mounted volume (recoveredVolume) is adopted if it still
+//     exists, so a lost state file does not mint a duplicate volume and orphan
+//     the previous one (#219);
+//  4. otherwise a fresh volume is created.
+//
+// A lookup error that is not true absence fails closed (#331), so a transient
+// error can never be mistaken for a gone volume.
+func resolveHomeVolumePlan(
+	ctx context.Context,
+	client msb.Client,
+	k state.Key,
+	recoveredVolume string,
+) (homeVolumePlan, error) {
+	st, stateReadErr := state.ReadState(k)
+	if stateReadErr != nil {
+		plan, err := planFromRecoveryCandidate(ctx, client, recoveredVolume, "")
+		plan.stateReadErr = stateReadErr
+		return plan, err
+	}
+
+	// A VM-only identity adoption (#144) destroyed the legacy VM and recorded its
+	// home volume here first, because the VM is then gone and cannot be read.
+	// Finish that recovery so the volume becomes the project's HomeVolume.
+	if st.RecoveredHomeVolume != "" {
+		return planFromRecoveryCandidate(ctx, client, st.RecoveredHomeVolume, st.HomeVolume)
+	}
+
+	if st.HomeVolume != "" {
+		if _, err := client.GetVolume(ctx, st.HomeVolume); err != nil {
+			if !msb.IsVolumeNotFound(err) {
+				return homeVolumePlan{}, fmt.Errorf("checking home volume %q: %w", st.HomeVolume, err)
+			}
+			plan, err := planFromRecoveryCandidate(ctx, client, recoveredVolume, st.HomeVolume)
+			plan.recordedGone = true
+			return plan, err
+		}
+		return homeVolumePlan{decision: homeDecisionReuse, volume: st.HomeVolume, state: st}, nil
+	}
+
+	return planFromRecoveryCandidate(ctx, client, recoveredVolume, "")
+}
+
+// planFromRecoveryCandidate confirms candidate and returns the recover-or-create
+// decision: the candidate when it still exists, otherwise a fresh create.
+func planFromRecoveryCandidate(
+	ctx context.Context,
+	client msb.Client,
+	candidate, observed string,
+) (homeVolumePlan, error) {
+	recovered, ok, err := confirmedRecoveredVolume(ctx, client, candidate)
+	if err != nil {
+		return homeVolumePlan{}, err
+	}
+	if ok {
+		return homeVolumePlan{
+			decision:  homeDecisionRecover,
+			volume:    recovered,
+			candidate: candidate,
+			observed:  observed,
+		}, nil
+	}
+	return homeVolumePlan{decision: homeDecisionCreate, candidate: candidate, observed: observed}, nil
+}
+
+// ResolveHomeVolume determines the home volume to mount for a project run and
+// commits the decision: it repairs state and prefills a fresh volume. It shares
+// resolveHomeVolumePlan with PreviewHomeVolume so the two cannot drift (#527).
 //
 // skipVM passes through to EnsureNewHome: a fresh home is neither created nor
 // recorded, because its prefill spawns a VM; the first real run creates it.
@@ -36,72 +140,45 @@ func (vm *Manager) ResolveHomeVolume(
 	recoveredVolume string,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
-	st, err := state.ReadState(k)
+	plan, err := resolveHomeVolumePlan(ctx, client, k, recoveredVolume)
 	if err != nil {
-		if !errors.Is(err, state.ErrStateNotFound) {
-			ui.Warnf("could not read state file for project %q: %v", k.Slug, err)
-		}
-		return vm.recoverOrCreateHome(ctx, client, k, info, skipVM, fingerprints, recoveredVolume, "", ui)
+		return "", state.HomeState{}, err
 	}
-
-	// A VM-only identity adoption (#144) destroyed the legacy VM and recorded its
-	// home volume here first, because the VM is then gone and cannot be read.
-	// Finish that recovery so the volume becomes the project's HomeVolume with
-	// the current digest and fingerprints.
-	if st.RecoveredHomeVolume != "" {
-		return vm.recoverOrCreateHome(
-			ctx,
-			client,
-			k,
-			info,
-			skipVM,
-			fingerprints,
-			st.RecoveredHomeVolume,
-			st.HomeVolume,
-			ui,
-		)
+	if plan.stateReadErr != nil && !errors.Is(plan.stateReadErr, state.ErrStateNotFound) {
+		ui.Warnf("could not read state file for project %q: %v", k.Slug, plan.stateReadErr)
 	}
-
-	if _, err := client.GetVolume(ctx, st.HomeVolume); err != nil {
-		if !msb.IsVolumeNotFound(err) {
-			return "", state.HomeState{}, fmt.Errorf("checking home volume %q: %w", st.HomeVolume, err)
-		}
-		ui.Warnf("existing home volume %q not found, creating fresh", st.HomeVolume)
-		return vm.recoverOrCreateHome(ctx, client, k, info, skipVM, fingerprints, recoveredVolume, st.HomeVolume, ui)
+	if plan.recordedGone {
+		ui.Warnf("existing home volume %q not found, creating fresh", plan.observed)
 	}
-
-	return st.HomeVolume, *st, nil
+	if plan.decision == homeDecisionReuse {
+		return plan.volume, *plan.state, nil
+	}
+	return vm.commitHomeVolumePlan(ctx, client, k, info, skipVM, fingerprints, plan, ui)
 }
 
-// recoverOrCreateHome adopts the home volume still mounted by the project VM
-// when its state file is unusable, writing a recovered state so the volume is
-// not duplicated and the previous one orphaned. It falls back to a fresh
-// prefill when no surviving volume can be confirmed.
+// commitHomeVolumePlan performs the writes for a non-reuse decision: it adopts
+// the plan's surviving volume by writing a recovered state, or falls back to a
+// fresh prefill when none survives.
 //
 // The rebuild runs through RecoverHomeState, the only wholesale writer: it
 // repairs a missing or unparsable document, and a still-readable prior
 // document (recorded volume gone) is carried forward so its fingerprints, which
 // describe the live VM rather than the home volume, survive and dropping them
 // does not trigger a spurious rebuild (see specs/reconfig-decision.md).
-func (vm *Manager) recoverOrCreateHome(
+func (vm *Manager) commitHomeVolumePlan(
 	ctx context.Context,
 	client msb.Client,
 	k state.Key,
 	info image.ImageInfo,
 	skipVM bool,
 	fingerprints state.Fingerprints,
-	recoveredVolume string,
-	observedHomeVolume string,
+	plan homeVolumePlan,
 	ui termio.UI,
 ) (string, state.HomeState, error) {
-	recovered, ok, err := confirmedRecoveredVolume(ctx, client, recoveredVolume)
-	if err != nil {
-		return "", state.HomeState{}, err
-	}
-	if !ok {
-		volName, hs, err := vm.EnsureNewHome(ctx, client, k, info, skipVM, fingerprints, observedHomeVolume, ui)
+	if plan.decision == homeDecisionCreate {
+		volName, hs, err := vm.EnsureNewHome(ctx, client, k, info, skipVM, fingerprints, plan.observed, ui)
 		if err == nil {
-			clearAdoptionClaim(k, recoveredVolume, ui)
+			clearAdoptionClaim(k, plan.candidate, ui)
 		}
 		return volName, hs, err
 	}
@@ -109,13 +186,13 @@ func (vm *Manager) recoverOrCreateHome(
 	ui.Warnf(
 		"state for project %q needs home-volume recovery; recovering home volume %q",
 		k.Slug,
-		recovered,
+		plan.volume,
 	)
 	var recoveredState state.HomeState
 	callbackRan := false
 	if err := state.RecoverHomeState(k, func(cur *state.HomeState, exists bool) (bool, error) {
 		callbackRan = true
-		recoveredState = recoveredHomeState(recovered, info, priorOrNil(cur, exists), fingerprints)
+		recoveredState = recoveredHomeState(plan.volume, info, priorOrNil(cur, exists), fingerprints)
 		*cur = recoveredState
 		return true, nil
 	}); err != nil {
@@ -123,15 +200,15 @@ func (vm *Manager) recoverOrCreateHome(
 	} else {
 		// The recovered volume is now the project's HomeVolume and the marker is
 		// gone, so the adoption claim that recorded ownership is spent.
-		clearAdoptionClaim(k, recovered, ui)
+		clearAdoptionClaim(k, plan.volume, ui)
 	}
 	if !callbackRan {
 		// The transaction failed before it could run the callback (lock or read
 		// failure): still return a usable state rebuilt from the recovered
 		// volume alone, without prior carry-forward.
-		recoveredState = recoveredHomeState(recovered, info, nil, fingerprints)
+		recoveredState = recoveredHomeState(plan.volume, info, nil, fingerprints)
 	}
-	return recovered, recoveredState, nil
+	return plan.volume, recoveredState, nil
 }
 
 // clearAdoptionClaim retires a spent adoption claim (#144) after the recovered

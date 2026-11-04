@@ -1102,7 +1102,7 @@ func TestResolveHomeVolume_RecoveryStateFails(t *testing.T) {
 
 	ui := &termio.Mock{}
 	vm := NewManager(docker.Get())
-	volName, _, err := vm.ResolveHomeVolume(
+	volName, hs, err := vm.ResolveHomeVolume(
 		context.Background(),
 		mock,
 		key,
@@ -1117,6 +1117,9 @@ func TestResolveHomeVolume_RecoveryStateFails(t *testing.T) {
 	}
 	if volName != recovered {
 		t.Errorf("volume = %q, want recovered %q", volName, recovered)
+	}
+	if hs.HomeVolume != recovered || hs.ImageDigest != "sha256:def" {
+		t.Errorf("recovered state = %+v, want volume %q and digest sha256:def", hs, recovered)
 	}
 	if !strings.Contains(strings.Join(ui.WarnCalls, " "), "failed to recover state file") {
 		t.Errorf("expected a state-recovery warning, got %v", ui.WarnCalls)
@@ -1936,10 +1939,10 @@ func TestResolveHomeAction_PromptFails_ReturnsKeep(t *testing.T) {
 
 // seedAdoptionClaim records a legacy identity's adoption claim (#144) through the
 // locked root-state transaction, the way an adopting checkout does.
-func seedAdoptionClaim(t *testing.T, legacySlug, agent, checkoutSlug, volume string) {
+func seedAdoptionClaim(t *testing.T, legacySlug, checkoutSlug, volume string) {
 	t.Helper()
 	if _, err := state.WithRootState(true, func(txn *state.RootTxn) error {
-		txn.State().ClaimAdoptedHomeVolume(legacySlug, agent, checkoutSlug, volume)
+		txn.State().ClaimAdoptedHomeVolume(legacySlug, "opencode", checkoutSlug, volume)
 		return txn.Commit()
 	}); err != nil {
 		t.Fatalf("seed adoption claim: %v", err)
@@ -1955,7 +1958,7 @@ func TestResolveHomeVolume_ClearsAdoptionClaim(t *testing.T) {
 	const recovered = "agents-sandbox-home-widget-aaa-opencode-9"
 	key := state.Key{Slug: "adoptedwidget", Agent: "opencode"}
 	seedHomeState(key, state.HomeState{RecoveredHomeVolume: recovered})
-	seedAdoptionClaim(t, "widget-aaa", "opencode", key.Slug, recovered)
+	seedAdoptionClaim(t, "widget-aaa", key.Slug, recovered)
 
 	mock := &msb.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
@@ -1999,7 +2002,7 @@ func TestResolveHomeVolume_AdoptionClaimClearErrorWarns(t *testing.T) {
 	const recovered = "agents-sandbox-home-widget-aaa-opencode-9"
 	key := state.Key{Slug: "adoptedwidget", Agent: "opencode"}
 	seedHomeState(key, state.HomeState{RecoveredHomeVolume: recovered})
-	seedAdoptionClaim(t, "widget-aaa", "opencode", key.Slug, recovered)
+	seedAdoptionClaim(t, "widget-aaa", key.Slug, recovered)
 
 	// Corrupt the root state document after seeding the claim, so clearing the
 	// claim's transaction fails to read it.

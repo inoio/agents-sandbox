@@ -826,7 +826,7 @@ func TestVolumeOp_UsesRecoveredHomeVolumeAsSource(t *testing.T) {
 	key := state.Key{Slug: "testproj-aBc1234D", Agent: "opencode"}
 	const recovered = "agents-sandbox-home-widget-aaa-opencode-7"
 	seedHomeState(key, state.HomeState{RecoveredHomeVolume: recovered})
-	seedAdoptionClaim(t, "widget-aaa", "opencode", key.Slug, recovered)
+	seedAdoptionClaim(t, "widget-aaa", key.Slug, recovered)
 
 	err := CmdReset(context.Background(), docker.Get(), key,
 		"",

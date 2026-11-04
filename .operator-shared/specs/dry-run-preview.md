@@ -89,9 +89,11 @@ Create}` plus the session line) so it is asserted as data in unit tests and as t
   label-reconciled baseline (`image.ExistingAgentVersion`, local) with the recorded `agent_version` as the fallback —
   the same precedence the real run applies for every registered agent — and reports a deferred resolution only when
   neither yields a version.
-- Home resolution in the preview is a read-only variant of `volume.Manager.ResolveHomeVolume`: it reads state and
-  probes the recorded volume, and on the recovery path consults `prepare.liveHomeVolume` (also read-only), but never
-  calls `recoverOrCreateHome`/`EnsureNewHome`/`state.RecoverHomeState` and never writes the recovered state.
+- Home resolution in the preview shares `volume.resolveHomeVolumePlan` with `volume.Manager.ResolveHomeVolume`, so the
+  two take the same reuse → recover → create decision (including the recorded-volume, adoption-marker, and live-VM
+  branches, in the preview only reporting `name`/`wouldCreate`): the preview reads state and probes the recorded
+  volume, and on the recovery path consults `prepare.liveHomeVolume` (also read-only), but never calls
+  `commitHomeVolumePlan`/`EnsureNewHome`/`state.RecoverHomeState` and never writes the recovered state.
 - The setup hub (`prepare.PrepareSandbox`) takes a `skipVM bool` and has no `--dry-run` branch. The mode lives at the
   session/CLI boundary (`options.Mode`, resolved by `runoptions.ResolveMode`): the session enters the hub only for
   `ModeRun`/`ModeSkipVM` and returns the preview before reaching it, so the hub never runs under `--dry-run` and its
