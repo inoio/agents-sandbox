@@ -291,6 +291,10 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   run continues into later stages; a case without the daemon-health stub then waits out the production probe timeout
   and the mutant reports `TIMED OUT` instead of `KILLED`. A jump in `TIMED OUT` against a baseline sweep of the same
   package is the signal; re-run those ids with `--run-mutant-id` to see which test hangs.
+- **A test readiness budget must stay small against the whole suite's runtime.** In `vm`, `TestMain` and a helper set
+  the daemon and dockerd readiness budgets to 2 s while the package ran in 0.3 s, so a mutant that broke the health
+  probe made a dozen tests each poll out 2 s and the sweep reported 17 `TIMED OUT`. Passing cases are healthy on their
+  first probe, so 200 ms costs nothing and turns them into kills.
 
 ## Operational
 
