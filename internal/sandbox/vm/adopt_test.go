@@ -23,7 +23,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
-// TestAdoptLegacyIdentityFailsWhenALaterLegacySlugIsUnreadable covers the
+// TestAdoptLegacyIdentityFailsWhenALaterLegacySlugIsUnreadable pins the
 // lock-set derivation failure: the pending state is under the first legacy slug,
 // but a later legacy slug cannot be enumerated, so adoption aborts before
 // destroying or moving anything.
@@ -125,7 +125,7 @@ func TestAdoptLegacyIdentityReleasesKeyLocksOnDestroyFailure(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityPersistRecoveredVolumeFailureFailsClosed covers the
+// TestAdoptLegacyIdentityPersistRecoveredVolumeFailureFailsClosed pins the
 // marker write failing after the claim committed: adoption aborts and, crucially,
 // leaves the legacy VM running so the volume is not lost.
 func TestAdoptLegacyIdentityPersistRecoveredVolumeFailureFailsClosed(t *testing.T) {
@@ -170,7 +170,7 @@ func TestAdoptLegacyIdentityPersistRecoveredVolumeFailureFailsClosed(t *testing.
 	}
 }
 
-// TestAdoptLegacyIdentityClaimCommitFailureFailsClosed covers the claim commit
+// TestAdoptLegacyIdentityClaimCommitFailureFailsClosed pins the claim commit
 // failing: the root-state write is the first durable step of a VM-only adoption,
 // so its failure aborts before the marker and before the destroy.
 func TestAdoptLegacyIdentityClaimCommitFailureFailsClosed(t *testing.T) {
@@ -222,7 +222,7 @@ func TestAdoptLegacyIdentityClaimCommitFailureFailsClosed(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityClaimVolumeMismatchFailsClosed covers the reconciled-
+// TestAdoptLegacyIdentityClaimVolumeMismatchFailsClosed pins the reconciled-
 // claim guard: a claim this checkout owns but that names a different volume than
 // the live legacy VM mounts cannot be trusted, so adoption refuses rather than
 // destroying the VM and overwriting the record.
@@ -255,7 +255,7 @@ func TestAdoptLegacyIdentityClaimVolumeMismatchFailsClosed(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityRestoresOtherOwnersMarkerBeforeDestroy covers the
+// TestAdoptLegacyIdentityRestoresOtherOwnersMarkerBeforeDestroy pins the
 // stranded-volume hole: checkout A claimed the shared legacy home but failed to
 // record its recovery marker, so when checkout B adopts the same live VM it must
 // materialize A's marker from the claim before destroying the VM (the volume's
@@ -299,7 +299,7 @@ func TestAdoptLegacyIdentityRestoresOtherOwnersMarkerBeforeDestroy(t *testing.T)
 	}
 }
 
-// TestAdoptLegacyIdentityOtherOwnerClaimVolumeMismatchFailsClosed covers the
+// TestAdoptLegacyIdentityOtherOwnerClaimVolumeMismatchFailsClosed pins the
 // mismatch guard for a claim held by another checkout: the claim names a
 // different volume than the live VM mounts, so destroying the VM could strand
 // whatever it actually holds, and adoption refuses.
@@ -335,7 +335,7 @@ func TestAdoptLegacyIdentityOtherOwnerClaimVolumeMismatchFailsClosed(t *testing.
 	}
 }
 
-// TestAdoptLegacyIdentityOtherOwnerMarkerRestoreFailureFailsClosed covers the
+// TestAdoptLegacyIdentityOtherOwnerMarkerRestoreFailureFailsClosed pins the
 // owner's marker restore failing: the VM's only other reference could not be
 // made durable, so adoption must not destroy the VM and strand the volume.
 func TestAdoptLegacyIdentityOtherOwnerMarkerRestoreFailureFailsClosed(t *testing.T) {
@@ -368,7 +368,7 @@ func TestAdoptLegacyIdentityOtherOwnerMarkerRestoreFailureFailsClosed(t *testing
 	}
 }
 
-// TestAdoptLegacyIdentityRecheckErrorPropagates covers the locked re-check
+// TestAdoptLegacyIdentityRecheckErrorPropagates pins the locked re-check
 // failing: the legacy state became unreadable while this run waited for the root
 // lock, so adoption reports it instead of proceeding on unknown state.
 func TestAdoptLegacyIdentityRecheckErrorPropagates(t *testing.T) {
@@ -443,7 +443,7 @@ func TestAdoptLegacyIdentityLiveLegacyVMWithoutHomeMountSkipsTheClaim(t *testing
 	}
 }
 
-// TestAdoptLegacyIdentityMovesStateAndDestroysVM covers the happy path: the
+// TestAdoptLegacyIdentityMovesStateAndDestroysVM pins the happy path: the
 // legacy VM is destroyed and the legacy state directory merges onto the
 // checkout slug, so the caller continues under the checkout identity.
 func TestAdoptLegacyIdentityMovesStateAndDestroysVM(t *testing.T) {
@@ -573,11 +573,20 @@ func TestAdoptLegacyIdentityNoticeWithoutHomeVolume(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityNoLegacyState covers a project that never had the
+// failIfAdoptionLocks fails the test if the adoption takes its root-state
+// lock: a run with nothing to adopt must not wait behind another lock holder.
+func failIfAdoptionLocks(t *testing.T) {
+	t.Helper()
+	adoptLockHook = func() { t.Error("took the adoption lock with nothing to adopt") }
+	t.Cleanup(func() { adoptLockHook = nil })
+}
+
+// TestAdoptLegacyIdentityNoLegacyState pins a project that never had the
 // legacy identity: no legacy state file and no surviving legacy VM, so nothing is
-// destroyed, moved or printed.
+// locked, destroyed, moved or printed.
 func TestAdoptLegacyIdentityNoLegacyState(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	failIfAdoptionLocks(t)
 
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no legacy VM"}
@@ -607,11 +616,13 @@ func TestAdoptLegacyIdentityNoLegacyState(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityAlreadyAtCheckoutSlug covers the re-run case: a
+// TestAdoptLegacyIdentityAlreadyAtCheckoutSlug pins the re-run case: a
 // checkout-keyed state file makes the trigger false even while the legacy
-// directory still exists, so the legacy state is deliberately left alone.
+// directory still exists, so the legacy state is deliberately left alone and
+// nothing is locked.
 func TestAdoptLegacyIdentityAlreadyAtCheckoutSlug(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	failIfAdoptionLocks(t)
 	legacyStateFile := seedLegacyState(t)
 	if err := seedHomeState(adoptCheckoutKey(), state.HomeState{HomeVolume: "home-bbb"}); err != nil {
 		t.Fatalf("seed checkout state: %v", err)
@@ -686,7 +697,7 @@ func TestAdoptLegacyIdentityUnparsableLegacyState(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityApplyFalseIsReadOnly covers the dry run: the notice is
+// TestAdoptLegacyIdentityApplyFalseIsReadOnly pins the dry run: the notice is
 // printed under the "would" headline, nothing is touched, and the caller is told
 // to keep resolving against the legacy slug.
 func TestAdoptLegacyIdentityApplyFalseIsReadOnly(t *testing.T) {
@@ -820,7 +831,7 @@ func TestAdoptLegacyIdentityLegacyVMReplacedFailsClosed(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityStrandedStateFileFailsLoudly covers the mandatory
+// TestAdoptLegacyIdentityStrandedStateFileFailsLoudly pins the mandatory
 // post-move check. A dangling symlink at the destination agent directory makes
 // the merge refuse to overwrite it and report a skip, so the legacy state file
 // never arrives. Continuing would run under the checkout identity with no state
@@ -927,7 +938,7 @@ func TestAdoptLegacyIdentityUnparsableCheckoutStateSkipsMigration(t *testing.T) 
 	}
 }
 
-// TestAdoptLegacyIdentityNonRepoCorruptStateDoesNotBlock covers the empty-legacy
+// TestAdoptLegacyIdentityNonRepoCorruptStateDoesNotBlock pins the empty-legacy
 // case: outside a repository there is no legacy identity to adopt, so a corrupt
 // checkout state must not block the run's own recovery path.
 func TestAdoptLegacyIdentityNonRepoCorruptStateDoesNotBlock(t *testing.T) {
@@ -964,7 +975,7 @@ func TestAdoptLegacyIdentityNonRepoCorruptStateDoesNotBlock(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityStateMoveFailureFailsLoudly covers the state-move
+// TestAdoptLegacyIdentityStateMoveFailureFailsLoudly pins the state-move
 // failure: the trigger sees no checkout state file through a dangling
 // destination symlink, but the merge then cannot create the destination, so
 // adoption fails loudly instead of continuing with no state.
@@ -1007,7 +1018,7 @@ func TestAdoptLegacyIdentityStateMoveFailureFailsLoudly(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityGetSandboxErrorAborts covers a non-not-found failure
+// TestAdoptLegacyIdentityGetSandboxErrorAborts pins a non-not-found failure
 // resolving the legacy VM: adoption must abort rather than move state and leave
 // an unknown VM running against the shared home volume.
 func TestAdoptLegacyIdentityGetSandboxErrorAborts(t *testing.T) {
@@ -1042,7 +1053,7 @@ func TestAdoptLegacyIdentityGetSandboxErrorAborts(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityLegacyVMAlreadyGoneOnDestroy covers the identity-safe
+// TestAdoptLegacyIdentityLegacyVMAlreadyGoneOnDestroy pins the identity-safe
 // teardown's already-gone outcome: the name vanished between the check and the
 // destroy, so the move continues and the caller is told.
 func TestAdoptLegacyIdentityLegacyVMAlreadyGoneOnDestroy(t *testing.T) {
@@ -1087,7 +1098,7 @@ func TestAdoptLegacyIdentityLegacyVMAlreadyGoneOnDestroy(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityDestroysEveryMovedAgentsVM covers the multi-agent case:
+// TestAdoptLegacyIdentityDestroysEveryMovedAgentsVM pins the multi-agent case:
 // moving the slug directory carries every agent's state, so every moved agent's
 // legacy VM must be destroyed — not only the one the command named — or the
 // left-behind sibling keeps writing the shared home volume under its old name.
@@ -1138,7 +1149,7 @@ func TestAdoptLegacyIdentityDestroysEveryMovedAgentsVM(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityLosingTheLockRaceContinues covers two runs racing for the
+// TestAdoptLegacyIdentityLosingTheLockRaceContinues pins two runs racing for the
 // shared legacy identity: the loser re-checks the trigger under the root lock,
 // sees the state already moved, and continues under the checkout identity instead
 // of tripping the incomplete-migration failure on a source that is already gone.
@@ -1177,7 +1188,7 @@ func TestAdoptLegacyIdentityLosingTheLockRaceContinues(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityAdoptsBareRootLegacySlug covers the bare root's second
+// TestAdoptLegacyIdentityAdoptsBareRootLegacySlug pins the bare root's second
 // legacy identity: state under the pre-split path-derived slug is moved onto the
 // shared checkout slug and its legacy VM is destroyed, even though the
 // origin-derived repo slug has no state at all.
@@ -1224,7 +1235,7 @@ func TestAdoptLegacyIdentityAdoptsBareRootLegacySlug(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityRecheckCorruptStateSkips covers the re-check under the
+// TestAdoptLegacyIdentityRecheckCorruptStateSkips pins the re-check under the
 // lock: if the checkout state becomes unreadable while this run waited for the
 // lock, adoption skips rather than proceeding on a document it cannot read, and
 // leaves the legacy VM untouched for the caller's recovery path.
@@ -1265,7 +1276,7 @@ func TestAdoptLegacyIdentityRecheckCorruptStateSkips(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityConfigMoveFailurePropagates covers the caller's
+// TestAdoptLegacyIdentityConfigMoveFailurePropagates pins the caller's
 // propagation: a failed config move aborts the adoption after the state move.
 func TestAdoptLegacyIdentityConfigMoveFailurePropagates(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -1309,7 +1320,7 @@ func TestAdoptLegacyIdentityConfigMoveFailurePropagates(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityDryRunReturnsFoundLegacySlug covers the dry-run slug: a
+// TestAdoptLegacyIdentityDryRunReturnsFoundLegacySlug pins the dry-run slug: a
 // bare root's pending state can live under its path-derived legacy slug, so a dry
 // run must report that slug (not the repo slug) for the caller to resolve against.
 func TestAdoptLegacyIdentityDryRunReturnsFoundLegacySlug(t *testing.T) {
@@ -1358,7 +1369,7 @@ func TestAdoptLegacyIdentityDryRunReturnsFoundLegacySlug(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityDestroyFailureLeavesStateForRetry covers resumability: a
+// TestAdoptLegacyIdentityDestroyFailureLeavesStateForRetry pins resumability: a
 // bare root can have state under both the origin slug and its path slug, and if
 // one source's VM teardown fails, the migration must abort with every legacy state
 // file still in place so the next run resumes and adopts the remaining source
@@ -1428,7 +1439,7 @@ func TestAdoptLegacyIdentityDestroyFailureLeavesStateForRetry(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityAdoptsLiveLegacyVMWithoutState covers the lost-state
+// TestAdoptLegacyIdentityAdoptsLiveLegacyVMWithoutState pins the lost-state
 // case (issue #219): no legacy state file, but a live legacy project VM. The VM
 // is itself a legacy identity, so adoption destroys it and records its mounted
 // home volume durably in the checkout state before the destroy, for home
@@ -1592,7 +1603,7 @@ func TestAdoptLegacyIdentityDryRunLiveLegacyVMIsReadOnly(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityLiveLegacyVMMountsErrorFailsClosed covers the fail-closed
+// TestAdoptLegacyIdentityLiveLegacyVMMountsErrorFailsClosed pins the fail-closed
 // rule: a live legacy VM whose mounts cannot be read might hold the user's only
 // home volume, so adoption aborts rather than destroying it blind.
 func TestAdoptLegacyIdentityLiveLegacyVMMountsErrorFailsClosed(t *testing.T) {
@@ -1617,7 +1628,7 @@ func TestAdoptLegacyIdentityLiveLegacyVMMountsErrorFailsClosed(t *testing.T) {
 	}
 }
 
-// TestAdoptLegacyIdentityClaimsSharedVolumeOnce covers the two-clone race the
+// TestAdoptLegacyIdentityClaimsSharedVolumeOnce pins the two-clone race the
 // #244 review found: clone A records a marker for a shared legacy VM's home
 // volume but its destroy fails, so clone B can still adopt the surviving VM.
 // Only one checkout may own the volume: B must not record a marker, and the
@@ -1776,7 +1787,7 @@ func TestAdoptionLockKeysCoversSiblingAndCheckoutKeys(t *testing.T) {
 	}
 }
 
-// TestAdoptionLockKeysErrorsOnUnreadableSlug covers the enumeration failure
+// TestAdoptionLockKeysErrorsOnUnreadableSlug pins the enumeration failure
 // propagation: an unreadable legacy slug must abort the lock-set derivation
 // rather than lock an incomplete set.
 func TestAdoptionLockKeysErrorsOnUnreadableSlug(t *testing.T) {
@@ -1790,7 +1801,7 @@ func TestAdoptionLockKeysErrorsOnUnreadableSlug(t *testing.T) {
 	}
 }
 
-// TestPersistRecoveredHomeVolumeEmptyIsNoOp covers the guard for a VM with no
+// TestPersistRecoveredHomeVolumeEmptyIsNoOp pins the guard for a VM with no
 // home mount: there is nothing to preserve, so no state is written.
 func TestPersistRecoveredHomeVolumeEmptyIsNoOp(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -1803,7 +1814,7 @@ func TestPersistRecoveredHomeVolumeEmptyIsNoOp(t *testing.T) {
 	}
 }
 
-// TestPersistRecoveredHomeVolumeReadError covers the write failure's wrapping: a
+// TestPersistRecoveredHomeVolumeReadError pins the write failure's wrapping: a
 // directory at the state file path makes the recovery read fail with a
 // non-not-found error, so the recorded volume is reported rather than lost.
 func TestPersistRecoveredHomeVolumeReadError(t *testing.T) {
@@ -1910,7 +1921,7 @@ func TestLegacyAdoptionPendingUnreadableMountWrapsCause(t *testing.T) {
 	}
 }
 
-// TestDestroyLegacyVMsErrorsOnUnreadableSlug covers the enumeration failure: an
+// TestDestroyLegacyVMsErrorsOnUnreadableSlug pins the enumeration failure: an
 // unreadable legacy slug directory aborts the teardown rather than moving state
 // with an unknown legacy VM possibly left running.
 func TestDestroyLegacyVMsErrorsOnUnreadableSlug(t *testing.T) {
@@ -2051,9 +2062,9 @@ func TestMigrateLegacyConfigDirsKeepsExistingTarget(t *testing.T) {
 	}
 }
 
-// TestMigrateLegacyConfigDirsSkipsRepoSlugAndMissingSource covers the two skip
-// branches: a legacy entry equal to the repo slug needs no move, and a legacy
-// slug with no config directory has nothing to move.
+// TestMigrateLegacyConfigDirsSkipsRepoSlugAndMissingSource pins that a legacy
+// entry equal to the repo slug needs no move and a legacy slug with no config
+// directory has nothing to move: both are skipped silently.
 func TestMigrateLegacyConfigDirsSkipsRepoSlugAndMissingSource(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	configpaths.WithRealConfigPaths(t)
@@ -2079,10 +2090,11 @@ func TestMigrateLegacyConfigDirsSkipsRepoSlugAndMissingSource(t *testing.T) {
 	}
 }
 
-// TestMigrateLegacyConfigDirsContinuesPastRepoSlug pins loop order: a legacy
-// entry equal to the repo slug is skipped, but the scan continues, so a later
-// legacy identity's config directory is still moved onto the repo slug.
-func TestMigrateLegacyConfigDirsContinuesPastRepoSlug(t *testing.T) {
+// TestMigrateLegacyConfigDirsContinuesPastSkippedEntries pins loop order: a
+// legacy entry equal to the repo slug and one with no config directory are
+// skipped, but the scan continues, so a later legacy identity's config
+// directory is still moved onto the repo slug.
+func TestMigrateLegacyConfigDirsContinuesPastSkippedEntries(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	configpaths.WithRealConfigPaths(t)
 	paths := configpaths.Get()
@@ -2096,40 +2108,13 @@ func TestMigrateLegacyConfigDirsContinuesPastRepoSlug(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	identity := git.Identity{
 		RepoSlug:        "agents-sandbox-bbb",
-		LegacyRepoSlugs: []string{"agents-sandbox-bbb", "workspace-aaa"},
+		LegacyRepoSlugs: []string{"agents-sandbox-bbb", "workspace-absent", "workspace-aaa"},
 	}
 	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
 		t.Fatalf("migrateLegacyConfigDirs: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(paths.UserSlugConfigDir("agents-sandbox-bbb"), "config.yaml")); err != nil {
-		t.Errorf("a later legacy config dir was not moved past the repo-slug entry: %v", err)
-	}
-}
-
-// TestMigrateLegacyConfigDirsContinuesPastMissingSource pins loop order on the
-// missing source: a legacy identity with no config directory is skipped, but the
-// scan continues, so a later present legacy directory is still moved.
-func TestMigrateLegacyConfigDirsContinuesPastMissingSource(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	configpaths.WithRealConfigPaths(t)
-	paths := configpaths.Get()
-
-	from := paths.UserSlugConfigDir("workspace-aaa")
-	if err := os.MkdirAll(from, 0o700); err != nil {
-		t.Fatalf("mkdir legacy config dir: %v", err)
-	}
-	testutil.WriteFile(t, from, "config.yaml", "x: 1\n")
-
-	ui := termio.NewTestMock(t)
-	identity := git.Identity{
-		RepoSlug:        "agents-sandbox-bbb",
-		LegacyRepoSlugs: []string{"workspace-absent", "workspace-aaa"},
-	}
-	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
-		t.Fatalf("migrateLegacyConfigDirs: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(paths.UserSlugConfigDir("agents-sandbox-bbb"), "config.yaml")); err != nil {
-		t.Errorf("a later present legacy config dir was not moved past a missing source: %v", err)
+		t.Errorf("a later legacy config dir was not moved past the skipped entries: %v", err)
 	}
 }
 
@@ -2171,7 +2156,7 @@ func TestMigrateLegacyConfigDirsReportsEveryKeptTarget(t *testing.T) {
 	}
 }
 
-// TestMigrateLegacyConfigDirsReportsRenameFailure covers the rename failure: a
+// TestMigrateLegacyConfigDirsReportsRenameFailure pins the rename failure: a
 // failed config move is reported, not silently swallowed.
 func TestMigrateLegacyConfigDirsReportsRenameFailure(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
