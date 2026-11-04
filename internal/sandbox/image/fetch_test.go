@@ -7,28 +7,18 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
-// plainAgent is an Agent that implements no optional capabilities, so
-// resolveAgentVersion takes the fallback branch.
-type plainAgent struct{}
-
-func (plainAgent) Name() string          { return "plain" }
-func (plainAgent) Experimental() bool    { return false }
-func (plainAgent) ConfigDirName() string { return "plain" }
-func (plainAgent) ImageSpec() agent.ImageSpec {
-	return agent.ImageSpec{InstallCommand: "true"}
+func TestResolveAgentVersionFallsBackToEmpty(t *testing.T) {
+	got, err := DefaultAgentVersionResolver(context.Background(), plainAgent{}, "")
+	if err != nil {
+		t.Fatalf("resolveAgentVersion: %v", err)
+	}
+	if got != "" {
+		t.Errorf(
+			"resolveAgentVersion = %q, want empty for an agent without an UpgradeChecker and no requested version",
+			got,
+		)
+	}
 }
-
-// fakeUpgradeAgent implements Agent + UpgradeChecker with a controllable latest.
-type fakeUpgradeAgent struct{ latest string }
-
-func (fakeUpgradeAgent) Name() string          { return "fake-upgrade" }
-func (fakeUpgradeAgent) Experimental() bool    { return false }
-func (fakeUpgradeAgent) ConfigDirName() string { return "fake-upgrade" }
-func (fakeUpgradeAgent) ImageSpec() agent.ImageSpec {
-	return agent.ImageSpec{InstallCommand: "true"}
-}
-func (f fakeUpgradeAgent) LatestVersion(_ context.Context) (string, error) { return f.latest, nil }
-func (fakeUpgradeAgent) NewerThan(_, _ string) (bool, error)               { return false, nil }
 
 // The agent's own UpgradeChecker must drive the resolved version, not opencode's.
 func TestResolveAgentVersionUsesAgentsOwnChecker(t *testing.T) {
@@ -61,3 +51,34 @@ func TestResolveOpenCodeVersionRequestsLatest(t *testing.T) {
 		t.Errorf("resolveAgentVersion = %q, want 9.9.9", got)
 	}
 }
+
+// plainAgent is an Agent that implements no optional capabilities, so
+// resolveAgentVersion takes the fallback branch.
+type plainAgent struct{}
+
+func (plainAgent) Name() string { return "plain" }
+
+func (plainAgent) Experimental() bool { return false }
+
+func (plainAgent) ConfigDirName() string { return "plain" }
+
+func (plainAgent) ImageSpec() agent.ImageSpec {
+	return agent.ImageSpec{InstallCommand: "true"}
+}
+
+// fakeUpgradeAgent implements Agent + UpgradeChecker with a controllable latest.
+type fakeUpgradeAgent struct{ latest string }
+
+func (fakeUpgradeAgent) Name() string { return "fake-upgrade" }
+
+func (fakeUpgradeAgent) Experimental() bool { return false }
+
+func (fakeUpgradeAgent) ConfigDirName() string { return "fake-upgrade" }
+
+func (fakeUpgradeAgent) ImageSpec() agent.ImageSpec {
+	return agent.ImageSpec{InstallCommand: "true"}
+}
+
+func (f fakeUpgradeAgent) LatestVersion(_ context.Context) (string, error) { return f.latest, nil }
+
+func (fakeUpgradeAgent) NewerThan(_, _ string) (bool, error) { return false, nil }

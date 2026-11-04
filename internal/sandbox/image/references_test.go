@@ -1,6 +1,7 @@
 package image
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -120,5 +121,25 @@ func TestInUseImageReferencesFailsClosedOnCorruptState(t *testing.T) {
 	}
 	if _, err := InUseImageReferences(nil); err == nil {
 		t.Fatal("InUseImageReferences() error = nil, want a corrupt state to fail closed")
+	}
+}
+
+func TestInUseImageReferencesKeepsPositionalSandbox(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ref := naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")
+	handle := &msb.MockSandboxHandle{Name_: "proj-1mjusbm3wikhb0-opencode", Cfg: &msbSdk.SandboxConfig{Image: ref}}
+	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{handle}}
+	msb.WithMsbMock(t, client)
+
+	references, err := inUseImageReferences(context.Background(), client)
+	if err != nil {
+		t.Fatalf("inUseImageReferences() = %v", err)
+	}
+	if len(references[ref]) != 1 {
+		t.Fatalf(
+			"references[%q] = %v, want one (every sandbox in the private runtime home is ours)",
+			ref,
+			references[ref],
+		)
 	}
 }

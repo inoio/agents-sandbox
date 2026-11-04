@@ -17,6 +17,25 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+// TestPreviewImageNoRebuildReportsReuseWithSkippedReasons pins that the dry run
+// matches a real --no-rebuild run: reuse, with the skipped reasons.
+func TestPreviewImageNoRebuildReportsReuseWithSkippedReasons(t *testing.T) {
+	runnerAndBaseMock(t, seededRunnerLabels(t, "debian:trixie-slim@sha256:old"), "sha256:new")
+
+	preview, err := previewRunnerImage(context.Background(), docker.Get(), agentOpencode(t), nil, "proj",
+		BuildOptions{AgentVersion: "1.2.3", Docker: dockerOff, NoRebuild: true}, &termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("previewRunnerImage: %v", err)
+	}
+	if preview.NeedsBuild {
+		t.Error("NeedsBuild = true, want reuse under --no-rebuild")
+	}
+	if !slices.Equal(preview.Reasons, []string{"base image updated"}) {
+		t.Errorf("Reasons = %v, want the skipped base-image reason", preview.Reasons)
+	}
+}
+
 // TestPreviewImageNeverResolvesVersion guards the core preview invariant: the
 // read-only path must never resolve an agent version over the network, even
 // when no version is pinned.
@@ -124,45 +143,6 @@ func TestPreviewImageEmptyVersionReportsResolveAtBuild(t *testing.T) {
 	}
 }
 
-// TestRunnerDockerfileIDMatchesTheRenderedPlan pins the exported identity
-// helper that higher-layer preview tests seed an image label with: it must equal
-// computeDockerfileID over the rendered project Dockerfile, so a seeded image
-// matches the plan the preview computes.
-func TestRunnerDockerfileIDMatchesTheRenderedPlan(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	a := agentOpencode(t)
-
-	id, err := RunnerDockerfileID(configpaths.Get(), a, testAgentVersion, dockerOff)
-	if err != nil {
-		t.Fatalf("RunnerDockerfileID: %v", err)
-	}
-	rendered, err := RenderProjectDockerfile(a, testAgentVersion, nil, dockerOff)
-	if err != nil {
-		t.Fatalf("RenderProjectDockerfile: %v", err)
-	}
-	if want := computeDockerfileID(rendered, testAgentVersion); id != want {
-		t.Errorf("RunnerDockerfileID = %q, want %q", id, want)
-	}
-}
-
-// TestRunnerDockerfileIDSurfacesRenderError pins that a project Dockerfile that
-// cannot render propagates the error instead of returning a bogus id.
-func TestRunnerDockerfileIDSurfacesRenderError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	a := agentOpencode(t)
-	dockerfilePath := configpaths.Get().ProjectDockerfile()
-	if err := os.MkdirAll(filepath.Dir(dockerfilePath), 0o700); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	if err := os.WriteFile(dockerfilePath, []byte("FROM ubuntu:24.04 AS "+baseStageAlias+"\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	if _, err := RunnerDockerfileID(configpaths.Get(), a, testAgentVersion, dockerOff); err == nil {
-		t.Fatal("expected a render error for a reserved stage alias")
-	}
-}
-
 // TestPreviewImageDelegatesToReadOnlyPlan exercises the exported entry: it warns
 // ignored project config and delegates to the read-only plan path with the
 // caller-supplied project Dockerfile bytes.
@@ -227,5 +207,65 @@ func TestPreviewImageWarnsOnLegacyDockerfile(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("expected a deprecation warning mentioning %q, got %v", want, ui.WarnCalls)
 		}
+	}
+}
+
+// TestPreviewImageWarnsIgnoredWorktreeConfig pins the same warning on the
+// PreviewImage entry.
+func TestPreviewImageWarnsIgnoredWorktreeConfig(t *testing.T) {
+	synthesizeBareWorktree(t, true)
+	docker.WithDefaultErrorDockerMock(t)
+	ui := &termio.Mock{}
+
+	_, _ = PreviewImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		agentOpencode(t),
+		"slug",
+		nil,
+		BuildOptions{AgentVersion: testAgentVersion},
+		ui,
+	)
+
+	assertWarnsIgnoredWorktreeConfig(t, ui)
+}
+
+// TestRunnerDockerfileIDMatchesTheRenderedPlan pins the exported identity
+// helper that higher-layer preview tests seed an image label with: it must equal
+// computeDockerfileID over the rendered project Dockerfile, so a seeded image
+// matches the plan the preview computes.
+func TestRunnerDockerfileIDMatchesTheRenderedPlan(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a := agentOpencode(t)
+
+	id, err := RunnerDockerfileID(configpaths.Get(), a, testAgentVersion, dockerOff)
+	if err != nil {
+		t.Fatalf("RunnerDockerfileID: %v", err)
+	}
+	rendered, err := RenderProjectDockerfile(a, testAgentVersion, nil, dockerOff)
+	if err != nil {
+		t.Fatalf("RenderProjectDockerfile: %v", err)
+	}
+	if want := computeDockerfileID(rendered, testAgentVersion); id != want {
+		t.Errorf("RunnerDockerfileID = %q, want %q", id, want)
+	}
+}
+
+// TestRunnerDockerfileIDSurfacesRenderError pins that a project Dockerfile that
+// cannot render propagates the error instead of returning a bogus id.
+func TestRunnerDockerfileIDSurfacesRenderError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a := agentOpencode(t)
+	dockerfilePath := configpaths.Get().ProjectDockerfile()
+	if err := os.MkdirAll(filepath.Dir(dockerfilePath), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(dockerfilePath, []byte("FROM ubuntu:24.04 AS "+baseStageAlias+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if _, err := RunnerDockerfileID(configpaths.Get(), a, testAgentVersion, dockerOff); err == nil {
+		t.Fatal("expected a render error for a reserved stage alias")
 	}
 }
