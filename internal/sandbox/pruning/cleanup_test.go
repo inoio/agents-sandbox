@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -66,4 +68,44 @@ func TestAutoPruneDefaultsToSevenDays(t *testing.T) {
 	withAutoPruneMocks(t)
 	testUI := termio.NewTestMock(t)
 	AutoPrune(context.Background(), docker.Get(), 0, true, &testUI)
+}
+
+func TestAutoPruneDefaultThresholdLiteral(t *testing.T) {
+	if autoPruneDefaultThreshold != 30*24*time.Hour {
+		t.Errorf("autoPruneDefaultThreshold = %v, want 30 days", autoPruneDefaultThreshold)
+	}
+}
+
+// TestAutoPruneZeroThresholdKeepsFreshStoppedVM pins the 0 -> default mapping: a
+// zero threshold must behave as 30 days, keeping a freshly stopped VM.
+func TestAutoPruneZeroThresholdKeepsFreshStoppedVM(t *testing.T) {
+	autoPruneOnce = sync.Once{}
+	configpaths.WithMockConfigPaths(t)
+	fresh := &msb.MockSandboxHandle{
+		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
+		Status_:    msbSdk.SandboxStatusStopped,
+		UpdatedAt_: time.Now(),
+	}
+	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{fresh}}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	testUI := termio.NewTestMock(t)
+
+	AutoPrune(context.Background(), docker.Get(), 0, false, &testUI)
+
+	if fresh.DidRemove() {
+		t.Error("a zero threshold must default to 30 days and keep a fresh stopped VM")
+	}
+}
+
+func TestAutoPruneRendersSummary(t *testing.T) {
+	autoPruneOnce = sync.Once{}
+	withAutoPruneMocks(t)
+	testUI := termio.NewTestMock(t)
+
+	AutoPrune(context.Background(), docker.Get(), time.Hour, false, &testUI)
+
+	if len(testUI.OutCalls) == 0 || !strings.Contains(testUI.OutCalls[0], "Pruned") {
+		t.Errorf("OutCalls = %v, want a prune summary", testUI.OutCalls)
+	}
 }

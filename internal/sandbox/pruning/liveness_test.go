@@ -397,3 +397,39 @@ func TestKeySetReturnsNilForNoKeys(t *testing.T) {
 		t.Errorf("keySet(%v) = %v, want it to index the key", keys, got)
 	}
 }
+
+// TestBuildPruneStateContinuesPastSkippedEntries pins that the loop keeps
+// processing after an unparseable name and a task sandbox: a stale project VM
+// after them must still be scheduled.
+func TestBuildPruneStateContinuesPastSkippedEntries(t *testing.T) {
+	stale := &msb.MockSandboxHandle{
+		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
+		Status_:    msbSdk.SandboxStatusStopped,
+		UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
+	}
+	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{
+		&msb.MockSandboxHandle{
+			Name_:      "agents-sandbox-vm-",
+			Status_:    msbSdk.SandboxStatusStopped,
+			UpdatedAt_: time.Now(),
+		},
+		&msb.MockSandboxHandle{
+			Name_:      "agents-sandbox-task-fill-1mjusbm3wikhb0-opencode-1729",
+			Status_:    msbSdk.SandboxStatusStopped,
+			UpdatedAt_: time.Now(),
+		},
+		stale,
+	}}
+	msb.WithMsbMock(t, client)
+
+	pruneState, err := buildPruneState(context.Background(), 7*24*time.Hour)
+	if err != nil {
+		t.Fatalf("buildPruneState: %v", err)
+	}
+	if len(pruneState.ToPrune) != 1 {
+		t.Fatalf("ToPrune = %v, want only the stale project VM", pruneState.ToPrune)
+	}
+	if _, ok := pruneState.ToPrune[state.Key{Slug: "proj-1mjusbm3wikhb0"}]; !ok {
+		t.Errorf("stale VM missing from ToPrune: %v", pruneState.ToPrune)
+	}
+}
