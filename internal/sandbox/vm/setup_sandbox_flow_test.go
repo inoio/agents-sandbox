@@ -51,10 +51,9 @@ func TestSetUpSandboxUsesTheThreadedResolvedAgent(t *testing.T) {
 	}
 }
 
-// TestSetUpSandboxProvisionError covers the provision-failure branch of
-// SetUpSandbox: a provision failure is logged as a warning and the setup
-// continues (config provisioning is non-disruptive and never fatal).
-func TestSetUpSandboxProvisionError(t *testing.T) {
+// TestSetUpSandboxContinuesWhenProvisioningFails pins that a failed config
+// write is a warning, not a setup failure: provisioning is non-disruptive.
+func TestSetUpSandboxContinuesWhenProvisioningFails(t *testing.T) {
 	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return `{"healthy":true,"version":"test"}`, 0, nil
@@ -92,45 +91,15 @@ func TestSetUpSandboxProvisionError(t *testing.T) {
 		t.Fatalf("SetUpSandbox: %v", err)
 	}
 
-	joined := joinStrings(ui.WarnCalls)
-	if !contains(joined, "provision failed") {
+	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "provision failed") {
 		t.Errorf("expected a provision-failure warning, got %v", ui.WarnCalls)
 	}
 }
 
-// TestSetUpSandboxDockerdError covers the dockerd-start failure branch in
-// SetUpSandbox.
-func TestSetUpSandboxDockerdError(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	sb := &msb.MockSandbox{
-		Name_:    "vm",
-		FSValue_: msb.NewTestFS(nil, nil),
-		ShellErr: errors.New("dockerd binary check failed"),
-	}
-
-	configpaths.WithMockConfigPaths(t)
-	cfs := &reprovision.ConfigFiles{}
-	_, err := SetUpSandbox(
-		context.Background(),
-		testVMKey(),
-		sb,
-		opencodeResolved(t),
-		options.RunOptions{Agent: "opencode"},
-		options.Seams{},
-		cfs,
-		&ui,
-		false,
-		VMBootConnected,
-		mounts.WorkspaceMountPath,
-	)
-	if err == nil {
-		t.Fatal("expected error from dockerd startup")
-	}
-}
-
-// TestSetUpSandboxEnsureDaemonError covers the ensureDaemon failure branch in
-// SetUpSandbox: the daemon never becomes healthy and starting it fails.
-func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
+// TestSetUpSandboxReportsADaemonThatCannotStart pins that an unhealthy daemon
+// that cannot be started fails the setup with the start's cause.
+func TestSetUpSandboxReportsADaemonThatCannotStart(t *testing.T) {
+	startFailed := errors.New("daemon start failed")
 	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return "", 0, errors.New("daemon shell failed")
 	}}
@@ -143,7 +112,7 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 		},
 		ExecDetachedFn: func(context.Context, string, []string, ...msbSdk.JobExecOption) (msb.Job, error) {
-			return nil, errors.New("daemon start failed")
+			return nil, startFailed
 		},
 	}
 
@@ -162,47 +131,8 @@ func TestSetUpSandboxEnsureDaemonError(t *testing.T) {
 		VMBootConnected,
 		mounts.WorkspaceMountPath,
 	)
-	if err == nil {
-		t.Fatal("expected error from ensureDaemon")
-	}
-}
-
-// TestSetUpSandboxProvisionWarn covers the provision-failure warning branch in
-// SetUpSandbox (config files are provisioned but the write fails; this is
-// logged as a warning and does not fail the sandbox setup).
-func TestSetUpSandboxProvisionWarn(t *testing.T) {
-	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == opencodeProvider(t).DaemonHealthCmd() {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	}}
-
-	fs := msb.NewTestFS(nil, nil)
-	fs.WriteErr = errors.New("write denied")
-	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
-
-	ui := termio.NewTestMock(t)
-	configpaths.WithMockConfigPaths(t)
-	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
-	_, err := SetUpSandbox(
-		context.Background(),
-		testVMKey(),
-		sb,
-		opencodeResolved(t),
-		options.RunOptions{Agent: "opencode"},
-		seams,
-		cfs,
-		&ui,
-		false,
-		VMBootCreated,
-		mounts.WorkspaceMountPath,
-	)
-	if err != nil {
-		t.Fatalf("SetUpSandbox should not fail on provision warning: %v", err)
-	}
-	if !contains(joinStrings(ui.WarnCalls), "provision failed") {
-		t.Errorf("expected a provision warning, got %v", ui.WarnCalls)
+	if !errors.Is(err, startFailed) {
+		t.Fatalf("SetUpSandbox error = %v, want it to wrap %v", err, startFailed)
 	}
 }
 
@@ -223,6 +153,11 @@ func TestSetUpSandboxProvisionsEachConfigKind(t *testing.T) {
 		{
 			name:        "drop-in files",
 			cfs:         &reprovision.ConfigFiles{Provisioned: map[string][]byte{path: []byte("x")}},
+			provisioned: func(fs *msb.TestFS) bool { return fs.Writes[path] != nil },
+		},
+		{
+			name:        "mirror files",
+			cfs:         &reprovision.ConfigFiles{Mirror: map[string][]byte{path: []byte("x")}},
 			provisioned: func(fs *msb.TestFS) bool { return fs.Writes[path] != nil },
 		},
 		{
@@ -284,17 +219,26 @@ func TestSetUpSandboxRecordsProvenanceOnlyOnBoot(t *testing.T) {
 	}
 }
 
-// TestSetUpSandboxWrapsDockerdError pins that a dockerd startup failure keeps
-// its cause, so a caller can tell it apart from other setup errors.
-func TestSetUpSandboxWrapsDockerdError(t *testing.T) {
+// TestSetUpSandboxStopsWhenDockerdCannotStart pins that a dockerd startup
+// failure ends the setup with its cause, before the agent daemon is started.
+func TestSetUpSandboxStopsWhenDockerdCannotStart(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	shellErr := errors.New("dockerd binary check failed")
-	sb := &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil, nil), ShellErr: shellErr}
+	calls := &[]msb.MockDetachedCall{}
+	sb := &msb.MockSandbox{
+		Name_:             "vm",
+		FSValue_:          msb.NewTestFS(nil, nil),
+		ShellErr:          shellErr,
+		ExecDetachedCalls: calls,
+	}
 	ui := termio.NewTestMock(t)
 
-	err := setUpOpencodeSandbox(t, sb, &reprovision.ConfigFiles{}, &ui, VMBootConnected, options.Seams{})
-	if !errors.Is(err, shellErr) {
-		t.Fatalf("SetUpSandbox error = %v, want it to wrap %v", err, shellErr)
+	err := setUpOpencodeSandbox(t, sb, &reprovision.ConfigFiles{}, &ui, VMBootConnected, healthyOpencodeDaemon(t))
+	if !errors.Is(err, shellErr) || !strings.Contains(err.Error(), "docker startup") {
+		t.Fatalf("SetUpSandbox error = %v, want the docker startup failure wrapping %v", err, shellErr)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("detached launches = %+v, want none after dockerd failed", *calls)
 	}
 }
 
@@ -344,12 +288,11 @@ func TestSetUpSandboxReportsWhatItDoes(t *testing.T) {
 	}
 }
 
-func TestSetUpSandboxProvisionsConfigOnFreshSetup(t *testing.T) {
-	setUpSandboxProvisionsConfig(t, "fresh setup")
-}
-
-func TestSetUpSandboxProvisionsConfigOnReuseWithEmptyDir(t *testing.T) {
-	setUpSandboxProvisionsConfig(t, "reused VM with empty config dir")
+// TestSetUpSandboxProvisionsTheMergedConfig pins that the merged agent config
+// from the host snippets is written to a VM whose config dir is empty, and that
+// the agent starts in the workspace.
+func TestSetUpSandboxProvisionsTheMergedConfig(t *testing.T) {
+	setUpSandboxProvisionsConfig(t)
 }
 
 func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
@@ -429,11 +372,11 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 		t.Error("expected a resolved target even when provisioning failed")
 	}
 
-	joined := joinStrings(commands)
+	joined := strings.Join(commands, "\n")
 	if len(commands) > 0 {
 		t.Errorf("expected no daemon commands on provision failure (daemon preserved), got %q", joined)
 	}
-	if !contains(joinStrings(ui.WarnCalls), "provision failed") {
+	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "provision failed") {
 		t.Errorf("expected a provision-failure warning, got %v", ui.WarnCalls)
 	}
 }
@@ -542,40 +485,6 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 	}
 }
 
-// TestSetUpSandboxProvisionsMirrorOnly verifies that a ConfigFiles carrying
-// only mirror files still triggers provisioning.
-func TestSetUpSandboxProvisionsMirrorOnly(t *testing.T) {
-	seams := healthyOpencodeDaemon(t)
-
-	fs := msb.NewTestFS(nil, nil)
-	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	cfs := &reprovision.ConfigFiles{
-		Mirror: map[string][]byte{
-			"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
-		},
-	}
-	if _, err := SetUpSandbox(
-		context.Background(),
-		testVMKey(),
-		sb,
-		opencodeResolved(t),
-		options.RunOptions{Agent: "opencode"},
-		seams,
-		cfs,
-		ui,
-		false,
-		VMBootStarted,
-		mounts.WorkspaceMountPath,
-	); err != nil {
-		t.Fatalf("SetUpSandbox: %v", err)
-	}
-	if fs.Writes["/home/dev/.config/opencode/tui.json"] == nil {
-		t.Error("expected mirror file to be provisioned")
-	}
-}
-
 func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
 
@@ -656,7 +565,7 @@ func setUpOpencodeSandbox(
 // sandbox home (reprovision exposes it as ConfigFiles.MergedPath).
 const opencodeMergedConfigPath = "/home/dev/.config/opencode/opencode.jsonc"
 
-func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
+func setUpSandboxProvisionsConfig(t *testing.T) {
 	t.Helper()
 	seams := healthyOpencodeDaemon(t)
 
@@ -701,9 +610,6 @@ func setUpSandboxProvisionsConfig(t *testing.T, provisionMsg string) {
 	wroteConfig := fs.Writes != nil &&
 		fs.Writes[opencodeMergedConfigPath] != nil
 	if !wroteConfig {
-		t.Errorf(
-			"expected config to be provisioned on %s, but opencode.json was never written",
-			provisionMsg,
-		)
+		t.Error("expected the merged config to be provisioned, but it was never written")
 	}
 }
