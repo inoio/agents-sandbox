@@ -97,107 +97,57 @@ func TestResolveBuildVersionNoRebuildSkipsUpgradeCheck(t *testing.T) {
 	}
 }
 
-// TestResolveOpenCodeVersionInteractiveSelectError covers the Select failure
-// branch of resolveBuildVersion: an interactive prompt whose selection
-// errors is propagated.
-func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
-	origLatest := agentLatestVersion
-	defer func() { agentLatestVersion = origLatest }()
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
+// TestResolveBuildVersionAppliesTheUpgradePromptAnswer pins what each answer
+// to the interactive upgrade prompt does: rebuild takes the newer release,
+// keep and an unrecognized answer stay on the recorded one, quit aborts the
+// session, and a failing prompt is reported.
+func TestResolveBuildVersionAppliesTheUpgradePromptAnswer(t *testing.T) {
+	selectErr := errors.New("selection failed")
+	cases := []struct {
+		name         string
+		answer       string
+		answerErr    error
+		wantVersion  string
+		wantUpgraded bool
+		wantErr      error
+	}{
+		{name: "rebuild", answer: "r", wantVersion: "2.0.0", wantUpgraded: true},
+		{name: "keep", answer: "k", wantVersion: "1.0.0"},
+		{name: "unrecognized answer keeps", answer: "unknown", wantVersion: "1.0.0"},
+		{name: "quit", answer: "q", wantErr: errUpgradeQuit},
+		{name: "prompt fails", answerErr: selectErr, wantErr: selectErr},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			withMockAgentLatestVersion(t, "2.0.0")
+			k := state.Key{Slug: "proj", Agent: "opencode"}
+			seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
+			ui := &termio.Mock{
+				IsInteractiveResult: true,
+				SelectFn: func(string, []termio.Choice, string) (string, error) {
+					return tc.answer, tc.answerErr
+				},
+			}
 
-	ui := &termio.Mock{
-		IsInteractiveResult: true,
-		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
-			return "", errors.New("selection failed")
-		},
-	}
+			got, upgraded, _, err := resolveBuildVersion(
+				context.Background(), docker.Get(), k, opencodeResolved(t), ui, options.RunOptions{Agent: "opencode"},
+			)
 
-	_, _, _, err := resolveBuildVersion(
-		context.Background(),
-		docker.Get(),
-		k,
-		opencodeResolved(t),
-		ui,
-		options.RunOptions{Agent: "opencode"},
-	)
-	if err == nil {
-		t.Fatal("expected error when the interactive selection fails")
-	}
-}
-
-// TestResolveOpenCodeVersionInteractiveDefaultChoice covers the
-// default/unknown-choice branch: an unrecognized selection keeps the current
-// version.
-func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
-	origLatest := agentLatestVersion
-	defer func() { agentLatestVersion = origLatest }()
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
-
-	ui := &termio.Mock{
-		IsInteractiveResult: true,
-		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
-			return "unknown", nil
-		},
-	}
-
-	got, upgraded, _, err := resolveBuildVersion(
-		context.Background(),
-		docker.Get(),
-		k,
-		opencodeResolved(t),
-		ui,
-		options.RunOptions{Agent: "opencode"},
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if upgraded {
-		t.Error("expected upgraded=false for an unknown choice")
-	}
-	if got != "1.0.0" {
-		t.Errorf("expected current version for an unknown choice, got %q", got)
-	}
-}
-
-// TestResolveOpenCodeVersionInteractiveKeep covers the "keep" choice branch:
-// the current version is kept.
-func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
-	origLatest := agentLatestVersion
-	defer func() { agentLatestVersion = origLatest }()
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
-
-	ui := &termio.Mock{
-		IsInteractiveResult: true,
-		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
-			return "k", nil
-		},
-	}
-
-	got, upgraded, _, err := resolveBuildVersion(
-		context.Background(),
-		docker.Get(),
-		k,
-		opencodeResolved(t),
-		ui,
-		options.RunOptions{Agent: "opencode"},
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if upgraded {
-		t.Error("expected upgraded=false for the keep choice")
-	}
-	if got != "1.0.0" {
-		t.Errorf("expected current version for the keep choice, got %q", got)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("error = %v, want %v", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveBuildVersion: %v", err)
+			}
+			if got != tc.wantVersion || upgraded != tc.wantUpgraded {
+				t.Errorf("resolveBuildVersion = (%q, upgraded=%v), want (%q, upgraded=%v)",
+					got, upgraded, tc.wantVersion, tc.wantUpgraded)
+			}
+		})
 	}
 }
 
@@ -780,34 +730,6 @@ func TestResolveOpenCodeVersionNonInteractiveLogsUpgradeAvailable(t *testing.T) 
 	}
 }
 
-func TestResolveOpenCodeVersionInteractiveRebuild(t *testing.T) {
-	origLatest := agentLatestVersion
-	defer func() { agentLatestVersion = origLatest }()
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
-
-	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
-	opts := options.RunOptions{Agent: "opencode"}
-	ui := &termio.Mock{
-		IsInteractiveResult: true,
-		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
-			return "r", nil
-		},
-	}
-
-	got, upgraded, _, err := resolveBuildVersion(context.Background(), docker.Get(), k, opencodeResolved(t), ui, opts)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != "2.0.0" {
-		t.Errorf("expected new version 2.0.0, got %q", got)
-	}
-	if !upgraded {
-		t.Error("expected upgraded=true after choosing to rebuild")
-	}
-}
-
 func TestResolveOpenCodeVersionSkipsCheckWhenCheckedToday(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
@@ -987,28 +909,6 @@ func TestResolveOpenCodeVersionOfflineDoesNotUpdateLastChecked(t *testing.T) {
 			"expected LastChecked to remain zero after offline check, got %v",
 			root.AgentCheck("opencode").LastChecked,
 		)
-	}
-}
-
-func TestResolveOpenCodeVersionInteractiveQuit(t *testing.T) {
-	origLatest := agentLatestVersion
-	defer func() { agentLatestVersion = origLatest }()
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
-
-	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
-	opts := options.RunOptions{Agent: "opencode"}
-	ui := &termio.Mock{
-		IsInteractiveResult: true,
-		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
-			return "q", nil
-		},
-	}
-
-	_, _, _, err := resolveBuildVersion(context.Background(), docker.Get(), k, opencodeResolved(t), ui, opts)
-	if !errors.Is(err, errUpgradeQuit) {
-		t.Fatalf("expected errUpgradeQuit, got %v", err)
 	}
 }
 
@@ -1845,44 +1745,9 @@ func TestCheckAgentUpgradeSecondReadErrorDefers(t *testing.T) {
 	}
 }
 
-// TestCurrentAgentVersionIgnoresCorruptFile covers the read-error branch of
-// currentAgentVersion (a corrupt project state file must yield "").
-func TestCurrentAgentVersionIgnoresCorruptFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	sdir := filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent)
-	if err := os.MkdirAll(sdir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(sdir, "state.yaml"), []byte("::: not yaml :::"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := currentAgentVersion(k); got != "" {
-		t.Errorf("currentAgentVersion() = %q, want empty for corrupt file", got)
-	}
-}
-
-// TestCurrentAgentVersionReadError covers the read-error branch of
-// currentAgentVersion: an unreadable state file yields "".
-func TestCurrentAgentVersionReadError(t *testing.T) {
-	withFailingStateDir(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	if got := currentAgentVersion(k); got != "" {
-		t.Errorf("currentAgentVersion() = %q, want empty when the state cannot be read", got)
-	}
-}
-
-// TestCurrentAgentSourceLoadError covers the branch where the project state
-// cannot be read: an empty source is returned.
-func TestCurrentAgentSourceLoadError(t *testing.T) {
-	withFailingStateDir(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	if got := currentAgentSource(k); got != "" {
-		t.Errorf("currentAgentSource() = %q, want empty on load error", got)
-	}
-}
-
-func TestCurrentAgentSource(t *testing.T) {
+// TestCurrentAgentSourceReadsTheRecordedSource pins that the recorded agent
+// source is returned, and nothing for a project without state.
+func TestCurrentAgentSourceReadsTheRecordedSource(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	if got := currentAgentSource(k); got != "" {
@@ -1896,29 +1761,61 @@ func TestCurrentAgentSource(t *testing.T) {
 	}
 }
 
-// TestAgentLatestVersionDefaultNoChecker covers the default agentLatestVersion
-// branch for an agent that is not an UpgradeChecker: it returns an empty version
-// without error.
-func TestAgentLatestVersionDefaultNoChecker(t *testing.T) {
-	got, err := agentLatestVersion(context.Background(), &fakeAgent{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+// TestCurrentAgentVersionAndSourceAreEmptyWhenStateCannotBeRead pins that an
+// unreadable project state counts as "nothing recorded" rather than an error.
+func TestCurrentAgentVersionAndSourceAreEmptyWhenStateCannotBeRead(t *testing.T) {
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	unreadableStates := map[string]func(t *testing.T){
+		"corrupt state file": func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			stateDir := filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent)
+			if err := os.MkdirAll(stateDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(
+				filepath.Join(stateDir, "state.yaml"),
+				[]byte("::: not yaml :::"),
+				0o600,
+			); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"state directory cannot be read": withFailingStateDir,
 	}
-	if got != "" {
-		t.Errorf("agentLatestVersion for a non-checker = %q, want empty", got)
+	for name, arrange := range unreadableStates {
+		t.Run(name, func(t *testing.T) {
+			arrange(t)
+			if got := currentAgentVersion(k); got != "" {
+				t.Errorf("currentAgentVersion() = %q, want empty", got)
+			}
+			if got := currentAgentSource(k); got != "" {
+				t.Errorf("currentAgentSource() = %q, want empty", got)
+			}
+		})
 	}
 }
 
-// TestAgentLatestVersionCheckerAgent covers the real agentLatestVersion branch
-// where the agent is an UpgradeChecker: it returns the checker's latest
-// version.
-func TestAgentLatestVersionCheckerAgent(t *testing.T) {
-	got, err := agentLatestVersion(context.Background(), upgradeCheckerAgent{})
-	if err != nil {
-		t.Fatalf("agentLatestVersion: %v", err)
+// TestAgentLatestVersionAsksOnlyUpgradeCheckers pins that the latest release
+// comes from the agent's upgrade checker, and an agent without one reports none.
+func TestAgentLatestVersionAsksOnlyUpgradeCheckers(t *testing.T) {
+	cases := []struct {
+		name  string
+		agent agent.Agent
+		want  string
+	}{
+		{name: "upgrade checker", agent: upgradeCheckerAgent{}, want: "9.9.9"},
+		{name: "no upgrade checker", agent: &fakeAgent{}, want: ""},
 	}
-	if got != "9.9.9" {
-		t.Errorf("agentLatestVersion = %q, want %q", got, "9.9.9")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := agentLatestVersion(context.Background(), tc.agent)
+			if err != nil {
+				t.Fatalf("agentLatestVersion: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("agentLatestVersion = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
