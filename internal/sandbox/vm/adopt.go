@@ -18,7 +18,7 @@ import (
 )
 
 // IdentityAdoption reports how a legacy origin-keyed project identity was
-// adopted for the current checkout (#144).
+// adopted for the current checkout.
 //
 //exhaustruct:ignore
 type IdentityAdoption struct {
@@ -53,47 +53,31 @@ var adoptKeysLockedHook func()
 // permission tricks, so tests force the failure through this seam.
 var renameConfigDir = os.Rename
 
-// AdoptLegacyIdentity moves a project from the legacy origin-keyed identity to
-// its checkout-scoped one on the first run after upgrade (#144).
+// AdoptLegacyIdentity migrates a project from the legacy origin-keyed identity
+// to its checkout-scoped one when a legacy identity is pending for the agent.
 //
-// Before the identity split, one origin-derived slug keyed the state directory,
-// the VM, the home volume and the runner image, so two clones of one remote
-// collided on a single VM. Adoption destroys the legacy VM first and then merges
-// the state directory onto the checkout slug. That order is crash-safe: a crash
-// in between leaves the legacy state in place, so the next run re-adopts and
-// merely recreates the VM, while moving first would leave an untracked VM
-// running against the shared home volume. The merge is the idempotence record —
-// the legacy state file is gone afterwards, so adoption cannot re-fire.
+// It destroys every legacy VM the move touches, then merges each legacy state
+// directory onto the checkout slug; the destroyed-then-moved order is
+// crash-safe, and the merge makes adoption idempotent (the legacy state file is
+// gone afterwards, so it cannot re-fire).
 //
-// A bare root records a second legacy identity (its pre-split path-derived
-// slug), so adoption merges from every legacy identity the caller resolved, in
-// order. Migrating a directory moves every agent's state, so every moved agent's
-// legacy VM is destroyed, not only the requested one; otherwise a still-running
-// sibling agent would recreate itself over the same home volume.
-//
-// A live legacy VM is itself a legacy identity, even when its state file was
-// lost (issue #219): without adopting it the run would treat the checkout as
-// brand new, mint a fresh home volume and orphan the user's credentials and
-// files. That arm has no state file to move, so adoption records the mounted
-// home volume durably in the checkout state's RecoveredHomeVolume before it
-// destroys the VM, and home resolution later recovers it into HomeVolume. The
-// destroy is what makes the volume unreadable afterwards, so the reference has
-// to be written first; recording it in memory (as this once did) loses it the
-// moment the caller discards the return value, which every entry point except a
-// successful run did (issue #244 review).
+// Every slug the caller resolved is adopted, in order, including a bare root's
+// extra path-derived slug, and the move carries every agent's state, so every
+// moved agent's legacy VM is destroyed. A surviving legacy VM is a pending
+// identity even when its state file was lost: its mounted home volume is
+// written durably into the checkout state before the destroy — the volume's
+// only other reference — and home resolution later recovers it.
 //
 // With apply=false (a dry run) it prints the notice and leaves everything in
 // place, returning the legacy slug so the rest of the pipeline keeps resolving
 // against the pre-migration location.
 //
-// The destroy-and-move runs inside one root-state transaction, so two concurrent
-// first-post-upgrade runs cannot both destroy and move. The trigger is
-// re-checked while the lock is held: a second run that lost the race to another
-// checkout sees the state already moved and continues normally under the
-// checkout identity instead of failing. The destroy and move additionally hold
-// the per-key home and project-VM locks (WithKeyLocks) of every key they touch,
-// so a concurrent per-key state write or VM creation cannot interleave with them
-// (#333).
+// The destroy and move run inside one root-state transaction, so two concurrent
+// runs cannot both adopt, and the trigger is re-checked while the lock is held:
+// a run that loses the race sees the state already moved and continues under
+// the checkout identity. They also hold the per-key home and project-VM locks of
+// every key they touch, so a concurrent per-key state write or VM creation
+// cannot interleave.
 func AdoptLegacyIdentity(
 	ctx context.Context,
 	paths configpaths.ConfigPaths,
@@ -202,8 +186,8 @@ func adoptionLockKeys(slugs []string, checkoutSlug, agentName string) ([]state.K
 }
 
 // legacyPendingSource is where a pending legacy identity was found. FromVM marks
-// an identity evidenced only by a surviving project VM whose state file was lost
-// (issue #219); HomeVolume is the volume to preserve in either case.
+// an identity evidenced only by a surviving project VM whose state file was
+// lost; HomeVolume is the volume to preserve in either case.
 type legacyPendingSource struct {
 	Slug       string
 	HomeVolume string
@@ -512,9 +496,9 @@ func destroyLegacyVMs(ctx context.Context, client msb.Client, slug, agentName st
 // legacyAgentsToMigrate returns the agents whose legacy artifacts the move
 // touches: every agent with state under slug (state.StatefulAgentNames), plus the
 // command's own agent. The command's agent is included explicitly because a
-// legacy VM whose state file was lost is not listed by StatefulAgentNames (issue
-// #219), yet it is the VM that would otherwise keep running over the volume
-// adoption preserves.
+// legacy VM whose state file was lost is not listed by StatefulAgentNames, yet
+// it is the VM that would otherwise keep running over the volume adoption
+// preserves.
 func legacyAgentsToMigrate(slug, agentName string) ([]string, error) {
 	names, err := state.StatefulAgentNames(slug)
 	if err != nil {

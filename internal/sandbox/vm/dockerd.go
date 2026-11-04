@@ -27,7 +27,7 @@ const (
 	// dockerdDaemonConfigPath is dockerd's default configuration file. The
 	// launcher reads it (see guestStorageDriver) so it never forces
 	// storage-driver both in the file and on the command line, which dockerd
-	// rejects (inoio/agents-sandbox#287).
+	// rejects.
 	dockerdDaemonConfigPath = "/etc/docker/daemon.json"
 	vfsStorageDriver        = "vfs"
 
@@ -54,7 +54,7 @@ const (
 )
 
 // The readiness window must exceed dockerd's 15s containerd start timeout, so a
-// restart has time to come up before the poll gives up. Tests shorten the vars.
+// restart has time to come up before the poll gives up.
 const (
 	dockerdReadyTimeoutDefault = 30 * time.Second
 	dockerdPollIntervalDefault = time.Second
@@ -71,7 +71,7 @@ var (
 // binary and /dev/fuse are present, vfs otherwise. The driver is requested with
 // --storage-driver unless the image's daemon.json already sets it, in which
 // case the flag is dropped because dockerd refuses a directive set both as a
-// flag and in the configuration file (#287). A daemon.json requesting any
+// flag and in the configuration file. A daemon.json requesting any
 // driver other than those two is a hard error rather than a silent override or
 // a flag/file conflict.
 func dockerdArgs(ctx context.Context, sb msb.Sandbox) ([]string, string, error) {
