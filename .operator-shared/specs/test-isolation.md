@@ -185,6 +185,10 @@ seam family is reached without its injectable factory. The remaining ambient pat
   `InstallFailFast` panic by default (tests opt in by overriding it); the temp WAV still goes to the real `os.TempDir`.
 - `os.Getuid`/`Getgid` (image build args), `os.Getwd` (workspace source), `time.Now` (names/polling/spinner), and
   `viperconfig`'s env reads are read-only or the input itself, not leaks.
+- The real `git` binary: `internal/git` tests and `testutil.RunGit` shell out to it, so it reads the developer's global
+  and system config. A test that asserts on git-generated artifacts must pin the config it depends on in its own
+  fixture — a linked worktree's recorded gitdir is absolute only while `worktree.useRelativePaths` is false, and CI on a
+  plain clone never exercises a developer's global setting (`TestResolveIdentityOutsideWorktreeReportsSharedGitDir`).
 
 `agent` and `filewalk` install every fail-fast family except `notify` (which imports both, so it cannot be installed
 from them). Keep any future host-path need in them injected, never global.

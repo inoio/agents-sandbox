@@ -17,6 +17,10 @@ import (
 func TestResolveIdentityOutsideWorktreeReportsSharedGitDir(t *testing.T) {
 	repo := mustResolvePath(t, testutil.InitRepo(t))
 	worktree := filepath.Join(mustResolvePath(t, t.TempDir()), "wt")
+	// Pin the absolute form: an ambient worktree.useRelativePaths would record a
+	// relative path instead (the case TestResolveIdentityOutsideWorktreeWithRelativeGitdir
+	// covers), leaving the recorded path unresolvable as a guest mount target.
+	testutil.RunGit(t, repo, "config", "worktree.useRelativePaths", "false")
 	testutil.RunGit(t, repo, "worktree", "add", worktree)
 
 	identity := mustResolveIdentity(t, worktree)
