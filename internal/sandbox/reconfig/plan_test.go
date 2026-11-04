@@ -1,6 +1,9 @@
 package reconfig
 
 import (
+	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -9,26 +12,221 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// planSlug and planContentID identify the runner image the plan tests compare
-// their persisted VM image against.
-const (
-	planSlug      = "proj-1mjusbm3wikhb0"
-	planContentID = "9f2c1a7b4d6e0f31"
-)
-
-// planImage is the launcher-side structured identity most tests compare a
-// persisted VM image against: the fixture project and agent, pinned to one
-// content id (the spelling a rebuilt image resolves to).
-func planImage() naming.ImageIdentity {
-	return naming.ImageIdentity{Slug: planSlug, Agent: "opencode", ContentID: planContentID}
+func TestFormatSizeSpecEmptyRaw(t *testing.T) {
+	cases := []struct {
+		valueMiB uint32
+		raw      string
+		want     string
+	}{
+		{0, "", "0M"},
+		{1024, "", "1024M"},
+		{4096, "", "4096M"},
+		{2048, "2G", "2G"},
+		{2048, "3G", "2048M"},
+	}
+	for _, tc := range cases {
+		if got := FormatSizeSpec(tc.valueMiB, tc.raw); got != tc.want {
+			t.Errorf("FormatSizeSpec(%d, %q) = %q, want %q", tc.valueMiB, tc.raw, got, tc.want)
+		}
+	}
 }
 
-// planNameImage is the same project and agent with no content id: the spelling
-// for an image whose content id the launcher does not know.
-func planNameImage() naming.ImageIdentity {
-	return naming.ImageIdentity{Slug: planSlug, Agent: "opencode"}
+func TestFormatSizeSpecVerbatimWhenMatches(t *testing.T) {
+	if got := FormatSizeSpec(2048, "2G"); got != "2G" {
+		t.Errorf("expected verbatim 2G, got %q", got)
+	}
+	if got := FormatSizeSpec(3500, "2G"); got != "3500M" {
+		t.Errorf("expected fallback 3500M, got %q", got)
+	}
+	if got := FormatSizeSpec(2048, ""); got != "2048M" {
+		t.Errorf("expected 2048M for empty raw, got %q", got)
+	}
+}
+
+func TestSizeChangeFormatting(t *testing.T) {
+	// user-provided "2G" parses to 2048 MiB
+	c := SizeChange("/tmp tmpfs size", 2048, 4096, "2G", "4G")
+	if c.Label != "/tmp tmpfs size" || c.Old != "2G" || c.New != "4G" {
+		t.Errorf("unexpected SizeChange: %+v", c)
+	}
+}
+
+// TestConfigChangeListLabelOnly verifies the default formatting branch when Old
+// or New is empty.
+func TestConfigChangeListLabelOnly(t *testing.T) {
+	got := configChangeList([]Change{
+		{Label: "environment variables"},
+		{Label: "size", Old: "1", New: "2"},
+	})
+	if got == "" {
+		t.Fatal("expected a non-empty change list")
+	}
+}
+
+// TestConfigChangeList pins both display forms: the "label: old → new" line for
+// a change carrying both values, and the bare label for anything else. A
+// one-sided change must take the bare form.
+func TestConfigChangeList(t *testing.T) {
+	got := configChangeList([]Change{
+		{Label: "image", Old: "a", New: "b"},
+		{Label: "new-only", New: "b"},
+		{Label: "old-only", Old: "a"},
+		{Label: "label-only"},
+	})
+	want := "Project VM config changed:\n" +
+		"  - image: a → b\n" +
+		"  - new-only\n" +
+		"  - old-only\n" +
+		"  - label-only"
+	if got != want {
+		t.Errorf("configChangeList() = %q, want %q", got, want)
+	}
+	if got := configChangeList(nil); got != "Project VM config changed:" {
+		t.Errorf("configChangeList(nil) = %q", got)
+	}
+}
+
+// TestPlanReconfigDiskChangeWithNilRootDisk verifies the disk recreate trigger
+// when RootDisk is nil (diskMiBOr0 nil branch) and exercises the disk change
+// formatting.
+func TestPlanReconfigDiskChangeWithNilRootDisk(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{Image: naming.RunnerImageRef(planSlug, "opencode")}
+	plan := PlanReconfig(cfg, planImage(), options.RunOptions{DiskSize: "8G"}, ChangeFlags{}, "")
+	if !plan.Recreate {
+		t.Fatal("expected recreate on disk size change with nil RootDisk")
+	}
+	found := false
+	for _, c := range plan.Changes {
+		if c.Label == "root disk size" && c.Old == "0M" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected root disk size change with Old=0M, got %+v", plan.Changes)
+	}
+}
+
+func TestPlanReconfigDecidesRecreate(t *testing.T) {
+	mkConfig := func(cpus uint8, mem uint32, diskMiB uint32, tmpMiB uint32) *msbSdk.SandboxConfig {
+		var rootDisk *msbSdk.RootDiskConfig
+		if diskMiB > 0 {
+			d := msbSdk.RootDisk.Managed(diskMiB)
+			rootDisk = &d
+		}
+		return &msbSdk.SandboxConfig{
+			CPUs:      cpus,
+			MemoryMiB: mem,
+			RootDisk:  rootDisk,
+			Image:     naming.RunnerImageRef(planSlug, "opencode"),
+			Volumes: map[string]msbSdk.MountConfig{
+				mounts.TmpMountPath:       {SizeMiB: tmpMiB},
+				mounts.WorkspaceMountPath: {QuotaMiB: options.DefaultWorkspaceQuotaMiB},
+				mounts.VMHomeDir:          {Named: "agents-sandbox-home-proj-vol"},
+			},
+		}
+	}
+
+	cases := []struct {
+		name    string
+		cfg     *msbSdk.SandboxConfig
+		image   naming.ImageIdentity
+		opts    options.RunOptions
+		homeVol string
+		want    bool
+	}{
+		{
+			name:    "image mismatch",
+			cfg:     mkConfig(4, 4096, 0, 2048),
+			image:   naming.ImageIdentity{Slug: planSlug, Agent: "pi"},
+			opts:    options.RunOptions{},
+			homeVol: "agents-sandbox-home-proj-vol",
+			want:    true,
+		},
+		{
+			name:    "tmpfs mismatch",
+			cfg:     mkConfig(4, 4096, 0, 2048),
+			image:   planImage(),
+			opts:    options.RunOptions{TmpSize: "1G"},
+			homeVol: "agents-sandbox-home-proj-vol",
+			want:    true,
+		},
+		{
+			name:    "workspace quota mismatch",
+			cfg:     mkConfig(4, 4096, 0, 2048),
+			image:   planImage(),
+			opts:    options.RunOptions{WorkspaceQuota: "32G"},
+			homeVol: "agents-sandbox-home-proj-vol",
+			want:    true,
+		},
+		{
+			name:    "workspace quota unset ignores quota",
+			cfg:     mkConfig(4, 4096, 0, 2048),
+			image:   planImage(),
+			opts:    options.RunOptions{},
+			homeVol: "agents-sandbox-home-proj-vol",
+			want:    false,
+		},
+		{
+			name:    "disk mismatch (explicit)",
+			cfg:     mkConfig(4, 4096, 8192, 2048),
+			image:   planImage(),
+			opts:    options.RunOptions{DiskSize: "16G"},
+			homeVol: "agents-sandbox-home-proj-vol",
+			want:    true,
+		},
+		{
+			name:    "disk unset ignores disk",
+			cfg:     mkConfig(4, 4096, 8192, 2048),
+			image:   planImage(),
+			opts:    options.RunOptions{},
+			homeVol: "agents-sandbox-home-proj-vol",
+			want:    false,
+		},
+		{
+			name:    "home volume mismatch",
+			cfg:     mkConfig(4, 4096, 0, 2048),
+			image:   planImage(),
+			opts:    options.RunOptions{},
+			homeVol: "agents-sandbox-home-proj-new",
+			want:    true,
+		},
+		{
+			name:    "no change",
+			cfg:     mkConfig(4, 4096, 16384, 2048),
+			image:   planImage(),
+			opts:    options.RunOptions{TmpSize: "2G", DiskSize: "16G"},
+			homeVol: "agents-sandbox-home-proj-vol",
+			want:    false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := PlanReconfig(tc.cfg, tc.image, tc.opts, ChangeFlags{}, tc.homeVol).Recreate
+			if got != tc.want {
+				t.Errorf("PlanReconfig().Recreate = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPlanReconfigServeHostPortReuse(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		Image: naming.RunnerImageRef(planSlug, "opencode"),
+		PortBindings: []msbSdk.PortBinding{
+			{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+		},
+	}
+	opts := options.RunOptions{ServeOnly: true}
+	plan := PlanReconfig(cfg, planImage(), opts, ChangeFlags{}, "")
+	if plan.Recreate {
+		t.Error("expected no recreate when reusing the existing binding")
+	}
+	if plan.ServeHostPort != 4096 {
+		t.Errorf("ServeHostPort = %d, want 4096", plan.ServeHostPort)
+	}
 }
 
 func TestPlanReconfigServeOnly(t *testing.T) {
@@ -180,47 +378,6 @@ func TestPlanReconfigToleratesContentImageRef(t *testing.T) {
 				tc.name, tc.persisted, plan.Recreate, tc.wantRecreate,
 			)
 		}
-	}
-}
-
-func TestDesiredPublishBindingsDelegatesToOptions(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
-		{Bind: "127.0.0.1", HostPort: 4097, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
-	}}
-	optsBindings := ports.ServeOnlyBindings(4097)
-	planBindings := desiredPublishBindings(options.RunOptions{ServeOnly: true}, cfg)
-	if len(planBindings) != 1 {
-		t.Fatalf("expected 1 binding, got %d", len(planBindings))
-	}
-	if planBindings[0].Bind != optsBindings[0].Bind {
-		t.Errorf("Bind = %q, want %q", planBindings[0].Bind, optsBindings[0].Bind)
-	}
-	if planBindings[0].HostPort != optsBindings[0].HostPort {
-		t.Errorf("HostPort = %d, want %d", planBindings[0].HostPort, optsBindings[0].HostPort)
-	}
-	if planBindings[0].GuestPort != optsBindings[0].GuestPort {
-		t.Errorf("GuestPort = %d, want %d", planBindings[0].GuestPort, optsBindings[0].GuestPort)
-	}
-	if planBindings[0].Protocol != optsBindings[0].Protocol {
-		t.Errorf("Protocol = %v, want %v", planBindings[0].Protocol, optsBindings[0].Protocol)
-	}
-}
-
-func TestDesiredPublishBindingsNilWhenNothingPublished(t *testing.T) {
-	got := desiredPublishBindings(options.RunOptions{}, nil)
-	if got != nil {
-		t.Errorf("expected nil when nothing is published, got %+v", got)
-	}
-}
-
-func TestDesiredPublishBindingsIncludeUserPorts(t *testing.T) {
-	opts := options.RunOptions{Ports: []ports.PortMapping{{HostPort: 8080, GuestPort: 5173}}}
-	got := desiredPublishBindings(opts, nil)
-	if len(got) != 1 {
-		t.Fatalf("expected 1 binding, got %+v", got)
-	}
-	if got[0].HostPort != 8080 || got[0].GuestPort != 5173 {
-		t.Errorf("binding = %+v, want host 8080 guest 5173", got[0])
 	}
 }
 
@@ -392,45 +549,187 @@ func TestPlanReconfigMountsUnchangedNoRecreate(t *testing.T) {
 	}
 }
 
-func TestFormatSizeSpecEmptyRaw(t *testing.T) {
-	cases := []struct {
-		valueMiB uint32
-		raw      string
-		want     string
-	}{
-		{0, "", "0M"},
-		{1024, "", "1024M"},
-		{4096, "", "4096M"},
-		{2048, "2G", "2G"},
-		{2048, "3G", "2048M"},
+func TestPlanReconfigAgentConfigSuppressedByRecreate(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		Image: naming.ContentImageRef(planSlug, "opencode", "4b8d0e6f2a1c3b57"), CPUs: 4, MemoryMiB: 4096,
 	}
-	for _, tc := range cases {
-		if got := FormatSizeSpec(tc.valueMiB, tc.raw); got != tc.want {
-			t.Errorf("FormatSizeSpec(%d, %q) = %q, want %q", tc.valueMiB, tc.raw, got, tc.want)
+	plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{AgentConfig: true}, "")
+	if !plan.Recreate {
+		t.Fatal("expected a recreate on the image change")
+	}
+	if plan.RestartDaemons {
+		t.Error("agent config must not restart daemons when the VM is recreated anyway")
+	}
+	for _, c := range plan.Changes {
+		if c.Label == "agent config" {
+			t.Errorf("agent config should not be a change line when recreating: %+v", plan.Changes)
 		}
 	}
 }
 
-// TestConfigChangeList pins both display forms: the "label: old → new" line for
-// a change carrying both values, and the bare label for anything else. A
-// one-sided change must take the bare form.
-func TestConfigChangeList(t *testing.T) {
-	got := configChangeList([]Change{
-		{Label: "image", Old: "a", New: "b"},
-		{Label: "new-only", New: "b"},
-		{Label: "old-only", Old: "a"},
-		{Label: "label-only"},
-	})
-	want := "Project VM config changed:\n" +
-		"  - image: a → b\n" +
-		"  - new-only\n" +
-		"  - old-only\n" +
-		"  - label-only"
-	if got != want {
-		t.Errorf("configChangeList() = %q, want %q", got, want)
+// TestPlanReconfigRecreateSuppressesEnvChange pins that env/secret changes fold
+// into an already-decided recreate: they must not be appended as extra change
+// lines, which would misreport why the VM is rebuilt.
+func TestPlanReconfigRecreateSuppressesEnvChange(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		Image: naming.ContentImageRef(planSlug, "opencode", "4b8d0e6f2a1c3b57"), CPUs: 4, MemoryMiB: 4096,
 	}
-	if got := configChangeList(nil); got != "Project VM config changed:" {
-		t.Errorf("configChangeList(nil) = %q", got)
+	plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{Env: true, Secrets: true}, "")
+	if !plan.Recreate {
+		t.Fatal("expected a recreate on the image change")
+	}
+	for _, c := range plan.Changes {
+		if c.Label == "environment variables" || c.Label == "secrets" {
+			t.Errorf("env/secret change should not be listed when recreating anyway: %+v", plan.Changes)
+		}
+	}
+}
+
+func TestPlanReconfigAgentConfigAppendsChange(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096,
+	}
+	plan := PlanReconfig(cfg, planNameImage(), options.RunOptions{}, ChangeFlags{AgentConfig: true}, "")
+	if !plan.RestartDaemons {
+		t.Fatal("expected a daemon restart for an agent config change")
+	}
+	found := false
+	for _, c := range plan.Changes {
+		if c.Label == "agent config" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected an 'agent config' change line, got %+v", plan.Changes)
+	}
+}
+
+func TestPlanReconfigRecreateOnTmpMismatch(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		Volumes: map[string]msbSdk.MountConfig{mounts.TmpMountPath: {SizeMiB: 2048}},
+	}
+	d := PlanReconfig(cfg, planImage(), options.RunOptions{TmpSize: "4G"},
+		ChangeFlags{}, "")
+	if !d.Recreate {
+		t.Error("expected recreate on /tmp size mismatch")
+	}
+	if len(d.Changes) != 1 || d.Changes[0].Label != "/tmp tmpfs size" {
+		t.Errorf("expected one /tmp change, got %+v", d.Changes)
+	}
+}
+
+func TestPlanReconfigRecreateOnImageMismatch(t *testing.T) {
+	d := PlanReconfig(nil, planImage(), options.RunOptions{}, ChangeFlags{}, "")
+	if d.Recreate {
+		t.Error("image comparison requires cfg.Image; see resolver, planner.cpp nil-cfg safe")
+	}
+	cfg := &msbSdk.SandboxConfig{Image: naming.ContentImageRef(planSlug, "opencode", "4b8d0e6f2a1c3b57")}
+	d = PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{}, "")
+	if !d.Recreate {
+		t.Error("expected recreate on image mismatch")
+	}
+}
+
+func TestPlanReconfigRecreateOnImageDigestChange(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{Image: naming.DockerImageRef(planSlug, "opencode")}
+
+	d := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{Image: true}, "")
+	if !d.Recreate {
+		t.Fatal("expected recreate when the image digest changes")
+	}
+	if d.RestartDaemons {
+		t.Error("expected image changes to recreate the VM instead of restarting daemons")
+	}
+	if len(d.Changes) != 1 || d.Changes[0].Label != changeLabelImage {
+		t.Errorf("expected one image change, got %+v", d.Changes)
+	}
+}
+
+func TestPlanReconfigStagesClampedCpus(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8}
+	d := PlanReconfig(cfg, planImage(), options.RunOptions{CPUs: 16}, ChangeFlags{}, "")
+	if d.Resources == nil || d.Resources.CPUs != 8 {
+		t.Fatalf("expected resources clamped CPUs=8, got %+v", d.Resources)
+	}
+}
+
+func TestPlanReconfigNoActionsWhenUnchanged(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{CPUs: 4, MemoryMiB: 4096}
+	d := PlanReconfig(cfg, planImage(), options.RunOptions{CPUs: 4, Memory: "4G"},
+		ChangeFlags{}, "")
+	if d.Recreate || d.RestartDaemons || d.Resources != nil {
+		t.Errorf("expected no actions, got %+v", d)
+	}
+}
+
+func TestPlanReconfigEnvChangeRebuildsVM(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096}
+	d := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{Env: true}, "") // envChanged=true
+	if !d.Recreate {
+		t.Error("expected recreate on env change (env cannot be applied live)")
+	}
+	if d.RestartDaemons {
+		t.Error("unexpected daemon restart for env change (folded into recreate)")
+	}
+}
+
+func TestPlanReconfigAgentConfigChangeRestartsDaemon(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096}
+	d := PlanReconfig(
+		cfg,
+		planImage(),
+		options.RunOptions{},
+		ChangeFlags{AgentConfig: true},
+		"",
+	) // agentConfigChanged=true
+	if !d.RestartDaemons {
+		t.Error("expected restartDaemons on agent config change")
+	}
+	if d.Recreate {
+		t.Error("expected NO VM recreate for agent-config-only change")
+	}
+}
+
+func TestPlanReconfigSecretsChangeRebuildsVM(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096}
+	d := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{Secrets: true}, "") // secretsChanged=true
+	if !d.Recreate {
+		t.Error("expected recreate on secrets change (secrets cannot be applied live)")
+	}
+	if d.RestartDaemons {
+		t.Error("unexpected daemon restart for secrets change (folded into recreate)")
+	}
+}
+
+func TestPlanReconfigEnvWithRecreateNoRestartFlag(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		Image: naming.ContentImageRef(planSlug, "opencode", "4b8d0e6f2a1c3b57"), CPUs: 4, MemoryMiB: 4096,
+		Volumes: map[string]msbSdk.MountConfig{
+			mounts.TmpMountPath: {SizeMiB: 2048},
+		},
+	}
+	// image mismatch triggers recreate, env change would add restartDaemons
+	d := PlanReconfig(cfg, planImage(), options.RunOptions{TmpSize: "4G"}, ChangeFlags{Env: true}, "")
+	if !d.Recreate {
+		t.Error("expected recreate on image mismatch")
+	}
+	if d.RestartDaemons {
+		t.Error("expected restartDaemons=false when recreate is set (folded into recreate)")
+	}
+}
+
+func TestPlanReconfigMemoryClampToMax(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		Image:        naming.RunnerImageRef(planSlug, "opencode"),
+		MemoryMiB:    4096,
+		MaxMemoryMiB: 8192,
+	}
+	d := PlanReconfig(cfg, planImage(), options.RunOptions{Memory: "16G"}, ChangeFlags{}, "")
+	if d.Resources == nil {
+		t.Fatal("expected resources set for memory change")
+	}
+	if d.Resources.MemoryMiB != 8192 {
+		t.Errorf("expected memory clamped to 8192, got %d", d.Resources.MemoryMiB)
 	}
 }
 
@@ -459,26 +758,6 @@ func TestImageRecreateNonRunnerRefs(t *testing.T) {
 		cfg := &msbSdk.SandboxConfig{Image: persisted}
 		if !imageRecreate(cfg, planImage(), false) {
 			t.Errorf("persisted %q must trigger a recreate against the desired identity", persisted)
-		}
-	}
-}
-
-func TestIsNameImage(t *testing.T) {
-	const slug = "proj-1mjusbm3wikhb0"
-	cases := []struct {
-		name string
-		info naming.ArtifactInfo
-		want bool
-	}{
-		{"slug and agent", naming.ArtifactInfo{Slug: slug, Agent: "opencode"}, true},
-		{"content-addressed", naming.ArtifactInfo{Slug: slug, Agent: "opencode", ContentID: "abc"}, true},
-		{"no slug", naming.ArtifactInfo{Agent: "opencode"}, false},
-		{"no agent", naming.ArtifactInfo{Slug: slug}, false},
-		{"digest-pinned", naming.ArtifactInfo{Slug: slug, Agent: "opencode", Digest: "abc"}, false},
-	}
-	for _, tc := range cases {
-		if got := isNameImage(tc.info); got != tc.want {
-			t.Errorf("%s: isNameImage(%+v) = %v, want %v", tc.name, tc.info, got, tc.want)
 		}
 	}
 }
@@ -549,6 +828,26 @@ func TestSameImageRefContentID(t *testing.T) {
 	}
 }
 
+func TestIsNameImage(t *testing.T) {
+	const slug = "proj-1mjusbm3wikhb0"
+	cases := []struct {
+		name string
+		info naming.ArtifactInfo
+		want bool
+	}{
+		{"slug and agent", naming.ArtifactInfo{Slug: slug, Agent: "opencode"}, true},
+		{"content-addressed", naming.ArtifactInfo{Slug: slug, Agent: "opencode", ContentID: "abc"}, true},
+		{"no slug", naming.ArtifactInfo{Agent: "opencode"}, false},
+		{"no agent", naming.ArtifactInfo{Slug: slug}, false},
+		{"digest-pinned", naming.ArtifactInfo{Slug: slug, Agent: "opencode", Digest: "abc"}, false},
+	}
+	for _, tc := range cases {
+		if got := isNameImage(tc.info); got != tc.want {
+			t.Errorf("%s: isNameImage(%+v) = %v, want %v", tc.name, tc.info, got, tc.want)
+		}
+	}
+}
+
 func TestTmpSizeChangeMissingVolume(t *testing.T) {
 	if _, changed := tmpSizeChange(&msbSdk.SandboxConfig{}, options.RunOptions{TmpSize: "4G"}); changed {
 		t.Error("a requested tmp size with no mounted /tmp volume must not be a change")
@@ -564,6 +863,39 @@ func TestTmpSizeChangeInvalidSpec(t *testing.T) {
 	}
 	if _, changed := tmpSizeChange(cfg, options.RunOptions{}); changed {
 		t.Error("an unset tmp size must not be a change")
+	}
+}
+
+func TestWorkspaceQuotaChange(t *testing.T) {
+	vol := func(quotaMiB uint32) map[string]msbSdk.MountConfig {
+		return map[string]msbSdk.MountConfig{mounts.WorkspaceMountPath: {QuotaMiB: quotaMiB}}
+	}
+	tests := []struct {
+		name    string
+		volumes map[string]msbSdk.MountConfig
+		spec    string
+		want    bool
+	}{
+		{name: "missing volume", volumes: nil, spec: "32G", want: false},
+		{name: "invalid spec", volumes: vol(1024), spec: "not-a-size", want: false},
+		{
+			name:    "equal quota",
+			volumes: vol(options.DefaultWorkspaceQuotaMiB),
+			spec:    FormatSizeSpec(options.DefaultWorkspaceQuotaMiB, ""),
+			want:    false,
+		},
+		{name: "different quota", volumes: vol(1024), spec: "32G", want: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &msbSdk.SandboxConfig{Volumes: tc.volumes}
+			if _, changed := workspaceQuotaChange(
+				cfg,
+				options.RunOptions{WorkspaceQuota: tc.spec},
+			); changed != tc.want {
+				t.Errorf("workspaceQuotaChange() changed = %v, want %v", changed, tc.want)
+			}
+		})
 	}
 }
 
@@ -636,24 +968,6 @@ func TestResourceModificationMaxCPUsOne(t *testing.T) {
 	}
 }
 
-func TestPlanReconfigAgentConfigSuppressedByRecreate(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
-		Image: naming.ContentImageRef(planSlug, "opencode", "4b8d0e6f2a1c3b57"), CPUs: 4, MemoryMiB: 4096,
-	}
-	plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{AgentConfig: true}, "")
-	if !plan.Recreate {
-		t.Fatal("expected a recreate on the image change")
-	}
-	if plan.RestartDaemons {
-		t.Error("agent config must not restart daemons when the VM is recreated anyway")
-	}
-	for _, c := range plan.Changes {
-		if c.Label == "agent config" {
-			t.Errorf("agent config should not be a change line when recreating: %+v", plan.Changes)
-		}
-	}
-}
-
 func TestResourceModificationMemoryNoMax(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{MemoryMiB: 1024, MaxMemoryMiB: 0}
 	mo := resourceModification(cfg, options.RunOptions{Memory: "2G"})
@@ -691,39 +1005,343 @@ func TestResourceModificationNilWhenUnchanged(t *testing.T) {
 	}
 }
 
-// TestPlanReconfigRecreateSuppressesEnvChange pins that env/secret changes fold
-// into an already-decided recreate: they must not be appended as extra change
-// lines, which would misreport why the VM is rebuilt.
-func TestPlanReconfigRecreateSuppressesEnvChange(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
-		Image: naming.ContentImageRef(planSlug, "opencode", "4b8d0e6f2a1c3b57"), CPUs: 4, MemoryMiB: 4096,
+// TestResolveReconfigPromptAError verifies that a prompt selection error is
+// swallowed without applying.
+func TestResolveReconfigPromptAError(t *testing.T) {
+	plan := &Plan{Recreate: true}
+	ui := &termio.Mock{}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
+		return "", errors.New("select boom")
 	}
-	plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{Env: true, Secrets: true}, "")
-	if !plan.Recreate {
-		t.Fatal("expected a recreate on the image change")
+	actions, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
+	if err != nil {
+		t.Errorf("expected select error to be swallowed, got %v", err)
 	}
-	for _, c := range plan.Changes {
-		if c.Label == "environment variables" || c.Label == "secrets" {
-			t.Errorf("env/secret change should not be listed when recreating anyway: %+v", plan.Changes)
-		}
+	if actions.Recreate {
+		t.Error("expected no recreate when the select errored")
 	}
 }
 
-func TestPlanReconfigAgentConfigAppendsChange(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
-		Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096,
+// TestResolveReconfigPromptADefer verifies that selecting keep defers the change.
+func TestResolveReconfigPromptADefer(t *testing.T) {
+	plan := &Plan{Recreate: true}
+	ui := &termio.Mock{}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return keepKey, nil }
+	actions, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	plan := PlanReconfig(cfg, planNameImage(), options.RunOptions{}, ChangeFlags{AgentConfig: true}, "")
-	if !plan.RestartDaemons {
-		t.Fatal("expected a daemon restart for an agent config change")
+	if actions.Recreate {
+		t.Error("expected no recreate when keep is selected")
 	}
-	found := false
-	for _, c := range plan.Changes {
-		if c.Label == "agent config" {
-			found = true
-		}
+}
+
+// TestResolveReconfigPromptBError verifies that a PromptB select error is
+// swallowed without applying a restart.
+func TestResolveReconfigPromptBError(t *testing.T) {
+	plan := &Plan{RestartDaemons: true}
+	ui := &termio.Mock{}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
+		return "", errors.New("select boom")
 	}
-	if !found {
-		t.Errorf("expected an 'agent config' change line, got %+v", plan.Changes)
+	actions, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
+	if err != nil {
+		t.Errorf("expected select error to be swallowed, got %v", err)
 	}
+	if actions.Restart {
+		t.Error("expected no restart when the select errored")
+	}
+}
+
+// TestResolveReconfigRestartAlone verifies the silent restart path with no
+// other clients attached.
+func TestResolveReconfigRestartAlone(t *testing.T) {
+	plan := &Plan{RestartDaemons: true}
+	ui := &termio.Mock{}
+	actions, err := ResolveReconfig(context.Background(), ui, plan, 0, plan.Changes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if actions.Recreate {
+		t.Error("expected no recreate")
+	}
+	if !actions.Restart {
+		t.Error("expected restart when alone")
+	}
+	if len(ui.InfoCalls) == 0 {
+		t.Error("expected an informational line when restarting silently")
+	}
+}
+
+// TestResolveReconfigNoAction verifies the no-op branch when the plan has no
+// recreate or restart requirement.
+func TestResolveReconfigNoAction(t *testing.T) {
+	ui := &termio.Mock{}
+	actions, err := ResolveReconfig(context.Background(), ui, &Plan{}, 1, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if actions.Recreate || actions.Restart {
+		t.Errorf("expected no actions, got recreate=%v restart=%v", actions.Recreate, actions.Restart)
+	}
+}
+
+func TestResolveReconfigSilentWhenAlone(t *testing.T) {
+	plan := &Plan{Recreate: true}
+	ui := &termio.Mock{}
+	actions, err := ResolveReconfig(context.Background(), ui, plan, 0, nil)
+	if err != nil || !actions.Recreate {
+		t.Errorf("alone recreate should apply silently, got %v %v", actions.Recreate, err)
+	}
+	if len(ui.InfoCalls) == 0 {
+		t.Error("expected at least an informational line when recreating silently")
+	}
+}
+
+func TestResolveReconfigVerboseReportsRebuildReasons(t *testing.T) {
+	plan := &Plan{
+		Recreate: true,
+		Changes:  []Change{{Label: "image"}, {Label: "secrets"}},
+	}
+	ui := &termio.Mock{}
+	if _, err := ResolveReconfig(context.Background(), ui, plan, 0, plan.Changes); err != nil {
+		t.Fatalf("ResolveReconfig: %v", err)
+	}
+	joined := strings.Join(ui.VerboseCalls, "\n")
+	if !strings.Contains(joined, "rebuild reasons:") ||
+		!strings.Contains(joined, "image") || !strings.Contains(joined, "secrets") {
+		t.Errorf("verbose calls = %v, want the rebuild reasons", ui.VerboseCalls)
+	}
+}
+
+func TestResolveReconfigVerboseReportsRestartReasons(t *testing.T) {
+	plan := &Plan{
+		RestartDaemons: true,
+		Changes:        []Change{{Label: "agent config"}},
+	}
+	ui := &termio.Mock{}
+	if _, err := ResolveReconfig(context.Background(), ui, plan, 0, plan.Changes); err != nil {
+		t.Fatalf("ResolveReconfig: %v", err)
+	}
+	joined := strings.Join(ui.VerboseCalls, "\n")
+	if !strings.Contains(joined, "restart reasons: agent config") {
+		t.Errorf("verbose calls = %v, want the restart reasons", ui.VerboseCalls)
+	}
+}
+
+func TestResolveReconfigPromptAKeep(t *testing.T) {
+	plan := &Plan{Recreate: true, Changes: []Change{{Label: "root disk size"}}}
+	ui := &termio.Mock{}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
+		return "q", nil // quit
+	}
+	actions, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
+	if err == nil {
+		t.Error("expected quit to abort (return an error)")
+	}
+	if actions.Recreate {
+		t.Error("quit must not apply recreate")
+	}
+	if actions.Restart {
+		t.Error("quit must not apply restart")
+	}
+}
+
+func TestResolveReconfigPromptBKeepReturnsNoRestart(t *testing.T) {
+	plan := &Plan{RestartDaemons: true}
+	ui := &termio.Mock{}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "k", nil }
+	actions, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
+	if err != nil {
+		t.Fatalf("keep should not error: %v", err)
+	}
+	if actions.Restart {
+		t.Error("keep must not restart daemons")
+	}
+}
+
+func TestResolveReconfigPromptBQuit(t *testing.T) {
+	plan := &Plan{RestartDaemons: true}
+	ui := &termio.Mock{}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "q", nil }
+	actions, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
+	if err == nil {
+		t.Error("expected quit to abort (return an error)")
+	}
+	if actions.Recreate || actions.Restart {
+		t.Error("quit must not apply recreate or restart daemons")
+	}
+}
+
+func TestResolveReconfigPromptBRestart(t *testing.T) {
+	plan := &Plan{RestartDaemons: true}
+	ui := &termio.Mock{}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "r", nil }
+	actions, err := ResolveReconfig(context.Background(), ui, plan, 1, plan.Changes)
+	if err != nil {
+		t.Fatalf("restart should not error: %v", err)
+	}
+	if actions.Recreate {
+		t.Error("restart must not apply recreate")
+	}
+	if !actions.Restart {
+		t.Error("expected Restart=true for restart selection")
+	}
+}
+
+func TestResolveReconfigAloneRecreateNoRestart(t *testing.T) {
+	actions, err := ResolveReconfig(
+		context.Background(), &termio.Mock{}, &Plan{Recreate: true}, 0, nil)
+	if err != nil || !actions.Recreate || actions.Restart {
+		t.Errorf("alone recreate: recreate=%v restart=%v err=%v", actions.Recreate, actions.Restart, err)
+	}
+}
+
+func TestResolveReconfigAloneRestartNoRecreate(t *testing.T) {
+	actions, err := ResolveReconfig(
+		context.Background(), &termio.Mock{}, &Plan{RestartDaemons: true}, 0, nil)
+	if err != nil || actions.Recreate || !actions.Restart {
+		t.Errorf("alone restart: recreate=%v restart=%v err=%v", actions.Recreate, actions.Restart, err)
+	}
+}
+
+func TestResolveReconfigNoActionReturnsNothing(t *testing.T) {
+	actions, err := ResolveReconfig(
+		context.Background(), &termio.Mock{}, &Plan{}, 0, nil)
+	if err != nil || actions.Recreate || actions.Restart {
+		t.Errorf("no-action: recreate=%v restart=%v err=%v", actions.Recreate, actions.Restart, err)
+	}
+}
+
+// TestResolveReconfigPromptAKeepDefers pins the keep path: a non-quit answer to
+// the recreate prompt returns without applying anything.
+func TestResolveReconfigPromptAKeepDefers(t *testing.T) {
+	ui := &termio.Mock{}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return keepKey, nil }
+	actions, err := ResolveReconfig(
+		context.Background(), ui, &Plan{Recreate: true}, 1, nil)
+	if err != nil || actions.Recreate || actions.Restart {
+		t.Errorf("keep: recreate=%v restart=%v err=%v", actions.Recreate, actions.Restart, err)
+	}
+}
+
+// TestResolveReconfigPromptAErrorDefers pins that a prompt error is swallowed
+// even when the prompt also reports the quit key.
+func TestResolveReconfigPromptAErrorDefers(t *testing.T) {
+	ui := &termio.Mock{}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
+		return quitKey, errors.New("select failed")
+	}
+	actions, err := ResolveReconfig(
+		context.Background(), ui, &Plan{Recreate: true}, 1, nil)
+	if err != nil || actions.Recreate || actions.Restart {
+		t.Errorf("prompt A error: recreate=%v restart=%v err=%v", actions.Recreate, actions.Restart, err)
+	}
+}
+
+func TestResolveReconfigPromptBErrorDefers(t *testing.T) {
+	ui := &termio.Mock{}
+	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
+		return quitKey, errors.New("select failed")
+	}
+	actions, err := ResolveReconfig(
+		context.Background(), ui, &Plan{RestartDaemons: true}, 1, nil)
+	if err != nil || actions.Recreate || actions.Restart {
+		t.Errorf("prompt B error: recreate=%v restart=%v err=%v", actions.Recreate, actions.Restart, err)
+	}
+}
+
+// TestDiskMiBOr0NilRootDisk verifies diskMiBOr0 returns 0 when RootDisk is nil.
+func TestDiskMiBOr0NilRootDisk(t *testing.T) {
+	if got := diskMiBOr0(&msbSdk.SandboxConfig{}); got != 0 {
+		t.Errorf("expected 0 for nil RootDisk, got %d", got)
+	}
+}
+
+func TestDesiredPublishBindingsDelegatesToOptions(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 4097, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+	}}
+	optsBindings := ports.ServeOnlyBindings(4097)
+	planBindings := desiredPublishBindings(options.RunOptions{ServeOnly: true}, cfg)
+	if len(planBindings) != 1 {
+		t.Fatalf("expected 1 binding, got %d", len(planBindings))
+	}
+	if planBindings[0].Bind != optsBindings[0].Bind {
+		t.Errorf("Bind = %q, want %q", planBindings[0].Bind, optsBindings[0].Bind)
+	}
+	if planBindings[0].HostPort != optsBindings[0].HostPort {
+		t.Errorf("HostPort = %d, want %d", planBindings[0].HostPort, optsBindings[0].HostPort)
+	}
+	if planBindings[0].GuestPort != optsBindings[0].GuestPort {
+		t.Errorf("GuestPort = %d, want %d", planBindings[0].GuestPort, optsBindings[0].GuestPort)
+	}
+	if planBindings[0].Protocol != optsBindings[0].Protocol {
+		t.Errorf("Protocol = %v, want %v", planBindings[0].Protocol, optsBindings[0].Protocol)
+	}
+}
+
+func TestDesiredPublishBindingsNilWhenNothingPublished(t *testing.T) {
+	got := desiredPublishBindings(options.RunOptions{}, nil)
+	if got != nil {
+		t.Errorf("expected nil when nothing is published, got %+v", got)
+	}
+}
+
+func TestDesiredPublishBindingsIncludeUserPorts(t *testing.T) {
+	opts := options.RunOptions{Ports: []ports.PortMapping{{HostPort: 8080, GuestPort: 5173}}}
+	got := desiredPublishBindings(opts, nil)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 binding, got %+v", got)
+	}
+	if got[0].HostPort != 8080 || got[0].GuestPort != 5173 {
+		t.Errorf("binding = %+v, want host 8080 guest 5173", got[0])
+	}
+}
+
+// TestPortBindingsEqualLengthMismatch verifies the length-mismatch branch.
+func TestPortBindingsEqualLengthMismatch(t *testing.T) {
+	a := []msbSdk.PortBinding{{Bind: "localhost"}}
+	if ports.BindingsEqual(a, nil) {
+		t.Error("expected false for differing lengths")
+	}
+}
+
+// TestPortBindingsEqualElementMismatch verifies the element-mismatch branch for
+// equal-length bindings.
+func TestPortBindingsEqualElementMismatch(t *testing.T) {
+	a := []msbSdk.PortBinding{{Bind: "localhost", HostPort: 1}}
+	b := []msbSdk.PortBinding{{Bind: "localhost", HostPort: 2}}
+	if ports.BindingsEqual(a, b) {
+		t.Error("expected false for differing elements")
+	}
+}
+
+// TestPortBindingsEqualMatch verifies the equal branch.
+func TestPortBindingsEqualMatch(t *testing.T) {
+	a := []msbSdk.PortBinding{{Bind: "localhost", HostPort: 1}}
+	b := []msbSdk.PortBinding{{Bind: "localhost", HostPort: 1}}
+	if !ports.BindingsEqual(a, b) {
+		t.Error("expected true for matching bindings")
+	}
+}
+
+// planSlug and planContentID identify the runner image the plan tests compare
+// their persisted VM image against.
+const (
+	planSlug      = "proj-1mjusbm3wikhb0"
+	planContentID = "9f2c1a7b4d6e0f31"
+)
+
+// planImage is the launcher-side structured identity most tests compare a
+// persisted VM image against: the fixture project and agent, pinned to one
+// content id (the spelling a rebuilt image resolves to).
+func planImage() naming.ImageIdentity {
+	return naming.ImageIdentity{Slug: planSlug, Agent: "opencode", ContentID: planContentID}
+}
+
+// planNameImage is the same project and agent with no content id: the spelling
+// for an image whose content id the launcher does not know.
+func planNameImage() naming.ImageIdentity {
+	return naming.ImageIdentity{Slug: planSlug, Agent: "opencode"}
 }
