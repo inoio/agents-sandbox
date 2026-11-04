@@ -70,26 +70,43 @@ func TestParseHomeSectionNilHomeNonNilManifest(t *testing.T) {
 	}
 }
 
-func TestParseHomeSectionRejectsNonStringSource(t *testing.T) {
-	data := []byte("home:\n  .x:\n    source: 42\n")
-	if _, _, err := ParseHomeSection(data, "config.yaml"); err == nil {
-		t.Fatal("expected error for a non-string source")
+// TestParseHomeSectionRejectsInvalidEntries pins the manifest's shape rules:
+// home must be a map, an entry is a source string or a map whose source and
+// hook are strings, the only hook is "startup" and root is a boolean. Each
+// refusal names the file and the entry.
+func TestParseHomeSectionRejectsInvalidEntries(t *testing.T) {
+	cases := []struct {
+		name string
+		data string
+		want string
+	}{
+		{"home not a map", "home: 42\n", `parse config.yaml: home must be a map of target to source`},
+		{
+			"non-string source",
+			"home:\n  .x:\n    source: 42\n",
+			`parse config.yaml entry ".x": source must be a string`,
+		},
+		{"non-string hook", "home:\n  .x:\n    hook: 42\n", `parse config.yaml entry ".x": hook must be a string`},
+		{
+			"unknown hook",
+			"home:\n  .x:\n    source: x\n    hook: boot\n",
+			`entry ".x": hook must be "startup", got "boot"`,
+		},
+		{
+			"non-boolean root",
+			"home:\n  .x:\n    source: x\n    hook: startup\n    root: yes\n",
+			`entry ".x": root must be a boolean`,
+		},
+		{"scalar value", "home:\n  .x: 42\n", `entry ".x": unsupported value type int`},
+		{"list value", "home:\n  .x:\n    - a\n    - b\n", `entry ".x": unsupported value type []interface {}`},
 	}
-}
-
-func TestParseHomeSectionRejectsNonStringHook(t *testing.T) {
-	data := []byte("home:\n  .x:\n    hook: 42\n")
-	if _, _, err := ParseHomeSection(data, "config.yaml"); err == nil {
-		t.Fatal("expected error for a non-string hook")
-	}
-}
-
-func TestParseHomeSectionRejectsUnsupportedValueType(t *testing.T) {
-	for _, body := range []string{".x: 42\n", ".x:\n  - a\n  - b\n"} {
-		data := []byte("home:\n  " + strings.ReplaceAll(body, "\n", "\n  ") + "\n")
-		if _, _, err := ParseHomeSection(data, "config.yaml"); err == nil {
-			t.Errorf("expected an error for value body %q", body)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := ParseHomeSection([]byte(tc.data), "config.yaml")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ParseHomeSection error = %v, want %q", err, tc.want)
+			}
+		})
 	}
 }
 
@@ -104,13 +121,6 @@ func TestParseHomeSectionNilEntryIsEmpty(t *testing.T) {
 	}
 	if e, ok := m[".x"]; !ok || e != (Entry{}) {
 		t.Errorf("expected empty Entry for nil value, got %v", m[".x"])
-	}
-}
-
-func TestParseHomeSectionHomeNotAMap(t *testing.T) {
-	data := []byte("home: 42\n")
-	if _, _, err := ParseHomeSection(data, "config.yaml"); err == nil {
-		t.Fatal("expected an error when home is not a map")
 	}
 }
 
@@ -225,20 +235,8 @@ func TestParseHomeSectionSyntaxErrorIsFriendly(t *testing.T) {
 	}
 }
 
-func TestParseHomeSectionRejectsUnknownHook(t *testing.T) {
-	data := []byte("home:\n  .x:\n    source: x\n    hook: boot\n")
-	if _, _, err := ParseHomeSection(data, "config.yaml"); err == nil {
-		t.Fatal("expected error for unknown hook value")
-	}
-}
-
-func TestParseHomeSectionRejectsNonBooleanRoot(t *testing.T) {
-	data := []byte("home:\n  .x:\n    source: x\n    hook: startup\n    root: yes\n")
-	if _, _, err := ParseHomeSection(data, "config.yaml"); err == nil {
-		t.Fatal("expected error for non-boolean root value")
-	}
-}
-
+// TestReadHomeFromConfigDirNoConfigNonNilManifest pins that a directory
+// without a config file has no home section and an empty, non-nil manifest.
 func TestReadHomeFromConfigDirNoConfigNonNilManifest(t *testing.T) {
 	m, has, err := ReadHomeFromConfigDir(t.TempDir())
 	if err != nil || has {
@@ -263,18 +261,31 @@ func TestReadHomeFromConfigDirReadErrorKeepsPresentFalse(t *testing.T) {
 	}
 }
 
-func TestReadHomeFromConfigDirJSONCIsNormalized(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WriteFile(t, dir, "config.jsonc", `{
-		// a json5-only comment line
-		"home": {".gitconfig": ""},
-	}`)
-	m, has, err := ReadHomeFromConfigDir(dir)
-	if err != nil || !has {
-		t.Fatalf("ReadHomeFromConfigDir: has=%v err=%v", has, err)
+// TestReadHomeFromConfigDirReadsEveryFormat pins that the home section is read
+// from a YAML, JSON, JSON5 or JSONC config, comments and trailing commas
+// included.
+func TestReadHomeFromConfigDirReadsEveryFormat(t *testing.T) {
+	cases := []struct {
+		file    string
+		content string
+	}{
+		{"config.yaml", "home:\n  .gitconfig:\n"},
+		{"config.json", `{"home":{".gitconfig":""}}`},
+		{"config.json5", "{\n\t// json5 comment\n\t\"home\": {\".gitconfig\": \"\"},\n\t\"cpus\": 2,\n}"},
+		{"config.jsonc", "{\n\t// a comment line\n\t\"home\": {\".gitconfig\": \"\"},\n}"},
 	}
-	if _, ok := m[".gitconfig"]; !ok {
-		t.Errorf("expected .gitconfig entry, got %v", m)
+	for _, tc := range cases {
+		t.Run(tc.file, func(t *testing.T) {
+			dir := t.TempDir()
+			testutil.WriteFile(t, dir, tc.file, tc.content)
+			m, has, err := ReadHomeFromConfigDir(dir)
+			if err != nil || !has {
+				t.Fatalf("ReadHomeFromConfigDir: has=%v err=%v", has, err)
+			}
+			if e, ok := m[".gitconfig"]; !ok || e != (Entry{}) {
+				t.Errorf("manifest = %v, want an empty .gitconfig entry", m)
+			}
+		})
 	}
 }
 
@@ -302,34 +313,6 @@ func TestReadHomeFromConfigDirNormalizeErrorKeepsPresentFalse(t *testing.T) {
 	}
 }
 
-func TestReadHomeFromConfigDir(t *testing.T) {
-	dir := t.TempDir()
-	writeHomeConfig(t, dir, ".gitconfig:\n")
-	m, has, err := ReadHomeFromConfigDir(dir)
-	if err != nil {
-		t.Fatalf("ReadHomeFromConfigDir: %v", err)
-	}
-	if !has {
-		t.Fatal("expected has=true")
-	}
-	if e, ok := m[".gitconfig"]; !ok || e != (Entry{}) {
-		t.Errorf("expected .gitconfig entry, got %v", m)
-	}
-}
-
-func TestReadHomeFromConfigDirNoConfigFile(t *testing.T) {
-	m, has, err := ReadHomeFromConfigDir(t.TempDir())
-	if err != nil {
-		t.Fatalf("ReadHomeFromConfigDir: %v", err)
-	}
-	if has {
-		t.Error("expected has=false when no config file exists")
-	}
-	if len(m) != 0 {
-		t.Errorf("expected empty manifest, got %v", m)
-	}
-}
-
 func TestReadHomeFromConfigDirConfigWithoutHomeKey(t *testing.T) {
 	dir := t.TempDir()
 	testutil.WriteFile(t, dir, "config.yaml", "cpus: 2\n")
@@ -342,67 +325,6 @@ func TestReadHomeFromConfigDirConfigWithoutHomeKey(t *testing.T) {
 	}
 	if len(m) != 0 {
 		t.Errorf("expected empty manifest, got %v", m)
-	}
-}
-
-func TestReadHomeFromConfigDirJSON(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WriteFile(t, dir, "config.json", `{"home":{".gitconfig":""}}`)
-	m, has, err := ReadHomeFromConfigDir(dir)
-	if err != nil {
-		t.Fatalf("ReadHomeFromConfigDir: %v", err)
-	}
-	if !has {
-		t.Fatal("expected has=true")
-	}
-	if e, ok := m[".gitconfig"]; !ok || e != (Entry{}) {
-		t.Errorf("expected .gitconfig entry, got %v", m)
-	}
-}
-
-func TestReadHomeFromConfigDirReadError(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "config.yaml"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := ReadHomeFromConfigDir(dir); err == nil {
-		t.Fatal("expected an error reading a config file that is a directory")
-	}
-}
-
-func TestReadHomeFromConfigDirJSON5(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WriteFile(t, dir, "config.json5", `{
-		// json5 comment
-		"home": {".gitconfig": ""},
-		"cpus": 2,
-	}`)
-	m, has, err := ReadHomeFromConfigDir(dir)
-	if err != nil {
-		t.Fatalf("ReadHomeFromConfigDir: %v", err)
-	}
-	if !has {
-		t.Fatal("expected has=true")
-	}
-	if e, ok := m[".gitconfig"]; !ok || e != (Entry{}) {
-		t.Errorf("expected .gitconfig entry, got %v", m)
-	}
-}
-
-func TestReadHomeFromConfigDirJSON5ParseError(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WriteFile(t, dir, "config.json5", `{"cpus": }`)
-	if _, _, err := ReadHomeFromConfigDir(dir); err == nil {
-		t.Fatal("expected an error for malformed json5")
-	}
-}
-
-func TestReadHomeFromConfigDirJSON5NormalizeError(t *testing.T) {
-	dir := t.TempDir()
-	// NaN is valid json5 but cannot be re-serialized with encoding/json.
-	testutil.WriteFile(t, dir, "config.json5", `{"home": {}, "cpus": NaN}`)
-	if _, _, err := ReadHomeFromConfigDir(dir); err == nil {
-		t.Fatal("expected an error normalizing non-serializable json5")
 	}
 }
 
@@ -1136,24 +1058,6 @@ func TestHasShebangMissingFile(t *testing.T) {
 	}
 }
 
-func TestHasShebangWithoutTrailingNewline(t *testing.T) {
-	// A shebang without a trailing newline is still detected.
-	p := filepath.Join(t.TempDir(), "s.sh")
-	testutil.WritePath(t, p, "#!/bin/bash")
-	if !hasShebang(p) {
-		t.Errorf("expected a shebang for %q", p)
-	}
-}
-
-func TestHasShebangBareMarker(t *testing.T) {
-	// A shebang with only whitespace after the marker is still a shebang.
-	p := filepath.Join(t.TempDir(), "s.sh")
-	testutil.WritePath(t, p, "#! \n")
-	if !hasShebang(p) {
-		t.Errorf("expected a shebang for a bare marker")
-	}
-}
-
 func TestHasShebang(t *testing.T) {
 	dir := t.TempDir()
 	cases := []struct {
@@ -1170,6 +1074,7 @@ func TestHasShebang(t *testing.T) {
 		{"empty file", "", false},
 		{"bare marker", "#! \n", true},
 		{"crlf shebang", "#!/bin/bash\r\n", true},
+		{"no trailing newline", "#!/bin/bash", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
