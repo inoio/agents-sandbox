@@ -25,42 +25,16 @@ import (
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
-// dockerfileIDLabel is the image label carrying the runner image content
-// identity (image.dockerfileIDLabelKey, which is unexported).
-const dockerfileIDLabel = "org.agents-sandbox.dockerfile-id"
+// TestPreviewSandboxErrorsWhenIdentityUnresolvable pins #354 on the dry-run
+// preview path, which resolves the cwd before it derives an identity.
+func TestPreviewSandboxErrorsWhenIdentityUnresolvable(t *testing.T) {
+	t.Chdir(unresolvableIdentityDir(t))
 
-// agentVersionLabel is the image label carrying the baked agent release
-// (image.agentVersionLabelKey, which is unexported).
-const agentVersionLabel = "org.agents-sandbox.identity.agent-version"
-
-// absentImageDockerMock makes the local image inspect report a missing image, so
-// the preview reports "would build" for the "not present locally" reason.
-func absentImageDockerMock(t *testing.T) {
-	t.Helper()
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageInspectFn: func(
-			context.Context, string, ...client.ImageInspectOption,
-		) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{}, errors.New("no such image")
-		},
-	})
-}
-
-// noVolumeCreateMock fails the test if the preview ever creates a volume.
-func noVolumeCreateMock(t *testing.T) *int {
-	t.Helper()
-	return msb.WithCountingMsbMock(t, &msb.MockMsbClient{
-		CreateVolumeFn: func(
-			context.Context, string, ...msbSdk.VolumeOption,
-		) (msb.VolumeHandle, error) {
-			t.Fatal("PreviewSandbox must not create a volume")
-			return nil, errors.New("unexpected CreateVolume")
-		},
-	})
-}
-
-func previewKey() state.Key {
-	return state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
+	ui := termio.NewTestMock(t)
+	_, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
+	if err == nil {
+		t.Fatal("PreviewSandbox succeeded with an unresolvable identity, want an error")
+	}
 }
 
 func TestPreviewSandboxReportsBuildAndCreate(t *testing.T) {
@@ -503,4 +477,42 @@ func TestPreviewSandboxForcedRebuildReportsBuild(t *testing.T) {
 	if !slices.Contains(p.BuildReasons, "forced by --rebuild") {
 		t.Errorf("BuildReasons = %v, want the forced reason", p.BuildReasons)
 	}
+}
+
+// dockerfileIDLabel is the image label carrying the runner image content
+// identity (image.dockerfileIDLabelKey, which is unexported).
+const dockerfileIDLabel = "org.agents-sandbox.dockerfile-id"
+
+// agentVersionLabel is the image label carrying the baked agent release
+// (image.agentVersionLabelKey, which is unexported).
+const agentVersionLabel = "org.agents-sandbox.identity.agent-version"
+
+// absentImageDockerMock makes the local image inspect report a missing image, so
+// the preview reports "would build" for the "not present locally" reason.
+func absentImageDockerMock(t *testing.T) {
+	t.Helper()
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(
+			context.Context, string, ...client.ImageInspectOption,
+		) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{}, errors.New("no such image")
+		},
+	})
+}
+
+// noVolumeCreateMock fails the test if the preview ever creates a volume.
+func noVolumeCreateMock(t *testing.T) *int {
+	t.Helper()
+	return msb.WithCountingMsbMock(t, &msb.MockMsbClient{
+		CreateVolumeFn: func(
+			context.Context, string, ...msbSdk.VolumeOption,
+		) (msb.VolumeHandle, error) {
+			t.Fatal("PreviewSandbox must not create a volume")
+			return nil, errors.New("unexpected CreateVolume")
+		},
+	})
+}
+
+func previewKey() state.Key {
+	return state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
 }

@@ -20,34 +20,244 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// withExistingAgentVersion makes the project's existing runner image report the
-// fixture baseline version.
-func withExistingAgentVersion(t *testing.T) {
-	t.Helper()
-	withExistingAgentVersionValue(t, "1.0.0")
-}
+// TestAgentLatestVersionForSeamResolution pins the seam contract: a nil
+// options.Seams.AgentLatestVersion uses the production default
+// (agentLatestVersion), while a set field is used as-is.
+func TestAgentLatestVersionForSeamResolution(t *testing.T) {
+	orig := agentLatestVersion
+	t.Cleanup(func() { agentLatestVersion = orig })
+	agentLatestVersion = func(context.Context, agent.Agent) (string, error) { return "default", nil }
 
-// withExistingAgentVersionValue makes the project's existing runner image report
-// version, restoring the seam afterwards.
-func withExistingAgentVersionValue(t *testing.T, version string) {
-	t.Helper()
-	orig := existingAgentVersion
-	existingAgentVersion = func(_ context.Context, _ docker.Client, _, _ string) (string, bool) { return version, true }
-	t.Cleanup(func() { existingAgentVersion = orig })
-}
-
-// seedAgentState writes the agent version/source into this project's HomeState,
-// preserving any other fields already present.
-func seedAgentState(t *testing.T, k state.Key, version, source string) {
-	t.Helper()
-	hs, err := state.ReadState(k)
-	if err != nil {
-		hs = &state.HomeState{}
+	if got, _ := agentLatestVersionFor(options.Seams{})(context.Background(), opencodeAgent(t)); got != "default" {
+		t.Errorf("nil seam version = %q, want the production default %q", got, "default")
 	}
-	hs.AgentVersion = version
-	hs.AgentSource = source
-	if err := seedHomeState(k, *hs); err != nil {
-		t.Fatalf("seedHomeState: %v", err)
+
+	seam := func(context.Context, agent.Agent) (string, error) { return "seam", nil }
+	if got, _ := agentLatestVersionFor(options.Seams{AgentLatestVersion: seam})(
+		context.Background(), opencodeAgent(t),
+	); got != "seam" {
+		t.Errorf("set seam version = %q, want %q", got, "seam")
+	}
+}
+
+// TestAgentVersionResolverForSeamResolution pins the resolver contract: a nil
+// seam uses the shared buildVersionResolver default, a set seam resolves the
+// latest version through it (unless a version is requested), and a requested
+// version always wins.
+func TestAgentVersionResolverForSeamResolution(t *testing.T) {
+	orig := buildVersionResolver
+	t.Cleanup(func() { buildVersionResolver = orig })
+	buildVersionResolver = func(context.Context, agent.Agent, string) (string, error) { return "default", nil }
+
+	if got, _ := agentVersionResolverFor(options.Seams{})(
+		context.Background(), opencodeAgent(t), "",
+	); got != "default" {
+		t.Errorf("nil seam resolver = %q, want the default %q", got, "default")
+	}
+
+	seam := options.Seams{AgentLatestVersion: func(context.Context, agent.Agent) (string, error) {
+		return "seam", nil
+	}}
+	if got, _ := agentVersionResolverFor(seam)(context.Background(), opencodeAgent(t), ""); got != "seam" {
+		t.Errorf("set seam resolver = %q, want %q", got, "seam")
+	}
+	if got, _ := agentVersionResolverFor(seam)(context.Background(), opencodeAgent(t), "pinned"); got != "pinned" {
+		t.Errorf("requested version resolver = %q, want the pin %q", got, "pinned")
+	}
+}
+
+// TestResolveBuildVersionNoRebuildSkipsUpgradeCheck pins that --no-rebuild never
+// runs the update check: accepting an upgrade would rebuild the image the user
+// asked to keep. The version stays the one the existing image reports.
+func TestResolveBuildVersionNoRebuildSkipsUpgradeCheck(t *testing.T) {
+	origLatest := agentLatestVersion
+	t.Cleanup(func() { agentLatestVersion = origLatest })
+	agentLatestVersion = func(context.Context, agent.Agent) (string, error) {
+		t.Fatal("--no-rebuild must not run the update check")
+		return "", nil
+	}
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
+	withExistingAgentVersion(t)
+
+	got, upgraded, offered, err := resolveBuildVersion(
+		context.Background(),
+		docker.Get(),
+		k,
+		opencodeResolved(t),
+		&termio.Mock{},
+		options.RunOptions{Agent: "opencode", NoRebuild: true},
+	)
+	if err != nil {
+		t.Fatalf("resolveBuildVersion: %v", err)
+	}
+	if got != "1.0.0" || upgraded || offered != "" {
+		t.Errorf("resolveBuildVersion = (%q, %v, %q), want (\"1.0.0\", false, \"\")", got, upgraded, offered)
+	}
+}
+
+// TestResolveOpenCodeVersionInteractiveSelectError covers the Select failure
+// branch of resolveBuildVersion: an interactive prompt whose selection
+// errors is propagated.
+func TestResolveOpenCodeVersionInteractiveSelectError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
+
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
+			return "", errors.New("selection failed")
+		},
+	}
+
+	_, _, _, err := resolveBuildVersion(
+		context.Background(),
+		docker.Get(),
+		k,
+		opencodeResolved(t),
+		ui,
+		options.RunOptions{Agent: "opencode"},
+	)
+	if err == nil {
+		t.Fatal("expected error when the interactive selection fails")
+	}
+}
+
+// TestResolveOpenCodeVersionInteractiveDefaultChoice covers the
+// default/unknown-choice branch: an unrecognized selection keeps the current
+// version.
+func TestResolveOpenCodeVersionInteractiveDefaultChoice(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
+
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
+			return "unknown", nil
+		},
+	}
+
+	got, upgraded, _, err := resolveBuildVersion(
+		context.Background(),
+		docker.Get(),
+		k,
+		opencodeResolved(t),
+		ui,
+		options.RunOptions{Agent: "opencode"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false for an unknown choice")
+	}
+	if got != "1.0.0" {
+		t.Errorf("expected current version for an unknown choice, got %q", got)
+	}
+}
+
+// TestResolveOpenCodeVersionInteractiveKeep covers the "keep" choice branch:
+// the current version is kept.
+func TestResolveOpenCodeVersionInteractiveKeep(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	seedAgentState(t, k, "1.0.0", state.AgentSourceTool)
+	origLatest := agentLatestVersion
+	defer func() { agentLatestVersion = origLatest }()
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
+
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
+			return "k", nil
+		},
+	}
+
+	got, upgraded, _, err := resolveBuildVersion(
+		context.Background(),
+		docker.Get(),
+		k,
+		opencodeResolved(t),
+		ui,
+		options.RunOptions{Agent: "opencode"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false for the keep choice")
+	}
+	if got != "1.0.0" {
+		t.Errorf("expected current version for the keep choice, got %q", got)
+	}
+}
+
+// TestResolveBuildVersionWithoutUpgradeChecker covers the fallback branch of
+// resolveBuildVersion: an agent with no upgrade checker reuses the recorded
+// version without prompting.
+func TestResolveBuildVersionWithoutUpgradeChecker(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "fake"}
+	seedAgentState(t, k, "1.5.0", state.AgentSourceTool)
+	got, upgraded, _, err := resolveBuildVersion(
+		context.Background(),
+		docker.Get(),
+		k,
+		agent.Resolve(&fakeAgent{}),
+		&termio.Mock{},
+		options.RunOptions{Agent: "opencode"},
+	)
+	if err != nil {
+		t.Fatalf("resolveBuildVersion: %v", err)
+	}
+	if got != "1.5.0" {
+		t.Errorf("resolveBuildVersion = %q, want recorded version 1.5.0", got)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false for an agent without an upgrade checker")
+	}
+}
+
+// TestResolveBuildVersionWithoutUpgradeCheckerIgnoresImageLabel pins the
+// no-checker guard's purpose: the recorded version is reused verbatim, never
+// reconciled against the existing image label. Reconciliation is the
+// upgrade-check path's job, and a checker-less agent must not silently adopt a
+// version the image reports (which would defeat the stable image identity the
+// guard preserves).
+func TestResolveBuildVersionWithoutUpgradeCheckerIgnoresImageLabel(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "fake"}
+	seedAgentState(t, k, "1.5.0", state.AgentSourceTool)
+	withExistingAgentVersionValue(t, "2.0.0")
+
+	got, upgraded, _, err := resolveBuildVersion(
+		context.Background(),
+		docker.Get(),
+		k,
+		agent.Resolve(&fakeAgent{}),
+		&termio.Mock{},
+		options.RunOptions{Agent: "opencode"},
+	)
+	if err != nil {
+		t.Fatalf("resolveBuildVersion: %v", err)
+	}
+	if got != "1.5.0" {
+		t.Errorf(
+			"resolveBuildVersion = %q, want the recorded 1.5.0 (a checker-less agent must not adopt the image's 2.0.0)",
+			got,
+		)
+	}
+	if upgraded {
+		t.Error("expected upgraded=false for an agent without an upgrade checker")
 	}
 }
 
@@ -112,70 +322,6 @@ func TestResolveBuildVersionUserAgentEmptyVersionLeavesResolutionToImageBuild(t 
 	}
 	if latestCalled {
 		t.Error("agentLatestVersion must not be called for a user-provided agent")
-	}
-}
-
-// TestResolveAgentVersionForBuild pins the one shared precedence both the
-// standalone build and a run derive from: a user-provided agent is not owned by
-// the tool, so the pin is ignored and the recorded version is used with
-// userProvided=true; every other project honors the requested pin.
-func TestResolveAgentVersionForBuild(t *testing.T) {
-	tests := []struct {
-		name             string
-		source           string
-		recordedVersion  string
-		requestedVersion string
-		wantVersion      string
-		wantUserProvided bool
-	}{
-		{
-			name:             "user-provided agent ignores the pin",
-			source:           state.AgentSourceUser,
-			recordedVersion:  "1.0.0",
-			requestedVersion: "9.9.9",
-			wantVersion:      "1.0.0",
-			wantUserProvided: true,
-		},
-		{
-			name:             "user-provided agent without a recorded version leaves resolution to the build",
-			source:           state.AgentSourceUser,
-			recordedVersion:  "",
-			requestedVersion: "9.9.9",
-			wantVersion:      "",
-			wantUserProvided: true,
-		},
-		{
-			name:             "tool-managed agent honors the pin",
-			source:           state.AgentSourceTool,
-			recordedVersion:  "1.0.0",
-			requestedVersion: "9.9.9",
-			wantVersion:      "9.9.9",
-			wantUserProvided: false,
-		},
-		{
-			name:             "tool-managed agent without a pin passes the request through",
-			source:           state.AgentSourceTool,
-			recordedVersion:  "1.0.0",
-			requestedVersion: "",
-			wantVersion:      "",
-			wantUserProvided: false,
-		},
-	}
-
-	for _, testCase := range tests {
-		t.Run(testCase.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
-			k := state.Key{Slug: "proj", Agent: "opencode"}
-			seedAgentState(t, k, testCase.recordedVersion, testCase.source)
-
-			version, userProvided := ResolveAgentVersionForBuild(k, testCase.requestedVersion)
-			if version != testCase.wantVersion {
-				t.Errorf("version = %q, want %q", version, testCase.wantVersion)
-			}
-			if userProvided != testCase.wantUserProvided {
-				t.Errorf("userProvided = %v, want %v", userProvided, testCase.wantUserProvided)
-			}
-		})
 	}
 }
 
@@ -349,85 +495,6 @@ func TestResolveOpenCodeVersionRecoversBaselineFromExistingImage(t *testing.T) {
 	}
 	if hs.AgentVersion != "1.0.0" {
 		t.Errorf("recorded agent_version = %q, want recovered 1.0.0 persisted", hs.AgentVersion)
-	}
-}
-
-func TestPersistOfferedVersionMarksExistingState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol"}); err != nil {
-		t.Fatalf("seedHomeState: %v", err)
-	}
-
-	persistOfferedVersion(k, "2.0.0", &termio.Mock{})
-
-	hs, err := state.ReadState(k)
-	if err != nil {
-		t.Fatalf("ReadState: %v", err)
-	}
-	if !hs.Offered("2.0.0") {
-		t.Errorf("offered set not recorded: %+v", hs.OfferedVersions)
-	}
-}
-
-func TestPersistOfferedVersionSkipsMissingState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-
-	persistOfferedVersion(k, "2.0.0", &termio.Mock{})
-
-	if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
-		t.Fatalf("ReadState error = %v, want ErrStateNotFound (no state created)", err)
-	}
-}
-
-func TestPersistOfferedVersionNoVersionIsNoop(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol"}); err != nil {
-		t.Fatalf("seedHomeState: %v", err)
-	}
-
-	persistOfferedVersion(k, "", &termio.Mock{})
-
-	hs, err := state.ReadState(k)
-	if err != nil {
-		t.Fatalf("ReadState: %v", err)
-	}
-	if len(hs.OfferedVersions) != 0 {
-		t.Errorf("expected no offered versions, got %v", hs.OfferedVersions)
-	}
-}
-
-func TestPersistOfferedVersionWarnsOnError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	if err := os.MkdirAll(filepath.Join(state.KeyDir(k), "state.yaml"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	ui := &termio.Mock{}
-	persistOfferedVersion(k, "2.0.0", ui)
-
-	if !contains(joinStrings(ui.WarnCalls), "could not persist project state") {
-		t.Errorf("expected a persist warning, got %v", ui.WarnCalls)
-	}
-}
-
-// TestPersistAgentVersionWarnsOnError verifies that a failure to record the
-// baked agent version only warns: recording must never fail a run.
-func TestPersistAgentVersionWarnsOnError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	k := state.Key{Slug: "proj", Agent: "opencode"}
-	if err := os.MkdirAll(filepath.Join(state.KeyDir(k), "state.yaml"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	ui := &termio.Mock{}
-	persistAgentVersion(k, "2.0.0", ui)
-
-	if !contains(joinStrings(ui.WarnCalls), "could not persist the agent version") {
-		t.Errorf("expected a persist warning, got %v", ui.WarnCalls)
 	}
 }
 
@@ -982,6 +1049,70 @@ func TestResolveBuildVersionPromptNamesThisProjectsVersion(t *testing.T) {
 	}
 }
 
+// TestResolveAgentVersionForBuild pins the one shared precedence both the
+// standalone build and a run derive from: a user-provided agent is not owned by
+// the tool, so the pin is ignored and the recorded version is used with
+// userProvided=true; every other project honors the requested pin.
+func TestResolveAgentVersionForBuild(t *testing.T) {
+	tests := []struct {
+		name             string
+		source           string
+		recordedVersion  string
+		requestedVersion string
+		wantVersion      string
+		wantUserProvided bool
+	}{
+		{
+			name:             "user-provided agent ignores the pin",
+			source:           state.AgentSourceUser,
+			recordedVersion:  "1.0.0",
+			requestedVersion: "9.9.9",
+			wantVersion:      "1.0.0",
+			wantUserProvided: true,
+		},
+		{
+			name:             "user-provided agent without a recorded version leaves resolution to the build",
+			source:           state.AgentSourceUser,
+			recordedVersion:  "",
+			requestedVersion: "9.9.9",
+			wantVersion:      "",
+			wantUserProvided: true,
+		},
+		{
+			name:             "tool-managed agent honors the pin",
+			source:           state.AgentSourceTool,
+			recordedVersion:  "1.0.0",
+			requestedVersion: "9.9.9",
+			wantVersion:      "9.9.9",
+			wantUserProvided: false,
+		},
+		{
+			name:             "tool-managed agent without a pin passes the request through",
+			source:           state.AgentSourceTool,
+			recordedVersion:  "1.0.0",
+			requestedVersion: "",
+			wantVersion:      "",
+			wantUserProvided: false,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			k := state.Key{Slug: "proj", Agent: "opencode"}
+			seedAgentState(t, k, testCase.recordedVersion, testCase.source)
+
+			version, userProvided := ResolveAgentVersionForBuild(k, testCase.requestedVersion)
+			if version != testCase.wantVersion {
+				t.Errorf("version = %q, want %q", version, testCase.wantVersion)
+			}
+			if userProvided != testCase.wantUserProvided {
+				t.Errorf("userProvided = %v, want %v", userProvided, testCase.wantUserProvided)
+			}
+		})
+	}
+}
+
 // TestPromptUpgradeNamesBothVersions pins the PR #225 wording: the prompt and
 // the Rebuild choice both name the available release and this project's current
 // version, so the user can tell exactly what a rebuild would change.
@@ -1012,6 +1143,19 @@ func TestPromptUpgradeNamesBothVersions(t *testing.T) {
 		if !strings.Contains(description, want) {
 			t.Errorf("Rebuild description %q must name %s", description, want)
 		}
+	}
+}
+
+// TestPendingUpgradeWithoutUpgradeChecker covers the no-checker branch of
+// pendingUpgrade: it never offers an upgrade for an agent lacking a checker.
+func TestPendingUpgradeWithoutUpgradeChecker(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "fake"}
+	latest, offer := pendingUpgrade(
+		context.Background(), agent.Resolve(&fakeAgent{}), k, &termio.Mock{}, "1.0.0", agentLatestVersion,
+	)
+	if offer {
+		t.Errorf("expected no upgrade offer for an agent without a checker, got latest=%q", latest)
 	}
 }
 
@@ -1370,6 +1514,207 @@ func TestPendingUpgradeWarnsOnProjectStateWriteError(t *testing.T) {
 	}
 }
 
+// TestCheckAgentUpgradeDefersWhenRootLockHeld pins that a contended root lock at
+// the cached read defers the step without running the version request: the
+// non-blocking read returns ok=false, and checkAgentUpgrade must propagate it
+// rather than fall through to the network.
+func TestCheckAgentUpgradeDefersWhenRootLockHeld(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := seedRootState(dueRootState()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Hold the root lock for the whole call: another process's in-flight
+	// campaign is exactly the contended case the non-blocking read defers on.
+	held := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = state.WithRootState(true, func(*state.RootTxn) error {
+			close(held)
+			<-release
+			return nil
+		})
+	}()
+	<-held
+	t.Cleanup(func() {
+		close(release)
+		<-done
+	})
+
+	latestCalled := false
+	origLatest := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
+		latestCalled = true
+		return "2.0.0", nil
+	}
+	t.Cleanup(func() { agentLatestVersion = origLatest })
+
+	entry, checked := checkAgentUpgrade(
+		context.Background(),
+		opencodeAgent(t),
+		true,
+		&termio.Mock{},
+		agentLatestVersion,
+	)
+	if checked {
+		t.Error("checkAgentUpgrade must defer while the root lock is held")
+	}
+	if entry != (state.AgentCheckState{}) {
+		t.Errorf("entry = %+v, want the zero value on defer", entry)
+	}
+	if latestCalled {
+		t.Error("the version request must not run when the cached read was skipped")
+	}
+}
+
+// TestCheckAgentUpgradeDefersWhenRootStateUnreadable pins the unreadable-cached
+// read: an error from the root transaction warns and defers, and the version
+// request never runs over an unknown document.
+func TestCheckAgentUpgradeDefersWhenRootStateUnreadable(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	rootStatePath := filepath.Join(configpaths.Get().UserStateDir(), "state.yaml")
+	if err := os.WriteFile(rootStatePath, []byte("not: valid: yaml: ["), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	latestCalled := false
+	origLatest := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
+		latestCalled = true
+		return "2.0.0", nil
+	}
+	t.Cleanup(func() { agentLatestVersion = origLatest })
+
+	ui := &termio.Mock{}
+	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, ui, agentLatestVersion)
+	if checked {
+		t.Error("checkAgentUpgrade must defer when the root state is unreadable")
+	}
+	if entry != (state.AgentCheckState{}) {
+		t.Errorf("entry = %+v, want the zero value on defer", entry)
+	}
+	if latestCalled {
+		t.Error("the version request must not run when the cached read failed")
+	}
+	if !strings.Contains(strings.Join(ui.WarnCalls, " "), "could not read upgrade check state") {
+		t.Errorf("expected a root-state read warning, got %v", ui.WarnCalls)
+	}
+}
+
+// TestCheckAgentUpgradeDefersWhenVersionRequestFails pins the offline arm: a
+// failed version request warns, leaves the window open, and defers (checked
+// false) so the caller retries next run.
+func TestCheckAgentUpgradeDefersWhenVersionRequestFails(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := seedRootState(dueRootState()); err != nil {
+		t.Fatal(err)
+	}
+
+	origLatest := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
+		return "", errors.New("offline")
+	}
+	t.Cleanup(func() { agentLatestVersion = origLatest })
+
+	ui := &termio.Mock{}
+	entry, checked := checkAgentUpgrade(context.Background(), opencodeAgent(t), true, ui, agentLatestVersion)
+	if checked {
+		t.Error("checkAgentUpgrade must defer when the version request fails")
+	}
+	if entry != (state.AgentCheckState{}) {
+		t.Errorf("entry = %+v, want the zero value on defer", entry)
+	}
+	if !strings.Contains(strings.Join(ui.WarnCalls, " "), "could not check for opencode updates") {
+		t.Errorf("expected an offline warning, got %v", ui.WarnCalls)
+	}
+}
+
+// TestCheckAgentUpgradeCheckerLessAgentSkipsVersionRequest pins the hasChecker
+// operand: a checker-less agent returns its cached entry without running the
+// version request, even when the entry is due.
+func TestCheckAgentUpgradeCheckerLessAgentSkipsVersionRequest(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := seedRootState(dueRootState()); err != nil {
+		t.Fatal(err)
+	}
+
+	latestCalled := false
+	origLatest := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
+		latestCalled = true
+		return "2.0.0", nil
+	}
+	t.Cleanup(func() { agentLatestVersion = origLatest })
+
+	entry, checked := checkAgentUpgrade(
+		context.Background(),
+		opencodeAgent(t),
+		false,
+		&termio.Mock{},
+		agentLatestVersion,
+	)
+	if !checked {
+		t.Error("a checker-less agent still returns its cached state")
+	}
+	if entry.LatestVersion != "1.0.0" {
+		t.Errorf("entry.LatestVersion = %q, want the cached 1.0.0", entry.LatestVersion)
+	}
+	if latestCalled {
+		t.Error("a checker-less agent must not run the version request")
+	}
+}
+
+// TestCheckAgentUpgradeDefersWhenRootLockHeldDuringWrite pins the post-request
+// lock contention: if another process takes the root lock while the version
+// request runs, the write is skipped and the step defers, but the freshly
+// fetched entry is still returned so the caller can offer it.
+func TestCheckAgentUpgradeDefersWhenRootLockHeldDuringWrite(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := seedRootState(dueRootState()); err != nil {
+		t.Fatal(err)
+	}
+
+	held := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	origLatest := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) {
+		// Take the root lock while the request is "in flight" so the
+		// subsequent write transaction contends.
+		go func() {
+			defer close(done)
+			_, _ = state.WithRootState(true, func(*state.RootTxn) error {
+				close(held)
+				<-release
+				return nil
+			})
+		}()
+		<-held
+		return "2.0.0", nil
+	}
+	t.Cleanup(func() { agentLatestVersion = origLatest })
+	t.Cleanup(func() {
+		close(release)
+		<-done
+	})
+
+	entry, checked := checkAgentUpgrade(
+		context.Background(),
+		opencodeAgent(t),
+		true,
+		&termio.Mock{},
+		agentLatestVersion,
+	)
+	if checked {
+		t.Error("checkAgentUpgrade must defer when the write transaction is contended")
+	}
+	if entry.LatestVersion != "2.0.0" {
+		t.Errorf("entry.LatestVersion = %q, want the freshly fetched 2.0.0", entry.LatestVersion)
+	}
+}
+
 // TestCheckAgentUpgradeNetworkRunsWithoutRootLock is the #334 regression: the
 // agent-version request must not run while the launcher-global root lock is held,
 // so unrelated projects are not serialized behind one project's egress check. The
@@ -1500,6 +1845,83 @@ func TestCheckAgentUpgradeSecondReadErrorDefers(t *testing.T) {
 	}
 }
 
+// TestCurrentAgentVersionIgnoresCorruptFile covers the read-error branch of
+// currentAgentVersion (a corrupt project state file must yield "").
+func TestCurrentAgentVersionIgnoresCorruptFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	sdir := filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent)
+	if err := os.MkdirAll(sdir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sdir, "state.yaml"), []byte("::: not yaml :::"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := currentAgentVersion(k); got != "" {
+		t.Errorf("currentAgentVersion() = %q, want empty for corrupt file", got)
+	}
+}
+
+// TestCurrentAgentVersionReadError covers the read-error branch of
+// currentAgentVersion: an unreadable state file yields "".
+func TestCurrentAgentVersionReadError(t *testing.T) {
+	withFailingStateDir(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	if got := currentAgentVersion(k); got != "" {
+		t.Errorf("currentAgentVersion() = %q, want empty when the state cannot be read", got)
+	}
+}
+
+// TestCurrentAgentSourceLoadError covers the branch where the project state
+// cannot be read: an empty source is returned.
+func TestCurrentAgentSourceLoadError(t *testing.T) {
+	withFailingStateDir(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	if got := currentAgentSource(k); got != "" {
+		t.Errorf("currentAgentSource() = %q, want empty on load error", got)
+	}
+}
+
+func TestCurrentAgentSource(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "proj", Agent: "opencode"}
+	if got := currentAgentSource(k); got != "" {
+		t.Errorf("currentAgentSource() = %q, want empty", got)
+	}
+	if err := seedHomeState(k, state.HomeState{AgentSource: state.AgentSourceUser}); err != nil {
+		t.Fatal(err)
+	}
+	if got := currentAgentSource(k); got != state.AgentSourceUser {
+		t.Errorf("currentAgentSource() = %q, want user", got)
+	}
+}
+
+// TestAgentLatestVersionDefaultNoChecker covers the default agentLatestVersion
+// branch for an agent that is not an UpgradeChecker: it returns an empty version
+// without error.
+func TestAgentLatestVersionDefaultNoChecker(t *testing.T) {
+	got, err := agentLatestVersion(context.Background(), &fakeAgent{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "" {
+		t.Errorf("agentLatestVersion for a non-checker = %q, want empty", got)
+	}
+}
+
+// TestAgentLatestVersionCheckerAgent covers the real agentLatestVersion branch
+// where the agent is an UpgradeChecker: it returns the checker's latest
+// version.
+func TestAgentLatestVersionCheckerAgent(t *testing.T) {
+	got, err := agentLatestVersion(context.Background(), upgradeCheckerAgent{})
+	if err != nil {
+		t.Fatalf("agentLatestVersion: %v", err)
+	}
+	if got != "9.9.9" {
+		t.Errorf("agentLatestVersion = %q, want %q", got, "9.9.9")
+	}
+}
+
 // TestBuildVersionResolverPrefersRequestedVersion pins the prepare-injected
 // resolver's contract: a non-empty requested version is returned as-is without
 // consulting the shared latest-version lookup, and an empty request falls back
@@ -1523,4 +1945,44 @@ func TestBuildVersionResolverPrefersRequestedVersion(t *testing.T) {
 	if got != "2.0.0" {
 		t.Errorf("buildVersionResolver(requested=\"\") = %q, want the latest 2.0.0", got)
 	}
+}
+
+// withFailingStateDir installs a ConfigPaths whose UserStateDir is a regular
+// file, so any attempt to read or write <stateDir>/... fails.
+func withFailingStateDir(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	stateFile := filepath.Join(dir, "userstate")
+	if err := os.WriteFile(stateFile, []byte("not-a-dir"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	orig := configpaths.Get
+	configpaths.Get = func() configpaths.ConfigPaths {
+		return failingStateDirConfigPaths{stateDir: stateFile}
+	}
+	t.Cleanup(func() { configpaths.Get = orig })
+}
+
+// dueRootState seeds a root document whose opencode check is due (older than the
+// once-per-day window), so checkAgentUpgrade would run the version request.
+func dueRootState() state.RootState {
+	return state.RootState{Updates: state.Updates{Agents: map[string]state.AgentCheckState{
+		"opencode": {LastChecked: now().Add(-25 * time.Hour), LatestVersion: "1.0.0"},
+	}}}
+}
+
+// withExistingAgentVersion makes the project's existing runner image report the
+// fixture baseline version.
+func withExistingAgentVersion(t *testing.T) {
+	t.Helper()
+	withExistingAgentVersionValue(t, "1.0.0")
+}
+
+// withExistingAgentVersionValue makes the project's existing runner image report
+// version, restoring the seam afterwards.
+func withExistingAgentVersionValue(t *testing.T, version string) {
+	t.Helper()
+	orig := existingAgentVersion
+	existingAgentVersion = func(_ context.Context, _ docker.Client, _, _ string) (string, bool) { return version, true }
+	t.Cleanup(func() { existingAgentVersion = orig })
 }

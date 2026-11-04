@@ -9,15 +9,37 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+// upgradeCheckerAgent implements both the core Agent interface and the
+// UpgradeChecker capability so the shared release resolver reaches its
+// LatestVersion call without touching the network.
+type upgradeCheckerAgent struct{}
+
+func (upgradeCheckerAgent) Name() string { return "upgradechecker" }
+
+func (upgradeCheckerAgent) Experimental() bool { return false }
+
+func (upgradeCheckerAgent) ConfigDirName() string { return "upgradechecker" }
+
+func (upgradeCheckerAgent) ImageSpec() agent.ImageSpec {
+	return agent.ImageSpec{}
+}
+
+func (upgradeCheckerAgent) LatestVersion(context.Context) (string, error) { return "9.9.9", nil }
+
+func (upgradeCheckerAgent) NewerThan(_, _ string) (bool, error) { return true, nil }
 
 // opencodeAgent returns the default opencode profile for tests that need a real
 // agent but don't otherwise care which one it is.
@@ -52,17 +74,6 @@ func resolvedRunOptions(t *testing.T, opts options.RunOptions) options.RunOption
 	return opts
 }
 
-// opencodeProvider returns the opencode profile's DaemonProvider so tests can
-// build the exact commands the production path shells out with.
-func opencodeProvider(t *testing.T) agent.DaemonProvider {
-	t.Helper()
-	p, ok := agent.AsDaemonProvider(opencodeAgent(t))
-	if !ok {
-		t.Fatal("opencode agent does not implement DaemonProvider")
-	}
-	return p
-}
-
 // testVMKey returns a stable project/agent key for unit tests that exercise
 // the VM lifecycle without needing a real git project slug.
 func testVMKey() state.Key {
@@ -86,15 +97,6 @@ func seedRootState(rs state.RootState) error {
 		return tx.Commit()
 	})
 	return err
-}
-
-// mustIdentity resolves a fixture cwd to its project identity, failing the test
-// on the now-fallible ResolveIdentity: fixtures always point at real paths.
-func mustIdentity(t testing.TB, cwd string) git.Identity {
-	t.Helper()
-	identity, err := git.ResolveIdentity(cwd)
-	require.NoError(t, err)
-	return identity
 }
 
 // unresolvableIdentityDir returns a directory whose .git file points at a git
@@ -129,12 +131,6 @@ func joinStrings(parts []string) string {
 	return b.String()
 }
 
-func applySandboxOpts(cfg *msbSdk.SandboxConfig, opts []msbSdk.SandboxOption) {
-	for _, o := range opts {
-		o(cfg)
-	}
-}
-
 // statePresent reports whether the key has a readable state file, failing the
 // test on any read error other than a missing file.
 func statePresent(t *testing.T, k state.Key) bool {
@@ -167,69 +163,6 @@ type failingStateDirConfigPaths struct {
 
 func (f failingStateDirConfigPaths) UserStateDir() string { return f.stateDir }
 
-// withFailingStateDir installs a ConfigPaths whose UserStateDir is a regular
-// file, so any attempt to read or write <stateDir>/... fails.
-func withFailingStateDir(t *testing.T) {
-	t.Helper()
-	dir := t.TempDir()
-	stateFile := filepath.Join(dir, "userstate")
-	if err := os.WriteFile(stateFile, []byte("not-a-dir"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	orig := configpaths.Get
-	configpaths.Get = func() configpaths.ConfigPaths {
-		return failingStateDirConfigPaths{stateDir: stateFile}
-	}
-	t.Cleanup(func() { configpaths.Get = orig })
-}
-
-// assertDetachedHelperLaunch fails the test unless the recorded detached calls
-// are exactly one launch of binary under the helper marker; the marker shape is
-// what the kill path matches on, so the callers (dockerd, the daemon) are pinned
-// to it.
-func assertDetachedHelperLaunch(t *testing.T, calls []msb.MockDetachedCall, marker, binary string) {
-	t.Helper()
-	if len(calls) != 1 {
-		t.Fatalf("detached calls = %+v, want one", calls)
-	}
-	if calls[0].Cmd != "env" {
-		t.Errorf("launch binary = %q, want %q", calls[0].Cmd, "env")
-	}
-	args := calls[0].Args
-	if len(args) < 2 || args[0] != "AGENTS_SANDBOX_DETACHED_JOB="+marker || args[1] != binary {
-		t.Errorf("launch args = %v, want the %s marker then %q", args, marker, binary)
-	}
-}
-
-// dockerdBinaryCheckCmd is the probe vm.SetUpSandbox runs to detect dockerd in
-// the VM. A mock answering it with a failure keeps a PrepareSandbox test from
-// starting dockerd; it must match the command in package vm.
-const dockerdBinaryCheckCmd = "command -v dockerd >/dev/null 2>&1"
-
-// daemonHealthSeams returns options.Seams with the daemon health probe stubbed
-// healthy for the opencode provider, so a PrepareSandbox test never probes a
-// real daemon.
-func daemonHealthSeams(t *testing.T) options.Seams {
-	t.Helper()
-	return options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
-		if command == opencodeProvider(t).DaemonHealthCmd() {
-			return `{"healthy":true,"version":"test"}`, 0, nil
-		}
-		return "", 0, nil
-	}}
-}
-
-// sandboxRunOptions resolves opts' capabilities and, unless a test already set
-// one, stubs the daemon health probe via daemonHealthSeams: the options a
-// PrepareSandbox test that reaches setup-sandbox needs.
-func sandboxRunOptions(t *testing.T, opts options.RunOptions) options.RunOptions {
-	t.Helper()
-	if opts.Seams.DaemonHealth == nil {
-		opts.Seams.DaemonHealth = daemonHealthSeams(t).DaemonHealth
-	}
-	return resolvedRunOptions(t, opts)
-}
-
 func (fakeAgent) Name() string { return "fake" }
 
 func (fakeAgent) Experimental() bool { return false }
@@ -238,4 +171,86 @@ func (fakeAgent) ConfigDirName() string { return "fake" }
 
 func (fakeAgent) ImageSpec() agent.ImageSpec {
 	return agent.ImageSpec{}
+}
+
+// readAndResolveReconfigDecision reads the live project VM through client and
+// resolves the reconfiguration decision from it, as planReconfigStage does,
+// with empty host env and secrets.
+func readAndResolveReconfigDecision(
+	ctx context.Context,
+	client msb.Client,
+	volumes *volume.Manager,
+	k state.Key,
+	opts options.RunOptions,
+	imageInfo image.ImageInfo, homeVolume string, homeState state.HomeState,
+	configFiles *reprovision.ConfigFiles,
+	ui termio.UI,
+) (reconfigDecision, error) {
+	live, err := readLiveProjectVM(ctx, client, k, configFiles.Keys, ui)
+	if err != nil {
+		return reconfigDecision{}, err
+	}
+	return resolveReconfigDecision(
+		ctx,
+		volumes,
+		k,
+		opts,
+		imageInfo,
+		homeVolume,
+		homeState,
+		configFiles,
+		envsecret.EnvSecrets{},
+		live,
+		ui,
+	)
+}
+
+// reconfigFixture wires the mocks resolveReconfigDecision reads its live VM from.
+type reconfigFixture struct {
+	client  *msb.MockMsbClient
+	volumes *volume.Manager
+	ui      *termio.Mock
+	cfs     *reprovision.ConfigFiles
+	homeVol string
+}
+
+func (f reconfigFixture) decide(t *testing.T, opts options.RunOptions, hs state.HomeState) (bool, error) {
+	t.Helper()
+	decision, err := readAndResolveReconfigDecision(
+		context.Background(),
+		f.client,
+		f.volumes,
+		state.Key{Slug: "testproj", Agent: "opencode"},
+		opts,
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: hs.ImageDigest},
+		f.homeVol,
+		hs,
+		f.cfs,
+		f.ui,
+	)
+	return decision.Recreate, err
+}
+
+// seedAgentState writes the agent version/source into this project's HomeState,
+// preserving any other fields already present.
+func seedAgentState(t *testing.T, k state.Key, version, source string) {
+	t.Helper()
+	hs, err := state.ReadState(k)
+	if err != nil {
+		hs = &state.HomeState{}
+	}
+	hs.AgentVersion = version
+	hs.AgentSource = source
+	if err := seedHomeState(k, *hs); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+}
+
+// withMockAgentLatestVersion pins the shared agent-latest-version lookup, which
+// the build resolver and the upgrade check both consult.
+func withMockAgentLatestVersion(t *testing.T, v string) {
+	t.Helper()
+	orig := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return v, nil }
+	t.Cleanup(func() { agentLatestVersion = orig })
 }
