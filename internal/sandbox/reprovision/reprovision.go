@@ -47,6 +47,7 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 	// Best-effort: the merged config is written to the last-loaded filename
 	// (e.g., opencode.jsonc), so a failed removal is non-fatal.
 	removeStalePaths(ctx, fs, cf.Remove)
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="every config format marshals a document to an empty or multi-byte result, so > 0 and > 1 agree"
 	if len(cf.Merged) > 0 {
 		mergedPath := cf.MergedPath
 		made, err := mkdirAllFS(ctx, fs, filepath.Dir(mergedPath))

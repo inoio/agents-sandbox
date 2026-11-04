@@ -440,8 +440,24 @@ func TestProvisionChownsWhatItCreatedBeforeAFailure(t *testing.T) {
 		name      string
 		cf        *ConfigFiles
 		failPath  string
+		execErr   error
 		wantChown string
 	}{
+		{
+			name:      "an intermediate directory creation fails",
+			cf:        &ConfigFiles{Provisioned: map[string][]byte{"/home/dev/.config/tool/cfg.toml": []byte("k=v\n")}},
+			failPath:  "/home/dev",
+			wantChown: "chown -R dev:dev /home",
+		},
+		{
+			name: "chmod after a write fails",
+			cf: &ConfigFiles{
+				HomeFiles: map[string][]byte{"/home/dev/run.sh": []byte("#!/bin/sh\n")},
+				Modes:     map[string]os.FileMode{"/home/dev/run.sh": 0o755},
+			},
+			execErr:   errors.New("chmod boom"),
+			wantChown: "chown -R dev:dev /home /home/dev /home/dev/run.sh",
+		},
 		{
 			name:      "directory creation fails",
 			cf:        &ConfigFiles{Provisioned: map[string][]byte{"/home/dev/.config/tool/cfg.toml": []byte("k=v\n")}},
@@ -470,6 +486,7 @@ func TestProvisionChownsWhatItCreatedBeforeAFailure(t *testing.T) {
 			sb := &msb.MockSandbox{
 				FSValue_:   pathFailingFS{TestFS: msb.NewTestFS(nil, nil), failPath: tc.failPath},
 				ShellCalls: &calls,
+				ExecErr:    tc.execErr,
 			}
 			if err := Provision(context.Background(), sb, tc.cf); err == nil {
 				t.Fatal("Provision error = nil, want the failure")

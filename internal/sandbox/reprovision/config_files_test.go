@@ -1602,10 +1602,8 @@ func TestDescribe(t *testing.T) {
 		),
 		VMPath: filepath.Join(vmHome, ".config", "opencode", "tui.json"),
 	}
-	if !slices.ContainsFunc(mirrorFiles, func(mf MirrorFile) bool {
-		return mf.HostPath == wantMirror.HostPath && mf.VMPath == wantMirror.VMPath
-	}) {
-		t.Errorf("Describe mirror files = %+v, want to include %+v", mirrorFiles, wantMirror)
+	if !slices.Equal(mirrorFiles, []MirrorFile{wantMirror}) {
+		t.Errorf("Describe mirror files = %+v, want exactly %+v", mirrorFiles, wantMirror)
 	}
 }
 

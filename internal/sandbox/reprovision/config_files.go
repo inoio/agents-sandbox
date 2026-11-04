@@ -529,6 +529,7 @@ func (s configSubject) buildMergedConfig(src ConfigSource) (mergedConfig, error)
 // VM config directory. A subject without a merger has no mirror.
 func (s configSubject) buildMirror(src ConfigSource) map[string]config.MirrorEntry {
 	if s.merger == nil {
+		// gomutants:disable-next-line RETURN_ZERO reason="the caller only ranges over the map, so an empty and a nil map read the same"
 		return map[string]config.MirrorEntry{}
 	}
 	entries := config.ScanMirror(
@@ -690,6 +691,7 @@ func ReadVMConfig(ctx context.Context, sb msb.Sandbox, paths []string, ui termio
 func AgentConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
 	if cf.HasSnippets {
 		vm, ok := vmData[cf.MergedPath]
+		// gomutants:disable-next-line BRANCH_IF reason="DocumentsEqual fails to parse a missing (nil) VM document against any non-empty merged one, so it already reports the difference"
 		if !ok {
 			return false
 		}
