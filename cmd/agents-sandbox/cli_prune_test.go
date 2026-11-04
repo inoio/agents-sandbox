@@ -811,8 +811,8 @@ func checkSummary(t *testing.T, outCalls []string, expected string) {
 	}
 }
 
-// TestPruneCatalogError covers the live-state build failing during prune, which
-// surfaces the raw ListSandboxes error from the command.
+// TestPruneCatalogError pins that prune stops when it cannot list the live
+// sandboxes, surfacing the ListSandboxes error.
 func TestPruneCatalogError(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "prune", "--age", "7d", "--yes")
 	mock := &sandboxmsb.MockMsbClient{}
@@ -825,5 +825,21 @@ func TestPruneCatalogError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected 'boom' error, got: %v", err)
+	}
+}
+
+func TestResolvePruneAgeFromResolver(t *testing.T) {
+	ui := &termio.Mock{}
+	cmd := buildPruneCmd(ui)
+	ctx := context.WithValue(context.Background(), (*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{ManualPruneAge: 5 * time.Hour}))
+	cmd.SetContext(ctx)
+
+	d, err := resolvePruneAge(cmd)
+	if err != nil {
+		t.Fatalf("resolvePruneAge: %v", err)
+	}
+	if d != 5*time.Hour {
+		t.Errorf("resolvePruneAge = %v, want 5h", d)
 	}
 }

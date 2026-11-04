@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func commandOut(t *testing.T, args ...string) string {
@@ -154,5 +156,20 @@ func TestBuildRunShellHelpListDockerFlag(t *testing.T) {
 				t.Errorf("deprecated --dind flag must be hidden from %q help:\n%s", strings.Join(path, " "), out)
 			}
 		})
+	}
+}
+
+// TestCommandFlagShorthands pins the single-letter shorthands that the tree and
+// help surface advertise.
+func TestCommandFlagShorthands(t *testing.T) {
+	ui := &termio.Mock{}
+	if got := buildBuildCmd(ui).Flags().Lookup(flagRebuild).Shorthand; got != "r" {
+		t.Errorf("--%s shorthand = %q, want %q", flagRebuild, got, "r")
+	}
+	if got := buildImageRemoveCmd(ui).Flags().Lookup(flagForce).Shorthand; got != "f" {
+		t.Errorf("image remove --%s shorthand = %q, want %q", flagForce, got, "f")
+	}
+	if got := buildVolumeRemoveCmd(ui).Flags().Lookup(flagForce).Shorthand; got != "f" {
+		t.Errorf("volume remove --%s shorthand = %q, want %q", flagForce, got, "f")
 	}
 }
