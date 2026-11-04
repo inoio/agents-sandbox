@@ -17,6 +17,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -34,6 +35,7 @@ const (
 	FlagAgentVersion = "agent-version"
 	FlagNetwork      = "network"
 	FlagDNSServers   = "dns"
+	FlagPort         = "port"
 	FlagNotify       = "notify"
 	// FlagOpenLinks is the --open-links flag name, shared with the config key.
 	FlagOpenLinks = viperconfig.KeyOpenLinks
@@ -104,6 +106,10 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.Logger) (optio
 	opts.Docker = ResolveDockerSetting(cmd, cfg)
 
 	if err := resolveNetwork(cfg, cmd, &opts); err != nil {
+		return options.RunOptions{}, err
+	}
+
+	if err := resolvePorts(cfg, cmd, &opts); err != nil {
 		return options.RunOptions{}, err
 	}
 
@@ -319,6 +325,24 @@ func resolveNetwork(cfg *viperconfig.Config, cmd *cobra.Command, opts *options.R
 	if dns, _ := cmd.Flags().GetStringSlice(FlagDNSServers); len(dns) > 0 {
 		opts.Network.DNSServers = dns
 	}
+	return nil
+}
+
+// resolvePorts resolves the user-published ports: the --port flag wins over
+// the resolved config's ports (config file or AGENTS_SANDBOX_PORTS env).
+func resolvePorts(cfg *viperconfig.Config, cmd *cobra.Command, opts *options.RunOptions) error {
+	var specs []string
+	if cfg != nil {
+		specs = cfg.Ports
+	}
+	if flag := cmd.Flags().Lookup(FlagPort); flag != nil && flag.Changed {
+		specs, _ = cmd.Flags().GetStringSlice(FlagPort)
+	}
+	mappings, err := ports.ParsePortMappings(specs)
+	if err != nil {
+		return err
+	}
+	opts.Ports = mappings
 	return nil
 }
 

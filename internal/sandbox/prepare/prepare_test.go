@@ -20,6 +20,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
@@ -311,26 +312,91 @@ func TestGuestWorkspacePath(t *testing.T) {
 	}
 }
 
-func TestResolveServeHostPortNotServeOnly(t *testing.T) {
-	if got := resolveServeHostPort(options.RunOptions{Agent: "opencode"}, 0); got != 0 {
-		t.Errorf("resolveServeHostPort(not serve-only) = %d, want 0", got)
-	}
+// TestResolveServeHostPort pins the host port a run publishes the agent server
+// on: none outside serve-only mode, the port the reconfig plan carried over
+// from the existing VM, and otherwise a probed free port that no user port
+// mapping claims. A probe range claimed entirely by user mappings fails.
+func TestResolveServeHostPort(t *testing.T) {
+	serveOnly := options.RunOptions{ServeOnly: true}
+
+	t.Run("not serve-only", func(t *testing.T) {
+		got, err := resolveServeHostPort(options.RunOptions{Agent: "opencode"}, 0)
+		if err != nil || got != 0 {
+			t.Errorf("resolveServeHostPort = %d, %v; want 0, nil", got, err)
+		}
+	})
+	t.Run("planned port is kept", func(t *testing.T) {
+		// Not ServeOnlyBasePort, so probing for a free port instead would differ.
+		planned := ports.ServeOnlyBasePort + 17
+		got, err := resolveServeHostPort(serveOnly, planned)
+		if err != nil || got != planned {
+			t.Errorf("resolveServeHostPort(planned %d) = %d, %v; want %d, nil", planned, got, err, planned)
+		}
+	})
+	t.Run("no planned port probes one", func(t *testing.T) {
+		got, err := resolveServeHostPort(serveOnly, 0)
+		if err != nil || got < ports.ServeOnlyBasePort {
+			t.Errorf("resolveServeHostPort(planned 0) = %d, %v; want a probed port >= %d",
+				got, err, ports.ServeOnlyBasePort)
+		}
+	})
+	t.Run("probe skips user mappings", func(t *testing.T) {
+		opts := options.RunOptions{
+			ServeOnly: true,
+			Ports:     []ports.PortMapping{{HostPort: ports.ServeOnlyBasePort, GuestPort: 3000}},
+		}
+		got, err := resolveServeHostPort(opts, 0)
+		if err != nil || got == ports.ServeOnlyBasePort {
+			t.Errorf("resolveServeHostPort = %d, %v; want a port no user mapping claims", got, err)
+		}
+	})
+	t.Run("every probed port claimed", func(t *testing.T) {
+		_, err := resolveServeHostPort(options.RunOptions{ServeOnly: true, Ports: exhaustedPortMappings()}, 0)
+		if err == nil || !strings.Contains(err.Error(), "no free host port") {
+			t.Errorf("error = %v, want no free host port", err)
+		}
+	})
 }
 
-// TestResolveServeHostPortPassthrough pins that a serve-only run keeps the
-// port the reconfig plan carried over from the existing VM. The planned port
-// is not ServeOnlyBasePort, so probing for a free port instead would differ.
-func TestResolveServeHostPortPassthrough(t *testing.T) {
-	planned := options.ServeOnlyBasePort + 17
-	if got := resolveServeHostPort(options.RunOptions{ServeOnly: true}, planned); got != planned {
-		t.Errorf("resolveServeHostPort(planned %d) = %d, want %d", planned, got, planned)
+// TestReportActivePorts pins that the published ports are reported when the
+// VM is created or recreated, or kept with its ports unchanged, and not when a
+// kept VM defers a port change or no ports are requested.
+func TestReportActivePorts(t *testing.T) {
+	requested := options.RunOptions{Ports: []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}}
+	cases := []struct {
+		name      string
+		opts      options.RunOptions
+		plan      reconfigPlan
+		wantLines int
+	}{
+		{name: "fresh create", opts: requested, wantLines: 1},
+		{
+			name:      "recreate",
+			opts:      requested,
+			plan:      reconfigPlan{decision: reconfigDecision{Recreate: true}},
+			wantLines: 1,
+		},
+		{
+			name:      "kept with unchanged ports",
+			opts:      requested,
+			plan:      reconfigPlan{existingVM: &msb.MockSandboxHandle{}},
+			wantLines: 1,
+		},
+		{
+			name: "kept with deferred ports",
+			opts: requested,
+			plan: reconfigPlan{existingVM: &msb.MockSandboxHandle{}, decision: reconfigDecision{PortsChanged: true}},
+		},
+		{name: "nothing requested"},
 	}
-}
-
-func TestResolveServeHostPortProbesWhenZero(t *testing.T) {
-	got := resolveServeHostPort(options.RunOptions{ServeOnly: true}, 0)
-	if got == 0 || got < options.ServeOnlyBasePort {
-		t.Errorf("resolveServeHostPort(planned 0) = %d, want a probed port >= %d", got, options.ServeOnlyBasePort)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ui := &termio.Mock{}
+			reportActivePorts(tc.opts, tc.plan, ui)
+			if len(ui.InfoCalls) != tc.wantLines {
+				t.Errorf("InfoCalls = %v, want %d published-port lines", ui.InfoCalls, tc.wantLines)
+			}
+		})
 	}
 }
 

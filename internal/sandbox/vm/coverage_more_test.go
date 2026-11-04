@@ -20,6 +20,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -401,9 +402,10 @@ func TestCreateProjectVMServeOnlyAndNetwork(t *testing.T) {
 		Client:       client,
 		DockerClient: docker.Get(),
 		Options: options.RunOptions{
-			Memory:    "1G",
-			ServeOnly: true,
-			Network:   network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
+			Memory:        "1G",
+			ServeOnly:     true,
+			ServeHostPort: ports.ServeOnlyBasePort,
+			Network:       network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
 		},
 		Image: image.ImageInfo{
 			DockerTag: "agents-sandbox/runner-test:latest",

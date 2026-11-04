@@ -15,19 +15,11 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sysinfo"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
-
-// projectPortBindings returns the port bindings to publish on the host for the
-// project VM. Serve-only exposes the agent serve port on the host loopback.
-func projectPortBindings(serveOnly bool, hostPort int) []msbSdk.PortBinding {
-	if !serveOnly {
-		return nil
-	}
-	return options.ServeOnlyBindings(hostPort)
-}
 
 type vmAction int
 
@@ -544,12 +536,8 @@ func createProjectVM(ctx context.Context, creation ProjectVMCreation, name strin
 	if opts.DiskSize != "" {
 		optsList = append(optsList, msbSdk.WithRootDisk(msbSdk.RootDisk.Managed(options.ParseMemory(opts.DiskSize))))
 	}
-	if opts.ServeOnly {
-		hostPort := opts.ServeHostPort
-		if hostPort == 0 {
-			hostPort = options.FirstFreeHostPort(options.ServeOnlyBasePort)
-		}
-		optsList = append(optsList, msbSdk.WithPortBindings(projectPortBindings(true, hostPort)...))
+	if bindings := ports.PublishBindings(opts.ServeOnly, opts.ServeHostPort, opts.Ports); len(bindings) > 0 {
+		optsList = append(optsList, msbSdk.WithPortBindings(bindings...))
 	}
 	netCfg, err := opts.Network.Config()
 	if err != nil {

@@ -21,6 +21,11 @@ default silently ignored the env/config value, so `internal/viperconfig/configke
   skips keys with no flag. A key therefore never has to declare that it is a flag, and `dind` is deliberately
   absent — binding `--dind` to viper would make `IsSet("dind")` always true and turn `resolveDockerAlias` into
   a spurious dind deprecation warning.
+- The one name exception is `ports`, whose flag is registered as `--port`/`-p` (matching msb's own flag) rather
+  than a hypothetical `--ports`: `configFlagAliases` maps the key to the flag name so `bindConfigFlags` binds it
+  and the flag layer reaches `validate()`. An aliased key gets no `SetDefault` — an unset StringSlice flag's
+  default is the raw string `"[]"`, which would make `IsSet` always true and leak a bogus entry into the
+  resolved config; viper consults an unchanged bound flag only as a last resort, so the binding alone suffices.
 - A bound flag's default type comes from the owning field's Go kind (`bool` → bool, `uint8` → uint8, otherwise
   the flag's raw string), not from the pflag: viper's flag-default fallback returns a raw string for every
   pflag type it does not cast, `uint8` among them.

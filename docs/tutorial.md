@@ -1,14 +1,20 @@
 ---
-title: Your first sandbox
-description: "Take an agent from install to a running sandbox: install agents-sandbox, run an agent, and see what appears."
+title: Your first agent
+description: "Run an agent for the first time: install agents-sandbox, start an agent in a sandbox, and see what appears."
 layout: default
 parent: Get started
 nav_order: 25
 ---
 
-# Your first sandbox
+# Your first agent
 
-By the end of this page you have a coding agent running inside a sandbox, with your project mounted at `/workspace`.
+This page takes you from a fresh install to a coding agent running in a sandbox, with your project mounted at
+`/workspace`.
+
+If you already use a coding agent on this host, the same command also brings your existing setup — see
+[Switch from your existing agent]({% link switch.md %}). If you have not set up OpenCode 2 on this host yet, do that once
+first: the sandbox copies its host configuration and credentials, so OpenCode 2 starts without a separate login.
+Other agents may require a separate login inside the sandbox.
 
 ## Install agents-sandbox
 
@@ -16,15 +22,15 @@ Install it with Homebrew, or download a release binary. [Installation]({% link i
 
 ## Run an agent
 
-Change into a project and start the default agent:
+Change into a project and start the default agent, OpenCode 2:
 
 ```console
 cd ~/my-project
 agents-sandbox
 ```
 
-The first run builds the runner image and creates the sandbox; later runs reuse it. To start a specific agent, pass
-`--agent`: `agents-sandbox --agent pi`, `agents-sandbox --agent opencode`, `agents-sandbox --agent claude-code`, `agents-sandbox --agent codex`, `agents-sandbox --agent hermes`, or `agents-sandbox --agent oh-my-pi`.
+The first run builds the runner image and creates the sandbox; later runs reuse it. To start a different agent, pass
+`--agent`: `agents-sandbox --agent opencode`, `agents-sandbox --agent pi`, `agents-sandbox --agent claude-code`, `agents-sandbox --agent codex`, `agents-sandbox --agent hermes`, or `agents-sandbox --agent oh-my-pi`.
 
 ## What you see
 
@@ -35,7 +41,7 @@ Detach with the agent's own exit key (for example `Ctrl-D`). The sandbox keeps r
 to stop it manually, run `agents-sandbox stop`, passing the same `--agent` value you started with (for example
 `agents-sandbox stop --agent pi`).
 
-Next, make the sandbox the home for your real setup:
+Next steps:
 
 - [Switch from your existing agent]({% link switch.md %}) — bring your existing agent config and credentials into the sandbox.
 - [Manage config in the sandbox]({% link manage-config.md %}) — self-contained, reproducible configuration with secrets kept on the host.

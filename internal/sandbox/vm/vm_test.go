@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -812,38 +811,6 @@ func TestEnsureProjectVMReusesWhenNotFlagged(t *testing.T) {
 	}
 	if handle.DidDestroy() {
 		t.Error("did not expect Destroy on reuse")
-	}
-}
-
-func TestProjectPortBindingsServeOnly(t *testing.T) {
-	canonical := options.ServeOnlyBindings(options.ServeOnlyBasePort)
-	tests := []struct {
-		name      string
-		serveOnly bool
-		want      []msbSdk.PortBinding
-	}{
-		{"normal run", false, nil},
-		{"serve only", true, canonical},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := projectPortBindings(tt.serveOnly, options.ServeOnlyBasePort)
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("projectPortBindings(%v) = %#v, want %#v", tt.serveOnly, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestProjectPortBindingsDelegatesToOptions(t *testing.T) {
-	got := projectPortBindings(true, 4097)
-	expected := options.ServeOnlyBindings(4097)
-	if len(got) != len(expected) {
-		t.Fatalf("expected %d bindings, got %d", len(expected), len(got))
-	}
-	if got[0].Bind != expected[0].Bind || got[0].HostPort != expected[0].HostPort ||
-		got[0].GuestPort != expected[0].GuestPort || got[0].Protocol != expected[0].Protocol {
-		t.Errorf("binding = %#v, want %#v", got[0], expected[0])
 	}
 }
 

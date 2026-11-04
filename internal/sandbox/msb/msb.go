@@ -121,6 +121,11 @@ type SandboxHandle interface {
 	// cfg.Volumes is always empty on a read-back
 	// (specs/live-mount-readback.md).
 	ConfigMounts() (map[string]msbSdk.MountConfig, error)
+	// ConfigPorts returns the published port bindings the persisted config
+	// records. Config() cannot supply them either: the same SDK decode drops
+	// the persisted network.ports, so cfg.PortBindings is always empty on a
+	// read-back (specs/live-mount-readback.md).
+	ConfigPorts() ([]msbSdk.PortBinding, error)
 	Modify(ctx context.Context, opts msbSdk.ModifyOptions) (*msbSdk.SandboxModificationPlan, error)
 	Compact(ctx context.Context, opts msbSdk.DiskCompactionOptions) (*msbSdk.DiskCompactionResult, error)
 }
@@ -670,6 +675,10 @@ func (w realSandboxHandle) Config() (*msbSdk.SandboxConfig, error) {
 
 func (w realSandboxHandle) ConfigMounts() (map[string]msbSdk.MountConfig, error) {
 	return ParseConfigMounts(w.handle.ConfigJSON())
+}
+
+func (w realSandboxHandle) ConfigPorts() ([]msbSdk.PortBinding, error) {
+	return ParseConfigPorts(w.handle.ConfigJSON())
 }
 
 func (w realSandboxHandle) Modify(

@@ -1,6 +1,6 @@
 ---
-description: Contract for agents-sandbox's microsandbox management surface — volume/image/sandbox inspection, image and sandbox removal, a top-level `df` plus a `storage` group alias, and uniform `-q`/`--format json`/`--yes`/`--older-than` conventions — deliberately bounded, not a mirror of msb's lifecycle, data-portability, registry, cloud, or self-install surface.
-read_if: Adding or reviewing volume/image/sandbox inspection and removal commands, the `df`/`storage` accounting commands, prune confirmation/format flags, or command-surface consistency conventions.
+description: Contract for agents-sandbox's microsandbox management surface — volume/image/sandbox inspection, image and sandbox removal, sandbox disk compaction, a top-level `df` plus a `storage` group alias, and uniform `-q`/`--format json`/`--yes`/`--older-than` conventions — deliberately bounded, not a mirror of msb's lifecycle, data-portability, registry, cloud, or self-install surface.
+read_if: Adding or reviewing volume/image/sandbox inspection, removal, and disk-compaction commands, the `df`/`storage` accounting commands, prune confirmation/format flags, or command-surface consistency conventions.
 ---
 
 # Runtime management commands
@@ -22,6 +22,7 @@ portability features.
 - Provide read-only inspection of the objects agents-sandbox manages: home
   volumes, cached runner images, and project sandboxes/VMs.
 - Provide explicit removal of volumes and images by name.
+- Provide opt-in compaction of project VM disks.
 - Provide storage accounting over the private home (a `df` equivalent) and a
   `storage` command group.
 - Make the listing/prune surface consistent: machine-readable output, quiet
@@ -89,10 +90,20 @@ portability features.
 - `sandbox inspect <name>` — status, image, labels, mounts, resources, `ID`, and
   backend kind.
 - `sandbox remove <name>` (`rm`) — remove an agents-sandbox project VM by name;
-  refuses a running VM unless `-f/--force` (stops it first). Ownership is hard
-  (only `agents-sandbox-vm-*` names), and it does **not** drop the persisted
-  state, so the recorded home volume survives and the next run recreates the VM
-  against it.
+  refuses a running VM unless `-f/--force` (stops it first). A hard name-shape
+  classification guard that `--force` cannot override gates the name: a legacy
+  `agents-sandbox-vm-*` name is accepted, and otherwise the name must not parse as
+  a task sandbox or a home-volume/runner-image name. This is a project-vs-task
+  classification, not artifact ownership (which is positional; see
+  `artifact-naming.md`). It does **not** drop the persisted state, so the
+  recorded home volume survives and the next run recreates the VM against it.
+- `sandbox compact [name]` — merge the oldest sealed copy-on-write disk layers of
+  every project VM's disks (or only the named one), briefly pausing a running VM.
+  Opt-in only: it never runs on the automatic prune path, and named volumes such
+  as the home volume are never compacted. Flags: `--dry-run`, `--disk` (one guest
+  mount, mutually exclusive with `--root-only`), `--root-only`, `--layers` (the
+  oldest N sealed layers, minimum 2; default all), `-q/--quiet` (suppresses stdout),
+  and `--format json`.
 - `sandbox copy`/`cp` — dropped: host↔VM transfer is the excluded
   data-portability surface, not part of the bounded management surface.
 - `sandbox start`/`restart`/`exec`/`logs`/`metrics`/`pause`/`resume`/`wait` —
@@ -109,7 +120,7 @@ portability features.
   top-level.
 
 Out of scope (explicit): `registry`/`registries`, `context`/`ctx`, `self`/
-`doctor`/`update`/`downgrade`/`uninstall`, and `sandbox compact` (issue #157).
+`doctor`/`update`/`downgrade`/`uninstall`.
 Runtime-RAM pruning enriches the top-level `prune` rather than adding a command
 (#156): a fourth phase calls microsandbox's `PruneStorage` over branch/snapshot
 memory backings under the same `--older-than` threshold (converted to whole

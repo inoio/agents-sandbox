@@ -19,6 +19,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sandbox/vm"
@@ -1372,4 +1373,316 @@ func reconfigMockClient() *msb.MockMsbClient {
 		return sh, nil
 	}
 	return mock
+}
+
+// TestResolveReconfigDecisionDeferredPortsKeepsServePort covers the deferred
+// ports change on a kept VM: when another client is attached and the user keeps
+// the current VM, the VM still serves on its existing agent binding, so the
+// decision must not adopt the freshly probed serve port (that port applies at
+// the next recreate).
+func TestResolveReconfigDecisionDeferredPortsKeepsServePort(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+	slug := git.MustCheckoutSlug()
+
+	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
+	if err != nil {
+		t.Fatalf("AcquireClientLease: %v", err)
+	}
+	defer release()
+
+	handle := &msb.MockSandboxHandle{
+		Cfg: &msbSdk.SandboxConfig{
+			Image:     "img:tag",
+			CPUs:      4,
+			MemoryMiB: 4096,
+		},
+		PortBindings: []msbSdk.PortBinding{
+			{
+				Bind:      "127.0.0.1",
+				HostPort:  ports.ServeOnlyBasePort,
+				GuestPort: ports.ServeOnlyBasePort,
+				Protocol:  msbSdk.PortProtocolTCP,
+			},
+		},
+		ConnectSb: &msb.MockSandbox{},
+	}
+	mock := &msb.MockMsbClient{}
+	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return handle, nil
+	}
+	msb.WithMsbMock(t, mock)
+
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
+			return "k", nil
+		},
+	}
+	volumes := volume.NewManager(docker.Get())
+
+	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	decision, err := readAndResolveReconfigDecision(
+		context.Background(),
+		mock,
+		volumes,
+		state.Key{Slug: slug, Agent: "opencode"},
+		options.RunOptions{
+			Agent:     "opencode",
+			ServeOnly: true,
+			// The new mapping claims the agent's host port, so the plan must
+			// probe a different serve port for the recreated VM.
+			Ports: []ports.PortMapping{{HostPort: ports.ServeOnlyBasePort, GuestPort: 3000}},
+		},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
+		"vol",
+		persisted,
+		cfs,
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if decision.Recreate {
+		t.Error("expected the ports change to be deferred when the user keeps the current VM")
+	}
+	if !decision.PortsChanged {
+		t.Error("expected PortsChanged for a mapping that claims the agent host port")
+	}
+	if decision.ServeHostPort != ports.ServeOnlyBasePort {
+		t.Errorf("ServeHostPort = %d, want %d (the kept VM still serves on its existing binding)",
+			decision.ServeHostPort, ports.ServeOnlyBasePort)
+	}
+}
+
+// TestResolveReconfigDecisionRecreateAdoptsProbedServePort covers the accepted
+// ports change: with no other client attached the recreate applies without a
+// prompt, and the decision adopts the freshly probed serve port the recreated
+// VM will bind.
+func TestResolveReconfigDecisionRecreateAdoptsProbedServePort(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+	slug := git.MustCheckoutSlug()
+
+	handle := &msb.MockSandboxHandle{
+		Cfg: &msbSdk.SandboxConfig{
+			Image:     "img:tag",
+			CPUs:      4,
+			MemoryMiB: 4096,
+		},
+		PortBindings: []msbSdk.PortBinding{
+			{
+				Bind:      "127.0.0.1",
+				HostPort:  ports.ServeOnlyBasePort,
+				GuestPort: ports.ServeOnlyBasePort,
+				Protocol:  msbSdk.PortProtocolTCP,
+			},
+		},
+		ConnectSb: &msb.MockSandbox{},
+	}
+	mock := &msb.MockMsbClient{}
+	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return handle, nil
+	}
+	msb.WithMsbMock(t, mock)
+
+	ui := termio.NewTestMock(t)
+	volumes := volume.NewManager(docker.Get())
+
+	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	decision, err := readAndResolveReconfigDecision(
+		context.Background(),
+		mock,
+		volumes,
+		state.Key{Slug: slug, Agent: "opencode"},
+		options.RunOptions{
+			Agent:     "opencode",
+			ServeOnly: true,
+			Ports:     []ports.PortMapping{{HostPort: ports.ServeOnlyBasePort, GuestPort: 3000}},
+		},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
+		"vol",
+		persisted,
+		cfs,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if !decision.Recreate {
+		t.Error("expected an automatic recreate with no other client attached")
+	}
+	if decision.ServeHostPort == ports.ServeOnlyBasePort {
+		t.Errorf("ServeHostPort = %d, want a freshly probed port above the user-claimed %d",
+			decision.ServeHostPort, ports.ServeOnlyBasePort)
+	}
+}
+
+// TestResolveReconfigDecisionDroppedPortsRecreate pins the other side: a run
+// without user ports against a VM that has them is a change — the recreate
+// drops the published ports.
+func TestResolveReconfigDecisionDroppedPortsRecreate(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+	slug := git.MustCheckoutSlug()
+
+	handle := &msb.MockSandboxHandle{
+		Cfg: &msbSdk.SandboxConfig{
+			Image:     "img:tag",
+			CPUs:      4,
+			MemoryMiB: 4096,
+		},
+		PortBindings: ports.UserPortBindings([]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}),
+		ConnectSb:    &msb.MockSandbox{},
+	}
+	mock := &msb.MockMsbClient{}
+	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return handle, nil
+	}
+	msb.WithMsbMock(t, mock)
+
+	ui := termio.NewTestMock(t)
+	volumes := volume.NewManager(docker.Get())
+	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	decision, err := readAndResolveReconfigDecision(
+		context.Background(),
+		mock,
+		volumes,
+		state.Key{Slug: slug, Agent: "opencode"},
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
+		"vol",
+		persisted,
+		cfs,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if !decision.PortsChanged {
+		t.Error("a run without ports against a VM that has them must read as changed")
+	}
+}
+
+// TestResolveReconfigDecisionUnchangedPortsNoRecreate pins the read-back
+// contract for the "unchanged second run": the ports the persisted config
+// records (via ConfigPorts) equal the desired bindings, so nothing reads as
+// changed, the VM is not recreated, and the serve port is reused.
+func TestResolveReconfigDecisionUnchangedPortsNoRecreate(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+	slug := git.MustCheckoutSlug()
+
+	handle := &msb.MockSandboxHandle{
+		Cfg: &msbSdk.SandboxConfig{
+			Image:     "img:tag",
+			CPUs:      4,
+			MemoryMiB: 4096,
+		},
+		PortBindings: append(
+			ports.ServeOnlyBindings(ports.ServeOnlyBasePort),
+			ports.UserPortBindings([]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}})...,
+		),
+		ConnectSb: &msb.MockSandbox{},
+	}
+	mock := &msb.MockMsbClient{}
+	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return handle, nil
+	}
+	msb.WithMsbMock(t, mock)
+
+	ui := termio.NewTestMock(t)
+	volumes := volume.NewManager(docker.Get())
+	persisted := state.HomeState{
+		HomeVolume:   "vol",
+		ImageDigest:  "sha256:same",
+		NetworkState: state.BuildNetworkState(network.Policy{}),
+	}
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	decision, err := readAndResolveReconfigDecision(
+		context.Background(),
+		mock,
+		volumes,
+		state.Key{Slug: slug, Agent: "opencode"},
+		options.RunOptions{
+			Agent:     "opencode",
+			ServeOnly: true,
+			Ports:     []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}},
+		},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
+		"vol",
+		persisted,
+		cfs,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if decision.PortsChanged {
+		t.Error("an unchanged second run must not read the ports as changed")
+	}
+	if decision.Recreate {
+		t.Error("an unchanged second run must not recreate the VM")
+	}
+	if decision.ServeHostPort != ports.ServeOnlyBasePort {
+		t.Errorf(
+			"ServeHostPort = %d, want %d (the reused serve binding)",
+			decision.ServeHostPort,
+			ports.ServeOnlyBasePort,
+		)
+	}
+}
+
+// TestApplyLivePortsReadFailureDegrades covers the read-back failure branch:
+// when the live VM's published ports cannot be read, the bindings are left
+// untouched and the failure is reported at verbose level instead of aborting.
+func TestApplyLivePortsReadFailureDegrades(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{}
+	failing := &msb.MockSandboxHandle{PortsErr: errors.New("ports boom")}
+	ui := termio.NewTestMock(t)
+
+	applyLivePorts(cfg, failing, &ui)
+
+	if cfg.PortBindings != nil {
+		t.Errorf("PortBindings = %+v, want untouched (nil) after a read failure", cfg.PortBindings)
+	}
+	assertVerbose(t, &ui, "reading VM ports failed")
+}
+
+func TestExistingServeHostPort(t *testing.T) {
+	if got := existingServeHostPort(nil, 4100); got != 4100 {
+		t.Errorf("existingServeHostPort(nil, 4100) = %d, want the fallback", got)
+	}
+	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP},
+		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: ports.ServeOnlyBasePort, Protocol: msbSdk.PortProtocolTCP},
+	}}
+	if got := existingServeHostPort(cfg, 4100); got != 4096 {
+		t.Errorf("existingServeHostPort = %d, want 4096 (the agent guest port binding)", got)
+	}
+	userOnly := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP},
+	}}
+	if got := existingServeHostPort(userOnly, 4100); got != 4100 {
+		t.Errorf("existingServeHostPort(no serve binding) = %d, want the fallback", got)
+	}
 }

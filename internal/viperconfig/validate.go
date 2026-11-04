@@ -9,6 +9,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 )
 
@@ -28,6 +29,9 @@ func validate(v *viper.Viper) error {
 		return err
 	}
 	if err := validateNetworkDNSServers(v); err != nil {
+		return err
+	}
+	if err := validatePorts(v); err != nil {
 		return err
 	}
 	if err := validateUpgrade(v); err != nil {
@@ -86,9 +90,32 @@ func validateNetworkDNSServers(v *viper.Viper) error {
 	return nil
 }
 
+// validatePorts rejects malformed ports values at config-load time. The raw
+// value may be a comma-separated string (env/flag) or a YAML/JSON list
+// (config file).
+func validatePorts(v *viper.Viper) error {
+	if !v.IsSet(keyPorts) {
+		return nil
+	}
+	entries, err := stringListEntries(v.Get(keyPorts), "a list of port specs")
+	if err != nil {
+		return fmt.Errorf("launcher config %s: %w", keyPorts, err)
+	}
+	if _, err := ports.ParsePortMappings(entries); err != nil {
+		return fmt.Errorf("launcher config %s: %w", keyPorts, err)
+	}
+	return nil
+}
+
 // dnsServerEntries converts a raw network.dns-servers value (comma-separated
 // string or list) into the individual entries.
 func dnsServerEntries(raw any) ([]string, error) {
+	return stringListEntries(raw, "a list of DNS servers")
+}
+
+// stringListEntries converts a raw config value (comma-separated string or
+// YAML/JSON list) into the individual string entries.
+func stringListEntries(raw any, what string) ([]string, error) {
 	switch val := raw.(type) {
 	case string:
 		if val == "" {
@@ -108,7 +135,7 @@ func dnsServerEntries(raw any) ([]string, error) {
 		}
 		return entries, nil
 	default:
-		return nil, fmt.Errorf("must be a list of DNS servers, got %T", raw)
+		return nil, fmt.Errorf("must be %s, got %T", what, raw)
 	}
 }
 

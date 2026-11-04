@@ -112,3 +112,40 @@ encoding it in a query name such as `<encoded-secret>.attacker.example`. Directl
 `profile: none` is still not an air gap. Every allowed destination is a channel the agent can send data through,
 including over DNS-over-HTTPS when an allowed host serves it, and through any name under an allowed `.suffix` whose
 domain someone else controls. Allow-list only hosts you trust with the data in the VM.
+
+## Published ports
+
+The `ports:` list publishes VM ports on the host so a service inside the sandbox (a dev server, a database) is
+reachable from the host machine. It is opt-in: nothing is published unless you configure it.
+
+| Entry            | Meaning                                                       |
+|------------------|---------------------------------------------------------------|
+| `3000`           | Publish guest port 3000 as host port 3000                     |
+| `8080:3000`      | Publish guest port 3000 as host port 8080                      |
+
+```yaml
+ports:
+  - "3000"        # guest 3000 -> host 3000
+  - 8080:3000     # guest 3000 -> host 8080
+```
+
+- TCP only; every entry binds to the host loopback (`127.0.0.1`), never the LAN.
+- Host ports must be unique — duplicates are rejected with an error, as are invalid specs (ports must be 1–65535).
+- Like the `network:` block, ports are baked in at VM creation: microsandbox cannot add published ports to a running
+  VM, so changing `ports:` recreates the VM on the next run (see
+  [Resource Config Application]({% link configuration/launcher.md %}#resource-config-application)). A run *without*
+  `ports:` against a VM that has them is such a change: the recreate drops the published ports.
+- When other clients are attached to the VM you can defer the recreate (keep the current VM); the change then applies
+  on the next run that recreates, and the launcher warns about the deferral instead of printing connection details
+  for ports the running VM does not carry.
+- The service inside the VM must listen on all interfaces (e.g. `--host 0.0.0.0` for common dev servers), not only the
+  guest loopback, for the published port to reach it.
+- `--serve-only` publishing is independent of this list: the agent server's dynamically allocated port is probed
+  around your configured host ports.
+
+For concrete walkthroughs — a dev server with hot reload, or a database inspected from the host — see
+[Expose a dev server]({% link recipes/expose-a-dev-server.md %}).
+
+It is also configurable via the `AGENTS_SANDBOX_PORTS` environment variable (comma-separated, e.g. `3000,8080:3000`)
+and the `--port`/`-p` flag on `run`/`shell` (comma-separated or repeated; matching msb's own `--port`). Precedence:
+**flag > env > config**.

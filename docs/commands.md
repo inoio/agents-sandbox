@@ -64,6 +64,7 @@ Arguments after `--` are forwarded to the agent. Arguments before `--` that don'
 | `--workspace-quota` | — | `16G` | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `--dry-run-vm` | —     | `false`  | Skip the VM lifecycle but prepare everything else. A project without a home volume gets none: creating it needs a VM, so the first run with a VM creates it. |
 | `--serve-only` | `-s`  | `false`  | Start the agent server published on host loopback at a dynamically allocated host port (no in-VM TUI); press `Ctrl-D` to exit, or send `SIGINT`/`SIGTERM` when stdin is not a terminal. The printed `http://127.0.0.1:<port>` URL is authoritative — use it (rather than assuming a fixed port) to connect from clients like Opencode Desktop. Set `OPENCODE_SERVER_PASSWORD` for basic auth (opencode); opencode2's server requires the baked credential `opencode:opencode` (username:password). |
+| `--port` | `-p` | `[]` | Publish a VM port on the host loopback: `<port>` or `<host>:<guest>` (TCP only, e.g. `3000` or `8080:3000`); comma-separated or repeated. Opt-in — no ports are published by default. Applied at VM creation; a change triggers recreation. Also settable via the `ports:` config key and `AGENTS_SANDBOX_PORTS`. See [Networking]({% link configuration/networking.md %}#published-ports). |
 | `--agent`      | —     | `opencode2` | Coding-agent profile to run: `opencode`, `opencode2` (default), `pi`, `claude-code`, `codex`, `hermes`, or `oh-my-pi`.                                                      |
 | `--notify`     | —     | `off`     | Notify on session status: `on`, `off`, `desktop`, or `audio` (bare `--notify` = `on`). Overridable via `AGENTS_SANDBOX_NOTIFY`. Only applies to the `opencode` and `opencode2` agents (the only agents with a session event stream). |
 | `--open-links` | —    | `true`   | Open links from the VM (`xdg-open`) in the host's browser; `--open-links=false` turns it off. Overridable via `AGENTS_SANDBOX_OPEN_LINKS`. See [Opening links]({% link configuration/opening-links.md %}). |
@@ -608,7 +609,8 @@ agents-sandbox sandbox inspect <name> --quiet         # name only
 
 Remove a project sandbox VM by name. Only project VMs are accepted — the
 prefix-free `<slug>-<agent>` name or a name created by an earlier version
-(`agents-sandbox-vm-*`). Refuses a running VM unless `--force` is
+(`agents-sandbox-vm-*`). A task sandbox name is refused, and `--force` does not
+override that. Refuses a running VM unless `--force` is
 set, which stops it first. The project's persisted state is left intact, so the
 next run recreates the VM against the same recorded home volume. Prompts for
 confirmation unless the global `--yes` is set; non-interactively, `--yes` is
