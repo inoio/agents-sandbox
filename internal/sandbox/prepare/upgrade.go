@@ -232,7 +232,7 @@ func pendingUpgrade(
 	// project cannot both pass the "already offered" gate and show the prompt.
 	// The transaction never creates a state — it runs before home resolution, so
 	// creating one here would leave a fingerprint-less partial state that poisons
-	// that step's recovery (#183). When no state exists yet we still offer; the
+	// that step's recovery. When no state exists yet we still offer; the
 	// deferred persistOfferedVersion records the mark after home resolution.
 	offer := false
 	if writeErr := state.WithHomeState(k, func(hs *state.HomeState, exists bool) (bool, error) {

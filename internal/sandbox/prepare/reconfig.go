@@ -273,7 +273,8 @@ func readExistingVMConfig(
 // records, which the SDK's Config() drops (specs/live-mount-readback.md). Until
 // it runs, cfg.Volumes is empty and the size/quota/home detectors see nothing. A
 // read failure is reported at verbose level and leaves cfg.Volumes untouched, so
-// the decision degrades to the pre-#223 behaviour instead of aborting the run.
+// the decision proceeds without the mount-based detectors instead of aborting
+// the run.
 func applyLiveMounts(cfg *msbSdk.SandboxConfig, handle msb.SandboxHandle, ui termio.Logger) {
 	if cfg == nil {
 		return
