@@ -2,16 +2,15 @@ package volume
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
 // PreviewHomeVolume resolves, read-only, the home volume a run would use and
-// whether it would have to be created. It mirrors ResolveHomeVolume's
-// reuse → recover → create decision without any write: no volume is created,
-// no state is repaired, and nothing is prefilled.
+// whether it would have to be created. It shares resolveHomeVolumePlan with
+// ResolveHomeVolume, so the two cannot drift (#527), and performs no write: no
+// volume is created, no state is repaired, and nothing is prefilled.
 //
 // A lookup error on the recorded volume that is not true absence is returned
 // rather than reported as "would create", matching the real run's fail-closed
@@ -28,19 +27,12 @@ func PreviewHomeVolume(
 	k state.Key,
 	recoveredVolume string,
 ) (string, bool, error) {
-	if st, err := state.ReadState(k); err == nil && st.HomeVolume != "" {
-		if _, err := client.GetVolume(ctx, st.HomeVolume); err == nil {
-			return st.HomeVolume, false, nil
-		} else if !msb.IsVolumeNotFound(err) {
-			return "", false, fmt.Errorf("checking home volume %q: %w", st.HomeVolume, err)
-		}
-	}
-	recovered, ok, err := confirmedRecoveredVolume(ctx, client, recoveredVolume)
+	plan, err := resolveHomeVolumePlan(ctx, client, k, recoveredVolume)
 	if err != nil {
 		return "", false, err
 	}
-	if ok {
-		return recovered, false, nil
+	if plan.decision == homeDecisionCreate {
+		return "", true, nil
 	}
-	return "", true, nil
+	return plan.volume, false, nil
 }

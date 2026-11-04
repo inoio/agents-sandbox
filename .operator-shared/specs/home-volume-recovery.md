@@ -1,6 +1,6 @@
 ---
 description: Contract for recovering a project's home volume when its state.yaml is lost — reuse the live VM's mounted volume instead of minting a duplicate and orphaning the original.
-read_if: Changing home-volume resolution (volume.Manager.ResolveHomeVolume / recoverOrCreateHome), liveHomeVolume in `internal/sandbox/prepare` (delegating to `vm.ProjectVMHomeVolume`), or diagnosing a duplicate/orphaned home volume after state loss.
+read_if: Changing home-volume resolution (volume.resolveHomeVolumePlan / Manager.ResolveHomeVolume / commitHomeVolumePlan / PreviewHomeVolume), liveHomeVolume in `internal/sandbox/prepare` (delegating to `vm.ProjectVMHomeVolume`), or diagnosing a duplicate/orphaned home volume after state loss.
 ---
 
 # Home-volume recovery on lost state
@@ -15,7 +15,9 @@ rebuild via `homeVolumeChange` (#219).
 ## Invariant: reuse a surviving volume, never silently duplicate
 
 Home-volume resolution reuses an existing volume when one can be found, and only creates a fresh prefill when it
-cannot. Resolution order (`volume.Manager.ResolveHomeVolume`):
+cannot. One core makes the decision (`volume.resolveHomeVolumePlan`), which both the real path
+(`Manager.ResolveHomeVolume`, which commits it) and the `--dry-run` preview (`PreviewHomeVolume`, which reports it)
+call, so the two cannot drift apart (#527). Resolution order:
 
 1. **State** — if `state.yaml` names a volume that still resolves, reuse it (unchanged).
 2. **Live VM** — when state is absent or its recorded volume is gone, adopt the home volume the project VM still
