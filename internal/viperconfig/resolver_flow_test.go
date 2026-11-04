@@ -4,59 +4,515 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/notify"
-	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 )
 
-// wantNetworkProfiles asserts the effective network policy's profile set.
-func wantNetworkProfiles(t *testing.T, policy network.Policy, want ...network.Profile) {
-	t.Helper()
-	if got := policy.Effective().Profiles; !slices.Equal(got, want) {
-		t.Fatalf("network profiles = %v, want %v", got, want)
+// TestNewResolverMergesEveryFileLayer proves every file layer is merged and
+// they compose in precedence order. Each layer sets a key only it sets (so all
+// three values prove all three were read) plus a shared log-level key (so the
+// highest layer wins). The env and flag layers are not file layers; they reach
+// viper through binding, not mergeDir.
+func TestNewResolverMergesEveryFileLayer(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(
+		t,
+		cp.UserConfigDir(),
+		"config.yaml",
+		map[string]any{"memory": "1G", "log-level": "verbose"},
+	)
+	testutil.WriteYAML(
+		t,
+		cp.UserSlugConfigDir("widget-bbb"),
+		"config.yaml",
+		map[string]any{"cpus": 3, "log-level": "warning"},
+	)
+	testutil.WriteYAML(
+		t,
+		cp.ProjectConfigDir(),
+		"config.yaml",
+		map[string]any{"tmp-size": "4G", "log-level": "error"},
+	)
+
+	r, err := NewResolver(nil, configpaths.Get(), "widget-bbb")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.cfg.Memory != "1G" {
+		t.Errorf("Memory = %q, want 1G (the generic user layer must be merged)", r.cfg.Memory)
+	}
+	if r.cfg.CPUs != 3 {
+		t.Errorf("CPUs = %d, want 3 (the per-slug layer must be merged)", r.cfg.CPUs)
+	}
+	if r.cfg.TmpSize != "4G" {
+		t.Errorf("TmpSize = %q, want 4G (the project layer must be merged)", r.cfg.TmpSize)
+	}
+	if r.cfg.LogLevel != "error" {
+		t.Errorf("LogLevel = %q, want error (the project layer must win)", r.cfg.LogLevel)
 	}
 }
 
-func TestResolverGettersReturnConfig(t *testing.T) {
+// TestConfigAllowPlaceholderForFromFile pins that the config-file-only
+// secrets.common.allow-placeholder-for key reaches Config.
+func TestConfigAllowPlaceholderForFromFile(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	cfg := Config{
-		CPUs: 4, Memory: "8G", TmpSize: "4G", DiskSize: "32G", WorkspaceQuota: "64G",
-		Yes: true, LogLevel: "verbose", Quiet: true,
-		AutoPruneAge: 7 * 24 * time.Hour, ManualPruneAge: 14 * 24 * time.Hour,
-		AutoStopOnActiveSessions: true, AutoStopTimeout: 30 * time.Second, AutoStopMaxSessionRetries: 5,
-		Agent: "pi", ProvisionHostConfig: true,
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
+		"secrets": map[string]any{
+			"common": map[string]any{
+				"allow-placeholder-for": []string{"model.example"},
+			},
+		},
+	})
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
 	}
-	r := NewResolverWithConfig(cfg)
-	if r.cfg.CPUs != 4 || r.cfg.Memory != "8G" || r.cfg.TmpSize != "4G" || r.cfg.DiskSize != "32G" ||
-		r.cfg.WorkspaceQuota != "64G" {
-		t.Errorf("resource getters mismatch: %+v", cfg)
+	want := []string{"model.example"}
+	if got := r.cfg.Secrets.Common.AllowPlaceholderFor; !slices.Equal(got, want) {
+		t.Errorf("Secrets.Common.AllowPlaceholderFor = %v, want %v", got, want)
 	}
-	if !r.Yes() || r.LogLevel() != "verbose" || !r.Quiet() {
-		t.Error("UI getters mismatch")
+}
+
+// provision-host-config is derived like every other key: its env var must be
+// honored, and false must survive the on-by-default setting.
+func TestResolverProvisionHostConfigEnv(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_PROVISION_HOST_CONFIG", "false")
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
 	}
-	if r.Agent() != "pi" || !r.ProvisionHostConfig() {
-		t.Error("agent getters mismatch")
+	if r.ProvisionHostConfig() {
+		t.Error("ProvisionHostConfig = true, want AGENTS_SANDBOX_PROVISION_HOST_CONFIG=false to disable it")
 	}
-	if r.AutoPruneAge() != 7*24*time.Hour || r.ManualPruneAge() != 14*24*time.Hour {
-		t.Error("prune getters mismatch")
+}
+
+// TestNewResolverReportsABrokenConfigLayer pins that a config layer that cannot
+// be read, parsed or decoded, at any level (user, per-slug, project), stops the
+// resolution with a message naming the failing step and the cause wrapped, and
+// that an invalid value is refused.
+func TestNewResolverReportsABrokenConfigLayer(t *testing.T) {
+	cases := []struct {
+		name     string
+		dir      func(cp configpaths.ConfigPaths) string
+		file     string
+		content  string
+		slug     string
+		wantText string
+	}{
+		{
+			name:     "malformed per-slug yaml",
+			dir:      perSlugDir,
+			file:     "config.yaml",
+			content:  "cpus: 2\n  memory: [\n",
+			slug:     "slug",
+			wantText: "contains invalid YAML (line 2)",
+		},
+		{
+			name:     "malformed project yaml",
+			dir:      projectDir,
+			file:     "config.yaml",
+			content:  "cpus: 2\n  memory: [\n",
+			wantText: "contains invalid YAML (line 2)",
+		},
+		{
+			name:     "malformed json5",
+			dir:      userDir,
+			file:     "config.json5",
+			content:  `{"cpus": }`,
+			wantText: "parse launcher config",
+		},
+		{
+			name:     "json5 that cannot be normalized",
+			dir:      userDir,
+			file:     "config.json5",
+			content:  `{"cpus": NaN}`,
+			wantText: "normalize launcher config",
+		},
+		{
+			name:     "malformed json",
+			dir:      userDir,
+			file:     "config.json",
+			content:  `{"cpus": }`,
+			wantText: "load launcher config",
+		},
+		{
+			name:     "list-valued memory",
+			dir:      userDir,
+			file:     "config.yaml",
+			content:  "memory: [1, 2]\n",
+			wantText: "memory",
+		},
 	}
-	if !r.cfg.AutoStopOnActiveSessions ||
-		r.cfg.AutoStopTimeout != 30*time.Second || r.cfg.AutoStopMaxSessionRetries != 5 {
-		t.Error("autostop getters mismatch")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			testutil.WriteFile(t, tc.dir(configpaths.Get()), tc.file, tc.content)
+
+			_, err := NewResolver(nil, configpaths.Get(), tc.slug)
+			if err == nil || !strings.Contains(err.Error(), tc.wantText) || errors.Unwrap(err) == nil {
+				t.Fatalf("error = %v, want %q wrapping its cause", err, tc.wantText)
+			}
+		})
+	}
+}
+
+// TestNewResolverReportsAnUnreadableConfig pins that a config path that cannot
+// be read (here a directory) names the read failure and keeps the path error.
+func TestNewResolverReportsAnUnreadableConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := os.MkdirAll(filepath.Join(configpaths.Get().UserConfigDir(), "config.yaml"), 0o755); err != nil {
+		t.Fatalf("mkdir config.yaml: %v", err)
+	}
+
+	_, err := NewResolver(nil, configpaths.Get(), "")
+	if _, ok := errors.AsType[*os.PathError](err); !ok || !strings.Contains(err.Error(), "read launcher config") {
+		t.Fatalf("error = %v, want the read failure wrapping the path error", err)
+	}
+}
+
+// TestNewResolverRefusesAZeroAutoStopTimeout pins that an auto-stop timeout of
+// zero is rejected rather than read as "never stop".
+func TestNewResolverRefusesAZeroAutoStopTimeout(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"auto-stop-timeout": 0})
+
+	_, err := NewResolver(nil, configpaths.Get(), "")
+	if err == nil || !strings.Contains(err.Error(), "auto-stop-timeout must be > 0, got 0s") {
+		t.Fatalf("error = %v, want the zero auto-stop timeout refused", err)
+	}
+}
+
+func userDir(cp configpaths.ConfigPaths) string    { return cp.UserConfigDir() }
+func perSlugDir(cp configpaths.ConfigPaths) string { return cp.UserSlugConfigDir("slug") }
+func projectDir(cp configpaths.ConfigPaths) string { return cp.ProjectConfigDir() }
+
+// A positive prune age passes validatePruneAges without error.
+func TestNewResolverValidPruneAge(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"auto-prune-age": "7d"})
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.AutoPruneAge() != 7*24*time.Hour {
+		t.Errorf("AutoPruneAge = %v, want 7d", r.AutoPruneAge())
+	}
+}
+
+// Config.DockerSource reports the layer the resolved docker value came from, so
+// the run and build paths can rank their flags against it.
+func TestConfigDockerSource(t *testing.T) {
+	tests := []struct {
+		name      string
+		env       [][2]string
+		configYML string
+		flag      string
+		want      DockerSource
+	}{
+		{name: "nothing set", want: DockerSourceNone},
+		{
+			name:      "canonical config key",
+			configYML: "docker: false\n",
+			want:      DockerSourceDockerConfig,
+		},
+		{
+			name: "canonical env",
+			env:  [][2]string{{"AGENTS_SANDBOX_DOCKER", "true"}},
+			want: DockerSourceDockerEnv,
+		},
+		{
+			name: "deprecated canonical env prefix",
+			env:  [][2]string{{"OPENCODE_SANDBOX_DOCKER", "true"}},
+			want: DockerSourceDockerEnv,
+		},
+		{
+			name: "canonical flag",
+			flag: KeyDocker,
+			want: DockerSourceDockerFlag,
+		},
+		{
+			name:      "deprecated dind config key",
+			configYML: "dind: true\n",
+			want:      DockerSourceDindConfig,
+		},
+		{
+			name: "deprecated dind env",
+			env:  [][2]string{{"AGENTS_SANDBOX_DIND", "true"}},
+			want: DockerSourceDindEnv,
+		},
+		{
+			name: "deprecated dind env prefix",
+			env:  [][2]string{{"OPENCODE_SANDBOX_DIND", "true"}},
+			want: DockerSourceDindEnv,
+		},
+		{
+			name:      "canonical config beats a dind env",
+			env:       [][2]string{{"AGENTS_SANDBOX_DIND", "true"}},
+			configYML: "docker: false\n",
+			want:      DockerSourceDockerConfig,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			for _, kv := range tt.env {
+				t.Setenv(kv[0], kv[1])
+			}
+			if tt.configYML != "" {
+				testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", tt.configYML)
+			}
+			var cmd *cobra.Command
+			if tt.flag != "" {
+				cmd = &cobra.Command{Use: "root"}
+				cmd.Flags().Bool(tt.flag, false, "")
+				if err := cmd.Flags().Set(tt.flag, "true"); err != nil {
+					t.Fatalf("set %s: %v", tt.flag, err)
+				}
+			}
+
+			r, err := NewResolver(cmd, configpaths.Get(), "")
+			if err != nil {
+				t.Fatalf("NewResolver: %v", err)
+			}
+			if got := r.Config().DockerSource(); got != tt.want {
+				t.Errorf("Config().DockerSource() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+// A command with no canonical --docker flag registered is not a docker source,
+// so the resolution falls through to the config layers.
+func TestConfigDockerSourceWithoutDockerFlag(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	root := &cobra.Command{Use: "root"}
+
+	r, err := NewResolver(root, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if got := r.Config().DockerSource(); got != DockerSourceNone {
+		t.Errorf("Config().DockerSource() = %d, want none", got)
+	}
+}
+
+func TestResolverAgentsSandboxEnvPrefix(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
+	t.Setenv("AGENTS_SANDBOX_CPUS", "6")
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.cfg.CPUs != 6 {
+		t.Errorf("CPUs = %d; want 6 (AGENTS_SANDBOX_ env overrides config)", r.cfg.CPUs)
+	}
+	if got := r.LegacyEnvVars(); len(got) != 0 {
+		t.Errorf("LegacyEnvVars = %v; want none", got)
+	}
+}
+
+func TestResolverLegacyEnvPrefixStillWorks(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("OPENCODE_SANDBOX_CPUS", "6")
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.cfg.CPUs != 6 {
+		t.Errorf("CPUs = %d; want 6 (legacy env still resolves)", r.cfg.CPUs)
+	}
+	if got := r.LegacyEnvVars(); !slices.Contains(got, "OPENCODE_SANDBOX_CPUS") {
+		t.Errorf("LegacyEnvVars = %v; want it to contain OPENCODE_SANDBOX_CPUS", got)
+	}
+}
+
+func TestResolverAgentsEnvTakesPrecedenceOverLegacy(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_CPUS", "7")
+	t.Setenv("OPENCODE_SANDBOX_CPUS", "6")
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.cfg.CPUs != 7 {
+		t.Errorf("CPUs = %d; want 7 (AGENTS_ wins over legacy)", r.cfg.CPUs)
+	}
+	if got := r.LegacyEnvVars(); len(got) != 0 {
+		t.Errorf("LegacyEnvVars = %v; want none when the new prefix is set", got)
+	}
+}
+
+func TestResolverDottedKeyUsesAgentsEnvPrefix(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "private")
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !slices.Equal(r.cfg.Network.Profiles, []network.Profile{network.ProfilePrivate}) {
+		t.Errorf("Network.Profiles = %v; want [private]", r.cfg.Network.Profiles)
+	}
+}
+
+// Host-config provisioning defaults to on with no configuration at all.
+func TestResolverProvisionHostConfigDefaultsOn(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if !r.ProvisionHostConfig() {
+		t.Error("ProvisionHostConfig() = false, want the default true")
+	}
+}
+
+// TestNewResolverResolvesDockerAgainstTheDindAlias pins how the deprecated
+// dind config key meets the docker sources: without any source docker is off,
+// and an explicit docker env value or --docker flag beats `dind: true` and
+// reports no legacy alias. Whenever the dind key decides (`dind: false`, or
+// `dind: true` with --docker unset), it is reported as the alias used.
+func TestNewResolverResolvesDockerAgainstTheDindAlias(t *testing.T) {
+	cases := []struct {
+		name      string
+		dind      any // nil: no dind key
+		env       string
+		flag      []string // nil: no --docker flag defined
+		wantOn    bool
+		wantAlias string
+	}{
+		{name: "no source"},
+		{name: "dind false", dind: false, wantAlias: "the dind config key"},
+		{name: "docker env false beats dind true", dind: true, env: "false"},
+		{name: "--docker beats dind", dind: true, flag: []string{"--" + KeyDocker}, wantOn: true},
+		{
+			name:      "unset --docker leaves dind",
+			dind:      true,
+			flag:      []string{},
+			wantOn:    true,
+			wantAlias: "the dind config key",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			if tc.dind != nil {
+				testutil.WriteYAML(
+					t,
+					configpaths.Get().ProjectConfigDir(),
+					"config.yaml",
+					map[string]any{"dind": tc.dind},
+				)
+			}
+			if tc.env != "" {
+				t.Setenv("AGENTS_SANDBOX_DOCKER", tc.env)
+			}
+			var root *cobra.Command
+			if tc.flag != nil {
+				root = &cobra.Command{Use: "root"}
+				root.PersistentFlags().Bool(KeyDocker, false, "")
+				if err := root.ParseFlags(tc.flag); err != nil {
+					t.Fatalf("ParseFlags: %v", err)
+				}
+			}
+
+			r, err := NewResolver(root, configpaths.Get(), "some-slug")
+			if err != nil {
+				t.Fatalf("NewResolver: %v", err)
+			}
+			if r.Config().Docker != tc.wantOn || r.DockerLegacyAlias() != tc.wantAlias {
+				t.Errorf(
+					"docker %v, alias %q; want %v, %q",
+					r.Config().Docker,
+					r.DockerLegacyAlias(),
+					tc.wantOn,
+					tc.wantAlias,
+				)
+			}
+		})
+	}
+}
+
+// A .jsonc file is parsed as JSON5, so a comment does not break it.
+func TestNewResolverJSONCWithComment(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.UserConfigDir(), "config.jsonc", "{\n\t// a comment\n\t\"cpus\": 2\n}")
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.cfg.CPUs != 2 {
+		t.Errorf("CPUs = %d, want 2 from the commented jsonc file", r.cfg.CPUs)
+	}
+}
+
+// A "7d" interval is only understood by ParseHumanDuration, so the upgrade
+// validator must fall back to it.
+func TestResolverUpgradeIntervalHumanDuration(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", "7d")
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if got := r.UpgradeInterval(); got != 7*24*time.Hour {
+		t.Errorf("UpgradeInterval() = %v, want 7d", got)
+	}
+}
+
+// An interval exactly at the minimum is accepted.
+func TestResolverUpgradeIntervalAtMinimum(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", upgrade.MinInterval.String())
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if got := r.UpgradeInterval(); got != upgrade.MinInterval {
+		t.Errorf("UpgradeInterval() = %v, want the minimum %v", got, upgrade.MinInterval)
+	}
+}
+
+// A valid first prune age must not stop the loop before the second, invalid
+// one is checked.
+func TestResolverPruneAgesChecksEveryKey(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
+		"auto-prune-age":   "1h",
+		"manual-prune-age": "-1h",
+	})
+
+	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
+		t.Fatal("expected error for the invalid second prune age")
 	}
 }
 
@@ -422,15 +878,6 @@ func TestResolverWorkspaceQuotaEnv(t *testing.T) {
 	}
 }
 
-func TestResolverWorkspaceQuotaGetter(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	cfg := Config{WorkspaceQuota: "16G"}
-	r := NewResolverWithConfig(cfg)
-	if r.cfg.WorkspaceQuota != "16G" {
-		t.Errorf("WorkspaceQuota = %q; want 16G", r.cfg.WorkspaceQuota)
-	}
-}
-
 func TestResolverReapPolicyDefaults(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -458,13 +905,6 @@ func TestResolverIdleTimeoutUnsetFromConfig(t *testing.T) {
 	}
 	if r.cfg.AutoStopTimeout != 0 {
 		t.Errorf("AutoStopTimeout = %v; want 0 (default lives in the VM options layer)", r.cfg.AutoStopTimeout)
-	}
-}
-
-func TestResolverAgentGetter(t *testing.T) {
-	r := NewResolverWithConfig(Config{Agent: "pi"})
-	if r.Agent() != "pi" {
-		t.Errorf("Agent = %q; want pi", r.Agent())
 	}
 }
 
@@ -635,32 +1075,6 @@ func TestNetworkProfilesNoneCombinedRejected(t *testing.T) {
 	}
 }
 
-func TestProfileEntries(t *testing.T) {
-	got, err := profileEntries("public,host")
-	if err != nil {
-		t.Fatalf("profileEntries: %v", err)
-	}
-	if len(got) != 2 || got[0] != "public" || got[1] != "host" {
-		t.Fatalf("profileEntries = %v, want [public host]", got)
-	}
-
-	if got, err := profileEntries([]string{"public", "host"}); err != nil || len(got) != 2 {
-		t.Fatalf("profileEntries([]string) = %v, %v; want [public host], nil", got, err)
-	}
-	if got, err := profileEntries([]any{"public", "host"}); err != nil || len(got) != 2 {
-		t.Fatalf("profileEntries([]any) = %v, %v; want [public host], nil", got, err)
-	}
-	if _, err := profileEntries([]any{42}); err == nil {
-		t.Fatal("profileEntries with a non-string entry should error")
-	}
-	if _, err := profileEntries(""); err == nil {
-		t.Fatal("profileEntries(\"\") should error")
-	}
-	if _, err := profileEntries(42); err == nil {
-		t.Fatal("profileEntries(42) should error")
-	}
-}
-
 func TestNetworkProfileInvalidTypeRejected(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
@@ -673,145 +1087,6 @@ func TestNetworkProfileInvalidTypeRejected(t *testing.T) {
 	if errors.Unwrap(err) == nil {
 		t.Errorf("error %q does not wrap its cause", err)
 	}
-}
-
-func TestStringToSliceDecodeHook(t *testing.T) {
-	hook := stringToSliceDecodeHook()
-
-	strType := reflect.TypeFor[string]()
-	sliceType := reflect.TypeFor[[]string]()
-	profileSliceType := reflect.TypeFor[[]network.Profile]()
-
-	exec := func(to reflect.Type, data any) (any, error) {
-		return mapstructure.DecodeHookExec(hook, reflect.ValueOf(data), reflect.New(to).Elem())
-	}
-
-	t.Run("comma string splits into []string", func(t *testing.T) {
-		got, err := exec(sliceType, "a,b")
-		if err != nil {
-			t.Fatalf("hook error: %v", err)
-		}
-		if !slices.Equal(got.([]string), []string{"a", "b"}) {
-			t.Errorf("hook(a,b) = %v, want [a b]", got)
-		}
-	})
-
-	t.Run("named string element type splits too", func(t *testing.T) {
-		got, err := exec(profileSliceType, "public,host")
-		if err != nil {
-			t.Fatalf("hook error: %v", err)
-		}
-		if !slices.Equal(got.([]string), []string{"public", "host"}) {
-			t.Errorf("hook(public,host) = %v, want [public host]", got)
-		}
-	})
-
-	t.Run("empty string yields empty slice", func(t *testing.T) {
-		got, err := exec(sliceType, "")
-		if err != nil {
-			t.Fatalf("hook error: %v", err)
-		}
-		if len(got.([]string)) != 0 {
-			t.Errorf("hook(\"\") = %v, want empty", got)
-		}
-	})
-
-	t.Run("non-string source passes through", func(t *testing.T) {
-		got, err := exec(sliceType, 7)
-		if err != nil {
-			t.Fatalf("hook error: %v", err)
-		}
-		if got != 7 {
-			t.Errorf("hook(int->slice) = %v, want unchanged", got)
-		}
-	})
-
-	t.Run("non-slice target passes through", func(t *testing.T) {
-		got, err := exec(strType, "a,b")
-		if err != nil {
-			t.Fatalf("hook error: %v", err)
-		}
-		if got != "a,b" {
-			t.Errorf("hook(string->string) = %v, want unchanged", got)
-		}
-	})
-
-	t.Run("named string source passes through", func(t *testing.T) {
-		src := network.ProfilePublic
-		got, err := exec(sliceType, src)
-		if err != nil {
-			t.Fatalf("hook error: %v", err)
-		}
-		if got != src {
-			t.Errorf("hook(Profile->slice) = %v, want unchanged", got)
-		}
-	})
-
-	t.Run("non-string element type passes through", func(t *testing.T) {
-		got, err := exec(reflect.TypeFor[[]int](), "a,b")
-		if err != nil {
-			t.Fatalf("hook error: %v", err)
-		}
-		if got != "a,b" {
-			t.Errorf("hook(string->[]int) = %v, want unchanged", got)
-		}
-	})
-}
-
-func TestDNSServerEntries(t *testing.T) {
-	valid := []string{"1.1.1.1", "8.8.8.8:5353"}
-
-	t.Run("empty string rejected", func(t *testing.T) {
-		_, err := dnsServerEntries("")
-		if err == nil {
-			t.Fatal("expected error for empty string")
-		}
-		if !strings.Contains(err.Error(), "must not be empty") {
-			t.Errorf("error %q does not mention empty", err.Error())
-		}
-	})
-
-	t.Run("comma-separated string split", func(t *testing.T) {
-		got, err := dnsServerEntries("1.1.1.1,8.8.8.8:5353")
-		if err != nil {
-			t.Fatalf("dnsServerEntries: %v", err)
-		}
-		if len(got) != 2 || got[0] != "1.1.1.1" || got[1] != "8.8.8.8:5353" {
-			t.Fatalf("dnsServerEntries = %v, want %v", got, valid)
-		}
-	})
-
-	t.Run("string slice passed through", func(t *testing.T) {
-		got, err := dnsServerEntries(valid)
-		if err != nil {
-			t.Fatalf("dnsServerEntries: %v", err)
-		}
-		if len(got) != 2 || got[0] != "1.1.1.1" || got[1] != "8.8.8.8:5353" {
-			t.Fatalf("dnsServerEntries = %v, want %v", got, valid)
-		}
-	})
-
-	t.Run("any slice of strings", func(t *testing.T) {
-		got, err := dnsServerEntries([]any{"1.1.1.1", "8.8.8.8:5353"})
-		if err != nil {
-			t.Fatalf("dnsServerEntries: %v", err)
-		}
-		if len(got) != 2 || got[0] != "1.1.1.1" || got[1] != "8.8.8.8:5353" {
-			t.Fatalf("dnsServerEntries = %v, want %v", got, valid)
-		}
-	})
-
-	t.Run("non-string entry rejected", func(t *testing.T) {
-		if _, err := dnsServerEntries([]any{42}); err == nil {
-			t.Fatal("expected error for non-string entry")
-		}
-	})
-
-	t.Run("unsupported type rejected", func(t *testing.T) {
-		if _, err := dnsServerEntries(42); err == nil {
-			t.Fatal("expected error for unsupported type")
-		}
-	})
 }
 
 func TestNetworkInvalidDNSServersRejected(t *testing.T) {
@@ -864,8 +1139,9 @@ func TestPortsInvalidRejected(t *testing.T) {
 					"ports": tc.raw,
 				})
 			}
-			if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
-				t.Fatal("expected error for invalid ports")
+			_, err := NewResolver(nil, configpaths.Get(), "")
+			if err == nil || !strings.Contains(err.Error(), "launcher config ports") || errors.Unwrap(err) == nil {
+				t.Fatalf("error = %v, want the invalid ports refused with the cause wrapped", err)
 			}
 		})
 	}
@@ -889,20 +1165,6 @@ func TestPortsValidConfigAccepted(t *testing.T) {
 			t.Errorf("Ports[%d] = %q, want %q", i, r.cfg.Ports[i], want[i])
 		}
 	}
-}
-
-func portsTestCmd(t *testing.T, publishValues []string) *cobra.Command {
-	t.Helper()
-	root := &cobra.Command{Use: "root"}
-	root.Flags().StringSliceP("port", "p", nil, "")
-	args := []string{}
-	for _, v := range publishValues {
-		args = append(args, "--port", v)
-	}
-	if err := root.ParseFlags(args); err != nil {
-		t.Fatalf("ParseFlags: %v", err)
-	}
-	return root
 }
 
 func TestPortsPublishFlagOverridesInvalidConfig(t *testing.T) {
@@ -941,6 +1203,20 @@ func TestPortsUnspecifiedPublishFlagKeepsConfig(t *testing.T) {
 	}
 }
 
+// TestPortsUnsetPublishFlagAddsNoPorts pins that an unset --port flag without
+// any configured ports resolves to none: its StringSlice default must not leak
+// in as a port.
+func TestPortsUnsetPublishFlagAddsNoPorts(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	r, err := NewResolver(portsTestCmd(t, nil), configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if len(r.cfg.Ports) != 0 {
+		t.Errorf("Ports = %q, want none for an unset --port flag", r.cfg.Ports)
+	}
+}
+
 func TestPortsDocumentedExampleLoads(t *testing.T) {
 	// The example lives in docs/configuration/networking.md, under
 	// "## Published ports". Loading it here keeps the docs honest: the bare
@@ -968,24 +1244,6 @@ func TestPortsDocumentedExampleLoads(t *testing.T) {
 	if !slices.Equal(r.cfg.Ports, want) {
 		t.Errorf("Ports = %v, want %v", r.cfg.Ports, want)
 	}
-}
-
-// documentedPortsExample extracts the fenced yaml block that follows the
-// "## Published ports" heading in the networking docs.
-func documentedPortsExample(docs string) (string, bool) {
-	_, section, found := strings.Cut(docs, "## Published ports")
-	if !found {
-		return "", false
-	}
-	_, block, found := strings.Cut(section, "```yaml\n")
-	if !found {
-		return "", false
-	}
-	snippet, _, found := strings.Cut(block, "```")
-	if !found {
-		return "", false
-	}
-	return snippet, true
 }
 
 func TestDockerFromConfig(t *testing.T) {
@@ -1123,12 +1381,6 @@ func TestDockerExplicitFromFlag(t *testing.T) {
 	}
 }
 
-func writeUserConfig(t *testing.T, values map[string]any) {
-	t.Helper()
-	configpaths.WithMockConfigPaths(t)
-	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", values)
-}
-
 func TestDockerExplicit(t *testing.T) {
 	t.Run("canonical config key", func(t *testing.T) {
 		writeUserConfig(t, map[string]any{"docker": false})
@@ -1210,13 +1462,6 @@ func TestDindFromLegacyEnvAlias(t *testing.T) {
 	}
 }
 
-func TestDockerDefaultsFalse(t *testing.T) {
-	r := NewResolverWithConfig(Config{})
-	if r.Config().Docker {
-		t.Error("Config().Docker = true, want default false")
-	}
-}
-
 func TestPerSlugConfigPrecedence(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cp := configpaths.Get()
@@ -1248,35 +1493,6 @@ func TestPerSlugConfigPrecedence(t *testing.T) {
 	}
 }
 
-func TestResolverUpgradeGetters(t *testing.T) {
-	r := NewResolverWithConfig(Config{
-		Upgrade: UpgradeConfig{Mode: "auto", Interval: 2 * time.Hour},
-	})
-	if r.UpgradeMode() != upgrade.ModeAuto {
-		t.Fatalf("UpgradeMode = %q, want %q", r.UpgradeMode(), upgrade.ModeAuto)
-	}
-	if r.UpgradeInterval() != 2*time.Hour {
-		t.Fatalf("UpgradeInterval = %v, want 2h", r.UpgradeInterval())
-	}
-}
-
-func TestResolverUpgradeDefaults(t *testing.T) {
-	r := NewResolverWithConfig(Config{})
-	if r.UpgradeMode() != upgrade.ModePrompt {
-		t.Fatalf("UpgradeMode default = %q, want prompt", r.UpgradeMode())
-	}
-	if r.UpgradeInterval() != upgrade.DefaultInterval {
-		t.Fatalf("UpgradeInterval default = %v, want %v", r.UpgradeInterval(), upgrade.DefaultInterval)
-	}
-}
-
-func TestResolverUpgradeIntervalClampsMin(t *testing.T) {
-	r := NewResolverWithConfig(Config{Upgrade: UpgradeConfig{Interval: time.Minute}})
-	if r.UpgradeInterval() != upgrade.MinInterval {
-		t.Fatalf("UpgradeInterval = %v, want clamped to %v", r.UpgradeInterval(), upgrade.MinInterval)
-	}
-}
-
 func TestResolverUpgradeEnvVars(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_MODE", "notify")
@@ -1298,23 +1514,6 @@ func TestResolverRejectsInvalidUpgradeMode(t *testing.T) {
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_MODE", "bogus")
 	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for invalid update mode")
-	}
-}
-
-func TestResolverUpgradeChannel(t *testing.T) {
-	if got := NewResolverWithConfig(Config{}).UpgradeChannel(); got != upgrade.ChannelStable {
-		t.Fatalf("UpgradeChannel default = %q, want stable", got)
-	}
-	r := NewResolverWithConfig(Config{Upgrade: UpgradeConfig{Channel: "canary"}})
-	if got := r.UpgradeChannel(); got != upgrade.ChannelCanary {
-		t.Fatalf("UpgradeChannel = %q, want canary", got)
-	}
-	// Unparsable values are possible via NewResolverWithConfig, which skips
-	// validation, and fall back to stable.
-	if got := NewResolverWithConfig(
-		Config{Upgrade: UpgradeConfig{Channel: "bogus"}},
-	).UpgradeChannel(); got != upgrade.ChannelStable {
-		t.Fatalf("UpgradeChannel(bogus) = %q, want stable", got)
 	}
 }
 
@@ -1343,27 +1542,6 @@ func TestResolverRejectsTooSmallInterval(t *testing.T) {
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", "1m")
 	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for update interval below minimum")
-	}
-}
-
-// resolverNotify returns the resolver's notify config, normalizing an empty
-// Audio to AudioOff just as the removed Resolver.Notify getter did.
-func resolverNotify(r *Resolver) notify.Config {
-	cfg := r.cfg.Notify
-	if cfg.Audio == "" {
-		cfg.Audio = notify.AudioOff
-	}
-	return cfg
-}
-
-func TestResolverNotifyDefaults(t *testing.T) {
-	r := NewResolverWithConfig(Config{})
-	cfg := resolverNotify(r)
-	if cfg.Active() {
-		t.Errorf("default notify should be inactive, got %+v", cfg)
-	}
-	if cfg.Audio != notify.AudioOff {
-		t.Errorf("default audio = %q, want off", cfg.Audio)
 	}
 }
 
@@ -1544,66 +1722,48 @@ func TestResolverHomeRejectsInvalidHomeValue(t *testing.T) {
 	}
 }
 
-// TestResolverConfigReturnsACopy covers the accessor runoptions.Build consumes:
-// a non-nil resolver returns a deep copy of its config, and a nil resolver
-// returns nil (which runoptions.Build treats as "no config").
-func TestResolverConfigReturnsACopy(t *testing.T) {
-	r := NewResolverWithConfig(Config{
-		CPUs: 4, Agent: "pi", OpenLinks: true,
-		Network: network.Policy{
-			Profiles:    []network.Profile{network.ProfilePublic},
-			EgressAllow: []string{"example.com"},
-			EgressDeny:  []string{"bad.example"},
-			DNSServers:  []string{"1.1.1.1"},
-		},
-		Mounts: mounts.Mounts{"/guest": {Source: "/host"}},
-		Home:   homeconfig.Layers{{Dir: "/cfg", Manifest: homeconfig.Manifest{"~/.x": {Source: "/host/.x"}}}},
-		Secrets: Secrets{
-			Common: SecretCommon{AllowPlaceholderFor: []string{"model.example"}},
-		},
-	})
+// wantNetworkProfiles asserts the effective network policy's profile set.
+func wantNetworkProfiles(t *testing.T, policy network.Policy, want ...network.Profile) {
+	t.Helper()
+	if got := policy.Effective().Profiles; !slices.Equal(got, want) {
+		t.Fatalf("network profiles = %v, want %v", got, want)
+	}
+}
 
-	got := r.Config()
-	if got == nil {
-		t.Fatal("Config() = nil, want the resolved config")
+func portsTestCmd(t *testing.T, publishValues []string) *cobra.Command {
+	t.Helper()
+	root := &cobra.Command{Use: "root"}
+	root.Flags().StringSliceP("port", "p", nil, "")
+	args := []string{}
+	for _, v := range publishValues {
+		args = append(args, "--port", v)
 	}
-	if got.CPUs != 4 || got.Agent != "pi" || !got.OpenLinks {
-		t.Errorf("Config() = %+v, want cpus 4, agent pi, open-links true", *got)
+	if err := root.ParseFlags(args); err != nil {
+		t.Fatalf("ParseFlags: %v", err)
 	}
+	return root
+}
 
-	// The returned config must be a deep copy: mutating any field, including the
-	// slices and maps, cannot change later resolver reads.
-	got.Agent = "claudecode"
-	got.Network.Profiles[0] = network.ProfileHost
-	got.Network.EgressAllow[0] = "evil.example"
-	got.Network.EgressDeny[0] = "evil.example"
-	got.Network.DNSServers[0] = "8.8.8.8"
-	got.Secrets.Common.AllowPlaceholderFor[0] = "evil.example"
-	got.Mounts["/guest"] = mounts.BindMount{Source: "/evil"}
-	got.Home[0].Manifest["~/.x"] = homeconfig.Entry{Source: "/evil"}
+// documentedPortsExample extracts the fenced yaml block that follows the
+// "## Published ports" heading in the networking docs.
+func documentedPortsExample(docs string) (string, bool) {
+	_, section, found := strings.Cut(docs, "## Published ports")
+	if !found {
+		return "", false
+	}
+	_, block, found := strings.Cut(section, "```yaml\n")
+	if !found {
+		return "", false
+	}
+	snippet, _, found := strings.Cut(block, "```")
+	if !found {
+		return "", false
+	}
+	return snippet, true
+}
 
-	again := r.Config()
-	if again.Agent != "pi" {
-		t.Errorf("mutating Config().Agent changed the resolver: Agent = %q, want pi", again.Agent)
-	}
-	if again.Network.Profiles[0] != network.ProfilePublic ||
-		again.Network.EgressAllow[0] != "example.com" ||
-		again.Network.EgressDeny[0] != "bad.example" ||
-		again.Network.DNSServers[0] != "1.1.1.1" {
-		t.Errorf("mutating Config() network changed the resolver: %+v", again.Network)
-	}
-	if again.Mounts["/guest"].Source != "/host" {
-		t.Errorf("mutating Config() mounts changed the resolver: %+v", again.Mounts)
-	}
-	if again.Secrets.Common.AllowPlaceholderFor[0] != "model.example" {
-		t.Errorf("mutating Config() secrets changed the resolver: %+v", again.Secrets)
-	}
-	if again.Home[0].Manifest["~/.x"].Source != "/host/.x" {
-		t.Errorf("mutating Config() home changed the resolver: %+v", again.Home)
-	}
-
-	var nilResolver *Resolver
-	if nilResolver.Config() != nil {
-		t.Error("Config() on a nil resolver = non-nil, want nil")
-	}
+func writeUserConfig(t *testing.T, values map[string]any) {
+	t.Helper()
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", values)
 }
