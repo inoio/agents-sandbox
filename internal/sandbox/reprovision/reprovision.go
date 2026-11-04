@@ -47,13 +47,13 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 	// Best-effort: the merged config is written to the last-loaded filename
 	// (e.g., opencode.jsonc), so a failed removal is non-fatal.
 	removeStalePaths(ctx, fs, cf.Remove)
-	if cf.HasSnippets && len(cf.Merged) > 0 {
+	if len(cf.Merged) > 0 {
 		mergedPath := cf.MergedPath
 		made, err := mkdirAllFS(ctx, fs, filepath.Dir(mergedPath))
+		paths = append(paths, made...)
 		if err != nil {
 			return err
 		}
-		paths = append(paths, made...)
 		if err := fs.Write(ctx, mergedPath, cf.Merged); err != nil {
 			return fmt.Errorf("write merged agent config: %w", err)
 		}
@@ -91,10 +91,10 @@ func writeFileGroup(
 	var written []string
 	for path, data := range files {
 		made, err := mkdirAllFS(ctx, fs, filepath.Dir(path))
+		written = append(written, made...)
 		if err != nil {
 			return written, err
 		}
-		written = append(written, made...)
 		if err := fs.Write(ctx, path, data); err != nil {
 			return written, fmt.Errorf("write %s %s: %w", kind, path, err)
 		}
@@ -160,6 +160,8 @@ func chownPaths(ctx context.Context, sb msb.Sandbox, paths []string) error {
 }
 
 // mkdirAllFS creates path and all missing parents, tolerating existing dirs.
+// It returns the directories it created, also when a later one fails, so the
+// caller can still chown them.
 func mkdirAllFS(ctx context.Context, fs msb.SandboxFS, path string) ([]string, error) {
 	if path == "" || path == "/" || path == "." {
 		return nil, nil
@@ -170,7 +172,7 @@ func mkdirAllFS(ctx context.Context, fs msb.SandboxFS, path string) ([]string, e
 	}
 	made, prevErr := mkdirAllFS(ctx, fs, filepath.Dir(path))
 	if prevErr != nil {
-		return nil, prevErr
+		return made, prevErr
 	}
 	if err := fs.Mkdir(ctx, path); err != nil {
 		return made, err

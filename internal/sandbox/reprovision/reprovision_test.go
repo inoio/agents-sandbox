@@ -409,3 +409,74 @@ func TestMkdirAllFSRootPath(t *testing.T) {
 		}
 	}
 }
+
+// pathFailingFS fails Mkdir and Write for one path only, so a test can stop
+// provisioning midway.
+type pathFailingFS struct {
+	*msb.TestFS
+
+	failPath string
+}
+
+func (f pathFailingFS) Mkdir(ctx context.Context, path string) error {
+	if path == f.failPath {
+		return errors.New("mkdir boom")
+	}
+	return f.TestFS.Mkdir(ctx, path)
+}
+
+func (f pathFailingFS) Write(ctx context.Context, path string, data []byte) error {
+	if path == f.failPath {
+		return errors.New("write boom")
+	}
+	return f.TestFS.Write(ctx, path, data)
+}
+
+// TestProvisionChownsWhatItCreatedBeforeAFailure pins the finalizer: files
+// written and directories created before a failure are still chowned to the
+// runtime user, so no root-owned leftovers remain.
+func TestProvisionChownsWhatItCreatedBeforeAFailure(t *testing.T) {
+	cases := []struct {
+		name      string
+		cf        *ConfigFiles
+		failPath  string
+		wantChown string
+	}{
+		{
+			name:      "directory creation fails",
+			cf:        &ConfigFiles{Provisioned: map[string][]byte{"/home/dev/.config/tool/cfg.toml": []byte("k=v\n")}},
+			failPath:  "/home/dev/.config/tool",
+			wantChown: "chown -R dev:dev /home /home/dev /home/dev/.config",
+		},
+		{
+			name:      "merged config directory creation fails",
+			cf:        &ConfigFiles{Merged: []byte("{}"), MergedPath: opencodeMergedPath},
+			failPath:  "/home/dev/.config/opencode",
+			wantChown: "chown -R dev:dev /home /home/dev /home/dev/.config",
+		},
+		{
+			name: "a later write fails",
+			cf: &ConfigFiles{
+				HomeFiles:   map[string][]byte{"/home/dev/.gitconfig": []byte("x=y\n")},
+				Provisioned: map[string][]byte{"/home/dev/cfg.toml": []byte("k=v\n")},
+			},
+			failPath:  "/home/dev/cfg.toml",
+			wantChown: "chown -R dev:dev /home /home/dev /home/dev/.gitconfig",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls []string
+			sb := &msb.MockSandbox{
+				FSValue_:   pathFailingFS{TestFS: msb.NewTestFS(nil, nil), failPath: tc.failPath},
+				ShellCalls: &calls,
+			}
+			if err := Provision(context.Background(), sb, tc.cf); err == nil {
+				t.Fatal("Provision error = nil, want the failure")
+			}
+			if len(calls) != 1 || calls[0] != tc.wantChown {
+				t.Errorf("chown calls = %v, want [%q]", calls, tc.wantChown)
+			}
+		})
+	}
+}

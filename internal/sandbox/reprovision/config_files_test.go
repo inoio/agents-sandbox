@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,7 +15,6 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	config "github.com/inoio/agents-sandbox/internal/configmerge"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -36,6 +36,20 @@ func TestResolveConfigSourceStatError(t *testing.T) {
 		withConfigBases(t, blocker, blocker)
 		if _, err := ResolveConfigSource(a); err == nil {
 			t.Error("expected an error when the primary candidate stat fails")
+		}
+	})
+
+	t.Run("primary only", func(t *testing.T) {
+		// Only the primary is unreadable (a symlink loop); the alias is
+		// absent, so the error must come from the primary check itself.
+		base := t.TempDir()
+		if err := os.Symlink("opencode2", filepath.Join(base, "opencode2")); err != nil {
+			t.Fatal(err)
+		}
+		withConfigBases(t, base, t.TempDir())
+		_, err := ResolveConfigSource(a)
+		if _, ok := errors.AsType[*fs.PathError](err); !ok || !strings.Contains(err.Error(), "stat config dir") {
+			t.Errorf("ResolveConfigSource error = %v, want the wrapped stat failure of the primary dir", err)
 		}
 	})
 
@@ -1347,8 +1361,8 @@ func TestLoadConfigFilesBuildHooksError(t *testing.T) {
 		VMHomeDir,
 		&ui,
 		true,
-	); err == nil {
-		t.Error("expected an error for an invalid hook value")
+	); err == nil || !strings.HasPrefix(err.Error(), "build hooks: ") || errors.Unwrap(err) == nil {
+		t.Errorf("LoadConfigFilesForHost error = %v, want the wrapped build hooks failure", err)
 	}
 }
 
@@ -1385,8 +1399,8 @@ func TestLoadConfigFilesReservedTargetError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	_, err := LoadConfigFilesForHost(agent.Resolve(relMergedConfigAgent{}), t.TempDir(), t.TempDir(), &ui, true)
-	if err == nil || !strings.Contains(err.Error(), "reserved home target") {
-		t.Fatalf("LoadConfigFilesForHost error = %v, want reserved home target error", err)
+	if err == nil || !strings.Contains(err.Error(), "reserved home target") || errors.Unwrap(err) == nil {
+		t.Fatalf("LoadConfigFilesForHost error = %v, want the wrapped reserved home target error", err)
 	}
 }
 
@@ -1403,8 +1417,9 @@ func TestLoadConfigFilesHomeFilesError(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	_, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), t.TempDir(), t.TempDir(), &ui, true)
-	if err == nil || !strings.Contains(err.Error(), "must be relative to the home directory") {
-		t.Fatalf("LoadConfigFilesForHost error = %v, want home-target resolution error", err)
+	if err == nil || !strings.HasPrefix(err.Error(), "build home files: ") ||
+		!strings.Contains(err.Error(), "must be relative to the home directory") || errors.Unwrap(err) == nil {
+		t.Fatalf("LoadConfigFilesForHost error = %v, want the wrapped home-target resolution error", err)
 	}
 }
 
@@ -1626,7 +1641,7 @@ func TestReadVMConfigReadsPaths(t *testing.T) {
 		"/home/dev/.gitconfig": []byte("x=y\n"),
 	}
 	got := ReadVMConfig(context.Background(), sb,
-		[]string{opencodeMergedPath, "/home/dev/.gitconfig", "/home/dev/missing"},
+		[]string{"/home/dev/missing", opencodeMergedPath, "/home/dev/.gitconfig"},
 		&termio.Mock{})
 	if len(got) != 2 {
 		t.Fatalf("expected 2 files read, got %d", len(got))
@@ -1765,44 +1780,6 @@ func TestAgentConfigEqualMissingVMConfig(t *testing.T) {
 	}
 }
 
-func TestConfigEqualHomeFileByteMatch(t *testing.T) {
-	cf := &ConfigFiles{
-		HasSnippets: true,
-		Merged:      []byte(`{"model":"x"}`),
-		MergedPath:  opencodeMergedPath,
-		HomeFiles: map[string][]byte{
-			"/home/dev/.gitconfig": []byte("user.name=X\n"),
-		},
-		Keys: []string{"/home/dev/.gitconfig"},
-	}
-	vmData := map[string][]byte{
-		opencodeMergedPath:     []byte(`{"model":"x"}`),
-		"/home/dev/.gitconfig": []byte("user.name=X\n"),
-	}
-	if !desiredStateMatches(cf, vmData) {
-		t.Error("expected equality for matching opencode.json and home file")
-	}
-}
-
-func TestConfigEqualHomeFileMismatch(t *testing.T) {
-	cf := &ConfigFiles{
-		HasSnippets: true,
-		Merged:      []byte(`{"model":"x"}`),
-		MergedPath:  opencodeMergedPath,
-		HomeFiles: map[string][]byte{
-			"/home/dev/.gitconfig": []byte("user.name=X\n"),
-		},
-		Keys: []string{"/home/dev/.gitconfig"},
-	}
-	vmData := map[string][]byte{
-		opencodeMergedPath:     []byte(`{"model":"x"}`),
-		"/home/dev/.gitconfig": []byte("user.name=Y\n"),
-	}
-	if desiredStateMatches(cf, vmData) {
-		t.Error("expected mismatch for differing home file content")
-	}
-}
-
 // TestBuildMergedConfigNoMergerYieldsEmpty verifies the subject's merger guard:
 // a subject with no merger produces no merged config even when it carries a
 // snippet pattern that would match a host snippet, so capability, not pattern,
@@ -1831,10 +1808,7 @@ func TestBuildMirrorNoMergerYieldsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	testutil.WriteFile(t, dir, "tui.json", `{"theme":"dark"}`)
 
-	mirror, err := configSubject{}.buildMirror(ConfigSource{UserDir: dir})
-	if err != nil {
-		t.Fatalf("buildMirror: %v", err)
-	}
+	mirror := configSubject{}.buildMirror(ConfigSource{UserDir: dir})
 	if len(mirror) != 0 {
 		t.Errorf("buildMirror without a merger = %v, want no entries", mirror)
 	}
@@ -1941,28 +1915,6 @@ func TestApplyPrecedenceMergedConfigOverridesMirror(t *testing.T) {
 	}
 }
 
-// desiredStateMatches reports whether the desired merged config and home files
-// match the VM state. The merged config is compared semantically in the format
-// its path implies; home files byte-for-byte.
-func desiredStateMatches(cf *ConfigFiles, vmData map[string][]byte) bool {
-	if cf.HasSnippets {
-		vm, ok := vmData[cf.MergedPath]
-		if !ok {
-			return false
-		}
-		if !config.DocumentsEqual(cf.MergedPath, cf.Merged, vm) {
-			return false
-		}
-	}
-	for path, want := range cf.HomeFiles {
-		got, ok := vmData[path]
-		if !ok || !bytes.Equal(want, got) {
-			return false
-		}
-	}
-	return true
-}
-
 func reprovisionVMConfigDir(t *testing.T, a agent.Agent) string {
 	t.Helper()
 	subject := resolveConfigSubject(agent.Resolve(a), VMHomeDir)
@@ -1987,4 +1939,46 @@ func withConfigBases(t *testing.T, user, project string) {
 	orig := configpaths.Get
 	configpaths.Get = func() configpaths.ConfigPaths { return configBases{user: user, project: project} }
 	t.Cleanup(func() { configpaths.Get = orig })
+}
+
+// TestIsDirIsFalseForARegularFile pins that IsDir names only directories.
+func TestIsDirIsFalseForARegularFile(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "file")
+	testutil.WritePath(t, file, "x")
+	if !IsDir(dir) || IsDir(file) || IsDir(filepath.Join(dir, "missing")) {
+		t.Errorf("IsDir(dir, file, missing) = %v, %v, %v; want true, false, false",
+			IsDir(dir), IsDir(file), IsDir(filepath.Join(dir, "missing")))
+	}
+}
+
+// TestConfigKeys pins the provisioning and compare order: the merged config
+// leads when snippets exist, then every home, mirror and provisioned path in
+// sorted order.
+func TestConfigKeys(t *testing.T) {
+	home := map[string][]byte{"/home/dev/.gitconfig": nil}
+	mirror := map[string][]byte{"/home/dev/.config/opencode/tui.json": nil}
+	provisioned := map[string][]byte{"/home/dev/.config/tool/a.toml": nil, "/home/dev/.config/tool/b.toml": nil}
+	rest := []string{
+		"/home/dev/.config/opencode/tui.json",
+		"/home/dev/.config/tool/a.toml",
+		"/home/dev/.config/tool/b.toml",
+		"/home/dev/.gitconfig",
+	}
+	if got := configKeys(opencodeMergedPath, false, home, mirror, provisioned); !slices.Equal(got, rest) {
+		t.Errorf("configKeys without snippets = %v, want %v", got, rest)
+	}
+	want := append([]string{opencodeMergedPath}, rest...)
+	if got := configKeys(opencodeMergedPath, true, home, mirror, provisioned); !slices.Equal(got, want) {
+		t.Errorf("configKeys with snippets = %v, want %v", got, want)
+	}
+}
+
+// TestAgentConfigEqualEmptyMirrorFileMustExist pins that a mirror file is
+// compared by presence too, so an empty one missing from the VM is a change.
+func TestAgentConfigEqualEmptyMirrorFileMustExist(t *testing.T) {
+	cf := &ConfigFiles{Mirror: map[string][]byte{"/home/dev/.config/opencode/empty.json": {}}}
+	if AgentConfigEqual(cf, map[string][]byte{}) {
+		t.Error("AgentConfigEqual = true, want false when an empty mirror file is missing in the VM")
+	}
 }

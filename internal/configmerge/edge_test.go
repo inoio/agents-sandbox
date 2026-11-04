@@ -206,10 +206,7 @@ func TestScanMirrorSkipsUnreadableEntries(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(noread, 0o644) })
 
-	entries, err := ScanMirror("opencode*.json*", nil, user, "", dest)
-	if err != nil {
-		t.Fatalf("ScanMirror: %v", err)
-	}
+	entries := ScanMirror("opencode*.json*", nil, user, "", dest)
 	if len(entries) != 1 || entries[0].HostPath != filepath.Join(user, "ok.json") {
 		t.Errorf("entries = %+v, want only ok.json", entries)
 	}
