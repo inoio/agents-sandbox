@@ -43,33 +43,86 @@ func TestFormatElapsedDone(t *testing.T) {
 	}
 }
 
-func TestSpinnerNonTerminalStop(t *testing.T) {
-	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
-	spin := ui.Spinner("Building image")
-	spin.Stop()
-
-	output := stderr.String()
-	if !strings.Contains(output, "Building image... ") {
-		t.Errorf("expected start message, got %q", output)
+func TestSpinnerFinishRendersResult(t *testing.T) {
+	cases := []struct {
+		name   string
+		color  bool
+		finish func(Spinner)
+		want   []string
+	}{
+		{"done", false, func(s Spinner) { s.Stop() }, []string{"Building image... ", "✓("}},
+		{
+			"done in color",
+			true,
+			func(s Spinner) { s.Stop() },
+			[]string{"Building image", ansiGreen + "✓" + ansiReset + "("},
+		},
+		{
+			"failed", false, func(s Spinner) { s.StopError(errors.New("build failed")) },
+			[]string{"Building image... ", "failed (", ": build failed"},
+		},
+		{
+			"failed in color", true, func(s Spinner) { s.StopError(errors.New("boom")) },
+			[]string{ansiRed + "failed (", ": boom" + ansiReset},
+		},
+		{"custom result", false, func(s Spinner) { s.(*spinner).finish("skipped") }, []string{"skipped ("}},
+		{
+			"custom result in color",
+			true,
+			func(s Spinner) { s.(*spinner).finish("skipped") },
+			[]string{"Building image skipped ("},
+		},
 	}
-	if !strings.Contains(output, "✓(") {
-		t.Errorf("expected timed done suffix, got %q", output)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			ui := New(nil, &bytes.Buffer{}, &stderr, c.color, LevelInfo, false, false)
+			c.finish(ui.Spinner("Building image"))
+			output := stderr.String()
+			for _, want := range c.want {
+				if !strings.Contains(output, want) {
+					t.Errorf("expected %q in output, got %q", want, output)
+				}
+			}
+		})
 	}
 }
 
-func TestSpinnerNonTerminalError(t *testing.T) {
-	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
-	spin := ui.Spinner("Building image")
-	spin.StopError(errors.New("build failed"))
+func TestSpinnerColorDrawsAnimationFrameUntilFinished(t *testing.T) {
+	orig := spinnerInterval
+	spinnerInterval = time.Millisecond
+	t.Cleanup(func() { spinnerInterval = orig })
 
-	output := stderr.String()
-	if !strings.Contains(output, "Building image... ") {
-		t.Errorf("expected start message, got %q", output)
+	var stderr bytes.Buffer
+	s := newSpinner(&stderr, true, LevelInfo, "step")
+	time.Sleep(5 * spinnerInterval)
+	s.finish("done")
+	if want := "\r\033[Kstep " + spinnerChars[0] + "(0s)"; !strings.Contains(stderr.String(), want) {
+		t.Errorf("expected first frame %q in output, got %q", want, stderr.String())
 	}
-	if !strings.Contains(output, "failed (") || !strings.Contains(output, ": build failed") {
-		t.Errorf("expected timed failed suffix, got %q", output)
+}
+
+// TestSpinnerFinishStopsPromptly verifies that finishing a spinner does not
+// block for the animation interval: finish signals the goroutine, which must
+// wake immediately instead of sleeping out the current frame.
+func TestSpinnerFinishStopsPromptly(t *testing.T) {
+	orig := spinnerInterval
+	spinnerInterval = time.Hour
+	t.Cleanup(func() { spinnerInterval = orig })
+
+	var stderr bytes.Buffer
+	s := newSpinner(&stderr, true, LevelInfo, "step")
+
+	done := make(chan struct{})
+	go func() {
+		s.finish("done")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("finish blocked on the animation interval instead of stopping promptly")
 	}
 }
 
@@ -98,17 +151,6 @@ func TestSpinnerFinishSuppressedAtErrorLevel(t *testing.T) {
 	s.finish("done")
 	if stderr.String() != "" {
 		t.Errorf("expected finish suppressed at error level, got %q", stderr.String())
-	}
-}
-
-func TestSpinnerColorErrorEmitsRed(t *testing.T) {
-	var stderr bytes.Buffer
-	ui := New(nil, &bytes.Buffer{}, &stderr, true, LevelInfo, false, false)
-	spin := ui.Spinner("Failing step")
-	spin.StopError(errors.New("boom"))
-	out := stderr.String()
-	if !strings.Contains(out, "\x1b[31m") {
-		t.Errorf("expected red ANSI code for failure, got %q", out)
 	}
 }
 
