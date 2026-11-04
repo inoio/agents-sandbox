@@ -3,7 +3,9 @@ package reprovision
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,12 +14,440 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	config "github.com/inoio/agents-sandbox/internal/configmerge"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
+
+func TestResolveConfigSourceStatError(t *testing.T) {
+	// A candidate beneath a regular file makes os.Stat fail with ENOTDIR,
+	// which must surface rather than be treated as "absent" — for the primary
+	// candidate and for an alias candidate reached through the fallback loop.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := agent.Lookup("opencode2")
+
+	t.Run("primary", func(t *testing.T) {
+		withConfigBases(t, blocker, blocker)
+		if _, err := ResolveConfigSource(a); err == nil {
+			t.Error("expected an error when the primary candidate stat fails")
+		}
+	})
+
+	t.Run("alias", func(t *testing.T) {
+		// The primary is absent; the alias is a symlink loop, so its stat
+		// fails with ELOOP rather than reporting it absent.
+		base := t.TempDir()
+		if err := os.Symlink("opencode", filepath.Join(base, "opencode")); err != nil {
+			t.Fatal(err)
+		}
+		withConfigBases(t, base, base)
+		if _, err := ResolveConfigSource(a); err == nil {
+			t.Error("expected an error when an alias candidate stat fails")
+		}
+	})
+}
+
+func TestResolveConfigSourceStatErrorDoesNotHideUsableScope(t *testing.T) {
+	// An unreadable user candidate must not abort when the project candidate
+	// exists: "either scope exists" still resolves the primary.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projectBase := t.TempDir()
+	existing := filepath.Join(projectBase, "opencode2")
+	if err := os.Mkdir(existing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withConfigBases(t, blocker, projectBase)
+
+	a, _ := agent.Lookup("opencode2")
+	got, err := ResolveConfigSource(a)
+	if err != nil {
+		t.Fatalf("ResolveConfigSource: unexpected error %v", err)
+	}
+	if got.Fallback != "" || got.ProjectDir != existing {
+		t.Errorf("ResolveConfigSource = %+v, want primary with project dir %q", got, existing)
+	}
+}
+
+// TestResolveConfigSourceCarriesPrimaryDirs pins that the primary migration
+// targets travel in the resolved source, so the fallback warning never
+// re-derives (and re-validates) the profile's config-dir name.
+func TestResolveConfigSourceCarriesPrimaryDirs(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	a, _ := agent.Lookup("opencode2")
+
+	// No dirs exist, so the primary dirs are returned with an empty fallback.
+	src, err := ResolveConfigSource(a)
+	if err != nil {
+		t.Fatalf("ResolveConfigSource: %v", err)
+	}
+	if src.PrimaryUserDir != configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), a.ConfigDirName())) {
+		t.Errorf("PrimaryUserDir = %q, want the seam's primary user dir", src.PrimaryUserDir)
+	}
+	if src.PrimaryProjectDir != configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())) {
+		t.Errorf("PrimaryProjectDir = %q, want the seam's primary project dir", src.PrimaryProjectDir)
+	}
+	if !filepath.IsAbs(src.PrimaryProjectDir) {
+		t.Errorf("PrimaryProjectDir %q should be absolute", src.PrimaryProjectDir)
+	}
+}
+
+func TestResolveConfigSourcePropagatesInvalidConfigDirName(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	if _, err := ResolveConfigSource(invalidConfigDirAgent{}); err == nil {
+		t.Fatal("ResolveConfigSource with an invalid config-dir name = nil error, want error")
+	}
+}
+
+func TestResolveConfigSource(t *testing.T) {
+	cases := []struct {
+		name                       string
+		user2, user1, proj2, proj1 bool
+		wantFallback               string
+	}{
+		{"nothing", false, false, false, false, ""},
+		{"user primary", true, false, false, false, ""},
+		{"project primary", false, false, true, false, ""},
+		{"user legacy", false, true, false, false, "opencode"},
+		{"project legacy", false, false, false, true, "opencode"},
+		{"primary beats legacy", true, true, true, true, ""},
+		{"any primary wins", false, true, true, false, ""},
+		{"user primary, project legacy", true, false, false, true, ""},
+		{"alias in both scopes", false, true, false, true, "opencode"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			cp := configpaths.Get()
+			mk := func(dir, name string, on bool) {
+				if on {
+					if err := os.MkdirAll(filepath.Join(dir, name), 0o755); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			mk(cp.UserConfigDir(), "opencode2", tc.user2)
+			mk(cp.UserConfigDir(), "opencode", tc.user1)
+			mk(cp.ProjectConfigDir(), "opencode2", tc.proj2)
+			mk(cp.ProjectConfigDir(), "opencode", tc.proj1)
+
+			a, _ := agent.Lookup("opencode2")
+			got, err := ResolveConfigSource(a)
+			if err != nil {
+				t.Fatalf("ResolveConfigSource: %v", err)
+			}
+
+			name := "opencode2"
+			if tc.wantFallback != "" {
+				name = tc.wantFallback
+			}
+			want := ConfigSource{
+				UserDir:           filepath.Join(cp.UserConfigDir(), name),
+				ProjectDir:        filepath.Join(cp.ProjectConfigDir(), name),
+				Fallback:          tc.wantFallback,
+				PrimaryUserDir:    filepath.Join(cp.UserConfigDir(), "opencode2"),
+				PrimaryProjectDir: filepath.Join(cp.ProjectConfigDirAbs(), "opencode2"),
+			}
+			if got != want {
+				t.Errorf("ResolveConfigSource = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestDescribeConfigScopes(t *testing.T) {
+	existing := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "missing")
+
+	if got := describeConfigScopes(missing, missing, true); got != "(none)" {
+		t.Errorf("onlyExisting with nothing present = %q, want (none)", got)
+	}
+	onlyExisting := describeConfigScopes(existing, missing, true)
+	if !strings.Contains(onlyExisting, "user: ") || strings.Contains(onlyExisting, "project:") {
+		t.Errorf("onlyExisting should list only the present scope, got %q", onlyExisting)
+	}
+	targets := describeConfigScopes(existing, missing, false)
+	if !strings.Contains(targets, "user: ") || !strings.Contains(targets, "project: ") {
+		t.Errorf("targets should list both scopes, got %q", targets)
+	}
+	if strings.Contains(targets, "relative to CWD") {
+		t.Errorf("targets should show explicit absolute paths, got %q", targets)
+	}
+	// A missing user dir must still be named when onlyExisting is false: the
+	// project scope being the only one present must not drop the user scope.
+	if got, want := describeConfigScopes(
+		missing,
+		existing,
+		false,
+	), fmt.Sprintf(
+		"user: %q, project: %q",
+		missing,
+		existing,
+	); got != want {
+		t.Errorf("targets with only the project present = %q, want %q", got, want)
+	}
+	// An existing project dir must be named when onlyExisting is true: the
+	// user scope being absent must not drop the project scope.
+	if got, want := describeConfigScopes(missing, existing, true), fmt.Sprintf("project: %q", existing); got != want {
+		t.Errorf("onlyExisting with only the project present = %q, want %q", got, want)
+	}
+}
+
+func TestSourceDirsMirrorResolvedSource(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+
+	src := ConfigSource{
+		UserDir:    filepath.Join(cp.UserConfigDir(), "opencode"),
+		ProjectDir: filepath.Join(cp.ProjectConfigDirAbs(), "opencode"),
+		Fallback:   "opencode",
+	}
+	user, project := SourceDirs(src)
+	if user != src.UserDir || project != src.ProjectDir {
+		t.Errorf("SourceDirs = (%q, %q), want the resolved source dirs", user, project)
+	}
+}
+
+// TestBaseUserConfigDirIsParentOfUserDir pins the derivation: home files and
+// hooks resolve relative to the tool's user config dir, one level above the
+// agent subdir the resolved source names.
+func TestBaseUserConfigDirIsParentOfUserDir(t *testing.T) {
+	src := ConfigSource{UserDir: filepath.Join(t.TempDir(), "agents-sandbox", "opencode2")}
+	if got, want := baseUserConfigDir(src), filepath.Dir(src.UserDir); got != want {
+		t.Errorf("baseUserConfigDir = %q, want %q", got, want)
+	}
+}
+
+// TestLoadConfigFilesRemovesStaleConfigWithSnippets verifies that when snippets
+// produce a merged config, the config-file family is excluded from the drop-in
+// copy and marked for removal so host config cannot shadow the merged config,
+// while unrelated host config files are still provisioned.
+func TestLoadConfigFilesRemovesStaleConfigWithSnippets(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+
+	// Snippets exist so hasSnippets=true and the merged config is written.
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"opencode-model.json",
+		`{"model":"x"}`,
+	)
+
+	// Host files the drop-in copy would pick up: opencode.jsonc is the merged
+	// config filename, other.json is unrelated.
+	ocConfig := filepath.Join(hostHome, ".config/opencode")
+	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, ocConfig, "opencode.jsonc", `{"model":"host"}`)
+	testutil.WriteFile(t, ocConfig, "other.json", `{"host":1}`)
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+
+	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
+	for _, name := range resolveConfigSubject(agent.Resolve(opencodeTestAgent()), vmHome).familyNames {
+		want := filepath.Join(vmHome, ".config", "opencode", name)
+		if !slices.Contains(cf.Remove, want) {
+			t.Errorf("expected config file %s in Remove, got %v", want, cf.Remove)
+		}
+		if _, ok := cf.Provisioned[want]; ok {
+			t.Errorf("config file %s must not be in Provisioned when snippets exist, got %v", want, cf.Provisioned)
+		}
+	}
+	if _, ok := cf.Provisioned[mergedPath]; ok {
+		t.Errorf(
+			"merged config path %s must not be in Provisioned (merged config wins), got %v",
+			mergedPath,
+			cf.Provisioned,
+		)
+	}
+	otherPath := filepath.Join(vmHome, ".config", "opencode", "other.json")
+	if _, ok := cf.Provisioned[otherPath]; !ok {
+		t.Errorf("unrelated host config %s should still be provisioned, got %v", otherPath, cf.Provisioned)
+	}
+}
+
+// TestLoadConfigFilesProvisioningDisabled verifies that with host config
+// provisioning disabled the drop-in copy is skipped entirely, the config-file
+// family and auth.json are marked for removal, and snippet merging still works.
+func TestLoadConfigFilesProvisioningDisabled(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"opencode-model.json",
+		`{"model":"x"}`,
+	)
+	ocConfig := filepath.Join(hostHome, ".config/opencode")
+	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
+	ocShare := filepath.Join(hostHome, ".local", "share", "opencode")
+	if err := os.MkdirAll(ocShare, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, ocShare, "auth.json", `{"t":"x"}`)
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, false)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+
+	if len(cf.Provisioned) != 0 {
+		t.Errorf("expected no drop-in copy when provisioning disabled, got %v", cf.Provisioned)
+	}
+	for _, name := range resolveConfigSubject(agent.Resolve(opencodeTestAgent()), vmHome).familyNames {
+		want := filepath.Join(vmHome, ".config", "opencode", name)
+		if !slices.Contains(cf.Remove, want) {
+			t.Errorf("expected config file %s in Remove, got %v", want, cf.Remove)
+		}
+	}
+	authPath := filepath.Join(vmHome, ".local", "share", "opencode", "auth.json")
+	if !slices.Contains(cf.Remove, authPath) {
+		t.Errorf("expected auth.json in Remove when provisioning disabled, got %v", cf.Remove)
+	}
+	if !cf.HasSnippets || len(cf.Merged) == 0 {
+		t.Error("expected merged config to be built despite disabled provisioning")
+	}
+}
+
+// TestResolveConfigSubjectMaterializesMergerFacts verifies the subject derives
+// the merger's VM config path, snippet pattern and config-file family, and the
+// provisioner's rules, once from the agent, so the builders consume them
+// instead of re-asserting the capabilities and recomputing the paths.
+func TestResolveConfigSubjectMaterializesMergerFacts(t *testing.T) {
+	vmHome := filepath.Join(string(filepath.Separator), "home", "dev")
+	a, _ := agent.Lookup("")
+	subject := resolveConfigSubject(agent.Resolve(a), vmHome)
+
+	if subject.merger == nil {
+		t.Fatal("opencode should resolve a merger")
+	}
+	if subject.provisioner == nil {
+		t.Fatal("opencode should resolve a provisioner")
+	}
+	if want := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc"); subject.vmConfigPath != want {
+		t.Errorf("vmConfigPath = %q, want %q", subject.vmConfigPath, want)
+	}
+	if want := "opencode*.json*"; subject.snippetPattern != want {
+		t.Errorf("snippetPattern = %q, want %q", subject.snippetPattern, want)
+	}
+	if !slices.Contains(subject.familyNames, "opencode.json") {
+		t.Errorf("familyNames = %v, want to include opencode.json", subject.familyNames)
+	}
+	if len(subject.provisionRules) == 0 {
+		t.Error("provisionRules should be non-empty for opencode")
+	}
+}
+
+// TestResolveConfigSubjectZeroForPlainAgent verifies an agent with neither
+// capability yields a subject whose derived facts are empty, so the builders
+// keep their "no merger/provisioner" behavior.
+func TestResolveConfigSubjectZeroForPlainAgent(t *testing.T) {
+	subject := resolveConfigSubject(
+		agent.Resolve(plainAgent{}),
+		filepath.Join(string(filepath.Separator), "home", "dev"),
+	)
+	if subject.merger != nil || subject.provisioner != nil {
+		t.Errorf("plain agent should resolve no capabilities, got %+v", subject)
+	}
+	if subject.vmConfigPath != "" || subject.snippetPattern != "" || subject.familyNames != nil {
+		t.Errorf("plain agent should derive no merger facts, got %+v", subject)
+	}
+	if subject.provisionRules != nil {
+		t.Errorf("plain agent should have no provision rules, got %v", subject.provisionRules)
+	}
+}
+
+// TestHostFilesFromProvisioner verifies hostFilesFromProvisioner reports each
+// host file the drop-in copy would pick up, marking config-family destinations
+// as Merged when snippets produce a merged config.
+func TestHostFilesFromProvisioner(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+	ocConfig := filepath.Join(hostHome, ".config", "opencode")
+	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
+	testutil.WriteFile(t, ocConfig, "other.json", `{"host":1}`)
+
+	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
+	cf := &ConfigFiles{HasSnippets: true, MergedPath: mergedPath}
+	files := resolveConfigSubject(agent.Resolve(a), vmHome).hostFilesFromProvisioner(hostHome, cf)
+
+	if len(files) != 2 {
+		t.Fatalf("hostFilesFromProvisioner = %+v, want 2 files", files)
+	}
+	var configFile, otherFile *HostFile
+	for i := range files {
+		f := &files[i]
+		switch f.VMPath {
+		case filepath.Join(vmHome, ".config", "opencode", "opencode.json"):
+			configFile = f
+		case filepath.Join(vmHome, ".config", "opencode", "other.json"):
+			otherFile = f
+		}
+	}
+	if configFile == nil || !configFile.Merged {
+		t.Errorf("config-family file should be marked Merged, got %+v", files)
+	}
+	if configFile != nil && configFile.HostPath != filepath.Join(hostHome, ".config", "opencode", "opencode.json") {
+		t.Errorf("config-file HostPath = %q", configFile.HostPath)
+	}
+	if otherFile == nil || otherFile.Merged {
+		t.Errorf("non-family file should not be Merged, got %+v", files)
+	}
+}
+
+func TestHostFilesFromProvisionerNoSnippets(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+	ocConfig := filepath.Join(hostHome, ".config", "opencode")
+	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
+
+	cf := &ConfigFiles{HasSnippets: false}
+	files := resolveConfigSubject(agent.Resolve(a), vmHome).hostFilesFromProvisioner(hostHome, cf)
+	if len(files) != 1 || files[0].Merged {
+		t.Errorf("hostFilesFromProvisioner = %+v, want 1 non-merged file", files)
+	}
+}
 
 func TestLoadConfigFilesPopulatesHooks(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -82,125 +512,127 @@ func TestLoadConfigFilesMarksHookScriptsExecutable(t *testing.T) {
 	}
 }
 
-func TestEnsureHookExecutable(t *testing.T) {
-	modes := map[string]os.FileMode{
-		"/home/dev/.a": 0o600,
-		"/home/dev/.b": 0o644,
+func TestLoadConfigFilesFallsBackToLegacyDir(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	a, _ := agent.Lookup("opencode2")
+
+	legacy := filepath.Join(cp.UserConfigDir(), "opencode")
+	if err := os.MkdirAll(legacy, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	ensureHookExecutable(modes, []homeconfig.HookSpec{
-		{Target: "/home/dev/.a"},
-		{Target: "/home/dev/.b"},
-		{Target: "/home/dev/.c"},
-	})
-	for _, tc := range []struct {
-		path string
-		want os.FileMode
-	}{
-		{"/home/dev/.a", 0o700},
-		{"/home/dev/.b", 0o744},
-		{"/home/dev/.c", 0o700},
-	} {
-		if got := modes[tc.path].Perm(); got != tc.want {
-			t.Errorf("mode of %s = %o, want %o", tc.path, got, tc.want)
+	testutil.WriteFile(t, legacy, "opencode-model.json", `{"model":"v2-legacy"}`)
+	testutil.WriteFile(t, legacy, "tui.json", `{"theme":"legacy"}`)
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFiles(agent.Resolve(a), &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	if cf.Source.Fallback != "opencode" {
+		t.Errorf("Source.Fallback = %q, want opencode", cf.Source.Fallback)
+	}
+	if !strings.Contains(string(cf.Merged), "v2-legacy") {
+		t.Errorf("merged config did not read the legacy dir: %s", cf.Merged)
+	}
+	mirrorPath := filepath.Join(reprovisionVMConfigDir(t, a), "tui.json")
+	if _, ok := cf.Mirror[mirrorPath]; !ok {
+		t.Errorf("mirror missing legacy file %q; have %v", mirrorPath, cf.Mirror)
+	}
+	if n := countWarns(ui.WarnCalls, "legacy shared"); n != 1 {
+		t.Errorf("legacy fallback warning count = %d, want 1; warnings: %v", n, ui.WarnCalls)
+	}
+	warn := ui.WarnCalls[0]
+	legacyProject := filepath.Join(cp.ProjectConfigDirAbs(), "opencode")
+	primaryProject := filepath.Join(cp.ProjectConfigDirAbs(), "opencode2")
+	if !strings.Contains(warn, legacy) || !strings.Contains(warn, legacyProject) {
+		t.Errorf("warning should name the legacy dirs actually read; got %q", warn)
+	}
+	if !strings.Contains(warn, primaryProject) || !strings.Contains(warn, "do not move") {
+		t.Errorf("warning should name the primary targets and say not to move; got %q", warn)
+	}
+}
+
+func TestLoadConfigFilesPrimarySuppressesLegacy(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	a, _ := agent.Lookup("opencode2")
+
+	for _, dir := range []string{filepath.Join(cp.UserConfigDir(), "opencode2"), filepath.Join(cp.UserConfigDir(), "opencode")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
 		}
 	}
+	testutil.WriteFile(
+		t,
+		filepath.Join(cp.UserConfigDir(), "opencode2"),
+		"opencode-model.json",
+		`{"model":"v2-primary"}`,
+	)
+	testutil.WriteFile(t, filepath.Join(cp.UserConfigDir(), "opencode"), "opencode-model.json", `{"model":"v1-legacy"}`)
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFiles(agent.Resolve(a), &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	if cf.Source.Fallback != "" {
+		t.Errorf("Source.Fallback = %q, want empty (primary wins)", cf.Source.Fallback)
+	}
+	if !strings.Contains(string(cf.Merged), "v2-primary") || strings.Contains(string(cf.Merged), "v1-legacy") {
+		t.Errorf("merged config should read only the primary dir: %s", cf.Merged)
+	}
+	if n := countWarns(ui.WarnCalls, "legacy shared"); n != 0 {
+		t.Errorf("unexpected legacy warning: %v", ui.WarnCalls)
+	}
 }
 
-// TestProvisionChownsHomeFiles verifies that Provision writes the home files and
-// the merged opencode config, then chowns every provisioned path to dev:dev so
-// the files are readable by the runtime user.
-func TestProvisionChownsHomeFiles(t *testing.T) {
-	cf := &ConfigFiles{
-		HasSnippets: true,
-		Merged:      []byte(`{"model":"x"}`),
-		MergedPath:  opencodeMergedPath,
-		HomeFiles: map[string][]byte{
-			"/home/dev/.gitconfig":            []byte("user.name=X\n"),
-			"/home/dev/.config/tool/cfg.toml": []byte("k=v\n"),
-		},
-		Modes: map[string]os.FileMode{"/home/dev/.gitconfig": 0o755},
-	}
-	fs := msb.NewTestFS(nil, nil)
-	var calls []string
-	var execCalls []string
-	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &calls, ExecCalls: &execCalls}
+func TestLoadConfigFilesInfosWhenNoLauncherConfigDirExists(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	a, _ := agent.Lookup("opencode2")
 
-	if err := Provision(context.Background(), sb, cf); err != nil {
-		t.Fatalf("Provision: %v", err)
+	ui := termio.NewTestMock(t)
+	if _, err := LoadConfigFiles(agent.Resolve(a), &ui, true); err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
 	}
-
-	for path := range cf.HomeFiles {
-		if _, ok := fs.Writes[path]; !ok {
-			t.Errorf("home file %s was not written", path)
+	if len(ui.InfoCalls) != 1 {
+		t.Fatalf("info count = %d, want 1; infos: %v", len(ui.InfoCalls), ui.InfoCalls)
+	}
+	info := ui.InfoCalls[0]
+	userDir := filepath.Join(cp.UserConfigDir(), "opencode2")
+	projectDir := filepath.Join(cp.ProjectConfigDirAbs(), "opencode2")
+	for _, want := range []string{userDir, projectDir, "agents-sandbox config agent"} {
+		if !strings.Contains(info, want) {
+			t.Errorf("info should mention %q; got %q", want, info)
 		}
 	}
-	if _, ok := fs.Writes[opencodeMergedPath]; !ok {
-		t.Error("opencode config was not written")
-	}
-
-	if len(calls) != 1 {
-		t.Fatalf("expected 1 chown shell call, got %d: %v", len(calls), calls)
-	}
-	wantChown := "chown -R dev:dev /home /home/dev /home/dev/.config /home/dev/.config/opencode " +
-		"/home/dev/.config/opencode/opencode.jsonc /home/dev/.config/tool /home/dev/.config/tool/cfg.toml " +
-		"/home/dev/.gitconfig"
-	if calls[0] != wantChown {
-		t.Errorf("shell command = %q, want %q", calls[0], wantChown)
-	}
-	if !slices.Contains(execCalls, "chmod 0755 /home/dev/.gitconfig") {
-		t.Errorf("exec calls = %v, want home-file chmod", execCalls)
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("unexpected warnings: %v", ui.WarnCalls)
 	}
 }
 
-func TestProvisionReturnsHomeChmodError(t *testing.T) {
-	path := "/home/dev/.gitconfig"
-	cf := &ConfigFiles{
-		HomeFiles: map[string][]byte{path: []byte("user.name=X\n")},
-		Modes:     map[string]os.FileMode{path: 0o755},
+func TestLoadConfigFilesNoInfoWhenALauncherConfigDirExists(t *testing.T) {
+	cases := map[string]func(configpaths.ConfigPaths) string{
+		"user":            func(cp configpaths.ConfigPaths) string { return filepath.Join(cp.UserConfigDir(), "opencode2") },
+		"project":         func(cp configpaths.ConfigPaths) string { return filepath.Join(cp.ProjectConfigDirAbs(), "opencode2") },
+		"legacy fallback": func(cp configpaths.ConfigPaths) string { return filepath.Join(cp.UserConfigDir(), "opencode") },
 	}
-	fs := msb.NewTestFS(nil, nil)
-	sb := &msb.MockSandbox{
-		FSValue_: fs,
-		ExecOut: map[string]msb.ShellResult{
-			"chmod 0755 " + path: msb.NewTestResult(false, 1, "", "chmod failed", nil),
-		},
-	}
-
-	err := Provision(context.Background(), sb, cf)
-	if err == nil || !strings.Contains(err.Error(), "chmod home file") {
-		t.Fatalf("Provision error = %v, want home-file chmod error", err)
-	}
-}
-
-// TestProvisionNoFilesSkipsChown verifies that Provision does not run a chown
-// when there are no files to provision.
-func TestProvisionNoFilesSkipsChown(t *testing.T) {
-	var calls []string
-	sb := &msb.MockSandbox{FSValue_: msb.NewTestFS(nil, nil), ShellCalls: &calls}
-	if err := Provision(context.Background(), sb, &ConfigFiles{}); err != nil {
-		t.Fatalf("Provision: %v", err)
-	}
-	if len(calls) != 0 {
-		t.Errorf("expected no shell call, got %v", calls)
-	}
-}
-
-// TestProvisionJoinsErrors verifies that when a write fails and the deferred
-// chown also fails, both errors are surfaced via errors.Join.
-func TestProvisionJoinsErrors(t *testing.T) {
-	writeErr := errors.New("write boom")
-	chownErr := errors.New("chown boom")
-	cf := &ConfigFiles{HomeFiles: map[string][]byte{"/home/dev/.gitconfig": []byte("x\n")}}
-	fs := msb.NewTestFS(nil, nil)
-	fs.WriteErr = writeErr
-	sb := &msb.MockSandbox{FSValue_: fs, ShellErr: chownErr}
-
-	err := Provision(context.Background(), sb, cf)
-	if !errors.Is(err, writeErr) {
-		t.Errorf("Provision error does not wrap write error: %v", err)
-	}
-	if !errors.Is(err, chownErr) {
-		t.Errorf("Provision error does not wrap chown error: %v", err)
+	for name, dirOf := range cases {
+		t.Run(name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			if err := os.MkdirAll(dirOf(configpaths.Get()), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			a, _ := agent.Lookup("opencode2")
+			ui := termio.NewTestMock(t)
+			if _, err := LoadConfigFiles(agent.Resolve(a), &ui, true); err != nil {
+				t.Fatalf("LoadConfigFiles: %v", err)
+			}
+			if len(ui.InfoCalls) != 0 {
+				t.Errorf("unexpected info: %v", ui.InfoCalls)
+			}
+		})
 	}
 }
 
@@ -317,64 +749,6 @@ func TestLoadConfigFilesProvisioningPrecedence(t *testing.T) {
 	}
 }
 
-// TestLoadConfigFilesRemovesStaleConfigWithSnippets verifies that when snippets
-// produce a merged config, the config-file family is excluded from the drop-in
-// copy and marked for removal so host config cannot shadow the merged config,
-// while unrelated host config files are still provisioned.
-func TestLoadConfigFilesRemovesStaleConfigWithSnippets(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	hostHome := t.TempDir()
-	vmHome := t.TempDir()
-
-	a, _ := agent.Lookup("opencode")
-
-	// Snippets exist so hasSnippets=true and the merged config is written.
-	testutil.WriteFile(
-		t,
-		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
-		"opencode-model.json",
-		`{"model":"x"}`,
-	)
-
-	// Host files the drop-in copy would pick up: opencode.jsonc is the merged
-	// config filename, other.json is unrelated.
-	ocConfig := filepath.Join(hostHome, ".config/opencode")
-	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	testutil.WriteFile(t, ocConfig, "opencode.jsonc", `{"model":"host"}`)
-	testutil.WriteFile(t, ocConfig, "other.json", `{"host":1}`)
-
-	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFilesForHost: %v", err)
-	}
-
-	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
-	for _, name := range resolveConfigSubject(agent.Resolve(opencodeTestAgent()), vmHome).familyNames {
-		want := filepath.Join(vmHome, ".config", "opencode", name)
-		if !slices.Contains(cf.Remove, want) {
-			t.Errorf("expected config file %s in Remove, got %v", want, cf.Remove)
-		}
-		if _, ok := cf.Provisioned[want]; ok {
-			t.Errorf("config file %s must not be in Provisioned when snippets exist, got %v", want, cf.Provisioned)
-		}
-	}
-	if _, ok := cf.Provisioned[mergedPath]; ok {
-		t.Errorf(
-			"merged config path %s must not be in Provisioned (merged config wins), got %v",
-			mergedPath,
-			cf.Provisioned,
-		)
-	}
-	otherPath := filepath.Join(vmHome, ".config", "opencode", "other.json")
-	if _, ok := cf.Provisioned[otherPath]; !ok {
-		t.Errorf("unrelated host config %s should still be provisioned, got %v", otherPath, cf.Provisioned)
-	}
-}
-
 // TestLoadConfigFilesShadowingCopiedWithoutSnippets verifies that without
 // snippets the host opencode.jsonc is drop-in copied as the default config.
 func TestLoadConfigFilesShadowingCopiedWithoutSnippets(t *testing.T) {
@@ -402,216 +776,6 @@ func TestLoadConfigFilesShadowingCopiedWithoutSnippets(t *testing.T) {
 	shadowPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
 	if _, ok := cf.Provisioned[shadowPath]; !ok {
 		t.Errorf("expected host %s provisioned when no snippets exist, got %v", shadowPath, cf.Provisioned)
-	}
-}
-
-// TestLoadConfigFilesProvisioningDisabled verifies that with host config
-// provisioning disabled the drop-in copy is skipped entirely, the config-file
-// family and auth.json are marked for removal, and snippet merging still works.
-func TestLoadConfigFilesProvisioningDisabled(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	hostHome := t.TempDir()
-	vmHome := t.TempDir()
-
-	a, _ := agent.Lookup("opencode")
-
-	testutil.WriteFile(
-		t,
-		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
-		"opencode-model.json",
-		`{"model":"x"}`,
-	)
-	ocConfig := filepath.Join(hostHome, ".config/opencode")
-	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
-	ocShare := filepath.Join(hostHome, ".local", "share", "opencode")
-	if err := os.MkdirAll(ocShare, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	testutil.WriteFile(t, ocShare, "auth.json", `{"t":"x"}`)
-
-	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, false)
-	if err != nil {
-		t.Fatalf("LoadConfigFilesForHost: %v", err)
-	}
-
-	if len(cf.Provisioned) != 0 {
-		t.Errorf("expected no drop-in copy when provisioning disabled, got %v", cf.Provisioned)
-	}
-	for _, name := range resolveConfigSubject(agent.Resolve(opencodeTestAgent()), vmHome).familyNames {
-		want := filepath.Join(vmHome, ".config", "opencode", name)
-		if !slices.Contains(cf.Remove, want) {
-			t.Errorf("expected config file %s in Remove, got %v", want, cf.Remove)
-		}
-	}
-	authPath := filepath.Join(vmHome, ".local", "share", "opencode", "auth.json")
-	if !slices.Contains(cf.Remove, authPath) {
-		t.Errorf("expected auth.json in Remove when provisioning disabled, got %v", cf.Remove)
-	}
-	if !cf.HasSnippets || len(cf.Merged) == 0 {
-		t.Error("expected merged config to be built despite disabled provisioning")
-	}
-}
-
-// TestProvisionRemovesStalePaths verifies that Provision removes the marked
-// stale paths before writing the merged config.
-func TestProvisionRemovesStalePaths(t *testing.T) {
-	cf := &ConfigFiles{
-		HasSnippets: true,
-		Merged:      []byte(`{"model":"x"}`),
-		MergedPath:  opencodeMergedPath,
-		Remove: configFileFamilyPaths(
-			opencodeMergedPath,
-			resolveConfigSubject(agent.Resolve(opencodeTestAgent()), VMHomeDir).familyNames,
-		),
-	}
-	fs := msb.NewTestFS(nil, nil)
-	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
-	if err := Provision(context.Background(), sb, cf); err != nil {
-		t.Fatalf("Provision: %v", err)
-	}
-	if len(fs.Removed) != len(cf.Remove) {
-		t.Fatalf("expected %d removals, got %v", len(cf.Remove), fs.Removed)
-	}
-	for i, p := range cf.Remove {
-		if i >= len(fs.Removed) || fs.Removed[i] != p {
-			t.Errorf("Remove order = %v, want %v", fs.Removed, cf.Remove)
-			break
-		}
-	}
-	if fs.Writes[opencodeMergedPath] == nil {
-		t.Error("expected merged config written after removal")
-	}
-}
-
-// TestProvisionWritesProvisioned verifies that Provision writes the default
-// drop-in copy just like home files.
-func TestProvisionWritesProvisioned(t *testing.T) {
-	cf := &ConfigFiles{
-		Provisioned: map[string][]byte{
-			"/home/dev/.config/opencode/opencode.json":  []byte(`{"a":1}`),
-			"/home/dev/.local/share/opencode/auth.json": []byte(`{"t":"x"}`),
-		},
-	}
-	fs := msb.NewTestFS(nil, nil)
-	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
-	if err := Provision(context.Background(), sb, cf); err != nil {
-		t.Fatalf("Provision: %v", err)
-	}
-	for p := range cf.Provisioned {
-		if _, ok := fs.Writes[p]; !ok {
-			t.Errorf("provisioned file %s was not written", p)
-		}
-	}
-}
-
-func TestProvisionAppliesProvisionedFileMode(t *testing.T) {
-	path := "/home/dev/.config/opencode/bin/launcher"
-	cf := &ConfigFiles{
-		Provisioned: map[string][]byte{path: []byte("#!/bin/sh\n")},
-		Modes:       map[string]os.FileMode{path: 0o755},
-	}
-	fs := msb.NewTestFS(nil, nil)
-	var execCalls []string
-	sb := &msb.MockSandbox{
-		FSValue_:  fs,
-		ExecCalls: &execCalls,
-	}
-
-	if err := Provision(context.Background(), sb, cf); err != nil {
-		t.Fatalf("Provision: %v", err)
-	}
-	if !slices.Contains(execCalls, "chmod 0755 "+path) {
-		t.Errorf("exec calls = %v, want chmod for %s", execCalls, path)
-	}
-}
-
-func TestProvisionReturnsChmodError(t *testing.T) {
-	path := "/home/dev/.config/opencode/bin/launcher"
-	cf := &ConfigFiles{
-		Provisioned: map[string][]byte{path: []byte("#!/bin/sh\n")},
-		Modes:       map[string]os.FileMode{path: 0o755},
-	}
-	fs := msb.NewTestFS(nil, nil)
-	sb := &msb.MockSandbox{
-		FSValue_: fs,
-		ExecOut: map[string]msb.ShellResult{
-			"chmod 0755 " + path: msb.NewTestResult(false, 1, "", "chmod failed", nil),
-		},
-	}
-
-	err := Provision(context.Background(), sb, cf)
-	if err == nil || !strings.Contains(err.Error(), "chmod") {
-		t.Fatalf("Provision error = %v, want chmod error", err)
-	}
-}
-
-func TestProvisionReturnsChmodExecError(t *testing.T) {
-	path := "/home/dev/.config/opencode/bin/launcher"
-	wantErr := errors.New("exec failed")
-	cf := &ConfigFiles{
-		Provisioned: map[string][]byte{path: []byte("#!/bin/sh\n")},
-		Modes:       map[string]os.FileMode{path: 0o755},
-	}
-	fs := msb.NewTestFS(nil, nil)
-	sb := &msb.MockSandbox{FSValue_: fs, ExecErr: wantErr}
-
-	err := Provision(context.Background(), sb, cf)
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("Provision error = %v, want %v", err, wantErr)
-	}
-}
-
-func TestProvisionReturnsMirrorChmodError(t *testing.T) {
-	path := "/home/dev/.config/opencode/bin/launcher"
-	cf := &ConfigFiles{
-		Mirror: map[string][]byte{path: []byte("#!/bin/sh\n")},
-		Modes:  map[string]os.FileMode{path: 0o755},
-	}
-	fs := msb.NewTestFS(nil, nil)
-	sb := &msb.MockSandbox{
-		FSValue_: fs,
-		ExecOut: map[string]msb.ShellResult{
-			"chmod 0755 " + path: msb.NewTestResult(false, 1, "", "chmod failed", nil),
-		},
-	}
-
-	err := Provision(context.Background(), sb, cf)
-	if err == nil || !strings.Contains(err.Error(), "chmod mirror file") {
-		t.Fatalf("Provision error = %v, want mirror-file chmod error", err)
-	}
-}
-
-// TestProvisionWritesMirror verifies that Provision writes the verbatim mirror
-// files just like home files and drop-in copies.
-func TestProvisionWritesMirror(t *testing.T) {
-	launcherPath := "/home/dev/.config/opencode/bin/launcher"
-	cf := &ConfigFiles{
-		Mirror: map[string][]byte{
-			"/home/dev/.config/opencode/tui.json":        []byte(`{"theme":"dark"}`),
-			"/home/dev/.config/opencode/agents/coder.md": []byte("# coder\n"),
-			launcherPath: []byte("#!/bin/sh\n"),
-		},
-		Modes: map[string]os.FileMode{launcherPath: 0o755},
-	}
-	fs := msb.NewTestFS(nil, nil)
-	var execCalls []string
-	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}, ExecCalls: &execCalls}
-
-	if err := Provision(context.Background(), sb, cf); err != nil {
-		t.Fatalf("Provision: %v", err)
-	}
-	for p := range cf.Mirror {
-		if _, ok := fs.Writes[p]; !ok {
-			t.Errorf("mirror file %s was not written", p)
-		}
-	}
-	if !slices.Contains(execCalls, "chmod 0755 "+launcherPath) {
-		t.Errorf("exec calls = %v, want chmod for %s", execCalls, launcherPath)
 	}
 }
 
@@ -824,251 +988,6 @@ func TestLoadConfigFilesNoReservedForNonConfigMerger(t *testing.T) {
 	}
 }
 
-func TestHostPathForDst(t *testing.T) {
-	got := hostPathForDst("/home/dev/.config/opencode/opencode.json", "/home/user", "/home/dev")
-	want := filepath.Join("/home/user", ".config", "opencode", "opencode.json")
-	if got != want {
-		t.Errorf("hostPathForDst = %q, want %q", got, want)
-	}
-}
-
-func TestHostPathForDstRoot(t *testing.T) {
-	got := hostPathForDst("/home/dev", "/home/user", "/home/dev")
-	if got != "/home/user" {
-		t.Errorf("hostPathForDst(root) = %q, want /home/user", got)
-	}
-}
-
-// TestResolveConfigSubjectMaterializesMergerFacts verifies the subject derives
-// the merger's VM config path, snippet pattern and config-file family, and the
-// provisioner's rules, once from the agent, so the builders consume them
-// instead of re-asserting the capabilities and recomputing the paths.
-func TestResolveConfigSubjectMaterializesMergerFacts(t *testing.T) {
-	vmHome := filepath.Join(string(filepath.Separator), "home", "dev")
-	a, _ := agent.Lookup("")
-	subject := resolveConfigSubject(agent.Resolve(a), vmHome)
-
-	if subject.merger == nil {
-		t.Fatal("opencode should resolve a merger")
-	}
-	if subject.provisioner == nil {
-		t.Fatal("opencode should resolve a provisioner")
-	}
-	if want := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc"); subject.vmConfigPath != want {
-		t.Errorf("vmConfigPath = %q, want %q", subject.vmConfigPath, want)
-	}
-	if want := "opencode*.json*"; subject.snippetPattern != want {
-		t.Errorf("snippetPattern = %q, want %q", subject.snippetPattern, want)
-	}
-	if !slices.Contains(subject.familyNames, "opencode.json") {
-		t.Errorf("familyNames = %v, want to include opencode.json", subject.familyNames)
-	}
-	if len(subject.provisionRules) == 0 {
-		t.Error("provisionRules should be non-empty for opencode")
-	}
-}
-
-// TestResolveConfigSubjectZeroForPlainAgent verifies an agent with neither
-// capability yields a subject whose derived facts are empty, so the builders
-// keep their "no merger/provisioner" behavior.
-func TestResolveConfigSubjectZeroForPlainAgent(t *testing.T) {
-	subject := resolveConfigSubject(
-		agent.Resolve(plainAgent{}),
-		filepath.Join(string(filepath.Separator), "home", "dev"),
-	)
-	if subject.merger != nil || subject.provisioner != nil {
-		t.Errorf("plain agent should resolve no capabilities, got %+v", subject)
-	}
-	if subject.vmConfigPath != "" || subject.snippetPattern != "" || subject.familyNames != nil {
-		t.Errorf("plain agent should derive no merger facts, got %+v", subject)
-	}
-	if subject.provisionRules != nil {
-		t.Errorf("plain agent should have no provision rules, got %v", subject.provisionRules)
-	}
-}
-
-// TestBuildMergedConfigNoMergerYieldsEmpty verifies the subject's merger guard:
-// a subject with no merger produces no merged config even when it carries a
-// snippet pattern that would match a host snippet, so capability, not pattern,
-// decides whether snippets merge.
-func TestBuildMergedConfigNoMergerYieldsEmpty(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WriteFile(t, dir, "opencode-model.json", `{"model":"x"}`)
-
-	subject := configSubject{
-		snippetPattern: "opencode*.json*",
-		vmConfigPath:   "/home/dev/.config/opencode/opencode.jsonc",
-	}
-	got, err := subject.buildMergedConfig(ConfigSource{UserDir: dir})
-	if err != nil {
-		t.Fatalf("buildMergedConfig: %v", err)
-	}
-	if !reflect.DeepEqual(got, mergedConfig{}) {
-		t.Errorf("buildMergedConfig without a merger = %+v, want the zero mergedConfig", got)
-	}
-}
-
-// TestBuildMirrorNoMergerYieldsEmpty verifies the subject's merger guard for the
-// mirror: a subject with no merger mirrors nothing, even when the source config
-// dir holds files a pattern-less scan would otherwise mirror.
-func TestBuildMirrorNoMergerYieldsEmpty(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WriteFile(t, dir, "tui.json", `{"theme":"dark"}`)
-
-	mirror, err := configSubject{}.buildMirror(ConfigSource{UserDir: dir})
-	if err != nil {
-		t.Fatalf("buildMirror: %v", err)
-	}
-	if len(mirror) != 0 {
-		t.Errorf("buildMirror without a merger = %v, want no entries", mirror)
-	}
-}
-
-// TestMirrorFilesFromConfigNoMergerYieldsEmpty verifies the display mirror list
-// is empty for a subject with no merger.
-func TestMirrorFilesFromConfigNoMergerYieldsEmpty(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WriteFile(t, dir, "tui.json", `{"theme":"dark"}`)
-
-	files := configSubject{}.mirrorFilesFromConfig(ConfigSource{UserDir: dir})
-	if len(files) != 0 {
-		t.Errorf("mirrorFilesFromConfig without a merger = %v, want none", files)
-	}
-}
-
-// TestLoadProvisionedNoProvisionerYieldsNothing verifies the subject's
-// provisioner guard: even with rules present, a subject with no provisioner
-// copies nothing.
-func TestLoadProvisionedNoProvisionerYieldsNothing(t *testing.T) {
-	hostHome := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(hostHome, ".config", "tool"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	testutil.WritePath(t, filepath.Join(hostHome, ".config", "tool", "config.json"), `{"a":1}`)
-
-	subject := configSubject{
-		provisionRules: []agent.ProvisionRule{{Dir: ".config/tool", Patterns: []string{"**"}}},
-		vmHome:         "/home/dev",
-	}
-	ui := termio.NewTestMock(t)
-	provisioned, modes, err := subject.loadProvisioned(hostHome, &ui, true)
-	if err != nil {
-		t.Fatalf("loadProvisioned: %v", err)
-	}
-	if len(provisioned) != 0 || len(modes) != 0 {
-		t.Errorf("loadProvisioned without a provisioner = %v / %v, want empty", provisioned, modes)
-	}
-}
-
-// TestProvisionDestinationsNoProvisionerYieldsNone verifies the subject's
-// provisioner guard for the removal destinations.
-func TestProvisionDestinationsNoProvisionerYieldsNone(t *testing.T) {
-	hostHome := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(hostHome, ".config", "tool"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	testutil.WritePath(t, filepath.Join(hostHome, ".config", "tool", "config.json"), `{"a":1}`)
-
-	subject := configSubject{
-		provisionRules: []agent.ProvisionRule{{Dir: ".config/tool", Patterns: []string{"**"}}},
-		vmHome:         "/home/dev",
-	}
-	if dsts := subject.provisionDestinations(hostHome); len(dsts) != 0 {
-		t.Errorf("provisionDestinations without a provisioner = %v, want none", dsts)
-	}
-}
-
-// TestHostFilesFromProvisionerNoProvisionerYieldsNone verifies the subject's
-// provisioner guard for the host-file report.
-func TestHostFilesFromProvisionerNoProvisionerYieldsNone(t *testing.T) {
-	hostHome := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(hostHome, ".config", "tool"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	testutil.WritePath(t, filepath.Join(hostHome, ".config", "tool", "config.json"), `{"a":1}`)
-
-	subject := configSubject{
-		provisionRules: []agent.ProvisionRule{{Dir: ".config/tool", Patterns: []string{"**"}}},
-		vmHome:         "/home/dev",
-	}
-	files := subject.hostFilesFromProvisioner(hostHome, &ConfigFiles{})
-	if len(files) != 0 {
-		t.Errorf("hostFilesFromProvisioner without a provisioner = %v, want none", files)
-	}
-}
-
-// TestApplyPrecedenceMergedConfigOverridesMirror verifies the precedence
-// authority drops the merged-config path from the drop-in copy, the mirror and
-// the mode map under hasSnippets, so a lower-priority entry at that path cannot
-// shadow or re-mode the merged config.
-func TestApplyPrecedenceMergedConfigOverridesMirror(t *testing.T) {
-	mergedPath := filepath.Join(string(filepath.Separator), "home", "dev", ".config", "opencode", "opencode.jsonc")
-	subject := configSubject{vmConfigPath: mergedPath}
-
-	provisioned := map[string][]byte{mergedPath: []byte("drop-in")}
-	homeFiles := map[string][]byte{}
-	mirror := map[string][]byte{mergedPath: []byte("mirror")}
-	modes := map[string]os.FileMode{mergedPath: 0o600}
-	mirrorModes := map[string]os.FileMode{mergedPath: 0o644}
-	homeModes := map[string]os.FileMode{}
-
-	subject.applyPrecedence(provisioned, homeFiles, mirror, modes, mirrorModes, homeModes, true)
-
-	if _, ok := provisioned[mergedPath]; ok {
-		t.Errorf("merged config path must not remain in Provisioned, got %v", provisioned)
-	}
-	if _, ok := mirror[mergedPath]; ok {
-		t.Errorf("merged config path must not remain in Mirror, got %v", mirror)
-	}
-	if _, ok := modes[mergedPath]; ok {
-		t.Errorf("merged config path must not carry a drop-in/mirror mode, got %v", modes)
-	}
-}
-
-// TestHostFilesFromProvisioner verifies hostFilesFromProvisioner reports each
-// host file the drop-in copy would pick up, marking config-family destinations
-// as Merged when snippets produce a merged config.
-func TestHostFilesFromProvisioner(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	hostHome := t.TempDir()
-	vmHome := t.TempDir()
-
-	a, _ := agent.Lookup("opencode")
-	ocConfig := filepath.Join(hostHome, ".config", "opencode")
-	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
-	testutil.WriteFile(t, ocConfig, "other.json", `{"host":1}`)
-
-	mergedPath := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
-	cf := &ConfigFiles{HasSnippets: true, MergedPath: mergedPath}
-	files := resolveConfigSubject(agent.Resolve(a), vmHome).hostFilesFromProvisioner(hostHome, cf)
-
-	if len(files) != 2 {
-		t.Fatalf("hostFilesFromProvisioner = %+v, want 2 files", files)
-	}
-	var configFile, otherFile *HostFile
-	for i := range files {
-		f := &files[i]
-		switch f.VMPath {
-		case filepath.Join(vmHome, ".config", "opencode", "opencode.json"):
-			configFile = f
-		case filepath.Join(vmHome, ".config", "opencode", "other.json"):
-			otherFile = f
-		}
-	}
-	if configFile == nil || !configFile.Merged {
-		t.Errorf("config-family file should be marked Merged, got %+v", files)
-	}
-	if configFile != nil && configFile.HostPath != filepath.Join(hostHome, ".config", "opencode", "opencode.json") {
-		t.Errorf("config-file HostPath = %q", configFile.HostPath)
-	}
-	if otherFile == nil || otherFile.Merged {
-		t.Errorf("non-family file should not be Merged, got %+v", files)
-	}
-}
-
 // TestHostFilesFromProvisionerNoSnippets verifies that without snippets the
 // drop-in files are not marked merged.
 func TestLoadConfigFilesMirror(t *testing.T) {
@@ -1249,22 +1168,367 @@ func TestLoadConfigFilesMirrorWithProvisioningDisabled(t *testing.T) {
 	}
 }
 
-func TestHostFilesFromProvisionerNoSnippets(t *testing.T) {
+// TestLoadConfigFilesKeysMergedFirstAndSorted pins the ordering contract of
+// ConfigFiles.Keys as returned to callers: the merged config leads, and the
+// remaining paths (home/mirror/drop-in, all map-backed and therefore unordered)
+// are sorted. A mirror path such as agents/coder.md sorts before the merged
+// config, so this fails if the result is ever re-sorted after configKeys and
+// the merged config slips out of position.
+func TestLoadConfigFilesKeysMergedFirstAndSorted(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	a, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+	vmHome := t.TempDir()
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"opencode-model.json",
+		`{"model":"x"}`,
+	)
+	if err := os.MkdirAll(
+		filepath.Join(configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())), "agents"),
+		0o755,
+	); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(
+		t,
+		filepath.Join(configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())), "agents"),
+		"coder.md",
+		"# coder\n",
+	)
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "gitconfig", "[user]\n")
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .gitconfig:\n"+
+			"    source: gitconfig\n")
+
+	ui := termio.NewTestMock(t)
+	for range 20 {
+		cf, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), vmHome, &ui, true)
+		if err != nil {
+			t.Fatalf("LoadConfigFilesForHost: %v", err)
+		}
+		merged := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
+		if len(cf.Keys) < 3 {
+			t.Fatalf("Keys = %v, want merged, mirror, and home paths", cf.Keys)
+		}
+		if cf.Keys[0] != merged {
+			t.Fatalf("Keys[0] = %q, want merged config %q (a mirror path sorts before it)", cf.Keys[0], merged)
+		}
+		if !slices.IsSorted(cf.Keys[1:]) {
+			t.Fatalf("Keys[1:] must be sorted for a stable order, got %v", cf.Keys)
+		}
+	}
+}
+
+func TestLoadConfigFilesRejectsInvalidProfileName(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	if _, err := LoadConfigFilesForHost(
+		agent.Resolve(invalidConfigDirAgent{}),
+		t.TempDir(),
+		t.TempDir(),
+		&ui,
+		true,
+	); err == nil {
+		t.Fatal("LoadConfigFilesForHost with an invalid config-dir name = nil error, want error")
+	}
+}
+
+func TestLoadAndDescribePropagateResolveError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	a := invalidConfigDirAgent{}
+	ui := termio.NewTestMock(t)
+	if _, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), t.TempDir(), &ui, true); err == nil {
+		t.Error("expected LoadConfigFilesForHost to propagate the resolution error")
+	}
+	if _, _, _, _, _, err := Describe(a, t.TempDir(), t.TempDir(), &ui, true); err == nil {
+		t.Error("expected Describe to propagate the resolution error")
+	}
+}
+
+// TestLoadConfigFilesWithSnippet verifies that a snippet produces a non-empty
+// OpenCode config and includes the opencode.json key.
+func TestLoadConfigFilesWithSnippet(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), opencodeTestAgent().ConfigDirName())),
+		"opencode-model.json",
+		`{"model":"x"}`,
+	)
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), t.TempDir(), VMHomeDir, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	if !cf.HasSnippets {
+		t.Error("expected HasSnippets=true when a snippet exists")
+	}
+	if len(cf.Merged) == 0 {
+		t.Error("expected non-empty OpenCode config")
+	}
+	if len(cf.Keys) == 0 || cf.Keys[0] != opencodeMergedPath {
+		t.Errorf("expected opencode config key in Keys, got %v", cf.Keys)
+	}
+}
+
+// TestLoadConfigFilesWarnsMissingSource verifies that a home entry referencing a
+// non-existent source produces a warning.
+func TestLoadConfigFilesWarnsMissingSource(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .tool/x:\n"+
+			"    source: does-not-exist\n")
+
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), t.TempDir(), VMHomeDir, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	if len(cf.HomeFiles) != 0 {
+		t.Errorf("expected no home files for missing source, got %v", cf.HomeFiles)
+	}
+	if len(ui.WarnCalls) == 0 {
+		t.Error("expected a warning for the missing home source")
+	}
+}
+
+// TestLoadConfigFilesBuildHomeFilesError verifies the error path when the
+// home config is malformed.
+func TestLoadConfigFilesBuildHomeFilesError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	// parseEntry rejects a non-string source value, surfacing a BuildHomeFilesWithModes error.
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .tool/x:\n"+
+			"    source: 123\n")
+
+	ui := termio.NewTestMock(t)
+	if _, err := LoadConfigFilesForHost(
+		agent.Resolve(opencodeTestAgent()),
+		t.TempDir(),
+		VMHomeDir,
+		&ui,
+		true,
+	); err == nil {
+		t.Error("expected an error for a malformed home source type")
+	}
+}
+
+// TestLoadConfigFilesBuildHooksError verifies the error path when the manifest
+// used by BuildHooks is malformed (invalid hook value).
+func TestLoadConfigFilesBuildHooksError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	// A manifest that BuildHomeFilesWithModes accepts but BuildHooks rejects via the
+	// hook validation. An unknown hook value is rejected by parseEntry, so use a
+	// hook value that is invalid for BuildHooks filtering.
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  .vpn/x:\n"+
+			"    source: s\n"+
+			"    hook: 123\n")
+
+	ui := termio.NewTestMock(t)
+	if _, err := LoadConfigFilesForHost(
+		agent.Resolve(opencodeTestAgent()),
+		t.TempDir(),
+		VMHomeDir,
+		&ui,
+		true,
+	); err == nil {
+		t.Error("expected an error for an invalid hook value")
+	}
+}
+
+// TestLoadConfigFilesMergedConfigError verifies the error path when merging the
+// agent's snippet files fails: the opencode snippet pattern (opencode*.json*)
+// matches the .json.yaml name, and the YAML parser accepts the non-finite float
+// the JSON marshaler then rejects.
+func TestLoadConfigFilesMergedConfigError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), opencodeTestAgent().ConfigDirName())),
+		"opencode-inf.json.yaml",
+		"v: !!float .inf\n",
+	)
+
+	ui := termio.NewTestMock(t)
+	_, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), t.TempDir(), VMHomeDir, &ui, true)
+	if err == nil || !strings.Contains(err.Error(), "merge agent config") {
+		t.Fatalf("LoadConfigFilesForHost error = %v, want merge agent config error", err)
+	}
+	// The wrapped cause is the JSON marshaler's rejection of the non-finite
+	// float; asserting it kills an ERRORF_WRAP ("%w" -> "%v") that leaves the
+	// message identical.
+	if _, ok := errors.AsType[*json.UnsupportedValueError](err); !ok {
+		t.Errorf("error %v does not wrap *json.UnsupportedValueError", err)
+	}
+}
+
+// TestLoadConfigFilesReservedTargetError verifies the error path when the
+// merged-config path cannot be made relative to the VM home.
+func TestLoadConfigFilesReservedTargetError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	_, err := LoadConfigFilesForHost(agent.Resolve(relMergedConfigAgent{}), t.TempDir(), t.TempDir(), &ui, true)
+	if err == nil || !strings.Contains(err.Error(), "reserved home target") {
+		t.Fatalf("LoadConfigFilesForHost error = %v, want reserved home target error", err)
+	}
+}
+
+// TestLoadConfigFilesHomeFilesError verifies that a non-hook home target that
+// fails VM-target resolution surfaces from the home-files loader (which runs
+// after the hook loader).
+func TestLoadConfigFilesHomeFilesError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
+		"home:\n"+
+			"  /absolute/target:\n"+
+			"    source: somefile\n")
+
+	ui := termio.NewTestMock(t)
+	_, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), t.TempDir(), t.TempDir(), &ui, true)
+	if err == nil || !strings.Contains(err.Error(), "must be relative to the home directory") {
+		t.Fatalf("LoadConfigFilesForHost error = %v, want home-target resolution error", err)
+	}
+}
+
+// TestLoadConfigFilesProvisionError verifies the error path when evaluating the
+// agent's provision rules fails.
+func TestLoadConfigFilesProvisionError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	restore := evalProvisionRules
+	t.Cleanup(func() { evalProvisionRules = restore })
+	boom := errors.New("provision boom")
+	evalProvisionRules = func(
+		[]agent.ProvisionRule,
+		string,
+		string,
+		func(string, []byte, os.FileMode) error,
+	) (int, error) {
+		return 0, boom
+	}
+
+	ui := termio.NewTestMock(t)
+	_, err := LoadConfigFilesForHost(agent.Resolve(badProvisionerAgent{}), t.TempDir(), t.TempDir(), &ui, true)
+	if !errors.Is(err, boom) {
+		t.Fatalf("LoadConfigFilesForHost error = %v, want %v", err, boom)
+	}
+}
+
+func TestLoadConfigFilesNoMergedForNonConfigMerger(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	vmHome := t.TempDir()
+	hostHome := t.TempDir()
+
+	// No snippets: a non-ConfigMerger agent yields no merged config.
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(plainAgent{}), hostHome, vmHome, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+	if cf.HasSnippets {
+		t.Error("expected HasSnippets=false when no snippet exists")
+	}
+
+	// Even with snippet files present, a non-ConfigMerger agent produces no
+	// merged config because only ConfigMerger agents merge snippets.
+	testutil.WriteFile(
+		t,
+		configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), plainAgent{}.ConfigDirName())),
+		"opencode-model.json",
+		`{"model":"x"}`,
+	)
+	cf, err = LoadConfigFilesForHost(agent.Resolve(plainAgent{}), hostHome, vmHome, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+	if cf.HasSnippets {
+		t.Error("expected HasSnippets=false for a non-ConfigMerger agent")
+	}
+	if cf.Merged != nil {
+		t.Errorf("expected nil merged config, got %q", cf.Merged)
+	}
+}
+
+func TestLoadConfigFilesWarnsOnMalformedProvisionRules(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	hostHome := t.TempDir()
 	vmHome := t.TempDir()
-
-	a, _ := agent.Lookup("opencode")
-	ocConfig := filepath.Join(hostHome, ".config", "opencode")
-	if err := os.MkdirAll(ocConfig, 0o755); err != nil {
+	// A real file under the rule dir so the valid pattern copies something.
+	cfgPath := filepath.Join(hostHome, ".config/tool/config.json")
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
+	if err := os.WriteFile(cfgPath, []byte(`{"x":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
-	cf := &ConfigFiles{HasSnippets: false}
-	files := resolveConfigSubject(agent.Resolve(a), vmHome).hostFilesFromProvisioner(hostHome, cf)
-	if len(files) != 1 || files[0].Merged {
-		t.Errorf("hostFilesFromProvisioner = %+v, want 1 non-merged file", files)
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(badProvisionerAgent{}), hostHome, vmHome, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+	if cf == nil {
+		t.Fatal("expected a ConfigFiles result")
+	}
+	// A valid pattern copies host files; malformed ones only warn.
+	if len(cf.Provisioned) == 0 {
+		t.Errorf("expected some provisioned files, got %v", cf.Provisioned)
+	}
+	// Every malformed pattern warns, not just the first: the empty pattern and
+	// the bare '!' are both reported.
+	if n := countWarns(ui.WarnCalls, "empty pattern in provision rule"); n != 1 {
+		t.Errorf("warnings = %v, want one empty-pattern warning", ui.WarnCalls)
+	}
+	if n := countWarns(ui.WarnCalls, "bare '!' in provision rule"); n != 1 {
+		t.Errorf("warnings = %v, want one bare-'!' warning", ui.WarnCalls)
+	}
+}
+
+func TestReservedHomeTargetsRejectsMixedRelAbs(t *testing.T) {
+	if _, err := reservedHomeTargets("relative/config.json", "/absolute/vmhome"); err == nil {
+		t.Fatal("expected error when mergedPath is not relative to an absolute vmHome")
+	}
+}
+
+func TestEnsureHookExecutable(t *testing.T) {
+	modes := map[string]os.FileMode{
+		"/home/dev/.a": 0o600,
+		"/home/dev/.b": 0o644,
+	}
+	ensureHookExecutable(modes, []homeconfig.HookSpec{
+		{Target: "/home/dev/.a"},
+		{Target: "/home/dev/.b"},
+		{Target: "/home/dev/.c"},
+	})
+	for _, tc := range []struct {
+		path string
+		want os.FileMode
+	}{
+		{"/home/dev/.a", 0o700},
+		{"/home/dev/.b", 0o744},
+		{"/home/dev/.c", 0o700},
+	} {
+		if got := modes[tc.path].Perm(); got != tc.want {
+			t.Errorf("mode of %s = %o, want %o", tc.path, got, tc.want)
+		}
 	}
 }
 
@@ -1330,142 +1594,373 @@ func TestDescribe(t *testing.T) {
 	}
 }
 
-func TestReservedHomeTargetsRejectsMixedRelAbs(t *testing.T) {
-	if _, err := reservedHomeTargets("relative/config.json", "/absolute/vmhome"); err == nil {
-		t.Fatal("expected error when mergedPath is not relative to an absolute vmHome")
+func TestHostPathForDst(t *testing.T) {
+	got := hostPathForDst("/home/dev/.config/opencode/opencode.json", "/home/user", "/home/dev")
+	want := filepath.Join("/home/user", ".config", "opencode", "opencode.json")
+	if got != want {
+		t.Errorf("hostPathForDst = %q, want %q", got, want)
 	}
 }
 
-// TestLoadConfigFilesKeysMergedFirstAndSorted pins the ordering contract of
-// ConfigFiles.Keys as returned to callers: the merged config leads, and the
-// remaining paths (home/mirror/drop-in, all map-backed and therefore unordered)
-// are sorted. A mirror path such as agents/coder.md sorts before the merged
-// config, so this fails if the result is ever re-sorted after configKeys and
-// the merged config slips out of position.
-func TestLoadConfigFilesKeysMergedFirstAndSorted(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	a, ok := agent.Lookup("opencode")
-	if !ok {
-		t.Fatal("opencode agent not registered")
+func TestHostPathForDstRoot(t *testing.T) {
+	got := hostPathForDst("/home/dev", "/home/user", "/home/dev")
+	if got != "/home/user" {
+		t.Errorf("hostPathForDst(root) = %q, want /home/user", got)
 	}
-	vmHome := t.TempDir()
-	testutil.WriteFile(
-		t,
-		configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
-		"opencode-model.json",
-		`{"model":"x"}`,
-	)
-	if err := os.MkdirAll(
-		filepath.Join(configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())), "agents"),
-		0o755,
-	); err != nil {
+}
+
+func TestReadVMConfigReadsPaths(t *testing.T) {
+	data := []byte("{}")
+	sb := &msb.MockSandbox{
+		Name_: "test-vm",
+		FSValue_: msb.NewTestFS(
+			map[string][]byte{
+				opencodeMergedPath:     data,
+				"/home/dev/.gitconfig": []byte("x=y\n"),
+			},
+			nil,
+		),
+	}
+	want := map[string][]byte{
+		opencodeMergedPath:     data,
+		"/home/dev/.gitconfig": []byte("x=y\n"),
+	}
+	got := ReadVMConfig(context.Background(), sb,
+		[]string{opencodeMergedPath, "/home/dev/.gitconfig", "/home/dev/missing"},
+		&termio.Mock{})
+	if len(got) != 2 {
+		t.Fatalf("expected 2 files read, got %d", len(got))
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ReadVMConfig = %v, want %v", got, want)
+	}
+}
+
+func TestAgentConfigEqualIgnoresHomeFiles(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		Merged:      []byte(`{"model":"x"}`),
+		MergedPath:  opencodeMergedPath,
+		HomeFiles: map[string][]byte{
+			"/home/dev/.gitconfig": []byte("user.name=X\n"),
+		},
+		Keys: []string{"/home/dev/.gitconfig"},
+	}
+	vmData := map[string][]byte{
+		opencodeMergedPath:     []byte(`{"model":"x"}`),
+		"/home/dev/.gitconfig": []byte("user.name=Y\n"),
+	}
+	if !AgentConfigEqual(cf, vmData) {
+		t.Error("expected opencode config equality despite differing home file content")
+	}
+}
+
+func TestAgentConfigEqualDetectsConfigChange(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		Merged:      []byte(`{"model":"x"}`),
+		MergedPath:  opencodeMergedPath,
+		HomeFiles:   map[string][]byte{},
+	}
+	vmData := map[string][]byte{
+		opencodeMergedPath: []byte(`{"model":"y"}`),
+	}
+	if AgentConfigEqual(cf, vmData) {
+		t.Error("expected mismatch when the opencode config differs")
+	}
+}
+
+// TestAgentConfigEqualYAMLTargetComparesSemantically verifies that a merged
+// config destined for a YAML file is compared as YAML: parsing it as JSON fails,
+// which used to read as "always changed" and would report a config change on
+// every attach for hermes.
+func TestAgentConfigEqualYAMLTargetComparesSemantically(t *testing.T) {
+	hermesPath := "/home/dev/.hermes/config.yaml"
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		Merged:      []byte("model: opus\ntools:\n    web: true\n"),
+		MergedPath:  hermesPath,
+		HomeFiles:   map[string][]byte{},
+	}
+
+	same := map[string][]byte{hermesPath: []byte("model: opus\ntools: {web: true}\n")}
+	if !AgentConfigEqual(cf, same) {
+		t.Error("expected YAML config equality for semantically identical documents")
+	}
+
+	changed := map[string][]byte{hermesPath: []byte("model: sonnet\ntools:\n    web: true\n")}
+	if AgentConfigEqual(cf, changed) {
+		t.Error("expected mismatch when the YAML config value differs")
+	}
+}
+
+func TestAgentConfigEqualNoSnippets(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: false,
+		Merged:      nil,
+		HomeFiles:   map[string][]byte{},
+	}
+	if !AgentConfigEqual(cf, nil) {
+		t.Error("expected equality when no snippets are configured")
+	}
+}
+
+func TestAgentConfigEqualMirrorMatch(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		Merged:      []byte(`{"model":"x"}`),
+		MergedPath:  opencodeMergedPath,
+		Mirror: map[string][]byte{
+			"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
+		},
+	}
+	vmData := map[string][]byte{
+		opencodeMergedPath:                    []byte(`{"model":"x"}`),
+		"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
+	}
+	if !AgentConfigEqual(cf, vmData) {
+		t.Error("expected equality when merged config and mirror match")
+	}
+}
+
+func TestAgentConfigEqualMirrorMismatch(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		Merged:      []byte(`{"model":"x"}`),
+		MergedPath:  opencodeMergedPath,
+		Mirror: map[string][]byte{
+			"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
+		},
+	}
+	vmData := map[string][]byte{
+		opencodeMergedPath:                    []byte(`{"model":"x"}`),
+		"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"light"}`),
+	}
+	if AgentConfigEqual(cf, vmData) {
+		t.Error("expected mismatch when a mirror file differs")
+	}
+}
+
+func TestAgentConfigEqualMirrorNoSnippets(t *testing.T) {
+	cf := &ConfigFiles{
+		Mirror: map[string][]byte{
+			"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
+		},
+	}
+	match := map[string][]byte{"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`)}
+	if !AgentConfigEqual(cf, match) {
+		t.Error("expected equality when mirror matches without snippets")
+	}
+	if AgentConfigEqual(cf, nil) {
+		t.Error("expected mismatch when the VM mirror is missing")
+	}
+}
+
+// TestAgentConfigEqualMissingVMConfig verifies that a missing VM opencode
+// config is reported as a mismatch.
+func TestAgentConfigEqualMissingVMConfig(t *testing.T) {
+	cf := &ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
+	if AgentConfigEqual(cf, map[string][]byte{}) {
+		t.Error("expected mismatch when the VM config is absent")
+	}
+}
+
+func TestConfigEqualHomeFileByteMatch(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		Merged:      []byte(`{"model":"x"}`),
+		MergedPath:  opencodeMergedPath,
+		HomeFiles: map[string][]byte{
+			"/home/dev/.gitconfig": []byte("user.name=X\n"),
+		},
+		Keys: []string{"/home/dev/.gitconfig"},
+	}
+	vmData := map[string][]byte{
+		opencodeMergedPath:     []byte(`{"model":"x"}`),
+		"/home/dev/.gitconfig": []byte("user.name=X\n"),
+	}
+	if !desiredStateMatches(cf, vmData) {
+		t.Error("expected equality for matching opencode.json and home file")
+	}
+}
+
+func TestConfigEqualHomeFileMismatch(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		Merged:      []byte(`{"model":"x"}`),
+		MergedPath:  opencodeMergedPath,
+		HomeFiles: map[string][]byte{
+			"/home/dev/.gitconfig": []byte("user.name=X\n"),
+		},
+		Keys: []string{"/home/dev/.gitconfig"},
+	}
+	vmData := map[string][]byte{
+		opencodeMergedPath:     []byte(`{"model":"x"}`),
+		"/home/dev/.gitconfig": []byte("user.name=Y\n"),
+	}
+	if desiredStateMatches(cf, vmData) {
+		t.Error("expected mismatch for differing home file content")
+	}
+}
+
+// TestBuildMergedConfigNoMergerYieldsEmpty verifies the subject's merger guard:
+// a subject with no merger produces no merged config even when it carries a
+// snippet pattern that would match a host snippet, so capability, not pattern,
+// decides whether snippets merge.
+func TestBuildMergedConfigNoMergerYieldsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "opencode-model.json", `{"model":"x"}`)
+
+	subject := configSubject{
+		snippetPattern: "opencode*.json*",
+		vmConfigPath:   "/home/dev/.config/opencode/opencode.jsonc",
+	}
+	got, err := subject.buildMergedConfig(ConfigSource{UserDir: dir})
+	if err != nil {
+		t.Fatalf("buildMergedConfig: %v", err)
+	}
+	if !reflect.DeepEqual(got, mergedConfig{}) {
+		t.Errorf("buildMergedConfig without a merger = %+v, want the zero mergedConfig", got)
+	}
+}
+
+// TestBuildMirrorNoMergerYieldsEmpty verifies the subject's merger guard for the
+// mirror: a subject with no merger mirrors nothing, even when the source config
+// dir holds files a pattern-less scan would otherwise mirror.
+func TestBuildMirrorNoMergerYieldsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "tui.json", `{"theme":"dark"}`)
+
+	mirror, err := configSubject{}.buildMirror(ConfigSource{UserDir: dir})
+	if err != nil {
+		t.Fatalf("buildMirror: %v", err)
+	}
+	if len(mirror) != 0 {
+		t.Errorf("buildMirror without a merger = %v, want no entries", mirror)
+	}
+}
+
+// TestMirrorFilesFromConfigNoMergerYieldsEmpty verifies the display mirror list
+// is empty for a subject with no merger.
+func TestMirrorFilesFromConfigNoMergerYieldsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WriteFile(t, dir, "tui.json", `{"theme":"dark"}`)
+
+	files := configSubject{}.mirrorFilesFromConfig(ConfigSource{UserDir: dir})
+	if len(files) != 0 {
+		t.Errorf("mirrorFilesFromConfig without a merger = %v, want none", files)
+	}
+}
+
+// TestLoadProvisionedNoProvisionerYieldsNothing verifies the subject's
+// provisioner guard: even with rules present, a subject with no provisioner
+// copies nothing.
+func TestLoadProvisionedNoProvisionerYieldsNothing(t *testing.T) {
+	hostHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(hostHome, ".config", "tool"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	testutil.WriteFile(
-		t,
-		filepath.Join(configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())), "agents"),
-		"coder.md",
-		"# coder\n",
-	)
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "gitconfig", "[user]\n")
-	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml",
-		"home:\n"+
-			"  .gitconfig:\n"+
-			"    source: gitconfig\n")
+	testutil.WritePath(t, filepath.Join(hostHome, ".config", "tool", "config.json"), `{"a":1}`)
 
+	subject := configSubject{
+		provisionRules: []agent.ProvisionRule{{Dir: ".config/tool", Patterns: []string{"**"}}},
+		vmHome:         "/home/dev",
+	}
 	ui := termio.NewTestMock(t)
-	for range 20 {
-		cf, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), vmHome, &ui, true)
-		if err != nil {
-			t.Fatalf("LoadConfigFilesForHost: %v", err)
-		}
-		merged := filepath.Join(vmHome, ".config", "opencode", "opencode.jsonc")
-		if len(cf.Keys) < 3 {
-			t.Fatalf("Keys = %v, want merged, mirror, and home paths", cf.Keys)
-		}
-		if cf.Keys[0] != merged {
-			t.Fatalf("Keys[0] = %q, want merged config %q (a mirror path sorts before it)", cf.Keys[0], merged)
-		}
-		if !slices.IsSorted(cf.Keys[1:]) {
-			t.Fatalf("Keys[1:] must be sorted for a stable order, got %v", cf.Keys)
-		}
+	provisioned, modes, err := subject.loadProvisioned(hostHome, &ui, true)
+	if err != nil {
+		t.Fatalf("loadProvisioned: %v", err)
+	}
+	if len(provisioned) != 0 || len(modes) != 0 {
+		t.Errorf("loadProvisioned without a provisioner = %v / %v, want empty", provisioned, modes)
 	}
 }
 
-func TestLoadConfigFilesFallsBackToLegacyDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	a, _ := agent.Lookup("opencode2")
-
-	legacy := filepath.Join(cp.UserConfigDir(), "opencode")
-	if err := os.MkdirAll(legacy, 0o755); err != nil {
+// TestProvisionDestinationsNoProvisionerYieldsNone verifies the subject's
+// provisioner guard for the removal destinations.
+func TestProvisionDestinationsNoProvisionerYieldsNone(t *testing.T) {
+	hostHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(hostHome, ".config", "tool"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	testutil.WriteFile(t, legacy, "opencode-model.json", `{"model":"v2-legacy"}`)
-	testutil.WriteFile(t, legacy, "tui.json", `{"theme":"legacy"}`)
+	testutil.WritePath(t, filepath.Join(hostHome, ".config", "tool", "config.json"), `{"a":1}`)
 
-	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFiles(agent.Resolve(a), &ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
+	subject := configSubject{
+		provisionRules: []agent.ProvisionRule{{Dir: ".config/tool", Patterns: []string{"**"}}},
+		vmHome:         "/home/dev",
 	}
-	if cf.Source.Fallback != "opencode" {
-		t.Errorf("Source.Fallback = %q, want opencode", cf.Source.Fallback)
-	}
-	if !strings.Contains(string(cf.Merged), "v2-legacy") {
-		t.Errorf("merged config did not read the legacy dir: %s", cf.Merged)
-	}
-	mirrorPath := filepath.Join(reprovisionVMConfigDir(t, a), "tui.json")
-	if _, ok := cf.Mirror[mirrorPath]; !ok {
-		t.Errorf("mirror missing legacy file %q; have %v", mirrorPath, cf.Mirror)
-	}
-	if n := countWarns(ui.WarnCalls, "legacy shared"); n != 1 {
-		t.Errorf("legacy fallback warning count = %d, want 1; warnings: %v", n, ui.WarnCalls)
-	}
-	warn := ui.WarnCalls[0]
-	legacyProject := filepath.Join(cp.ProjectConfigDirAbs(), "opencode")
-	primaryProject := filepath.Join(cp.ProjectConfigDirAbs(), "opencode2")
-	if !strings.Contains(warn, legacy) || !strings.Contains(warn, legacyProject) {
-		t.Errorf("warning should name the legacy dirs actually read; got %q", warn)
-	}
-	if !strings.Contains(warn, primaryProject) || !strings.Contains(warn, "do not move") {
-		t.Errorf("warning should name the primary targets and say not to move; got %q", warn)
+	if dsts := subject.provisionDestinations(hostHome); len(dsts) != 0 {
+		t.Errorf("provisionDestinations without a provisioner = %v, want none", dsts)
 	}
 }
 
-func TestLoadConfigFilesPrimarySuppressesLegacy(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	a, _ := agent.Lookup("opencode2")
+// TestHostFilesFromProvisionerNoProvisionerYieldsNone verifies the subject's
+// provisioner guard for the host-file report.
+func TestHostFilesFromProvisionerNoProvisionerYieldsNone(t *testing.T) {
+	hostHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(hostHome, ".config", "tool"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, filepath.Join(hostHome, ".config", "tool", "config.json"), `{"a":1}`)
 
-	for _, dir := range []string{filepath.Join(cp.UserConfigDir(), "opencode2"), filepath.Join(cp.UserConfigDir(), "opencode")} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
+	subject := configSubject{
+		provisionRules: []agent.ProvisionRule{{Dir: ".config/tool", Patterns: []string{"**"}}},
+		vmHome:         "/home/dev",
+	}
+	files := subject.hostFilesFromProvisioner(hostHome, &ConfigFiles{})
+	if len(files) != 0 {
+		t.Errorf("hostFilesFromProvisioner without a provisioner = %v, want none", files)
+	}
+}
+
+// TestApplyPrecedenceMergedConfigOverridesMirror verifies the precedence
+// authority drops the merged-config path from the drop-in copy, the mirror and
+// the mode map under hasSnippets, so a lower-priority entry at that path cannot
+// shadow or re-mode the merged config.
+func TestApplyPrecedenceMergedConfigOverridesMirror(t *testing.T) {
+	mergedPath := filepath.Join(string(filepath.Separator), "home", "dev", ".config", "opencode", "opencode.jsonc")
+	subject := configSubject{vmConfigPath: mergedPath}
+
+	provisioned := map[string][]byte{mergedPath: []byte("drop-in")}
+	homeFiles := map[string][]byte{}
+	mirror := map[string][]byte{mergedPath: []byte("mirror")}
+	modes := map[string]os.FileMode{mergedPath: 0o600}
+	mirrorModes := map[string]os.FileMode{mergedPath: 0o644}
+	homeModes := map[string]os.FileMode{}
+
+	subject.applyPrecedence(provisioned, homeFiles, mirror, modes, mirrorModes, homeModes, true)
+
+	if _, ok := provisioned[mergedPath]; ok {
+		t.Errorf("merged config path must not remain in Provisioned, got %v", provisioned)
+	}
+	if _, ok := mirror[mergedPath]; ok {
+		t.Errorf("merged config path must not remain in Mirror, got %v", mirror)
+	}
+	if _, ok := modes[mergedPath]; ok {
+		t.Errorf("merged config path must not carry a drop-in/mirror mode, got %v", modes)
+	}
+}
+
+// desiredStateMatches reports whether the desired merged config and home files
+// match the VM state. The merged config is compared semantically in the format
+// its path implies; home files byte-for-byte.
+func desiredStateMatches(cf *ConfigFiles, vmData map[string][]byte) bool {
+	if cf.HasSnippets {
+		vm, ok := vmData[cf.MergedPath]
+		if !ok {
+			return false
+		}
+		if !config.DocumentsEqual(cf.MergedPath, cf.Merged, vm) {
+			return false
 		}
 	}
-	testutil.WriteFile(
-		t,
-		filepath.Join(cp.UserConfigDir(), "opencode2"),
-		"opencode-model.json",
-		`{"model":"v2-primary"}`,
-	)
-	testutil.WriteFile(t, filepath.Join(cp.UserConfigDir(), "opencode"), "opencode-model.json", `{"model":"v1-legacy"}`)
-
-	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFiles(agent.Resolve(a), &ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
+	for path, want := range cf.HomeFiles {
+		got, ok := vmData[path]
+		if !ok || !bytes.Equal(want, got) {
+			return false
+		}
 	}
-	if cf.Source.Fallback != "" {
-		t.Errorf("Source.Fallback = %q, want empty (primary wins)", cf.Source.Fallback)
-	}
-	if !strings.Contains(string(cf.Merged), "v2-primary") || strings.Contains(string(cf.Merged), "v1-legacy") {
-		t.Errorf("merged config should read only the primary dir: %s", cf.Merged)
-	}
-	if n := countWarns(ui.WarnCalls, "legacy shared"); n != 0 {
-		t.Errorf("unexpected legacy warning: %v", ui.WarnCalls)
-	}
+	return true
 }
 
 func reprovisionVMConfigDir(t *testing.T, a agent.Agent) string {
@@ -1487,51 +1982,9 @@ func countWarns(warns []string, substr string) int {
 	return n
 }
 
-func TestLoadConfigFilesInfosWhenNoLauncherConfigDirExists(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	cp := configpaths.Get()
-	a, _ := agent.Lookup("opencode2")
-
-	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFiles(agent.Resolve(a), &ui, true); err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
-	}
-	if len(ui.InfoCalls) != 1 {
-		t.Fatalf("info count = %d, want 1; infos: %v", len(ui.InfoCalls), ui.InfoCalls)
-	}
-	info := ui.InfoCalls[0]
-	userDir := filepath.Join(cp.UserConfigDir(), "opencode2")
-	projectDir := filepath.Join(cp.ProjectConfigDirAbs(), "opencode2")
-	for _, want := range []string{userDir, projectDir, "agents-sandbox config agent"} {
-		if !strings.Contains(info, want) {
-			t.Errorf("info should mention %q; got %q", want, info)
-		}
-	}
-	if len(ui.WarnCalls) != 0 {
-		t.Errorf("unexpected warnings: %v", ui.WarnCalls)
-	}
-}
-
-func TestLoadConfigFilesNoInfoWhenALauncherConfigDirExists(t *testing.T) {
-	cases := map[string]func(configpaths.ConfigPaths) string{
-		"user":            func(cp configpaths.ConfigPaths) string { return filepath.Join(cp.UserConfigDir(), "opencode2") },
-		"project":         func(cp configpaths.ConfigPaths) string { return filepath.Join(cp.ProjectConfigDirAbs(), "opencode2") },
-		"legacy fallback": func(cp configpaths.ConfigPaths) string { return filepath.Join(cp.UserConfigDir(), "opencode") },
-	}
-	for name, dirOf := range cases {
-		t.Run(name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
-			if err := os.MkdirAll(dirOf(configpaths.Get()), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			a, _ := agent.Lookup("opencode2")
-			ui := termio.NewTestMock(t)
-			if _, err := LoadConfigFiles(agent.Resolve(a), &ui, true); err != nil {
-				t.Fatalf("LoadConfigFiles: %v", err)
-			}
-			if len(ui.InfoCalls) != 0 {
-				t.Errorf("unexpected info: %v", ui.InfoCalls)
-			}
-		})
-	}
+func withConfigBases(t *testing.T, user, project string) {
+	t.Helper()
+	orig := configpaths.Get
+	configpaths.Get = func() configpaths.ConfigPaths { return configBases{user: user, project: project} }
+	t.Cleanup(func() { configpaths.Get = orig })
 }
