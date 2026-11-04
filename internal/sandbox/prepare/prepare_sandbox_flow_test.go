@@ -1444,6 +1444,282 @@ func TestPrepareSandboxAdoptionFailureReturnsError(t *testing.T) {
 	}
 }
 
+// TestPrepareSandboxDryRunVMSkipsTheVM pins that --dry-run-vm skips the VM
+// lifecycle and attaches at the default workspace directory. It launches from a
+// checkout root so the target is exactly /workspace regardless of where the
+// test binary runs.
+func TestPrepareSandboxDryRunVMSkipsTheVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Chdir(testutil.InitRepo(t))
+
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+				},
+			}, nil
+		},
+	})
+
+	slug := git.MustCheckoutSlug()
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{
+				Env:    []string{"PATH=/usr/bin"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+			}, nil
+		},
+		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+	}
+	msb.WithMsbMock(t, mock)
+
+	seedHomeState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{
+			HomeVolume:   "home-vol",
+			ImageDigest:  "sha256:abc123",
+			AgentVersion: "1.5.0",
+			AgentSource:  state.AgentSourceTool,
+		},
+	)
+	ui := termio.NewTestMock(t)
+	sess, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Seams: daemonHealthSeams(t)}),
+		true,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("PrepareSandbox (dry-run-vm): %v", err)
+	}
+	if sess == nil {
+		t.Fatal("expected a non-nil session")
+	}
+	if sess.Sandbox() != nil {
+		t.Error("expected a nil sandbox for dry-run-vm")
+	}
+	if sess.Target() != "/workspace" {
+		t.Errorf("expected default target /workspace, got %q", sess.Target())
+	}
+	if sess.GuestCWD() != "/workspace" {
+		t.Errorf("expected guest CWD /workspace, got %q", sess.GuestCWD())
+	}
+}
+
+// TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome pins #429 end to end: a
+// --dry-run-vm run on a project without state neither creates a home volume nor
+// writes state, so the first real run creates and prefills the home itself.
+func TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Chdir(testutil.InitRepo(t))
+
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+				},
+			}, nil
+		},
+	})
+
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{
+				Env:    []string{"PATH=/usr/bin"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+			}, nil
+		},
+		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+			t.Errorf("dry-run-vm created home volume %q", name)
+			return &msb.MockVolumeHandle{Name_: name}, nil
+		},
+	}
+	msb.WithMsbMock(t, mock)
+
+	ui := termio.NewTestMock(t)
+	sess, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{}), true, &ui)
+	if err != nil {
+		t.Fatalf("PrepareSandbox (dry-run-vm): %v", err)
+	}
+	if sess.Sandbox() != nil {
+		t.Error("expected a nil sandbox for dry-run-vm")
+	}
+	if len(mock.CreatedSandboxes) != 0 {
+		t.Errorf("expected no prefill sandbox, got %d", len(mock.CreatedSandboxes))
+	}
+	k := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
+	if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
+		t.Errorf("ReadState err = %v, want ErrStateNotFound", err)
+	}
+}
+
+// TestPrepareSandboxDryRunVMServeOnlyPublishesPort pins that a serve-only run
+// without a published port probes a free host port and records it on the
+// Session, even when --dry-run-vm skips the VM.
+func TestPrepareSandboxDryRunVMServeOnlyPublishesPort(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	stubPrepareSandboxImage(t)
+
+	slug := git.MustCheckoutSlug()
+	k := state.Key{Slug: slug, Agent: "opencode"}
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{
+				Env:    []string{"PATH=/usr/bin"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+			}, nil
+		},
+		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+	}
+	msb.WithMsbMock(t, mock)
+
+	if err := seedHomeState(k, state.HomeState{
+		HomeVolume:   "home-vol",
+		ImageDigest:  "sha256:abc123",
+		AgentVersion: "1.5.0",
+		AgentSource:  state.AgentSourceTool,
+	}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+
+	ui := termio.NewTestMock(t)
+	opts := options.RunOptions{Agent: "opencode", ServeOnly: true}
+	sess, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, opts), true, &ui)
+	if err != nil {
+		t.Fatalf("PrepareSandbox (dry-run-vm, serve-only): %v", err)
+	}
+	if sess == nil {
+		t.Fatal("expected a non-nil session")
+	}
+	if sess.ServeHostPort() == 0 {
+		t.Error("expected a probed serve host port on the Session")
+	}
+}
+
+// TestPrepareSandboxDryRunVMLaunchSubdirectory pins the guest working
+// directory: launched from a repository subdirectory, the bound /workspace is
+// the checkout root and the agent starts in the launched subdirectory.
+func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
+
+	repo := testutil.InitRepo(t)
+	sub := filepath.Join(repo, "internal", "foo")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", sub, err)
+	}
+	t.Chdir(sub)
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				ID: "sha256:abc123",
+				Config: &dockerspec.DockerOCIImageConfig{
+					Env:    []string{"PATH=/usr/bin"},
+					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+				},
+			}, nil
+		},
+	})
+
+	slug := git.MustCheckoutSlug()
+	mock := &msb.MockMsbClient{
+		ImageGetFn: func(_ context.Context, _ string) error { return nil },
+		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+			return &msbSdk.ImageConfig{
+				Env:    []string{"PATH=/usr/bin"},
+				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
+			}, nil
+		},
+		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+	}
+	msb.WithMsbMock(t, mock)
+
+	seedHomeState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{
+			HomeVolume:   "home-vol",
+			ImageDigest:  "sha256:abc123",
+			AgentVersion: "1.5.0",
+			AgentSource:  state.AgentSourceTool,
+		},
+	)
+	ui := termio.NewTestMock(t)
+	sess, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Seams: daemonHealthSeams(t)}),
+		true,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("PrepareSandbox (dry-run-vm, subdirectory): %v", err)
+	}
+	if sess.Target() != "/workspace/internal/foo" {
+		t.Errorf("expected target /workspace/internal/foo, got %q", sess.Target())
+	}
+	if sess.GuestCWD() != "/workspace/internal/foo" {
+		t.Errorf("expected guest CWD /workspace/internal/foo, got %q", sess.GuestCWD())
+	}
+}
+
+// TestPrepareSandboxSkipVMRecordsStagesInOrder pins the recorded order of a
+// --dry-run-vm prepare: every prepare-owned stage is reached in lifecycle order, the
+// VM ones included, so reordering, adding or removing a stage in
+// PrepareSandbox's list changes the trace and fails here.
+func TestPrepareSandboxSkipVMRecordsStagesInOrder(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	clone := newOriginClone(t)
+	installPrepareSandboxDockerMock(t)
+	ui := termio.NewTestMock(t)
+	t.Chdir(clone)
+	installPrepareSandboxMSBMock(t)
+
+	trace := &lifecycle.Trace{}
+	session, err := PrepareSandbox(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", Trace: trace}),
+		true,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("PrepareSandbox (skip VM): %v", err)
+	}
+	defer session.Cleanup()
+
+	if got, want := trace.Stages(), prepareOwnedStages(t); !slices.Equal(got, want) {
+		t.Errorf("trace = %v, want %v", got, want)
+	}
+}
+
 // TestPrepareSandboxStopsAtTheFailingStage pins how the pipeline fails: the
 // first failing stage is the last one recorded in the trace, no later stage
 // runs, and the stage's cause reaches the caller.
@@ -1733,282 +2009,6 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 				t.Errorf("trace = %v, want it to end at %s", stages, tc.wantLastStage)
 			}
 		})
-	}
-}
-
-// TestPrepareSandboxDryRunVMSkipsTheVM pins that --dry-run-vm skips the VM
-// lifecycle and attaches at the default workspace directory. It launches from a
-// checkout root so the target is exactly /workspace regardless of where the
-// test binary runs.
-func TestPrepareSandboxDryRunVMSkipsTheVM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	t.Chdir(testutil.InitRepo(t))
-
-	origUpgradeInfo := agentLatestVersion
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
-	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
-
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:abc123",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Env:    []string{"PATH=/usr/bin"},
-					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-				},
-			}, nil
-		},
-	})
-
-	slug := git.MustCheckoutSlug()
-	mock := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
-				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-			}, nil
-		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
-	}
-	msb.WithMsbMock(t, mock)
-
-	seedHomeState(
-		state.Key{Slug: slug, Agent: "opencode"},
-		state.HomeState{
-			HomeVolume:   "home-vol",
-			ImageDigest:  "sha256:abc123",
-			AgentVersion: "1.5.0",
-			AgentSource:  state.AgentSourceTool,
-		},
-	)
-	ui := termio.NewTestMock(t)
-	sess, err := PrepareSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Seams: daemonHealthSeams(t)}),
-		true,
-		&ui,
-	)
-	if err != nil {
-		t.Fatalf("PrepareSandbox (dry-run-vm): %v", err)
-	}
-	if sess == nil {
-		t.Fatal("expected a non-nil session")
-	}
-	if sess.Sandbox() != nil {
-		t.Error("expected a nil sandbox for dry-run-vm")
-	}
-	if sess.Target() != "/workspace" {
-		t.Errorf("expected default target /workspace, got %q", sess.Target())
-	}
-	if sess.GuestCWD() != "/workspace" {
-		t.Errorf("expected guest CWD /workspace, got %q", sess.GuestCWD())
-	}
-}
-
-// TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome pins #429 end to end: a
-// --dry-run-vm run on a project without state neither creates a home volume nor
-// writes state, so the first real run creates and prefills the home itself.
-func TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	t.Chdir(testutil.InitRepo(t))
-
-	origUpgradeInfo := agentLatestVersion
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
-	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
-
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:abc123",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Env:    []string{"PATH=/usr/bin"},
-					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-				},
-			}, nil
-		},
-	})
-
-	mock := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
-				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-			}, nil
-		},
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
-			t.Errorf("dry-run-vm created home volume %q", name)
-			return &msb.MockVolumeHandle{Name_: name}, nil
-		},
-	}
-	msb.WithMsbMock(t, mock)
-
-	ui := termio.NewTestMock(t)
-	sess, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{}), true, &ui)
-	if err != nil {
-		t.Fatalf("PrepareSandbox (dry-run-vm): %v", err)
-	}
-	if sess.Sandbox() != nil {
-		t.Error("expected a nil sandbox for dry-run-vm")
-	}
-	if len(mock.CreatedSandboxes) != 0 {
-		t.Errorf("expected no prefill sandbox, got %d", len(mock.CreatedSandboxes))
-	}
-	k := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
-	if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
-		t.Errorf("ReadState err = %v, want ErrStateNotFound", err)
-	}
-}
-
-// TestPrepareSandboxDryRunVMServeOnlyPublishesPort pins that a serve-only run
-// without a published port probes a free host port and records it on the
-// Session, even when --dry-run-vm skips the VM.
-func TestPrepareSandboxDryRunVMServeOnlyPublishesPort(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	stubPrepareSandboxImage(t)
-
-	slug := git.MustCheckoutSlug()
-	k := state.Key{Slug: slug, Agent: "opencode"}
-	mock := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
-				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-			}, nil
-		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
-	}
-	msb.WithMsbMock(t, mock)
-
-	if err := seedHomeState(k, state.HomeState{
-		HomeVolume:   "home-vol",
-		ImageDigest:  "sha256:abc123",
-		AgentVersion: "1.5.0",
-		AgentSource:  state.AgentSourceTool,
-	}); err != nil {
-		t.Fatalf("seedHomeState: %v", err)
-	}
-
-	ui := termio.NewTestMock(t)
-	opts := options.RunOptions{Agent: "opencode", ServeOnly: true}
-	sess, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, opts), true, &ui)
-	if err != nil {
-		t.Fatalf("PrepareSandbox (dry-run-vm, serve-only): %v", err)
-	}
-	if sess == nil {
-		t.Fatal("expected a non-nil session")
-	}
-	if sess.ServeHostPort() == 0 {
-		t.Error("expected a probed serve host port on the Session")
-	}
-}
-
-// TestPrepareSandboxDryRunVMLaunchSubdirectory pins the guest working
-// directory: launched from a repository subdirectory, the bound /workspace is
-// the checkout root and the agent starts in the launched subdirectory.
-func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	origUpgradeInfo := agentLatestVersion
-	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
-	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
-
-	repo := testutil.InitRepo(t)
-	sub := filepath.Join(repo, "internal", "foo")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
-		t.Fatalf("mkdir %s: %v", sub, err)
-	}
-	t.Chdir(sub)
-
-	docker.WithDockerMock(t, &docker.MockDockerClient{
-		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
-			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
-		},
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{
-				ID: "sha256:abc123",
-				Config: &dockerspec.DockerOCIImageConfig{
-					Env:    []string{"PATH=/usr/bin"},
-					Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-				},
-			}, nil
-		},
-	})
-
-	slug := git.MustCheckoutSlug()
-	mock := &msb.MockMsbClient{
-		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
-				Env:    []string{"PATH=/usr/bin"},
-				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
-			}, nil
-		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
-	}
-	msb.WithMsbMock(t, mock)
-
-	seedHomeState(
-		state.Key{Slug: slug, Agent: "opencode"},
-		state.HomeState{
-			HomeVolume:   "home-vol",
-			ImageDigest:  "sha256:abc123",
-			AgentVersion: "1.5.0",
-			AgentSource:  state.AgentSourceTool,
-		},
-	)
-	ui := termio.NewTestMock(t)
-	sess, err := PrepareSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Seams: daemonHealthSeams(t)}),
-		true,
-		&ui,
-	)
-	if err != nil {
-		t.Fatalf("PrepareSandbox (dry-run-vm, subdirectory): %v", err)
-	}
-	if sess.Target() != "/workspace/internal/foo" {
-		t.Errorf("expected target /workspace/internal/foo, got %q", sess.Target())
-	}
-	if sess.GuestCWD() != "/workspace/internal/foo" {
-		t.Errorf("expected guest CWD /workspace/internal/foo, got %q", sess.GuestCWD())
-	}
-}
-
-// TestPrepareSandboxSkipVMRecordsStagesInOrder pins the recorded order of a
-// --dry-run-vm prepare: every prepare-owned stage is reached in lifecycle order, the
-// VM ones included, so reordering, adding or removing a stage in
-// PrepareSandbox's list changes the trace and fails here.
-func TestPrepareSandboxSkipVMRecordsStagesInOrder(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	clone := newOriginClone(t)
-	installPrepareSandboxDockerMock(t)
-	ui := termio.NewTestMock(t)
-	t.Chdir(clone)
-	installPrepareSandboxMSBMock(t)
-
-	trace := &lifecycle.Trace{}
-	session, err := PrepareSandbox(
-		context.Background(),
-		resolvedRunOptions(t, options.RunOptions{Agent: "opencode", Trace: trace}),
-		true,
-		&ui,
-	)
-	if err != nil {
-		t.Fatalf("PrepareSandbox (skip VM): %v", err)
-	}
-	defer session.Cleanup()
-
-	if got, want := trace.Stages(), prepareOwnedStages(t); !slices.Equal(got, want) {
-		t.Errorf("trace = %v, want %v", got, want)
 	}
 }
 

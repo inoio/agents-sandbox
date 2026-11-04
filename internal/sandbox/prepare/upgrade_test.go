@@ -40,6 +40,30 @@ func TestAgentLatestVersionForSeamResolution(t *testing.T) {
 	}
 }
 
+// TestAgentLatestVersionAsksOnlyUpgradeCheckers pins that the latest release
+// comes from the agent's upgrade checker, and an agent without one reports none.
+func TestAgentLatestVersionAsksOnlyUpgradeCheckers(t *testing.T) {
+	cases := []struct {
+		name  string
+		agent agent.Agent
+		want  string
+	}{
+		{name: "upgrade checker", agent: upgradeCheckerAgent{}, want: "9.9.9"},
+		{name: "no upgrade checker", agent: &fakeAgent{}, want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := agentLatestVersion(context.Background(), tc.agent)
+			if err != nil {
+				t.Fatalf("agentLatestVersion: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("agentLatestVersion = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestAgentVersionResolverForSeamResolution pins the resolver contract: a nil
 // seam uses the shared buildVersionResolver default, a set seam resolves the
 // latest version through it (unless a version is requested), and a requested
@@ -63,6 +87,31 @@ func TestAgentVersionResolverForSeamResolution(t *testing.T) {
 	}
 	if got, _ := agentVersionResolverFor(seam)(context.Background(), opencodeAgent(t), "pinned"); got != "pinned" {
 		t.Errorf("requested version resolver = %q, want the pin %q", got, "pinned")
+	}
+}
+
+// TestBuildVersionResolverPrefersRequestedVersion pins the prepare-injected
+// resolver's contract: a non-empty requested version is returned as-is without
+// consulting the shared latest-version lookup, and an empty request falls back
+// to it. A mutated guard that ignored the pin would rebuild with "latest".
+func TestBuildVersionResolverPrefersRequestedVersion(t *testing.T) {
+	withMockAgentLatestVersion(t, "2.0.0")
+	a := opencodeAgent(t)
+
+	got, err := buildVersionResolver(context.Background(), a, "1.2.3")
+	if err != nil {
+		t.Fatalf("buildVersionResolver(requested=1.2.3): %v", err)
+	}
+	if got != "1.2.3" {
+		t.Errorf("buildVersionResolver(requested=1.2.3) = %q, want the requested 1.2.3", got)
+	}
+
+	got, err = buildVersionResolver(context.Background(), a, "")
+	if err != nil {
+		t.Fatalf("buildVersionResolver(requested=\"\"): %v", err)
+	}
+	if got != "2.0.0" {
+		t.Errorf("buildVersionResolver(requested=\"\") = %q, want the latest 2.0.0", got)
 	}
 }
 
@@ -1788,55 +1837,6 @@ func TestCurrentAgentVersionAndSourceAreEmptyWhenStateCannotBeRead(t *testing.T)
 				t.Errorf("currentAgentSource() = %q, want empty", got)
 			}
 		})
-	}
-}
-
-// TestAgentLatestVersionAsksOnlyUpgradeCheckers pins that the latest release
-// comes from the agent's upgrade checker, and an agent without one reports none.
-func TestAgentLatestVersionAsksOnlyUpgradeCheckers(t *testing.T) {
-	cases := []struct {
-		name  string
-		agent agent.Agent
-		want  string
-	}{
-		{name: "upgrade checker", agent: upgradeCheckerAgent{}, want: "9.9.9"},
-		{name: "no upgrade checker", agent: &fakeAgent{}, want: ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := agentLatestVersion(context.Background(), tc.agent)
-			if err != nil {
-				t.Fatalf("agentLatestVersion: %v", err)
-			}
-			if got != tc.want {
-				t.Errorf("agentLatestVersion = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-// TestBuildVersionResolverPrefersRequestedVersion pins the prepare-injected
-// resolver's contract: a non-empty requested version is returned as-is without
-// consulting the shared latest-version lookup, and an empty request falls back
-// to it. A mutated guard that ignored the pin would rebuild with "latest".
-func TestBuildVersionResolverPrefersRequestedVersion(t *testing.T) {
-	withMockAgentLatestVersion(t, "2.0.0")
-	a := opencodeAgent(t)
-
-	got, err := buildVersionResolver(context.Background(), a, "1.2.3")
-	if err != nil {
-		t.Fatalf("buildVersionResolver(requested=1.2.3): %v", err)
-	}
-	if got != "1.2.3" {
-		t.Errorf("buildVersionResolver(requested=1.2.3) = %q, want the requested 1.2.3", got)
-	}
-
-	got, err = buildVersionResolver(context.Background(), a, "")
-	if err != nil {
-		t.Fatalf("buildVersionResolver(requested=\"\"): %v", err)
-	}
-	if got != "2.0.0" {
-		t.Errorf("buildVersionResolver(requested=\"\") = %q, want the latest 2.0.0", got)
 	}
 }
 

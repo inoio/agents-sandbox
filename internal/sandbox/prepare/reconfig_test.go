@@ -124,6 +124,166 @@ func TestReadLiveProjectVMConnectFailureKeepsHandle(t *testing.T) {
 	assertVerbose(t, &ui, "connecting to existing VM failed: not running")
 }
 
+// TestResolveReconfigDecisionNoVMSkipsRecreate guards against over-triggering: with no VM
+// present, a changed setting must not force a recreate (the VM is created fresh
+// with the desired config anyway).
+func TestResolveReconfigDecisionNoVMSkipsRecreate(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	mock := &msb.MockMsbClient{}
+	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no VM"}
+	}
+	msb.WithMsbMock(t, mock)
+
+	ui := termio.NewTestMock(t)
+	volumes := volume.NewManager(docker.Get())
+
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	decision, err := readAndResolveReconfigDecision(
+		context.Background(),
+		mock,
+		volumes,
+		state.Key{Slug: "testproj", Agent: "opencode"},
+		options.RunOptions{
+			Agent:   "opencode",
+			Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}},
+		},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:new"},
+		"vol",
+		state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"},
+		cfs,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if decision.Recreate {
+		t.Error("expected no recreate when no VM exists, even with changed settings")
+	}
+}
+
+// TestResolveReconfigDecisionFailsWhenVMLookupFails pins that a failing VM
+// lookup is returned instead of being treated as "no VM", which would silently
+// skip reconfiguration.
+func TestResolveReconfigDecisionFailsWhenVMLookupFails(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	mock := &msb.MockMsbClient{}
+	mock.SetGetSandboxErr(errors.New("msb unreachable"))
+	msb.WithMsbMock(t, mock)
+
+	ui := termio.NewTestMock(t)
+	volumes := volume.NewManager(docker.Get())
+
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	_, err = readAndResolveReconfigDecision(
+		context.Background(),
+		mock,
+		volumes,
+		state.Key{Slug: "testproj", Agent: "opencode"},
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
+		"vol",
+		state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"},
+		cfs,
+		&ui,
+	)
+	if err == nil {
+		t.Fatal("expected an error when the VM lookup fails")
+	}
+	if !contains(err.Error(), "locate project VM") {
+		t.Errorf("error = %v, want it to mention locating the project VM", err)
+	}
+}
+
+// TestResolveReconfigDecisionNeedsNoVMAccess pins the split of #341: planning
+// works from the facts read up front, so it runs without an msb client at all.
+func TestResolveReconfigDecisionNeedsNoVMAccess(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+			t.Fatal("resolveReconfigDecision looked up the VM; it must plan from the facts it is given")
+			return nil, errors.New("unexpected VM lookup")
+		},
+	})
+	ui := termio.NewTestMock(t)
+	cfs := loadOpencodeConfigFiles(t, &ui)
+	live := liveProjectVM{
+		handle:           &msb.MockSandboxHandle{},
+		configUnreadable: true,
+	}
+
+	decision, err := resolveReconfigDecision(
+		context.Background(),
+		volume.NewManager(docker.Get()),
+		testVMKey(),
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{Digest: "sha256:same"},
+		"vol",
+		state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"},
+		cfs,
+		envsecret.EnvSecrets{},
+		live,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if !decision.Recreate {
+		t.Error("an unreadable VM config read up front must still force a recreate")
+	}
+}
+
+// TestResolveReconfigDecisionLogsDetachFailure pins that a failing detach from
+// the live VM is verbose-logged and does not fail the decision.
+func TestResolveReconfigDecisionLogsDetachFailure(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	sh := &msb.MockSandboxHandle{
+		Cfg: &msbSdk.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
+	}
+	liveSb := &msb.MockSandbox{DetachErr: errors.New("detach failed")}
+	sh.ConnectSb = liveSb
+	mock := &msb.MockMsbClient{}
+	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return sh, nil
+	}
+	msb.WithMsbMock(t, mock)
+
+	volumes := volume.NewManager(docker.Get())
+	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
+
+	ui := termio.NewTestMock(t)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	_, err = readAndResolveReconfigDecision(
+		context.Background(),
+		mock,
+		volumes,
+		state.Key{Slug: "testproj", Agent: "opencode"},
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
+		"vol",
+		persisted,
+		cfs,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if !contains(joinStrings(ui.VerboseCalls), "failed to detach") {
+		t.Errorf("expected a verbose message about the failed detach, got %v", ui.VerboseCalls)
+	}
+}
+
 // TestResolveReconfigDecisionRecreatesWhenVMConfigIsUnreadable pins that an
 // unreadable existing VM config is warned about and forces a recreate, so the
 // run cannot silently reuse a VM whose image, env, or network may differ from
@@ -240,177 +400,6 @@ func TestResolveReconfigDecisionOffersUnreadableVMConfigToAttachedClients(t *tes
 	}
 }
 
-// TestResolveReconfigDecisionFailsWhenVMLookupFails pins that a failing VM
-// lookup is returned instead of being treated as "no VM", which would silently
-// skip reconfiguration.
-func TestResolveReconfigDecisionFailsWhenVMLookupFails(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	mock := &msb.MockMsbClient{}
-	mock.SetGetSandboxErr(errors.New("msb unreachable"))
-	msb.WithMsbMock(t, mock)
-
-	ui := termio.NewTestMock(t)
-	volumes := volume.NewManager(docker.Get())
-
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
-	}
-	_, err = readAndResolveReconfigDecision(
-		context.Background(),
-		mock,
-		volumes,
-		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
-		"vol",
-		state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"},
-		cfs,
-		&ui,
-	)
-	if err == nil {
-		t.Fatal("expected an error when the VM lookup fails")
-	}
-	if !contains(err.Error(), "locate project VM") {
-		t.Errorf("error = %v, want it to mention locating the project VM", err)
-	}
-}
-
-// TestResolveReconfigDecisionNoVMSkipsRecreate guards against over-triggering: with no VM
-// present, a changed setting must not force a recreate (the VM is created fresh
-// with the desired config anyway).
-func TestResolveReconfigDecisionNoVMSkipsRecreate(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	mock := &msb.MockMsbClient{}
-	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no VM"}
-	}
-	msb.WithMsbMock(t, mock)
-
-	ui := termio.NewTestMock(t)
-	volumes := volume.NewManager(docker.Get())
-
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
-	}
-	decision, err := readAndResolveReconfigDecision(
-		context.Background(),
-		mock,
-		volumes,
-		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{
-			Agent:   "opencode",
-			Network: network.Policy{Profiles: []network.Profile{network.ProfileNone}},
-		},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:new"},
-		"vol",
-		state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"},
-		cfs,
-		&ui,
-	)
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if decision.Recreate {
-		t.Error("expected no recreate when no VM exists, even with changed settings")
-	}
-}
-
-// TestResolveReconfigDecisionQuitAtRecreatePrompt pins that with another client
-// attached an image change prompts the user, and choosing "quit" aborts with an
-// error.
-func TestResolveReconfigDecisionQuitAtRecreatePrompt(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	tmpRepo := testutil.InitRepo(t)
-	t.Chdir(tmpRepo)
-	slug := git.MustCheckoutSlug()
-
-	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
-	if err != nil {
-		t.Fatalf("AcquireClientLease: %v", err)
-	}
-	defer release()
-
-	mock := reconfigMockClient()
-	msb.WithMsbMock(t, mock)
-
-	ui := &termio.Mock{
-		IsInteractiveResult: true,
-		SelectFn: func(string, []termio.Choice, string) (string, error) {
-			return "q", nil
-		},
-	}
-	volumes := volume.NewManager(docker.Get())
-
-	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:old"}
-
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
-	}
-	_, err = readAndResolveReconfigDecision(
-		context.Background(),
-		mock,
-		volumes,
-		state.Key{Slug: slug, Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:new", Ref: "img:new", Digest: "sha256:new"},
-		"vol",
-		persisted,
-		cfs,
-		ui,
-	)
-	if err == nil {
-		t.Fatal("expected an error when the user quits the rebuild prompt")
-	}
-}
-
-// TestResolveReconfigDecisionLogsDetachFailure pins that a failing detach from
-// the live VM is verbose-logged and does not fail the decision.
-func TestResolveReconfigDecisionLogsDetachFailure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	sh := &msb.MockSandboxHandle{
-		Cfg: &msbSdk.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
-	}
-	liveSb := &msb.MockSandbox{DetachErr: errors.New("detach failed")}
-	sh.ConnectSb = liveSb
-	mock := &msb.MockMsbClient{}
-	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-		return sh, nil
-	}
-	msb.WithMsbMock(t, mock)
-
-	volumes := volume.NewManager(docker.Get())
-	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
-
-	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
-	}
-	_, err = readAndResolveReconfigDecision(
-		context.Background(),
-		mock,
-		volumes,
-		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
-		"vol",
-		persisted,
-		cfs,
-		&ui,
-	)
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if !contains(joinStrings(ui.VerboseCalls), "failed to detach") {
-		t.Errorf("expected a verbose message about the failed detach, got %v", ui.VerboseCalls)
-	}
-}
-
 // TestResolveReconfigDecisionRecreatesOnContentIDSwitch pins the structured
 // image identity end to end: a live VM whose persisted content reference differs
 // from the desired identity recreates the VM even when the persisted image
@@ -502,135 +491,52 @@ func TestResolveReconfigDecisionReusesVMOnSameContentIdentity(t *testing.T) {
 	}
 }
 
-// TestResolveReconfigDecisionAgentConfigDrivesRestart pins the agent config
-// comparison against the files read from the VM: a differing file restarts the
-// daemon, a matching one or none read (VM not connected) does not.
-func TestResolveReconfigDecisionAgentConfigDrivesRestart(t *testing.T) {
-	const mirrorPath = "/home/dev/.config/opencode/AGENTS.md"
-	tests := []struct {
-		name             string
-		agentConfigFiles map[string][]byte
-		wantRestart      bool
-	}{
-		{"differing file", map[string][]byte{mirrorPath: []byte("old")}, true},
-		{"matching file", map[string][]byte{mirrorPath: []byte("new")}, false},
-		{"nothing read", nil, false},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
-			ui := termio.NewTestMock(t)
-			configFiles := &reprovision.ConfigFiles{
-				Mirror: map[string][]byte{mirrorPath: []byte("new")},
-				Keys:   []string{mirrorPath},
-			}
-			persisted := matchingHomeState(network.Policy{})
-			live := liveProjectVM{
-				handle: &msb.MockSandboxHandle{},
-				config: &msbSdk.SandboxConfig{
-					Image:     "img:tag",
-					CPUs:      4,
-					MemoryMiB: 4096,
-					Volumes:   launcherLiveMounts(1024, 16384, "vol"),
-				},
-				agentConfigFiles: test.agentConfigFiles,
-			}
-
-			decision, err := resolveReconfigDecision(
-				context.Background(),
-				volume.NewManager(docker.Get()),
-				testVMKey(),
-				options.RunOptions{Agent: "opencode"},
-				image.ImageInfo{Ref: "img:tag", Digest: persisted.ImageDigest},
-				"vol",
-				persisted,
-				configFiles,
-				envsecret.EnvSecrets{},
-				live,
-				&ui,
-			)
-			if err != nil {
-				t.Fatalf("resolveReconfigDecision: %v", err)
-			}
-			if decision.Recreate {
-				t.Fatalf("decision recreates (%v); only the agent config may differ in this test", ui.VerboseCalls)
-			}
-			if decision.Restart != test.wantRestart {
-				t.Errorf("Restart = %v, want %v", decision.Restart, test.wantRestart)
-			}
-		})
-	}
-}
-
-// TestResolveReconfigDecisionNeedsNoVMAccess pins the split of #341: planning
-// works from the facts read up front, so it runs without an msb client at all.
-func TestResolveReconfigDecisionNeedsNoVMAccess(t *testing.T) {
+// TestResolveReconfigDecisionQuitAtRecreatePrompt pins that with another client
+// attached an image change prompts the user, and choosing "quit" aborts with an
+// error.
+func TestResolveReconfigDecisionQuitAtRecreatePrompt(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{
-		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
-			t.Fatal("resolveReconfigDecision looked up the VM; it must plan from the facts it is given")
-			return nil, errors.New("unexpected VM lookup")
+	tmpRepo := testutil.InitRepo(t)
+	t.Chdir(tmpRepo)
+	slug := git.MustCheckoutSlug()
+
+	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
+	if err != nil {
+		t.Fatalf("AcquireClientLease: %v", err)
+	}
+	defer release()
+
+	mock := reconfigMockClient()
+	msb.WithMsbMock(t, mock)
+
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(string, []termio.Choice, string) (string, error) {
+			return "q", nil
 		},
-	})
-	ui := termio.NewTestMock(t)
-	cfs := loadOpencodeConfigFiles(t, &ui)
-	live := liveProjectVM{
-		handle:           &msb.MockSandboxHandle{},
-		configUnreadable: true,
 	}
+	volumes := volume.NewManager(docker.Get())
 
-	decision, err := resolveReconfigDecision(
+	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:old"}
+
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	_, err = readAndResolveReconfigDecision(
 		context.Background(),
-		volume.NewManager(docker.Get()),
-		testVMKey(),
+		mock,
+		volumes,
+		state.Key{Slug: slug, Agent: "opencode"},
 		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{Digest: "sha256:same"},
+		image.ImageInfo{DockerTag: "img:new", Ref: "img:new", Digest: "sha256:new"},
 		"vol",
-		state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"},
+		persisted,
 		cfs,
-		envsecret.EnvSecrets{},
-		live,
-		&ui,
+		ui,
 	)
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if !decision.Recreate {
-		t.Error("an unreadable VM config read up front must still force a recreate")
-	}
-}
-
-// TestResolveReconfigDecisionNoHomeActionOnUnchangedDigest pins that the
-// home-volume action is resolved only when the image digest changed: a rebuild
-// driven by a non-image change must leave HomeAction nil, so no home-volume
-// prompt or state write happens for it.
-func TestResolveReconfigDecisionNoHomeActionOnUnchangedDigest(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	opts := options.RunOptions{TmpSize: "4G"} // the tmp-size change forces a recreate
-	f := newReconfigFixture(t, launcherLiveMounts(1024, 16384, "vol"), nil)
-	hs := matchingHomeState(opts.Network) // the seeded digest matches the run's image
-
-	decision, err := readAndResolveReconfigDecision(
-		context.Background(),
-		f.client,
-		f.volumes,
-		state.Key{Slug: "testproj", Agent: "opencode"},
-		opts,
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: hs.ImageDigest},
-		f.homeVol,
-		hs,
-		f.cfs,
-		f.ui,
-	)
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if !decision.Recreate {
-		t.Fatal("expected a recreate for the tmp-size change")
-	}
-	if decision.HomeAction != nil {
-		t.Error("expected no home-volume action when the image digest is unchanged")
+	if err == nil {
+		t.Fatal("expected an error when the user quits the rebuild prompt")
 	}
 }
 
@@ -754,6 +660,246 @@ func TestResolveReconfigDecisionRecreatesWhenARecordedFingerprintDiffers(t *test
 				t.Error("Restart = true, want false: a fingerprint change is folded into the recreate")
 			}
 		})
+	}
+}
+
+func TestResolveReconfigDecisionDetectsTmpSizeChangeFromLiveMounts(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	opts := options.RunOptions{TmpSize: "4G"}
+	f := newReconfigFixture(t, launcherLiveMounts(1024, 16384, "vol"), nil)
+
+	recreate, err := f.decide(t, opts, matchingHomeState(opts.Network))
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if !recreate {
+		t.Error("expected a recreate for a tmp size change read from the live VM's mounts")
+	}
+	assertRebuildReason(t, f.ui, "/tmp tmpfs size")
+}
+
+func TestResolveReconfigDecisionNoRecreateWhenLiveMountsMatch(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	opts := options.RunOptions{TmpSize: "2G", WorkspaceQuota: "16G"}
+	f := newReconfigFixture(t, launcherLiveMounts(2048, 16384, "vol"), nil)
+
+	recreate, err := f.decide(t, opts, matchingHomeState(opts.Network))
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if recreate {
+		t.Error("expected no recreate when the live mounts already match the options")
+	}
+	for _, line := range f.ui.VerboseCalls {
+		if strings.Contains(line, "rebuild reasons:") {
+			t.Errorf("expected no rebuild reason, got %q", line)
+		}
+	}
+}
+
+func TestResolveReconfigDecisionRecreatesOnWorkspaceQuotaChange(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	opts := options.RunOptions{TmpSize: "2G", WorkspaceQuota: "32G"}
+	f := newReconfigFixture(t, launcherLiveMounts(2048, 8192, "vol"), nil)
+
+	recreate, err := f.decide(t, opts, matchingHomeState(opts.Network))
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if !recreate {
+		t.Error("expected a recreate for a workspace quota change read from the live VM's mounts")
+	}
+	assertRebuildReason(t, f.ui, "/workspace write quota")
+}
+
+// TestResolveReconfigDecisionRecreatesOnHomeVolumeChangeFromLiveMounts pins
+// that a live VM still mounting the previous home volume is recreated when home
+// resolution points at a different one.
+func TestResolveReconfigDecisionRecreatesOnHomeVolumeChangeFromLiveMounts(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	opts := options.RunOptions{TmpSize: "2G", WorkspaceQuota: "16G"}
+	f := newReconfigFixture(t, launcherLiveMounts(2048, 16384, "old-vol"), nil)
+
+	recreate, err := f.decide(t, opts, matchingHomeState(opts.Network))
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if !recreate {
+		t.Error("expected a recreate when the live home volume differs from the resolved one")
+	}
+	assertRebuildReason(t, f.ui, "home volume")
+}
+
+func TestResolveReconfigDecisionMountsReadFailureDegrades(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	opts := options.RunOptions{TmpSize: "2G", WorkspaceQuota: "16G"}
+	f := newReconfigFixture(t, nil, errors.New("mounts boom"))
+
+	recreate, err := f.decide(t, opts, matchingHomeState(opts.Network))
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v, want a degraded decision instead of aborting the startup", err)
+	}
+	if recreate {
+		t.Error("expected no recreate when the mounts cannot be read")
+	}
+	assertVerbose(t, f.ui, "reading VM mounts failed")
+}
+
+// TestResolveReconfigDecisionAgentConfigDrivesRestart pins the agent config
+// comparison against the files read from the VM: a differing file restarts the
+// daemon, a matching one or none read (VM not connected) does not.
+func TestResolveReconfigDecisionAgentConfigDrivesRestart(t *testing.T) {
+	const mirrorPath = "/home/dev/.config/opencode/AGENTS.md"
+	tests := []struct {
+		name             string
+		agentConfigFiles map[string][]byte
+		wantRestart      bool
+	}{
+		{"differing file", map[string][]byte{mirrorPath: []byte("old")}, true},
+		{"matching file", map[string][]byte{mirrorPath: []byte("new")}, false},
+		{"nothing read", nil, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			ui := termio.NewTestMock(t)
+			configFiles := &reprovision.ConfigFiles{
+				Mirror: map[string][]byte{mirrorPath: []byte("new")},
+				Keys:   []string{mirrorPath},
+			}
+			persisted := matchingHomeState(network.Policy{})
+			live := liveProjectVM{
+				handle: &msb.MockSandboxHandle{},
+				config: &msbSdk.SandboxConfig{
+					Image:     "img:tag",
+					CPUs:      4,
+					MemoryMiB: 4096,
+					Volumes:   launcherLiveMounts(1024, 16384, "vol"),
+				},
+				agentConfigFiles: test.agentConfigFiles,
+			}
+
+			decision, err := resolveReconfigDecision(
+				context.Background(),
+				volume.NewManager(docker.Get()),
+				testVMKey(),
+				options.RunOptions{Agent: "opencode"},
+				image.ImageInfo{Ref: "img:tag", Digest: persisted.ImageDigest},
+				"vol",
+				persisted,
+				configFiles,
+				envsecret.EnvSecrets{},
+				live,
+				&ui,
+			)
+			if err != nil {
+				t.Fatalf("resolveReconfigDecision: %v", err)
+			}
+			if decision.Recreate {
+				t.Fatalf("decision recreates (%v); only the agent config may differ in this test", ui.VerboseCalls)
+			}
+			if decision.Restart != test.wantRestart {
+				t.Errorf("Restart = %v, want %v", decision.Restart, test.wantRestart)
+			}
+		})
+	}
+}
+
+func TestResolveReconfigDecisionAgentConfigChangeOnStoppedVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	// Desired opencode config: a snippet producing {"model":"y"} (new config).
+	testutil.WriteFile(t,
+		configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), opencodeAgent(t).ConfigDirName())),
+		"a.json",
+		`{"model":"y"}`,
+	)
+
+	// Existing VM whose Connect fails (stopped/suspended VM):
+	// resolveReconfigDecision cannot read live config, so it must neither
+	// recreate nor spuriously flag a daemon restart. Provisioning + fresh daemon
+	// pickup happen downstream in vm.SetUpSandbox once the VM is started.
+	sh := &msb.MockSandboxHandle{
+		Cfg: &msbSdk.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
+	}
+	sh.ConnectErr = errors.New("vm not running")
+	mock := &msb.MockMsbClient{}
+	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+		return sh, nil
+	}
+	msb.WithMsbMock(t, mock)
+
+	volumes := volume.NewManager(docker.Get())
+	persisted := state.HomeState{
+		HomeVolume:   "vol",
+		ImageDigest:  "sha256:same",
+		NetworkState: state.BuildNetworkState(network.Policy{}),
+	}
+
+	ui := termio.NewTestMock(t)
+	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFiles: %v", err)
+	}
+	decision, err := readAndResolveReconfigDecision(
+		context.Background(),
+		mock,
+		volumes,
+		state.Key{Slug: "testproj", Agent: "opencode"},
+		options.RunOptions{Agent: "opencode"},
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
+		"vol",
+		persisted,
+		cfs,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if decision.Recreate {
+		t.Error("expected no recreate for an opencode-config-only change on a stopped VM")
+	}
+	if decision.Restart {
+		t.Error("expected no daemon-restart flag from a stopped VM (fresh daemon picks up config on start)")
+	}
+}
+
+// TestResolveReconfigDecisionNoHomeActionOnUnchangedDigest pins that the
+// home-volume action is resolved only when the image digest changed: a rebuild
+// driven by a non-image change must leave HomeAction nil, so no home-volume
+// prompt or state write happens for it.
+func TestResolveReconfigDecisionNoHomeActionOnUnchangedDigest(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	opts := options.RunOptions{TmpSize: "4G"} // the tmp-size change forces a recreate
+	f := newReconfigFixture(t, launcherLiveMounts(1024, 16384, "vol"), nil)
+	hs := matchingHomeState(opts.Network) // the seeded digest matches the run's image
+
+	decision, err := readAndResolveReconfigDecision(
+		context.Background(),
+		f.client,
+		f.volumes,
+		state.Key{Slug: "testproj", Agent: "opencode"},
+		opts,
+		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: hs.ImageDigest},
+		f.homeVol,
+		hs,
+		f.cfs,
+		f.ui,
+	)
+	if err != nil {
+		t.Fatalf("resolveReconfigDecision: %v", err)
+	}
+	if !decision.Recreate {
+		t.Fatal("expected a recreate for the tmp-size change")
+	}
+	if decision.HomeAction != nil {
+		t.Error("expected no home-volume action when the image digest is unchanged")
 	}
 }
 
@@ -923,65 +1069,6 @@ func TestResolveReconfigDecisionHomePromptAskedWhenRebuildConfirmed(t *testing.T
 	}
 	if st.ImageDigest != "sha256:new" {
 		t.Errorf("state ImageDigest = %q, want %q (keep records the new digest)", st.ImageDigest, "sha256:new")
-	}
-}
-
-func TestResolveReconfigDecisionAgentConfigChangeOnStoppedVM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	// Desired opencode config: a snippet producing {"model":"y"} (new config).
-	testutil.WriteFile(t,
-		configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), opencodeAgent(t).ConfigDirName())),
-		"a.json",
-		`{"model":"y"}`,
-	)
-
-	// Existing VM whose Connect fails (stopped/suspended VM):
-	// resolveReconfigDecision cannot read live config, so it must neither
-	// recreate nor spuriously flag a daemon restart. Provisioning + fresh daemon
-	// pickup happen downstream in vm.SetUpSandbox once the VM is started.
-	sh := &msb.MockSandboxHandle{
-		Cfg: &msbSdk.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
-	}
-	sh.ConnectErr = errors.New("vm not running")
-	mock := &msb.MockMsbClient{}
-	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-		return sh, nil
-	}
-	msb.WithMsbMock(t, mock)
-
-	volumes := volume.NewManager(docker.Get())
-	persisted := state.HomeState{
-		HomeVolume:   "vol",
-		ImageDigest:  "sha256:same",
-		NetworkState: state.BuildNetworkState(network.Policy{}),
-	}
-
-	ui := termio.NewTestMock(t)
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
-	if err != nil {
-		t.Fatalf("LoadConfigFiles: %v", err)
-	}
-	decision, err := readAndResolveReconfigDecision(
-		context.Background(),
-		mock,
-		volumes,
-		state.Key{Slug: "testproj", Agent: "opencode"},
-		options.RunOptions{Agent: "opencode"},
-		image.ImageInfo{DockerTag: "img:tag", Ref: "img:tag", Digest: "sha256:same"},
-		"vol",
-		persisted,
-		cfs,
-		&ui,
-	)
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if decision.Recreate {
-		t.Error("expected no recreate for an opencode-config-only change on a stopped VM")
-	}
-	if decision.Restart {
-		t.Error("expected no daemon-restart flag from a stopped VM (fresh daemon picks up config on start)")
 	}
 }
 
@@ -1162,93 +1249,6 @@ func TestApplyReconfigHomeActionQuit(t *testing.T) {
 	if !contains(joinStrings(ui.InfoCalls), "exiting as requested by user") {
 		t.Errorf("expected the quit to log the exit notice, got %v", ui.InfoCalls)
 	}
-}
-
-func TestResolveReconfigDecisionDetectsTmpSizeChangeFromLiveMounts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	opts := options.RunOptions{TmpSize: "4G"}
-	f := newReconfigFixture(t, launcherLiveMounts(1024, 16384, "vol"), nil)
-
-	recreate, err := f.decide(t, opts, matchingHomeState(opts.Network))
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if !recreate {
-		t.Error("expected a recreate for a tmp size change read from the live VM's mounts")
-	}
-	assertRebuildReason(t, f.ui, "/tmp tmpfs size")
-}
-
-func TestResolveReconfigDecisionNoRecreateWhenLiveMountsMatch(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	opts := options.RunOptions{TmpSize: "2G", WorkspaceQuota: "16G"}
-	f := newReconfigFixture(t, launcherLiveMounts(2048, 16384, "vol"), nil)
-
-	recreate, err := f.decide(t, opts, matchingHomeState(opts.Network))
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if recreate {
-		t.Error("expected no recreate when the live mounts already match the options")
-	}
-	for _, line := range f.ui.VerboseCalls {
-		if strings.Contains(line, "rebuild reasons:") {
-			t.Errorf("expected no rebuild reason, got %q", line)
-		}
-	}
-}
-
-func TestResolveReconfigDecisionRecreatesOnWorkspaceQuotaChange(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	opts := options.RunOptions{TmpSize: "2G", WorkspaceQuota: "32G"}
-	f := newReconfigFixture(t, launcherLiveMounts(2048, 8192, "vol"), nil)
-
-	recreate, err := f.decide(t, opts, matchingHomeState(opts.Network))
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if !recreate {
-		t.Error("expected a recreate for a workspace quota change read from the live VM's mounts")
-	}
-	assertRebuildReason(t, f.ui, "/workspace write quota")
-}
-
-// TestResolveReconfigDecisionRecreatesOnHomeVolumeChangeFromLiveMounts pins
-// that a live VM still mounting the previous home volume is recreated when home
-// resolution points at a different one.
-func TestResolveReconfigDecisionRecreatesOnHomeVolumeChangeFromLiveMounts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	opts := options.RunOptions{TmpSize: "2G", WorkspaceQuota: "16G"}
-	f := newReconfigFixture(t, launcherLiveMounts(2048, 16384, "old-vol"), nil)
-
-	recreate, err := f.decide(t, opts, matchingHomeState(opts.Network))
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v", err)
-	}
-	if !recreate {
-		t.Error("expected a recreate when the live home volume differs from the resolved one")
-	}
-	assertRebuildReason(t, f.ui, "home volume")
-}
-
-func TestResolveReconfigDecisionMountsReadFailureDegrades(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	opts := options.RunOptions{TmpSize: "2G", WorkspaceQuota: "16G"}
-	f := newReconfigFixture(t, nil, errors.New("mounts boom"))
-
-	recreate, err := f.decide(t, opts, matchingHomeState(opts.Network))
-	if err != nil {
-		t.Fatalf("resolveReconfigDecision: %v, want a degraded decision instead of aborting the startup", err)
-	}
-	if recreate {
-		t.Error("expected no recreate when the mounts cannot be read")
-	}
-	assertVerbose(t, f.ui, "reading VM mounts failed")
 }
 
 // loadOpencodeConfigFiles loads opencode's config files from an empty host
