@@ -12,6 +12,7 @@ import (
 
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 var errBoom = errors.New("boom")
@@ -800,3 +801,36 @@ func TestListVolumesFormatUnknown(t *testing.T) {
 }
 
 func int64PtrCLI(n int64) *int64 { return new(n) }
+
+// TestParseLabelFlagsRejectsEmptyKey pins that a label without a key is
+// rejected rather than stored under the empty string.
+func TestParseLabelFlagsRejectsEmptyKey(t *testing.T) {
+	if _, err := parseLabelFlags([]string{"=value"}); err == nil {
+		t.Error("expected an error for an empty label key")
+	}
+	labels, err := parseLabelFlags([]string{"k=v"})
+	if err != nil || labels["k"] != "v" {
+		t.Errorf("parseLabelFlags(k=v) = %v, %v; want map[k:v]", labels, err)
+	}
+}
+
+// TestBuildSandboxCmdHasListAndRun pins that the sandbox group still registers
+// the list and run subcommands.
+func TestBuildSandboxCmdHasListAndRun(t *testing.T) {
+	cmd := buildSandboxCmd(&termio.Mock{})
+	names := map[string]bool{}
+	for _, sub := range cmd.Commands() {
+		names[sub.Name()] = true
+	}
+	if !names[cmdList] || !names[cmdRun] {
+		t.Errorf("sandbox subcommands = %v, want %q and %q", names, cmdList, cmdRun)
+	}
+}
+
+// TestBuildListLimitDefault pins the --limit default of 0.
+func TestBuildListLimitDefault(t *testing.T) {
+	cmd := buildListCmd(&termio.Mock{})
+	if got := cmd.Flags().Lookup(flagLimit).DefValue; got != "0" {
+		t.Errorf("--%s default = %q, want %q", flagLimit, got, "0")
+	}
+}

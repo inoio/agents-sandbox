@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
@@ -130,5 +132,24 @@ func TestServeOnlyStdinReaderSelectsOnTerminal(t *testing.T) {
 				t.Errorf("serveOnlyStdinReader() = %v, want nil", got)
 			}
 		})
+	}
+}
+
+// TestRunFuncServeOnlyReportsAFailedPreflight pins that a serve-only run whose
+// prerequisite checks fail stops with the preflight error.
+func TestRunFuncServeOnlyReportsAFailedPreflight(t *testing.T) {
+	initTestProjectDir(t)
+	configpaths.WithMockConfigPaths(t)
+	doctor.MockedCheckAll(t, false)
+	ui := &termio.Mock{}
+
+	cmd := buildRunCmd(ui)
+	cmd.SetContext(context.Background())
+	if err := cmd.Flags().Set(flagServeOnly, "true"); err != nil {
+		t.Fatalf("set serve-only: %v", err)
+	}
+	fn := runFunc(ui)
+	if err := fn(cmd, nil); err == nil || err.Error() != "preflight failed" {
+		t.Fatalf("expected preflight failure, got %v", err)
 	}
 }
