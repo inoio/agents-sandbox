@@ -36,7 +36,9 @@ func TestLegacyEnvVarsInUseScansEveryKey(t *testing.T) {
 }
 
 func TestLegacyEnvVarsInUseSkipsShadowedAndContinues(t *testing.T) {
-	for _, key := range configEnvKeys {
+	// Clear every key the scan reads, so the developer's shell cannot shadow
+	// or add a legacy variable.
+	for _, key := range slices.Concat(envKeys, []string{"notify"}) {
 		t.Setenv(envVarName(LegacyEnvPrefix, key), "")
 		t.Setenv(envVarName(EnvPrefix, key), "")
 	}
