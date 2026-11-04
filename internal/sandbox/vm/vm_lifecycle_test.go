@@ -220,8 +220,16 @@ func TestDecideVMAction(t *testing.T) {
 		{name: "created", status: msbSdk.SandboxStatusCreated, want: vmActionStart},
 		{name: "stopped", status: msbSdk.SandboxStatusStopped, want: vmActionStart},
 		{name: "crashed", status: msbSdk.SandboxStatusCrashed, want: vmActionStart},
-		{name: "draining", status: msbSdk.SandboxStatusDraining, wantText: "is not available for a new client"},
-		{name: "paused", status: msbSdk.SandboxStatusPaused, wantText: "is not available for a new client"},
+		{
+			name:     "draining",
+			status:   msbSdk.SandboxStatusDraining,
+			wantText: `sandbox is not available for a new client: status is "draining"`,
+		},
+		{
+			name:     "paused",
+			status:   msbSdk.SandboxStatusPaused,
+			wantText: `sandbox is not available for a new client: status is "paused"`,
+		},
 		{name: "unknown", status: "unknown-status", wantText: "unexpected sandbox status"},
 	}
 	for _, tc := range cases {

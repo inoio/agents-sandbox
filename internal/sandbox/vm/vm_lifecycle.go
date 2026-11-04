@@ -75,7 +75,7 @@ func decideVMAction(notFoundErr error, status msbSdk.SandboxStatus) (vmAction, e
 	case msbSdk.SandboxStatusRunning:
 		return vmActionConnect, nil
 	case msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
-		return vmActionCreate, fmt.Errorf("sandbox %q is not available for a new client: status is %q", status, status)
+		return vmActionCreate, fmt.Errorf("sandbox is not available for a new client: status is %q", status)
 	default:
 		return vmActionCreate, fmt.Errorf("unexpected sandbox status: %q", status)
 	}
