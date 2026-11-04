@@ -201,20 +201,16 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 	}
 }
 
-// TestDecideVMAction pins the action for every VM status: a missing VM is
-// created, a running one connected, a booting one awaited, and a created,
-// stopped or crashed one started. A draining, paused or unknown VM cannot take
-// a new client.
+// TestDecideVMAction pins the action for every status of a found VM: a running
+// one is connected, a booting one awaited, and a created, stopped or crashed one
+// started. A draining, paused or unknown VM cannot take a new client.
 func TestDecideVMAction(t *testing.T) {
-	notFound := &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
 	cases := []struct {
 		name     string
-		lookup   error
 		status   msbSdk.SandboxStatus
 		want     vmAction
 		wantText string
 	}{
-		{name: "missing", lookup: notFound, want: vmActionCreate},
 		{name: "running", status: msbSdk.SandboxStatusRunning, want: vmActionConnect},
 		{name: "starting", status: msbSdk.SandboxStatusStarting, want: vmActionWait},
 		{name: "created", status: msbSdk.SandboxStatusCreated, want: vmActionStart},
@@ -234,7 +230,7 @@ func TestDecideVMAction(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := decideVMAction(tc.lookup, tc.status)
+			got, err := decideVMAction(tc.status)
 			if tc.wantText != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantText) {
 					t.Fatalf("decideVMAction(%q) error = %v, want %q", tc.status, err, tc.wantText)
@@ -899,33 +895,82 @@ func TestResumeSandboxByStatusUnavailable(t *testing.T) {
 	}
 }
 
-func TestStartExistingVMErrors(t *testing.T) {
-	startErr := errors.New("start failed")
-	handle := &msb.MockSandboxHandle{StartErr: startErr}
-	if _, _, err := startExistingVM(context.Background(), handle); !errors.Is(err, startErr) {
-		t.Fatalf("startExistingVM error = %v, want %v", err, startErr)
-	}
-
-	refreshErr := errors.New("refresh failed")
-	handle = &msb.MockSandboxHandle{
-		StartErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxStillRunning, Message: "already starting"},
-		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
-			return nil, refreshErr
+// TestStartExistingVM pins starting a found VM: a successful start boots it. A
+// start that loses the race to another caller converges on the VM that caller
+// is starting or has started, and fails with the race error if the VM is no
+// longer coming up. Any other start failure is reported, even when the VM shows
+// as running, so a real failure is never masked.
+func TestStartExistingVM(t *testing.T) {
+	sb := &msb.MockSandbox{Name_: "vm"}
+	startFailed := errors.New("start failed")
+	refreshFailed := errors.New("refresh failed")
+	raced := &msbSdk.Error{Kind: msbSdk.ErrSandboxStillRunning, Message: "already starting"}
+	running := func() msb.SandboxHandle { return runningVM(sb) }
+	cases := []struct {
+		name     string
+		startErr error
+		refresh  func() (msb.SandboxHandle, error)
+		wantBoot VMBoot
+		wantErr  error
+	}{
+		{name: "start succeeds", wantBoot: VMBootStarted},
+		{
+			name:     "start fails while the VM shows running",
+			startErr: startFailed,
+			refresh:  func() (msb.SandboxHandle, error) { return running(), nil },
+			wantErr:  startFailed,
+		},
+		{
+			name:     "lost race, refresh fails",
+			startErr: raced,
+			refresh:  func() (msb.SandboxHandle, error) { return nil, refreshFailed },
+			wantErr:  refreshFailed,
+		},
+		{
+			name:     "lost race, VM stopped again",
+			startErr: raced,
+			refresh: func() (msb.SandboxHandle, error) {
+				return &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusStopped}, nil
+			},
+			wantErr: raced,
+		},
+		{
+			name:     "lost race, VM running",
+			startErr: raced,
+			refresh:  func() (msb.SandboxHandle, error) { return running(), nil },
+			wantBoot: VMBootConnected,
+		},
+		{
+			name:     "lost race, VM still starting",
+			startErr: raced,
+			refresh:  func() (msb.SandboxHandle, error) { return startingVM(running()), nil },
+			wantBoot: VMBootConnected,
 		},
 	}
-	if _, _, err := startExistingVM(context.Background(), handle); !errors.Is(err, refreshErr) {
-		t.Fatalf("startExistingVM refresh error = %v, want %v", err, refreshErr)
-	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			handle := &msb.MockSandboxHandle{
+				Name_:    "vm",
+				Status_:  msbSdk.SandboxStatusStopped,
+				StartSb:  sb,
+				StartErr: tc.startErr,
+			}
+			if tc.refresh != nil {
+				handle.RefreshFn = func(context.Context) (msb.SandboxHandle, error) { return tc.refresh() }
+			}
 
-	startRaceErr := &msbSdk.Error{Kind: msbSdk.ErrSandboxStillRunning, Message: "already starting"}
-	handle = &msb.MockSandboxHandle{
-		StartErr: startRaceErr,
-		RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
-			return &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusStopped}, nil
-		},
-	}
-	if _, _, err := startExistingVM(context.Background(), handle); !errors.Is(err, startRaceErr) {
-		t.Fatalf("startExistingVM non-active race error = %v, want %v", err, startRaceErr)
+			got, boot, err := startExistingVM(context.Background(), handle)
+
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("error = %v, want %v", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil || got != sb || boot != tc.wantBoot {
+				t.Errorf("startExistingVM = %v, %v, %v; want %v, %v", got, boot, err, sb, tc.wantBoot)
+			}
+		})
 	}
 }
 
@@ -1183,12 +1228,12 @@ func TestCreateProjectVMConfiguresTheVM(t *testing.T) {
 			ui := termio.NewTestMock(t)
 			name := ProjectVMName(testVMKey())
 
-			sb, created, err := createProjectVM(context.Background(), newVMCreation(t, client, &ui, tc.opts), name)
+			sb, err := createProjectVM(context.Background(), newVMCreation(t, client, &ui, tc.opts), name)
 			if err != nil {
 				t.Fatalf("createProjectVM: %v", err)
 			}
-			if sb == nil || !created {
-				t.Fatalf("createProjectVM = %v, created %v; want a created sandbox", sb, created)
+			if sb == nil {
+				t.Fatal("createProjectVM returned no sandbox")
 			}
 			if !reflect.DeepEqual(client.CreatedSandboxes, []string{name}) {
 				t.Fatalf("created sandboxes = %v, want only %q", client.CreatedSandboxes, name)
@@ -1233,7 +1278,7 @@ func TestCreateProjectVMReportsFailures(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ui := termio.NewTestMock(t)
 
-			sb, created, err := createProjectVM(
+			sb, err := createProjectVM(
 				context.Background(),
 				newVMCreation(t, tc.client, &ui, tc.opts),
 				ProjectVMName(testVMKey()),
@@ -1241,8 +1286,8 @@ func TestCreateProjectVMReportsFailures(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tc.wantText) || errors.Unwrap(err) == nil {
 				t.Fatalf("error = %v, want %q wrapping its cause", err, tc.wantText)
 			}
-			if sb != nil || created {
-				t.Errorf("createProjectVM = %v, created %v; want nothing created", sb, created)
+			if sb != nil {
+				t.Errorf("createProjectVM = %v, want no sandbox", sb)
 			}
 			if len(ui.SpinnerStopErrors) != 1 {
 				t.Errorf("spinner stop errors = %v, want the spinner stopped with the error", ui.SpinnerStopErrors)
@@ -1273,7 +1318,7 @@ func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 
-	_, _, err := createProjectVM(context.Background(), ProjectVMCreation{
+	_, err := createProjectVM(context.Background(), ProjectVMCreation{
 		Client:       client,
 		DockerClient: docker.Get(),
 		Options:      options.RunOptions{Memory: "1G"},
@@ -1330,7 +1375,7 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 	testUI := termio.NewTestMock(t)
 	ui := &testUI
 
-	sb, created, err := createProjectVM(context.Background(), ProjectVMCreation{
+	sb, err := createProjectVM(context.Background(), ProjectVMCreation{
 		Client:       client,
 		DockerClient: docker.Get(),
 		Options:      options.RunOptions{Memory: "1G"},
@@ -1347,9 +1392,6 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 	}, "agents-sandbox-vm-test")
 	if err != nil {
 		t.Fatalf("createProjectVM failed: %v", err)
-	}
-	if !created {
-		t.Error("expected created=true")
 	}
 	if sb == nil {
 		t.Fatal("expected non-nil sandbox")

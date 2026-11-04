@@ -43,6 +43,12 @@ func TestReconcileResourceConfig(t *testing.T) {
 			wantModify: &msbSdk.ModifyOptions{CPUs: 1},
 		},
 		{
+			name:       "memory with an unknown boot maximum",
+			handle:     reconcileHandle(0, 0),
+			opts:       options.RunOptions{Memory: "4G"},
+			wantModify: &msbSdk.ModifyOptions{MemoryMiB: 4096},
+		},
+		{
 			name:       "memory-only change",
 			handle:     reconcileHandle(8, 8192),
 			opts:       options.RunOptions{Memory: "4G"},
