@@ -515,3 +515,17 @@ func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
 		t.Error("the native image-data prune must be deferred while the run protects a key")
 	}
 }
+
+func TestRenderPruneSummaryDryRunAction(t *testing.T) {
+	dry := &termio.Mock{}
+	RenderPruneSummary(dry, &StaleReport{PrunedSandboxes: 1}, true)
+	if len(dry.OutCalls) != 1 || !strings.HasPrefix(dry.OutCalls[0], "dry-run: Would prune") {
+		t.Errorf("OutCalls = %v, want the dry-run action", dry.OutCalls)
+	}
+
+	rendered := &termio.Mock{}
+	RenderPruneSummary(rendered, &StaleReport{}, false)
+	if len(rendered.OutCalls) != 1 || !strings.HasPrefix(rendered.OutCalls[0], "Pruned") {
+		t.Errorf("OutCalls = %v, want the real action", rendered.OutCalls)
+	}
+}
