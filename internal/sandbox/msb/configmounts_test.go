@@ -1,6 +1,7 @@
 package msb
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -74,9 +75,11 @@ func TestParseConfigMountsEmptyArrayIsAnEmptyMap(t *testing.T) {
 }
 
 func TestParseConfigMountsSkipsUnknownType(t *testing.T) {
+	// The unknown mount comes first, so a skip that stopped the scan would
+	// lose the mount after it.
 	raw := `{"mounts":[
-	  {"type":"Tmpfs","guest":"/tmp","size_mib":2048},
-	  {"type":"SomethingNew","guest":"/future"}
+	  {"type":"SomethingNew","guest":"/future"},
+	  {"type":"Tmpfs","guest":"/tmp","size_mib":2048}
 	]}`
 	got, err := ParseConfigMounts(raw)
 	if err != nil {
@@ -103,8 +106,9 @@ func TestParseConfigMountsLastDuplicateGuestWins(t *testing.T) {
 
 func TestParseConfigMountsRejectsMalformedJSON(t *testing.T) {
 	for _, configJSON := range []string{"not json", ""} {
-		if _, err := ParseConfigMounts(configJSON); err == nil {
-			t.Errorf("ParseConfigMounts(%q) error = nil, want an error for malformed JSON", configJSON)
+		var syntaxErr *json.SyntaxError
+		if _, err := ParseConfigMounts(configJSON); !errors.As(err, &syntaxErr) {
+			t.Errorf("ParseConfigMounts(%q) error = %v, want it to wrap the JSON syntax error", configJSON, err)
 		}
 	}
 }

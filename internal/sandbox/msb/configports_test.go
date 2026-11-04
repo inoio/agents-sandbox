@@ -1,6 +1,7 @@
 package msb
 
 import (
+	"encoding/json"
 	"errors"
 	"slices"
 	"testing"
@@ -55,8 +56,22 @@ func TestParseConfigPortsEmptyArrayIsNoBindings(t *testing.T) {
 }
 
 func TestParseConfigPortsRejectsMalformedJSON(t *testing.T) {
-	if _, err := ParseConfigPorts(`{"network":{"ports":[`); err == nil {
-		t.Error("ParseConfigPorts(malformed) = no error, want one")
+	var syntaxErr *json.SyntaxError
+	if _, err := ParseConfigPorts(`{"network":{"ports":[`); !errors.As(err, &syntaxErr) {
+		t.Errorf("ParseConfigPorts(malformed) error = %v, want it to wrap the JSON syntax error", err)
+	}
+}
+
+// TestParseConfigPortsSkipsUnknownProtocol pins that an entry with a protocol
+// this launcher does not know is skipped and the scan goes on to the next.
+func TestParseConfigPortsSkipsUnknownProtocol(t *testing.T) {
+	got, err := ParseConfigPorts(`{"network":{"ports":[
+	  {"host_bind":"127.0.0.1","host_port":9,"guest_port":9,"protocol":"Sctp"},
+	  {"host_bind":"127.0.0.1","host_port":3000,"guest_port":3000,"protocol":"Tcp"}
+	]}}`)
+	want := []msbSdk.PortBinding{{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP}}
+	if err != nil || !slices.Equal(got, want) {
+		t.Errorf("ParseConfigPorts() = %+v, %v; want %+v", got, err, want)
 	}
 }
 

@@ -1280,3 +1280,32 @@ func TestMockSandboxHandleConfig(t *testing.T) {
 		t.Fatalf("Config() error = %v, want the configured error", err)
 	}
 }
+
+// TestMockMsbClientRecordsEveryCall pins that the recording methods keep every
+// call, not only the first: tests assert the full sequence of removals and
+// loads.
+func TestMockMsbClientRecordsEveryCall(t *testing.T) {
+	ctx := context.Background()
+	m := &MockMsbClient{}
+	for _, name := range []string{"a", "b"} {
+		_ = m.RemoveVolume(ctx, name)
+		_ = m.ImageRemove(ctx, name, false)
+		_ = m.ImageLoad(ctx, name, strings.NewReader(""))
+	}
+	if !slices.Equal(m.RemovedVolumes, []string{"a", "b"}) ||
+		len(m.RemovedImages) != 2 || m.RemovedImages[1].Ref != "b" ||
+		!slices.Equal(m.LoadedImages, []string{"a", "b"}) {
+		t.Errorf("recorded volumes %v, images %v, loads %v; want both calls each",
+			m.RemovedVolumes, m.RemovedImages, m.LoadedImages)
+	}
+}
+
+// TestMockMsbClientGetVolumeErr pins that GetVolumeErr fails the lookup even
+// for a volume the mock holds.
+func TestMockMsbClientGetVolumeErr(t *testing.T) {
+	lookupErr := errors.New("lookup failed")
+	m := &MockMsbClient{GetVolumeErr: lookupErr, Volumes: []VolumeHandle{&MockVolumeHandle{Name_: "vol"}}}
+	if _, err := m.GetVolume(context.Background(), "vol"); !errors.Is(err, lookupErr) {
+		t.Errorf("GetVolume error = %v, want %v", err, lookupErr)
+	}
+}
