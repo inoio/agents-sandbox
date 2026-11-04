@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -15,93 +16,87 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// TestRunStartupHooksAttachError covers the startup-hook AttachWith failure
-// branch in runStartupHooks: a failing hook is logged as a warning and the
-// remaining hooks continue to run.
-func TestRunStartupHooksAttachError(t *testing.T) {
-	sb := &msb.MockSandbox{
-		Name_:     "vm",
-		AttachErr: errors.New("attach failed"),
+// TestRunStartupHooksAttachesEachHook pins how a hook is run: as the default
+// sandbox user with its home, or as root with /root when it asks for root; a
+// script with a shebang is executed directly so the kernel applies it, one
+// without is run through /bin/sh.
+func TestRunStartupHooksAttachesEachHook(t *testing.T) {
+	cases := []struct {
+		name     string
+		hook     homeconfig.HookSpec
+		wantUser string
+		wantHome string
+		wantCmd  string
+		wantArgs []string
+	}{
+		{
+			name:     "default user, no shebang",
+			hook:     homeconfig.HookSpec{Target: "/home/dev/.vpn/connect.sh", Source: "x"},
+			wantUser: DefaultSandboxUser,
+			wantHome: "/home/dev",
+			wantCmd:  "/bin/sh",
+			wantArgs: []string{"/home/dev/.vpn/connect.sh"},
+		},
+		{
+			name:     "shebang",
+			hook:     homeconfig.HookSpec{Target: "/home/dev/.foo.sh", Source: "x", HasShebang: true},
+			wantUser: DefaultSandboxUser,
+			wantHome: "/home/dev",
+			wantCmd:  "/home/dev/.foo.sh",
+		},
+		{
+			name: "root",
+			hook: homeconfig.HookSpec{
+				Target:     "/home/dev/.vpn/connect.sh",
+				Source:     "x",
+				Root:       true,
+				HasShebang: true,
+			},
+			wantUser: "root",
+			wantHome: "/root",
+			wantCmd:  "/home/dev/.vpn/connect.sh",
+		},
 	}
-	ui := termio.NewTestMock(t)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sb := &msb.MockSandbox{Name_: "vm"}
+			ui := termio.NewTestMock(t)
 
-	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
-		{Target: "/home/dev/.vpn/connect.sh", Source: "x", HasShebang: true},
-	}, &ui)
+			runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{tc.hook}, &ui)
 
-	if !contains(joinStrings(ui.WarnCalls), "startup hook") {
-		t.Errorf("expected a startup-hook failure warning, got %v", ui.WarnCalls)
-	}
-}
-
-// TestRunStartupHooksDefaultsToDevUser verifies that a startup hook without an
-// explicit user runs as the default sandbox user (dev), and that a script
-// without a shebang falls back to /bin/sh. This is the path most users hit,
-// unlike the root-run case covered by the integration flow.
-func TestRunStartupHooksDefaultsToDevUser(t *testing.T) {
-	sb := &msb.MockSandbox{Name_: "vm"}
-	ui := termio.NewTestMock(t)
-
-	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
-		{Target: "/home/dev/.vpn/connect.sh", Source: "x", Root: false},
-	}, &ui)
-
-	if sb.AttachUser != DefaultSandboxUser {
-		t.Errorf("startup hook AttachWith user = %q, want default %q", sb.AttachUser, DefaultSandboxUser)
-	}
-	if home := sb.AttachEnv["HOME"]; home != "/home/dev" {
-		t.Errorf("startup hook HOME = %q, want %q", home, "/home/dev")
-	}
-	if sb.AttachCmd != "/bin/sh" {
-		t.Errorf("startup hook AttachWith cmd = %q, want fallback %q", sb.AttachCmd, "/bin/sh")
-	}
-	want := []string{"/home/dev/.vpn/connect.sh"}
-	if !slices.Equal(sb.AttachArgs, want) {
-		t.Errorf("startup hook AttachWith args = %v, want %v", sb.AttachArgs, want)
-	}
-}
-
-// TestRunStartupHooksExecutesTargetDirectly verifies that a hook with a shebang
-// is executed as the script path itself, so the VM kernel applies the shebang
-// (issue #136).
-func TestRunStartupHooksExecutesTargetDirectly(t *testing.T) {
-	sb := &msb.MockSandbox{Name_: "vm"}
-	ui := termio.NewTestMock(t)
-
-	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
-		{Target: "/home/dev/.foo.sh", Source: "x", Root: false, HasShebang: true},
-	}, &ui)
-
-	if sb.AttachCmd != "/home/dev/.foo.sh" {
-		t.Errorf("startup hook AttachWith cmd = %q, want the script path", sb.AttachCmd)
-	}
-	if len(sb.AttachArgs) != 0 {
-		t.Errorf("startup hook AttachWith args = %v, want none", sb.AttachArgs)
+			if sb.AttachUser != tc.wantUser || sb.AttachEnv["HOME"] != tc.wantHome {
+				t.Errorf("attached as %q with HOME %q, want %q with %q",
+					sb.AttachUser, sb.AttachEnv["HOME"], tc.wantUser, tc.wantHome)
+			}
+			if sb.AttachCmd != tc.wantCmd || !slices.Equal(sb.AttachArgs, tc.wantArgs) {
+				t.Errorf("attached %q %v, want %q %v", sb.AttachCmd, sb.AttachArgs, tc.wantCmd, tc.wantArgs)
+			}
+		})
 	}
 }
 
-// TestRunStartupHooksRunsAsRoot verifies that a hook with Root set attaches as
-// the root user, with root's home as HOME.
-func TestRunStartupHooksRunsAsRoot(t *testing.T) {
-	sb := &msb.MockSandbox{Name_: "vm"}
+// TestRunStartupHooksContinuesPastAFailingHook pins that a failing hook is a
+// warning and the remaining hooks still run.
+func TestRunStartupHooksContinuesPastAFailingHook(t *testing.T) {
+	sb := &msb.MockSandbox{Name_: "vm", AttachErr: errors.New("attach failed")}
 	ui := termio.NewTestMock(t)
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
-		{Target: "/home/dev/.vpn/connect.sh", Source: "x", Root: true},
+		{Target: "/home/dev/.first.sh", Source: "x", HasShebang: true},
+		{Target: "/home/dev/.second.sh", Source: "x", HasShebang: true},
 	}, &ui)
 
-	if sb.AttachUser != "root" {
-		t.Errorf("startup hook AttachWith user = %q, want %q", sb.AttachUser, "root")
+	if sb.AttachCmd != "/home/dev/.second.sh" {
+		t.Errorf("last attached hook = %q, want the second hook to run after the first failed", sb.AttachCmd)
 	}
-	if home := sb.AttachEnv["HOME"]; home != "/root" {
-		t.Errorf("startup hook HOME = %q, want %q", home, "/root")
+	if len(ui.WarnCalls) != 2 || !strings.Contains(ui.WarnCalls[0], "startup hook /home/dev/.first.sh failed") {
+		t.Errorf("warnings = %v, want one per failed hook", ui.WarnCalls)
 	}
 }
 
-// TestRestartDaemonsKillError covers the kill-stale-job failure branch of
-// restartDaemons: the failure is reported as a verbose diagnostic and the
-// daemon is still (re)started.
-func TestRestartDaemonsKillError(t *testing.T) {
+// TestRestartDaemonsRestartsPastAFailedKill pins that a stale daemon job that
+// cannot be killed is a verbose diagnostic, and the daemon is still started.
+func TestRestartDaemonsRestartsPastAFailedKill(t *testing.T) {
 	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return `{"healthy":true,"version":"test"}`, 0, nil
 	}}
@@ -114,33 +109,34 @@ func TestRestartDaemonsKillError(t *testing.T) {
 		Jobs: []msbSdk.JobInfo{
 			{ID: "stale", Command: append([]string{command.Binary}, command.Args...)},
 		},
-		GetJobFn: func(context.Context, string) (msb.Job, error) { return stale, nil },
+		GetJobFn:          func(context.Context, string) (msb.Job, error) { return stale, nil },
+		ExecDetachedCalls: &[]msb.MockDetachedCall{},
 	}
 
 	restartDaemons(context.Background(), opencodeResolved(t), sb, false, &ui, seams)
 
-	if !contains(joinStrings(ui.VerboseCalls), "killing job") {
+	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "killing job") {
 		t.Errorf("expected a kill-failure verbose message, got %v", ui.VerboseCalls)
 	}
+	assertDetachedHelperLaunch(t, *sb.ExecDetachedCalls, "agent-daemon", "opencode")
 }
 
-// TestRestartDaemonsNoProvider covers the early-return branch of
-// restartDaemons for an agent that is not a DaemonProvider: it must no-op.
-func TestRestartDaemonsNoProvider(t *testing.T) {
+// TestRestartDaemonsWithoutADaemonDoesNothing pins that an agent without a
+// serve daemon has nothing to restart.
+func TestRestartDaemonsWithoutADaemonDoesNothing(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	fs := msb.NewTestFS(nil, nil)
-	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs, ShellCalls: &[]string{}}
+	sb := &msb.MockSandbox{Name_: "vm", ShellCalls: &[]string{}, ExecDetachedCalls: &[]msb.MockDetachedCall{}}
 
 	restartDaemons(context.Background(), agent.Resolve(&fakeAgent{}), sb, false, &ui, options.Seams{})
 
-	if len(*sb.ShellCalls) != 0 {
-		t.Errorf("expected no shell calls for an agent without a DaemonProvider, got %v", *sb.ShellCalls)
+	if len(*sb.ShellCalls) != 0 || len(*sb.ExecDetachedCalls) != 0 {
+		t.Errorf("shell calls %v, launches %+v; want none without a daemon", *sb.ShellCalls, *sb.ExecDetachedCalls)
 	}
 }
 
-// TestRestartDaemonsEnsureDaemonError covers the ensureDaemon failure branch of
-// restartDaemons: the daemon restart fails and is logged as a warning.
-func TestRestartDaemonsEnsureDaemonError(t *testing.T) {
+// TestRestartDaemonsWarnsWhenTheDaemonCannotStart pins that a failed restart
+// is a warning, not a setup failure: the config is already provisioned.
+func TestRestartDaemonsWarnsWhenTheDaemonCannotStart(t *testing.T) {
 	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == opencodeProvider(t).DaemonHealthCmd() {
 			return "", 0, errors.New("health check failed")
@@ -158,11 +154,13 @@ func TestRestartDaemonsEnsureDaemonError(t *testing.T) {
 
 	restartDaemons(context.Background(), opencodeResolved(t), sb, false, &ui, seams)
 
-	if !contains(joinStrings(ui.WarnCalls), "daemon restart failed") {
+	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "daemon restart failed: ") {
 		t.Errorf("expected a daemon-restart-failure warning, got %v", ui.WarnCalls)
 	}
 }
 
+// TestRestartDaemonsRestartsServe pins that a restart launches the agent's
+// serve daemon even while the running one is healthy.
 func TestRestartDaemonsRestartsServe(t *testing.T) {
 	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, _ string) (string, int, error) {
 		return `{"healthy":true,"version":"x"}`, 0, nil
