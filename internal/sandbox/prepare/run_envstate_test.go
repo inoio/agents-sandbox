@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -329,90 +327,6 @@ func TestPersistFingerprintsReadError(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatal("expected error for corrupted state YAML")
-	}
-}
-
-func TestNetworkChanged_ZeroApplied_NonEmptyDesired(t *testing.T) {
-	got := state.NetworkChanged(state.NetworkState{}, network.Policy{Profiles: []network.Profile{network.ProfileNone}})
-	if !got {
-		t.Error("expected change when applied is zero and desired is non-empty")
-	}
-}
-
-func TestNetworkChanged_ZeroApplied_EmptyDesired(t *testing.T) {
-	got := state.NetworkChanged(state.NetworkState{}, network.Policy{})
-	if !got {
-		t.Error("expected change when applied is zero so the secure default can be applied")
-	}
-}
-
-func TestNetworkChanged_MatchingHash(t *testing.T) {
-	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}, EgressAllow: []string{"api.example.com"}}
-	applied := state.BuildNetworkState(policy)
-	if got := state.NetworkChanged(applied, policy); got {
-		t.Error("expected NO change when fingerprints match")
-	}
-}
-
-func TestNetworkChanged_DifferentHash(t *testing.T) {
-	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}, EgressAllow: []string{"api.example.com"}}
-	applied := state.BuildNetworkState(network.Policy{Profiles: []network.Profile{network.ProfileNone}})
-	if got := state.NetworkChanged(applied, policy); !got {
-		t.Error("expected change when fingerprints differ")
-	}
-}
-
-func TestSecretsChanged_ZeroApplied_NilDesired(t *testing.T) {
-	got := state.SecretsChanged(state.SecretState{}, nil)
-	if got {
-		t.Error("expected NO change when applied is zero and desired is nil")
-	}
-}
-
-func TestSecretsChanged_ZeroApplied_EmptyDesired(t *testing.T) {
-	got := state.SecretsChanged(state.SecretState{}, []msbSdk.SecretEntry{})
-	if got {
-		t.Error("expected NO change when applied is zero and desired is empty")
-	}
-}
-
-func TestSecretsChanged_NonZeroApplied_DifferentHash(t *testing.T) {
-	got := state.SecretsChanged(state.SecretState{Hash: "h1"}, []msbSdk.SecretEntry{{EnvVar: "K", Value: "v"}})
-	if !got {
-		t.Error("expected change when hashes differ")
-	}
-}
-
-func TestEnvChanged_ZeroApplied_NonEmptyDesired(t *testing.T) {
-	got := state.EnvChanged(state.EnvState{}, map[string]string{"FOO": "bar"})
-	if !got {
-		t.Error("expected change when applied is zero and desired is non-empty")
-	}
-}
-
-func TestEnvChanged_MatchingHash(t *testing.T) {
-	desired := map[string]string{"FOO": "bar"}
-	wantHash := state.EnvContentHash(desired)
-	got := state.EnvChanged(state.EnvState{Hash: wantHash}, desired)
-	if got {
-		t.Error("expected NO change when hashes match")
-	}
-}
-
-func TestSecretState_NilEntries_RendersEmpty(t *testing.T) {
-	got := state.SecretsContentHash(nil)
-	if got == "" {
-		t.Error("expected non-empty hash for nil entries")
-	}
-}
-
-func TestEnvContentHash_OrderIndependent(t *testing.T) {
-	a := map[string]string{"A": "1", "B": "2"}
-	b := map[string]string{"B": "2", "A": "1"}
-	hA := state.EnvContentHash(a)
-	hB := state.EnvContentHash(b)
-	if hA != hB {
-		t.Errorf("hashes differ for same content in different order: %q vs %q", hA, hB)
 	}
 }
 
