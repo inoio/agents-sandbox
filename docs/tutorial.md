@@ -12,8 +12,9 @@ This page takes you from a fresh install to a coding agent running in a sandbox,
 `/workspace`.
 
 If you already use a coding agent on this host, the same command also brings your existing setup — see
-[Switch from your existing agent]({% link switch.md %}). If you have not set one up on this host yet, do that once
-first: the sandbox copies your host configuration and credentials, so the agent starts without a separate login.
+[Switch from your existing agent]({% link switch.md %}). If you have not set up OpenCode 2 on this host yet, do that once
+first: the sandbox copies its host configuration and credentials, so OpenCode 2 starts without a separate login.
+Other agents may require a separate login inside the sandbox.
 
 ## Install agents-sandbox
 

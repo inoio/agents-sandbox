@@ -102,7 +102,7 @@ portability features.
   Opt-in only: it never runs on the automatic prune path, and named volumes such
   as the home volume are never compacted. Flags: `--dry-run`, `--disk` (one guest
   mount, mutually exclusive with `--root-only`), `--root-only`, `--layers` (the
-  oldest N sealed layers, minimum 2; default all), `-q/--quiet` (identifiers only),
+  oldest N sealed layers, minimum 2; default all), `-q/--quiet` (suppresses stdout),
   and `--format json`.
 - `sandbox copy`/`cp` — dropped: host↔VM transfer is the excluded
   data-portability surface, not part of the bounded management surface.

@@ -76,7 +76,7 @@ A checkout's pre-split identity — the origin-derived repo slug that was its on
 _Avoid_: old slug
 
 **Identity adoption**:
-The automatic, noticed, once-only migration to a project's checkout slug: it destroys the legacy project VM first, then merges the state directory into the checkout location, preserves the existing home volume and its name, and rebuilds the runner image under the checkout-scoped tag. A second clone adopting the same shared legacy VM claims the volume and starts with a fresh one instead.
+The automatic, noticed, once-only migration to a project's checkout slug: it destroys the legacy project VM first, then merges the state directory into the checkout location, preserves the existing home volume and its name, and rebuilds the runner image under the checkout-scoped tag. A second clone adopting the same shared legacy VM finds the volume already claimed by the first clone and starts with a fresh one instead.
 _Avoid_: migration
 
 **Session**:
