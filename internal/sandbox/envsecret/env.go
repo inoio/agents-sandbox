@@ -39,14 +39,20 @@ func parseKeyValueLines(data string, onLine func(key, value string) error) error
 	return nil
 }
 
-// BuildEnvMap reads environment variables from a file.
-func BuildEnvMap(filename string) map[string]string {
+// BuildEnvMap reads environment variables from a file. A line without a
+// variable name is skipped with a warning, because the VM refuses to boot with
+// an empty env name.
+func BuildEnvMap(filename string, ui termio.Logger) map[string]string {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil
 	}
 	env := make(map[string]string)
 	_ = parseKeyValueLines(string(data), func(key, value string) error {
+		if key == "" {
+			ui.Warnf("ignoring an env entry without a variable name in %s", filename)
+			return nil
+		}
 		env[key] = value
 		return nil
 	})
@@ -82,8 +88,8 @@ type EnvSecrets struct {
 func LoadEnvAndSecrets(ui termio.Logger, allowPlaceholderFor []string) EnvSecrets {
 	return EnvSecrets{
 		Vars: MergeEnvMaps(
-			BuildEnvMap(cp.Get().UserEnvFile()),
-			BuildEnvMap(cp.Get().ProjectEnvFile()),
+			BuildEnvMap(cp.Get().UserEnvFile(), ui),
+			BuildEnvMap(cp.Get().ProjectEnvFile(), ui),
 		),
 		Secrets: BuildSecretsFromSpecs(MergeSecretSpecs(
 			ParseSecretSpecLegacy(cp.Get().UserEnvSecretFile(), ui),
