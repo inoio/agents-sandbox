@@ -38,6 +38,9 @@
 - `podman-engine-testing.md`
   - Description: How the alternative-engine claim is verified: the `integration-podman` CI job runs the docker-build suite against a rootless podman socket, podman's unqualified-image-name refusal is the hazard the runner image avoids by qualifying its base, and the dev VM cannot run an engine build at all.
   - Read If: Verifying podman (or another Docker-API engine) against the integration suite, changing the `integration-podman` job or `distroBaseRef`/`baseImageRef`/`resolveBaseDigest`/`buildFailureError`, or investigating a build failure naming an unqualified image.
+- `terminal-reset-verification.md`
+  - Description: Which terminal modes each harness TUI enables (measured from the smoke suite's raw pty output), how to simulate a TUI kill without a real OOM, and the per-terminal checklist for the residue the post-attach reset must clear.
+  - Read If: Changing `session.terminalReset` or when it is emitted, adding a harness, or checking a report of a broken terminal after an agent was killed.
 - `operator-brain-maintenance.md`
   - Description: Conventions for keeping this brain small and findable: one-line catalog Descriptions, anchor-first `Read If` lines, and retiring a plan (fold into the owning spec, then delete) once its work lands.
   - Read If: Adding or editing a catalog entry, spec, plan, or guide; writing a new freeform document; or curating/retiring the brain.
