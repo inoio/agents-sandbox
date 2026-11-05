@@ -136,11 +136,11 @@ func resolveBuildVersion(
 		return current, false, "", nil
 	}
 
-	chosen, promptErr := promptUpgrade(ui, a.Profile, current, latest)
+	upgrade, promptErr := promptUpgrade(ui, a.Profile, current, latest)
 	if promptErr != nil {
 		return "", false, "", promptErr
 	}
-	if chosen == latest {
+	if upgrade {
 		return latest, true, latest, nil
 	}
 	return current, false, latest, nil
@@ -159,9 +159,9 @@ func ResolveAgentVersionForBuild(k state.Key, requestedVersion string) (string, 
 }
 
 // promptUpgrade offers to rebuild the runner image with a newer release. It
-// returns the chosen version, or an error when the user aborts. A
-// non-interactive session logs the availability but keeps the current version.
-func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (string, error) {
+// reports whether the user chose the upgrade, or an error when the user aborts.
+// A non-interactive session logs the availability but keeps the current version.
+func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (bool, error) {
 	if !ui.IsInteractive() {
 		ui.Infof(
 			"%s %s available (image has %s); run 'agents-sandbox build' to upgrade",
@@ -169,7 +169,7 @@ func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (string,
 			latest,
 			current,
 		)
-		return current, nil
+		return false, nil
 	}
 
 	prompt := fmt.Sprintf("Rebuild the runner image with %s %s? (current image has %s)", a.Name(), latest, current)
@@ -180,15 +180,15 @@ func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (string,
 	}
 	choice, err := ui.Select(prompt, choices, "r")
 	if err != nil {
-		return "", err
+		return false, err
 	}
 	switch choice {
 	case "r":
-		return latest, nil
+		return true, nil
 	case "q":
-		return "", errUpgradeQuit
+		return false, errUpgradeQuit
 	default:
-		return current, nil
+		return false, nil
 	}
 }
 
@@ -206,7 +206,8 @@ func promptUpgrade(ui termio.UI, a agent.Agent, current, latest string) (string,
 // cannot both prompt. A held root lock (e.g. an in-flight runtime-home copy
 // campaign) defers the whole step to the next run rather than racing it. An
 // offline or failed check never fails the session and leaves the once-per-day
-// window open.
+// window open. It requires an upgrade checker: resolveBuildVersion never asks
+// for an agent without one.
 func pendingUpgrade(
 	ctx context.Context,
 	a agent.Resolved,
@@ -215,20 +216,14 @@ func pendingUpgrade(
 	currentVersion string,
 	latestVersion func(context.Context, agent.Agent) (string, error),
 ) (string, bool) {
-	checker := a.Upgrade
-	hasChecker := checker != nil
-
-	entry, checked := checkAgentUpgrade(ctx, a.Profile, hasChecker, ui, latestVersion)
-	if !checked || !hasChecker {
+	entry, checked := checkAgentUpgrade(ctx, a.Profile, ui, latestVersion)
+	if !checked {
 		return "", false
 	}
 	latest := entry.LatestVersion
-	if latest == "" {
-		return "", false
-	}
-	newer, newerErr := checker.NewerThan(latest, currentVersion)
+	newer, newerErr := a.Upgrade.NewerThan(latest, currentVersion)
 	if newerErr != nil || !newer {
-		// An unparsable version never fails the session.
+		// An empty or unparsable version never fails the session.
 		return "", false
 	}
 
@@ -237,7 +232,7 @@ func pendingUpgrade(
 	// project cannot both pass the "already offered" gate and show the prompt.
 	// The transaction never creates a state — it runs before home resolution, so
 	// creating one here would leave a fingerprint-less partial state that poisons
-	// that step's recovery (#183). When no state exists yet we still offer; the
+	// that step's recovery. When no state exists yet we still offer; the
 	// deferred persistOfferedVersion records the mark after home resolution.
 	offer := false
 	if writeErr := state.WithHomeState(k, func(hs *state.HomeState, exists bool) (bool, error) {
@@ -278,7 +273,6 @@ func pendingUpgrade(
 func checkAgentUpgrade(
 	ctx context.Context,
 	a agent.Agent,
-	hasChecker bool,
 	ui termio.Logger,
 	latestVersion func(context.Context, agent.Agent) (string, error),
 ) (state.AgentCheckState, bool) {
@@ -286,7 +280,7 @@ func checkAgentUpgrade(
 	if !ok {
 		return state.AgentCheckState{}, false
 	}
-	if !hasChecker || !entry.DueForCheck(now()) {
+	if !entry.DueForCheck(now()) {
 		return entry, true
 	}
 

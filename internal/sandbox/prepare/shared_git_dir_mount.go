@@ -10,7 +10,7 @@ import (
 )
 
 // withSharedGitDirMount returns the configured mounts plus a read-write bind of
-// an outside worktree's shared git dir (#426). Only the worktree is bound at
+// an outside worktree's shared git dir. Only the worktree is bound at
 // /workspace, and its .git file points at the shared git dir outside that bind,
 // so the shared git dir is mounted at the very path the .git file records.
 //

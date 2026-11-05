@@ -89,7 +89,7 @@ interactive backend that needs a real terminal must fall back to the line backen
 bubbletea's renderer assumes it **exclusively owns the output stream**: it tracks the previous frame and redraws only changed
 cells, relying on unchanged content (the title) remaining on screen. When other code writes to the same stderr concurrently, the
 cursor is no longer where the renderer expects, so the diff corrupts - the title prints once and only the spinner glyph is
-redrawn, glued to whatever line was written between ticks. The image build does exactly this: `build.go` animates a spinner on
+redrawn, glued to whatever line was written between ticks. The image build does exactly this: `docker_build.go` animates a spinner on
 stderr while `scanBuildOutput` streams decoded Docker/apt lines through `ui.Verbose` to the same stderr.
 
 The hand-rolled line spinner tolerates it because every frame re-emits a full, self-contained `\r\033[K<msg> <glyph>(elapsed)`

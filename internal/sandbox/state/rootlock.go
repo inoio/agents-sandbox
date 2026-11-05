@@ -8,16 +8,13 @@ import (
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
 
-// Seams over the lock's I/O so tests can exercise failures a real file cannot
-// trigger. Production keeps the real functions.
-
 var (
 	mkdirRootLock = os.MkdirAll
 	openRootLock  = os.OpenFile
 )
 
 // flockRootLock takes an exclusive advisory lock, non-blocking when blocking is
-// false. It is a seam so tests can exercise the flock failure path.
+// false.
 var flockRootLock = func(f *os.File, blocking bool) error {
 	if blocking {
 		return hostlock.Exclusive(f)

@@ -30,8 +30,7 @@ func IsRealClient() bool {
 // replacement-capable installer after runtime preparation has made a decision.
 func SkipRuntimeInstall() { skipRuntimeInstall = true }
 
-// resolveRuntime/ensureRuntime wrap the SDK setup calls so tests can observe the
-// RuntimeConfig passed to them. Both name the private home explicitly so
+// resolveRuntime and ensureRuntime name the private home explicitly, so
 // resolution does not depend on whether ApplyHome already set MSB_HOME.
 var (
 	resolveRuntime = msbSdk.ResolveRuntime
@@ -108,8 +107,12 @@ type SandboxHandle interface {
 	BackendKind() msbSdk.BackendKind
 	Image() string
 	Connect(ctx context.Context) (Sandbox, error)
-	Refresh(ctx context.Context) (SandboxHandle, error)
-	Start(ctx context.Context) (Sandbox, error)
+	// ConnectOrStart connects to this exact sandbox when it runs, waits while
+	// another caller starts it, or starts it when it is created, stopped or
+	// crashed. booted reports whether this call started it: of concurrent
+	// callers on one stopped sandbox exactly one boots it and the others
+	// connect. A same-name replacement is rejected (IsReplaced).
+	ConnectOrStart(ctx context.Context) (sb Sandbox, booted bool, err error)
 	Stop(ctx context.Context, opts ...msbSdk.StopOption) error
 	Kill(ctx context.Context, opts ...msbSdk.KillOption) error
 	Remove(ctx context.Context) error
@@ -121,6 +124,11 @@ type SandboxHandle interface {
 	// cfg.Volumes is always empty on a read-back
 	// (specs/live-mount-readback.md).
 	ConfigMounts() (map[string]msbSdk.MountConfig, error)
+	// ConfigPorts returns the published port bindings the persisted config
+	// records. Config() cannot supply them either: the same SDK decode drops
+	// the persisted network.ports, so cfg.PortBindings is always empty on a
+	// read-back (specs/live-mount-readback.md).
+	ConfigPorts() ([]msbSdk.PortBinding, error)
 	Modify(ctx context.Context, opts msbSdk.ModifyOptions) (*msbSdk.SandboxModificationPlan, error)
 	Compact(ctx context.Context, opts msbSdk.DiskCompactionOptions) (*msbSdk.DiskCompactionResult, error)
 }
@@ -275,16 +283,17 @@ func GetVMStatus(status msbSdk.SandboxStatus) (VMStatusKind, error) {
 // active runtime transition. Starting is included to protect a VM that another
 // caller is booting, although it is not ready for commands yet.
 func IsSandboxActive(status msbSdk.SandboxStatus) bool {
-	kind, err := GetVMStatus(status)
-	return err == nil && (kind == VMStatusStarting || kind == VMStatusActive)
+	// An unknown status reads as VMStatusUnknown, which is neither.
+	kind, _ := GetVMStatus(status)
+	return kind == VMStatusStarting || kind == VMStatusActive
 }
 
 // IsSandboxInactive reports whether a sandbox has no live runtime and is safe
 // to treat as a stopped resource. Unknown statuses return false so callers
 // that remove or reuse resources fail closed.
 func IsSandboxInactive(status msbSdk.SandboxStatus) bool {
-	kind, err := GetVMStatus(status)
-	return err == nil && (kind == VMStatusCreated || kind == VMStatusStopped)
+	kind, _ := GetVMStatus(status)
+	return kind == VMStatusCreated || kind == VMStatusStopped
 }
 
 // IsNotFound reports whether err is the microsandbox "sandbox does not exist"
@@ -305,6 +314,12 @@ func IsVolumeNotFound(err error) bool {
 // this name already exists" error, unwrapping any wrapped errors.
 func IsVolumeAlreadyExists(err error) bool {
 	return msbSdk.IsKind(err, msbSdk.ErrVolumeAlreadyExists)
+}
+
+// IsSandboxAlreadyExists reports whether err is the microsandbox "sandbox with
+// this name already exists" error, unwrapping any wrapped errors.
+func IsSandboxAlreadyExists(err error) bool {
+	return msbSdk.IsKind(err, msbSdk.ErrSandboxAlreadyExists)
 }
 
 // IsReplaced reports whether err indicates that a handle's name now refers to a
@@ -632,20 +647,28 @@ func (w realSandboxHandle) Connect(ctx context.Context) (Sandbox, error) {
 	return &realSandbox{sandbox: sb}, nil
 }
 
-func (w realSandboxHandle) Refresh(ctx context.Context) (SandboxHandle, error) {
-	h, err := w.handle.Refresh(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return realSandboxHandle{handle: h}, nil
-}
+// The connect-or-start delegation targets are package-level seams (method
+// expressions) so the boot report is unit-testable without a live VM.
+var (
+	realHandleConnectOrStart = (*msbSdk.SandboxHandle).ConnectOrStart
+	realSandboxOwnsLifecycle = (*msbSdk.Sandbox).OwnsLifecycle
+)
 
-func (w realSandboxHandle) Start(ctx context.Context) (Sandbox, error) {
-	sb, err := w.handle.Start(ctx)
+// ConnectOrStart starts attached (not detached), so the returned sandbox owns
+// the VM process exactly when this call booted it; ownership is read before the
+// caller can detach. A sandbox whose ownership cannot be read is closed and the
+// error returned, because guessing would run or skip the once-per-boot work.
+func (w realSandboxHandle) ConnectOrStart(ctx context.Context) (Sandbox, bool, error) {
+	sb, err := realHandleConnectOrStart(w.handle, ctx)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return realSandbox{sandbox: sb}, nil
+	booted, err := realSandboxOwnsLifecycle(sb)
+	if err != nil {
+		_ = realSandboxClose(sb)
+		return nil, false, fmt.Errorf("read whether this run booted the sandbox: %w", err)
+	}
+	return realSandbox{sandbox: sb}, booted, nil
 }
 
 func (w realSandboxHandle) Stop(ctx context.Context, opts ...msbSdk.StopOption) error {
@@ -670,6 +693,10 @@ func (w realSandboxHandle) Config() (*msbSdk.SandboxConfig, error) {
 
 func (w realSandboxHandle) ConfigMounts() (map[string]msbSdk.MountConfig, error) {
 	return ParseConfigMounts(w.handle.ConfigJSON())
+}
+
+func (w realSandboxHandle) ConfigPorts() ([]msbSdk.PortBinding, error) {
+	return ParseConfigPorts(w.handle.ConfigJSON())
 }
 
 func (w realSandboxHandle) Modify(

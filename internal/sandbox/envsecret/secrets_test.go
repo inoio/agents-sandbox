@@ -721,3 +721,18 @@ func TestParseSecretSpecLegacyTrimsKey(t *testing.T) {
 		t.Errorf("expected trimmed key \"KEY\", got %#v", specs)
 	}
 }
+
+// TestParseSecretSpecLegacyEmptyKey verifies that a line with an empty (after
+// trimming) key is skipped.
+func TestParseSecretSpecLegacyEmptyKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "env.secret")
+	testutil.WritePath(t, path, "=val@h.example\nFOO=bar@baz.example\n")
+	testUI := termio.NewTestMock(t)
+	specs := ParseSecretSpecLegacy(path, &testUI)
+	if _, ok := specs["FOO"]; !ok {
+		t.Error("expected FOO to be parsed")
+	}
+	if len(specs) != 1 {
+		t.Errorf("expected only 1 spec (empty key skipped), got %d", len(specs))
+	}
+}

@@ -21,7 +21,7 @@ func buildStateCmd(ui termio.Output) *cobra.Command {
 }
 
 // buildStateRepairCmd builds `state repair`, the explicit recovery path for a
-// corrupt launcher-global state file (#332): it moves the file aside instead of
+// corrupt launcher-global state file: it moves the file aside instead of
 // deleting it, so the next run starts from a fresh launcher state.
 func buildStateRepairCmd(ui termio.Output) *cobra.Command {
 	return &cobra.Command{

@@ -1,17 +1,14 @@
 package options
 
 import (
-	"fmt"
-	"net"
 	"time"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 )
 
 // DockerSetting is the resolved docker capability: whether the Docker engine
@@ -69,6 +66,10 @@ type RunOptions struct {
 	// serves without attaching the in-VM TUI. Clients (e.g. a desktop app)
 	// connect to the published host port.
 	ServeOnly bool
+	// Ports are user-published ports: guest ports reachable from the host
+	// loopback. Empty by default; set via the ports config key, the
+	// AGENTS_SANDBOX_PORTS env var, or --port.
+	Ports []ports.PortMapping
 	// Notify is the resolved notify config for the session (channels + triggers).
 	Notify notify.Config
 	// Network is the resolved egress policy for the project VM. An unset profile
@@ -97,67 +98,6 @@ type RunOptions struct {
 	// production (every stage uses its package default); only tests populate a
 	// field.
 	Seams Seams
-}
-
-// ServeOnlyBindAddr is the loopback address the agent server binds to
-// when run in serve-only mode.
-const ServeOnlyBindAddr = "127.0.0.1"
-
-// ServeOnlyBasePort is the lowest host port probed when publishing the agent
-// server in serve-only mode, and the guest port the agents serve on.
-const ServeOnlyBasePort = 4096
-
-// probeHostPort reports whether the loopback address can bind port. It is a
-// test seam so tests need not touch a real socket.
-var probeHostPort = func(port int) bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ServeOnlyBindAddr, port))
-	if err != nil {
-		return false
-	}
-	_ = ln.Close()
-	return true
-}
-
-// FirstFreeHostPort returns the first host port at or above base that is not
-// currently bound on the loopback address.
-func FirstFreeHostPort(base int) int {
-	for p := base; p < base+1024; p++ {
-		if probeHostPort(p) {
-			return p
-		}
-	}
-	return base
-}
-
-// ServeOnlyBindings returns the msb port binding for serve-only mode with the
-// given host port, mapping it to the fixed guest port.
-func ServeOnlyBindings(hostPort int) []msbSdk.PortBinding {
-	return []msbSdk.PortBinding{
-		//nolint:gosec // G115: host ports are well below the uint16 max
-		{
-			Bind:      ServeOnlyBindAddr,
-			HostPort:  uint16(hostPort),
-			GuestPort: ServeOnlyBasePort,
-			Protocol:  msbSdk.PortProtocolTCP,
-		},
-	}
-}
-
-// ResolveServeHostPort returns the host port to publish for serve-only mode:
-// the port an existing VM already publishes (kept stable across runs), or the
-// first free host port at or above ServeOnlyBasePort.
-func ResolveServeHostPort(cfg *msbSdk.SandboxConfig, serveOnly bool) int {
-	if !serveOnly {
-		return 0
-	}
-	if cfg != nil {
-		for _, pb := range cfg.PortBindings {
-			if pb.HostPort != 0 {
-				return int(pb.HostPort)
-			}
-		}
-	}
-	return FirstFreeHostPort(ServeOnlyBasePort)
 }
 
 // ReapPolicy controls what happens after the last client detaches from a VM.

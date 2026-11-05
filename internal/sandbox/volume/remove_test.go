@@ -110,13 +110,12 @@ func TestRemoveVolumesFailsClosedOnReferenceScanError(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 
-	if err := RemoveVolumes(
-		context.Background(),
-		[]string{"agents-sandbox-home-a-20260812T123456"},
-		false,
-		&termio.Mock{},
-	); err == nil {
-		t.Fatal("RemoveVolumes() error = nil, want a fail-closed reference scan error")
+	// The removal is confirmed, so only the failed scan can stop it.
+	ui := &termio.Mock{}
+	ui.SetAssumeYes(true)
+	err := RemoveVolumes(context.Background(), []string{"agents-sandbox-home-a-20260812T123456"}, false, ui)
+	if err == nil || !strings.Contains(err.Error(), "check volume references") || errors.Unwrap(err) == nil {
+		t.Fatalf("RemoveVolumes() error = %v, want the fail-closed reference scan error", err)
 	}
 	if len(client.RemovedVolumes) != 0 {
 		t.Errorf("RemovedVolumes = %v, want none removed", client.RemovedVolumes)

@@ -16,14 +16,13 @@ var version = devVersion
 // execute runs the CLI with the given arguments and UI.
 //
 // For integration testing, override the injection seams using:
-//   - msb:   msb.ResetGetFn (replaces the msb.Client factory)
+//   - msb:   msb.WithMsbMock (replaces the msb.Client factory for one test)
 //   - docker:  docker.WithNoopDockerMock / docker.WithDefaultErrorDockerMock / docker.WithDockerMock
 //
 // Example:
 //
 //	func TestListSandboxCommand(t *testing.T) {
-//	    orig := msb.ResetGetFn(func() msb.Client { return mock })
-//	    t.Cleanup(func() { msb.ResetGetFn(orig) })
+//	    msb.WithMsbMock(t, mock)
 //
 //	    ui := &termio.Mock{}
 //	    err := Execute([]string{"list"}, ui)

@@ -55,7 +55,7 @@ func dockerfileLines(dockerfile []byte) [][]byte {
 // resembles a keyword — a Python "from ... import ..." inside a RUN heredoc, or
 // a continued argument — is not read as a stage header, and heredoc content that
 // resembles a marker — a COPY <<EOF file containing "# agents-sandbox:docker" —
-// is not read as a marker (#346). The stage scan, the marker scan, and the
+// is not read as a marker. The stage scan, the marker scan, and the
 // diagnostics all read this one walk instead of re-lexing the file.
 func dockerfileLineIndices(lines [][]byte) ([]int, []int) {
 	escape := escapeToken(lines)

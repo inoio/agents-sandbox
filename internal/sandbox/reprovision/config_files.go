@@ -22,9 +22,9 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// evalProvisionRules is a seam over agent.EvalProvisionRules so tests can
-// exercise the provisioning-error path. A direct call cannot fail because the
-// copy callback only records files in memory.
+// evalProvisionRules is indirect because a direct call cannot fail (the copy
+// callback only records files in memory), so only a substitute reaches the
+// provisioning-error path.
 var evalProvisionRules = agent.EvalProvisionRules
 
 // VMHomeDir is the sandbox home mount point. It is fixed by the project VM
@@ -82,7 +82,8 @@ func ResolveConfigSource(a agent.Agent, scopes []cp.ConfigScope) (ConfigSource, 
 	if primaryExists {
 		return src, nil
 	}
-	for i := 1; i < len(names); i++ {
+	// gomutants:disable-next-line INTEGER_DECREMENT reason="starting at 0 re-checks the primary pair, which was just found absent without an error, so the result is the same"
+	for i := 1; i < len(userCandidates); i++ {
 		exists, err := anyDirExists(candidateDirs(userCandidates[i], projectCandidates[i])...)
 		if err != nil {
 			return ConfigSource{}, err
@@ -169,6 +170,7 @@ func anyDirExists(dirs ...string) (bool, error) {
 // if read.
 func describeConfigScopes(userDirs []string, projectDir string, onlyExisting bool) string {
 	parts := make([]string, 0, len(userDirs)+1)
+	// gomutants:disable-next-line INTEGER_DECREMENT,INTEGER_INCREMENT reason="the capacity only presizes the slice; append grows it as needed"
 	for _, dir := range userDirs {
 		if !onlyExisting || IsDir(dir) {
 			parts = append(parts, fmt.Sprintf("user: %q", dir))
@@ -321,11 +323,7 @@ func LoadConfigFilesForHost(
 		return nil, err
 	}
 
-	mirrorEntries, err := subject.buildMirror(src)
-	if err != nil {
-		return nil, fmt.Errorf("build config mirror: %w", err)
-	}
-	mirror, mirrorModes := mirrorMaps(mirrorEntries)
+	mirror, mirrorModes := mirrorMaps(subject.buildMirror(src))
 	subject.applyPrecedence(provisioned, homeFiles, mirror, modes, mirrorModes, homeModes, merged.hasSnippets)
 	ensureHookExecutable(modes, hooks)
 	// Remove stale host config so it cannot shadow the merged config: when
@@ -450,6 +448,7 @@ func (s configSubject) loadProvisioned(
 	provisioned := make(map[string][]byte)
 	modes := make(map[string]os.FileMode)
 	if !enabled || s.provisioner == nil {
+		// gomutants:disable-next-line RETURN_ZERO reason="callers only range over, index and delete from the map, so an empty and a nil map behave the same"
 		return provisioned, modes, nil
 	}
 	for _, w := range agent.ValidateProvisionRules(s.provisionRules) {
@@ -588,24 +587,22 @@ func (s configSubject) buildMergedConfig(src ConfigSource) (mergedConfig, error)
 // the user and project <agent> config dirs that is neither a top-level snippet
 // match nor a top-level config-family name, keyed by VM path under the agent's
 // VM config directory. A subject without a merger has no mirror.
-func (s configSubject) buildMirror(src ConfigSource) (map[string]config.MirrorEntry, error) {
+func (s configSubject) buildMirror(src ConfigSource) map[string]config.MirrorEntry {
 	if s.merger == nil {
-		return map[string]config.MirrorEntry{}, nil
+		// gomutants:disable-next-line RETURN_ZERO reason="the caller only ranges over the map, so an empty and a nil map read the same"
+		return map[string]config.MirrorEntry{}
 	}
-	entries, err := config.ScanMirror(
+	entries := config.ScanMirror(
 		s.snippetPattern,
 		s.familyNames,
 		orderedSourceDirs(src),
 		filepath.Dir(s.vmConfigPath),
 	)
-	if err != nil {
-		return nil, err
-	}
 	mirror := make(map[string]config.MirrorEntry, len(entries))
 	for _, e := range entries {
 		mirror[e.VMPath] = e
 	}
-	return mirror, nil
+	return mirror
 }
 
 func mirrorMaps(entries map[string]config.MirrorEntry) (map[string][]byte, map[string]os.FileMode) {
@@ -676,15 +673,12 @@ func (s configSubject) mirrorFilesFromConfig(src ConfigSource) []MirrorFile {
 	if s.merger == nil {
 		return nil
 	}
-	entries, err := config.ScanMirror(
+	entries := config.ScanMirror(
 		s.snippetPattern,
 		s.familyNames,
 		orderedSourceDirs(src),
 		filepath.Dir(s.vmConfigPath),
 	)
-	if err != nil {
-		return nil
-	}
 	files := make([]MirrorFile, 0, len(entries))
 	for _, e := range entries {
 		files = append(files, MirrorFile{HostPath: e.HostPath, VMPath: e.VMPath})
@@ -755,6 +749,7 @@ func ReadVMConfig(ctx context.Context, sb msb.Sandbox, paths []string, ui termio
 func AgentConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
 	if cf.HasSnippets {
 		vm, ok := vmData[cf.MergedPath]
+		// gomutants:disable-next-line BRANCH_IF reason="DocumentsEqual fails to parse a missing (nil) VM document against any non-empty merged one, so it already reports the difference"
 		if !ok {
 			return false
 		}

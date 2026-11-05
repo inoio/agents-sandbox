@@ -19,7 +19,7 @@
   - Read If: Evaluating, adding, or swapping a Go mutation-testing tool, or checking why gomutants was chosen over gremlins/go-mutesting/ooze/gomu.
 - `mutation-triage.md`
   - Description: Field guide for closing gomutants LIVED mutants: the recurring types and the assertion that kills each, the equivalent-mutant traps, the record-with-a-reason fallback, and the operational scoping/timing notes (`SINCE=<base ref>` for a branch sweep).
-  - Read If: Triaging surviving mutants from a `make mutation` sweep, choosing between strengthening a test and recording a `// gomutants:disable` reason, or picking a `SINCE` scope for a branch/PR sweep.
+  - Read If: Triaging surviving mutants from a `make mutation` sweep, choosing between strengthening a test, deleting redundant production code and recording a `// gomutants:disable` reason, picking a `SINCE` scope for a branch/PR sweep, or reworking a package's tests into behaviour tests (#540) and checking that they can fail.
 - `mutation-sweep-execution.md`
   - Description: Runbook for burning down the #268 mutation-survivor tracker over turns: the immutable FULL-sweep snapshot, the 35-package queue, file-disjoint worker units with the package as the verification unit, the per-id disposition handback, end-of-turn `make mutation FULL=1 PKG=<pkg>` verification, and the effective turn ordering (re-sweep first, drive off the fresh typed report, batch by type per file, restructure order-dependent loops/comparators first).
   - Read If: Coordinating or executing a #268 reduction pass, or changing the coordinator/subagent split, the queue and cursor format, the handback shape, the turn's work ordering, the landing/sequencing model, or the verification protocol.
@@ -53,6 +53,9 @@
 - `secret-placeholder-transcript-trap.md`
   - Description: Why a session dies once a microsandbox secret placeholder reaches the model context — the LLM transport POSTs the whole conversation, so a placeholder anywhere in history blocks every later turn — how to observe the block in `runtime.log` (the zero `LogOptions` misses it; it is a `LogSourceSystem` read), and the launcher's config-file-only `secrets.common.allow-placeholder-for` repair (`Allow`/`Passthrough` disjointness, the `placeholderHostsFor` invariants, the digest change that forces one recreate).
   - Read If: Diagnosing a model turn blocked by a secret violation, working on `secrets.common.allow-placeholder-for`, `BuildSecretsFromSpecs`/`placeholderHostsFor`, or `envsecret` passthrough hosts.
+- `vm-oom-crash-resilience.md`
+  - Description: Research on how the microsandbox microVM enforces memory/disk/CPU limits (virtio-mem plugged cap, no swap/zram, no cgroup `memory.max`/`memory.events`, so the guest's global kernel OOM killer fires with default `oom_badness`), why an OOM kill is invisible from the launcher (guest signal deaths report exit code `-1`, `JobInfo` has no OOM field, no runtime OOM API), the two-layer host-terminal corruption (SDK Rust `scopeguard` restores termios on normal return but never the guest TUI's emulator modes) and its recovery, the confirmed `Metrics`/`LogSourceSystem` detection surface (the guest OOM printk reaches `LogSourceSystem`), the async live memory resize and the default managed root disk, the host-RAM capacity bound, and the ranked detect-and-propose mitigation path.
+  - Read If: Working on VM OOM/crash handling, a memory/disk/CPU limit-hit detector or "raise the limit" proposal, terminal corruption after an in-VM kill, or the daemon/dockerd re-ensure and supervision behaviour.
 
 ### `specs/` - System contracts for this partition
 
@@ -78,8 +81,8 @@
   - Description: Contract for verifying a downloaded release asset before the self-update installs it (#338): one published `checksums.txt` in `sha256sum` format, the download → verify → replace path in `installRelease`, fail-closed handling of a mismatch/missing/malformed entry, and the same-channel-checksum limitation (cosign is the follow-up).
   - Read If: Changing the self-update download/verify/replace path, the release job's asset or checksums publishing, or `internal/upgrade`'s checksum handling.
 - `test-coverage.md`
-  - Description: Contract for coverage on added and changed lines: every added line must be executed by a test (error/transport/status branches included); an unreachable-by-construction branch must be removed, not left uncovered; match the sibling you mirror.
-  - Read If: Adding or changing production code and deciding what to test, reviewing a diff for coverage gaps, or triaging a failing `codecov/patch` or `codecov/project` check on a PR.
+  - Description: Contract for coverage on added and changed lines: every added line must be executed by a test (error/transport/status branches included); an unreachable-by-construction branch must be removed, not left uncovered; match the sibling you mirror; test doubles (`testmock.go`) are excluded from coverage and their tests pin only fail-open contracts.
+  - Read If: Adding or changing production code and deciding what to test, reviewing a diff for coverage gaps, triaging a failing `codecov/patch` or `codecov/project` check on a PR, or deciding what to test on a test double.
 - `dead-code-gate.md`
   - Description: Contract for the CI gate that fails when production code is unreachable from any `main` package: a pinned x/tools `deadcode`, a reason-bearing `//deadcode:ignore` marker with file and declaration scope, `ci/check-deadcode.sh`, and the `verify`-not-`check` wiring.
   - Read If: Changing the `make deadcode` target, the `//deadcode:ignore` marker convention, `ci/check-deadcode.sh`/`ci/deadcodecheck`, the `DEADCODE_VERSION` pin, or the dead-code CI job; or diagnosing an unmarked finding, a stale marker, or an untrusted-analysis (exit 2) failure.
@@ -141,7 +144,7 @@
   - Description: Contract for the documentation-fragment gate in `ci/check-docs.sh`: every anchor landing on the published site must resolve to a heading (kramdown's derived slug, mirrored), across rendered-HTML links, `docs/` in-page anchors and the launcher's doc links composed through the leaf package `internal/docslink`.
   - Read If: Changing `ci/check-docs.sh`/`ci/test-check-docs.sh`, the doc-link fragment check, the kramdown slug mirror, `internal/docslink`, or the doctor/build-error `Docs:` links.
 - `first-run-guidance.md`
-  - Description: Contract for guiding a fresh install to a working sandbox: the Get started flow keeps the prerequisites and the `doctor` verification in one Installation section and `doctor` off the running pages, and a failing prerequisite check prints a copy-pasteable, platform-specific fix plus a link to its matching troubleshooting anchor.
+  - Description: Contract for guiding a fresh install to a working sandbox: the Get started flow keeps the prerequisites and the `doctor` verification in one Installation section, keeps `doctor` off the running pages, and pins the child-page sequence and the tutorial's "Your first agent" title; a failing prerequisite check prints a copy-pasteable, platform-specific fix plus a link to its matching troubleshooting anchor.
   - Read If: Changing the Get started docs, `installation.md`, `tutorial.md`, or the README quick start; changing `internal/sandbox/doctor` output, the prerequisite checks, or the `troubleshooting.html` anchors doctor links to.
 - `termio-ui-backends.md`
   - Description: Contract for termio's role-interface seam (`Logger`/`Output`/`Prompter`/`SpinnerFactory`/`TerminalState`/`Streams` composed into `termio.UI`) and the narrowing of single-role consumers; the huh prompt-backend design is recorded as deferred/unlanded (#362).
@@ -162,14 +165,14 @@
   - Description: Design for #15: build the runner image without host Docker by running `buildkitd` inside a microsandbox VM, driven by a host-side BuildKit Go client over a published TCP port; covers the free/unique-port invariant, `native` snapshotter, `ImageLoad` delivery, identity/reuse, and removal of `internal/sandbox/docker`.
   - Read If: Changing the Docker-free BuildKit builder (#15), the `internal/sandbox/builder` package, or the image build/inspect/load pipeline and doctor prerequisites.
 - `runtime-management-commands.md`
-  - Description: Contract for the CLI's microsandbox management surface: `volume`/`image`/`sandbox inspect`, `image remove`/`sandbox remove`, a top-level `df` plus a `storage` alias, and uniform `-q`/`--format json`/`--yes`/`--older-than` conventions.
-  - Read If: Adding or reviewing volume/image/sandbox inspect and removal, the `df`/`storage` commands, prune confirmation/format flags, or command-surface consistency conventions.
+  - Description: Contract for the CLI's microsandbox management surface: `volume`/`image`/`sandbox inspect`, `image remove`/`sandbox remove`, `sandbox compact`, a top-level `df` plus a `storage` alias, and uniform `-q`/`--format json`/`--yes`/`--older-than` conventions.
+  - Read If: Adding or reviewing volume/image/sandbox inspect and removal, sandbox disk compaction, the `df`/`storage` commands, prune confirmation/format flags, or command-surface consistency conventions.
 - `cliout-package-boundary.md`
   - Description: Contract for the CLI output package boundary (#357): `internal/cliout` stays domain-free (generic mode/list/JSON rendering plus `RenderPruneReport`), while the sandbox-shaped `Printer` implementations and prune/compact report JSON DTOs live in `internal/view`, enforced by an import-boundary test.
   - Read If: Moving a Printer, report-JSON DTO, or renderer between `internal/cliout` and the launcher's view package, or deciding where new list/inspect/report rendering belongs.
 - `sandbox-identity.md`
-  - Description: Contract distinguishing a sandbox's mutable *name* from its stable *identity*: removal/attach fail closed via the SDK's identity-aware operations and `ErrSandboxReplaced` (via `msb.IsReplaced`), handled per path.
-  - Read If: Working on the msb seam's sandbox removal/attach paths, prune, the reaper, reconfig-replace, or reasoning about name-vs-identity safety, `ErrSandboxReplaced`, or #144 vs #158.
+  - Description: Contract distinguishing a sandbox's mutable *name* from its stable *identity*: removal/attach fail closed via the SDK's identity-aware operations and `ErrSandboxReplaced` (via `msb.IsReplaced`), handled per path, including the replace-free project VM create and the `ConnectOrStart` attach whose `OwnsLifecycle` reading is the boot signal.
+  - Read If: Working on the msb seam's sandbox create/removal/attach paths, `EnsureProjectVM`, prune, the reaper, reconfig-replace, or reasoning about name-vs-identity safety, `ErrSandboxReplaced`/`ErrSandboxAlreadyExists`, or #144 vs #158.
 - `checkout-identity.md`
   - Description: Contract for splitting project identity in two: a repo-scoped slug (origin-derived; the per-slug config dir and grouping label) and a checkout-scoped slug (git common dir; state/VM/volume/locks/image tag), with the automatic, noticed migration of legacy VMs and state, the outside-worktree shared-git-dir mount (#426), and the strict path resolution that refuses an unresolvable cwd or git dir instead of hashing a fallback into the slug.
   - Read If: Changing per-checkout project identity, the repo-vs-checkout slug split, the runner-image tag identity, the migration/notice/prune guard, `ResolveIdentity`'s error contract or the `MustRepoSlug`/`MustCheckoutSlug` accessors, or the `config paths` command.
@@ -236,12 +239,18 @@
 - `yaml-library.md`
   - Description: Contract for the YAML dependency: every parse/serialize goes through the maintained `go.yaml.in/yaml/v3`, never `gopkg.in/yaml.v3` v3.0.1, whose emitter drops a leading blank line on marshal.
   - Read If: Adding a YAML parse/serialize path, touching `go.mod`'s YAML dependency, or triaging a `FuzzParseState` serialization-stability failure.
+- `resource-limit-proposal.md`
+  - Description: Contract for detecting a project VM resource-limit hit and prompting a raise: memory OOM via the guest kernel-log line (primary) with a metrics-headroom fallback watched during the session, the 90%/1 GiB threshold and 80% re-arm, the `HomeState` anti-nag marker, persistence to the owning config layer (project config when it would shadow, error on an env override), the async live memory apply and the memory-above-boot-max recreate, terminal reset after the attach, and the `/workspace`+`/tmp` in-guest probe with recreate-only apply (disk Phase 2).
+  - Read If: Working on the OOM/limit-hit detector or raise proposal, the `pressure`/`resourceproposal` packages, the `msb.Sandbox.Metrics`/`Logs` seam, per-project `memory` persistence, or the automatic terminal reset after an attach.
 
 ### `plans/` - TDD implementation plans
 
 - `2026-10-10-buildkit-builder-vm.md`
   - Description: TDD plan for `specs/buildkit-builder-vm.md`: the `internal/sandbox/builder` package, BuildKit deps, rewiring `image`, VM creation, cache pruning, and removing `internal/sandbox/docker` + `doctor.CheckDocker`.
   - Read If: Implementing the Docker-free BuildKit builder (#15) — `internal/sandbox/builder`, `buildkitd`, `ImageLoad`, or the image build/inspect/load pipeline and `doctor.CheckDocker` removal.
+- `2026-11-04-vm-memory-limit-proposal.md`
+  - Description: Phase 1 TDD plan for `specs/resource-limit-proposal.md` (#544, memory only): the `msb` `Metrics`/`Logs` seam, the `internal/sandbox/pressure` classifier, the `HomeState` marker, the session metrics watcher, terminal reset, the format-preserving config writer, the `resourceproposal` prompt/persist, the above-boot-max recreate rule, and the next-launch + post-attach hooks. Disk is a separate Phase 2 plan.
+  - Read If: Implementing the memory-limit detection and raise proposal (#544) — `pressure`, `resourceproposal`, `session.pressureWatch`, or the `prepare.resolveReconfigDecision` memory hook.
 - `2026-11-05-per-slug-config-scopes.md`
   - Description: TDD plan for `specs/per-slug-config-scopes.md` (#578): the `configpaths.ConfigScope` authority, slug on `RunOptions`, and deriving the launcher config file, env/secret files, `home:` layers, and agent config dirs from the scopes across 9 tasks.
   - Read If: Implementing per-slug config-scope parity (#578).

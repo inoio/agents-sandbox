@@ -14,7 +14,7 @@ import (
 // flock, so a CountActiveClients landing in that window sees a file with no
 // holder; treating it as garbage would leave the acquirer holding a flock on an
 // anonymous inode that no later count can see, making the lease permanently
-// invisible (#298, the client-lease race flagged in the #245 review). The window
+// invisible. The window
 // only needs to exceed the create-to-flock gap (microseconds); a second is
 // conservatively generous while still reaping a crashed client's abandoned
 // lease promptly.

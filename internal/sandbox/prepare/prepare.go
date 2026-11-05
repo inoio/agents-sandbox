@@ -23,6 +23,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtimemigration"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -176,7 +177,11 @@ func PrepareSandbox(
 				return err
 			}
 			opts.Recreate = plan.decision.Recreate
-			opts.ServeHostPort = resolveServeHostPort(opts, plan.decision.ServeHostPort)
+			serveHostPort, err := resolveServeHostPort(opts, plan.decision.ServeHostPort)
+			if err != nil {
+				return err
+			}
+			opts.ServeHostPort = serveHostPort
 			return nil
 		}},
 		{ID: lifecycle.EnsureVM, Run: func() error {
@@ -503,14 +508,15 @@ func setupSandboxStage(
 		if err != nil {
 			return "", err
 		}
+		reportActivePorts(opts, plan, ui)
 	}
 	ui.Verbosef("attach target: %s", sandboxTarget)
 	return sandboxTarget, nil
 }
 
 // resolveSessionIdentity derives the workspace identity for cwd from the
-// run's already-resolved agent, then adopts a legacy origin-keyed identity
-// (#144). Adoption runs before any other work so its notice explains the pause
+// run's already-resolved agent, then adopts a legacy origin-keyed identity.
+// Adoption runs before any other work so its notice explains the pause
 // and the runner image builds under the effective (checkout-scoped) tag; a
 // skipVM prepare makes it read-only, so the rest of the run keeps resolving
 // against the legacy location. It returns the adoption so the caller can use the
@@ -592,34 +598,66 @@ func resolveWorkspacePath(dir string) (string, error) {
 }
 
 // guestWorkspacePath maps the host cwd to the directory the agent should start
-// in inside the VM, given the host directory bound at /workspace. When cwd is
-// the bind root (or cannot be related to it) the workspace mount path itself is
-// returned; otherwise the relative path is appended using POSIX separators.
+// in inside the VM, given the host directory bound at /workspace: the cwd's
+// path relative to the bind root, appended with POSIX separators. A cwd that
+// cannot be related to the bind root starts at the workspace mount path.
 func guestWorkspacePath(bindRoot, cwd string) string {
 	rel, err := filepath.Rel(bindRoot, cwd)
-	if err != nil || rel == "." {
+	if err != nil {
 		return mounts.WorkspaceMountPath
 	}
 	return path.Join(mounts.WorkspaceMountPath, filepath.ToSlash(rel))
 }
 
-// resolveServeHostPort returns the host port to publish in serve-only mode. When
-// the reconfig plan produced one (an existing VM reuses its published port) it
-// is used; otherwise a free host port is probed so the VM-creation port (read
-// from opts.ServeHostPort) and the serve-message port (read from the Session)
-// agree on the very first run.
-func resolveServeHostPort(opts options.RunOptions, planned int) int {
-	if opts.ServeOnly && planned == 0 {
-		return options.FirstFreeHostPort(options.ServeOnlyBasePort)
+// reportPublishedPorts prints the requested user mappings. Whether the running
+// VM actually carries them — the gating — is decided by reportActivePorts.
+func reportPublishedPorts(opts options.RunOptions, ui termio.Logger) {
+	for _, mapping := range opts.Ports {
+		ui.Infof("published port: 127.0.0.1:%d → guest port %d", mapping.HostPort, mapping.GuestPort)
 	}
-	return planned
+}
+
+// reportActivePorts reports the requested user ports only when the running VM
+// actually carries them: on a fresh create, a recreate, or a kept VM whose
+// ports did not change. A kept VM defers a ports change to the next recreate
+// and still runs the old bindings, so the deferral is warned about instead.
+func reportActivePorts(opts options.RunOptions, plan reconfigPlan, ui termio.Logger) {
+	if len(opts.Ports) == 0 {
+		return
+	}
+	if plan.existingVM != nil && !plan.decision.Recreate && plan.decision.PortsChanged {
+		ui.Warnf("ports change deferred: the running VM keeps its published ports until the next recreate")
+		return
+	}
+	reportPublishedPorts(opts, ui)
+}
+
+// resolveServeHostPort returns the host port to publish in serve-only mode: the
+// reconfig plan's port when it produced one (an existing VM reuses its
+// published port), else a free probe, so the VM-creation binding (read from
+// opts.ServeHostPort) and the serve message (read from the Session) agree on
+// the very first run. It errors when no free host port remains in the probe
+// range: publishing the agent server is then impossible, and a silent fallback
+// would hand out a port that is already taken.
+func resolveServeHostPort(opts options.RunOptions, planned int) (int, error) {
+	if !opts.ServeOnly || planned != 0 {
+		return planned, nil
+	}
+	probed := ports.ResolveServeHostPort(nil, true, opts.Ports)
+	if probed == 0 {
+		return 0, fmt.Errorf(
+			"no free host port for the agent server in %d-%d; free a loopback port or publish fewer user ports",
+			ports.ServeOnlyBasePort, ports.ServeOnlyBasePort+ports.ProbeRange-1,
+		)
+	}
+	return probed, nil
 }
 
 // prepareHomeVolume offers the opt-in legacy home-volume copy, then resolves the
 // project's home volume and its state. It returns the volume manager for the
 // caller's subsequent reconfig/VM steps.
 //
-// A home volume preserved by a VM-only identity adoption (#144) is not passed
+// A home volume preserved by a VM-only identity adoption is not passed
 // here: adoption records it in the checkout state's RecoveredHomeVolume, which
 // ResolveHomeVolume recovers, so the reference survives any caller that discards
 // the adoption result or any step that fails before home resolution.
@@ -688,7 +726,7 @@ func persistOfferedVersion(k state.Key, version string, ui termio.Logger) {
 
 // liveHomeVolume returns the home volume currently mounted by the project VM,
 // or "" when the project has no VM or its mounts cannot be read. It lets home
-// resolution recover the volume when the state file was lost (issue #219). The
+// resolution recover the volume when the state file was lost. The
 // mount is read from the VM's persisted config, because the SDK's Config()
 // leaves cfg.Volumes empty on a read-back (specs/live-mount-readback.md). A
 // not-found VM is expected (first run); any other lookup error is logged so a
@@ -705,7 +743,7 @@ func liveHomeVolume(ctx context.Context, client msb.Client, k state.Key, ui term
 // loadEnvFingerprints reads the host env and secret files once per run and
 // derives the VM-config fingerprints from that single read, so the persisted
 // fingerprints and the env/secrets baked into a newly created VM cannot
-// disagree (#342).
+// disagree.
 func loadEnvFingerprints(opts options.RunOptions, ui termio.Logger) (envsecret.EnvSecrets, state.Fingerprints) {
 	scopes := configpaths.ConfigScopes(configpaths.Get(), opts.ConfigSlug)
 	env := envsecret.LoadEnvAndSecrets(ui, scopes, opts.AllowPlaceholderFor)

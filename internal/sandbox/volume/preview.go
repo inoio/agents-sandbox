@@ -9,7 +9,7 @@ import (
 
 // PreviewHomeVolume resolves, read-only, the home volume a run would use and
 // whether it would have to be created. It shares resolveHomeVolumePlan with
-// ResolveHomeVolume, so the two cannot drift (#527), and performs no write: no
+// ResolveHomeVolume, so the two cannot drift, and performs no write: no
 // volume is created, no state is repaired, and nothing is prefilled.
 //
 // A lookup error on the recorded volume that is not true absence is returned

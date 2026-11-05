@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-// codexGitHubLatestURL is a var (not const) so the tests can point it at an
-// httptest server.
 var codexGitHubLatestURL = "https://api.github.com/repos/openai/codex/releases/latest"
 
 // codexReleaseTagPrefix prefixes every Codex CLI release tag, e.g. "rust-v0.164.0".

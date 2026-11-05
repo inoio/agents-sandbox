@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	imagetypes "github.com/moby/moby/api/types/image"
+	mobyclient "github.com/moby/moby/client"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -1043,5 +1045,107 @@ func TestPruneImagesSkipsNativePruneWhenRetaining(t *testing.T) {
 	}
 	if pruned {
 		t.Error("native Image.Prune must not run when the invocation retains image keys")
+	}
+}
+
+func TestPruneImagesSkipsForeignAndReports(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{Images: []msb.ImageHandle{
+		&msb.MockImageHandle{Reference_: "docker.io/library/foreign:1"},
+		&msb.MockImageHandle{Reference_: "agents-sandbox/runner-orphan-1mjusbm3wikhb0:digest1"},
+	}}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
+		{Slug: "orphan-1mjusbm3wikhb0"}: &msb.MockSandboxHandle{},
+	}}
+
+	r, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("PruneImages: %v", err)
+	}
+	if r.MSBImagesPruned != 1 {
+		t.Errorf("MSBImagesPruned = %d, want 1 (the orphan, not the foreign ref)", r.MSBImagesPruned)
+	}
+	if len(r.Details) != 1 || r.Details[0].Name != "agents-sandbox/runner-orphan-1mjusbm3wikhb0:digest1" {
+		t.Errorf("Details = %v, want the orphan entry", r.Details)
+	}
+	if len(r.Details) == 1 && r.Details[0].StaleFor != 0 {
+		t.Errorf("Details[0].StaleFor = %v, want 0", r.Details[0].StaleFor)
+	}
+}
+
+func TestPruneImagesErrorReturnsZeroReport(t *testing.T) {
+	client := &msb.MockMsbClient{ImageListFn: func(context.Context) ([]msb.ImageHandle, error) {
+		return nil, errors.New("list boom")
+	}}
+	msb.WithMsbMock(t, client)
+
+	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
+	if err == nil {
+		t.Fatal("expected an ImageList error")
+	}
+	if r.MSBImagesPruned != 0 || r.DockerImagesPruned != 0 {
+		t.Errorf("report = %+v, want a zero report on error", r)
+	}
+}
+
+// TestPruneImagesDockerCounts pins that the docker-image count from
+// pruneDockerImages is written back into the report.
+func TestPruneImagesDockerCounts(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	docker.WithDockerMock(t, deletedImagesDockerMock(3))
+
+	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("PruneImages: %v", err)
+	}
+	if r.DockerImagesPruned != 3 {
+		t.Errorf("DockerImagesPruned = %d, want 3", r.DockerImagesPruned)
+	}
+}
+
+// TestPruneImagesEmptyAgentLatestTagIsSurplus pins that a "-latest" reference
+// with no agent (tag exactly "-latest") is not kept for a live key.
+func TestPruneImagesEmptyAgentLatestTagIsSurplus(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{Images: []msb.ImageHandle{
+		&msb.MockImageHandle{Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:-latest"},
+	}}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	pruneState := PruneState{ToKeep: map[state.Key]msb.SandboxHandle{
+		{Slug: "active-1mjusbm3wikhb0"}: &msb.MockSandboxHandle{},
+	}}
+
+	r, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("PruneImages: %v", err)
+	}
+	if r.MSBImagesPruned != 1 {
+		t.Errorf("MSBImagesPruned = %d, want 1 (empty-agent -latest tag is surplus)", r.MSBImagesPruned)
+	}
+}
+
+func TestPruneDockerImagesDryRunReturnsZero(t *testing.T) {
+	docker.WithDockerMock(t, deletedImagesDockerMock(3))
+	if n := pruneDockerImages(context.Background(), docker.Get(), true, &termio.Mock{}); n != 0 {
+		t.Errorf("dry-run pruneDockerImages = %d, want 0", n)
+	}
+	if n := pruneDockerImages(context.Background(), docker.Get(), false, &termio.Mock{}); n != 3 {
+		t.Errorf("pruneDockerImages = %d, want 3", n)
+	}
+}
+
+// deletedImagesDockerMock returns a docker mock whose ImagePrune reports n
+// deleted images.
+func deletedImagesDockerMock(n int) *docker.MockDockerClient {
+	return &docker.MockDockerClient{
+		ImagePruneFn: func(context.Context, mobyclient.ImagePruneOptions) (mobyclient.ImagePruneResult, error) {
+			return mobyclient.ImagePruneResult{
+				Report: imagetypes.PruneReport{ImagesDeleted: make([]imagetypes.DeleteResponse, n)},
+			}, nil
+		},
 	}
 }

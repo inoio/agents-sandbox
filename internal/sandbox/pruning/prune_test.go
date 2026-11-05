@@ -515,3 +515,85 @@ func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
 		t.Error("the native image-data prune must be deferred while the run protects a key")
 	}
 }
+
+func TestRenderPruneSummaryDryRunAction(t *testing.T) {
+	dry := &termio.Mock{}
+	RenderPruneSummary(dry, &StaleReport{PrunedSandboxes: 1}, true)
+	if len(dry.OutCalls) != 1 || !strings.HasPrefix(dry.OutCalls[0], "dry-run: Would prune") {
+		t.Errorf("OutCalls = %v, want the dry-run action", dry.OutCalls)
+	}
+
+	rendered := &termio.Mock{}
+	RenderPruneSummary(rendered, &StaleReport{}, false)
+	if len(rendered.OutCalls) != 1 || !strings.HasPrefix(rendered.OutCalls[0], "Pruned") {
+		t.Errorf("OutCalls = %v, want the real action", rendered.OutCalls)
+	}
+}
+
+func TestInvokePruneFunc(t *testing.T) {
+	t.Run("builds state and invokes the pruner", func(t *testing.T) {
+		client := &msb.MockMsbClient{
+			Sandboxes: []msb.SandboxHandle{
+				&msb.MockSandboxHandle{
+					Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
+					Status_:    msbSdk.SandboxStatusStopped,
+					UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
+				},
+			},
+		}
+		msb.WithMsbMock(t, client)
+		ui := &termio.Mock{}
+		var gotState PruneState
+		got, err := InvokePruneFunc(context.Background(),
+			func(_ context.Context, state PruneState, _ bool, _ termio.UI) (int, error) {
+				gotState = state
+				return 42, nil
+			},
+			7*24*time.Hour, false, ui)
+		if err != nil {
+			t.Fatalf("InvokePruneFunc: %v", err)
+		}
+		if got != 42 {
+			t.Errorf("InvokePruneFunc report = %d, want 42", got)
+		}
+		if _, ok := gotState.ToPrune[state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: ""}]; !ok {
+			t.Errorf("pruner did not receive built PruneState, got %v", gotState)
+		}
+	})
+
+	t.Run("propagates buildPruneState error", func(t *testing.T) {
+		client := &msb.MockMsbClient{
+			ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
+				return nil, errors.New("boom")
+			},
+		}
+		msb.WithMsbMock(t, client)
+		ui := &termio.Mock{}
+		invoked := false
+		_, err := InvokePruneFunc(context.Background(),
+			func(context.Context, PruneState, bool, termio.UI) (int, error) {
+				invoked = true
+				return 0, nil
+			},
+			time.Hour, false, ui)
+		if err == nil {
+			t.Fatal("expected error from buildPruneState")
+		}
+		if invoked {
+			t.Error("pruner must not be invoked when state build fails")
+		}
+	})
+
+	t.Run("propagates pruner error", func(t *testing.T) {
+		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		ui := &termio.Mock{}
+		_, err := InvokePruneFunc(context.Background(),
+			func(context.Context, PruneState, bool, termio.UI) (int, error) {
+				return 0, errors.New("prune boom")
+			},
+			time.Hour, false, ui)
+		if err == nil || err.Error() != "prune boom" {
+			t.Errorf("expected pruner error to propagate, got %v", err)
+		}
+	})
+}

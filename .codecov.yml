@@ -16,6 +16,12 @@ coverage:
         target: 100%
         threshold: 0%
 
+# Test doubles (testmock.go) are shared fixtures for other packages' tests, not
+# product code; their own tests pin only fail-open contracts (see
+# .operator-shared/specs/test-coverage.md), so their coverage is not gated.
+ignore:
+  - "**/testmock.go"
+
 comment:
   layout: "condensed_header, diff, files"
   behavior: default

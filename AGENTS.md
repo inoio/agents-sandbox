@@ -11,6 +11,8 @@ persisting user state via a home directory volume.
 - Write clear, self-documenting code (ex. extract a function and name it clearly).
 - Use self-documenting, non-abbreviated identifiers (```additionResult := add(1,2)```). 
 - Keep inline comments concise and avoid them when the code can instead be refactored to be self-documenting.
+- Production comments state the contract; leave issue references and change history to commits, PRs and specs unless
+  the code would otherwise look wrong.
 - Start/stay concrete and simple. Add abstractions when the code gives you a reason to.
 - Keep units/files small and focused on a clear responsibility.
 - When principles conflict, prioritize: KISS → YAGNI → SOLID → DRY
@@ -103,6 +105,15 @@ Always use your superpowers for appropriate tasks, never skip user approval.
 - Default to TDD - writing tests first, validating they compile and fail, implementing changes, validating passing tests
 - Make sure that new/changed CLI commands/flags are thoroughly tested in the cmd/agents-sandbox/cli_*_test.go tests
 - Also write valuable unit tests for internal functionality with every implementation.
+- Test a unit in exactly one file named after it (`foo.go` → `foo_test.go`), grouping tests by behaviour inside it; a
+  large test file is fine. Allow separate unit-named test files when different build tags require them, and a
+  `foo_internal_test.go` for tests that need unexported identifiers when `foo_test.go` is an external `_test` package.
+- A test that drives a flow across several units through the package's exported entry point goes into
+  `<flow>_flow_test.go` (e.g. `prepare_sandbox_flow_test.go`). Tests that need real external dependencies keep the
+  `integration` build tag instead, in `<unit>_integration_test.go`.
+- A contract of the whole package that no single unit owns (its import boundary, exported API surface, or the narrow
+  roles its builders accept) goes into `<topic>_contract_test.go` (e.g. `boundary_contract_test.go`).
+- Never name tests or test files after coverage or mutation work (`coverage_*_test.go`, `*_survivors_test.go`).
 
 ## Documentation
 

@@ -124,24 +124,13 @@ type MockMsbClient struct {
 	// StoragePruneCalls holds the options passed to PruneStorage calls.
 	StoragePruneCalls []msbSdk.StoragePruneOptions
 
-	// Default return values when no error and no callback/got* is set.
-	gotSandbox SandboxHandle
-	gotVolume  VolumeHandle
-
 	// Error fields.
-	ensureInstalledErr error
-	getSandboxErr      error
-	CreateSandboxErr   error
-	ListSandboxesErr   error
-	GetVolumeErr       error
-	createVolumeErr    error
-	ListVolumesErr     error
-	ListImagesErr      error
-	removeVolumeErr    error
-	removeImageErr     error
-	imageGetErr        error
-	imageLoadErr       error
-	storageUsageErr    error
+	CreateSandboxErr error
+	ListSandboxesErr error
+	GetVolumeErr     error
+	ListVolumesErr   error
+	ListImagesErr    error
+	storageUsageErr  error
 }
 
 // Compile-time check.
@@ -155,7 +144,6 @@ type namedHandle interface{ Name() string }
 // of the collection by name, then a not-found SDK error.
 func resolveHandle[T namedHandle](
 	name string,
-	got T,
 	handles []T,
 	err error,
 	notFoundKind msbSdk.ErrorKind,
@@ -163,9 +151,6 @@ func resolveHandle[T namedHandle](
 	if err != nil {
 		var zero T
 		return zero, err
-	}
-	if any(got) != nil {
-		return got, nil
 	}
 	for _, h := range handles {
 		if h.Name() == name {
@@ -181,7 +166,7 @@ func (m *MockMsbClient) EnsureInstalled(ctx context.Context) error {
 	if m.EnsureInstalledFn != nil {
 		return m.EnsureInstalledFn(ctx)
 	}
-	return m.ensureInstalledErr
+	return nil
 }
 
 // GetSandbox implements Client.
@@ -189,7 +174,7 @@ func (m *MockMsbClient) GetSandbox(ctx context.Context, name string) (SandboxHan
 	if m.GetSandboxFn != nil {
 		return m.GetSandboxFn(ctx, name)
 	}
-	return resolveHandle(name, m.gotSandbox, m.Sandboxes, m.getSandboxErr, msbSdk.ErrSandboxNotFound)
+	return resolveHandle(name, m.Sandboxes, nil, msbSdk.ErrSandboxNotFound)
 }
 
 // CreateSandbox implements Client.
@@ -227,7 +212,7 @@ func (m *MockMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandl
 	if m.GetVolumeFn != nil {
 		return m.GetVolumeFn(ctx, name)
 	}
-	return resolveHandle(name, m.gotVolume, m.Volumes, m.GetVolumeErr, msbSdk.ErrVolumeNotFound)
+	return resolveHandle(name, m.Volumes, m.GetVolumeErr, msbSdk.ErrVolumeNotFound)
 }
 
 // CreateVolume implements Client.
@@ -238,9 +223,6 @@ func (m *MockMsbClient) CreateVolume(
 ) (VolumeHandle, error) {
 	if m.CreateVolumeFn != nil {
 		return m.CreateVolumeFn(ctx, name, opts...)
-	}
-	if m.createVolumeErr != nil {
-		return nil, m.createVolumeErr
 	}
 	return &MockVolumeHandle{Name_: name}, nil
 }
@@ -264,9 +246,6 @@ func (m *MockMsbClient) RemoveVolume(ctx context.Context, name string) error {
 	if m.RemoveVolumeFn != nil {
 		return m.RemoveVolumeFn(ctx, name)
 	}
-	if m.removeVolumeErr != nil {
-		return m.removeVolumeErr
-	}
 	return nil
 }
 
@@ -275,7 +254,7 @@ func (m *MockMsbClient) ImageGet(ctx context.Context, ref string) error {
 	if m.ImageGetFn != nil {
 		return m.ImageGetFn(ctx, ref)
 	}
-	return m.imageGetErr
+	return nil
 }
 
 // ImageList implements Client.
@@ -320,9 +299,6 @@ func (m *MockMsbClient) ImageRemove(ctx context.Context, ref string, force bool)
 	if m.ImageRemoveFn != nil {
 		return m.ImageRemoveFn(ctx, ref, force)
 	}
-	if m.removeImageErr != nil {
-		return m.removeImageErr
-	}
 	return nil
 }
 
@@ -334,7 +310,7 @@ func (m *MockMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) 
 	if m.ImageLoadFn != nil {
 		return m.ImageLoadFn(ctx, ref, r)
 	}
-	return m.imageLoadErr
+	return nil
 }
 
 func (m *MockMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error) {
@@ -408,17 +384,17 @@ func (m *MockMsbClient) SetGetVolumeErr(err error) *MockMsbClient {
 
 // MockSandboxHandle is a test double for SandboxHandle.
 type MockSandboxHandle struct {
-	Name_            string
-	ID_              string
-	Status_          msbSdk.SandboxStatus
-	UpdatedAt_       time.Time
-	CreatedAt_       time.Time
-	BackendKind_     msbSdk.BackendKind
-	Image_           string
-	ConnectSb        Sandbox
-	RefreshFn        func(context.Context) (SandboxHandle, error)
+	Name_        string
+	ID_          string
+	Status_      msbSdk.SandboxStatus
+	UpdatedAt_   time.Time
+	CreatedAt_   time.Time
+	BackendKind_ msbSdk.BackendKind
+	Image_       string
+	ConnectSb    Sandbox
+	// ConnectOrStartFn overrides ConnectOrStart's status-driven behaviour.
+	ConnectOrStartFn func(context.Context) (Sandbox, bool, error)
 	StartSb          Sandbox
-	StartFn          func(context.Context) (Sandbox, error)
 	DidRmv           bool
 	DidStop          bool
 	DidKill          bool
@@ -434,6 +410,8 @@ type MockSandboxHandle struct {
 	ConfigErr        error
 	Mounts           map[string]msbSdk.MountConfig
 	MountsErr        error
+	PortBindings     []msbSdk.PortBinding
+	PortsErr         error
 	ModifyErr        error
 	Plan             *msbSdk.SandboxModificationPlan
 	ModifiedOptions  []msbSdk.ModifyOptions
@@ -468,24 +446,30 @@ func (m *MockSandboxHandle) Connect(_ context.Context) (Sandbox, error) {
 	return &MockSandbox{Name_: m.Name_}, nil
 }
 
-func (m *MockSandboxHandle) Refresh(ctx context.Context) (SandboxHandle, error) {
-	if m.RefreshFn != nil {
-		return m.RefreshFn(ctx)
+// ConnectOrStart mirrors the runtime by Status_ unless ConnectOrStartFn is set:
+// a running or starting sandbox is connected (ConnectSb/ConnectErr), a created,
+// stopped or crashed one is booted (StartSb/StartErr), and any other status is
+// refused.
+func (m *MockSandboxHandle) ConnectOrStart(ctx context.Context) (Sandbox, bool, error) {
+	if m.ConnectOrStartFn != nil {
+		return m.ConnectOrStartFn(ctx)
 	}
-	return m, nil
-}
-
-func (m *MockSandboxHandle) Start(ctx context.Context) (Sandbox, error) {
-	if m.StartFn != nil {
-		return m.StartFn(ctx)
+	switch m.Status_ {
+	case msbSdk.SandboxStatusRunning, msbSdk.SandboxStatusStarting:
+		sb, err := m.Connect(ctx)
+		return sb, false, err
+	case msbSdk.SandboxStatusCreated, msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
+		if m.StartErr != nil {
+			return nil, false, m.StartErr
+		}
+		if m.StartSb != nil {
+			return m.StartSb, true, nil
+		}
+		return &MockSandbox{Name_: m.Name_}, true, nil
+	case msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
+		return nil, false, fmt.Errorf("sandbox %q is %q and cannot take a new client", m.Name_, m.Status_)
 	}
-	if m.StartErr != nil {
-		return nil, m.StartErr
-	}
-	if m.StartSb != nil {
-		return m.StartSb, nil
-	}
-	return &MockSandbox{Name_: m.Name_}, nil
+	return nil, false, fmt.Errorf("sandbox %q has unexpected status %q", m.Name_, m.Status_)
 }
 
 func (m *MockSandboxHandle) Stop(_ context.Context, _ ...msbSdk.StopOption) error {
@@ -531,6 +515,16 @@ func (m *MockSandboxHandle) ConfigMounts() (map[string]msbSdk.MountConfig, error
 		return nil, m.MountsErr
 	}
 	return m.Mounts, nil
+}
+
+// ConfigPorts is seeded like ConfigMounts: the real handle's ParseConfigPorts
+// over ConfigJSON() needs the FFI runtime, so the mock carries the decoded
+// bindings directly and the parser carries the decode tests.
+func (m *MockSandboxHandle) ConfigPorts() ([]msbSdk.PortBinding, error) {
+	if m.PortsErr != nil {
+		return nil, m.PortsErr
+	}
+	return m.PortBindings, nil
 }
 
 func (m *MockSandboxHandle) Modify(
@@ -978,13 +972,6 @@ func WithCountingMsbMock(t *testing.T, mock Client) *int {
 	}
 	t.Cleanup(func() { Get = orig })
 	return &resolutions
-}
-
-// ResetGetFn replaces the global Get factory, returning the previous factory for restoration.
-func ResetGetFn(f func() Client) func() Client {
-	old := Get
-	Get = f
-	return old
 }
 
 func InstallFailFastGet() { Get = func() Client { return &failFastMsbClient{} } }

@@ -198,6 +198,26 @@ func TestVerboseFormatsArgsAtDebug(t *testing.T) {
 	}
 }
 
+func TestFormattedLogsHiddenBelowTheirLevel(t *testing.T) {
+	cases := []struct {
+		name  string
+		level Level
+		log   func(UI)
+	}{
+		{"Infof at error level", LevelError, func(ui UI) { ui.Infof("using default %q", "y") }},
+		{"Verbosef at info level", LevelInfo, func(ui UI) { ui.Verbosef("workspace: %s", "/p") }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var stderr bytes.Buffer
+			c.log(New(nil, &bytes.Buffer{}, &stderr, false, c.level, false, false))
+			if stderr.String() != "" {
+				t.Errorf("expected no output, got %q", stderr.String())
+			}
+		})
+	}
+}
+
 func TestSetLevelRaisesToDebug(t *testing.T) {
 	var stderr bytes.Buffer
 	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
@@ -424,5 +444,37 @@ func TestPrinterAcknowledgeReadError(t *testing.T) {
 	p := &printer{stdin: strings.NewReader(""), stderr: &bytes.Buffer{}, isTerminal: func(int) bool { return true }}
 	if err := p.Acknowledge("body text"); err == nil {
 		t.Fatal("Acknowledge() error = nil, want a read error on empty stdin")
+	}
+}
+
+func TestPrinterNewTableRendersAddedRowsUnderHeaders(t *testing.T) {
+	ui := New(nil, &bytes.Buffer{}, &bytes.Buffer{}, false, LevelInfo, false, false)
+	table := ui.NewTable("A", "B")
+	if got := table.render(); got != "" {
+		t.Errorf("render() of fresh table = %q, want empty", got)
+	}
+	table.AddRow("x", "y")
+	if got, want := table.render(), "A    B\nx    y"; got != want {
+		t.Errorf("render() = %q, want %q", got, want)
+	}
+}
+
+func TestPrinterSpinnerfFormatsMessage(t *testing.T) {
+	var stderr bytes.Buffer
+	ui := New(nil, &bytes.Buffer{}, &stderr, false, LevelInfo, false, false)
+	ui.Spinnerf("Building %s", "image").Stop()
+	if !strings.Contains(stderr.String(), "Building image... ") {
+		t.Errorf("expected formatted spinner msg, got %q", stderr.String())
+	}
+}
+
+func TestPrinterStreamsReturnConfiguredWriters(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	ui := New(nil, &stdout, &stderr, false, LevelInfo, false, false)
+	if got := ui.StdOut(); got != &stdout {
+		t.Errorf("StdOut() = %v, want %v", got, &stdout)
+	}
+	if got := ui.StdErr(); got != &stderr {
+		t.Errorf("StdErr() = %v, want %v", got, &stderr)
 	}
 }

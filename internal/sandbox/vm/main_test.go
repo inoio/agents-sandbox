@@ -23,11 +23,10 @@ func TestMain(m *testing.M) {
 	// the production budget: these are mocked unit tests, and the first probe is
 	// healthy in every passing case. A test that needs the production window, or
 	// a deliberately expired one, saves and restores the var itself.
-	daemonReadyTimeout = 2 * time.Second
+	daemonReadyTimeout = 200 * time.Millisecond
 	daemonPollInterval = 10 * time.Millisecond
-	dockerdReadyTimeout = 2 * time.Second
+	dockerdReadyTimeout = 200 * time.Millisecond
 	dockerdPollInterval = 10 * time.Millisecond
-	sandboxLifecyclePollInterval = 10 * time.Millisecond
 	mocks.InitFailFastMocks(m)
 }
 

@@ -741,3 +741,19 @@ func sanitizeTag(name string) string {
 	}
 	return b.String()
 }
+
+// cachedAgentVersion returns the newest release the launcher's real upgrade
+// cache holds for the agent, read from the machine-global
+// RootState.updates.agents map. The integration image tests read it before
+// reaching for a live GitHub release, so a machine that has used the agent
+// bakes a recent real release with no network dependency and no hard-coded
+// version that goes stale. The boolean reports whether the cache held a
+// release; a missing or unreadable root state reports false.
+func cachedAgentVersion(a agent.Agent) (version string, cached bool) {
+	root, err := state.ReadRootState()
+	if err != nil {
+		return "", false
+	}
+	version = root.AgentCheck(a.Name()).LatestVersion
+	return version, version != ""
+}

@@ -86,8 +86,6 @@ func deepMerge(base, override map[string]any) map[string]any {
 	return result
 }
 
-// readDir is overridable so tests can exercise the partial-read error path
-// without provoking a real directory-read fault.
 var readDir = os.ReadDir
 
 // scanSnippets reads every file whose basename matches pattern across dirs and
@@ -252,17 +250,14 @@ type MirrorEntry struct {
 // top-level config-family names (reserved for the merged output). Later entries
 // override earlier entries with the same destination path. Entries are sorted by
 // VMPath for determinism. Unreadable files are skipped, never fatal.
-func ScanMirror(pattern string, family []string, dirs []string, destDir string) ([]MirrorEntry, error) {
+func ScanMirror(pattern string, family []string, dirs []string, destDir string) []MirrorEntry {
 	byDest := make(map[string]MirrorEntry)
 	for _, dir := range dirs {
 		// gomutants:disable-next-line BRANCH_IF reason="filewalk.Walk of an empty path swallows its Lstat error and visits nothing, so skipping it agrees with walking it"
 		if dir == "" {
 			continue
 		}
-		// gomutants:disable-next-line BRANCH_IF reason="filewalk.Walk never returns a non-nil error, so this guard is unreachable"
-		if err := scanMirrorDir(pattern, family, dir, destDir, byDest); err != nil {
-			return nil, err
-		}
+		scanMirrorDir(pattern, family, dir, destDir, byDest)
 	}
 	dests := make([]string, 0, len(byDest))
 	for dest := range byDest {
@@ -273,13 +268,14 @@ func ScanMirror(pattern string, family []string, dirs []string, destDir string) 
 	for _, dest := range dests {
 		entries = append(entries, byDest[dest])
 	}
-	return entries, nil
+	return entries
 }
 
 // scanMirrorDir walks dir and adds every mirrorable file to byDest, keyed by
-// its VM destination path under destDir.
-func scanMirrorDir(pattern string, family []string, dir, destDir string, byDest map[string]MirrorEntry) error {
-	return filewalk.Walk(
+// its VM destination path under destDir. The walk cannot fail: it skips
+// unreadable entries and its visit never returns an error.
+func scanMirrorDir(pattern string, family []string, dir, destDir string, byDest map[string]MirrorEntry) {
+	_ = filewalk.Walk(
 		dir,
 		func(rel string, isDir bool) bool {
 			if isDir {

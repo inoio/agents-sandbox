@@ -129,3 +129,27 @@ func TestRenderAlignsStyledCellsWithPlainCells(t *testing.T) {
 		t.Errorf("CREATED column not aligned with styled status: row1=%d row2=%d", idx1, idx2)
 	}
 }
+
+// minimalTableWriter implements only the two methods a Table prints through,
+// proving a Table no longer depends on the whole UI.
+type minimalTableWriter struct {
+	headers []string
+	rows    []string
+}
+
+func (w *minimalTableWriter) Header(msg string) { w.headers = append(w.headers, msg) }
+func (w *minimalTableWriter) Out(msg string)    { w.rows = append(w.rows, msg) }
+
+func TestTablePrintsThroughMinimalWriter(t *testing.T) {
+	w := &minimalTableWriter{}
+	table := &Table{ui: w, headers: []string{"NAME"}}
+	table.AddRow("alpha")
+	table.Print()
+
+	if len(w.headers) != 1 || w.headers[0] != "NAME" {
+		t.Fatalf("header calls = %q, want [NAME]", w.headers)
+	}
+	if len(w.rows) != 1 || w.rows[0] != "alpha" {
+		t.Fatalf("row calls = %q, want [alpha]", w.rows)
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -587,5 +588,93 @@ func TestConfigAgentDoesNotMarkExistingConfigDir(t *testing.T) {
 		if !slices.Contains(ui.OutCalls, line) {
 			t.Errorf("expected line %q, got:\n%s", line, strings.Join(ui.OutCalls, "\n"))
 		}
+	}
+}
+
+// TestResolveConfigAgentName pins that `config agent` without an argument
+// shows the configured agent, and the default agent when none is configured.
+func TestResolveConfigAgentName(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		config launcherconfig.Config
+		want   string
+	}{
+		{name: "configured agent", config: launcherconfig.Config{Agent: "pi"}, want: "pi"},
+		{name: "no agent configured", want: defaultAgentName},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := buildConfigAgentCmd(&termio.Mock{})
+			cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil),
+				launcherconfig.NewResolverWithConfig(tc.config)))
+
+			name, err := resolveConfigAgentName(cmd, nil)
+			if err != nil || name != tc.want {
+				t.Errorf("resolveConfigAgentName = %q, %v; want %q", name, err, tc.want)
+			}
+		})
+	}
+}
+
+// TestReservedHomeConfigTargets pins the home-relative path an agent's merged
+// config occupies, which home provisioning must not overwrite: none for an
+// agent without merged config, none when the path does not relate to the home.
+func TestReservedHomeConfigTargets(t *testing.T) {
+	opencode, ok := agent.Lookup("opencode")
+	if !ok {
+		t.Fatal("opencode agent not registered")
+	}
+	for _, tc := range []struct {
+		name  string
+		agent agent.Agent
+		home  string
+		want  []string
+	}{
+		{name: "merged config", agent: opencode, home: "/home/dev", want: []string{".config/opencode/opencode.jsonc"}},
+		{name: "no merged config", agent: noDaemonAgent{name: "nod"}, home: "/home/dev"},
+		{name: "path not under the home", agent: relErrConfigMerger{noDaemonAgent{name: "x"}}, home: "/different/home"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := reservedHomeConfigTargets(tc.agent, tc.home); !slices.Equal(got, tc.want) {
+				t.Errorf("reservedHomeConfigTargets = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// relErrConfigMerger is an Agent that implements ConfigMerger but whose
+// VMConfigPath returns a relative path, so filepath.Rel fails against an
+// absolute home.
+type relErrConfigMerger struct{ noDaemonAgent }
+
+func (relErrConfigMerger) SnippetPattern() string { return "" }
+
+func (relErrConfigMerger) VMConfigPath(_ string) string { return "relative/path" }
+
+func (relErrConfigMerger) ConfigFileNames() []string { return nil }
+
+// TestEffectiveConfigSlugPrefersRepoSlug pins that the repo slug's per-slug
+// config wins over a legacy slug's during a bare-root config migration.
+func TestEffectiveConfigSlugPrefersRepoSlug(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	repoSlug := "repo-slug"
+	legacySlug := "legacy-slug"
+	testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(repoSlug), "config.yaml", "yes: true\n")
+	testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(legacySlug), "config.yaml", "yes: true\n")
+
+	got := effectiveConfigSlug(git.Identity{RepoSlug: repoSlug, LegacyRepoSlugs: []string{legacySlug}})
+	if got != repoSlug {
+		t.Errorf("effectiveConfigSlug = %q, want the repo slug %q", got, repoSlug)
+	}
+}
+
+// TestConfigAgentRejectsAHomeTargetOutsideTheHome pins that `config agent`
+// refuses a home manifest entry that would escape the home directory.
+func TestConfigAgentRejectsAHomeTargetOutsideTheHome(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "config", "agent", "opencode")
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "home:\n  ../escape:\n")
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), `home manifest target "../escape" escapes the home directory`) {
+		t.Fatalf("error = %v, want the escaping target refused", err)
 	}
 }

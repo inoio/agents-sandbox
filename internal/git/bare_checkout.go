@@ -9,7 +9,7 @@ package git
 // An unresolvable cwd reports false rather than an error: callers use this to
 // choose where project config is read from, which is not identity-keyed and must
 // not fail the read. Slug-deriving callers use ResolveIdentity, which refuses
-// instead (#354).
+// instead.
 func BareCheckoutRoots(cwd string) (string, string, bool) {
 	identity, err := ResolveIdentity(cwd)
 	if err != nil { // gomutants:disable BRANCH_IF,EXPRESSION_REMOVE reason="ResolveIdentity returns the zero Identity on error, which is not Bare, so the fall-through reports false too"

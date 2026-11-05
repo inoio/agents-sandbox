@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/client"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -15,7 +18,9 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -229,5 +234,359 @@ func TestVolumeEdit(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			runVolumeOpScenario(t, tc)
 		})
+	}
+}
+
+// TestVolumeOpsUseCheckoutSlug pins that a volume op resolves the checkout slug
+// of the clone it runs in, not the repo slug shared with every clone.
+func TestVolumeOpsUseCheckoutSlug(t *testing.T) {
+	firstClone := newOriginClone(t)
+	secondClone := newOriginClone(t)
+	firstIdentity := mustIdentity(t, firstClone)
+	secondIdentity := mustIdentity(t, secondClone)
+	if firstIdentity.CheckoutSlug == secondIdentity.CheckoutSlug {
+		t.Fatalf("checkout slugs collide across clones: %q", firstIdentity.CheckoutSlug)
+	}
+
+	t.Chdir(secondClone)
+	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdReset, "--dry-run")
+	mock := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, mock)
+
+	key := state.Key{Slug: secondIdentity.CheckoutSlug, Agent: defaultAgentName}
+	if err := seedHomeState(key, state.HomeState{
+		HomeVolume: fmt.Sprintf("agents-sandbox-home-%s-20260101T000000", secondIdentity.CheckoutSlug),
+	}); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("volume reset --dry-run: %v", err)
+	}
+
+	joined := strings.Join(ui.InfoCalls, "\n")
+	if !strings.Contains(joined, secondIdentity.CheckoutSlug) {
+		t.Errorf("volume reset must resolve the second clone's checkout slug %q, got:\n%s",
+			secondIdentity.CheckoutSlug, joined)
+	}
+	if strings.Contains(joined, secondIdentity.RepoSlug) {
+		t.Errorf("volume reset must not resolve the shared repo slug %q, got:\n%s",
+			secondIdentity.RepoSlug, joined)
+	}
+}
+
+// TestVolumeOpsKeepLegacySlugWhileMigrationPending pins adoption in the volume
+// ops: a pending legacy identity is noticed but left unapplied by a dry run, and
+// the op resolves against the legacy repo slug.
+func TestVolumeOpsKeepLegacySlugWhileMigrationPending(t *testing.T) {
+	clone := newOriginClone(t)
+	identity := mustIdentity(t, clone)
+	t.Chdir(clone)
+
+	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdReset, "--dry-run")
+	mock := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, mock)
+
+	// A dry run must not ensure (inspect or build) the runner image: the
+	// would-do message needs only the state-derived old volume.
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			t.Errorf("volume reset --dry-run must not inspect the runner image, got ref %q", ref)
+			return client.ImageInspectResult{Config: &dockerspec.DockerOCIImageConfig{}}, nil
+		},
+	})
+
+	repoKey := state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName}
+	if err := seedHomeState(repoKey, state.HomeState{
+		HomeVolume: fmt.Sprintf("agents-sandbox-home-%s-20260101T000000", identity.RepoSlug),
+	}); err != nil {
+		t.Fatalf("seed legacy state: %v", err)
+	}
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("volume reset --dry-run: %v", err)
+	}
+
+	joined := strings.Join(ui.InfoCalls, "\n")
+	if !strings.Contains(joined, identity.RepoSlug) {
+		t.Errorf("a pending legacy identity must keep the op on the repo slug %q, got:\n%s",
+			identity.RepoSlug, joined)
+	}
+	if strings.Contains(joined, identity.CheckoutSlug) {
+		t.Errorf("a dry run must not resolve the checkout slug %q while the migration is pending, got:\n%s",
+			identity.CheckoutSlug, joined)
+	}
+
+	notice := strings.Join(ui.WarnCalls, "\n")
+	if !strings.Contains(notice, "Would migrate this checkout to its own project identity") {
+		t.Errorf("expected the dry-run migration notice, got:\n%s", notice)
+	}
+	if _, err := state.ReadState(
+		state.Key{Slug: identity.CheckoutSlug, Agent: defaultAgentName},
+	); !errors.Is(
+		err,
+		state.ErrStateNotFound,
+	) {
+		t.Errorf("dry run must not create the checkout-keyed state; got %v", err)
+	}
+}
+
+// TestVolumeOpAppliesLegacyIdentity pins that a non-dry-run volume op on a
+// legacy layout moves the state onto the checkout key and does its work under
+// that key. It observes the moved key both as the state
+// directory and as the runner image the op ensured.
+func TestVolumeOpAppliesLegacyIdentity(t *testing.T) {
+	clone := newOriginClone(t)
+	identity := mustIdentity(t, clone)
+	t.Chdir(clone)
+
+	cmd, _ := setupCommandFixtures(t, cmdVolume, cmdReset)
+	mock := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, mock)
+
+	// Capture the runner image the op ensured, to observe the key the op worked
+	// under.
+	var inspectedTag string
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			inspectedTag = ref
+			return client.ImageInspectResult{Config: &dockerspec.DockerOCIImageConfig{}}, nil
+		},
+	})
+
+	repoKey := state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName}
+	checkoutKey := state.Key{Slug: identity.CheckoutSlug, Agent: defaultAgentName}
+	if err := seedHomeState(repoKey, state.HomeState{
+		HomeVolume: fmt.Sprintf("agents-sandbox-home-%s-20260101T000000", identity.RepoSlug),
+	}); err != nil {
+		t.Fatalf("seed legacy state: %v", err)
+	}
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("volume reset: %v", err)
+	}
+
+	if want := naming.DockerImageRef(identity.CheckoutSlug, defaultAgentName); inspectedTag != want {
+		t.Errorf("ensured runner image = %q, want the moved checkout-slug tag %q", inspectedTag, want)
+	}
+	if _, err := state.ReadState(checkoutKey); err != nil {
+		t.Errorf("apply must leave the state under the checkout key: %v", err)
+	}
+	if _, err := state.ReadState(repoKey); !errors.Is(err, state.ErrStateNotFound) {
+		t.Errorf("apply must move the legacy state away; got %v", err)
+	}
+}
+
+// TestVolumeOpAdoptionFailureFailsClosed pins the fail-closed adoption wiring:
+// an unreadable legacy state aborts the volume op instead of being interpreted,
+// before it ensures an image or touches a volume.
+func TestVolumeOpAdoptionFailureFailsClosed(t *testing.T) {
+	clone := newOriginClone(t)
+	identity := mustIdentity(t, clone)
+	t.Chdir(clone)
+
+	cmd, _ := setupCommandFixtures(t, cmdVolume, cmdReset)
+	mock := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, mock)
+
+	writeUnparsableLegacyState(t, state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "check for a pending legacy identity") {
+		t.Fatalf("volume reset with an unreadable legacy state: error = %v, want the fail-closed predicate error", err)
+	}
+}
+
+// TestVolumeOpRecordsBakedAgentVersion pins that a volume op is a writer of
+// record for the project's agent-version baseline: whatever release the ensured
+// image bakes is recorded, so the spec's "whatever they bake is recorded" holds
+// even though these ops resolve latest rather than the recorded baseline.
+func TestVolumeOpRecordsBakedAgentVersion(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, _ := setupCommandFixtures(t, cmdVolume, cmdReset)
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				Config: &dockerspec.DockerOCIImageConfig{
+					Labels: map[string]string{
+						"org.agents-sandbox.identity.agent-version": "3.3.3",
+					},
+				},
+			}, nil
+		},
+	})
+
+	checkoutKey := state.Key{Slug: git.MustCheckoutSlug(), Agent: defaultAgentName}
+	if err := seedHomeState(checkoutKey, state.HomeState{HomeVolume: "home-vol"}); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("volume reset: %v", err)
+	}
+
+	st, err := state.ReadState(checkoutKey)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.AgentVersion != "3.3.3" {
+		t.Errorf("AgentVersion = %q, want the baked 3.3.3 recorded", st.AgentVersion)
+	}
+}
+
+// TestVolumeOpWarnsWhenRecordingAgentVersionFails verifies that a failed
+// baseline write only warns: recording must never fail the volume op. It drives
+// prepareVolumeOp directly: the full command re-reads the same state file right
+// after (volumeOp's ReadState and its final commit), so a directory at the state
+// path would fail those steps too; the recording step under test is
+// prepareVolumeOp's.
+func TestVolumeOpWarnsWhenRecordingAgentVersionFails(t *testing.T) {
+	initTestProjectDir(t)
+	root, ui := setupCommandFixtures(t, cmdVolume, cmdReset)
+	cmd, _, err := root.Find([]string{cmdVolume, cmdReset})
+	if err != nil {
+		t.Fatalf("find volume reset: %v", err)
+	}
+	cmd.SetContext(context.Background())
+
+	checkoutKey := state.Key{Slug: git.MustCheckoutSlug(), Agent: defaultAgentName}
+	// A directory at the state file's path makes the baseline write fail.
+	if err := os.MkdirAll(filepath.Join(state.KeyDir(checkoutKey), "state.yaml"), 0o700); err != nil {
+		t.Fatalf("make state path unwritable: %v", err)
+	}
+
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				Config: &dockerspec.DockerOCIImageConfig{
+					Labels: map[string]string{
+						"org.agents-sandbox.identity.agent-version": "3.3.3",
+					},
+				},
+			}, nil
+		},
+	})
+
+	if _, _, err := prepareVolumeOp(cmd, ui, false); err != nil {
+		t.Fatalf("prepareVolumeOp must not fail on a state write error: %v", err)
+	}
+	assertWarnContains(t, ui, "could not persist the agent version")
+}
+
+func TestVolumeMigrateUnknownAgent(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, _ := setupCommandFixtures(t, "volume", "migrate", "--agent", "bogus")
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "unknown agent") {
+		t.Fatalf("expected unknown agent error, got %v", err)
+	}
+}
+
+func TestVolumeMigrateWithPositionalArg(t *testing.T) {
+	initTestProjectDir(t)
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	mock := &msb.MockMsbClient{}
+	doctor.MockedCheckAll(t, true)
+	withMockAgentVersion(t, "0.0.0-test")
+	docker.WithNoopDockerMock(t)
+	slug := git.MustCheckoutSlug()
+	seedHomeState(state.Key{Slug: slug, Agent: defaultAgentName}, state.HomeState{
+		HomeVolume: fmt.Sprintf("agents-sandbox-home-%s-20260101T000000", slug),
+	})
+	msb.WithMsbMock(t, mock)
+
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"volume", "migrate", "explicit-vol-name"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("volume migrate with positional arg: %v", err)
+	}
+}
+
+// TestBuildVolumeOpsRejectsTwoArgs pins the volume-op arity bound: at most one
+// positional volume name.
+func TestBuildVolumeOpsRejectsTwoArgs(t *testing.T) {
+	cmd := buildVolumeOpsCmd(&termio.Mock{}, volumeOps[0])
+	if err := cmd.Args(cmd, []string{"a", "b"}); err == nil {
+		t.Error("expected an error for two positional args")
+	}
+	if err := cmd.Args(cmd, []string{"a"}); err != nil {
+		t.Errorf("one positional arg should be accepted, got %v", err)
+	}
+}
+
+// TestBuildVolumeOpsForwardsPositionalNameAndInfo pins that the positional name
+// reaches the op and the ensured image's info is passed through, and that the
+// --remove flag is registered from the op definition.
+func TestBuildVolumeOpsForwardsPositionalNameAndInfo(t *testing.T) {
+	initTestProjectDir(t)
+	configpaths.WithMockConfigPaths(t)
+	doctor.MockedCheckAll(t, true)
+	withMockAgentVersion(t, "3.3.3")
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				Config: &dockerspec.DockerOCIImageConfig{
+					Labels: map[string]string{"org.agents-sandbox.identity.agent-version": "3.3.3"},
+				},
+			}, nil
+		},
+	})
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+
+	var gotName string
+	var gotInfo image.ImageInfo
+	op := volumeOp{
+		name:       "probe",
+		removeHelp: "remove probe volume",
+		run: func(_ context.Context, _ docker.Client, _ state.Key, name string, info image.ImageInfo, _, _ bool, _ termio.UI) error {
+			gotName = name
+			gotInfo = info
+			return nil
+		},
+	}
+	cmd := buildVolumeOpsCmd(&termio.Mock{}, op)
+	cmd.SetArgs([]string{"explicit-vol-name"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if gotName != "explicit-vol-name" {
+		t.Errorf("volumeName = %q, want %q", gotName, "explicit-vol-name")
+	}
+	if gotInfo.AgentVersion != "3.3.3" {
+		t.Errorf("info.AgentVersion = %q, want %q", gotInfo.AgentVersion, "3.3.3")
+	}
+	if f := cmd.Flags().Lookup(flagRemove); f == nil || f.Usage != op.removeHelp {
+		t.Errorf("--%s flag = %v, want usage %q", flagRemove, f, op.removeHelp)
+	}
+}
+
+// TestVolumeOpsEnsureImageErrorWrapsCause pins that an ensure-image failure is
+// wrapped with %w rather than %v.
+func TestVolumeOpsEnsureImageErrorWrapsCause(t *testing.T) {
+	initTestProjectDir(t)
+	configpaths.WithMockConfigPaths(t)
+	doctor.MockedCheckAll(t, true)
+	withMockAgentVersion(t, "0.0.0-test")
+	docker.WithDefaultErrorDockerMock(t)
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+
+	cmd := buildVolumeOpsCmd(&termio.Mock{}, volumeOps[0])
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected an ensure-image error")
+	}
+	if errors.Unwrap(err) == nil {
+		t.Errorf("error %v is not wrapped with %%w", err)
 	}
 }

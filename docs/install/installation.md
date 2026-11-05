@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: "Install agents-sandbox on Linux or macOS, then verify the host is ready to run your first sandbox."
+description: "Install agents-sandbox on Linux or macOS, then start your first agent."
 layout: default
 parent: Get started
 nav_order: 20
@@ -96,7 +96,8 @@ mv agents-sandbox ~/.local/bin # or any other directory in your PATH
 
 Then set `upgrade.channel: canary` (or `AGENTS_SANDBOX_UPGRADE_CHANNEL=canary`) so later upgrades follow the canary line — see [self-upgrade]({% link configuration/self-upgrade.md %}).
 
-Once installed, continue with one of the two onboarding paths:
+Once installed, run your first agent — see [Your first agent]({% link tutorial.md %}).
 
-- [Switch from your existing agent]({% link switch.md %}) — bring your existing agent config and credentials into the sandbox.
-- [Your first sandbox]({% link tutorial.md %}) — run an agent in a sandbox for the first time.
+Then, when you want to go further: [Switch from your existing agent]({% link switch.md %}) brings the configuration and
+credentials you already use into the sandbox and keeps them in sync, and [Manage config in the sandbox]({% link manage-config.md %})
+builds a self-contained sandbox that keeps secrets on the host.

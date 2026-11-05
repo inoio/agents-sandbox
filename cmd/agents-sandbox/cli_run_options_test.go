@@ -1,9 +1,13 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/runoptions"
+	"github.com/inoio/agents-sandbox/internal/termio"
+	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
 func TestRunCommandHasNoOpenCodeVersionFlag(t *testing.T) {
@@ -63,6 +67,24 @@ func TestRunAndShellHaveComposableNetworkFlag(t *testing.T) {
 	}
 }
 
+func TestRunAndShellHavePublishFlag(t *testing.T) {
+	for _, name := range []string{cmdRun, cmdShell} {
+		cmd, _ := setupCommandFixtures(t, name, "--help")
+		foundCmd, _, err := cmd.Find([]string{name})
+		if err != nil {
+			t.Fatalf("Find %q: %v", name, err)
+		}
+		flag := foundCmd.Flags().Lookup(flagPort)
+		if flag == nil {
+			t.Errorf("%s command must have --port flag", name)
+			continue
+		}
+		if flag.Shorthand != "p" {
+			t.Errorf("%s --port shorthand = %q, want p", name, flag.Shorthand)
+		}
+	}
+}
+
 // noDaemonAgent is a minimal agent.Agent that intentionally does not implement
 // DaemonProvider, so agent-support checks can be exercised without polluting
 // the global agent registry.
@@ -72,3 +94,18 @@ func (a noDaemonAgent) Name() string             { return a.name }
 func (noDaemonAgent) ConfigDirName() string      { return "nod" }
 func (noDaemonAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
 func (noDaemonAgent) Experimental() bool         { return false }
+
+// TestBuildInvalidNotifyFlag pins that an invalid --notify value given on the
+// flag (not through the env var) is rejected with the accepted values.
+func TestBuildInvalidNotifyFlag(t *testing.T) {
+	ui := &termio.Mock{}
+	cmd := buildRunCmd(ui)
+	if err := cmd.Flags().Set(flagNotify, "loud"); err != nil {
+		t.Fatalf("set notify: %v", err)
+	}
+	var r *launcherconfig.Resolver
+	_, err := runoptions.Build(r.Config(), cmd, ui)
+	if err == nil || !strings.Contains(err.Error(), `invalid --notify value "loud" (want on, off, desktop, or audio)`) {
+		t.Fatalf("error = %v, want the invalid --notify value rejected", err)
+	}
+}

@@ -72,7 +72,7 @@ Use agents-sandbox when you already use a supported coding agent and want:
 ## Quick start
 
 Install agents-sandbox using the [Get started guide](https://inoio.github.io/agents-sandbox/get-started.html), then
-start the configured agent:
+start the configured agent (OpenCode 2 by default):
 
 ```console
 agents-sandbox

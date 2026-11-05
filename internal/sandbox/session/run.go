@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
@@ -162,7 +163,7 @@ func serveOnlyMessage(a agent.Resolved, host, port string) string {
 // SIGINT), without attaching an in-VM TUI. It holds the VM via a keeper exec so
 // the msb idle timeout does not stop it while serving.
 func runServeOnly(ctx context.Context, a agent.Resolved, sb msb.Sandbox, ui termio.Logger, hostPort int) error {
-	host := options.ServeOnlyBindAddr
+	host := ports.ServeOnlyBindAddr
 	port := strconv.Itoa(hostPort)
 	ui.Infof("%s", serveOnlyMessage(a, host, port))
 	keeperCtx, cancel := context.WithCancel(context.Background())
@@ -248,7 +249,7 @@ func withClientSession(
 		ui.Warnf("client lease failed: %v", acquireErr)
 	}
 	defer func() {
-		if acquireErr == nil && release != nil {
+		if release != nil {
 			release()
 		}
 	}()

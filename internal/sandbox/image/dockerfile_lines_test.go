@@ -5,11 +5,6 @@ import (
 	"testing"
 )
 
-func instructionIndexes(t *testing.T, dockerfile string) []int {
-	t.Helper()
-	return instructionLineIndices(dockerfileLines([]byte(dockerfile)))
-}
-
 func TestInstructionLineIndicesSkipsHeredocBody(t *testing.T) {
 	got := instructionIndexes(t,
 		"FROM debian:trixie-slim\n"+
@@ -234,4 +229,9 @@ func TestHeredocDelimiters(t *testing.T) {
 			t.Fatalf("heredocDelimiters(%q) = %v, want %v", tc.line, got, tc.want)
 		}
 	}
+}
+
+func instructionIndexes(t *testing.T, dockerfile string) []int {
+	t.Helper()
+	return instructionLineIndices(dockerfileLines([]byte(dockerfile)))
 }

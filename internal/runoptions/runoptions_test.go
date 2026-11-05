@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	"github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -41,6 +42,7 @@ func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().String(FlagAgent, defaultAgentName, "agent")
 	cmd.Flags().StringSlice(FlagNetwork, nil, "network")
 	cmd.Flags().StringSlice(FlagDNSServers, nil, "dns")
+	cmd.Flags().StringSlice(FlagPort, nil, "port")
 	cmd.Flags().String(FlagNotify, "", "notify")
 	cmd.Flags().Lookup(FlagNotify).NoOptDefVal = "on"
 
@@ -676,6 +678,96 @@ func TestBuildDNSFromResolver(t *testing.T) {
 	}
 	if len(opts.Network.DNSServers) != 2 {
 		t.Fatalf("Network.DNSServers = %v, want [1.1.1.1 8.8.8.8] from resolver", opts.Network.DNSServers)
+	}
+}
+
+func TestBuildPortsDefaultEmpty(t *testing.T) {
+	cmd := newRunCommand()
+	opts, err := Build(nil, cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.Ports != nil {
+		t.Errorf("Ports = %+v, want nil by default", opts.Ports)
+	}
+}
+
+func TestBuildPortsFromConfig(t *testing.T) {
+	cmd := newRunCommand()
+	opts, err := Build(&viperconfig.Config{Ports: []string{"3000", "8080:5173"}}, cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	want := []ports.PortMapping{
+		{HostPort: 3000, GuestPort: 3000},
+		{HostPort: 8080, GuestPort: 5173},
+	}
+	if !slices.Equal(opts.Ports, want) {
+		t.Fatalf("Ports = %+v, want %+v", opts.Ports, want)
+	}
+}
+
+func TestBuildPortsFlag(t *testing.T) {
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagPort, "3000,8080:5173"); err != nil {
+		t.Fatalf("set port: %v", err)
+	}
+	opts, err := Build(nil, cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	want := []ports.PortMapping{
+		{HostPort: 3000, GuestPort: 3000},
+		{HostPort: 8080, GuestPort: 5173},
+	}
+	if !slices.Equal(opts.Ports, want) {
+		t.Fatalf("Ports = %+v, want %+v", opts.Ports, want)
+	}
+}
+
+func TestBuildPortsFlagOverridesEnv(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_PORTS", "5173")
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagPort, "3000"); err != nil {
+		t.Fatalf("set port: %v", err)
+	}
+	r := mustResolver(t, cmd)
+	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	wantOnlyFlag := []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}
+	if !slices.Equal(opts.Ports, wantOnlyFlag) {
+		t.Fatalf("Ports = %+v, want only the flag's 3000 mapping", opts.Ports)
+	}
+}
+
+func TestBuildPortsFromEnv(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_PORTS", "3000,8080:5173")
+	cmd := newRunCommand()
+	r := mustResolver(t, cmd)
+	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	want := []ports.PortMapping{
+		{HostPort: 3000, GuestPort: 3000},
+		{HostPort: 8080, GuestPort: 5173},
+	}
+	if !slices.Equal(opts.Ports, want) {
+		t.Fatalf("Ports = %+v, want %+v from env", opts.Ports, want)
+	}
+}
+
+func TestBuildPortsInvalidFlag(t *testing.T) {
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagPort, "8080:3000:5"); err != nil {
+		t.Fatalf("set port: %v", err)
+	}
+	if _, err := Build(nil, cmd, &termio.Mock{}); err == nil {
+		t.Fatal("expected error for invalid --port value")
 	}
 }
 
