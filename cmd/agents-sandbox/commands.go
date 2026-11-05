@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	msbruntime "github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
@@ -61,71 +61,15 @@ func warnLegacyEnvVars(ui termio.Logger, r *launcherconfig.Resolver) {
 }
 
 // effectiveConfigSlug returns the slug whose per-slug user config directory the
-// launcher should read. It is the repo slug — shared by every clone of a remote —
-// except for a bare root whose legacy config directory has not been migrated:
-// its legacy config lives under the path-derived legacy slug
-// (Identity.LegacyRepoSlugs), which adoption renames onto the repo slug. The
-// resolver is built before adoption runs, so without this the triggering run
-// would load defaults instead of the user's saved settings. The fallback is
-// read-only, so a dry run stays side-effect-free.
+// launcher should read at the CLI boundary. It is the repo slug — shared by
+// every clone of a remote — except for a bare root whose legacy config directory
+// has not been migrated: its legacy config lives under the path-derived legacy
+// slug, which adoption renames onto the repo slug. The resolver is built before
+// adoption runs, so without this the triggering run would load defaults instead
+// of the user's saved settings. The fallback is read-only, so a dry run stays
+// side-effect-free.
 func effectiveConfigSlug(identity git.Identity) string {
-	if slugHasUserInputs(identity.RepoSlug) {
-		return identity.RepoSlug
-	}
-	for _, legacy := range identity.LegacyRepoSlugs {
-		if slugHasUserInputs(legacy) {
-			return legacy
-		}
-	}
-	return identity.RepoSlug
-}
-
-// slugHasUserInputs reports whether the per-slug user config dir for slug holds
-// any per-slug user input the launcher consumes: a launcher config file (found
-// with the same discovery NewResolver merges from), an env/secret file, or a
-// registered agent's config dir. A secrets-only dir counts, so a bare root is
-// not routed to its legacy slug just because its per-slug dir has no config
-// file yet (#578). An empty slug has no per-slug scope, so it reports false.
-func slugHasUserInputs(slug string) bool {
-	for _, scope := range configpaths.ConfigScopes(configpaths.Get(), slug) {
-		if scope.Kind != configpaths.ScopePerSlugUser {
-			continue
-		}
-		if _, _, present := configpaths.FindConfigFile(scope.Dir); present {
-			return true
-		}
-		if pathExists(scope.EnvFile()) || pathExists(scope.EnvSecretFile()) || pathExists(scope.EnvSecretYAMLFile()) {
-			return true
-		}
-		for _, name := range agent.Names() {
-			a, _ := agent.Lookup(name)
-			// The built-in registry validates its own config-dir names, so an
-			// invalid name simply contributes no candidate; there is no error
-			// branch to handle here.
-			dirNames, _ := agent.ConfigDirNames(a)
-			for _, dirName := range dirNames {
-				if dirExists(scope.AgentConfigDir(dirName)) {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
-// pathExists reports whether path exists; any stat error (including a missing
-// file) reports false.
-func pathExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-// dirExists reports whether path names an existing directory. A regular file
-// with an agent-config-dir name must not count as a populated per-slug dir,
-// matching the directory requirement reprovision's anyDirExists enforces.
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
+	return reprovision.EffectiveConfigSlug(identity.RepoSlug, identity.LegacyRepoSlugs)
 }
 
 // resolveAgent validates a resolved agent name (from flag, env, or config)

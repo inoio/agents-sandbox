@@ -146,7 +146,7 @@ intended reading (the user is migrating) and is surfaced by the existing fallbac
 
 ## Slug threading
 
-The scope list needs the effective config slug. It is already resolved once at the CLI boundary as
+The scope list needs the effective config slug. It is resolved once at the CLI boundary as
 `effectiveConfigSlug(identity)` in `cmd/agents-sandbox`. It is threaded the same way `ResolvedAgent`
 is: resolved at the boundary and carried on `options.RunOptions` (`run-orchestration-layer.md`).
 
@@ -156,10 +156,32 @@ is: resolved at the boundary and carried on `options.RunOptions` (`run-orchestra
 - `runoptions.Build` copies it to `RunOptions.ConfigSlug`.
 - `prepare` passes it to the env/secret load and to `reprovision.LoadConfigFiles`.
 - The `config agent` path passes `effectiveConfigSlug` to `reprovision.Describe`.
-- `effectiveConfigSlug`/`slugHasUserInputs` treat a per-slug dir as populated when it holds **any**
-  per-slug user input — the launcher config file, an env/secret file, or an agent config dir — not
-  only the config file. This keeps a secrets-only per-slug dir from being skipped during bare-root
-  legacy-slug selection, which would silently reintroduce the #578 failure.
+- `SlugHasUserInputs`/`EffectiveConfigSlug` live in `reprovision` (exported; the legacy slug list is
+  passed in so the helper does not import `git`), shared by the CLI boundary, `prepare`, and `vm`'s
+  adoption. They cannot live in `configpaths`: the predicate iterates the agent registry
+  (`internal/agent`), and `internal/agent`'s tests import `configpaths`, so `configpaths` importing
+  `agent` would create a test import cycle. They treat a per-slug dir as populated when it holds
+  **any** per-slug user input — the launcher config file, an env/secret file, or an agent config dir
+  — not only the config file. This keeps a secrets-only per-slug dir from being skipped during
+  bare-root legacy-slug selection, which would silently reintroduce the #578 failure.
+
+### Recompute after adoption
+
+Adoption renames a bare root's legacy per-slug dir onto the repo slug, so the slug the CLI boundary
+resolved before adoption can be stale. `prepare`'s resolve-identity stage recomputes it through
+`reprovision.EffectiveConfigSlug` and overwrites `opts.ConfigSlug` before the later readers
+(`reprovision.LoadConfigFiles`, the env/secret fingerprint load) use it; otherwise the migration run
+loads defaults and skips the user's env, secrets, `home:` files, hooks, and agent config dirs. The
+recomputation is filesystem-derived, so a read-only run (`--dry-run-vm`, `apply=false`) and the
+left-in-place case (target exists) keep naming the legacy dir.
+
+### Adoption warning
+
+`vm`'s `migrateLegacyConfigDirs` leaves a legacy dir in place when the repo-slug target exists. It
+claims the legacy launcher config is "no longer read" only when the repo-slug dir actually takes
+over (`SlugHasUserInputs(repoSlug)` is true); an empty target leaves the legacy slug selected, so the
+report instead says the legacy config is still read. A legacy dir with no launcher config stays a
+verbose note.
 
 ## Blast radius
 

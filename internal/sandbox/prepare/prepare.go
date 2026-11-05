@@ -143,6 +143,17 @@ func PrepareSandbox(
 				return err
 			}
 			opts.Mounts = withSharedGitDirMount(opts.Mounts, session.identity, ui)
+			// Adoption renames a bare root's legacy per-slug config dir onto the
+			// repo slug, so the slug resolved at the CLI boundary (before
+			// adoption) can be stale. Recompute it here, after adoption, so the
+			// later readers (LoadConfigFiles, the env/secret fingerprints) read
+			// the dir now actually holding the user's inputs. A read-only run
+			// leaves the legacy dir in place, and the recomputation then keeps
+			// naming it.
+			opts.ConfigSlug = reprovision.EffectiveConfigSlug(
+				session.identity.RepoSlug,
+				session.identity.LegacyRepoSlugs,
+			)
 			return nil
 		}},
 		{ID: lifecycle.ResolveVersion, Run: func() error {

@@ -2171,8 +2171,9 @@ func TestMigrateLegacyConfigDirsContinuesPastSkippedEntries(t *testing.T) {
 
 // TestMigrateLegacyConfigDirsReportsEveryKeptTarget pins that an existing target
 // leaves every legacy directory in place, one report per legacy identity: the
-// scan reports each rather than stopping at the first. Both legacy dirs hold a
-// launcher config, so each report is a warning.
+// scan reports each rather than stopping at the first. The target holds no
+// per-slug input, so the launcher still reads each legacy launcher config and
+// the report must say so, not claim the config is stranded.
 func TestMigrateLegacyConfigDirsReportsEveryKeptTarget(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	configpaths.WithRealConfigPaths(t)
@@ -2197,14 +2198,23 @@ func TestMigrateLegacyConfigDirsReportsEveryKeptTarget(t *testing.T) {
 	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
 		t.Fatalf("migrateLegacyConfigDirs: %v", err)
 	}
-	var reported int
+	var stillRead, stranded int
 	for _, call := range ui.WarnCalls {
+		if strings.Contains(call, "still read") {
+			stillRead++
+		}
 		if strings.Contains(call, "no longer read") {
-			reported++
+			stranded++
 		}
 	}
-	if reported != 2 {
-		t.Errorf("kept-target warnings = %d, want one per legacy identity; got %v", reported, ui.WarnCalls)
+	if stillRead != 2 {
+		t.Errorf("still-read reports = %d, want one per legacy identity; got %v", stillRead, ui.WarnCalls)
+	}
+	if stranded != 0 {
+		t.Errorf(
+			"an empty target leaves the legacy config active, so no stranded report is right; got %v",
+			ui.WarnCalls,
+		)
 	}
 }
 

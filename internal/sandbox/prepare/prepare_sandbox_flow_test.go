@@ -239,6 +239,78 @@ func TestPrepareSandboxRecordsTheOfferedUpgradeOnAFreshProject(t *testing.T) {
 	}
 }
 
+// TestPrepareSandboxRecomputesConfigSlugAfterAdoption pins the P1 fix: a bare
+// root's per-slug config dir is renamed onto the repo slug during
+// resolve-identity, so a ConfigSlug resolved before adoption (the CLI boundary's
+// legacy slug) is stale. The later readers must recompute it, or the user's env,
+// secrets, home files and agent config are silently skipped on the migration
+// run. The per-slug env file is the observable: it feeds the env fingerprint
+// persisted on VM creation.
+func TestPrepareSandboxRecomputesConfigSlugAfterAdoption(t *testing.T) {
+	origin := testutil.InitRepo(t)
+	root := t.TempDir()
+	testutil.RunGit(t, root, "clone", "--bare", origin, ".git")
+	testutil.RunGit(t, filepath.Join(root, ".git"), "worktree", "add", filepath.Join(root, "main"))
+
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	configpaths.WithRealConfigPaths(t)
+	t.Chdir(root)
+
+	identity := mustIdentity(t, ".")
+	if len(identity.LegacyRepoSlugs) == 0 {
+		t.Fatal("bare root must record a legacy config slug")
+	}
+	// The CLI resolves the config slug before adoption, while only the legacy
+	// dir holds inputs, so it passes the legacy slug into the run.
+	legacySlug := identity.LegacyRepoSlugs[0]
+	legacyDir := configpaths.Get().UserSlugConfigDir(legacySlug)
+	if err := os.MkdirAll(legacyDir, 0o700); err != nil {
+		t.Fatalf("mkdir legacy config dir: %v", err)
+	}
+	testutil.WriteFile(t, legacyDir, configpaths.EnvFileName, "FOO=bar\n")
+
+	installPrepareSandboxDockerMock(t)
+	installPrepareSandboxMSBMock(t)
+
+	// A legacy state file makes adoption pending: its state and config dir move
+	// onto the checkout/repo identity before the config readers run.
+	if err := seedHomeState(state.Key{Slug: legacySlug, Agent: "opencode"}, state.HomeState{
+		HomeVolume:   "home-vol",
+		ImageDigest:  "sha256:abc123",
+		AgentVersion: "1.0.0",
+		AgentSource:  state.AgentSourceTool,
+	}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+
+	ui := termio.NewTestMock(t)
+	sess, err := PrepareSandbox(
+		context.Background(),
+		sandboxRunOptions(t, options.RunOptions{Agent: "opencode", ConfigSlug: legacySlug}),
+		false,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("PrepareSandbox: %v", err)
+	}
+	defer sess.Cleanup()
+
+	hs, err := state.ReadState(state.Key{Slug: identity.CheckoutSlug, Agent: "opencode"})
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if !slices.Contains(hs.EnvState.Names, "FOO") {
+		t.Errorf(
+			"env fingerprint names = %v, want FOO read from the adopted repo-slug config dir",
+			hs.EnvState.Names,
+		)
+	}
+}
+
 // TestPrepareSandboxLoadsHomeYamlOnce verifies that a full startup loads the
 // home manifests exactly once: a missing host source is warned about a
 // single time. This guards against the regression where config files were
