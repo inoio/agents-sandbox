@@ -3,12 +3,14 @@
 package msb
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -73,7 +75,7 @@ func TestRealClientListsSandboxesAndImages(t *testing.T) {
 const (
 	childHomeEnv    = "AGENTS_SANDBOX_TEST_CHILD_MSB_HOME"
 	childNameEnv    = "AGENTS_SANDBOX_TEST_CHILD_SANDBOX"
-	childStartAtEnv = "AGENTS_SANDBOX_TEST_CHILD_START_AT"
+	childReadyLine  = "connect-or-start ready"
 	childBootedLine = "connect-or-start booted="
 )
 
@@ -145,31 +147,27 @@ func handleNamed(ctx context.Context, t *testing.T, client realMsbClient, name s
 }
 
 // connectOrStartFromProcesses runs ConnectOrStart on the named sandbox from
-// count child processes released at the same instant, as concurrent launcher
-// invocations would, and returns how many of them booted it.
+// count child processes, as concurrent launcher invocations would, and returns
+// how many of them booted it. Each child resolves its handle and reports ready;
+// only once every child is ready does the parent release them together, so the
+// calls overlap however long a child takes to get there.
 func connectOrStartFromProcesses(t *testing.T, name string, count int) int {
 	t.Helper()
-	startAt := strconv.FormatInt(time.Now().Add(2*time.Second).UnixMilli(), 10)
-	outputs := make([]string, count)
-	var wg sync.WaitGroup
-	for index := range count {
-		wg.Go(func() {
-			child := exec.Command(os.Args[0], "-test.run=^TestRealClientConnectOrStartChild$", "-test.v")
-			child.Env = append(os.Environ(),
-				childHomeEnv+"="+isolatedRuntimeHome,
-				childNameEnv+"="+name,
-				childStartAtEnv+"="+startAt,
-			)
-			output, err := child.CombinedOutput()
-			if err != nil {
-				t.Errorf("child %d: %v\n%s", index, err, output)
-			}
-			outputs[index] = string(output)
-		})
+	children := make([]*connectOrStartChild, count)
+	for index := range children {
+		children[index] = startConnectOrStartChild(t, name)
 	}
-	wg.Wait()
+	for index, child := range children {
+		if !child.awaitReady() {
+			t.Fatalf("child %d exited before it was ready:\n%s", index, child.finish())
+		}
+	}
+	for _, child := range children {
+		child.release()
+	}
 	booted := 0
-	for index, output := range outputs {
+	for index, child := range children {
+		output := child.finish()
 		switch {
 		case strings.Contains(output, childBootedLine+"true"):
 			booted++
@@ -180,29 +178,85 @@ func connectOrStartFromProcesses(t *testing.T, name string, count int) int {
 	return booted
 }
 
-// TestRealClientConnectOrStartChild is the child half of connectOrStartFromProcesses; it
-// skips unless started by it. It holds the sandbox briefly so its peers overlap
-// with a live owner, then detaches as the launcher does.
+// connectOrStartChild is one running TestRealClientConnectOrStartChild process:
+// its stdin is the release signal, its stdout the ready and outcome lines.
+type connectOrStartChild struct {
+	command *exec.Cmd
+	release func()
+	lines   *bufio.Scanner
+	output  strings.Builder
+}
+
+func startConnectOrStartChild(t *testing.T, name string) *connectOrStartChild {
+	t.Helper()
+	command := exec.Command(os.Args[0], "-test.run=^TestRealClientConnectOrStartChild$", "-test.v")
+	command.Env = append(os.Environ(), childHomeEnv+"="+isolatedRuntimeHome, childNameEnv+"="+name)
+	child := &connectOrStartChild{command: command}
+	command.Stderr = &child.output
+	stdin, err := command.StdinPipe()
+	if err != nil {
+		t.Fatalf("child stdin: %v", err)
+	}
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		t.Fatalf("child stdout: %v", err)
+	}
+	if err := command.Start(); err != nil {
+		t.Fatalf("start child: %v", err)
+	}
+	t.Cleanup(func() { _ = command.Process.Kill() })
+	child.release = func() { _ = stdin.Close() }
+	child.lines = bufio.NewScanner(stdout)
+	return child
+}
+
+// awaitReady reads the child's output up to its ready line and reports whether
+// the child got there.
+func (c *connectOrStartChild) awaitReady() bool {
+	for c.lines.Scan() {
+		c.output.WriteString(c.lines.Text() + "\n")
+		if c.lines.Text() == childReadyLine {
+			return true
+		}
+	}
+	return false
+}
+
+// finish reads the child's remaining output, waits for it to exit, and returns
+// everything it wrote.
+func (c *connectOrStartChild) finish() string {
+	c.release()
+	for c.lines.Scan() {
+		c.output.WriteString(c.lines.Text() + "\n")
+	}
+	if err := c.command.Wait(); err != nil {
+		c.output.WriteString("exit: " + err.Error() + "\n")
+	}
+	return c.output.String()
+}
+
+// TestRealClientConnectOrStartChild is the child half of
+// connectOrStartFromProcesses; it skips unless started by it. It reports ready
+// once it holds the handle, calls ConnectOrStart when the parent closes its
+// stdin, and holds the sandbox briefly so its peers overlap with a live owner
+// before detaching as the launcher does.
 func TestRealClientConnectOrStartChild(t *testing.T) {
 	home := os.Getenv(childHomeEnv)
 	if home == "" {
 		t.Skip("runs only as a child of TestRealClientSandboxLifecycle")
 	}
 	t.Setenv("MSB_HOME", home)
-	startAtMillis, err := strconv.ParseInt(os.Getenv(childStartAtEnv), 10, 64)
-	if err != nil {
-		t.Fatalf("parse %s: %v", childStartAtEnv, err)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	handle := handleNamed(ctx, t, realMsbClient{}, os.Getenv(childNameEnv))
-	time.Sleep(time.Until(time.UnixMilli(startAtMillis)))
+	_, _ = fmt.Fprintln(os.Stdout, childReadyLine)
+	_, _ = io.Copy(io.Discard, os.Stdin)
 
 	sb, booted, err := handle.ConnectOrStart(ctx)
 	if err != nil {
 		t.Fatalf("ConnectOrStart: %v", err)
 	}
-	t.Log(childBootedLine + strconv.FormatBool(booted))
+	_, _ = fmt.Fprintln(os.Stdout, childBootedLine+strconv.FormatBool(booted))
 	time.Sleep(3 * time.Second)
 	if err := sb.Detach(ctx); err != nil {
 		t.Errorf("Detach: %v", err)
