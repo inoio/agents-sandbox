@@ -1,6 +1,10 @@
 package pruning
 
-import "time"
+import (
+	"time"
+
+	"github.com/inoio/agents-sandbox/internal/humanize"
+)
 
 // StaleReport describes the result of an aggregate prune. Task sandboxes count
 // into PrunedSandboxes; clone volumes are removed (dead code).
@@ -51,3 +55,20 @@ var typeName = map[StaleType]string{
 }
 
 func (ss StaleType) String() string { return typeName[ss] }
+
+func pruneReportPrefix(dryRun bool) string {
+	prefix := "Pruned"
+	if dryRun {
+		prefix = "dry-run: Would prune"
+	}
+	return prefix
+}
+
+// formatOptionalBytes renders a byte count the runtime reported, or "-" when it
+// did not (nil), never as zero.
+func formatOptionalBytes(bytes *uint64) string {
+	if bytes == nil {
+		return "-"
+	}
+	return humanize.FormatBytes(*bytes)
+}
