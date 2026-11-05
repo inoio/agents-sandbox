@@ -364,3 +364,36 @@ func TestResolveConfigSourceFallbackWarningNamesLegacy(t *testing.T) {
 		t.Errorf("describeConfigScopes = %q, want the legacy dir %q", described, legacy)
 	}
 }
+
+// TestResolveConfigSourceDegradesWhenCwdUnreadable pins the graceful degrade:
+// a relative project scope dir whose Abs resolution fails (the CWD cannot be
+// read) must be kept as-is rather than aborting resolution, mirroring
+// ProjectConfigDirAbs.
+func TestResolveConfigSourceDegradesWhenCwdUnreadable(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	generic := t.TempDir()
+	if err := os.Mkdir(filepath.Join(generic, "opencode2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scopes := []configpaths.ConfigScope{
+		{Kind: configpaths.ScopeGenericUser, Dir: generic},
+		{Kind: configpaths.ScopeProject, Dir: ".agents-sandbox"},
+	}
+
+	a, _ := agent.Lookup("opencode2")
+	src, err := ResolveConfigSource(a, scopes)
+	if err != nil {
+		t.Fatalf("ResolveConfigSource: %v", err)
+	}
+	if want := filepath.Join(".agents-sandbox", "opencode2"); src.ProjectDir != want {
+		t.Errorf("ProjectDir = %q, want the relative candidate %q", src.ProjectDir, want)
+	}
+	if src.Fallback != "" {
+		t.Errorf("Fallback = %q, want empty (the primary user dir exists)", src.Fallback)
+	}
+}

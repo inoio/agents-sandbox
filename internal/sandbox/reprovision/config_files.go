@@ -62,18 +62,10 @@ func ResolveConfigSource(a agent.Agent, scopes []cp.ConfigScope) (ConfigSource, 
 	for i, name := range names {
 		userCandidates[i] = make([]string, 0, len(userScopes))
 		for _, scope := range userScopes {
-			dir, dirErr := absoluteAgentConfigDir(scope, name)
-			if dirErr != nil {
-				return ConfigSource{}, dirErr
-			}
-			userCandidates[i] = append(userCandidates[i], dir)
+			userCandidates[i] = append(userCandidates[i], absoluteAgentConfigDir(scope, name))
 		}
 		if hasProject {
-			dir, dirErr := absoluteAgentConfigDir(projectScope, name)
-			if dirErr != nil {
-				return ConfigSource{}, dirErr
-			}
-			projectCandidates[i] = dir
+			projectCandidates[i] = absoluteAgentConfigDir(projectScope, name)
 		}
 	}
 	src := ConfigSource{
@@ -123,15 +115,18 @@ func splitConfigScopes(scopes []cp.ConfigScope) ([]cp.ConfigScope, cp.ConfigScop
 	return userScopes, projectScope, hasProject
 }
 
-// absoluteAgentConfigDir returns the agent's config dir under scope as an absolute
-// path. The project scope's dir may be relative to the CWD, while candidate
-// rendering and stats need absolute paths.
-func absoluteAgentConfigDir(scope cp.ConfigScope, name string) (string, error) {
-	dir, err := filepath.Abs(scope.AgentConfigDir(name))
+// absoluteAgentConfigDir returns the agent's config dir under scope as an
+// absolute path. The project scope's dir may be relative to the CWD, while
+// candidate rendering and stats need absolute paths. filepath.Abs only fails
+// when the CWD cannot be read, which can only affect a relative project scope
+// dir; that degrades to the relative candidate, mirroring ProjectConfigDirAbs.
+func absoluteAgentConfigDir(scope cp.ConfigScope, name string) string {
+	dir := scope.AgentConfigDir(name)
+	abs, err := filepath.Abs(dir)
 	if err != nil {
-		return "", fmt.Errorf("resolve config dir: %w", err)
+		return dir
 	}
-	return dir, nil
+	return abs
 }
 
 // candidateDirs returns the user candidates followed by the project candidate.
