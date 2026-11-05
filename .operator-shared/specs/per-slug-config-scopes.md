@@ -172,8 +172,8 @@ resolved before adoption can be stale. `prepare`'s resolve-identity stage recomp
 `reprovision.EffectiveConfigSlug` and overwrites `opts.ConfigSlug` before the later readers
 (`reprovision.LoadConfigFiles`, the env/secret fingerprint load) use it; otherwise the migration run
 loads defaults and skips the user's env, secrets, `home:` files, hooks, and agent config dirs. The
-recomputation is filesystem-derived, so a read-only run (`--dry-run-vm`, `apply=false`) and the
-left-in-place case (target exists) keep naming the legacy dir.
+recomputation is filesystem-derived, so a read-only run (`--dry-run-vm`, `apply=false`) and a
+left-in-place target that holds no inputs keep naming the legacy dir.
 
 ### Adoption warning
 

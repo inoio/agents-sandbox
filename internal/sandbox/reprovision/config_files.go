@@ -60,7 +60,6 @@ func ResolveConfigSource(a agent.Agent, scopes []cp.ConfigScope) (ConfigSource, 
 	userCandidates := make([][]string, len(names))
 	projectCandidates := make([]string, len(names))
 	for i, name := range names {
-		userCandidates[i] = make([]string, 0, len(userScopes))
 		for _, scope := range userScopes {
 			userCandidates[i] = append(userCandidates[i], absoluteAgentConfigDir(scope, name))
 		}
@@ -109,9 +108,9 @@ func splitConfigScopes(scopes []cp.ConfigScope) ([]cp.ConfigScope, cp.ConfigScop
 		if scope.Kind == cp.ScopeProject {
 			projectScope = scope
 			hasProject = true
-			continue
+		} else {
+			userScopes = append(userScopes, scope)
 		}
-		userScopes = append(userScopes, scope)
 	}
 	return userScopes, projectScope, hasProject
 }
@@ -132,7 +131,7 @@ func absoluteAgentConfigDir(scope cp.ConfigScope, name string) string {
 
 // candidateDirs returns the user candidates followed by the project candidate.
 func candidateDirs(userDirs []string, projectDir string) []string {
-	dirs := make([]string, 0, len(userDirs)+1)
+	var dirs []string
 	dirs = append(dirs, userDirs...)
 	if projectDir != "" {
 		dirs = append(dirs, projectDir)
@@ -169,8 +168,7 @@ func anyDirExists(dirs ...string) (bool, error) {
 // onlyExisting is set, scopes whose dir is absent are omitted rather than named as
 // if read.
 func describeConfigScopes(userDirs []string, projectDir string, onlyExisting bool) string {
-	parts := make([]string, 0, len(userDirs)+1)
-	// gomutants:disable-next-line INTEGER_DECREMENT,INTEGER_INCREMENT reason="the capacity only presizes the slice; append grows it as needed"
+	var parts []string
 	for _, dir := range userDirs {
 		if !onlyExisting || IsDir(dir) {
 			parts = append(parts, fmt.Sprintf("user: %q", dir))

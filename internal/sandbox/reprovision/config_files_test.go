@@ -236,6 +236,31 @@ func TestDescribeConfigScopes(t *testing.T) {
 	), fmt.Sprintf("user: %q, project: %q", existing, existing); got != want {
 		t.Errorf("onlyExisting with a per-slug scope = %q, want %q", got, want)
 	}
+	// An empty projectDir must not be named as if it were a read scope: the
+	// project entry is emitted only when a dir is present.
+	if got := describeConfigScopes(userDirs(existing), "", false); strings.Contains(got, "project:") {
+		t.Errorf("an empty project dir must not be described, got %q", got)
+	}
+}
+
+// TestSplitConfigScopesNoProject pins that a scope set without a project scope
+// reports hasProject=false and the zero project scope, so a caller gates the
+// project candidate on the flag instead of a zero-value dir.
+func TestSplitConfigScopesNoProject(t *testing.T) {
+	scopes := []configpaths.ConfigScope{
+		{Kind: configpaths.ScopeGenericUser, Dir: "/generic"},
+		{Kind: configpaths.ScopePerSlugUser, Dir: "/per-slug"},
+	}
+	users, project, hasProject := splitConfigScopes(scopes)
+	if hasProject {
+		t.Error("splitConfigScopes reported a project scope for a scope set without one")
+	}
+	if project != (configpaths.ConfigScope{}) {
+		t.Errorf("projectScope = %+v, want the zero scope", project)
+	}
+	if !slices.Equal(users, scopes) {
+		t.Errorf("userScopes = %+v, want every scope in order", users)
+	}
 }
 
 func TestSourceDirsMirrorResolvedSource(t *testing.T) {

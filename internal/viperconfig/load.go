@@ -26,7 +26,7 @@ import (
 // drift. NewResolver merges the file layers from this slice.
 func ConfigLayers(paths configpaths.ConfigPaths, slug string) []ConfigLayer {
 	scopes := configpaths.ConfigScopes(paths, slug)
-	layers := make([]ConfigLayer, 0, len(scopes)+3)
+	var layers []ConfigLayer
 	for _, scope := range scopes {
 		layers = append(layers, fileLayer(layerNameForScope(scope.Kind), scope.Dir))
 	}

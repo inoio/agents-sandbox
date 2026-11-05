@@ -89,12 +89,12 @@ type EnvSecrets struct {
 // unchanged (the secrets.common.allow-placeholder-for config key); each secret
 // still substitutes for the hosts it allows.
 func LoadEnvAndSecrets(ui termio.Logger, scopes []cp.ConfigScope, allowPlaceholderFor []string) EnvSecrets {
-	envMaps := make([]map[string]string, 0, len(scopes))
+	var envMaps []map[string]string
 	for _, scope := range scopes {
 		envMaps = append(envMaps, BuildEnvMap(scope.EnvFile(), ui))
 	}
 
-	specs := make([]map[string]SecretSpec, 0, 2*len(scopes))
+	var specs []map[string]SecretSpec
 	for _, scope := range scopes {
 		specs = append(specs, ParseSecretSpecLegacy(scope.EnvSecretFile(), ui))
 	}
