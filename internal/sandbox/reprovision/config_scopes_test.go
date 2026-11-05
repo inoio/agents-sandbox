@@ -2,6 +2,8 @@ package reprovision
 
 import (
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -74,5 +76,36 @@ func TestHomeFilesPerSlugOverridesGeneric(t *testing.T) {
 	writeHomeTarget(t, cp.ProjectConfigDir(), "project\n")
 	if got := string(load()[want]); got != "project\n" {
 		t.Errorf("project home file = %q, want %q", got, "project\n")
+	}
+}
+
+// TestDescribeUsesConfigSlug pins the slug pass-through into the description: a
+// snippet that exists only in the per-slug user scope is described, so the slug
+// resolved at the CLI boundary reaches Describe's load instead of being dropped.
+func TestDescribeUsesConfigSlug(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+
+	perSlugDir := configpaths.CreateDir(
+		filepath.Join(cp.UserSlugConfigDir("widget-bbb"), opencodeTestAgent().ConfigDirName()),
+	)
+	testutil.WriteFile(t, perSlugDir, "opencode-model.json", `{"model":"per-slug"}`)
+
+	ui := termio.NewTestMock(t)
+	merged, sources, _, _, source, err := Describe(
+		opencodeTestAgent(), "widget-bbb", t.TempDir(), VMHomeDir, &ui, true,
+	)
+	if err != nil {
+		t.Fatalf("Describe: %v", err)
+	}
+	snippet := filepath.Join(perSlugDir, "opencode-model.json")
+	if !slices.Contains(sources, snippet) {
+		t.Errorf("Describe sources = %v, want the per-slug snippet %q", sources, snippet)
+	}
+	if !slices.Contains(source.UserDirs, perSlugDir) {
+		t.Errorf("Describe source user dirs = %v, want the per-slug dir %q", source.UserDirs, perSlugDir)
+	}
+	if !strings.Contains(string(merged), "per-slug") {
+		t.Errorf("merged config = %q, want the per-slug snippet merged", string(merged))
 	}
 }

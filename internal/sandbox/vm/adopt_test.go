@@ -893,7 +893,9 @@ func TestMigrateLegacyConfigDirsMovesBareRootConfig(t *testing.T) {
 
 // TestMigrateLegacyConfigDirsKeepsExistingTarget pins the never-overwrite rule:
 // when the repo-slug config dir already exists, the legacy copy is left in place
-// rather than clobbering the config the user is using.
+// rather than clobbering the config the user is using. The legacy dir holds a
+// launcher config file that the repo slug now shadows, so the user gets a
+// warning rather than only a verbose note.
 func TestMigrateLegacyConfigDirsKeepsExistingTarget(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	configpaths.WithRealConfigPaths(t)
@@ -926,6 +928,50 @@ func TestMigrateLegacyConfigDirsKeepsExistingTarget(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(from, "config.yaml")); err != nil {
 		t.Errorf("legacy config removed although the target existed: %v", err)
 	}
+	var sawWarning bool
+	for _, call := range ui.WarnCalls {
+		if strings.Contains(call, "no longer read") {
+			sawWarning = true
+		}
+	}
+	if !sawWarning {
+		t.Errorf("expected a warning that the legacy launcher config is no longer read; got %v", ui.WarnCalls)
+	}
+	for _, call := range ui.VerboseCalls {
+		if strings.Contains(call, "kept existing config dir") {
+			t.Errorf("a kept legacy config file must warn, not only note verbosely: %v", ui.VerboseCalls)
+		}
+	}
+}
+
+// TestMigrateLegacyConfigDirsKeepsTargetWithoutConfig pins the quiet branch:
+// when the target exists and the legacy dir holds no launcher config file (here
+// only a secret file, which the repo slug now reads), the legacy dir is left in
+// place with a verbose note and no warning.
+func TestMigrateLegacyConfigDirsKeepsTargetWithoutConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	configpaths.WithRealConfigPaths(t)
+	paths := configpaths.Get()
+
+	from := paths.UserSlugConfigDir("workspace-aaa")
+	to := paths.UserSlugConfigDir("agents-sandbox-bbb")
+	if err := os.MkdirAll(from, 0o700); err != nil {
+		t.Fatalf("mkdir legacy config dir: %v", err)
+	}
+	if err := os.MkdirAll(to, 0o700); err != nil {
+		t.Fatalf("mkdir target config dir: %v", err)
+	}
+	testutil.WriteFile(t, from, "env.secret.yaml", "TOKEN: legacy\n")
+
+	ui := termio.NewTestMock(t)
+	identity := git.Identity{RepoSlug: "agents-sandbox-bbb", LegacyRepoSlugs: []string{"workspace-aaa"}}
+
+	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
+		t.Fatalf("migrateLegacyConfigDirs: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(from, "env.secret.yaml")); err != nil {
+		t.Errorf("legacy secret file removed although the target existed: %v", err)
+	}
 	var sawKept bool
 	for _, call := range ui.VerboseCalls {
 		if strings.Contains(call, "kept existing config dir") {
@@ -934,6 +980,11 @@ func TestMigrateLegacyConfigDirsKeepsExistingTarget(t *testing.T) {
 	}
 	if !sawKept {
 		t.Errorf("expected the kept-config-dir verbose note; got %v", ui.VerboseCalls)
+	}
+	for _, call := range ui.WarnCalls {
+		if strings.Contains(call, "no longer read") {
+			t.Errorf("a legacy dir without a launcher config must not warn; got %v", ui.WarnCalls)
+		}
 	}
 }
 
@@ -1081,8 +1132,9 @@ func TestMigrateLegacyConfigDirsContinuesPastMissingSource(t *testing.T) {
 }
 
 // TestMigrateLegacyConfigDirsReportsEveryKeptTarget pins that an existing target
-// leaves every legacy directory in place, one note per legacy identity: the scan
-// reports each rather than stopping at the first.
+// leaves every legacy directory in place, one report per legacy identity: the
+// scan reports each rather than stopping at the first. Both legacy dirs hold a
+// launcher config, so each report is a warning.
 func TestMigrateLegacyConfigDirsReportsEveryKeptTarget(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	configpaths.WithRealConfigPaths(t)
@@ -1107,14 +1159,14 @@ func TestMigrateLegacyConfigDirsReportsEveryKeptTarget(t *testing.T) {
 	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
 		t.Fatalf("migrateLegacyConfigDirs: %v", err)
 	}
-	var kept int
-	for _, call := range ui.VerboseCalls {
-		if strings.Contains(call, "kept existing config dir") {
-			kept++
+	var reported int
+	for _, call := range ui.WarnCalls {
+		if strings.Contains(call, "no longer read") {
+			reported++
 		}
 	}
-	if kept != 2 {
-		t.Errorf("kept-config-dir notes = %d, want one per legacy identity; got %v", kept, ui.VerboseCalls)
+	if reported != 2 {
+		t.Errorf("kept-target warnings = %d, want one per legacy identity; got %v", reported, ui.WarnCalls)
 	}
 }
 

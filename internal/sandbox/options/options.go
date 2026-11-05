@@ -41,8 +41,9 @@ type RunOptions struct {
 	ResolvedAgent agent.Resolved
 	// ConfigSlug is the effective per-slug user config slug the launcher config
 	// was resolved with, carried so later stages can rebuild the per-slug config
-	// scope. Resolved once at the run boundary (runoptions.Build); never set
-	// from config or flags, mirroring ResolvedAgent.
+	// scope. It is resolved at the CLI boundary from project identity and carried
+	// on the resolved config; it is not a config key or a CLI flag, mirroring
+	// ResolvedAgent.
 	ConfigSlug  string
 	ReapPolicy  ReapPolicy
 	IdleTimeout time.Duration

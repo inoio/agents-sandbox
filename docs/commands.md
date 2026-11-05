@@ -426,6 +426,7 @@ The agent is resolved from the `--agent` flag, then the positional `[name]`, the
 The output names the launcher (host) config dirs actually read, as absolute paths, one line per scope:
 
 ```text
+agent: opencode2
 config dirs (primary):
   user: "/home/me/.config/agents-sandbox/opencode2"
   user: "/home/me/.config/agents-sandbox/myproject-<hash>/opencode2"

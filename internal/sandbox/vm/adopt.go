@@ -566,7 +566,10 @@ func destroyLegacyVM(ctx context.Context, client msb.Client, repoKey state.Key, 
 // now. It only applies to a legacy identity that is not already the repo slug (a
 // bare root's path-derived slug); a source whose slug is the repo slug already
 // reads the right directory. An absent legacy directory, or an existing target,
-// is left alone.
+// is left alone; when the left-behind legacy dir holds a launcher config file
+// the user is warned, because a repo-slug dir populated only by a non-config
+// per-slug input (a secret file or an agent dir) routes the launcher away from
+// that config (#578).
 func migrateLegacyConfigDirs(paths configpaths.ConfigPaths, identity git.Identity, ui termio.Logger) error {
 	for _, slug := range identity.LegacyRepoSlugs {
 		if slug == identity.RepoSlug {
@@ -578,7 +581,19 @@ func migrateLegacyConfigDirs(paths configpaths.ConfigPaths, identity git.Identit
 			continue
 		}
 		if _, err := os.Stat(to); err == nil {
-			ui.Verbosef("kept existing config dir %s; legacy config dir %s left in place", to, from)
+			// A legacy launcher config left behind is no longer read once the
+			// repo-slug dir takes over: a per-slug input under `to` (a secret
+			// file or an agent dir) selects the repo slug, so the legacy
+			// config.yaml is silently stranded. Warn so the user can move it.
+			if _, _, present := configpaths.FindConfigFile(from); present {
+				ui.Warnf(
+					"legacy config dir %s left in place: target %s already exists and its launcher config is no longer read",
+					from,
+					to,
+				)
+			} else {
+				ui.Verbosef("kept existing config dir %s; legacy config dir %s left in place", to, from)
+			}
 			continue
 		}
 		if err := renameConfigDir(from, to); err != nil {

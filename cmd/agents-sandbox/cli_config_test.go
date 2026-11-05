@@ -514,6 +514,18 @@ func TestSlugHasUserInputs(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "file named like agent dir",
+			setup: func(t *testing.T, slug string) {
+				testutil.WriteFile(
+					t,
+					cp.UserSlugConfigDir(slug),
+					mustOpencode2(t).ConfigDirName(),
+					"not a directory\n",
+				)
+			},
+			want: false,
+		},
+		{
 			name:  "empty dir",
 			setup: func(t *testing.T, slug string) { configpaths.CreateDir(cp.UserSlugConfigDir(slug)) },
 			want:  false,

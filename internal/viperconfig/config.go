@@ -51,7 +51,7 @@ type Config struct {
 	// hasHome reports whether any config file declared a home key.
 	hasHome bool
 	// ConfigSlug is the effective per-slug user config directory slug the
-	// resolver was built with (empty for a generic-user-only config). It is
+	// resolver was built with (empty when no per-slug scope was selected). It is
 	// resolved at the run boundary, never read from a config file or env.
 	ConfigSlug string `mapstructure:"-"`
 

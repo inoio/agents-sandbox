@@ -17,7 +17,8 @@ const (
 )
 
 // ConfigScope is one config authority in the ordered scope chain. It holds only
-// its kind and its resolved directory; the file joins are the only behaviors.
+// its kind and its base directory — the project scope's base may be relative to
+// the CWD — and the file joins are its only behaviors.
 type ConfigScope struct {
 	Kind ScopeKind
 	Dir  string

@@ -555,14 +555,10 @@ type mergedConfig struct {
 }
 
 // orderedSourceDirs returns the source's dirs lowest precedence first: every
-// user scope dir, then the project dir.
+// user scope dir, then the project dir. It is candidateDirs over the source's
+// fields, so the "user dirs then project" ordering rule has one home.
 func orderedSourceDirs(src ConfigSource) []string {
-	dirs := make([]string, 0, len(src.UserDirs)+1)
-	dirs = append(dirs, src.UserDirs...)
-	if src.ProjectDir != "" {
-		dirs = append(dirs, src.ProjectDir)
-	}
-	return dirs
+	return candidateDirs(src.UserDirs, src.ProjectDir)
 }
 
 // buildMergedConfig merges the subject's snippet files into a single config.

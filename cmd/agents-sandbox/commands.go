@@ -99,9 +99,12 @@ func slugHasUserInputs(slug string) bool {
 		}
 		for _, name := range agent.Names() {
 			a, _ := agent.Lookup(name)
+			// The built-in registry validates its own config-dir names, so an
+			// invalid name simply contributes no candidate; there is no error
+			// branch to handle here.
 			dirNames, _ := agent.ConfigDirNames(a)
 			for _, dirName := range dirNames {
-				if pathExists(scope.AgentConfigDir(dirName)) {
+				if dirExists(scope.AgentConfigDir(dirName)) {
 					return true
 				}
 			}
@@ -115,6 +118,14 @@ func slugHasUserInputs(slug string) bool {
 func pathExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// dirExists reports whether path names an existing directory. A regular file
+// with an agent-config-dir name must not count as a populated per-slug dir,
+// matching the directory requirement reprovision's anyDirExists enforces.
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // resolveAgent validates a resolved agent name (from flag, env, or config)
