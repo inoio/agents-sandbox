@@ -57,6 +57,10 @@ with the newest stable release, even when that release is older. Only the explic
 `upgrade.channel` back to `stable` never downgrades: the automatic check and a plain `agents-sandbox upgrade` keep the
 installed canary until something newer is offered, and `upgrade` prints the `--channel stable` command to switch.
 
+An older stable release may not be able to use the runtime data the canary has already upgraded; it then stops with
+["database schema is newer than this msb binary"]({% link troubleshooting.md %}#database-schema-is-newer-than-this-msb-binary),
+and `agents-sandbox upgrade --channel canary` takes you back.
+
 Homebrew installs ignore the setting: the tap serves full releases only, so a keg stays on the stable line whatever
 `upgrade.channel` says, and a canary cannot be installed through Homebrew. To install a canary, follow the
 release-binary instructions on the [installation page]({% link install/installation.md %}) and set the channel to

@@ -51,6 +51,13 @@ It does not install a user-facing `msb` command, and does not require any
 particular `msb` version on your machine. If agents-sandbox is the only thing
 installed, the absence of an `msb` command is expected, not a defect.
 
+#### "database schema is newer than this msb binary"
+
+A newer agents-sandbox upgraded the runtime's data, and this version's bundled runtime cannot read it. This happens
+after a downgrade. Upgrade with `agents-sandbox upgrade`, or run the newer binary. If you switched from a canary back to
+an older stable release, `agents-sandbox upgrade` reports that you are up to date; run
+`agents-sandbox upgrade --channel canary` instead.
+
 If you encounter a runtime error, submit a bug report at:
 
 <https://github.com/inoio/agents-sandbox/issues/new?template=bug_report.yml>

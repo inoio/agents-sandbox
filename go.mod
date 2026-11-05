@@ -16,7 +16,7 @@ require (
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.12.1
-	github.com/superradcompany/microsandbox/sdk/go v0.7.11
+	github.com/superradcompany/microsandbox/sdk/go v0.7.13
 	github.com/titanous/json5 v1.0.0
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/term v0.47.0
