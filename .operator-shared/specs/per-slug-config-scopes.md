@@ -156,7 +156,7 @@ is: resolved at the boundary and carried on `options.RunOptions` (`run-orchestra
 - `runoptions.Build` copies it to `RunOptions.ConfigSlug`.
 - `prepare` passes it to the env/secret load and to `reprovision.LoadConfigFiles`.
 - The `config agent` path passes `effectiveConfigSlug` to `reprovision.Describe`.
-- `effectiveConfigSlug`/`slugHasUserConfig` treat a per-slug dir as populated when it holds **any**
+- `effectiveConfigSlug`/`slugHasUserInputs` treat a per-slug dir as populated when it holds **any**
   per-slug user input — the launcher config file, an env/secret file, or an agent config dir — not
   only the config file. This keeps a secrets-only per-slug dir from being skipped during bare-root
   legacy-slug selection, which would silently reintroduce the #578 failure.

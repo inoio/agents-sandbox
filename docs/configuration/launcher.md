@@ -28,6 +28,10 @@ the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spe
 | `~/.config/agents-sandbox/config.(y[a]ml\|json[(c\|5)])` | Configuration file (incl. the `home:` key; see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}))                                                                    |
 | `~/.config/agents-sandbox/<agent>/*`                    | Agent config snippets, one subdir per agent (e.g. `opencode/`; see [Agent configuration]({% link configuration/agent.md %})) |
 | `~/.config/agents-sandbox/<slug>/config.(y[a]ml\|json[(c\|5)])` | Per-project (repo-slug) configuration file, shared by every clone (see [Per-slug configuration](#per-slug-configuration)) |
+| `~/.config/agents-sandbox/<slug>/env`                   | Per-project environment variables, shared by every clone                              |
+| `~/.config/agents-sandbox/<slug>/env.secret`            | Per-project secrets (legacy), shared by every clone (see [Secrets]({% link configuration/secrets.md %}))           |
+| `~/.config/agents-sandbox/<slug>/env.secret.yaml`       | Per-project secrets (YAML/JSON), shared by every clone (see [Secrets]({% link configuration/secrets.md %}))         |
+| `~/.config/agents-sandbox/<slug>/<agent>/*`             | Per-project agent config dir, shared by every clone (see [Agent configuration]({% link configuration/agent.md %})) |
 
 `env` uses `KEY=value` format. `env.secret` uses `KEY=value@host` (see [Secrets]({% link configuration/secrets.md %})).
 
@@ -211,21 +215,27 @@ recreate, or quit to abort the change. The default is to keep/defer.
 ## Per-slug configuration
 
 Beyond the generic user-level config, you can provide config for a **specific project** at
-`~/.config/agents-sandbox/<slug>/config.yaml` (slug = the project's **repo** slug, derived from the origin remote URL, so
+`~/.config/agents-sandbox/<slug>/` (slug = the project's **repo** slug, derived from the origin remote URL, so
 every clone of one remote shares this directory). It sits between the generic user-level config and the project-level
 config in precedence; see [Precedence](#precedence) for the full order.
 
-The same formats/filenames as the generic user config are supported (`config.yaml`, `config.yml`, `config.json`,
-`config.jsonc`, `config.json5`).
+The directory carries the same file-based inputs as the generic user directory, at the same paths relative to it: the
+config file (including its `home:` key), the `env`, `env.secret`, and `env.secret.yaml` environment and secret files, and
+the per-agent config dirs (`<agent>/`). Each is merged in the same precedence order as the config file — generic user,
+then per-slug user, then project, with later scopes overriding earlier ones per key, target, or file.
+
+The config file supports the same formats/filenames as the generic user config (`config.yaml`, `config.yml`,
+`config.json`, `config.jsonc`, `config.json5`).
 
 Because the per-slug dir is keyed by the repo slug, it is shared by every clone of one remote. Run
 `agents-sandbox config paths` to print the resolved layers, the concrete per-slug dir, and the repo slug.
 
 ## Environment variables
 
-Two files define environment variables passed to the sandbox:
+Three files define environment variables passed to the sandbox, merged so later files win:
 
 - `~/.config/agents-sandbox/env` — user-level, every project
+- `~/.config/agents-sandbox/<slug>/env` — per-project (repo-slug), shared by every clone
 - `.agents-sandbox/env` — project-level, current project only
 
 Format: one `KEY=value` per line. Comments (lines starting with `#`) and blank lines are ignored.

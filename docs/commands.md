@@ -423,13 +423,16 @@ agents-sandbox config agent --agent pi
 
 The agent is resolved from the `--agent` flag, then the positional `[name]`, then the configured agent, then `opencode2`. Passing both `--agent` and a positional `[name]` (conflicting values) returns an "ambiguous" error.
 
-The output names the launcher (host) config dirs actually read, as absolute paths:
+The output names the launcher (host) config dirs actually read, as absolute paths, one line per scope:
 
 ```text
-config dir: user="/home/me/.config/agents-sandbox/opencode2"  project="/work/repo/.agents-sandbox/opencode2"  (primary)
+config dirs (primary):
+  user: "/home/me/.config/agents-sandbox/opencode2"
+  user: "/home/me/.config/agents-sandbox/myproject-<hash>/opencode2"
+  project: "/work/repo/.agents-sandbox/opencode2"
 ```
 
-A dir that does not exist is marked `(missing)`, e.g. `user="/home/me/.config/agents-sandbox/opencode2" (missing)`. The trailing label is `primary` when the agent's own namespace is used, or `legacy fallback "<dir>"` when the agent is reading a shared legacy namespace (see [agent configuration]({% link configuration/agent.md %})). These are host launcher-config dirs; the guest agent config path is always `~/.config/opencode` regardless.
+One `user:` line is printed per user scope in precedence order — the generic user dir, then the per-slug user dir — and the project dir follows last. A dir that does not exist is marked `(missing)`, e.g. `user: "/home/me/.config/agents-sandbox/opencode2" (missing)`. The header label is `primary` when the agent's own namespace is used, or `legacy fallback "<namespace>"` when the agent is reading a shared legacy namespace (see [agent configuration]({% link configuration/agent.md %})). These are host launcher-config dirs; the guest agent config path is always `~/.config/opencode` regardless.
 
 Each host file is listed as `merged` (its VM path is the merged config path or part of the removed config-file family) or `not merged` (copied verbatim). Verbatim mirror files are listed as their host source path → VM path.
 

@@ -14,7 +14,8 @@ in a config file:
 
 | Config location                        | Purpose                          |
 |----------------------------------------|----------------------------------|
-| `~/.config/agents-sandbox/config.yaml` (`home:`) | User-level home-file mappings    |
+| `~/.config/agents-sandbox/config.yaml` (`home:`) | Generic user-level home-file mappings |
+| `~/.config/agents-sandbox/<slug>/config.yaml` (`home:`) | Per-slug user-level home-file mappings (repo slug, shared by every clone) |
 | `.agents-sandbox/config.yaml` (`home:`)          | Project-level home-file mappings |
 
 Keys (targets) are relative paths within the VM home, e.g. `.config/opencode/opencode.json`. The host source value is
@@ -25,7 +26,8 @@ resolved as follows:
 - **`~/`-prefixed** — host `$HOME/<rest>`
 - **otherwise** — relative to the config file that declares it
 
-Layering: the project config overrides the user config **per target**. Targets must stay within the VM home
+Layering: the project config overrides the per-slug user config, which overrides the generic user config, **per target**.
+Targets must stay within the VM home
 (`..` traversal, absolute paths, and `~`-prefixed targets are rejected — targets are already relative to the home
 directory, so `~/fdsa` should be written as `fdsa`), and the active agent's merged-config path is reserved (for
 opencode, `.config/opencode/opencode.jsonc`) — it cannot be provisioned via `home:`.
