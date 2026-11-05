@@ -144,14 +144,6 @@ func SourceDirs(src ConfigSource) (string, string) {
 	return src.UserDir, src.ProjectDir
 }
 
-// baseUserConfigDir returns the tool's user config dir the agent subdir sits
-// under: one level above the resolved source's user dir. Home files and hooks
-// resolve relative to it, so deriving it from the resolved source avoids
-// re-validating the profile's config-dir name after resolution.
-func baseUserConfigDir(src ConfigSource) string {
-	return filepath.Dir(src.UserDir)
-}
-
 // isDir reports whether path names an existing directory.
 // noLauncherConfigDir reports whether the agent has no launcher config dir in
 // either scope: neither primary dir exists and no legacy fallback was found.
@@ -221,21 +213,30 @@ func resolveConfigSubject(a agent.Resolved, vmHome string) configSubject {
 // LoadConfigFiles builds the desired VM state for the given agent using the
 // host home from the config-paths seam. The agent determines its own config
 // directories.
-func LoadConfigFiles(a agent.Resolved, ui termio.Logger, provisionHostConfig bool) (*ConfigFiles, error) {
+func LoadConfigFiles(
+	a agent.Resolved,
+	configSlug string,
+	ui termio.Logger,
+	provisionHostConfig bool,
+) (*ConfigFiles, error) {
 	hostHome, _ := cp.Get().UserHomeDir()
-	return LoadConfigFilesForHost(a, hostHome, VMHomeDir, ui, provisionHostConfig)
+	return LoadConfigFilesForHost(a, configSlug, hostHome, VMHomeDir, ui, provisionHostConfig)
 }
 
 // LoadConfigFilesForHost builds the desired VM state for the given agent with
 // explicit host and VM home directories: the merged agent config, the home
 // files (from the home: key of the config files), and the default drop-in copy of the
 // agent's host config (per its provision rules, unless host config provisioning
-// is disabled). It warns about any home source that does not exist on the
-// host and about malformed provision rules. Home files and the merged config
-// override provisioned defaults for the same VM path. The agent's merged-config
-// path is reserved: a home target colliding with it is rejected.
+// is disabled). Home files and hooks are read from every config scope in
+// precedence order (generic user, per-slug user when configSlug is set, then
+// project), with later scopes overriding earlier ones. It warns about any home
+// source that does not exist on the host and about malformed provision rules.
+// Home files and the merged config override provisioned defaults for the same VM
+// path. The agent's merged-config path is reserved: a home target colliding with
+// it is rejected.
 func LoadConfigFilesForHost(
 	a agent.Resolved,
+	configSlug string,
 	hostHome, vmHome string,
 	ui termio.Logger,
 	provisionHostConfig bool,
@@ -244,6 +245,7 @@ func LoadConfigFilesForHost(
 	if err != nil {
 		return nil, err
 	}
+	scopeDirs := cp.ScopeDirs(cp.ConfigScopes(cp.Get(), configSlug))
 	subject := resolveConfigSubject(a, vmHome)
 	merged, err := subject.buildMergedConfig(src)
 	if err != nil {
@@ -253,11 +255,11 @@ func LoadConfigFilesForHost(
 	if err != nil {
 		return nil, err
 	}
-	hooks, err := loadHooks(baseUserConfigDir(src), vmHome, reserved)
+	hooks, err := loadHooks(scopeDirs, vmHome, reserved)
 	if err != nil {
 		return nil, err
 	}
-	homeFiles, homeModes, err := loadHomeFiles(baseUserConfigDir(src), vmHome, reserved, ui)
+	homeFiles, homeModes, err := loadHomeFiles(scopeDirs, vmHome, reserved, ui)
 	if err != nil {
 		return nil, err
 	}
@@ -331,16 +333,16 @@ func reservedHomeTargets(mergedPath, vmHome string) ([]string, error) {
 	return []string{rel}, nil
 }
 
-// loadHomeFiles builds the home files and their modes, warning about any home
-// source missing on the host.
+// loadHomeFiles builds the home files and their modes from the ordered config
+// scope dirs, warning about any home source missing on the host.
 func loadHomeFiles(
-	baseUserConfigDir, vmHome string,
+	dirs []string,
+	vmHome string,
 	reserved []string,
 	ui termio.Logger,
 ) (map[string][]byte, map[string]os.FileMode, error) {
 	homeSources, missing, _, err := homeconfig.BuildHomeFilesWithModes(
-		baseUserConfigDir, // user config lives one level above the agent subdir
-		cp.Get().ProjectConfigDir(),
+		dirs,
 		vmHome,
 		reserved,
 	)
@@ -359,11 +361,10 @@ func loadHomeFiles(
 	return homeFiles, homeModes, nil
 }
 
-// loadHooks builds the merged startup hooks for the agent.
-func loadHooks(baseUserConfigDir, vmHome string, reserved []string) ([]homeconfig.HookSpec, error) {
+// loadHooks builds the merged startup hooks from the ordered config scope dirs.
+func loadHooks(dirs []string, vmHome string, reserved []string) ([]homeconfig.HookSpec, error) {
 	hooks, err := homeconfig.BuildHooks(
-		baseUserConfigDir, // user config lives one level above the agent subdir
-		cp.Get().ProjectConfigDir(),
+		dirs,
 		vmHome,
 		reserved,
 	)
@@ -598,12 +599,12 @@ type MirrorFile struct {
 // config source for agent a, without touching a VM.
 func Describe(
 	a agent.Agent,
-	hostHome, vmHome string,
+	configSlug, hostHome, vmHome string,
 	ui termio.Logger,
 	provisionHostConfig bool,
 ) ([]byte, []string, []HostFile, []MirrorFile, ConfigSource, error) {
 	resolved := agent.Resolve(a)
-	cf, err := LoadConfigFilesForHost(resolved, hostHome, vmHome, ui, provisionHostConfig)
+	cf, err := LoadConfigFilesForHost(resolved, configSlug, hostHome, vmHome, ui, provisionHostConfig)
 	if err != nil {
 		return nil, nil, nil, nil, ConfigSource{}, err
 	}

@@ -152,7 +152,7 @@ func TestBuildHomeFilesEmptyManifestContract(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 
-	files, _, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, _, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil || has {
 		t.Fatalf("no manifest: has=%v err=%v", has, err)
 	}
@@ -161,7 +161,7 @@ func TestBuildHomeFilesEmptyManifestContract(t *testing.T) {
 	}
 
 	testutil.WriteFile(t, user, "config.yaml", "home: {}\n")
-	files, _, has, err = BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, _, has, err = BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil || !has {
 		t.Fatalf("empty home key: has=%v err=%v, want has=true", has, err)
 	}
@@ -177,7 +177,7 @@ func TestBuildHomeFilesInvalidTargetKeepsHasFalse(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, user, "../evil: foo\n")
-	if _, _, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil); err == nil || has {
+	if _, _, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil); err == nil || has {
 		t.Errorf("invalid target: has=%v err=%v, want has=false with an error", has, err)
 	}
 }
@@ -191,7 +191,7 @@ func TestBuildHomeFilesReportsAllMissingSources(t *testing.T) {
 		".c: nope-c\n"+
 		".d: nope-d\n"+
 		".e: nope-e\n")
-	_, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	_, missing, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil || !has {
 		t.Fatalf("BuildHomeFilesWithModes: has=%v err=%v", has, err)
 	}
@@ -213,7 +213,7 @@ func TestBuildHomeFilesReportsAllUnreadableSources(t *testing.T) {
 	// The manifest lives next to the directories so each source Stats fine and
 	// only ReadFile fails, exercising the read-error continue.
 	writeHomeConfig(t, proj, strings.Join(lines, "\n")+"\n")
-	_, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	_, missing, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil || !has {
 		t.Fatalf("BuildHomeFilesWithModes: has=%v err=%v", has, err)
 	}
@@ -232,7 +232,7 @@ func TestBuildHooksSkipsNonStartupEntries(t *testing.T) {
 	writeHomeConfig(t, proj, ""+
 		".a:\n  source: a.sh\n"+
 		".b:\n  source: b.sh\n  hook: startup\n")
-	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	hooks, err := BuildHooks([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestBuildHooksContinuesPastMissingSource(t *testing.T) {
 	writeHomeConfig(t, proj, ""+
 		".a:\n  source: missing-a.sh\n  hook: startup\n"+
 		".b:\n  source: b.sh\n  hook: startup\n")
-	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	hooks, err := BuildHooks([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestBuildHooksSortsByVMTargetOrder(t *testing.T) {
 		"./b:\n  source: b.sh\n  hook: startup\n"+
 		"a:\n  source: a.sh\n  hook: startup\n")
 
-	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	hooks, err := BuildHooks([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}

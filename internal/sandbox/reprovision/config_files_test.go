@@ -33,7 +33,7 @@ func TestLoadConfigFilesPopulatesHooks(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	a, _ := agent.Lookup("")
-	cf, err := LoadConfigFiles(agent.Resolve(a), &ui, true)
+	cf, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestLoadConfigFilesMarksHookScriptsExecutable(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	a, _ := agent.Lookup("")
-	cf, err := LoadConfigFiles(agent.Resolve(a), &ui, true)
+	cf, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestLoadConfigFilesProvisioning(t *testing.T) {
 
 	a, _ := agent.Lookup("opencode")
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestLoadConfigFilesProvisioningPrecedence(t *testing.T) {
 			"    source: somefile-home.json\n")
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestLoadConfigFilesRemovesStaleConfigWithSnippets(t *testing.T) {
 	testutil.WriteFile(t, ocConfig, "other.json", `{"host":1}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -391,7 +391,7 @@ func TestLoadConfigFilesShadowingCopiedWithoutSnippets(t *testing.T) {
 	testutil.WriteFile(t, ocConfig, "opencode.jsonc", `{"model":"host"}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -434,7 +434,7 @@ func TestLoadConfigFilesProvisioningDisabled(t *testing.T) {
 	testutil.WriteFile(t, ocShare, "auth.json", `{"t":"x"}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, false)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, false)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -633,7 +633,7 @@ func TestLoadConfigFilesPIMergedConfig(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -675,7 +675,7 @@ func TestLoadConfigFilesCodexMergesTOMLSnippets(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -712,7 +712,7 @@ func TestLoadConfigFilesHermesMergedConfig(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -750,7 +750,7 @@ func TestLoadConfigFilesOhMyPiMergedConfig(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -779,7 +779,7 @@ func TestLoadConfigFilesRejectsReservedMergedPath(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "home:\n  .config/opencode/opencode.jsonc:\n")
 
 	ui := termio.NewTestMock(t)
-	_, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), vmHome, &ui, true)
+	_, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), vmHome, &ui, true)
 	if err == nil {
 		t.Fatal("expected an error for a home target colliding with the merged-config path")
 	}
@@ -799,7 +799,7 @@ func TestLoadConfigFilesPIMergedPathReserved(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "home:\n  .pi/agent/settings.json:\n")
 
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), vmHome, &ui, true); err == nil {
+	if _, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), vmHome, &ui, true); err == nil {
 		t.Error("expected an error for a pi home target colliding with its merged settings.json")
 	}
 }
@@ -815,7 +815,7 @@ func TestLoadConfigFilesNoReservedForNonConfigMerger(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "home:\n  .config/opencode/opencode.jsonc:\n")
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(plainAgent{}), t.TempDir(), vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(plainAgent{}), "", t.TempDir(), vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -1111,7 +1111,7 @@ func TestLoadConfigFilesMirror(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -1164,7 +1164,7 @@ func TestLoadConfigFilesMirrorPrecedence(t *testing.T) {
 	testutil.WriteFile(t, ocConfig, "tui.json", `{"theme":"host"}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -1208,7 +1208,7 @@ func TestLoadConfigFilesMirrorHomeYAMLWins(t *testing.T) {
 			"    source: tui-home.json\n")
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -1239,7 +1239,7 @@ func TestLoadConfigFilesMirrorWithProvisioningDisabled(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, false)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, false)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -1296,7 +1296,7 @@ func TestDescribe(t *testing.T) {
 	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
 
 	ui := termio.NewTestMock(t)
-	merged, sources, hostFiles, mirrorFiles, source, err := Describe(a, hostHome, vmHome, &ui, true)
+	merged, sources, hostFiles, mirrorFiles, source, err := Describe(a, "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("Describe: %v", err)
 	}
@@ -1376,7 +1376,7 @@ func TestLoadConfigFilesKeysMergedFirstAndSorted(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	for range 20 {
-		cf, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), vmHome, &ui, true)
+		cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), vmHome, &ui, true)
 		if err != nil {
 			t.Fatalf("LoadConfigFilesForHost: %v", err)
 		}
@@ -1406,7 +1406,7 @@ func TestLoadConfigFilesFallsBackToLegacyDir(t *testing.T) {
 	testutil.WriteFile(t, legacy, "tui.json", `{"theme":"legacy"}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFiles(agent.Resolve(a), &ui, true)
+	cf, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -1453,7 +1453,7 @@ func TestLoadConfigFilesPrimarySuppressesLegacy(t *testing.T) {
 	testutil.WriteFile(t, filepath.Join(cp.UserConfigDir(), "opencode"), "opencode-model.json", `{"model":"v1-legacy"}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFiles(agent.Resolve(a), &ui, true)
+	cf, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -1493,7 +1493,7 @@ func TestLoadConfigFilesInfosWhenNoLauncherConfigDirExists(t *testing.T) {
 	a, _ := agent.Lookup("opencode2")
 
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFiles(agent.Resolve(a), &ui, true); err != nil {
+	if _, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true); err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
 	if len(ui.InfoCalls) != 1 {
@@ -1526,7 +1526,7 @@ func TestLoadConfigFilesNoInfoWhenALauncherConfigDirExists(t *testing.T) {
 			}
 			a, _ := agent.Lookup("opencode2")
 			ui := termio.NewTestMock(t)
-			if _, err := LoadConfigFiles(agent.Resolve(a), &ui, true); err != nil {
+			if _, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true); err != nil {
 				t.Fatalf("LoadConfigFiles: %v", err)
 			}
 			if len(ui.InfoCalls) != 0 {

@@ -71,7 +71,14 @@ func TestResolveReconfigDecisionConfigError(t *testing.T) {
 
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
 
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(
+		opencodeResolved(t),
+		"",
+		t.TempDir(),
+		reprovision.VMHomeDir,
+		&ui,
+		true,
+	)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -138,7 +145,14 @@ func TestResolveReconfigDecisionConfigErrorPromptsAttachedClients(t *testing.T) 
 
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
 
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(
+		opencodeResolved(t),
+		"",
+		t.TempDir(),
+		reprovision.VMHomeDir,
+		ui,
+		true,
+	)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -178,7 +192,14 @@ func TestResolveReconfigDecisionFindProjectVMError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	volumes := volume.NewManager(docker.Get())
 
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(
+		opencodeResolved(t),
+		"",
+		t.TempDir(),
+		reprovision.VMHomeDir,
+		&ui,
+		true,
+	)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -217,7 +238,14 @@ func TestResolveReconfigDecisionNoVMSkipsRecreate(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	volumes := volume.NewManager(docker.Get())
 
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, &ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(
+		opencodeResolved(t),
+		"",
+		t.TempDir(),
+		reprovision.VMHomeDir,
+		&ui,
+		true,
+	)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -272,7 +300,14 @@ func TestResolveReconfigDecisionQuitAtRecreatePrompt(t *testing.T) {
 
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:old"}
 
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(
+		opencodeResolved(t),
+		"",
+		t.TempDir(),
+		reprovision.VMHomeDir,
+		ui,
+		true,
+	)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -318,7 +353,14 @@ func TestApplyReconfigHomeActionError(t *testing.T) {
 
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:old"}
 
-	cfs, err := reprovision.LoadConfigFilesForHost(opencodeResolved(t), t.TempDir(), reprovision.VMHomeDir, ui, true)
+	cfs, err := reprovision.LoadConfigFilesForHost(
+		opencodeResolved(t),
+		"",
+		t.TempDir(),
+		reprovision.VMHomeDir,
+		ui,
+		true,
+	)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}

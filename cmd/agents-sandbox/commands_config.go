@@ -159,6 +159,7 @@ func buildConfigAgentCmd(ui termio.UI) *cobra.Command {
 			hostHome, _ := configpaths.Get().UserHomeDir()
 			merged, sources, hostFiles, mirrorFiles, source, err := reprovision.Describe(
 				a,
+				configSlugFromContext(c.Context()),
 				hostHome,
 				reprovision.VMHomeDir,
 				ui,

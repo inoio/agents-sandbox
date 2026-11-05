@@ -83,6 +83,7 @@ func TestLoadConfigFilesRejectsInvalidProfileName(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	if _, err := LoadConfigFilesForHost(
 		agent.Resolve(invalidConfigDirAgent{}),
+		"",
 		t.TempDir(),
 		t.TempDir(),
 		&ui,
@@ -97,10 +98,10 @@ func TestLoadAndDescribePropagateResolveError(t *testing.T) {
 
 	a := invalidConfigDirAgent{}
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), t.TempDir(), &ui, true); err == nil {
+	if _, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), t.TempDir(), &ui, true); err == nil {
 		t.Error("expected LoadConfigFilesForHost to propagate the resolution error")
 	}
-	if _, _, _, _, _, err := Describe(a, t.TempDir(), t.TempDir(), &ui, true); err == nil {
+	if _, _, _, _, _, err := Describe(a, "", t.TempDir(), t.TempDir(), &ui, true); err == nil {
 		t.Error("expected Describe to propagate the resolution error")
 	}
 }
@@ -204,16 +205,6 @@ func TestResolveConfigSourcePropagatesInvalidConfigDirName(t *testing.T) {
 
 	if _, err := ResolveConfigSource(invalidConfigDirAgent{}); err == nil {
 		t.Fatal("ResolveConfigSource with an invalid config-dir name = nil error, want error")
-	}
-}
-
-// TestBaseUserConfigDirIsParentOfUserDir pins the derivation: home files and
-// hooks resolve relative to the tool's user config dir, one level above the
-// agent subdir the resolved source names.
-func TestBaseUserConfigDirIsParentOfUserDir(t *testing.T) {
-	src := ConfigSource{UserDir: filepath.Join(t.TempDir(), "agents-sandbox", "opencode2")}
-	if got, want := baseUserConfigDir(src), filepath.Dir(src.UserDir); got != want {
-		t.Errorf("baseUserConfigDir = %q, want %q", got, want)
 	}
 }
 

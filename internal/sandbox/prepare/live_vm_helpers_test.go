@@ -20,6 +20,7 @@ func loadOpencodeConfigFiles(t *testing.T, ui termio.UI) *reprovision.ConfigFile
 	t.Helper()
 	configFiles, err := reprovision.LoadConfigFilesForHost(
 		opencodeResolved(t),
+		"",
 		t.TempDir(),
 		reprovision.VMHomeDir,
 		ui,

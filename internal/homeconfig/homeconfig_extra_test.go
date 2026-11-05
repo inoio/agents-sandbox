@@ -196,7 +196,7 @@ func TestReadHomeFromConfigDirJSON5NormalizeError(t *testing.T) {
 func TestBuildHomeFilesNoManifest(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
-	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, missing, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestBuildHomeFilesRejectsInvalidUserManifest(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, user, ".gitconfig:\n  source: [\n")
-	if _, _, _, err := BuildHomeFilesWithModes(user, proj, vmHome, nil); err == nil {
+	if _, _, _, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil); err == nil {
 		t.Fatal("expected an error for an invalid user manifest")
 	}
 }
@@ -233,7 +233,7 @@ func TestBuildHooksRejectsInvalidUserManifest(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, user, ".gitconfig:\n  source: [\n")
-	if _, err := BuildHooks(user, proj, vmHome, nil); err == nil {
+	if _, err := BuildHooks([]string{user, proj}, vmHome, nil); err == nil {
 		t.Fatal("expected an error for an invalid user manifest")
 	}
 }
@@ -243,7 +243,7 @@ func TestBuildHooksRejectsReservedTarget(t *testing.T) {
 	proj := t.TempDir()
 	testutil.WritePath(t, filepath.Join(proj, "s.sh"), "#!/bin/sh\n")
 	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: s.sh\n  hook: startup\n")
-	if _, err := BuildHooks(user, proj, vmHome, []string{".vpn/connect.sh"}); err == nil {
+	if _, err := BuildHooks([]string{user, proj}, vmHome, []string{".vpn/connect.sh"}); err == nil {
 		t.Fatal("expected an error for a reserved hook target")
 	}
 }
@@ -282,7 +282,7 @@ func TestBuildHomeFilesReadsUserManifest(t *testing.T) {
 	proj := t.TempDir()
 	testutil.WriteFile(t, home, ".gitconfig", "user=x\n")
 	writeHomeConfig(t, user, ".gitconfig:\n")
-	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, missing, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
@@ -357,7 +357,7 @@ func TestBuildHomeFilesReportsLoadErrorWithHasFalse(t *testing.T) {
 	proj := t.TempDir()
 	testutil.WritePath(t, filepath.Join(user, "config.yaml"), "home: [\n")
 
-	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, missing, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err == nil {
 		t.Fatal("expected a load error from an invalid user config")
 	}
@@ -376,7 +376,7 @@ func TestBuildHomeFilesContinuesPastMissingSource(t *testing.T) {
 		".aaa.txt: ./absent.txt\n"+
 		".zzz.txt: ./present.txt\n")
 
-	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, missing, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}

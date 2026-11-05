@@ -33,6 +33,15 @@ func resolverFromContext(ctx context.Context) *launcherconfig.Resolver {
 	return r
 }
 
+// configSlugFromContext returns the resolver's effective per-slug config slug, or
+// "" when no resolver is present.
+func configSlugFromContext(ctx context.Context) string {
+	if r := resolverFromContext(ctx); r != nil {
+		return r.Config().ConfigSlug
+	}
+	return ""
+}
+
 // defaultAgentName is the fallback agent used when --agent is not provided.
 const defaultAgentName = agent.DefaultAgentName
 

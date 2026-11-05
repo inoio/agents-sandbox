@@ -400,7 +400,7 @@ func planReconfigStage(
 	opts options.RunOptions,
 	ui termio.UI,
 ) (reconfigPlan, error) {
-	configFiles, err := reprovision.LoadConfigFiles(session.agent, ui, provisionHostConfig(opts))
+	configFiles, err := reprovision.LoadConfigFiles(session.agent, opts.ConfigSlug, ui, provisionHostConfig(opts))
 	if err != nil {
 		return reconfigPlan{}, err
 	}
