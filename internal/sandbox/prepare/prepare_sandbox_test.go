@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -16,7 +17,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
-	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -1042,7 +1042,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 
 	opts := options.RunOptions{Agent: "opencode", TmpSize: "2G"}
 	seedUI := termio.NewTestMock(t)
-	fingerprints := desiredFingerprints(opts, envsecret.LoadEnvAndSecrets(&seedUI, nil))
+	_, fingerprints := loadEnvFingerprints(opts, &seedUI)
 	if err := seedHomeState(k, state.HomeState{
 		HomeVolume:   "home-vol",
 		ImageDigest:  "sha256:abc123",
@@ -1074,5 +1074,32 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 	}
 	if !contains(joinStrings(ui.VerboseCalls), "recreate: true") {
 		t.Errorf("expected the recreate decision to be logged, got %v", ui.VerboseCalls)
+	}
+}
+
+// TestDesiredFingerprintsUnchangedWithoutPerSlugFiles pins the no-spurious-
+// recreate guarantee: putting the slug in the scope chain while the per-slug dir
+// holds no env/secret files leaves the env and secret fingerprints unchanged.
+func TestDesiredFingerprintsUnchangedWithoutPerSlugFiles(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	scopes := configpaths.ConfigScopes(configpaths.Get(), "")
+	testutil.WriteFile(t, scopes[0].Dir, configpaths.EnvFileName, "A=generic\n")
+	testutil.WriteFile(t, scopes[1].Dir, configpaths.EnvFileName, "B=project\n")
+	testutil.WriteFile(t, scopes[0].Dir, configpaths.EnvSecretFileName, "TOKEN=value@user.example\n")
+	testutil.WriteFile(t, scopes[1].Dir, configpaths.EnvSecretFileName, "OTHER=value@project.example\n")
+
+	ui := termio.NewTestMock(t)
+	_, generic := loadEnvFingerprints(options.RunOptions{}, &ui)
+	_, withSlug := loadEnvFingerprints(options.RunOptions{ConfigSlug: "widget-bbb"}, &ui)
+
+	if !reflect.DeepEqual(generic.Env, withSlug.Env) {
+		t.Errorf("env fingerprint changed with an absent per-slug env file: %#v vs %#v", generic.Env, withSlug.Env)
+	}
+	if !reflect.DeepEqual(generic.Secret, withSlug.Secret) {
+		t.Errorf(
+			"secret fingerprint changed with absent per-slug secret files: %#v vs %#v",
+			generic.Secret,
+			withSlug.Secret,
+		)
 	}
 }

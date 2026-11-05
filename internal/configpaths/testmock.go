@@ -143,30 +143,6 @@ func (m *mockConfigPaths) ProjectConfigDirAbs() string {
 	return filepath.Join(m.baseDir, "projectconfig")
 }
 
-func (m *mockConfigPaths) UserEnvFile() string {
-	return filepath.Join(m.UserConfigDir(), envFileName)
-}
-
-func (m *mockConfigPaths) UserEnvSecretFile() string {
-	return filepath.Join(m.UserConfigDir(), envSecretFileName)
-}
-
-func (m *mockConfigPaths) ProjectEnvFile() string {
-	return filepath.Join(m.ProjectConfigDir(), envFileName)
-}
-
-func (m *mockConfigPaths) ProjectEnvSecretFile() string {
-	return filepath.Join(m.ProjectConfigDir(), envSecretFileName)
-}
-
-func (m *mockConfigPaths) UserEnvSecretYAMLFile() string {
-	return filepath.Join(m.UserConfigDir(), envSecretYAMLFileName)
-}
-
-func (m *mockConfigPaths) ProjectEnvSecretYAMLFile() string {
-	return filepath.Join(m.ProjectConfigDir(), envSecretYAMLFileName)
-}
-
 func (m *mockConfigPaths) ProjectDockerfile() string {
 	return filepath.Join(m.ProjectConfigDir(), dockerfileName)
 }
@@ -202,17 +178,8 @@ func (f *failFastConfigPaths) ProjectConfigDirAbs() string {
 
 func (f *failFastConfigPaths) UserHomeDir() (string, error) { f.mustMock(); return "", nil }
 
-func (f *failFastConfigPaths) UserEnvFile() string          { f.mustMock(); return "" }
-func (f *failFastConfigPaths) UserEnvSecretFile() string    { f.mustMock(); return "" }
-func (f *failFastConfigPaths) ProjectConfigDir() string     { f.mustMock(); return "" }
-func (f *failFastConfigPaths) ProjectEnvFile() string       { f.mustMock(); return "" }
-func (f *failFastConfigPaths) ProjectEnvSecretFile() string { f.mustMock(); return "" }
-func (f *failFastConfigPaths) ProjectEnvSecretYAMLFile() string {
-	f.mustMock()
-	return ""
-}
-func (f *failFastConfigPaths) UserEnvSecretYAMLFile() string { f.mustMock(); return "" }
-func (f *failFastConfigPaths) ProjectDockerfile() string     { f.mustMock(); return "" }
+func (f *failFastConfigPaths) ProjectConfigDir() string  { f.mustMock(); return "" }
+func (f *failFastConfigPaths) ProjectDockerfile() string { f.mustMock(); return "" }
 
 func (f *failFastConfigPaths) IgnoredWorktreeConfigDir() string {
 	f.mustMock()

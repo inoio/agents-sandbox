@@ -48,28 +48,6 @@ func TestMockConfigPaths(t *testing.T) {
 	if got := cfgPaths.ProjectConfigDir(); got != filepath.Join(base, "projectconfig") {
 		t.Errorf("ProjectConfigDir() = %q, want %q", got, filepath.Join(base, "projectconfig"))
 	}
-	if got := cfgPaths.UserEnvFile(); got != filepath.Join(base, "userconfig", envFileName) {
-		t.Errorf("UserEnvFile() = %q, want %q", got, filepath.Join(base, "userconfig", envFileName))
-	}
-	if got := cfgPaths.UserEnvSecretFile(); got != filepath.Join(base, "userconfig", envSecretFileName) {
-		t.Errorf("UserEnvSecretFile() = %q, want %q", got, filepath.Join(base, "userconfig", envSecretFileName))
-	}
-	if got := cfgPaths.UserEnvSecretYAMLFile(); got != filepath.Join(base, "userconfig", envSecretYAMLFileName) {
-		t.Errorf("UserEnvSecretYAMLFile() = %q, want %q", got, filepath.Join(base, "userconfig", envSecretYAMLFileName))
-	}
-	if got := cfgPaths.ProjectEnvFile(); got != filepath.Join(base, "projectconfig", envFileName) {
-		t.Errorf("ProjectEnvFile() = %q, want %q", got, filepath.Join(base, "projectconfig", envFileName))
-	}
-	if got := cfgPaths.ProjectEnvSecretFile(); got != filepath.Join(base, "projectconfig", envSecretFileName) {
-		t.Errorf("ProjectEnvSecretFile() = %q, want %q", got, filepath.Join(base, "projectconfig", envSecretFileName))
-	}
-	if got := cfgPaths.ProjectEnvSecretYAMLFile(); got != filepath.Join(base, "projectconfig", envSecretYAMLFileName) {
-		t.Errorf(
-			"ProjectEnvSecretYAMLFile() = %q, want %q",
-			got,
-			filepath.Join(base, "projectconfig", envSecretYAMLFileName),
-		)
-	}
 	if got := cfgPaths.ProjectDockerfile(); got != filepath.Join(base, "projectconfig", dockerfileName) {
 		t.Errorf("ProjectDockerfile() = %q, want %q", got, filepath.Join(base, "projectconfig", dockerfileName))
 	}

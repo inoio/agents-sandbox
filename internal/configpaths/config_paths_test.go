@@ -94,19 +94,6 @@ func TestUserDirIgnoresRelativeEnv(t *testing.T) {
 	}
 }
 
-func TestEnvSecretYAMLPaths(t *testing.T) {
-	WithRealConfigPaths(t)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-
-	c := &realConfigPaths{}
-	if got := c.UserEnvSecretYAMLFile(); got != filepath.Join(c.UserConfigDir(), envSecretYAMLFileName) {
-		t.Errorf("userEnvSecretYAMLFile() = %q", got)
-	}
-	if got := c.ProjectEnvSecretYAMLFile(); got != filepath.Join(c.ProjectConfigDir(), envSecretYAMLFileName) {
-		t.Errorf("projectEnvSecretYAMLFile() = %q, want %q", got, c.ProjectConfigDir())
-	}
-}
-
 // TestUserSlugConfigDir pins the real (unmocked) per-slug user-config path, the
 // accessor viperconfig uses in place of its former inline Join.
 func TestUserSlugConfigDir(t *testing.T) {
@@ -119,27 +106,9 @@ func TestUserSlugConfigDir(t *testing.T) {
 	}
 }
 
-func TestUserEnvFiles(t *testing.T) {
-	WithRealConfigPaths(t)
-	t.Setenv("HOME", t.TempDir())
-	cfgPaths := Get()
-	if got := cfgPaths.UserEnvFile(); got != filepath.Join(cfgPaths.UserConfigDir(), EnvFileName) {
-		t.Errorf("UserEnvFile() = %q", got)
-	}
-	if got := cfgPaths.UserEnvSecretFile(); got != filepath.Join(cfgPaths.UserConfigDir(), EnvSecretFileName) {
-		t.Errorf("UserEnvSecretFile() = %q", got)
-	}
-}
-
 func TestProjectDirsAndFiles(t *testing.T) {
 	WithRealConfigPaths(t)
 	cfgPaths := Get()
-	if got := cfgPaths.ProjectEnvFile(); got != filepath.Join(projectConfigDir, EnvFileName) {
-		t.Errorf("ProjectEnvFile() = %q", got)
-	}
-	if got := cfgPaths.ProjectEnvSecretFile(); got != filepath.Join(projectConfigDir, EnvSecretFileName) {
-		t.Errorf("ProjectEnvSecretFile() = %q", got)
-	}
 	if got := cfgPaths.ProjectDockerfile(); got != filepath.Join(projectConfigDir, DockerFileName) {
 		t.Errorf("ProjectDockerfile() = %q", got)
 	}
@@ -176,18 +145,6 @@ func TestMockUserDataDir(t *testing.T) {
 func TestFailFastUserDataDirPanics(t *testing.T) {
 	assertPanics(t, func() {
 		(&failFastConfigPaths{}).UserDataDir()
-	})
-}
-
-func TestFailFastProjectEnvSecretYAMLFilePanics(t *testing.T) {
-	assertPanics(t, func() {
-		(&failFastConfigPaths{}).ProjectEnvSecretYAMLFile()
-	})
-}
-
-func TestFailFastUserEnvSecretYAMLFilePanics(t *testing.T) {
-	assertPanics(t, func() {
-		(&failFastConfigPaths{}).UserEnvSecretYAMLFile()
 	})
 }
 

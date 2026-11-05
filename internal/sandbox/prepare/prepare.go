@@ -707,7 +707,8 @@ func liveHomeVolume(ctx context.Context, client msb.Client, k state.Key, ui term
 // fingerprints and the env/secrets baked into a newly created VM cannot
 // disagree (#342).
 func loadEnvFingerprints(opts options.RunOptions, ui termio.Logger) (envsecret.EnvSecrets, state.Fingerprints) {
-	env := envsecret.LoadEnvAndSecrets(ui, opts.AllowPlaceholderFor)
+	scopes := configpaths.ConfigScopes(configpaths.Get(), opts.ConfigSlug)
+	env := envsecret.LoadEnvAndSecrets(ui, scopes, opts.AllowPlaceholderFor)
 	return env, desiredFingerprints(opts, env)
 }
 

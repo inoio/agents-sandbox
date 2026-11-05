@@ -1332,14 +1332,8 @@ func (p *projectDockerfilePaths) UserCacheDir() string             { return "" }
 func (p *projectDockerfilePaths) UserStateDir() string             { return "" }
 func (p *projectDockerfilePaths) UserDataDir() string              { return "" }
 func (p *projectDockerfilePaths) UserHomeDir() (string, error)     { return "", nil }
-func (p *projectDockerfilePaths) UserEnvFile() string              { return "" }
-func (p *projectDockerfilePaths) UserEnvSecretFile() string        { return "" }
-func (p *projectDockerfilePaths) UserEnvSecretYAMLFile() string    { return "" }
 func (p *projectDockerfilePaths) ProjectConfigDir() string         { return "" }
 func (p *projectDockerfilePaths) ProjectConfigDirAbs() string      { return "" }
-func (p *projectDockerfilePaths) ProjectEnvFile() string           { return "" }
-func (p *projectDockerfilePaths) ProjectEnvSecretFile() string     { return "" }
-func (p *projectDockerfilePaths) ProjectEnvSecretYAMLFile() string { return "" }
 func (p *projectDockerfilePaths) IgnoredWorktreeConfigDir() string { return "" }
 
 // TestRenderProjectDockerfileRendersProjectFile pins that the caller-read
