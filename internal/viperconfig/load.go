@@ -120,6 +120,7 @@ func NewResolver(cmd *cobra.Command, paths configpaths.ConfigPaths, slug string)
 	}
 	cfg.Home = homeLayers
 	cfg.hasHome = hasHome
+	cfg.ConfigSlug = slug
 	docker, dockerSource, dockerLegacy := resolveDockerAlias(v, cmd, cfg.Docker)
 	cfg.Docker = docker
 	cfg.dockerSource = dockerSource

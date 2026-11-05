@@ -1461,3 +1461,18 @@ func TestResolverConfigReturnsACopy(t *testing.T) {
 		t.Error("Config() on a nil resolver = non-nil, want nil")
 	}
 }
+
+// TestNewResolverRecordsConfigSlug proves NewResolver records the effective
+// config slug on the resolved Config, so later stages can rebuild the per-slug
+// config scope from it.
+func TestNewResolverRecordsConfigSlug(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	r, err := NewResolver(nil, configpaths.Get(), "widget-bbb")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if got := r.Config().ConfigSlug; got != "widget-bbb" {
+		t.Errorf("ConfigSlug = %q, want %q", got, "widget-bbb")
+	}
+}

@@ -50,6 +50,10 @@ type Config struct {
 	Home homeconfig.Layers `mapstructure:"-"`
 	// hasHome reports whether any config file declared a home key.
 	hasHome bool
+	// ConfigSlug is the effective per-slug user config directory slug the
+	// resolver was built with (empty for a generic-user-only config). It is
+	// resolved at the run boundary, never read from a config file or env.
+	ConfigSlug string `mapstructure:"-"`
 
 	// dockerSource names the explicit docker or deprecated dind source the
 	// resolved docker value came from (DockerSourceNone when none), so the

@@ -39,10 +39,15 @@ type RunOptions struct {
 	// consumes, resolved once at the run boundary (runoptions.Build). Never set
 	// from config or flags.
 	ResolvedAgent agent.Resolved
-	ReapPolicy    ReapPolicy
-	IdleTimeout   time.Duration
-	CPUs          uint8
-	Rebuild       bool
+	// ConfigSlug is the effective per-slug user config slug the launcher config
+	// was resolved with, carried so later stages can rebuild the per-slug config
+	// scope. Resolved once at the run boundary (runoptions.Build); never set
+	// from config or flags, mirroring ResolvedAgent.
+	ConfigSlug  string
+	ReapPolicy  ReapPolicy
+	IdleTimeout time.Duration
+	CPUs        uint8
+	Rebuild     bool
 	// NoRebuild reuses the existing runner image even when its inputs changed
 	// and skips the agent upgrade check. A missing image is still built.
 	NoRebuild bool
