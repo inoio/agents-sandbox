@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -30,73 +31,122 @@ var evalProvisionRules = agent.EvalProvisionRules
 // layout regardless of the configured runtime user.
 const VMHomeDir = mounts.VMHomeDir
 
-// ConfigSource is the resolved launcher config-dir pair for an agent. Fallback
-// is the legacy dir name actually in use, or "" when the primary dirs are used.
-// PrimaryUserDir/PrimaryProjectDir are the primary (non-fallback) dirs the agent
-// migrates to, carried from resolution so a caller need not re-derive (and
-// re-validate) them.
+// ConfigSource is the resolved launcher config dirs for an agent. UserDirs holds
+// every user scope's config dir in precedence order (generic, per-slug), and
+// ProjectDir holds the project scope's. Fallback is the legacy dir name actually
+// in use, or "" when the primary dirs are used. PrimaryUserDirs/PrimaryProjectDir
+// are the primary (non-fallback) dirs the agent migrates to, carried from
+// resolution so a caller need not re-derive (and re-validate) them.
 type ConfigSource struct {
-	UserDir           string
+	UserDirs          []string
 	ProjectDir        string
 	Fallback          string
-	PrimaryUserDir    string
+	PrimaryUserDirs   []string
 	PrimaryProjectDir string
 }
 
-// ResolveConfigSource picks the agent's launcher config dirs. The primary dirs
-// win when either exists in any scope; otherwise the first alias whose dir
-// exists in either scope is used for both scopes. When nothing exists the
-// primary dirs are returned and Fallback is empty.
-func ResolveConfigSource(a agent.Agent) (ConfigSource, error) {
+// ResolveConfigSource picks the agent's launcher config dirs from the ordered
+// config scopes. The primary namespace wins when its dir exists in any scope;
+// otherwise the first alias whose dir exists in any scope is used for every scope.
+// When nothing exists the primary dirs are returned and Fallback is empty. The
+// choice is one global decision: a per-slug primary dir drops a generic legacy
+// dir rather than letting each scope choose independently.
+func ResolveConfigSource(a agent.Agent, scopes []cp.ConfigScope) (ConfigSource, error) {
 	names, err := agent.ConfigDirNames(a)
 	if err != nil {
 		return ConfigSource{}, err
 	}
-	userCands := joinUnder(cp.Get().UserConfigDir(), names)
-	projectCands := joinUnder(cp.Get().ProjectConfigDirAbs(), names)
-	src := ConfigSource{
-		UserDir:           userCands[0],
-		ProjectDir:        projectCands[0],
-		Fallback:          "",
-		PrimaryUserDir:    userCands[0],
-		PrimaryProjectDir: projectCands[0],
+	userScopes, projectScope, hasProject := splitConfigScopes(scopes)
+	userCandidates := make([][]string, len(names))
+	projectCandidates := make([]string, len(names))
+	for i, name := range names {
+		userCandidates[i] = make([]string, 0, len(userScopes))
+		for _, scope := range userScopes {
+			dir, dirErr := absoluteAgentConfigDir(scope, name)
+			if dirErr != nil {
+				return ConfigSource{}, dirErr
+			}
+			userCandidates[i] = append(userCandidates[i], dir)
+		}
+		if hasProject {
+			dir, dirErr := absoluteAgentConfigDir(projectScope, name)
+			if dirErr != nil {
+				return ConfigSource{}, dirErr
+			}
+			projectCandidates[i] = dir
+		}
 	}
-	primaryExists, err := anyDirExists(userCands[0], projectCands[0])
+	src := ConfigSource{
+		UserDirs:          userCandidates[0],
+		ProjectDir:        projectCandidates[0],
+		Fallback:          "",
+		PrimaryUserDirs:   userCandidates[0],
+		PrimaryProjectDir: projectCandidates[0],
+	}
+	primaryExists, err := anyDirExists(candidateDirs(userCandidates[0], projectCandidates[0])...)
 	if err != nil {
 		return ConfigSource{}, err
 	}
 	if primaryExists {
 		return src, nil
 	}
-	for i := 1; i < len(userCands); i++ {
-		exists, err := anyDirExists(userCands[i], projectCands[i])
+	for i := 1; i < len(names); i++ {
+		exists, err := anyDirExists(candidateDirs(userCandidates[i], projectCandidates[i])...)
 		if err != nil {
 			return ConfigSource{}, err
 		}
 		if exists {
-			src.UserDir = userCands[i]
-			src.ProjectDir = projectCands[i]
-			src.Fallback = filepath.Base(userCands[i])
+			src.UserDirs = userCandidates[i]
+			src.ProjectDir = projectCandidates[i]
+			src.Fallback = names[i]
 			return src, nil
 		}
 	}
 	return src, nil
 }
 
-// joinUnder joins each name under base, so the user and project candidate
-// lists stay parallel: index i names the same config dir in both scopes, and
-// index 0 is the primary namespace.
-func joinUnder(base string, names []string) []string {
-	dirs := make([]string, len(names))
-	for i, name := range names {
-		dirs[i] = filepath.Join(base, name)
+// splitConfigScopes separates the project scope from the user scopes. The project
+// scope is the last one ConfigScopes emits, but it is found by kind so a caller
+// passing a subset still gets the user dirs in order.
+func splitConfigScopes(scopes []cp.ConfigScope) ([]cp.ConfigScope, cp.ConfigScope, bool) {
+	userScopes := make([]cp.ConfigScope, 0, len(scopes))
+	var projectScope cp.ConfigScope
+	hasProject := false
+	for _, scope := range scopes {
+		if scope.Kind == cp.ScopeProject {
+			projectScope = scope
+			hasProject = true
+			continue
+		}
+		userScopes = append(userScopes, scope)
+	}
+	return userScopes, projectScope, hasProject
+}
+
+// absoluteAgentConfigDir returns the agent's config dir under scope as an absolute
+// path. The project scope's dir may be relative to the CWD, while candidate
+// rendering and stats need absolute paths.
+func absoluteAgentConfigDir(scope cp.ConfigScope, name string) (string, error) {
+	dir, err := filepath.Abs(scope.AgentConfigDir(name))
+	if err != nil {
+		return "", fmt.Errorf("resolve config dir: %w", err)
+	}
+	return dir, nil
+}
+
+// candidateDirs returns the user candidates followed by the project candidate.
+func candidateDirs(userDirs []string, projectDir string) []string {
+	dirs := make([]string, 0, len(userDirs)+1)
+	dirs = append(dirs, userDirs...)
+	if projectDir != "" {
+		dirs = append(dirs, projectDir)
 	}
 	return dirs
 }
 
 // anyDirExists reports whether any path names an existing directory. Every
 // candidate is tried, so an unreadable candidate in one scope does not hide a
-// usable one in the other; a stat error other than "not exist" is remembered
+// usable one in another; a stat error other than "not exist" is remembered
 // and surfaced only when no candidate exists, rather than being treated as
 // absent or aborting the search.
 func anyDirExists(dirs ...string) (bool, error) {
@@ -119,15 +169,17 @@ func anyDirExists(dirs ...string) (bool, error) {
 	return false, statErr
 }
 
-// describeConfigScopes renders "user: <dir>, project: <dir>" for the given
-// absolute scopes. When onlyExisting is set, scopes whose dir is absent are
-// omitted rather than named as if read.
-func describeConfigScopes(userDir, projectDir string, onlyExisting bool) string {
-	parts := make([]string, 0, 2)
-	if !onlyExisting || IsDir(userDir) {
-		parts = append(parts, fmt.Sprintf("user: %q", userDir))
+// describeConfigScopes renders every user scope dir and the project dir. When
+// onlyExisting is set, scopes whose dir is absent are omitted rather than named as
+// if read.
+func describeConfigScopes(userDirs []string, projectDir string, onlyExisting bool) string {
+	parts := make([]string, 0, len(userDirs)+1)
+	for _, dir := range userDirs {
+		if !onlyExisting || IsDir(dir) {
+			parts = append(parts, fmt.Sprintf("user: %q", dir))
+		}
 	}
-	if !onlyExisting || IsDir(projectDir) {
+	if projectDir != "" && (!onlyExisting || IsDir(projectDir)) {
 		parts = append(parts, fmt.Sprintf("project: %q", projectDir))
 	}
 	if len(parts) == 0 {
@@ -138,17 +190,22 @@ func describeConfigScopes(userDir, projectDir string, onlyExisting bool) string 
 
 // SourceDirs returns the user and project config dirs actually read for the
 // resolved source. They come straight from the source so display can never
-// diverge from what was read; the seam builds candidates absolute, so both are
+// diverge from what was read; the seam builds candidates absolute, so all are
 // absolute.
-func SourceDirs(src ConfigSource) (string, string) {
-	return src.UserDir, src.ProjectDir
+func SourceDirs(src ConfigSource) ([]string, string) {
+	return src.UserDirs, src.ProjectDir
 }
 
-// isDir reports whether path names an existing directory.
-// noLauncherConfigDir reports whether the agent has no launcher config dir in
-// either scope: neither primary dir exists and no legacy fallback was found.
+// noLauncherConfigDir reports whether the agent has no launcher config dir in any
+// scope: no primary dir exists and no legacy fallback was found.
 func noLauncherConfigDir(src ConfigSource) bool {
-	return src.Fallback == "" && !IsDir(src.PrimaryUserDir) && !IsDir(src.PrimaryProjectDir)
+	if src.Fallback != "" {
+		return false
+	}
+	if slices.ContainsFunc(src.PrimaryUserDirs, IsDir) {
+		return false
+	}
+	return !IsDir(src.PrimaryProjectDir)
 }
 
 // IsDir reports whether path names an existing directory.
@@ -241,11 +298,12 @@ func LoadConfigFilesForHost(
 	ui termio.Logger,
 	provisionHostConfig bool,
 ) (*ConfigFiles, error) {
-	src, err := ResolveConfigSource(a.Profile)
+	scopes := cp.ConfigScopes(cp.Get(), configSlug)
+	src, err := ResolveConfigSource(a.Profile, scopes)
 	if err != nil {
 		return nil, err
 	}
-	scopeDirs := cp.ScopeDirs(cp.ConfigScopes(cp.Get(), configSlug))
+	scopeDirs := cp.ScopeDirs(scopes)
 	subject := resolveConfigSubject(a, vmHome)
 	merged, err := subject.buildMergedConfig(src)
 	if err != nil {
@@ -284,24 +342,24 @@ func LoadConfigFilesForHost(
 	}
 	keys := configKeys(merged.path, merged.hasSnippets, homeFiles, mirror, provisioned)
 	if src.Fallback != "" {
-		legacyUser, legacyProject := SourceDirs(src)
+		legacyUserDirs, legacyProject := SourceDirs(src)
 		ui.Warnf(
 			"agent %s is reading launcher config from the legacy shared %q dir (%s), which agent opencode also uses; "+
-				"a %q dir in either the user or project scope switches both scopes, so copy (do not move) everything you need in one go into the %q namespace (%s): "+
+				"a %q dir in any user or project scope switches all scopes, so copy (do not move) everything you need in one go into the %q namespace (%s): "+
 				"a partial copy will not fall back for the rest. The guest ~/.config/opencode path is unchanged.",
 			a.Profile.Name(),
 			src.Fallback,
-			describeConfigScopes(legacyUser, legacyProject, true),
+			describeConfigScopes(legacyUserDirs, legacyProject, true),
 			a.Profile.ConfigDirName(),
 			a.Profile.ConfigDirName(),
-			describeConfigScopes(src.PrimaryUserDir, src.PrimaryProjectDir, false),
+			describeConfigScopes(src.PrimaryUserDirs, src.PrimaryProjectDir, false),
 		)
 	}
 	if noLauncherConfigDir(src) {
 		ui.Infof(
-			"No launcher config dir for agent %s yet (user: %q, project: %q); create one to add config snippets, "+
+			"No launcher config dir for agent %s yet (%s); create one to add config snippets, "+
 				"mirrored files, and hooks. Run 'agents-sandbox config agent' to inspect what gets provisioned.",
-			a.Profile.Name(), src.PrimaryUserDir, src.PrimaryProjectDir,
+			a.Profile.Name(), describeConfigScopes(src.PrimaryUserDirs, src.PrimaryProjectDir, false),
 		)
 	}
 	return &ConfigFiles{
@@ -501,6 +559,17 @@ type mergedConfig struct {
 	hasSnippets bool
 }
 
+// orderedSourceDirs returns the source's dirs lowest precedence first: every
+// user scope dir, then the project dir.
+func orderedSourceDirs(src ConfigSource) []string {
+	dirs := make([]string, 0, len(src.UserDirs)+1)
+	dirs = append(dirs, src.UserDirs...)
+	if src.ProjectDir != "" {
+		dirs = append(dirs, src.ProjectDir)
+	}
+	return dirs
+}
+
 // buildMergedConfig merges the subject's snippet files into a single config.
 // Every agent in the registry implements ConfigMerger, so a non-merger subject
 // produces an empty mergedConfig.
@@ -511,8 +580,7 @@ func (s configSubject) buildMergedConfig(src ConfigSource) (mergedConfig, error)
 	built, err := config.BuildMerged(
 		s.vmConfigPath,
 		s.snippetPattern,
-		src.UserDir,
-		src.ProjectDir,
+		orderedSourceDirs(src),
 	)
 	if err != nil {
 		return mergedConfig{}, fmt.Errorf("merge agent config: %w", err)
@@ -536,8 +604,7 @@ func (s configSubject) buildMirror(src ConfigSource) (map[string]config.MirrorEn
 	entries, err := config.ScanMirror(
 		s.snippetPattern,
 		s.familyNames,
-		src.UserDir,
-		src.ProjectDir,
+		orderedSourceDirs(src),
 		filepath.Dir(s.vmConfigPath),
 	)
 	if err != nil {
@@ -621,8 +688,7 @@ func (s configSubject) mirrorFilesFromConfig(src ConfigSource) []MirrorFile {
 	entries, err := config.ScanMirror(
 		s.snippetPattern,
 		s.familyNames,
-		src.UserDir,
-		src.ProjectDir,
+		orderedSourceDirs(src),
 		filepath.Dir(s.vmConfigPath),
 	)
 	if err != nil {

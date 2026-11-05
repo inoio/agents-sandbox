@@ -452,9 +452,15 @@ func TestConfigAgentMarksMissingConfigDirs(t *testing.T) {
 	cp := configpaths.Get()
 	userDir := filepath.Join(cp.UserConfigDir(), "opencode2")
 	projectDir := filepath.Join(cp.ProjectConfigDirAbs(), "opencode2")
-	want := fmt.Sprintf("config dir: user=%q (missing)  project=%q (missing)  (primary)", userDir, projectDir)
-	if !slices.Contains(ui.OutCalls, want) {
-		t.Errorf("expected line %q, got:\n%s", want, strings.Join(ui.OutCalls, "\n"))
+	want := []string{
+		"config dirs (primary):",
+		fmt.Sprintf("  user: %q (missing)", userDir),
+		fmt.Sprintf("  project: %q (missing)", projectDir),
+	}
+	for _, line := range want {
+		if !slices.Contains(ui.OutCalls, line) {
+			t.Errorf("expected line %q, got:\n%s", line, strings.Join(ui.OutCalls, "\n"))
+		}
 	}
 }
 
@@ -468,8 +474,14 @@ func TestConfigAgentDoesNotMarkExistingConfigDir(t *testing.T) {
 		t.Fatalf("config agent --agent opencode2: %v", err)
 	}
 	projectDir := filepath.Join(configpaths.Get().ProjectConfigDirAbs(), "opencode2")
-	want := fmt.Sprintf("config dir: user=%q  project=%q (missing)  (primary)", userDir, projectDir)
-	if !slices.Contains(ui.OutCalls, want) {
-		t.Errorf("expected line %q, got:\n%s", want, strings.Join(ui.OutCalls, "\n"))
+	want := []string{
+		"config dirs (primary):",
+		fmt.Sprintf("  user: %q", userDir),
+		fmt.Sprintf("  project: %q (missing)", projectDir),
+	}
+	for _, line := range want {
+		if !slices.Contains(ui.OutCalls, line) {
+			t.Errorf("expected line %q, got:\n%s", line, strings.Join(ui.OutCalls, "\n"))
+		}
 	}
 }

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -15,15 +17,16 @@ import (
 func TestDescribeConfigScopes(t *testing.T) {
 	existing := t.TempDir()
 	missing := filepath.Join(t.TempDir(), "missing")
+	userDirs := func(dirs ...string) []string { return dirs }
 
-	if got := describeConfigScopes(missing, missing, true); got != "(none)" {
+	if got := describeConfigScopes(userDirs(missing), missing, true); got != "(none)" {
 		t.Errorf("onlyExisting with nothing present = %q, want (none)", got)
 	}
-	onlyExisting := describeConfigScopes(existing, missing, true)
+	onlyExisting := describeConfigScopes(userDirs(existing), missing, true)
 	if !strings.Contains(onlyExisting, "user: ") || strings.Contains(onlyExisting, "project:") {
 		t.Errorf("onlyExisting should list only the present scope, got %q", onlyExisting)
 	}
-	targets := describeConfigScopes(existing, missing, false)
+	targets := describeConfigScopes(userDirs(existing), missing, false)
 	if !strings.Contains(targets, "user: ") || !strings.Contains(targets, "project: ") {
 		t.Errorf("targets should list both scopes, got %q", targets)
 	}
@@ -33,7 +36,7 @@ func TestDescribeConfigScopes(t *testing.T) {
 	// A missing user dir must still be named when onlyExisting is false: the
 	// project scope being the only one present must not drop the user scope.
 	if got, want := describeConfigScopes(
-		missing,
+		userDirs(missing),
 		existing,
 		false,
 	), fmt.Sprintf(
@@ -45,8 +48,23 @@ func TestDescribeConfigScopes(t *testing.T) {
 	}
 	// An existing project dir must be named when onlyExisting is true: the
 	// user scope being absent must not drop the project scope.
-	if got, want := describeConfigScopes(missing, existing, true), fmt.Sprintf("project: %q", existing); got != want {
+	if got, want := describeConfigScopes(
+		userDirs(missing),
+		existing,
+		true,
+	), fmt.Sprintf(
+		"project: %q",
+		existing,
+	); got != want {
 		t.Errorf("onlyExisting with only the project present = %q, want %q", got, want)
+	}
+	// Every user scope dir is named, in order, before the project dir.
+	if got, want := describeConfigScopes(
+		userDirs(existing, missing),
+		existing,
+		true,
+	), fmt.Sprintf("user: %q, project: %q", existing, existing); got != want {
+		t.Errorf("onlyExisting with a per-slug scope = %q, want %q", got, want)
 	}
 }
 
@@ -58,14 +76,22 @@ type configBases struct {
 	user, project string
 }
 
-func (c configBases) UserConfigDir() string       { return c.user }
-func (c configBases) ProjectConfigDirAbs() string { return c.project }
+func (c configBases) UserConfigDir() string                { return c.user }
+func (c configBases) UserSlugConfigDir(slug string) string { return filepath.Join(c.user, slug) }
+func (c configBases) ProjectConfigDir() string             { return c.project }
+func (c configBases) ProjectConfigDirAbs() string          { return c.project }
 
 func withConfigBases(t *testing.T, user, project string) {
 	t.Helper()
 	orig := configpaths.Get
 	configpaths.Get = func() configpaths.ConfigPaths { return configBases{user: user, project: project} }
 	t.Cleanup(func() { configpaths.Get = orig })
+}
+
+// resolveConfigSource resolves an agent's source against the installed seam's
+// scopes with an empty slug, preserving the pre-per-slug test behavior.
+func resolveConfigSource(a agent.Agent) (ConfigSource, error) {
+	return ResolveConfigSource(a, configpaths.ConfigScopes(configpaths.Get(), ""))
 }
 
 // invalidConfigDirAgent is a profile whose config-dir name is not a single
@@ -118,7 +144,7 @@ func TestResolveConfigSourceStatError(t *testing.T) {
 
 	t.Run("primary", func(t *testing.T) {
 		withConfigBases(t, blocker, blocker)
-		if _, err := ResolveConfigSource(a); err == nil {
+		if _, err := resolveConfigSource(a); err == nil {
 			t.Error("expected an error when the primary candidate stat fails")
 		}
 	})
@@ -131,7 +157,7 @@ func TestResolveConfigSourceStatError(t *testing.T) {
 			t.Fatal(err)
 		}
 		withConfigBases(t, base, base)
-		if _, err := ResolveConfigSource(a); err == nil {
+		if _, err := resolveConfigSource(a); err == nil {
 			t.Error("expected an error when an alias candidate stat fails")
 		}
 	})
@@ -152,7 +178,7 @@ func TestResolveConfigSourceStatErrorDoesNotHideUsableScope(t *testing.T) {
 	withConfigBases(t, blocker, projectBase)
 
 	a, _ := agent.Lookup("opencode2")
-	got, err := ResolveConfigSource(a)
+	got, err := resolveConfigSource(a)
 	if err != nil {
 		t.Fatalf("ResolveConfigSource: unexpected error %v", err)
 	}
@@ -166,13 +192,13 @@ func TestSourceDirsMirrorResolvedSource(t *testing.T) {
 	cp := configpaths.Get()
 
 	src := ConfigSource{
-		UserDir:    filepath.Join(cp.UserConfigDir(), "opencode"),
+		UserDirs:   []string{filepath.Join(cp.UserConfigDir(), "opencode")},
 		ProjectDir: filepath.Join(cp.ProjectConfigDirAbs(), "opencode"),
 		Fallback:   "opencode",
 	}
-	user, project := SourceDirs(src)
-	if user != src.UserDir || project != src.ProjectDir {
-		t.Errorf("SourceDirs = (%q, %q), want the resolved source dirs", user, project)
+	userDirs, project := SourceDirs(src)
+	if !slices.Equal(userDirs, src.UserDirs) || project != src.ProjectDir {
+		t.Errorf("SourceDirs = (%q, %q), want the resolved source dirs", userDirs, project)
 	}
 }
 
@@ -185,12 +211,17 @@ func TestResolveConfigSourceCarriesPrimaryDirs(t *testing.T) {
 	a, _ := agent.Lookup("opencode2")
 
 	// No dirs exist, so the primary dirs are returned with an empty fallback.
-	src, err := ResolveConfigSource(a)
+	src, err := resolveConfigSource(a)
 	if err != nil {
 		t.Fatalf("ResolveConfigSource: %v", err)
 	}
-	if src.PrimaryUserDir != configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), a.ConfigDirName())) {
-		t.Errorf("PrimaryUserDir = %q, want the seam's primary user dir", src.PrimaryUserDir)
+	if want := []string{
+		configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), a.ConfigDirName())),
+	}; !slices.Equal(
+		src.PrimaryUserDirs,
+		want,
+	) {
+		t.Errorf("PrimaryUserDirs = %v, want the seam's primary user dirs %v", src.PrimaryUserDirs, want)
 	}
 	if src.PrimaryProjectDir != configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())) {
 		t.Errorf("PrimaryProjectDir = %q, want the seam's primary project dir", src.PrimaryProjectDir)
@@ -203,7 +234,7 @@ func TestResolveConfigSourceCarriesPrimaryDirs(t *testing.T) {
 func TestResolveConfigSourcePropagatesInvalidConfigDirName(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	if _, err := ResolveConfigSource(invalidConfigDirAgent{}); err == nil {
+	if _, err := resolveConfigSource(invalidConfigDirAgent{}); err == nil {
 		t.Fatal("ResolveConfigSource with an invalid config-dir name = nil error, want error")
 	}
 }
@@ -241,7 +272,7 @@ func TestResolveConfigSource(t *testing.T) {
 			mk(cp.ProjectConfigDir(), "opencode", tc.proj1)
 
 			a, _ := agent.Lookup("opencode2")
-			got, err := ResolveConfigSource(a)
+			got, err := resolveConfigSource(a)
 			if err != nil {
 				t.Fatalf("ResolveConfigSource: %v", err)
 			}
@@ -251,15 +282,85 @@ func TestResolveConfigSource(t *testing.T) {
 				name = tc.wantFallback
 			}
 			want := ConfigSource{
-				UserDir:           filepath.Join(cp.UserConfigDir(), name),
+				UserDirs:          []string{filepath.Join(cp.UserConfigDir(), name)},
 				ProjectDir:        filepath.Join(cp.ProjectConfigDir(), name),
 				Fallback:          tc.wantFallback,
-				PrimaryUserDir:    filepath.Join(cp.UserConfigDir(), "opencode2"),
+				PrimaryUserDirs:   []string{filepath.Join(cp.UserConfigDir(), "opencode2")},
 				PrimaryProjectDir: filepath.Join(cp.ProjectConfigDirAbs(), "opencode2"),
 			}
-			if got != want {
+			if !reflect.DeepEqual(got, want) {
 				t.Errorf("ResolveConfigSource = %+v, want %+v", got, want)
 			}
 		})
+	}
+}
+
+// TestResolveConfigSourceOneNamespaceAcrossScopes pins the global namespace
+// decision: a per-slug primary dir wins over a generic legacy dir, and the chosen
+// primary namespace applies to every scope (the generic legacy dir is dropped).
+func TestResolveConfigSourceOneNamespaceAcrossScopes(t *testing.T) {
+	generic := t.TempDir()
+	perSlug := t.TempDir()
+	project := t.TempDir()
+	if err := os.Mkdir(filepath.Join(generic, "opencode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(perSlug, "opencode2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scopes := []configpaths.ConfigScope{
+		{Kind: configpaths.ScopeGenericUser, Dir: generic},
+		{Kind: configpaths.ScopePerSlugUser, Dir: perSlug},
+		{Kind: configpaths.ScopeProject, Dir: project},
+	}
+
+	a, _ := agent.Lookup("opencode2")
+	src, err := ResolveConfigSource(a, scopes)
+	if err != nil {
+		t.Fatalf("ResolveConfigSource: %v", err)
+	}
+	if src.Fallback != "" {
+		t.Errorf("Fallback = %q, want empty (the primary namespace wins globally)", src.Fallback)
+	}
+	wantUserDirs := []string{
+		filepath.Join(generic, "opencode2"),
+		filepath.Join(perSlug, "opencode2"),
+	}
+	if !slices.Equal(src.UserDirs, wantUserDirs) {
+		t.Errorf("UserDirs = %v, want %v", src.UserDirs, wantUserDirs)
+	}
+	if want := filepath.Join(project, "opencode2"); src.ProjectDir != want {
+		t.Errorf("ProjectDir = %q, want %q", src.ProjectDir, want)
+	}
+}
+
+// TestResolveConfigSourceFallbackWarningNamesLegacy pins that a legacy namespace
+// found in any scope selects that namespace for every scope and that the scope
+// description names the legacy dir actually read.
+func TestResolveConfigSourceFallbackWarningNamesLegacy(t *testing.T) {
+	generic := t.TempDir()
+	perSlug := t.TempDir()
+	project := t.TempDir()
+	legacy := filepath.Join(generic, "opencode")
+	if err := os.Mkdir(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scopes := []configpaths.ConfigScope{
+		{Kind: configpaths.ScopeGenericUser, Dir: generic},
+		{Kind: configpaths.ScopePerSlugUser, Dir: perSlug},
+		{Kind: configpaths.ScopeProject, Dir: project},
+	}
+
+	a, _ := agent.Lookup("opencode2")
+	src, err := ResolveConfigSource(a, scopes)
+	if err != nil {
+		t.Fatalf("ResolveConfigSource: %v", err)
+	}
+	if src.Fallback != "opencode" {
+		t.Errorf("Fallback = %q, want opencode", src.Fallback)
+	}
+	described := describeConfigScopes(src.UserDirs, src.ProjectDir, true)
+	if !strings.Contains(described, legacy) {
+		t.Errorf("describeConfigScopes = %q, want the legacy dir %q", described, legacy)
 	}
 }

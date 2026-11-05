@@ -13,7 +13,7 @@ func TestBuildMergedTOMLDeepMergesTOMLSnippets(t *testing.T) {
 	writeSnippet(t, dir, "config-a.toml", "model = \"gpt-5\"\n[sandbox_workspace_write]\nnetwork_access = false\n")
 	writeSnippet(t, dir, "config-b.toml", "[sandbox_workspace_write]\nnetwork_access = true\nretries = 3\n")
 
-	built, err := BuildMerged("/home/dev/.codex/config.toml", "config*.toml", dir, "")
+	built, err := BuildMerged("/home/dev/.codex/config.toml", "config*.toml", []string{dir, ""})
 	if err != nil || !built.HasSnippets {
 		t.Fatalf("BuildMerged: has=%v err=%v", built.HasSnippets, err)
 	}
@@ -42,7 +42,7 @@ func TestBuildMergedJSONPathKeepsJSONOutput(t *testing.T) {
 	dir := t.TempDir()
 	writeSnippet(t, dir, "settings-a.json", `{"a": 1}`)
 
-	built, err := BuildMerged("/home/dev/.claude/settings.json", "settings*.json*", dir, "")
+	built, err := BuildMerged("/home/dev/.claude/settings.json", "settings*.json*", []string{dir, ""})
 	if err != nil || !built.HasSnippets {
 		t.Fatalf("BuildMerged: has=%v err=%v", built.HasSnippets, err)
 	}
@@ -56,7 +56,7 @@ func TestBuildMergedSkipsInvalidTOMLSnippet(t *testing.T) {
 	writeSnippet(t, dir, "config-bad.toml", "not = = toml")
 	writeSnippet(t, dir, "config-good.toml", "ok = true\n")
 
-	built, err := BuildMerged("config.toml", "config*.toml", dir, "")
+	built, err := BuildMerged("config.toml", "config*.toml", []string{dir, ""})
 	if err != nil || !built.HasSnippets {
 		t.Fatalf("BuildMerged: has=%v err=%v", built.HasSnippets, err)
 	}

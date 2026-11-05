@@ -899,7 +899,7 @@ func TestBuildMergedConfigNoMergerYieldsEmpty(t *testing.T) {
 		snippetPattern: "opencode*.json*",
 		vmConfigPath:   "/home/dev/.config/opencode/opencode.jsonc",
 	}
-	got, err := subject.buildMergedConfig(ConfigSource{UserDir: dir})
+	got, err := subject.buildMergedConfig(ConfigSource{UserDirs: []string{dir}})
 	if err != nil {
 		t.Fatalf("buildMergedConfig: %v", err)
 	}
@@ -915,7 +915,7 @@ func TestBuildMirrorNoMergerYieldsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	testutil.WriteFile(t, dir, "tui.json", `{"theme":"dark"}`)
 
-	mirror, err := configSubject{}.buildMirror(ConfigSource{UserDir: dir})
+	mirror, err := configSubject{}.buildMirror(ConfigSource{UserDirs: []string{dir}})
 	if err != nil {
 		t.Fatalf("buildMirror: %v", err)
 	}
@@ -930,7 +930,7 @@ func TestMirrorFilesFromConfigNoMergerYieldsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	testutil.WriteFile(t, dir, "tui.json", `{"theme":"dark"}`)
 
-	files := configSubject{}.mirrorFilesFromConfig(ConfigSource{UserDir: dir})
+	files := configSubject{}.mirrorFilesFromConfig(ConfigSource{UserDirs: []string{dir}})
 	if len(files) != 0 {
 		t.Errorf("mirrorFilesFromConfig without a merger = %v, want none", files)
 	}
@@ -1300,11 +1300,11 @@ func TestDescribe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Describe: %v", err)
 	}
-	wantSource, err := ResolveConfigSource(a)
+	wantSource, err := ResolveConfigSource(a, configpaths.ConfigScopes(configpaths.Get(), ""))
 	if err != nil {
 		t.Fatalf("ResolveConfigSource: %v", err)
 	}
-	if source != wantSource {
+	if !reflect.DeepEqual(source, wantSource) {
 		t.Errorf("Describe source = %+v, want the resolved source %+v", source, wantSource)
 	}
 	if len(merged) == 0 {
