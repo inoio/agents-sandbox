@@ -107,8 +107,12 @@ type SandboxHandle interface {
 	BackendKind() msbSdk.BackendKind
 	Image() string
 	Connect(ctx context.Context) (Sandbox, error)
-	Refresh(ctx context.Context) (SandboxHandle, error)
-	Start(ctx context.Context) (Sandbox, error)
+	// ConnectOrStart connects to this exact sandbox when it runs, waits while
+	// another caller starts it, or starts it when it is created, stopped or
+	// crashed. booted reports whether this call started it: of concurrent
+	// callers on one stopped sandbox exactly one boots it and the others
+	// connect. A same-name replacement is rejected (IsReplaced).
+	ConnectOrStart(ctx context.Context) (sb Sandbox, booted bool, err error)
 	Stop(ctx context.Context, opts ...msbSdk.StopOption) error
 	Kill(ctx context.Context, opts ...msbSdk.KillOption) error
 	Remove(ctx context.Context) error
@@ -310,6 +314,12 @@ func IsVolumeNotFound(err error) bool {
 // this name already exists" error, unwrapping any wrapped errors.
 func IsVolumeAlreadyExists(err error) bool {
 	return msbSdk.IsKind(err, msbSdk.ErrVolumeAlreadyExists)
+}
+
+// IsSandboxAlreadyExists reports whether err is the microsandbox "sandbox with
+// this name already exists" error, unwrapping any wrapped errors.
+func IsSandboxAlreadyExists(err error) bool {
+	return msbSdk.IsKind(err, msbSdk.ErrSandboxAlreadyExists)
 }
 
 // IsReplaced reports whether err indicates that a handle's name now refers to a
@@ -637,20 +647,28 @@ func (w realSandboxHandle) Connect(ctx context.Context) (Sandbox, error) {
 	return &realSandbox{sandbox: sb}, nil
 }
 
-func (w realSandboxHandle) Refresh(ctx context.Context) (SandboxHandle, error) {
-	h, err := w.handle.Refresh(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return realSandboxHandle{handle: h}, nil
-}
+// The connect-or-start delegation targets are package-level seams (method
+// expressions) so the boot report is unit-testable without a live VM.
+var (
+	realHandleConnectOrStart = (*msbSdk.SandboxHandle).ConnectOrStart
+	realSandboxOwnsLifecycle = (*msbSdk.Sandbox).OwnsLifecycle
+)
 
-func (w realSandboxHandle) Start(ctx context.Context) (Sandbox, error) {
-	sb, err := w.handle.Start(ctx)
+// ConnectOrStart starts attached (not detached), so the returned sandbox owns
+// the VM process exactly when this call booted it; ownership is read before the
+// caller can detach. A sandbox whose ownership cannot be read is closed and the
+// error returned, because guessing would run or skip the once-per-boot work.
+func (w realSandboxHandle) ConnectOrStart(ctx context.Context) (Sandbox, bool, error) {
+	sb, err := realHandleConnectOrStart(w.handle, ctx)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return realSandbox{sandbox: sb}, nil
+	booted, err := realSandboxOwnsLifecycle(sb)
+	if err != nil {
+		_ = realSandboxClose(sb)
+		return nil, false, fmt.Errorf("read whether this run booted the sandbox: %w", err)
+	}
+	return realSandbox{sandbox: sb}, booted, nil
 }
 
 func (w realSandboxHandle) Stop(ctx context.Context, opts ...msbSdk.StopOption) error {

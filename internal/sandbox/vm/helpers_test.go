@@ -54,32 +54,6 @@ func (s *nilResultDockerd) Shell(
 	return s.Sandbox.Shell(ctx, command, opts...)
 }
 
-// retryConnectHandle is a SandboxHandle whose Connect fails on the first call
-// and then delegates to a refreshed handle on subsequent calls, modelling the
-// idle-timeout race EnsureProjectVM recovers from.
-type retryConnectHandle struct {
-	msb.SandboxHandle
-
-	connects   int
-	refresh    msb.SandboxHandle
-	refreshErr error
-}
-
-func (h *retryConnectHandle) Connect(ctx context.Context) (msb.Sandbox, error) {
-	h.connects++
-	if h.connects == 1 {
-		return nil, errors.New("connect failed")
-	}
-	return h.refresh.Connect(ctx)
-}
-
-func (h *retryConnectHandle) Refresh(context.Context) (msb.SandboxHandle, error) {
-	if h.refreshErr != nil {
-		return nil, h.refreshErr
-	}
-	return h.refresh, nil
-}
-
 // fakeAgent implements only the core Agent interface with no capabilities, so
 // the daemon/worktree paths must no-op for it.
 type fakeAgent struct{}

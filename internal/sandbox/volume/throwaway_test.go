@@ -74,7 +74,7 @@ func TestTaskSandboxNameStaysWithinNameLimit(t *testing.T) {
 	require.Equal(t, naming.ArtifactInfo{Slug: slug, Agent: "claude-code", Task: true}, naming.ParseVMName(name))
 }
 
-func TestWithThrowawaySandbox_CreatesLabelledReplaceableTaskSandbox(t *testing.T) {
+func TestWithThrowawaySandbox_CreatesLabelledTaskSandbox(t *testing.T) {
 	fixture := newThrowawayFixture(t)
 	mounts := map[string]msbSdk.MountConfig{
 		srcMount: msbSdk.Mount.Named("old-vol", msbSdk.MountOptions{}),
@@ -93,7 +93,7 @@ func TestWithThrowawaySandbox_CreatesLabelledReplaceableTaskSandbox(t *testing.T
 	require.True(t, strings.HasPrefix(name, "myproject-opencode-"), "name = %q", name)
 	cfg := fixture.createdConfig(t)
 	require.Equal(t, throwawayImage.Ref, cfg.Image)
-	require.True(t, cfg.Replace, "throwaway sandbox must be created WithReplace")
+	require.False(t, cfg.Replace, "a throwaway sandbox never replaces a same-name sandbox")
 	require.Equal(t, naming.SandboxTypeTask, cfg.Labels[naming.LabelType])
 	require.Equal(t, "myproject", cfg.Labels[naming.LabelSlug])
 	require.Equal(t, "opencode", cfg.Labels[naming.LabelAgent])

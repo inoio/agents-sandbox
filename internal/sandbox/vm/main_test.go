@@ -27,7 +27,6 @@ func TestMain(m *testing.M) {
 	daemonPollInterval = 10 * time.Millisecond
 	dockerdReadyTimeout = 200 * time.Millisecond
 	dockerdPollInterval = 10 * time.Millisecond
-	sandboxLifecyclePollInterval = 10 * time.Millisecond
 	mocks.InitFailFastMocks(m)
 }
 
