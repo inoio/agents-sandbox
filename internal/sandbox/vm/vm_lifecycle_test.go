@@ -6,6 +6,7 @@ import (
 	"io"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -42,42 +43,12 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 		wantStopErrors int
 	}{
 		{
-			name: "decide error",
+			name: "connect-or-start error",
 			handle: func() msb.SandboxHandle {
-				return &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatus("unknown-status")}
+				return &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusPaused}
 			},
 			wantErr:        true,
 			wantStopErrors: 1,
-		},
-		{
-			name: "wait error",
-			handle: func() msb.SandboxHandle {
-				return &msb.MockSandboxHandle{
-					Name_:   "vm",
-					Status_: msbSdk.SandboxStatusStarting,
-					RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
-						return &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusPaused}, nil
-					},
-				}
-			},
-			wantErr:        true,
-			wantStopErrors: 1,
-		},
-		{
-			name: "wait success",
-			handle: func() msb.SandboxHandle {
-				return &msb.MockSandboxHandle{
-					Name_:   "vm",
-					Status_: msbSdk.SandboxStatusStarting,
-					RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
-						return &msb.MockSandboxHandle{
-							Status_:   msbSdk.SandboxStatusRunning,
-							ConnectSb: &msb.MockSandbox{Name_: "vm"},
-						}, nil
-					},
-				}
-			},
-			wantStops: 1,
 		},
 		{
 			name: "start success",
@@ -91,78 +62,12 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 			wantStops: 1,
 		},
 		{
-			name: "start error",
-			handle: func() msb.SandboxHandle {
-				return &msb.MockSandboxHandle{
-					Name_:    "vm",
-					Status_:  msbSdk.SandboxStatusStopped,
-					StartErr: errors.New("start failed"),
-				}
-			},
-			wantErr: true,
-			// The spinner is stopped before the start is attempted (it would
-			// otherwise animate through it) and then stopped again with the
-			// error; the real spinner's second finish is a no-op, the mock counts
-			// both.
-			wantStops:      1,
-			wantStopErrors: 1,
-		},
-		{
 			name: "connect success",
 			handle: func() msb.SandboxHandle {
 				return &msb.MockSandboxHandle{
 					Name_:     "vm",
 					Status_:   msbSdk.SandboxStatusRunning,
 					ConnectSb: &msb.MockSandbox{Name_: "vm"},
-				}
-			},
-			wantStops: 1,
-		},
-		{
-			name: "connect retry refresh error",
-			handle: func() msb.SandboxHandle {
-				return &retryConnectHandle{
-					SandboxHandle: &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning},
-					refreshErr:    errors.New("refresh failed"),
-				}
-			},
-			wantErr:        true,
-			wantStopErrors: 1,
-		},
-		{
-			name: "connect retry unavailable status",
-			handle: func() msb.SandboxHandle {
-				return &retryConnectHandle{
-					SandboxHandle: &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning},
-					refresh:       &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusPaused},
-				}
-			},
-			wantErr:        true,
-			wantStopErrors: 1,
-		},
-		{
-			name: "connect retry resume error",
-			handle: func() msb.SandboxHandle {
-				// No RefreshFn, so the retry re-reads the same running status and
-				// the second connect fails the same way.
-				return &msb.MockSandboxHandle{
-					Name_:      "vm",
-					Status_:    msbSdk.SandboxStatusRunning,
-					ConnectErr: errors.New("connect failed"),
-				}
-			},
-			wantErr:        true,
-			wantStopErrors: 1,
-		},
-		{
-			name: "connect retry reconnect",
-			handle: func() msb.SandboxHandle {
-				return &retryConnectHandle{
-					SandboxHandle: &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning},
-					refresh: &msb.MockSandboxHandle{
-						Status_:   msbSdk.SandboxStatusRunning,
-						ConnectSb: &msb.MockSandbox{Name_: "vm"},
-					},
 				}
 			},
 			wantStops: 1,
@@ -196,52 +101,6 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 			}
 			if len(ui.SpinnerStopErrors) != tc.wantStopErrors {
 				t.Errorf("spinner stop errors = %v, want %d", ui.SpinnerStopErrors, tc.wantStopErrors)
-			}
-		})
-	}
-}
-
-// TestDecideVMAction pins the action for every status of a found VM: a running
-// one is connected, a booting one awaited, and a created, stopped or crashed one
-// started. A draining, paused or unknown VM cannot take a new client.
-func TestDecideVMAction(t *testing.T) {
-	cases := []struct {
-		name     string
-		status   msbSdk.SandboxStatus
-		want     vmAction
-		wantText string
-	}{
-		{name: "running", status: msbSdk.SandboxStatusRunning, want: vmActionConnect},
-		{name: "starting", status: msbSdk.SandboxStatusStarting, want: vmActionWait},
-		{name: "created", status: msbSdk.SandboxStatusCreated, want: vmActionStart},
-		{name: "stopped", status: msbSdk.SandboxStatusStopped, want: vmActionStart},
-		{name: "crashed", status: msbSdk.SandboxStatusCrashed, want: vmActionStart},
-		{
-			name:     "draining",
-			status:   msbSdk.SandboxStatusDraining,
-			wantText: `sandbox is not available for a new client: status is "draining"`,
-		},
-		{
-			name:     "paused",
-			status:   msbSdk.SandboxStatusPaused,
-			wantText: `sandbox is not available for a new client: status is "paused"`,
-		},
-		{name: "unknown", status: "unknown-status", wantText: "unexpected sandbox status"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := decideVMAction(tc.status)
-			if tc.wantText != "" {
-				if err == nil || !strings.Contains(err.Error(), tc.wantText) {
-					t.Fatalf("decideVMAction(%q) error = %v, want %q", tc.status, err, tc.wantText)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("decideVMAction(%q): %v", tc.status, err)
-			}
-			if got != tc.want {
-				t.Errorf("decideVMAction(%q) = %v, want %v", tc.status, got, tc.want)
 			}
 		})
 	}
@@ -328,7 +187,34 @@ func TestEnsureProjectVMCreatesAMissingVM(t *testing.T) {
 	if cfg.Labels[naming.LabelProject] == "" || cfg.Labels[naming.LabelImage] == "" {
 		t.Errorf("labels = %v, want the project and image labels", cfg.Labels)
 	}
+	if cfg.Replace {
+		t.Error("project VM created with replace, want a taken name to fail instead of being replaced")
+	}
 	assertInfoCall(t, &ui, "created new project VM")
+}
+
+// TestEnsureProjectVMFailsClosedOnATakenName pins that a sandbox appearing
+// under the project VM name after the re-check under the creation lock is
+// neither replaced nor attached to: the create fails and names the sandbox.
+func TestEnsureProjectVMFailsClosedOnATakenName(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	taken := &msbSdk.Error{Kind: msbSdk.ErrSandboxAlreadyExists, Message: "sandbox already exists"}
+	client := &msb.MockMsbClient{
+		CreateSandboxFn: func(context.Context, string, ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+			return nil, taken
+		},
+	}
+	creation := missingVMCreation(t, client, &ui)
+
+	sb, _, err := EnsureProjectVM(context.Background(), creation)
+
+	if sb != nil || !msb.IsSandboxAlreadyExists(err) {
+		t.Fatalf("EnsureProjectVM = %v, %v; want no sandbox and the already-exists error", sb, err)
+	}
+	name := ProjectVMName(testVMKey())
+	if want := "project VM " + strconv.Quote(name) + " appeared"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %v, want it to contain %q", err, want)
+	}
 }
 
 // TestEnsureProjectVMRecreatesTheHeldVM pins a recreate: under the creation
@@ -552,28 +438,6 @@ func stoppedVM(sb msb.Sandbox) *msb.MockSandboxHandle {
 	return &msb.MockSandboxHandle{Name_: existingVMName, Status_: msbSdk.SandboxStatusStopped, StartSb: sb}
 }
 
-// startingVM is a VM another client is booting; its next refresh reads next.
-func startingVM(next msb.SandboxHandle) *msb.MockSandboxHandle {
-	return &msb.MockSandboxHandle{
-		Name_:     existingVMName,
-		Status_:   msbSdk.SandboxStatusStarting,
-		RefreshFn: func(context.Context) (msb.SandboxHandle, error) { return next, nil },
-	}
-}
-
-func pausedVM() *msb.MockSandboxHandle {
-	return &msb.MockSandboxHandle{Name_: existingVMName, Status_: msbSdk.SandboxStatusPaused}
-}
-
-// connectFailsThen is a running VM whose first Connect fails (it auto-stopped
-// in between); refreshing it reads next.
-func connectFailsThen(next msb.SandboxHandle) *retryConnectHandle {
-	return &retryConnectHandle{
-		SandboxHandle: &msb.MockSandboxHandle{Name_: existingVMName, Status_: msbSdk.SandboxStatusRunning},
-		refresh:       next,
-	}
-}
-
 // withFailingReconcile makes reconciling the VM's resources fail.
 func withFailingReconcile(h *msb.MockSandboxHandle) *msb.MockSandboxHandle {
 	h.Cfg = &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8}
@@ -584,30 +448,29 @@ func withFailingReconcile(h *msb.MockSandboxHandle) *msb.MockSandboxHandle {
 func noProjectVMLock(state.Key) (func(), error) { return func() {}, nil }
 
 // TestEnsureProjectVMResolvesAnExistingVM pins what EnsureProjectVM makes of a
-// VM it finds, by status: a running VM is connected, a stopped one started, a
-// starting one awaited, and a connect that fails because the VM auto-stopped in
-// between is resumed from the refreshed status. A failed resource reconcile
-// only warns. Each case runs for a VM found before the creation lock and for
-// one another invocation created while this one waited for the lock.
+// VM it finds: the runtime's connect-or-start connects or boots it, and the
+// boot is reported as started only when this run booted it, so a VM another
+// caller booted counts as connected. A failed connect-or-start is reported with
+// its cause and a failed resource reconcile only warns. Each case runs for a VM
+// found before the creation lock and for one another invocation created while
+// this one waited for the lock.
 func TestEnsureProjectVMResolvesAnExistingVM(t *testing.T) {
 	type outcome int
 	const (
 		resolved outcome = iota
 		failsWithCause
-		refused
+		failsReplaced
 	)
+	replaced := &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"}
 	cases := []struct {
 		name string
 		// vm returns the VM as found; sb is the sandbox a resolution returns,
 		// cause the error a failure must wrap.
-		vm        func(sb msb.Sandbox, cause error) msb.SandboxHandle
-		outcome   outcome
-		wantBoot  VMBoot
-		wantInfo  string
-		wantRetry bool
-		wantWarn  bool
-		// wantRefusal is part of the error a refused status reports.
-		wantRefusal string
+		vm       func(sb msb.Sandbox, cause error) msb.SandboxHandle
+		outcome  outcome
+		wantBoot VMBoot
+		wantInfo string
+		wantWarn bool
 	}{
 		{
 			name:     "running VM is connected",
@@ -622,51 +485,18 @@ func TestEnsureProjectVMResolvesAnExistingVM(t *testing.T) {
 			wantInfo: "started existing project VM",
 		},
 		{
-			name:     "starting VM is awaited and connected",
-			vm:       func(sb msb.Sandbox, _ error) msb.SandboxHandle { return startingVM(runningVM(sb)) },
-			wantBoot: VMBootConnected,
-		},
-		{
-			name:     "starting VM whose boot failed is started",
-			vm:       func(sb msb.Sandbox, _ error) msb.SandboxHandle { return startingVM(stoppedVM(sb)) },
-			wantBoot: VMBootStarted,
-		},
-		{
-			name: "start lost to a concurrent start is converged",
+			name: "VM another caller booted is connected",
 			vm: func(sb msb.Sandbox, _ error) msb.SandboxHandle {
 				return &msb.MockSandboxHandle{
 					Name_:   existingVMName,
-					Status_: msbSdk.SandboxStatusCreated,
-					StartFn: func(context.Context) (msb.Sandbox, error) {
-						return nil, &msbSdk.Error{
-							Kind:    msbSdk.ErrSandboxStillRunning,
-							Message: "started by another caller",
-						}
+					Status_: msbSdk.SandboxStatusStopped,
+					ConnectOrStartFn: func(context.Context) (msb.Sandbox, bool, error) {
+						return sb, false, nil
 					},
-					RefreshFn: func(context.Context) (msb.SandboxHandle, error) { return runningVM(sb), nil },
 				}
 			},
 			wantBoot: VMBootConnected,
-		},
-		{
-			name:      "failed connect to a still running VM reconnects",
-			vm:        func(sb msb.Sandbox, _ error) msb.SandboxHandle { return connectFailsThen(runningVM(sb)) },
-			wantBoot:  VMBootConnected,
-			wantRetry: true,
-		},
-		{
-			name:      "failed connect to a VM that stopped starts it",
-			vm:        func(sb msb.Sandbox, _ error) msb.SandboxHandle { return connectFailsThen(stoppedVM(sb)) },
-			wantBoot:  VMBootStarted,
-			wantRetry: true,
-		},
-		{
-			name: "failed connect to a VM that is starting awaits it",
-			vm: func(sb msb.Sandbox, _ error) msb.SandboxHandle {
-				return connectFailsThen(startingVM(runningVM(sb)))
-			},
-			wantBoot:  VMBootConnected,
-			wantRetry: true,
+			wantInfo: "connected to existing project VM",
 		},
 		{
 			name:     "connected VM whose reconcile fails is kept",
@@ -683,108 +513,28 @@ func TestEnsureProjectVMResolvesAnExistingVM(t *testing.T) {
 			wantWarn: true,
 		},
 		{
-			name: "awaited VM whose reconcile fails is kept",
-			vm: func(sb msb.Sandbox, _ error) msb.SandboxHandle {
-				return withFailingReconcile(startingVM(runningVM(sb)))
+			name: "connect-or-start failure is reported",
+			vm: func(_ msb.Sandbox, cause error) msb.SandboxHandle {
+				return &msb.MockSandboxHandle{
+					Name_:    existingVMName,
+					Status_:  msbSdk.SandboxStatusStopped,
+					StartErr: cause,
+				}
 			},
-			wantBoot: VMBootConnected,
-			wantWarn: true,
+			outcome: failsWithCause,
 		},
 		{
-			name: "reconnected VM whose reconcile fails is kept",
-			vm: func(sb msb.Sandbox, _ error) msb.SandboxHandle {
-				return connectFailsThen(withFailingReconcile(runningVM(sb)))
-			},
-			wantBoot:  VMBootConnected,
-			wantRetry: true,
-			wantWarn:  true,
-		},
-		{
-			name: "restarted VM whose reconcile fails is kept",
-			vm: func(sb msb.Sandbox, _ error) msb.SandboxHandle {
-				return connectFailsThen(withFailingReconcile(stoppedVM(sb)))
-			},
-			wantBoot:  VMBootStarted,
-			wantRetry: true,
-			wantWarn:  true,
-		},
-		{
-			name: "unknown status is refused",
+			name: "replaced VM fails closed",
 			vm: func(msb.Sandbox, error) msb.SandboxHandle {
-				return &msb.MockSandboxHandle{Name_: existingVMName, Status_: msbSdk.SandboxStatus("unknown-status")}
-			},
-			outcome:     refused,
-			wantRefusal: `unexpected sandbox status: "unknown-status"`,
-		},
-		{
-			name: "start failure is reported",
-			vm: func(_ msb.Sandbox, cause error) msb.SandboxHandle {
 				return &msb.MockSandboxHandle{
-					Name_:    existingVMName,
-					Status_:  msbSdk.SandboxStatusStopped,
-					StartErr: cause,
+					Name_:   existingVMName,
+					Status_: msbSdk.SandboxStatusRunning,
+					ConnectOrStartFn: func(context.Context) (msb.Sandbox, bool, error) {
+						return nil, false, replaced
+					},
 				}
 			},
-			outcome: failsWithCause,
-		},
-		{
-			name: "failure while awaiting a starting VM is reported",
-			vm: func(_ msb.Sandbox, cause error) msb.SandboxHandle {
-				return &msb.MockSandboxHandle{
-					Name_:     existingVMName,
-					Status_:   msbSdk.SandboxStatusStarting,
-					RefreshFn: func(context.Context) (msb.SandboxHandle, error) { return nil, cause },
-				}
-			},
-			outcome: failsWithCause,
-		},
-		{
-			name:        "starting VM that pauses is refused",
-			vm:          func(msb.Sandbox, error) msb.SandboxHandle { return startingVM(pausedVM()) },
-			outcome:     refused,
-			wantRefusal: `status is "paused"`,
-		},
-		{
-			name: "refresh after a failed connect fails",
-			vm: func(_ msb.Sandbox, cause error) msb.SandboxHandle {
-				return &retryConnectHandle{
-					SandboxHandle: &msb.MockSandboxHandle{Name_: existingVMName, Status_: msbSdk.SandboxStatusRunning},
-					refreshErr:    cause,
-				}
-			},
-			outcome:   failsWithCause,
-			wantRetry: true,
-		},
-		{
-			name:        "failed connect to a VM that paused is refused",
-			vm:          func(msb.Sandbox, error) msb.SandboxHandle { return connectFailsThen(pausedVM()) },
-			outcome:     refused,
-			wantRetry:   true,
-			wantRefusal: `status is "paused"`,
-		},
-		{
-			name: "reconnect that fails again is reported",
-			vm: func(_ msb.Sandbox, cause error) msb.SandboxHandle {
-				return &msb.MockSandboxHandle{
-					Name_:      existingVMName,
-					Status_:    msbSdk.SandboxStatusRunning,
-					ConnectErr: cause,
-				}
-			},
-			outcome:   failsWithCause,
-			wantRetry: true,
-		},
-		{
-			name: "start after a failed connect fails",
-			vm: func(_ msb.Sandbox, cause error) msb.SandboxHandle {
-				return connectFailsThen(&msb.MockSandboxHandle{
-					Name_:    existingVMName,
-					Status_:  msbSdk.SandboxStatusStopped,
-					StartErr: cause,
-				})
-			},
-			outcome:   failsWithCause,
-			wantRetry: true,
+			outcome: failsReplaced,
 		},
 	}
 
@@ -845,9 +595,9 @@ func TestEnsureProjectVMResolvesAnExistingVM(t *testing.T) {
 					if !errors.Is(err, cause) {
 						t.Fatalf("error = %v, want it to wrap %v", err, cause)
 					}
-				case refused:
-					if err == nil || !strings.Contains(err.Error(), tc.wantRefusal) {
-						t.Fatalf("error = %v, want a refusal containing %q", err, tc.wantRefusal)
+				case failsReplaced:
+					if !msb.IsReplaced(err) || sb != nil {
+						t.Fatalf("EnsureProjectVM = %v, %v; want a replaced error and no sandbox", sb, err)
 					}
 				}
 				if len(client.CreatedSandboxes) != 0 {
@@ -862,9 +612,6 @@ func TestEnsureProjectVMResolvesAnExistingVM(t *testing.T) {
 					}
 					assertInfoCall(t, &ui, tc.wantInfo+": "+name)
 				}
-				if got := verboseContains(ui.VerboseCalls, "retrying via Start"); got != tc.wantRetry {
-					t.Errorf("connect retry logged = %v, want %v (verbose %v)", got, tc.wantRetry, ui.VerboseCalls)
-				}
 				if gotWarn := len(ui.WarnCalls) > 0; gotWarn != tc.wantWarn {
 					t.Errorf("warnings = %v, want a reconcile warning: %v", ui.WarnCalls, tc.wantWarn)
 				}
@@ -874,228 +621,6 @@ func TestEnsureProjectVMResolvesAnExistingVM(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-// TestResumeSandboxByStatusUnavailable pins the two refusals: a known status
-// the VM cannot be resumed from is "not available", any other is "unexpected".
-func TestResumeSandboxByStatusUnavailable(t *testing.T) {
-	for _, tc := range []struct {
-		status  msbSdk.SandboxStatus
-		message string
-	}{
-		{msbSdk.SandboxStatusDraining, "is not available"},
-		{msbSdk.SandboxStatusPaused, "is not available"},
-		{msbSdk.SandboxStatus("bogus"), "unexpected status"},
-	} {
-		_, _, err := resumeSandboxByStatus(context.Background(), nil, tc.status, "proj")
-		if err == nil || !strings.Contains(err.Error(), tc.message) {
-			t.Errorf("resumeSandboxByStatus(%v) error = %v, want one containing %q", tc.status, err, tc.message)
-		}
-	}
-}
-
-// TestStartExistingVM pins starting a found VM: a successful start boots it. A
-// start that loses the race to another caller converges on the VM that caller
-// is starting or has started, and fails with the race error if the VM is no
-// longer coming up. Any other start failure is reported, even when the VM shows
-// as running, so a real failure is never masked.
-func TestStartExistingVM(t *testing.T) {
-	sb := &msb.MockSandbox{Name_: "vm"}
-	startFailed := errors.New("start failed")
-	refreshFailed := errors.New("refresh failed")
-	raced := &msbSdk.Error{Kind: msbSdk.ErrSandboxStillRunning, Message: "already starting"}
-	running := func() msb.SandboxHandle { return runningVM(sb) }
-	cases := []struct {
-		name     string
-		startErr error
-		refresh  func() (msb.SandboxHandle, error)
-		wantBoot VMBoot
-		wantErr  error
-	}{
-		{name: "start succeeds", wantBoot: VMBootStarted},
-		{
-			name:     "start fails while the VM shows running",
-			startErr: startFailed,
-			refresh:  func() (msb.SandboxHandle, error) { return running(), nil },
-			wantErr:  startFailed,
-		},
-		{
-			name:     "lost race, refresh fails",
-			startErr: raced,
-			refresh:  func() (msb.SandboxHandle, error) { return nil, refreshFailed },
-			wantErr:  refreshFailed,
-		},
-		{
-			name:     "lost race, VM stopped again",
-			startErr: raced,
-			refresh: func() (msb.SandboxHandle, error) {
-				return &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusStopped}, nil
-			},
-			wantErr: raced,
-		},
-		{
-			name:     "lost race, VM running",
-			startErr: raced,
-			refresh:  func() (msb.SandboxHandle, error) { return running(), nil },
-			wantBoot: VMBootConnected,
-		},
-		{
-			name:     "lost race, VM still starting",
-			startErr: raced,
-			refresh:  func() (msb.SandboxHandle, error) { return startingVM(running()), nil },
-			wantBoot: VMBootConnected,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			handle := &msb.MockSandboxHandle{
-				Name_:    "vm",
-				Status_:  msbSdk.SandboxStatusStopped,
-				StartSb:  sb,
-				StartErr: tc.startErr,
-			}
-			if tc.refresh != nil {
-				handle.RefreshFn = func(context.Context) (msb.SandboxHandle, error) { return tc.refresh() }
-			}
-
-			got, boot, err := startExistingVM(context.Background(), handle)
-
-			if tc.wantErr != nil {
-				if !errors.Is(err, tc.wantErr) {
-					t.Fatalf("error = %v, want %v", err, tc.wantErr)
-				}
-				return
-			}
-			if err != nil || got != sb || boot != tc.wantBoot {
-				t.Errorf("startExistingVM = %v, %v, %v; want %v, %v", got, boot, err, sb, tc.wantBoot)
-			}
-		})
-	}
-}
-
-// TestConvergeExistingVM pins how waiting for a booting VM ends: it polls
-// while the VM is starting, connects once it runs, starts it if the boot
-// stopped it, and refuses a VM that cannot take a new client. A failed refresh
-// or connect, and a cancelled wait, keep their cause.
-func TestConvergeExistingVM(t *testing.T) {
-	orig := sandboxLifecyclePollInterval
-	t.Cleanup(func() { sandboxLifecyclePollInterval = orig })
-	sandboxLifecyclePollInterval = time.Millisecond
-
-	sb := &msb.MockSandbox{Name_: "vm"}
-	cause := errors.New("lifecycle failed")
-	cancelled, cancel := context.WithCancel(context.Background())
-	cancel()
-	// refreshesTo returns a handle whose refreshes read the given handles in
-	// order, and the counter of how many it served.
-	refreshesTo := func(handles ...msb.SandboxHandle) (*msb.MockSandboxHandle, *int) {
-		served := 0
-		return &msb.MockSandboxHandle{RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
-			next := handles[served]
-			served++
-			return next, nil
-		}}, &served
-	}
-	cases := []struct {
-		name          string
-		ctx           context.Context
-		handle        func() (msb.SandboxHandle, *int)
-		wantBoot      VMBoot
-		wantRefreshes int
-		wantCause     error
-		wantText      string
-	}{
-		{
-			name: "polls while starting and connects once running",
-			handle: func() (msb.SandboxHandle, *int) {
-				return refreshesTo(
-					&msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusStarting},
-					&msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusRunning, ConnectSb: sb},
-				)
-			},
-			wantBoot:      VMBootConnected,
-			wantRefreshes: 2,
-		},
-		{
-			name: "starts a VM whose boot stopped it",
-			handle: func() (msb.SandboxHandle, *int) {
-				return &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusStopped, StartSb: sb}, nil
-			},
-			wantBoot: VMBootStarted,
-		},
-		{
-			name: "refresh failure",
-			handle: func() (msb.SandboxHandle, *int) {
-				return &msb.MockSandboxHandle{RefreshFn: func(context.Context) (msb.SandboxHandle, error) {
-					return nil, cause
-				}}, nil
-			},
-			wantCause: cause,
-		},
-		{
-			name: "connect failure",
-			handle: func() (msb.SandboxHandle, *int) {
-				return &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusRunning, ConnectErr: cause}, nil
-			},
-			wantCause: cause,
-		},
-		{
-			name: "cancelled while starting",
-			ctx:  cancelled,
-			handle: func() (msb.SandboxHandle, *int) {
-				return &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusStarting}, nil
-			},
-			wantCause: context.Canceled,
-		},
-		{
-			name: "draining VM is refused",
-			handle: func() (msb.SandboxHandle, *int) {
-				return &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusDraining}, nil
-			},
-			wantText: `not available for a new client: status is "draining"`,
-		},
-		{
-			name: "paused VM is refused",
-			handle: func() (msb.SandboxHandle, *int) {
-				return &msb.MockSandboxHandle{Status_: msbSdk.SandboxStatusPaused}, nil
-			},
-			wantText: `not available for a new client: status is "paused"`,
-		},
-		{
-			name: "unknown status is refused",
-			handle: func() (msb.SandboxHandle, *int) {
-				return &msb.MockSandboxHandle{Status_: "future-status"}, nil
-			},
-			wantText: `unexpected sandbox status: "future-status"`,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := tc.ctx
-			if ctx == nil {
-				ctx = context.Background()
-			}
-			handle, refreshes := tc.handle()
-			got, boot, err := convergeExistingVM(ctx, handle)
-			switch {
-			case tc.wantCause != nil:
-				if !errors.Is(err, tc.wantCause) {
-					t.Fatalf("error = %v, want %v", err, tc.wantCause)
-				}
-			case tc.wantText != "":
-				if err == nil || !strings.Contains(err.Error(), tc.wantText) {
-					t.Fatalf("error = %v, want %q", err, tc.wantText)
-				}
-			default:
-				if err != nil || got != sb || boot != tc.wantBoot {
-					t.Fatalf("convergeExistingVM = %v, %v, %v; want %v, %v", got, boot, err, sb, tc.wantBoot)
-				}
-			}
-			if refreshes != nil && *refreshes != tc.wantRefreshes {
-				t.Errorf("refreshes = %d, want %d", *refreshes, tc.wantRefreshes)
-			}
-		})
 	}
 }
 

@@ -58,7 +58,6 @@ func withThrowawaySandbox(
 		msbSdk.WithImage(info.Ref),
 		msbSdk.WithLabels(naming.TaskSandboxLabels(k.Slug, k.Agent)),
 		msbSdk.WithMounts(spec.mounts),
-		msbSdk.WithReplace(),
 	)
 	if err != nil {
 		if spin != nil {

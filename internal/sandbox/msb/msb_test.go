@@ -230,6 +230,103 @@ func TestIsReplaced(t *testing.T) {
 	}
 }
 
+func TestIsSandboxAlreadyExists(t *testing.T) {
+	exists := &msbSdk.Error{Kind: msbSdk.ErrSandboxAlreadyExists, Message: "sandbox already exists"}
+	volumeExists := &msbSdk.Error{Kind: msbSdk.ErrVolumeAlreadyExists, Message: "volume already exists"}
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"already-exists kind", exists, true},
+		{"wrapped already-exists", fmt.Errorf("outer: %w", exists), true},
+		{"volume already-exists kind", volumeExists, false},
+		{"plain error", errors.New("some other failure"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsSandboxAlreadyExists(tt.err); got != tt.want {
+				t.Errorf("IsSandboxAlreadyExists(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRealSandboxHandleConnectOrStart pins the adapter's boot report: the
+// sandbox ConnectOrStart returns booted exactly when this call owns the VM
+// process, a failed connect-or-start is returned as-is, and a sandbox whose
+// ownership cannot be read is closed and reported instead of guessed.
+func TestRealSandboxHandleConnectOrStart(t *testing.T) {
+	originalConnectOrStart := realHandleConnectOrStart
+	originalOwnsLifecycle := realSandboxOwnsLifecycle
+	originalClose := realSandboxClose
+	t.Cleanup(func() {
+		realHandleConnectOrStart = originalConnectOrStart
+		realSandboxOwnsLifecycle = originalOwnsLifecycle
+		realSandboxClose = originalClose
+	})
+
+	live := &msbSdk.Sandbox{}
+	cause := errors.New("lifecycle failed")
+	cases := []struct {
+		name            string
+		connectErr      error
+		owns            bool
+		ownsErr         error
+		wantBooted      bool
+		wantErr         error
+		wantClosed      bool
+		wantOwnsChecked bool
+	}{
+		{name: "connected to a running VM", wantOwnsChecked: true},
+		{name: "started the VM", owns: true, wantBooted: true, wantOwnsChecked: true},
+		{name: "connect-or-start fails", connectErr: cause, wantErr: cause},
+		{name: "ownership unreadable", ownsErr: cause, wantErr: cause, wantClosed: true, wantOwnsChecked: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ownsChecked, closed := false, false
+			realHandleConnectOrStart = func(
+				*msbSdk.SandboxHandle,
+				context.Context,
+				...msbSdk.ConnectOrStartOption,
+			) (*msbSdk.Sandbox, error) {
+				if tc.connectErr != nil {
+					return nil, tc.connectErr
+				}
+				return live, nil
+			}
+			realSandboxOwnsLifecycle = func(sb *msbSdk.Sandbox) (bool, error) {
+				ownsChecked = sb == live
+				return tc.owns, tc.ownsErr
+			}
+			realSandboxClose = func(sb *msbSdk.Sandbox) error {
+				closed = sb == live
+				return nil
+			}
+
+			sb, booted, err := realSandboxHandle{handle: &msbSdk.SandboxHandle{}}.ConnectOrStart(context.Background())
+
+			wantSandbox := Sandbox(nil)
+			if tc.wantErr == nil {
+				wantSandbox = realSandbox{sandbox: live}
+			}
+			if !errors.Is(err, tc.wantErr) || sb != wantSandbox || booted != tc.wantBooted {
+				t.Fatalf("ConnectOrStart = %v, %v, %v; want %v, %v, %v",
+					sb, booted, err, wantSandbox, tc.wantBooted, tc.wantErr)
+			}
+			if ownsChecked != tc.wantOwnsChecked {
+				t.Errorf("ownership read = %v, want %v", ownsChecked, tc.wantOwnsChecked)
+			}
+			if closed != tc.wantClosed {
+				t.Errorf("closed = %v, want %v", closed, tc.wantClosed)
+			}
+		})
+	}
+}
+
 func TestIsUnsupportedOperation(t *testing.T) {
 	err := &msbSdk.Error{Kind: msbSdk.ErrUnsupportedOperation, Message: "nope"}
 	if !IsUnsupportedOperation(err) {
@@ -252,12 +349,6 @@ func TestRealSandboxHandleOperationsReturnErrors(t *testing.T) {
 
 	if sb, err := h.Connect(ctx); err == nil || sb != nil {
 		t.Errorf("Connect() = %v, %v; want error on empty handle", sb, err)
-	}
-	if hh, err := h.Refresh(ctx); err == nil || hh != nil {
-		t.Errorf("Refresh() = %v, %v; want error on empty handle", hh, err)
-	}
-	if sb, err := h.Start(ctx); err == nil || sb != nil {
-		t.Errorf("Start() = %v, %v; want error on empty handle", sb, err)
 	}
 	if err := h.Stop(ctx); err == nil {
 		t.Error("Stop() = nil, want error on empty handle")

@@ -384,17 +384,17 @@ func (m *MockMsbClient) SetGetVolumeErr(err error) *MockMsbClient {
 
 // MockSandboxHandle is a test double for SandboxHandle.
 type MockSandboxHandle struct {
-	Name_            string
-	ID_              string
-	Status_          msbSdk.SandboxStatus
-	UpdatedAt_       time.Time
-	CreatedAt_       time.Time
-	BackendKind_     msbSdk.BackendKind
-	Image_           string
-	ConnectSb        Sandbox
-	RefreshFn        func(context.Context) (SandboxHandle, error)
+	Name_        string
+	ID_          string
+	Status_      msbSdk.SandboxStatus
+	UpdatedAt_   time.Time
+	CreatedAt_   time.Time
+	BackendKind_ msbSdk.BackendKind
+	Image_       string
+	ConnectSb    Sandbox
+	// ConnectOrStartFn overrides ConnectOrStart's status-driven behaviour.
+	ConnectOrStartFn func(context.Context) (Sandbox, bool, error)
 	StartSb          Sandbox
-	StartFn          func(context.Context) (Sandbox, error)
 	DidRmv           bool
 	DidStop          bool
 	DidKill          bool
@@ -446,24 +446,30 @@ func (m *MockSandboxHandle) Connect(_ context.Context) (Sandbox, error) {
 	return &MockSandbox{Name_: m.Name_}, nil
 }
 
-func (m *MockSandboxHandle) Refresh(ctx context.Context) (SandboxHandle, error) {
-	if m.RefreshFn != nil {
-		return m.RefreshFn(ctx)
+// ConnectOrStart mirrors the runtime by Status_ unless ConnectOrStartFn is set:
+// a running or starting sandbox is connected (ConnectSb/ConnectErr), a created,
+// stopped or crashed one is booted (StartSb/StartErr), and any other status is
+// refused.
+func (m *MockSandboxHandle) ConnectOrStart(ctx context.Context) (Sandbox, bool, error) {
+	if m.ConnectOrStartFn != nil {
+		return m.ConnectOrStartFn(ctx)
 	}
-	return m, nil
-}
-
-func (m *MockSandboxHandle) Start(ctx context.Context) (Sandbox, error) {
-	if m.StartFn != nil {
-		return m.StartFn(ctx)
+	switch m.Status_ {
+	case msbSdk.SandboxStatusRunning, msbSdk.SandboxStatusStarting:
+		sb, err := m.Connect(ctx)
+		return sb, false, err
+	case msbSdk.SandboxStatusCreated, msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
+		if m.StartErr != nil {
+			return nil, false, m.StartErr
+		}
+		if m.StartSb != nil {
+			return m.StartSb, true, nil
+		}
+		return &MockSandbox{Name_: m.Name_}, true, nil
+	case msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
+		return nil, false, fmt.Errorf("sandbox %q is %q and cannot take a new client", m.Name_, m.Status_)
 	}
-	if m.StartErr != nil {
-		return nil, m.StartErr
-	}
-	if m.StartSb != nil {
-		return m.StartSb, nil
-	}
-	return &MockSandbox{Name_: m.Name_}, nil
+	return nil, false, fmt.Errorf("sandbox %q has unexpected status %q", m.Name_, m.Status_)
 }
 
 func (m *MockSandboxHandle) Stop(_ context.Context, _ ...msbSdk.StopOption) error {
