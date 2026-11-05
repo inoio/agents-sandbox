@@ -89,3 +89,22 @@ func RenderPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
 		ui.Verbosef("  %s (%s)", detail.Name, detail.Slug)
 	}
 }
+
+func InvokePruneFunc[R any](
+	context context.Context,
+	pruneLambda func(context.Context,
+		PruneState,
+		bool,
+		termio.UI,
+	) (R, error),
+	age time.Duration,
+	dryRun bool,
+	ui termio.UI,
+) (R, error) {
+	pruneState, err := buildPruneState(context, age)
+	if err != nil {
+		var zero R
+		return zero, err
+	}
+	return pruneLambda(context, pruneState, dryRun, ui)
+}
