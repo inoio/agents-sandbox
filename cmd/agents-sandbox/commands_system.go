@@ -10,7 +10,6 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/cliout"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
@@ -107,63 +106,41 @@ func buildVolumeOpsCmd(ui termio.UI, op volumeOp) *cobra.Command {
 	return cmd
 }
 
-// prepareVolumeOp resolves the agent, adopts a legacy project identity, and
-// ensures the runner image a volume op seeds from, recording the release the
-// ensured image bakes (these ops resolve latest, not the recorded baseline, but
-// whatever they bake must still be the project's recorded release). It adopts
-// like PrepareSandbox does and uses the adopted slug for both the image and the
-// state key, never re-deriving it from git: adoption may have just moved the
-// state, and a dry run deliberately returns the legacy repo slug while the
-// migration stays pending. A dry run only reports the state-derived old
-// volume, so it leaves the runner image untouched: ensuring it could build
-// one, a side effect a preview must not have.
+// prepareVolumeOp resolves the agent and ensures the runner image a volume op
+// seeds from through adoptAndPrepareImage. These ops resolve the latest release,
+// not the recorded baseline, but whatever they bake is still recorded as the
+// project's release. A dry run only reports the state-derived old volume, so it
+// leaves the runner image untouched.
 func prepareVolumeOp(c *cobra.Command, ui termio.UI, dryRun bool) (state.Key, image.ImageInfo, error) {
 	a, err := resolveAgentFlag(c)
 	if err != nil {
 		return state.Key{}, image.ImageInfo{}, err
 	}
-	identity, err := git.ResolveIdentity(".")
-	if err != nil {
-		return state.Key{}, image.ImageInfo{}, err
-	}
 	paths := configpaths.Get()
-	adoption, err := sandbox.AdoptLegacyIdentity(
-		c.Context(), paths, msb.Get(), identity, a.Name(), !dryRun, ui,
-	)
-	if err != nil {
-		return state.Key{}, image.ImageInfo{}, err
+	ensureImage := func(ctx context.Context, key state.Key) (image.ImageInfo, error) {
+		info, err := image.EnsureImage(
+			ctx,
+			docker.Get(),
+			paths,
+			a,
+			key.Slug,
+			image.ReadProjectDockerfile(paths),
+			image.BuildOptions{
+				Force:          false,
+				NoRebuild:      false,
+				AgentVersion:   "",
+				UserProvided:   false,
+				Docker:         resolveBuildDockerSetting(c),
+				ResolveVersion: agentVersionResolver,
+			},
+			ui,
+		)
+		if err != nil {
+			return image.ImageInfo{}, fmt.Errorf("ensure image: %w", err)
+		}
+		return info, nil
 	}
-	key := state.Key{Slug: adoption.Slug, Agent: a.Name()}
-	if dryRun {
-		return key, image.ImageInfo{}, nil
-	}
-	info, err := image.EnsureImage(
-		c.Context(),
-		docker.Get(),
-		paths,
-		a,
-		adoption.Slug,
-		image.ReadProjectDockerfile(paths),
-		image.BuildOptions{
-			Force:          false,
-			NoRebuild:      false,
-			AgentVersion:   "",
-			UserProvided:   false,
-			Docker:         resolveBuildDockerSetting(c),
-			ResolveVersion: agentVersionResolver,
-		},
-		ui,
-	)
-	if err != nil {
-		return state.Key{}, image.ImageInfo{}, fmt.Errorf("ensure image: %w", err)
-	}
-	// Record the release the ensured image bakes so the volume subcommands are
-	// writers of record too, whatever release they resolve. A failure only warns:
-	// the next run reconciles from the image label.
-	if err := state.RecordAgentVersion(key, info.AgentVersion); err != nil {
-		ui.Warnf("could not persist the agent version: %v (continuing)", err)
-	}
-	return key, info, nil
+	return adoptAndPrepareImage(c.Context(), paths, msb.Get(), a.Name(), dryRun, ui, ensureImage)
 }
 
 func buildDoctorCmd(ui termio.Logger) *cobra.Command {
@@ -247,11 +224,6 @@ func parseLabelFlags(values []string) (map[string]string, error) {
 	return labels, nil
 }
 
-// resolveBuildDockerSetting returns the effective docker setting for a build.
-// It resolves through runoptions.ResolveDockerSetting — the same shared
-// docker/dind precedence the run path uses, so a build and a run of one project
-// cannot disagree — reading the resolver from the command context (a nil one
-// resolves from the changed flags alone).
 // resolveBuildAgentVersion resolves the agent version for the build command:
 // --agent-version wins, falling back to the deprecated --opencode-version alias
 // only when --agent-version was not given explicitly.
@@ -265,6 +237,11 @@ func resolveBuildAgentVersion(cmd *cobra.Command) string {
 	return agentVersion
 }
 
+// resolveBuildDockerSetting returns the effective docker setting for a build.
+// It resolves through runoptions.ResolveDockerSetting — the same shared
+// docker/dind precedence the run path uses, so a build and a run of one project
+// cannot disagree — reading the resolver from the command context (a nil one
+// resolves from the changed flags alone).
 func resolveBuildDockerSetting(cmd *cobra.Command) options.DockerSetting {
 	// Resolver.Config tolerates a nil resolver, so the flag-only path (no
 	// resolver on the context) resolves from the flags alone.
@@ -292,58 +269,42 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 					return fmt.Errorf("docker not available: %w", dockerErr)
 				}
 			}
-			// Adopt like PrepareSandbox does, and use the adopted slug for the
-			// image tag. It runs before the dry-run gate so the migration notice
-			// prints; a dry run passes apply=false, so the migration stays
-			// pending and adoption returns the legacy repo slug.
-			identity, err := git.ResolveIdentity(".")
-			if err != nil {
-				return err
-			}
 			client := msb.Get()
 			paths := configpaths.Get()
-			adoption, err := sandbox.AdoptLegacyIdentity(
-				cmd.Context(), paths, client, identity, a.Name(), !dryRun, ui,
-			)
-			if err != nil {
-				return fmt.Errorf("adopt legacy identity: %w", err)
+			buildImage := func(ctx context.Context, key state.Key) (image.ImageInfo, error) {
+				agentVersion, userProvided := prepare.ResolveAgentVersionForBuild(key, openCodeVersion)
+				return image.Build(
+					ctx,
+					docker.Get(),
+					client,
+					paths,
+					a,
+					key.Slug,
+					image.ReadProjectDockerfile(paths),
+					image.BuildOptions{
+						Force:          force,
+						NoRebuild:      false,
+						AgentVersion:   agentVersion,
+						UserProvided:   userProvided,
+						Docker:         resolveBuildDockerSetting(cmd),
+						ResolveVersion: agentVersionResolver,
+					},
+					ui,
+				)
+			}
+			if _, _, err := adoptAndPrepareImage(
+				cmd.Context(),
+				paths,
+				client,
+				a.Name(),
+				dryRun,
+				ui,
+				buildImage,
+			); err != nil {
+				return err
 			}
 			if dryRun {
 				ui.Infof("dry-run: Would build runner image")
-				return nil
-			}
-			agentVersion, userProvided := prepare.ResolveAgentVersionForBuild(
-				state.Key{Slug: adoption.Slug, Agent: a.Name()},
-				openCodeVersion,
-			)
-			info, err := image.Build(
-				cmd.Context(),
-				docker.Get(),
-				client,
-				paths,
-				a,
-				adoption.Slug,
-				image.ReadProjectDockerfile(paths),
-				image.BuildOptions{
-					Force:          force,
-					NoRebuild:      false,
-					AgentVersion:   agentVersion,
-					UserProvided:   userProvided,
-					Docker:         resolveBuildDockerSetting(cmd),
-					ResolveVersion: agentVersionResolver,
-				},
-				ui,
-			)
-			if err != nil {
-				return err
-			}
-			// Record the release the built image reports so an explicit
-			// --agent-version pin persists for later unpinned runs. A failure
-			// only warns: the next run reconciles from the image label.
-			if err := state.RecordAgentVersion(
-				state.Key{Slug: adoption.Slug, Agent: a.Name()}, info.AgentVersion,
-			); err != nil {
-				ui.Warnf("could not persist the agent version: %v (continuing)", err)
 			}
 			return nil
 		},
