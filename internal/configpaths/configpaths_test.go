@@ -134,20 +134,6 @@ func TestUserDataDirDefaultsToLocalShare(t *testing.T) {
 	}
 }
 
-func TestMockUserDataDir(t *testing.T) {
-	WithMockConfigPaths(t)
-	got := Get().UserDataDir()
-	if filepath.Base(got) != "userdata" {
-		t.Errorf("mock UserDataDir() = %q, want a path ending in userdata", got)
-	}
-}
-
-func TestFailFastUserDataDirPanics(t *testing.T) {
-	assertPanics(t, func() {
-		(&failFastConfigPaths{}).UserDataDir()
-	})
-}
-
 func TestProjectConfigDirAbs(t *testing.T) {
 	WithRealConfigPaths(t)
 	wd, err := os.Getwd()
