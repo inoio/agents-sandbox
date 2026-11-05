@@ -121,9 +121,10 @@ This project defaults to **test-driven development**:
   mutants the tests do not notice. A surviving ("LIVED") mutant is either a missing assertion or a mutation that cannot
   change behaviour. By default it covers the whole module but only lines changed since the last release tag
   (`PKG=./internal/foo` narrows it to one package; `FULL=1` runs every line). It is **never** a gate — not in
-  `make check`, `make verify`, or as a required CI check — and a package takes minutes. Close every survivor: strengthen
-  the test so the mutant now fails, or record the reason in the source next to the mutant with `// gomutants:disable
-  <TYPE> reason="..."`. The `mutation` workflow is an advisory signal, not a check: it sweeps every PR that
+  `make check`, `make verify`, or as a required CI check — and a package takes minutes. Triage each survivor you take
+  on: strengthen the test so the mutant now fails, delete the redundant construct, or record the reason in the source next
+  to the mutant with `// gomutants:disable <TYPE> reason="..."`. A survivor left open is tracked debt, not a merge
+  blocker. The `mutation` workflow is an advisory signal, not a check: it sweeps every PR that
   touches code automatically (docs-only PRs are filtered out; the sweep covers just that PR's changeset — lines changed
   since the merge base with its base branch), posting each survivor as an inline `::warning::` on the diff (GitHub shows
   at most ten), a sticky PR comment with the totals and the complete survivor list, and a `mutation-report` artifact.

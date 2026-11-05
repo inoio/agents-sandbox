@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -81,7 +82,8 @@ func TestPlanReconfigStageWarnsAboutUnprovisionedConfigDirDependencies(t *testin
 	}
 
 	if _, err := planReconfigStage(
-		context.Background(), session, image.ImageInfo{}, home, false, options.RunOptions{Agent: "opencode"}, &ui,
+		context.Background(), configpaths.Get(), session, image.ImageInfo{}, home, false,
+		options.RunOptions{Agent: "opencode"}, &ui,
 	); err != nil {
 		t.Fatalf("planReconfigStage: %v", err)
 	}
@@ -110,7 +112,16 @@ func TestPlanReconfigStageLiveVMReadError(t *testing.T) {
 	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
 	home := preparedHome{client: client, volumes: volume.NewManager(docker.Get()), homeVolume: "vol"}
 
-	_, err := planReconfigStage(context.Background(), session, image.ImageInfo{}, home, false, opts, &ui)
+	_, err := planReconfigStage(
+		context.Background(),
+		configpaths.Get(),
+		session,
+		image.ImageInfo{},
+		home,
+		false,
+		opts,
+		&ui,
+	)
 	if !errors.Is(err, lookupErr) {
 		t.Fatalf("planReconfigStage error = %v, want %v", err, lookupErr)
 	}
@@ -139,7 +150,16 @@ func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {
 		homeState:  state.HomeState{HomeVolume: "vol"},
 	}
 
-	plan, err := planReconfigStage(context.Background(), session, image.ImageInfo{}, home, false, opts, &ui)
+	plan, err := planReconfigStage(
+		context.Background(),
+		configpaths.Get(),
+		session,
+		image.ImageInfo{},
+		home,
+		false,
+		opts,
+		&ui,
+	)
 	if err != nil {
 		t.Fatalf("planReconfigStage: %v", err)
 	}
@@ -152,6 +172,43 @@ func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {
 	}
 	if lookups != 1 {
 		t.Errorf("project VM looked up %d times, want once", lookups)
+	}
+}
+
+// TestEnsureVMStageAppliesThePlannedMemory pins that ensure-vm applies the
+// plan's memory, which carries a raise accepted while planning, rather than the
+// run's configured memory.
+func TestEnsureVMStageAppliesThePlannedMemory(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	handle := &msb.MockSandboxHandle{
+		Name_:         "vm",
+		Status_:       msbSdk.SandboxStatusRunning,
+		ConnectSb:     &msb.MockSandbox{},
+		Cfg:           &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 16384},
+		MetricsResult: &msbSdk.Metrics{MemoryLimitBytes: 8192 << 20},
+		Plan:          &msbSdk.SandboxModificationPlan{},
+	}
+	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+		return handle, nil
+	}}
+	msb.WithMsbMock(t, client)
+
+	_, _, err := ensureVMStage(
+		context.Background(),
+		sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)},
+		image.ImageInfo{},
+		preparedHome{client: client, homeVolume: "vol"},
+		reconfigPlan{existingVM: handle, homeVolume: "vol", memory: "8G"},
+		false,
+		options.RunOptions{Agent: "opencode", Memory: "4G"},
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("ensureVMStage: %v", err)
+	}
+	if len(handle.ModifiedOptions) != 1 || handle.ModifiedOptions[0].MemoryMiB != 8192 {
+		t.Errorf("modifications = %+v, want the planned 8192 MiB applied", handle.ModifiedOptions)
 	}
 }
 
@@ -1020,4 +1077,130 @@ func symlinkedDir(t *testing.T) (realDir, linkDir string) {
 		t.Skipf("symlinks not supported: %v", err)
 	}
 	return realDir, linkDir
+}
+
+// TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun pins that a raise
+// accepted at launch applies to the VM this run creates or reconciles, not only
+// to the next run: the launch right after an OOM kill would otherwise boot at the
+// limit that was just hit. A declined offer keeps the configured memory.
+func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
+	tests := []struct {
+		answer     string
+		wantMemory string
+	}{
+		{answer: "raise", wantMemory: "8192M"},
+		{answer: "keep", wantMemory: "4G"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.answer, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			withoutMemoryEnv(t)
+			handle := &msb.MockSandboxHandle{
+				Name_:      "vm",
+				Status_:    msbSdk.SandboxStatusRunning,
+				ConnectSb:  &msb.MockSandbox{},
+				Cfg:        &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 16384},
+				LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(time.Now().Add(-time.Hour))},
+			}
+			client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+				return handle, nil
+			}}
+			msb.WithMsbMock(t, client)
+			provisionHostConfig := false
+			opts := options.RunOptions{Agent: "opencode", Memory: "4G", ProvisionHostConfig: &provisionHostConfig}
+			session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
+			ui := &termio.Mock{
+				IsInteractiveResult: true,
+				SelectFn:            func(string, []termio.Choice, string) (string, error) { return tc.answer, nil },
+				InputFn:             func(string, string) (string, error) { return "8G", nil },
+			}
+			home := preparedHome{
+				client:     client,
+				volumes:    volume.NewManager(docker.Get()),
+				homeVolume: "vol",
+				homeState:  state.HomeState{HomeVolume: "vol"},
+			}
+
+			plan, err := planReconfigStage(
+				context.Background(), configpaths.Get(), session, image.ImageInfo{}, home, false, opts, ui,
+			)
+			if err != nil {
+				t.Fatalf("planReconfigStage: %v", err)
+			}
+			if plan.memory != tc.wantMemory {
+				t.Errorf("plan memory = %q, want %q for this run", plan.memory, tc.wantMemory)
+			}
+		})
+	}
+}
+
+// TestPlanReconfigStageSkipVMSuppressesMemoryRaise pins the --dry-run-vm guard:
+// a skipVM prepare must not prompt or persist a memory raise, matching the
+// deferred home action (specs/resource-limit-proposal.md §1, §8).
+func TestPlanReconfigStageSkipVMSuppressesMemoryRaise(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	withoutMemoryEnv(t)
+	kill := time.Now().Add(-time.Hour)
+	handle := &msb.MockSandboxHandle{
+		Name_:      "vm",
+		Status_:    msbSdk.SandboxStatusRunning,
+		ConnectSb:  &msb.MockSandbox{},
+		Cfg:        &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192},
+		LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(kill)},
+	}
+	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+		return handle, nil
+	}}
+	msb.WithMsbMock(t, client)
+	provisionHostConfig := false
+	opts := options.RunOptions{Agent: "opencode", ProvisionHostConfig: &provisionHostConfig}
+	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
+	var selects int
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(string, []termio.Choice, string) (string, error) {
+			selects++
+			return "keep", nil
+		},
+		InputFn: func(_, defaultValue string) (string, error) { return defaultValue, nil },
+	}
+	home := preparedHome{
+		client:     client,
+		volumes:    volume.NewManager(docker.Get()),
+		homeVolume: "vol",
+		homeState:  state.HomeState{HomeVolume: "vol"},
+	}
+
+	if _, err := planReconfigStage(
+		context.Background(),
+		configpaths.Get(),
+		session,
+		image.ImageInfo{},
+		home,
+		true,
+		opts,
+		ui,
+	); err != nil {
+		t.Fatalf("skipVM planReconfigStage: %v", err)
+	}
+	if selects != 0 {
+		t.Fatalf("selects=%d on a skipVM prepare, want 0 (a dry run must not prompt)", selects)
+	}
+
+	// The same prepare without skipVM offers the recorded hit.
+	if _, err := planReconfigStage(
+		context.Background(),
+		configpaths.Get(),
+		session,
+		image.ImageInfo{},
+		home,
+		false,
+		opts,
+		ui,
+	); err != nil {
+		t.Fatalf("planReconfigStage: %v", err)
+	}
+	if selects != 1 {
+		t.Fatalf("selects=%d on a real prepare, want 1", selects)
+	}
 }

@@ -131,6 +131,8 @@ type SandboxHandle interface {
 	ConfigPorts() ([]msbSdk.PortBinding, error)
 	Modify(ctx context.Context, opts msbSdk.ModifyOptions) (*msbSdk.SandboxModificationPlan, error)
 	Compact(ctx context.Context, opts msbSdk.DiskCompactionOptions) (*msbSdk.DiskCompactionResult, error)
+	Metrics(ctx context.Context) (*msbSdk.Metrics, error)
+	Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error)
 }
 
 // Sandbox is the subset of *msb.Sandbox used by the launcher.
@@ -148,6 +150,8 @@ type Sandbox interface {
 	Stop(ctx context.Context, opts ...msbSdk.StopOption) error
 	Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error
 	Close() error
+	Metrics(ctx context.Context) (*msbSdk.Metrics, error)
+	Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error)
 }
 
 // Job is the subset of *msb.Job used by the launcher for runtime-owned
@@ -713,6 +717,14 @@ func (w realSandboxHandle) Compact(
 	return w.handle.Compact(ctx, opts)
 }
 
+func (w realSandboxHandle) Metrics(ctx context.Context) (*msbSdk.Metrics, error) {
+	return realSandboxHandleMetrics(w.handle, ctx)
+}
+
+func (w realSandboxHandle) Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error) {
+	return realSandboxHandleLogs(w.handle, ctx, opts)
+}
+
 // realSandbox adapts *msbSdk.Sandbox to Sandbox.
 type realSandbox struct {
 	sandbox *msbSdk.Sandbox
@@ -887,6 +899,11 @@ var (
 	realSandboxStop       = (*msbSdk.Sandbox).Stop
 	realSandboxDestroy    = (*msbSdk.Sandbox).Destroy
 	realSandboxClose      = (*msbSdk.Sandbox).Close
+	realSandboxMetrics    = (*msbSdk.Sandbox).Metrics
+	realSandboxLogs       = (*msbSdk.Sandbox).Logs
+
+	realSandboxHandleMetrics = (*msbSdk.SandboxHandle).Metrics
+	realSandboxHandleLogs    = (*msbSdk.SandboxHandle).Logs
 )
 
 func (s realSandbox) Attach(ctx context.Context, command string, args ...string) (int, error) {
@@ -916,4 +933,12 @@ func (s realSandbox) Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) 
 
 func (s realSandbox) Close() error {
 	return realSandboxClose(s.sandbox)
+}
+
+func (s realSandbox) Metrics(ctx context.Context) (*msbSdk.Metrics, error) {
+	return realSandboxMetrics(s.sandbox, ctx)
+}
+
+func (s realSandbox) Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error) {
+	return realSandboxLogs(s.sandbox, ctx, opts)
 }

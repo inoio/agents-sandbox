@@ -277,6 +277,25 @@ func reconcileResources(ctx context.Context, handle msb.SandboxHandle, opts opti
 	}
 }
 
+// BootMaxMemoryMiB is the boot-time memory maximum a project VM is created
+// with: the host's installed RAM in whole GiB. No live modification can raise
+// a VM's memory above it.
+func BootMaxMemoryMiB() uint32 {
+	//nolint:gosec // G115: physical RAM in GiB cannot overflow uint32
+	return options.ParseMemoryGiB(uint32(sysinfo.TotalMemoryGiB()))
+}
+
+// bootMemoryMiB is the memory a new project VM boots with: the configured
+// memory, clamped to the boot maximum with a warning.
+func bootMemoryMiB(memory string, ui termio.Logger) uint32 {
+	memoryMiB := options.ParseMemory(memory)
+	if maxMiB := BootMaxMemoryMiB(); memoryMiB > maxMiB {
+		ui.Warnf("memory limited to %d MiB (host maximum); requested %d MiB", maxMiB, memoryMiB)
+		return maxMiB
+	}
+	return memoryMiB
+}
+
 func createProjectVM(ctx context.Context, creation ProjectVMCreation, name string) (msb.Sandbox, error) {
 	info, err := image.EnsureLoaded(ctx, creation.DockerClient, creation.Client, creation.Image, creation.UI)
 	if err != nil {
@@ -288,7 +307,6 @@ func createProjectVM(ctx context.Context, creation ProjectVMCreation, name strin
 	if cpus == 0 {
 		cpus = numCPUs
 	}
-	maxMemoryGiB := sysinfo.TotalMemoryGiB()
 
 	vmEnv := buildProjectVMEnv(creation.Env.Vars, info.Env)
 	creation.UI.Verbosef("adding docker env definitions to project VM environment: %s", info.Env)
@@ -325,9 +343,8 @@ func createProjectVM(ctx context.Context, creation ProjectVMCreation, name strin
 		msbSdk.WithWorkdir(defaultTargetDir),
 		msbSdk.WithCPUs(cpus),
 		msbSdk.WithMaxCPUs(numCPUs),
-		msbSdk.WithMemory(options.ParseMemory(opts.Memory)),
-		//nolint:gosec // G115: maxMemoryGiB is physical RAM in GiB, cannot overflow uint32
-		msbSdk.WithMaxMemory(options.ParseMemoryGiB(uint32(maxMemoryGiB))),
+		msbSdk.WithMemory(bootMemoryMiB(opts.Memory, creation.UI)),
+		msbSdk.WithMaxMemory(BootMaxMemoryMiB()),
 		msbSdk.WithDetached(),
 		msbSdk.WithIdleTimeout(idleTimeout),
 	}

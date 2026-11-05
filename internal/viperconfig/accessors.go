@@ -22,6 +22,16 @@ func (r *Resolver) DockerLegacyAlias() string {
 	return r.dockerLegacy
 }
 
+// Slug returns the config slug the resolver was built for. A config write must
+// target this slug so it lands in a layer the resolver actually reads. A nil
+// resolver reports an empty slug (the caller then falls back to its own).
+func (r *Resolver) Slug() string {
+	if r == nil {
+		return ""
+	}
+	return r.slug
+}
+
 // DockerSource reports which explicit source the config's docker value came
 // from, or DockerSourceNone when no explicit source is present. It carries the
 // layer information the run and build paths need to fold their flags into the

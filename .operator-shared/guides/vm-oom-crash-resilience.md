@@ -43,6 +43,20 @@ swap), `vm.overcommit_memory = 0`. The guest kernel is upstream Linux (in the mi
 `vendor/libkrunfw` pins `6.12.113`, per its `.github/actions/cache-libkrunfw-kernel/action.yml`).
 With no swap the guest cannot relieve anonymous-memory pressure.
 
+**Why there is no swap/zram: the guest kernel is built without it, so no runtime step can add
+it.** The pinned libkrunfw commit (`superradcompany/libkrunfw@70ff1e82`, the
+`vendor/libkrunfw` submodule at msb `v0.7.11`) ships per-arch kernel configs: x86_64 has
+`# CONFIG_SWAP is not set`, `# CONFIG_ZRAM is not set` (and `# CONFIG_CRYPTO_ZSTD/LZ4 is not
+set`); aarch64 has `CONFIG_SWAP=y`, `CONFIG_ZSWAP=y`, `CONFIG_ZSMALLOC=y`, but `# CONFIG_ZRAM is
+not set`. Both have `# CONFIG_MODULES is not set`, so nothing can be loaded later either. This is
+a microsandbox dependency limitation, not a launcher gap: enabling zram/swap means rebuilding the
+libkrunfw kernel (and zstd/lz4 in the x86_64 config for a modern compressor), which then has to
+ship with msb. A swap *file* is likewise out on x86_64 for lack of `CONFIG_SWAP`, and on aarch64
+would need a block-backed file (the root is an overlay, `/workspace` is virtiofs) via
+`CONFIG_BLK_DEV_LOOP`, which is built in but untested here. The launcher can already exec as root
+(`dockerd` does), so a boot-time `zramctl`/`mkswap`/`swapon` step is plumbing-feasible *if* the
+kernel supported it.
+
 **The OOM killer is the guest kernel's global killer, not a cgroup killer.** Verified live: the
 guest cgroup v2 root exposes the memory controller (`/sys/fs/cgroup/cgroup.controllers` lists
 `memory`) but **no** `memory.max`, `memory.high`, `memory.current`, `memory.events`, or
@@ -234,6 +248,15 @@ bounded by *available* host memory, not physical RAM, and should warn when other
 host usage leave little headroom. (`sysinfo` is the existing source; no per-host pressure probe
 exists today.)
 
+**Host zram/swap does not fix guest OOM.** The guest's cap is the virtio-mem plugged ceiling and
+its OOM killer fires *inside* the guest, before any host pressure exists, so host-side reclaim
+(zram, zswap, swap) cannot prevent or delay it. Host zram is only relevant to the *host-side*
+failure mode above — several VMs over-committing host RAM — where it lowers the chance the host
+killer picks a VM runtime or the launcher. It is a host-admin optimisation (worth a docs/doctor
+hint at most), unavailable on macOS (no zram; the kernel compresses autonomously), and its benefit
+against guest memory depends on how libkrun backs guest RAM (the current KVM path uses
+`guest_memfd`, whose reclaimability is not established) — so it is not a launcher feature.
+
 ## Mitigation options for this project
 
 Ranked; each names the seam, cost/risk, and whether it is verified or needs a KVM host.
@@ -297,6 +320,14 @@ Ranked; each names the seam, cost/risk, and whether it is verified or needs a KV
    KVM host:** a default VM already has a managed 4 GiB root and grows live (see §3). *Gap:* the
    launcher does not consult `SandboxConfig.RootDisk` for a default VM and `reconfig.rootDiskChange`
    still classifies a size change as recreate-only.
+
+8. **(Rejected) Guest zram/swap.** More effective capacity inside the same `--memory` ceiling
+   without host privileges, but blocked by the guest kernel (no `CONFIG_SWAP`/`CONFIG_ZRAM`, no
+   modules — see §1) and thus requires an upstream microsandbox kernel change. Even if available it
+   is second-best to (1)'s live raise when the host has headroom: it trades CPU and swap latency for
+   capacity, muddies the pressure signal the detector reads, and only wins on RAM-constrained hosts.
+   Revisit only if msb ships a zram-capable kernel *and* a real workload is seen thrashing rather
+   than OOMing.
 
 ### Honest uncertainties
 

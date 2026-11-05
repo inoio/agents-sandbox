@@ -45,6 +45,13 @@ var ErrInstalled = errors.New("destination already replaced")
 // An error wrapping ErrInstalled is returned only after the rename has put the
 // data in place; every other error leaves the destination untouched.
 func WriteFile(path string, data []byte) error {
+	return WriteFileMode(path, data, 0o600)
+}
+
+// WriteFileMode is WriteFile with the file written with mode perm, applied
+// exactly regardless of the umask. The rename replaces the destination's inode,
+// so a hard link to the previous file keeps the previous content.
+func WriteFileMode(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := createDirectoryTree(dir); err != nil {
 		return err
@@ -56,7 +63,7 @@ func WriteFile(path string, data []byte) error {
 	}
 	tmpName := tmp.Name()
 
-	if err := writeTempFile(tmp, data); err != nil {
+	if err := errors.Join(tmp.Chmod(perm), writeTempFile(tmp, data)); err != nil {
 		_ = closeTempFile(tmp)
 		_ = os.Remove(tmpName)
 		return fmt.Errorf("write temp file: %w", err)

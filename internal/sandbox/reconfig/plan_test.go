@@ -635,19 +635,11 @@ func TestPlanReconfigRecreateOnImageDigestChange(t *testing.T) {
 	}
 }
 
-func TestPlanReconfigStagesClampedCpus(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8}
-	d := PlanReconfig(cfg, planImage(), options.RunOptions{CPUs: 16}, ChangeFlags{}, "")
-	if d.Resources == nil || d.Resources.CPUs != 8 {
-		t.Fatalf("expected resources clamped CPUs=8, got %+v", d.Resources)
-	}
-}
-
 func TestPlanReconfigNoActionsWhenUnchanged(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{CPUs: 4, MemoryMiB: 4096}
 	d := PlanReconfig(cfg, planImage(), options.RunOptions{CPUs: 4, Memory: "4G"},
 		ChangeFlags{}, "")
-	if d.Recreate || d.RestartDaemons || d.Resources != nil {
+	if d.Recreate || d.RestartDaemons {
 		t.Errorf("expected no actions, got %+v", d)
 	}
 }
@@ -669,18 +661,51 @@ func TestPlanReconfigEnvWithRecreateNoRestartFlag(t *testing.T) {
 	}
 }
 
-func TestPlanReconfigMemoryClampToMax(t *testing.T) {
+// TestPlanReconfigMemoryAboveBootMaxRecreates pins the memory-above-boot-max
+// contract end to end: 16G against a 8192 MiB boot maximum recreates with a
+// descriptive change line and stages no clamped live memory change.
+func TestPlanReconfigMemoryAboveBootMaxRecreates(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
 		Image:        naming.RunnerImageRef(planSlug, "opencode"),
 		MemoryMiB:    4096,
 		MaxMemoryMiB: 8192,
 	}
-	d := PlanReconfig(cfg, planImage(), options.RunOptions{Memory: "16G"}, ChangeFlags{}, "")
-	if d.Resources == nil {
-		t.Fatal("expected resources set for memory change")
+	d := PlanReconfig(cfg, planImage(), options.RunOptions{Memory: "16G"}, ChangeFlags{BootMaxMemoryGrew: true}, "")
+	if !d.Recreate {
+		t.Fatal("expected a recreate for a memory raise above the boot maximum")
 	}
-	if d.Resources.MemoryMiB != 8192 {
-		t.Errorf("expected memory clamped to 8192, got %d", d.Resources.MemoryMiB)
+	found := false
+	for _, c := range d.Changes {
+		if c.Label == changeLabelMemoryAboveBootMax {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a %q change line, got %+v", changeLabelMemoryAboveBootMax, d.Changes)
+	}
+}
+
+// TestPlanReconfigMemoryAboveBootMaxSuppressesAgentConfig pins that the
+// above-boot-max recreate folds an agent-config change the same way every other
+// recreate does: no daemon restart alongside it.
+func TestPlanReconfigMemoryAboveBootMaxSuppressesAgentConfig(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		Image:        naming.RunnerImageRef(planSlug, "opencode"),
+		MemoryMiB:    4096,
+		MaxMemoryMiB: 8192,
+	}
+	d := PlanReconfig(
+		cfg,
+		planImage(),
+		options.RunOptions{Memory: "16G"},
+		ChangeFlags{AgentConfig: true, BootMaxMemoryGrew: true},
+		"",
+	)
+	if !d.Recreate {
+		t.Fatal("expected a recreate for a memory raise above the boot maximum")
+	}
+	if d.RestartDaemons {
+		t.Error("agent config must not restart daemons when the VM is recreated anyway")
 	}
 }
 
@@ -903,56 +928,72 @@ func TestPublishReconfigHostPort(t *testing.T) {
 	}
 }
 
-func TestResourceModificationStagesSingleCPU(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{CPUs: 4, MaxCPUs: 8}
-	mo := resourceModification(cfg, options.RunOptions{CPUs: 1})
-	if mo == nil || mo.CPUs != 1 {
-		t.Fatalf("expected a staged CPU=1 modification, got %+v", mo)
+// TestMemoryAboveBootMaxForcesRecreate pins that a desired memory above the VM's
+// boot maximum can never be applied live: the plan recreates instead of staging a
+// clamped Modify.
+func TestMemoryAboveBootMaxForcesRecreate(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{CPUs: 4, MemoryMiB: 4096, MaxMemoryMiB: 4096}
+	plan := PlanReconfig(cfg, planImage(), options.RunOptions{Memory: "8G"}, ChangeFlags{BootMaxMemoryGrew: true}, "")
+	if !plan.Recreate {
+		t.Fatal("expected recreate for a memory raise above the boot maximum")
 	}
 }
 
-func TestResourceModificationMaxCPUsOne(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{CPUs: 0, MaxCPUs: 1}
-	mo := resourceModification(cfg, options.RunOptions{CPUs: 2})
-	if mo == nil || mo.CPUs != 1 {
-		t.Fatalf("expected CPU clamped to 1, got %+v", mo)
+// TestMemoryAboveBootMaxRequiresARequestedMemory pins the opts.Memory != ""
+// operand: with no memory requested the helper reports false even though the
+// default parse would exceed a small boot maximum.
+func TestMemoryAboveBootMaxRequiresARequestedMemory(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{MemoryMiB: 1024, MaxMemoryMiB: 2048}
+	if memoryAboveBootMax(cfg, options.RunOptions{}) {
+		t.Error("memoryAboveBootMax with no requested memory = true, want false")
 	}
 }
 
-func TestResourceModificationMemoryNoMax(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{MemoryMiB: 1024, MaxMemoryMiB: 0}
-	mo := resourceModification(cfg, options.RunOptions{Memory: "2G"})
-	if mo == nil {
-		t.Fatal("expected a staged memory modification when the boot max is unknown")
+// TestMemoryAboveBootMaxNeedsAKnownBootMaximum pins that an unknown boot
+// maximum (zero) never triggers the memory recreate, while any known one does.
+func TestMemoryAboveBootMaxNeedsAKnownBootMaximum(t *testing.T) {
+	tests := []struct {
+		maxMemoryMiB uint32
+		wantRecreate bool
+	}{
+		{maxMemoryMiB: 0, wantRecreate: false},
+		{maxMemoryMiB: 1, wantRecreate: true},
 	}
-	if mo.MemoryMiB != 2048 {
-		t.Errorf("MemoryMiB = %d, want 2048", mo.MemoryMiB)
-	}
-	if mo.Policy != msbSdk.ModificationPolicyNoRestart {
-		t.Errorf("Policy = %v, want no-restart", mo.Policy)
-	}
-}
-
-func TestResourceModificationMemoryBelowMax(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{MemoryMiB: 1024, MaxMemoryMiB: 8192}
-	mo := resourceModification(cfg, options.RunOptions{Memory: "2G"})
-	if mo == nil || mo.MemoryMiB != 2048 {
-		t.Fatalf("expected memory 2048 (below the max), got %+v", mo)
-	}
-}
-
-func TestResourceModificationMemoryClampAtOneMiB(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{MemoryMiB: 0, MaxMemoryMiB: 1}
-	mo := resourceModification(cfg, options.RunOptions{Memory: "2G"})
-	if mo == nil || mo.MemoryMiB != 1 {
-		t.Fatalf("expected memory clamped to 1, got %+v", mo)
+	for _, tc := range tests {
+		cfg := &msbSdk.SandboxConfig{CPUs: 4, MemoryMiB: 1, MaxMemoryMiB: tc.maxMemoryMiB}
+		plan := PlanReconfig(
+			cfg,
+			planImage(),
+			options.RunOptions{Memory: "8G"},
+			ChangeFlags{BootMaxMemoryGrew: true},
+			"",
+		)
+		if plan.Recreate != tc.wantRecreate {
+			t.Errorf("boot maximum %d MiB: recreate = %v, want %v", tc.maxMemoryMiB, plan.Recreate, tc.wantRecreate)
+		}
 	}
 }
 
-func TestResourceModificationNilWhenUnchanged(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{CPUs: 4, MemoryMiB: 4096, MaxCPUs: 8, MaxMemoryMiB: 8192}
-	if mo := resourceModification(cfg, options.RunOptions{CPUs: 4, Memory: "4G"}); mo != nil {
-		t.Errorf("expected nil when nothing changes, got %+v", mo)
+// TestMemoryAboveAnUnchangedBootMaxDoesNotRecreate pins that a recreate is
+// planned only when it would raise the boot maximum: when a fresh VM would get
+// the same maximum, a recreate could not apply the value either and would
+// repeat on every launch; the live reconcile clamps it instead.
+func TestMemoryAboveAnUnchangedBootMaxDoesNotRecreate(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{CPUs: 4, MemoryMiB: 4096, MaxMemoryMiB: 6144}
+	plan := PlanReconfig(cfg, planImage(), options.RunOptions{Memory: "8G"}, ChangeFlags{}, "")
+	if plan.Recreate {
+		t.Fatal("expected no recreate when a fresh VM would get the same boot maximum")
+	}
+}
+
+// TestMemoryAtOrBelowBootMaxStaysLive pins that a desired memory within (or equal
+// to) the boot maximum is left to the live reconcile: only an above-max raise
+// recreates.
+func TestMemoryAtOrBelowBootMaxStaysLive(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}
+	plan := PlanReconfig(cfg, planImage(), options.RunOptions{Memory: "8G"}, ChangeFlags{BootMaxMemoryGrew: true}, "")
+	if plan.Recreate {
+		t.Fatal("expected no recreate for a memory raise within the boot maximum")
 	}
 }
 

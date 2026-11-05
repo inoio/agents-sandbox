@@ -37,6 +37,7 @@ const (
 	FlagDNSServers   = "dns"
 	FlagPort         = "port"
 	FlagNotify       = "notify"
+	FlagMemory       = "memory"
 	// FlagOpenLinks is the --open-links flag name, shared with the config key.
 	FlagOpenLinks = viperconfig.KeyOpenLinks
 )
@@ -197,6 +198,9 @@ func resolveFlags(cmd *cobra.Command) (options.RunOptions, error) {
 	opts.ServeOnly, _ = cmd.Flags().GetBool(FlagServeOnly)
 	if cmd.Flags().Lookup(FlagRoot) != nil {
 		opts.Root, _ = cmd.Flags().GetBool(FlagRoot)
+	}
+	if flag := cmd.Flags().Lookup(FlagMemory); flag != nil {
+		opts.MemoryFlagChanged = flag.Changed
 	}
 	return opts, nil
 }

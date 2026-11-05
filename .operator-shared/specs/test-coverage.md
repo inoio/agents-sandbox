@@ -1,5 +1,5 @@
 ---
-description: Contract for the coverage bar on added and changed lines — every added line must be executed by a test (including error, transport, and status branches), a branch unreachable by construction must be removed rather than left uncovered, and a red `codecov/patch`/`codecov/project` check is a real finding to classify Important, not Minor. Records that the numeric thresholds live in the repo's `.codecov.yml` and that codecov is not a required status check on `main`.
+description: Contract for the coverage bar on added and changed lines — every added line must be executed by a test (including error, transport, and status branches), a branch unreachable by construction must be removed rather than left uncovered, and a red `codecov/patch`/`codecov/project` check is a real finding to classify Important, not Minor. Records that the numeric thresholds live in the repo's `.codecov.yml`, that codecov is not a required status check on `main`, and that its per-line report is anchored to the head merged with the base branch (so a branch behind `main` shows a spurious patch miss).
 read_if: Adding or changing production code and deciding what to test, reviewing a diff for coverage gaps, or triaging a failing `codecov/patch` or `codecov/project` check on a PR.
 ---
 
@@ -66,6 +66,13 @@ tests never execute is the failure mode this catches.
   tests use a zero backoff, so that select races an immediate reconnect). When the diff adds no production line, read the
   Codecov delta per file: a single missed line in untouched code is coverage nondeterminism, not a gap the change
   introduced, and the fix is a deterministic test pinning the branch rather than a production change.
+- **A stale branch yields a spurious `codecov/patch` miss.** Codecov numbers its per-line report against the PR head
+  *merged with the base branch*, while the patch diff comes from the branch's own history. When the branch is behind
+  `main`, the two disagree by the lines `main` added, so an added line lands on a pre-existing uncovered line far away
+  and is reported as a patch miss. On PR #554 (2026-11-05) this produced a single msb.go miss whose reported line was
+  exactly `main`'s `+18` line shift of an already-uncovered line; every genuinely added line was executed locally. The
+  fix is to bring the branch up to date with `main` (merge or rebase) and push, which re-aligns the trees — do not add a
+  test for a line `go tool cover` already shows as executed.
 
 ## Verification
 

@@ -306,7 +306,8 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox shell",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			opts, err := runoptions.Build(resolverFromContext(cmd.Context()).Config(), cmd, ui)
+			r := resolverFromContext(cmd.Context())
+			opts, err := runoptions.Build(r.Config(), cmd, ui)
 			if err != nil {
 				return err
 			}

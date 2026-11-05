@@ -91,6 +91,11 @@ type RunOptions struct {
 	// OpenLinks starts the host side of the in-VM xdg-open shim for the
 	// session, so links opened in the VM open on the host (internal/opener).
 	OpenLinks bool
+	// MemoryFlagChanged reports whether the --memory flag was explicitly set on
+	// this invocation. A persisted raise cannot take effect when the flag
+	// supplies the value, so PersistMemory refuses to write a shadowed config
+	// value (specs/resource-limit-proposal.md §8).
+	MemoryFlagChanged bool
 	// Trace records the lifecycle stages the invocation reaches. cmd creates
 	// it; the stages in vm and session record into it. Nil records nothing.
 	Trace *lifecycle.Trace

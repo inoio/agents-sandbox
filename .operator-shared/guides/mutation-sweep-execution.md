@@ -9,13 +9,12 @@ read_if: Coordinating or executing a mutation-survivor reduction pass over #268,
 
 `#268` records 1811 LIVED survivors of 10315 mutants across 36 packages (the 37 attached reports, one per package plus
 an empty `notify/assets`). One row is out of the working queue (see *Snapshot caveats*): `internal/agent` (36) was closed
-by #259, leaving **1775 survivors across 35 packages**. The reports are the expensive artifact, so the goal is to burn the queue down
-**over turns without putting `make mutation` in anyone's inner loop**: a coordinator owns the reports, assignment,
-verification and issue text, while implementer subagents only fix. Progress is **reduction, not elimination** — a turn
-ends with a smaller, re-verified survivor count, and a human decides whether another turn is worth it.
-
-The closing rule itself lives in `specs/mutation-testing.md` (a survivor is killed, deleted, or recorded) and the
-recurring types and their kills in `guides/mutation-triage.md`. This runbook is only the execution around them.
+by #259, leaving **1775 survivors across 35 packages**. The reports are the expensive artifact, so the goal is to work the
+queue down **over turns without putting `make mutation` in anyone's inner loop**: a coordinator owns the reports,
+assignment, verification and issue text, while implementer subagents only fix. The reduction goal, the closing rule (a
+survivor is killed, deleted, or recorded), and the recurring types live in `specs/mutation-testing.md` and
+`guides/mutation-triage.md`; this runbook is only the execution around them. A turn ends with a smaller, re-verified
+survivor count, and a human decides whether another turn is worth it.
 
 ## Inputs
 
@@ -98,9 +97,7 @@ The source data is the **37 JSON reports attached to `#268`**, treated as an imm
 
 ## Worker protocol
 
-Given a unit, the worker closes each survivor one of three ways (per `specs/mutation-testing.md`): **kill** it
-(strengthen the test), **delete** it (remove the redundant construct), or **record** it
-(`// gomutants:disable <TYPE> reason="…"`). It hands back:
+Given a unit, the worker closes each survivor by the spec's rule — kill, delete, or record — and hands back:
 
 - a **disposition per id** — closed-by (`kill`/`delete`/`record`) or deferred with a reason;
 - the **evidence** for each close: for a `kill`, the named test that fails once the mutant is applied; for a `record`,
@@ -183,14 +180,12 @@ mutant fresh (skipping the cache) for a spot check — safe only while its `#n` 
 
 ## Turns
 
-One turn = one pass over the queue (or the subset of packages it chose to target), ending at verification + issue update
-+ PR. The human reads the reduced totals and decides whether another turn is sensible.
+One turn = one pass over the queue (or the subset of packages it chose to target), ending at verification + issue
+update + PR.
 
 ## Not in scope
 
-- Wiring the sweep into `make check`/`verify` as a gate, or making the advisory `mutation.yml` workflow a required check.
-  Per `specs/mutation-testing.md` it is on-demand/advisory only.
-- Eliminating every survivor. Reduction across turns is the goal.
+The spec's non-goals and anti-goals apply: this runbook adds no gate and no zero-survivor target.
 
 ## Open to the builder
 
