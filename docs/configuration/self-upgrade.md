@@ -59,7 +59,7 @@ installed canary until something newer is offered, and `upgrade` prints the `--c
 
 An older stable release may not be able to use the runtime data the canary has already upgraded; it then stops with
 ["database schema is newer than this msb binary"]({% link troubleshooting.md %}#database-schema-is-newer-than-this-msb-binary),
-and the way back is to upgrade again.
+and `agents-sandbox upgrade --channel canary` takes you back.
 
 Homebrew installs ignore the setting: the tap serves full releases only, so a keg stays on the stable line whatever
 `upgrade.channel` says, and a canary cannot be installed through Homebrew. To install a canary, follow the

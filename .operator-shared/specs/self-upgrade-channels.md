@@ -154,7 +154,8 @@ silently drops the fields the canary added, and it drives the private microsandb
 force-reinstall an older runtime and then fail against a VM the newer launcher created. The runtime's database is
 forward-only: once a launcher pinned to microsandbox v0.7.12 or later has opened the home, an older runtime refuses it
 ("database schema is newer than this msb binary"), so the switch to an older stable fails outright until the user
-upgrades again. That is documented, not guarded: the launcher cannot know the runtime an older release pins.
+switches back with `--channel canary` (a plain `upgrade` on the stable channel reports up to date). That is documented,
+not guarded: the launcher cannot know the runtime an older release pins.
 
 ### Publishing
 
