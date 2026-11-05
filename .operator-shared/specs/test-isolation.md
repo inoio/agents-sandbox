@@ -106,7 +106,7 @@ never be reached by a later invocation. Three rules keep the msb-tagged tests fr
   it), so the value must exceed the test's own context budget; it is a stop, not a remove, so it reaps the process but
   not the persisted sandbox. The listener-free default (`IdleTimeout` zero) is unlimited.
 - **Child processes borrow the parent's home.** A test that needs cross-process behaviour re-executes the test binary
-  with the parent's home in its environment (`TestLifecycleContract`). The child points `MSB_HOME` at that home and
+  with the parent's home in its environment (`TestRealClientSandboxLifecycle`). The child points `MSB_HOME` at that home and
   never calls `ensureIsolatedRuntime`, so its own `TestMain` sweep stays a no-op and cannot destroy the parent's
   sandboxes.
 
