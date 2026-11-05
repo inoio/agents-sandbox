@@ -102,3 +102,31 @@ func TestNewResolverMergesEveryFileLayer(t *testing.T) {
 		t.Errorf("LogLevel = %q, want error (the project layer must win)", r.cfg.LogLevel)
 	}
 }
+
+// TestHomeKeyFromPerSlugConfig proves the per-slug user config dir contributes
+// its home manifest to the resolver, so home entries can be scoped per project.
+func TestHomeKeyFromPerSlugConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	testutil.WriteYAML(t, cp.UserSlugConfigDir("widget-bbb"), "config.yaml", map[string]any{
+		"home": map[string]any{".gitconfig": ""},
+	})
+
+	r, err := NewResolver(nil, configpaths.Get(), "widget-bbb")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	cfg := r.Config()
+	for _, layer := range cfg.Home {
+		if _, ok := layer.Manifest[".gitconfig"]; ok {
+			if layer.Dir != cp.UserSlugConfigDir("widget-bbb") {
+				t.Errorf(
+					"home layer holding .gitconfig has Dir %q, want %q",
+					layer.Dir, cp.UserSlugConfigDir("widget-bbb"),
+				)
+			}
+			return
+		}
+	}
+	t.Errorf("expected the per-slug home entry .gitconfig in cfg.Home, got %+v", cfg.Home)
+}
