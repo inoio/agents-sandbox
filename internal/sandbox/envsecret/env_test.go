@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -17,7 +18,7 @@ import (
 func TestBuildEnvMap(t *testing.T) {
 	envFile := filepath.Join(t.TempDir(), "env")
 	testutil.WritePath(t, envFile, "FOO=bar\n# comment\n\nBAZ=qux\n")
-	got := BuildEnvMap(envFile)
+	got := BuildEnvMap(envFile, new(termio.NewTestMock(t)))
 
 	if len(got) != 2 {
 		t.Fatalf("expected 2 env vars, got %d: %v", len(got), got)
@@ -30,8 +31,26 @@ func TestBuildEnvMap(t *testing.T) {
 	}
 }
 
+// TestBuildEnvMapSkipsEmptyName verifies that a line without a variable name is
+// dropped with a warning naming the file, because the VM refuses to boot with an
+// empty env name.
+func TestBuildEnvMapSkipsEmptyName(t *testing.T) {
+	envFile := filepath.Join(t.TempDir(), "env")
+	testutil.WritePath(t, envFile, "=orphan\nFOO=bar\n")
+	ui := termio.NewTestMock(t)
+
+	got := BuildEnvMap(envFile, &ui)
+
+	if want := map[string]string{"FOO": "bar"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], envFile) {
+		t.Errorf("expected one warning naming %s, got %q", envFile, ui.WarnCalls)
+	}
+}
+
 func TestReadSandboxEnvMissing(t *testing.T) {
-	env := BuildEnvMap("missing")
+	env := BuildEnvMap("missing", new(termio.NewTestMock(t)))
 	if env != nil {
 		t.Errorf("expected nil env map when .agents-sandbox/env missing, got %#v", env)
 	}
@@ -43,7 +62,8 @@ func TestMergeEnvMapsProjectOverridesUser(t *testing.T) {
 	projectFile := filepath.Join(t.TempDir(), "env")
 	testutil.WritePath(t, projectFile, "FOO=project\n")
 
-	got := MergeEnvMaps(BuildEnvMap(userFile), BuildEnvMap(projectFile))
+	ui := termio.NewTestMock(t)
+	got := MergeEnvMaps(BuildEnvMap(userFile, &ui), BuildEnvMap(projectFile, &ui))
 	want := map[string]string{"FOO": "project", "BAR": "user"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want %v", got, want)

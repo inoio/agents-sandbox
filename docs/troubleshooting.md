@@ -227,6 +227,19 @@ For `env.secret.yaml`, values may contain `@` without issues. Ensure the entry d
 `allow_any_host_dangerous: true` — entries with no hosts definition are silently skipped. An empty `value` is valid
 and passed through unchanged.
 
+## Forbidden: Request blocked by network policy
+
+The VM's network policy does not allow the destination. An HTTP or HTTPS client receives a `403` whose JSON body names
+the blocked domain:
+
+```json
+{"code":"network_policy_denied","message":"Request blocked by network policy.","domain":"api.example.com"}
+```
+
+Other protocols see the connection fail instead. Allow the destination with `egress-allow`, or pick a profile that
+covers it (`private` for your local network, `host` for a service on the host); see
+[Networking]({% link configuration/networking.md %}).
+
 ## Forbidden: Request blocked by secret policy
 
 The request carried a secret placeholder to a host that the secret is not allowed for, so the proxy refused to forward
