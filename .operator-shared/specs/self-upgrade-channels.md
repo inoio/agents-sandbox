@@ -151,7 +151,10 @@ A configured channel never reinstalls an older binary. The single exception is t
 the CLI grants `UpgradeOptions.AllowChannelSwitch` only for that flag. The restraint is deliberate: an older launcher
 reading and rewriting state a newer canary wrote does not crash (the parsers ignore unknown fields), but its next write
 silently drops the fields the canary added, and it drives the private microsandbox runtime home, so it can
-force-reinstall an older runtime and then fail against a VM the newer launcher created.
+force-reinstall an older runtime and then fail against a VM the newer launcher created. The runtime's database is
+forward-only: once a launcher pinned to microsandbox v0.7.12 or later has opened the home, an older runtime refuses it
+("database schema is newer than this msb binary"), so the switch to an older stable fails outright until the user
+upgrades again. That is documented, not guarded: the launcher cannot know the runtime an older release pins.
 
 ### Publishing
 
