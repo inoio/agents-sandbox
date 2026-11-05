@@ -435,6 +435,15 @@ func TestConfigCommandsWorkOutsideWorktree(t *testing.T) {
 	})
 }
 
+// TestConfigSlugFromContextEmptyWithoutResolver covers the no-resolver fallback:
+// a context that never carried a resolver yields an empty slug rather than
+// panicking, so a caller can treat "no resolver" as "no per-slug scope".
+func TestConfigSlugFromContextEmptyWithoutResolver(t *testing.T) {
+	if got := configSlugFromContext(context.Background()); got != "" {
+		t.Errorf("configSlugFromContext(no resolver) = %q, want empty", got)
+	}
+}
+
 // TestSlugHasUserInputsEmptySlugIsFalse covers the guard for a slug-less
 // identity: ConfigScopes omits the per-slug scope for an empty slug, so there
 // is no per-slug user input to read.
