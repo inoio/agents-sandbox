@@ -13,6 +13,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -433,14 +434,105 @@ func TestConfigCommandsWorkOutsideWorktree(t *testing.T) {
 	})
 }
 
-// TestSlugHasUserConfigEmptySlugIsFalse covers the guard for a slug-less
-// identity: ConfigLayers omits the per-slug layer for an empty slug, so there is
-// no per-slug user config to read.
-func TestSlugHasUserConfigEmptySlugIsFalse(t *testing.T) {
+// TestSlugHasUserInputsEmptySlugIsFalse covers the guard for a slug-less
+// identity: ConfigScopes omits the per-slug scope for an empty slug, so there
+// is no per-slug user input to read.
+func TestSlugHasUserInputsEmptySlugIsFalse(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	if slugHasUserConfig("") {
-		t.Error("an empty slug has no per-slug user config layer")
+	if slugHasUserInputs("") {
+		t.Error("an empty slug has no per-slug user inputs")
+	}
+}
+
+// TestEffectiveConfigSlugSeesSecretsOnlyPerSlugDir pins that a per-slug dir
+// holding only env.secret.yaml counts as populated: during bare-root
+// legacy-slug selection, a secrets-only repo-slug dir must not be skipped,
+// which would silently reintroduce the #578 failure.
+func TestEffectiveConfigSlugSeesSecretsOnlyPerSlugDir(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	repoSlug := "repo-slug"
+	legacySlug := "legacy-slug"
+	testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(repoSlug), "env.secret.yaml", "TOKEN: secret\n")
+	testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(legacySlug), "config.yaml", "yes: true\n")
+
+	got := effectiveConfigSlug(git.Identity{RepoSlug: repoSlug, LegacyRepoSlugs: []string{legacySlug}})
+	if got != repoSlug {
+		t.Errorf("effectiveConfigSlug = %q, want the repo slug %q", got, repoSlug)
+	}
+}
+
+// TestSlugHasUserInputs exercises the per-slug presence probe across every
+// input kind the predicate must see: the launcher config file, the three
+// env/secret files, and any registered agent's config dir. Empty and missing
+// dirs must not count.
+func TestSlugHasUserInputs(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, slug string)
+		want  bool
+	}{
+		{
+			name: "config file",
+			setup: func(t *testing.T, slug string) {
+				testutil.WriteFile(t, cp.UserSlugConfigDir(slug), "config.yaml", "yes: true\n")
+			},
+			want: true,
+		},
+		{
+			name: "env file",
+			setup: func(t *testing.T, slug string) {
+				testutil.WriteFile(t, cp.UserSlugConfigDir(slug), configpaths.EnvFileName, "FOO=bar\n")
+			},
+			want: true,
+		},
+		{
+			name: "secret file",
+			setup: func(t *testing.T, slug string) {
+				testutil.WriteFile(t, cp.UserSlugConfigDir(slug), configpaths.EnvSecretFileName, "FOO=bar\n")
+			},
+			want: true,
+		},
+		{
+			name: "secret yaml file",
+			setup: func(t *testing.T, slug string) {
+				testutil.WriteFile(t, cp.UserSlugConfigDir(slug), "env.secret.yaml", "FOO: bar\n")
+			},
+			want: true,
+		},
+		{
+			name: "agent config dir",
+			setup: func(t *testing.T, slug string) {
+				dir := configpaths.CreateDir(
+					filepath.Join(cp.UserSlugConfigDir(slug), mustOpencode2(t).ConfigDirName()),
+				)
+				testutil.WriteFile(t, dir, "opencode-model.json", `{"model":"v2"}`)
+			},
+			want: true,
+		},
+		{
+			name:  "empty dir",
+			setup: func(t *testing.T, slug string) { configpaths.CreateDir(cp.UserSlugConfigDir(slug)) },
+			want:  false,
+		},
+		{
+			name:  "missing dir",
+			setup: func(t *testing.T, slug string) {},
+			want:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			slug := strings.ReplaceAll(tt.name, " ", "-")
+			tt.setup(t, slug)
+			if got := slugHasUserInputs(slug); got != tt.want {
+				t.Errorf("slugHasUserInputs(%q) = %v, want %v", slug, got, tt.want)
+			}
+		})
 	}
 }
 

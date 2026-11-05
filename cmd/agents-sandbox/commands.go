@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -68,26 +69,52 @@ func warnLegacyEnvVars(ui termio.Logger, r *launcherconfig.Resolver) {
 // without this the triggering run would load defaults instead of the user's saved
 // settings. The fallback is read-only, so a dry run stays side-effect-free.
 func effectiveConfigSlug(identity git.Identity) string {
-	if slugHasUserConfig(identity.RepoSlug) {
+	if slugHasUserInputs(identity.RepoSlug) {
 		return identity.RepoSlug
 	}
 	for _, legacy := range identity.LegacyRepoSlugs {
-		if slugHasUserConfig(legacy) {
+		if slugHasUserInputs(legacy) {
 			return legacy
 		}
 	}
 	return identity.RepoSlug
 }
 
-// slugHasUserConfig reports whether the per-slug user config dir for slug holds a
-// config file, using the same layer discovery NewResolver merges from.
-func slugHasUserConfig(slug string) bool {
-	for _, layer := range launcherconfig.ConfigLayers(configpaths.Get(), slug) {
-		if layer.Name == launcherconfig.LayerNamePerSlugUserConfig {
-			return layer.Present
+// slugHasUserInputs reports whether the per-slug user config dir for slug holds
+// any per-slug user input the launcher consumes: a launcher config file (found
+// with the same discovery NewResolver merges from), an env/secret file, or a
+// registered agent's config dir. A secrets-only dir counts, so a bare root is
+// not routed to its legacy slug just because its per-slug dir has no config
+// file yet (#578). An empty slug has no per-slug scope, so it reports false.
+func slugHasUserInputs(slug string) bool {
+	for _, scope := range configpaths.ConfigScopes(configpaths.Get(), slug) {
+		if scope.Kind != configpaths.ScopePerSlugUser {
+			continue
+		}
+		if _, _, present := configpaths.FindConfigFile(scope.Dir); present {
+			return true
+		}
+		if pathExists(scope.EnvFile()) || pathExists(scope.EnvSecretFile()) || pathExists(scope.EnvSecretYAMLFile()) {
+			return true
+		}
+		for _, name := range agent.Names() {
+			a, _ := agent.Lookup(name)
+			dirNames, _ := agent.ConfigDirNames(a)
+			for _, dirName := range dirNames {
+				if pathExists(scope.AgentConfigDir(dirName)) {
+					return true
+				}
+			}
 		}
 	}
 	return false
+}
+
+// pathExists reports whether path exists; any stat error (including a missing
+// file) reports false.
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // resolveAgent validates a resolved agent name (from flag, env, or config)
