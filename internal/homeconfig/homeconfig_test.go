@@ -599,11 +599,32 @@ func TestResolveVMTargetAcceptsNonMatchingReservedSpelling(t *testing.T) {
 	}
 }
 
+// TestBuildHomeFilesMergesDirsInOrder pins that the dirs slice is an ordered
+// layer chain: later dirs override earlier ones per target.
+func TestBuildHomeFilesMergesDirsInOrder(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	generic := t.TempDir()
+	perSlug := t.TempDir()
+	project := t.TempDir()
+	for _, dir := range []string{generic, perSlug, project} {
+		testutil.WriteFile(t, dir, "toolrc", filepath.Base(dir))
+		writeHomeConfig(t, dir, ".toolrc: toolrc\n")
+	}
+
+	files, _, _, err := BuildHomeFilesWithModes([]string{generic, perSlug, project}, vmHome, nil)
+	if err != nil {
+		t.Fatalf("BuildHomeFilesWithModes: %v", err)
+	}
+	if got, want := string(files["/home/dev/.toolrc"].Data), filepath.Base(project); got != want {
+		t.Errorf(".toolrc content = %q, want the last layer %q", got, want)
+	}
+}
+
 func TestBuildHomeFilesEmptyManifestContract(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 
-	files, _, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, _, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil || has {
 		t.Fatalf("no manifest: has=%v err=%v", has, err)
 	}
@@ -612,7 +633,7 @@ func TestBuildHomeFilesEmptyManifestContract(t *testing.T) {
 	}
 
 	testutil.WriteFile(t, user, "config.yaml", "home: {}\n")
-	files, _, has, err = BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, _, has, err = BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil || !has {
 		t.Fatalf("empty home key: has=%v err=%v, want has=true", has, err)
 	}
@@ -628,7 +649,7 @@ func TestBuildHomeFilesInvalidTargetKeepsHasFalse(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, user, "../evil: foo\n")
-	if _, _, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil); err == nil || has {
+	if _, _, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil); err == nil || has {
 		t.Errorf("invalid target: has=%v err=%v, want has=false with an error", has, err)
 	}
 }
@@ -642,7 +663,7 @@ func TestBuildHomeFilesReportsAllMissingSources(t *testing.T) {
 		".c: nope-c\n"+
 		".d: nope-d\n"+
 		".e: nope-e\n")
-	_, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	_, missing, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil || !has {
 		t.Fatalf("BuildHomeFilesWithModes: has=%v err=%v", has, err)
 	}
@@ -664,7 +685,7 @@ func TestBuildHomeFilesReportsAllUnreadableSources(t *testing.T) {
 	// The manifest lives next to the directories so each source Stats fine and
 	// only ReadFile fails, exercising the read-error continue.
 	writeHomeConfig(t, proj, strings.Join(lines, "\n")+"\n")
-	_, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	_, missing, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil || !has {
 		t.Fatalf("BuildHomeFilesWithModes: has=%v err=%v", has, err)
 	}
@@ -676,7 +697,7 @@ func TestBuildHomeFilesReportsAllUnreadableSources(t *testing.T) {
 func TestBuildHomeFilesNoManifest(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
-	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, missing, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
@@ -695,7 +716,7 @@ func TestBuildHomeFilesRejectsInvalidUserManifest(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, user, ".gitconfig:\n  source: [\n")
-	if _, _, _, err := BuildHomeFilesWithModes(user, proj, vmHome, nil); err == nil {
+	if _, _, _, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil); err == nil {
 		t.Fatal("expected an error for an invalid user manifest")
 	}
 }
@@ -710,7 +731,7 @@ func TestBuildHomeFilesReadsUserManifest(t *testing.T) {
 	proj := t.TempDir()
 	testutil.WriteFile(t, home, ".gitconfig", "user=x\n")
 	writeHomeConfig(t, user, ".gitconfig:\n")
-	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, missing, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
@@ -732,7 +753,7 @@ func TestBuildHomeFilesReportsLoadErrorWithHasFalse(t *testing.T) {
 	proj := t.TempDir()
 	testutil.WritePath(t, filepath.Join(user, "config.yaml"), "home: [\n")
 
-	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, missing, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err == nil {
 		t.Fatal("expected a load error from an invalid user config")
 	}
@@ -751,7 +772,7 @@ func TestBuildHomeFilesContinuesPastMissingSource(t *testing.T) {
 		".aaa.txt: ./absent.txt\n"+
 		".zzz.txt: ./present.txt\n")
 
-	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, missing, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
@@ -777,7 +798,7 @@ func TestBuildHomeFilesSkipsMissingSource(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, user, ".gitconfig:\n")
-	files, missing, _, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, missing, _, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
@@ -799,8 +820,7 @@ func TestBuildHomeFilesRejectsReservedTarget(t *testing.T) {
 	proj := t.TempDir()
 	writeHomeConfig(t, proj, ".config/opencode/opencode.jsonc:\n")
 	if _, _, _, err := BuildHomeFilesWithModes(
-		user,
-		proj,
+		[]string{user, proj},
 		vmHome,
 		[]string{".config/opencode/opencode.jsonc"},
 	); err == nil {
@@ -817,7 +837,7 @@ func TestBuildHomeFilesReadsBytesByVMPath(t *testing.T) {
 	testutil.WritePath(t, src, "k=v\n")
 	writeHomeConfig(t, proj, ".config/tool/cfg.toml: "+src+"\n")
 
-	files, _, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, _, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
@@ -842,7 +862,7 @@ func TestBuildHomeFilesWithModesPreservesSourceMode(t *testing.T) {
 	}
 	writeHomeConfig(t, proj, ".config/tool/launcher.sh: ./launcher.sh\n")
 
-	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, missing, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
@@ -874,7 +894,7 @@ func TestBuildHomeFilesWithModesReportsUnreadableSourceAsMissing(t *testing.T) {
 	}
 	writeHomeConfig(t, proj, ".config/tool/x: "+sourceDir+"\n")
 
-	files, missing, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, missing, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
@@ -900,7 +920,7 @@ func TestBuildHomeFilesReadsProjectRelativeSourceFromProjectDir(t *testing.T) {
 	testutil.WriteFile(t, proj, "tool/cfg.toml", "k=v\n")
 	writeHomeConfig(t, proj, ".config/tool/cfg.toml: ./tool/cfg.toml\n")
 
-	files, _, has, err := BuildHomeFilesWithModes(user, proj, vmHome, nil)
+	files, _, has, err := BuildHomeFilesWithModes([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHomeFilesWithModes: %v", err)
 	}
@@ -1097,7 +1117,7 @@ func TestBuildHooksSkipsNonStartupEntries(t *testing.T) {
 	writeHomeConfig(t, proj, ""+
 		".a:\n  source: a.sh\n"+
 		".b:\n  source: b.sh\n  hook: startup\n")
-	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	hooks, err := BuildHooks([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}
@@ -1115,7 +1135,7 @@ func TestBuildHooksContinuesPastMissingSource(t *testing.T) {
 	writeHomeConfig(t, proj, ""+
 		".a:\n  source: missing-a.sh\n  hook: startup\n"+
 		".b:\n  source: b.sh\n  hook: startup\n")
-	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	hooks, err := BuildHooks([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}
@@ -1137,7 +1157,7 @@ func TestBuildHooksSortsByVMTargetOrder(t *testing.T) {
 		"./b:\n  source: b.sh\n  hook: startup\n"+
 		"a:\n  source: a.sh\n  hook: startup\n")
 
-	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	hooks, err := BuildHooks([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}
@@ -1151,7 +1171,7 @@ func TestBuildHooksRejectsInvalidUserManifest(t *testing.T) {
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, user, ".gitconfig:\n  source: [\n")
-	if _, err := BuildHooks(user, proj, vmHome, nil); err == nil {
+	if _, err := BuildHooks([]string{user, proj}, vmHome, nil); err == nil {
 		t.Fatal("expected an error for an invalid user manifest")
 	}
 }
@@ -1161,7 +1181,7 @@ func TestBuildHooksRejectsReservedTarget(t *testing.T) {
 	proj := t.TempDir()
 	testutil.WritePath(t, filepath.Join(proj, "s.sh"), "#!/bin/sh\n")
 	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: s.sh\n  hook: startup\n")
-	if _, err := BuildHooks(user, proj, vmHome, []string{".vpn/connect.sh"}); err == nil {
+	if _, err := BuildHooks([]string{user, proj}, vmHome, []string{".vpn/connect.sh"}); err == nil {
 		t.Fatal("expected an error for a reserved hook target")
 	}
 }
@@ -1180,7 +1200,7 @@ func TestBuildHooksFiltersAndSorts(t *testing.T) {
 		".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  root: true\n"+
 		".zshrc:\n")
 
-	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	hooks, err := BuildHooks([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}
@@ -1202,7 +1222,7 @@ func TestBuildHooksSkipsMissingSource(t *testing.T) {
 	proj := t.TempDir()
 	// hook entry whose source file does not exist on the host
 	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n")
-	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	hooks, err := BuildHooks([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}
@@ -1225,7 +1245,7 @@ func TestBuildHooksProjectWinsOnOverlap(t *testing.T) {
 	writeHomeConfig(t, user, ".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  root: true\n")
 	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: vpn/connect.sh\n  hook: startup\n  root: true\n")
 
-	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	hooks, err := BuildHooks([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}
@@ -1243,7 +1263,7 @@ func TestBuildHooksCapturesShebang(t *testing.T) {
 	proj := t.TempDir()
 	testutil.WritePath(t, filepath.Join(proj, "connect.sh"), "#!/bin/bash\n")
 	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n")
-	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	hooks, err := BuildHooks([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}
@@ -1257,7 +1277,7 @@ func TestBuildHooksCapturesEnvShebang(t *testing.T) {
 	proj := t.TempDir()
 	testutil.WritePath(t, filepath.Join(proj, "connect.sh"), "#!/usr/bin/env bash\n")
 	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n")
-	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	hooks, err := BuildHooks([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}
@@ -1274,7 +1294,7 @@ func TestBuildHooksNoShebangFallsBack(t *testing.T) {
 	proj := t.TempDir()
 	testutil.WritePath(t, filepath.Join(proj, "connect.sh"), "echo hi\n")
 	writeHomeConfig(t, proj, ".vpn/connect.sh:\n  source: connect.sh\n  hook: startup\n")
-	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	hooks, err := BuildHooks([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}
@@ -1294,7 +1314,7 @@ func TestBuildHooksSortsByTarget(t *testing.T) {
 	writeHomeConfig(t, proj, ""+
 		".b:\n  source: b.sh\n  hook: startup\n"+
 		".a:\n  source: a.sh\n  hook: startup\n")
-	hooks, err := BuildHooks(user, proj, vmHome, nil)
+	hooks, err := BuildHooks([]string{user, proj}, vmHome, nil)
 	if err != nil {
 		t.Fatalf("BuildHooks: %v", err)
 	}

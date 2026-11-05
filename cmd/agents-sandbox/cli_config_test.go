@@ -13,7 +13,6 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -435,13 +434,24 @@ func TestConfigCommandsWorkOutsideWorktree(t *testing.T) {
 	})
 }
 
-// TestSlugHasUserConfigEmptySlugIsFalse pins a slug-less identity: ConfigLayers omits the per-slug layer for an empty slug, so there is
-// no per-slug user config to read.
-func TestSlugHasUserConfigEmptySlugIsFalse(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+// TestConfigSlugFromContextReturnsResolverSlug pins the populated branch: a
+// context carrying a resolver yields exactly the resolver's effective per-slug
+// config slug, so the run boundary forwards the slug the resolver read.
+func TestConfigSlugFromContextReturnsResolverSlug(t *testing.T) {
+	r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{ConfigSlug: "widget-bbb"})
+	ctx := context.WithValue(context.Background(), (*launcherConfigKey)(nil), r)
 
-	if slugHasUserConfig("") {
-		t.Error("an empty slug has no per-slug user config layer")
+	if got := configSlugFromContext(ctx); got != "widget-bbb" {
+		t.Errorf("configSlugFromContext = %q, want %q", got, "widget-bbb")
+	}
+}
+
+// TestConfigSlugFromContextEmptyWithoutResolver covers the no-resolver fallback:
+// a context that never carried a resolver yields an empty slug rather than
+// panicking, so a caller can treat "no resolver" as "no per-slug scope".
+func TestConfigSlugFromContextEmptyWithoutResolver(t *testing.T) {
+	if got := configSlugFromContext(context.Background()); got != "" {
+		t.Errorf("configSlugFromContext(no resolver) = %q, want empty", got)
 	}
 }
 
@@ -453,9 +463,15 @@ func TestConfigAgentMarksMissingConfigDirs(t *testing.T) {
 	cp := configpaths.Get()
 	userDir := filepath.Join(cp.UserConfigDir(), "opencode2")
 	projectDir := filepath.Join(cp.ProjectConfigDirAbs(), "opencode2")
-	want := fmt.Sprintf("config dir: user=%q (missing)  project=%q (missing)  (primary)", userDir, projectDir)
-	if !slices.Contains(ui.OutCalls, want) {
-		t.Errorf("expected line %q, got:\n%s", want, strings.Join(ui.OutCalls, "\n"))
+	want := []string{
+		"config dirs (primary):",
+		fmt.Sprintf("  user: %q (missing)", userDir),
+		fmt.Sprintf("  project: %q (missing)", projectDir),
+	}
+	for _, line := range want {
+		if !slices.Contains(ui.OutCalls, line) {
+			t.Errorf("expected line %q, got:\n%s", line, strings.Join(ui.OutCalls, "\n"))
+		}
 	}
 }
 
@@ -469,9 +485,15 @@ func TestConfigAgentDoesNotMarkExistingConfigDir(t *testing.T) {
 		t.Fatalf("config agent --agent opencode2: %v", err)
 	}
 	projectDir := filepath.Join(configpaths.Get().ProjectConfigDirAbs(), "opencode2")
-	want := fmt.Sprintf("config dir: user=%q  project=%q (missing)  (primary)", userDir, projectDir)
-	if !slices.Contains(ui.OutCalls, want) {
-		t.Errorf("expected line %q, got:\n%s", want, strings.Join(ui.OutCalls, "\n"))
+	want := []string{
+		"config dirs (primary):",
+		fmt.Sprintf("  user: %q", userDir),
+		fmt.Sprintf("  project: %q (missing)", projectDir),
+	}
+	for _, line := range want {
+		if !slices.Contains(ui.OutCalls, line) {
+			t.Errorf("expected line %q, got:\n%s", line, strings.Join(ui.OutCalls, "\n"))
+		}
 	}
 }
 
@@ -535,21 +557,6 @@ func (relErrConfigMerger) SnippetPattern() string { return "" }
 func (relErrConfigMerger) VMConfigPath(_ string) string { return "relative/path" }
 
 func (relErrConfigMerger) ConfigFileNames() []string { return nil }
-
-// TestEffectiveConfigSlugPrefersRepoSlug pins that the repo slug's per-slug
-// config wins over a legacy slug's during a bare-root config migration.
-func TestEffectiveConfigSlugPrefersRepoSlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	repoSlug := "repo-slug"
-	legacySlug := "legacy-slug"
-	testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(repoSlug), "config.yaml", "yes: true\n")
-	testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(legacySlug), "config.yaml", "yes: true\n")
-
-	got := effectiveConfigSlug(git.Identity{RepoSlug: repoSlug, LegacyRepoSlugs: []string{legacySlug}})
-	if got != repoSlug {
-		t.Errorf("effectiveConfigSlug = %q, want the repo slug %q", got, repoSlug)
-	}
-}
 
 // TestConfigAgentRejectsAHomeTargetOutsideTheHome pins that `config agent`
 // refuses a home manifest entry that would escape the home directory.

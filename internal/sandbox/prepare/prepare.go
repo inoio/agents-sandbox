@@ -143,6 +143,17 @@ func PrepareSandbox(
 				return err
 			}
 			opts.Mounts = withSharedGitDirMount(opts.Mounts, session.identity, ui)
+			// Adoption renames a bare root's legacy per-slug config dir onto the
+			// repo slug, so the slug resolved at the CLI boundary (before
+			// adoption) can be stale. Recompute it here, after adoption, so the
+			// later readers (LoadConfigFiles, the env/secret fingerprints) read
+			// the dir now actually holding the user's inputs. A read-only run
+			// leaves the legacy dir in place, and the recomputation then keeps
+			// naming it.
+			opts.ConfigSlug = reprovision.EffectiveConfigSlug(
+				session.identity.RepoSlug,
+				session.identity.LegacyRepoSlugs,
+			)
 			return nil
 		}},
 		{ID: lifecycle.ResolveVersion, Run: func() error {
@@ -405,7 +416,7 @@ func planReconfigStage(
 	opts options.RunOptions,
 	ui termio.UI,
 ) (reconfigPlan, error) {
-	configFiles, err := reprovision.LoadConfigFiles(session.agent, ui, provisionHostConfig(opts))
+	configFiles, err := reprovision.LoadConfigFiles(session.agent, opts.ConfigSlug, ui, provisionHostConfig(opts))
 	if err != nil {
 		return reconfigPlan{}, err
 	}
@@ -745,7 +756,8 @@ func liveHomeVolume(ctx context.Context, client msb.Client, k state.Key, ui term
 // fingerprints and the env/secrets baked into a newly created VM cannot
 // disagree.
 func loadEnvFingerprints(opts options.RunOptions, ui termio.Logger) (envsecret.EnvSecrets, state.Fingerprints) {
-	env := envsecret.LoadEnvAndSecrets(ui, opts.AllowPlaceholderFor)
+	scopes := configpaths.ConfigScopes(configpaths.Get(), opts.ConfigSlug)
+	env := envsecret.LoadEnvAndSecrets(ui, scopes, opts.AllowPlaceholderFor)
 	return env, desiredFingerprints(opts, env)
 }
 

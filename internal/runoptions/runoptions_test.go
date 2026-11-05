@@ -79,6 +79,21 @@ func mustResolver(t *testing.T, cmd *cobra.Command) *viperconfig.Resolver {
 	return r
 }
 
+// Build carries the effective config slug from the resolved launcher config,
+// mirroring how ResolvedAgent is carried: resolved once at the run boundary.
+func TestBuildCarriesConfigSlug(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{ConfigSlug: "widget-bbb"})
+	cmd := newRunCommand()
+
+	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.ConfigSlug != "widget-bbb" {
+		t.Errorf("ConfigSlug = %q, want %q", opts.ConfigSlug, "widget-bbb")
+	}
+}
+
 // A zero-value Config produces the expected defaults.
 func TestBuildDefaults(t *testing.T) {
 	ui := &termio.Mock{}

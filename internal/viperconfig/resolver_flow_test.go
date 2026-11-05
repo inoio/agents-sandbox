@@ -1767,3 +1767,18 @@ func writeUserConfig(t *testing.T, values map[string]any) {
 	configpaths.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", values)
 }
+
+// TestNewResolverRecordsConfigSlug proves NewResolver records the effective
+// config slug on the resolved Config, so later stages can rebuild the per-slug
+// config scope from it.
+func TestNewResolverRecordsConfigSlug(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	r, err := NewResolver(nil, configpaths.Get(), "widget-bbb")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if got := r.Config().ConfigSlug; got != "widget-bbb" {
+		t.Errorf("ConfigSlug = %q, want %q", got, "widget-bbb")
+	}
+}

@@ -21,23 +21,35 @@ import (
 // ConfigLayers returns the launcher-config layers from lowest to highest
 // precedence, matching NewResolver's merge order and its documented precedence
 // (generic user dir, per-slug user dir when slug is non-empty, project dir,
-// legacy env, env, flags). NewResolver merges the file layers from this slice,
-// so the order shown to the user and the order actually merged cannot drift.
+// legacy env, env, flags). The file layers are a projection of the config
+// scopes, so the order shown to the user and the order actually merged cannot
+// drift. NewResolver merges the file layers from this slice.
 func ConfigLayers(paths configpaths.ConfigPaths, slug string) []ConfigLayer {
-	cfg := paths
-	layers := []ConfigLayer{
-		fileLayer(LayerNameGenericUserConfig, cfg.UserConfigDir()),
-	}
-	if slug != "" {
-		layers = append(layers, fileLayer(LayerNamePerSlugUserConfig, cfg.UserSlugConfigDir(slug)))
+	scopes := configpaths.ConfigScopes(paths, slug)
+	var layers []ConfigLayer
+	for _, scope := range scopes {
+		layers = append(layers, fileLayer(layerNameForScope(scope.Kind), scope.Dir))
 	}
 	layers = append(layers,
-		fileLayer(LayerNameProjectConfig, cfg.ProjectConfigDir()),
 		ConfigLayer{Name: LayerNameLegacyEnv, Path: "", Present: false},
 		ConfigLayer{Name: LayerNameEnv, Path: "", Present: false},
 		ConfigLayer{Name: LayerNameFlags, Path: "", Present: false},
 	)
 	return layers
+}
+
+// scopeLayerNames maps each config scope kind to its config-file layer name.
+// The map is exhaustive over ScopeKind, so a lookup cannot produce an unknown
+// name for a kind ConfigScopes emits.
+var scopeLayerNames = map[configpaths.ScopeKind]string{
+	configpaths.ScopeGenericUser: LayerNameGenericUserConfig,
+	configpaths.ScopePerSlugUser: LayerNamePerSlugUserConfig,
+	configpaths.ScopeProject:     LayerNameProjectConfig,
+}
+
+// layerNameForScope maps a config scope kind to its config-file layer name.
+func layerNameForScope(kind configpaths.ScopeKind) string {
+	return scopeLayerNames[kind]
 }
 
 // fileLayer reports the directory of a config-file layer and whether a config
@@ -111,15 +123,15 @@ func NewResolver(cmd *cobra.Command, paths configpaths.ConfigPaths, slug string)
 	cfg.Mounts = decodedMounts
 	cfg.Notify = decodeNotify(v)
 
-	homeLayers, hasHome, err := homeconfig.LoadLayers([]string{
-		paths.UserConfigDir(),
-		paths.ProjectConfigDir(),
-	})
+	homeLayers, hasHome, err := homeconfig.LoadLayers(
+		configpaths.ScopeDirs(configpaths.ConfigScopes(paths, slug)),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("decode launcher config: %w", err)
 	}
 	cfg.Home = homeLayers
 	cfg.hasHome = hasHome
+	cfg.ConfigSlug = slug
 	docker, dockerSource, dockerLegacy := resolveDockerAlias(v, cmd, cfg.Docker)
 	cfg.Docker = docker
 	cfg.dockerSource = dockerSource

@@ -65,22 +65,28 @@ An empty `value` is valid and will be passed through unchanged.
 
 ## Precedence
 
-Files are merged from lowest to highest precedence per key, in this order:
+Secrets are read from three scopes — generic user, per-slug user, and project — and files are merged from lowest to
+highest precedence per key. The merge is tiered by format: **all** scopes' legacy `env.secret` entries are merged first
+in scope order, then **all** scopes' `env.secret.yaml` entries in scope order:
 
-1. user-level `env.secret` (legacy `KEY=value@host`)
-2. project-level `env.secret` (legacy)
-3. user-level `env.secret.yaml`
-4. project-level `env.secret.yaml`
+1. generic user `env.secret` (legacy `KEY=value@host`)
+2. per-slug user `env.secret` (legacy)
+3. project `env.secret` (legacy)
+4. generic user `env.secret.yaml`
+5. per-slug user `env.secret.yaml`
+6. project `env.secret.yaml`
 
-A YAML entry always wins over a legacy entry for the same key, even across levels — a user-level
-`env.secret.yaml` overrides a project-level `env.secret`. The YAML entry **fully replaces** the legacy entry's hosts —
-if a YAML entry omits `host`, `hosts`, and `allow_any_host_dangerous`, the resulting entry has no hosts and is dropped
-with a warning.
+A YAML entry always wins over a legacy entry for the same key, even across scopes — a generic user
+`env.secret.yaml` overrides a project `env.secret`. Within a tier, a later scope wins. The YAML entry **fully
+replaces** the legacy entry's hosts — if a YAML entry omits `host`, `hosts`, and `allow_any_host_dangerous`, the
+resulting entry has no hosts and is dropped with a warning.
 
 ## Supported files
 
-- `~/.config/agents-sandbox/env.secret` — user-level, legacy text format
-- `~/.config/agents-sandbox/env.secret.yaml` — user-level, structured YAML (or JSON)
+- `~/.config/agents-sandbox/env.secret` — generic user-level, legacy text format
+- `~/.config/agents-sandbox/env.secret.yaml` — generic user-level, structured YAML (or JSON)
+- `~/.config/agents-sandbox/<slug>/env.secret` — per-slug user-level (repo slug, shared by every clone), legacy text format
+- `~/.config/agents-sandbox/<slug>/env.secret.yaml` — per-slug user-level, structured YAML (or JSON)
 - `.agents-sandbox/env.secret` — project-level, legacy text format
 - `.agents-sandbox/env.secret.yaml` — project-level, structured YAML (or JSON)
 

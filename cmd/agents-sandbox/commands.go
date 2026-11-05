@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	msbruntime "github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
@@ -33,6 +34,15 @@ func resolverFromContext(ctx context.Context) *launcherconfig.Resolver {
 	return r
 }
 
+// configSlugFromContext returns the resolver's effective per-slug config slug, or
+// "" when no resolver is present.
+func configSlugFromContext(ctx context.Context) string {
+	if r := resolverFromContext(ctx); r != nil {
+		return r.Config().ConfigSlug
+	}
+	return ""
+}
+
 // defaultAgentName is the fallback agent used when --agent is not provided.
 const defaultAgentName = agent.DefaultAgentName
 
@@ -51,34 +61,15 @@ func warnLegacyEnvVars(ui termio.Logger, r *launcherconfig.Resolver) {
 }
 
 // effectiveConfigSlug returns the slug whose per-slug user config directory the
-// launcher should read. It is the repo slug — shared by every clone of a remote —
-// except for a bare root whose legacy config directory has not been migrated:
-// its legacy config lives under the path-derived legacy slug
-// (Identity.LegacyRepoSlugs), which adoption renames onto the repo slug. The
-// resolver is built before adoption runs, so without this the triggering run
-// would load defaults instead of the user's saved settings. The fallback is
-// read-only, so a dry run stays side-effect-free.
+// launcher should read at the CLI boundary. It is the repo slug — shared by
+// every clone of a remote — except for a bare root whose legacy config directory
+// has not been migrated: its legacy config lives under the path-derived legacy
+// slug, which adoption renames onto the repo slug. The resolver is built before
+// adoption runs, so without this the triggering run would load defaults instead
+// of the user's saved settings. The fallback is read-only, so a dry run stays
+// side-effect-free.
 func effectiveConfigSlug(identity git.Identity) string {
-	if slugHasUserConfig(identity.RepoSlug) {
-		return identity.RepoSlug
-	}
-	for _, legacy := range identity.LegacyRepoSlugs {
-		if slugHasUserConfig(legacy) {
-			return legacy
-		}
-	}
-	return identity.RepoSlug
-}
-
-// slugHasUserConfig reports whether the per-slug user config dir for slug holds a
-// config file, using the same layer discovery NewResolver merges from.
-func slugHasUserConfig(slug string) bool {
-	for _, layer := range launcherconfig.ConfigLayers(configpaths.Get(), slug) {
-		if layer.Name == launcherconfig.LayerNamePerSlugUserConfig {
-			return layer.Present
-		}
-	}
-	return false
+	return reprovision.EffectiveConfigSlug(identity.RepoSlug, identity.LegacyRepoSlugs)
 }
 
 // resolveAgent validates a resolved agent name (from flag, env, or config)

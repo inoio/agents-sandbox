@@ -183,11 +183,12 @@ type MergedConfig struct {
 	HasSnippets bool
 }
 
-// BuildMerged merges all snippet files matching pattern under userDir and
-// projectDir into a single config document for configPath: YAML when configPath
-// ends in .yaml/.yml, TOML when it ends in .toml, indented JSON otherwise.
-func BuildMerged(configPath, pattern, userDir, projectDir string) (MergedConfig, error) {
-	merged, sources := scanSnippets([]string{userDir, projectDir}, pattern)
+// BuildMerged merges all snippet files matching pattern across dirs, lowest
+// precedence first, into a single config document for configPath: YAML when
+// configPath ends in .yaml/.yml, TOML when it ends in .toml, indented JSON
+// otherwise.
+func BuildMerged(configPath, pattern string, dirs []string) (MergedConfig, error) {
+	merged, sources := scanSnippets(dirs, pattern)
 	if len(sources) == 0 {
 		return MergedConfig{}, nil
 	}
@@ -243,15 +244,15 @@ type MirrorEntry struct {
 	Mode     os.FileMode
 }
 
-// ScanMirror walks userDir then projectDir recursively and returns the verbatim
-// mirror entries: every file except top-level files whose basename matches the
-// snippet pattern (they are merged, not mirrored) and top-level config-family
-// names (reserved for the merged output). Project entries override user entries
-// with the same destination path. Entries are sorted by VMPath for
-// determinism. Unreadable files are skipped, never fatal.
-func ScanMirror(pattern string, family []string, userDir, projectDir, destDir string) []MirrorEntry {
+// ScanMirror walks dirs in order, lowest precedence first, recursively and
+// returns the verbatim mirror entries: every file except top-level files whose
+// basename matches the snippet pattern (they are merged, not mirrored) and
+// top-level config-family names (reserved for the merged output). Later entries
+// override earlier entries with the same destination path. Entries are sorted by
+// VMPath for determinism. Unreadable files are skipped, never fatal.
+func ScanMirror(pattern string, family []string, dirs []string, destDir string) []MirrorEntry {
 	byDest := make(map[string]MirrorEntry)
-	for _, dir := range []string{userDir, projectDir} {
+	for _, dir := range dirs {
 		// gomutants:disable-next-line BRANCH_IF reason="filewalk.Walk of an empty path swallows its Lstat error and visits nothing, so skipping it agrees with walking it"
 		if dir == "" {
 			continue

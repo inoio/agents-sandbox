@@ -1,6 +1,8 @@
 package reprovision
 
 import (
+	"path/filepath"
+
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
@@ -15,7 +17,17 @@ type configBases struct {
 
 func (c configBases) UserConfigDir() string { return c.user }
 
+func (c configBases) UserSlugConfigDir(slug string) string { return filepath.Join(c.user, slug) }
+
+func (c configBases) ProjectConfigDir() string { return c.project }
+
 func (c configBases) ProjectConfigDirAbs() string { return c.project }
+
+// resolveConfigSource resolves an agent's source against the installed seam's
+// scopes with an empty slug, preserving the pre-per-slug test behavior.
+func resolveConfigSource(a agent.Agent) (ConfigSource, error) {
+	return ResolveConfigSource(a, configpaths.ConfigScopes(configpaths.Get(), ""))
+}
 
 // invalidConfigDirAgent is a profile whose config-dir name is not a single
 // clean path element, exercising the accessors' error path through the

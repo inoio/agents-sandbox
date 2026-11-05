@@ -80,15 +80,6 @@ func assertBareProjectBase(t *testing.T, root string) {
 	if got := Get().ProjectDockerfile(); got != filepath.Join(wantBase, DockerFileName) {
 		t.Errorf("ProjectDockerfile() = %q, want %q", got, filepath.Join(wantBase, DockerFileName))
 	}
-	if got := Get().ProjectEnvFile(); got != filepath.Join(wantBase, EnvFileName) {
-		t.Errorf("ProjectEnvFile() = %q, want %q", got, filepath.Join(wantBase, EnvFileName))
-	}
-	if got := Get().ProjectEnvSecretFile(); got != filepath.Join(wantBase, EnvSecretFileName) {
-		t.Errorf("ProjectEnvSecretFile() = %q, want %q", got, filepath.Join(wantBase, EnvSecretFileName))
-	}
-	if got := Get().ProjectEnvSecretYAMLFile(); got != filepath.Join(wantBase, envSecretYAMLFileName) {
-		t.Errorf("ProjectEnvSecretYAMLFile() = %q, want %q", got, filepath.Join(wantBase, envSecretYAMLFileName))
-	}
 }
 
 func assertRelativeProjectBase(t *testing.T) {
@@ -187,7 +178,6 @@ func TestProjectConfigLocatesTheBareCheckoutOncePerCwd(t *testing.T) {
 		Get().ProjectConfigDir()
 		Get().ProjectConfigDirAbs()
 		Get().ProjectDockerfile()
-		Get().ProjectEnvFile()
 		Get().IgnoredWorktreeConfigDir()
 	}
 

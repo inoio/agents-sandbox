@@ -34,7 +34,7 @@ func TestResolveConfigSourceStatError(t *testing.T) {
 
 	t.Run("primary", func(t *testing.T) {
 		withConfigBases(t, blocker, blocker)
-		if _, err := ResolveConfigSource(a); err == nil {
+		if _, err := resolveConfigSource(a); err == nil {
 			t.Error("expected an error when the primary candidate stat fails")
 		}
 	})
@@ -47,7 +47,7 @@ func TestResolveConfigSourceStatError(t *testing.T) {
 			t.Fatal(err)
 		}
 		withConfigBases(t, base, t.TempDir())
-		_, err := ResolveConfigSource(a)
+		_, err := resolveConfigSource(a)
 		if _, ok := errors.AsType[*fs.PathError](err); !ok || !strings.Contains(err.Error(), "stat config dir") {
 			t.Errorf("ResolveConfigSource error = %v, want the wrapped stat failure of the primary dir", err)
 		}
@@ -61,7 +61,7 @@ func TestResolveConfigSourceStatError(t *testing.T) {
 			t.Fatal(err)
 		}
 		withConfigBases(t, base, base)
-		if _, err := ResolveConfigSource(a); err == nil {
+		if _, err := resolveConfigSource(a); err == nil {
 			t.Error("expected an error when an alias candidate stat fails")
 		}
 	})
@@ -82,7 +82,7 @@ func TestResolveConfigSourceStatErrorDoesNotHideUsableScope(t *testing.T) {
 	withConfigBases(t, blocker, projectBase)
 
 	a, _ := agent.Lookup("opencode2")
-	got, err := ResolveConfigSource(a)
+	got, err := resolveConfigSource(a)
 	if err != nil {
 		t.Fatalf("ResolveConfigSource: unexpected error %v", err)
 	}
@@ -100,12 +100,17 @@ func TestResolveConfigSourceCarriesPrimaryDirs(t *testing.T) {
 	a, _ := agent.Lookup("opencode2")
 
 	// No dirs exist, so the primary dirs are returned with an empty fallback.
-	src, err := ResolveConfigSource(a)
+	src, err := resolveConfigSource(a)
 	if err != nil {
 		t.Fatalf("ResolveConfigSource: %v", err)
 	}
-	if src.PrimaryUserDir != configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), a.ConfigDirName())) {
-		t.Errorf("PrimaryUserDir = %q, want the seam's primary user dir", src.PrimaryUserDir)
+	if want := []string{
+		configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), a.ConfigDirName())),
+	}; !slices.Equal(
+		src.PrimaryUserDirs,
+		want,
+	) {
+		t.Errorf("PrimaryUserDirs = %v, want the seam's primary user dirs %v", src.PrimaryUserDirs, want)
 	}
 	if src.PrimaryProjectDir != configpaths.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())) {
 		t.Errorf("PrimaryProjectDir = %q, want the seam's primary project dir", src.PrimaryProjectDir)
@@ -118,7 +123,7 @@ func TestResolveConfigSourceCarriesPrimaryDirs(t *testing.T) {
 func TestResolveConfigSourcePropagatesInvalidConfigDirName(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	if _, err := ResolveConfigSource(invalidConfigDirAgent{}); err == nil {
+	if _, err := resolveConfigSource(invalidConfigDirAgent{}); err == nil {
 		t.Fatal("ResolveConfigSource with an invalid config-dir name = nil error, want error")
 	}
 }
@@ -156,7 +161,7 @@ func TestResolveConfigSource(t *testing.T) {
 			mk(cp.ProjectConfigDir(), "opencode", tc.proj1)
 
 			a, _ := agent.Lookup("opencode2")
-			got, err := ResolveConfigSource(a)
+			got, err := resolveConfigSource(a)
 			if err != nil {
 				t.Fatalf("ResolveConfigSource: %v", err)
 			}
@@ -166,13 +171,13 @@ func TestResolveConfigSource(t *testing.T) {
 				name = tc.wantFallback
 			}
 			want := ConfigSource{
-				UserDir:           filepath.Join(cp.UserConfigDir(), name),
+				UserDirs:          []string{filepath.Join(cp.UserConfigDir(), name)},
 				ProjectDir:        filepath.Join(cp.ProjectConfigDir(), name),
 				Fallback:          tc.wantFallback,
-				PrimaryUserDir:    filepath.Join(cp.UserConfigDir(), "opencode2"),
+				PrimaryUserDirs:   []string{filepath.Join(cp.UserConfigDir(), "opencode2")},
 				PrimaryProjectDir: filepath.Join(cp.ProjectConfigDirAbs(), "opencode2"),
 			}
-			if got != want {
+			if !reflect.DeepEqual(got, want) {
 				t.Errorf("ResolveConfigSource = %+v, want %+v", got, want)
 			}
 		})
@@ -182,15 +187,16 @@ func TestResolveConfigSource(t *testing.T) {
 func TestDescribeConfigScopes(t *testing.T) {
 	existing := t.TempDir()
 	missing := filepath.Join(t.TempDir(), "missing")
+	userDirs := func(dirs ...string) []string { return dirs }
 
-	if got := describeConfigScopes(missing, missing, true); got != "(none)" {
+	if got := describeConfigScopes(userDirs(missing), missing, true); got != "(none)" {
 		t.Errorf("onlyExisting with nothing present = %q, want (none)", got)
 	}
-	onlyExisting := describeConfigScopes(existing, missing, true)
+	onlyExisting := describeConfigScopes(userDirs(existing), missing, true)
 	if !strings.Contains(onlyExisting, "user: ") || strings.Contains(onlyExisting, "project:") {
 		t.Errorf("onlyExisting should list only the present scope, got %q", onlyExisting)
 	}
-	targets := describeConfigScopes(existing, missing, false)
+	targets := describeConfigScopes(userDirs(existing), missing, false)
 	if !strings.Contains(targets, "user: ") || !strings.Contains(targets, "project: ") {
 		t.Errorf("targets should list both scopes, got %q", targets)
 	}
@@ -200,7 +206,7 @@ func TestDescribeConfigScopes(t *testing.T) {
 	// A missing user dir must still be named when onlyExisting is false: the
 	// project scope being the only one present must not drop the user scope.
 	if got, want := describeConfigScopes(
-		missing,
+		userDirs(missing),
 		existing,
 		false,
 	), fmt.Sprintf(
@@ -212,8 +218,48 @@ func TestDescribeConfigScopes(t *testing.T) {
 	}
 	// An existing project dir must be named when onlyExisting is true: the
 	// user scope being absent must not drop the project scope.
-	if got, want := describeConfigScopes(missing, existing, true), fmt.Sprintf("project: %q", existing); got != want {
+	if got, want := describeConfigScopes(
+		userDirs(missing),
+		existing,
+		true,
+	), fmt.Sprintf(
+		"project: %q",
+		existing,
+	); got != want {
 		t.Errorf("onlyExisting with only the project present = %q, want %q", got, want)
+	}
+	// Every user scope dir is named, in order, before the project dir.
+	if got, want := describeConfigScopes(
+		userDirs(existing, missing),
+		existing,
+		true,
+	), fmt.Sprintf("user: %q, project: %q", existing, existing); got != want {
+		t.Errorf("onlyExisting with a per-slug scope = %q, want %q", got, want)
+	}
+	// An empty projectDir must not be named as if it were a read scope: the
+	// project entry is emitted only when a dir is present.
+	if got := describeConfigScopes(userDirs(existing), "", false); strings.Contains(got, "project:") {
+		t.Errorf("an empty project dir must not be described, got %q", got)
+	}
+}
+
+// TestSplitConfigScopesNoProject pins that a scope set without a project scope
+// reports hasProject=false and the zero project scope, so a caller gates the
+// project candidate on the flag instead of a zero-value dir.
+func TestSplitConfigScopesNoProject(t *testing.T) {
+	scopes := []configpaths.ConfigScope{
+		{Kind: configpaths.ScopeGenericUser, Dir: "/generic"},
+		{Kind: configpaths.ScopePerSlugUser, Dir: "/per-slug"},
+	}
+	users, project, hasProject := splitConfigScopes(scopes)
+	if hasProject {
+		t.Error("splitConfigScopes reported a project scope for a scope set without one")
+	}
+	if project != (configpaths.ConfigScope{}) {
+		t.Errorf("projectScope = %+v, want the zero scope", project)
+	}
+	if !slices.Equal(users, scopes) {
+		t.Errorf("userScopes = %+v, want every scope in order", users)
 	}
 }
 
@@ -222,23 +268,13 @@ func TestSourceDirsMirrorResolvedSource(t *testing.T) {
 	cp := configpaths.Get()
 
 	src := ConfigSource{
-		UserDir:    filepath.Join(cp.UserConfigDir(), "opencode"),
+		UserDirs:   []string{filepath.Join(cp.UserConfigDir(), "opencode")},
 		ProjectDir: filepath.Join(cp.ProjectConfigDirAbs(), "opencode"),
 		Fallback:   "opencode",
 	}
-	user, project := SourceDirs(src)
-	if user != src.UserDir || project != src.ProjectDir {
-		t.Errorf("SourceDirs = (%q, %q), want the resolved source dirs", user, project)
-	}
-}
-
-// TestBaseUserConfigDirIsParentOfUserDir pins the derivation: home files and
-// hooks resolve relative to the tool's user config dir, one level above the
-// agent subdir the resolved source names.
-func TestBaseUserConfigDirIsParentOfUserDir(t *testing.T) {
-	src := ConfigSource{UserDir: filepath.Join(t.TempDir(), "agents-sandbox", "opencode2")}
-	if got, want := baseUserConfigDir(src), filepath.Dir(src.UserDir); got != want {
-		t.Errorf("baseUserConfigDir = %q, want %q", got, want)
+	userDirs, project := SourceDirs(src)
+	if !slices.Equal(userDirs, src.UserDirs) || project != src.ProjectDir {
+		t.Errorf("SourceDirs = (%q, %q), want the resolved source dirs", userDirs, project)
 	}
 }
 
@@ -272,7 +308,7 @@ func TestLoadConfigFilesRemovesStaleConfigWithSnippets(t *testing.T) {
 	testutil.WriteFile(t, ocConfig, "other.json", `{"host":1}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -329,7 +365,7 @@ func TestLoadConfigFilesProvisioningDisabled(t *testing.T) {
 	testutil.WriteFile(t, ocShare, "auth.json", `{"t":"x"}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, false)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, false)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -477,7 +513,7 @@ func TestLoadConfigFilesPopulatesHooks(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	a, _ := agent.Lookup("")
-	cf, err := LoadConfigFiles(agent.Resolve(a), &ui, true)
+	cf, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -512,7 +548,7 @@ func TestLoadConfigFilesMarksHookScriptsExecutable(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	a, _ := agent.Lookup("")
-	cf, err := LoadConfigFiles(agent.Resolve(a), &ui, true)
+	cf, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -539,7 +575,7 @@ func TestLoadConfigFilesFallsBackToLegacyDir(t *testing.T) {
 	testutil.WriteFile(t, legacy, "tui.json", `{"theme":"legacy"}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFiles(agent.Resolve(a), &ui, true)
+	cf, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -586,7 +622,7 @@ func TestLoadConfigFilesPrimarySuppressesLegacy(t *testing.T) {
 	testutil.WriteFile(t, filepath.Join(cp.UserConfigDir(), "opencode"), "opencode-model.json", `{"model":"v1-legacy"}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFiles(agent.Resolve(a), &ui, true)
+	cf, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -607,7 +643,7 @@ func TestLoadConfigFilesInfosWhenNoLauncherConfigDirExists(t *testing.T) {
 	a, _ := agent.Lookup("opencode2")
 
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFiles(agent.Resolve(a), &ui, true); err != nil {
+	if _, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true); err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
 	if len(ui.InfoCalls) != 1 {
@@ -640,7 +676,7 @@ func TestLoadConfigFilesNoInfoWhenALauncherConfigDirExists(t *testing.T) {
 			}
 			a, _ := agent.Lookup("opencode2")
 			ui := termio.NewTestMock(t)
-			if _, err := LoadConfigFiles(agent.Resolve(a), &ui, true); err != nil {
+			if _, err := LoadConfigFiles(agent.Resolve(a), "", &ui, true); err != nil {
 				t.Fatalf("LoadConfigFiles: %v", err)
 			}
 			if len(ui.InfoCalls) != 0 {
@@ -674,7 +710,7 @@ func TestLoadConfigFilesProvisioning(t *testing.T) {
 
 	a, _ := agent.Lookup("opencode")
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -734,7 +770,7 @@ func TestLoadConfigFilesProvisioningPrecedence(t *testing.T) {
 			"    source: somefile-home.json\n")
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -779,7 +815,7 @@ func TestLoadConfigFilesShadowingCopiedWithoutSnippets(t *testing.T) {
 	testutil.WriteFile(t, ocConfig, "opencode.jsonc", `{"model":"host"}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -811,7 +847,7 @@ func TestLoadConfigFilesPIMergedConfig(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -853,7 +889,7 @@ func TestLoadConfigFilesCodexMergesTOMLSnippets(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -890,7 +926,7 @@ func TestLoadConfigFilesHermesMergedConfig(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -928,7 +964,7 @@ func TestLoadConfigFilesOhMyPiMergedConfig(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -957,7 +993,7 @@ func TestLoadConfigFilesRejectsReservedMergedPath(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "home:\n  .config/opencode/opencode.jsonc:\n")
 
 	ui := termio.NewTestMock(t)
-	_, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), vmHome, &ui, true)
+	_, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), vmHome, &ui, true)
 	if err == nil {
 		t.Fatal("expected an error for a home target colliding with the merged-config path")
 	}
@@ -977,7 +1013,7 @@ func TestLoadConfigFilesPIMergedPathReserved(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "home:\n  .pi/agent/settings.json:\n")
 
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), vmHome, &ui, true); err == nil {
+	if _, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), vmHome, &ui, true); err == nil {
 		t.Error("expected an error for a pi home target colliding with its merged settings.json")
 	}
 }
@@ -993,7 +1029,7 @@ func TestLoadConfigFilesNoReservedForNonConfigMerger(t *testing.T) {
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "home:\n  .config/opencode/opencode.jsonc:\n")
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(plainAgent{}), t.TempDir(), vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(plainAgent{}), "", t.TempDir(), vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -1044,7 +1080,7 @@ func TestLoadConfigFilesMirror(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -1097,7 +1133,7 @@ func TestLoadConfigFilesMirrorPrecedence(t *testing.T) {
 	testutil.WriteFile(t, ocConfig, "tui.json", `{"theme":"host"}`)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -1141,7 +1177,7 @@ func TestLoadConfigFilesMirrorHomeYAMLWins(t *testing.T) {
 			"    source: tui-home.json\n")
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -1172,7 +1208,7 @@ func TestLoadConfigFilesMirrorWithProvisioningDisabled(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(a), hostHome, vmHome, &ui, false)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, false)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -1222,7 +1258,7 @@ func TestLoadConfigFilesKeysMergedFirstAndSorted(t *testing.T) {
 
 	ui := termio.NewTestMock(t)
 	for range 20 {
-		cf, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), vmHome, &ui, true)
+		cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), vmHome, &ui, true)
 		if err != nil {
 			t.Fatalf("LoadConfigFilesForHost: %v", err)
 		}
@@ -1244,6 +1280,7 @@ func TestLoadConfigFilesRejectsInvalidProfileName(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	if _, err := LoadConfigFilesForHost(
 		agent.Resolve(invalidConfigDirAgent{}),
+		"",
 		t.TempDir(),
 		t.TempDir(),
 		&ui,
@@ -1258,10 +1295,10 @@ func TestLoadAndDescribePropagateResolveError(t *testing.T) {
 
 	a := invalidConfigDirAgent{}
 	ui := termio.NewTestMock(t)
-	if _, err := LoadConfigFilesForHost(agent.Resolve(a), t.TempDir(), t.TempDir(), &ui, true); err == nil {
+	if _, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), t.TempDir(), &ui, true); err == nil {
 		t.Error("expected LoadConfigFilesForHost to propagate the resolution error")
 	}
-	if _, _, _, _, _, err := Describe(a, t.TempDir(), t.TempDir(), &ui, true); err == nil {
+	if _, _, _, _, _, err := Describe(a, "", t.TempDir(), t.TempDir(), &ui, true); err == nil {
 		t.Error("expected Describe to propagate the resolution error")
 	}
 }
@@ -1279,7 +1316,7 @@ func TestLoadConfigFilesWithSnippet(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), t.TempDir(), VMHomeDir, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), "", t.TempDir(), VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -1305,7 +1342,7 @@ func TestLoadConfigFilesWarnsMissingSource(t *testing.T) {
 			"    source: does-not-exist\n")
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), t.TempDir(), VMHomeDir, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), "", t.TempDir(), VMHomeDir, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFiles: %v", err)
 	}
@@ -1331,6 +1368,7 @@ func TestLoadConfigFilesBuildHomeFilesError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	if _, err := LoadConfigFilesForHost(
 		agent.Resolve(opencodeTestAgent()),
+		"",
 		t.TempDir(),
 		VMHomeDir,
 		&ui,
@@ -1357,6 +1395,7 @@ func TestLoadConfigFilesBuildHooksError(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	if _, err := LoadConfigFilesForHost(
 		agent.Resolve(opencodeTestAgent()),
+		"",
 		t.TempDir(),
 		VMHomeDir,
 		&ui,
@@ -1381,7 +1420,7 @@ func TestLoadConfigFilesMergedConfigError(t *testing.T) {
 	)
 
 	ui := termio.NewTestMock(t)
-	_, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), t.TempDir(), VMHomeDir, &ui, true)
+	_, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), "", t.TempDir(), VMHomeDir, &ui, true)
 	if err == nil || !strings.Contains(err.Error(), "merge agent config") {
 		t.Fatalf("LoadConfigFilesForHost error = %v, want merge agent config error", err)
 	}
@@ -1398,7 +1437,7 @@ func TestLoadConfigFilesMergedConfigError(t *testing.T) {
 func TestLoadConfigFilesReservedTargetError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
-	_, err := LoadConfigFilesForHost(agent.Resolve(relMergedConfigAgent{}), t.TempDir(), t.TempDir(), &ui, true)
+	_, err := LoadConfigFilesForHost(agent.Resolve(relMergedConfigAgent{}), "", t.TempDir(), t.TempDir(), &ui, true)
 	if err == nil || !strings.Contains(err.Error(), "reserved home target") || errors.Unwrap(err) == nil {
 		t.Fatalf("LoadConfigFilesForHost error = %v, want the wrapped reserved home target error", err)
 	}
@@ -1416,7 +1455,7 @@ func TestLoadConfigFilesHomeFilesError(t *testing.T) {
 			"    source: somefile\n")
 
 	ui := termio.NewTestMock(t)
-	_, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), t.TempDir(), t.TempDir(), &ui, true)
+	_, err := LoadConfigFilesForHost(agent.Resolve(opencodeTestAgent()), "", t.TempDir(), t.TempDir(), &ui, true)
 	if err == nil || !strings.HasPrefix(err.Error(), "build home files: ") ||
 		!strings.Contains(err.Error(), "must be relative to the home directory") || errors.Unwrap(err) == nil {
 		t.Fatalf("LoadConfigFilesForHost error = %v, want the wrapped home-target resolution error", err)
@@ -1440,7 +1479,7 @@ func TestLoadConfigFilesProvisionError(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	_, err := LoadConfigFilesForHost(agent.Resolve(badProvisionerAgent{}), t.TempDir(), t.TempDir(), &ui, true)
+	_, err := LoadConfigFilesForHost(agent.Resolve(badProvisionerAgent{}), "", t.TempDir(), t.TempDir(), &ui, true)
 	if !errors.Is(err, boom) {
 		t.Fatalf("LoadConfigFilesForHost error = %v, want %v", err, boom)
 	}
@@ -1454,7 +1493,7 @@ func TestLoadConfigFilesNoMergedForNonConfigMerger(t *testing.T) {
 
 	// No snippets: a non-ConfigMerger agent yields no merged config.
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(plainAgent{}), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(plainAgent{}), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -1470,7 +1509,7 @@ func TestLoadConfigFilesNoMergedForNonConfigMerger(t *testing.T) {
 		"opencode-model.json",
 		`{"model":"x"}`,
 	)
-	cf, err = LoadConfigFilesForHost(agent.Resolve(plainAgent{}), hostHome, vmHome, &ui, true)
+	cf, err = LoadConfigFilesForHost(agent.Resolve(plainAgent{}), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -1496,7 +1535,7 @@ func TestLoadConfigFilesWarnsOnMalformedProvisionRules(t *testing.T) {
 	}
 
 	ui := termio.NewTestMock(t)
-	cf, err := LoadConfigFilesForHost(agent.Resolve(badProvisionerAgent{}), hostHome, vmHome, &ui, true)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(badProvisionerAgent{}), "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("LoadConfigFilesForHost: %v", err)
 	}
@@ -1575,15 +1614,15 @@ func TestDescribe(t *testing.T) {
 	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
 
 	ui := termio.NewTestMock(t)
-	merged, sources, hostFiles, mirrorFiles, source, err := Describe(a, hostHome, vmHome, &ui, true)
+	merged, sources, hostFiles, mirrorFiles, source, err := Describe(a, "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("Describe: %v", err)
 	}
-	wantSource, err := ResolveConfigSource(a)
+	wantSource, err := resolveConfigSource(a)
 	if err != nil {
 		t.Fatalf("ResolveConfigSource: %v", err)
 	}
-	if source != wantSource {
+	if !reflect.DeepEqual(source, wantSource) {
 		t.Errorf("Describe source = %+v, want the resolved source %+v", source, wantSource)
 	}
 	if len(merged) == 0 {
@@ -1790,7 +1829,7 @@ func TestBuildMergedConfigNoMergerYieldsEmpty(t *testing.T) {
 		snippetPattern: "opencode*.json*",
 		vmConfigPath:   "/home/dev/.config/opencode/opencode.jsonc",
 	}
-	got, err := subject.buildMergedConfig(ConfigSource{UserDir: dir})
+	got, err := subject.buildMergedConfig(ConfigSource{UserDirs: []string{dir}})
 	if err != nil {
 		t.Fatalf("buildMergedConfig: %v", err)
 	}
@@ -1806,7 +1845,7 @@ func TestBuildMirrorNoMergerYieldsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	testutil.WriteFile(t, dir, "tui.json", `{"theme":"dark"}`)
 
-	mirror := configSubject{}.buildMirror(ConfigSource{UserDir: dir})
+	mirror := configSubject{}.buildMirror(ConfigSource{UserDirs: []string{dir}})
 	if len(mirror) != 0 {
 		t.Errorf("buildMirror without a merger = %v, want no entries", mirror)
 	}
@@ -1818,7 +1857,7 @@ func TestMirrorFilesFromConfigNoMergerYieldsEmpty(t *testing.T) {
 	dir := t.TempDir()
 	testutil.WriteFile(t, dir, "tui.json", `{"theme":"dark"}`)
 
-	files := configSubject{}.mirrorFilesFromConfig(ConfigSource{UserDir: dir})
+	files := configSubject{}.mirrorFilesFromConfig(ConfigSource{UserDirs: []string{dir}})
 	if len(files) != 0 {
 		t.Errorf("mirrorFilesFromConfig without a merger = %v, want none", files)
 	}
@@ -1978,5 +2017,108 @@ func TestAgentConfigEqualEmptyMirrorFileMustExist(t *testing.T) {
 	cf := &ConfigFiles{Mirror: map[string][]byte{"/home/dev/.config/opencode/empty.json": {}}}
 	if AgentConfigEqual(cf, map[string][]byte{}) {
 		t.Error("AgentConfigEqual = true, want false when an empty mirror file is missing in the VM")
+	}
+}
+
+// TestResolveConfigSourceOneNamespaceAcrossScopes pins the global namespace
+// decision: a per-slug primary dir wins over a generic legacy dir, and the chosen
+// primary namespace applies to every scope (the generic legacy dir is dropped).
+func TestResolveConfigSourceOneNamespaceAcrossScopes(t *testing.T) {
+	generic := t.TempDir()
+	perSlug := t.TempDir()
+	project := t.TempDir()
+	if err := os.Mkdir(filepath.Join(generic, "opencode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(perSlug, "opencode2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scopes := []configpaths.ConfigScope{
+		{Kind: configpaths.ScopeGenericUser, Dir: generic},
+		{Kind: configpaths.ScopePerSlugUser, Dir: perSlug},
+		{Kind: configpaths.ScopeProject, Dir: project},
+	}
+
+	a, _ := agent.Lookup("opencode2")
+	src, err := ResolveConfigSource(a, scopes)
+	if err != nil {
+		t.Fatalf("ResolveConfigSource: %v", err)
+	}
+	if src.Fallback != "" {
+		t.Errorf("Fallback = %q, want empty (the primary namespace wins globally)", src.Fallback)
+	}
+	wantUserDirs := []string{
+		filepath.Join(generic, "opencode2"),
+		filepath.Join(perSlug, "opencode2"),
+	}
+	if !slices.Equal(src.UserDirs, wantUserDirs) {
+		t.Errorf("UserDirs = %v, want %v", src.UserDirs, wantUserDirs)
+	}
+	if want := filepath.Join(project, "opencode2"); src.ProjectDir != want {
+		t.Errorf("ProjectDir = %q, want %q", src.ProjectDir, want)
+	}
+}
+
+// TestResolveConfigSourceFallbackWarningNamesLegacy pins that a legacy namespace
+// found in any scope selects that namespace for every scope and that the scope
+// description names the legacy dir actually read.
+func TestResolveConfigSourceFallbackWarningNamesLegacy(t *testing.T) {
+	generic := t.TempDir()
+	perSlug := t.TempDir()
+	project := t.TempDir()
+	legacy := filepath.Join(generic, "opencode")
+	if err := os.Mkdir(legacy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scopes := []configpaths.ConfigScope{
+		{Kind: configpaths.ScopeGenericUser, Dir: generic},
+		{Kind: configpaths.ScopePerSlugUser, Dir: perSlug},
+		{Kind: configpaths.ScopeProject, Dir: project},
+	}
+
+	a, _ := agent.Lookup("opencode2")
+	src, err := ResolveConfigSource(a, scopes)
+	if err != nil {
+		t.Fatalf("ResolveConfigSource: %v", err)
+	}
+	if src.Fallback != "opencode" {
+		t.Errorf("Fallback = %q, want opencode", src.Fallback)
+	}
+	described := describeConfigScopes(src.UserDirs, src.ProjectDir, true)
+	if !strings.Contains(described, legacy) {
+		t.Errorf("describeConfigScopes = %q, want the legacy dir %q", described, legacy)
+	}
+}
+
+// TestResolveConfigSourceDegradesWhenCwdUnreadable pins the graceful degrade:
+// a relative project scope dir whose Abs resolution fails (the CWD cannot be
+// read) must be kept as-is rather than aborting resolution, mirroring
+// ProjectConfigDirAbs.
+func TestResolveConfigSourceDegradesWhenCwdUnreadable(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	generic := t.TempDir()
+	if err := os.Mkdir(filepath.Join(generic, "opencode2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	scopes := []configpaths.ConfigScope{
+		{Kind: configpaths.ScopeGenericUser, Dir: generic},
+		{Kind: configpaths.ScopeProject, Dir: ".agents-sandbox"},
+	}
+
+	a, _ := agent.Lookup("opencode2")
+	src, err := ResolveConfigSource(a, scopes)
+	if err != nil {
+		t.Fatalf("ResolveConfigSource: %v", err)
+	}
+	if want := filepath.Join(".agents-sandbox", "opencode2"); src.ProjectDir != want {
+		t.Errorf("ProjectDir = %q, want the relative candidate %q", src.ProjectDir, want)
+	}
+	if src.Fallback != "" {
+		t.Errorf("Fallback = %q, want empty (the primary user dir exists)", src.Fallback)
 	}
 }

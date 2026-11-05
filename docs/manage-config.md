@@ -55,6 +55,11 @@ ANTHROPIC_API_KEY:
 
 Then reference it in your config with `{env:ANTHROPIC_API_KEY}` (opencode) instead of the literal key.
 
+For keys that are specific to one project rather than every project, put them in the per-slug secrets file
+`~/.config/agents-sandbox/<slug>/env.secret.yaml` (slug = the project's repo slug, so every clone of one remote shares
+the file). It merges after the generic user file and before the project's, and keeps the keys off the committed project
+config.
+
 ## 4. Provision files and hooks
 
 Map dotfiles and startup hooks into the VM home — see

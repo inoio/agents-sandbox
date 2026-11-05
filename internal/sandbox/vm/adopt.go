@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -556,7 +557,8 @@ func destroyLegacyVM(ctx context.Context, client msb.Client, repoKey state.Key, 
 // now. It only applies to a legacy identity that is not already the repo slug (a
 // bare root's path-derived slug); a source whose slug is the repo slug already
 // reads the right directory. An absent legacy directory, or an existing target,
-// is left alone.
+// is left alone; reportKeptLegacyConfigDir explains a left-behind legacy dir
+// holding a launcher config (#578).
 func migrateLegacyConfigDirs(paths configpaths.ConfigPaths, identity git.Identity, ui termio.Logger) error {
 	for _, slug := range identity.LegacyRepoSlugs {
 		if slug == identity.RepoSlug {
@@ -568,7 +570,7 @@ func migrateLegacyConfigDirs(paths configpaths.ConfigPaths, identity git.Identit
 			continue
 		}
 		if _, err := os.Stat(to); err == nil {
-			ui.Verbosef("kept existing config dir %s; legacy config dir %s left in place", to, from)
+			reportKeptLegacyConfigDir(from, to, identity.RepoSlug, ui)
 			continue
 		}
 		if err := renameConfigDir(from, to); err != nil {
@@ -577,6 +579,33 @@ func migrateLegacyConfigDirs(paths configpaths.ConfigPaths, identity git.Identit
 		ui.Verbosef("moved legacy config dir %s to %s", from, to)
 	}
 	return nil
+}
+
+// reportKeptLegacyConfigDir reports a legacy config dir left in place because
+// the repo-slug target already exists. A legacy launcher config is stranded,
+// and warned about, only when the repo-slug dir actually takes over: a per-slug
+// input under the target (a config file, a secret file or an agent dir) selects
+// the repo slug and shadows the config. An empty target leaves the launcher
+// reading the legacy slug, so its config stays active and is reported as such;
+// a legacy dir without a launcher config is only a verbose note.
+func reportKeptLegacyConfigDir(from, to, repoSlug string, ui termio.Logger) {
+	if _, _, present := configpaths.FindConfigFile(from); !present {
+		ui.Verbosef("kept existing config dir %s; legacy config dir %s left in place", to, from)
+		return
+	}
+	if reprovision.SlugHasUserInputs(repoSlug) {
+		ui.Warnf(
+			"legacy config dir %s left in place: target %s already exists and its launcher config is no longer read",
+			from,
+			to,
+		)
+		return
+	}
+	ui.Warnf(
+		"legacy config dir %s left in place: target %s already exists but holds no per-slug input, so the legacy launcher config is still read",
+		from,
+		to,
+	)
 }
 
 // adoptionNotice renders the whole migration notice as one block: a headline,

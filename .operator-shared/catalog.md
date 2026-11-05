@@ -95,6 +95,9 @@
 - `config-paths-seam.md`
   - Description: Contract for the `internal/configpaths.ConfigPaths` seam: every host path (including `UserHomeDir`) resolves through it, guest VM paths deliberately do not, and the deliberate exceptions (mounts `~/` sources, docker `~/.docker`); the per-agent config-dir accessors return an error for a profile whose config-dir name is not a single path element, and reprovision propagates it at the resolution boundary.
   - Read If: Adding a `ConfigPaths` method or a new host path; changing `MSBHome`/`FindConfigFile`/the per-agent config-dir accessors; or writing a test that must not touch the real home (`WithMockConfigPaths`).
+- `per-slug-config-scopes.md`
+  - Description: Contract for the single ordered config-scope authority (#578): `configpaths.ConfigScope`/`ConfigScopes` is the one ordered list of file-based config dirs (generic user, per-slug user, project) that the launcher config file, env/secret files, `home:` sources, agent config dirs, and (via `RunOptions.ConfigSlug`) the run path all derive from; the one-global-choice agent config namespace rule across the three scopes, and the rule that slug selection treats a per-slug dir as populated by any per-slug user input.
+  - Read If: Changing config-scope order or precedence, per-slug user config, `configpaths.ConfigScopes`, `viperconfig.ConfigLayers`, `envsecret.LoadEnvAndSecrets`, `homeconfig` layer loading, `reprovision.ResolveConfigSource`, or a file-based config input; or diagnosing a per-slug user file that is silently ignored.
 - `config-key-registry.md`
   - Description: Contract for the derived launcher config-key registry: env/flag key sets computed from the `Config` struct's mapstructure tags (so they cannot drift), `env:"-"` = config-file-only, `dind` as the one env-only key with no field, flags discovered by name, and the flag default type taken from the owning field's Go kind.
   - Read If: Adding or changing a launcher config key, its env var, or its CLI flag; or diagnosing a silently ignored env/config value, a config-file-only key, or `flagTypedDefault`'s type.
@@ -248,3 +251,6 @@
 - `2026-11-04-vm-memory-limit-proposal.md`
   - Description: Phase 1 TDD plan for `specs/resource-limit-proposal.md` (#544, memory only): the `msb` `Metrics`/`Logs` seam, the `internal/sandbox/pressure` classifier, the `HomeState` marker, the session metrics watcher, terminal reset, the format-preserving config writer, the `resourceproposal` prompt/persist, the above-boot-max recreate rule, and the next-launch + post-attach hooks. Disk is a separate Phase 2 plan.
   - Read If: Implementing the memory-limit detection and raise proposal (#544) — `pressure`, `resourceproposal`, `session.pressureWatch`, or the `prepare.resolveReconfigDecision` memory hook.
+- `2026-11-05-per-slug-config-scopes.md`
+  - Description: TDD plan for `specs/per-slug-config-scopes.md` (#578): the `configpaths.ConfigScope` authority, slug on `RunOptions`, and deriving the launcher config file, env/secret files, `home:` layers, and agent config dirs from the scopes across 9 tasks.
+  - Read If: Implementing per-slug config-scope parity (#578).

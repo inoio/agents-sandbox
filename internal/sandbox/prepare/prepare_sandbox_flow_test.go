@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -20,7 +21,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
-	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
@@ -236,6 +236,78 @@ func TestPrepareSandboxRecordsTheOfferedUpgradeOnAFreshProject(t *testing.T) {
 	}
 	if !hs.Offered("2.0.0") {
 		t.Errorf("offered versions = %v, want 2.0.0 recorded", hs.OfferedVersions)
+	}
+}
+
+// TestPrepareSandboxRecomputesConfigSlugAfterAdoption pins the P1 fix: a bare
+// root's per-slug config dir is renamed onto the repo slug during
+// resolve-identity, so a ConfigSlug resolved before adoption (the CLI boundary's
+// legacy slug) is stale. The later readers must recompute it, or the user's env,
+// secrets, home files and agent config are silently skipped on the migration
+// run. The per-slug env file is the observable: it feeds the env fingerprint
+// persisted on VM creation.
+func TestPrepareSandboxRecomputesConfigSlugAfterAdoption(t *testing.T) {
+	origin := testutil.InitRepo(t)
+	root := t.TempDir()
+	testutil.RunGit(t, root, "clone", "--bare", origin, ".git")
+	testutil.RunGit(t, filepath.Join(root, ".git"), "worktree", "add", filepath.Join(root, "main"))
+
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	configpaths.WithRealConfigPaths(t)
+	t.Chdir(root)
+
+	identity := mustIdentity(t, ".")
+	if len(identity.LegacyRepoSlugs) == 0 {
+		t.Fatal("bare root must record a legacy config slug")
+	}
+	// The CLI resolves the config slug before adoption, while only the legacy
+	// dir holds inputs, so it passes the legacy slug into the run.
+	legacySlug := identity.LegacyRepoSlugs[0]
+	legacyDir := configpaths.Get().UserSlugConfigDir(legacySlug)
+	if err := os.MkdirAll(legacyDir, 0o700); err != nil {
+		t.Fatalf("mkdir legacy config dir: %v", err)
+	}
+	testutil.WriteFile(t, legacyDir, configpaths.EnvFileName, "FOO=bar\n")
+
+	installPrepareSandboxDockerMock(t)
+	installPrepareSandboxMSBMock(t)
+
+	// A legacy state file makes adoption pending: its state and config dir move
+	// onto the checkout/repo identity before the config readers run.
+	if err := seedHomeState(state.Key{Slug: legacySlug, Agent: "opencode"}, state.HomeState{
+		HomeVolume:   "home-vol",
+		ImageDigest:  "sha256:abc123",
+		AgentVersion: "1.0.0",
+		AgentSource:  state.AgentSourceTool,
+	}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+
+	ui := termio.NewTestMock(t)
+	sess, err := PrepareSandbox(
+		context.Background(),
+		sandboxRunOptions(t, options.RunOptions{Agent: "opencode", ConfigSlug: legacySlug}),
+		false,
+		&ui,
+	)
+	if err != nil {
+		t.Fatalf("PrepareSandbox: %v", err)
+	}
+	defer sess.Cleanup()
+
+	hs, err := state.ReadState(state.Key{Slug: identity.CheckoutSlug, Agent: "opencode"})
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if !slices.Contains(hs.EnvState.Names, "FOO") {
+		t.Errorf(
+			"env fingerprint names = %v, want FOO read from the adopted repo-slug config dir",
+			hs.EnvState.Names,
+		)
 	}
 }
 
@@ -1083,7 +1155,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 
 	opts := options.RunOptions{Agent: "opencode", TmpSize: "2G"}
 	seedUI := termio.NewTestMock(t)
-	fingerprints := desiredFingerprints(opts, envsecret.LoadEnvAndSecrets(&seedUI, nil))
+	_, fingerprints := loadEnvFingerprints(opts, &seedUI)
 	if err := seedHomeState(k, state.HomeState{
 		HomeVolume:   "home-vol",
 		ImageDigest:  "sha256:abc123",
@@ -2369,5 +2441,32 @@ func TestPrepareSandboxServeOnlyPortExhausted(t *testing.T) {
 		t.Fatal("expected PrepareSandbox to fail when no free serve host port remains")
 	} else if !strings.Contains(err.Error(), "no free host port") {
 		t.Errorf("error = %v, want it to mention no free host port", err)
+	}
+}
+
+// TestDesiredFingerprintsUnchangedWithoutPerSlugFiles pins the no-spurious-
+// recreate guarantee: putting the slug in the scope chain while the per-slug dir
+// holds no env/secret files leaves the env and secret fingerprints unchanged.
+func TestDesiredFingerprintsUnchangedWithoutPerSlugFiles(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	scopes := configpaths.ConfigScopes(configpaths.Get(), "")
+	testutil.WriteFile(t, scopes[0].Dir, configpaths.EnvFileName, "A=generic\n")
+	testutil.WriteFile(t, scopes[1].Dir, configpaths.EnvFileName, "B=project\n")
+	testutil.WriteFile(t, scopes[0].Dir, configpaths.EnvSecretFileName, "TOKEN=value@user.example\n")
+	testutil.WriteFile(t, scopes[1].Dir, configpaths.EnvSecretFileName, "OTHER=value@project.example\n")
+
+	ui := termio.NewTestMock(t)
+	_, generic := loadEnvFingerprints(options.RunOptions{}, &ui)
+	_, withSlug := loadEnvFingerprints(options.RunOptions{ConfigSlug: "widget-bbb"}, &ui)
+
+	if !reflect.DeepEqual(generic.Env, withSlug.Env) {
+		t.Errorf("env fingerprint changed with an absent per-slug env file: %#v vs %#v", generic.Env, withSlug.Env)
+	}
+	if !reflect.DeepEqual(generic.Secret, withSlug.Secret) {
+		t.Errorf(
+			"secret fingerprint changed with absent per-slug secret files: %#v vs %#v",
+			generic.Secret,
+			withSlug.Secret,
+		)
 	}
 }

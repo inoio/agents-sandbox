@@ -13,15 +13,8 @@ type ConfigPaths interface {
 	UserDataDir() string
 	UserHomeDir() (string, error)
 
-	UserEnvFile() string
-	UserEnvSecretFile() string
-	UserEnvSecretYAMLFile() string
-
 	ProjectConfigDir() string
 	ProjectConfigDirAbs() string
-	ProjectEnvFile() string
-	ProjectEnvSecretFile() string
-	ProjectEnvSecretYAMLFile() string
 	ProjectDockerfile() string
 	IgnoredWorktreeConfigDir() string
 }
@@ -115,21 +108,6 @@ func (c *realConfigPaths) ProjectConfigDirAbs() string {
 	return filepath.Join(cwd, base)
 }
 
-// UserEnvFile returns the user-level environment definitions file.
-func (c *realConfigPaths) UserEnvFile() string {
-	return filepath.Join(c.UserConfigDir(), envFileName)
-}
-
-// UserEnvSecretFile returns the user-level secret environment definitions file.
-func (c *realConfigPaths) UserEnvSecretFile() string {
-	return filepath.Join(c.UserConfigDir(), envSecretFileName)
-}
-
-// UserEnvSecretYAMLFile returns the user-level structured secret file.
-func (c *realConfigPaths) UserEnvSecretYAMLFile() string {
-	return filepath.Join(c.UserConfigDir(), envSecretYAMLFileName)
-}
-
 // Shared names for config subdirectories and files, used by both the
 // project-local and the user-level config path helpers.
 const (
@@ -144,27 +122,12 @@ const (
 )
 
 const (
-	envFileName       = EnvFileName
-	envSecretFileName = EnvSecretFileName
-	dockerfileName    = DockerFileName
+	dockerfileName = DockerFileName
 )
 
 // ProjectDockerfile returns the project Dockerfile path.
 func (c *realConfigPaths) ProjectDockerfile() string {
 	return filepath.Join(c.projectConfigBase(), dockerfileName)
-}
-
-func (c *realConfigPaths) ProjectEnvFile() string {
-	return filepath.Join(c.projectConfigBase(), envFileName)
-}
-
-func (c *realConfigPaths) ProjectEnvSecretFile() string {
-	return filepath.Join(c.projectConfigBase(), envSecretFileName)
-}
-
-// ProjectEnvSecretYAMLFile returns the project-level structured secret file.
-func (c *realConfigPaths) ProjectEnvSecretYAMLFile() string {
-	return filepath.Join(c.ProjectConfigDir(), envSecretYAMLFileName)
 }
 
 // IgnoredWorktreeConfigDir returns the worktree-level .agents-sandbox that a
