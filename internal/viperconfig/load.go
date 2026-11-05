@@ -38,19 +38,18 @@ func ConfigLayers(paths configpaths.ConfigPaths, slug string) []ConfigLayer {
 	return layers
 }
 
+// scopeLayerNames maps each config scope kind to its config-file layer name.
+// The map is exhaustive over ScopeKind, so a lookup cannot produce an unknown
+// name for a kind ConfigScopes emits.
+var scopeLayerNames = map[configpaths.ScopeKind]string{
+	configpaths.ScopeGenericUser: LayerNameGenericUserConfig,
+	configpaths.ScopePerSlugUser: LayerNamePerSlugUserConfig,
+	configpaths.ScopeProject:     LayerNameProjectConfig,
+}
+
 // layerNameForScope maps a config scope kind to its config-file layer name.
 func layerNameForScope(kind configpaths.ScopeKind) string {
-	switch kind {
-	case configpaths.ScopeGenericUser:
-		return LayerNameGenericUserConfig
-	case configpaths.ScopePerSlugUser:
-		return LayerNamePerSlugUserConfig
-	case configpaths.ScopeProject:
-		return LayerNameProjectConfig
-	default:
-		// gomutants:disable-next-line RETURN_ZERO reason="the three scope kinds are the closed set ConfigScopes produces, so no other value reaches the default"
-		return ""
-	}
+	return scopeLayerNames[kind]
 }
 
 // fileLayer reports the directory of a config-file layer and whether a config
