@@ -126,8 +126,8 @@ asserting `CreateVolume`/`ImageBuild` are absent from the mock call history.
 
 ### `volume <name> --dry-run`
 
-`volume migrate/reset/edit --dry-run` must honour the same flag contract. `prepareVolumeOp` returns early under
-`--dry-run` (before `image.EnsureImage`), because the dry-run message needs only the state-derived old volume, not the
+`volume migrate/reset/edit --dry-run` must honour the same flag contract. The shared `adoptAndPrepareImage` (used by
+the volume ops and `build`) returns right after adoption under `--dry-run`, before the image operation runs, because the dry-run message needs only the state-derived old volume, not the
 image info, and the volume op already tolerates a zero `image.ImageInfo`. Tests cover that `--dry-run` performs no
 `ImageInspect`/`ImageBuild` and still reports the would-do message.
 
