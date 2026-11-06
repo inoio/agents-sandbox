@@ -16,7 +16,7 @@
 
 - `0001-yaml-handling.md`
   - Description: Decision to adopt `oneyaml.dev/go` for the config write path (`viperconfig.WriteSetting`), replacing the hand-rolled byte-splice editor, with `goccy/go-yaml` rejected (lossy emitter) and `go.yaml.in/yaml/v3` kept as the read/serialize library; and to cap every untrusted config/secret/snippet read at 16 MiB via `internal/configread` (JSON5 kept, its unbounded nesting depth accepted as a residual).
-  - Read If: Changing `viperconfig.WriteSetting` or the YAML edit path; evaluating `goccy/go-yaml` or `oneyaml.dev/go`; touching the size bound on untrusted config/env/secret/snippet reads (`internal/configread`); or deciding whether to migrate the owner scan or the JSON5 depth handling.
+  - Read If: Changing `viperconfig.WriteSetting` or the YAML edit path; evaluating `goccy/go-yaml` or `oneyaml.dev/go`; touching the size bound on untrusted config/env/secret/snippet reads (`internal/configread`); or questioning why the owner scan stays on yaml.v3 or how to bound the JSON5 handling.
 - `TEMPLATE.md`
   - Description: Template for an ADR in this directory (Context / Options / Decision / Consequences).
   - Read If: Writing a new ADR.

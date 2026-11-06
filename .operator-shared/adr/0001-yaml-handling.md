@@ -1,6 +1,6 @@
 ---
 description: Decision record for YAML handling — adopt `oneyaml.dev/go` for the config write path (`viperconfig.WriteSetting`), replacing the hand-rolled byte-splice editor with a library whose `Set`/`Bytes` preserve every untouched byte and comment; `goccy/go-yaml` is rejected (lossy emitter), `go.yaml.in/yaml/v3` stays the repo's parse/serialize library, and the parse-size bounds and the `titanous/json5` depth gap are left as follow-ups.
-read_if: Changing `viperconfig.WriteSetting` or the YAML edit path; evaluating `goccy/go-yaml` or `oneyaml.dev/go`; touching the parse bounds on untrusted config/env/secret/snippet files; or deciding whether to migrate the owner scan or the JSON5 handling.
+read_if: Changing `viperconfig.WriteSetting` or the YAML edit path; evaluating `goccy/go-yaml` or `oneyaml.dev/go`; touching the parse bounds on untrusted config/env/secret/snippet files; questioning whether the owner scan should move to oneyaml; or deciding how to bound the JSON5 handling.
 ---
 
 # YAML handling
@@ -76,15 +76,24 @@ A second decision was taken alongside the library choice: bound the untrusted re
   scalar, and document counts are unbounded.
 - Adopting the library accepts its maturity as a known risk (at adoption: single author, weeks old, no
   visible adoption, unsigned release). Its licence is dual Apache-2.0 OR MIT.
-- `go.yaml.in/yaml/v3` stays: the read path (viper) and the owner scan still use it, so two parsers
-  coexist until a separate migration.
+- `go.yaml.in/yaml/v3` (with `titanous/json5` and `encoding/json`) stays on the read path and the owner
+  scan, so two parsers coexist: `oneyaml` owns the write path only.
 - A future change to the write path must preserve the byte-and-comment contract or amend this ADR.
 - Every untrusted config, secret and snippet read must go through `configread.ReadFile`; a new read site
   that calls `os.ReadFile` directly re-opens the unbounded-size vector.
 
+### Non-goals
+
+- **The owner scan (`LayerSettingOwner` → `readLayerValues`) stays on yaml.v3/json5/json; migrating it to
+  oneyaml is not planned.** It is a read path with no byte contract, it parses three formats (oneyaml is a
+  YAML document API, so it would not even unify them), and it resolves keys case-insensitively through a
+  `map[string]any` walk that oneyaml's case-sensitive pointers would have to rebuild. Migrating it would add
+  code and change owner-resolution semantics for no benefit. The scan and the editor therefore no longer
+  share a parser: a YAML file the scan accepts but oneyaml rejects surfaces as a `WriteSetting` error from
+  `PersistMemory` (an error path, never a shadowed write), and the scan's skip-unparseable-layer guard
+  covers the reverse.
+
 ### Follow-ups
 
-- The owner scan (`LayerSettingOwner` → `readLayerValues`) still parses with yaml.v3; migrating it to
-  oneyaml would change owner-resolution key semantics and is a separate decision.
 - `titanous/json5`'s unbounded nesting depth is mitigated only in size by the input cap; a nesting guard
   for JSON5 config remains open.
