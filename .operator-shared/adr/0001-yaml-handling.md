@@ -1,6 +1,6 @@
 ---
-description: Decision record for YAML handling — adopt `oneyaml.dev/go` for the config write path (`viperconfig.WriteSetting`), replacing the hand-rolled byte-splice editor with a library whose `Set`/`Bytes` preserve every untouched byte and comment; `goccy/go-yaml` is rejected (lossy emitter), `go.yaml.in/yaml/v3` stays the repo's parse/serialize library, and the parse-size bounds and the `titanous/json5` depth gap are left as follow-ups.
-read_if: Changing `viperconfig.WriteSetting` or the YAML edit path; evaluating `goccy/go-yaml` or `oneyaml.dev/go`; touching the parse bounds on untrusted config/env/secret/snippet files; questioning whether the owner scan should move to oneyaml; or deciding how to bound the JSON5 handling.
+description: Decision record for the config write path (`oneyaml.dev/go` over `goccy/go-yaml`) and the 16 MiB cap on untrusted config/secret/snippet reads.
+read_if: Changing `viperconfig.WriteSetting`, the YAML edit path, or untrusted config/secret read bounds; or evaluating oneyaml vs goccy.
 ---
 
 # YAML handling
