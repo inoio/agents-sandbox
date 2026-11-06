@@ -189,10 +189,19 @@ seam family is reached without its injectable factory. The remaining ambient pat
   `InstallFailFast` panic by default (tests opt in by overriding it); the temp WAV still goes to the real `os.TempDir`.
 - `os.Getuid`/`Getgid` (image build args), `os.Getwd` (workspace source), `time.Now` (names/polling/spinner), and
   `viperconfig`'s env reads are read-only or the input itself, not leaks.
-- The real `git` binary: `internal/git` tests and `testutil.RunGit` shell out to it, so it reads the developer's global
-  and system config. A test that asserts on git-generated artifacts must pin the config it depends on in its own
-  fixture — a linked worktree's recorded gitdir is absolute only while `worktree.useRelativePaths` is false, and CI on a
-  plain clone never exercises a developer's global setting (`TestResolveIdentityOutsideWorktreeReportsSharedGitDir`).
+- The real `git` binary: tests that generate git artifacts — `internal/git`, `testutil.RunGit`, the bare-checkout CLI
+  tests, and the prepare outside-worktree flows — live behind the `integration` build tag in `<unit>_integration_test.go`,
+  so the default `go test ./...` executes no external command. `testutil.RunGit` also runs git with the developer's
+  global and system config neutralized (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, no askpass programs), so
+  a fixture commit can never reach commit signing or pop an askpass GUI (ksshaskpass). `TestUntaggedTestsExecuteNoAmbientTool`
+  (`real_command_contract_test.go`) enforces the split in the default suite: it walks every `_test.go` the default build
+  compiles and fails if one calls `testutil.RunGit`/`ConfigureRepo` or execs an ambient tool (`git`, `ssh`, `gpg`, `gh`,
+  `docker`, `msb`) directly — a shell interpreter is allowed. A test that asserts on a
+  git-generated artifact still pins the setting it depends on in its own fixture — a linked worktree's recorded gitdir is
+  absolute only while `worktree.useRelativePaths` is false, and CI on a plain clone never exercises a developer's global
+  setting (`TestResolveIdentityOutsideWorktreeReportsSharedGitDir`). Because those tests are `integration`-tagged they are
+  outside the default coverage profile, so the test-support file `testgit.go` is excluded from the Codecov gate
+  (`.codecov.yml`); its pure `gitIsolationEnvironment` is unit-tested in `testgit_test.go`.
 
 `agent` and `filewalk` install every fail-fast family except `notify` (which imports both, so it cannot be installed
 from them). Keep any future host-path need in them injected, never global.
