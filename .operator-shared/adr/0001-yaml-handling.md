@@ -19,7 +19,7 @@ edit: parse into a `yaml.Node` tree, splice the value text with a read-back chec
 node-tree re-encode with `copyComments`, plus a case-folded key match and an anchored-value refusal —
 ~430 lines in `setting_writer.go`.
 
-The YAML parse/serialize library is fixed by `specs/yaml-library.md` (`go.yaml.in/yaml/v3`). The questions
+The YAML parse/serialize library is `go.yaml.in/yaml/v3` (see *The YAML dependency* below). The questions
 were whether a library could replace the hand-rolled editor, and whether the config parses are bounded on
 untrusted input.
 
@@ -53,6 +53,16 @@ untrusted input.
   pre-existing `internal/sandbox/session` failures that also fail on the untouched baseline.
 - `setting_writer.go` is ~292 lines (was ~432). A library cannot remove the surrounding atomic-write,
   symlink, file-mode and non-YAML-refusal logic.
+
+### The YAML dependency
+
+- Every YAML parse and serialize goes through `go.yaml.in/yaml/v3` (the maintained continuation of go-yaml);
+  `gopkg.in/yaml.v3` is never imported directly. It still resolves as an indirect *test* dependency of
+  `go-git` via `gomega`, so it stays in `go.sum`; that is not a licence to import it.
+- Why: `gopkg.in/yaml.v3` v3.0.1's emitter corrupts a string with a single leading newline on marshal
+  (`home_volume: |4-` followed by the content), dropping the leading blank line so a re-read differs; the
+  maintained fork (v3.0.4+) round-trips. The crasher (`home_volume: >\n\n 0`) is the fuzz seed
+  `internal/sandbox/state/testdata/fuzz/FuzzParseState/79cbe6941173cc3b`, run under `make test`.
 
 ### Parse bounds — a shared input-size cap
 

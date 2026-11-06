@@ -15,8 +15,8 @@
 ### `adr/` - Architecture decision records
 
 - `0001-yaml-handling.md`
-  - Description: Decision to adopt `oneyaml.dev/go` for the config write path (`viperconfig.WriteSetting`) and cap untrusted config/secret/snippet reads at 16 MiB (`internal/configread`); `goccy/go-yaml` rejected, yaml.v3 kept for reads, the owner scan and JSON5 depth recorded.
-  - Read If: Changing `viperconfig.WriteSetting`, the YAML edit path, or the `configread` bound; or evaluating oneyaml vs goccy.
+  - Description: Decision to adopt `oneyaml.dev/go` for the config write path (`viperconfig.WriteSetting`) and cap untrusted config/secret/snippet reads at 16 MiB (`internal/configread`); `goccy/go-yaml` rejected, `go.yaml.in/yaml/v3` (never `gopkg.in/yaml.v3`) kept for reads, the owner scan and JSON5 depth recorded.
+  - Read If: Changing `viperconfig.WriteSetting`, the YAML edit path, or the `configread` bound; evaluating oneyaml vs goccy; touching `go.mod`'s YAML dependency; or triaging a `FuzzParseState` serialization-stability failure.
 - `TEMPLATE.md`
   - Description: Template for an ADR in this directory (Context / Options / Decision / Consequences).
   - Read If: Writing a new ADR.
@@ -251,9 +251,6 @@
 - `vm-idle-timeout-default.md`
   - Description: Contract for the single VM idle-timeout default: it lives only in `options.DefaultVMIdleTimeout`, the config layer carries `auto-stop-timeout` as-is with no fallback, the VM lifecycle applies the default (required because the SDK treats zero as unlimited), and the documented 10s value is that constant (#365).
   - Read If: Changing the idle timeout default, `Config.AutoStopTimeout`, `RunOptions.IdleTimeout`, `runoptions.Build`, or the VM lifecycle's `WithIdleTimeout` wiring; or diagnosing a VM that never idles out.
-- `yaml-library.md`
-  - Description: Contract for the YAML dependency: every parse/serialize goes through the maintained `go.yaml.in/yaml/v3`, never `gopkg.in/yaml.v3` v3.0.1, whose emitter drops a leading blank line on marshal.
-  - Read If: Adding a YAML parse/serialize path, touching `go.mod`'s YAML dependency, or triaging a `FuzzParseState` serialization-stability failure.
 - `resource-limit-proposal.md`
   - Description: Contract for detecting a project VM resource-limit hit and prompting a raise: memory OOM via the guest kernel-log line (primary) with a metrics-headroom fallback watched during the session, the 90%/1 GiB threshold and 80% re-arm, the `HomeState` anti-nag marker with an answer-identity guard, persistence to the owning config layer (project config when it would shadow, error on an env override) through a symlink-preserving, anchor-safe writer, the async live memory apply and the memory-above-boot-max recreate, terminal reset after the attach, and the `/workspace`+`/tmp` in-guest probe with recreate-only apply (disk Phase 2).
   - Read If: Working on the OOM/limit-hit detector or raise proposal, the `pressure`/`resourceproposal` packages, the `msb.Sandbox.Metrics`/`Logs` seam, per-project `memory` persistence, or the automatic terminal reset after an attach.
