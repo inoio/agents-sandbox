@@ -4,12 +4,12 @@ package envsecret
 
 import (
 	"maps"
-	"os"
 	"strings"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	cp "github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -43,7 +43,7 @@ func parseKeyValueLines(data string, onLine func(key, value string) error) error
 // variable name is skipped with a warning, because the VM refuses to boot with
 // an empty env name.
 func BuildEnvMap(filename string, ui termio.Logger) map[string]string {
-	data, err := os.ReadFile(filename)
+	data, err := configread.ReadFile(filename)
 	if err != nil {
 		return nil
 	}

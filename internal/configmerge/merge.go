@@ -20,6 +20,7 @@ import (
 	"github.com/titanous/json5"
 	"go.yaml.in/yaml/v3"
 
+	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/filewalk"
 )
 
@@ -118,7 +119,7 @@ func scanSnippets(dirs []string, pattern string) (map[string]any, []string) {
 				continue
 			}
 			snippetPath := filepath.Join(dir, entry.Name())
-			data, err := os.ReadFile(snippetPath)
+			data, err := configread.ReadFile(snippetPath)
 			if err != nil {
 				continue
 			}

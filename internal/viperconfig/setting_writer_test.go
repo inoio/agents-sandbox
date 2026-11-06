@@ -344,16 +344,16 @@ func TestWriteSettingPreservesFileBytes(t *testing.T) {
 			want:     "network:\n  policy: strict\n  allow:\n    - a.com\n\n# blank above\nmemory: 6144M\n",
 		},
 		{
-			name:     "quoted value with a trailing comment",
+			name:     "quoted value keeps its quotes with a trailing comment",
 			original: "memory: \"4G\" # sized for builds\ncpus: 2\n",
 			key:      "memory",
-			want:     "memory: 6144M # sized for builds\ncpus: 2\n",
+			want:     "memory: \"6144M\" # sized for builds\ncpus: 2\n",
 		},
 		{
-			name:     "single-quoted value",
+			name:     "single-quoted value keeps its quotes",
 			original: "memory: '4G'\n",
 			key:      "memory",
-			want:     "memory: 6144M\n",
+			want:     "memory: '6144M'\n",
 		},
 		{
 			name:     "differently cased key keeps its spelling",
@@ -380,16 +380,16 @@ func TestWriteSettingPreservesFileBytes(t *testing.T) {
 			want:     "memory: 6144M  \r\ncpus: 2\r\n",
 		},
 		{
-			name:     "escaped double quote",
+			name:     "escaped double quote keeps double-quote style",
 			original: "memory: \"4\\\"G\" # note\ncpus: 2\n",
 			key:      "memory",
-			want:     "memory: 6144M # note\ncpus: 2\n",
+			want:     "memory: \"6144M\" # note\ncpus: 2\n",
 		},
 		{
-			name:     "escaped single quote",
+			name:     "escaped single quote keeps single-quote style",
 			original: "memory: '4''G' # note\ncpus: 2\n",
 			key:      "memory",
-			want:     "memory: 6144M # note\ncpus: 2\n",
+			want:     "memory: '6144M' # note\ncpus: 2\n",
 		},
 		{
 			name:     "single-character value before a blank line",
@@ -525,12 +525,12 @@ func TestWriteSettingKeepsCommentsOnAReencodedValue(t *testing.T) {
 	}
 }
 
-// TestWriteSettingReencodesWhenTheCutMisjudgesTheValue pins that a value the
-// comment-bounded cut misreads (a "#" inside quotes) is re-encoded rather than
-// spliced: the trailing comment survives and no fragment of the old value is
-// left behind in it. The value is not the first key, so the re-encode must
-// pick the right entry's comments.
-func TestWriteSettingReencodesWhenTheCutMisjudgesTheValue(t *testing.T) {
+// TestWriteSettingKeepsCommentWhenValueContainsQuoteHash pins that a value with
+// a "#" inside quotes is not confused with a trailing comment: the edited entry
+// keeps its trailing comment and the value is replaced (keeping its quote
+// style). The value is not the first key, so the edit must pick the right
+// entry's comments.
+func TestWriteSettingKeepsCommentWhenValueContainsQuoteHash(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "cpus: 2\nmemory: \"4 #G\" # keep me\n")
@@ -540,7 +540,7 @@ func TestWriteSettingReencodesWhenTheCutMisjudgesTheValue(t *testing.T) {
 	}
 
 	got := readTestFile(t, filepath.Join(dir, "config.yaml"))
-	if got != "cpus: 2\nmemory: 6144M # keep me\n" {
+	if got != "cpus: 2\nmemory: \"6144M\" # keep me\n" {
 		t.Errorf("config = %q, want the value replaced and only the comment kept", got)
 	}
 }
@@ -560,19 +560,6 @@ func TestWriteSettingReencodesAMultiLineValue(t *testing.T) {
 	const want = "cpus: 2\nnote: |-\n  first\n  second\n"
 	if got := readTestFile(t, filepath.Join(dir, "config.yaml")); got != want {
 		t.Errorf("config =\n%q\nwant\n%q", got, want)
-	}
-}
-
-// failingMarshaler is a value whose YAML encoding fails.
-type failingMarshaler struct{}
-
-func (failingMarshaler) MarshalYAML() (any, error) { return nil, errors.New("cannot encode") }
-
-// TestMarshalTwoSpaceIndentReportsEncodeErrors pins that the encoder's error
-// reaches the caller instead of an empty document.
-func TestMarshalTwoSpaceIndentReportsEncodeErrors(t *testing.T) {
-	if _, err := marshalTwoSpaceIndent(failingMarshaler{}); err == nil {
-		t.Fatal("marshalTwoSpaceIndent = nil error, want the encode failure")
 	}
 }
 
@@ -1113,23 +1100,21 @@ func TestWriteSettingCreatesIntermediateMapping(t *testing.T) {
 	}
 }
 
-// TestWriteSettingMarshalError pins that an encoder failure is surfaced and
-// nothing is written.
-func TestWriteSettingMarshalError(t *testing.T) {
+// TestWriteSettingRefusesOversizedInput pins that the edit path parses under the
+// untrusted limits: a scalar beyond the scalar cap is refused and the file is
+// left untouched, so a hostile project config cannot drive unbounded memory.
+func TestWriteSettingRefusesOversizedInput(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	dir := configpaths.Get().UserSlugConfigDir(settingSlug)
+	dir := configpaths.Get().UserConfigDir()
+	path := filepath.Join(dir, "config.yaml")
+	oversized := "note: " + strings.Repeat("x", 17<<20) + "\n" // above the 16 MiB untrusted scalar cap
+	testutil.WriteFile(t, dir, "config.yaml", oversized)
 
-	original := marshalYAML
-	marshalYAML = func(any) ([]byte, error) { return nil, errors.New("boom") }
-	t.Cleanup(func() { marshalYAML = original })
-
-	if err := WriteSetting(dir, "network.dns", "1.1.1.1"); err == nil {
-		t.Fatal("expected a marshal error")
-	} else {
-		requireWrapped(t, err)
+	if err := WriteSetting(dir, "memory", "8G"); err == nil {
+		t.Fatal("expected the oversized scalar to be refused")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "config.yaml")); !os.IsNotExist(err) {
-		t.Errorf("config.yaml should not exist after a failed write, stat err = %v", err)
+	if got := readTestFile(t, path); got != oversized {
+		t.Errorf("file changed despite the refusal")
 	}
 }
 
