@@ -123,9 +123,8 @@ func warnRunningContainers(ctx context.Context, sb msb.Sandbox, ui termio.Logger
 }
 
 // waitQuiescent keeps the VM alive (keeper exec) and polls the provider's
-// session-status endpoint until no session is busy and no session is retrying
-// past the cutoff, or ctx is done. A client that reattaches during the wait
-// aborts it.
+// session-status endpoint until no session is busy and none is retrying below
+// the cap, or ctx is done. A client that reattaches during the wait aborts it.
 func waitQuiescent(
 	ctx context.Context,
 	k state.Key,
@@ -213,7 +212,8 @@ type sessionPoll struct {
 }
 
 // pollQuiescence reads the provider's session-status endpoint once and reports
-// how many sessions are busy and whether any retry session is stuck.
+// how many sessions are busy and how the sessions in retry classify against the
+// cap: none, below the cap, or at or over it.
 func pollQuiescence(
 	ctx context.Context,
 	sb msb.Sandbox,
