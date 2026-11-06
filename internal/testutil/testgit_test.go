@@ -2,47 +2,37 @@ package testutil
 
 import (
 	"os"
-	"strings"
+	"slices"
 	"testing"
 )
 
-// TestGitIsolationEnvironmentNeutralizesAmbientGitConfig pins the env RunGit
-// hands git: the developer's global/system config and askpass programs are
-// dropped and replaced with non-interactive defaults, so a fixture commit can
-// never reach a signing or credential prompt. The real-git behaviour is pinned
-// separately in testgit_integration_test.go.
+// TestGitIsolationEnvironmentNeutralizesAmbientGitConfig pins the exact env
+// RunGit hands git: the developer's global/system config, askpass programs, and
+// per-invocation config channels are dropped and replaced with non-interactive
+// defaults, so a fixture commit can never reach a signing or credential prompt.
+// The real-git behaviour is pinned separately in testgit_integration_test.go.
 func TestGitIsolationEnvironmentNeutralizesAmbientGitConfig(t *testing.T) {
 	isolated := gitIsolationEnvironment([]string{
-		"PATH=/usr/bin",
 		"GIT_CONFIG_GLOBAL=/home/dev/.gitconfig",
 		"GIT_CONFIG_SYSTEM=/etc/gitconfig",
+		"GIT_CONFIG_PARAMETERS='commit.gpgsign=true'",
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=commit.gpgsign",
+		"GIT_CONFIG_VALUE_0=true",
 		"GIT_ASKPASS=ksshaskpass",
 		"SSH_ASKPASS=ksshaskpass",
 		"SSH_ASKPASS_REQUIRE=force",
+		"PATH=/usr/bin",
 	})
 
-	values := make(map[string]string, len(isolated))
-	for _, entry := range isolated {
-		name, value, _ := strings.Cut(entry, "=")
-		values[name] = value
+	want := []string{
+		"PATH=/usr/bin",
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=" + os.DevNull,
+		"GIT_TERMINAL_PROMPT=0",
 	}
-
-	for _, name := range []string{"GIT_CONFIG_SYSTEM", "GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE"} {
-		if _, ok := values[name]; ok {
-			t.Errorf("%s must be dropped from the isolated environment", name)
-		}
-	}
-	if got := values["GIT_CONFIG_GLOBAL"]; got != os.DevNull {
-		t.Errorf("GIT_CONFIG_GLOBAL = %q, want %q", got, os.DevNull)
-	}
-	if got := values["GIT_CONFIG_NOSYSTEM"]; got != "1" {
-		t.Errorf("GIT_CONFIG_NOSYSTEM = %q, want %q", got, "1")
-	}
-	if got := values["GIT_TERMINAL_PROMPT"]; got != "0" {
-		t.Errorf("GIT_TERMINAL_PROMPT = %q, want %q", got, "0")
-	}
-	if got := values["PATH"]; got != "/usr/bin" {
-		t.Errorf("PATH = %q, want the ambient value preserved", got)
+	if !slices.Equal(isolated, want) {
+		t.Errorf("gitIsolationEnvironment() = %q, want %q", isolated, want)
 	}
 }
 

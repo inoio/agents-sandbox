@@ -192,11 +192,14 @@ seam family is reached without its injectable factory. The remaining ambient pat
 - The real `git` binary: tests that generate git artifacts — `internal/git`, `testutil.RunGit`, the bare-checkout CLI
   tests, and the prepare outside-worktree flows — live behind the `integration` build tag in `<unit>_integration_test.go`,
   so the default `go test ./...` executes no external command. `testutil.RunGit` also runs git with the developer's
-  global and system config neutralized (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, no askpass programs), so
+  global and system config neutralized (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, no askpass programs) and
+  with git's per-invocation config channels cleared (`GIT_CONFIG_PARAMETERS` and the
+  `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` triplet, which stay active even with the files disabled), so
   a fixture commit can never reach commit signing or pop an askpass GUI (ksshaskpass). `TestUntaggedTestsExecuteNoAmbientTool`
   (`real_command_contract_test.go`) enforces the split in the default suite: it walks every `_test.go` the default build
-  compiles and fails if one calls `testutil.RunGit`/`ConfigureRepo` or execs an ambient tool (`git`, `ssh`, `gpg`, `gh`,
-  `docker`, `msb`) directly — a shell interpreter is allowed. A test that asserts on a
+  compiles and fails if one calls `testutil.RunGit`/`ConfigureRepo` — through a qualified or a same-package unqualified
+  call — or execs an ambient tool (`git`, `ssh`, `gpg`, `gh`,
+  `docker`, `msb`) named by an interpreted or raw string literal — a shell interpreter is allowed. A test that asserts on a
   git-generated artifact still pins the setting it depends on in its own fixture — a linked worktree's recorded gitdir is
   absolute only while `worktree.useRelativePaths` is false, and CI on a plain clone never exercises a developer's global
   setting (`TestResolveIdentityOutsideWorktreeReportsSharedGitDir`). Because those tests are `integration`-tagged they are

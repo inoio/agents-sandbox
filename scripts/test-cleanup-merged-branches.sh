@@ -17,6 +17,16 @@ export GIT_CONFIG_NOSYSTEM=1
 export GIT_CONFIG_GLOBAL=/dev/null
 export GIT_TERMINAL_PROMPT=0
 
+# Clear git's per-invocation config channels too: they stay active even with the
+# config files disabled, so a poisoned GIT_CONFIG_KEY_n (say, commit.gpgsign)
+# would still sign a fixture commit.
+unset GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+while IFS='=' read -r inherited _; do
+  case "$inherited" in
+    GIT_CONFIG_KEY_*|GIT_CONFIG_VALUE_*) unset "$inherited" ;;
+  esac
+done < <(env)
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLEANUP="$SCRIPT_DIR/cleanup-merged-branches.sh"
 

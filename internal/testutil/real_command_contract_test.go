@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -101,6 +102,17 @@ func realCommandUsesIn(fset *token.FileSet, file *ast.File, modulePath string) [
 		if !ok {
 			return true
 		}
+		// An unqualified call resolves inside the scanned file's own package, so
+		// only a testutil test file can reach the helpers this way.
+		if ident, ok := call.Fun.(*ast.Ident); ok {
+			if file.Name.Name == "testutil" && (ident.Name == "RunGit" || ident.Name == "ConfigureRepo") {
+				uses = append(uses, realCommandUse{
+					pos:  fset.Position(call.Pos()),
+					what: "testutil." + ident.Name,
+				})
+			}
+			return true
+		}
 		selector, ok := call.Fun.(*ast.SelectorExpr)
 		if !ok {
 			return true
@@ -132,7 +144,7 @@ func realCommandUsesIn(fset *token.FileSet, file *ast.File, modulePath string) [
 }
 
 // stringLiteralArg returns the value of call's index-th argument when it is a
-// string literal, and "" otherwise.
+// string literal (interpreted or raw), and "" otherwise.
 func stringLiteralArg(call *ast.CallExpr, index int) string {
 	if index >= len(call.Args) {
 		return ""
@@ -141,12 +153,18 @@ func stringLiteralArg(call *ast.CallExpr, index int) string {
 	if !ok || literal.Kind != token.STRING {
 		return ""
 	}
-	return strings.Trim(literal.Value, `"`)
+	value, err := strconv.Unquote(literal.Value)
+	if err != nil {
+		return ""
+	}
+	return value
 }
 
-// TestRealCommandUses pins the scanner: an ambient exec or the real-git helper
-// in a default-suite file is flagged, an integration-tagged file is skipped, and
-// a non-ambient command (a shell interpreter) is allowed.
+// TestRealCommandUses pins the scanner: an ambient exec (a raw-string command
+// name included) or the real-git helper in a default-suite file is flagged —
+// whether reached through a qualified or a same-package unqualified call — an
+// integration-tagged file is skipped, and a non-ambient command (a shell
+// interpreter) is allowed.
 func TestRealCommandUses(t *testing.T) {
 	const modulePath = "example.com/mod"
 
@@ -187,6 +205,21 @@ func TestX(t *testing.T) {
 			want: []string{"exec.CommandContext(git)"},
 		},
 		{
+			name: "a raw-string git exec is flagged",
+			file: `package example
+
+import (
+	"os/exec"
+	"testing"
+)
+
+func TestX(t *testing.T) {
+	exec.Command(` + "`git`" + `, "commit")
+}
+`,
+			want: []string{"exec.Command(git)"},
+		},
+		{
 			name: "the shared real-git helper",
 			file: `package example
 
@@ -201,6 +234,30 @@ func TestX(t *testing.T) {
 }
 `,
 			want: []string{"testutil.RunGit"},
+		},
+		{
+			name: "a same-package unqualified helper call",
+			file: `package testutil
+
+import "testing"
+
+func TestX(t *testing.T) {
+	RunGit(t, t.TempDir(), "status")
+}
+`,
+			want: []string{"testutil.RunGit"},
+		},
+		{
+			name: "a same-package unqualified ConfigureRepo call",
+			file: `package testutil
+
+import "testing"
+
+func TestX(t *testing.T) {
+	ConfigureRepo(t, t.TempDir())
+}
+`,
+			want: []string{"testutil.ConfigureRepo"},
 		},
 		{
 			name: "a non-ambient shell interpreter is allowed",

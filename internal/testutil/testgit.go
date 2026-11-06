@@ -21,11 +21,10 @@ import (
 // (which pops a GUI askpass such as ksshaskpass), a credential helper, or an
 // askpass program. The fixtures pin any git setting they depend on themselves.
 func gitIsolationEnvironment(environ []string) []string {
-	isolated := make([]string, 0, len(environ)+3)
+	var isolated []string
 	for _, entry := range environ {
 		name, _, _ := strings.Cut(entry, "=")
-		switch name {
-		case "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE":
+		if isAmbientGitSetting(name) {
 			continue
 		}
 		isolated = append(isolated, entry)
@@ -35,6 +34,21 @@ func gitIsolationEnvironment(environ []string) []string {
 		"GIT_CONFIG_GLOBAL="+os.DevNull,
 		"GIT_TERMINAL_PROMPT=0",
 	)
+}
+
+// isAmbientGitSetting reports whether name carries the developer's git or ssh
+// configuration into a fixture: the global and system config files, the askpass
+// programs, or git's per-invocation config channels (GIT_CONFIG_PARAMETERS and
+// the GIT_CONFIG_COUNT/GIT_CONFIG_KEY_n/GIT_CONFIG_VALUE_n triplet), which stay
+// active even when the config files are disabled — a poisoned commit.gpgsign
+// would still sign and prompt.
+func isAmbientGitSetting(name string) bool {
+	switch name {
+	case "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+		"GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE":
+		return true
+	}
+	return strings.HasPrefix(name, "GIT_CONFIG_KEY_") || strings.HasPrefix(name, "GIT_CONFIG_VALUE_")
 }
 
 // RunGit executes git with the given args in dir and returns combined output.
