@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"slices"
@@ -703,6 +704,16 @@ func TestCreateProjectVMConfiguresTheVM(t *testing.T) {
 			},
 		},
 		{
+			name: "memory above the boot maximum is clamped to it",
+			opts: options.RunOptions{Memory: fmt.Sprintf("%dM", BootMaxMemoryMiB()+1024)},
+			check: func(t *testing.T, cfg msbSdk.SandboxConfig) {
+				if cfg.MemoryMiB != BootMaxMemoryMiB() || cfg.MaxMemoryMiB != BootMaxMemoryMiB() {
+					t.Errorf("memory = %d MiB, max = %d MiB; want both at the boot maximum %d MiB",
+						cfg.MemoryMiB, cfg.MaxMemoryMiB, BootMaxMemoryMiB())
+				}
+			},
+		},
+		{
 			name: "disk size",
 			opts: options.RunOptions{Memory: "1G", DiskSize: "16G"},
 			check: func(t *testing.T, cfg msbSdk.SandboxConfig) {
@@ -1139,4 +1150,40 @@ func assertInfoCall(t *testing.T, ui *termio.Mock, wantSubstr string) {
 		}
 	}
 	t.Errorf("expected InfoCall containing %q; got: %v", wantSubstr, ui.InfoCalls)
+}
+
+// TestBootMaxMemoryMiBIsTheHostRAM pins the boot maximum a project VM is created
+// with: the host's installed RAM in whole GiB, never zero on a real host.
+func TestBootMaxMemoryMiBIsTheHostRAM(t *testing.T) {
+	want := options.ParseMemoryGiB(uint32(sysinfo.TotalMemoryGiB()))
+	if got := BootMaxMemoryMiB(); got == 0 || got != want {
+		t.Errorf("BootMaxMemoryMiB = %d, want the host RAM %d MiB", got, want)
+	}
+}
+
+// TestBootMemoryMiB pins the memory a new project VM boots with: the configured
+// value, or the boot maximum with a warning when it asks for more.
+func TestBootMemoryMiB(t *testing.T) {
+	maxMiB := BootMaxMemoryMiB()
+	tests := []struct {
+		name     string
+		memory   string
+		want     uint32
+		wantWarn bool
+	}{
+		{name: "below the maximum", memory: "1G", want: 1024},
+		{name: "at the maximum", memory: fmt.Sprintf("%dM", maxMiB), want: maxMiB},
+		{name: "above the maximum", memory: fmt.Sprintf("%dM", maxMiB+1), want: maxMiB, wantWarn: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ui := &termio.Mock{}
+			if got := bootMemoryMiB(tc.memory, ui); got != tc.want {
+				t.Errorf("bootMemoryMiB(%q) = %d, want %d", tc.memory, got, tc.want)
+			}
+			if warned := len(ui.WarnCalls) > 0; warned != tc.wantWarn {
+				t.Errorf("warnings %q, want a warning = %v", ui.WarnCalls, tc.wantWarn)
+			}
+		})
+	}
 }

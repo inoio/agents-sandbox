@@ -1272,3 +1272,127 @@ func swapSeam[T any](t *testing.T, seam *T, replacement T) {
 	*seam = replacement
 	t.Cleanup(func() { *seam = original })
 }
+
+func TestRealSandboxMetricsAndLogsDelegation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Metrics", func(t *testing.T) {
+		original := realSandboxMetrics
+		t.Cleanup(func() { realSandboxMetrics = original })
+		want := &msbSdk.Metrics{MemoryBytes: 42}
+		called := false
+		realSandboxMetrics = func(_ *msbSdk.Sandbox, _ context.Context) (*msbSdk.Metrics, error) {
+			called = true
+			return want, nil
+		}
+		got, err := (realSandbox{}).Metrics(ctx)
+		if err != nil || got != want || !called {
+			t.Fatalf("Metrics() = (%v, %v), called=%v; want (want, nil, true)", got, err, called)
+		}
+	})
+
+	t.Run("Logs", func(t *testing.T) {
+		original := realSandboxLogs
+		t.Cleanup(func() { realSandboxLogs = original })
+		want := []msbSdk.LogEntry{{Source: msbSdk.LogSourceSystem, Data: []byte("boom")}}
+		var gotOpts msbSdk.LogOptions
+		realSandboxLogs = func(
+			_ *msbSdk.Sandbox, _ context.Context, opts msbSdk.LogOptions,
+		) ([]msbSdk.LogEntry, error) {
+			gotOpts = opts
+			return want, nil
+		}
+		got, err := (realSandbox{}).Logs(ctx, msbSdk.LogOptions{Tail: 7})
+		if err != nil || len(got) != 1 || got[0].Source != msbSdk.LogSourceSystem || gotOpts.Tail != 7 {
+			t.Fatalf("Logs() = (%v, %v), opts=%+v; want one system entry, tail 7", got, err, gotOpts)
+		}
+	})
+}
+
+func TestRealSandboxHandleMetricsAndLogsDelegation(t *testing.T) {
+	ctx := context.Background()
+	h := realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+
+	t.Run("Metrics", func(t *testing.T) {
+		original := realSandboxHandleMetrics
+		t.Cleanup(func() { realSandboxHandleMetrics = original })
+		want := &msbSdk.Metrics{MemoryLimitBytes: 99}
+		realSandboxHandleMetrics = func(_ *msbSdk.SandboxHandle, _ context.Context) (*msbSdk.Metrics, error) {
+			return want, nil
+		}
+		got, err := h.Metrics(ctx)
+		if err != nil || got != want {
+			t.Fatalf("Metrics() = (%v, %v); want (want, nil)", got, err)
+		}
+	})
+
+	t.Run("Logs", func(t *testing.T) {
+		original := realSandboxHandleLogs
+		t.Cleanup(func() { realSandboxHandleLogs = original })
+		want := []msbSdk.LogEntry{{Source: msbSdk.LogSourceSystem}}
+		realSandboxHandleLogs = func(
+			_ *msbSdk.SandboxHandle, _ context.Context, _ msbSdk.LogOptions,
+		) ([]msbSdk.LogEntry, error) {
+			return want, nil
+		}
+		got, err := h.Logs(ctx, msbSdk.LogOptions{})
+		if err != nil || len(got) != 1 {
+			t.Fatalf("Logs() = (%v, %v); want one entry, nil", got, err)
+		}
+	})
+}
+
+func TestMockSandboxMetricsAndLogs(t *testing.T) {
+	ctx := context.Background()
+
+	sb := &MockSandbox{MetricsResult: &msbSdk.Metrics{MemoryBytes: 1}}
+	got, err := sb.Metrics(ctx)
+	if err != nil || got.MemoryBytes != 1 {
+		t.Fatalf("Metrics() = (%v, %v); want MemoryBytes 1", got, err)
+	}
+
+	boom := errors.New("boom")
+	if _, err := (&MockSandbox{MetricsErr: boom}).Metrics(ctx); !errors.Is(err, boom) {
+		t.Fatalf("Metrics() error = %v; want boom", err)
+	}
+
+	entries := []msbSdk.LogEntry{{Source: msbSdk.LogSourceSystem}}
+	logSB := &MockSandbox{LogsResult: entries}
+	gotEntries, err := logSB.Logs(ctx, msbSdk.LogOptions{Tail: 3})
+	if err != nil || len(gotEntries) != 1 {
+		t.Fatalf("Logs() = (%v, %v); want one entry, nil", gotEntries, err)
+	}
+	if len(logSB.LogsOptions) != 1 || logSB.LogsOptions[0].Tail != 3 {
+		t.Fatalf("LogsOptions = %+v; want one call with Tail 3", logSB.LogsOptions)
+	}
+	if _, err := (&MockSandbox{LogsErr: boom}).Logs(ctx, msbSdk.LogOptions{}); !errors.Is(err, boom) {
+		t.Fatalf("Logs() error = %v; want boom", err)
+	}
+}
+
+func TestMockSandboxHandleMetricsAndLogs(t *testing.T) {
+	ctx := context.Background()
+
+	h := &MockSandboxHandle{MetricsResult: &msbSdk.Metrics{MemoryLimitBytes: 2}}
+	got, err := h.Metrics(ctx)
+	if err != nil || got.MemoryLimitBytes != 2 {
+		t.Fatalf("Metrics() = (%v, %v); want MemoryLimitBytes 2", got, err)
+	}
+
+	boom := errors.New("boom")
+	if _, err := (&MockSandboxHandle{MetricsErr: boom}).Metrics(ctx); !errors.Is(err, boom) {
+		t.Fatalf("Metrics() error = %v; want boom", err)
+	}
+
+	logHandle := &MockSandboxHandle{LogsResult: []msbSdk.LogEntry{{Source: msbSdk.LogSourceSystem}}}
+	gotEntries, err := logHandle.Logs(ctx, msbSdk.LogOptions{Tail: 9})
+	if err != nil || len(gotEntries) != 1 {
+		t.Fatalf("Logs() = (%v, %v); want one entry, nil", gotEntries, err)
+	}
+	if len(logHandle.LogsOptions) != 1 || logHandle.LogsOptions[0].Tail != 9 {
+		t.Fatalf("LogsOptions = %+v; want one call with Tail 9", logHandle.LogsOptions)
+	}
+	if _, err := (&MockSandboxHandle{LogsErr: boom}).Logs(ctx, msbSdk.LogOptions{}); !errors.Is(err, boom) {
+		t.Fatalf("Logs() error = %v; want boom", err)
+	}
+}

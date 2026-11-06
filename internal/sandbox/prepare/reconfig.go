@@ -6,6 +6,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -13,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
+	"github.com/inoio/agents-sandbox/internal/sandbox/resourceproposal"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
@@ -164,12 +166,13 @@ func resolveReconfigDecision(
 		imageInfo.Identity,
 		opts,
 		reconfig.ChangeFlags{
-			Image:       imageChanged,
-			Env:         envHasChanged,
-			Secrets:     secretsHasChanged,
-			Network:     networkHasChanged,
-			Mounts:      mountsHaveChanged,
-			AgentConfig: agentCfgChanged,
+			Image:             imageChanged,
+			Env:               envHasChanged,
+			Secrets:           secretsHasChanged,
+			Network:           networkHasChanged,
+			Mounts:            mountsHaveChanged,
+			AgentConfig:       agentCfgChanged,
+			BootMaxMemoryGrew: bootMaxMemoryGrew(live),
 		},
 		homeVol,
 	)
@@ -214,7 +217,52 @@ func resolveReconfigDecision(
 		action := volumes.ResolveHomeAction(ui, hs.ImageDigest, imageInfo.Digest)
 		decision.HomeAction = &action
 	}
+
 	return decision, nil
+}
+
+// detectAndOfferMemoryRaise detects a memory-limit hit from the live project
+// VM's system log and metrics and offers a raise. It reads what only the
+// prepare path knows (the VM's configured and boot-maximum memory) and
+// delegates the detection, dedup, prompt, and persistence to the shared
+// resourceproposal core, so the next-launch and post-attach paths share one
+// anti-nag state machine (specs/resource-limit-proposal.md §1, §7, §8). It
+// returns the memory setting the user accepted and persisted, or "".
+func detectAndOfferMemoryRaise(
+	ctx context.Context,
+	live liveProjectVM,
+	k state.Key,
+	opts options.RunOptions,
+	hs state.HomeState,
+	paths configpaths.ConfigPaths,
+	ui termio.UI,
+) string {
+	if live.handle == nil {
+		return ""
+	}
+	currentMiB := uint32(0)
+	if live.config != nil {
+		currentMiB = live.config.MemoryMiB
+	}
+	return resourceproposal.DetectAndOfferMemoryRaise(
+		ctx, k, live.handle, hs.ResourcePressure, currentMiB, bootMaxMemoryMiB(live), false, opts, paths, ui,
+	)
+}
+
+// bootMaxMemoryGrew reports whether a freshly created VM would boot with a
+// higher memory maximum than the live one.
+func bootMaxMemoryGrew(live liveProjectVM) bool {
+	return live.config != nil && vm.BootMaxMemoryMiB() > live.config.MaxMemoryMiB
+}
+
+// bootMaxMemoryMiB is the live VM's boot maximum (host RAM at creation), the
+// ceiling for a suggested raise. It is 0 when unknown, which SuggestRaise reads
+// as "no clamp".
+func bootMaxMemoryMiB(live liveProjectVM) uint32 {
+	if live.config == nil {
+		return 0
+	}
+	return live.config.MaxMemoryMiB
 }
 
 // applyReconfigHomeAction applies the home-volume action the decision resolved

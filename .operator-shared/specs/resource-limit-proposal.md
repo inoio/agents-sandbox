@@ -23,11 +23,11 @@ terminal, the un-explained session death) rather than leaving the user to diagno
   `WithCPUs`, `WithMaxCPUs(sysinfo.NumCPUs())`, and a root disk only when `--disk-size` is set.
   So the boot maximum for memory is host physical RAM and for CPU is host CPU count.
 - **The reconfig machinery already splits changes by how they can be applied**
-  (`internal/sandbox/reconfig`): `PlanReconfig` stages memory/CPU as a live `ModifyOptions`
-  with `ModificationPolicyNoRestart` (`resourceModification`, clamped to `MaxMemoryMiB`/`MaxCPUs`),
+  (`internal/sandbox/reconfig`): memory/CPU are applied live by `vm.reconcileResourceConfig`
+  (`buildModifyOptions`, `ModificationPolicyNoRestart`, clamped to `MaxMemoryMiB`/`MaxCPUs`),
   while `tmpSizeChange`, `workspaceQuotaChange`, `rootDiskChange`, ports, network, and the home
   volume all force a recreate. `ResolveReconfig` + `PromptA`/`PromptB` drive the apply/keep
-  choice; `vm.reconcileResourceConfig` applies the live modify.
+  choice.
   This path triggers on **desired-vs-live config drift**, never on a limit actually being hit.
 - **The serve daemon and dockerd are re-ensured on every run** (`vm.SetUpSandbox` →
   `ensureDaemon`/`startDockerdIfPresent`), so a daemon that died while detached is already
@@ -101,8 +101,9 @@ minimum observed memory headroom (`MemoryLimitBytes - MemoryBytes`, or `MemoryAv
 confirmed on a KVM host that `MemoryBytes` is guest-in-use and `MemoryAvailableBytes` tracks it),
 the peak `MemoryBytes`/`MemoryLimitBytes` ratio, and the minimum `UpperFreeBytes` when present
 (the `upper_*` fields are **null until the root disk is first written**, so absence is not
-"no pressure"). It must tolerate a metrics read failing (VM stopped) and never
-block session teardown. It is stopped and its summary read inside `runAttach`, before the client
+"no pressure"). It must tolerate a metrics read failing (VM stopped), never
+block session teardown, and never write to the terminal while the attach owns it: a failed read
+is reported once after the attach. It is stopped and its summary read inside `runAttach`, before the client
 lease is released and the VM reaped, so both `Run` and `Shell` get the watcher.
 
 **(b) Abnormal-end classification.** `session.runAttach` already funnels the guest exit
@@ -126,9 +127,11 @@ watcher summary plus the persisted guest kernel log:
 **(d) Persistence of the signal + next-launch fallback.** On a conclusive detection, record a
 lightweight per-project marker (`HomeState` field, e.g. `resource_pressure`) capturing what was
 hit, when, and the evidence class (log vs headroom) — so a proposal survives to the next launch
-if the in-session prompt cannot run. The same check runs at the next launch inside
-`prepare.resolveReconfigDecision`, which already holds the live VM handle: it re-reads the
-kernel log and the marker, and proposes. The marker records the newest observed hit and whether
+if the in-session prompt cannot run. The same check runs at the next launch in the `prepare`
+plan-reconfig stage, which already holds the live VM handle: it re-reads the
+kernel log and the marker, and proposes. A fresh metrics read there is never a hit by itself (a
+busy VM another client uses is not a limit hit); headroom counts only as the trip the session
+watcher witnessed. The marker records the newest observed hit and whether
 it was answered; answering a proposal (accepted or declined) advances it so the same hit is not
 re-offered, while a hit only observed (a non-interactive run, or a mere offer nobody answered)
 stays pending and is proposed on the next interactive launch. Clearing pressure alone never
@@ -151,20 +154,28 @@ it as a VM rebuild.
 offer when usage is **≥ 90% of the limit, or free space is ≤ 1 GiB** (first to trip), where
 `usage = used / (used + free)`. The ratio alone misjudges across sizes (95% of a 2 GiB `/tmp` is
 nearly exhausted; 95% of a 64 GiB root is 3 GiB free), hence the absolute floor. Anti-nag hysteresis:
-after an offer, do not re-offer until usage falls **below 80%** (re-arm) and trips again. The memory
-headroom fallback uses the same ratio+floor so there is one threshold concept. Mechanics: a root-disk
+after an offer, do not re-offer until the condition has fully cleared — neither trigger still fires
+(usage **below 80%** *and* free space above the floor) — and it trips again. (Requiring both matters
+because the floor trips independently of the ratio: for a small limit a snapshot can sit below 80%
+and still be under pressure, and re-arming on the ratio alone would re-offer every launch.) The
+memory headroom fallback uses the same ratio+floor so there is one threshold concept. Mechanics: a
+root-disk
 ratio is only computable once `upper_*` are populated (null until first write ⇒ no offer, not 0%
 used), and `/workspace`'s total is the quota, not the host filesystem's size.
 
 ### 2. Terminal recovery
 
-- After `AttachWith` returns and before any launcher prompt or message, emit a terminfo reset
-  sequence to the terminal (`rmcup`-equivalent: leave alternate screen, mouse off, show cursor,
+- After `AttachWith` ends abnormally (a signal death, an attach error, or a signal to the
+  launcher) and before any launcher prompt or message, emit a terminfo reset sequence to the
+  terminal (`rmcup`-equivalent: leave alternate screen, mouse off, show cursor,
   SGR reset). The SDK restores host termios itself on normal return, but the guest TUI's
   emulator modes (alternate screen, mouse) survive an OOM-killed TUI — that residue is what
-  forces the manual `reset`.
+  forces the manual `reset`. Emit it **only when the destination is a terminal** (the writer is
+  an `*os.File` tied to a TTY): a redirected or captured stdout must never receive raw escape
+  bytes. The check is a substitutable seam so both paths are testable without a real TTY.
 - Add SIGTERM/SIGINT handling around the attach so the launcher restores the terminal before
-  exiting on those signals. SIGKILL remains uncatchable; that case is covered by the next-launch
+  exiting on those signals. The handling covers the attach call only: a signal-ended attach skips
+  the memory offer, and the post-attach prompt keeps the default Ctrl-C behavior. SIGKILL remains uncatchable; that case is covered by the next-launch
   fallback.
 - Exact escape sequence and whether it clears the harnesses' residue **needs a KVM host** to
   confirm; prefer deriving it from terminfo at runtime over a hardcoded string.
@@ -195,33 +206,47 @@ used), and `/workspace`'s total is the quota, not the host filesystem's size.
   `memory` (or the disk key), write the raise **there** instead — otherwise the user-config
   write would be overridden. This needs a small "which file layer sets key K" helper (parsing
   each candidate layer file for the key), since only `docker` currently carries source tracking
-  (`Config.dockerSource`).
+  (`Config.dockerSource`). Keys are matched **case-insensitively**, mirroring viper's resolution:
+  a file spelling `Memory:` sets the effective `memory` and is the owner, and the in-place edit
+  replaces that key's value while preserving the user's spelling.
 - **A non-file source wins.** If `memory` is supplied by env (`AGENTS_SANDBOX_MEMORY`, or the
   deprecated `OPENCODE_SANDBOX_MEMORY` alias) or a flag, a persisted config value cannot take
-  effect. In that case, tell the user the value comes from a higher-precedence source and do not
-  write a shadowed file value.
+  effect. In that case, tell the user the value comes from a higher-precedence source instead of
+  prompting, do not write a shadowed file value, and count the hit as answered. An accepted raise
+  names the value and the config directory it was written to.
 - **Project config is untrusted** (`specs/project-config-trust.md`): writing the raise to a
   project config must also update the approved projection/digest so the trust gate does not
   reject the launcher's own change on the next run. If that proves too entangled, fall back to
   the user config and warn that project config overrides it (surface, don't silently lose).
+  Until that machinery (#229) lands, the write goes to the owning layer as-is — there is no
+  projection to update yet, and the raise must stay effective.
 - Formatting/writing: **there is no launcher-config writer on `main`** — config files are read-only
   (`configpaths.FindConfigFile`). Define one: preserve the target file's format and its unrelated
   keys and comments (a `.json5`/`.jsonc` file must not be rewritten as YAML), write atomically
-  (`internal/atomicwrite`), and create `config.yaml` only when the layer dir has no config file.
-  When a format-preserving edit is not feasible, do not rewrite — log and skip persistence
-  (surface the miss, never corrupt the user's file).
+  (`internal/atomicwrite`) keeping the file's permissions (a created file is 0600; the rename
+  leaves a hard link to the old file on the old content), and create `config.yaml` only when the
+  layer dir has no config file.
+  Resolve a symlinked config to its target before the atomic rename so the link survives, and
+  refuse to replace an anchored value another key aliases. When a format-preserving edit is not
+  feasible, do not rewrite — log and skip persistence (surface the miss, never corrupt the user's file).
 
 ### 5. Apply
 
-- Live where possible: add the persisted key back through the existing `reconfig` live-modify
-  staging, so `vm.reconcileResourceConfig` applies memory/CPU on the next run's prepare.
-- **Memory**: live `Modify` up to `MaxMemoryMiB` (host RAM at creation). Above that, the raise
-  needs a recreate — say so in the prompt and stage it through the existing recreate path. A live
+- Live where possible: `vm.reconcileResourceConfig` applies the persisted memory on the next
+  prepare. A raise accepted in the next-launch offer is applied by that same run: the offer runs in
+  plan-reconfig before the reconfig decision, and the accepted value replaces `opts.Memory` for
+  the decision and the VM creation or live modify.
+- **Memory**: live `Modify` up to `MaxMemoryMiB` (host RAM at creation). Above that, a recreate
+  applies the raise only when a fresh VM would boot with a higher maximum (the host gained RAM,
+  `ChangeFlags.BootMaxMemoryGrew`); otherwise the value is clamped live to the maximum, because a
+  recreate would hit the same maximum and repeat on every launch. A new VM boots with its memory
+  clamped to the maximum too. The offer never suggests or accepts more than the boot maximum, and
+  a VM already at it gets an explanation instead of a prompt. A live
   memory resize is **asynchronous** (confirmed: `Modify` returns `STATE=converging` and the limit
   lags), so confirm convergence via `Metrics.MemoryLimitBytes` before reporting the raise applied,
   and do not read once.
 - **Root disk**: add `ModifyOptions.RootDiskSizeMiB` to the live stage (`reconcileResourceConfig`
-  / `resourceModification`), applying a **grow-only** increase. Confirmed on a KVM host that even a
+  / `buildModifyOptions`), applying a **grow-only** increase. Confirmed on a KVM host that even a
   default (no `--disk-size`) VM has a managed root (4 GiB default) that grows live, so no create-time
   sizing is required; the launcher must read the current size (`SandboxConfig.RootDisk`) instead of
   skipping it. Grow past the current size only.
@@ -256,14 +281,23 @@ These are the author's calls, not user decisions; a builder may follow them as w
   in the real-VM test before relying on it; if it is unsafe, give the watcher its own
   `SandboxHandle.Connect()` + `SandboxHandle.Metrics` lifecycle.
 - **Anti-nag dedup.** The `HomeState` marker is the dedup key, not the log. Next-launch detection
-  proposes when the newest OOM log entry is **newer** than the marker's recorded kill (fingerprint
-  by timestamp), or when a recorded hit was **never answered** (a non-interactive launch records
+  proposes when the newest OOM kill is **newer** than the marker's recorded kill, or when a recorded hit was **never answered** (a non-interactive launch records
   the hit but does not answer it, so the next interactive run offers it); answering a proposal
-  (accept or decline) advances the marker so the same kill is not re-offered. An unmarked old OOM
-  never re-proposes. The re-arm rule (§1: below 80%) governs re-offering a *headroom* condition
+  (accept or decline) advances the marker so the same kill is not re-offered, but only for the hit the
+  offer named — a newer hit another session records while the prompt is open stays unanswered. An
+  unmarked old OOM never re-proposes. The re-arm rule (§1: fully clear — below 80% *and* above the floor) governs
+  re-offering a *headroom* condition
   after an answered offer, but the recorded kill timestamp is retained, so clearing pressure and a
   later trip never replays an OOM kill that was already answered.
-- **Enable the live root-disk grow** by having `resourceModification`/`reconcileResourceConfig`
+- **OOM fingerprint.** A kill is identified by its boot's start (the runtime's persisted
+  `sandbox starting` line, the latest one logged before the kill) plus the kernel uptime in the
+  line, never by the log entry's timestamp. Confirmed on a KVM host: the runtime stamps a kernel
+  line when it writes it and re-writes a boot's kernel lines with the stop time when the VM stops,
+  so the same kill reads differently on a running and a stopped VM; a restarted VM no longer
+  carries the previous boot's kernel lines at all (the marker covers that). When the tail holds an
+  OOM line, a second read up to it (no tail limit) supplies the boot start. Without a boot start or
+  an uptime prefix, the entry timestamp stands in.
+- **Enable the live root-disk grow** by having `buildModifyOptions`/`reconcileResourceConfig`
   stage `RootDiskSizeMiB` (grow-only) and by reading `SandboxConfig.RootDisk`; `rootDiskChange`
   stops forcing a recreate for a pure increase.
 - **env/flag provenance.** Reuse the derived key registry's env-var name (see
@@ -276,15 +310,17 @@ These are the author's calls, not user decisions; a builder may follow them as w
   `--serve-only` (no attach) is next-launch only.
 - **Timing.** Post-attach detection, the prompt, and the marker write run inside `runAttach`'s
   closure, before `withClientSession` releases the lease and reaps, so the VM is still alive and
-  the terminal is ours. The prompt states the raise takes effect on the **next** run.
+  the terminal is ours. An accepted post-attach raise states that it applies on the **next** run.
 - **huh** stays out of scope (see Non-goals); the prompt is built on `termio.Prompter` only.
 
 ## Seams changed (summary)
 
 - `msb.Sandbox` and/or `msb.SandboxHandle`: add `Metrics` and `Logs` (real + mock).
 - `session`: a metrics watcher; abnormal-end classification; terminal reset emission; signal
-  handling around attach.
-- `prepare.resolveReconfigDecision`: next-launch detection + proposal.
+  handling around attach; the post-attach memory-raise offer.
+- `prepare`: the next-launch detection + proposal (in the plan-reconfig stage) and its caller.
+- `resourceproposal`: the shared `DetectAndOfferMemoryRaise` core (read, classify, dedup against
+  the marker, offer, persist) used by both the next-launch and post-attach paths.
 - `reconfig`: extend the live modify stage with root-disk grow; a proposal/prompt path for a
   detected hit.
 - `configpaths`/`viperconfig`: a "which file layer owns key K" helper; write the raise to the

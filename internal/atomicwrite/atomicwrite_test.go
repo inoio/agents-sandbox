@@ -41,6 +41,24 @@ func TestWriteFileWritesContentAndMode(t *testing.T) {
 	}
 }
 
+// TestWriteFileModeSetsTheMode pins that the caller's mode is applied exactly,
+// independent of the umask, so an edited file keeps the permissions it had.
+func TestWriteFileModeSetsTheMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+
+	if err := WriteFileMode(path, []byte("memory: 6G\n"), 0o644); err != nil {
+		t.Fatalf("WriteFileMode() error = %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("mode = %o, want 0644", info.Mode().Perm())
+	}
+}
+
 func TestWriteFileReplacesExisting(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.yaml")
 	if err := WriteFile(path, []byte("first")); err != nil {

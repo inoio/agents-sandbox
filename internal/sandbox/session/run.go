@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -16,6 +19,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
+	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -357,6 +361,11 @@ func finalizeRun(attachErr error, exitCode int) error {
 // runAttach supplies the attach payload around the shared client session
 // lifecycle. The guest CWD is applied to every agent attach; pi and Claude Code
 // ignore the attach target and rely solely on the working directory.
+//
+// Both Run and Shell route their attach through here, so the SIGINT/SIGTERM
+// handling is shared: a signal cancels the attach context, AttachWith returns,
+// and the reset below clears the guest TUI's emulator modes (the residue the
+// SDK's termios restore does not cover) before the process exits.
 func runAttach(
 	ctx context.Context,
 	k state.Key,
@@ -375,12 +384,56 @@ func runAttach(
 		alwaysReap,
 		opts.ResolvedAgent,
 		func(agent.Resolved) error {
+			stopPressure := startPressureWatcher(ctx, sb, pressure.DefaultThreshold())
 			attachOpts := []msbSdk.AttachOption{msbSdk.WithAttachCwd(guestCWD)}
 			if opts.Root {
 				attachOpts = append(attachOpts, msbSdk.WithAttachUser(sandbox.RootUser))
 			}
-			exitCode, attachErr := sb.AttachWith(ctx, "/bin/bash", bashArgs, attachOpts...)
+			exitCode, interrupted, attachErr := attachUntilSignal(ctx, sb, bashArgs, attachOpts)
+			// The guest TUI's emulator modes (alternate screen, mouse) survive
+			// a killed TUI; clear them before the launcher's post-attach
+			// messages re-enter the terminal. A clean exit restored them
+			// itself, and leaving the alternate screen again would restore a
+			// stale saved cursor. ui.StdOut() is the real os.Stdout here;
+			// resetTerminal's TTY check only accepts an *os.File, so a
+			// wrapping writer would silently disable the reset.
+			endedAbnormally := abnormalEnd(attachErr, exitCode) || interrupted
+			if endedAbnormally {
+				resetTerminal(ui.StdOut())
+			}
+			// Stop sampling and read the summary while the VM is still alive
+			// and before the lease is released and the VM reaped.
+			summary := stopPressure()
+			if summary.ReadErr != nil {
+				ui.Verbosef("pressure watcher: metrics read failed: %v", summary.ReadErr)
+			}
+			ui.Verbosef(
+				"memory pressure during attach: min headroom fraction %.2f, tripped %v",
+				summary.MinHeadroomFraction,
+				summary.Tripped,
+			)
+			if endedAbnormally && !interrupted {
+				offerMemoryRaiseAfterAttach(ctx, k, sb, summary, opts, ui)
+			}
 			return finalizeRun(attachErr, exitCode)
 		},
 	)
+}
+
+// attachUntilSignal runs the attach with SIGINT/SIGTERM canceling it, so a
+// signal ends the attach and the caller restores the terminal before exiting.
+// The signal handling is released when the attach returns: the post-attach
+// prompt keeps the default Ctrl-C behavior. interrupted reports whether a
+// signal ended the attach; the guest exit code and attach error are returned
+// alongside it.
+func attachUntilSignal(
+	ctx context.Context,
+	sb msb.Sandbox,
+	bashArgs []string,
+	attachOpts []msbSdk.AttachOption,
+) (int, bool, error) {
+	attachCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	exitCode, attachErr := sb.AttachWith(attachCtx, "/bin/bash", bashArgs, attachOpts...)
+	return exitCode, attachCtx.Err() != nil && ctx.Err() == nil, attachErr
 }

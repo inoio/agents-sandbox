@@ -135,7 +135,7 @@ func NewResolver(cmd *cobra.Command, paths configpaths.ConfigPaths, slug string)
 	docker, dockerSource, dockerLegacy := resolveDockerAlias(v, cmd, cfg.Docker)
 	cfg.Docker = docker
 	cfg.dockerSource = dockerSource
-	return &Resolver{cfg: cfg, legacyEnv: legacyEnvVarsInUse(), dockerLegacy: dockerLegacy}, nil
+	return &Resolver{cfg: cfg, slug: slug, legacyEnv: legacyEnvVarsInUse(), dockerLegacy: dockerLegacy}, nil
 }
 
 // resolveDockerAlias folds the deprecated dind alias into the docker setting
@@ -233,7 +233,7 @@ func dockerLegacySource(v *viper.Viper) string {
 //
 //deadcode:ignore reason="construction seam for cmd tests; see doc comment"
 func NewResolverWithConfig(cfg Config) *Resolver {
-	return &Resolver{cfg: cfg, legacyEnv: nil, dockerLegacy: ""}
+	return &Resolver{cfg: cfg, slug: "", legacyEnv: nil, dockerLegacy: ""}
 }
 
 func mergeDir(v *viper.Viper, dir string) error {

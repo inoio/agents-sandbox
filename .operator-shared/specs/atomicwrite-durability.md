@@ -13,7 +13,8 @@ durability half and the error a caller sees when durability fails after the swap
 
 ## Write sequence
 
-`WriteFile(path, data)`:
+`WriteFile(path, data)` (mode 0600; `WriteFileMode(path, data, perm)` sets `perm` exactly, regardless of the umask,
+for an edited user file that must keep its permissions):
 
 1. Creates `path`'s directory tree (mode 0700) if missing, then flushes the parent of **every** directory it
    created, shallowest first. The leaf's parent alone is not enough: the entry naming a fresh `<slug>`/`<agent>`

@@ -418,6 +418,11 @@ type MockSandboxHandle struct {
 	CompactResult    *msbSdk.DiskCompactionResult
 	CompactErr       error
 	CompactedOptions []msbSdk.DiskCompactionOptions
+	MetricsResult    *msbSdk.Metrics
+	MetricsErr       error
+	LogsResult       []msbSdk.LogEntry
+	LogsErr          error
+	LogsOptions      []msbSdk.LogOptions
 }
 
 func (m *MockSandboxHandle) Name() string                    { return m.Name_ }
@@ -543,6 +548,15 @@ func (m *MockSandboxHandle) Compact(
 	return m.CompactResult, m.CompactErr
 }
 
+func (m *MockSandboxHandle) Metrics(_ context.Context) (*msbSdk.Metrics, error) {
+	return m.MetricsResult, m.MetricsErr
+}
+
+func (m *MockSandboxHandle) Logs(_ context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error) {
+	m.LogsOptions = append(m.LogsOptions, opts)
+	return m.LogsResult, m.LogsErr
+}
+
 // MockSandbox is a test double for Sandbox.
 type MockSandbox struct {
 	Name_      string
@@ -555,6 +569,9 @@ type MockSandbox struct {
 	ExecCalls  *[]string
 	AttachCode int
 	AttachErr  error
+	// AttachFn, when set, runs inside AttachWith with its ctx and supplies the
+	// result instead of AttachCode/AttachErr.
+	AttachFn   func(ctx context.Context) (int, error)
 	AttachUser string
 	AttachCwd  string
 	// AttachEnv is the environment the last AttachWith passed.
@@ -588,6 +605,14 @@ type MockSandbox struct {
 	ShellStreamFn func(command string) (StreamHandle, error)
 	// ShellStreamCmds records every command passed to ShellStream.
 	ShellStreamCmds *[]string
+
+	// Metrics and Logs back the seam's resource-pressure reads.
+	MetricsResult *msbSdk.Metrics
+	MetricsErr    error
+	LogsResult    []msbSdk.LogEntry
+	LogsErr       error
+	// LogsOptions records every LogOptions passed to Logs.
+	LogsOptions []msbSdk.LogOptions
 }
 
 func (m *MockSandbox) FS() SandboxFS {
@@ -671,7 +696,7 @@ func (m *MockSandbox) Attach(_ context.Context, _ string, _ ...string) (int, err
 }
 
 func (m *MockSandbox) AttachWith(
-	_ context.Context,
+	ctx context.Context,
 	command string,
 	args []string,
 	opts ...msbSdk.AttachOption,
@@ -686,6 +711,9 @@ func (m *MockSandbox) AttachWith(
 		m.AttachUser = cfg.User
 		m.AttachCwd = cfg.Cwd
 		m.AttachEnv = cfg.Env
+	}
+	if m.AttachFn != nil {
+		return m.AttachFn(ctx)
 	}
 	return m.AttachCode, m.AttachErr
 }
@@ -706,6 +734,15 @@ func (m *MockSandbox) Destroy(_ context.Context, _ ...msbSdk.DestroyOption) erro
 }
 func (m *MockSandbox) DidDestroy() bool { return m.Destroyed }
 func (m *MockSandbox) Close() error     { return m.CloseErr }
+
+func (m *MockSandbox) Metrics(_ context.Context) (*msbSdk.Metrics, error) {
+	return m.MetricsResult, m.MetricsErr
+}
+
+func (m *MockSandbox) Logs(_ context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error) {
+	m.LogsOptions = append(m.LogsOptions, opts)
+	return m.LogsResult, m.LogsErr
+}
 
 func (m *MockSandbox) ShellStream(
 	_ context.Context,

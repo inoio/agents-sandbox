@@ -3,12 +3,18 @@ package session
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/creack/pty"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -322,6 +328,90 @@ func TestRunServeOnlyClientLeaseFailureWarns(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected client lease warning, got %v", ui.WarnCalls)
+	}
+}
+
+// terminalStdoutUI is a termio.Mock whose stdout is a pty, so the attach path
+// sees a real terminal and emits its reset.
+type terminalStdoutUI struct {
+	*termio.Mock
+
+	stdout *os.File
+}
+
+func (u terminalStdoutUI) StdOut() io.Writer { return u.stdout }
+
+// newTerminalStdoutUI returns a UI writing stdout to a pty and a function that
+// closes the terminal side and returns everything written to it.
+func newTerminalStdoutUI(t *testing.T) (terminalStdoutUI, func() string) {
+	t.Helper()
+	master, slave, err := pty.Open()
+	if err != nil {
+		t.Skipf("no pty available: %v", err)
+	}
+	t.Cleanup(func() { _ = master.Close(); _ = slave.Close() })
+	return terminalStdoutUI{Mock: &termio.Mock{}, stdout: slave}, func() string {
+		_ = slave.Close()
+		written, _ := io.ReadAll(master)
+		return string(written)
+	}
+}
+
+// TestRunAttachEmitsTerminalResetAfterAbnormalEnd pins that a killed harness
+// (exit code -1) leaves no emulator-mode residue: the reset reaches the terminal.
+func TestRunAttachEmitsTerminalResetAfterAbnormalEnd(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	// A pty-backed stdout exercises the production TTY predicate end to end;
+	// the forced-true seam path is covered by TestResetTerminalWritesSequenceToTerminal.
+	ui, written := newTerminalStdoutUI(t)
+	sb := &msb.MockSandbox{AttachCode: -1}
+
+	release, err := state.AcquireClientLease(state.Key{Slug: "resetattach", Agent: "opencode"})
+	if err != nil {
+		t.Fatalf("state.AcquireClientLease: %v", err)
+	}
+	release()
+
+	_ = runAttach(context.Background(), state.Key{Slug: "resetattach", Agent: "opencode"}, sb, "/workspace/sub", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
+	if got := written(); !strings.Contains(got, terminalReset) {
+		t.Fatalf("terminal received %q, want the terminal reset sequence", got)
+	}
+}
+
+// TestRunAttachSkipsTerminalResetAfterCleanExit pins that a harness that exits
+// normally restored its own terminal modes, so no reset is sent: leaving the
+// alternate screen restores a saved cursor (DECRC) on xterm-family terminals,
+// which could move the cursor over earlier output.
+func TestRunAttachSkipsTerminalResetAfterCleanExit(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui, written := newTerminalStdoutUI(t)
+	sb := &msb.MockSandbox{AttachCode: 0}
+
+	if err := runAttach(context.Background(), state.Key{Slug: "resetclean", Agent: "opencode"}, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}), "-l"); err != nil {
+		t.Fatalf("runAttach failed: %v", err)
+	}
+	if got := written(); strings.Contains(got, terminalReset) {
+		t.Fatalf("terminal received the reset %q after a clean exit, want none", got)
+	}
+}
+
+// TestRunAttachSkipsTerminalResetForNonTerminal pins the Greptile fix at the
+// attach boundary: when stdout is not a terminal (a piped or captured run) the
+// attach path must not write raw escape bytes into it.
+func TestRunAttachSkipsTerminalResetForNonTerminal(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	stubIsTerminalWriter(t, false)
+
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{AttachCode: -1}
+
+	_ = runAttach(context.Background(), state.Key{Slug: "resetpipe", Agent: "opencode"}, sb, "/workspace/sub", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
+	if got := ui.StdOutBuffer.String(); got != "" {
+		t.Fatalf("StdOut = %q, want no reset for a non-terminal", got)
 	}
 }
 
@@ -647,6 +737,54 @@ func TestRunPrepareSandboxError(t *testing.T) {
 	}
 }
 
+// TestRunPrepareErrorDoesNotEmitTerminalReset pins that the reset is scoped to
+// the attach path: a failure before any attach ran must not write control bytes
+// into captured output (e.g. serve-only or a piped run).
+func TestRunPrepareErrorDoesNotEmitTerminalReset(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return nil, errors.New("prepare boom")
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Run(context.Background(), resolvedRunOptions(t, options.RunOptions{}), options.ModeRun, ui)
+	if err == nil || !strings.Contains(err.Error(), "prepare boom") {
+		t.Errorf("err = %v, want prepareSandbox error", err)
+	}
+	if got := ui.StdOutBuffer.String(); got != "" {
+		t.Fatalf("StdOut = %q, want no terminal reset before any attach", got)
+	}
+}
+
+// TestShellAttachEmitsTerminalReset pins that Shell shares the attach path's
+// reset emission after an abnormal end with Run.
+func TestShellAttachEmitsTerminalReset(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui, written := newTerminalStdoutUI(t)
+	sb := &msb.MockSandbox{AttachCode: -1, Name_: "test-vm"}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, target: "/workspace"}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Shell(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}),
+		options.ModeRun,
+		ui,
+	)
+	var exitErr *sandbox.ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != -1 {
+		t.Fatalf("Shell = %v, want ExitError code -1", err)
+	}
+	if got := written(); !strings.Contains(got, terminalReset) {
+		t.Fatalf("terminal received %q, want the terminal reset sequence", got)
+	}
+}
+
 func TestRunServeOnlyReapFailureWarns(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
@@ -785,6 +923,16 @@ func TestRunNormalCallsRunAttach(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected attach command in verbose output, got %v", ui.VerboseCalls)
+	}
+	pressureReported := false
+	for _, v := range ui.VerboseCalls {
+		if strings.Contains(v, "memory pressure during attach") {
+			pressureReported = true
+			break
+		}
+	}
+	if !pressureReported {
+		t.Errorf("expected the pressure summary in verbose output, got %v", ui.VerboseCalls)
 	}
 	if got, want := trace.Stages(), []lifecycle.StageID{lifecycle.Attach}; !slices.Equal(got, want) {
 		t.Errorf("trace = %v, want %v (attach recorded once)", got, want)
@@ -1622,4 +1770,378 @@ func containerProbeWarn(ui *termio.Mock) bool {
 		}
 	}
 	return false
+}
+
+// --- Post-attach memory detection ---
+
+// seedSessionHomeState creates the key's state file (empty) so the marker
+// writers, which no-op without one, take effect.
+func seedSessionHomeState(t *testing.T, k state.Key) {
+	t.Helper()
+	if err := state.RecoverHomeState(k, func(hs *state.HomeState, _ bool) (bool, error) {
+		*hs = state.HomeState{}
+		return true, nil
+	}); err != nil {
+		t.Fatalf("seed home state: %v", err)
+	}
+}
+
+// sessionOOMLogLine builds a system-log entry carrying a parseable OOM kill.
+func sessionOOMLogLine(at time.Time) msbSdk.LogEntry {
+	return msbSdk.LogEntry{
+		Source:    msbSdk.LogSourceSystem,
+		Timestamp: at,
+		Data:      []byte("Out of memory: Killed process 7 (opencode) total-vm:1kB"),
+	}
+}
+
+// TestRunPostAttachOOMOffersAndDeclineRecords pins the post-attach path: an
+// abnormal end (signal death) with an OOM line prompts once, and a decline
+// records the answered marker before the lease is released.
+func TestRunPostAttachOOMOffersAndDeclineRecords(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "postattachoom", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	var selects int
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
+	}
+	sb := &msb.MockSandbox{
+		AttachCode:    -1,
+		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+	}
+
+	err := runAttach(context.Background(), k, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
+
+	var exitErr *sandbox.ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != -1 {
+		t.Fatalf("runAttach = %v, want ExitError code -1", err)
+	}
+	if selects != 1 {
+		t.Fatalf("Select called %d times, want 1", selects)
+	}
+	hs, readErr := state.ReadState(k)
+	if readErr != nil {
+		t.Fatalf("ReadState: %v", readErr)
+	}
+	if hs.ResourcePressure == nil || hs.ResourcePressure.OfferedAt.IsZero() {
+		t.Fatalf("marker = %+v, want an answered offer recorded", hs.ResourcePressure)
+	}
+}
+
+// TestRunAttachSignalSkipsTheOfferAndStillReaps pins the signal scope around
+// the attach: SIGINT/SIGTERM during the attach ends it, skips the memory offer
+// (the user asked to stop), and the reap still runs on an uncanceled context.
+func TestRunAttachSignalSkipsTheOfferAndStillReaps(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	// Keep the test process alive should the signal escape the attach scope.
+	guard := make(chan os.Signal, 1)
+	signal.Notify(guard, os.Interrupt)
+	defer signal.Stop(guard)
+	k := state.Key{Slug: "signalattach", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	var selects int
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
+	}
+	sb := &msb.MockSandbox{
+		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+		AttachFn: func(ctx context.Context) (int, error) {
+			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+				return 0, err
+			}
+			<-ctx.Done()
+			return -1, nil
+		},
+	}
+
+	_ = runAttach(context.Background(), k, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
+
+	if selects != 0 {
+		t.Errorf("Select called %d times, want no offer after an interrupted attach", selects)
+	}
+	for _, warning := range ui.WarnCalls {
+		if strings.Contains(warning, "reap failed") {
+			t.Errorf("reap ran on a canceled context: %q", warning)
+		}
+	}
+}
+
+// TestRunAttachReportsWatcherReadErrorsAfterTheAttach pins that a failing
+// metrics read is reported once after the attach returns, never while the
+// agent's full-screen TUI owns the terminal.
+func TestRunAttachReportsWatcherReadErrorsAfterTheAttach(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	stubPressureWatchInterval(t)
+	k := state.Key{Slug: "watchererrors", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	ui := &termio.Mock{}
+	watcherLines := func() int {
+		count := 0
+		for _, call := range ui.VerboseCalls {
+			if strings.Contains(call, "metrics read failed") {
+				count++
+			}
+		}
+		return count
+	}
+	linesDuringAttach := -1
+	sb := &msb.MockSandbox{
+		MetricsErr: errors.New("metrics unsupported"),
+		AttachFn: func(context.Context) (int, error) {
+			time.Sleep(20 * pressureWatchInterval)
+			linesDuringAttach = watcherLines()
+			return 0, nil
+		},
+	}
+
+	_ = runAttach(context.Background(), k, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
+
+	if linesDuringAttach != 0 {
+		t.Errorf("%d watcher lines written during the attach, want none", linesDuringAttach)
+	}
+	if got := watcherLines(); got != 1 {
+		t.Errorf("%d watcher lines after the attach, want one", got)
+	}
+}
+
+// TestRunAttachPromptsOutsideTheSignalScope pins that the post-attach prompt
+// runs after the attach's signal handling is released, so Ctrl-C at the prompt
+// ends the launcher as usual: the attach context, which the signal scope cancels
+// when it is released, is already done when the prompt runs.
+func TestRunAttachPromptsOutsideTheSignalScope(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "promptscope", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	var attachDone <-chan struct{}
+	promptedInsideScope := false
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(string, []termio.Choice, string) (string, error) {
+			select {
+			case <-attachDone:
+			default:
+				promptedInsideScope = true
+			}
+			return "keep", nil
+		},
+	}
+	sb := &msb.MockSandbox{
+		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+		AttachFn: func(ctx context.Context) (int, error) {
+			attachDone = ctx.Done()
+			return -1, nil
+		},
+	}
+
+	_ = runAttach(context.Background(), k, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
+
+	if attachDone == nil {
+		t.Fatal("attach did not run")
+	}
+	if promptedInsideScope {
+		t.Error("the memory prompt ran while the attach's signal handling was still active")
+	}
+}
+
+// TestRunPostAttachCleanExitNoOffer pins the anti-false-positive rule: a clean
+// exit does not prompt even when the system log carries an OOM line.
+func TestRunPostAttachCleanExitNoOffer(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "postattachclean", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	var selects int
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
+	}
+	sb := &msb.MockSandbox{
+		AttachCode:    0,
+		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+	}
+
+	err := runAttach(context.Background(), k, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
+	if err != nil {
+		t.Fatalf("runAttach = %v, want nil", err)
+	}
+	if selects != 0 {
+		t.Fatalf("Select called %d times on a clean exit, want 0", selects)
+	}
+}
+
+// TestRunAttachResetsTheTerminalAfterASignal pins that a signal-ended attach
+// resets the terminal even when the guest reports a clean exit code.
+func TestRunAttachResetsTheTerminalAfterASignal(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	guard := make(chan os.Signal, 1)
+	signal.Notify(guard, os.Interrupt)
+	defer signal.Stop(guard)
+	ui, written := newTerminalStdoutUI(t)
+	sb := &msb.MockSandbox{AttachFn: func(ctx context.Context) (int, error) {
+		if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+			return 0, err
+		}
+		<-ctx.Done()
+		return 0, nil
+	}}
+
+	_ = runAttach(context.Background(), state.Key{Slug: "signalreset", Agent: "opencode"}, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
+
+	if got := written(); !strings.Contains(got, terminalReset) {
+		t.Fatalf("terminal received %q, want the reset after a signal", got)
+	}
+}
+
+// TestRunAttachCanceledParentIsNotASignal pins that an attach ended by its
+// parent context, not by a signal to the launcher, is no interruption: the
+// memory offer for the abnormal end still runs.
+func TestRunAttachCanceledParentIsNotASignal(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "parentcancel", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	var selects int
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	sb := &msb.MockSandbox{
+		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+		AttachFn: func(context.Context) (int, error) {
+			cancel()
+			return -1, nil
+		},
+	}
+
+	_ = runAttach(ctx, k, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
+
+	if selects != 1 {
+		t.Fatalf("Select called %d times, want the offer after a parent-canceled abnormal end", selects)
+	}
+}
+
+// TestRunPostAttachLogReadErrorDoesNotFail pins best-effort detection: a system
+// log read failure does not prompt and does not change the session's result.
+func TestRunPostAttachLogReadErrorDoesNotFail(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "postattachlogerr", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	var selects int
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
+	}
+	sb := &msb.MockSandbox{AttachCode: -1, LogsErr: errors.New("logs boom")}
+
+	err := runAttach(context.Background(), k, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
+
+	var exitErr *sandbox.ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != -1 {
+		t.Fatalf("runAttach = %v, want the normal ExitError code -1", err)
+	}
+	if selects != 0 {
+		t.Fatalf("Select called %d times after a log read failure, want 0", selects)
+	}
+	if !verboseContainsSession(ui) {
+		t.Errorf("verbose calls %v do not report the log read failure", ui.VerboseCalls)
+	}
+}
+
+// TestRunPostAttachReadStateErrorLogsAndContinues pins the state-read failure
+// path: when no marker can be read the detection logs and continues, leaving
+// the session result unchanged.
+func TestRunPostAttachReadStateErrorLogsAndContinues(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "postattachstateerr", Agent: "opencode"}
+	var selects int
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
+	}
+	sb := &msb.MockSandbox{AttachCode: -1}
+
+	err := runAttach(context.Background(), k, sb, "/workspace", ui,
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
+
+	var exitErr *sandbox.ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != -1 {
+		t.Fatalf("runAttach = %v, want the normal ExitError code -1", err)
+	}
+	if selects != 0 {
+		t.Fatalf("Select called %d times, want 0", selects)
+	}
+	found := false
+	for _, call := range ui.VerboseCalls {
+		if strings.Contains(call, "reading home state for memory detection failed") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("verbose calls %v do not report the state read failure", ui.VerboseCalls)
+	}
+}
+
+// verboseContainsSession reports whether any verbose call reports the system-log
+// read failure, which is the observable best-effort log message.
+func verboseContainsSession(ui *termio.Mock) bool {
+	for _, call := range ui.VerboseCalls {
+		if strings.Contains(call, "reading VM system log failed") {
+			return true
+		}
+	}
+	return false
+}
+
+// TestShellPostAttachOffer pins that Shell shares the post-attach detection
+// path: an OOM-killed shell also prompts once.
+func TestShellPostAttachOffer(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "shellpostattach", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	var selects int
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
+	}
+	sb := &msb.MockSandbox{
+		AttachCode:    -1,
+		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+	}
+	orig := prepareSandbox
+	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
+		return &fakePrepared{sb: sb, target: "/workspace", key: k}, nil
+	}
+	defer func() { prepareSandbox = orig }()
+
+	err := Shell(
+		context.Background(),
+		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}),
+		options.ModeRun,
+		ui,
+	)
+
+	var exitErr *sandbox.ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != -1 {
+		t.Fatalf("Shell = %v, want ExitError code -1", err)
+	}
+	if selects != 1 {
+		t.Fatalf("Select called %d times from Shell, want 1", selects)
+	}
 }

@@ -1,13 +1,14 @@
 ---
-description: How to close gomutants survivors in this repo — the recurring mutant types, the assertion that kills each (including the `errors.Unwrap` kill for a `%w`→`%v` whose cause has no sentinel), the equivalent/near-equivalent traps (including false "returns nil on error" equivalence claims, unparameterized clamp bounds, yaml.v3's partial decode, map-iteration randomization, seam call-counting, a guard whose error is re-derived downstream, cobra's Find-vs-ValidateArgs default, a test double's interactivity gate, a lone-return `RETURN_ERROR_NIL` that will not compile, a sub-unit factor below a rounding threshold, a blocking-flock seam, a negative "drop" sentinel, and a wall-clock budget constant), and the record-with-a-reason fallback.
+description: How to close gomutants survivors in this repo — the recurring mutant types, the assertion that kills each (including the `errors.Unwrap` kill for a `%w`→`%v` whose cause has no sentinel), the equivalent/near-equivalent traps (including false "returns nil on error" equivalence claims, unparameterized clamp bounds, yaml.v3's partial decode, map-iteration randomization, seam call-counting, a guard whose error is re-derived downstream, cobra's Find-vs-ValidateArgs default, a test double's interactivity gate, a lone-return `RETURN_ERROR_NIL` that will not compile, a sub-unit factor below a rounding threshold, a blocking-flock seam, a negative "drop" sentinel, a wall-clock budget constant, a try-verify-fallback design, and package-scoped test runs), and the record-with-a-reason fallback.
 read_if: Triaging LIVED mutants from a `make mutation` sweep, or deciding whether to strengthen a test or record a `// gomutants:disable` reason.
 ---
 
 # Triaging mutation survivors
 
-The rule lives in `specs/mutation-testing.md`: every LIVED mutant is closed by a strengthened test or a recorded reason.
-This is the field guide for doing it. It was distilled from the first full sweep of `internal/agent`
-(`make mutation FULL=1 PKG=./internal/agent/`): 36 survivors from 322 mutants, all under-asserted tests, no defects.
+The rule lives in `specs/mutation-testing.md`: a survivor is killed, deleted, or recorded, and an unclosed survivor is
+tracked debt rather than a merge blocker. This is the field guide for the recurring types. It was distilled from the
+first full sweep of `internal/agent` (`make mutation FULL=1 PKG=./internal/agent/`): 36 survivors from 322 mutants, all
+under-asserted tests, no defects.
 
 ## Redundant production code: delete it
 
@@ -57,7 +58,14 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   equivalent and unfalsifiable: `strings.HasPrefix(p, "!") && p == "!"` with the left operand removed becomes
   `true && p == "!"`, which is the original. A same-line or `disable-next-line` directive is **type-scoped** (it cannot
   name a stable-id), so recording that one also suppresses the *killable* sibling. Delete the redundant operand — the
-  mutant ceases to exist — and let the surviving condition be killed normally.
+  mutant ceases to exist — and let the surviving condition be killed normally. On a multi-line `a || b || c || d` chain
+  each candidate reports at its operand's own start, so the left operand of every nested pair lands on the first
+  operand's line (three candidates there for a four-term chain) while `b`, `c`, and `d` each report on their own line:
+  one `disable-next-line` above the `if` therefore suppresses only the left-side family, and a directive on a later
+  operand's line matches just that operand. A redundant first operand (a `!exists ||` before a nil-check that a zero
+  value already satisfies) is what makes that left family suppression-only, so deleting it exposes the rest as
+  killable — and any operand removal that leaves the next one dereferencing a nil pointer is then killed by the test
+  that exercises the nil case (it panics, it does not merely fail).
 - **An `&&` operand that is not itself redundant can still have an equivalent removal mutant, when the code it guards
   feeds a consumer that discards the mutant's effect.** `runoptions.ResolveDockerSetting` guarded an `append` of
   `{Source: cfg.DockerSource(), Value: cfg.Docker}` with `cfg != nil && cfg.DockerExplicit()`; a config with no explicit
@@ -101,6 +109,17 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   removal; `Find` instead falls back to `legacyArgs`, which rejects extra args on a root with subcommands. Call
   `cmd.Find([]string{"<bare-positional>"})` — a `--flag value` pair is stripped before `Find` checks, so it would not
   reach the fallback.
+- **A try-verify-fallback design hides every mutant before the verifier: make the verifier the only gate.**
+  `viperconfig.WriteSetting` edits the file text in place, checks the edit reads back as the value, and re-encodes the
+  document otherwise. Every pre-check before the read-back (node kind, anchor, quote scanning, a flow-root guard) and
+  every wrong edit just fell back to the re-encode, which still wrote the right value, so ~100 mutants lived. Delete
+  the pre-checks the read-back subsumes, keep the verifier minimal (decode, compare), and pin the in-place result byte
+  for byte with inputs whose re-encode differs (a blank line, two-space indentation, a non-first key), so a broken edit
+  shows as lost formatting.
+- **gomutants runs only the mutated package's tests: assert a return value in the package's own tests.** A
+  `return 0` → `return 1` in `resourceproposal` survived although `prepare` and `session` tests checked the value the
+  callers received. Return a value the callers cannot misread (the persisted setting string rather than a MiB count
+  with a zero sentinel) and assert it on every path in the package's tests.
 - **A `termio.Mock` needs `IsInteractiveResult` (or `assumeYes`) for `Confirm` to reach the code under test.** With
   neither, `Confirm` returns `ErrConfirmationRequired` before the prompt, so a test that sets only `ConfirmResult` never
   exercises the path it meant to — a `RETURN_ERROR_NIL` on the pruner's error return stayed green that way.
@@ -300,17 +319,18 @@ would re-derive is not redundant code either: dropping it would ignore an error,
 
 - A cold `FULL=1` run of one package (`internal/agent`, ~320 mutants) exceeds 15 minutes in a fresh worktree; reruns
   resume from `.gomutants-cache.json` and are much faster. Run it in the background.
-- **Scope a branch or PR sweep with `SINCE=<base ref>`, not the release-tag default.** `SINCE` defaults to the last
-  release tag, so a branch sweep covers every unreleased line rather than the branch's own. Measured on
-  `internal/sandbox/image` (cold `.gomutants-cache.json` each run, warm Go build cache): the default `SINCE=v0.6.0` found
-  42 mutants in 45s, `SINCE=origin/main` found 3 in 19s, and `SINCE=HEAD` found 0 and paid a ~7s floor — discovery and the
-  coverage pass are package-scoped, so the module-wide floor the CI job pays is larger than this single-package one. The
-  CI `mutation` workflow already scopes a PR to `SINCE=origin/<base_ref>`; use `SINCE=origin/main` locally to match, and
-  reserve the bare default for the release sweep.
+- **Scope a branch or PR sweep with `SINCE=<base ref>`, not the release-tag default.** The spec documents the default
+  and the CI scoping; use `SINCE=origin/main` locally to match a PR. Measured on `internal/sandbox/image` (cold
+  `.gomutants-cache.json` each run, warm Go build cache): the default `SINCE=v0.6.0` found 42 mutants in 45s,
+  `SINCE=origin/main` found 3 in 19s, and `SINCE=HEAD` found 0 and paid a ~7s floor — discovery and the coverage
+  pass are package-scoped, so the module-wide floor the CI job pays is larger than this single-package one. Reserve the
+  bare default for the release sweep.
 - **A mutant that removes loop progress hangs; it reports `TIMED OUT`, not `LIVED`.** `STATEMENT_REMOVE` on a loop's
   `i++` or `i = f(...)` never advances, so the package's test run never returns (locally the worker hits the 2048 MiB
   cap and is killed — same symptom). No assertion can catch it; leave it and read `LIVED`, not `TIMED OUT`, as the
   survivor count.
+- A mutant can make a test write into the package directory (a mutated config dir that resolves to `""` wrote
+  `internal/sandbox/resourceproposal/config.yaml`). Check `git status` after a sweep and delete such leftovers.
 - `make mutation FULL=1 PKG=./internal/agent/` writes `mutation-report.json` (gitignored) plus the cache into the
   worktree. Read the result with `jq`:
   `jq -r '[.files[] as $f | $f.mutations[] | select(.status=="LIVED") | "\($f.file_name):\(.line) \(.type)"] | .[]'`.

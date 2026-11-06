@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -20,12 +21,14 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
+	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
+	"github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
 // TestReadLiveProjectVMWithoutVM pins the first-run case: no project VM exists,
@@ -1797,5 +1800,504 @@ func TestExistingServeHostPort(t *testing.T) {
 	}}
 	if got := existingServeHostPort(userOnly, 4100); got != 4100 {
 		t.Errorf("existingServeHostPort(no serve binding) = %d, want the fallback", got)
+	}
+}
+
+// TestBootMaxMemoryGrew pins the flag that lets the plan recreate for memory
+// above the live boot maximum: only a live VM booted with a lower maximum than
+// a fresh VM would get counts.
+func TestBootMaxMemoryGrew(t *testing.T) {
+	freshMaxMiB := vm.BootMaxMemoryMiB()
+	tests := []struct {
+		name string
+		live liveProjectVM
+		want bool
+	}{
+		{name: "no live config", live: liveProjectVM{}, want: false},
+		{
+			name: "same maximum",
+			live: liveProjectVM{config: &msbSdk.SandboxConfig{MaxMemoryMiB: freshMaxMiB}},
+			want: false,
+		},
+		{
+			name: "lower live maximum",
+			live: liveProjectVM{config: &msbSdk.SandboxConfig{MaxMemoryMiB: freshMaxMiB - 1024}},
+			want: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := bootMaxMemoryGrew(tc.live); got != tc.want {
+				t.Errorf("bootMaxMemoryGrew = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// memoryRaiseLogEntry builds a system-log entry carrying a parseable OOM kill
+// naming the harness.
+func memoryRaiseLogEntry(at time.Time) msbSdk.LogEntry {
+	return msbSdk.LogEntry{
+		Source:    msbSdk.LogSourceSystem,
+		Timestamp: at,
+		Data:      []byte("Out of memory: Killed process 42 (opencode) total-vm:1kB"),
+	}
+}
+
+// trippedMetrics is a snapshot at ~95% memory usage, above the 90% trip level.
+func trippedMetrics() *msbSdk.Metrics {
+	return &msbSdk.Metrics{MemoryBytes: 7800 << 20, MemoryLimitBytes: 8192 << 20}
+}
+
+// floorTrippedMetrics is a snapshot at ~79% memory usage: below the 80% re-arm
+// level but with only ~861 MiB free, so the absolute floor (1024 MiB) still
+// trips. It is the overlap that must not count as recovery.
+func floorTrippedMetrics() *msbSdk.Metrics {
+	return &msbSdk.Metrics{MemoryBytes: 3235 << 20, MemoryLimitBytes: 4096 << 20}
+}
+
+// seedEmptyHomeState creates the key's state file with no recorded pressure, so
+// the writers (which no-op without a state file) take effect.
+func seedEmptyHomeState(t *testing.T, k state.Key) {
+	t.Helper()
+	if err := seedHomeState(k, state.HomeState{}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+}
+
+// readPressureMarker reads the key's current pressure marker.
+func readPressureMarker(t *testing.T, k state.Key) *state.ResourcePressureState {
+	t.Helper()
+	hs, err := state.ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	return hs.ResourcePressure
+}
+
+// pressureHomeState re-reads the key's HomeState, as a fresh launch's
+// ensure-home would.
+func pressureHomeState(t *testing.T, k state.Key) state.HomeState {
+	t.Helper()
+	hs, err := state.ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	return *hs
+}
+
+// resolvePreparedMemory reads back the resolved memory value for slug.
+func resolvePreparedMemory(t *testing.T, slug string) string {
+	t.Helper()
+	r, err := viperconfig.NewResolver(nil, configpaths.Get(), slug)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	return r.Config().Memory
+}
+
+// withoutMemoryEnv clears the memory env vars so PersistMemory's shadow guard
+// does not refuse the write.
+func withoutMemoryEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("AGENTS_SANDBOX_MEMORY", "")
+	t.Setenv("OPENCODE_SANDBOX_MEMORY", "")
+}
+
+// TestDetectAndOfferMemoryRaiseNewerOOMOffersAndPersists pins the primary path:
+// an OOM kill newer than the marker's recorded, answered kill is offered once
+// and an accepted raise is persisted.
+func TestDetectAndOfferMemoryRaiseNewerOOMOffersAndPersists(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	withoutMemoryEnv(t)
+	k := testVMKey()
+	oldKill := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := seedHomeState(k, state.HomeState{ResourcePressure: &state.ResourcePressureState{
+		Kind: "memory", Evidence: string(pressure.EvidenceOOMLog), Victim: "old",
+		OOMSeenAt: oldKill, OfferedAt: oldKill.Add(time.Minute),
+	}}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+	newKill := oldKill.Add(time.Hour)
+	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}
+	handle := &msb.MockSandboxHandle{
+		Cfg:        cfg,
+		LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(newKill)},
+	}
+	var selects int
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(string, []termio.Choice, string) (string, error) {
+			selects++
+			return "raise", nil
+		},
+		InputFn: func(string, string) (string, error) { return "8G", nil },
+	}
+
+	detectAndOfferMemoryRaise(
+		context.Background(), liveProjectVM{handle: handle, config: cfg}, k,
+		options.RunOptions{}, pressureHomeState(t, k), configpaths.Get(), ui,
+	)
+
+	if selects != 1 {
+		t.Fatalf("Select called %d times, want 1", selects)
+	}
+	marker := readPressureMarker(t, k)
+	if marker == nil || !marker.OOMSeenAt.Equal(newKill) || marker.OfferedAt.IsZero() {
+		t.Fatalf("marker = %+v, want the new kill recorded and answered", marker)
+	}
+	if got := resolvePreparedMemory(t, k.Slug); got != "8192M" {
+		t.Errorf("persisted memory = %q, want 8192M", got)
+	}
+}
+
+// TestDetectAndOfferMemoryRaiseDeclineDoesNotReOfferSameOOM pins the decline
+// answer: it advances the marker, so the same log entry is not offered again.
+func TestDetectAndOfferMemoryRaiseDeclineDoesNotReOfferSameOOM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testVMKey()
+	seedEmptyHomeState(t, k)
+	kill := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096}
+	handle := &msb.MockSandboxHandle{Cfg: cfg, LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(kill)}}
+	var selects int
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(string, []termio.Choice, string) (string, error) {
+			selects++
+			return "keep", nil
+		},
+	}
+	live := liveProjectVM{handle: handle, config: cfg}
+
+	detectAndOfferMemoryRaise(
+		context.Background(),
+		live,
+		k,
+		options.RunOptions{},
+		pressureHomeState(t, k),
+		configpaths.Get(),
+		ui,
+	)
+	detectAndOfferMemoryRaise(
+		context.Background(),
+		live,
+		k,
+		options.RunOptions{},
+		pressureHomeState(t, k),
+		configpaths.Get(),
+		ui,
+	)
+
+	if selects != 1 {
+		t.Fatalf("Select called %d times, want 1 (a declined kill is not re-offered)", selects)
+	}
+	if marker := readPressureMarker(t, k); marker == nil || marker.OfferedAt.IsZero() {
+		t.Fatalf("marker = %+v, want the decline recorded", marker)
+	}
+}
+
+// TestDetectAndOfferMemoryRaiseLogOrMetricsErrorIsBestEffort pins that a failed
+// evidence read never prompts and never fails.
+func TestDetectAndOfferMemoryRaiseLogOrMetricsErrorIsBestEffort(t *testing.T) {
+	cases := []struct {
+		name   string
+		handle *msb.MockSandboxHandle
+	}{
+		{"system log read fails", &msb.MockSandboxHandle{LogsErr: errors.New("logs boom")}},
+		{"metrics read fails", &msb.MockSandboxHandle{MetricsErr: errors.New("metrics boom")}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			k := testVMKey()
+			seedEmptyHomeState(t, k)
+			var selects int
+			ui := &termio.Mock{
+				IsInteractiveResult: true,
+				SelectFn: func(string, []termio.Choice, string) (string, error) {
+					selects++
+					return "raise", nil
+				},
+			}
+
+			detectAndOfferMemoryRaise(
+				context.Background(), liveProjectVM{handle: tc.handle}, k,
+				options.RunOptions{}, pressureHomeState(t, k), configpaths.Get(), ui,
+			)
+
+			if selects != 0 {
+				t.Errorf("Select called %d times, want 0 after an evidence read error", selects)
+			}
+			if marker := readPressureMarker(t, k); marker != nil {
+				t.Errorf("marker = %+v, want none recorded after an evidence read error", marker)
+			}
+		})
+	}
+}
+
+// TestDetectAndOfferMemoryRaiseNonInteractiveRecordsAndLaterOffers pins the §7
+// deferral: a non-interactive launch records the hit but does not answer it, so
+// the next interactive launch offers it.
+func TestDetectAndOfferMemoryRaiseNonInteractiveRecordsAndLaterOffers(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testVMKey()
+	seedEmptyHomeState(t, k)
+	kill := time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC)
+	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096}
+	handle := &msb.MockSandboxHandle{Cfg: cfg, LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(kill)}}
+	live := liveProjectVM{handle: handle, config: cfg}
+
+	detectAndOfferMemoryRaise(
+		context.Background(), live, k, options.RunOptions{},
+		pressureHomeState(t, k), configpaths.Get(), &termio.Mock{},
+	)
+
+	marker := readPressureMarker(t, k)
+	if marker == nil || !marker.OOMSeenAt.Equal(kill) || !marker.OfferedAt.IsZero() {
+		t.Fatalf("marker = %+v, want the kill recorded but unanswered", marker)
+	}
+
+	var selects int
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(string, []termio.Choice, string) (string, error) {
+			selects++
+			return "keep", nil
+		},
+	}
+	detectAndOfferMemoryRaise(
+		context.Background(),
+		live,
+		k,
+		options.RunOptions{},
+		pressureHomeState(t, k),
+		configpaths.Get(),
+		ui,
+	)
+
+	if selects != 1 {
+		t.Fatalf("Select called %d times on the interactive launch, want 1", selects)
+	}
+	if marker := readPressureMarker(t, k); marker.OfferedAt.IsZero() {
+		t.Error("OfferedAt is zero after the interactive launch answered")
+	}
+}
+
+// TestDetectAndOfferMemoryRaiseFreshHeadroomAtLaunchDoesNotOffer pins that the
+// next-launch path offers no raise for a busy VM: a tripped metrics read with no
+// OOM line and no recorded hit is not a limit hit (another client may simply be
+// using the memory).
+func TestDetectAndOfferMemoryRaiseFreshHeadroomAtLaunchDoesNotOffer(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	withoutMemoryEnv(t)
+	k := testVMKey()
+	seedEmptyHomeState(t, k)
+	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}
+	handle := &msb.MockSandboxHandle{Cfg: cfg, MetricsResult: floorTrippedMetrics()}
+	var selects int
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(string, []termio.Choice, string) (string, error) {
+			selects++
+			return "raise", nil
+		},
+	}
+
+	detectAndOfferMemoryRaise(
+		context.Background(), liveProjectVM{handle: handle, config: cfg}, k,
+		options.RunOptions{}, pressureHomeState(t, k), configpaths.Get(), ui,
+	)
+
+	if selects != 0 {
+		t.Fatalf("selects=%d, want no offer for a busy VM at launch", selects)
+	}
+}
+
+// TestDetectAndOfferMemoryRaisePreservesHeadroomSeenTime pins the fingerprint
+// of a recorded-but-unanswered headroom trip: offering it again keeps the
+// first-seen time rather than starting a new one.
+func TestDetectAndOfferMemoryRaisePreservesHeadroomSeenTime(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testVMKey()
+	seen := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	if err := seedHomeState(k, state.HomeState{ResourcePressure: &state.ResourcePressureState{
+		Kind: "memory", Evidence: string(pressure.EvidenceHeadroom), OOMSeenAt: seen,
+	}}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096}
+	handle := &msb.MockSandboxHandle{Cfg: cfg, MetricsResult: trippedMetrics()}
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "keep", nil },
+	}
+
+	detectAndOfferMemoryRaise(
+		context.Background(), liveProjectVM{handle: handle, config: cfg}, k,
+		options.RunOptions{}, pressureHomeState(t, k), configpaths.Get(), ui,
+	)
+
+	marker := readPressureMarker(t, k)
+	if marker == nil || !marker.OOMSeenAt.Equal(seen) {
+		t.Fatalf("marker = %+v, want the first-seen headroom time %v preserved", marker, seen)
+	}
+}
+
+// TestDetectAndOfferMemoryRaiseCurrentMemoryFallbacks pins the suggestion
+// basis: the metrics limit when the live config is unreadable, and no offer
+// when neither is known (a zero basis would pre-fill a decrease).
+func TestDetectAndOfferMemoryRaiseCurrentMemoryFallbacks(t *testing.T) {
+	t.Run("metrics limit when the config is unreadable", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		withoutMemoryEnv(t)
+		k := testVMKey()
+		seedEmptyHomeState(t, k)
+		handle := &msb.MockSandboxHandle{
+			LogsResult:    []msbSdk.LogEntry{memoryRaiseLogEntry(time.Now())},
+			MetricsResult: trippedMetrics(),
+		}
+		ui, inputDefault := raiseUI(t)
+		detectAndOfferMemoryRaise(
+			context.Background(), liveProjectVM{handle: handle}, k,
+			options.RunOptions{}, pressureHomeState(t, k), configpaths.Get(), ui,
+		)
+		if *inputDefault != "10G" {
+			t.Errorf("Input default = %q, want 10G from the metrics limit", *inputDefault)
+		}
+	})
+
+	t.Run("no offer when neither is known", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		withoutMemoryEnv(t)
+		k := testVMKey()
+		seedEmptyHomeState(t, k)
+		kill := time.Now()
+		handle := &msb.MockSandboxHandle{
+			LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(kill)},
+		}
+		var selects int
+		ui := &termio.Mock{
+			IsInteractiveResult: true,
+			SelectFn: func(string, []termio.Choice, string) (string, error) {
+				selects++
+				return "raise", nil
+			},
+		}
+		detectAndOfferMemoryRaise(
+			context.Background(), liveProjectVM{handle: handle}, k,
+			options.RunOptions{}, pressureHomeState(t, k), configpaths.Get(), ui,
+		)
+		if selects != 0 {
+			t.Fatalf("Select called %d times, want 0 without a known limit", selects)
+		}
+		marker := readPressureMarker(t, k)
+		if marker == nil || !marker.OOMSeenAt.Equal(kill) || !marker.OfferedAt.IsZero() {
+			t.Fatalf("marker = %+v, want the kill recorded but unanswered", marker)
+		}
+	})
+}
+
+// raiseUI returns an interactive UI that accepts the raise, plus a pointer to
+// the value prompt's default.
+func raiseUI(t *testing.T) (*termio.Mock, *string) {
+	t.Helper()
+	inputDefault := ""
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
+		InputFn: func(_ string, defaultValue string) (string, error) {
+			inputDefault = defaultValue
+			return defaultValue, nil
+		},
+	}
+	return ui, &inputDefault
+}
+
+// TestDetectAndOfferMemoryRaisePromptErrorIsBestEffort pins that a prompt
+// failure records the hit unanswered and does not fail the run.
+func TestDetectAndOfferMemoryRaisePromptErrorIsBestEffort(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testVMKey()
+	seedEmptyHomeState(t, k)
+	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096}
+	handle := &msb.MockSandboxHandle{
+		Cfg:        cfg,
+		LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(time.Now())},
+	}
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "", errors.New("prompt boom") },
+	}
+
+	detectAndOfferMemoryRaise(
+		context.Background(), liveProjectVM{handle: handle, config: cfg}, k,
+		options.RunOptions{}, pressureHomeState(t, k), configpaths.Get(), ui,
+	)
+
+	if marker := readPressureMarker(t, k); marker == nil || !marker.OfferedAt.IsZero() {
+		t.Fatalf("marker = %+v, want the hit recorded but unanswered after a prompt error", marker)
+	}
+	assertVerbose(t, ui, "memory raise prompt failed")
+}
+
+// TestDetectAndOfferMemoryRaisePersistErrorWarns pins that a persist refusal
+// (here a JSON config the launcher does not edit) warns rather than failing, and
+// still advances the marker.
+func TestDetectAndOfferMemoryRaisePersistErrorWarns(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testVMKey()
+	seedEmptyHomeState(t, k)
+	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096}
+	handle := &msb.MockSandboxHandle{
+		Cfg:        cfg,
+		LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(time.Now())},
+	}
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
+		InputFn:             func(string, string) (string, error) { return "8G", nil },
+	}
+	withoutMemoryEnv(t)
+	testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(k.Slug), "config.json", "{}")
+
+	detectAndOfferMemoryRaise(
+		context.Background(), liveProjectVM{handle: handle, config: cfg}, k,
+		options.RunOptions{}, pressureHomeState(t, k), configpaths.Get(), ui,
+	)
+
+	if marker := readPressureMarker(t, k); marker == nil || marker.OfferedAt.IsZero() {
+		t.Fatalf("marker = %+v, want the answer recorded despite the persist refusal", marker)
+	}
+	warned := false
+	for _, warning := range ui.WarnCalls {
+		if strings.Contains(warning, "could not persist") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("warnings %v do not report the persist failure", ui.WarnCalls)
+	}
+}
+
+// TestDetectAndOfferMemoryRaiseSkipsWithoutVM pins the no-VM guard.
+func TestDetectAndOfferMemoryRaiseSkipsWithoutVM(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	detectAndOfferMemoryRaise(
+		context.Background(), liveProjectVM{}, testVMKey(), options.RunOptions{},
+		state.HomeState{}, configpaths.Get(), &ui,
+	)
+}
+
+// TestBootMaxMemoryMiB pins the live-VM boot-maximum read: the configured value
+// is returned, and an unread config reports 0 (no clamp).
+func TestBootMaxMemoryMiB(t *testing.T) {
+	live := liveProjectVM{config: &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}}
+	if got := bootMaxMemoryMiB(live); got != 8192 {
+		t.Errorf("bootMaxMemoryMiB = %d, want 8192", got)
+	}
+	if got := bootMaxMemoryMiB(liveProjectVM{}); got != 0 {
+		t.Errorf("bootMaxMemoryMiB(nil config) = %d, want 0", got)
 	}
 }

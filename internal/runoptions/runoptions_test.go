@@ -47,7 +47,7 @@ func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().Lookup(FlagNotify).NoOptDefVal = "on"
 
 	cmd.Flags().Uint8("cpus", 0, "cpus")
-	cmd.Flags().String("memory", "4G", "memory")
+	cmd.Flags().String(FlagMemory, "4G", "memory")
 	cmd.Flags().String("tmp-size", "2G", "tmp-size")
 	cmd.Flags().String("disk-size", "", "disk-size")
 	cmd.Flags().String("workspace-quota", "16G", "workspace-quota")
@@ -208,6 +208,47 @@ func TestBuildAllowPlaceholderForFromConfig(t *testing.T) {
 	}
 	if !slices.Equal(opts.AllowPlaceholderFor, []string{"model.example"}) {
 		t.Errorf("AllowPlaceholderFor = %v, want [model.example]", opts.AllowPlaceholderFor)
+	}
+}
+
+// TestBuildMemoryFlagChanged pins the --memory flag provenance: Build records
+// whether the flag was explicitly set, so a persisted raise is not written as a
+// shadowed config value (specs/resource-limit-proposal.md §8).
+func TestBuildMemoryFlagChanged(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
+
+	unset := newRunCommand()
+	opts, err := Build(r.Config(), unset, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.MemoryFlagChanged {
+		t.Error("MemoryFlagChanged = true for an unchanged --memory flag; want false")
+	}
+
+	changed := newRunCommand()
+	if err := changed.Flags().Set(FlagMemory, "8G"); err != nil {
+		t.Fatalf("set --memory: %v", err)
+	}
+	opts, err = Build(r.Config(), changed, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !opts.MemoryFlagChanged {
+		t.Error("MemoryFlagChanged = false after --memory was set; want true")
+	}
+}
+
+// TestBuildMemoryFlagAbsent pins the lookup guard: a command that does not
+// register --memory reports it unchanged rather than panicking.
+func TestBuildMemoryFlagAbsent(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
+	opts, err := Build(r.Config(), &cobra.Command{Use: "bare"}, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.MemoryFlagChanged {
+		t.Error("MemoryFlagChanged = true for a command without --memory")
 	}
 }
 

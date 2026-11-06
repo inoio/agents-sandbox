@@ -43,6 +43,33 @@ var (
 		"secret_state",
 		"secret_state.hash",
 		"secret_state.names",
+	}, 2: {
+		"agent_source",
+		"agent_version",
+		"docker_source",
+		"env_state",
+		"env_state.hash",
+		"env_state.names",
+		"home_volume",
+		"image_digest",
+		"mount_state",
+		"mount_state.hash",
+		"mount_state.names",
+		"network_state",
+		"network_state.hash",
+		"network_state.names",
+		"offered_versions",
+		"recovered_home_volume",
+		"resource_pressure",
+		"resource_pressure.evidence",
+		"resource_pressure.kind",
+		"resource_pressure.offered_at",
+		"resource_pressure.oom_seen_at",
+		"resource_pressure.victim",
+		"schema",
+		"secret_state",
+		"secret_state.hash",
+		"secret_state.names",
 	}}
 	rootStateSchemaFields = map[int][]string{1: {
 		"adopted_home_volumes",
@@ -109,6 +136,8 @@ func nestedYAMLFieldPaths(fieldType reflect.Type, path string) []string {
 	switch {
 	case fieldType.Kind() == reflect.Map:
 		return nestedYAMLFieldPaths(fieldType.Elem(), path+"[]")
+	case fieldType.Kind() == reflect.Pointer:
+		return nestedYAMLFieldPaths(fieldType.Elem(), path)
 	case fieldType.Kind() == reflect.Struct && fieldType != reflect.TypeFor[time.Time]():
 		return yamlFieldPaths(fieldType, path+".")
 	default:

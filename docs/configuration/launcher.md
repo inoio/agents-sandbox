@@ -189,7 +189,7 @@ session. The change type determines the mechanism used to apply the new settings
 | Resource          | Change type    | Behavior                                                                                                 |
 |-------------------|----------------|----------------------------------------------------------------------------------------------------------|
 | `cpus`            | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
-| `memory`          | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
+| `memory`          | Live Modify / VM recreate | Applied live via SDK Modify (hotplug) up to the sandbox's boot maximum (the host RAM at creation); a higher value is capped there, and recreates the VM only when the host has gained RAM since |
 | `env`             | VM recreate    | microsandbox cannot apply env live or on a daemon restart, so the VM is rebuilt; env is baked in at creation |
 | `secrets`         | VM recreate    | microsandbox cannot apply secrets live or on a daemon restart, so the VM is rebuilt; secrets are baked in at creation |
 | `agent config` | Daemon restart | Files are always copied into the VM (provisioning); the agent daemon is restarted in-place to pick them up   |
@@ -212,6 +212,18 @@ even when the current daemon is kept running. Only the `agent config` change pro
 When multiple `agents-sandbox` sessions are actively connected to a VM, applying a resource change by recreating the VM
 may disrupt active sessions. In this case, the launcher will prompt you whether to keep the current VM (defer),
 recreate, or quit to abort the change. The default is to keep/defer.
+
+#### Memory-limit detection and the raise proposal
+
+The launcher watches memory while a session runs, and checks the guest kernel log when a session ends abnormally or at
+the next launch. When it sees an out-of-memory kill or sustained memory pressure, it offers to raise the `memory`
+limit, up to the host's RAM; a sandbox already at that maximum gets an explanation instead. An accepted raise is
+written to the config layer that owns `memory`; offered at launch, it applies to that run, and offered after a session,
+it applies on your next run. A decline is remembered, so the same kill is not offered again; a non-interactive run records the hit and
+offers it on the next interactive launch. If `--memory` or `AGENTS_SANDBOX_MEMORY` already sets the value, the launcher
+reports that source and writes nothing, since a config file could not override it. A symlinked config file is edited through
+its target, so the link survives; an anchored value another key aliases is left unchanged, with a warning, rather than
+leaving a dangling alias.
 
 ## Per-slug configuration
 

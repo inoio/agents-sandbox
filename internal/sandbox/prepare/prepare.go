@@ -183,7 +183,7 @@ func PrepareSandbox(
 		}},
 		{ID: lifecycle.PlanReconfig, Run: func() error {
 			var err error
-			plan, err = planReconfigStage(ctx, session, imageInfo, home, skipVM, opts, ui)
+			plan, err = planReconfigStage(ctx, paths, session, imageInfo, home, skipVM, opts, ui)
 			if err != nil {
 				return err
 			}
@@ -395,13 +395,16 @@ func ensureHomeStage(
 
 // reconfigPlan is what plan-reconfig hands to the later stages: the merged
 // agent config files (loaded once per startup, shared with provisioning), the
-// project VM the decision was read from, the reconfig decision, and the home
-// volume after its home action.
+// project VM the decision was read from, the reconfig decision, the home
+// volume after its home action, and the memory setting the run applies.
 type reconfigPlan struct {
 	configFiles *reprovision.ConfigFiles
 	existingVM  msb.SandboxHandle
 	decision    reconfigDecision
 	homeVolume  string
+	// memory is the run's memory setting, including a raise accepted while
+	// planning.
+	memory string
 }
 
 // planReconfigStage is the plan-reconfig stage: it loads the merged agent
@@ -409,6 +412,7 @@ type reconfigPlan struct {
 // and applies the resulting home-volume action.
 func planReconfigStage(
 	ctx context.Context,
+	paths configpaths.ConfigPaths,
 	session sessionIdentity,
 	imageInfo image.ImageInfo,
 	home preparedHome,
@@ -427,6 +431,24 @@ func planReconfigStage(
 	if err != nil {
 		return reconfigPlan{}, err
 	}
+	// A hit left by a previous session is offered before the decision, so a
+	// raise the user accepts applies to the VM this run creates or reconciles
+	// (specs/resource-limit-proposal.md §1, §8). A skipVM (--dry-run-vm)
+	// prepare skips it: like the deferred home action, a dry run must not
+	// prompt or persist a change.
+	if !skipVM {
+		if raised := detectAndOfferMemoryRaise(
+			ctx,
+			live,
+			session.key,
+			opts,
+			home.homeState,
+			paths,
+			ui,
+		); raised != "" {
+			opts.Memory = raised
+		}
+	}
 	decision, err := resolveReconfigDecision(
 		ctx, home.volumes, session.key, opts, imageInfo, home.homeVolume, home.homeState, configFiles,
 		home.env, live, ui,
@@ -434,6 +456,7 @@ func planReconfigStage(
 	if err != nil {
 		return reconfigPlan{}, err
 	}
+
 	homeVolume, err := applyReconfigHomeAction(
 		ctx, home.client, home.volumes, session.key, home.homeVolume, imageInfo, skipVM, decision, ui,
 	)
@@ -446,6 +469,7 @@ func planReconfigStage(
 		existingVM:  live.handle,
 		decision:    decision,
 		homeVolume:  homeVolume,
+		memory:      opts.Memory,
 	}, nil
 }
 
@@ -461,6 +485,8 @@ func ensureVMStage(
 	opts options.RunOptions,
 	ui termio.UI,
 ) (msb.Sandbox, vm.VMBoot, error) {
+	// The plan's memory includes a raise accepted while planning.
+	opts.Memory = plan.memory
 	sb, boot, err := vm.EnsureProjectVM(ctx, vm.ProjectVMCreation{
 		Client:       home.client,
 		DockerClient: home.dclient,

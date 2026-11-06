@@ -286,6 +286,9 @@ cpus: 4
 memory: 8G
 ```
 
+The launcher also detects an out-of-memory kill and offers to raise `memory` for you; see
+[Launcher configuration]({% link configuration/launcher.md %}).
+
 ## Config not applying
 
 If your config files aren't being picked up:

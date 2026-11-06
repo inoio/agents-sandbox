@@ -94,6 +94,11 @@ type HomeState struct {
 	// only while a recovery is pending, so an empty value means the state is
 	// settled.
 	RecoveredHomeVolume string `yaml:"recovered_home_volume,omitempty"`
+
+	// ResourcePressure records a detected VM resource-limit hit and whether the
+	// user has answered a raise offer for it, so the same hit is not re-offered
+	// (see specs/resource-limit-proposal.md).
+	ResourcePressure *ResourcePressureState `yaml:"resource_pressure,omitempty"`
 }
 
 // Offered reports whether the version has already had its rebuild prompt shown

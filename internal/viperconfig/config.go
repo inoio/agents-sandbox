@@ -108,6 +108,10 @@ type UpgradeConfig struct {
 // Resolver resolves launcher config with precedence flag > env > config > default.
 type Resolver struct {
 	cfg Config
+	// slug is the config slug the resolver was built for (the CLI's
+	// effectiveConfigSlug): the per-slug user config directory it reads is
+	// keyed by it, and a config write must target the same slug.
+	slug string
 	// legacyEnv holds deprecated-prefix variables that were in effect when the
 	// resolver was built. The CLI surfaces them once as a deprecation warning.
 	legacyEnv []string
