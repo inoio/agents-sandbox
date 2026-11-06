@@ -140,8 +140,10 @@ replays an already-answered kill.
 **(e) Disk pressure.** Memory OOM ends the session cleanly (the harness dies, attach returns), so
 its offer happens right after. Disk pressure usually does **not** end the session — a command
 fails with `ENOSPC`/`EDQUOT` and the agent keeps running — so disk is probed after **every** attach
-end, clean or abnormal (skipped when a signal ended it), and recorded in the marker. The next launch
-offers only a recorded, unanswered disk hit; it does not probe, because the VM may be stopped.
+end, clean or abnormal (skipped when a signal ended it), and recorded in a per-kind marker
+(`HomeState.DiskPressure`) together with the measured size and free space. The next launch offers
+only a recorded, unanswered disk hit, built from those recorded values; it does not probe, because
+the VM may be stopped.
 `--serve-only` (no attach) is not covered.
 - **Signal: one in-guest `df -Pk / /workspace /tmp`** over `sb.Exec`, for all three limits.
   Confirmed on a KVM host: it reports them immediately — `/` is the overlay at the root-disk size,

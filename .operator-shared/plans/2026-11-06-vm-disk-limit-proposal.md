@@ -60,9 +60,11 @@ size 64 MiB, a managed root of 1 GiB and the default):
 
 ### Task 2: `state` — per-kind disk markers
 
-- `HomeState.DiskPressure map[string]ResourcePressureState` keyed by kind, with record / mark-offered / re-arm through
-  the existing locked transactions (`specs/project-state-transactions.md`), the same semantics as the memory headroom
-  marker: an answered hit stays closed until it recovers and trips again; an unanswered one stays offerable.
+- `HomeState.DiskPressure map[string]DiskPressureState` keyed by kind. `DiskPressureState` holds the hit's first-seen
+  time, the measured size and free space (`SizeKiB`, `AvailKiB`) and the answer time, so the next launch can offer a
+  recorded hit — free space included — without probing. Record / mark-offered / clear go through the existing locked
+  transactions (`specs/project-state-transactions.md`), with the memory headroom marker's semantics: an answered hit
+  stays closed until it recovers and trips again; an unanswered one stays offerable.
 - Tests: record, answer, re-arm only after recovery, unknown kinds kept on rewrite, missing state file is a no-op.
 
 ### Task 3: `resourceproposal` — generalize persistence and shadowing
@@ -96,7 +98,11 @@ size 64 MiB, a managed root of 1 GiB and the default):
 
 - In plan-reconfig, before the reconfig decision, offer unanswered disk markers; an accepted value replaces the run's
   `DiskSize`/`WorkspaceQuota`/`TmpSize` so this run applies it (same pattern as `memory`).
-- Tests: accepted raise lands in the plan; declined keeps the configured value; `--dry-run-vm` does not prompt.
+- The offer is built from the recorded marker: its `SizeKiB`/`AvailKiB` give the free space the prompt shows and the
+  basis of the suggestion.
+- Tests: accepted raise lands in the plan; declined keeps the configured value; `--dry-run-vm` does not prompt; a hit
+  recorded by a non-interactive post-attach probe is offered at the next interactive launch with the recorded free
+  space.
 
 ### Task 7: `reconfig` / `vm` — live root-disk grow
 
