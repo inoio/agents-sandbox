@@ -333,6 +333,7 @@ func quiescenceOf(states map[string]SessionStatus, pending map[string]bool, maxR
 	case reachedCap:
 		return busy, retryAtOrOverCap
 	default:
+		// gomutants:disable-next-line RETURN_ZERO reason="retryNone is the zero value of retryState, so a zero-value return is the same constant"
 		return busy, retryNone
 	}
 }

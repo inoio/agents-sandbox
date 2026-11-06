@@ -273,6 +273,11 @@ func TestReapOnLastClient_WaitMode_RetryBelowCapKeepsWaiting(t *testing.T) {
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("reaper returned %v; a below-cap retry must hold the VM until the context expires", err)
 	}
+	if !slices.ContainsFunc(ui.VerboseCalls, func(line string) bool {
+		return strings.Contains(line, "retry=below-cap")
+	}) {
+		t.Errorf("expected the wait line to report the below-cap retry state, got %v", ui.VerboseCalls)
+	}
 }
 
 // TestReapOnLastClient_WaitMode_RetryAtOrOverCapReaps pins the other side of the
