@@ -251,9 +251,9 @@
 - `2026-10-10-buildkit-builder-vm.md`
   - Description: TDD plan for `specs/buildkit-builder-vm.md`: the `internal/sandbox/builder` package, BuildKit deps, rewiring `image`, VM creation, cache pruning, and removing `internal/sandbox/docker` + `doctor.CheckDocker`.
   - Read If: Implementing the Docker-free BuildKit builder (#15) — `internal/sandbox/builder`, `buildkitd`, `ImageLoad`, or the image build/inspect/load pipeline and `doctor.CheckDocker` removal.
-- `2026-11-04-vm-memory-limit-proposal.md`
-  - Description: Phase 1 TDD plan for `specs/resource-limit-proposal.md` (#544, memory only): the `msb` `Metrics`/`Logs` seam, the `internal/sandbox/pressure` classifier, the `HomeState` marker, the session metrics watcher, terminal reset, the format-preserving config writer, the `resourceproposal` prompt/persist, the above-boot-max recreate rule, and the next-launch + post-attach hooks. Disk is a separate Phase 2 plan.
-  - Read If: Implementing the memory-limit detection and raise proposal (#544) — `pressure`, `resourceproposal`, `session.pressureWatch`, or the `prepare.resolveReconfigDecision` memory hook.
+- `2026-11-06-vm-disk-limit-proposal.md`
+  - Description: Phase 2 TDD plan for `specs/resource-limit-proposal.md` (#544, disk): host findings on the root disk, `/workspace` quota and `/tmp`, the decisions to confirm (in-guest `df` signal, size-adaptive threshold, probe timing, suggestion bounds, apply path), and the tasks across `pressure`, `state`, `resourceproposal`, `session`, `prepare`, `reconfig`/`vm`.
+  - Read If: Implementing disk-limit detection or the disk raise proposal (#544 Phase 2) — `df` usage parsing, disk markers in `HomeState`, `DetectAndOfferDiskRaise`, the live root-disk grow in `buildModifyOptions`/`rootDiskChange`, or `disk-size`/`workspace-quota`/`tmp-size` persistence.
 - `2026-11-05-per-slug-config-scopes.md`
   - Description: TDD plan for `specs/per-slug-config-scopes.md` (#578): the `configpaths.ConfigScope` authority, slug on `RunOptions`, and deriving the launcher config file, env/secret files, `home:` layers, and agent config dirs from the scopes across 9 tasks.
   - Read If: Implementing per-slug config-scope parity (#578).

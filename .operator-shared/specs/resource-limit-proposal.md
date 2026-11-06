@@ -100,8 +100,8 @@ a `Session` option/seam) for the lifetime of the attach. It retains a compact su
 minimum observed memory headroom (`MemoryLimitBytes - MemoryBytes`, or `MemoryAvailableBytes` —
 confirmed on a KVM host that `MemoryBytes` is guest-in-use and `MemoryAvailableBytes` tracks it),
 the peak `MemoryBytes`/`MemoryLimitBytes` ratio, and the minimum `UpperFreeBytes` when present
-(the `upper_*` fields are **null until the root disk is first written**, so absence is not
-"no pressure"). It must tolerate a metrics read failing (VM stopped), never
+(the `upper_*` fields are sampled periodically and lag a write by several seconds — confirmed on a
+KVM host — so absence is not "no pressure"). It must tolerate a metrics read failing (VM stopped), never
 block session teardown, and never write to the terminal while the attach owns it: a failed read
 is reported once after the attach. It is stopped and its summary read inside `runAttach`, before the client
 lease is released and the VM reaped, so both `Run` and `Shell` get the watcher.
@@ -147,8 +147,12 @@ at next launch, same as memory. Three limits, two signals:
   (next launch / after session): a `df`/quota read over `sb.Exec` reporting free space on
   `/workspace` and `/tmp`. This is safe because disk-full does not kill the probe (unlike memory
   pressure). Add the result to the marker as a third evidence class.
-Applying any of these is a **recreate** (the modify API has no mount field), so the prompt frames
-it as a VM rebuild.
+The root disk grows live (§5); the `/workspace` quota and `/tmp` change only by a **recreate** (the
+modify API has no mount field), so their prompt frames it as a VM rebuild. Confirmed on a KVM host:
+an in-guest `df -Pk / /workspace /tmp` reports all three limits immediately — `/` is the overlay at
+the root-disk size, `/workspace` is virtiofs whose size is the guest-write budget (existing host
+content counts as used, the quota comes on top), `/tmp` is the tmpfs — and keeps working with a mount
+at 100 %. `/tmp` is RAM-backed: its contents count against the VM's memory.
 
 **Threshold (disk, and the memory fallback).** Disk has no crash event, so a threshold decides it:
 offer when usage is **≥ 90% of the limit, or free space is ≤ 1 GiB** (first to trip), where
@@ -358,8 +362,8 @@ Resolved on a KVM host (msb 0.7.11):
 - A default root disk (no `--disk-size`) is a managed 4 GiB disk and **does** grow live, so no
   create-time sizing is required.
 
-Still open:
-- Whether the Go SDK's `SandboxConfig` surfaces the managed root's size for a default VM (msb's own
-  `inspect` does). If it does not, the launcher needs another way to learn the current size before
-  staging a grow.
-- The signal for `/workspace` quota and `/tmp` pressure (no msb metric; see §6).
+Resolved on a KVM host (msb 0.7.13):
+- `SandboxHandle.Config().RootDisk.SizeMiB` reports the root size for a default VM too (4096 MiB),
+  and after a live grow (`Modify{RootDiskSizeMiB}`, `disposition: live`) a fresh handle reports the
+  new size, also after stop and restart, so drift detection can rely on it.
+- `/workspace` quota and `/tmp` pressure are measurable with an in-guest `df` (§1e).
