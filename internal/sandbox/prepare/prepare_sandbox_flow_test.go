@@ -939,8 +939,14 @@ func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 // freshly created project VM records the configured bind mounts in the state
 // file. Without this fingerprint the next run would compare against an empty
 // state, report a mount change and recreate the VM on every startup.
+//
+// The workspace is pinned to a plain temp checkout: resolve-identity reads the
+// process CWD, and an outside worktree whose .git records an absolute shared git
+// dir would add the shared-git-dir bind, so the recorded mount set would depend
+// on where the suite runs.
 func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
+	t.Chdir(testutil.InitRepo(t))
 
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
