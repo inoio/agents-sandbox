@@ -6,7 +6,7 @@ import (
 
 func TestParseMemInfo(t *testing.T) {
 	data := []byte("MemTotal:       16384000 kB\nMemFree:          123456 kB\nMemAvailable:    8000000 kB\n")
-	totalKB, ok := parseMemInfo(data)
+	totalKB, ok := parseMemInfo(data, memTotalField)
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -17,7 +17,7 @@ func TestParseMemInfo(t *testing.T) {
 
 func TestParseMemInfoMissing(t *testing.T) {
 	data := []byte("MemFree: 123 kB\n")
-	got, ok := parseMemInfo(data)
+	got, ok := parseMemInfo(data, memTotalField)
 	if ok {
 		t.Error("expected ok=false when MemTotal missing")
 	}
@@ -27,7 +27,7 @@ func TestParseMemInfoMissing(t *testing.T) {
 }
 
 func TestParseMemInfoEmpty(t *testing.T) {
-	got, ok := parseMemInfo(nil)
+	got, ok := parseMemInfo(nil, memTotalField)
 	if ok {
 		t.Error("expected ok=false for empty input")
 	}
@@ -38,7 +38,7 @@ func TestParseMemInfoEmpty(t *testing.T) {
 
 func TestParseMemInfoIgnoresNonMemTotalLines(t *testing.T) {
 	data := []byte("MemFree: 123 kB\nMemTotal:       16384000 kB\n")
-	totalKB, ok := parseMemInfo(data)
+	totalKB, ok := parseMemInfo(data, memTotalField)
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -49,7 +49,7 @@ func TestParseMemInfoIgnoresNonMemTotalLines(t *testing.T) {
 
 func TestParseMemInfoMissingValue(t *testing.T) {
 	data := []byte("MemTotal:\n")
-	got, ok := parseMemInfo(data)
+	got, ok := parseMemInfo(data, memTotalField)
 	if ok {
 		t.Error("expected ok=false when MemTotal has no value field")
 	}
@@ -60,7 +60,7 @@ func TestParseMemInfoMissingValue(t *testing.T) {
 
 func TestParseMemInfoInvalidNumber(t *testing.T) {
 	data := []byte("MemTotal: notanumber kB\n")
-	got, ok := parseMemInfo(data)
+	got, ok := parseMemInfo(data, memTotalField)
 	if ok {
 		t.Error("expected ok=false when MemTotal value is not an integer")
 	}
@@ -71,7 +71,7 @@ func TestParseMemInfoInvalidNumber(t *testing.T) {
 
 func TestParseMemInfoTwoFields(t *testing.T) {
 	data := []byte("MemTotal:\t16384000\n")
-	totalKB, ok := parseMemInfo(data)
+	totalKB, ok := parseMemInfo(data, memTotalField)
 	if !ok {
 		t.Fatal("expected ok=true for a two-field MemTotal line")
 	}
@@ -106,5 +106,14 @@ func TestClampNumCPUs(t *testing.T) {
 		if got := clampNumCPUs(c.in); got != c.want {
 			t.Errorf("clampNumCPUs(%d) = %d, want %d", c.in, got, c.want)
 		}
+	}
+}
+
+// TestParseMemInfoReadsTheNamedField pins that the parser reads the field it is
+// asked for, so MemAvailable is not confused with MemTotal or MemFree.
+func TestParseMemInfoReadsTheNamedField(t *testing.T) {
+	data := []byte("MemTotal:       16384000 kB\nMemFree:          123456 kB\nMemAvailable:    8000000 kB\n")
+	if got, ok := parseMemInfo(data, memAvailableField); !ok || got != 8000000 {
+		t.Errorf("parseMemInfo(MemAvailable) = %d, %v; want 8000000, true", got, ok)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/resourceproposal"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
+	"github.com/inoio/agents-sandbox/internal/sysinfo"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -37,8 +38,16 @@ func offerMemoryRaiseAfterAttach(
 	} else {
 		marker = hs.ResourcePressure
 	}
+	hostAvailableMiB, hostAvailableKnown := sysinfo.AvailableMemoryMiB()
 	raised := resourceproposal.DetectAndOfferMemoryRaise(
-		ctx, k, sb, marker, 0, sandbox.BootMaxMemoryMiB(), summary.Tripped, opts, configpaths.Get(), ui,
+		ctx, k, sb, marker,
+		resourceproposal.MemoryLimits{
+			CurrentMiB:         0,
+			BootMaxMiB:         sandbox.BootMaxMemoryMiB(),
+			HostAvailableMiB:   hostAvailableMiB,
+			HostAvailableKnown: hostAvailableKnown,
+		},
+		summary.Tripped, opts, configpaths.Get(), ui,
 	)
 	if raised != "" {
 		ui.Infof("The raised memory limit applies on your next run.")
