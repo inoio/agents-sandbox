@@ -18,7 +18,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/sysinfo"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -84,7 +83,7 @@ func detectRun(
 	t.Helper()
 	return DetectAndOfferMemoryRaise(
 		context.Background(), detectKey(), r, marker,
-		MemoryLimits{CurrentMiB: currentMiB, BootMaxMiB: bootMaxMiB, HostAvailableMiB: 0},
+		MemoryLimits{CurrentMiB: currentMiB, BootMaxMiB: bootMaxMiB, HostAvailableMiB: 0, HostAvailableKnown: false},
 		witnessedHeadroomTrip, options.RunOptions{}, configpaths.Get(), ui,
 	)
 }
@@ -180,8 +179,15 @@ func TestDetectAndOfferMemoryRaiseShadowedExplainsInsteadOfPrompting(t *testing.
 			}
 
 			if raised := DetectAndOfferMemoryRaise(
-				context.Background(), k, r, nil, MemoryLimits{CurrentMiB: 4096, BootMaxMiB: 8192, HostAvailableMiB: 0},
-				false, options.RunOptions{MemoryFlagChanged: tc.flag}, configpaths.Get(), ui,
+				context.Background(),
+				k,
+				r,
+				nil,
+				MemoryLimits{CurrentMiB: 4096, BootMaxMiB: 8192, HostAvailableMiB: 0, HostAvailableKnown: false},
+				false,
+				options.RunOptions{MemoryFlagChanged: tc.flag},
+				configpaths.Get(),
+				ui,
 			); raised != "" {
 				t.Errorf("raised = %q, want none", raised)
 			}
@@ -412,28 +418,27 @@ func (s *failingBackReadSandbox) Logs(ctx context.Context, opts msbSdk.LogOption
 	return s.MockSandbox.Logs(ctx, opts)
 }
 
-// TestHostAvailableMemoryMiB pins that the offer's host figure is the
-// platform's available memory, and zero when the platform cannot report it.
-func TestHostAvailableMemoryMiB(t *testing.T) {
-	want, _ := sysinfo.AvailableMemoryMiB()
-	if got := HostAvailableMemoryMiB(); got != want {
-		t.Errorf("HostAvailableMemoryMiB = %d, want %d", got, want)
-	}
-}
-
 // TestDetectAndOfferMemoryRaiseWarnsWhenTheHostLacksTheMemory pins the
 // host-bound warning: an accepted raise whose increase exceeds the host's
 // available memory is still persisted, with a warning naming the available
-// memory; an unknown available figure warns nothing.
+// memory; an unknown available figure warns nothing, while a known zero (an
+// exhausted host) warns.
 func TestDetectAndOfferMemoryRaiseWarnsWhenTheHostLacksTheMemory(t *testing.T) {
 	tests := []struct {
-		name             string
-		hostAvailableMiB uint32
-		wantWarning      bool
+		name               string
+		hostAvailableMiB   uint32
+		hostAvailableKnown bool
+		wantWarning        bool
 	}{
-		{name: "increase above the available memory", hostAvailableMiB: 2048, wantWarning: true},
-		{name: "increase equal to the available memory", hostAvailableMiB: 4096, wantWarning: false},
-		{name: "available memory unknown", hostAvailableMiB: 0, wantWarning: false},
+		{
+			name:               "increase above the available memory",
+			hostAvailableMiB:   2048,
+			hostAvailableKnown: true,
+			wantWarning:        true,
+		},
+		{name: "increase equal to the available memory", hostAvailableMiB: 4096, hostAvailableKnown: true},
+		{name: "host memory exhausted", hostAvailableMiB: 0, hostAvailableKnown: true, wantWarning: true},
+		{name: "available memory unknown", hostAvailableMiB: 0, hostAvailableKnown: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -451,7 +456,12 @@ func TestDetectAndOfferMemoryRaiseWarnsWhenTheHostLacksTheMemory(t *testing.T) {
 
 			raised := DetectAndOfferMemoryRaise(
 				context.Background(), k, r, nil,
-				MemoryLimits{CurrentMiB: 4096, BootMaxMiB: 16384, HostAvailableMiB: tc.hostAvailableMiB},
+				MemoryLimits{
+					CurrentMiB:         4096,
+					BootMaxMiB:         16384,
+					HostAvailableMiB:   tc.hostAvailableMiB,
+					HostAvailableKnown: tc.hostAvailableKnown,
+				},
 				false, options.RunOptions{}, configpaths.Get(), ui,
 			)
 

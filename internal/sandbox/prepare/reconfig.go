@@ -18,6 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
+	"github.com/inoio/agents-sandbox/internal/sysinfo"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -244,12 +245,14 @@ func detectAndOfferMemoryRaise(
 	if live.config != nil {
 		currentMiB = live.config.MemoryMiB
 	}
+	hostAvailableMiB, hostAvailableKnown := sysinfo.AvailableMemoryMiB()
 	return resourceproposal.DetectAndOfferMemoryRaise(
 		ctx, k, live.handle, hs.ResourcePressure,
 		resourceproposal.MemoryLimits{
-			CurrentMiB:       currentMiB,
-			BootMaxMiB:       bootMaxMemoryMiB(live),
-			HostAvailableMiB: resourceproposal.HostAvailableMemoryMiB(),
+			CurrentMiB:         currentMiB,
+			BootMaxMiB:         bootMaxMemoryMiB(live),
+			HostAvailableMiB:   hostAvailableMiB,
+			HostAvailableKnown: hostAvailableKnown,
 		},
 		false, opts, paths, ui,
 	)

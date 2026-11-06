@@ -10,7 +10,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/sysinfo"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -21,7 +20,8 @@ type MemoryReads interface {
 	Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error)
 }
 
-// MemoryLimits are the figures a memory offer is bounded by; zero means unknown.
+// MemoryLimits are the figures a memory offer is bounded by; a zero CurrentMiB
+// or BootMaxMiB means unknown.
 type MemoryLimits struct {
 	// CurrentMiB is the VM's configured memory; zero falls back to the live
 	// metrics limit.
@@ -29,15 +29,10 @@ type MemoryLimits struct {
 	// BootMaxMiB is the VM's boot maximum (host RAM at creation).
 	BootMaxMiB uint32
 	// HostAvailableMiB is the memory the host can still hand out without
-	// swapping (sysinfo.AvailableMemoryMiB).
-	HostAvailableMiB uint32
-}
-
-// HostAvailableMemoryMiB is the host's available memory for MemoryLimits, or 0
-// when the platform cannot report it.
-func HostAvailableMemoryMiB() uint32 {
-	availableMiB, _ := sysinfo.AvailableMemoryMiB()
-	return availableMiB
+	// swapping (sysinfo.AvailableMemoryMiB), and HostAvailableKnown whether the
+	// platform reported it; a known zero is an exhausted host.
+	HostAvailableMiB   uint32
+	HostAvailableKnown bool
 }
 
 // DetectAndOfferMemoryRaise reads r's system log and metrics for a memory-limit
@@ -283,7 +278,7 @@ func presentMemoryRaise(
 	if !accepted {
 		return ""
 	}
-	warnIfTheHostLacksTheRaise(newMiB-currentMiB, limits.HostAvailableMiB, ui)
+	warnIfTheHostLacksTheRaise(newMiB-currentMiB, limits, ui)
 	dir, persistErr := PersistMemory(paths, configSlug(opts, k), newMiB, opts.MemoryFlagChanged)
 	if persistErr != nil {
 		ui.Warnf("could not persist the raised memory limit: %v", persistErr)
@@ -296,14 +291,14 @@ func presentMemoryRaise(
 // warnIfTheHostLacksTheRaise warns when the memory a raise lets the VM take
 // exceeds what the host has available. The raise stays: spare VM memory is
 // only backed once the guest uses it, but then the host may swap or OOM-kill.
-func warnIfTheHostLacksTheRaise(increaseMiB, hostAvailableMiB uint32, ui termio.Logger) {
-	if hostAvailableMiB == 0 || increaseMiB <= hostAvailableMiB {
+func warnIfTheHostLacksTheRaise(increaseMiB uint32, limits MemoryLimits, ui termio.Logger) {
+	if !limits.HostAvailableKnown || increaseMiB <= limits.HostAvailableMiB {
 		return
 	}
 	ui.Warnf(
 		"The raise lets the VM use %s more memory, but the host has only %s available; once the VM uses it, the host may swap or kill processes.",
 		formatMiB(increaseMiB),
-		formatMiB(hostAvailableMiB),
+		formatMiB(limits.HostAvailableMiB),
 	)
 }
 
