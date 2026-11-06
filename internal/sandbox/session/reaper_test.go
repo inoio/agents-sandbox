@@ -238,6 +238,89 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 	}
 }
 
+// TestReapOnLastClient_WaitMode_RetryBelowCapKeepsWaiting pins the tolerated
+// retry rule through the wait loop, not just the quiescence helper: a session
+// retrying below auto-stop-max-session-retries is in-flight work, so the reaper
+// keeps holding the VM. The short context turns "kept waiting" into a deadline
+// error; releasing early would return nil.
+func TestReapOnLastClient_WaitMode_RetryBelowCapKeepsWaiting(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer shortCancel()
+
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{
+		Name_: "test-vm",
+		ShellOut: map[string]msb.ShellResult{
+			"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+				true, 0, `{"s1":{"type":"retry","attempt":5}}`, "", nil,
+			),
+		},
+	}
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+	}
+
+	err := reapOnLastClient(
+		shortCtx,
+		opencodeResolved(t),
+		state.Key{Slug: "retrybelowproj", Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("reaper returned %v; a below-cap retry must hold the VM until the context expires", err)
+	}
+}
+
+// TestReapOnLastClient_WaitMode_RetryAtOrOverCapReaps pins the other side of the
+// boundary through the wait loop: once a retry reaches
+// auto-stop-max-session-retries it has spent the tolerated attempts and must no
+// longer hold the VM. The bounded context only guards a regression that holds
+// forever.
+func TestReapOnLastClient_WaitMode_RetryAtOrOverCapReaps(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	tests := []struct {
+		name   string
+		status string
+	}{
+		{"at cap", `{"s1":{"type":"retry","attempt":10}}`},
+		{"over cap", `{"s1":{"type":"retry","attempt":11}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			ui := &termio.Mock{}
+			sb := &msb.MockSandbox{
+				Name_: "test-vm",
+				ShellOut: map[string]msb.ShellResult{
+					"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(true, 0, tt.status, "", nil),
+				},
+			}
+			sb.ExecOut = map[string]msb.ShellResult{
+				"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+			}
+
+			err := reapOnLastClient(
+				ctx,
+				opencodeResolved(t),
+				state.Key{Slug: "retrycapproj", Agent: "opencode"},
+				sb,
+				options.ReapPolicy{},
+				ui,
+			)
+			if err != nil {
+				t.Fatalf("reaper returned %v; a retry at or over the cap must release the VM", err)
+			}
+		})
+	}
+}
+
 func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -872,117 +955,143 @@ func TestDecodeQuestionRequests(t *testing.T) {
 }
 
 func TestQuiescenceOf_AllIdle(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
+	busy, retry := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "idle", Attempt: 0},
 	}, map[string]bool{}, 10)
-	checkQuiescence(t, "all idle", busy, stuck, 0, false)
+	checkQuiescence(t, "all idle", busy, retry, 0, retryNone)
 }
 
 func TestQuiescenceOf_AllRetryUnderCap(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
+	busy, retry := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "retry", Attempt: 5},
 	}, map[string]bool{}, 10)
-	checkQuiescence(t, "all retry under cap", busy, stuck, 0, false)
+	checkQuiescence(t, "all retry under cap", busy, retry, 0, retryBelowCap)
 }
 
 func TestQuiescenceOf_OneBusy(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
+	busy, retry := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "busy", Attempt: 0},
 	}, map[string]bool{}, 10)
-	checkQuiescence(t, "one busy", busy, stuck, 1, false)
+	checkQuiescence(t, "one busy", busy, retry, 1, retryNone)
 }
 
 func TestQuiescenceOf_MultipleBusy(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
+	busy, retry := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "busy", Attempt: 0},
 		"s2": {Type: "busy", Attempt: 0},
 	}, map[string]bool{}, 10)
-	checkQuiescence(t, "multiple busy", busy, stuck, 2, false)
+	checkQuiescence(t, "multiple busy", busy, retry, 2, retryNone)
 }
 
 func TestQuiescenceOf_RetryAtCap(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
+	busy, retry := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "retry", Attempt: 10},
 	}, map[string]bool{}, 10)
-	checkQuiescence(t, "retry at cap", busy, stuck, 0, true)
+	checkQuiescence(t, "retry at cap", busy, retry, 0, retryAtOrOverCap)
 }
 
 func TestQuiescenceOf_RetryOverCap(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
+	busy, retry := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "retry", Attempt: 11},
 	}, map[string]bool{}, 10)
-	checkQuiescence(t, "retry over cap", busy, stuck, 0, true)
+	checkQuiescence(t, "retry over cap", busy, retry, 0, retryAtOrOverCap)
 }
 
 func TestQuiescenceOf_MixedBusyAndRetry(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
+	busy, retry := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "busy", Attempt: 0},
 		"s2": {Type: "retry", Attempt: 12},
 	}, map[string]bool{}, 10)
-	checkQuiescence(t, "mixed busy and retry", busy, stuck, 1, true)
+	checkQuiescence(t, "mixed busy and retry", busy, retry, 1, retryAtOrOverCap)
 }
 
 func TestQuiescenceOf_Empty(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{}, map[string]bool{}, 10)
-	checkQuiescence(t, "empty", busy, stuck, 0, false)
+	busy, retry := quiescenceOf(map[string]SessionStatus{}, map[string]bool{}, 10)
+	checkQuiescence(t, "empty", busy, retry, 0, retryNone)
 }
 
 func TestQuiescenceOf_MixedAllStates(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
+	busy, retry := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "idle", Attempt: 0},
 		"s2": {Type: "busy", Attempt: 1},
 		"s3": {Type: "retry", Attempt: 5},
 	}, map[string]bool{}, 10)
-	checkQuiescence(t, "mixed all", busy, stuck, 1, false)
+	checkQuiescence(t, "mixed all", busy, retry, 1, retryBelowCap)
 }
 
 func TestQuiescenceOf_RetryRetryBoundary(t *testing.T) {
-	// attempt = cap - 1 → not stuck
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
+	// attempt = cap - 1 → still below the cap, so it holds
+	busy, retry := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "retry", Attempt: 9},
 	}, map[string]bool{}, 10)
-	checkQuiescence(t, "retry one below cap", busy, stuck, 0, false)
+	checkQuiescence(t, "retry one below cap", busy, retry, 0, retryBelowCap)
 
-	// attempt = cap → stuck
-	_, stuck = quiescenceOf(map[string]SessionStatus{
+	// attempt = cap → reached the cap, so it no longer holds
+	_, retry = quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "retry", Attempt: 10},
 	}, map[string]bool{}, 10)
-	if !stuck {
-		t.Error("attempt 10 == cap 10 should be stuck")
+	if retry != retryAtOrOverCap {
+		t.Errorf("attempt 10 == cap 10: retry = %s, want %s", retry, retryAtOrOverCap)
 	}
+}
+
+// TestQuiescenceOf_RetryBelowCapWinsOverAtCap pins the precedence between the
+// retry states: an in-flight (below-cap) retry holds the VM even when another
+// session has already reached the cap, so the signal must be retryBelowCap.
+func TestQuiescenceOf_RetryBelowCapWinsOverAtCap(t *testing.T) {
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "retry", Attempt: 5},
+		"s2": {Type: "retry", Attempt: 12},
+	}, map[string]bool{}, 10)
+	checkQuiescence(t, "below-cap wins", busy, retry, 0, retryBelowCap)
 }
 
 func TestQuiescenceOf_BusyWithQuestionNotCounted(t *testing.T) {
 	pending := map[string]bool{"s1": true}
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
+	busy, retry := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "busy", Attempt: 0},
 	}, pending, 10)
-	checkQuiescence(t, "busy with question", busy, stuck, 0, false)
+	checkQuiescence(t, "busy with question", busy, retry, 0, retryNone)
 }
 
 func TestQuiescenceOf_BusyWithoutQuestionCounted(t *testing.T) {
 	pending := map[string]bool{}
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
+	busy, retry := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "busy", Attempt: 0},
 	}, pending, 10)
-	checkQuiescence(t, "busy no question", busy, stuck, 1, false)
+	checkQuiescence(t, "busy no question", busy, retry, 1, retryNone)
 }
 
 func TestQuiescenceOf_MixedQuestionAndWork(t *testing.T) {
 	pending := map[string]bool{"s1": true}
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
+	busy, retry := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "busy", Attempt: 0},
 		"s2": {Type: "busy", Attempt: 0},
 	}, pending, 10)
-	checkQuiescence(t, "mixed", busy, stuck, 1, false)
+	checkQuiescence(t, "mixed", busy, retry, 1, retryNone)
 }
 
 func TestQuiescenceOf_PendingDoesNotAffectRetry(t *testing.T) {
 	pending := map[string]bool{"s1": true}
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
+	busy, retry := quiescenceOf(map[string]SessionStatus{
 		"s1": {Type: "retry", Attempt: 12},
 	}, pending, 10)
-	checkQuiescence(t, "retry unaffected", busy, stuck, 0, true)
+	checkQuiescence(t, "retry unaffected", busy, retry, 0, retryAtOrOverCap)
+}
+
+// TestRetryStateString pins the poll's retry labels, which the verbose wait
+// line reports.
+func TestRetryStateString(t *testing.T) {
+	tests := map[retryState]string{
+		retryNone:        "none",
+		retryBelowCap:    "below-cap",
+		retryAtOrOverCap: "at-or-over-cap",
+	}
+	for state, want := range tests {
+		if got := state.String(); got != want {
+			t.Errorf("retryState(%d).String() = %q, want %q", state, got, want)
+		}
+	}
 }
 
 func TestDefaultMaxSessionRetriesIsTen(t *testing.T) {
@@ -1012,13 +1121,13 @@ func TestContainerProbeTimeout(t *testing.T) {
 	}
 }
 
-func checkQuiescence(t *testing.T, name string, busy int, stuck bool, wantBusy int, wantStuck bool) {
+func checkQuiescence(t *testing.T, name string, busy int, retry retryState, wantBusy int, wantRetry retryState) {
 	t.Helper()
 	if busy != wantBusy {
 		t.Errorf("%s: busy = %d, want %d", name, busy, wantBusy)
 	}
-	if stuck != wantStuck {
-		t.Errorf("%s: stuckRetry = %v, want %v", name, stuck, wantStuck)
+	if retry != wantRetry {
+		t.Errorf("%s: retry = %s, want %s", name, retry, wantRetry)
 	}
 }
 

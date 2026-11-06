@@ -256,7 +256,9 @@ When the last client detaches, the sandbox is not stopped immediately. The launc
 | `false` (default) | Wait for quiescence. The sandbox is held while opencode sessions are in flight and is allowed to stop once every session is quiescent. |
 | `true` | Stop immediately. The sandbox is not held for in-flight work; it stops via the idle timeout even while sessions are busy. |
 
-A session counts as quiescent once no session is stuck in `retry` beyond `auto-stop-max-session-retries` (default 10).
+The sandbox is quiescent once no session is `busy` and none is in `retry` with an `attempt` under `auto-stop-max-session-retries`
+(default 10): a retry under the cap is in-flight work and holds the sandbox, one that has reached the cap has spent the tolerated
+attempts and no longer does.
 A `busy` session with a pending, unanswered question also counts as quiescent, because the agent is waiting for you
 rather than working; a `busy` session blocked without such a question (and with no client connected) is left alone
 rather than interrupted, and it blocks the stop. A graceful stop keeps the sandbox and its home volume, so the next run
