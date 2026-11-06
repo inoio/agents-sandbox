@@ -1029,6 +1029,24 @@ func TestWriteSettingNonMappingRoot(t *testing.T) {
 	}
 }
 
+// TestWriteSettingRefusesIndexShapedKeyOnSequenceRoot pins that a sequence root
+// is refused outright: without the root-kind guard an index-shaped key would be
+// written into the sequence.
+func TestWriteSettingRefusesIndexShapedKeyOnSequenceRoot(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	path := filepath.Join(dir, "config.yaml")
+	const original = "- one\n- two\n"
+	testutil.WriteFile(t, dir, "config.yaml", original)
+
+	if err := WriteSetting(dir, "0", "8G"); err == nil {
+		t.Fatal("expected an error for a non-mapping root")
+	}
+	if got := readTestFile(t, path); got != original {
+		t.Errorf("file changed: %q", got)
+	}
+}
+
 // TestWriteSettingIntermediateNotMapping pins that a dotted key cannot descend
 // through a scalar.
 func TestWriteSettingIntermediateNotMapping(t *testing.T) {
@@ -1068,6 +1086,25 @@ func TestWriteSettingUnencodableValue(t *testing.T) {
 	}
 }
 
+// TestWriteSettingUnencodableExistingValue pins that a value the encoder rejects
+// is surfaced and nothing is written when the target key already exists, so the
+// in-place Set path fails closed too.
+func TestWriteSettingUnencodableExistingValue(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	path := filepath.Join(dir, "config.yaml")
+	testutil.WriteFile(t, dir, "config.yaml", "memory: 2G\n")
+
+	if err := WriteSetting(dir, "memory", failingTextMarshaler{}); err == nil {
+		t.Fatal("expected an encode error")
+	} else {
+		requireWrapped(t, err)
+	}
+	if got := readTestFile(t, path); got != "memory: 2G\n" {
+		t.Errorf("file changed despite the failed write: %q", got)
+	}
+}
+
 // TestLayerSettingOwnerNestedKeyThroughScalar pins that a dotted key whose
 // intermediate value is a scalar does not resolve.
 func TestLayerSettingOwnerNestedKeyThroughScalar(t *testing.T) {
@@ -1100,9 +1137,10 @@ func TestWriteSettingCreatesIntermediateMapping(t *testing.T) {
 	}
 }
 
-// TestWriteSettingRefusesOversizedInput pins that the edit path parses under the
-// untrusted limits: a scalar beyond the scalar cap is refused and the file is
-// left untouched, so a hostile project config cannot drive unbounded memory.
+// TestWriteSettingRefusesOversizedInput pins that the edit path reads under the
+// configread size cap: a file past the cap is refused and the file is left
+// untouched, so a hostile project config cannot drive unbounded allocation. The
+// parser's own limits are pinned by TestWriteSettingRefusesDeeplyNestedInput.
 func TestWriteSettingRefusesOversizedInput(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
@@ -1115,6 +1153,63 @@ func TestWriteSettingRefusesOversizedInput(t *testing.T) {
 	}
 	if got := readTestFile(t, path); got != oversized {
 		t.Errorf("file changed despite the refusal")
+	}
+}
+
+// TestWriteSettingRefusesDeeplyNestedInput pins that the edit path parses under
+// the untrusted parser limits, not only the configread size cap: input small
+// enough to pass the size cap but nested past oneyaml's depth limit is refused,
+// so dropping oneyaml.Untrusted() would let it through.
+func TestWriteSettingRefusesDeeplyNestedInput(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	path := filepath.Join(dir, "config.yaml")
+	// oneyaml's untrusted depth limit is 1000; its default is 10000.
+	const depth = 1500
+	nested := "x: " + strings.Repeat("{a: ", depth) + "1" + strings.Repeat("}", depth) + "\n"
+	testutil.WriteFile(t, dir, "config.yaml", nested)
+
+	if err := WriteSetting(dir, "memory", "8G"); err == nil {
+		t.Fatal("expected a deeply nested document to be refused")
+	}
+	if got := readTestFile(t, path); got != nested {
+		t.Errorf("file changed despite the refusal:\n%s", got)
+	}
+}
+
+// TestWriteSettingRefusesDuplicateKeys pins that a key occurring twice has no
+// unambiguous pointer, so the edit is refused and the file is left untouched
+// rather than editing an arbitrary one of the entries.
+func TestWriteSettingRefusesDuplicateKeys(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	path := filepath.Join(dir, "config.yaml")
+	const original = "memory: 2G\nmemory: 4G\n"
+	testutil.WriteFile(t, dir, "config.yaml", original)
+
+	if err := WriteSetting(dir, "memory", "8G"); err == nil {
+		t.Fatal("expected WriteSetting to refuse a duplicate key")
+	}
+	if got := readTestFile(t, path); got != original {
+		t.Errorf("config changed despite the refusal:\n%s", got)
+	}
+}
+
+// TestWriteSettingRefusesAnchorReferencedFromASequence pins the sequence branch
+// of the reference scan: an alias nested inside a sequence still blocks replacing
+// the anchor it names.
+func TestWriteSettingRefusesAnchorReferencedFromASequence(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	dir := configpaths.Get().UserConfigDir()
+	path := filepath.Join(dir, "config.yaml")
+	const original = "memory: &size 4G\nsizes:\n  - *size\n"
+	testutil.WriteFile(t, dir, "config.yaml", original)
+
+	if err := WriteSetting(dir, "memory", "8G"); err == nil {
+		t.Fatal("expected WriteSetting to refuse an anchor referenced from a sequence")
+	}
+	if got := readTestFile(t, path); got != original {
+		t.Errorf("config changed despite the refusal:\n%s", got)
 	}
 }
 

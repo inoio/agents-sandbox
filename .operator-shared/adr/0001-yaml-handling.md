@@ -51,7 +51,7 @@ untrusted input.
 - The port was validated before adoption: `internal/viperconfig`, `internal/sandbox/resourceproposal` and
   `internal/configpaths` pass, `make lint` is clean, and the only failing tests in the full suite are two
   pre-existing `internal/sandbox/session` failures that also fail on the untouched baseline.
-- `setting_writer.go` is ~292 lines (was ~432). A library cannot remove the surrounding atomic-write,
+- `setting_writer.go` is ~295 lines (was ~432). A library cannot remove the surrounding atomic-write,
   symlink, file-mode and non-YAML-refusal logic.
 
 ### The YAML dependency
@@ -71,7 +71,8 @@ A second decision was taken alongside the library choice: bound the untrusted re
 - **`internal/configread.ReadFile` caps every untrusted config, secret and snippet read at 16 MiB**
   (`MaxBytes`, `ErrTooLarge`). It is applied at `viperconfig.mergeDir` and its owner-scan read,
   `WriteSetting`'s own read, `homeconfig.ReadHomeFromConfigDir`, `envsecret.ParseSecretSpecYAML` /
-  `ParseSecretSpecLegacy` / `BuildEnvMap`, and `configmerge`'s snippet scan.
+  `ParseSecretSpecLegacy` / `BuildEnvMap`, and `configmerge`'s snippet scan. The `envsecret` readers warn when a
+  *present* file exceeds the cap, so a dropped scope is visible; a missing optional file stays quiet.
 - Rationale: the parsers bound *structure* (yaml.v3 depth 10000 and alias expansion; `encoding/json` and
   TOML depth 10000) but none bounds total input size, so the file read is where that is capped.
 - **JSON5 is kept**: `titanous/json5` stays and is bounded only by this size cap. It remains unbounded in

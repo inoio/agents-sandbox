@@ -28,6 +28,7 @@ func ReadFile(path string) ([]byte, error) {
 		return nil, err
 	}
 	defer file.Close()
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="one byte past the bound detects an oversized file; reading a second byte past changes nothing because any file larger than MaxBytes is rejected either way"
 	data, err := io.ReadAll(io.LimitReader(file, MaxBytes+1))
 	if err != nil {
 		return nil, err

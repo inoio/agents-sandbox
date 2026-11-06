@@ -1,6 +1,7 @@
 package envsecret
 
 import (
+	"errors"
 	"maps"
 	"slices"
 	"sort"
@@ -111,6 +112,9 @@ func placeholderHostsFor(allowHosts, allowPlaceholderFor []string) []string {
 func ParseSecretSpecLegacy(filename string, ui termio.Logger) map[string]SecretSpec {
 	data, err := configread.ReadFile(filename)
 	if err != nil {
+		if errors.Is(err, configread.ErrTooLarge) {
+			ui.Warnf("ignoring secret file '%s': %v", filename, err)
+		}
 		return nil
 	}
 	specs := make(map[string]SecretSpec)
@@ -136,6 +140,9 @@ func ParseSecretSpecLegacy(filename string, ui termio.Logger) map[string]SecretS
 func ParseSecretSpecYAML(filename string, ui termio.Logger) map[string]SecretSpec {
 	data, err := configread.ReadFile(filename)
 	if err != nil {
+		if errors.Is(err, configread.ErrTooLarge) {
+			ui.Warnf("ignoring secret file '%s': %v", filename, err)
+		}
 		return nil
 	}
 	specs := make(map[string]SecretSpec)

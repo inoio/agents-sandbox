@@ -204,7 +204,7 @@ func setDocumentValue(document *oneyaml.Document, keyPath []string, value any) (
 		return nil, err
 	}
 	edited := document.Bytes()
-	if len(edited) > 0 && edited[len(edited)-1] != '\n' {
+	if !bytes.HasSuffix(edited, []byte("\n")) {
 		edited = append(bytes.Clone(edited), '\n')
 	}
 	return edited, nil
@@ -219,22 +219,22 @@ func resolveExistingPath(root oneyaml.Node, keyPath []string) ([]string, oneyaml
 	for _, segment := range keyPath {
 		key, next, ok := findEntryFold(current, segment)
 		if !ok {
+			// gomutants:disable-next-line RETURN_ZERO reason="the caller reads the node only when found is true, so the not-found node is discarded"
 			return tokens, current, false
 		}
 		tokens = append(tokens, key.Value())
 		current = next
 	}
+	// gomutants:disable-next-line RETURN_ZERO reason="the caller reads tokens only on the not-found path, so the found-path tokens are discarded"
 	return tokens, current, true
 }
 
 // findEntryFold returns the key and value nodes of the mapping entry whose key
 // matches segment case-insensitively, mirroring viper's case-insensitive
 // resolution so an existing `Memory:` entry is edited there rather than
-// duplicated. A non-mapping has no entries.
+// duplicated. Entries yields nothing for a non-mapping, so a scalar or sequence
+// yields no entry.
 func findEntryFold(mapping oneyaml.Node, segment string) (oneyaml.Node, oneyaml.Node, bool) {
-	if mapping.Kind() != oneyaml.MappingNode {
-		return oneyaml.Node{}, oneyaml.Node{}, false
-	}
 	for existingKey, existingValue := range mapping.Entries() {
 		if strings.EqualFold(existingKey.Value(), segment) {
 			return existingKey, existingValue, true
@@ -257,6 +257,7 @@ func nestedValue(keyPath []string, value any) any {
 // too, so the value is left untouched rather than edited surprisingly.
 func ensureReplaceableValue(root, value oneyaml.Node, keyPath []string) error {
 	anchor := value.Anchor()
+	// gomutants:disable-next-line BRANCH_IF reason="no alias names the empty anchor, so anchorReferenced reports false and the fall-through returns nil too"
 	if anchor == "" {
 		return nil
 	}
@@ -287,6 +288,7 @@ func anchorReferenced(node oneyaml.Node, anchor string) bool {
 			}
 		}
 	case oneyaml.ScalarNode, oneyaml.InvalidNode:
+		// gomutants:disable-next-line BRANCH_CASE reason="removing the body falls through to the trailing return false, the same value"
 		return false
 	}
 	return false

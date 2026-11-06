@@ -3,6 +3,7 @@
 package envsecret
 
 import (
+	"errors"
 	"maps"
 	"strings"
 
@@ -45,6 +46,9 @@ func parseKeyValueLines(data string, onLine func(key, value string) error) error
 func BuildEnvMap(filename string, ui termio.Logger) map[string]string {
 	data, err := configread.ReadFile(filename)
 	if err != nil {
+		if errors.Is(err, configread.ErrTooLarge) {
+			ui.Warnf("ignoring env file %s: %v", filename, err)
+		}
 		return nil
 	}
 	env := make(map[string]string)
