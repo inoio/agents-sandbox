@@ -140,6 +140,9 @@
 - `live-mount-readback.md`
   - Description: Contract for reading a live VM's mounts: the Go SDK drops the persisted `mounts` on read-back, so the launcher decodes the config JSON through `msb.SandboxHandle.ConfigMounts()`, plus the consumers and the upstream SDK defect.
   - Read If: Reading or changing how the launcher learns a live VM's mounts, or diagnosing an empty `cfg.Volumes`, a `mounts (0)` inspect output, or an ignored `tmp_size`/`workspace-quota` change.
+- `session-reaper.md`
+  - Description: Contract for the detach reaper's quiescence rule: a session in `retry` below `auto-stop-max-session-retries` holds the VM, one at or beyond the cap does not, and `MaxSessionRetries` is the tolerated-retry budget rather than a hold that begins past the cap.
+  - Read If: Changing `waitQuiescent`/`pollQuiescence`/`quiescenceOf`/`sessionPoll`, `options.ReapPolicy`, or `auto-stop-max-session-retries`; or diagnosing a VM that idles out while a session retries, or one held past the retry cap.
 - `guided-onboarding.md`
   - Description: Design contract for first-run onboarding: credential kinds (static vs login; never placeholder-migrate refreshable OAuth), host determination, derived onboarding state, always-explicit `Guide` outcomes, the tiered setup wizard, and `config harden`.
   - Read If: Working on `config migrate`/`config wizard`/`config harden`, `Guide` outcomes and their warning/`HasChanges` gating, the `SetupQuestion` tier catalog, or `ConfigMigrationSpec`/`LoginAuthTypes`/`LoginHosts`.

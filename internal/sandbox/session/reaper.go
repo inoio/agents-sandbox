@@ -123,9 +123,8 @@ func warnRunningContainers(ctx context.Context, sb msb.Sandbox, ui termio.Logger
 }
 
 // waitQuiescent keeps the VM alive (keeper exec) and polls the provider's
-// session-status endpoint until no session is busy and no session is retrying
-// past the cutoff, or ctx is done. A client that reattaches during the wait
-// aborts it.
+// session-status endpoint until no session is busy and none is retrying below
+// the cap, or ctx is done. A client that reattaches during the wait aborts it.
 func waitQuiescent(
 	ctx context.Context,
 	k state.Key,
@@ -172,24 +171,49 @@ func waitQuiescent(
 		if poll.failed {
 			continue
 		}
-		if poll.busy == 0 && !poll.stuckRetry {
+		if poll.busy == 0 && poll.retry != retryBelowCap {
 			return nil
 		}
 	}
 }
+
+// retryState classifies the sessions a poll found in retry: whether none is
+// retrying, one is retrying with an attempt still below the cap (in-flight work
+// that holds the VM), or every retry has reached the cap and no longer does.
+type retryState int
+
+const (
+	// retryNone means no session is retrying.
+	retryNone retryState = iota
+	// retryBelowCap means at least one session is retrying with an attempt
+	// below the cap, so it holds the VM.
+	retryBelowCap
+	// retryAtOrOverCap means sessions are retrying but none is below the cap,
+	// so none holds the VM.
+	retryAtOrOverCap
+)
+
+var retryStateName = map[retryState]string{
+	retryNone:        "none",
+	retryBelowCap:    "below-cap",
+	retryAtOrOverCap: "at-or-over-cap",
+}
+
+func (r retryState) String() string { return retryStateName[r] }
 
 // sessionPoll is the outcome of one quiescence poll. failed reports a
 // transient poll error, so the caller keeps waiting.
 //
 //exhaustruct:ignore
 type sessionPoll struct {
-	busy       int
-	stuckRetry bool
-	failed     bool
+	busy   int
+	retry  retryState
+	failed bool
 }
 
 // pollQuiescence reads the provider's session-status endpoint once and reports
-// how many sessions are busy and whether any retry session is stuck.
+// how many sessions are busy and how the sessions in retry classify against the
+// cap: none, below the cap, or at or over it.
 func pollQuiescence(
 	ctx context.Context,
 	sb msb.Sandbox,
@@ -207,16 +231,16 @@ func pollQuiescence(
 		return sessionPoll{failed: true}
 	}
 
-	busy, stuckRetry := quiescenceOf(states, nil, maxRetry)
+	busy, retry := quiescenceOf(states, nil, maxRetry)
 	if busy > 0 {
 		pending, pendingErr := pendingQuestionSessionIDs(ctx, sb, provider.QuestionListCmd())
 		if pendingErr != nil {
 			ui.Verbosef("question status poll failed: %v", pendingErr)
 		}
-		busy, stuckRetry = quiescenceOf(states, pending, maxRetry)
+		busy, retry = quiescenceOf(states, pending, maxRetry)
 	}
-	ui.Verbosef("waiting: busy=%d stuckRetry=%v", busy, stuckRetry)
-	return sessionPoll{busy: busy, stuckRetry: stuckRetry}
+	ui.Verbosef("waiting: busy=%d retry=%s", busy, retry)
+	return sessionPoll{busy: busy, retry: retry}
 }
 
 // sessionStates reads the provider's session-status endpoint once via an in-VM
@@ -281,12 +305,14 @@ func decodeQuestionRequests(data string) ([]QuestionRequest, error) {
 	return reqs, nil
 }
 
-// quiescenceOf reports how many sessions are busy and whether any retry
-// session has exceeded the retry cap. Sessions present in pending (awaiting an
-// answer to a surfaced question) are not counted as busy.
-func quiescenceOf(states map[string]SessionStatus, pending map[string]bool, maxRetry int) (int, bool) {
+// quiescenceOf reports how many sessions are busy and classifies the retry
+// sessions by whether any is still below the retry cap. A retry below the cap
+// holds the VM; one at or beyond it does not. Sessions present in pending
+// (awaiting an answer to a surfaced question) are not counted as busy.
+func quiescenceOf(states map[string]SessionStatus, pending map[string]bool, maxRetry int) (int, retryState) {
 	busy := 0
-	stuckRetry := false
+	holdsBelowCap := false
+	reachedCap := false
 	for id, st := range states {
 		switch st.Type {
 		case sessionTypeBusy:
@@ -294,12 +320,22 @@ func quiescenceOf(states map[string]SessionStatus, pending map[string]bool, maxR
 				busy++
 			}
 		case sessionTypeRetry:
-			if st.Attempt >= maxRetry {
-				stuckRetry = true
+			if st.Attempt < maxRetry {
+				holdsBelowCap = true
+			} else {
+				reachedCap = true
 			}
 		}
 	}
-	return busy, stuckRetry
+	switch {
+	case holdsBelowCap:
+		return busy, retryBelowCap
+	case reachedCap:
+		return busy, retryAtOrOverCap
+	default:
+		// gomutants:disable-next-line RETURN_ZERO reason="retryNone is the zero value of retryState, so a zero-value return is the same constant"
+		return busy, retryNone
+	}
 }
 
 // keepVMAlive starts a benign long-running in-VM exec so active_exec_sessions > 0,
