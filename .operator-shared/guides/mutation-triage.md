@@ -96,6 +96,22 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   is exactly `if name == "" || strings.Contains(name, "/")`. A line-scoped `disable` for the `!found` operand would also
   suppress the killable `name == ""` and `Contains` siblings on the same line, so remove the `!found` operand (taking
   `CutLast`'s third result as `_`) instead.
+- **A length guard before an index is redundant when the container is provably non-empty; swap the index for a stdlib
+  suffix check to delete the family.** `setting_writer.go`'s `if len(edited) > 0 && edited[len(edited)-1] != '\n'`
+  guarded an index on `document.Bytes()` that the appended key always makes non-empty, so the `len(edited) > 0` operand
+  was equivalent (its `EXPRESSION_REMOVE`, `CONDITIONALS_BOUNDARY`, and both `INTEGER_*` mutants all survived).
+  `if !bytes.HasSuffix(edited, []byte("\n"))` removes the whole family rather than recording it, and also drops the
+  index-arithmetic mutants.
+- **A kind guard in front of a method that already no-ops on the other kinds is equivalent; delete the guard.**
+  `findEntryFold`'s `if mapping.Kind() != oneyaml.MappingNode { return oneyaml.Node{}, oneyaml.Node{}, false }` fell
+  through to `for … range mapping.Entries()` and a final `return …, false`, but oneyaml's `Entries()` yields nothing for
+  a scalar, sequence, alias, or invalid node, so both the `BRANCH_IF` (body removal) and the `RETURN_TRUE` (flipped
+  bool) were unobservable. Deleting the guard removed both; the loop's own `EqualFold` match stays killed by the
+  overwrite tests.
+- **A `RETURN_ZERO` on a branch-local return the caller ignores in that same branch is equivalent; record it.**
+  `resolveExistingPath` returns `(tokens, node, found)`, but the caller reads `node` only when `found` is true and
+  `tokens` only when it is false, so the `current` on the not-found return and the `tokens` on the found return are both
+  discarded. The two `RETURN_ZERO` mutants are unfalsifiable and were each closed with a `disable-next-line` reason.
 - **Splitting a guard to narrow a type-scoped exclusion can mint a new equivalent survivor.** `gitdirFile`'s `if err !=
   nil || info.IsDir()` bundled a killable operand (`err != nil` removal leaves `info` nil, so `info.IsDir()` panics on a
   missing `.git`) with a redundant one (`info.IsDir()`: a directory makes the following `os.ReadFile` fail identically).
