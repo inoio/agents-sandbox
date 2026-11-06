@@ -3,7 +3,9 @@ package testutil
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,11 +15,48 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
+// gitIsolationEnvironment returns environ with the developer's git and ssh
+// configuration neutralized, so a test that shells out to git can neither read
+// nor prompt through the host's global or system config — commit signing
+// (which pops a GUI askpass such as ksshaskpass), a credential helper, or an
+// askpass program. The fixtures pin any git setting they depend on themselves.
+func gitIsolationEnvironment(environ []string) []string {
+	var isolated []string
+	for _, entry := range environ {
+		name, _, _ := strings.Cut(entry, "=")
+		if isAmbientGitSetting(name) {
+			continue
+		}
+		isolated = append(isolated, entry)
+	}
+	return append(isolated,
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_TERMINAL_PROMPT=0",
+	)
+}
+
+// isAmbientGitSetting reports whether name carries the developer's git or ssh
+// configuration into a fixture: the global and system config files, the askpass
+// programs, or git's per-invocation config channels (GIT_CONFIG_PARAMETERS and
+// the GIT_CONFIG_COUNT/GIT_CONFIG_KEY_n/GIT_CONFIG_VALUE_n triplet), which stay
+// active even when the config files are disabled — a poisoned commit.gpgsign
+// would still sign and prompt.
+func isAmbientGitSetting(name string) bool {
+	switch name {
+	case "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT",
+		"GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE":
+		return true
+	}
+	return strings.HasPrefix(name, "GIT_CONFIG_KEY_") || strings.HasPrefix(name, "GIT_CONFIG_VALUE_")
+}
+
 // RunGit executes git with the given args in dir and returns combined output.
 func RunGit(tb testing.TB, dir string, args ...string) string {
 	tb.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only adjusts reported stack frames"
 	cmd := exec.CommandContext(context.Background(), "git", args...)
 	cmd.Dir = dir
+	cmd.Env = gitIsolationEnvironment(os.Environ())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		tb.Fatalf("git %v in %s failed: %v\n%s", args, dir, err, out)

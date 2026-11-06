@@ -36,6 +36,9 @@ tests never execute is the failure mode this catches.
   install and restore the seam, and mock paths and `$HOME` stay inside the test's temp tree. Defaults, `Fn`
   delegation, accessors and call recording are not tested on the double: the consuming tests break when they are
   wrong. A lone `testmock.go` line is therefore no patch-coverage finding.
+- **`testutil/testgit.go` is test support and is excluded from the gate** for the same reason: `RunGit` executes the
+  real git binary, so its behaviour tests are `integration`-tagged and absent from the default coverage profile. Its
+  pure `gitIsolationEnvironment` is unit-tested in `testgit_test.go`.
 
 ## Where the bar lives (and why it surprises)
 

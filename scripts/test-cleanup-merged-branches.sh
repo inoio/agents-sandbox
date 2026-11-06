@@ -7,6 +7,26 @@
 # Never touches the real repository. Run directly or `make cleanup-branches-test`.
 set -euo pipefail
 
+# Isolate the fixtures from the developer's git config: the fixtures run the
+# real git binary (init, commit, clone, push to local remotes), and an ambient
+# commit signing/askpass or credential helper must not reach them — a signing
+# commit would otherwise pop a GUI askpass such as ksshaskpass. The real
+# cleanup-merged-branches.sh is a user tool and deliberately keeps the user's
+# config; only this test isolates.
+export GIT_CONFIG_NOSYSTEM=1
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_TERMINAL_PROMPT=0
+
+# Clear git's per-invocation config channels too: they stay active even with the
+# config files disabled, so a poisoned GIT_CONFIG_KEY_n (say, commit.gpgsign)
+# would still sign a fixture commit.
+unset GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT
+while IFS='=' read -r inherited _; do
+  case "$inherited" in
+    GIT_CONFIG_KEY_*|GIT_CONFIG_VALUE_*) unset "$inherited" ;;
+  esac
+done < <(env)
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLEANUP="$SCRIPT_DIR/cleanup-merged-branches.sh"
 
