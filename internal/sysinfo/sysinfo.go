@@ -23,9 +23,17 @@ func NumCPUs() uint8 {
 	return clampNumCPUs(runtime.NumCPU())
 }
 
-func parseMemInfo(data []byte) (int, bool) {
+// /proc/meminfo field prefixes.
+const (
+	memTotalField     = "MemTotal:"
+	memAvailableField = "MemAvailable:"
+)
+
+// parseMemInfo returns the kB value of field (e.g. "MemTotal:") from
+// /proc/meminfo content.
+func parseMemInfo(data []byte, field string) (int, bool) {
 	for line := range strings.SplitSeq(string(data), "\n") {
-		if !strings.HasPrefix(line, "MemTotal:") {
+		if !strings.HasPrefix(line, field) {
 			continue
 		}
 		fields := strings.Fields(line)

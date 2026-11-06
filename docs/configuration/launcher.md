@@ -217,7 +217,8 @@ recreate, or quit to abort the change. The default is to keep/defer.
 
 The launcher watches memory while a session runs, and checks the guest kernel log when a session ends abnormally or at
 the next launch. When it sees an out-of-memory kill or sustained memory pressure, it offers to raise the `memory`
-limit, up to the host's RAM; a sandbox already at that maximum gets an explanation instead. An accepted raise is
+limit, up to the host's RAM; a sandbox already at that maximum gets an explanation instead. On Linux, a raise larger
+than the host's available memory is still saved, with a warning that the host may swap once the VM uses it. An accepted raise is
 written to the config layer that owns `memory`; offered at launch, it applies to that run, and offered after a session,
 it applies on your next run. A decline is remembered, so the same kill is not offered again; a non-interactive run records the hit and
 offers it on the next interactive launch. If `--memory` or `AGENTS_SANDBOX_MEMORY` already sets the value, the launcher

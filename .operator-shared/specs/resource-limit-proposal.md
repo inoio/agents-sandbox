@@ -266,10 +266,13 @@ used), and `/workspace`'s total is the quota, not the host filesystem's size.
 
 - Non-interactive: never block; record the observed hit (so it survives) but leave the proposal
   unanswered, so the next interactive run offers it.
-- Host-bound: a memory raise is bounded by `MaxMemoryMiB` (host RAM) and should warn when
-  available host memory is low (spare VM memory is backed only as touched, so a raise is cheap
-  until the guest uses it — but a host over-commit falls to the host OOM killer). `sysinfo`
-  currently exposes only `TotalMemoryGiB`/`NumCPUs`; add an available-memory probe.
+- Host-bound: a memory raise is bounded by `MaxMemoryMiB` (host RAM). An accepted raise whose
+  increase (new minus current limit) exceeds the host's available memory is still persisted, with a
+  warning naming both figures: spare VM memory is backed only as touched, so a raise is cheap until
+  the guest uses it, but then the host may swap or OOM-kill. The figure is
+  `sysinfo.AvailableMemoryMiB` (Linux `MemAvailable`); macOS reports none — its free-page count
+  leaves out the memory it reclaims on demand and would understate what is available — so no
+  warning is given there.
 
 ### 8. Design decisions settled during review (builder calls)
 
@@ -326,7 +329,7 @@ These are the author's calls, not user decisions; a builder may follow them as w
 - `configpaths`/`viperconfig`: a "which file layer owns key K" helper; write the raise to the
   right layer.
 - `state`: a `HomeState` marker for the detected hit.
-- `sysinfo`: available host memory.
+- `sysinfo`: available host memory (`AvailableMemoryMiB`).
 
 ## Testing
 

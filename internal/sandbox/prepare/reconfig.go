@@ -245,7 +245,13 @@ func detectAndOfferMemoryRaise(
 		currentMiB = live.config.MemoryMiB
 	}
 	return resourceproposal.DetectAndOfferMemoryRaise(
-		ctx, k, live.handle, hs.ResourcePressure, currentMiB, bootMaxMemoryMiB(live), false, opts, paths, ui,
+		ctx, k, live.handle, hs.ResourcePressure,
+		resourceproposal.MemoryLimits{
+			CurrentMiB:       currentMiB,
+			BootMaxMiB:       bootMaxMemoryMiB(live),
+			HostAvailableMiB: resourceproposal.HostAvailableMemoryMiB(),
+		},
+		false, opts, paths, ui,
 	)
 }
 

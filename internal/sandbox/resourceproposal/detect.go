@@ -10,6 +10,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/sysinfo"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -20,15 +21,32 @@ type MemoryReads interface {
 	Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error)
 }
 
+// MemoryLimits are the figures a memory offer is bounded by; zero means unknown.
+type MemoryLimits struct {
+	// CurrentMiB is the VM's configured memory; zero falls back to the live
+	// metrics limit.
+	CurrentMiB uint32
+	// BootMaxMiB is the VM's boot maximum (host RAM at creation).
+	BootMaxMiB uint32
+	// HostAvailableMiB is the memory the host can still hand out without
+	// swapping (sysinfo.AvailableMemoryMiB).
+	HostAvailableMiB uint32
+}
+
+// HostAvailableMemoryMiB is the host's available memory for MemoryLimits, or 0
+// when the platform cannot report it.
+func HostAvailableMemoryMiB() uint32 {
+	availableMiB, _ := sysinfo.AvailableMemoryMiB()
+	return availableMiB
+}
+
 // DetectAndOfferMemoryRaise reads r's system log and metrics for a memory-limit
 // hit, dedups it against the project's pressure marker, and — interactively —
 // offers a raise, persisting an accepted value. marker is the project's current
 // marker (nil for none); the re-arm path rewrites only this function's local
 // copy, never the caller's struct. witnessedHeadroomTrip reports a
 // trip the caller already observed in-session so a headroom offer still fires
-// when the fresh metrics read has recovered. currentMiB is the VM's configured
-// memory (0 falls back to the metrics limit); bootMaxMiB is its boot maximum (0
-// unknown). It returns the memory setting it persisted (e.g. "8192M"), or "".
+// when the fresh metrics read has recovered. limits bounds the offer. It returns the memory setting it persisted (e.g. "8192M"), or "".
 // It never returns an
 // error and never fails the caller: read, prompt, and persist failures are
 // logged and swallowed.
@@ -47,7 +65,7 @@ func DetectAndOfferMemoryRaise(
 	k state.Key,
 	r MemoryReads,
 	marker *state.ResourcePressureState,
-	currentMiB, bootMaxMiB uint32,
+	limits MemoryLimits,
 	witnessedHeadroomTrip bool,
 	opts options.RunOptions,
 	paths configpaths.ConfigPaths,
@@ -93,8 +111,8 @@ func DetectAndOfferMemoryRaise(
 		}
 	}
 
-	if currentMiB == 0 {
-		currentMiB = pressure.MemoryLimitMiB(metrics)
+	if limits.CurrentMiB == 0 {
+		limits.CurrentMiB = pressure.MemoryLimitMiB(metrics)
 	}
 
 	marker = reArmAnsweredHeadroom(k, marker, metrics, threshold, ui)
@@ -155,12 +173,12 @@ func DetectAndOfferMemoryRaise(
 	// failed) SuggestRaise(0, …) would pre-fill a decrease, so record the hit
 	// unanswered and let the next launch — which knows the configured memory —
 	// offer it.
-	if currentMiB == 0 {
+	if limits.CurrentMiB == 0 {
 		ui.Verbosef("recorded a VM memory-limit hit with no known limit; a later run will offer a raise")
 		return ""
 	}
 
-	return presentMemoryRaise(hit, hitAt, currentMiB, bootMaxMiB, k, opts, paths, ui)
+	return presentMemoryRaise(hit, hitAt, limits, k, opts, paths, ui)
 }
 
 // withBootStart extends a tail read holding an OOM line with everything logged
@@ -218,7 +236,7 @@ func reArmAnsweredHeadroom(
 func presentMemoryRaise(
 	hit pressure.Signal,
 	hitAt time.Time,
-	currentMiB, bootMaxMiB uint32,
+	limits MemoryLimits,
 	k state.Key,
 	opts options.RunOptions,
 	paths configpaths.ConfigPaths,
@@ -228,10 +246,11 @@ func presentMemoryRaise(
 		ui.Verbosef("recorded a VM memory-limit hit; a later interactive run will offer a raise")
 		return ""
 	}
+	currentMiB := limits.CurrentMiB
 	suggestion := Suggestion{
 		CurrentMiB:  currentMiB,
-		ProposedMiB: SuggestRaise(currentMiB, bootMaxMiB),
-		BootMaxMiB:  bootMaxMiB,
+		ProposedMiB: SuggestRaise(currentMiB, limits.BootMaxMiB),
+		BootMaxMiB:  limits.BootMaxMiB,
 	}
 	if source, shadowed := MemoryShadowSource(opts.MemoryFlagChanged); shadowed {
 		// A raise saved to config could not take effect, so explain instead of
@@ -247,7 +266,7 @@ func presentMemoryRaise(
 		// The VM already runs at its boot maximum, so no raise could apply.
 		ui.Warnf(
 			"The sandbox hit its memory limit, which is already the host maximum %s; free host memory or reduce the workload.",
-			formatMiB(bootMaxMiB),
+			formatMiB(limits.BootMaxMiB),
 		)
 		markResourcePressureOffered(k, hitAt, ui)
 		return ""
@@ -264,6 +283,7 @@ func presentMemoryRaise(
 	if !accepted {
 		return ""
 	}
+	warnIfTheHostLacksTheRaise(newMiB-currentMiB, limits.HostAvailableMiB, ui)
 	dir, persistErr := PersistMemory(paths, configSlug(opts, k), newMiB, opts.MemoryFlagChanged)
 	if persistErr != nil {
 		ui.Warnf("could not persist the raised memory limit: %v", persistErr)
@@ -271,6 +291,20 @@ func presentMemoryRaise(
 	}
 	ui.Infof("Set memory to %s in the config in %s.", formatMiB(newMiB), dir)
 	return memorySetting(newMiB)
+}
+
+// warnIfTheHostLacksTheRaise warns when the memory a raise lets the VM take
+// exceeds what the host has available. The raise stays: spare VM memory is
+// only backed once the guest uses it, but then the host may swap or OOM-kill.
+func warnIfTheHostLacksTheRaise(increaseMiB, hostAvailableMiB uint32, ui termio.Logger) {
+	if hostAvailableMiB == 0 || increaseMiB <= hostAvailableMiB {
+		return
+	}
+	ui.Warnf(
+		"The raise lets the VM use %s more memory, but the host has only %s available; once the VM uses it, the host may swap or kill processes.",
+		formatMiB(increaseMiB),
+		formatMiB(hostAvailableMiB),
+	)
 }
 
 // configSlug is the slug whose per-slug user config the raise is written to: the

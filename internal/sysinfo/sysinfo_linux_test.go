@@ -73,3 +73,42 @@ func TestTotalMemoryGiB(t *testing.T) {
 		}
 	})
 }
+
+func TestAvailableMemoryMiB(t *testing.T) {
+	dir := t.TempDir()
+	t.Cleanup(func() { procMeminfoPath = "/proc/meminfo" })
+	procMeminfoPath = filepath.Join(dir, "meminfo")
+
+	t.Run("success", func(t *testing.T) {
+		if err := os.WriteFile(
+			procMeminfoPath,
+			[]byte("MemTotal: 16384000 kB\nMemAvailable: 2097152 kB\n"),
+			0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := AvailableMemoryMiB(); !ok || got != 2048 {
+			t.Errorf("AvailableMemoryMiB() = %d, %v; want 2048, true", got, ok)
+		}
+	})
+
+	t.Run("missing field", func(t *testing.T) {
+		if err := os.WriteFile(procMeminfoPath, []byte("MemTotal: 16384000 kB\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got, ok := AvailableMemoryMiB(); ok || got != 0 {
+			t.Errorf("AvailableMemoryMiB() = %d, %v; want 0, false", got, ok)
+		}
+	})
+
+	t.Run("read error", func(t *testing.T) {
+		restore := readMeminfo
+		readMeminfo = func(string) ([]byte, error) {
+			return []byte("MemAvailable: 2097152 kB\n"), errors.New("partial read")
+		}
+		t.Cleanup(func() { readMeminfo = restore })
+		if got, ok := AvailableMemoryMiB(); ok || got != 0 {
+			t.Errorf("AvailableMemoryMiB() = %d, %v; want 0, false on a read error", got, ok)
+		}
+	})
+}

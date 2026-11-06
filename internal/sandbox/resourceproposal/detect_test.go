@@ -18,6 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/sysinfo"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -82,7 +83,8 @@ func detectRun(
 ) string {
 	t.Helper()
 	return DetectAndOfferMemoryRaise(
-		context.Background(), detectKey(), r, marker, currentMiB, bootMaxMiB,
+		context.Background(), detectKey(), r, marker,
+		MemoryLimits{CurrentMiB: currentMiB, BootMaxMiB: bootMaxMiB, HostAvailableMiB: 0},
 		witnessedHeadroomTrip, options.RunOptions{}, configpaths.Get(), ui,
 	)
 }
@@ -178,8 +180,8 @@ func TestDetectAndOfferMemoryRaiseShadowedExplainsInsteadOfPrompting(t *testing.
 			}
 
 			if raised := DetectAndOfferMemoryRaise(
-				context.Background(), k, r, nil, 4096, 8192, false,
-				options.RunOptions{MemoryFlagChanged: tc.flag}, configpaths.Get(), ui,
+				context.Background(), k, r, nil, MemoryLimits{CurrentMiB: 4096, BootMaxMiB: 8192, HostAvailableMiB: 0},
+				false, options.RunOptions{MemoryFlagChanged: tc.flag}, configpaths.Get(), ui,
 			); raised != "" {
 				t.Errorf("raised = %q, want none", raised)
 			}
@@ -408,6 +410,59 @@ func (s *failingBackReadSandbox) Logs(ctx context.Context, opts msbSdk.LogOption
 		return nil, errors.New("log read failed")
 	}
 	return s.MockSandbox.Logs(ctx, opts)
+}
+
+// TestHostAvailableMemoryMiB pins that the offer's host figure is the
+// platform's available memory, and zero when the platform cannot report it.
+func TestHostAvailableMemoryMiB(t *testing.T) {
+	want, _ := sysinfo.AvailableMemoryMiB()
+	if got := HostAvailableMemoryMiB(); got != want {
+		t.Errorf("HostAvailableMemoryMiB = %d, want %d", got, want)
+	}
+}
+
+// TestDetectAndOfferMemoryRaiseWarnsWhenTheHostLacksTheMemory pins the
+// host-bound warning: an accepted raise whose increase exceeds the host's
+// available memory is still persisted, with a warning naming the available
+// memory; an unknown available figure warns nothing.
+func TestDetectAndOfferMemoryRaiseWarnsWhenTheHostLacksTheMemory(t *testing.T) {
+	tests := []struct {
+		name             string
+		hostAvailableMiB uint32
+		wantWarning      bool
+	}{
+		{name: "increase above the available memory", hostAvailableMiB: 2048, wantWarning: true},
+		{name: "increase equal to the available memory", hostAvailableMiB: 4096, wantWarning: false},
+		{name: "available memory unknown", hostAvailableMiB: 0, wantWarning: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			unsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+			unsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+			k := detectKey()
+			seedDetectState(t, k, state.HomeState{})
+			r := &msb.MockSandbox{LogsResult: []msbSdk.LogEntry{oomLogLine(time.Now())}}
+			ui := &termio.Mock{
+				IsInteractiveResult: true,
+				SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
+				InputFn:             func(string, string) (string, error) { return "8G", nil },
+			}
+
+			raised := DetectAndOfferMemoryRaise(
+				context.Background(), k, r, nil,
+				MemoryLimits{CurrentMiB: 4096, BootMaxMiB: 16384, HostAvailableMiB: tc.hostAvailableMiB},
+				false, options.RunOptions{}, configpaths.Get(), ui,
+			)
+
+			if raised != "8192M" {
+				t.Errorf("raised = %q, want the raise persisted regardless of the warning", raised)
+			}
+			if warned := warnContains(ui, "the host has"); warned != tc.wantWarning {
+				t.Errorf("warnings %q, want a host-memory warning = %v", ui.WarnCalls, tc.wantWarning)
+			}
+		})
+	}
 }
 
 // TestDetectAndOfferMemoryRaiseDeclineAdvancesMarker pins the decline answer:

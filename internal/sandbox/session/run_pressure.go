@@ -38,7 +38,13 @@ func offerMemoryRaiseAfterAttach(
 		marker = hs.ResourcePressure
 	}
 	raised := resourceproposal.DetectAndOfferMemoryRaise(
-		ctx, k, sb, marker, 0, sandbox.BootMaxMemoryMiB(), summary.Tripped, opts, configpaths.Get(), ui,
+		ctx, k, sb, marker,
+		resourceproposal.MemoryLimits{
+			CurrentMiB:       0,
+			BootMaxMiB:       sandbox.BootMaxMemoryMiB(),
+			HostAvailableMiB: resourceproposal.HostAvailableMemoryMiB(),
+		},
+		summary.Tripped, opts, configpaths.Get(), ui,
 	)
 	if raised != "" {
 		ui.Infof("The raised memory limit applies on your next run.")
