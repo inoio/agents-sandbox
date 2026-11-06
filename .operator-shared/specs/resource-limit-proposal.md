@@ -139,33 +139,31 @@ replays an already-answered kill.
 
 **(e) Disk pressure.** Memory OOM ends the session cleanly (the harness dies, attach returns), so
 its offer happens right after. Disk pressure usually does **not** end the session — a command
-fails with `ENOSPC`/`EDQUOT` and the agent keeps running — so disk is offered after the session or
-at next launch, same as memory. Three limits, two signals:
-- **Root disk**: `Metrics.UpperFreeBytes` (null until the disk is first written) via the same
-  prep-time read.
-- **`/workspace` quota and `/tmp`**: no msb metric, so run a small **in-guest probe** at prepare
-  (next launch / after session): a `df`/quota read over `sb.Exec` reporting free space on
-  `/workspace` and `/tmp`. This is safe because disk-full does not kill the probe (unlike memory
-  pressure). Add the result to the marker as a third evidence class.
-The root disk grows live (§5); the `/workspace` quota and `/tmp` change only by a **recreate** (the
-modify API has no mount field), so their prompt frames it as a VM rebuild. Confirmed on a KVM host:
-an in-guest `df -Pk / /workspace /tmp` reports all three limits immediately — `/` is the overlay at
-the root-disk size, `/workspace` is virtiofs whose size is the guest-write budget (existing host
-content counts as used, the quota comes on top), `/tmp` is the tmpfs — and keeps working with a mount
-at 100 %. `/tmp` is RAM-backed: its contents count against the VM's memory.
+fails with `ENOSPC`/`EDQUOT` and the agent keeps running — so disk is probed after **every** attach
+end, clean or abnormal (skipped when a signal ended it), and recorded in the marker. The next launch
+offers only a recorded, unanswered disk hit; it does not probe, because the VM may be stopped.
+`--serve-only` (no attach) is not covered.
+- **Signal: one in-guest `df -Pk / /workspace /tmp`** over `sb.Exec`, for all three limits.
+  Confirmed on a KVM host: it reports them immediately — `/` is the overlay at the root-disk size,
+  `/workspace` is virtiofs whose size is the guest-write budget (existing host content counts as
+  used, the quota comes on top), `/tmp` is the tmpfs — and keeps working with a mount at 100 %
+  (disk-full does not kill the probe, unlike memory pressure). `Metrics.UpperFreeBytes` is not used:
+  it is sampled periodically and lags a write by several seconds.
+- **Apply:** the root disk grows live (§5); the `/workspace` quota and `/tmp` change only by a
+  **recreate** (the modify API has no mount field), so their prompt frames it as a VM rebuild.
+- `/tmp` is RAM-backed: its contents count against the VM's memory.
 
-**Threshold (disk, and the memory fallback).** Disk has no crash event, so a threshold decides it:
-offer when usage is **≥ 90% of the limit, or free space is ≤ 1 GiB** (first to trip), where
-`usage = used / (used + free)`. The ratio alone misjudges across sizes (95% of a 2 GiB `/tmp` is
-nearly exhausted; 95% of a 64 GiB root is 3 GiB free), hence the absolute floor. Anti-nag hysteresis:
-after an offer, do not re-offer until the condition has fully cleared — neither trigger still fires
-(usage **below 80%** *and* free space above the floor) — and it trips again. (Requiring both matters
-because the floor trips independently of the ratio: for a small limit a snapshot can sit below 80%
-and still be under pressure, and re-arming on the ratio alone would re-offer every launch.) The
-memory headroom fallback uses the same ratio+floor so there is one threshold concept. Mechanics: a
-root-disk
-ratio is only computable once `upper_*` are populated (null until first write ⇒ no offer, not 0%
-used), and `/workspace`'s total is the quota, not the host filesystem's size.
+**Threshold.** Disk has no crash event, so a threshold decides it: offer when free space is below
+**`min(15 % of the limit, 2 GiB)`** — small mounts trip at 85 % used, large ones at 2 GiB free, so a
+2 GiB `/tmp` does not trip half full and a 64 GiB root does not trip with 9 GiB free. Anti-nag
+hysteresis: after an offer, do not re-offer until free space is back above **twice** the trip level
+and it trips again. `/workspace`'s limit is its guest-write budget, not the host filesystem's size.
+
+The memory headroom fallback keeps its own threshold: offer when usage is **≥ 90 % of the limit, or
+free memory is ≤ 1 GiB** (first to trip), and re-arm only when the condition has fully cleared —
+usage **below 80 %** *and* free memory above the floor. (Requiring both matters because the floor
+trips independently of the ratio: for a small limit a snapshot can sit below 80 % and still be under
+pressure, and re-arming on the ratio alone would re-offer every launch.)
 
 ### 2. Terminal recovery
 
@@ -195,9 +193,14 @@ used), and `/workspace`'s total is the quota, not the host filesystem's size.
   bounded above by the boot maximum (host RAM) and, for the host-bound warning, by available
   host memory.
 - The same prompt shape is reused next launch for a persisted marker.
-- Disk: when the signal is disk pressure, offer raising the root disk (live grow) or, for
-  `/workspace` quota / `/tmp`, a resize that requires a recreate, making the recreate cost
-  explicit in the prompt.
+- Disk: each tripped limit is offered on its own (one probe can trip several). The prompt names
+  the mount and its free space and says whether the raise applies live (root disk) or by rebuilding
+  the VM (`/workspace` quota, `/tmp`; the home volume is kept). The suggestion is +50 % rounded up to
+  a whole GiB, at least +1 GiB. A `/tmp` raise above the VM's memory limit is refused with that
+  reason (`/tmp` uses memory); the root disk and the quota have no hard cap, but the prompt warns
+  when the host filesystem holding the runtime home, respectively the repo, has less free space
+  than the raise. The persisted keys are `disk-size`, `workspace-quota` and `tmp-size`, with the
+  same owner-layer and shadowing rules as `memory` (§4).
 
 ### 4. Persistence and precedence
 
@@ -249,11 +252,15 @@ used), and `/workspace`'s total is the quota, not the host filesystem's size.
   memory resize is **asynchronous** (confirmed: `Modify` returns `STATE=converging` and the limit
   lags), so confirm convergence via `Metrics.MemoryLimitBytes` before reporting the raise applied,
   and do not read once.
-- **Root disk**: add `ModifyOptions.RootDiskSizeMiB` to the live stage (`reconcileResourceConfig`
-  / `buildModifyOptions`), applying a **grow-only** increase. Confirmed on a KVM host that even a
-  default (no `--disk-size`) VM has a managed root (4 GiB default) that grows live, so no create-time
-  sizing is required; the launcher must read the current size (`SandboxConfig.RootDisk`) instead of
-  skipping it. Grow past the current size only.
+- **Root disk**: `buildModifyOptions` stages `ModifyOptions.RootDiskSizeMiB` when the desired size
+  exceeds the current one (`SandboxConfig.RootDisk.SizeMiB`), and `reconcileResourceConfig` applies
+  it live; only a decrease is a recreate (`rootDiskChange`). Confirmed on a KVM host that even a
+  default (no `--disk-size`) VM has a managed root (4 GiB default) that grows live, and that the
+  grown size is persisted.
+- **Disk raises apply at the next launch**, like memory: an accepted value is persisted, and a raise
+  accepted in the next-launch offer replaces the run's value before the reconfig decision, so that
+  run applies it (root live, quota and `/tmp` through the drift → rebuild path with its keep/rebuild
+  prompt when other clients are attached). There is no immediate post-attach apply.
 - **`/workspace` quota and `/tmp`**: recreate-only (confirmed — the modify API has no mount field
   and `msb modify` exposes no mount flag), so the prompt frames the raise as a VM rebuild rather
   than a live change.
@@ -261,8 +268,8 @@ used), and `/workspace`'s total is the quota, not the host filesystem's size.
 ### 6. Limits covered
 
 - **Memory** — primary, first stage.
-- **Disk** — all three limits detected (root via `upper_free_bytes`, `/workspace` and `/tmp` via an
-  in-guest probe); root applies **live grow**, quota/tmp are a **recreate**. Second stage.
+- **Disk** — all three limits detected by the in-guest `df`; root applies **live grow**, quota/tmp
+  are a **recreate**. Second stage.
 - **CPU** — no kill, only throttling and no `cpu.stat` exposure through `Metrics`
   (`CPUPercent` only). Out of the first delivery; noted as a possible "sustained cap" advisory.
 

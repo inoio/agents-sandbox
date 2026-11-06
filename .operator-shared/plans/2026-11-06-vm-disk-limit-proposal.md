@@ -29,13 +29,13 @@ size 64 MiB, a managed root of 1 GiB and the default):
   comes on top), `/tmp` is the tmpfs at its size. `df` still works with a mount at 100%.
 - `/tmp` is RAM: filling a 64 MiB `/tmp` raised the VM's memory use from 37 to 84 MiB.
 
-## Decisions to confirm before implementing
+## Decisions (confirmed 2026-11-06; recorded in the spec)
 
-1. **Detection signal: in-guest `df` for all three** (recommended) instead of `UpperFreeBytes` for the root and `df` for
+1. **Detection signal: in-guest `df` for all three** instead of `UpperFreeBytes` for the root and `df` for
    the rest: one mechanism, immediate, and the same numbers the user sees.
 2. **Threshold.** The spec's "≥ 90 % used or ≤ 1 GiB free" trips the default 2 GiB `/tmp` at half full and would nag.
-   Recommended: trip when free space is below `min(10 % of the limit, 2 GiB)`; re-arm when free space is back above
-   twice that. Small mounts trip at 90 % used, large ones at 2 GiB free. Memory keeps its threshold.
+   Trip when free space is below `min(15 % of the limit, 2 GiB)`; re-arm when free space is back above
+   twice that. Small mounts trip at 85 % used, large ones at 2 GiB free. Memory keeps its threshold.
 3. **When to probe.** After every attach end, clean or abnormal (disk pressure rarely ends a session), skipped after a
    signal. The next launch offers only an unanswered recorded hit; it does not probe (the VM may be stopped).
    `--serve-only` is not covered.
@@ -116,8 +116,7 @@ size 64 MiB, a managed root of 1 GiB and the default):
 
 - `docs/configuration/launcher.md`: `disk-size` grows live (a decrease rebuilds); the raise-proposal section covers
   the three disk limits.
-- Spec: replace §1e's root-disk signal with the confirmed `df` probe, record the threshold and the apply rules, and
-  close the open questions.
+- Spec: the design is recorded (§1e, threshold, §3, §5); update only clauses the implementation changes.
 - `changelog.d/<pr>.added.md`; delete this plan once the work lands (fold any missing clause into the spec first).
 
 ## Review focus
