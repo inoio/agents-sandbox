@@ -1,5 +1,5 @@
 ---
-description: Contract for making git worktrees a contained, host-and-VM-consistent thing (issue #145): a bare checkout whose worktrees live inside it, bound as `/workspace`, plus the minimal mount rule that makes worktrees the source of truth. Covers the pattern priority order (non-bare checkout default, non-repo folder, bare-with-worktrees esoteric), the generalized bind rule (bind the smallest enclosing checkout that contains the CWD, so a worktree session always exposes its worktree), guest-CWD derivation for subdirectories, the outside-worktree case (bind its own root, run it as its own checkout, with a shared git dir that stays unmounted — #426; identity is superseded by checkout-identity.md), the deliberately convention-only folder taxonomy (recipe + skill + AGENTS.md), and non-goals.
+description: Contract for making git worktrees a contained, host-and-VM-consistent thing (issue #145): a bare checkout whose worktrees live inside it, bound as `/workspace`, plus the minimal mount rule that makes worktrees the source of truth. Covers the pattern priority order (non-bare checkout default, non-repo folder, bare-with-worktrees esoteric), the generalized bind rule (bind the smallest enclosing checkout that contains the CWD, so a worktree session always exposes its worktree), guest-CWD derivation for subdirectories, the outside-worktree case (bind its own root, run it as its own checkout with its shared git dir mounted at the recorded path — #426; identity is superseded by checkout-identity.md), the deliberately convention-only folder taxonomy (recipe + skill + AGENTS.md), and non-goals.
 read_if: Implementing or reviewing issue #145 (bare checkout with worktrees inside), the `/workspace` bind-source resolution, guest-CWD derivation, or the worktree-layout recipe/skill.
 ---
 
@@ -94,13 +94,10 @@ For the bare layout the bare root contains every worktree, so all sessions share
 the main checkout contains it.
 
 **Outside worktrees bind their own root.** When the resolved worktree sits outside its checkout, the launcher binds the
-worktree itself. That leaves its `.git` pointer aimed at a shared git dir outside the mount, so `git` commands inside the
-VM may not resolve the repository.
-
-> **Superseded by [`checkout-identity.md`](checkout-identity.md) (#144).** This section originally had the launcher also
-> emit a `termio` warning that an outside worktree is unsupported. That warning no longer exists: under per-checkout
-> identity an outside worktree runs as its own checkout, hashing its worktree root, with its own VM and home volume. The
-> unmounted shared git dir is the remaining limitation, tracked in #426 (the recipe page states it to readers).
+worktree itself and runs it as its own checkout (hashing its worktree root, with its own VM and home volume —
+[checkout-identity.md](checkout-identity.md)). Its `.git` pointer aims at a shared git dir outside the mount, so the
+launcher also bind-mounts that git dir at the path the worktree's `.git` file records (`prepare.withSharedGitDirMount`,
+from `git.Identity.SharedGitDir`/`RecordedSharedGitDir`), and git resolves inside the VM (#426).
 
 The `git rev-parse` phrasing above describes the *facts*, not the implementation. The derivation reuses the existing
 host-side, go-git-based repository inspection (`projectSlugAt` / `resolveGitDir` in `internal/git`); a host `git`
@@ -141,13 +138,6 @@ How `guestCWD` reaches the agent (see Background):
   directory for clients that ignore the attach target.
 - **`--worktree`** keeps overriding the target with the daemon-created directory (unchanged).
 
-## VM / State Identity
-
-> **Superseded by [`checkout-identity.md`](checkout-identity.md) (#144).** Identity is split per checkout (state, VM,
-> home volume, image). The "one origin, one project VM" premise, the warn-and-bind-CWD behavior for an outside
-> worktree, and the "names are byte-identical / no migration" statements this section carried are no longer true; the
-> slug is the checkout-scoped slug defined there. The mount rule and guest-CWD derivation above stand.
-
 ## Conventions (deliberately not code)
 
 The folder taxonomy is **a contract that inhabiting agents and humans follow**, not something `agents-sandbox` bakes
@@ -160,19 +150,41 @@ identical bodies.
 Inside the bound bare root:
 
 - `.git/` — the bare git dir. Never a worktree.
-- `main/` — canonical checkout of the default branch, always main; the reference point and the usual `--worktree` base.
-- `IDE/` — the human's worktree; the one place branch-switching is expected (uppercase so it stands out).
+- one **stable checkout of `main`**, for reference and as the config source. Its directory name is local — `main`, `IDE`,
+  or another; IDEs may attach to it or to any other worktree.
+- `config/` — a **sparse** worktree of the config mirror branch, materializing only `.agents-sandbox/`.
+- `.agents-sandbox/` — the bare root's project config: file-level relative symlinks into `config/` (see below).
 - one flat directory per branch, **name derived from the branch** with `/` flattened to `--`:
   `feat/foo-does-bar` → `feat--foo-does-bar`. Agent and occasional human worktrees share this namespace.
+
+### Project config in git
+
+Project config is read from the bare root, so one copy serves every worktree; because the bare root is not itself a
+worktree, it is kept in git on `main` and bridged to the bare root:
+
+- `main` tracks `.agents-sandbox/`, ignoring only `env.secret` and `env.secret.yaml`.
+- `agents-sandbox-config` **mirrors** `main` (no commits of its own); `config/` is its sparse worktree.
+- The bare root's `.agents-sandbox/` entries are **file-level relative** symlinks into `config/.agents-sandbox/`, which
+  resolve at `/workspace` inside the VM and leave room for untracked files (a personal `env.secret`).
+- The mirror is advanced by a local `git -C config merge --ff-only main` after a fetch; a stale mirror means the bare
+  root reads a stale config.
+
+If the config worktree can be the only checkout of `main`, the mirror branch is dropped and `config/` holds `main`
+directly.
 
 ### Required git configuration
 
 - `worktree.useRelativePaths true` (git ≥ 2.48) so each worktree's `.git` pointer file survives the host→VM path
   remap. Set it in the bare repo's config.
+- `core.bare` is read from the shared `config` and, when `extensions.worktreeConfig` is enabled, from the bare root's
+  `config.worktree`, so it may live in either. Git moves it into `config.worktree` once the extension is set (as a
+  sparse worktree does) and ignores the file while the extension is off; with the extension on, a `core.bare` left in
+  the shared `config` instead makes every linked worktree inherit bare-ness and refuse worktree operations.
 
 ### Rules and reserved names
 
-- `main`, `IDE`, `.git` are reserved; a branch that would map to a reserved name is rejected/renamed by convention.
+- `.git`, the config worktree's name (`config`), and the stable checkout's name when it is `main` or `IDE` are
+  reserved; a branch that would map to a reserved name is rejected/renamed by convention.
 - Flattening is **lossy**: branches `feat/foo` and a literal `feat--foo` collide to the same directory. The convention
   documents this; users avoid literal `--` branch names.
 
@@ -208,8 +220,9 @@ is out of scope beyond not regressing it.
 - Nested non-bare worktree and bare-with-worktrees: `/workspace` is the enclosing root; all sibling worktrees are
   visible; the session reuses the project's shared VM; the agent starts in the launched worktree.
 - Outside non-bare worktree: the worktree root is bound and the worktree runs as its own checkout — its own VM and home
-  volume; `git` inside the VM may not resolve the repository (#426).
-- Naming: VM/volume/state/image names are **unchanged** for every case (no migration); the name parsers are untouched.
+  volume, with its shared git dir mounted so `git` resolves inside the VM.
+- Naming: VM/volume/state/image names are **unchanged** for the non-bare and bare-layout cases; the outside-worktree case
+  gets its own checkout identity ([checkout-identity.md](checkout-identity.md)). The name parsers are untouched.
 - The recipe page and the skill are present and identical in content; docs link check passes.
 
 ## Settled decisions

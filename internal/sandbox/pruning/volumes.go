@@ -29,7 +29,8 @@ func PruneVolumes(
 	ui termio.UI,
 ) (VolumeReport, error) {
 	report := VolumeReport{VolumesPruned: 0, Details: nil}
-	handles, err := msb.Get().ListVolumes(ctx)
+	client := msb.Get()
+	handles, err := client.ListVolumes(ctx)
 	if err != nil {
 		// gomutants:disable-next-line RETURN_ZERO reason="report is still its zero value at this point, so returning a fresh zero VolumeReport is identical"
 		return report, err
@@ -40,7 +41,7 @@ func PruneVolumes(
 		// gomutants:disable-next-line RETURN_ZERO reason="report is still its zero value at this point, so returning a fresh zero VolumeReport is identical"
 		return report, err
 	}
-	removed := pruneHomeVolumes(ctx, handles, pruneState, references, dryRun, ui, &report)
+	removed := pruneHomeVolumes(ctx, client, handles, pruneState, references, dryRun, ui, &report)
 	if !dryRun {
 		removeStateForGoneKeys(ui, removed, exists)
 	}
@@ -67,11 +68,12 @@ func countVolumesByKey(handles []msb.VolumeHandle) map[state.Key]int {
 // points at.
 func pruneHomeVolumes(
 	ctx context.Context,
+	client msb.Client,
 	handles []msb.VolumeHandle,
 	pruneState PruneState,
 	references map[string][]state.Key,
 	dryRun bool,
-	ui termio.UI,
+	ui termio.Logger,
 	report *VolumeReport,
 ) map[state.Key]int {
 	removed := map[state.Key]int{}
@@ -82,7 +84,7 @@ func pruneHomeVolumes(
 			continue
 		}
 		key := state.Key{Slug: volumeArtifact.Slug, Agent: volumeArtifact.Agent}
-		if _, found := pruneState.ToPrune[key]; !found {
+		if !pruneState.retires(key) {
 			continue
 		}
 		if len(references[name]) > 0 {
@@ -90,7 +92,7 @@ func pruneHomeVolumes(
 			continue
 		}
 		if !dryRun {
-			if err := msb.Get().RemoveVolume(ctx, name); err != nil {
+			if err := client.RemoveVolume(ctx, name); err != nil {
 				ui.Warnf("failed to remove home volume %s: %v", name, err)
 				continue
 			}
@@ -113,10 +115,10 @@ func pruneHomeVolumes(
 // references. The count guard holds back a key with a surviving volume (for
 // example one a failed removal left behind); the state-content guard holds back
 // a key whose state names a home volume, so a volume created since the prune
-// snapshot — committed to the state under the home lock — is never orphaned
-// (#335). Keys are visited in a stable order so a skipped key never determines
+// snapshot — committed to the state under the home lock — is never orphaned.
+// Keys are visited in a stable order so a skipped key never determines
 // whether a later one is processed.
-func removeStateForGoneKeys(ui termio.UI, removed, exists map[state.Key]int) {
+func removeStateForGoneKeys(ui termio.Logger, removed, exists map[state.Key]int) {
 	for _, key := range slices.SortedFunc(maps.Keys(removed), compareStateKey) {
 		if removed[key] < exists[key] {
 			continue

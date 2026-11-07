@@ -70,7 +70,9 @@ path — which would silently mint a new checkout identity (state, VM, home volu
 project (#354). The cwd-derived test accessors `MustRepoSlug`/`MustCheckoutSlug` panic rather than return
 such a slug; production reads the `Identity` fields. `configpaths.resolveProjectConfig` is the one caller
 that stays tolerant: it degrades to the relative base on that error, because the project config directory
-is not identity-keyed.
+is not identity-keyed. `git.ProjectSlug()` retires in favor of `ResolveIdentity`; `internal/git` stays a leaf
+— hashing and layout inspection only, no knowledge of state paths or config dirs — which keeps
+`cmd`/`session`/`vm` cycle-free.
 
 ## Which artifact uses which slug
 
@@ -87,7 +89,9 @@ is not identity-keyed.
 
 The `org.agents-sandbox.project` label keeps the **repo** slug so `list --label project=<repo>` groups
 every clone's sandbox; the sandbox **name** carries the checkout slug and is the exact identifier.
-Nothing keys ownership off this label (prune parses names), so the change is safe.
+Nothing keys ownership off this label (prune parses names), so the change is safe. `createProjectVM` threads
+the repo slug in from the identity, never from `state.Key`; `state.Key` keeps a single slug — the checkout
+slug, which names the VM.
 
 ## Runner image
 
@@ -124,6 +128,14 @@ and the resolved repo slug, and stating that repo-wide knobs belong in the commi
 per-slug `config.yaml` is optional. The ordered-multi-dir resolver machinery from
 `opencode2-config-fork.md` is available but not required, since nothing renames.
 
+`config paths` prints the layer block to stdout through `Outf` and the "where to put what" hint to stderr
+through `Infof`; one `viperconfig.ConfigLayers(slug)` list drives both the display and `NewResolver`'s
+file-layer merge, so the reported order and the merged order cannot drift. A file layer shows its dir with a
+`(missing)` marker when no config file is there, the block ends with a `repo slug:` line, the per-slug layer
+reads the *effective* config slug (`configpaths.UserSlugConfigDir`) while the label stays the repo slug, and
+`--quiet` suppresses the `Outf` layer block but not the `Infof` hint. `--format json` is deferred until asked
+for.
+
 ## Outside worktrees: their own identity
 
 #145 warned and bound CWD for a worktree outside its checkout. Under checkout identity that is not enough:
@@ -142,6 +154,13 @@ checkout — binding the cwd instead would hand the agent a workspace with no re
 make the mount source (and so the reconfig fingerprint) depend on which directory the run started in.
 `OutsideWorktree` stays a reported fact on the identity, naming the distinction, but nothing refuses on it
 and no caller has to special-case it.
+
+Because only the worktree is bound at `/workspace`, its `.git` file points at a git dir outside the bind, so
+`git.Identity` also carries `SharedGitDir` (the resolved path) and `RecordedSharedGitDir` (that path as the
+`.git` file records it). `prepare.withSharedGitDirMount`, wired in `PrepareSandbox`'s resolve-identity stage,
+adds a read-write bind of `SharedGitDir` at `RecordedSharedGitDir` so git resolves inside the VM (#426). It
+warns and leaves the mounts unchanged when the recorded path is relative (it cannot resolve in the guest) or
+cannot be resolved to a mount target, and a configured mount at the same target wins.
 
 What this costs: an outside worktree no longer shares state or a home volume with its checkout or with its
 sibling worktrees, so it onboards and authenticates on its own. "One VM per checkout" therefore means "one
@@ -203,12 +222,18 @@ the incomplete-migration failure on a source that is already gone. Beyond the ro
 under both the legacy and the checkout slug — across the destroy and the move, so a concurrent per-key state
 write or VM creation cannot interleave with them (#333).
 
+Adoption lives in `internal/sandbox/vm`, reachable from every entry point; its destroy half reuses
+`GetSandbox` → `SandboxHandle.Destroy` with the `IsReplaced` fail-closed handling of `destroyProjectVMHandle`.
+The directory move is new code — the existing state helpers only delete (`RemoveHomeStateIf`) or rewrite in place
+(`RecoverHomeState`) — and the move is itself the idempotence record, so adoption needs no `migrations` registry
+entry; the root state is used only for the lost-state `adopted_home_volumes` claim.
+
 **Actions**
 
 1. **Destroy every legacy VM first, across all sources, before moving any state.** For every legacy slug,
    enumerate the agents whose state lives there (`state.StatefulAgentNames`), **plus the command's own agent**
    (so a lost-state VM that `StatefulAgentNames` cannot see is torn down too), and destroy
-   `projectVMName({Slug: legacySlug, Agent})` identity-safely (best-effort; a gone name is fine). Doing all
+   `ProjectVMName({Slug: legacySlug, Agent})` identity-safely (best-effort; a gone name is fine). Doing all
    destroys before any move makes a destroy failure abort with every legacy state file still in place, so
    the next run re-fires the trigger and resumes; moving first would create the checkout state file and, on
    a later destroy failure, leave the trigger permanently satisfied — the retry would adopt the first
@@ -257,7 +282,9 @@ Adoption is re-evaluated on every run, so deferring it costs nothing.
 
 **Notice**: emitted once, and **explicit about everything that moved, with absolute paths** — the state
 directory (old → new), the destroyed legacy VM name, the preserved home volume name, the old → new VM
-name, and the old → new image tag. With an extra legacy identity (a bare root), the block adds a second
+name, and the old → new image tag. It is one `Warnf` call emitted before the work starts, so the notice
+explains the pause rather than confirming after the fact; `Warnf` is not quiet-suppressed, so it survives
+`--quiet`, and `--dry-run` prints the same block under the "would" headline. With an extra legacy identity (a bare root), the block adds a second
 state-dir row and a `config dir` row for the per-slug config directory renamed onto the repo slug. The move
 is the idempotence record: the legacy state file is gone afterward, so the notice does not re-fire. A legacy
 identity is shared by every clone of one origin, so whichever clone runs first adopts it; the others then
@@ -265,18 +292,29 @@ find no legacy state, start with their own fresh state and home volume, and get 
 their side there was nothing to migrate. That asymmetry is inherent in moving one shared identity rather
 than copying it: warning the later clones would need the adoption to record something they can read.
 
+```
+Migrating this checkout to its own project identity (repository + checkout slugs).
+No action needed: files, credentials and the home volume are kept; only the project VM is recreated.
+
+  state dir     <old state dir>  ->  <new state dir>
+  home volume   <home volume name>   (kept as-is)
+  VM            <legacy VM name>   (destroyed)
+                <new VM name>   (recreated)
+  runner image  <legacy image tag>  ->  <new image tag>   (rebuilt)
+```
+
 ## Prune safety
 
 A migrated project keeps a home volume whose name embeds the **legacy** repo slug (`home_volume` rides
 along), while the legacy slug is now stale. Because `pruneHomeVolumes` removes any volume whose
 name-parsed key is in `ToPrune`, and the just-upgraded legacy VM can land in `ToPrune[<repoSlug>]`, a
 `prune` run *before* the first post-upgrade `run` would otherwise delete the preserved volume and then
-`state.RemoveHomeState(<repoSlug>)` the very state adoption needs — losing auth and state.
+`state.RemoveHomeStateIf(<repoSlug>)` the very state adoption needs — losing auth and state.
 
 Fix: `pruneHomeVolumes` must **fail closed on any volume name referenced by an existing state file**
 (via `state.HomeVolumeReferences()`, as `volume remove` already does), so prune never deletes a volume a
 state file points at. Failing closed means **skip that volume and report it**, not abort the prune — the
-treatment prune already gives a replaced sandbox (`internal/sandbox/pruning/sandboxes.go:33-40`); the
+treatment `pruneSandboxes` already gives a replaced sandbox; the
 skip happens before the dry-run branch, so a dry run reports the same kept set — and a
 skipped volume's key must not reach `removeStateForGoneKeys`
 (`internal/sandbox/pruning/volumes.go`), which would otherwise delete the very state adoption needs.
@@ -317,60 +355,3 @@ its absence does not block adoption, which recreates it over the preserved volum
 - **A first-post-upgrade run needs the builder.** The image tag changes, so a cold-cache or offline
   first run rebuilds.
 - Two clones with divergent Dockerfiles each build their own image (by design).
-
-## Settled open decisions
-
-The six questions this section used to leave open, settled 2026-10-20. The
-adoption, dry-run, prune and outside-worktree refinements from the same design review live in their topical
-sections above.
-
-- **Identity API.** `git.ProjectSlug()` retires. `internal/git` gains `ResolveIdentity(cwd) (Identity, error)`
-  returning the bind root, checkout root, worktree root, outside-worktree flag, bare flag, repo slug,
-  checkout slug and `LegacyRepoSlugs`, plus the cwd-derived test accessors `MustRepoSlug()` and
-  `MustCheckoutSlug()` (they panic on an unresolvable cwd). Explicit names, because after the
-  split every call site is a judgement call. `internal/git` stays a leaf — hashing and layout inspection
-  only, no knowledge of state paths or config dirs — which is what keeps `cmd`/`session`/`vm` cycle-free.
-- **One git-inspection pass.** `ResolveIdentity` folds the former `ResolveWorkspaceLayout` and `projectSlugAt`
-  into one pass (`internal/git/identity.go`) and resolves symlinks internally, so `run` and
-  `stop` cannot compute different checkout slugs on macOS (`/tmp` vs `/private/tmp`). `ResolveWorkspaceLayout`
-  and `WorkspaceLayout` are deleted; `configpaths.resolveProjectConfig` (#247) consumes `Identity.Bare`/
-  `WorktreeRoot` instead.
-- **Adoption lives in `internal/sandbox/vm`**, reachable from every entry point (`vm` imports
-  `git`/`state`/`msb`/`naming` and is imported by `cmd` and `session`). The destroy half reuses
-  `GetSandbox` → `SandboxHandle.Destroy` with the `IsReplaced` fail-closed handling of
-  `destroyProjectVMHandle` (`internal/sandbox/vm/vm_lifecycle.go`). The state-directory move is new code: nothing today
-  renames a state directory (`RemoveHomeState` deletes, `RecoverHomeState` rewrites in place).
-- **No `migrations` registry entry.** The directory move is the idempotence record — the legacy state file is
-  gone afterwards, so adoption cannot re-fire. `state.Migration`'s `Copied`/`Kept`/`Excluded` fields are
-  copy-shaped and would sit unused. The root state *is* used for the lost-state home-volume ownership claim
-  (`adopted_home_volumes`), which needs a launcher-global record a second clone can read.
-- **The grouping label comes from the identity, not from `state.Key`.** `createProjectVM` sets
-  `org.agents-sandbox.project` from the repo slug it is passed, never from `k.Slug`: `state.Key` keeps a
-  single slug (the checkout slug, which names the VM), while the label is the repo slug, threaded in from the
-  identity struct.
-- **Migration notice**: one `Warnf` call carrying the whole block — yellow headline, indented detail rows,
-  exactly as below — emitted *before* the work starts, so the notice explains the pause rather than confirming
-  after the fact. The rows are therefore prospective ("destroyed", "recreated"), not a receipt. `--dry-run`
-  prints the same block under the "would" headline. `Warnf` is not quiet-suppressed, so the notice survives
-  `--quiet` — which is right for an event that changes where the project's state lives.
-
-  ```
-  Migrating this checkout to its own project identity (repository + checkout slugs).
-  No action needed: files, credentials and the home volume are kept; only the project VM is recreated.
-
-    state dir     <old state dir>  ->  <new state dir>
-    home volume   <home volume name>   (kept as-is)
-    VM            <legacy VM name>   (destroyed)
-                  <new VM name>   (recreated)
-    runner image  <legacy image tag>  ->  <new image tag>   (rebuilt)
-  ```
-
-- **`config paths`** prints the config layers in precedence order (lowest → highest, matching the resolver's
-  precedence comment in `internal/viperconfig`) to stdout via `Outf`, and the "where to put what"
-  hint to stderr via `Infof`, naming the committed project config (`.agents-sandbox/config.yaml`) and the
-  generic user config as the homes for repo-wide knobs. `--format json` is deferred until asked for. It uses
-  the `configpaths` accessor for the per-slug user dir (`UserSlugConfigDir`). One `viperconfig.ConfigLayers(slug)` list drives both the display and `NewResolver`'s
-  file-layer merge, so the reported order and the merged order cannot drift; a file layer shows its dir with a
-  `(missing)` marker when no config file is there, the block ends with a `repo slug:` line, and the per-slug
-  layer reads the *effective* config slug while the label stays the repo slug. `--quiet` suppresses the `Outf`
-  layer block but not the `Infof` hint.

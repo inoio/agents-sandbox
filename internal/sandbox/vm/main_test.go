@@ -1,15 +1,11 @@
 package vm
 
 import (
-	"context"
 	"testing"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
-
 	mocks "github.com/inoio/agents-sandbox/internal/testutil/mocks"
 )
 
@@ -27,16 +23,10 @@ func TestMain(m *testing.M) {
 	// the production budget: these are mocked unit tests, and the first probe is
 	// healthy in every passing case. A test that needs the production window, or
 	// a deliberately expired one, saves and restores the var itself.
-	daemonReadyTimeout = 2 * time.Second
+	daemonReadyTimeout = 200 * time.Millisecond
 	daemonPollInterval = 10 * time.Millisecond
-	dockerdReadyTimeout = 2 * time.Second
+	dockerdReadyTimeout = 200 * time.Millisecond
 	dockerdPollInterval = 10 * time.Millisecond
-	sandboxLifecyclePollInterval = 10 * time.Millisecond
-	// Seal PrepareSandbox off from the developer's real legacy home: the default
-	// offer is a no-op, and the tests that exercise it opt in explicitly.
-	SetRuntimeHomeMigrationOffer(func(context.Context, msb.Client, termio.UI) error { return nil })
-	// No existing runner image by default; recovery tests opt in explicitly.
-	existingAgentVersion = func(context.Context, string, string) (string, bool) { return "", false }
 	mocks.InitFailFastMocks(m)
 }
 
@@ -49,6 +39,13 @@ func opencodeAgent(t *testing.T) agent.Agent {
 		t.Fatal("opencode agent not registered")
 	}
 	return a
+}
+
+// opencodeResolved returns the default opencode profile with its capabilities
+// resolved, for the vm consumers that take an agent.Resolved.
+func opencodeResolved(t *testing.T) agent.Resolved {
+	t.Helper()
+	return agent.Resolve(opencodeAgent(t))
 }
 
 // opencodeProvider returns the opencode profile's DaemonProvider so tests can

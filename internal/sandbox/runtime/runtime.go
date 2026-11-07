@@ -10,15 +10,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/inoio/agents-sandbox/internal/hostlock"
-
 	"github.com/Masterminds/semver/v3"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/hostlock"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 const (
@@ -75,10 +73,8 @@ var (
 		}
 		return strings.TrimSpace(string(output)), nil
 	}
-	// msbEnsureRuntime/msbInstallRuntime wrap the SDK setup calls so tests can
-	// observe the RuntimeConfig passed to them. Every setup call names the
-	// private home explicitly (see runtimeConfig) rather than relying on the
-	// process-global MSB_HOME.
+	// Every setup call names the private home explicitly (see runtimeConfig)
+	// rather than relying on the process-global MSB_HOME.
 	msbEnsureRuntime  = msbSdk.EnsureRuntime
 	msbInstallRuntime = msbSdk.InstallRuntime
 	ensureRuntime     = func(ctx context.Context) error {
@@ -177,7 +173,7 @@ var inspectRuntimeFunc = inspectRuntime
 
 // PrepareRuntime inspects and resolves the runtime before any SDK operation.
 // Mock msb clients used by command tests do not need host runtime setup.
-func PrepareRuntime(ctx context.Context, ui termio.UI, launcherVersion string) error {
+func PrepareRuntime(ctx context.Context, ui termio.Logger, launcherVersion string) error {
 	if !runtimeClientIsReal() {
 		return nil
 	}
@@ -187,8 +183,8 @@ func PrepareRuntime(ctx context.Context, ui termio.UI, launcherVersion string) e
 // ApplyPreviewHome points the SDK at the private runtime home for a read-only
 // preview without inspecting or installing the runtime. The preview still reads
 // the private home (volumes, sandboxes) so it reports the objects a real run
-// would use, but it must not download or install the runtime (#424). Mock msb
-// clients used by command tests need no host runtime setup.
+// would use, but it must not download or install the runtime. Mock msb clients
+// used by command tests need no host runtime setup.
 func ApplyPreviewHome() error {
 	if !runtimeClientIsReal() {
 		return nil
@@ -199,7 +195,7 @@ func ApplyPreviewHome() error {
 	return nil
 }
 
-func prepareRuntime(ctx context.Context, ui termio.UI, launcherVersion string) error {
+func prepareRuntime(ctx context.Context, ui termio.Logger, launcherVersion string) error {
 	runtimeState.mutex.Lock()
 	defer runtimeState.mutex.Unlock()
 	if runtimeState.prepared {

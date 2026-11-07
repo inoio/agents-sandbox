@@ -1,15 +1,14 @@
 package options
 
 import (
-	"fmt"
-	"net"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 )
 
 // DockerSetting is the resolved docker capability: whether the Docker engine
@@ -32,11 +31,24 @@ type RunOptions struct {
 	Args     []string
 	// Agent selects the coding-agent profile for this session. Empty resolves
 	// to the default agent via agent.Lookup.
-	Agent       string
+	Agent string
+	// ResolvedAgent is the selected profile and the capabilities the run
+	// consumes, resolved once at the run boundary (runoptions.Build). Never set
+	// from config or flags.
+	ResolvedAgent agent.Resolved
+	// ConfigSlug is the effective per-slug user config slug the launcher config
+	// was resolved with, carried so later stages can rebuild the per-slug config
+	// scope. It is resolved at the CLI boundary from project identity and carried
+	// on the resolved config; it is not a config key or a CLI flag, mirroring
+	// ResolvedAgent.
+	ConfigSlug  string
 	ReapPolicy  ReapPolicy
 	IdleTimeout time.Duration
 	CPUs        uint8
 	Rebuild     bool
+	// NoRebuild reuses the existing runner image even when its inputs changed
+	// and skips the agent upgrade check. A missing image is still built.
+	NoRebuild bool
 	// Docker is the resolved docker capability: whether the tool's Docker
 	// engine block is baked into the runner image and whether that value was
 	// set explicitly.
@@ -54,6 +66,10 @@ type RunOptions struct {
 	// serves without attaching the in-VM TUI. Clients (e.g. a desktop app)
 	// connect to the published host port.
 	ServeOnly bool
+	// Ports are user-published ports: guest ports reachable from the host
+	// loopback. Empty by default; set via the ports config key, the
+	// AGENTS_SANDBOX_PORTS env var, or --port.
+	Ports []ports.PortMapping
 	// Notify is the resolved notify config for the session (channels + triggers).
 	Notify notify.Config
 	// Network is the resolved egress policy for the project VM. An unset profile
@@ -61,6 +77,10 @@ type RunOptions struct {
 	Network network.Policy
 	// Mounts are additional host directories bind-mounted at absolute guest paths.
 	Mounts mounts.Mounts
+	// AllowPlaceholderFor lists hosts that may receive any secret's placeholder
+	// unchanged. It comes from the config-file-only
+	// secrets.common.allow-placeholder-for key.
+	AllowPlaceholderFor []string
 	// AgentVersion pins the agent version baked into the runner image on
 	// rebuild. Empty means resolve the latest at build time.
 	AgentVersion string
@@ -71,67 +91,18 @@ type RunOptions struct {
 	// OpenLinks starts the host side of the in-VM xdg-open shim for the
 	// session, so links opened in the VM open on the host (internal/opener).
 	OpenLinks bool
-}
-
-// ServeOnlyBindAddr is the loopback address the agent server binds to
-// when run in serve-only mode.
-const ServeOnlyBindAddr = "127.0.0.1"
-
-// ServeOnlyBasePort is the lowest host port probed when publishing the agent
-// server in serve-only mode, and the guest port the agents serve on.
-const ServeOnlyBasePort = 4096
-
-// probeHostPort reports whether the loopback address can bind port. It is a
-// test seam so tests need not touch a real socket.
-var probeHostPort = func(port int) bool {
-	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ServeOnlyBindAddr, port))
-	if err != nil {
-		return false
-	}
-	_ = ln.Close()
-	return true
-}
-
-// FirstFreeHostPort returns the first host port at or above base that is not
-// currently bound on the loopback address.
-func FirstFreeHostPort(base int) int {
-	for p := base; p < base+1024; p++ {
-		if probeHostPort(p) {
-			return p
-		}
-	}
-	return base
-}
-
-// ServeOnlyBindings returns the msb port binding for serve-only mode with the
-// given host port, mapping it to the fixed guest port.
-func ServeOnlyBindings(hostPort int) []msbSdk.PortBinding {
-	return []msbSdk.PortBinding{
-		//nolint:gosec // G115: host ports are well below the uint16 max
-		{
-			Bind:      ServeOnlyBindAddr,
-			HostPort:  uint16(hostPort),
-			GuestPort: ServeOnlyBasePort,
-			Protocol:  msbSdk.PortProtocolTCP,
-		},
-	}
-}
-
-// ResolveServeHostPort returns the host port to publish for serve-only mode:
-// the port an existing VM already publishes (kept stable across runs), or the
-// first free host port at or above ServeOnlyBasePort.
-func ResolveServeHostPort(cfg *msbSdk.SandboxConfig, serveOnly bool) int {
-	if !serveOnly {
-		return 0
-	}
-	if cfg != nil {
-		for _, pb := range cfg.PortBindings {
-			if pb.HostPort != 0 {
-				return int(pb.HostPort)
-			}
-		}
-	}
-	return FirstFreeHostPort(ServeOnlyBasePort)
+	// MemoryFlagChanged reports whether the --memory flag was explicitly set on
+	// this invocation. A persisted raise cannot take effect when the flag
+	// supplies the value, so PersistMemory refuses to write a shadowed config
+	// value (specs/resource-limit-proposal.md §8).
+	MemoryFlagChanged bool
+	// Trace records the lifecycle stages the invocation reaches. cmd creates
+	// it; the stages in vm and session record into it. Nil records nothing.
+	Trace *lifecycle.Trace
+	// Seams carries the run's behavior test seams. The zero value is
+	// production (every stage uses its package default); only tests populate a
+	// field.
+	Seams Seams
 }
 
 // ReapPolicy controls what happens after the last client detaches from a VM.
@@ -139,12 +110,13 @@ type ReapPolicy struct {
 	// AutoStopOnActiveSessions, when true, behaves like "auto-stop active sessions":
 	// the VM is NOT held for in-flight agent work and stops promptly (via the msb
 	// idle timeout) even while sessions are busy. When false (default), the reaper
-	// holds the VM (keeper exec) until all sessions are quiescent (busy runs to
-	// completion) or a stuck retry exceeds MaxSessionRetries, then detaches and the
-	// idle timeout stops the VM.
+	// holds the VM (keeper exec) while any session is busy or retrying below
+	// MaxSessionRetries, then detaches and the idle timeout stops the VM.
 	AutoStopOnActiveSessions bool
-	// MaxSessionRetries caps how long to tolerate a session stuck in retry before
-	// stopping the wait. 0 means use the package default (10).
+	// MaxSessionRetries is how many retry attempts a detach tolerates before
+	// letting the VM idle out: a session retrying with an attempt below this cap
+	// holds the VM, and one at or beyond it does not. 0 means use the package
+	// default (10).
 	MaxSessionRetries int
 }
 

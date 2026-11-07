@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -95,6 +96,54 @@ func TestExecuteWarnsOnDockerDindAlias(t *testing.T) {
 	}
 }
 
+// TestExecuteSilencesUsageAndErrors pins that execute suppresses cobra's own
+// usage and error printing so main() is the sole reporter.
+func TestExecuteSilencesUsageAndErrors(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+
+	if err := execute([]string{"config", "agent", "bogus"}, ui); err == nil {
+		t.Fatal("expected an unknown-agent error")
+	}
+	if got := ui.StdOutBuffer.String(); strings.Contains(got, "Usage:") {
+		t.Errorf("cobra usage should be silenced, got %q", got)
+	}
+	if got := ui.StdErrBuffer.String(); strings.Contains(got, "unknown agent") {
+		t.Errorf("cobra error printing should be silenced, got %q", got)
+	}
+}
+
+// TestBuildRootCmdRoutesErrorToUIStderr pins that buildRootCmd wires cmd's error
+// stream to the UI (execute no longer re-sets it).
+func TestBuildRootCmdRoutesErrorToUIStderr(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := &termio.Mock{}
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"config", "agent", "bogus"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("expected an unknown-agent error")
+	}
+	if got := ui.StdErrBuffer.String(); !strings.Contains(got, "unknown agent") {
+		t.Errorf("error output = %q, want it routed to the UI stderr", got)
+	}
+}
+
+// TestExecutePreviewHomeErrorPropagates pins that a previewing command surfaces
+// the preview-home redirection error instead of swallowing it.
+func TestExecutePreviewHomeErrorPropagates(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	orig := applyPreviewHome
+	applyPreviewHome = func() error { return errors.New("preview home failed") }
+	t.Cleanup(func() { applyPreviewHome = orig })
+
+	ui := &termio.Mock{}
+	err := execute([]string{"run", "--dry-run"}, ui)
+	if err == nil || !strings.Contains(err.Error(), "preview home failed") {
+		t.Fatalf("execute run --dry-run: error = %v, want the preview-home failure", err)
+	}
+}
+
 func TestAutoPruneOutToVerboseRedirect(t *testing.T) {
 	ui := &termio.Mock{}
 	redirect := &autoPruneOutToVerboseRedirect{UI: ui}
@@ -113,30 +162,46 @@ func TestAutoPruneOutToVerboseRedirect(t *testing.T) {
 	}
 }
 
-// TestRunInvokesStartupAutoPrune pins that a run reaches the startup prune and
-// passes its dry-run state through, so a real run still reclaims stale
-// sandboxes while a preview only reports what it would do.
-func TestRunInvokesStartupAutoPrune(t *testing.T) {
-	initTestProjectDir(t)
+// TestRunShellInvokeStartupAutoPrune pins that run and shell both reach the
+// startup prune, pass their dry-run state through and retain the current
+// invocation's runner-image keys, so a real run or shell reclaims stale
+// sandboxes without reclaiming the image it is about to use, while a preview
+// only reports what it would do.
+func TestRunShellInvokeStartupAutoPrune(t *testing.T) {
+	for _, command := range []string{cmdRun, cmdShell} {
+		t.Run(command, func(t *testing.T) {
+			initTestProjectDir(t)
 
-	var called, gotDryRun bool
-	original := autoPrune
-	autoPrune = func(_ context.Context, _ time.Duration, dryRun bool, _ termio.UI, _ ...state.Key) {
-		called = true
-		gotDryRun = dryRun
-	}
-	t.Cleanup(func() { autoPrune = original })
+			var called, gotDryRun bool
+			var gotRetainKeys []state.Key
+			original := autoPrune
+			autoPrune = func(_ context.Context, _ docker.Client, _ time.Duration, dryRun bool, _ termio.UI, retainKeys ...state.Key) {
+				called = true
+				gotDryRun = dryRun
+				gotRetainKeys = retainKeys
+			}
+			t.Cleanup(func() { autoPrune = original })
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run")
-	if err := root.Execute(); err != nil {
-		t.Fatalf("run --dry-run: %v", err)
-	}
-	if !called {
-		t.Fatal("run --dry-run did not invoke the startup auto-prune")
-	}
-	if !gotDryRun {
-		t.Error("autoPrune dryRun = false, want true for --dry-run")
+			mock := &sandboxmsb.MockMsbClient{}
+			root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, command, "--dry-run")
+			if err := root.Execute(); err != nil {
+				t.Fatalf("%s --dry-run: %v", command, err)
+			}
+			if !called {
+				t.Fatalf("%s --dry-run did not invoke the startup auto-prune", command)
+			}
+			if !gotDryRun {
+				t.Error("autoPrune dryRun = false, want true for --dry-run")
+			}
+			wantRetainKeys := currentRunImageKeys(defaultAgentName)
+			if len(wantRetainKeys) == 0 || !slices.Equal(gotRetainKeys, wantRetainKeys) {
+				t.Errorf(
+					"autoPrune retainKeys = %v, want the current invocation's keys %v",
+					gotRetainKeys,
+					wantRetainKeys,
+				)
+			}
+		})
 	}
 }
 
@@ -158,6 +223,9 @@ func TestMainProcess(t *testing.T) {
 		out, exitCode := runMainHelper(t, []string{"run", "--agent", "bogus"})
 		if exitCode != 1 {
 			t.Fatalf("exit code = %d, want 1; output: %s", exitCode, out)
+		}
+		if !strings.Contains(out, "Error") {
+			t.Errorf("expected main to report the error, got %q", out)
 		}
 	})
 

@@ -18,10 +18,12 @@ means combining `[public, host]` rather than relying on `public`.
 
 ## none is terminal
 
-`none` is launcher-only: it contributes no SDK profile rule, yielding deny-by-default egress with ingress allowed, plus a
-manually added gateway-DNS rule. It is an allowlist-only policy, not an airgap, and it is terminal — `none` combined with
-any other profile is a validation error (`checkProfileCombination`), mirroring microsandbox's own treatment of
-`none`/`all` as whole-policy values. An unset or empty profile list defaults to `public` (`Policy.Effective`).
+`none` is launcher-only: it contributes no SDK profile rule, yielding deny-by-default egress with ingress allowed and
+**no** gateway-DNS rule — `Policy.allowsGatewayDNS()` returns false for `none`, so `Policy.Config()` emits no gateway-DNS
+rule (#233) and microsandbox's DNS proxy resolves only names an `egress-allow` rule matches. It is an allowlist-only
+policy, not an airgap, and it is terminal — `none` combined with any other profile is a validation error
+(`checkProfileCombination`), mirroring microsandbox's own treatment of `none`/`all` as whole-policy values. An unset or
+empty profile list defaults to `public` (`Policy.Effective`).
 
 ## One key, three shapes
 
@@ -43,21 +45,23 @@ microsandbox evaluates `NetworkConfig.Rules` first-match-wins in list order. `Po
 as: gateway DNS, then the user's `egress-deny` entries, then the profile allow rules, then the user's `egress-allow`
 entries. The deny entries sit ahead of the profile allows so a carve-out actually fires under `public`/`private`/`host`
 (and the unset default), instead of being shadowed by the profile's broad allow (#231). Deny still precedes the explicit
-allow. The rule set and ordering are unchanged for `none`, which contributes no profile rules, so only the gateway-DNS
-rule precedes the user lists.
+allow. Under `none` neither a gateway-DNS nor a profile rule is emitted, so `Policy.Config()` emits the user's
+`egress-deny` entries then the `egress-allow` entries.
 
 An existing VM holds the pre-#231 order until it is recreated, and network rules are applied only at VM creation. A
 policy that composes a profile and has at least one `egress-deny` entry therefore contributes an extra
 `rule-order=deny-before-profile` line to `Fingerprint()`, so its hash diverges from the pre-fix value persisted in
-`network_state.hash`, `NetworkChanged` fires, and the VM is recreated once to bake in the corrected order. Policies whose
-emitted rules are identical before and after — no deny entries, or the terminal `none` profile — get no marker and keep
-their historical fingerprint, so they are not recreated.
+`network_state.hash`, `NetworkChanged` fires, and the VM is recreated once to bake in the corrected order. A `none`
+policy likewise contributes a `gateway-dns=omitted` line (#233), so a VM created with the old gateway-DNS rule is
+recreated once without it; each marker reaches state after its recreate, so it fires only once. Policies whose emitted
+rules are identical before and after — no deny entries alongside a composed profile, and no `none` profile — get no
+marker and keep their historical fingerprint, so they are not recreated.
 
 ## Fingerprint stability (do not drift)
 
 `Policy.Fingerprint()` emits one sorted, deduplicated `profile=<name>` line per profile. A single-profile policy without
 deny entries therefore hashes exactly as it did before profiles became composable, so upgrading does not change a
 project's persisted `network_state.hash` and does not spuriously recreate its VM. Changing this format is a migration, not
-a refactor; the `rule-order` marker above is the one deliberate exception, scoped to the policies whose emitted rules
-changed. `state.BuildNetworkState` records the profile names for display only; they are never compared for change
-detection.
+a refactor; the `rule-order` and `gateway-dns=omitted` markers above are the deliberate exceptions, each scoped to the
+policies whose emitted rules changed. `state.BuildNetworkState` records the profile names for display only; they are never
+compared for change detection.

@@ -16,9 +16,16 @@ const tableGap = 4
 // ANSI codes never shift columns. Build a Table with ui.NewTable, add rows with
 // AddRow, then print with Print.
 //
+// tableWriter is the surface a Table prints through: the header line and each
+// data line. It keeps Table independent of the whole UI.
+type tableWriter interface {
+	Header(msg string)
+	Out(msg string)
+}
+
 //exhaustruct:ignore
 type Table struct {
-	ui      UI
+	ui      tableWriter
 	headers []string
 	rows    [][]string
 }
@@ -29,9 +36,8 @@ func (t *Table) AddRow(row ...string) {
 	t.rows = append(t.rows, row)
 }
 
-// Print renders the table and writes it through the UI: the header line is
-// styled via UI.Header and each data line via UI.Out. It is a no-op when there
-// are no rows.
+// Print renders the table and writes it through the writer: the header line via
+// Header and each data line via Out. It is a no-op when there are no rows.
 func (t *Table) Print() {
 	if t.ui == nil {
 		return

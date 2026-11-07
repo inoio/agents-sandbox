@@ -1,6 +1,8 @@
 package image
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestRunnerTagIsPerAgent(t *testing.T) {
 	if got := runnerTag("myproject", "opencode"); got != "agents-sandbox/runner-myproject:opencode-latest" {

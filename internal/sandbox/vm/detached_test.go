@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -249,6 +250,77 @@ func TestDetachedHelperMatches(t *testing.T) {
 	}
 }
 
+func TestJobAlreadyStopped(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"plain error", errors.New("kill boom"), false},
+		{"other job error code", &msbSdk.JobError{Code: "input_busy"}, false},
+		{"job_not_running", &msbSdk.JobError{Code: "job_not_running"}, true},
+		{"wrapped job_not_running", fmt.Errorf("kill: %w", &msbSdk.JobError{Code: "job_not_running"}), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := jobAlreadyStopped(tt.err); got != tt.want {
+				t.Errorf("jobAlreadyStopped(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestKillJobsDoesNotRequestAllJobs pins discovery to the current runtime
+// generation: WithAllJobs also returns retained terminal records — jobs that
+// already finished, including ones an earlier boot left behind — which cannot be
+// killed and only produce spurious failures on every restart.
+func TestKillJobsDoesNotRequestAllJobs(t *testing.T) {
+	var gotOpts []msbSdk.JobListOption
+	sb := &msb.MockSandbox{
+		ListJobsFn: func(_ context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error) {
+			gotOpts = opts
+			return nil, nil
+		},
+	}
+	killJobs(context.Background(), sb, dockerdHelper(), &termio.Mock{})
+	if len(gotOpts) != 0 {
+		t.Errorf(
+			"ListJobs opts = %d, want 0 (discovery must stay scoped to the current runtime generation)",
+			len(gotOpts),
+		)
+	}
+}
+
+// TestKillJobsTreatsAlreadyStoppedAsSuccess verifies a job the runtime reports as
+// not running (for example one left behind by an earlier runtime generation)
+// reaches the desired end state without being logged as a failure.
+func TestKillJobsTreatsAlreadyStoppedAsSuccess(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	stopped := &msb.MockJob{
+		ID_:     "stopped",
+		KillErr: &msbSdk.JobError{Code: "job_not_running", Message: "job belongs to an earlier runtime generation"},
+	}
+	sb := &msb.MockSandbox{
+		Jobs: []msbSdk.JobInfo{{ID: "stopped", Command: []string{"dockerd"}}},
+		GetJobFn: func(context.Context, string) (msb.Job, error) {
+			return stopped, nil
+		},
+	}
+	killJobs(context.Background(), sb, dockerdHelper(), &ui)
+
+	joined := strings.Join(ui.VerboseCalls, "\n")
+	if strings.Contains(joined, "killing job") {
+		t.Errorf("an already-stopped job must not be reported as a kill failure: %v", ui.VerboseCalls)
+	}
+	if !strings.Contains(joined, "already stopped") {
+		t.Errorf("expected an already-stopped note, got %v", ui.VerboseCalls)
+	}
+	if !stopped.DidClose {
+		t.Error("already-stopped job handle must still be closed")
+	}
+}
+
 // TestKillJobsTargetsStaleHelperWithChangedArgs is the #343 regression: after a
 // release changes a helper's arguments (dockerd's storage-driver flag, the
 // daemon's serve hostname), the stale helper is still running with the old
@@ -330,31 +402,46 @@ func TestKillJobsKillsMatches(t *testing.T) {
 	}
 }
 
-// TestKillJobsContinuesAfterKillFailure verifies a failed kill does not
-// abandon the remaining matching jobs.
-func TestKillJobsContinuesAfterKillFailure(t *testing.T) {
-	failing := &msb.MockJob{ID_: "a", KillErr: errors.New("kill boom")}
-	healthy := &msb.MockJob{ID_: "b"}
+// TestKillJobsContinuesPastAJobItCannotKill pins that a matching job that
+// cannot be resolved or killed is a verbose diagnostic and the remaining
+// matching jobs are still killed; a job whose kill failed is still closed.
+func TestKillJobsContinuesPastAJobItCannotKill(t *testing.T) {
+	ui := termio.NewTestMock(t)
+	killFails := &msb.MockJob{ID_: "b", KillErr: errors.New("kill boom")}
+	healthy := &msb.MockJob{ID_: "c"}
 	sb := &msb.MockSandbox{
 		Jobs: []msbSdk.JobInfo{
 			{ID: "a", Command: []string{"dockerd"}},
 			{ID: "b", Command: []string{"dockerd"}},
+			{ID: "c", Command: []string{"dockerd"}},
 		},
 		GetJobFn: func(_ context.Context, id string) (msb.Job, error) {
-			if id == "a" {
-				return failing, nil
+			switch id {
+			case "a":
+				return nil, errors.New("get boom")
+			case "b":
+				return killFails, nil
 			}
 			return healthy, nil
 		},
 	}
-	killJobs(context.Background(), sb, dockerdHelper(), &termio.Mock{})
+	killJobs(context.Background(), sb, dockerdHelper(), &ui)
 
+	joined := strings.Join(ui.VerboseCalls, "\n")
+	if !strings.Contains(joined, "resolving job") || !strings.Contains(joined, "killing job") {
+		t.Errorf("expected verbose resolve and kill failures, got %v", ui.VerboseCalls)
+	}
+	if !killFails.DidClose {
+		t.Error("job handle was not closed when Kill failed")
+	}
 	if !healthy.DidKill {
-		t.Error("a kill failure must not stop later matching jobs from being killed")
+		t.Error("a failed job must not stop later matching jobs from being killed")
 	}
 }
 
-func TestKillJobsToleratesFailures(t *testing.T) {
+// TestKillJobsReportsAListFailure pins that jobs that cannot be listed are a
+// verbose diagnostic, not a failure: there is nothing to kill.
+func TestKillJobsReportsAListFailure(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	sb := &msb.MockSandbox{
 		ListJobsFn: func(context.Context, ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error) {
@@ -364,32 +451,6 @@ func TestKillJobsToleratesFailures(t *testing.T) {
 	killJobs(context.Background(), sb, dockerdHelper(), &ui)
 	if !strings.Contains(strings.Join(ui.VerboseCalls, "\n"), "listing jobs") {
 		t.Errorf("expected a verbose listing failure, got %v", ui.VerboseCalls)
-	}
-}
-
-func TestKillJobsToleratesGetAndKillErrors(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	killFailJob := &msb.MockJob{ID_: "b", KillErr: errors.New("kill boom")}
-	sb := &msb.MockSandbox{
-		Jobs: []msbSdk.JobInfo{
-			{ID: "a", Command: []string{"dockerd"}},
-			{ID: "b", Command: []string{"dockerd"}},
-		},
-		GetJobFn: func(_ context.Context, id string) (msb.Job, error) {
-			if id == "a" {
-				return nil, errors.New("get boom")
-			}
-			return killFailJob, nil
-		},
-	}
-	killJobs(context.Background(), sb, dockerdHelper(), &ui)
-
-	joined := strings.Join(ui.VerboseCalls, "\n")
-	if !strings.Contains(joined, "resolving job") || !strings.Contains(joined, "killing job") {
-		t.Errorf("expected verbose get/kill failures, got %v", ui.VerboseCalls)
-	}
-	if !killFailJob.DidClose {
-		t.Error("job handle was not closed when Kill failed")
 	}
 }
 
@@ -421,19 +482,6 @@ func TestAwaitJobReadyInspectErrorKeepsPolling(t *testing.T) {
 		context.Background(), job, "dockerd", probe, nil, time.Second, time.Millisecond,
 	); err != nil {
 		t.Fatalf("awaitJobReady() = %v, want nil (inspect error must not be death)", err)
-	}
-}
-
-// TestInspectJobErrorReturnsNil verifies a transient Inspect error is reported
-// as no info, even when the runtime returns a non-nil info alongside the error,
-// so the readiness loop keeps polling rather than treating a stale result as
-// current.
-func TestInspectJobErrorReturnsNil(t *testing.T) {
-	job := &msb.MockJob{InspectFn: func(context.Context) (*msbSdk.JobInfo, error) {
-		return &msbSdk.JobInfo{ID: "x"}, errors.New("inspect boom")
-	}}
-	if got := inspectJob(context.Background(), job); got != nil {
-		t.Fatalf("inspectJob() = %v, want nil on error", got)
 	}
 }
 
@@ -506,6 +554,19 @@ func TestAwaitJobReadyContextDone(t *testing.T) {
 	}
 }
 
+// TestInspectJobErrorReturnsNil verifies a transient Inspect error is reported
+// as no info, even when the runtime returns a non-nil info alongside the error,
+// so the readiness loop keeps polling rather than treating a stale result as
+// current.
+func TestInspectJobErrorReturnsNil(t *testing.T) {
+	job := &msb.MockJob{InspectFn: func(context.Context) (*msbSdk.JobInfo, error) {
+		return &msbSdk.JobInfo{ID: "x"}, errors.New("inspect boom")
+	}}
+	if got := inspectJob(context.Background(), job); got != nil {
+		t.Fatalf("inspectJob() = %v, want nil on error", got)
+	}
+}
+
 func TestProbeHealthy(t *testing.T) {
 	failing := msb.NewMockSandbox(msb.SandboxOpts{ShellErr: errors.New("shell boom")})
 	if healthy, detail := probeHealthy(context.Background(), failing, "docker info"); healthy {
@@ -528,7 +589,7 @@ func TestProbeHealthy(t *testing.T) {
 	}
 }
 
-// TestProbeHealthyReportsFailedCommandDetail covers the diagnostic detail a
+// TestProbeHealthyReportsFailedCommandDetail pins the diagnostic detail a
 // failing (but executing) probe returns: stderr preferred, then stdout, then an
 // empty-body placeholder.
 func TestProbeHealthyReportsFailedCommandDetail(t *testing.T) {

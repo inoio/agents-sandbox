@@ -19,6 +19,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -102,6 +103,11 @@ type Options struct {
 	// the process.
 	Store Store
 
+	// Paths resolves the legacy upgrade.json location that FoldLegacyState
+	// folds. The command boundary injects it; nil leaves the fold unable to
+	// locate the file (it then folds nothing).
+	Paths configpaths.ConfigPaths
+
 	// UpdateFunc installs the given latest version over the running binary.
 	// When nil, updateExecutable is used. Tests inject it to avoid touching
 	// the running executable.
@@ -165,8 +171,8 @@ func Check(ctx context.Context, opts Options) (Result, error) {
 	// dismissals, so defer the check rather than act on a state view known to be
 	// incomplete (which could re-prompt a version the user already dismissed).
 	// The file stays in place, so the next run retries the fold and resumes.
-	if opts.Store != nil {
-		if err := FoldLegacyState(store); err != nil {
+	if opts.Store != nil && opts.Paths != nil {
+		if err := FoldLegacyState(store, opts.Paths); err != nil {
 			opts.UI.Verbosef("upgrade state migration deferred: %v", err)
 			return Result{}, nil
 		}
@@ -212,7 +218,7 @@ func Check(ctx context.Context, opts Options) (Result, error) {
 // It writes through Update and unions the dismissals, so a dismissal recorded by
 // a concurrent launcher after this process read the state survives. LastChecked
 // is set outright: this run's check is the most recent.
-func persistBestEffort(store Store, st LauncherState, ui termio.UI) {
+func persistBestEffort(store Store, st LauncherState, ui termio.Logger) {
 	err := store.Update(func(current *LauncherState) {
 		current.LastChecked = st.LastChecked
 		for _, version := range st.DismissedVersions {
@@ -308,7 +314,7 @@ func applyMode(
 }
 
 // notify reports a newer release without installing it.
-func notify(ui termio.UI, current, latest string) {
+func notify(ui termio.Logger, current, latest string) {
 	ui.Infof(
 		"A new version of agents-sandbox is available: %s (you have %s). "+
 			"Run `agents-sandbox upgrade` to install it, or set upgrade.mode in your config.",
@@ -368,6 +374,12 @@ type UpgradeOptions struct {
 	// AllowAnyVersion is the undocumented dev-build lever, mirroring
 	// Options.AllowAnyVersion: it lets a locally built binary install a release.
 	AllowAnyVersion bool
+
+	// AllowChannelSwitch lets a prerelease install leave its line for the
+	// newest stable release even when that release is older. The CLI sets it
+	// only for an explicit --channel, so a canary tester whose configured
+	// channel is stable is never downgraded by accident.
+	AllowChannelSwitch bool
 }
 
 // Upgrade checks for a newer release than opts.CurrentVersion and installs it
@@ -375,7 +387,7 @@ type UpgradeOptions struct {
 // counterpart to Check's automatic modes. Homebrew-managed installs are directed
 // to `brew upgrade` instead of replacing the keg binary out from under
 // Homebrew.
-func Upgrade(ctx context.Context, ui termio.UI, opts UpgradeOptions) error {
+func Upgrade(ctx context.Context, ui termio.Logger, opts UpgradeOptions) error {
 	if !opts.AllowAnyVersion && (opts.CurrentVersion == "" || opts.CurrentVersion == devVersion) {
 		return errors.New("cannot upgrade a development build; use the released binary")
 	}
@@ -391,16 +403,38 @@ func Upgrade(ctx context.Context, ui termio.UI, opts UpgradeOptions) error {
 	if err != nil {
 		return err
 	}
-	if !newer {
+	switch {
+	case newer:
+		ui.Infof("upgrading agents-sandbox %s -> %s", opts.CurrentVersion, latest)
+	case !leavesPrerelease(opts.CurrentVersion, opts.Channel):
 		ui.Infof("agents-sandbox is up to date (%s)", opts.CurrentVersion)
 		return nil
+	case !opts.AllowChannelSwitch:
+		ui.Infof("agents-sandbox is up to date (%s)", opts.CurrentVersion)
+		ui.Infof(
+			"to switch to the stable release %s, run `agents-sandbox upgrade --channel stable`",
+			latest,
+		)
+		return nil
+	default:
+		ui.Infof("switching agents-sandbox %s -> %s (stable channel)", opts.CurrentVersion, latest)
 	}
-	ui.Infof("upgrading agents-sandbox %s -> %s", opts.CurrentVersion, latest)
 	if err := Update(ctx, latest); err != nil {
 		return err
 	}
 	ui.Infof("upgraded to %s; restart to use it", latest)
 	return nil
+}
+
+// leavesPrerelease reports whether following channel means leaving the
+// prerelease line current belongs to: the stable channel (or its zero value)
+// never offers a prerelease, so a prerelease install is off its line.
+func leavesPrerelease(current string, channel Channel) bool {
+	if channel == ChannelCanary {
+		return false
+	}
+	currentVersion, err := semver.NewVersion(strings.TrimPrefix(current, "v"))
+	return err == nil && currentVersion.Prerelease() != ""
 }
 
 // LatestVersion returns the newest release version for the channel (leading "v"

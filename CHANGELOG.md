@@ -29,10 +29,10 @@ emptied at the next release.
   `~/.hermes/config.yaml`, the host drop-in copies only `~/.hermes/config.yaml` (never `.env`), and unpinned
   builds resolve the latest release from its GitHub releases endpoint. Merged configs whose target file is YAML are now
   written and compared as YAML instead of JSON.
-- Runner image: an `ImageSpec.OwnedToolPaths` field lets an agent declare tool-tree paths that the runner hands to its
-  `dev` user (`chown -R dev:dev` after the tool tree is copied in, before the image switches to `USER dev`). Only
-  `hermes` declares paths: it writes its dependency ledger and bytecode markers into its own installation at runtime and
-  git rejects a checkout owned by another user.
+- Runner image: an `ImageSpec.OwnsToolTree` flag marks that an agent writes into its tool tree, so the
+  runner's tool-tree `COPY` carries `--chown=dev:dev` and hands the tree to its `dev` user at copy time (no separate
+  chown layer, so the tree is recorded once). Only `hermes` declares paths: it writes its dependency ledger and bytecode
+  markers into its own installation at runtime and git rejects a checkout owned by another user.
 - Runner image: an `ImageSpec.RuntimeLibs` field lets an agent declare the shared libraries its provisioned runtime links.
   The runner resolves each with `ldconfig` in the final stage (after your Dockerfile body, glibc-only), locating `ldconfig`
   from `PATH` and the standard sbin directories so a base that narrows `PATH` still verifies it, and fails the build naming
@@ -115,8 +115,9 @@ emptied at the next release.
 - Internal: `dockerd` and the agent `serve` daemon now run as microsandbox runtime-owned detached jobs
   (`ExecDetached`), replacing shell-backgrounded `nohup` processes, logfile polling, and `pkill` start/stop plumbing.
   Readiness stays health-probe based, a crashed job reports its exit code plus a log tail, and a stale job is killed by
-  command match before a restart. Re-landed after microsandbox v0.7.11 stopped a detached job from keeping the VM from
-  idling (#146).
+  command match before a restart (scoped to the current runtime generation, so jobs left by an earlier boot are no
+  longer reported as kill failures). Re-landed after microsandbox v0.7.11 stopped a detached job from keeping the VM
+  from idling (#146).
 - Internal: `make bootstrap` now guarantees the zig it manages is at the pinned version with the macOS cross-compile
   stubs baked in and the `~/.local/bin/zig` link ensured, and reports instead of silently succeeding when `PATH`
   resolves zig to an installation elsewhere (it is left untouched). A managed install that is not on `PATH` is no

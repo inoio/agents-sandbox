@@ -1,6 +1,6 @@
 ---
 description: Contract for keeping the per-project `HomeState.agent_version` baseline in sync with the agent release actually baked into the runner image: the image label is the authority, `agent_version` is a cache, the image-ensuring paths are the writers of record, and recovery reconciles a disagreeing cache, not only an empty one.
-read_if: Changing `resolveBuildVersion`, `recordImageProvenance`, `recoverAgentVersion`, `PrepareSandbox`'s version handling, the release resolution (`agent.LatestVersion`, `image.resolveAgentVersion`, `vm.agentLatestVersion`), `image.EnsureImage`/`image.Build`/`ImageInfo`, the `agent-version` image label, or `--agent-version`; diagnosing a run that silently rebuilds the runner image to an older agent release than it already holds, a baseline that stays empty after deletion, or an accepted upgrade (e.g. opencode2) that reverts on the next run.
+read_if: Changing `resolveBuildVersion`, `recordImageProvenance`, `recoverAgentVersion`, `PrepareSandbox`'s version handling, the release resolution (`agent.LatestVersion`, `image.BuildOptions.ResolveVersion`, `prepare.agentLatestVersion`), `image.EnsureImage`/`image.Build`/`ImageInfo`, the `agent-version` image label, or `--agent-version`; diagnosing a run that silently rebuilds the runner image to an older agent release than it already holds, a baseline that stays empty after deletion, or an accepted upgrade (e.g. opencode2) that reverts on the next run.
 ---
 
 # Agent-version baseline synchronization
@@ -8,8 +8,8 @@ read_if: Changing `resolveBuildVersion`, `recordImageProvenance`, `recoverAgentV
 ## Problem
 
 `state.HomeState.agent_version` is a project's upgrade baseline: the `current` the prompt compares against
-(`vm.pendingUpgrade`) and the version `vm.resolveBuildVersion` hands the build. It is treated as authoritative, but
-the two writers meant to keep it — `vm.recordImageProvenance` on boot and `vm.recoverAgentVersion` when it is empty —
+(`prepare.pendingUpgrade`) and the version `prepare.resolveBuildVersion` hands the build. It is treated as authoritative, but
+the two writers meant to keep it — `vm.recordImageProvenance` on boot and `prepare.recoverAgentVersion` when it is empty —
 do not include the path that actually bakes the version. A successful build of release V does not record V unless a VM
 boot happens *and* the profile can self-detect it.
 
@@ -33,10 +33,13 @@ one: its baseline is written only by recovery, while a fresh or repaired state d
 ### Release resolution
 
 - The agent's newest release resolves in one place, `agent.LatestVersion` (the agent's `UpgradeChecker` capability, empty
-  for an agent that lacks one): `image.resolveAgentVersion` adds only the requested-version short-circuit on top of it,
-  and `vm.agentLatestVersion` aliases the same function for the upgrade check. The two seam vars stay separate on purpose
-  — no single seam is reachable from every entry path (`build`/`image build` and the `volume` ops call `image.EnsureImage`
-  with no `vm` layer) and `cmd`'s fail-fast test isolation installs the `vm` seam — so do not collapse them into one.
+  for an agent that lacks one): `image.DefaultAgentVersionResolver` adds only the requested-version short-circuit on top
+  of it, and `prepare.agentLatestVersion` aliases the same function for the upgrade check. The build resolver is injected
+  (`BuildOptions.ResolveVersion`; see `client-injection.md`), supplied by `cmd.agentVersionResolver` for `build`/`image
+  build`/the `volume` ops and by `prepare.buildVersionResolver` for a run; `prepare.buildVersionResolver` defaults to
+  `prepare.agentLatestVersion`. The two lookups stay separate on purpose — no single resolver is reachable from every
+  entry path (`build`/`image build` and the `volume` ops call `image.EnsureImage` with no `vm` layer) — so do not collapse
+  them into one.
 
 ### Authority and cache
 
@@ -53,8 +56,8 @@ one: its baseline is written only by recovery, while a fresh or repaired state d
   (`state.WithHomeState`).
 - The effective version is the release the ensured image reports through its `agent-version` label (which the call
   already inspects), including the release resolved at build time when `BuildOptions.AgentVersion` is empty
-  (`image.initialBuildVersions`/`resolveAgentVersion`). It must be surfaced to the caller rather than discarded;
-  `image.ImageInfo` carries it beside `DockerTag`/`Ref`/`Digest`/`Env`.
+  (`image.initialBuildVersions`/`BuildOptions.resolveAgentVersion`). It must be surfaced to the caller rather than
+  discarded; `image.ImageInfo` carries it beside `DockerTag`/`Ref`/`Digest`/`Env`.
 - The record is skipped for a non-release sentinel, and a write happens whether or not a rebuild occurred, so a reused
   image reconciles its cache and a pin persists.
 
@@ -63,7 +66,7 @@ one: its baseline is written only by recovery, while a fresh or repaired state d
 - An empty baseline is recovered from the image label (unchanged).
 - A non-empty baseline that **disagrees** with a present image's label is stale: the label wins and the cache is
   rewritten. A disagreeing cache is never a reason to rebuild the image back to the cached release.
-- Reconciliation runs in `vm.resolveBuildVersion` before the upgrade check and the build decision, so a stale cache
+- Reconciliation runs in `prepare.resolveBuildVersion` before the upgrade check and the build decision, so a stale cache
   can never select an older build. It reads only a local image label, adding no network call.
 - When no image is present, the cache is authoritative (offline reuse, pruned image).
 
@@ -76,7 +79,11 @@ one: its baseline is written only by recovery, while a fresh or repaired state d
 
 - `recordImageProvenance` remains a boot-time reconciler, but it must not be the only writer for any profile. Every
   built-in profile implements `agent.VersionProvider` (in-VM detection) alongside the image label, so the "left empty on
-  a fresh/repaired state, self-healed on boot" assumption holds for all of them.
+  a fresh/repaired state, self-healed on boot" assumption holds for all of them. `TestRegisteredAgentsHaveVersionSources`
+  (`internal/agent/version_sources_test.go`) iterates the registry and fails for a profile without an `UpgradeChecker`,
+  an `ImageSpec.VersionArg` or a `VersionProvider` (#453). `TestAgentVersionFollowsTheImageLabel` (`cmd`) pins the
+  label authority end to end for opencode2: after `build` and `run` the cache equals the label, and an offline unpinned
+  run with a stale older cache neither rebuilds toward it nor keeps it (#452).
 
 ## Invariants
 
@@ -96,20 +103,3 @@ one: its baseline is written only by recovery, while a fresh or repaired state d
   a separate concern; this contract only requires that whatever they bake is recorded.
 - Not moving the baseline back to a machine-global document.
 - No change to how `RootState` (the machine-global network cadence and cached `latest_version`) is scoped.
-
-## Spec amendments
-
-- `upgrade-state-scoping.md`: for an **existing** image the label is the authority and the cache follows it;
-  `agent_version` stays the fallback only when the image is absent. Baseline recovery widens from "empty only" to
-  "empty or disagreeing". Its prompt-scoping intent (the prompt's `current` is always this project's) is unchanged.
-- `runner-image-build.md`: "Version selection" gains the writer-of-record clause and the requirement that
-  `EnsureImage`/`Build` surface the baked version to their caller.
-
-## Acceptance
-
-- opencode2: accept an upgrade to V; the next run reuses the image and does not rebuild, and `agent_version == V`.
-- `run --agent-version V` followed by an unpinned `run`: the image stays on V.
-- Delete `agent_version` with the image present, then run: the field is rewritten to the image's release.
-- `build --agent-version V` followed by `run`: no downgrade.
-- Every built-in profile (`opencode`, `opencode2`, `pi`, `claude-code`, `codex`, `hermes`) records its baseline on boot;
-  recording adds an in-VM `--version` exec, never a network request.

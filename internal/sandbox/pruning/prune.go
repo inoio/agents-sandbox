@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/humanize"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -24,19 +25,19 @@ type MsbClient = msb.Client
 // age, so a run's startup prune never reclaims the image it is about to import.
 func Prune(
 	ctx context.Context,
+	dclient docker.Client,
 	threshold time.Duration,
 	dryRun bool,
 	ui termio.UI,
 	retain ...state.Key,
 ) (*StaleReport, error) {
-	pruneState, err := buildPruneState(ctx, threshold)
+	pruneState, err := buildPruneState(ctx, threshold, retain...)
 	if err != nil {
 		return nil, err
 	}
-	pruneState.RetainKeys = keySet(retain)
 	vmReport, vmErr := PruneSandboxes(ctx, pruneState, dryRun, ui)
 	volReport, volErr := PruneVolumes(ctx, pruneState, dryRun, ui)
-	imgReport, imgErr := PruneImages(ctx, pruneState, dryRun, ui)
+	imgReport, imgErr := PruneImages(ctx, dclient, pruneState, dryRun, ui)
 	storageReport, storageErr := PruneStorage(ctx, pruneState, dryRun, ui)
 
 	report := &StaleReport{
@@ -87,4 +88,23 @@ func RenderPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
 	for _, detail := range report.Details {
 		ui.Verbosef("  %s (%s)", detail.Name, detail.Slug)
 	}
+}
+
+func InvokePruneFunc[R any](
+	context context.Context,
+	pruneLambda func(context.Context,
+		PruneState,
+		bool,
+		termio.UI,
+	) (R, error),
+	age time.Duration,
+	dryRun bool,
+	ui termio.UI,
+) (R, error) {
+	pruneState, err := buildPruneState(context, age)
+	if err != nil {
+		var zero R
+		return zero, err
+	}
+	return pruneLambda(context, pruneState, dryRun, ui)
 }

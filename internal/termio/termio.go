@@ -38,7 +38,7 @@ const (
 // ConfirmAction prompts for a destructive action and maps the answer to an
 // error: nil on yes, ErrConfirmationRequired when non-interactive without
 // assume-yes (from ui.Confirm), and ErrCancelled when declined.
-func ConfirmAction(ui UI, prompt string) error {
+func ConfirmAction(ui Prompter, prompt string) error {
 	ok, err := ui.Confirm(prompt, false)
 	if err != nil {
 		return err
@@ -92,7 +92,9 @@ type Spinner interface {
 	StopError(err error)
 }
 
-type UI interface {
+// Logger emits leveled diagnostics. Its methods are the severity-ordered log
+// surface: Info, Warning, Error and Verbose gates apply.
+type Logger interface {
 	Info(msg string)
 	Infof(format string, args ...any)
 	Warn(msg string)
@@ -101,22 +103,20 @@ type UI interface {
 	Errorf(format string, args ...any)
 	Verbose(msg string)
 	Verbosef(format string, args ...any)
+}
+
+// Output writes user-facing data: plain lines, table headers, tables. Quiet
+// gating applies to all but Print.
+type Output interface {
 	Out(msg string)
 	Outf(format string, args ...any)
 	Print(msg string)
 	Header(msg string)
 	NewTable(headers ...string) *Table
-	Spinner(msg string) Spinner
-	Spinnerf(format string, args ...any) Spinner
+}
 
-	SetLevel(level Level)
-	SetAssumeYes(assumeYes bool)
-	SetQuiet(quiet bool)
-	Quiet() bool
-
-	StdOut() io.Writer
-	StdErr() io.Writer
-
+// Prompter drives interactive questions.
+type Prompter interface {
 	IsInteractive() bool
 	Select(prompt string, choices []Choice, defaultKey string) (string, error)
 	Input(prompt, defaultValue string) (string, error)
@@ -128,6 +128,48 @@ type UI interface {
 	// whether to record the acknowledgment.
 	Acknowledge(message string) error
 }
+
+// SpinnerFactory constructs progress spinners.
+type SpinnerFactory interface {
+	Spinner(msg string) Spinner
+	Spinnerf(format string, args ...any) Spinner
+}
+
+// TerminalState carries the console's output-mode switches.
+type TerminalState interface {
+	SetLevel(level Level)
+	SetAssumeYes(assumeYes bool)
+	SetQuiet(quiet bool)
+	Quiet() bool
+}
+
+// Streams exposes the underlying output streams.
+type Streams interface {
+	StdOut() io.Writer
+	StdErr() io.Writer
+}
+
+// UI is the composition of every role interface. It is the type the
+// composition root holds; consumers should depend on the narrowest role they
+// use.
+type UI interface {
+	Logger
+	Output
+	Prompter
+	SpinnerFactory
+	TerminalState
+	Streams
+}
+
+var (
+	_ Logger         = (*printer)(nil)
+	_ Output         = (*printer)(nil)
+	_ Prompter       = (*printer)(nil)
+	_ SpinnerFactory = (*printer)(nil)
+	_ TerminalState  = (*printer)(nil)
+	_ Streams        = (*printer)(nil)
+	_ UI             = (*printer)(nil)
+)
 
 // New creates a production ui backed by the given streams.
 func New(stdin io.Reader, stdout, stderr io.Writer, color bool, level Level, quiet bool, assumeYes bool) UI {

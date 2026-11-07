@@ -11,8 +11,7 @@ import (
 // queries when it resolves an unpinned version. Resolving through it honors the
 // update API's channel/active gating instead of reading an npm dist-tag, and it
 // returns the canonical release the installer would fetch (currently
-// @opencode/cli 2.x). It is a var (not const) so the tests can point it at an
-// httptest server.
+// @opencode/cli 2.x).
 var opencode2UpdateAPIURL = "https://opencode.ai/update/api/latest/cli/npm"
 
 // latestOpenCode2Version returns the newest opencode 2 release string by

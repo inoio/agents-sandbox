@@ -1,5 +1,5 @@
 // Package homeconfig provisions arbitrary user files into a sandbox home
-// directory from an optional home: key in the user and project config files.
+// directory from an optional home: key in the ordered config scopes.
 // It supports the project's home-file provisioning without embedding any
 // vendor-specific configuration.
 package homeconfig
@@ -256,20 +256,21 @@ type HomeFile struct {
 	Mode os.FileMode
 }
 
-// BuildHomeFilesWithModes loads the user and project config files' home
-// manifests, merges them (project wins per target), resolves each entry, and
-// reads the host source files. It returns the desired home files keyed by
-// absolute VM path, the resolved source paths that could not be read (missing
-// files), and whether any manifest existed. A missing host source file is
-// skipped, not fatal; its resolved path is reported so callers can warn. The
-// reserved list holds home-relative VM paths the manifest must not target (e.g.,
-// the agent's merged config path); when empty, no target is reserved. Each
-// returned file carries its source's ordinary Unix permission bits.
+// BuildHomeFilesWithModes loads the home manifests from dirs in order, merges
+// them (later dirs win per target), resolves each entry, and reads the host
+// source files. It returns the desired home files keyed by absolute VM path, the
+// resolved source paths that could not be read (missing files), and whether any
+// manifest existed. A missing host source file is skipped, not fatal; its
+// resolved path is reported so callers can warn. The reserved list holds
+// home-relative VM paths the manifest must not target (e.g., the agent's merged
+// config path); when empty, no target is reserved. Each returned file carries its
+// source's ordinary Unix permission bits.
 func BuildHomeFilesWithModes(
-	userConfigDir, projectConfigDir, homeBase string,
+	dirs []string,
+	homeBase string,
 	reserved []string,
 ) (map[string]HomeFile, []string, bool, error) {
-	layers, has, err := LoadLayers([]string{userConfigDir, projectConfigDir})
+	layers, has, err := LoadLayers(dirs)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -372,12 +373,13 @@ func hasShebang(path string) bool {
 }
 
 // BuildHooks returns the merged manifest's startup-hook entries (Hook ==
-// "startup") whose host source exists, sorted by VM target. A hook whose host
+// "startup") whose host source exists, sorted by VM target. Manifests are read
+// from dirs in order, with later dirs winning per target. A hook whose host
 // source is missing is skipped (its script will not have been provisioned). The
 // reserved list holds home-relative VM paths the manifest must not target (e.g.,
 // the agent's merged config path); when empty, no target is reserved.
-func BuildHooks(userConfigDir, projectConfigDir, homeBase string, reserved []string) ([]HookSpec, error) {
-	layers, _, err := LoadLayers([]string{userConfigDir, projectConfigDir})
+func BuildHooks(dirs []string, homeBase string, reserved []string) ([]HookSpec, error) {
+	layers, _, err := LoadLayers(dirs)
 	if err != nil {
 		return nil, err
 	}

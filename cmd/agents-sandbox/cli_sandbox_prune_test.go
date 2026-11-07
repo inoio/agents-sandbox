@@ -118,3 +118,11 @@ func TestSandboxPruneFormatJSON(t *testing.T) {
 		t.Errorf("unexpected detail: %+v", got.Details[0])
 	}
 }
+
+func TestSandboxPruneInvalidAge(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "sandbox", "prune", "--age", "bogus", "--yes")
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "invalid age") {
+		t.Fatalf("expected invalid age error, got %v", err)
+	}
+}

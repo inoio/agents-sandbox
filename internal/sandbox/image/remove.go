@@ -16,12 +16,13 @@ import (
 // set, refuses a reference that is still in use — recorded by a project state or
 // held by a live project/task sandbox — naming the referencing projects, so an
 // in-use image is never silently deleted. Both guards fail closed.
-func RemoveImages(ctx context.Context, refs []string, force bool, ui termio.UI) error {
+func RemoveImages(ctx context.Context, refs []string, force bool, ui termio.Prompter) error {
 	if err := refuseNonRunnerRefs(refs); err != nil {
 		return err
 	}
+	client := msb.Get()
 	if !force {
-		references, err := inUseImageReferences(ctx)
+		references, err := inUseImageReferences(ctx, client)
 		if err != nil {
 			return fmt.Errorf("check image references: %w", err)
 		}
@@ -33,7 +34,7 @@ func RemoveImages(ctx context.Context, refs []string, force bool, ui termio.UI) 
 		return err
 	}
 	for _, ref := range refs {
-		if err := msb.Get().ImageRemove(ctx, ref, force); err != nil {
+		if err := client.ImageRemove(ctx, ref, force); err != nil {
 			return fmt.Errorf("remove image %q: %w", ref, err)
 		}
 	}
@@ -67,8 +68,8 @@ func refuseNonRunnerRefs(refs []string) error {
 // Slice 1 seam. Ownership is positional: every sandbox in the private runtime
 // home is ours, so a live VM or task worker holding an image protects it from
 // removal.
-func inUseImageReferences(ctx context.Context) (map[string][]state.Key, error) {
-	handles, err := msb.Get().ListSandboxes(ctx, nil)
+func inUseImageReferences(ctx context.Context, client msb.Client) (map[string][]state.Key, error) {
+	handles, err := client.ListSandboxes(ctx, nil)
 	if err != nil {
 		return nil, err
 	}

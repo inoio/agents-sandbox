@@ -1,12 +1,11 @@
 package notify
 
 import (
+	_ "embed"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
-
-	_ "embed"
 
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -52,7 +51,7 @@ func failFastExecCommand(name string, _ ...string) *exec.Cmd {
 }
 
 // NewBackend builds the effective backend for cfg, or nil when inactive.
-func NewBackend(cfg Config, ui termio.UI) Backend {
+func NewBackend(cfg Config, ui termio.Logger) Backend {
 	if !cfg.Active() {
 		return nil
 	}
@@ -74,7 +73,7 @@ func NewBackend(cfg Config, ui termio.UI) Backend {
 type compositeBackend struct {
 	cfg   Config
 	parts []Backend
-	ui    termio.UI
+	ui    termio.Logger
 }
 
 func (c *compositeBackend) Notify(n Notification) {

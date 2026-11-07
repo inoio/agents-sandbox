@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,15 +13,19 @@ import (
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/client"
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-	"github.com/inoio/agents-sandbox/internal/sandbox/image"
-	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
+	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestBuildCommand(t *testing.T) {
@@ -218,7 +223,7 @@ func TestBuildAgentVersionPrecedenceMatchesRun(t *testing.T) {
 			var resolverCalled bool
 			var buildDecisionRan bool
 			var resolvedBeforeBuildDecision bool
-			image.WithMockAgentVersionResolver(
+			withMockAgentVersionResolver(
 				t,
 				func(_ context.Context, _ agent.Agent, requested string) (string, error) {
 					resolvedVersion = requested
@@ -495,3 +500,298 @@ func TestBuildDockerfileCommandReportsReservedAlias(t *testing.T) {
 		t.Fatalf("Execute error = %v, want a reserved-stage-alias error", err)
 	}
 }
+
+// TestResolveBuildDockerSetting pins the build's docker/dind precedence, the
+// same one the run path uses: --docker beats the deprecated --dind, either flag
+// beats the config, and a config value is explicit too, so a `docker: false`
+// overrides a project-Dockerfile content signal. Without any source docker is
+// off and not explicit.
+func TestResolveBuildDockerSetting(t *testing.T) {
+	cases := []struct {
+		name   string
+		flags  map[string]string
+		config map[string]any // user config.yaml; nil means no resolver
+		want   options.DockerSetting
+	}{
+		{name: "no source", want: options.DockerSetting{}},
+		{
+			name:  "--docker",
+			flags: map[string]string{flagDocker: "true"},
+			want:  options.DockerSetting{Enabled: true, Explicit: true},
+		},
+		{
+			name:  "deprecated --dind",
+			flags: map[string]string{flagDind: "true"},
+			want:  options.DockerSetting{Enabled: true, Explicit: true},
+		},
+		{
+			name:  "--docker beats --dind",
+			flags: map[string]string{flagDind: "true", flagDocker: "false"},
+			want:  options.DockerSetting{Explicit: true},
+		},
+		{
+			name:   "config on",
+			config: map[string]any{"docker": true},
+			want:   options.DockerSetting{Enabled: true, Explicit: true},
+		},
+		{name: "config off", config: map[string]any{"docker": false}, want: options.DockerSetting{Explicit: true}},
+		{
+			name:   "config off beats --dind",
+			flags:  map[string]string{flagDind: "true"},
+			config: map[string]any{"docker": false},
+			want:   options.DockerSetting{Explicit: true},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			cmd := buildDockerfileCmd(&termio.Mock{})
+			for name, value := range tc.flags {
+				if err := cmd.Flags().Set(name, value); err != nil {
+					t.Fatalf("set %s: %v", name, err)
+				}
+			}
+			if tc.config != nil {
+				testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", tc.config)
+				cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil), mustResolver(t, cmd)))
+			}
+
+			if got := resolveBuildDockerSetting(cmd); got != tc.want {
+				t.Errorf("resolveBuildDockerSetting = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBuildUsesCheckoutSlug pins that the standalone build tags the runner image
+// with the checkout slug, matching run/volume ops, so two clones of one origin
+// build distinct images.
+func TestBuildUsesCheckoutSlug(t *testing.T) {
+	firstClone := newOriginClone(t)
+	secondClone := newOriginClone(t)
+	firstIdentity := mustIdentity(t, firstClone)
+	secondIdentity := mustIdentity(t, secondClone)
+	if firstIdentity.RepoSlug != secondIdentity.RepoSlug {
+		t.Fatalf("repo slugs differ for one origin: %q vs %q", firstIdentity.RepoSlug, secondIdentity.RepoSlug)
+	}
+	if firstIdentity.CheckoutSlug == secondIdentity.CheckoutSlug {
+		t.Fatalf("checkout slugs collide across clones: %q", firstIdentity.CheckoutSlug)
+	}
+
+	t.Chdir(secondClone)
+	cmd, _ := setupCommandFixtures(t, cmdBuild)
+	mock := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, mock)
+	// The default noop Docker mock reports no image ID, which would fall back to
+	// the name ref. Return a real ID so the build exercises the content ref.
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{
+				ID:     "sha256:9f2c1a7b4d6e0f3199999999999999999999999999999999999999999999999999",
+				Config: &dockerspec.DockerOCIImageConfig{},
+			}, nil
+		},
+	})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	want := naming.ContentImageRef(secondIdentity.CheckoutSlug, defaultAgentName, "9f2c1a7b4d6e0f31")
+	if !slices.Contains(mock.LoadedImages, want) {
+		t.Errorf("build loaded images %v, want the second clone's checkout content ref %q", mock.LoadedImages, want)
+	}
+}
+
+// TestBuildDryRunPrintsMigrationNoticeAndMovesNothing pins the all-or-nothing dry
+// run for build: adoption prints the "Would migrate" notice but leaves the
+// migration pending — the legacy state survives and no checkout state appears.
+//
+// It deliberately does not assert the effective slug: build --dry-run returns
+// before image.Build, and the notice always prints both the legacy and the
+// target tag, so neither seam could falsify a slug here. The effective-slug pin
+// is TestVolumeOpsKeepLegacySlugWhileMigrationPending, which observes the tag
+// the op ensured through a docker inspect mock.
+func TestBuildDryRunPrintsMigrationNoticeAndMovesNothing(t *testing.T) {
+	clone := newOriginClone(t)
+	identity := mustIdentity(t, clone)
+	t.Chdir(clone)
+
+	cmd, ui := setupCommandFixtures(t, cmdBuild, "--dry-run")
+	mock := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, mock)
+
+	repoKey := state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName}
+	checkoutKey := state.Key{Slug: identity.CheckoutSlug, Agent: defaultAgentName}
+	if err := seedHomeState(repoKey, state.HomeState{
+		HomeVolume: fmt.Sprintf("agents-sandbox-home-%s-20260101T000000", identity.RepoSlug),
+	}); err != nil {
+		t.Fatalf("seed legacy state: %v", err)
+	}
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("build --dry-run: %v", err)
+	}
+
+	if _, err := state.ReadState(repoKey); err != nil {
+		t.Errorf("legacy state must survive a dry run: %v", err)
+	}
+	if _, err := state.ReadState(checkoutKey); !errors.Is(err, state.ErrStateNotFound) {
+		t.Errorf("dry run must not create the checkout-keyed state; got %v", err)
+	}
+
+	notice := strings.Join(ui.WarnCalls, "\n")
+	if !strings.Contains(notice, "Would migrate this checkout to its own project identity") {
+		t.Errorf("expected the dry-run migration notice, got:\n%s", notice)
+	}
+}
+
+// TestBuildChecksDockerBeforeAdoption pins that build resolves its Docker
+// prerequisite before adopting. On a host with broken Docker the command must
+// fail without destroying the legacy VM or moving the state, matching run/shell
+// and the volume ops, which all check their prerequisites before adopting.
+func TestBuildChecksDockerBeforeAdoption(t *testing.T) {
+	clone := newOriginClone(t)
+	identity := mustIdentity(t, clone)
+	t.Chdir(clone)
+
+	cmd, _ := setupCommandFixtures(t, cmdBuild)
+	doctor.MockedCheckDocker(t, false)
+
+	// A running legacy VM that adoption would destroy if it ran first.
+	legacyVM := &msb.MockSandboxHandle{
+		Name_:   naming.LegacyVMPrefix + identity.RepoSlug + "-" + defaultAgentName,
+		Status_: msbSdk.SandboxStatusRunning,
+	}
+	mock := &msb.MockMsbClient{
+		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+			return legacyVM, nil
+		},
+	}
+	msb.WithMsbMock(t, mock)
+
+	repoKey := state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName}
+	checkoutKey := state.Key{Slug: identity.CheckoutSlug, Agent: defaultAgentName}
+	if err := seedHomeState(repoKey, state.HomeState{
+		HomeVolume: fmt.Sprintf("agents-sandbox-home-%s-20260101T000000", identity.RepoSlug),
+	}); err != nil {
+		t.Fatalf("seed legacy state: %v", err)
+	}
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "docker not available") {
+		t.Fatalf("build with broken docker: error = %v, want a 'docker not available' error", err)
+	}
+	if legacyVM.DidDestroy() {
+		t.Error("build must not destroy the legacy VM before its Docker prerequisite passes")
+	}
+	if _, err := state.ReadState(repoKey); err != nil {
+		t.Errorf("the legacy state must stay in place when the Docker check fails first: %v", err)
+	}
+	if _, err := state.ReadState(checkoutKey); !errors.Is(err, state.ErrStateNotFound) {
+		t.Errorf("the state must not move before the Docker check passes; checkout state = %v", err)
+	}
+}
+
+// TestResolveBuildAgentVersion pins the --agent-version/--opencode-version
+// precedence: --agent-version wins and the deprecated alias only applies when
+// --agent-version was not given.
+func TestResolveBuildAgentVersion(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"none", nil, ""},
+		{"agent-version", []string{"--agent-version", "1.2.3"}, "1.2.3"},
+		{"opencode-version fallback", []string{"--opencode-version", "9.9.9"}, "9.9.9"},
+		{"agent-version wins", []string{"--agent-version", "1.2.3", "--opencode-version", "9.9.9"}, "1.2.3"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := buildBuildCmd(&termio.Mock{})
+			if err := cmd.Flags().Parse(tc.args); err != nil {
+				t.Fatalf("parse %v: %v", tc.args, err)
+			}
+			if got := resolveBuildAgentVersion(cmd); got != tc.want {
+				t.Errorf("resolveBuildAgentVersion = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBuildDockerCheckErrorWrapsCause pins that a failing Docker prerequisite is
+// wrapped with %w (so the cause stays reachable) rather than %v.
+func TestBuildDockerCheckErrorWrapsCause(t *testing.T) {
+	initTestProjectDir(t)
+	cmd, _ := setupCommandFixtures(t, cmdBuild)
+	doctor.MockedCheckDocker(t, false)
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected a docker prerequisite error")
+	}
+	if errors.Unwrap(err) == nil {
+		t.Errorf("error %v is not wrapped with %%w", err)
+	}
+}
+
+// TestBuildAdoptionFailureFailsClosed pins that a build whose legacy-identity
+// adoption fails stops with the adoption wrapper instead of proceeding against
+// a zero identity.
+func TestBuildAdoptionFailureFailsClosed(t *testing.T) {
+	clone := newOriginClone(t)
+	identity := mustIdentity(t, clone)
+	t.Chdir(clone)
+
+	cmd, _ := setupCommandFixtures(t, cmdBuild)
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	writeUnparsableLegacyState(t, state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName})
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "adopt legacy identity") {
+		t.Fatalf("build with an unreadable legacy state: error = %v, want the adoption wrapper", err)
+	}
+	if errors.Unwrap(err) == nil {
+		t.Errorf("error %v is not wrapped with %%w", err)
+	}
+}
+
+// TestBuildCommandsRejectAnUnknownAgent pins that `build` and `build
+// dockerfile` refuse an agent name that is not registered.
+func TestBuildCommandsRejectAnUnknownAgent(t *testing.T) {
+	for _, args := range [][]string{{"build", "--agent", "bogus"}, {"build", "dockerfile", "--agent", "bogus"}} {
+		t.Run(strings.Join(args[:len(args)-2], " "), func(t *testing.T) {
+			cmd, _ := setupCommandFixtures(t, args...)
+			if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), `unknown agent "bogus"`) {
+				t.Fatalf("error = %v, want the unknown agent refused", err)
+			}
+		})
+	}
+}
+
+func TestBuildDockerfileStdOutError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	withMockAgentVersion(t, "0.0.0-test")
+	ui := &errStdOutUI{err: errors.New("write failed")}
+
+	root := buildRootCmd(ui)
+	root.SetArgs([]string{"build", "dockerfile"})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "write failed") {
+		t.Fatalf("expected StdOut write error, got %v", err)
+	}
+}
+
+// errWriter returns the configured error on every write.
+type errWriter struct{ err error }
+
+func (w errWriter) Write(_ []byte) (int, error) { return 0, w.err }
+
+// errStdOutUI embeds termio.Mock but returns an erroring StdOut writer.
+type errStdOutUI struct {
+	termio.Mock
+
+	err error
+}
+
+func (e *errStdOutUI) StdOut() io.Writer { return errWriter{e.err} }

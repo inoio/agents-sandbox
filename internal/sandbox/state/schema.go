@@ -11,12 +11,12 @@ import (
 // binary reads and writes. Bump one whenever its document's persisted fields
 // change (TestHomeStateSchemaFieldsArePinned / TestRootStateSchemaFieldsArePinned
 // enforce it): a binary refuses to mutate a document with a newer schema, so an
-// older revision can never round-trip a newer revision's fields away (#337).
+// older revision can never round-trip a newer revision's fields away.
 //
 // Schema 0 (no schema: key) is the unversioned document written before
 // versioning; it is read as the current schema and stamped on the next write.
 const (
-	HomeStateSchema = 1
+	HomeStateSchema = 2
 	RootStateSchema = 1
 )
 

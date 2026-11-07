@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -38,12 +39,12 @@ func ensureInstalledMockFunc(raise bool) func(ctx context.Context) error {
 	}
 }
 
-func checkAllMockFunc(success bool) func(context.Context, termio.UI) bool {
-	return func(_ context.Context, _ termio.UI) bool { return success }
+func checkAllMockFunc(success bool) func(context.Context, docker.Client, termio.Logger) bool {
+	return func(_ context.Context, _ docker.Client, _ termio.Logger) bool { return success }
 }
 
-func checkDockerMockFunc(success bool) func(context.Context) error {
-	return func(context.Context) error {
+func checkDockerMockFunc(success bool) func(context.Context, docker.Client) error {
+	return func(context.Context, docker.Client) error {
 		if success {
 			return nil
 		}
@@ -64,10 +65,10 @@ func MockedCheckDocker(t *testing.T, success bool) {
 }
 
 func InstallFailFast() {
-	checkAllFunc = func(context.Context, termio.UI) bool {
+	checkAllFunc = func(context.Context, docker.Client, termio.Logger) bool {
 		panic("doctor.CheckAll not mocked; use doctor.MockedCheckAll(t, ...) in the test")
 	}
-	checkDockerFunc = func(context.Context) error {
+	checkDockerFunc = func(context.Context, docker.Client) error {
 		panic("doctor.CheckDocker not mocked; use doctor.MockedCheckDocker(t, ...) in the test")
 	}
 	ensureInstalledFunc = func(context.Context) error {

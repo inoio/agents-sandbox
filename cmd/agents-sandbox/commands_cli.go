@@ -15,20 +15,22 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configmigration"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configwizard"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
-	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/upgrade"
-	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
-
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/session"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/upgrade"
+	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
 const minUsagePadding = 25
@@ -37,6 +39,23 @@ const minUsagePadding = 25
 // path invokes the prune without consuming the pruning package's process-wide
 // once (which other run tests in this binary may already have used).
 var autoPrune = pruning.AutoPrune
+
+// newLifecycleTrace creates the trace a run or shell records its lifecycle
+// stages into (specs/lifecycle.md). It is a seam so a test can keep the trace it
+// hands out and assert the recorded stage order.
+var newLifecycleTrace = func() *lifecycle.Trace { return &lifecycle.Trace{} }
+
+// runSeams carries the run's behavior test seams (options.Seams) from the
+// command boundary into the run/shell stages. Production leaves it zero (every
+// stage uses its package default); tests set a field to stub a behavior.
+var runSeams options.Seams
+
+// withRunSeams sets opts.Seams for a run/shell from the boundary seam var so the
+// stages receive the injected behavior seams the command was built with.
+func withRunSeams(opts options.RunOptions) options.RunOptions {
+	opts.Seams = runSeams
+	return opts
+}
 
 func buildRunCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
@@ -71,6 +90,7 @@ func runUsageFunc(cmd *cobra.Command) error {
 	args := argsFromAnnotations(cmd)
 	for _, a := range args {
 		fmt.Fprintf(&out, " %s", a.Name)
+		// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="maxLen = len(a.Name) is idempotent when the lengths are equal, so >= assigns the same value"
 		if len(a.Name) > maxLen {
 			maxLen = len(a.Name)
 		}
@@ -127,7 +147,6 @@ func rpad(s string, padding int) string {
 	return s + strings.Repeat(" ", padding-len(s))
 }
 
-//nolint:gocognit // run orchestration keeps preflight, migration, and session flow together
 func runFunc(
 	ui termio.UI,
 ) func(cmd *cobra.Command, args []string) error {
@@ -138,52 +157,57 @@ func runFunc(
 			return err
 		}
 		opts.Args = args
+		opts.Trace = newLifecycleTrace()
+		opts = withRunSeams(opts)
 
 		ctx := cmd.Context()
 		if opts.ServeOnly {
 			ctx, _ = serveOnlyContext(ctx)
 		}
 		mode := runoptions.ResolveMode(cmd)
-		isDryRun := mode.Previews()
-		if !isDryRun {
-			if !doctor.CheckAll(cmd.Context(), ui) {
-				return errors.New("preflight failed")
-			}
-			exit, upgradeErr := checkForUpgrade(ctx, r, ui)
-			if upgradeErr != nil {
-				return upgradeErr
-			}
-			if exit {
-				return nil
-			}
+		exit, err := runStartupStages(ctx, cmd, mode, opts, ui)
+		if err != nil || exit {
+			return err
 		}
+		isDryRun := mode.Previews()
 		if !isDryRun {
 			if wizardErr := runConfigWizardFn(r, ui); wizardErr != nil {
 				return wizardErr
 			}
-			opts, _, err = refreshRunOptionsAfterMigrationFn(cmd, args, ui)
-			if err != nil {
+			if err := refreshRunOptions(&opts, cmd, args, ui); err != nil {
 				return err
 			}
 		}
 		if migrationErr := guideConfigMigrationFn(opts, ui, isDryRun); migrationErr != nil {
 			return handleMigrationError(migrationErr)
 		}
-		opts, r, err = refreshRunOptionsAfterMigrationFn(cmd, args, ui)
-		if err != nil {
+		if err := refreshRunOptions(&opts, cmd, args, ui); err != nil {
 			return err
-		}
-		if r != nil {
-			autoPrune(
-				cmd.Context(),
-				r.AutoPruneAge(),
-				isDryRun,
-				&autoPruneOutToVerboseRedirect{UI: ui},
-				currentRunImageKeys(opts.Agent)...,
-			)
 		}
 		return session.Run(ctx, opts, mode, ui)
 	}
+}
+
+// refreshRunOptions rebuilds opts after a startup step (the setup wizard or
+// credential migration) may have changed launcher config, so the run sees the
+// new values. The lifecycle trace and the boundary run seams are not config and
+// do not come from the resolver, so they are carried across the rebuild;
+// dropping them would discard the trace recorded so far and bypass the seams
+// the command was built with.
+func refreshRunOptions(
+	opts *options.RunOptions,
+	cmd *cobra.Command,
+	args []string,
+	ui termio.UI,
+) error {
+	trace := opts.Trace
+	refreshed, _, err := refreshRunOptionsAfterMigrationFn(cmd, args, ui)
+	if err != nil {
+		return err
+	}
+	refreshed.Trace = trace
+	*opts = withRunSeams(refreshed)
+	return nil
 }
 
 //nolint:gochecknoglobals // test seam for the first-run setup wizard
@@ -210,7 +234,7 @@ func refreshRunOptionsAfterMigration(
 	if err != nil {
 		return options.RunOptions{}, nil, fmt.Errorf("resolve project identity: %w", err)
 	}
-	resolver, err := launcherconfig.NewResolver(cmd, effectiveConfigSlug(identity))
+	resolver, err := launcherconfig.NewResolver(cmd, configpaths.Get(), effectiveConfigSlug(identity))
 	if err != nil {
 		return options.RunOptions{}, nil, err
 	}
@@ -247,6 +271,47 @@ func guideConfigMigration(opts options.RunOptions, ui termio.UI, dryRun bool) er
 	}
 	provisionHostConfig := opts.ProvisionHostConfig != nil && *opts.ProvisionHostConfig
 	return configmigration.Guide(a, hostHome, opts.Network, provisionHostConfig, ui)
+}
+
+// runStartupStages runs the stages run and shell share before the session,
+// recording each into opts.Trace as it is reached: the doctor preflight and the
+// self-upgrade check (both skipped on a preview), then the startup auto-prune
+// (report-only on a preview), which retains the current invocation's
+// runner-image keys. It reports exit when an upgrade was performed and the
+// command must stop. upgradeCtx is the context the upgrade check runs under
+// (run's serve-only context, so an interrupt cancels it).
+func runStartupStages(
+	upgradeCtx context.Context,
+	cmd *cobra.Command,
+	mode options.Mode,
+	opts options.RunOptions,
+	ui termio.UI,
+) (bool, error) {
+	r := resolverFromContext(cmd.Context())
+	isDryRun := mode.Previews()
+	opts.Trace.Record(lifecycle.Preflight)
+	if !isDryRun && !doctor.CheckAll(cmd.Context(), docker.Get(), ui) {
+		return false, errors.New("preflight failed")
+	}
+	opts.Trace.Record(lifecycle.UpgradeCheck)
+	if !isDryRun {
+		exit, err := checkForUpgrade(upgradeCtx, r, ui)
+		if err != nil || exit {
+			return exit, err
+		}
+	}
+	opts.Trace.Record(lifecycle.Prune)
+	if r != nil {
+		autoPrune(
+			cmd.Context(),
+			docker.Get(),
+			r.AutoPruneAge(),
+			isDryRun,
+			&autoPruneOutToVerboseRedirect{UI: ui},
+			currentRunImageKeys(opts.Agent)...,
+		)
+	}
+	return false, nil
 }
 
 // currentRunImageKeys returns the runner-image keys the current run may reuse, so
@@ -297,6 +362,7 @@ func checkForUpgrade(ctx context.Context, r *launcherconfig.Resolver, ui termio.
 		AllowAnyVersion: upgradeAnyVersionEnabled(),
 		UI:              ui,
 		Store:           launcherStore{},
+		Paths:           configpaths.Get(),
 	})
 	if err != nil {
 		return false, err
@@ -312,8 +378,7 @@ var serveOnlyIsTerminal = term.IsTerminal
 // serveOnlyStdinReader returns the reader whose EOF stops serve-only mode, or
 // nil when stdin must not be watched. Only an interactive terminal can deliver
 // a deliberate Ctrl-D; a non-TTY stdin (CI, `< /dev/null`, a background job) is
-// already at EOF, so watching it would cancel the run immediately (#387). It is
-// a seam so tests can drive both paths.
+// already at EOF, so watching it would cancel the run immediately.
 var serveOnlyStdinReader = func() io.Reader {
 	if serveOnlyIsTerminal(int(os.Stdin.Fd())) {
 		return os.Stdin
@@ -328,17 +393,14 @@ var serveOnlyStdinReader = func() io.Reader {
 // stdin is not watched: it relies on SIGINT/SIGTERM for shutdown.
 func serveOnlyContext(base context.Context) (context.Context, func()) {
 	ctx, stop := signal.NotifyContext(base, os.Interrupt, syscall.SIGTERM)
-	cancelCtx, cancel := context.WithCancel(ctx)
 	if stdin := serveOnlyStdinReader(); stdin != nil {
 		go func() {
 			_, _ = io.Copy(io.Discard, stdin)
-			cancel()
+			// Ctrl-D reaches the same teardown as a signal.
+			stop()
 		}()
 	}
-	return cancelCtx, func() {
-		stop()
-		cancel()
-	}
+	return ctx, stop
 }
 
 func buildShellCmd(ui termio.UI) *cobra.Command {
@@ -350,21 +412,16 @@ func buildShellCmd(ui termio.UI) *cobra.Command {
 			annotationAlsoAs: "sandbox shell",
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !doctor.CheckAll(cmd.Context(), ui) {
-				return errors.New("preflight failed")
-			}
-			mode := runoptions.ResolveMode(cmd)
-			if !mode.Previews() {
-				exit, err := checkForUpgrade(cmd.Context(), resolverFromContext(cmd.Context()), ui)
-				if err != nil {
-					return err
-				}
-				if exit {
-					return nil
-				}
-			}
-			opts, err := runoptions.Build(resolverFromContext(cmd.Context()).Config(), cmd, ui)
+			r := resolverFromContext(cmd.Context())
+			opts, err := runoptions.Build(r.Config(), cmd, ui)
 			if err != nil {
+				return err
+			}
+			opts.Trace = newLifecycleTrace()
+			opts = withRunSeams(opts)
+			mode := runoptions.ResolveMode(cmd)
+			exit, err := runStartupStages(cmd.Context(), cmd, mode, opts, ui)
+			if err != nil || exit {
 				return err
 			}
 			return session.Shell(cmd.Context(), opts, mode, ui)
@@ -393,7 +450,11 @@ func registerRunFlags(cmd *cobra.Command) {
 func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolP(flagRebuild, flagRebuild[:1], false, "Rebuild the runner image before starting")
 	cmd.Flags().
+		Bool(flagNoRebuild, false, "Reuse the existing runner image even if its inputs changed (skips the agent upgrade check)")
+	cmd.Flags().
 		String(flagAgentVersion, "", "Pin the agent version baked into the runner image (default: latest release)")
+	cmd.MarkFlagsMutuallyExclusive(flagNoRebuild, flagRebuild)
+	cmd.MarkFlagsMutuallyExclusive(flagNoRebuild, flagAgentVersion)
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Dry run without starting anything")
 	cmd.Flags().Bool(flagDryRunVM, false, "Skip VM lifecycle but prepare everything else")
 	cmd.Flags().Uint8P(flagCpus, flagCpus[:1], 0, "Number of CPUs (default: all)")
@@ -405,6 +466,8 @@ func registerSharedRunShellFlags(cmd *cobra.Command) {
 		StringSlice(flagNetwork, nil, "Network egress profile(s) for the VM: public, private, host, or none (default public); comma-separated or repeated")
 	cmd.Flags().
 		StringSlice(flagDNSServers, nil, "DNS upstream resolvers for the VM: IP (e.g. 1.1.1.1) or host:port (e.g. 1.1.1.1:53); comma-separated or repeated")
+	cmd.Flags().
+		StringSliceP(flagPort, "p", nil, "Publish a VM port on the host loopback: <port> or <host>:<guest> (TCP; e.g. 3000 or 8080:3000); comma-separated or repeated. Applied at VM creation; a change triggers recreation.")
 	cmd.Flags().String(flagAgent, defaultAgentName, "Coding agent profile to run")
 	cmd.Flags().
 		Bool(flagOpenLinks, true, "Open links from the VM (xdg-open) on the host; --open-links=false disables it")
@@ -427,15 +490,7 @@ func buildStopCmd(ui termio.UI) *cobra.Command {
 		Annotations: map[string]string{
 			annotationAlsoAs: "sandbox stop",
 		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			force, _ := cmd.Flags().GetBool(flagForce)
-			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			a, err := resolveAgentFlag(cmd)
-			if err != nil {
-				return err
-			}
-			return sandbox.StopProjectVM(cmd.Context(), force, dryRun, ui, a.Name())
-		},
+		RunE: projectVMControlRunE(ui, sandbox.StopProjectVM),
 	}
 	bindAgentFlag(cmd)
 	cmd.Flags().
@@ -452,19 +507,29 @@ func buildKillCmd(ui termio.UI) *cobra.Command {
 		Annotations: map[string]string{
 			annotationAlsoAs: "sandbox kill",
 		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			force, _ := cmd.Flags().GetBool(flagForce)
-			dryRun, _ := cmd.Flags().GetBool(flagDryRun)
-			a, err := resolveAgentFlag(cmd)
-			if err != nil {
-				return err
-			}
-			return sandbox.KillProjectVM(cmd.Context(), force, dryRun, ui, a.Name())
-		},
+		RunE: projectVMControlRunE(ui, sandbox.KillProjectVM),
 	}
 	bindAgentFlag(cmd)
 	cmd.Flags().
 		BoolP(flagForce, flagForce[:1], false, "Remove the VM's persisted state (also a stopped or never-started VM)")
 	cmd.Flags().BoolP(flagDryRun, flagDryRunShort, false, "Show what would be killed without killing")
 	return cmd
+}
+
+// projectVMControlRunE builds the shared run body of the stop and kill commands:
+// it reads the force/dry-run flags, resolves the agent, then applies the action
+// with the msb client resolved once at this command boundary.
+func projectVMControlRunE(
+	ui termio.UI,
+	apply func(context.Context, configpaths.ConfigPaths, msb.Client, bool, bool, termio.UI, string) error,
+) func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, _ []string) error {
+		force, _ := cmd.Flags().GetBool(flagForce)
+		dryRun, _ := cmd.Flags().GetBool(flagDryRun)
+		a, err := resolveAgentFlag(cmd)
+		if err != nil {
+			return err
+		}
+		return apply(cmd.Context(), configpaths.Get(), msb.Get(), force, dryRun, ui, a.Name())
+	}
 }

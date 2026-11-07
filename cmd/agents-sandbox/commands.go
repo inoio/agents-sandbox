@@ -9,9 +9,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	msbruntime "github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
@@ -32,12 +34,21 @@ func resolverFromContext(ctx context.Context) *launcherconfig.Resolver {
 	return r
 }
 
+// configSlugFromContext returns the resolver's effective per-slug config slug, or
+// "" when no resolver is present.
+func configSlugFromContext(ctx context.Context) string {
+	if r := resolverFromContext(ctx); r != nil {
+		return r.Config().ConfigSlug
+	}
+	return ""
+}
+
 // defaultAgentName is the fallback agent used when --agent is not provided.
 const defaultAgentName = agent.DefaultAgentName
 
 // warnLegacyEnvVars emits a one-time deprecation warning for each
 // OPENCODE_SANDBOX_ variable still in effect.
-func warnLegacyEnvVars(ui termio.UI, r *launcherconfig.Resolver) {
+func warnLegacyEnvVars(ui termio.Logger, r *launcherconfig.Resolver) {
 	if legacy := r.LegacyEnvVars(); len(legacy) > 0 {
 		ui.Warnf(
 			"deprecated environment variable(s) %s in use; switch to the AGENTS_SANDBOX_ prefix",
@@ -50,34 +61,15 @@ func warnLegacyEnvVars(ui termio.UI, r *launcherconfig.Resolver) {
 }
 
 // effectiveConfigSlug returns the slug whose per-slug user config directory the
-// launcher should read. It is the repo slug — shared by every clone of a remote —
-// except for a bare root before its legacy config directory has been migrated:
-// its pre-split config lives under the path-derived legacy slug
-// (Identity.LegacyRepoSlugs), which adoption renames onto the repo slug on the
-// first post-upgrade run (#144). The resolver is built before adoption runs, so
-// without this the triggering run would load defaults instead of the user's saved
-// settings. The fallback is read-only, so a dry run stays side-effect-free.
+// launcher should read at the CLI boundary. It is the repo slug — shared by
+// every clone of a remote — except for a bare root whose legacy config directory
+// has not been migrated: its legacy config lives under the path-derived legacy
+// slug, which adoption renames onto the repo slug. The resolver is built before
+// adoption runs, so without this the triggering run would load defaults instead
+// of the user's saved settings. The fallback is read-only, so a dry run stays
+// side-effect-free.
 func effectiveConfigSlug(identity git.Identity) string {
-	if slugHasUserConfig(identity.RepoSlug) {
-		return identity.RepoSlug
-	}
-	for _, legacy := range identity.LegacyRepoSlugs {
-		if slugHasUserConfig(legacy) {
-			return legacy
-		}
-	}
-	return identity.RepoSlug
-}
-
-// slugHasUserConfig reports whether the per-slug user config dir for slug holds a
-// config file, using the same layer discovery NewResolver merges from.
-func slugHasUserConfig(slug string) bool {
-	for _, layer := range launcherconfig.ConfigLayers(slug) {
-		if layer.Name == launcherconfig.LayerNamePerSlugUserConfig {
-			return layer.Present
-		}
-	}
-	return false
+	return reprovision.EffectiveConfigSlug(identity.RepoSlug, identity.LegacyRepoSlugs)
 }
 
 // resolveAgent validates a resolved agent name (from flag, env, or config)
@@ -131,6 +123,7 @@ type autoPruneOutToVerboseRedirect struct {
 func (v *autoPruneOutToVerboseRedirect) Out(msg string) {
 	v.Verbose(msg)
 }
+
 func (v *autoPruneOutToVerboseRedirect) Outf(format string, args ...any) {
 	v.Verbosef(format, args...)
 }
@@ -147,7 +140,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("resolve project identity: %w", err)
 		}
-		r, err := launcherconfig.NewResolver(cmd, effectiveConfigSlug(identity))
+		r, err := launcherconfig.NewResolver(cmd, configpaths.Get(), effectiveConfigSlug(identity))
 		if err != nil {
 			return err
 		}
@@ -162,9 +155,9 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 		// A dry-run preview is documented to make no network request and no
 		// runtime download/install, so it must not provision the runtime. It still
 		// points the SDK at the private home so its read-only inspection
-		// (volumes, sandboxes) reports the objects a real run would use (#424).
+		// (volumes, sandboxes) reports the objects a real run would use.
 		if runoptions.ResolveMode(cmd).Previews() {
-			return msbruntime.ApplyPreviewHome()
+			return applyPreviewHome()
 		}
 		return prepareMSBRuntime(cmd.Context(), ui, version)
 	}
@@ -197,13 +190,17 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 
 var prepareMSBRuntime = msbruntime.PrepareRuntime
 
+// applyPreviewHome is the preview path's home redirection, a seam so a test can
+// drive its error branch.
+var applyPreviewHome = msbruntime.ApplyPreviewHome
+
 // commandNeedsMSBRuntime reports whether the root preflight should provision the
 // microsandbox runtime before the command body runs. Commands that only inspect
 // launcher state must remain usable when the runtime is broken; that includes
 // `state repair`, the recovery path for a corrupt launcher state file. `doctor` is
 // included among those: it runs the runtime check itself, so an install failure
 // is reported with its troubleshooting link alongside the KVM and Docker results
-// instead of aborting the preflight with a raw error (#423).
+// instead of aborting the preflight with a raw error.
 func commandNeedsMSBRuntime(cmd *cobra.Command) bool {
 	if cmd == nil {
 		return false
@@ -221,7 +218,7 @@ func commandNeedsMSBRuntime(cmd *cobra.Command) bool {
 	}
 }
 
-func buildTreeCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
+func buildTreeCmd(rootCmd *cobra.Command, ui termio.Logger) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdTree,
 		Args:  cobra.NoArgs,
@@ -233,7 +230,7 @@ func buildTreeCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
 	return cmd
 }
 
-func buildVersionCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
+func buildVersionCmd(rootCmd *cobra.Command, ui termio.Output) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdVersion,
 		Args:  cobra.NoArgs,
@@ -245,7 +242,7 @@ func buildVersionCmd(rootCmd *cobra.Command, ui termio.UI) *cobra.Command {
 	return cmd
 }
 
-func buildUpgradeCmd(ui termio.UI) *cobra.Command {
+func buildUpgradeCmd(ui termio.Logger) *cobra.Command {
 	var channelFlag string
 	cmd := &cobra.Command{
 		Use:   cmdUpgrade,
@@ -267,6 +264,9 @@ func buildUpgradeCmd(ui termio.UI) *cobra.Command {
 				CurrentVersion:  version,
 				Channel:         channel,
 				AllowAnyVersion: upgradeAnyVersionEnabled(),
+				// Only an explicit --channel may move a prerelease install to an
+				// older stable release; a configured channel never downgrades.
+				AllowChannelSwitch: cmd.Flags().Changed(flagChannel),
 			})
 		},
 	}

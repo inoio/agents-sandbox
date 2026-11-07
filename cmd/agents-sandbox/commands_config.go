@@ -103,7 +103,7 @@ func buildConfigMigrateCmd(
 			if err != nil {
 				return fmt.Errorf("resolve project identity: %w", err)
 			}
-			resolver, err := viperconfig.NewResolver(c, effectiveConfigSlug(identity))
+			resolver, err := viperconfig.NewResolver(c, configpaths.Get(), effectiveConfigSlug(identity))
 			if err != nil {
 				return err
 			}
@@ -255,9 +255,9 @@ const projectConfigDisplayPath = ".agents-sandbox/config.yaml"
 // reads the per-slug layer from slug (the effective config slug) but labels the
 // repo slug separately, so a bare root's pre-migration layer dir is not misread
 // as the repo slug.
-func printConfigLayers(ui termio.UI, slug, repoSlug string) {
+func printConfigLayers(ui termio.Output, slug, repoSlug string) {
 	ui.Outf("config layers (lowest to highest precedence):")
-	for _, layer := range viperconfig.ConfigLayers(slug) {
+	for _, layer := range viperconfig.ConfigLayers(configpaths.Get(), slug) {
 		if layer.Path == "" {
 			ui.Outf("  %s%s", layer.Name, envLayerGlob(layer.Name))
 			continue
@@ -315,6 +315,7 @@ func buildConfigAgentCmd(ui termio.UI) *cobra.Command {
 			hostHome, _ := configpaths.Get().UserHomeDir()
 			merged, sources, hostFiles, mirrorFiles, source, err := reprovision.Describe(
 				a,
+				configSlugFromContext(c.Context()),
 				hostHome,
 				reprovision.VMHomeDir,
 				ui,
@@ -357,7 +358,7 @@ func provisionHostConfigEnabled(c *cobra.Command) bool {
 // printConfigAgent renders the merged config, mirror files, and drop-in host
 // files that provisioning would copy into the VM.
 func printConfigAgent(
-	ui termio.UI,
+	ui termio.Output,
 	a agent.Agent,
 	source reprovision.ConfigSource,
 	merged []byte,
@@ -366,18 +367,17 @@ func printConfigAgent(
 	mirrorFiles []reprovision.MirrorFile,
 	provision bool,
 ) {
-	userDir, projectDir := reprovision.SourceDirs(source)
+	userDirs, projectDir := reprovision.SourceDirs(source)
 	sourceKind := "primary"
 	if source.Fallback != "" {
 		sourceKind = fmt.Sprintf("legacy fallback %q", source.Fallback)
 	}
 	ui.Outf("agent: %s", a.Name())
-	ui.Outf(
-		"config dir: user=%s  project=%s  (%s)",
-		describeConfigDir(userDir),
-		describeConfigDir(projectDir),
-		sourceKind,
-	)
+	ui.Outf("config dirs (%s):", sourceKind)
+	for _, dir := range userDirs {
+		ui.Outf("  user: %s", describeConfigDir(dir))
+	}
+	ui.Outf("  project: %s", describeConfigDir(projectDir))
 	if len(sources) == 0 {
 		ui.Out("No snippet files found; no merged config is provisioned.")
 	} else {

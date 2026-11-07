@@ -7,6 +7,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/upgrade"
 )
 
 // TestServeOnlyContextCancelWiring verifies that calling the cancel function
@@ -64,6 +70,42 @@ func TestServeOnlyContextCancelsOnStdinEOF(t *testing.T) {
 	}
 }
 
+// TestRunServeOnlyWrapsContextForCancellation pins that the run path replaces
+// the command context with the serve-only context when --serve-only is set: an
+// interactive stdin EOF must cancel the context the upgrade check receives.
+func TestRunServeOnlyWrapsContextForCancellation(t *testing.T) {
+	initTestProjectDir(t)
+
+	oldPrepare := prepareMSBRuntime
+	prepareMSBRuntime = func(context.Context, termio.Logger, string) error { return nil }
+	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
+
+	origCheck := upgradeCheck
+	t.Cleanup(func() { upgradeCheck = origCheck })
+	var done <-chan struct{}
+	upgradeCheck = func(ctx context.Context, _ upgrade.Options) (upgrade.Result, error) {
+		done = ctx.Done()
+		return upgrade.Result{Exit: true}, nil
+	}
+
+	restoreReader := serveOnlyStdinReader
+	serveOnlyStdinReader = func() io.Reader { return strings.NewReader("") }
+	t.Cleanup(func() { serveOnlyStdinReader = restoreReader })
+
+	root, _ := setupRunMocks(t, &msb.MockMsbClient{}, &msb.MockSandbox{}, "run", "--serve-only")
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if done == nil {
+		t.Fatal("upgrade check did not run with a cancellable context")
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("serve-only context was not cancelled on stdin EOF")
+	}
+}
+
 // TestServeOnlyStdinReaderSelectsOnTerminal pins the default reader: it watches
 // os.Stdin only when stdin is an interactive terminal, and returns nil otherwise
 // so the context is not cancelled immediately (#387).
@@ -90,5 +132,24 @@ func TestServeOnlyStdinReaderSelectsOnTerminal(t *testing.T) {
 				t.Errorf("serveOnlyStdinReader() = %v, want nil", got)
 			}
 		})
+	}
+}
+
+// TestRunFuncServeOnlyReportsAFailedPreflight pins that a serve-only run whose
+// prerequisite checks fail stops with the preflight error.
+func TestRunFuncServeOnlyReportsAFailedPreflight(t *testing.T) {
+	initTestProjectDir(t)
+	configpaths.WithMockConfigPaths(t)
+	doctor.MockedCheckAll(t, false)
+	ui := &termio.Mock{}
+
+	cmd := buildRunCmd(ui)
+	cmd.SetContext(context.Background())
+	if err := cmd.Flags().Set(flagServeOnly, "true"); err != nil {
+		t.Fatalf("set serve-only: %v", err)
+	}
+	fn := runFunc(ui)
+	if err := fn(cmd, nil); err == nil || err.Error() != "preflight failed" {
+		t.Fatalf("expected preflight failure, got %v", err)
 	}
 }

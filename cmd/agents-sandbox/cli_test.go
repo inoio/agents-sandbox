@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -60,7 +61,7 @@ func TestRootCommandReturnsRuntimePreparationError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	oldPrepare := prepareMSBRuntime
-	prepareMSBRuntime = func(context.Context, termio.UI, string) error {
+	prepareMSBRuntime = func(context.Context, termio.Logger, string) error {
 		return errors.New("runtime mismatch")
 	}
 	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
@@ -80,7 +81,7 @@ func TestDryRunPreviewsSkipPreflightRuntimeInstall(t *testing.T) {
 	skipRuntimeInstall := func(t *testing.T) {
 		t.Helper()
 		oldPrepare := prepareMSBRuntime
-		prepareMSBRuntime = func(context.Context, termio.UI, string) error {
+		prepareMSBRuntime = func(context.Context, termio.Logger, string) error {
 			t.Fatal("a dry-run preview must not install the msb runtime (#424)")
 			return nil
 		}
@@ -115,7 +116,7 @@ func TestRootCommandReturnsInvalidCLISettingsError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	oldPrepare := prepareMSBRuntime
-	prepareMSBRuntime = func(context.Context, termio.UI, string) error {
+	prepareMSBRuntime = func(context.Context, termio.Logger, string) error {
 		t.Fatal("runtime preparation must not run after invalid CLI settings")
 		return nil
 	}
@@ -139,7 +140,7 @@ func TestDoctorRunsItsOwnChecksWithoutPreflightRuntimeInstall(t *testing.T) {
 	doctor.MockedCheckAll(t, false)
 
 	oldPrepare := prepareMSBRuntime
-	prepareMSBRuntime = func(context.Context, termio.UI, string) error {
+	prepareMSBRuntime = func(context.Context, termio.Logger, string) error {
 		t.Fatal("doctor must not provision the msb runtime in the root preflight (#423)")
 		return nil
 	}
@@ -320,8 +321,8 @@ func TestNewConfigSetsUserDirs(t *testing.T) {
 	if cfg.UserConfigDir() != "/testhome/.config/agents-sandbox" {
 		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir())
 	}
-	if configpaths.MustDir(cfg.UserAgentConfigDir(a)) != "/testhome/.config/agents-sandbox/opencode" {
-		t.Errorf("unexpected agent config dir: %q", configpaths.MustDir(cfg.UserAgentConfigDir(a)))
+	if filepath.Join(cfg.UserConfigDir(), a.ConfigDirName()) != "/testhome/.config/agents-sandbox/opencode" {
+		t.Errorf("unexpected agent config dir: %q", filepath.Join(cfg.UserConfigDir(), a.ConfigDirName()))
 	}
 	if cfg.UserCacheDir() != "/testhome/.cache/agents-sandbox" {
 		t.Errorf("unexpected cache dir: %q", cfg.UserCacheDir())
@@ -342,8 +343,8 @@ func TestNewConfigHonorsXdgEnv(t *testing.T) {
 	if cfg.UserConfigDir() != "/xdg/config/agents-sandbox" {
 		t.Errorf("unexpected user config dir: %q", cfg.UserConfigDir())
 	}
-	if configpaths.MustDir(cfg.UserAgentConfigDir(a)) != "/xdg/config/agents-sandbox/opencode" {
-		t.Errorf("unexpected agent config dir: %q", configpaths.MustDir(cfg.UserAgentConfigDir(a)))
+	if filepath.Join(cfg.UserConfigDir(), a.ConfigDirName()) != "/xdg/config/agents-sandbox/opencode" {
+		t.Errorf("unexpected agent config dir: %q", filepath.Join(cfg.UserConfigDir(), a.ConfigDirName()))
 	}
 	if cfg.UserCacheDir() != "/xdg/cache/agents-sandbox" {
 		t.Errorf("unexpected cache dir: %q", cfg.UserCacheDir())
@@ -459,7 +460,7 @@ func TestCLIConfigPrecedenceViaResolver(t *testing.T) {
 // mustResolver builds a resolver from a real command, failing the test on error.
 func mustResolver(t *testing.T, cmd *cobra.Command) *launcherconfig.Resolver {
 	t.Helper()
-	r, err := launcherconfig.NewResolver(cmd, "")
+	r, err := launcherconfig.NewResolver(cmd, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}

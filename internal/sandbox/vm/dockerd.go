@@ -27,9 +27,23 @@ const (
 	// dockerdDaemonConfigPath is dockerd's default configuration file. The
 	// launcher reads it (see guestStorageDriver) so it never forces
 	// storage-driver both in the file and on the command line, which dockerd
-	// rejects (inoio/agents-sandbox#287).
+	// rejects.
 	dockerdDaemonConfigPath = "/etc/docker/daemon.json"
 	vfsStorageDriver        = "vfs"
+
+	// fuseOverlayfsStorageDriver is the copy-on-write driver the launcher
+	// prefers when the guest provides it. The kernel rejects overlay2 here (an
+	// overlay upper on the guest overlay, or on virtiofs), but fuse-overlayfs
+	// merges in userspace and exposes its own FUSE mount, so neither
+	// restriction applies. The tarball's dockerd compiles the driver in.
+	fuseOverlayfsStorageDriver = "fuse-overlayfs"
+
+	// fuseOverlayfsProbeCmd reports whether the runner image provides the
+	// fuse-overlayfs binary and a usable /dev/fuse, the two things a rootful
+	// fuse-overlayfs dockerd needs. It runs as root, the user dockerd runs as,
+	// so a root-only device is accepted.
+	fuseOverlayfsProbeCmd = "command -v fuse-overlayfs >/dev/null 2>&1 && " +
+		"[ -c /dev/fuse ] && [ -r /dev/fuse ] && [ -w /dev/fuse ]"
 
 	// dockerdCleanupCmd removes containerd/pid/socket residue left by a killed
 	// dockerd job. Killing the job tears down dockerd but not necessarily its
@@ -40,7 +54,7 @@ const (
 )
 
 // The readiness window must exceed dockerd's 15s containerd start timeout, so a
-// restart has time to come up before the poll gives up. Tests shorten the vars.
+// restart has time to come up before the poll gives up.
 const (
 	dockerdReadyTimeoutDefault = 30 * time.Second
 	dockerdPollIntervalDefault = time.Second
@@ -51,31 +65,60 @@ var (
 	dockerdPollInterval = dockerdPollIntervalDefault
 )
 
-// dockerdArgs builds dockerd's argument list for this VM. The microsandbox
-// filesystem does not support overlayfs, so vfs must win; it is requested with
-// --storage-driver=vfs unless the image's daemon.json already sets it, in which
+// dockerdArgs builds dockerd's argument list for this VM and returns the
+// storage driver it selected. The microsandbox filesystem cannot back overlay2,
+// so the launcher asks for a driver the guest supports: fuse-overlayfs when its
+// binary and /dev/fuse are present, vfs otherwise. The driver is requested with
+// --storage-driver unless the image's daemon.json already sets it, in which
 // case the flag is dropped because dockerd refuses a directive set both as a
-// flag and in the configuration file (#287). A daemon.json requesting a
-// different driver is a hard error rather than a silent override or a
-// flag/file conflict.
-func dockerdArgs(ctx context.Context, sb msb.Sandbox) ([]string, error) {
-	args := []string{dockerdSocketFlag, dockerdSocket}
+// flag and in the configuration file. A daemon.json requesting any
+// driver other than those two is a hard error rather than a silent override or
+// a flag/file conflict.
+func dockerdArgs(ctx context.Context, sb msb.Sandbox) ([]string, string, error) {
 	driver, err := guestStorageDriver(ctx, sb)
 	if err != nil {
-		return nil, err
+		return nil, "", err
+	}
+	requested := driver == ""
+	if requested {
+		driver = defaultGuestStorageDriver(ctx, sb)
 	}
 	switch driver {
-	case "":
-		return append(args, "--storage-driver="+vfsStorageDriver), nil
-	case vfsStorageDriver:
-		return args, nil
+	case fuseOverlayfsStorageDriver, vfsStorageDriver:
 	default:
-		return nil, fmt.Errorf(
-			"%s sets storage-driver=%q, but the microsandbox filesystem requires %q; "+
-				"remove the storage-driver entry or set it to %q",
-			dockerdDaemonConfigPath, driver, vfsStorageDriver, vfsStorageDriver,
+		return nil, "", fmt.Errorf(
+			"%s sets storage-driver=%q, but the microsandbox filesystem supports only %q or %q; "+
+				"remove the storage-driver entry or set it to one of them",
+			dockerdDaemonConfigPath, driver, fuseOverlayfsStorageDriver, vfsStorageDriver,
 		)
 	}
+	args := []string{dockerdSocketFlag, dockerdSocket}
+	if requested {
+		args = append(args, "--storage-driver="+driver)
+	}
+	return args, driver, nil
+}
+
+// defaultGuestStorageDriver returns the driver to request when the image's
+// daemon.json sets none: fuse-overlayfs, whose copy-on-write layers cut both
+// build time and data-root disk use, when the guest provides the binary and a
+// usable /dev/fuse, and vfs otherwise.
+func defaultGuestStorageDriver(ctx context.Context, sb msb.Sandbox) string {
+	if guestSupportsFuseOverlayfs(ctx, sb) {
+		return fuseOverlayfsStorageDriver
+	}
+	return vfsStorageDriver
+}
+
+// guestSupportsFuseOverlayfs probes the guest for the fuse-overlayfs binary and
+// a usable /dev/fuse. A probe failure is treated as unsupported so a transport
+// hiccup falls back to vfs rather than failing the VM start.
+func guestSupportsFuseOverlayfs(ctx context.Context, sb msb.Sandbox) bool {
+	out, err := sb.Shell(ctx, fuseOverlayfsProbeCmd, msbSdk.WithExecUser(RootUser))
+	if err != nil {
+		return false
+	}
+	return out.Success()
 }
 
 // guestStorageDriver returns the storage-driver requested by the image's
@@ -118,8 +161,9 @@ func guestStorageDriver(ctx context.Context, sb msb.Sandbox) (string, error) {
 // startDockerdIfPresent starts dockerd inside the VM as a runtime-owned
 // detached job if the docker image is in use, or does nothing otherwise. It is
 // safe to call on every VM bootstrap because it checks for the dockerd binary
-// and handles the case where dockerd is already running.
-func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.UI) error {
+// and handles the case where dockerd is already running. The launch/readiness
+// sequence is the shared ensureDetachedService recipe.
+func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.Logger) error {
 	out, checkErr := sb.Shell(ctx, dockerdBinaryCheckCmd, msbSdk.WithExecUser(RootUser))
 	if checkErr != nil {
 		return fmt.Errorf("while checking dockerd binary: %w", checkErr)
@@ -129,55 +173,37 @@ func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.UI) er
 		return nil
 	}
 
-	if healthy, _ := probeHealthy(ctx, sb, dockerdReadyCmd); healthy {
-		ui.Verbose("using already running dockerd")
-		return nil
-	}
-
-	args, err := dockerdArgs(ctx, sb)
-	if err != nil {
-		return err
-	}
-
-	ui.Verbose("starting dockerd with vfs storage driver")
-	// Kill a stale dockerd job before starting a fresh one so a previous launch
-	// never keeps the socket bound, then clear the containerd/pid/socket
-	// residue the killed process leaves behind. Both are best-effort: a failure
-	// is reported and the readiness probe below decides.
-	helper := dockerdHelper()
-	killJobs(ctx, sb, helper, ui)
-	if _, cleanupErr := sb.Shell(ctx, dockerdCleanupCmd, msbSdk.WithExecUser(RootUser)); cleanupErr != nil {
-		ui.Verbosef("dockerd residue cleanup failed (continuing): %v", cleanupErr)
-	}
-
-	binary, commandArgs := helper.markedCommand(args)
-	job, startErr := sb.ExecDetached(ctx, binary, commandArgs, msbSdk.WithExecUser(RootUser))
-	if startErr != nil {
-		return fmt.Errorf("start dockerd: %w", startErr)
-	}
-	defer func() {
-		if closeErr := job.Close(); closeErr != nil {
-			ui.Verbosef("closing dockerd job handle failed: %v", closeErr)
-		}
-	}()
-
-	probe := func(probeCtx context.Context) (bool, string) {
-		return probeHealthy(probeCtx, sb, dockerdReadyCmd)
-	}
-	onUnhealthy := func(detail string) {
-		ui.Verbosef("dockerd not ready: %s", detail)
-	}
-	if readyErr := awaitJobReady(
-		ctx,
-		job,
-		"dockerd",
-		probe,
-		onUnhealthy,
-		dockerdReadyTimeout,
-		dockerdPollInterval,
-	); readyErr != nil {
-		return readyErr
-	}
-	ui.Verbosef("dockerd is ready")
-	return nil
+	return ensureDetachedService(ctx, sb, ui, detachedService{
+		helper: dockerdHelper(),
+		probe: func(probeCtx context.Context) (bool, string) {
+			return probeHealthy(probeCtx, sb, dockerdReadyCmd)
+		},
+		onUnhealthy: func(detail string) {
+			ui.Verbosef("dockerd not ready: %s", detail)
+		},
+		label:      dockerdBinary,
+		startLabel: dockerdBinary,
+		launchArgs: func(launchCtx context.Context) ([]string, string, error) {
+			args, driver, err := dockerdArgs(launchCtx, sb)
+			if err != nil {
+				return nil, "", err
+			}
+			return args, fmt.Sprintf("starting dockerd with %s storage driver", driver), nil
+		},
+		execUser: RootUser,
+		// Killing the dockerd job does not necessarily reap its containerd
+		// child, so clear the residue the killed process leaves behind before
+		// the fresh launch. Best-effort: a failure is reported and the
+		// readiness probe decides.
+		cleanup: func(cleanupCtx context.Context) error {
+			_, cleanupErr := sb.Shell(cleanupCtx, dockerdCleanupCmd, msbSdk.WithExecUser(RootUser))
+			return cleanupErr
+		},
+		timeout:            dockerdReadyTimeout,
+		pollInterval:       dockerdPollInterval,
+		alreadyHealthyNote: "using already running dockerd",
+		readyNote:          "dockerd is ready",
+		closeNote:          "closing dockerd job handle failed: %v",
+		cleanupNote:        "dockerd residue cleanup failed (continuing): %v",
+	})
 }

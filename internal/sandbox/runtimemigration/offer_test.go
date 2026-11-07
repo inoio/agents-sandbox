@@ -1058,9 +1058,7 @@ func TestOfferNoticeNamesUncopiedVolumes(t *testing.T) {
 	if !strings.Contains(notice, present) {
 		t.Errorf("notice = %q, want the unverified volume %q named", notice, present)
 	}
-	if strings.Contains(notice, good) {
-		t.Errorf("notice = %q, must not name the copied volume %q", notice, good)
-	}
+	assertOffersCopiedVolumeForRemoval(t, notice, good)
 }
 
 // TestOfferAmbiguousCopyNoticeKeepsUnverifiedVolume is the greptile P1
@@ -1096,9 +1094,7 @@ func TestOfferAmbiguousCopyNoticeKeepsUnverifiedVolume(t *testing.T) {
 	if !strings.Contains(notice, present) {
 		t.Errorf("notice = %q, want the unverified volume %q named", notice, present)
 	}
-	if strings.Contains(notice, missing) {
-		t.Errorf("notice = %q, must not name the copied volume %q", notice, missing)
-	}
+	assertOffersCopiedVolumeForRemoval(t, notice, missing)
 	assertSuppressesDestructiveCommands(t, notice)
 }
 

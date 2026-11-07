@@ -45,10 +45,10 @@ ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx@anthropic.com
 
 **YAML format** — `env.secret.yaml`
 
-A YAML object map from env-var name to `{ value, host?, hosts?, allow_any_host_dangerous? }`. Values may contain **any
-characters** including `@`. `host` and `hosts` are optional when `allow_any_host_dangerous` is set, but otherwise
-required — entries with neither hosts nor a dangerous flag are dropped with a warning. JSON is also accepted (YAML 1.2
-is a JSON superset).
+A YAML object map from env-var name to `{ value, host?, hosts?, header_fields?, allow_any_host_dangerous? }`. Values
+may contain **any characters** including `@`. `host` and `hosts` are optional when `allow_any_host_dangerous` is set,
+but otherwise required — entries with neither hosts nor a dangerous flag are dropped with a warning. JSON is also
+accepted (YAML 1.2 is a JSON superset).
 
 ```yaml
 # .agents-sandbox/env.secret.yaml
@@ -58,6 +58,7 @@ GITHUB_TOKEN:
 ANTHROPIC_API_KEY:
   value: sk-ant-xxxxxxxx
   hosts: [gw-a.internal, gw-b.internal]
+  header_fields: [authorization, x-api-key]
 # No hosts defined — this entry is dropped with a warning
 DROPPED_KEY:
   value: secret-value
@@ -70,22 +71,28 @@ An empty `value` is valid and will be passed through unchanged.
 
 ## Precedence
 
-Files are merged from lowest to highest precedence per key, in this order:
+Secrets are read from three scopes — generic user, per-slug user, and project — and files are merged from lowest to
+highest precedence per key. The merge is tiered by format: **all** scopes' legacy `env.secret` entries are merged first
+in scope order, then **all** scopes' `env.secret.yaml` entries in scope order:
 
-1. user-level `env.secret` (legacy `KEY=value@host`)
-2. project-level `env.secret` (legacy)
-3. user-level `env.secret.yaml`
-4. project-level `env.secret.yaml`
+1. generic user `env.secret` (legacy `KEY=value@host`)
+2. per-slug user `env.secret` (legacy)
+3. project `env.secret` (legacy)
+4. generic user `env.secret.yaml`
+5. per-slug user `env.secret.yaml`
+6. project `env.secret.yaml`
 
-A YAML entry always wins over a legacy entry for the same key, even across levels — a user-level
-`env.secret.yaml` overrides a project-level `env.secret`. The YAML entry **fully replaces** the legacy entry's hosts —
-if a YAML entry omits `host`, `hosts`, and `allow_any_host_dangerous`, the resulting entry has no hosts and is dropped
-with a warning.
+A YAML entry always wins over a legacy entry for the same key, even across scopes — a generic user
+`env.secret.yaml` overrides a project `env.secret`. Within a tier, a later scope wins. The YAML entry **fully
+replaces** the legacy entry's hosts — if a YAML entry omits `host`, `hosts`, and `allow_any_host_dangerous`, the
+resulting entry has no hosts and is dropped with a warning.
 
 ## Supported files
 
-- `~/.config/agents-sandbox/env.secret` — user-level, legacy text format
-- `~/.config/agents-sandbox/env.secret.yaml` — user-level, structured YAML (or JSON)
+- `~/.config/agents-sandbox/env.secret` — generic user-level, legacy text format
+- `~/.config/agents-sandbox/env.secret.yaml` — generic user-level, structured YAML (or JSON)
+- `~/.config/agents-sandbox/<slug>/env.secret` — per-slug user-level (repo slug, shared by every clone), legacy text format
+- `~/.config/agents-sandbox/<slug>/env.secret.yaml` — per-slug user-level, structured YAML (or JSON)
 - `.agents-sandbox/env.secret` — project-level, legacy text format
 - `.agents-sandbox/env.secret.yaml` — project-level, structured YAML (or JSON)
 
@@ -114,6 +121,57 @@ A refreshable OAuth token is refreshed by the agent and rewritten inside the VM,
 either materialize real tokens in the VM or depend on fragile proxy-mediated refresh. That is why OAuth is never
 placeholder-migrated. When a provider offers both a login and an API key, migration recommends the API-key path (a
 host-side secret) while still allowing the login fallback.
+
+## Placeholders in request bodies
+
+The proxy blocks a placeholder that reaches a host the secret neither allows nor passes through. That is fatal when
+the placeholder travels in a request the agent does not control. A coding agent sends its whole conversation as the
+completion request body, so once a placeholder enters the transcript — a tool that prints the environment, for
+example — every later completion request is blocked and the session cannot continue.
+
+`secrets.common.allow-placeholder-for` lists the hosts that may receive **any** secret's placeholder unchanged. Set it
+to the agent's model endpoint:
+
+```yaml
+# ~/.config/agents-sandbox/config.yaml
+secrets:
+  common:
+    allow-placeholder-for:
+      - model.example.com
+```
+
+The key is config-file-only: it has no environment variable and no CLI flag, so trusting a host with placeholders is
+a deliberate edit. A forwarded placeholder is inert — the real value stays on the host, and the proxy rewrites a
+placeholder to the real value only for a host in the secret's `host`/`hosts`.
+
+A host cannot be both substituted for and placeholder-passthrough. Two rules keep the lists disjoint:
+
+- A host a secret already lists in `host`/`hosts` keeps substitution and is dropped from that secret's passthrough
+  hosts. The credential that authenticates to the model host is unaffected.
+- A secret with `allow_any_host_dangerous: true` and no explicit `host` or `hosts` substitutes for every host, so it
+  gets no placeholder-passthrough hosts.
+
+Changing this key changes the VM's secret fingerprint, so the next run recreates the project VM once.
+
+## Header substitution scope
+
+By default microsandbox replaces a secret's placeholder in every request header it sees. That lets an untrusted
+program inside the sandbox put the placeholder in a header the upstream echoes back, and read the real secret from
+the response. `header_fields` restricts substitution to the header names you list:
+
+```yaml
+# .agents-sandbox/env.secret.yaml
+GITHUB_TOKEN:
+  value: ghp_xxxxxxxx
+  host: github.com
+  header_fields: [authorization]
+```
+
+Field names are case-insensitive, and the list is deduplicated. Omitting `header_fields`, or setting it to an empty
+list, keeps the default: the placeholder is replaced in every header. Only the YAML format carries the key; the
+legacy `KEY=value@host` format has no place for it.
+
+Changing the list changes the sandbox's secret fingerprint, so the next run recreates the project VM once.
 
 ## Trusting the CA in applications
 
@@ -206,6 +264,50 @@ network:
   egress-allow:
     - api.openai.com
 ```
+
+### GitHub Copilot on GitHub Enterprise (GHE.com)
+
+With a GitHub Enterprise account, OpenCode stores the enterprise domain as `enterpriseUrl` in `auth.json` and sends the
+tokens to that domain's Copilot endpoints instead of `api.githubcopilot.com`. Allow the secrets for those hosts, and
+allow the domain in the network policy. For example, for the enterprise domain `example.ghe.com`:
+
+```json
+// ~/.config/agents-sandbox/opencode/auth.json
+{
+  "github-copilot": {
+    "type": "oauth",
+    "access": "$MSB_GH_COPILOT_ACCESS_TOKEN",
+    "refresh": "$MSB_GH_COPILOT_REFRESH_TOKEN",
+    "expires": 0,
+    "enterpriseUrl": "example.ghe.com"
+  }
+}
+```
+
+```yaml
+# ~/.config/agents-sandbox/env.secret.yaml
+GH_COPILOT_ACCESS_TOKEN:
+  value: "<access-token>"
+  hosts:
+    - copilot-api.example.ghe.com
+    - api.example.ghe.com
+GH_COPILOT_REFRESH_TOKEN:
+  value: "<refresh-token>"
+  hosts:
+    - copilot-api.example.ghe.com
+    - api.example.ghe.com
+```
+
+```yaml
+# ~/.config/agents-sandbox/config.yaml
+network:
+  egress-allow:
+    - .example.ghe.com
+```
+
+If a secret's hosts do not match the endpoint OpenCode calls, the request fails with
+`Forbidden: Request blocked by secret policy.` The proxy refuses to forward a placeholder to a host the secret is not
+allowed for. Add the host from the failing request to the secret's `hosts`.
 
 Use `agents-sandbox config home` to verify the `home:` mapping. `agents-sandbox config agent` shows the agent mirror and
 drop-in candidates, but does not show `home:` mappings or files already present in the persistent home volume.

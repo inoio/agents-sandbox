@@ -47,7 +47,7 @@ func TestHermesImageSpec(t *testing.T) {
 	}
 	// The store must stay outside /home/dev, which the sandbox home volume
 	// covers at runtime; ownership is handed to the runtime user by the
-	// renderer's OwnedToolPaths block, not by the install command.
+	// renderer's OwnsToolTree handling, not by the install command.
 	for _, want := range []string{
 		"--hermes-home /opt/agents-sandbox/hermes-home",
 		"> /opt/agents-sandbox/bin/hermes",
@@ -69,6 +69,37 @@ func TestHermesImageSpec(t *testing.T) {
 	}
 	if got, want := spec.RuntimeLibs, []string{"libatomic.so.1"}; !slices.Equal(got, want) {
 		t.Errorf("RuntimeLibs = %v, want %v", got, want)
+	}
+}
+
+// TestHermesImageSpecPrunesBuildOnlyTrees pins the build-only prune. The
+// installer's completion tail writes install-stamp.json, so version_info reads
+// the stamp before git and `hermes --version` survives dropping .git; the other
+// trees are not read at runtime. The prune must run after the launcher guard,
+// so a failed install never reaches it.
+func TestHermesImageSpecPrunesBuildOnlyTrees(t *testing.T) {
+	a, _ := agent.Lookup("hermes")
+	cmd := a.ImageSpec().InstallCommand
+
+	prunePaths := []string{
+		"/opt/agents-sandbox/hermes/.git",
+		"/opt/agents-sandbox/hermes/tests",
+		"/opt/agents-sandbox/hermes/website",
+		"/opt/agents-sandbox/hermes/apps",
+		"/opt/agents-sandbox/hermes-home/cache/uv",
+	}
+	if !strings.Contains(cmd, "rm -rf "+strings.Join(prunePaths, " ")) {
+		t.Errorf("InstallCommand = %q, want it to prune %v", cmd, prunePaths)
+	}
+	// optional-skills feeds the skills hub (tools/skills_sync_optional.py), so
+	// it stays even though it is build-only-ish.
+	if strings.Contains(cmd, "optional-skills") {
+		t.Errorf("InstallCommand = %q must keep optional-skills (the skills hub reads it)", cmd)
+	}
+	guard := strings.Index(cmd, "install layout changed")
+	prune := strings.LastIndex(cmd, "rm -rf")
+	if guard < 0 || prune < 0 || prune < guard {
+		t.Errorf("prune must run after the launcher guard: %q", cmd)
 	}
 }
 
@@ -98,11 +129,10 @@ func TestHermesAttachCommandQuotesForwardedArgs(t *testing.T) {
 	}
 }
 
-func TestHermesOwnedToolPaths(t *testing.T) {
+func TestHermesOwnsToolTree(t *testing.T) {
 	a, _ := agent.Lookup("hermes")
-	want := []string{"/opt/agents-sandbox/hermes", "/opt/agents-sandbox/hermes-home"}
-	if got := a.ImageSpec().OwnedToolPaths; !slices.Equal(got, want) {
-		t.Errorf("ImageSpec().OwnedToolPaths = %v, want %v", got, want)
+	if !a.ImageSpec().OwnsToolTree {
+		t.Error("hermes writes into its installation at runtime, so ImageSpec().OwnsToolTree must be true")
 	}
 }
 

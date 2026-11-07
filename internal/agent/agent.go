@@ -1,6 +1,7 @@
 // Package agent provides built-in coding-agent profiles. The active agent is
 // selected by name; optional capabilities are discovered by type assertion, so
-// agents without a capability simply lack it and degrade gracefully.
+// agents without a capability simply lack it and degrade gracefully. Resolve
+// materializes a selected profile's capabilities once at a run boundary.
 package agent
 
 import "sort"
@@ -19,6 +20,12 @@ type Agent interface {
 	ConfigDirName() string
 	// ImageSpec returns the bits used to bake the agent into the runner image.
 	ImageSpec() ImageSpec
+	// Experimental reports whether this profile is experimental: not well
+	// tested with agents-sandbox. The launcher prints a notice when an
+	// experimental agent is selected. The interface requires every profile to
+	// answer it, so the compiler forces a value; a profile that embeds another
+	// inherits its answer rather than stating one.
+	Experimental() bool
 }
 
 // WorktreeSpec describes a git worktree to create in the VM. It is a minimal,
@@ -39,6 +46,7 @@ func builtinRegistry() map[string]Agent {
 		codexProfile{},
 		piProfile{},
 		hermesProfile{},
+		ohMyPiProfile{},
 	}
 	registry := make(map[string]Agent, len(profiles))
 	for _, a := range profiles {

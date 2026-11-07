@@ -1,5 +1,8 @@
 # BuildKit builder VM — runner-image build without host Docker (issue #15)
 
+> **Status: design — not yet implemented on `main`.** `internal/sandbox/builder` does not exist yet, and
+> `internal/sandbox/docker`/`doctor.CheckDocker` are still present. Everything below is the intended design.
+
 ## Goal
 
 Build the per-project runner image **without requiring Docker/Podman on the
@@ -29,7 +32,7 @@ kernel; on macOS that is the msb microVM), and it removes the host Docker
 prerequisite entirely (no host `runc`, no daemon, no privileged host access
 beyond msb itself).
 
-Validated by the throwaway spike in `spike/buildkit-vm/` on a Linux KVM host:
+Validated by a throwaway spike on a Linux KVM host:
 
 - an msb VM booted from `moby/buildkit:v0.25.2`, with `buildkitd` started
   explicitly, built both `FROM scratch` and `FROM alpine` + `RUN` images (nested
@@ -43,9 +46,8 @@ Validated by the throwaway spike in `spike/buildkit-vm/` on a Linux KVM host:
   and loaded the result (`gRPC build OK`).
 
 Rejected alternatives: in-process embedding (Linux-only, needs host
-`runc`+namespaces, unstable embedding API — see
-`spike/buildkit-inprocess/`); Podman/Buildah (same platform constraints as
-BuildKit, and still needs a Linux VM on macOS).
+`runc`+namespaces, unstable embedding API); Podman/Buildah (same platform
+constraints as BuildKit, and still needs a Linux VM on macOS).
 
 ### Critical gotcha
 
@@ -57,11 +59,11 @@ with `options.FirstFreeHostPort` (as serve-only already does).
 
 ## Architecture
 
-New `internal/sandbox/builder` package owns the BuildKit builder lifecycle and
-the build, exposing a narrow interface to `internal/sandbox/image`. The
+A new `internal/sandbox/builder` package will own the BuildKit builder lifecycle
+and the build, exposing a narrow interface to `internal/sandbox/image`. The
 `image` package keeps its orchestration (version resolution, Dockerfile
-rendering, identity/cache decision) but delegates the actual `docker build` +
-`docker save` to the builder.
+rendering, identity/cache decision) but will delegate the actual `docker build`
++ `docker save` to the builder.
 
 Components:
 
@@ -73,7 +75,7 @@ Components:
    the synthetic build context, `Solve` the `dockerfile.v0` frontend with the
    build args and export an image archive, and return the archive plus image
    metadata (digest, config/ENV/labels).
-3. **Delivery**: the existing `msb.Client.ImageLoad` boundary is unchanged.
+3. **Delivery**: the existing `msb.Client.ImageLoad` boundary stays unchanged.
 
 ### Builder VM configuration
 
@@ -105,7 +107,7 @@ Components:
 
 ### Build flow (replaces the Docker flow)
 
-1. `image` renders the synthetic context (rendered Dockerfile + the
+1. `image` will render the synthetic context (rendered Dockerfile + the
    build-context files from `buildContextFiles`, today assembled by
    `writeDockerfileTar`) into a temporary host directory. BuildKit streams this
    directory over the session, so nothing is bind-mounted into the builder VM.
@@ -117,7 +119,7 @@ Components:
      - `build-arg:<KEY>=<value>` for every arg produced by `userBuildArgs`
        (`USER_UID`, `USER_GID`, the agent version arg, `BASE_IMAGE`,
        `DOCKERFILE_ID`, `IDENTITY_*`, and `DOCKER_VERSION` when Docker is
-       enabled). The exact arg set is preserved so the image content and
+       enabled). The exact arg set will be preserved so the image content and
        identity labels are byte-for-byte compatible with today.
      - `platform=linux/<host arch>` (amd64 on x86_64, arm64 on Apple Silicon).
    - `Exports`: a single `type=docker` (or `type=oci`) export whose `Output`
@@ -127,37 +129,37 @@ Components:
    (replacing `scanBuildOutput`).
 5. Read image metadata from the exporter response: the config JSON
    (`containerimage.config`) and digest (`containerimage.digest`) give
-   `ImageInfo.Env` and `ImageInfo.Digest`, and `containerimage.buildinfo` gives
-   the base image digests — all without a host image store.
-6. `msb.Client.ImageLoad(tag, archive)` loads the image into the cache.
+   `ImageInfo.Env` and `ImageInfo.Digest`, with no host image store. The base
+   digest is resolved before the solve (see "Identity, reuse and base image").
+6. `msb.Client.ImageLoad(tag, archive)` will load the image into the cache.
 
 ### Identity, reuse and base image
 
 - **Reuse decision** (`buildDecision`): inspect the image already present in
   the **msb cache** (`msb.ImageInspect`) and compare the `dockerfile-id` label
   (and identity labels) instead of inspecting a host Docker image. A cache hit
-  skips both the build and the load. This removes the last read of the host
+  will skip both the build and the load; this removes the last read of the host
   Docker image store. The label is trusted for the *build* decision only: the
   load-side content check (`cachedImageMatches`) stays digest-only, and a
   cached image with no digest is reloaded, never matched by the label
   (`specs/runner-image-build.md`).
-- **Base image digest**: no registry resolver is needed. BuildKit's solver
-  response includes `containerimage.buildinfo` (base64 JSON; also embedded in
-  the image config), whose `sources[]` list every `docker-image` source with
-  `type`, `ref`, and `pin` (the resolved digest). Take the source whose `ref`
-  matches the rendered Dockerfile's final-stage base (from `baseImageRef`) and
-  use its `pin` to form `<ref>@sha256:<digest>` for the `BASE_IMAGE` arg —
-  replacing `resolveBaseDigest` with no extra dependency. (`buildinfo` is
-  deprecated in favour of the provenance attestation's `resolvedDependencies`;
-  if it is ever removed, switch to reading the provenance attestation.)
-- **Env read-back**: `readImageInfoFromDocker` becomes a read of the exporter
-  config (step 5) and/or `msb.ImageInspect`; no Docker.
+- **Base image digest**: resolved **before the solve** through a BuildKit
+  gateway `ResolveImageConfig` call, whose resolved digest forms
+  `<ref>@sha256:<digest>` for the `BASE_IMAGE` build arg. The arg must exist
+  before the `FROM` is resolved, so it cannot come from the solver response: a
+  post-solve read of `containerimage.buildinfo` (base64 JSON, also embedded in
+  the image config, whose `sources[]` list every `docker-image` source with
+  `type`, `ref`, and `pin`) is too late to feed the build. The gateway resolver
+  is the BuildKit-native replacement for `resolveBaseDigest` and needs no extra
+  dependency.
+- **Env read-back**: `readImageInfoFromDocker` will become a read of the
+  exporter config (step 5) and/or `msb.ImageInspect`; no Docker.
 
 ## Contracts and invariants
 
 - **No host container runtime**: nothing in the normal path may require a
   Docker/Podman daemon, a Docker socket, or a host `runc`. `internal/sandbox/
-  docker` and its `doctor.CheckDocker` preflight are removed.
+  docker` and its `doctor.CheckDocker` preflight will be removed.
 - **Free host port**: every builder VM publishes on a freshly allocated free
   host port; never a fixed constant. The port is bound on `127.0.0.1`.
 - **Explicit `buildkitd` start**: msb does not auto-run a long-lived service
@@ -166,13 +168,13 @@ Components:
 - **Cache persistence**: the BuildKit cache lives only in the named msb volume;
   builder VMs are ephemeral. Cache survives across invocations.
 - **Delivery boundary unchanged**: images enter the VM cache only through
-  `msb.Client.ImageLoad`. No new image transport is introduced.
+  `msb.Client.ImageLoad`. No new image transport will be introduced.
 - **Identity compatibility**: the rendered Dockerfile, build args, and resulting
-  labels (`org.agents-sandbox.*`) are unchanged, so existing images and the
+  labels (`org.agents-sandbox.*`) will be unchanged, so existing images and the
   reconfig/provenance logic keep working.
 - **No in-image Docker coupling**: the `--docker` (DinD) option and the runner's
-  Docker engine block are unaffected — they concern the engine baked into the
-  runner image, not the host build mechanism.
+  Docker engine block will be unaffected — they concern the engine baked into
+  the runner image, not the host build mechanism.
 
 ## Concurrency and lifecycle
 
@@ -187,7 +189,7 @@ writer for the cache volume.
   `buildkitd` may mount the cache volume at a time. A single shared builder
   guarantees this; multiple builder VMs sharing the volume would not.
 - **Creation coordination**: an "ensure builder VM" step is guarded by a
-  host-side flock (reusing `state.FlockExclusive`) so concurrent launcher
+  host-side flock (reusing `hostlock.AcquireExclusive`) so concurrent launcher
   processes don't race to create/replace it. The existing VM is discovered by
   name and its published host port read from its config (mirroring
   `ResolveServeHostPort`). Clients then connect to that port; parallel builds
@@ -207,15 +209,14 @@ Registry credentials for pulling private base images are supplied to the
 **host-side BuildKit session** via `authprovider`, not injected into the VM.
 Candidate sources, in recommended precedence:
 
-1. **Launcher config** (`internal/launcherconfig` `/ `~/.config/agents-sandbox/
+1. **Launcher config** (`internal/viperconfig` `/ `~/.config/agents-sandbox/
    config.yaml` registry entries). Explicit, cross-platform, consistent with the
    `config`/onboarding surface. Requires `config` support for registry creds if
    it does not exist yet.
 2. **`~/.docker/config.json`**, read (read-only) via `github.com/docker/cli/
    cli/config` (`LoadDefaultConfigFile`), including credential-helper binaries.
-   Familiar and already what `docker login` writes; needs no daemon. This is
-   what the spike used and it worked cross-platform. Prefer launcher config
-   first, fall back to this.
+   Familiar and already what `docker login` writes; needs no daemon and is
+   platform-uniform. Prefer launcher config first, fall back to this.
 3. **msb secrets** are injected into a *VM's* egress and therefore apply to
    **guest-side** pulls (the `buildctl`-inside fallback), not to the host-side
    BuildKit session. Not the source for the host-side client.
@@ -223,7 +224,7 @@ Candidate sources, in recommended precedence:
 
 The chosen provider reads whichever sources are configured and feeds one
 `authprovider`; registry creds are static (contrast the refreshable-OAuth
-handling in `specs/guided-onboarding.md`). The builder VM's egress remains
+handling in `specs/guided-onboarding.md`). The builder VM's egress will remain
 permissive (see "Builder VM configuration"), so credentials are needed only for
 authentication, not to punch through the network policy.
 
@@ -241,18 +242,18 @@ authentication, not to punch through the network policy.
 
 ## Interfaces and seams
 
-- `internal/sandbox/builder` exposes a small interface (e.g. `Build(ctx,
+- `internal/sandbox/builder` will expose a small interface (e.g. `Build(ctx,
   BuildRequest) (BuildResult, error)` where `BuildResult` carries the archive
-  reader/path, digest, and config). `internal/sandbox/image` depends on this
+  reader/path, digest, and config). `internal/sandbox/image` will depend on this
   interface, not on the concrete BuildKit client, so tests inject a fake.
 - The msb `Sandbox` interface already exposes `ShellStream`/`Shell`, so
   starting `buildkitd` needs no new msb abstraction.
-- `EnsureImageWithClient` keeps its signature; its internals swap Docker for the
-  builder. `EnsureLoaded`/`Build` change to consume the builder's archive
+- `EnsureImageWithClient` keeps its signature; its internals will swap Docker
+  for the builder. `EnsureLoaded`/`Build` will consume the builder's archive
   instead of `docker.Get().ImageSave`.
-- Because there is no persistent host image store, "build" and "load" become a
-  single pipeline: the archive produced by the build is loaded into the msb
-  cache in the same operation (or persisted briefly between the two calls).
+- Because there is no persistent host image store, "build" and "load" will
+  become a single pipeline: the archive produced by the build is loaded into the
+  msb cache in the same operation (or persisted briefly between the two calls).
   Where `EnsureImage` is currently called without loading, revisit whether env
   is needed pre-load or can come from the exporter config.
 
@@ -270,8 +271,8 @@ authentication, not to punch through the network policy.
 
 ## Alternatives considered
 
-- **In-process BuildKit** (`spike/buildkit-inprocess/`): works on Linux only,
-  needs host `runc`+namespaces and an unstable embedding API; rejected.
+- **In-process BuildKit**: works on Linux only, needs host `runc`+namespaces
+  and an unstable embedding API; rejected.
 - **App-managed `buildkitd` on the host**: macOS still needs a Linux VM, so the
   host prerequisite isn't actually removed; rejected.
 - **`buildctl` inside the VM** (context/output bind mounts): equally proven and
@@ -283,8 +284,8 @@ authentication, not to punch through the network policy.
 
 1. **Export format**: recommended **`type=oci`** (OCI Image Layout) — the
    portable, registry-transferable standard, supports annotations and
-   multi-platform indexes, and `microsandbox.Image.Load` accepts it (validated
-   by the spike). `type=docker` (a `docker save` archive) is the Docker-specific
+   multi-platform indexes, and `microsandbox.Image.Load` accepts it. `type=docker`
+   (a `docker save` archive) is the Docker-specific
    alternative and also accepted; use it only if an OCI-layout incompatibility
    surfaces with `ImageLoad`.
 2. **Registry credential source**: confirm the recommended precedence (launcher

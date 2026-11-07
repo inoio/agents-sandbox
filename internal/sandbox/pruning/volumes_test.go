@@ -255,7 +255,7 @@ func TestPruneVolumesStillRemovesUnreferencedVolume(t *testing.T) {
 			&msb.MockVolumeHandle{Name_: goneVolume, CreatedAt_: old},
 		},
 	}
-	msb.WithMsbMock(t, client)
+	resolutions := msb.WithCountingMsbMock(t, client)
 	ui := &termio.Mock{}
 	r, err := PruneVolumes(context.Background(), PruneState{
 		ToPrune: map[state.Key]msb.SandboxHandle{
@@ -265,6 +265,9 @@ func TestPruneVolumesStillRemovesUnreferencedVolume(t *testing.T) {
 	}, false, ui)
 	if err != nil {
 		t.Fatalf("PruneVolumes: %v", err)
+	}
+	if *resolutions != 1 {
+		t.Errorf("msb.Get resolved %d times, want once per PruneVolumes", *resolutions)
 	}
 	if r.VolumesPruned != 1 {
 		t.Errorf("VolumesPruned = %d, want 1 (only the unreferenced volume)", r.VolumesPruned)
@@ -630,5 +633,190 @@ func TestRemoveStateForGoneKeysWarnsOnRemoveError(t *testing.T) {
 	removeStateForGoneKeys(ui, map[state.Key]int{k: 1}, nil)
 	if len(ui.WarnCalls) == 0 {
 		t.Error("expected a warning when state removal fails")
+	}
+}
+
+func TestCountVolumesByKeySkipsForeign(t *testing.T) {
+	handles := []msb.VolumeHandle{
+		&msb.MockVolumeHandle{Name_: "foreign-volume"},
+		&msb.MockVolumeHandle{Name_: "agents-sandbox-home-proj-1mjusbm3wikhb0-20260812T123456"},
+	}
+	exists := countVolumesByKey(handles)
+	if len(exists) != 1 {
+		t.Fatalf("exists = %v, want only the parsed home volume key", exists)
+	}
+	if got := exists[state.Key{Slug: "proj-1mjusbm3wikhb0"}]; got != 1 {
+		t.Errorf("exists[proj] = %d, want 1", got)
+	}
+}
+
+// TestPruneHomeVolumesSkipsAndContinues pins that a foreign volume, a volume
+// whose key is not being pruned, a still-referenced volume, and a failed
+// removal each skip only themselves: a later prunable volume is still removed.
+func TestPruneHomeVolumesSkipsAndContinues(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	old := time.Now().Add(-15 * 24 * time.Hour)
+	vol := func(name string) msb.VolumeHandle {
+		return &msb.MockVolumeHandle{Name_: name, CreatedAt_: old}
+	}
+	const (
+		foreign = "foreign-volume"
+		kept    = "agents-sandbox-home-kept-1mjusbm3wikhb0-20260812T123456"
+		ref     = "agents-sandbox-home-ref-1mjusbm3wikhb0-20260812T123456"
+		fail    = "agents-sandbox-home-fail-1mjusbm3wikhb0-20260812T123456"
+		ok      = "agents-sandbox-home-ok-1mjusbm3wikhb0-20260812T123456"
+	)
+	handles := []msb.VolumeHandle{vol(foreign), vol(kept), vol(ref), vol(fail), vol(ok)}
+
+	client := &msb.MockMsbClient{RemoveVolumeFn: func(_ context.Context, name string) error {
+		if name == fail {
+			return errors.New("boom")
+		}
+		return nil
+	}}
+
+	pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
+		{Slug: "ref-1mjusbm3wikhb0"}:  &msb.MockSandboxHandle{},
+		{Slug: "fail-1mjusbm3wikhb0"}: &msb.MockSandboxHandle{},
+		{Slug: "ok-1mjusbm3wikhb0"}:   &msb.MockSandboxHandle{},
+	}}
+	references := map[string][]state.Key{ref: {{Slug: "still-active"}}}
+	ui := &termio.Mock{}
+	report := &VolumeReport{}
+
+	removed := pruneHomeVolumes(
+		context.Background(), client, handles, pruneState, references, false, ui, report)
+
+	if report.VolumesPruned != 1 {
+		t.Errorf(
+			"VolumesPruned = %d, want 1 (only the unreferenced, successfully removed volume)",
+			report.VolumesPruned,
+		)
+	}
+	if _, found := removed[state.Key{Slug: "ok-1mjusbm3wikhb0"}]; !found {
+		t.Errorf("removed = %v, want the ok key", removed)
+	}
+	// The failing removal is attempted first, the ok volume second: both must be
+	// attempted, so a break-on-error mutant would drop the ok call.
+	if len(client.RemovedVolumes) != 2 || client.RemovedVolumes[1] != ok {
+		t.Errorf("RemovedVolumes = %v, want the failing then the ok removal attempt", client.RemovedVolumes)
+	}
+	if !warnContains(ui.WarnCalls, "failed to remove home volume") {
+		t.Errorf("WarnCalls = %v, want the removal failure warning", ui.WarnCalls)
+	}
+	if len(report.Details) != 1 || report.Details[0].Name != ok || report.Details[0].Slug != "ok-1mjusbm3wikhb0" {
+		t.Errorf("Details = %v, want the ok volume entry", report.Details)
+	}
+}
+
+// TestPruneHomeVolumesSkipsForeignEvenWithEmptyKey pins that a foreign volume is
+// skipped before its (empty) key is looked up: an empty key in ToPrune must not
+// turn it into a prune candidate.
+func TestPruneHomeVolumesSkipsForeignEvenWithEmptyKey(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	client := &msb.MockMsbClient{}
+	handles := []msb.VolumeHandle{
+		&msb.MockVolumeHandle{Name_: "foreign-volume", CreatedAt_: time.Now()},
+	}
+	pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
+		{}: &msb.MockSandboxHandle{},
+	}}
+	report := &VolumeReport{}
+
+	pruneHomeVolumes(context.Background(), client, handles, pruneState, nil, false, &termio.Mock{}, report)
+
+	if report.VolumesPruned != 0 || len(client.RemovedVolumes) != 0 {
+		t.Errorf("a foreign volume must be skipped: report=%+v removed=%v", report, client.RemovedVolumes)
+	}
+}
+
+func TestRemoveStateForGoneKeysRemovesEveryKey(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	keys := []state.Key{
+		{Slug: "a-1mjusbm3wikhb0"},
+		{Slug: "b-1mjusbm3wikhb0"},
+		{Slug: "c-1mjusbm3wikhb0"},
+	}
+	// A state that records no home volume is the one prune removes; the loop
+	// must process every such key.
+	for _, k := range keys {
+		if err := seedHomeState(k, state.HomeState{}); err != nil {
+			t.Fatalf("seedHomeState: %v", err)
+		}
+	}
+	removed := map[state.Key]int{}
+	for _, k := range keys {
+		removed[k] = 1
+	}
+
+	removeStateForGoneKeys(&termio.Mock{}, removed, map[state.Key]int{})
+
+	for _, k := range keys {
+		if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
+			t.Errorf("state for %v should be removed, got err=%v", k, err)
+		}
+	}
+}
+
+// TestRemoveStateForGoneKeysKeepsStateNamingAVolume pins the #335 guard at the
+// unit level: even when the count guard would remove the state, a state that
+// names a home volume is kept, so a concurrently created volume is never
+// orphaned.
+func TestRemoveStateForGoneKeysKeepsStateNamingAVolume(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	kept := state.Key{Slug: "names-a-volume"}
+	if err := seedHomeState(kept, state.HomeState{HomeVolume: "vol-1"}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+
+	removeStateForGoneKeys(&termio.Mock{}, map[state.Key]int{kept: 1}, map[state.Key]int{kept: 1})
+
+	if _, err := state.ReadState(kept); err != nil {
+		t.Errorf("state naming a home volume must survive, got err=%v", err)
+	}
+}
+
+// TestRemoveStateForGoneKeysKeepsStateNamingARecoveredVolume pins that a pending
+// recovered-volume marker (#144) protects the state just as a settled home
+// volume does: the state names a volume the project still expects to recover, so
+// discarding it would lose the marker.
+func TestRemoveStateForGoneKeysKeepsStateNamingARecoveredVolume(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	kept := state.Key{Slug: "pending-recovery"}
+	if err := seedHomeState(kept, state.HomeState{RecoveredHomeVolume: "vol-pending"}); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+
+	removeStateForGoneKeys(&termio.Mock{}, map[state.Key]int{kept: 1}, map[state.Key]int{kept: 1})
+
+	if _, err := state.ReadState(kept); err != nil {
+		t.Errorf("state naming a pending recovered volume must survive, got err=%v", err)
+	}
+}
+
+func warnContains(warnings []string, substr string) bool {
+	for _, w := range warnings {
+		if strings.Contains(w, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestCountVolumesByKeyBothSchemes pins that a legacy-prefixed and a
+// prefix-free volume are both classified, and a foreign name is not.
+func TestCountVolumesByKeyBothSchemes(t *testing.T) {
+	handles := []msb.VolumeHandle{
+		&msb.MockVolumeHandle{Name_: "agents-sandbox-home-myproj-1mjusbm3wikhb0-opencode-20260812T123456"},
+		&msb.MockVolumeHandle{Name_: "myproj-1mjusbm3wikhb0-opencode-20260812T123457"},
+		&msb.MockVolumeHandle{Name_: "some-other-volume"},
+	}
+
+	exists := countVolumesByKey(handles)
+	if got := exists[state.Key{Slug: "myproj-1mjusbm3wikhb0", Agent: "opencode"}]; got != 2 {
+		t.Errorf("count = %d, want 2 (legacy + prefix-free)", got)
+	}
+	if len(exists) != 1 {
+		t.Errorf("exists = %v, want only the home-volume key", exists)
 	}
 }

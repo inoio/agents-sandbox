@@ -80,30 +80,6 @@ All invocations below were executed in this sandbox with `go version go1.27.1 li
 4. **go-mutesting (avito)** — viable only with a pseudo-version pin (v2 tags are not Go-module-legal) and no overlay.
 5. **go-mutesting (zimmski)**, **ooze** — reject: stale/`go 1.10`, and library-only respectively.
 
-### Makefile (mirrors the `vulncheck` target; deliberately excluded from `check`/`verify`, never a required CI check)
+### Makefile
 
-The canonical target lives in `.operator-shared/specs/mutation-testing.md`; its shape is:
-
-```make
-GOMUTANTS_VERSION = v0.7.2
-
-# On-demand mutation testing. Never part of check/verify/CI.
-#   make mutation                        # whole module, lines changed since the last release tag
-#   make mutation PKG=./internal/foo     # one package, changed lines
-#   make mutation FULL=1                 # whole module, all lines (slow)
-PKG   ?= ./...
-SINCE ?= $(shell git describe --tags --abbrev=0)
-FULL  ?=
-
-mutation:
-	@test -n "$(FULL)" || test -n "$(SINCE)" || { \
-		echo "make mutation: cannot resolve a release tag; pass SINCE=<ref> or FULL=1"; exit 1; }
-	CGO_ENABLED=1 go run github.com/gomutants/gomutants@$(GOMUTANTS_VERSION) \
-		--detect-equivalent \
-		$(if $(FULL),,--changed-since $(SINCE)) \
-		$(PKG)
-```
-
-`mutation-report.json` and the incremental cache `.gomutants-cache.json` are written to the working directory by default
-(the cache makes reruns cheap); pass `--output /tmp/mutation-<pkg>.json` to keep the tree clean instead. Do not add
-`mutation` to `check`/`verify`/`all`.
+The canonical `make mutation` target, its `GOMUTANTS_VERSION` pin, and the `ANNOTATIONS`/`CGO_ENABLED` handling live in `specs/mutation-testing.md`.

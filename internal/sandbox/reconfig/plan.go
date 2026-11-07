@@ -14,13 +14,17 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-const changeLabelPublishedPorts = "published port(s)"
-const changeLabelNetworkPolicy = "network policy"
-const changeLabelBindMounts = "host bind mounts"
-const changeLabelImage = "image"
+const (
+	changeLabelPublishedPorts     = "published port(s)"
+	changeLabelNetworkPolicy      = "network policy"
+	changeLabelBindMounts         = "host bind mounts"
+	changeLabelImage              = "image"
+	changeLabelMemoryAboveBootMax = "memory above boot maximum"
+)
 
 // Change describes one changed setting for prompt display. Values are
 // shown for simple sizes/counts; env/secrets/config carry labels only (Old/New empty).
@@ -56,11 +60,13 @@ func SizeChange(label string, old, newSize uint32, oldRaw, newRaw string) Change
 type Plan struct {
 	Recreate       bool
 	RestartDaemons bool
-	Resources      *msbSdk.ModifyOptions
 	Changes        []Change
 	// ServeHostPort is the resolved published host port for serve-only mode (0
 	// when not serving).
 	ServeHostPort int
+	// PortsChanged reports whether the desired published port bindings differ
+	// from the ones the existing VM carries.
+	PortsChanged bool
 }
 
 func configChangeList(changes []Change) string {
@@ -87,7 +93,7 @@ func changeLabelList(changes []Change) string {
 
 // reportAloneChange logs the informational apply decision made without other
 // attached clients and, at verbose level, the change labels that drove it.
-func reportAloneChange(ui termio.UI, message, reasonLabel string, changes []Change) {
+func reportAloneChange(ui termio.Logger, message, reasonLabel string, changes []Change) {
 	ui.Infof("VM/config changed; %s (no other client attached)", message)
 	if summary := changeLabelList(changes); summary != "" {
 		ui.Verbosef("%s reasons: %s", reasonLabel, summary)
@@ -105,6 +111,10 @@ type ChangeFlags struct {
 	Network     bool
 	Mounts      bool
 	AgentConfig bool
+	// BootMaxMemoryGrew reports that a freshly created VM would boot with a
+	// higher memory maximum than the live one (the host gained RAM), so a
+	// recreate can apply memory above the live maximum.
+	BootMaxMemoryGrew bool
 }
 
 // PlanReconfig computes the reconfiguration plan given the current VM config
@@ -144,14 +154,20 @@ func PlanReconfig(
 	if change, ok := rootDiskChange(cfg, opts); ok {
 		d.addRecreate(change)
 	}
+	// Memory above the boot maximum cannot be applied live. A recreate applies
+	// it only when a fresh VM boots with a higher maximum; otherwise the memory
+	// is clamped live, since a recreate would hit the same maximum and repeat on
+	// every launch.
+	if flags.BootMaxMemoryGrew && memoryAboveBootMax(cfg, opts) {
+		d.addRecreate(Change{Label: changeLabelMemoryAboveBootMax})
+	}
 
 	// Port publish state (serve-only) must match; a mismatch requires recreate
-	// since microsandbox published ports can only be set at VM creation.
+	// since microsandbox applies a published-port change only with a restart.
 	// Network policy is creation-only too; its comparison is fingerprint-based
 	// (NetworkChanged) because the SDK does not round-trip network config.
-	hostPort, portsChanged := publishReconfig(opts, cfg)
-	d.ServeHostPort = hostPort
-	if portsChanged {
+	d.ServeHostPort, d.PortsChanged = publishReconfig(opts, cfg)
+	if d.PortsChanged {
 		d.addRecreate(Change{Label: changeLabelPublishedPorts})
 	}
 	if flags.Network {
@@ -168,10 +184,6 @@ func PlanReconfig(
 		d.Changes = append(d.Changes, Change{Label: "agent config"})
 	}
 
-	// cpu/memory are always staged for live Modify (clamped to boot max).
-	if mo := resourceModification(cfg, opts); mo != nil {
-		d.Resources = mo
-	}
 	return d
 }
 
@@ -291,43 +303,18 @@ func rootDiskChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change,
 }
 
 // publishReconfig returns the resolved serve-only host port and whether the
-// published port bindings differ from the configured ones.
+// desired published port bindings differ from the ones the VM carries.
 func publishReconfig(opts options.RunOptions, cfg *msbSdk.SandboxConfig) (int, bool) {
-	wantPorts := desiredPublishBindings(opts.ServeOnly, cfg)
-	hostPort := 0
-	if len(wantPorts) > 0 {
-		hostPort = int(wantPorts[0].HostPort)
-	}
-	return hostPort, !portBindingsEqual(wantPorts, cfg.PortBindings)
+	want := desiredPublishBindings(opts, cfg)
+	hostPort, _ := ports.ServeHostBinding(want)
+	return hostPort, !ports.BindingsEqual(want, cfg.PortBindings)
 }
 
-// resourceModification returns the live cpu/memory modification to stage, or nil
-// when neither changes. Values are clamped to the boot maximum.
-func resourceModification(cfg *msbSdk.SandboxConfig, opts options.RunOptions) *msbSdk.ModifyOptions {
-	var mo msbSdk.ModifyOptions
-	// A zero mo.CPUs is the unset sentinel, and clamping to a zero boot max also
-	// yields zero, so no mutation of this guard can change the staged non-zero
-	// CPU change.
-	// gomutants:disable-next-line EXPRESSION_REMOVE,INVERT_LOGICAL,CONDITIONALS_BOUNDARY reason="opts.CPUs==0 or cfg.MaxCPUs==0 makes the clamp 0, and a zero mo.CPUs is the unset sentinel, so every listed guard mutation leaves the staged CPU change unchanged"
-	if opts.CPUs != 0 && cfg.MaxCPUs > 0 {
-		if want := min(opts.CPUs, cfg.MaxCPUs); want != cfg.CPUs {
-			mo.CPUs = want
-		}
-	}
-	if opts.Memory != "" {
-		want := options.ParseMemory(opts.Memory)
-		if cfg.MaxMemoryMiB > 0 {
-			want = min(want, cfg.MaxMemoryMiB)
-		}
-		if want != cfg.MemoryMiB {
-			mo.MemoryMiB = want
-		}
-	}
-	if mo.CPUs == 0 && mo.MemoryMiB == 0 {
-		return nil
-	}
-	mo.Policy = msbSdk.ModificationPolicyNoRestart
-	return &mo
+// memoryAboveBootMax reports whether the desired memory exceeds the VM's boot
+// maximum (host RAM at creation): no live modification is possible above it.
+func memoryAboveBootMax(cfg *msbSdk.SandboxConfig, opts options.RunOptions) bool {
+	return opts.Memory != "" && cfg.MaxMemoryMiB > 0 &&
+		options.ParseMemory(opts.Memory) > cfg.MaxMemoryMiB
 }
 
 // ApplyActions names what a resolved reconfiguration should apply: a VM
@@ -386,23 +373,10 @@ func diskMiBOr0(cfg *msbSdk.SandboxConfig) uint32 {
 }
 
 // desiredPublishBindings returns the port bindings agents-sandbox wants on the
-// project VM. Serve-only publishes the agent port on the host loopback;
-// otherwise nothing is published.
-func desiredPublishBindings(serveOnly bool, cfg *msbSdk.SandboxConfig) []msbSdk.PortBinding {
-	if !serveOnly {
-		return nil
-	}
-	return options.ServeOnlyBindings(options.ResolveServeHostPort(cfg, true))
-}
-
-func portBindingsEqual(a, b []msbSdk.PortBinding) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+// project VM, composed by the single ports authority: the serve-only agent
+// binding (with its resolved host port) plus the user-published mappings.
+func desiredPublishBindings(opts options.RunOptions, cfg *msbSdk.SandboxConfig) []msbSdk.PortBinding {
+	return ports.PublishBindings(
+		opts.ServeOnly, ports.ResolveServeHostPort(cfg, opts.ServeOnly, opts.Ports), opts.Ports,
+	)
 }

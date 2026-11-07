@@ -55,6 +55,16 @@ type Mock struct {
 	SecretInputFn func(prompt string) (string, error)
 }
 
+var (
+	_ Logger         = (*Mock)(nil)
+	_ Output         = (*Mock)(nil)
+	_ Prompter       = (*Mock)(nil)
+	_ SpinnerFactory = (*Mock)(nil)
+	_ TerminalState  = (*Mock)(nil)
+	_ Streams        = (*Mock)(nil)
+	_ UI             = (*Mock)(nil)
+)
+
 type mockSpinner struct{ owner *Mock }
 
 func (s *mockSpinner) Stop() {
@@ -162,6 +172,7 @@ func (m *Mock) Spinner(msg string) Spinner {
 	m.SpinnerCalls = append(m.SpinnerCalls, msg)
 	return &mockSpinner{owner: m}
 }
+
 func (m *Mock) Spinnerf(format string, args ...any) Spinner {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -2,100 +2,109 @@ package msb
 
 import (
 	"context"
-	"errors"
+	"strings"
 	"testing"
-	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-func TestMockStorageUsageReturnsReport(t *testing.T) {
-	want := &msbSdk.StorageUsageReport{}
-	m := &MockMsbClient{StorageUsageFn: func(context.Context) (*msbSdk.StorageUsageReport, error) {
-		return want, nil
-	}}
-	got, err := m.StorageUsage(context.Background())
-	if err != nil {
-		t.Fatalf("StorageUsage() error = %v", err)
-	}
-	if got != want {
-		t.Fatal("StorageUsage() did not return the callback report")
-	}
-}
-
-func TestMockStorageUsageDefaultsAndError(t *testing.T) {
-	m := &MockMsbClient{}
-	got, err := m.StorageUsage(context.Background())
-	if err != nil {
-		t.Fatalf("StorageUsage() default error = %v", err)
-	}
-	if got == nil {
-		t.Fatal("StorageUsage() default report = nil, want empty report")
-	}
-
-	m = (&MockMsbClient{}).SetStorageUsageErr(errors.New("boom"))
-	if _, err := m.StorageUsage(context.Background()); err == nil {
-		t.Fatal("StorageUsage() with SetStorageUsageErr = nil error, want boom")
-	}
-}
-
-func TestFailFastStorageUsagePanics(t *testing.T) {
-	f := &failFastMsbClient{}
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected panic from fail-fast StorageUsage")
+// TestWithMsbMock pins that WithMsbMock installs the mock as msb.Get for one
+// test and restores the previous factory when the test ends.
+func TestWithMsbMock(t *testing.T) {
+	mock := &MockMsbClient{}
+	t.Run("install", func(t *testing.T) {
+		WithMsbMock(t, mock)
+		if Get() != mock {
+			t.Fatal("Get should return the mock after WithMsbMock")
 		}
-	}()
-	_, _ = f.StorageUsage(context.Background())
-}
-
-func TestMockImageHandleNewAccessors(t *testing.T) {
-	bytes := int64(123456)
-	h := MockImageHandle{
-		Reference_:      "agents-sandbox/runner:latest",
-		ManifestDigest_: "sha256:abc",
-		SizeBytes_:      &bytes,
-		CreatedAt_:      time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
-	}
-	if got := h.SizeBytes(); got == nil || *got != 123456 {
-		t.Fatalf("SizeBytes() = %v, want 123456", got)
-	}
-	if want := "2026-08-17 10:42:36"; h.CreatedAt().Format("2006-01-02 15:04:05") != want {
-		t.Fatalf("CreatedAt() = %v, want %s", h.CreatedAt(), want)
-	}
-	if h.Reference() != "agents-sandbox/runner:latest" || h.ManifestDigest() != "sha256:abc" {
-		t.Fatalf("existing accessors broken: %s %s", h.Reference(), h.ManifestDigest())
+	})
+	if Get() == mock {
+		t.Error("WithMsbMock must restore the previous factory on cleanup")
 	}
 }
 
-func TestMockSandboxHandleDestroyFn(t *testing.T) {
-	called := false
-	wantErr := errors.New("destroy boom")
-	h := &MockSandboxHandle{DestroyFn: func(context.Context) error {
-		called = true
-		return wantErr
-	}}
-	if err := h.Destroy(context.Background()); !errors.Is(err, wantErr) {
-		t.Fatalf("Destroy() error = %v, want %v", err, wantErr)
+// TestFailFastClientPanics pins that every method of the fail-fast client
+// panics, so a test that reaches msb without installing a mock fails loudly
+// instead of touching the real runtime.
+func TestFailFastClientPanics(t *testing.T) {
+	ctx := context.Background()
+	f := &failFastMsbClient{}
+	cases := []struct {
+		name string
+		fn   func()
+	}{
+		{"EnsureInstalled", func() { _ = f.EnsureInstalled(ctx) }},
+		{"GetSandbox", func() { _, _ = f.GetSandbox(ctx, "x") }},
+		{"CreateSandbox", func() { _, _ = f.CreateSandbox(ctx, "x") }},
+		{"ListSandboxes", func() { _, _ = f.ListSandboxes(ctx, nil) }},
+		{"GetVolume", func() { _, _ = f.GetVolume(ctx, "x") }},
+		{"CreateVolume", func() { _, _ = f.CreateVolume(ctx, "x") }},
+		{"ListVolumes", func() { _, _ = f.ListVolumes(ctx) }},
+		{"RemoveVolume", func() { _ = f.RemoveVolume(ctx, "x") }},
+		{"ImageGet", func() { _ = f.ImageGet(ctx, "x") }},
+		{"ImageList", func() { _, _ = f.ImageList(ctx) }},
+		{"ImagePrune", func() { _, _ = f.ImagePrune(ctx) }},
+		{"PruneStorage", func() { _, _ = f.PruneStorage(ctx, msbSdk.StoragePruneOptions{}) }},
+		{"ImageRemove", func() { _ = f.ImageRemove(ctx, "x", false) }},
+		{"ImageLoad", func() { _ = f.ImageLoad(ctx, "x", strings.NewReader("")) }},
+		{"ImageInspect", func() { _, _ = f.ImageInspect(ctx, "x") }},
+		{"ImageInspectDetail", func() { _, _ = f.ImageInspectDetail(ctx, "x") }},
+		{"StorageUsage", func() { _, _ = f.StorageUsage(ctx) }},
+		{"ShellStream", func() { _, _ = f.ShellStream(ctx, "cmd") }},
 	}
-	if !called {
-		t.Fatal("Destroy() did not call DestroyFn")
-	}
-	if h.DidDestroy() {
-		t.Error("Destroy() with a DestroyFn must not mark the handle destroyed")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("expected panic from fail-fast client")
+				}
+			}()
+			tc.fn()
+		})
 	}
 }
 
-func TestMockSandboxHandleConfig(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{Image: "agents-sandbox/runner-proj:opencode-latest"}
-	h := &MockSandboxHandle{Cfg: cfg}
-	got, err := h.Config()
-	if err != nil || got != cfg {
-		t.Fatalf("Config() = (%v, %v), want the configured config", got, err)
-	}
+// TestInstallFailFastGet pins that installing the fail-fast client replaces
+// whatever msb.Get returned, so msb.Get panics until a test installs a mock,
+// and works once one is.
+func TestInstallFailFastGet(t *testing.T) {
+	t.Run("replaces a factory", func(t *testing.T) {
+		WithMsbMock(t, &MockMsbClient{})
+		InstallFailFastGet()
+		defer func() {
+			if recover() == nil {
+				t.Fatal("msb.Get did not panic after InstallFailFastGet")
+			}
+		}()
+		_ = Get().EnsureInstalled(context.Background())
+	})
+	t.Run("with a mock", func(t *testing.T) {
+		WithMsbMock(t, &MockMsbClient{})
+		if err := Get().EnsureInstalled(context.Background()); err != nil {
+			t.Fatalf("EnsureInstalled through the mock: %v", err)
+		}
+	})
+}
 
-	broken := &MockSandboxHandle{ConfigErr: errors.New("sandbox gone")}
-	if _, err := broken.Config(); !errors.Is(err, broken.ConfigErr) {
-		t.Fatalf("Config() error = %v, want the configured error", err)
+func TestWithCountingMsbMockCountsResolutionsAndRestores(t *testing.T) {
+	mock := &MockMsbClient{}
+
+	t.Run("install", func(t *testing.T) {
+		resolutions := WithCountingMsbMock(t, mock)
+		if *resolutions != 0 {
+			t.Fatalf("resolutions before any Get = %d, want 0", *resolutions)
+		}
+		for range 2 {
+			if Get() != mock {
+				t.Fatal("Get should return the mock after WithCountingMsbMock")
+			}
+		}
+		if *resolutions != 2 {
+			t.Errorf("resolutions = %d, want 2", *resolutions)
+		}
+	})
+
+	if Get() == mock {
+		t.Error("WithCountingMsbMock must restore the previous factory on cleanup")
 	}
 }

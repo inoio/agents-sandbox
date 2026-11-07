@@ -73,7 +73,7 @@ func fetchInGuest(ctx context.Context, sb msb.Sandbox, url string) (msb.ShellRes
 // while this launcher is attached; requests made while no launcher is attached
 // time out in the shim. Nothing is printed while the TUI is attached: stop
 // reports refused targets afterwards, when the terminal is the user's again.
-func startHostOpener(ctx context.Context, ses preparedSandbox, enabled bool, ui termio.UI) func() {
+func startHostOpener(ctx context.Context, ses preparedSandbox, enabled bool, ui termio.Logger) func() {
 	sb := ses.Sandbox()
 	if !enabled || sb == nil || ses.HomeVolume() == "" {
 		ui.Verbosef("not starting host opener, enabled %v, sandbox nil %v", enabled, sb == nil)
@@ -101,7 +101,7 @@ func startHostOpener(ctx context.Context, ses preparedSandbox, enabled bool, ui 
 
 // reportHostOpener lists what the host opener refused during the session, so
 // the user can open those targets by hand.
-func reportHostOpener(report opener.Report, watchErr error, ui termio.UI) {
+func reportHostOpener(report opener.Report, watchErr error, ui termio.Logger) {
 	if watchErr != nil {
 		ui.Verbosef("host opener: %v", watchErr)
 	}

@@ -1,6 +1,6 @@
 ---
-description: Contract for keeping tests off real host state - the fail-fast seam mocks installed by every test package's TestMain, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, and the rule that seam overrides must be restored so the suite stays idempotent under -count>1.
-read_if: Adding a test package or a TestMain, debugging a test that reads or writes real host state (config, home, docker, msb, doctor), or a test that passes at -count=1 but fails under -count>1.
+description: Contract for keeping tests off real host state - the fail-fast seam mocks installed by every test package's TestMain, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, the msb-tagged isolated runtime home and its stop-then-remove sandbox teardown, and the rule that seam overrides must be restored so the suite stays idempotent under -count>1.
+read_if: Adding a test package or a TestMain, debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, or a test that passes at -count=1 but fails under -count>1.
 ---
 
 # Test isolation
@@ -41,30 +41,25 @@ The per-package check credits only direct calls that run before `m.Run()`: insta
 `InitFailFastMocks(m)` counts as the wrapper, so the wrapper's own package can install it without importing itself. The
 walk covers the module root too, so a package beside `go.mod` is checked like any other.
 
-Packages in the seam import chain cannot import `internal/testutil/mocks` without a test import cycle; they install the
-reachable subset directly, mirroring that body:
+Packages in the seam import chain cannot import `internal/testutil/mocks` without a test import cycle, so they call
+the reachable `InstallFailFast*` functions directly in `TestMain` instead of the wrapper. Which families are reachable
+is not enumerated here: `TestEveryTestPackageInstallsItsAcyclicFailFastMocks` derives each package's expected set from
+the module import graph, so a family is skipped exactly when the family's package imports the test package. Some
+illustrative cases:
 
-- `configpaths` (installs configpaths + docker; doctor and msb are unreachable and would cycle)
-- `docker` (installs configpaths + docker + msb + notify; doctor imports docker, so it would cycle)
-- `msb` (installs configpaths + docker + msb; doctor imports msb, so it would cycle)
-- `termio` (installs configpaths + docker + msb; doctor imports termio, so it would cycle)
-- `doctor` (installs configpaths + docker + doctor + msb + notify; importing `internal/testutil/mocks` would cycle
-  through doctor)
-- `runtime` (installs configpaths + docker + msb + notify; doctor imports runtime, so `InitFailFastMocks` would cycle
-  and doctor is unreachable from runtime)
-- `notify` (installs configpaths + docker + doctor + msb + notify; the wrapper installs notify, so importing it would
-  cycle)
-- `docslink` (installs configpaths + docker + msb + notify; doctor imports docslink, so the wrapper, which installs
-  doctor, would cycle)
-- `atomicwrite`, `mounts`, `naming`, `network`, `state` (install configpaths + docker + doctor + msb; notify imports
-  them, so they cannot import the wrapper, which installs notify)
-- `agent` and `filewalk` install docker only: `configpaths` imports `agent`, which imports `filewalk`, and `notify`
-  imports both, so docker is the only family importable. Neither package reaches a seam in its own code; if one ever
-  gains such a call, the seam must be reached through an injected dependency rather than a global.
-- `internal/testutil/mocks` calls the wrapper unqualified from its `TestMain`, since a package cannot import itself.
-  `TestInstalledFailFastDefaultsPanic` asserts the wrapper's effect there — each family's fail-fast is the one in
-  effect, panic message included — which also puts the wrapper's body under that package's own coverage profile
-  (`make coverage` measures per package, so a package with no test files reports 0%).
+- `configpaths` installs configpaths + docker + opener (doctor and msb would cycle).
+- `sandbox/msb` installs configpaths + docker + msb + opener, with doctor deliberately omitted.
+- `agent` and `filewalk` reach every family except notify — `notify` imports both — and neither reaches a seam in its
+  own code; if one ever gains such a call, the seam must be reached through an injected dependency rather than a
+  global.
+
+Nearly every seam-chain package installs `opener.InstallFailFast()` (the host opener's `xdg-open`/`open` spawn), so a
+dropped opener installer is the accidental omission the derived check catches.
+
+`internal/testutil/mocks` calls the wrapper unqualified from its `TestMain`, since a package cannot import itself.
+`TestInstalledFailFastDefaultsPanic` asserts the wrapper's effect there — each family's fail-fast is the one in
+effect, panic message included — which also puts the wrapper's body under that package's own coverage profile
+(`make coverage` measures per package, so a package with no test files reports 0%).
 
 Add a `main_test.go` with such a `TestMain` to every new package that has tests; the contract test fails without one.
 
@@ -89,6 +84,31 @@ before its first SDK call (`ensureIsolatedRuntime`). The runtime install is lazy
 where a runtime left by a pre-decoupling agents-sandbox install fails sandbox creation with the native library's
 "no tested sandbox launch contract for runtime <v>" after an SDK bump; the launcher repairs only its own private home
 (`runtime-home-decoupling.md`).
+
+Because that home is **fresh per test process**, a sandbox leaked by one run is invisible to the next: `WithReplace`
+only replaces a same-name sandbox within one runtime home, and the teardown deletes the home, so a surviving VM can
+never be reached by a later invocation. Three rules keep the msb-tagged tests from leaking:
+
+- **Stop before removing.** The SDK contract is "`Remove` deletes the sandbox's persisted state. The sandbox must be
+  stopped"; a detached sandbox (`WithDetached()`) keeps running past the Go process, so a bare `Remove` on a running
+  one fails (and is easy to swallow) and the VM runs forever. Tests tear down with `SandboxHandle.Destroy`
+  (identity-safe stop-and-remove), never `Remove`.
+- **Sweep after the run.** `TestMain` destroys any sandbox left in the isolated home after `m.Run()` returns and
+  before removing the home, so a test that failed or panicked without reaching its own cleanup cannot leak a VM
+  pointing at a deleted home. It does **not** cover a hard kill — a `-timeout` expiry, SIGINT, SIGKILL, or an OOM
+  exits the process without returning from `m.Run()`, so the sweep never runs and the idle-timeout backstop is what
+  stops that VM. A failed sweep is reported and the home is kept, so the surviving sandbox stays reachable for manual
+  cleanup instead of vanishing with the home. The sweep is a no-op when no test resolved the runtime, so
+  `compile-all`'s `-run=^$` stays inert — the same guard `specs/harness-smoke-tests.md` gives its temp root.
+- **Backstop with an idle timeout.** A sandbox a test creates also starts with `WithIdleTimeout`, so if the test
+  binary is hard-killed — where neither `Destroy` nor the sweep can run — the runtime still stops the idle VM instead
+  of leaving it up forever. The timer fires on *exec* silence (a sleeping job or a `Job.Inspect` poll does not reset
+  it), so the value must exceed the test's own context budget; it is a stop, not a remove, so it reaps the process but
+  not the persisted sandbox. The listener-free default (`IdleTimeout` zero) is unlimited.
+- **Child processes borrow the parent's home.** A test that needs cross-process behaviour re-executes the test binary
+  with the parent's home in its environment (`TestRealClientSandboxLifecycle`). The child points `MSB_HOME` at that home and
+  never calls `ensureIsolatedRuntime`, so its own `TestMain` sweep stays a no-op and cannot destroy the parent's
+  sandboxes.
 
 ## Host-home redirect
 
@@ -128,6 +148,31 @@ seams such as `agentLatestVersion`, `probeHostPort`, `watchReconnectPolicy`, `sp
 that repeats a package) into the next iteration. The suite must be idempotent: `go test -count=2 ./...` must agree with
 `-count=1`.
 
+### Injected clients vs. the remaining seams
+
+Per `client-injection.md`, the Docker client and the path resolver are explicit
+parameters below each entry point, and `image` no longer imports `"testing"`:
+its agent-release resolution is injected through `BuildOptions.ResolveVersion`,
+and image's own tests override the unexported `defaultAgentVersionResolver`
+default (via `withMockAgentVersion*`), never an exported hook. The
+`docker.InstallFailFastGet` and `configpaths.InstallFailFastConfigPaths`
+installers stay required: `docker.Get`/`configpaths.Get` are still the boundary
+factories and still fail fast under tests, and the process-root residue named in
+`client-injection.md` reads them.
+
+The former exported behavior hooks (`vm.SetProjectVMLock`,
+`vm.SetDaemonHealthFunc`, `prepare.SetAgentLatestVersion`,
+`prepare.SetRuntimeHomeMigrationOffer`) are gone (#518). Their behavior is one
+`options.Seams` value carried on `options.RunOptions` (the vm stages receive it
+through `ProjectVMCreation.Seams` and the `SetUpSandbox` seams parameter); its
+zero value is production, and each consumer falls back to its package var when a
+field is nil. `cmd` threads the struct through its boundary `runSeams` var, so
+no test outside a package mutates that package's state to stub these behaviors.
+The package vars those seams default to (`daemonHealthFunc`,
+`acquireProjectVMLock`, `agentLatestVersion`, `offerRuntimeHomeMigration`,
+`buildVersionResolver`) stay unexported, and an in-package test that overrides
+one must still restore it with `t.Cleanup`/`defer`.
+
 The incident: `TestResolveBuildVersionPromptNamesThisProjectsVersion` replaced `agentLatestVersion` without restoring
 it, so the coverage tests asserting the real default closure passed at `-count=1` (alphabetical file order runs them
 first) but failed 19/20 at `-count=20`.
@@ -144,10 +189,25 @@ seam family is reached without its injectable factory. The remaining ambient pat
   `InstallFailFast` panic by default (tests opt in by overriding it); the temp WAV still goes to the real `os.TempDir`.
 - `os.Getuid`/`Getgid` (image build args), `os.Getwd` (workspace source), `time.Now` (names/polling/spinner), and
   `viperconfig`'s env reads are read-only or the input itself, not leaks.
+- The real `git` binary: tests that generate git artifacts — `internal/git`, `testutil.RunGit`, the bare-checkout CLI
+  tests, and the prepare outside-worktree flows — live behind the `integration` build tag in `<unit>_integration_test.go`,
+  so the default `go test ./...` executes no external command. `testutil.RunGit` also runs git with the developer's
+  global and system config neutralized (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, no askpass programs) and
+  with git's per-invocation config channels cleared (`GIT_CONFIG_PARAMETERS` and the
+  `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` triplet, which stay active even with the files disabled), so
+  a fixture commit can never reach commit signing or pop an askpass GUI (ksshaskpass). `TestUntaggedTestsExecuteNoAmbientTool`
+  (`real_command_contract_test.go`) enforces the split in the default suite: it walks every `_test.go` the default build
+  compiles and fails if one calls `testutil.RunGit`/`ConfigureRepo` — through a qualified or a same-package unqualified
+  call — or execs an ambient tool (`git`, `ssh`, `gpg`, `gh`,
+  `docker`, `msb`) named by an interpreted or raw string literal — a shell interpreter is allowed. A test that asserts on a
+  git-generated artifact still pins the setting it depends on in its own fixture — a linked worktree's recorded gitdir is
+  absolute only while `worktree.useRelativePaths` is false, and CI on a plain clone never exercises a developer's global
+  setting (`TestResolveIdentityOutsideWorktreeReportsSharedGitDir`). Because those tests are `integration`-tagged they are
+  outside the default coverage profile, so the test-support file `testgit.go` is excluded from the Codecov gate
+  (`.codecov.yml`); its pure `gitIsolationEnvironment` is unit-tested in `testgit_test.go`.
 
-`agent` and `filewalk` keep the docker fail-fast as their only backstop (every other family either cycles through
-`configpaths` or is declared in `notify`, which imports both). Keep any future host-path need in them injected, never
-global.
+`agent` and `filewalk` install every fail-fast family except `notify` (which imports both, so it cannot be installed
+from them). Keep any future host-path need in them injected, never global.
 
 ## Why (the incident this encodes)
 

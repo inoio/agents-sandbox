@@ -31,13 +31,15 @@ deny-by-default, allowlist-only policy.
   `private` or `host`, and enabling `public` never reaches your LAN, VPN, or host.
 - Profiles compose: set any combination of `public`, `private`, and `host` as a list, e.g. `profile: [public, host]`. The
   VM then gets the union of their rules. Duplicate profiles are ignored.
-- `profile: none` is a **terminal, allowlist-only** policy: egress is deny-by-default, ingress is allowed, and only the
-  gateway-DNS rule plus your explicit `egress-allow`/`egress-deny` lists apply. This is how you restrict the VM to a
+- `profile: none` is a **terminal, allowlist-only** policy: egress is deny-by-default, ingress is allowed, and only
+  your explicit `egress-allow`/`egress-deny` lists apply. DNS follows the same allow list: the VM resolves only names
+  that an `egress-allow` entry matches (see [DNS under `none`](#dns-under-none)). This is how you restrict the VM to a
   specific set of hosts. `none` cannot be combined with another profile.
 - **`host` opens every host port to the VM.** The group allows the whole host gateway, not a single service, so a VM
   that reaches a host MCP bridge can also reach anything else listening on the host. Combine it with `public` only when
   the VM must call a host service.
-- Rule order in the generated firewall: gateway DNS, then `egress-deny`, then the profile allow rules, then `egress-allow`.
+- Rule order in the generated firewall: gateway DNS (omitted under `none`), then `egress-deny`, then the profile allow
+  rules, then `egress-allow`.
   microsandbox matches the first rule that applies, so a deny entry takes precedence over the profile's broad allow. With
   `profile: public` and `egress-deny: [123.123.123.0/24]`, `123.123.123.5` is blocked even though the public profile would
   otherwise allow it. Likewise `egress-allow: [123.123.0.0/16]` with `egress-deny: [123.123.123.0/24]` denies
@@ -86,9 +88,71 @@ network:
     - 8.8.8.8:5353
 ```
 
+The VM's resolver is a microsandbox DNS proxy on the gateway, and the proxy queries the upstream from the host. A custom
+resolver's IP therefore does not need an `egress-allow` entry. Under `profile: none`, `dns-servers` only affects the
+names the allow list lets the VM resolve.
+
+## DNS under `none`
+
+Under the `public`, `private`, and `host` profiles, the VM resolves any name. Under `none`, the DNS proxy answers only
+names that an `egress-allow` entry matches and returns `NXDOMAIN` for every other name, without forwarding it
+upstream:
+
+| `egress-allow` entry | Resolves                                                  |
+|----------------------|-----------------------------------------------------------|
+| `api.example.com`    | `api.example.com` only                                    |
+| `.example.com`       | `example.com` and every name under it                     |
+| an IP or CIDR        | no names                                                  |
+| `host`               | every name (the gateway DNS proxy is on the host gateway) |
+
+This closes DNS as an exfiltration channel: with an empty or IP-only allow list, the VM cannot send data out by
+encoding it in a query name such as `<encoded-secret>.attacker.example`. Directly queried resolvers (e.g.
+`nslookup example.com 1.1.1.1`) are intercepted by the same proxy.
+
+`profile: none` is still not an air gap. Every allowed destination is a channel the agent can send data through,
+including over DNS-over-HTTPS when an allowed host serves it, and through any name under an allowed `.suffix` whose
+domain someone else controls. Allow-list only hosts you trust with the data in the VM.
+
 With `profile: none`, only the gateway DNS is auto-allowed, so a custom resolver's IP must also be listed in
 `egress-allow` (e.g. `egress-allow: [1.1.1.1]`) for DNS lookups to reach it.
 
 Claude Code normal login also requires egress to `platform.claude.com`, `claude.ai`, and `claude.com` in addition to
 `api.anthropic.com`. `agents-sandbox config migrate --agent claude-code` adds these hosts automatically; the first interactive start with Claude Code
 offers the same setup.
+## Published ports
+
+The `ports:` list publishes VM ports on the host so a service inside the sandbox (a dev server, a database) is
+reachable from the host machine. It is opt-in: nothing is published unless you configure it.
+
+| Entry            | Meaning                                                       |
+|------------------|---------------------------------------------------------------|
+| `3000`           | Publish guest port 3000 as host port 3000                     |
+| `8080:3000`      | Publish guest port 3000 as host port 8080                      |
+
+```yaml
+ports:
+  - "3000"        # guest 3000 -> host 3000
+  - 8080:3000     # guest 3000 -> host 8080
+```
+
+- TCP only; every entry binds to the host loopback (`127.0.0.1`), never the LAN.
+- Host ports must be unique — duplicates are rejected with an error, as are invalid specs (ports must be 1–65535).
+- Like the `network:` block, ports are baked in at VM creation: microsandbox cannot add published ports to a running
+  VM, so changing `ports:` recreates the VM on the next run (see
+  [Resource Config Application]({% link configuration/launcher.md %}#resource-config-application)). A run *without*
+  `ports:` against a VM that has them is such a change: the recreate drops the published ports.
+- When other clients are attached to the VM you can defer the recreate (keep the current VM); the change then applies
+  on the next run that recreates, and the launcher warns about the deferral instead of printing connection details
+  for ports the running VM does not carry.
+- The service inside the VM must listen on all interfaces (e.g. `--host 0.0.0.0` for common dev servers), not only the
+  guest loopback, for the published port to reach it.
+- `--serve-only` publishing is independent of this list: the agent server's dynamically allocated port is probed
+  around your configured host ports.
+
+For concrete walkthroughs — a dev server with hot reload, or a database inspected from the host — see
+[Expose a dev server]({% link recipes/expose-a-dev-server.md %}).
+
+It is also configurable via the `AGENTS_SANDBOX_PORTS` environment variable (comma-separated, e.g. `3000,8080:3000`)
+and the `--port`/`-p` flag on `run`/`shell` (comma-separated or repeated; matching msb's own `--port`). Precedence:
+**flag > env > config**.
+

@@ -13,7 +13,6 @@ import (
 	"unicode"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	cp "github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -387,7 +386,7 @@ func removeClaudeAuthentication(plan *Plan) error {
 }
 
 func appendClaudeSettingsEnv(files []File, claude agent.Agent, secretName, endpoint string) ([]File, error) {
-	userConfigDir, err := cp.Get().UserAgentConfigDir(claude)
+	userConfigDir, err := userAgentConfigDir(claude)
 	if err != nil {
 		return nil, err
 	}

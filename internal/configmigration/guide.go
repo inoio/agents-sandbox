@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	cp "github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -478,8 +477,8 @@ func hasManagedConfig(a agent.Agent, spec agent.ConfigMigrationSpec) bool {
 	if !ok {
 		return false
 	}
-	userDir, userErr := cp.Get().UserAgentConfigDir(a)
-	projectDir, projectErr := cp.Get().ProjectAgentConfigDir(a)
+	userDir, userErr := userAgentConfigDir(a)
+	projectDir, projectErr := projectAgentConfigDir(a)
 	if userErr != nil || projectErr != nil {
 		return false
 	}

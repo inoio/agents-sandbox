@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -20,13 +22,14 @@ type ImagePreview struct {
 // previewRunnerImage renders the plan + decision for a supplied Dockerfile and
 // decided version. It never builds and never resolves a version over the network.
 func previewRunnerImage(
-	ctx context.Context, a agent.Agent, projectDockerfile []byte, projectSlug string,
-	buildOpts BuildOptions, ui termio.UI,
+	ctx context.Context, dclient docker.Client, a agent.Agent, projectDockerfile []byte, projectSlug string,
+	buildOpts BuildOptions, ui termio.Logger,
 ) (ImagePreview, error) {
-	EmitDockerfileDiagnostics(ui, DiagnoseDockerfile(projectDockerfile, buildOpts.Docker))
+	project := parseProjectDockerfile(projectDockerfile)
+	EmitDockerfileDiagnostics(ui, project.diagnostics(buildOpts.Docker))
 	agentVersion, identityVersion, _ := initialBuildVersions(buildOpts)
 	_, tag, needsBuild, reasons, err := planRunnerImage(
-		ctx, a, projectDockerfile, projectSlug, buildOpts.Docker, agentVersion, identityVersion, buildOpts.Force,
+		ctx, dclient, a, project, projectSlug, agentVersion, identityVersion, buildOpts,
 	)
 	if err != nil {
 		return ImagePreview{}, err
@@ -37,25 +40,38 @@ func previewRunnerImage(
 	}, nil
 }
 
-// PreviewImage reports what EnsureImage would do without building anything.
+// PreviewImage reports what EnsureImage would do without building anything. The
+// project Dockerfile's bytes are an explicit input (see ReadProjectDockerfile).
 func PreviewImage(
-	ctx context.Context, a agent.Agent, projectSlug string, buildOpts BuildOptions, ui termio.UI,
+	ctx context.Context,
+	dclient docker.Client,
+	paths configpaths.ConfigPaths,
+	a agent.Agent,
+	projectSlug string,
+	projectDockerfile []byte,
+	buildOpts BuildOptions,
+	ui termio.Logger,
 ) (ImagePreview, error) {
-	WarnIgnoredProjectConfig(ui)
-	return previewRunnerImage(ctx, a, readProjectDockerfile(), projectSlug, buildOpts, ui)
+	WarnIgnoredProjectConfig(paths, ui)
+	return previewRunnerImage(ctx, dclient, a, projectDockerfile, projectSlug, buildOpts, ui)
 }
 
-// RunnerDockerfileID returns the content identity of the runner image this
-// project would build for the pinned agent version: the rendered Dockerfile
-// (agent profile plus on-disk project Dockerfile), the build-context assets, and
-// the version folded together. It is the value the build decision compares an
+// RunnerDockerfileID returns the content identity of the runner image a project
+// would build for the pinned agent version: the rendered Dockerfile (agent
+// profile plus on-disk project Dockerfile), the build-context assets, and the
+// version folded together. It is the value the build decision compares an
 // existing image's dockerfile-id label against. Exposed so callers outside this
 // package (e.g. higher-layer preview tests) can seed an image whose label
 // matches the plan this package computes.
 //
 //deadcode:ignore reason="exported for higher-layer preview tests to seed an image whose label matches this package's plan"
-func RunnerDockerfileID(a agent.Agent, agentVersion string, docker options.DockerSetting) (string, error) {
-	rendered, err := RenderProjectDockerfile(a, agentVersion, docker)
+func RunnerDockerfileID(
+	paths configpaths.ConfigPaths,
+	a agent.Agent,
+	agentVersion string,
+	docker options.DockerSetting,
+) (string, error) {
+	rendered, err := RenderProjectDockerfile(a, agentVersion, ReadProjectDockerfile(paths), docker)
 	if err != nil {
 		return "", err
 	}

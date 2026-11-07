@@ -1,6 +1,8 @@
-// Package vm queries and represents the sandbox VMs managed by the
-// launcher, mirroring the list/display helpers in the image and volume
-// packages.
+// Package vm holds the capabilities that act on a project VM: finding, naming,
+// creating, starting, stopping and removing it, setting up a running sandbox
+// (config files, startup hooks, dockerd, the agent daemon, the attach target),
+// adopting a legacy identity, and listing and inspecting VMs. Deciding what a
+// run needs from them is package prepare's job (specs/lifecycle.md).
 package vm
 
 import (
@@ -43,10 +45,8 @@ func FormatTime(t time.Time) string {
 }
 
 // ListSandboxes returns a list of sandbox VMs for the current host, filtered
-// by the given options.
-func ListSandboxes(ctx context.Context, opts ...ListOption) ([]Info, error) {
-	opt := mergeListOptions(opts)
-
+// by opt.
+func ListSandboxes(ctx context.Context, opt ListOption) ([]Info, error) {
 	handles, err := msb.Get().ListSandboxes(ctx, opt.Labels)
 	if err != nil {
 		return nil, fmt.Errorf("list sandboxes: %w", err)
@@ -83,23 +83,6 @@ func ListSandboxes(ctx context.Context, opts ...ListOption) ([]Info, error) {
 		result = result[:*opt.Limit]
 	}
 	return result, nil
-}
-
-// mergeListOptions folds the variadic options into one; later values win, and
-// the running/stopped flags accumulate.
-func mergeListOptions(opts []ListOption) ListOption {
-	var opt ListOption
-	for _, o := range opts {
-		if o.Labels != nil {
-			opt.Labels = o.Labels
-		}
-		if o.Limit != nil {
-			opt.Limit = o.Limit
-		}
-		opt.RunningOnly = opt.RunningOnly || o.RunningOnly
-		opt.StoppedOnly = opt.StoppedOnly || o.StoppedOnly
-	}
-	return opt
 }
 
 // statusMatchesFilter reports whether a sandbox status passes the running/

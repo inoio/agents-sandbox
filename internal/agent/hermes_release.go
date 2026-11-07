@@ -6,8 +6,6 @@ import (
 	"strings"
 )
 
-// hermesGitHubLatestURL is a var (not const) so the tests can point it at an
-// httptest server.
 var hermesGitHubLatestURL = "https://api.github.com/repos/NousResearch/hermes-agent/releases/latest"
 
 // latestHermesVersion returns the newest stable Hermes release string (leading

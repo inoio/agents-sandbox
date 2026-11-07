@@ -1,5 +1,5 @@
 ---
-description: Design for extending the launcher's self-upgrade with release channels - an `upgrade.channel` setting (`stable` default, `canary` for opted-in testers) where canary means "the newest release eligible for that channel" (a final release or a `canary`-identified prerelease), a tag-addressed download replacing the `/latest` URL, no downgrade path (leaving canary is "get the next release", with a documented manual reinstall as the immediate escape), an undocumented dev-only lever that lifts the `dev`-build short-circuit so a locally built binary can drive the real check/install, and the in-scope release-CI change that must classify a `v*-canary.N` tag as a GitHub prerelease and skip the Homebrew bump.
+description: Design for extending the launcher's self-upgrade with release channels - an `upgrade.channel` setting (`stable` default, `canary` for opted-in testers) where canary means "the newest release eligible for that channel" (a final release or a `canary`-identified prerelease), a tag-addressed download replacing the `/latest` URL, a switch back to stable only via an explicit `--channel` (a configured channel never downgrades), an undocumented dev-only lever that lifts the `dev`-build short-circuit so a locally built binary can drive the real check/install, and the in-scope release-CI change that classifies a `v*-canary.N` tag as a GitHub prerelease and skips the Homebrew bump.
 read_if: Implementing or reviewing self-upgrade release channels (`upgrade.channel`), canary resolution and eligibility, the tag-pinned release download, the undocumented dev-build upgrade lever, or the release CI's prerelease classification and the docs workflow's prerelease guard (`.github/workflows/pages.yml`).
 ---
 
@@ -21,16 +21,16 @@ builds short-circuit it.
 
 ## Goals
 
-- A config setting that selects which releases the launcher is willing to offer itself.
-- Canary prereleases reach only installs that opted in; stable installs never see one.
-- Canary testers roll forward onto the real release automatically when it ships, with no special rule.
+- A config setting selects which releases the launcher is willing to offer itself.
+- Canary prereleases reach only installs that opted in; a canary tester rolls forward onto the real release with no
+  special rule.
 - A locally built `dev` binary can drive the real resolution/install path.
-- Documentation: opt-in instructions, the canary install command, and the Homebrew non-story.
 
 ## Non-goals
 
-- **No downgrade.** `agents-sandbox upgrade` will not reinstall an older (stable) binary over a newer prerelease. See
-  [Why there is no downgrade](#why-there-is-no-downgrade).
+- **No implicit downgrade.** A configured channel never reinstalls an older binary. Only an explicit
+  `agents-sandbox upgrade --channel stable` may move a prerelease install onto an older stable; even then a stable release
+  is never downgraded.
 - **Homebrew installs are out of scope.** The tap only ever serves full releases, so the channel is inert for keg
   installs. This is documented, not silently ignored.
 - **No channel in persisted state.** The channel is configuration; `LauncherState` (`updates.launcher`) is unchanged.
@@ -43,8 +43,9 @@ builds short-circuit it.
 ## Anti-goals
 
 - A canary offered to a stable-channel install, however narrow the window.
-- A downgrade code path: an older launcher driving a newer runtime home and state would fail in ways that are expensive
-  to reason about. A feature that "technically works" but drags that tail in is a failure here.
+- An **implicit** downgrade: an older launcher driving a newer runtime home and state would fail in ways that are
+  expensive to reason about. Only an explicit `--channel` switch may move a prerelease install to an older stable;
+  nothing else re-offers an older binary.
 - The dev lever reachable by accident: it must stay undocumented and off unless explicitly set.
 
 ## Decisions the maintainer made
@@ -54,9 +55,12 @@ builds short-circuit it.
 - **`canary` is the only new channel.** Other prerelease channels come later if needed.
 - **The publishing CI change is in scope.** A `v*-canary.N` tag must not reach stable-channel installs and must not bump
   the Homebrew formula (see [Publishing](#publishing)).
-- **Leaving canary changes nothing immediately.** Setting `channel: stable` while on a prerelease leaves the install
-  where it is until the next release. In between, the canary stays.
-- **No user-triggered downgrade.** Dropped, not warned-about.
+- **Leaving canary: the default is to wait.** With `channel: stable` configured, the install stays on its prerelease
+  until a release newer than it ships. The immediate escape is the explicit switch below.
+- **The only downgrade is an explicit channel switch.** `UpgradeOptions.AllowChannelSwitch`, set by the `upgrade` command
+  from `cmd.Flags().Changed("channel")`, lets `agents-sandbox upgrade --channel stable` reinstall the newest stable over
+  a newer canary. A configured channel never downgrades: without the flag the command reports up-to-date and prints the
+  `agents-sandbox upgrade --channel stable` hint.
 - **The dev lever offers the newest release for the configured channel** and shortens the check interval to
   `MinInterval`; it does not name an exact tag and never removes the throttle.
 
@@ -70,14 +74,15 @@ A new key beside `upgrade.mode`/`upgrade.interval`:
 |-------------------|-------------------------|----------|--------------------------------|
 | `upgrade.channel` | `stable`, `canary`      | `stable` | `AGENTS_SANDBOX_UPGRADE_CHANNEL` |
 
-- Parsed by a new `upgrade.ParseChannel` mirroring `ParseMode` (case-insensitive, trimmed), with a `Channel` type so an
+- Parsed by `upgrade.ParseChannel` mirroring `ParseMode` (case-insensitive, trimmed), with a `Channel` type so an
   unknown value fails loudly.
-- Validated in `viperconfig.validateUpgrade`; added to `configEnvKeys` so the env binding and key listing stay
-  consistent.
+- Validated in `viperconfig.validateUpgrade`. The key is part of the derived config-key registry
+  (`viperconfig.configkeys.go` walks `UpgradeConfig.Channel`'s mapstructure tag), so the env binding and the key listing
+  follow from the struct rather than a hand edit.
 - A `Resolver.UpgradeChannel()` accessor, defaulting to `ChannelStable`.
-- Threaded into `upgrade.Options` and into `upgrade.Upgrade`.
-- The `upgrade` command respects the configured channel, and gains a one-shot `--channel` flag so a test-fest
-  instruction is a single command line.
+- Threaded into `upgrade.UpgradeOptions` and `upgrade.Upgrade`.
+- The `upgrade` command respects the configured channel, and gains a one-shot `--channel` flag so a test-fest instruction
+  is a single command line.
 
 ### Resolution
 
@@ -117,7 +122,7 @@ was resolved.
 
 An undocumented, test-only lever that lifts the `dev`-build short-circuit in `Check` and `Upgrade`:
 
-- Set via `AGENTS_SANDBOX_UPGRADE_ANY` (truthy). Read at the `cmd` boundary into an `upgrade.Options` field, so
+- Set via `AGENTS_SANDBOX_UPGRADE_ANY` (truthy). Read at the `cmd` boundary into an `upgrade.UpgradeOptions` field, so
   `internal/upgrade` stays pure and the behaviour is testable without the environment.
 - With it on, a current version that is empty, `dev`, or otherwise unparseable is treated as older than any release, so
   the newest release for the configured channel is offered and installable. A parseable current version behaves
@@ -135,55 +140,52 @@ An undocumented, test-only lever that lifts the `dev`-build short-circuit in `Ch
 - **Immediate, deterministic verification of the check/install mechanics:** the dev lever.
 - **A test fest:** set `upgrade.channel: canary` (or the one-shot flag) and run `agents-sandbox upgrade`, which ignores
   the interval. The automatic prompt then keeps the tester current at the normal cadence.
-- **Leaving canary now rather than at the next release:** reinstall the stable binary by hand, exactly as the install
-  docs already describe. No launcher code.
+- **Leaving canary now rather than at the next release:** `agents-sandbox upgrade --channel stable`, which switches even
+  onto an older stable. A configured `channel: stable` alone does not — it changes only what the automatic check offers
+  and prints the same hint.
 
-### Why there is no downgrade
+### Downgrade
 
-A downgrade makes an older binary read and rewrite state a newer canary may have written. The parsers ignore unknown
-fields, so nothing crashes, but the older binary's next write silently drops any field the canary added. Worse, the
-older launcher drives the private microsandbox runtime home, so it can force-reinstall an older runtime and then fail
-against a VM the newer launcher created. The convenience being bought is skipping a wait; the cost is an open-ended
-tail of version-skew bugs. It is dropped, and can be revisited if testers actually need it.
+A configured channel never reinstalls an older binary. The single exception is the explicit
+`agents-sandbox upgrade --channel stable`, which moves a prerelease install onto the newest stable even when it is older;
+the CLI grants `UpgradeOptions.AllowChannelSwitch` only for that flag. The restraint is deliberate: an older launcher
+reading and rewriting state a newer canary wrote does not crash (the parsers ignore unknown fields), but its next write
+silently drops the fields the canary added, and it drives the private microsandbox runtime home, so it can
+force-reinstall an older runtime and then fail against a VM the newer launcher created. The runtime's database is
+forward-only: once a launcher pinned to microsandbox v0.7.12 or later has opened the home, an older runtime refuses it
+("database schema is newer than this msb binary"), so the switch to an older stable fails outright until the user
+switches back with `--channel canary` (a plain `upgrade` on the stable channel reports up to date). That is documented,
+not guarded: the launcher cannot know the runtime an older release pins.
 
 ### Publishing
 
-Canaries are published as GitHub prereleases tagged `v<version>-canary.N`, and **the CI change that makes that true is
-part of this work**, because the current pipeline would publish a canary as a normal release.
-
-The tag-triggered `publish` job in `.github/workflows/ci.yml` runs on any `v*` tag and calls
-`softprops/action-gh-release@v3` with `tag_name`/`name`/`generate_release_notes`/`files` and no `prerelease` input,
-which defaults to `false`. The action does not infer a prerelease from a hyphen in the tag. So pushing
-`v1.9.0-canary.1` creates a normal release that `/releases/latest` serves, and `isNewer("1.8.0", "1.9.0-canary.1")` is
-true: every stable-channel install is offered the canary until someone flips the flag by hand — the anti-goal, and not a
-narrow window. The same job also force-pushes a Homebrew bump pinned to the canary tag, contradicting the Homebrew
-non-story.
+Canaries are published as GitHub prereleases tagged `v<version>-canary.N`, and the CI change that makes that true is part
+of this work. The tag-triggered `publish` job in `.github/workflows/ci.yml` runs on any `v*` tag and calls
+`softprops/action-gh-release@v3`, which defaults to a normal release and does not infer a prerelease from a hyphen in the
+tag. Without the change, `/releases/latest` would serve a canary and every stable-channel install would be offered it —
+the anti-goal, not a narrow window — and the job would force-push a Homebrew bump pinned to the canary tag.
 
 Required change:
 
-- The `publish` job classifies the tag as a prerelease when it carries a semver prerelease part, and passes
-  `prerelease: true` to `action-gh-release`. `make_latest` needs no change: GitHub does not allow a prerelease to be
-  "latest". The test is the **semver prerelease part**, not a hyphen test: build metadata may itself contain a hyphen
-  (`v1.9.0+build-42` is a final release), so strip a `+…` suffix before looking for the prerelease hyphen. Note the two
-  rules are independent — this flag is true for `-rc.N`/`-alpha.N` too, which are prereleases but not canary-eligible.
+- The `publish` job classifies the tag as a prerelease when it carries a semver prerelease part and passes
+  `prerelease: true`. `make_latest` needs no change: GitHub does not allow a prerelease to be "latest". The test is the
+  **semver prerelease part**, not a hyphen: build metadata may itself contain a hyphen (`v1.9.0+build-42` is a final
+  release), so strip a `+…` suffix before looking for the prerelease hyphen. It is independent of canary eligibility —
+  the flag is true for `-rc.N`/`-alpha.N` too.
 - The Homebrew bump steps are skipped for a prerelease tag, so the tap keeps pointing at a full release.
 
-The `release` job already resolves `BARE_VERSION=${GITHUB_REF_NAME#v}` and bakes it into the binary, which is what makes
-the canary report its own version and therefore be comparable — no change needed there. The release skill's step-8
-`gh release edit … --prerelease` becomes redundant for prereleases but stays harmless.
+The `release` job already resolves `BARE_VERSION=${GITHUB_REF_NAME#v}` and bakes it into the binary, so a canary reports
+its own version and is comparable; no change is needed there.
 
 Docs publishing falls out of the same classification. `.github/workflows/pages.yml` triggers on `release: published`, on
-`v*` tag pushes, and on manual dispatch, so a canary tag would otherwise build and deploy the Pages site, stamping the
-canary version into the footer. Its `classify` job resolves the tag (release tag, dispatch input, tag ref, else the
-newest final release tag) and sets a `prerelease` output by the same semver-prerelease-part rule; the `build`/`deploy`
-job runs only when that output is not `true`. The guard is unconditional — a manually dispatched prerelease tag is
-blocked too — because the Pages site is the stable-facing surface.
+`v*` tag pushes, and on manual dispatch, so a canary tag would otherwise stamp the canary version into the footer. Its
+`classify` job resolves the tag (release tag, dispatch input, tag ref, else the newest final release tag) and sets a
+`prerelease` output by the same semver-prerelease-part rule; `build`/`deploy` runs only when that output is not `true`,
+and the guard is unconditional — a manually dispatched prerelease tag is blocked too.
 
-Two constraints fall out of the design and belong to the publishing side:
-
-- Canary numbers must increase monotonically per version, and a published canary tag must never be re-pushed. The check
-  is version-string based, so a moved tag is neither newer nor re-offered.
-- The channel is inert until the first prerelease exists.
+Two constraints fall out on the publishing side: canary numbers must increase monotonically per version and a published
+canary tag must never be re-pushed (the check is version-string based, so a moved tag is neither newer nor re-offered),
+and the channel is inert until the first prerelease exists.
 
 ### Docs, changelog, deprecation
 
@@ -213,7 +215,9 @@ Two constraints fall out of the design and belong to the publishing side:
   (`1.9.0`) or a later canary.
 - **Homebrew installs never self-upgrade**, channel or not.
 - **The dev lever is invisible and inert by default.** With it unset, `dev`/empty builds behave exactly as before.
-- **No downgrade path exists.** No code reinstalls an older binary.
+- **Only an explicit channel switch downgrades.** A configured channel never installs an older release; a prerelease
+  install moves to an older stable only when `agents-sandbox upgrade --channel stable` is passed, and a stable release is
+  never downgraded.
 
 ## Edge cases
 
@@ -225,16 +229,7 @@ Two constraints fall out of the design and belong to the publishing side:
 - A prerelease tag that does not parse as semver: skipped when choosing the maximum.
 - A canary tester on `1.9.0-canary.3` when `1.9.0` ships: offered `1.9.0`, and thereafter rides the stable line while
   still flagged canary, so the next cycle's canaries reach them.
-- A canary tester who set `channel: stable`: no offer until a release newer than their prerelease exists.
+- A canary tester who set `channel: stable`: no offer until a release newer than their prerelease exists, unless they run
+  `agents-sandbox upgrade --channel stable` to switch now.
 - Dev lever on a release build: normal behaviour (the current version parses, so the lever changes nothing).
 - Dev lever with no releases reachable: nothing offered, same as today's network-failure path.
-
-## Left to the builder
-
-- Where the env var is read, and how the `MinInterval` cap is applied alongside an explicitly configured
-  `upgrade.interval` (the floor wins).
-- The exact canary release-listing call (page size, draft handling) and how the chosen tag is carried into the download.
-- How the `publish` job detects a prerelease tag (a semver prerelease part versus a known-identifier match) and how the
-  Homebrew steps are skipped for it.
-- Whether the prompt wording calls out "canary" explicitly or relies on the version string.
-- Test shape for both channels, the tag-pinned download, the dev lever, and the CI prerelease classification.

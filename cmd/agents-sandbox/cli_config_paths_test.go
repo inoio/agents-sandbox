@@ -126,7 +126,7 @@ func TestEnvLayerGlobCoversConfigLayers(t *testing.T) {
 		viperconfig.LayerNameFlags:             true,
 	}
 
-	for _, layer := range viperconfig.ConfigLayers("widget-bbb") {
+	for _, layer := range viperconfig.ConfigLayers(configpaths.Get(), "widget-bbb") {
 		if !known[layer.Name] {
 			t.Errorf("layer name %q is not one of the exported LayerName* constants", layer.Name)
 		}

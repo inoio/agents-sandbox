@@ -68,9 +68,8 @@ func resolveWorktreeProject(
 // recovery; it is empty for agents that keep a branch (v1). It is deliberately
 // not used on reuse: a reused worktree's checkout state is unknown, so claiming
 // one there would be wrong as soon as the user runs the suggested `git switch`.
-func worktreeDetachedNote(a agent.Agent) string {
-	reporter, ok := agent.AsDetachedWorktreeReporter(a)
-	if !ok || !reporter.WorktreeCreatesDetachedHead() {
+func worktreeDetachedNote(a agent.Resolved) string {
+	if a.DetachedWorktree == nil || !a.DetachedWorktree.WorktreeCreatesDetachedHead() {
 		return ""
 	}
 	return " (detached HEAD; run `git switch -c <branch>` to keep your commits)"
@@ -88,14 +87,14 @@ func worktreeDetachedNote(a agent.Agent) string {
 // launch directory (the guest CWD, e.g. `/workspace/<sub>`).
 func ResolveTarget(
 	ctx context.Context,
-	a agent.Agent,
+	a agent.Resolved,
 	sb msb.Sandbox,
 	spec options.WorktreeSpec,
 	defaultDir string,
-	ui termio.UI,
+	ui termio.Logger,
 ) (string, error) {
-	provider, hasWorktree := agent.AsWorktreeProvider(a)
-	if !hasWorktree {
+	provider := a.Worktree
+	if provider == nil {
 		return defaultDir, nil
 	}
 

@@ -1,0 +1,220 @@
+package configpaths
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestUserDirEnvOverride(t *testing.T) {
+	WithRealConfigPaths(t)
+	cfgPaths := Get()
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	if got := cfgPaths.UserStateDir(); got != filepath.Join(state, "agents-sandbox") {
+		t.Errorf("UserStateDir() = %q, want %q", got, filepath.Join(state, "agents-sandbox"))
+	}
+}
+
+func TestUserDirsDefaultToHome(t *testing.T) {
+	WithRealConfigPaths(t)
+	cfgPaths := Get()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("XDG_STATE_HOME", "")
+
+	wantConfig := filepath.Join(home, ".config", "agents-sandbox")
+	wantCache := filepath.Join(home, ".cache", "agents-sandbox")
+	wantState := filepath.Join(home, ".local", "state", "agents-sandbox")
+
+	if got := cfgPaths.UserConfigDir(); got != wantConfig {
+		t.Errorf("UserConfigDir() = %q, want %q", got, wantConfig)
+	}
+	if got := cfgPaths.UserCacheDir(); got != wantCache {
+		t.Errorf("UserCacheDir() = %q, want %q", got, wantCache)
+	}
+	if got := cfgPaths.UserStateDir(); got != wantState {
+		t.Errorf("UserStateDir() = %q, want %q", got, wantState)
+	}
+}
+
+func TestUserHomeDirReturnsHome(t *testing.T) {
+	WithRealConfigPaths(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	got, err := Get().UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir() error = %v", err)
+	}
+	if got != home {
+		t.Errorf("UserHomeDir() = %q, want %q", got, home)
+	}
+}
+
+func TestUserHomeDirErrorsWhenHomeUnset(t *testing.T) {
+	WithRealConfigPaths(t)
+	t.Setenv("HOME", "")
+	if _, err := Get().UserHomeDir(); err == nil {
+		t.Fatal("UserHomeDir() error = nil, want error when $HOME is unset")
+	}
+}
+
+func TestUserDirsUsesSeparateEnvVars(t *testing.T) {
+	WithRealConfigPaths(t)
+	cfgPaths := Get()
+	config := t.TempDir()
+	cache := t.TempDir()
+	state := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("XDG_CACHE_HOME", cache)
+	t.Setenv("XDG_STATE_HOME", state)
+
+	if got := cfgPaths.UserConfigDir(); got != filepath.Join(config, "agents-sandbox") {
+		t.Errorf("UserConfigDir() = %q, want %q", got, filepath.Join(config, "agents-sandbox"))
+	}
+	if got := cfgPaths.UserCacheDir(); got != filepath.Join(cache, "agents-sandbox") {
+		t.Errorf("UserCacheDir() = %q, want %q", got, filepath.Join(cache, "agents-sandbox"))
+	}
+	if got := cfgPaths.UserStateDir(); got != filepath.Join(state, "agents-sandbox") {
+		t.Errorf("UserStateDir() = %q, want %q", got, filepath.Join(state, "agents-sandbox"))
+	}
+}
+
+func TestUserDirIgnoresRelativeEnv(t *testing.T) {
+	WithRealConfigPaths(t)
+	cfgPaths := Get()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "relative/config")
+	want := filepath.Join(home, ".config", "agents-sandbox")
+	if got := cfgPaths.UserConfigDir(); got != want {
+		t.Errorf("UserConfigDir() = %q, want %q", got, want)
+	}
+}
+
+// TestUserSlugConfigDir pins the real (unmocked) per-slug user-config path, the
+// accessor viperconfig uses in place of its former inline Join.
+func TestUserSlugConfigDir(t *testing.T) {
+	WithRealConfigPaths(t)
+	t.Setenv("XDG_CONFIG_HOME", "/xdg/config")
+	got := Get().UserSlugConfigDir("widget-bbb")
+	want := filepath.Join("/xdg/config", "agents-sandbox", "widget-bbb")
+	if got != want {
+		t.Errorf("UserSlugConfigDir() = %q, want %q", got, want)
+	}
+}
+
+func TestProjectDirsAndFiles(t *testing.T) {
+	WithRealConfigPaths(t)
+	cfgPaths := Get()
+	if got := cfgPaths.ProjectDockerfile(); got != filepath.Join(projectConfigDir, DockerFileName) {
+		t.Errorf("ProjectDockerfile() = %q", got)
+	}
+}
+
+func TestUserDataDirHonorsXDGDataHome(t *testing.T) {
+	WithRealConfigPaths(t)
+	t.Setenv("XDG_DATA_HOME", "/tmp/xdg-data")
+	want := filepath.Join("/tmp/xdg-data", "agents-sandbox")
+	if got := Get().UserDataDir(); got != want {
+		t.Errorf("UserDataDir() = %q, want %q", got, want)
+	}
+}
+
+func TestUserDataDirDefaultsToLocalShare(t *testing.T) {
+	WithRealConfigPaths(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", "")
+	want := filepath.Join(home, ".local", "share", "agents-sandbox")
+	if got := Get().UserDataDir(); got != want {
+		t.Errorf("UserDataDir() = %q, want %q", got, want)
+	}
+}
+
+func TestProjectConfigDirAbs(t *testing.T) {
+	WithRealConfigPaths(t)
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Get().ProjectConfigDirAbs(); got != filepath.Join(wd, ".agents-sandbox") {
+		t.Errorf("ProjectConfigDirAbs() = %q, want %q", got, filepath.Join(wd, ".agents-sandbox"))
+	}
+}
+
+// TestWithRealConfigPathsPinsCwd pins the helper's contract: opting into the
+// real resolver also pins the CWD to a controlled, layout-free directory.
+// Starting inside a bare checkout's worktree is what makes the test fail if the
+// pin is dropped — an ordinary checkout passes either way — so the regression
+// this addresses is caught by ordinary CI, not only by a bare checkout.
+func TestWithRealConfigPathsPinsCwd(t *testing.T) {
+	pinHostDirs(t)
+	root := writeBareCheckout(t)
+	worktree := filepath.Join(root, "main")
+	t.Chdir(worktree)
+
+	// Sanity: the ambient layout is exactly the one the pin must neutralize.
+	if base, _ := resolveProjectConfig(worktree); base == projectConfigDir {
+		t.Fatalf("fixture %q is not a bare checkout; the test cannot prove the pin", worktree)
+	}
+
+	WithRealConfigPaths(t)
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wd == worktree {
+		t.Errorf("WithRealConfigPaths left the CWD in the bare worktree %q", worktree)
+	}
+	if got := Get().ProjectConfigDir(); got != projectConfigDir {
+		t.Errorf("ProjectConfigDir() = %q, want the relative %q after WithRealConfigPaths", got, projectConfigDir)
+	}
+	if got := Get().ProjectConfigDirAbs(); got != filepath.Join(wd, projectConfigDir) {
+		t.Errorf("ProjectConfigDirAbs() = %q, want %q under the pinned CWD", got, filepath.Join(wd, projectConfigDir))
+	}
+}
+
+// TestPinProjectCWDPanicsInsideABareCheckout covers the helper's fail-fast: a
+// temp dir inside a bare checkout still resolves to that checkout's bare root,
+// so it cannot serve as the pinned project CWD and must not be used silently.
+func TestPinProjectCWDPanicsInsideABareCheckout(t *testing.T) {
+	pinHostDirs(t)
+	root := writeBareCheckout(t)
+
+	assertPanics(t, func() { pinProjectCWD(root) })
+}
+
+func TestProjectConfigDirAbsFallsBackWhenCwdUnreadable(t *testing.T) {
+	WithRealConfigPaths(t)
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if got := Get().ProjectConfigDirAbs(); got != ".agents-sandbox" {
+		t.Errorf("ProjectConfigDirAbs() with an unreadable cwd = %q, want the relative fallback", got)
+	}
+}
+
+func TestMSBHomeUnderDataDir(t *testing.T) {
+	WithMockConfigPaths(t)
+	got := MSBHome()
+	want := filepath.Join(Get().UserDataDir(), "msb")
+	if got != want {
+		t.Errorf("MSBHome() = %q, want %q", got, want)
+	}
+}
+
+func assertPanics(t *testing.T, fn func()) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Error("expected panic, got none")
+		}
+	}()
+	fn()
+}

@@ -15,9 +15,120 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
+
+// TestResolvePruneAgeDefault pins the 7-day default as a literal.
+func TestResolvePruneAgeDefault(t *testing.T) {
+	cmd := buildPruneCmd(&termio.Mock{})
+	got, err := resolvePruneAge(cmd)
+	if err != nil {
+		t.Fatalf("resolvePruneAge: %v", err)
+	}
+	if got != 168*time.Hour {
+		t.Errorf("resolvePruneAge default = %v, want 168h", got)
+	}
+}
+
+// TestResolvePruneAgeNonPositiveResolverFallsBack pins that a resolver's
+// non-positive manual-prune-age falls back to the default.
+func TestResolvePruneAgeNonPositiveResolverFallsBack(t *testing.T) {
+	cmd := buildPruneCmd(&termio.Mock{})
+	cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{ManualPruneAge: 0})))
+
+	got, err := resolvePruneAge(cmd)
+	if err != nil {
+		t.Fatalf("resolvePruneAge: %v", err)
+	}
+	if got != 168*time.Hour {
+		t.Errorf("resolvePruneAge = %v, want the 168h fallback", got)
+	}
+}
+
+// TestResolvePruneAgeSmallPositiveResolverValue pins that any positive
+// resolver age is used, including one nanosecond (the > 0 guard, not > 1).
+func TestResolvePruneAgeSmallPositiveResolverValue(t *testing.T) {
+	cmd := buildPruneCmd(&termio.Mock{})
+	cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{ManualPruneAge: time.Nanosecond})))
+
+	got, err := resolvePruneAge(cmd)
+	if err != nil {
+		t.Fatalf("resolvePruneAge: %v", err)
+	}
+	if got != time.Nanosecond {
+		t.Errorf("resolvePruneAge = %v, want 1ns", got)
+	}
+}
+
+// TestResolvePruneAgeErrorReturnsZero pins the zero duration on both error paths.
+func TestResolvePruneAgeErrorReturnsZero(t *testing.T) {
+	t.Run("conflicting flags", func(t *testing.T) {
+		cmd := buildPruneCmd(&termio.Mock{})
+		_ = cmd.Flags().Set(flagOlderThan, "7d")
+		_ = cmd.Flags().Set(flagAge, "7d")
+		got, err := resolvePruneAge(cmd)
+		if err == nil {
+			t.Fatal("expected a conflict error")
+		}
+		if got != 0 {
+			t.Errorf("duration = %v, want 0 on error", got)
+		}
+	})
+	t.Run("invalid age", func(t *testing.T) {
+		cmd := buildPruneCmd(&termio.Mock{})
+		_ = cmd.Flags().Set(flagOlderThan, "bogus")
+		got, err := resolvePruneAge(cmd)
+		if err == nil {
+			t.Fatal("expected an invalid-age error")
+		}
+		if got != 0 {
+			t.Errorf("duration = %v, want 0 on error", got)
+		}
+	})
+}
+
+// TestResolvePruneFlagsErrorReturnsZero pins the error return's zero age and
+// false dry-run.
+func TestResolvePruneFlagsErrorReturnsZero(t *testing.T) {
+	cmd := buildPruneCmd(&termio.Mock{})
+	_ = cmd.Flags().Set(flagOlderThan, "bogus")
+
+	age, dryRun, err := resolvePruneFlags(cmd)
+	if err == nil {
+		t.Fatal("expected an invalid-age error")
+	}
+	if age != 0 {
+		t.Errorf("age = %v, want 0", age)
+	}
+	if dryRun {
+		t.Error("dryRun = true, want false on error")
+	}
+}
+
+// TestRunGroupPrunePropagatesError pins that the pruner's error is returned
+// rather than swallowed.
+func TestRunGroupPrunePropagatesError(t *testing.T) {
+	_, _ = setupCommandFixtures(t)
+	ui := &termio.Mock{IsInteractiveResult: true, ConfirmResult: true}
+	cmd := buildImagePruneCmd(ui)
+	errBoom := errors.New("boom")
+
+	err := runGroupPrune(cmd, ui,
+		func(context.Context, pruning.PruneState, bool, termio.UI) (struct{}, error) {
+			return struct{}{}, errBoom
+		},
+		func(struct{}, bool) {},
+		func(struct{}, bool) any { return struct{}{} },
+	)
+	if err == nil {
+		t.Fatal("runGroupPrune returned nil, want the pruner error")
+	}
+}
 
 type pruneJSONDetail struct {
 	Type            string `json:"type"`
@@ -191,7 +302,6 @@ func TestPrune(t *testing.T) {
 				docker.WithDefaultErrorDockerMock(t)
 
 				err := cmd.Execute()
-
 				if err != nil {
 					t.Fatalf("expected no error; got %s", err)
 				}
@@ -337,8 +447,8 @@ func TestPruneDeclined(t *testing.T) {
 	ui.ConfirmResult = false
 
 	err := cmd.Execute()
-	if err == nil || !strings.Contains(err.Error(), "cancelled") {
-		t.Fatalf("expected cancelled error, got: %v", err)
+	if !errors.Is(err, termio.ErrCancelled) {
+		t.Fatalf("expected termio.ErrCancelled, got: %v", err)
 	}
 	if vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
 		t.Error("expected no removals")
@@ -701,8 +811,8 @@ func checkSummary(t *testing.T, outCalls []string, expected string) {
 	}
 }
 
-// TestPruneCatalogError covers the live-state build failing during prune, which
-// surfaces the raw ListSandboxes error from the command.
+// TestPruneCatalogError pins that prune stops when it cannot list the live
+// sandboxes, surfacing the ListSandboxes error.
 func TestPruneCatalogError(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "prune", "--age", "7d", "--yes")
 	mock := &sandboxmsb.MockMsbClient{}
@@ -715,5 +825,21 @@ func TestPruneCatalogError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected 'boom' error, got: %v", err)
+	}
+}
+
+func TestResolvePruneAgeFromResolver(t *testing.T) {
+	ui := &termio.Mock{}
+	cmd := buildPruneCmd(ui)
+	ctx := context.WithValue(context.Background(), (*launcherConfigKey)(nil),
+		launcherconfig.NewResolverWithConfig(launcherconfig.Config{ManualPruneAge: 5 * time.Hour}))
+	cmd.SetContext(ctx)
+
+	d, err := resolvePruneAge(cmd)
+	if err != nil {
+		t.Fatalf("resolvePruneAge: %v", err)
+	}
+	if d != 5*time.Hour {
+		t.Errorf("resolvePruneAge = %v, want 5h", d)
 	}
 }

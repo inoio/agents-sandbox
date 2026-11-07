@@ -6,7 +6,7 @@ read_if: Implementing or reviewing the bare-layout project-config root fix, the 
 # Bare checkout project config root
 
 Status: merged (PR #247).
-Related: [bare-worktree-layout.md](bare-worktree-layout.md) (the `/workspace` bind rule this builds on; supersedes its "project config unchanged" implication). The `checkout-identity.md` extension of the same `configpaths` seam is not on main (#144's `config paths` shipped separately), so it is named rather than linked.
+Related: [bare-worktree-layout.md](bare-worktree-layout.md) (the `/workspace` bind rule this builds on; supersedes its "project config unchanged" implication) and [checkout-identity.md](checkout-identity.md) (the checkout-scoped identity that extends the same `configpaths` seam).
 
 ## Problem
 
@@ -25,8 +25,8 @@ But project config is resolved relative to the launching process's CWD, and the 
 worktree (`cd myproject/IDE; agents-sandbox`). So `<bare>/.agents-sandbox` is never read; the launcher reads
 `<bare>/IDE/.agents-sandbox`, which a worktree need not have at all. The Dockerfile, `config.yaml`, `env`,
 `env.secret`, home sources and agent config are all affected — `ProjectDockerfile`, `ProjectEnvFile` and
-`ProjectEnvSecretFile` join the `projectConfigDir` const directly, and `ProjectConfigDir`,
-`ProjectConfigDirAbs` and `ProjectAgentConfigDirCandidates` derive from it.
+`ProjectEnvSecretFile` join the `projectConfigDir` const directly, and `ProjectConfigDir` and
+`ProjectConfigDirAbs` derive from it.
 
 The intended shape is that the config branch is checked out at `<bare>/.agents-sandbox`, worktrees carry no
 `.agents-sandbox`, and templates (e.g. AGENTS.md) refer to the config at the bound root.
@@ -57,8 +57,7 @@ One project-config **base dir** replaces the implicit `$PWD`:
   (`run`, `shell`, `build`/`dockerfile`, the `volume …` ops, `config …`) — the consistency lesson #144 paid for,
   where `/tmp` vs `/private/tmp` must not change the answer.
 - Every project accessor resolves against it: `ProjectConfigDir`, `ProjectConfigDirAbs`, `ProjectDockerfile`,
-  `ProjectEnvFile`, `ProjectEnvSecretFile`, `ProjectEnvSecretYAMLFile`, and
-  `ProjectAgentConfigDirCandidates`/`ProjectAgentConfigDir`. Standing consumers (homeconfig home sources and
+  `ProjectEnvFile`, `ProjectEnvSecretFile`, and `ProjectEnvSecretYAMLFile`. Standing consumers (homeconfig home sources and
   hooks, `reprovision.ResolveConfigSource`, `envsecret.LoadEnvAndSecrets`, `viperconfig.mergeDir`,
   `image.readProjectDockerfile`) follow without their own special case. A partial routing — some accessors fixed,
   some not — is worse than no fix.
@@ -66,41 +65,44 @@ One project-config **base dir** replaces the implicit `$PWD`:
 
 Implementation facts that shape the resolver:
 
-- The discriminator is `core.bare` from the common git dir's `config`, read with go-git
-  (`config.ReadConfig` → `cfg.Core.IsBare`), the same route `internal/git/git.go`'s `originURL` uses. No host
-  `git` binary. `internal/git` imports no internal package, so `configpaths` may depend on it without a cycle.
-- `checkoutRoot` as `internal/git/workspace.go:25 ResolveWorkspaceLayout` already computes it is the bare root in
-  the bare layout, so the base dir is `checkoutRoot/.agents-sandbox` when `core.bare` and the worktree is inside
-  it. `ResolveWorkspaceLayout` cannot distinguish a bare root from a main checkout root today — both are
-  `Dir(.git)` — which is exactly why `core.bare` is needed.
+- The discriminator is `core.bare`, read with go-git (`config.ReadConfig` → `cfg.Core.IsBare`), the same route
+  `internal/git/git.go`'s `originURL` uses. It comes from the common git dir's `config` and, when
+  `extensions.worktreeConfig` is enabled, from that git dir's `config.worktree` too — git moves `core.bare` there
+  once the extension is set (a sparse worktree does), so the shared `config` alone would read a bare repo as
+  non-bare (see `internal/git/isBare`). No host `git` binary. `internal/git` imports no internal package, so it
+  stays a leaf the locator can live in without a cycle.
+- `git.BareCheckoutRoots` reports the bare root and the worktree root when cwd lies in a bare checkout whose
+  worktrees live inside it; it wraps `ResolveIdentity`, so the base dir is `<bare root>/.agents-sandbox` when
+  `core.bare` and the worktree is inside it. A bare root and a main checkout root both look like `Dir(.git)`,
+  which is exactly why `core.bare` (via `ResolveIdentity`) decides.
 - `ProjectConfigDir()` is deliberately **relative** today while `ProjectConfigDirAbs()` is absolute; a bare base
   is an absolute bare root. The representation is settled below.
 
-### Resolver ownership and representation (settled after the builder check)
+### Resolver ownership and representation
 
-- The real `configpaths` implementation resolves the base **lazily on each project accessor call** — no
-  memoization and no install hook — so CLI commands, direct library callers, and tests all see the same answer.
-  `configpaths` imports `internal/git` for the layout and `core.bare` fact (`internal/git` imports no internal
-  package, so there is no cycle); the mock seam keeps its current fixed-dir shape and does not consult git.
+- The real `configpaths` implementation resolves the base **lazily on each project accessor call**, so CLI
+  commands, direct library callers, and tests all see the same answer. It asks an injected locator —
+  `configpaths.UseBareCheckoutLocator`, installed in `cmd/agents-sandbox/main.go` with `git.BareCheckoutRoots`,
+  which wraps `ResolveIdentity` and reports the checkout root and worktree root — and memoizes the result per CWD
+  (`bareCheckoutCache`), since a checkout's layout does not change while the launcher runs. The dependency is
+  inverted this way, so `configpaths` does not import `internal/git` and `internal/git` stays a leaf. The mock
+  seam keeps its current fixed-dir shape and does not consult git.
 - Non-bare and non-repo keep today's behavior exactly: the relative `projectConfigDir` constant, resolved against
   the **logical** CWD at call time, no `EvalSymlinks` (an unreadable CWD degrades to the relative constant, as
   `ProjectConfigDirAbs` already did). Every string those accessors return today is unchanged, so
   existing unit tests hold.
-- Bare: the layout is derived from the **symlink-resolved** CWD (as the bind root is) and the base is the
-  absolute `<checkoutRoot>/.agents-sandbox`, so it equals the bind root. Only this branch pays `EvalSymlinks`.
+- Bare: the locator derives the layout from the **symlink-resolved** CWD (as the bind root is) and the base is the
+  absolute `<bare root>/.agents-sandbox`, so it equals the bind root. Only this branch pays `EvalSymlinks`.
 - "Byte-identical resolution to today" constrains the resolved file/dir for non-bare, not the returned
   representation, which stays as above.
-- **Sequencing: this lands before `checkout-identity.md` (#144).** Assume #144 is absent. The project accessors
-  stay singular; only the internal base-dir indirection is added, so #144's plural accessors and resolved identity
-  extend them additively later. Do not depend on #144 types, and do not pre-empt its interface changes.
 
 ### The ignored-worktree warning
 
 The resolver stays pure: it exposes the ignored directory as a fact through
 `configpaths.ConfigPaths.IgnoredWorktreeConfigDir`, empty when there is no ignored copy. The fact is the **worktree root**'s
-`.agents-sandbox` (`git.WorkspaceLayout.WorktreeRoot`, exposed for this; the layout already computed it), not one derived
-from the CWD — so a launch from any subdirectory of the worktree still detects the copy the bare root replaces, which a
-CWD-derived check missed (PR #247 review). A `.agents-sandbox` at a deeper subdirectory is not inspected; that is the
+`.agents-sandbox` reported by the locator (exposed for this), not one derived from the CWD — so a launch from any
+subdirectory of the worktree still detects the copy the bare root replaces, which a CWD-derived check missed (PR #247
+review). A `.agents-sandbox` at a deeper subdirectory is not inspected; that is the
 deferred layering extension's job. When the CWD is the bare root itself the worktree root *is* the bare root, so the
 ignored path equals the base: that is the directory being read, not an ignored copy — no warning (guard:
 `ignored == base`). One `termio`-facing helper, `image.WarnIgnoredProjectConfig`, warns from the image path

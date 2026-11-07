@@ -44,8 +44,8 @@ A changelog fragment is one file in `changelog.d/` at the repository root:
   bare number.
 - The directory may carry a short `README.md` describing the workflow (it renders in GitHub's
   directory view and is read by agents). The check ignores the towncrier-standard set —
-  `README.md`, `README.rst`, `.gitignore`, `.gitkeep`, `.keep` — so the directory can exist while
-  empty and be documented in place. Apart from those, it holds only fragment files.
+  `README.md`, `README.rst`, `README`, `.gitignore`, `.gitkeep`, `.keep` — so the directory can
+  exist while empty and be documented in place. Apart from those, it holds only fragment files.
 
 ## Assembly contract
 
@@ -89,10 +89,6 @@ are frozen — from adoption on, no change edits `[Unreleased]` directly. After 
 section is empty and `changelog.d/` is the only live record for the next cycle. Migrating the current
 entries into fragments is deliberately not done: it is a churn PR on the one file that still
 conflicts, and the entries age out in one cycle anyway.
-
-Open pull requests with code changes need a fragment before the `changelog` check joins the
-`protect main` ruleset: their next `synchronize` would otherwise fail the check, and a queued PR would
-be ejected. Add a fragment to each open code PR, then flip the ruleset.
 
 ## Non-goals
 

@@ -7,6 +7,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -36,6 +37,7 @@ type throwawaySandbox struct {
 // reported.
 func withThrowawaySandbox(
 	ctx context.Context,
+	dclient docker.Client,
 	client msb.Client,
 	k state.Key,
 	info image.ImageInfo,
@@ -43,7 +45,7 @@ func withThrowawaySandbox(
 	ui termio.UI,
 	payload func(sb msb.Sandbox, spin termio.Spinner) error,
 ) error {
-	info, err := image.EnsureLoaded(ctx, client, info, ui)
+	info, err := image.EnsureLoaded(ctx, dclient, client, info, ui)
 	if err != nil {
 		return fmt.Errorf("load runner image: %w", err)
 	}
@@ -56,7 +58,6 @@ func withThrowawaySandbox(
 		msbSdk.WithImage(info.Ref),
 		msbSdk.WithLabels(naming.TaskSandboxLabels(k.Slug, k.Agent)),
 		msbSdk.WithMounts(spec.mounts),
-		msbSdk.WithReplace(),
 	)
 	if err != nil {
 		if spin != nil {
@@ -68,7 +69,7 @@ func withThrowawaySandbox(
 	return payload(sb, spin)
 }
 
-func destroyThrowawaySandbox(sb msb.Sandbox, sandboxName, purpose string, ui termio.UI) {
+func destroyThrowawaySandbox(sb msb.Sandbox, sandboxName, purpose string, ui termio.Logger) {
 	destroyCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
 	defer cancel()
 	if err := sb.Destroy(destroyCtx); err != nil && !msb.IsReplaced(err) && !msb.IsNotFound(err) {

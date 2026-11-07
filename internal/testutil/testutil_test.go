@@ -3,6 +3,7 @@ package testutil
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"go.yaml.in/yaml/v3"
@@ -307,4 +308,25 @@ func indexOf(s, substr string) int {
 		}
 	}
 	return -1
+}
+
+func TestWritePathReportsAnUnwritablePath(t *testing.T) {
+	fake := &recordingTB{}
+	path := filepath.Join(t.TempDir(), "missing-dir", "file.txt")
+	message := captureFatalf(t, fake, func() {
+		WritePath(fake, path, "content")
+	})
+	if !strings.Contains(message, path) {
+		t.Errorf("WritePath fatal message %q does not name the path %q", message, path)
+	}
+}
+
+func TestWriteYAMLReportsAMarshalError(t *testing.T) {
+	fake := &recordingTB{}
+	message := captureFatalf(t, fake, func() {
+		WriteYAML(fake, t.TempDir(), "bad.yaml", map[string]any{"bad": failingMarshaler{}})
+	})
+	if !strings.Contains(message, "marshal yaml") {
+		t.Errorf("WriteYAML fatal message %q does not mention YAML marshalling", message)
+	}
 }

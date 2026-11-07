@@ -130,7 +130,7 @@ func Offer(ctx context.Context, client msb.Client, ui termio.UI) error {
 // proceed (it would reuse an unfinished destination), so it explains the
 // situation and blocks. In the pending state the offer is a best-effort
 // convenience and warns and skips instead.
-func handleOfferListingError(m state.Migration, ui termio.UI, err error) error {
+func handleOfferListingError(m state.Migration, ui termio.Logger, err error) error {
 	if m.Status != state.MigrationCopying {
 		ui.Warnf("skipping legacy home-volume copy offer: %v", err)
 		return nil

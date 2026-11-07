@@ -16,6 +16,7 @@ type codexProfile struct{}
 
 func (codexProfile) Name() string          { return codexName }
 func (codexProfile) ConfigDirName() string { return "codex" }
+func (codexProfile) Experimental() bool    { return true }
 
 // ImageSpec installs the codex-package release asset, the layout Codex's own
 // installer uses: bin/codex plus the helpers it resolves next to its real path
@@ -31,9 +32,9 @@ func (codexProfile) ImageSpec() ImageSpec {
 			`curl -fsSL "https://github.com/openai/codex/releases/download/rust-v${CODEX_VERSION}/codex-package-$(uname -m)-unknown-linux-musl.tar.gz" | ` +
 			`tar -xz -C /opt/agents-sandbox/codex && ` +
 			`ln -s ../codex/bin/codex /opt/agents-sandbox/bin/codex`,
-		RequiresNode:   false,
-		OwnedToolPaths: nil,
-		RuntimeLibs:    nil,
+		RequiresNode: false,
+		OwnsToolTree: false,
+		RuntimeLibs:  nil,
 	}
 }
 
@@ -44,6 +45,7 @@ func (codexProfile) NewerThan(a, b string) (bool, error) { return newerVersionTh
 
 // SnippetPattern matches TOML snippets, which merge into config.toml as TOML.
 func (codexProfile) SnippetPattern() string { return "config*.toml" }
+
 func (codexProfile) VMConfigPath(home string) string {
 	return filepath.Join(home, ".codex", codexConfigFileName)
 }

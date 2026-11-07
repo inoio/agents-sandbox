@@ -16,7 +16,8 @@ type opencodeProfile struct {
 	opencodeConfig
 }
 
-func (opencodeProfile) Name() string { return opencode1Name }
+func (opencodeProfile) Name() string       { return opencode1Name }
+func (opencodeProfile) Experimental() bool { return false }
 
 // GuestTools declares the daemon's in-VM runtime tools for the image-build check.
 func (opencodeProfile) GuestTools() []string { return daemonGuestTools }
@@ -30,7 +31,7 @@ func (opencodeProfile) ImageSpec() ImageSpec {
 		},
 		InstallCommand: `curl -fsSL https://opencode.ai/install | bash -s -- --version "$OPENCODE_VERSION" && cp /root/.opencode/bin/opencode /opt/agents-sandbox/bin`,
 		RequiresNode:   false,
-		OwnedToolPaths: nil,
+		OwnsToolTree:   false,
 		RuntimeLibs:    nil,
 	}
 }

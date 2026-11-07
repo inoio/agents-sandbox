@@ -1,6 +1,6 @@
 ---
 title: Agent configuration
-description: "Select and configure the coding agent run by agents-sandbox: opencode, opencode2, pi, Claude Code or Codex."
+description: "Select and configure the coding agent run by agents-sandbox: opencode, opencode2, pi, Claude Code, Codex, Hermes or Oh My Pi."
 layout: default
 parent: Configuration
 nav_order: 60
@@ -10,7 +10,7 @@ nav_order: 60
 
 agents-sandbox is agent-aware. A `--agent <name>` flag on `run`, `shell`, `build`, `volume`, `stop`, and `kill`
 selects the coding-agent profile to run, build, provision, or manage. The agent can also be selected via the `agent`
-config key or the `AGENTS_SANDBOX_AGENT` environment variable. Six agents ship as built-in profiles:
+config key or the `AGENTS_SANDBOX_AGENT` environment variable. Seven agents ship as built-in profiles:
 
 - **`opencode`** — daemon-based, with serve/attach, worktree sessions, and GitHub-release upgrade checks.
 - **`opencode2`** (default) — opencode 2 (beta), installed from its upstream installer (`https://opencode.ai/v2/install`); the
@@ -28,8 +28,16 @@ config key or the `AGENTS_SANDBOX_AGENT` environment variable. Six agents ship a
   to its `approval_policy`.
 - **`hermes`** — Hermes Agent, installed from its official installer at a pinned release tag and run interactively;
   upgrade checks via its GitHub releases.
+- **`oh-my-pi`** — [Oh My Pi](https://github.com/can1357/oh-my-pi) (binary `omp`), installed from its standalone GitHub
+  release binary after its checksum is verified, and run interactively; upgrade checks via its GitHub releases. Its
+  startup update check is turned off through a launcher-owned `--config` overlay, because agents-sandbox offers upgrades
+  itself. The binary is about 275 MB, so its runner image is larger than the others.
 
-`--worktree` and `--serve-only` are rejected for pi, claude-code, codex, and hermes (they have no daemon); they run through the
+> **Experimental agents:** `opencode` and `opencode2` are the tested default agents. Every other built-in
+> profile (`pi`, `claude-code`, `codex`, `hermes`, `oh-my-pi`) is **experimental** — not well tested with agents-sandbox.
+> The launcher prints a notice when an experimental agent is selected.
+
+`--worktree` and `--serve-only` are rejected for pi, claude-code, codex, hermes, and oh-my-pi (they have no daemon); they run through the
 interactive TUI instead. Passing an unsupported `--agent` name reports the valid names in its error message.
 
 > **Note:** opencode2 server auth — v2's `serve` requires HTTP basic auth on every `/api/*` route and would otherwise generate a
@@ -38,22 +46,25 @@ interactive TUI instead. Passing an unsupported `--agent` name reports the valid
 > `opencode` (there is no `OPENCODE_SERVER_USERNAME`), so the fixed credential is `opencode:opencode` — the value an
 > external `--serve-only` client must use to connect (see the [connect-desktop recipe]({% link recipes/connect-desktop.md %})).
 
-Each agent owns its config directories, one subdir per agent under the tool's config base:
+Each agent owns its config directories, one subdir per agent under the tool's config base, in precedence order:
 
-- **User:** `~/.config/agents-sandbox/<agent>/` (e.g. `~/.config/agents-sandbox/opencode/`, `~/.config/agents-sandbox/opencode2/`)
+- **Generic user:** `~/.config/agents-sandbox/<agent>/` (e.g. `~/.config/agents-sandbox/opencode/`, `~/.config/agents-sandbox/opencode2/`)
+- **Per-slug user:** `~/.config/agents-sandbox/<slug>/<agent>/` (repo slug, shared by every clone; e.g. `~/.config/agents-sandbox/myproject-<hash>/opencode2/`)
 - **Project:** `.agents-sandbox/<agent>/` (e.g. `.agents-sandbox/opencode/`, `.agents-sandbox/opencode2/`)
 
-While neither dir exists (and no legacy fallback applies), every `run` and `shell` prints an info line naming both
-paths, so a fresh install shows where launcher config goes. Creating either dir silences it.
+While no dir exists in any scope (and no legacy fallback applies), every `run` and `shell` prints an info line naming the
+paths, so a fresh install shows where launcher config goes. Creating one silences it.
 
 > **Note:** Legacy fallback, migrating from an older version — the `opencode2` launcher config dir is new. While **no**
-> `opencode2` dir exists in **either** scope, `opencode2` reads the old shared `opencode` dir — which the `opencode`
+> `opencode2` dir exists in **any** scope, `opencode2` reads the old shared `opencode` dir — which the `opencode`
 > agent also uses — and warns on every run while it falls back. To migrate, **copy** the files you want `opencode2` to
-> read from `~/.config/agents-sandbox/opencode/` into `~/.config/agents-sandbox/opencode2/` (and the project
-> equivalent); copy, not move, if you also use `opencode`. The two scopes switch together: as soon as an `opencode2`
-> dir exists in **either** the user or the project scope, **both** scopes read their `opencode2/` dir and the warning
-> stops — so copy **all** the files in one go, because a partial `opencode2/` dir disables the fallback for the other
-> scope too and silently ignores the leftovers. The guest `~/.config/opencode/` path is never affected.
+> read from `~/.config/agents-sandbox/opencode/` into `~/.config/agents-sandbox/opencode2/` (and the per-slug user and
+> project equivalents); copy, not move, if you also use `opencode`. The three scopes switch together: as soon as an
+> `opencode2` dir exists in **any** of the generic user, per-slug user, or project scope, **all three** scopes read
+> their `opencode2/` dir and the warning stops — so copy **all** the files in one go, because a partial `opencode2/`
+> dir disables the fallback for the other scopes too and silently ignores the leftovers. One consequence: a per-slug
+> `opencode2/` dir suppresses a generic `opencode/` fallback, because the single namespace choice spans every scope.
+> The guest `~/.config/opencode/` path is never affected.
 
 VMs, home volumes, and state are also scoped per agent: the sandbox name, home volume, and state file all carry the agent, so
 switching agents no longer tears down the project sandbox and multiple agents can serve the same project concurrently
@@ -63,7 +74,7 @@ switching agents no longer tears down the project sandbox and multiple agents ca
 
 agents-sandbox provisions a single agent config into the VM. No embedded provider or permission config is shipped.
 Instead, the agent config is assembled from **snippet files** that match the agent's snippet pattern, collected from the
-user and project directories, and written to the agent's VM config path:
+agent config directories (generic user, per-slug user, project), and written to the agent's VM config path:
 
 - **opencode** — snippets match `opencode*.json*` (e.g. `opencode-model.json`, `opencode-permissions.jsonc`); merged to
   `/home/dev/.config/opencode/opencode.jsonc`. A file named exactly `opencode.json` no longer merges by default.
@@ -75,12 +86,16 @@ user and project directories, and written to the agent's VM config path:
   `/home/dev/.codex/config.toml`, written as TOML.
 - **hermes** — snippets match `config*.yaml` in the `hermes/` subdir; merged to `/home/dev/.hermes/config.yaml`,
   written as YAML.
+- **oh-my-pi** — snippets match `config*.{yml,yaml}` in the `oh-my-pi/` subdir (e.g. `config-model.yml`); merged to
+  `/home/dev/.omp/agent/config.yml`, written as YAML. omp falls back to `config.yaml`, so both names are reserved for
+  the merged output.
 
-Matching files are parsed and **deep-merged** into one config document. The user directory is merged first, then the
-project directory; within each directory files are merged in alphabetical order, so later files override earlier ones.
+Matching files are parsed and **deep-merged** into one config document. The generic user directory is merged first, then
+the per-slug user directory, then the project directory; within each directory files are merged in alphabetical order,
+so later files override earlier ones.
 Snippet parsing supports JSON, JSONC, JSON5, YAML, and TOML, chosen by file extension (YAML only applies to agents whose
 pattern includes YAML extensions, e.g. a pattern like `pi-*.{json,yaml}`). The merged config is written as TOML when the
-agent's VM config path ends in `.toml` (codex), as YAML when it ends in `.yaml`/`.yml` (hermes), and as JSON otherwise.
+agent's VM config path ends in `.toml` (codex), as YAML when it ends in `.yaml`/`.yml` (hermes, oh-my-pi), and as JSON otherwise.
 
 If no snippet files exist, no merged config is produced.
 
@@ -95,8 +110,9 @@ See the [permissions example](#example-permissions) for a concrete snippet.
 
 ## Verbatim config directory mirror
 
-Beyond the snippet merge, the `<agent>` config directories (`~/.config/agents-sandbox/<agent>/` and
-`.agents-sandbox/<agent>/`) act as a **1:1 verbatim mirror** of the agent's VM config directory. Every file and
+Beyond the snippet merge, the `<agent>` config directories (`~/.config/agents-sandbox/<agent>/`,
+`~/.config/agents-sandbox/<slug>/<agent>/`, and `.agents-sandbox/<agent>/`) act as a **1:1 verbatim mirror** of the
+agent's VM config directory. Every file and
 subdirectory in them is copied verbatim into the VM, preserving its relative path (for opencode: `tui.json`, `AGENTS.md`,
 `agents/`, `commands/`, `themes/`, `plugins/`, `skills/`, `tools/`, …). This makes your whole agent setup available in
 the VM without extra configuration. For `opencode2`, read from its own `opencode2/` dirs rather than the shared
@@ -104,7 +120,7 @@ the VM without extra configuration. For `opencode2`, read from its own `opencode
 
 Two families of files are *not* mirrored:
 
-- Files matching the agent's snippet pattern (`opencode*.json*`, `settings*.json*`, `config*.toml`) are **deep-merged** (see [Config
+- Files matching the agent's snippet pattern (`opencode*.json*`, `settings*.json*`, `config*.toml`, …) are **deep-merged** (see [Config
   snippet merge](#config-snippet-merge)), never mirrored.
 - The agent's config-file family (for opencode: `config.json`, `opencode.json`, `opencode.jsonc`, …) is **reserved for
   the merged output** and never mirrored, so a mirror copy cannot shadow the merged snippet config.
@@ -130,7 +146,10 @@ tradeoff, see [Unsafe host-config drop-in]({% link provision-host-config.md %}).
 The drop-in copy is limited to these native paths; files outside them are not copied:
 
 - **opencode** — `~/.config/opencode/**` (excluding `node_modules/`, `package*.json`, and `.gitignore`) plus
-  `~/.local/share/opencode/auth.json`.
+  `~/.local/share/opencode/auth.json`. `node_modules/` is not copied because packages built on your machine do not
+  run reliably in the Linux VM. When `~/.config/opencode/package.json` lists `dependencies`, `agents-sandbox run`
+  warns that plugins importing them will not load; install them inside the VM as described in
+  [Install Opencode Plugin Dependencies]({% link recipes/opencode-plugin-dependencies.md %}).
 - **opencode2** — same drop-in copy as `opencode` (`~/.config/opencode/**` and `~/.local/share/opencode/auth.json`).
 - **pi** — files under `~/.pi/agent/` except `auth.json` and `models.json`.
 - **claude-code** — `~/.claude/settings.json`; the host's machine-managed `.credentials.json` is not copied. A user can
@@ -138,6 +157,9 @@ The drop-in copy is limited to these native paths; files outside them are not co
 - **codex** — `~/.codex/config.toml` (sessions, logs, and the `auth.json` login cache are not copied).
 - **hermes** — `~/.hermes/config.yaml` (the rest of `~/.hermes` — `state.db`, `sessions/`, `memories/`, `skills/` — is
   runtime state and is not copied; credentials in `~/.hermes/.env` are never copied).
+- **oh-my-pi** — `~/.omp/agent/config.yml` or `config.yaml` (the rest of `~/.omp` — sessions, `agent.db`, the
+  extracted native addon — is runtime state and is not copied; `models.yml` and `~/.omp/agent/.env` can hold literal
+  provider keys and are never copied).
 
 Precedence is, from strongest to weakest: `home:` mappings, merged snippet config, the verbatim config-directory mirror, and the
 host-config drop-in.
@@ -186,8 +208,8 @@ Safe migration (the default, and what first-run guidance offers) classifies nati
   files, allows the login hosts, and you authenticate inside the persistent sandbox home. Claude Code is the login-only
   case: it declares no migratable credential file and pre-allows its login hosts.
 
-For pi, claude-code, codex, and hermes, the drop-in copy does not include credential files. pi, claude-code, and hermes
-authenticate with env secrets instead; codex logs in inside the VM:
+For pi, claude-code, codex, hermes, and oh-my-pi, the drop-in copy does not include credential files. pi, claude-code,
+hermes, and oh-my-pi authenticate with env secrets instead; codex logs in inside the VM:
 
 - **pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (see pi's docs for the
   full list). Put them in an `env.secret` / `env.secret.yaml` file.
@@ -199,6 +221,8 @@ authenticate with env secrets instead; codex logs in inside the VM:
 - **hermes** — the provider key Hermes is configured to use (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
   `OPENROUTER_API_KEY`, …), supplied through `env.secret`. Hermes reads the process environment, so nothing needs to be
   written into its `.env`.
+- **oh-my-pi** — per-provider env vars, e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, supplied through
+  `env.secret`. omp reads the process environment, so nothing needs to be written into `~/.omp/agent/.env`.
 - **opencode** — `OPENCODE_API_KEY`.
 
 This is independent of `provision-host-config`: the unsafe drop-in copies whole files (including raw `auth.json`
@@ -270,3 +294,28 @@ project). Place a snippet in your project, e.g. `.agents-sandbox/opencode/permis
 > **Warning:** these rules are advisory for opencode's own Q&A tools. The `bash` tool executes arbitrary commands inside
 > the VM and can read any file regardless of these deny rules, so they are not a security boundary — keep secrets out of
 > the VM or rely on the [secret mechanism]({% link configuration/secrets.md %}) instead.
+
+## Capability support matrix
+
+Every agent attaches interactively in the VM and supports config snippet merge, host-config drop-in, and
+version/upgrade checks. Beyond that base, coverage differs by agent:
+
+- ✅ **Supported** — agents-sandbox implements it for this agent.
+- ◐ **Supportable** — the agent exposes a surface agents-sandbox could use, but does not implement yet.
+- ✖ **Unsupported** — the agent has no such surface.
+
+| Capability | `opencode` | `opencode2` | `pi` | `claude-code` | `codex` | `hermes` | `oh-my-pi` |
+|---|---|---|---|---|---|---|---|
+| Interactive attach | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Config snippet merge | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Host-config drop-in | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Version + upgrade check | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Serve/attach daemon | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ |
+| Worktree sessions | ✅ | ✅ | ✖ | ✖ | ✖ | ✖ | ◐ |
+| Notify event stream | ✅ | ✅ | ✖ | ✖ | ◐ | ◐ | ◐ |
+| Session quiescence | ✅ | ✖ | ✖ | ✖ | ✖ | ✖ | ✖ |
+
+The ◐ entries name an upstream surface agents-sandbox has not wired up: `codex app-server` (a JSON-RPC daemon with a
+turn/item event stream) for Codex, `hermes serve` / `hermes chat --format stream-json` for Hermes, and `omp --mode rpc` /
+`omp acp` (stdio servers) and the `omp worktree` CLI for Oh My Pi.
+

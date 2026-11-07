@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -301,6 +303,135 @@ func descriptionStartCol(line string) int {
 
 func isTreeChar(r rune) bool {
 	return r == '│' || r == '├' || r == '└' || r == '─' || r == ' '
+}
+
+// TestPrintTreeConnectorLayout pins the exact tree rendering for a synthetic
+// command: the connector choice (├── / └──), the child-prefix continuation, the
+// description padding constant, and the trailing blank line. Comparing the full
+// slice keeps every branch and the alignment arithmetic load-bearing.
+func TestPrintTreeConnectorLayout(t *testing.T) {
+	root := &cobra.Command{Use: "root"}
+	alpha := &cobra.Command{Use: "alpha", Short: "first"}
+	alpha.AddCommand(&cobra.Command{Use: "inner", Short: "nested"})
+	beta := &cobra.Command{Use: "beta", Short: "second"}
+	// The last sibling carries a child so the isLast child-prefix branch is
+	// load-bearing.
+	beta.AddCommand(&cobra.Command{Use: "inner2", Short: "nested2"})
+	root.AddCommand(alpha, beta)
+
+	ui := &termio.Mock{}
+	printTree(root, ui)
+
+	want := []string{
+		"root",
+		"├── alpha       first",
+		"│   └── inner   nested",
+		"└── beta        second",
+		"    └── inner2  nested2",
+		"",
+		"When invoked without a subcommand, the \"run\" command is implied.",
+	}
+	if len(ui.InfoCalls) != len(want) {
+		t.Fatalf("InfoCalls = %#v, want %#v", ui.InfoCalls, want)
+	}
+	for i := range want {
+		if ui.InfoCalls[i] != want[i] {
+			t.Errorf("InfoCalls[%d] = %q, want %q", i, ui.InfoCalls[i], want[i])
+		}
+	}
+}
+
+// TestCollectTreeEntriesIncludesEveryAnnotationArg pins that all positional-arg
+// annotations become entries: a range break or a dropped append after the first
+// would hide the later ones.
+func TestCollectTreeEntriesIncludesEveryAnnotationArg(t *testing.T) {
+	cmd := &cobra.Command{
+		Use: "synthetic",
+		Annotations: map[string]string{
+			annotationArgs: `[{"name":"[ONE]","help":"one"},{"name":"[TWO]","help":"two"}]`,
+		},
+	}
+	var entries []treeEntry
+	collectTreeEntries(&entries, cmd, cmd, "")
+
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.name)
+	}
+	joined := strings.Join(names, "\n")
+	if !strings.Contains(joined, "[ONE]") || !strings.Contains(joined, "[TWO]") {
+		t.Errorf("entries = %v, want both [ONE] and [TWO]", names)
+	}
+}
+
+// TestArgsFromAnnotationsPartialSliceReturnsNil pins that an array whose first
+// element decodes before a later type error is discarded: json.Unmarshal
+// pre-validates syntax, so only a type error leaves a partially populated slice,
+// which the guard must drop rather than return.
+func TestArgsFromAnnotationsPartialSliceReturnsNil(t *testing.T) {
+	cmd := &cobra.Command{
+		Annotations: map[string]string{annotationArgs: `[{"name":"[ONE]","help":"one"},{"name":123}]`},
+	}
+	if got := argsFromAnnotations(cmd); got != nil {
+		t.Errorf("expected nil for a partially decoded array, got %v", got)
+	}
+}
+
+// TestCollectTreeEntriesTreatsDirectChildrenAsTopLevel pins that a direct child
+// is passed isTopLevel=true, so its also-as annotation is rendered.
+func TestCollectTreeEntriesTreatsDirectChildrenAsTopLevel(t *testing.T) {
+	root := &cobra.Command{Use: "root"}
+	child := &cobra.Command{Use: "child", Annotations: map[string]string{annotationAlsoAs: "alias"}}
+	root.AddCommand(child)
+
+	var entries []treeEntry
+	collectTreeEntries(&entries, root, root, "")
+
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.name)
+	}
+	if !strings.Contains(strings.Join(names, "\n"), "child (also: alias)") {
+		t.Errorf("direct child entry = %v, want it to carry the also-as annotation", names)
+	}
+}
+
+// TestFormatCommandNameAlsoAs pins the also-as annotation rules: it is shown
+// only when the command has the annotation and is top level.
+func TestFormatCommandNameAlsoAs(t *testing.T) {
+	tests := []struct {
+		name          string
+		aliases       []string
+		alsoAs        string
+		hasAnnotation bool
+		isTopLevel    bool
+		want          string
+	}{
+		{"no aliases, top level annotation", nil, "sandbox run", true, true, "run (also: sandbox run)"},
+		{"no aliases, nested annotation omitted", nil, "sandbox run", true, false, "run"},
+		{"no aliases, top level no annotation", nil, "", false, true, "run"},
+		{"aliases, top level no annotation", []string{"ls"}, "", false, true, "run (aliases: ls)"},
+		{"aliases, nested annotation omitted", []string{"ls"}, "sandbox list", true, false, "run (aliases: ls)"},
+		{
+			"aliases, top level annotation",
+			[]string{"ls"},
+			"sandbox list",
+			true,
+			true,
+			"run (aliases: ls, also: sandbox list)",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := &cobra.Command{Use: "run", Aliases: tc.aliases}
+			if tc.hasAnnotation {
+				cmd.Annotations = map[string]string{annotationAlsoAs: tc.alsoAs}
+			}
+			if got := formatCommandName(cmd, tc.isTopLevel); got != tc.want {
+				t.Errorf("formatCommandName = %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestPrintTreeContainsSandboxCompact(t *testing.T) {

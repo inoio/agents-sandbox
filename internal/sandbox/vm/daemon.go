@@ -8,6 +8,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -15,10 +16,10 @@ var daemonReadyTimeout = 60 * time.Second
 
 var daemonPollInterval = 2 * time.Second
 
-// daemonHealthFunc is the test seam for the daemon health probe, matching the
-// ensureInstalled pattern in doctor.go. Tests override this; production code
-// leaves the default. Only the health probe goes through it: the daemon itself
-// is started and stopped as a runtime-owned job, not by a shell command.
+// daemonHealthFunc is the production daemon health probe, the default a test
+// overrides through options.Seams.DaemonHealth. Only the health probe goes
+// through it: the daemon itself is started and stopped as a runtime-owned job,
+// not by a shell command.
 var daemonHealthFunc = func(ctx context.Context, sb msb.Sandbox, command string) (string, int, error) {
 	out, err := sb.Shell(ctx, command)
 	if err != nil {
@@ -27,82 +28,60 @@ var daemonHealthFunc = func(ctx context.Context, sb msb.Sandbox, command string)
 	return out.Stdout(), out.ExitCode(), nil
 }
 
-// SetDaemonHealthFunc replaces the daemonHealthFunc factory used by
-// ensureDaemon with one that returns the provided function. The original
-// factory is returned so callers can restore it after their test.
-//
-//deadcode:ignore reason="test seam replacing the daemon health probe"
-func SetDaemonHealthFunc(
-	f func(ctx context.Context, sb msb.Sandbox, command string) (string, int, error),
-) func(ctx context.Context, sb msb.Sandbox, command string) (string, int, error) {
-	orig := daemonHealthFunc
-	daemonHealthFunc = f
-	return orig
+// daemonHealth returns the health probe for this ensure: the injected seam when
+// a test set one, else daemonHealthFunc.
+func daemonHealth(seams options.Seams) func(
+	ctx context.Context, sb msb.Sandbox, command string,
+) (string, int, error) {
+	if seams.DaemonHealth != nil {
+		return seams.DaemonHealth
+	}
+	return daemonHealthFunc
 }
 
 // ensureDaemon guarantees the agent's serve daemon is healthy inside the VM as
-// a runtime-owned detached job. It health checks via the provider's command; if
-// unhealthy (or force is set, as for a config restart), it kills any stale
-// daemon job, launches a fresh one via ExecDetached, and waits until healthy or
-// timeout. An agent without a daemon provider is a no-op.
+// a runtime-owned detached job, through the shared ensureDetachedService recipe.
+// It health checks via the provider's command; if unhealthy (or force is set, as
+// for a config restart), it kills any stale daemon job, launches a fresh one,
+// and waits until healthy or timeout. An agent without a daemon provider is a
+// no-op. The health probe comes from seams (the production default when nil).
 func ensureDaemon(
 	ctx context.Context,
-	a agent.Agent,
+	a agent.Resolved,
 	serveOnly, force bool,
 	sb msb.Sandbox,
-	ui termio.UI,
+	ui termio.Logger,
+	seams options.Seams,
 ) error {
-	provider, ok := agent.AsDaemonProvider(a)
-	if !ok {
+	provider := a.Daemon
+	if provider == nil {
 		return nil
 	}
 
-	if !force {
-		if probe := probeDaemonHealth(ctx, sb, provider); probe.healthy {
-			ui.Verbosef("%s daemon already healthy", a.Name())
-			return nil
-		} else if probe.detail != "" {
-			ui.Verbosef("%s daemon not healthy: %s", a.Name(), probe.detail)
-		}
-	}
-
 	command := provider.DaemonCommand(serveOnly)
-	ui.Verbosef("starting %s serve daemon", a.Name())
-	helper := agentDaemonHelper(command.Binary)
-	killJobs(ctx, sb, helper, ui)
-
-	binary, args := helper.markedCommand(command.Args)
-	job, startErr := sb.ExecDetached(ctx, binary, args)
-	if startErr != nil {
-		return fmt.Errorf("start %s serve: %w", a.Name(), startErr)
-	}
-	defer func() {
-		if closeErr := job.Close(); closeErr != nil {
-			ui.Verbosef("closing %s job handle failed: %v", a.Name(), closeErr)
-		}
-	}()
-
-	probe := func(probeCtx context.Context) (bool, string) {
-		p := probeDaemonHealth(probeCtx, sb, provider)
-		return p.healthy, p.detail
-	}
-	onUnhealthy := func(detail string) {
-		ui.Verbosef("Polling for daemon health: %s", detail)
-	}
-	label := a.Name() + " daemon"
-	if readyErr := awaitJobReady(
-		ctx,
-		job,
-		label,
-		probe,
-		onUnhealthy,
-		daemonReadyTimeout,
-		daemonPollInterval,
-	); readyErr != nil {
-		return readyErr
-	}
-	ui.Verbosef("%s daemon is healthy", a.Name())
-	return nil
+	health := daemonHealth(seams)
+	return ensureDetachedService(ctx, sb, ui, detachedService{
+		helper: agentDaemonHelper(command.Binary),
+		probe: func(probeCtx context.Context) (bool, string) {
+			probe := probeDaemonHealth(probeCtx, health, sb, provider)
+			return probe.healthy, probe.detail
+		},
+		onUnhealthy: func(detail string) {
+			ui.Verbosef("Polling for daemon health: %s", detail)
+		},
+		label:      a.Profile.Name() + " daemon",
+		startLabel: a.Profile.Name() + " serve",
+		launchArgs: func(context.Context) ([]string, string, error) {
+			return command.Args, "starting " + a.Profile.Name() + " serve daemon", nil
+		},
+		timeout:               daemonReadyTimeout,
+		pollInterval:          daemonPollInterval,
+		skipPreCheck:          force,
+		alreadyHealthyNote:    a.Profile.Name() + " daemon already healthy",
+		preCheckUnhealthyNote: a.Profile.Name() + " daemon not healthy: %s",
+		readyNote:             a.Profile.Name() + " daemon is healthy",
+		closeNote:             "closing " + a.Profile.Name() + " job handle failed: %v",
+	})
 }
 
 // daemonProbe is the outcome of a single health probe, carrying enough detail
@@ -113,11 +92,16 @@ type daemonProbe struct {
 	detail  string
 }
 
-// probeDaemonHealth runs the provider's health command once and classifies the
-// result. A healthy probe carries no detail; an unhealthy one carries a
-// human-readable explanation for verbose logging.
-func probeDaemonHealth(ctx context.Context, sb msb.Sandbox, provider agent.DaemonProvider) daemonProbe {
-	stdout, exitCode, err := daemonHealthFunc(ctx, sb, provider.DaemonHealthCmd())
+// probeDaemonHealth runs the provider's health command once through health and
+// classifies the result. A healthy probe carries no detail; an unhealthy one
+// carries a human-readable explanation for verbose logging.
+func probeDaemonHealth(
+	ctx context.Context,
+	health func(ctx context.Context, sb msb.Sandbox, command string) (string, int, error),
+	sb msb.Sandbox,
+	provider agent.DaemonProvider,
+) daemonProbe {
+	stdout, exitCode, err := health(ctx, sb, provider.DaemonHealthCmd())
 	if err != nil {
 		return daemonProbe{healthy: false, detail: fmt.Sprintf("health probe failed: %v", err)}
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -13,16 +14,789 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
-func TestMockVolumeHandleImplementsInterface(_ *testing.T) {
-	var _ VolumeHandle = (*MockVolumeHandle)(nil)
-	v := &MockVolumeHandle{}
-	_ = v.IsDefault()
-	_ = v.QuotaMiB()
-	_ = v.UsedBytes()
-	_ = v.CapacityBytes()
-	_ = v.DiskFormat()
-	_ = v.DiskFstype()
-	_ = v.Labels()
+func TestRuntimePreparationHelpers(t *testing.T) {
+	previousGet := Get
+	Get = realGetFactory
+	t.Cleanup(func() { Get = previousGet })
+	if !IsRealClient() {
+		t.Fatal("default client should be real")
+	}
+	WithMsbMock(t, &MockMsbClient{})
+	if IsRealClient() {
+		t.Fatal("a mock client must not report as real")
+	}
+	Get = realGetFactory
+	previous := skipRuntimeInstall
+	t.Cleanup(func() { skipRuntimeInstall = previous })
+	SkipRuntimeInstall()
+	if err := (&realMsbClient{}).EnsureInstalled(context.Background()); err != nil {
+		t.Fatalf("EnsureInstalled after skip = %v", err)
+	}
+}
+
+// TestValidateInstalledPassesPrivateHome asserts the resolve call names the
+// private home explicitly instead of relying on the process-global MSB_HOME.
+func TestValidateInstalledPassesPrivateHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantHome := configpaths.MSBHome()
+
+	orig := resolveRuntime
+	resolveRuntime = func(config msbSdk.RuntimeConfig) (msbSdk.ResolvedRuntime, error) {
+		if config.Home != wantHome {
+			t.Errorf("RuntimeConfig.Home = %q, want %q", config.Home, wantHome)
+		}
+		return msbSdk.ResolvedRuntime{}, errors.New("stop after capture")
+	}
+	t.Cleanup(func() { resolveRuntime = orig })
+
+	if err := ValidateInstalled(context.Background()); err == nil {
+		t.Fatal("ValidateInstalled() error = nil, want captured seam error")
+	}
+}
+
+func TestGetVMStatus(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  msbSdk.SandboxStatus
+		want    VMStatusKind
+		wantErr bool
+	}{
+		{"running", msbSdk.SandboxStatusRunning, VMStatusActive, false},
+		{"draining", msbSdk.SandboxStatusDraining, VMStatusActive, false},
+		{"paused", msbSdk.SandboxStatusPaused, VMStatusActive, false},
+		{"starting", msbSdk.SandboxStatusStarting, VMStatusStarting, false},
+		{"created", msbSdk.SandboxStatusCreated, VMStatusCreated, false},
+		{"stopped", msbSdk.SandboxStatusStopped, VMStatusStopped, false},
+		{"crashed", msbSdk.SandboxStatusCrashed, VMStatusStopped, false},
+		{"unknown", msbSdk.SandboxStatus(""), VMStatusUnknown, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetVMStatus(tt.status)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("GetVMStatus(%q) error = %v, wantErr %v", tt.status, err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("GetVMStatus(%q) = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsSandboxActive(t *testing.T) {
+	tests := []struct {
+		name   string
+		status msbSdk.SandboxStatus
+		want   bool
+	}{
+		{"running", msbSdk.SandboxStatusRunning, true},
+		{"draining", msbSdk.SandboxStatusDraining, true},
+		{"paused", msbSdk.SandboxStatusPaused, true},
+		{"starting", msbSdk.SandboxStatusStarting, true},
+		{"created", msbSdk.SandboxStatusCreated, false},
+		{"stopped", msbSdk.SandboxStatusStopped, false},
+		{"crashed", msbSdk.SandboxStatusCrashed, false},
+		{"unknown", msbSdk.SandboxStatus(""), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsSandboxActive(tt.status); got != tt.want {
+				t.Errorf("IsSandboxActive(%q) = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsSandboxInactive(t *testing.T) {
+	tests := []struct {
+		name   string
+		status msbSdk.SandboxStatus
+		want   bool
+	}{
+		{"created", msbSdk.SandboxStatusCreated, true},
+		{"stopped", msbSdk.SandboxStatusStopped, true},
+		{"crashed", msbSdk.SandboxStatusCrashed, true},
+		{"starting", msbSdk.SandboxStatusStarting, false},
+		{"running", msbSdk.SandboxStatusRunning, false},
+		{"draining", msbSdk.SandboxStatusDraining, false},
+		{"paused", msbSdk.SandboxStatusPaused, false},
+		{"unknown", msbSdk.SandboxStatus(""), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsSandboxInactive(tt.status); got != tt.want {
+				t.Errorf("IsSandboxInactive(%q) = %v, want %v", tt.status, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsNotFound(t *testing.T) {
+	notFound := &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no such sandbox"}
+	other := &msbSdk.Error{Kind: msbSdk.ErrSandboxAlreadyExists, Message: "exists"}
+	plain := errors.New("some other failure")
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"not found kind", notFound, true},
+		{"wrapped not found", fmt.Errorf("outer: %w", notFound), true},
+		{"other kind", other, false},
+		{"plain error", plain, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsNotFound(tt.err); got != tt.want {
+				t.Errorf("IsNotFound(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsVolumeNotFound(t *testing.T) {
+	volumeNotFound := &msbSdk.Error{Kind: msbSdk.ErrVolumeNotFound, Message: "no such volume"}
+	sandboxNotFound := &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no such sandbox"}
+	plain := errors.New("some other failure")
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"volume not found kind", volumeNotFound, true},
+		{"wrapped volume not found", fmt.Errorf("outer: %w", volumeNotFound), true},
+		{"sandbox not found kind", sandboxNotFound, false},
+		{"plain error", plain, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsVolumeNotFound(tt.err); got != tt.want {
+				t.Errorf("IsVolumeNotFound(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsVolumeAlreadyExists(t *testing.T) {
+	volumeExists := &msbSdk.Error{Kind: msbSdk.ErrVolumeAlreadyExists, Message: "volume exists"}
+	sandboxExists := &msbSdk.Error{Kind: msbSdk.ErrSandboxAlreadyExists, Message: "sandbox exists"}
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"volume already exists kind", volumeExists, true},
+		{"wrapped volume already exists", fmt.Errorf("outer: %w", volumeExists), true},
+		{"sandbox already exists kind", sandboxExists, false},
+		{"plain error", errors.New("some other failure"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsVolumeAlreadyExists(tt.err); got != tt.want {
+				t.Errorf("IsVolumeAlreadyExists(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsReplaced(t *testing.T) {
+	replaced := &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "handle was replaced"}
+	other := &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no such sandbox"}
+	plain := errors.New("some other failure")
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"replaced kind", replaced, true},
+		{"wrapped replaced", fmt.Errorf("outer: %w", replaced), true},
+		{"other kind", other, false},
+		{"plain error", plain, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsReplaced(tt.err); got != tt.want {
+				t.Errorf("IsReplaced(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsSandboxAlreadyExists(t *testing.T) {
+	exists := &msbSdk.Error{Kind: msbSdk.ErrSandboxAlreadyExists, Message: "sandbox already exists"}
+	volumeExists := &msbSdk.Error{Kind: msbSdk.ErrVolumeAlreadyExists, Message: "volume already exists"}
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"already-exists kind", exists, true},
+		{"wrapped already-exists", fmt.Errorf("outer: %w", exists), true},
+		{"volume already-exists kind", volumeExists, false},
+		{"plain error", errors.New("some other failure"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsSandboxAlreadyExists(tt.err); got != tt.want {
+				t.Errorf("IsSandboxAlreadyExists(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestRealSandboxHandleConnectOrStart pins the adapter's boot report: the
+// sandbox ConnectOrStart returns booted exactly when this call owns the VM
+// process, a failed connect-or-start is returned as-is, and a sandbox whose
+// ownership cannot be read is closed and reported instead of guessed.
+func TestRealSandboxHandleConnectOrStart(t *testing.T) {
+	originalConnectOrStart := realHandleConnectOrStart
+	originalOwnsLifecycle := realSandboxOwnsLifecycle
+	originalClose := realSandboxClose
+	t.Cleanup(func() {
+		realHandleConnectOrStart = originalConnectOrStart
+		realSandboxOwnsLifecycle = originalOwnsLifecycle
+		realSandboxClose = originalClose
+	})
+
+	live := &msbSdk.Sandbox{}
+	cause := errors.New("lifecycle failed")
+	cases := []struct {
+		name            string
+		connectErr      error
+		owns            bool
+		ownsErr         error
+		wantBooted      bool
+		wantErr         error
+		wantClosed      bool
+		wantOwnsChecked bool
+	}{
+		{name: "connected to a running VM", wantOwnsChecked: true},
+		{name: "started the VM", owns: true, wantBooted: true, wantOwnsChecked: true},
+		{name: "connect-or-start fails", connectErr: cause, wantErr: cause},
+		{name: "ownership unreadable", ownsErr: cause, wantErr: cause, wantClosed: true, wantOwnsChecked: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ownsChecked, closed := false, false
+			realHandleConnectOrStart = func(
+				*msbSdk.SandboxHandle,
+				context.Context,
+				...msbSdk.ConnectOrStartOption,
+			) (*msbSdk.Sandbox, error) {
+				if tc.connectErr != nil {
+					return nil, tc.connectErr
+				}
+				return live, nil
+			}
+			realSandboxOwnsLifecycle = func(sb *msbSdk.Sandbox) (bool, error) {
+				ownsChecked = sb == live
+				return tc.owns, tc.ownsErr
+			}
+			realSandboxClose = func(sb *msbSdk.Sandbox) error {
+				closed = sb == live
+				return nil
+			}
+
+			sb, booted, err := realSandboxHandle{handle: &msbSdk.SandboxHandle{}}.ConnectOrStart(context.Background())
+
+			wantSandbox := Sandbox(nil)
+			if tc.wantErr == nil {
+				wantSandbox = realSandbox{sandbox: live}
+			}
+			if !errors.Is(err, tc.wantErr) || sb != wantSandbox || booted != tc.wantBooted {
+				t.Fatalf("ConnectOrStart = %v, %v, %v; want %v, %v, %v",
+					sb, booted, err, wantSandbox, tc.wantBooted, tc.wantErr)
+			}
+			if ownsChecked != tc.wantOwnsChecked {
+				t.Errorf("ownership read = %v, want %v", ownsChecked, tc.wantOwnsChecked)
+			}
+			if closed != tc.wantClosed {
+				t.Errorf("closed = %v, want %v", closed, tc.wantClosed)
+			}
+		})
+	}
+}
+
+func TestIsUnsupportedOperation(t *testing.T) {
+	err := &msbSdk.Error{Kind: msbSdk.ErrUnsupportedOperation, Message: "nope"}
+	if !IsUnsupportedOperation(err) {
+		t.Error("IsUnsupportedOperation(direct) = false, want true")
+	}
+	if !IsUnsupportedOperation(fmt.Errorf("wrap: %w", err)) {
+		t.Error("IsUnsupportedOperation(wrapped) = false, want true")
+	}
+	if IsUnsupportedOperation(&msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound}) {
+		t.Error("IsUnsupportedOperation(other kind) = true, want false")
+	}
+	if IsUnsupportedOperation(nil) {
+		t.Error("IsUnsupportedOperation(nil) = true, want false")
+	}
+}
+
+func TestRealSandboxHandleOperationsReturnErrors(t *testing.T) {
+	h := &realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+	ctx := context.Background()
+
+	if sb, err := h.Connect(ctx); err == nil || sb != nil {
+		t.Errorf("Connect() = %v, %v; want error on empty handle", sb, err)
+	}
+	if err := h.Stop(ctx); err == nil {
+		t.Error("Stop() = nil, want error on empty handle")
+	}
+	if err := h.Kill(ctx); err == nil {
+		t.Error("Kill() = nil, want error on empty handle")
+	}
+	if err := h.Remove(ctx); err == nil {
+		t.Error("Remove() = nil, want error on empty handle")
+	}
+	if err := h.Destroy(ctx); err == nil {
+		t.Error("Destroy() = nil, want error on empty handle")
+	}
+	if result, err := h.Compact(ctx, msbSdk.DiskCompactionOptions{}); !IsUnsupportedOperation(err) || result != nil {
+		t.Errorf("Compact() = %v, %v; want unsupported-operation error on non-local handle", result, err)
+	}
+	if plan, err := h.Modify(ctx, msbSdk.ModifyOptions{}); err == nil || plan != nil {
+		t.Errorf("Modify() = %v, %v; want error on empty handle", plan, err)
+	}
+}
+
+func TestMapExecEvent(t *testing.T) {
+	tests := []struct {
+		name string
+		ev   msbSdk.ExecEvent
+		want StreamEvent
+		ok   bool
+		err  error
+	}{
+		{
+			name: "stdout",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventStdout, Data: []byte("x")},
+			want: StreamEvent{Kind: StreamEventStdout, Data: []byte("x")},
+			ok:   true,
+		},
+		{
+			name: "stderr",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventStderr, Data: []byte("e")},
+			want: StreamEvent{Kind: StreamEventStderr, Data: []byte("e")},
+			ok:   true,
+		},
+		{
+			name: "exited",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventExited, ExitCode: 3},
+			want: StreamEvent{Kind: StreamEventExited, ExitCode: 3},
+			ok:   true,
+		},
+		{
+			name: "failed",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventFailed},
+			want: StreamEvent{Kind: StreamEventFailed},
+			ok:   true,
+		},
+		{
+			name: "done is io.EOF",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventDone},
+			err:  io.EOF,
+		},
+		{
+			name: "started is skipped",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventStarted},
+			ok:   false,
+		},
+		{
+			name: "stdin error is skipped",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventStdinError},
+			ok:   false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok, err := mapExecEvent(tt.ev)
+			if !errors.Is(err, tt.err) {
+				t.Fatalf("mapExecEvent() err = %v, want %v", err, tt.err)
+			}
+			if ok != tt.ok {
+				t.Fatalf("mapExecEvent() ok = %v, want %v", ok, tt.ok)
+			}
+			if got.Kind != tt.want.Kind || string(got.Data) != string(tt.want.Data) ||
+				got.ExitCode != tt.want.ExitCode {
+				t.Errorf("mapExecEvent() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRealSandboxFS(t *testing.T) {
+	sb := &realSandbox{sandbox: &msbSdk.Sandbox{}}
+	fs := sb.FS()
+	if fs == nil {
+		t.Fatal("FS() returned nil")
+	}
+}
+
+// TestRealClientEnsureInstalledPassesPrivateHome asserts the ensure call names
+// the private home explicitly.
+func TestRealClientEnsureInstalledPassesPrivateHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	previous := skipRuntimeInstall
+	skipRuntimeInstall = false
+	t.Cleanup(func() { skipRuntimeInstall = previous })
+
+	wantHome := configpaths.MSBHome()
+	orig := ensureRuntime
+	ensureRuntime = func(
+		_ context.Context, config msbSdk.RuntimeConfig, _ msbSdk.InstallOptions,
+	) (msbSdk.ResolvedRuntime, error) {
+		if config.Home != wantHome {
+			t.Errorf("RuntimeConfig.Home = %q, want %q", config.Home, wantHome)
+		}
+		return msbSdk.ResolvedRuntime{}, nil
+	}
+	t.Cleanup(func() { ensureRuntime = orig })
+
+	if err := (&realMsbClient{}).EnsureInstalled(context.Background()); err != nil {
+		t.Fatalf("EnsureInstalled() error = %v", err)
+	}
+}
+
+func TestRealSandboxDetachedDelegates(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("ExecDetached", func(t *testing.T) {
+		original := realSandboxExecDetached
+		t.Cleanup(func() { realSandboxExecDetached = original })
+		called := false
+		realSandboxExecDetached = func(
+			_ *msbSdk.Sandbox, _ context.Context, cmd string, args []string, _ ...msbSdk.JobExecOption,
+		) (*msbSdk.Job, error) {
+			called = true
+			if cmd != "dockerd" || len(args) != 1 {
+				t.Errorf("delegated (%q, %v), want dockerd [x]", cmd, args)
+			}
+			return &msbSdk.Job{}, nil
+		}
+		got, err := (realSandbox{}).ExecDetached(ctx, "dockerd", []string{"x"})
+		if err != nil || !called {
+			t.Fatalf("ExecDetached() = %v, called=%v; want nil, true", err, called)
+		}
+		if got == nil {
+			t.Fatal("ExecDetached() returned a nil job")
+		}
+	})
+
+	t.Run("ExecDetached error", func(t *testing.T) {
+		original := realSandboxExecDetached
+		t.Cleanup(func() { realSandboxExecDetached = original })
+		wantErr := errors.New("boom")
+		realSandboxExecDetached = func(
+			_ *msbSdk.Sandbox, _ context.Context, _ string, _ []string, _ ...msbSdk.JobExecOption,
+		) (*msbSdk.Job, error) {
+			return nil, wantErr
+		}
+		if _, err := (realSandbox{}).ExecDetached(ctx, "x", nil); !errors.Is(err, wantErr) {
+			t.Fatalf("ExecDetached() error = %v, want %v", err, wantErr)
+		}
+	})
+
+	t.Run("GetJob", func(t *testing.T) {
+		original := realSandboxGetJob
+		t.Cleanup(func() { realSandboxGetJob = original })
+		called := false
+		realSandboxGetJob = func(_ *msbSdk.Sandbox, _ context.Context, id string) (*msbSdk.Job, error) {
+			called = true
+			if id != "job-1" {
+				t.Errorf("delegated id = %q, want job-1", id)
+			}
+			return &msbSdk.Job{}, nil
+		}
+		got, err := (realSandbox{}).GetJob(ctx, "job-1")
+		if err != nil || !called {
+			t.Fatalf("GetJob() = %v, called=%v; want nil, true", err, called)
+		}
+		if got == nil {
+			t.Fatal("GetJob() returned a nil job")
+		}
+	})
+
+	t.Run("GetJob error", func(t *testing.T) {
+		original := realSandboxGetJob
+		t.Cleanup(func() { realSandboxGetJob = original })
+		wantErr := errors.New("get boom")
+		realSandboxGetJob = func(_ *msbSdk.Sandbox, _ context.Context, _ string) (*msbSdk.Job, error) {
+			return nil, wantErr
+		}
+		if _, err := (realSandbox{}).GetJob(ctx, "job-1"); !errors.Is(err, wantErr) {
+			t.Fatalf("GetJob() error = %v, want %v", err, wantErr)
+		}
+	})
+
+	t.Run("ListJobs paginates", func(t *testing.T) {
+		original := realSandboxListJobs
+		t.Cleanup(func() { realSandboxListJobs = original })
+		var optsSeen []int
+		realSandboxListJobs = func(_ *msbSdk.Sandbox, _ context.Context, opts ...msbSdk.JobListOption) (*msbSdk.JobPage, error) {
+			optsSeen = append(optsSeen, len(opts))
+			switch len(optsSeen) {
+			case 1:
+				next := "c1"
+				return &msbSdk.JobPage{Items: []msbSdk.JobInfo{{ID: "a"}}, NextCursor: &next}, nil
+			default:
+				return &msbSdk.JobPage{Items: []msbSdk.JobInfo{{ID: "b"}}}, nil
+			}
+		}
+		got, err := (realSandbox{}).ListJobs(ctx)
+		if err != nil || len(got) != 2 || got[0].ID != "a" || got[1].ID != "b" {
+			t.Fatalf("ListJobs() = (%v, err=%v), want [a b] over 2 pages", got, err)
+		}
+		// Page 1 carries no cursor option; page 2 must carry exactly the cursor.
+		if len(optsSeen) != 2 || optsSeen[0] != 0 || optsSeen[1] != 1 {
+			t.Fatalf("per-page option counts = %v, want [0 1] so page 2 sends the cursor", optsSeen)
+		}
+	})
+
+	t.Run("ListJobs stops on an empty cursor", func(t *testing.T) {
+		original := realSandboxListJobs
+		t.Cleanup(func() { realSandboxListJobs = original })
+		empty := ""
+		calls := 0
+		realSandboxListJobs = func(_ *msbSdk.Sandbox, _ context.Context, _ ...msbSdk.JobListOption) (*msbSdk.JobPage, error) {
+			calls++
+			return &msbSdk.JobPage{Items: []msbSdk.JobInfo{{ID: "a"}}, NextCursor: &empty}, nil
+		}
+		got, err := (realSandbox{}).ListJobs(ctx)
+		if err != nil || len(got) != 1 || got[0].ID != "a" {
+			t.Fatalf("ListJobs() = (%v, err=%v), want [a]", got, err)
+		}
+		if calls != 1 {
+			t.Fatalf("ListJobs made %d calls; an empty cursor must terminate after the first page", calls)
+		}
+	})
+
+	t.Run("ListJobs error", func(t *testing.T) {
+		original := realSandboxListJobs
+		t.Cleanup(func() { realSandboxListJobs = original })
+		wantErr := errors.New("list failed")
+		realSandboxListJobs = func(
+			_ *msbSdk.Sandbox, _ context.Context, _ ...msbSdk.JobListOption,
+		) (*msbSdk.JobPage, error) {
+			return nil, wantErr
+		}
+		if _, err := (realSandbox{}).ListJobs(ctx); !errors.Is(err, wantErr) {
+			t.Fatalf("ListJobs() error = %v, want %v", err, wantErr)
+		}
+	})
+}
+
+func TestRealJobDelegates(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("ID", func(t *testing.T) {
+		original := realJobID
+		t.Cleanup(func() { realJobID = original })
+		realJobID = func(_ *msbSdk.Job) string { return "job-1" }
+		if got := (realJob{}).ID(); got != "job-1" {
+			t.Fatalf("ID() = %q, want job-1", got)
+		}
+	})
+
+	t.Run("Inspect", func(t *testing.T) {
+		original := realJobInspect
+		t.Cleanup(func() { realJobInspect = original })
+		want := &msbSdk.JobInfo{ID: "job-1"}
+		realJobInspect = func(_ *msbSdk.Job, _ context.Context) (*msbSdk.JobInfo, error) {
+			return want, nil
+		}
+		got, err := (realJob{}).Inspect(ctx)
+		if err != nil || got != want {
+			t.Fatalf("Inspect() = (%v, %v), want (%v, nil)", got, err, want)
+		}
+	})
+
+	t.Run("Kill", func(t *testing.T) {
+		original := realJobKill
+		t.Cleanup(func() { realJobKill = original })
+		called := false
+		realJobKill = func(_ *msbSdk.Job, _ context.Context) error { called = true; return nil }
+		if err := (realJob{}).Kill(ctx); err != nil || !called {
+			t.Fatalf("Kill() = %v, called=%v; want nil, true", err, called)
+		}
+	})
+
+	t.Run("Logs", func(t *testing.T) {
+		original := realJobLogs
+		t.Cleanup(func() { realJobLogs = original })
+		called := false
+		realJobLogs = func(
+			_ *msbSdk.Job, _ context.Context, _ msbSdk.JobLogOptions,
+		) ([]msbSdk.JobLogEntry, error) {
+			called = true
+			return []msbSdk.JobLogEntry{{Data: []byte("x")}}, nil
+		}
+		got, err := (realJob{}).Logs(ctx, msbSdk.JobLogOptions{})
+		if err != nil || !called || len(got) != 1 {
+			t.Fatalf("Logs() = (%v, %v), called=%v; want one entry", got, err, called)
+		}
+	})
+
+	t.Run("Close", func(t *testing.T) {
+		original := realJobClose
+		t.Cleanup(func() { realJobClose = original })
+		called := false
+		realJobClose = func(_ *msbSdk.Job) error { called = true; return nil }
+		if err := (realJob{}).Close(); err != nil || !called {
+			t.Fatalf("Close() = %v, called=%v; want nil, true", err, called)
+		}
+	})
+}
+
+// TestGetFactory exercises the package-level Client factory, which the test
+// hook normally overrides.
+func TestGetFactory(t *testing.T) {
+	c := realGetFactory()
+	if _, ok := c.(*realMsbClient); !ok {
+		t.Fatalf("Get() = %T, want *realMsbClient", c)
+	}
+}
+
+// TestRealVolumeHandlePathUnknownValue covers the default branch of
+// realVolumeHandle.Path when val holds a non-SDK type.
+func TestRealVolumeHandlePathUnknownValue(t *testing.T) {
+	v := &realVolumeHandle{val: "not a volume"}
+	if got := v.Path(); got != "" {
+		t.Errorf("Path() for unknown type = %q, want empty", got)
+	}
+}
+
+// TestRealMsbClientCreateVolumeError covers the error branch of
+// realMsbClient.CreateVolume (invalid empty name fails before touching a VM).
+func TestRealMsbClientCreateVolumeError(t *testing.T) {
+	c := &realMsbClient{}
+	if _, err := c.CreateVolume(context.Background(), ""); err == nil {
+		t.Error("CreateVolume() with empty name = nil error, want config error")
+	}
+}
+
+// TestRealMsbClientImagePruneCanceled covers the adapter without pruning the
+// shared microsandbox image cache used by the test environment.
+func TestRealMsbClientImagePruneCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := (&realMsbClient{}).ImagePrune(ctx); err == nil {
+		t.Fatal("ImagePrune() with a canceled context = nil error, want cancellation error")
+	}
+}
+
+// TestRealMsbClientStorageUsageCanceled covers the StorageUsage adapter without
+// a runtime: a canceled context fails before the native call.
+func TestRealMsbClientStorageUsageCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := (&realMsbClient{}).StorageUsage(ctx); err == nil {
+		t.Fatal("StorageUsage() with a canceled context = nil error, want cancellation error")
+	}
+}
+
+// TestRealMsbClientImageInspectInjected covers the success path of the
+// ImageInspect adapter through the inspect seam.
+func TestRealMsbClientImageInspectInjected(t *testing.T) {
+	previous := realImageInspect
+	t.Cleanup(func() { realImageInspect = previous })
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return &msbSdk.ImageDetail{Config: &msbSdk.ImageConfig{Digest: "sha256:abc"}}, nil
+	}
+	cfg, err := (&realMsbClient{}).ImageInspect(context.Background(), "ref")
+	if err != nil || cfg == nil || cfg.Digest != "sha256:abc" {
+		t.Fatalf("ImageInspect = %v, %v", cfg, err)
+	}
+}
+
+// TestRealVolumeHandlePathNilVal guards against a nil val.
+func TestRealVolumeHandlePathNilVal(t *testing.T) {
+	v := &realVolumeHandle{}
+	if got := v.Path(); got != "" {
+		t.Errorf("Path() with nil val = %q, want empty", got)
+	}
+}
+
+// TestRealMsbClientImageInspectDetailInjected covers the success path of the
+// ImageInspectDetail adapter through the inspect seam, mapping the SDK detail
+// onto the local ImageDetail (including a nil config).
+func TestRealMsbClientImageInspectDetailInjected(t *testing.T) {
+	previous := realImageInspect
+	t.Cleanup(func() { realImageInspect = previous })
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return &msbSdk.ImageDetail{
+			Config: &msbSdk.ImageConfig{Digest: "sha256:abc"},
+			Layers: []msbSdk.ImageLayer{{Position: 0, DiffID: "sha256:layer0"}},
+		}, nil
+	}
+	detail, err := (&realMsbClient{}).ImageInspectDetail(context.Background(), "ref")
+	if err != nil {
+		t.Fatalf("ImageInspectDetail() error = %v", err)
+	}
+	if detail.Config.Digest != "sha256:abc" || len(detail.Layers) != 1 ||
+		detail.Layers[0].DiffID != "sha256:layer0" {
+		t.Fatalf("ImageInspectDetail() = %+v, want digest sha256:abc and layer sha256:layer0", detail)
+	}
+}
+
+// TestRealMsbClientImageInspectDetailNilConfig covers the nil-config branch of
+// the adapter, which leaves the zero-value config in place.
+func TestRealMsbClientImageInspectDetailNilConfig(t *testing.T) {
+	previous := realImageInspect
+	t.Cleanup(func() { realImageInspect = previous })
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return &msbSdk.ImageDetail{}, nil
+	}
+	detail, err := (&realMsbClient{}).ImageInspectDetail(context.Background(), "ref")
+	if err != nil || detail == nil {
+		t.Fatalf("ImageInspectDetail() = %v, %v", detail, err)
+	}
+	if detail.Config.Digest != "" {
+		t.Errorf("ImageInspectDetail() config = %+v, want zero value", detail.Config)
+	}
+}
+
+// TestRealMsbClientImageInspectDetailHandleAndError covers the ImageHandle
+// branch (metadata copied off the handle) and the inspect-error branch of the
+// ImageInspectDetail adapter.
+func TestRealMsbClientImageInspectDetailHandleAndError(t *testing.T) {
+	previous := realImageInspect
+	t.Cleanup(func() { realImageInspect = previous })
+
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return &msbSdk.ImageDetail{
+			ImageHandle: &msbSdk.ImageHandle{},
+			Config:      &msbSdk.ImageConfig{Digest: "sha256:abc"},
+		}, nil
+	}
+	detail, err := (&realMsbClient{}).ImageInspectDetail(context.Background(), "ref")
+	if err != nil || detail == nil {
+		t.Fatalf("ImageInspectDetail() = %v, %v", detail, err)
+	}
+	if detail.Reference != "" || detail.ManifestDigest != "" || detail.Architecture != "" ||
+		detail.OS != "" || detail.SizeBytes != nil || !detail.CreatedAt.IsZero() {
+		t.Errorf("ImageInspectDetail() from empty handle = %+v, want zero metadata", detail)
+	}
+	if detail.Config.Digest != "sha256:abc" {
+		t.Errorf("ImageInspectDetail() config = %+v, want digest sha256:abc", detail.Config)
+	}
+
+	realImageInspect = func(_ context.Context, _ string) (*msbSdk.ImageDetail, error) {
+		return nil, errors.New("inspect boom")
+	}
+	if _, err := (&realMsbClient{}).ImageInspectDetail(context.Background(), "ref"); err == nil {
+		t.Fatal("ImageInspectDetail() with a failing inspect = nil error, want error")
+	}
 }
 
 func TestRealVolumeHandle_Kind_UnknownValue(t *testing.T) {
@@ -146,50 +920,6 @@ func TestRealSandboxHandleAccessors(t *testing.T) {
 	}
 }
 
-func TestRealSandboxHandleOperationsReturnErrors(t *testing.T) {
-	h := &realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
-	ctx := context.Background()
-
-	if sb, err := h.Connect(ctx); err == nil || sb != nil {
-		t.Errorf("Connect() = %v, %v; want error on empty handle", sb, err)
-	}
-	if hh, err := h.Refresh(ctx); err == nil || hh != nil {
-		t.Errorf("Refresh() = %v, %v; want error on empty handle", hh, err)
-	}
-	if sb, err := h.Start(ctx); err == nil || sb != nil {
-		t.Errorf("Start() = %v, %v; want error on empty handle", sb, err)
-	}
-	if err := h.Stop(ctx); err == nil {
-		t.Error("Stop() = nil, want error on empty handle")
-	}
-	if err := h.Kill(ctx); err == nil {
-		t.Error("Kill() = nil, want error on empty handle")
-	}
-	if err := h.Remove(ctx); err == nil {
-		t.Error("Remove() = nil, want error on empty handle")
-	}
-	if err := h.Destroy(ctx); err == nil {
-		t.Error("Destroy() = nil, want error on empty handle")
-	}
-	if result, err := h.Compact(ctx, msbSdk.DiskCompactionOptions{}); !IsUnsupportedOperation(err) || result != nil {
-		t.Errorf("Compact() = %v, %v; want unsupported-operation error on non-local handle", result, err)
-	}
-	if plan, err := h.Modify(ctx, msbSdk.ModifyOptions{}); err == nil || plan != nil {
-		t.Errorf("Modify() = %v, %v; want error on empty handle", plan, err)
-	}
-}
-
-// swapSeam replaces a package-level SDK seam for the duration of the test and
-// restores the real call on cleanup, so unit tests exercise the adapters
-// against fakes without loading the native library or reading real runtime
-// state. The real adapter-over-SDK behavior lives in the msb-tagged tests.
-func swapSeam[T any](t *testing.T, seam *T, replacement T) {
-	t.Helper()
-	original := *seam
-	*seam = replacement
-	t.Cleanup(func() { *seam = original })
-}
-
 // TestRealMsbClientAdapterErrors pins that every adapter propagates the SDK
 // error through its seam.
 func TestRealMsbClientAdapterErrors(t *testing.T) {
@@ -272,24 +1002,25 @@ func TestRealMsbClientAdapterErrors(t *testing.T) {
 func TestRealMsbClientLists(t *testing.T) {
 	ctx := context.Background()
 	swapSeam(t, &listSandboxesWith, func(context.Context, ...msbSdk.SandboxListOption) (*msbSdk.SandboxPage, error) {
-		return &msbSdk.SandboxPage{Sandboxes: []*msbSdk.SandboxHandle{{}}}, nil
+		return &msbSdk.SandboxPage{Sandboxes: []*msbSdk.SandboxHandle{{}, {}}}, nil
 	})
 	swapSeam(t, &listVolumes, func(context.Context) ([]*msbSdk.VolumeHandle, error) {
-		return []*msbSdk.VolumeHandle{{}}, nil
+		return []*msbSdk.VolumeHandle{{}, {}}, nil
 	})
 	swapSeam(t, &imageList, func(context.Context) ([]*msbSdk.ImageHandle, error) {
-		return []*msbSdk.ImageHandle{{}}, nil
+		return []*msbSdk.ImageHandle{{}, {}}, nil
 	})
 
+	// Two of each, so a loop that stops after the first is caught.
 	c := &realMsbClient{}
-	if handles, err := c.ListSandboxes(ctx, nil); err != nil || len(handles) != 1 {
-		t.Errorf("ListSandboxes() = %d handles, %v; want 1, nil", len(handles), err)
+	if handles, err := c.ListSandboxes(ctx, nil); err != nil || len(handles) != 2 || handles[1] == nil {
+		t.Errorf("ListSandboxes() = %v, %v; want 2 handles", handles, err)
 	}
-	if handles, err := c.ListVolumes(ctx); err != nil || len(handles) != 1 {
-		t.Errorf("ListVolumes() = %d handles, %v; want 1, nil", len(handles), err)
+	if handles, err := c.ListVolumes(ctx); err != nil || len(handles) != 2 || handles[1] == nil {
+		t.Errorf("ListVolumes() = %v, %v; want 2 handles", handles, err)
 	}
-	if handles, err := c.ImageList(ctx); err != nil || len(handles) != 1 {
-		t.Errorf("ImageList() = %d handles, %v; want 1, nil", len(handles), err)
+	if handles, err := c.ImageList(ctx); err != nil || len(handles) != 2 || handles[1] == nil {
+		t.Errorf("ImageList() = %v, %v; want 2 handles", handles, err)
 	}
 }
 
@@ -360,8 +1091,8 @@ func TestRealMsbClientCreateRemoveVolume(t *testing.T) {
 	})
 
 	c := &realMsbClient{}
-	if _, err := c.CreateVolume(ctx, "vol"); err != nil {
-		t.Fatalf("CreateVolume() error = %v, want nil", err)
+	if h, err := c.CreateVolume(ctx, "vol"); err != nil || h == nil {
+		t.Fatalf("CreateVolume() = %v, %v; want a handle", h, err)
 	}
 	if err := c.RemoveVolume(ctx, "vol"); err != nil {
 		t.Errorf("RemoveVolume() error = %v, want nil", err)
@@ -443,162 +1174,6 @@ func TestRealMsbClientImageAdapters(t *testing.T) {
 func TestRealMsbClientImageLoadErrors(t *testing.T) {
 	if err := (&realMsbClient{}).ImageLoad(context.Background(), "ref", errReader{}); err == nil {
 		t.Error("ImageLoad() with failing reader = nil error, want spooling error")
-	}
-}
-
-type errReader struct{}
-
-func (errReader) Read([]byte) (int, error) { return 0, errors.New("boom") }
-
-func TestIsSandboxActive(t *testing.T) {
-	tests := []struct {
-		name   string
-		status msbSdk.SandboxStatus
-		want   bool
-	}{
-		{"running", msbSdk.SandboxStatusRunning, true},
-		{"draining", msbSdk.SandboxStatusDraining, true},
-		{"paused", msbSdk.SandboxStatusPaused, true},
-		{"starting", msbSdk.SandboxStatusStarting, true},
-		{"created", msbSdk.SandboxStatusCreated, false},
-		{"stopped", msbSdk.SandboxStatusStopped, false},
-		{"crashed", msbSdk.SandboxStatusCrashed, false},
-		{"unknown", msbSdk.SandboxStatus(""), false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := IsSandboxActive(tt.status); got != tt.want {
-				t.Errorf("IsSandboxActive(%q) = %v, want %v", tt.status, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestMockListSandboxesRecordsLabels(t *testing.T) {
-	m := &MockMsbClient{}
-	m.ListSandboxesFn = func(_ context.Context, labels map[string]string) ([]SandboxHandle, error) {
-		if labels["k"] != "v" {
-			t.Errorf("expected label k=v, got %v", labels)
-		}
-		return nil, nil
-	}
-	_, err := m.ListSandboxes(context.Background(), map[string]string{"k": "v"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestMockImageInspectUsesFn(t *testing.T) {
-	called := false
-	m := &MockMsbClient{ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-		called = true
-		return &msbSdk.ImageConfig{}, nil
-	}}
-	cfg, err := m.ImageInspect(context.Background(), "ref")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !called || cfg == nil {
-		t.Error("expected ImageInspectFn to be called and return a config")
-	}
-}
-
-func TestIsNotFound(t *testing.T) {
-	notFound := &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no such sandbox"}
-	other := &msbSdk.Error{Kind: msbSdk.ErrSandboxAlreadyExists, Message: "exists"}
-	plain := errors.New("some other failure")
-
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"nil", nil, false},
-		{"not found kind", notFound, true},
-		{"wrapped not found", fmt.Errorf("outer: %w", notFound), true},
-		{"other kind", other, false},
-		{"plain error", plain, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := IsNotFound(tt.err); got != tt.want {
-				t.Errorf("IsNotFound(%v) = %v, want %v", tt.err, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestIsVolumeNotFound(t *testing.T) {
-	volumeNotFound := &msbSdk.Error{Kind: msbSdk.ErrVolumeNotFound, Message: "no such volume"}
-	sandboxNotFound := &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no such sandbox"}
-	plain := errors.New("some other failure")
-
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"nil", nil, false},
-		{"volume not found kind", volumeNotFound, true},
-		{"wrapped volume not found", fmt.Errorf("outer: %w", volumeNotFound), true},
-		{"sandbox not found kind", sandboxNotFound, false},
-		{"plain error", plain, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := IsVolumeNotFound(tt.err); got != tt.want {
-				t.Errorf("IsVolumeNotFound(%v) = %v, want %v", tt.err, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestIsVolumeAlreadyExists(t *testing.T) {
-	volumeExists := &msbSdk.Error{Kind: msbSdk.ErrVolumeAlreadyExists, Message: "volume exists"}
-	sandboxExists := &msbSdk.Error{Kind: msbSdk.ErrSandboxAlreadyExists, Message: "sandbox exists"}
-
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"nil", nil, false},
-		{"volume already exists kind", volumeExists, true},
-		{"wrapped volume already exists", fmt.Errorf("outer: %w", volumeExists), true},
-		{"sandbox already exists kind", sandboxExists, false},
-		{"plain error", errors.New("some other failure"), false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := IsVolumeAlreadyExists(tt.err); got != tt.want {
-				t.Errorf("IsVolumeAlreadyExists(%v) = %v, want %v", tt.err, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestIsReplaced(t *testing.T) {
-	replaced := &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "handle was replaced"}
-	other := &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no such sandbox"}
-	plain := errors.New("some other failure")
-
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"nil", nil, false},
-		{"replaced kind", replaced, true},
-		{"wrapped replaced", fmt.Errorf("outer: %w", replaced), true},
-		{"other kind", other, false},
-		{"plain error", plain, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := IsReplaced(tt.err); got != tt.want {
-				t.Errorf("IsReplaced(%v) = %v, want %v", tt.err, got, tt.want)
-			}
-		})
 	}
 }
 
@@ -687,55 +1262,137 @@ func TestRealSandboxDelegatesToSDK(t *testing.T) {
 	})
 }
 
-func TestGetVMStatus(t *testing.T) {
-	tests := []struct {
-		name    string
-		status  msbSdk.SandboxStatus
-		want    VMStatusKind
-		wantErr bool
-	}{
-		{"running", msbSdk.SandboxStatusRunning, VMStatusActive, false},
-		{"draining", msbSdk.SandboxStatusDraining, VMStatusActive, false},
-		{"paused", msbSdk.SandboxStatusPaused, VMStatusActive, false},
-		{"starting", msbSdk.SandboxStatusStarting, VMStatusStarting, false},
-		{"created", msbSdk.SandboxStatusCreated, VMStatusCreated, false},
-		{"stopped", msbSdk.SandboxStatusStopped, VMStatusStopped, false},
-		{"crashed", msbSdk.SandboxStatusCrashed, VMStatusStopped, false},
-		{"unknown", msbSdk.SandboxStatus(""), VMStatusUnknown, true},
+// swapSeam replaces a package-level SDK seam for the duration of the test and
+// restores the real call on cleanup, so unit tests exercise the adapters
+// against fakes without loading the native library or reading real runtime
+// state. The real adapter-over-SDK behavior lives in the msb-tagged tests.
+func swapSeam[T any](t *testing.T, seam *T, replacement T) {
+	t.Helper()
+	original := *seam
+	*seam = replacement
+	t.Cleanup(func() { *seam = original })
+}
+
+func TestRealSandboxMetricsAndLogsDelegation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Metrics", func(t *testing.T) {
+		original := realSandboxMetrics
+		t.Cleanup(func() { realSandboxMetrics = original })
+		want := &msbSdk.Metrics{MemoryBytes: 42}
+		called := false
+		realSandboxMetrics = func(_ *msbSdk.Sandbox, _ context.Context) (*msbSdk.Metrics, error) {
+			called = true
+			return want, nil
+		}
+		got, err := (realSandbox{}).Metrics(ctx)
+		if err != nil || got != want || !called {
+			t.Fatalf("Metrics() = (%v, %v), called=%v; want (want, nil, true)", got, err, called)
+		}
+	})
+
+	t.Run("Logs", func(t *testing.T) {
+		original := realSandboxLogs
+		t.Cleanup(func() { realSandboxLogs = original })
+		want := []msbSdk.LogEntry{{Source: msbSdk.LogSourceSystem, Data: []byte("boom")}}
+		var gotOpts msbSdk.LogOptions
+		realSandboxLogs = func(
+			_ *msbSdk.Sandbox, _ context.Context, opts msbSdk.LogOptions,
+		) ([]msbSdk.LogEntry, error) {
+			gotOpts = opts
+			return want, nil
+		}
+		got, err := (realSandbox{}).Logs(ctx, msbSdk.LogOptions{Tail: 7})
+		if err != nil || len(got) != 1 || got[0].Source != msbSdk.LogSourceSystem || gotOpts.Tail != 7 {
+			t.Fatalf("Logs() = (%v, %v), opts=%+v; want one system entry, tail 7", got, err, gotOpts)
+		}
+	})
+}
+
+func TestRealSandboxHandleMetricsAndLogsDelegation(t *testing.T) {
+	ctx := context.Background()
+	h := realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+
+	t.Run("Metrics", func(t *testing.T) {
+		original := realSandboxHandleMetrics
+		t.Cleanup(func() { realSandboxHandleMetrics = original })
+		want := &msbSdk.Metrics{MemoryLimitBytes: 99}
+		realSandboxHandleMetrics = func(_ *msbSdk.SandboxHandle, _ context.Context) (*msbSdk.Metrics, error) {
+			return want, nil
+		}
+		got, err := h.Metrics(ctx)
+		if err != nil || got != want {
+			t.Fatalf("Metrics() = (%v, %v); want (want, nil)", got, err)
+		}
+	})
+
+	t.Run("Logs", func(t *testing.T) {
+		original := realSandboxHandleLogs
+		t.Cleanup(func() { realSandboxHandleLogs = original })
+		want := []msbSdk.LogEntry{{Source: msbSdk.LogSourceSystem}}
+		realSandboxHandleLogs = func(
+			_ *msbSdk.SandboxHandle, _ context.Context, _ msbSdk.LogOptions,
+		) ([]msbSdk.LogEntry, error) {
+			return want, nil
+		}
+		got, err := h.Logs(ctx, msbSdk.LogOptions{})
+		if err != nil || len(got) != 1 {
+			t.Fatalf("Logs() = (%v, %v); want one entry, nil", got, err)
+		}
+	})
+}
+
+func TestMockSandboxMetricsAndLogs(t *testing.T) {
+	ctx := context.Background()
+
+	sb := &MockSandbox{MetricsResult: &msbSdk.Metrics{MemoryBytes: 1}}
+	got, err := sb.Metrics(ctx)
+	if err != nil || got.MemoryBytes != 1 {
+		t.Fatalf("Metrics() = (%v, %v); want MemoryBytes 1", got, err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := GetVMStatus(tt.status)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("GetVMStatus(%q) error = %v, wantErr %v", tt.status, err, tt.wantErr)
-			}
-			if got != tt.want {
-				t.Errorf("GetVMStatus(%q) = %v, want %v", tt.status, got, tt.want)
-			}
-		})
+
+	boom := errors.New("boom")
+	if _, err := (&MockSandbox{MetricsErr: boom}).Metrics(ctx); !errors.Is(err, boom) {
+		t.Fatalf("Metrics() error = %v; want boom", err)
+	}
+
+	entries := []msbSdk.LogEntry{{Source: msbSdk.LogSourceSystem}}
+	logSB := &MockSandbox{LogsResult: entries}
+	gotEntries, err := logSB.Logs(ctx, msbSdk.LogOptions{Tail: 3})
+	if err != nil || len(gotEntries) != 1 {
+		t.Fatalf("Logs() = (%v, %v); want one entry, nil", gotEntries, err)
+	}
+	if len(logSB.LogsOptions) != 1 || logSB.LogsOptions[0].Tail != 3 {
+		t.Fatalf("LogsOptions = %+v; want one call with Tail 3", logSB.LogsOptions)
+	}
+	if _, err := (&MockSandbox{LogsErr: boom}).Logs(ctx, msbSdk.LogOptions{}); !errors.Is(err, boom) {
+		t.Fatalf("Logs() error = %v; want boom", err)
 	}
 }
 
-func TestIsSandboxInactive(t *testing.T) {
-	tests := []struct {
-		name   string
-		status msbSdk.SandboxStatus
-		want   bool
-	}{
-		{"created", msbSdk.SandboxStatusCreated, true},
-		{"stopped", msbSdk.SandboxStatusStopped, true},
-		{"crashed", msbSdk.SandboxStatusCrashed, true},
-		{"starting", msbSdk.SandboxStatusStarting, false},
-		{"running", msbSdk.SandboxStatusRunning, false},
-		{"draining", msbSdk.SandboxStatusDraining, false},
-		{"paused", msbSdk.SandboxStatusPaused, false},
-		{"unknown", msbSdk.SandboxStatus(""), false},
+func TestMockSandboxHandleMetricsAndLogs(t *testing.T) {
+	ctx := context.Background()
+
+	h := &MockSandboxHandle{MetricsResult: &msbSdk.Metrics{MemoryLimitBytes: 2}}
+	got, err := h.Metrics(ctx)
+	if err != nil || got.MemoryLimitBytes != 2 {
+		t.Fatalf("Metrics() = (%v, %v); want MemoryLimitBytes 2", got, err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := IsSandboxInactive(tt.status); got != tt.want {
-				t.Errorf("IsSandboxInactive(%q) = %v, want %v", tt.status, got, tt.want)
-			}
-		})
+
+	boom := errors.New("boom")
+	if _, err := (&MockSandboxHandle{MetricsErr: boom}).Metrics(ctx); !errors.Is(err, boom) {
+		t.Fatalf("Metrics() error = %v; want boom", err)
+	}
+
+	logHandle := &MockSandboxHandle{LogsResult: []msbSdk.LogEntry{{Source: msbSdk.LogSourceSystem}}}
+	gotEntries, err := logHandle.Logs(ctx, msbSdk.LogOptions{Tail: 9})
+	if err != nil || len(gotEntries) != 1 {
+		t.Fatalf("Logs() = (%v, %v); want one entry, nil", gotEntries, err)
+	}
+	if len(logHandle.LogsOptions) != 1 || logHandle.LogsOptions[0].Tail != 9 {
+		t.Fatalf("LogsOptions = %+v; want one call with Tail 9", logHandle.LogsOptions)
+	}
+	if _, err := (&MockSandboxHandle{LogsErr: boom}).Logs(ctx, msbSdk.LogOptions{}); !errors.Is(err, boom) {
+		t.Fatalf("Logs() error = %v; want boom", err)
 	}
 }

@@ -19,7 +19,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -36,7 +35,8 @@ import (
 // callers can inspect its call history, and installs a daemon shell stub that
 // reports the sandbox healthy.
 func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,
-	args ...string) (*cobra.Command, *termio.Mock) {
+	args ...string,
+) (*cobra.Command, *termio.Mock) {
 	t.Helper()
 	mock.CreatedSandbox = sandboxToReturn
 
@@ -46,17 +46,16 @@ func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn
 	// so EnsureProjectVM treats it as "not found → create" rather than a real error.
 	sandboxmsb.WithMsbMock(t, mock.SetGetSandboxErr(&msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}))
 
-	origShell := sandbox.SetDaemonHealthFunc(
-		func(ctx context.Context, sb sandboxmsb.Sandbox, command string) (string, int, error) {
-			_ = ctx
-			_ = sb
-			_ = command
-			// A body both daemon parsers accept: v1 reads `healthy`, v2 reads a
-			// version from its ServerInfo.
-			return `{"healthy":true,"version":"0.0.0-test"}`, 0, nil
-		},
-	)
-	t.Cleanup(func() { sandbox.SetDaemonHealthFunc(origShell) })
+	origSeams := runSeams
+	runSeams.DaemonHealth = func(ctx context.Context, sb sandboxmsb.Sandbox, command string) (string, int, error) {
+		_ = ctx
+		_ = sb
+		_ = command
+		// A body both daemon parsers accept: v1 reads `healthy`, v2 reads a
+		// version from its ServerInfo.
+		return `{"healthy":true,"version":"0.0.0-test"}`, 0, nil
+	}
+	t.Cleanup(func() { runSeams = origSeams })
 
 	return cmd, ui
 }
@@ -64,7 +63,8 @@ func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn
 // setupShellRunMocks is like setupRunMocks but adds shell output for worktree creation.
 // Worktree scenarios need the mock sandbox to return valid JSON for the worktree curl commands.
 func setupShellRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,
-	args ...string) (*cobra.Command, *termio.Mock) {
+	args ...string,
+) (*cobra.Command, *termio.Mock) {
 	t.Helper()
 
 	// Ensure shell responses include a JSON worktree response for curl commands.
@@ -386,6 +386,24 @@ func TestRunShellPreflightFailure(t *testing.T) {
 	}
 }
 
+// TestRunShellPreviewSkipsPreflight pins that a --dry-run preview of run and
+// shell alike skips the doctor preflight, which may install the microsandbox
+// runtime: a failing preflight must not abort the preview.
+func TestRunShellPreviewSkipsPreflight(t *testing.T) {
+	for _, command := range []string{cmdRun, cmdShell} {
+		t.Run(command, func(t *testing.T) {
+			initTestProjectDir(t)
+			mock := &sandboxmsb.MockMsbClient{}
+			root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, command, "--dry-run")
+			doctor.MockedCheckAll(t, false)
+
+			if err := root.Execute(); err != nil {
+				t.Fatalf("%s --dry-run with a failing preflight: %v", command, err)
+			}
+		})
+	}
+}
+
 func TestRunShellRunNonZeroExit(t *testing.T) {
 	initTestProjectDir(t)
 	mock := &sandboxmsb.MockMsbClient{}
@@ -666,7 +684,7 @@ func TestRefreshRunOptionsAfterMigrationErrors(t *testing.T) {
 // direct per-test field change on the caller's mock.
 func setupAbsentImagePreviewMocks(t *testing.T, mock *sandboxmsb.MockMsbClient) {
 	t.Helper()
-	image.WithMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
+	withMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
 		t.Fatal("the --dry-run preview must not resolve an agent version")
 		return "", nil
 	})
@@ -760,11 +778,12 @@ func TestShellDryRunPreviewCLI(t *testing.T) {
 func TestRunDryRunWithPinnedVersionReportsPin(t *testing.T) {
 	initTestProjectDir(t)
 
-	orig := sandbox.SetAgentLatestVersion(func(context.Context, agent.Agent) (string, error) {
+	origSeams := runSeams
+	runSeams.AgentLatestVersion = func(context.Context, agent.Agent) (string, error) {
 		t.Error("the --dry-run preview must not run the agent latest-version check")
 		return "", nil
-	})
-	t.Cleanup(func() { sandbox.SetAgentLatestVersion(orig) })
+	}
+	t.Cleanup(func() { runSeams = origSeams })
 
 	mock := &sandboxmsb.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run", "--agent-version", "9.9.9")
@@ -809,11 +828,42 @@ func TestRunDryRunAgentCodex(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(ui.InfoCalls) == 0 || strings.TrimSpace(ui.InfoCalls[0]) != "dry-run: agent version 0.164.0" {
+	var pinnedVersion, experimental bool
+	for _, line := range ui.InfoCalls {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "dry-run: agent version 0.164.0" {
+			pinnedVersion = true
+		}
+		if strings.Contains(trimmed, "experimental") {
+			experimental = true
+		}
+	}
+	if !pinnedVersion {
 		t.Errorf("expected pinned codex version line; got: %v", ui.InfoCalls)
+	}
+	if !experimental {
+		t.Errorf("expected an experimental notice for codex; got: %v", ui.InfoCalls)
 	}
 	if len(mock.CreatedSandboxCalls) != 0 {
 		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
+	}
+}
+
+// TestRunForwardsAgentArgs verifies the positional args after `--` reach the
+// agent attach as forwarded arguments: dropping opts.Args would swallow them.
+func TestRunForwardsAgentArgs(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &sandboxmsb.MockMsbClient{}
+	sb := &sandboxmsb.MockSandbox{}
+	root, _ := setupRunMocks(t, mock, sb, "run", "--", "--model", "sonnet")
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	joined := strings.Join(sb.AttachArgs, " ")
+	if !strings.Contains(joined, "'--model' 'sonnet'") {
+		t.Errorf("AttachArgs = %q, want the forwarded --model sonnet args", sb.AttachArgs)
 	}
 }
 
@@ -830,5 +880,146 @@ func TestRunAgentCodexRejectsDaemonOnlyFlags(t *testing.T) {
 				t.Errorf("err = %v, want 'not supported by agent \"codex\"'", err)
 			}
 		})
+	}
+}
+
+// TestRunDryRunAgentOhMyPi verifies `run --agent oh-my-pi` resolves the
+// oh-my-pi profile, notices that it is experimental, and previews without
+// starting a VM.
+func TestRunDryRunAgentOhMyPi(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &sandboxmsb.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{},
+		"run", "--dry-run", "--agent", "oh-my-pi", "--agent-version", "18.14.0")
+	setupAbsentImagePreviewMocks(t, mock)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var pinnedVersion, experimental bool
+	for _, line := range ui.InfoCalls {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "dry-run: agent version 18.14.0" {
+			pinnedVersion = true
+		}
+		if strings.Contains(trimmed, "experimental") {
+			experimental = true
+		}
+	}
+	if !pinnedVersion {
+		t.Errorf("expected pinned oh-my-pi version line; got: %v", ui.InfoCalls)
+	}
+	if !experimental {
+		t.Errorf("expected an experimental notice for oh-my-pi; got: %v", ui.InfoCalls)
+	}
+	if len(mock.CreatedSandboxCalls) != 0 {
+		t.Errorf("--dry-run created %d sandbox(es), want 0", len(mock.CreatedSandboxCalls))
+	}
+}
+
+// TestRunAgentOhMyPiRejectsDaemonOnlyFlags verifies oh-my-pi, which runs no
+// daemon, rejects --worktree and --serve-only.
+func TestRunAgentOhMyPiRejectsDaemonOnlyFlags(t *testing.T) {
+	for _, flagArgs := range [][]string{{"--worktree", "feat"}, {"--serve-only"}} {
+		t.Run(flagArgs[0], func(t *testing.T) {
+			initTestProjectDir(t)
+			args := append([]string{"run", "--dry-run", "--agent", "oh-my-pi"}, flagArgs...)
+			root, _ := setupRunMocks(t, &sandboxmsb.MockMsbClient{}, &sandboxmsb.MockSandbox{}, args...)
+			err := root.Execute()
+			if err == nil || !strings.Contains(err.Error(), `not supported by agent "oh-my-pi"`) {
+				t.Errorf("err = %v, want 'not supported by agent \"oh-my-pi\"'", err)
+			}
+		})
+	}
+}
+
+// writeHostOpencodeManifest writes a ~/.config/opencode/package.json declaring
+// a dependency into the mocked host home and returns its path.
+func writeHostOpencodeManifest(t *testing.T) string {
+	t.Helper()
+	hostHome, err := configpaths.Get().UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+	dir := filepath.Join(hostHome, ".config", "opencode")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatalf("create %s: %v", dir, err)
+	}
+	manifest := filepath.Join(dir, "package.json")
+	testutil.WritePath(t, manifest, `{"dependencies": {"zod": "4.1.8"}}`)
+	return manifest
+}
+
+func countWarningsMentioning(warnings []string, substr string) int {
+	count := 0
+	for _, warning := range warnings {
+		if strings.Contains(warning, substr) {
+			count++
+		}
+	}
+	return count
+}
+
+func TestRunWarnsAboutUnprovisionedConfigDirDependencies(t *testing.T) {
+	initTestProjectDir(t)
+	mock := &sandboxmsb.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run-vm")
+	manifest := writeHostOpencodeManifest(t)
+	// Host-config provisioning is opt-in, so enable the drop-in copy the
+	// dependency warning is about.
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "provision-host-config: true\n")
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if n := countWarningsMentioning(ui.WarnCalls, manifest); n != 1 {
+		t.Errorf("warnings mentioning %s = %d, want 1; got: %v", manifest, n, ui.WarnCalls)
+	}
+}
+
+func TestRunSkipsDependencyWarningWhenAMountSuppliesNodeModules(t *testing.T) {
+	initTestProjectDir(t)
+	mock := &sandboxmsb.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run-vm")
+	manifest := writeHostOpencodeManifest(t)
+	testutil.WriteFile(
+		t,
+		configpaths.Get().UserConfigDir(),
+		"config.yaml",
+		"provision-host-config: true\nmounts:\n  /home/dev/node_modules:\n    source: "+t.TempDir()+"\n    readonly: true\n",
+	)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if n := countWarningsMentioning(ui.WarnCalls, manifest); n != 0 {
+		t.Errorf("warnings mentioning %s = %d, want 0; got: %v", manifest, n, ui.WarnCalls)
+	}
+}
+
+func TestRunSkipsDependencyWarningWhenHostProvisioningIsDisabled(t *testing.T) {
+	initTestProjectDir(t)
+	mock := &sandboxmsb.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run-vm")
+	manifest := writeHostOpencodeManifest(t)
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "provision-host-config: false\n")
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if n := countWarningsMentioning(ui.WarnCalls, manifest); n != 0 {
+		t.Errorf("warnings mentioning %s = %d, want 0; got: %v", manifest, n, ui.WarnCalls)
+	}
+}
+
+func TestShellCommandInvalidSize(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "shell", "--tmp-size", "bogus")
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "invalid --tmp-size") {
+		t.Fatalf("expected invalid --tmp-size error, got %v", err)
 	}
 }

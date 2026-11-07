@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: "Install agents-sandbox on Linux or macOS, then verify the host is ready to run your first sandbox."
+description: "Install agents-sandbox on Linux or macOS, then start your first agent."
 layout: default
 parent: Get started
 nav_order: 20
@@ -108,7 +108,8 @@ agents-sandbox
 If the selected agent already has native configuration, the first interactive start offers a safe migration before the VM starts.
 See [Manage config in the sandbox]({% link manage-config.md %}) for migration, manual configuration, secrets, and file provisioning.
 
-Once installed, continue with one of the two onboarding paths:
+Once installed, run your first agent — see [Your first agent]({% link tutorial.md %}).
 
-- [Switch from your existing agent]({% link switch.md %}) — bring your existing agent config and credentials into the sandbox.
-- [Your first sandbox]({% link tutorial.md %}) — run an agent in a sandbox for the first time.
+Then, when you want to go further: [Switch from your existing agent]({% link switch.md %}) brings the configuration and
+credentials you already use into the sandbox and keeps them in sync, and [Manage config in the sandbox]({% link manage-config.md %})
+builds a self-contained sandbox that keeps secrets on the host.

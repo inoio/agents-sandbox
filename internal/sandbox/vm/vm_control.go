@@ -7,6 +7,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -25,9 +26,9 @@ func stopOrKillProjectVM(
 	client msb.Client,
 	stopFn func(msb.SandboxHandle, context.Context) error,
 ) error {
-	name := projectVMName(k)
+	name := ProjectVMName(k)
 
-	handle, found, err := findProjectVM(ctx, client, k)
+	handle, found, err := FindProjectVM(ctx, client, k)
 	if err != nil {
 		return err
 	}
@@ -91,7 +92,7 @@ func stopOrKillProjectVM(
 
 // removePersistedState deletes a sandbox's persisted state, warning rather than
 // failing the command when the removal does not succeed.
-func removePersistedState(ctx context.Context, handle msb.SandboxHandle, ui termio.UI, name string) {
+func removePersistedState(ctx context.Context, handle msb.SandboxHandle, ui termio.Logger, name string) {
 	if err := handle.Remove(ctx); err != nil {
 		ui.Warnf("failed to remove sandbox state: %v", err)
 		return
@@ -101,8 +102,16 @@ func removePersistedState(ctx context.Context, handle msb.SandboxHandle, ui term
 
 // StopProjectVM gracefully stops the project VM for the current directory and
 // agent. If remove is true, it also removes the VM's persisted state; an
-// inactive VM is not stopped, only removed.
-func StopProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agentName string) error {
+// inactive VM is not stopped, only removed. mclient is resolved at the command
+// boundary and threaded, never read from the process global here.
+func StopProjectVM(
+	ctx context.Context,
+	paths configpaths.ConfigPaths,
+	mclient msb.Client,
+	remove, dryRun bool,
+	ui termio.UI,
+	agentName string,
+) error {
 	a, ok := agent.Lookup(agentName)
 	if !ok {
 		return fmt.Errorf("unknown agent %q", agentName)
@@ -111,19 +120,27 @@ func StopProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agent
 	if err != nil {
 		return err
 	}
-	adoption, err := AdoptLegacyIdentity(ctx, msb.Get(), identity, a.Name(), !dryRun, ui)
+	adoption, err := AdoptLegacyIdentity(ctx, paths, mclient, identity, a.Name(), !dryRun, ui)
 	if err != nil {
 		return err
 	}
 	k := state.Key{Slug: adoption.Slug, Agent: a.Name()}
-	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "stop", "Stopping", msb.Get(),
+	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "stop", "Stopping", mclient,
 		func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
 }
 
 // KillProjectVM force-kills the project VM for the current directory and agent.
 // If remove is true, it also removes the VM's persisted state; an inactive VM
-// is not killed, only removed.
-func KillProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agentName string) error {
+// is not killed, only removed. mclient is resolved at the command boundary and
+// threaded, never read from the process global here.
+func KillProjectVM(
+	ctx context.Context,
+	paths configpaths.ConfigPaths,
+	mclient msb.Client,
+	remove, dryRun bool,
+	ui termio.UI,
+	agentName string,
+) error {
 	a, ok := agent.Lookup(agentName)
 	if !ok {
 		return fmt.Errorf("unknown agent %q", agentName)
@@ -132,11 +149,11 @@ func KillProjectVM(ctx context.Context, remove, dryRun bool, ui termio.UI, agent
 	if err != nil {
 		return err
 	}
-	adoption, err := AdoptLegacyIdentity(ctx, msb.Get(), identity, a.Name(), !dryRun, ui)
+	adoption, err := AdoptLegacyIdentity(ctx, paths, mclient, identity, a.Name(), !dryRun, ui)
 	if err != nil {
 		return err
 	}
 	k := state.Key{Slug: adoption.Slug, Agent: a.Name()}
-	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "kill", "Force-killing", msb.Get(),
+	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "kill", "Force-killing", mclient,
 		func(h msb.SandboxHandle, c context.Context) error { return h.Kill(c) })
 }

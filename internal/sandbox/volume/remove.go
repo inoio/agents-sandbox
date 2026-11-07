@@ -14,7 +14,7 @@ import (
 // refuses when any name is still referenced by a project state file, listing the
 // referencing projects, so a project's recorded home is never silently orphaned.
 // It prompts for confirmation after the reference guard passes.
-func RemoveVolumes(ctx context.Context, names []string, force bool, ui termio.UI) error {
+func RemoveVolumes(ctx context.Context, names []string, force bool, ui termio.Prompter) error {
 	if !force {
 		references, err := state.HomeVolumeReferences()
 		if err != nil {

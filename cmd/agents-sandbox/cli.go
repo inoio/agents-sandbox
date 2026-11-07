@@ -16,14 +16,13 @@ var version = devVersion
 // execute runs the CLI with the given arguments and UI.
 //
 // For integration testing, override the injection seams using:
-//   - msb:   msb.ResetGetFn (replaces the msb.Client factory)
+//   - msb:   msb.WithMsbMock (replaces the msb.Client factory for one test)
 //   - docker:  docker.WithNoopDockerMock / docker.WithDefaultErrorDockerMock / docker.WithDockerMock
 //
 // Example:
 //
 //	func TestListSandboxCommand(t *testing.T) {
-//	    orig := msb.ResetGetFn(func() msb.Client { return mock })
-//	    t.Cleanup(func() { msb.ResetGetFn(orig) })
+//	    msb.WithMsbMock(t, mock)
 //
 //	    ui := &termio.Mock{}
 //	    err := Execute([]string{"list"}, ui)
@@ -32,8 +31,8 @@ var version = devVersion
 func execute(args []string, ui termio.UI) error {
 	rootCmd := buildRootCmd(ui)
 	rootCmd.SetArgs(args)
-	rootCmd.SetOut(ui.StdOut())
-	rootCmd.SetErr(ui.StdErr())
+	// buildRootCmd already routes cmd output to the UI; execute additionally
+	// silences cobra's own usage/error printing so main() is the only reporter.
 	rootCmd.SilenceUsage = true
 	rootCmd.SilenceErrors = true
 
@@ -46,7 +45,7 @@ func execute(args []string, ui termio.UI) error {
 // It must run after cobra parses the real command tree and after launcher
 // config has been merged, so that flags work regardless of position or how
 // short shorthands are grouped (e.g. "-ny").
-func applyCLISettings(cmd *cobra.Command, ui termio.UI, r *launcherconfig.Resolver) error {
+func applyCLISettings(cmd *cobra.Command, ui termio.TerminalState, r *launcherconfig.Resolver) error {
 	if cmd == nil || r == nil {
 		return nil
 	}

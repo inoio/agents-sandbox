@@ -2,7 +2,8 @@
 
 `scripts/cleanup-merged-branches.sh` (run as `make cleanup-branches ARGS=...`) removes
 merged worktrees and local/origin branches, then reports everything left, fresh entries in
-green and stale ones in yellow. It is repo-maintenance tooling, not part of `make check`.
+green and stale ones in yellow. It is repo-maintenance tooling, not part of `make check`; its
+fixture test is.
 
 ## Merge detection
 
@@ -18,6 +19,36 @@ A branch is removed when its tip is:
 The PR check requires the branch tip to equal the PR head commit. Matching by branch name
 alone is unsafe: a branch can gain commits after its PR merges, and deleting it would
 discard them.
+
+## Config-worktree protection
+
+The bare-checkout recipe (`docs/recipes/bare-worktrees.md`) keeps project config in a sparse
+`config/` worktree of the `agents-sandbox-config` branch, which mirrors `main` and takes no
+commits of its own. Once `main` moves past it, it is an ancestor of `main` — it always looks
+merged — so a naive sweep would remove the worktree and delete the branch. The script protects
+it two ways:
+
+- structurally: it reads the bare root's `.agents-sandbox/` symlinks and resolves each to the
+  worktree directory it bridges config from, so the config worktree is recognised by what it
+  is, whatever its directory or branch name, for both bare layouts (`<project>/.git` and
+  `<name>.git`) and for absolute or relative symlink targets;
+- by reserved name: a worktree whose directory is `config` and the branch
+  `agents-sandbox-config` are kept even when no symlink resolves — the names the recipe already
+  reserves, covering the structural check's failure mode.
+
+Both checks sit with the `release/*` check, ahead of the age (`--older-than`), dirty/`--force`,
+and `--remote-only` checks, so a protected worktree is kept regardless of age or dirtiness. A
+protected worktree's branch is protected too, so the local and origin plans keep the mirror
+branch. Kept entries carry the note `config mirror; protected` in the remaining inventory.
+
+## Reporting
+
+Whenever there is something to remove, a text run prints the named plan — `Worktrees to
+remove:`, `Local branches to delete:`, `Origin branches to delete:` — before the confirmation
+gate, so the prompt is approved against the exact names, not a count. `--quiet` prints that plan and the closing
+summary but omits the remaining inventory. The plan states intent, not outcome: a removal that
+fails on a non-dry run is still named under its plan heading — the error goes to stderr — while
+the closing summary, which counts successes only, excludes it.
 
 ## Safety
 

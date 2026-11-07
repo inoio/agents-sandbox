@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	"github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -33,6 +34,7 @@ func wantNetworkProfiles(t *testing.T, policy network.Policy, want ...network.Pr
 func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().String(FlagWorktree, "", "worktree")
 	cmd.Flags().Bool(FlagRebuild, false, "rebuild")
+	cmd.Flags().Bool(FlagNoRebuild, false, "no-rebuild")
 	cmd.Flags().String(FlagAgentVersion, "", "agent-version")
 	cmd.Flags().Bool(FlagDryRun, false, "dry-run")
 	cmd.Flags().Bool(FlagDryRunVM, false, "dry-run-vm")
@@ -40,11 +42,12 @@ func registerRunFlags(cmd *cobra.Command) {
 	cmd.Flags().String(FlagAgent, defaultAgentName, "agent")
 	cmd.Flags().StringSlice(FlagNetwork, nil, "network")
 	cmd.Flags().StringSlice(FlagDNSServers, nil, "dns")
+	cmd.Flags().StringSlice(FlagPort, nil, "port")
 	cmd.Flags().String(FlagNotify, "", "notify")
 	cmd.Flags().Lookup(FlagNotify).NoOptDefVal = "on"
 
 	cmd.Flags().Uint8("cpus", 0, "cpus")
-	cmd.Flags().String("memory", "4G", "memory")
+	cmd.Flags().String(FlagMemory, "4G", "memory")
 	cmd.Flags().String("tmp-size", "2G", "tmp-size")
 	cmd.Flags().String("disk-size", "", "disk-size")
 	cmd.Flags().String("workspace-quota", "16G", "workspace-quota")
@@ -69,11 +72,26 @@ func newShellCommand() *cobra.Command {
 // mustResolver builds a resolver from a real command, failing the test on error.
 func mustResolver(t *testing.T, cmd *cobra.Command) *viperconfig.Resolver {
 	t.Helper()
-	r, err := viperconfig.NewResolver(cmd, "")
+	r, err := viperconfig.NewResolver(cmd, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
 	}
 	return r
+}
+
+// Build carries the effective config slug from the resolved launcher config,
+// mirroring how ResolvedAgent is carried: resolved once at the run boundary.
+func TestBuildCarriesConfigSlug(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{ConfigSlug: "widget-bbb"})
+	cmd := newRunCommand()
+
+	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.ConfigSlug != "widget-bbb" {
+		t.Errorf("ConfigSlug = %q, want %q", opts.ConfigSlug, "widget-bbb")
+	}
 }
 
 // A zero-value Config produces the expected defaults.
@@ -172,6 +190,65 @@ func TestBuildOpenLinksFromFlagWithoutConfig(t *testing.T) {
 	}
 	if !opts.OpenLinks {
 		t.Fatal("opts.OpenLinks = false, want true from the flag")
+	}
+}
+
+// TestBuildAllowPlaceholderForFromConfig pins that the config-file-only
+// allow-placeholder-for list reaches RunOptions, where the env/secret load
+// reads it to build the secret entries' placeholder passthrough.
+func TestBuildAllowPlaceholderForFromConfig(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{
+		Secrets: viperconfig.Secrets{
+			Common: viperconfig.SecretCommon{AllowPlaceholderFor: []string{"model.example"}},
+		},
+	})
+	opts, err := Build(r.Config(), newRunCommand(), &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !slices.Equal(opts.AllowPlaceholderFor, []string{"model.example"}) {
+		t.Errorf("AllowPlaceholderFor = %v, want [model.example]", opts.AllowPlaceholderFor)
+	}
+}
+
+// TestBuildMemoryFlagChanged pins the --memory flag provenance: Build records
+// whether the flag was explicitly set, so a persisted raise is not written as a
+// shadowed config value (specs/resource-limit-proposal.md §8).
+func TestBuildMemoryFlagChanged(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
+
+	unset := newRunCommand()
+	opts, err := Build(r.Config(), unset, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.MemoryFlagChanged {
+		t.Error("MemoryFlagChanged = true for an unchanged --memory flag; want false")
+	}
+
+	changed := newRunCommand()
+	if err := changed.Flags().Set(FlagMemory, "8G"); err != nil {
+		t.Fatalf("set --memory: %v", err)
+	}
+	opts, err = Build(r.Config(), changed, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !opts.MemoryFlagChanged {
+		t.Error("MemoryFlagChanged = false after --memory was set; want true")
+	}
+}
+
+// TestBuildMemoryFlagAbsent pins the lookup guard: a command that does not
+// register --memory reports it unchanged rather than panicking.
+func TestBuildMemoryFlagAbsent(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
+	opts, err := Build(r.Config(), &cobra.Command{Use: "bare"}, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.MemoryFlagChanged {
+		t.Error("MemoryFlagChanged = true for a command without --memory")
 	}
 }
 
@@ -645,6 +722,96 @@ func TestBuildDNSFromResolver(t *testing.T) {
 	}
 }
 
+func TestBuildPortsDefaultEmpty(t *testing.T) {
+	cmd := newRunCommand()
+	opts, err := Build(nil, cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.Ports != nil {
+		t.Errorf("Ports = %+v, want nil by default", opts.Ports)
+	}
+}
+
+func TestBuildPortsFromConfig(t *testing.T) {
+	cmd := newRunCommand()
+	opts, err := Build(&viperconfig.Config{Ports: []string{"3000", "8080:5173"}}, cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	want := []ports.PortMapping{
+		{HostPort: 3000, GuestPort: 3000},
+		{HostPort: 8080, GuestPort: 5173},
+	}
+	if !slices.Equal(opts.Ports, want) {
+		t.Fatalf("Ports = %+v, want %+v", opts.Ports, want)
+	}
+}
+
+func TestBuildPortsFlag(t *testing.T) {
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagPort, "3000,8080:5173"); err != nil {
+		t.Fatalf("set port: %v", err)
+	}
+	opts, err := Build(nil, cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	want := []ports.PortMapping{
+		{HostPort: 3000, GuestPort: 3000},
+		{HostPort: 8080, GuestPort: 5173},
+	}
+	if !slices.Equal(opts.Ports, want) {
+		t.Fatalf("Ports = %+v, want %+v", opts.Ports, want)
+	}
+}
+
+func TestBuildPortsFlagOverridesEnv(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_PORTS", "5173")
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagPort, "3000"); err != nil {
+		t.Fatalf("set port: %v", err)
+	}
+	r := mustResolver(t, cmd)
+	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	wantOnlyFlag := []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}
+	if !slices.Equal(opts.Ports, wantOnlyFlag) {
+		t.Fatalf("Ports = %+v, want only the flag's 3000 mapping", opts.Ports)
+	}
+}
+
+func TestBuildPortsFromEnv(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	t.Setenv("AGENTS_SANDBOX_PORTS", "3000,8080:5173")
+	cmd := newRunCommand()
+	r := mustResolver(t, cmd)
+	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	want := []ports.PortMapping{
+		{HostPort: 3000, GuestPort: 3000},
+		{HostPort: 8080, GuestPort: 5173},
+	}
+	if !slices.Equal(opts.Ports, want) {
+		t.Fatalf("Ports = %+v, want %+v from env", opts.Ports, want)
+	}
+}
+
+func TestBuildPortsInvalidFlag(t *testing.T) {
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagPort, "8080:3000:5"); err != nil {
+		t.Fatalf("set port: %v", err)
+	}
+	if _, err := Build(nil, cmd, &termio.Mock{}); err == nil {
+		t.Fatal("expected error for invalid --port value")
+	}
+}
+
 // Configured mounts are resolved into RunOptions, keyed by guest path.
 func TestBuildResolvesMounts(t *testing.T) {
 	ui := &termio.Mock{}
@@ -718,6 +885,27 @@ func TestBuildUnknownAgent(t *testing.T) {
 	}
 }
 
+// Build resolves the selected agent once into RunOptions.ResolvedAgent, so
+// prepare, session, and reprovision read capabilities off it instead of
+// re-looking-up the profile.
+func TestBuildResolvesAgent(t *testing.T) {
+	cmd := newRunCommand()
+	var r *viperconfig.Resolver
+	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.ResolvedAgent.Profile == nil {
+		t.Fatal("ResolvedAgent.Profile is nil; want the selected profile")
+	}
+	if got := opts.ResolvedAgent.Profile.Name(); got != opts.Agent {
+		t.Errorf("ResolvedAgent.Profile.Name() = %q; want %q", got, opts.Agent)
+	}
+	if opts.ResolvedAgent.ConfigMerger == nil {
+		t.Errorf("ResolvedAgent.ConfigMerger is nil for agent %q; want its ConfigMerger", opts.Agent)
+	}
+}
+
 // The agent can be selected via the AGENTS_SANDBOX_AGENT env var.
 func TestBuildAgentFromEnv(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -775,6 +963,128 @@ func TestBuildAgentOpencode2(t *testing.T) {
 	}
 	if opts.Agent != "opencode2" {
 		t.Errorf("Agent = %q; want opencode2", opts.Agent)
+	}
+}
+
+func TestBuildNoticesExperimentalAgents(t *testing.T) {
+	cases := []struct {
+		agent string
+		want  bool
+	}{
+		{"pi", true},
+		{"claude-code", true},
+		{"codex", true},
+		{"hermes", true},
+		{"oh-my-pi", true},
+		{"opencode", false},
+		{"opencode2", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.agent, func(t *testing.T) {
+			cmd := newRunCommand()
+			if err := cmd.Flags().Set(FlagAgent, tc.agent); err != nil {
+				t.Fatalf("set agent: %v", err)
+			}
+			ui := &termio.Mock{}
+			var r *viperconfig.Resolver
+			if _, err := Build(r.Config(), cmd, ui); err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			got := experimentalNoticePrinted(ui)
+			if got != tc.want {
+				t.Errorf(
+					"experimental notice for %q = %v, want %v (InfoCalls=%q)",
+					tc.agent,
+					got,
+					tc.want,
+					ui.InfoCalls,
+				)
+			}
+		})
+	}
+}
+
+// experimentalNoticePrinted reports whether ui received the experimental-agent
+// info notice.
+func experimentalNoticePrinted(ui *termio.Mock) bool {
+	return slices.ContainsFunc(ui.InfoCalls, func(m string) bool {
+		return strings.Contains(m, "experimental")
+	})
+}
+
+// TestBuildEmptyAgentResolvesToDefaultWithoutNotice pins that an explicitly
+// empty --agent resolves to the default profile and prints no notice.
+func TestBuildEmptyAgentResolvesToDefaultWithoutNotice(t *testing.T) {
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set(FlagAgent, ""); err != nil {
+		t.Fatalf("set agent: %v", err)
+	}
+	ui := &termio.Mock{}
+	var r *viperconfig.Resolver
+	opts, err := Build(r.Config(), cmd, ui)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if opts.Agent != "opencode2" {
+		t.Errorf("Agent = %q; want opencode2 (the default)", opts.Agent)
+	}
+	if experimentalNoticePrinted(ui) {
+		t.Errorf("experimental notice printed for the default agent: %q", ui.InfoCalls)
+	}
+}
+
+// TestBuildInvalidInvocationPrintsNoExperimentalNotice pins that the
+// experimental notice is emitted only after option resolution succeeds: an
+// invalid invocation errors without first printing the info line.
+func TestBuildInvalidInvocationPrintsNoExperimentalNotice(t *testing.T) {
+	cases := []struct {
+		name      string
+		agent     string
+		configure func(t *testing.T, cmd *cobra.Command)
+	}{
+		{
+			name:  "unknown agent",
+			agent: "does-not-exist",
+		},
+		{
+			name:  "experimental agent with notify it does not support",
+			agent: "pi",
+			configure: func(t *testing.T, cmd *cobra.Command) {
+				t.Helper()
+				if err := cmd.Flags().Set(FlagNotify, "on"); err != nil {
+					t.Fatalf("set notify: %v", err)
+				}
+			},
+		},
+		{
+			name:  "experimental agent with an invalid network profile",
+			agent: "pi",
+			configure: func(t *testing.T, cmd *cobra.Command) {
+				t.Helper()
+				if err := cmd.Flags().Set(FlagNetwork, "bogus"); err != nil {
+					t.Fatalf("set network: %v", err)
+				}
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := newRunCommand()
+			if err := cmd.Flags().Set(FlagAgent, tc.agent); err != nil {
+				t.Fatalf("set agent: %v", err)
+			}
+			if tc.configure != nil {
+				tc.configure(t, cmd)
+			}
+			ui := &termio.Mock{}
+			var r *viperconfig.Resolver
+			if _, err := Build(r.Config(), cmd, ui); err == nil {
+				t.Fatal("expected an error")
+			}
+			if experimentalNoticePrinted(ui) {
+				t.Errorf("experimental notice printed before the error: %q", ui.InfoCalls)
+			}
+		})
 	}
 }
 

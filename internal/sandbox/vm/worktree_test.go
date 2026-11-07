@@ -2,6 +2,9 @@ package vm
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -13,64 +16,188 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// mustWorktreeProvider returns the opencode profile's WorktreeProvider so tests
-// can build the exact worktree commands the production path shells out with.
-func mustWorktreeProvider(t *testing.T) agent.WorktreeProvider {
-	t.Helper()
-	provider, ok := agent.AsWorktreeProvider(opencodeAgent(t))
-	if !ok {
-		t.Fatal("opencode agent does not implement WorktreeProvider")
+// TestValidateWorktreeBase pins that a base must resolve to a commit in the
+// local checkout (no fetch is performed), and that a check that cannot run
+// keeps its cause.
+func TestValidateWorktreeBase(t *testing.T) {
+	const check = "git -C /w/feat rev-parse --verify %s^{commit}"
+	execFailed := errors.New("exec failed")
+
+	sb := &msb.MockSandbox{ExecOut: map[string]msb.ShellResult{
+		fmt.Sprintf(check, "main"): msb.NewTestResult(true, 0, "abc123", "", nil),
+		fmt.Sprintf(check, "nope"): msb.NewTestResult(false, 128, "", "unknown revision", nil),
+	}}
+	if err := validateWorktreeBase(context.Background(), sb, "/w/feat", "main"); err != nil {
+		t.Errorf("resolvable base: %v", err)
 	}
-	return provider
-}
-
-// recordingWorktreeAgent records the project and spec ResolveTarget hands to the
-// provider, so the seam contract is pinned without a real agent.
-type recordingWorktreeAgent struct {
-	fakeAgent
-
-	resolveTarget string
-	resolveCalls  int
-	badProject    bool
-	badList       bool
-	listProject   agent.WorktreeProject
-	createSpec    agent.WorktreeSpec
-	createProject agent.WorktreeProject
-}
-
-func (r *recordingWorktreeAgent) WorktreeResolveCmd(target string) string {
-	r.resolveTarget = target
-	r.resolveCalls++
-	return "resolve"
-}
-
-func (r *recordingWorktreeAgent) WorktreeParseProject(string) (agent.WorktreeProject, bool) {
-	if r.badProject {
-		return agent.WorktreeProject{}, false
+	if err := validateWorktreeBase(context.Background(), sb, "/w/feat", "nope"); err == nil ||
+		!strings.Contains(err.Error(), `base "nope" does not resolve locally`) {
+		t.Errorf("unresolvable base error = %v, want it refused", err)
 	}
-	return agent.WorktreeProject{ID: "abc", Canonical: "/repo"}, true
-}
-
-func (r *recordingWorktreeAgent) WorktreeListCmd(project agent.WorktreeProject) string {
-	r.listProject = project
-	return "list"
-}
-
-func (r *recordingWorktreeAgent) WorktreeParseList(string, agent.WorktreeProject) ([]string, bool) {
-	if r.badList {
-		return nil, false
+	err := validateWorktreeBase(context.Background(), &msb.MockSandbox{ExecErr: execFailed}, "/w/feat", "main")
+	if !errors.Is(err, execFailed) {
+		t.Errorf("failed check error = %v, want it to wrap %v", err, execFailed)
 	}
-	return []string{}, true
 }
 
-func (r *recordingWorktreeAgent) WorktreeCreateCmd(spec agent.WorktreeSpec, project agent.WorktreeProject) string {
-	r.createSpec = spec
-	r.createProject = project
-	return "create"
+// TestFindWorktreeDir pins that a worktree is found by its directory's base
+// name, the first match winning, and that no match reports not found.
+func TestFindWorktreeDir(t *testing.T) {
+	const root = "/home/dev/.local/share/opencode/worktree/abc/"
+	cases := []struct {
+		name    string
+		dirs    []string
+		want    string
+		wantHit bool
+	}{
+		{
+			name:    "later entry matches",
+			dirs:    []string{root + "review-test", root + "bugfix"},
+			want:    root + "bugfix",
+			wantHit: true,
+		},
+		{
+			name:    "first match wins",
+			dirs:    []string{root + "bugfix", "/other/bugfix"},
+			want:    root + "bugfix",
+			wantHit: true,
+		},
+		{name: "no match", dirs: []string{root + "other-topic"}},
+		{name: "a name containing the slug is no match", dirs: []string{root + "bugfix-2"}},
+		{name: "empty list"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, ok := findWorktreeDir(tc.dirs, "bugfix")
+			if dir != tc.want || ok != tc.wantHit {
+				t.Errorf("findWorktreeDir = %q, %v; want %q, %v", dir, ok, tc.want, tc.wantHit)
+			}
+		})
+	}
 }
 
-func (r *recordingWorktreeAgent) WorktreeParseDir(string) (string, bool) {
-	return "/workspace/wt/feat-x", true
+// TestWorktreeDetachedNoteEmptyForBranchReporter pins that a reporter whose
+// daemon keeps a branch is silent: the note is only for a detached HEAD.
+func TestWorktreeDetachedNoteEmptyForBranchReporter(t *testing.T) {
+	if note := worktreeDetachedNote(agent.Resolve(branchWorktreeAgent{})); note != "" {
+		t.Errorf("worktreeDetachedNote = %q, want empty for a branch-keeping reporter", note)
+	}
+}
+
+// TestResolveTargetStopsAtTheFailingStep pins that each step of resolving a
+// worktree (resolving the daemon project, listing its worktrees, validating the
+// base, creating the worktree) fails the resolution with its cause and runs no
+// later step. In particular a failed or unparsable list is never read as "no
+// worktrees", which would abandon an existing worktree for a new
+// server-suffixed one and hide a daemon route or field rename.
+func TestResolveTargetStopsAtTheFailingStep(t *testing.T) {
+	cause := errors.New("step failed")
+	ok := func(stdout string) msb.ShellResult { return msb.NewTestResult(true, 0, stdout, "", nil) }
+	cases := []struct {
+		name     string
+		agent    *recordingWorktreeAgent
+		base     string
+		outputs  map[string]msb.ShellResult
+		failing  string // the command whose shell call fails with cause
+		execErr  error
+		wantText []string
+		wantNot  []string // commands that must not run
+	}{
+		{
+			name:     "resolve shell failure",
+			failing:  "resolve",
+			wantText: []string{`resolve project for "/workspace"`},
+			wantNot:  []string{"list", "create"},
+		},
+		{
+			name:     "resolve exits non-zero",
+			outputs:  map[string]msb.ShellResult{"resolve": msb.NewTestResult(false, 1, "", "boom", nil)},
+			wantText: []string{`resolve project for "/workspace" failed (exit 1): boom`},
+			wantNot:  []string{"list", "create"},
+		},
+		{
+			name:     "unparsable project",
+			agent:    &recordingWorktreeAgent{badProject: true},
+			wantText: []string{`resolve project for "/workspace" returned an unexpected payload`},
+			wantNot:  []string{"list", "create"},
+		},
+		{
+			name:     "list shell failure",
+			failing:  "list",
+			wantText: []string{`list worktrees for "feat-x"`},
+			wantNot:  []string{"create"},
+		},
+		{
+			name:     "list exits non-zero",
+			outputs:  map[string]msb.ShellResult{"list": msb.NewTestResult(false, 3, "", "boom", nil)},
+			wantText: []string{`list worktrees for "feat-x" failed (exit 3): boom`},
+			wantNot:  []string{"create"},
+		},
+		{
+			name:     "unparsable list",
+			agent:    &recordingWorktreeAgent{badList: true},
+			wantText: []string{`list worktrees for "feat-x" returned an unexpected payload`},
+			wantNot:  []string{"create"},
+		},
+		{
+			name:     "base cannot be checked",
+			base:     "develop",
+			execErr:  cause,
+			wantText: []string{`worktree "feat-x"`},
+			wantNot:  []string{"create"},
+		},
+		{
+			name:     "create shell failure",
+			failing:  "create",
+			wantText: []string{`create worktree "feat-x"`},
+		},
+		{
+			name:     "create exits non-zero",
+			outputs:  map[string]msb.ShellResult{"create": msb.NewTestResult(false, 4, "", "boom", nil)},
+			wantText: []string{`create worktree "feat-x" failed (exit 4): boom`, "may still have created it"},
+		},
+		{
+			name:     "unparsable create response",
+			agent:    &recordingWorktreeAgent{badDir: true},
+			wantText: []string{`parse worktree response for "feat-x"`},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			outputs := map[string]msb.ShellResult{"resolve": ok(`{}`), "list": ok(`[]`), "create": ok(`{}`)}
+			maps.Copy(outputs, tc.outputs)
+			calls := &[]string{}
+			mock := &msb.MockSandbox{ShellOut: outputs, ShellCalls: calls, ExecErr: tc.execErr}
+			var sb msb.Sandbox = mock
+			if tc.failing != "" {
+				sb = failingCommandSandbox{MockSandbox: mock, command: tc.failing, err: cause}
+			}
+			a := tc.agent
+			if a == nil {
+				a = &recordingWorktreeAgent{}
+			}
+
+			_, err := ResolveTarget(context.Background(), agent.Resolve(a), sb,
+				options.WorktreeSpec{Name: "feat-x", Base: tc.base}, mounts.WorkspaceMountPath, &termio.Mock{})
+
+			if err == nil {
+				t.Fatal("ResolveTarget succeeded, want the step's failure")
+			}
+			if (tc.failing != "" || tc.execErr != nil) && !errors.Is(err, cause) {
+				t.Errorf("error = %v, want it to wrap %v", err, cause)
+			}
+			for _, want := range tc.wantText {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %v, want it to contain %q", err, want)
+				}
+			}
+			for _, command := range tc.wantNot {
+				if slices.Contains(*calls, command) {
+					t.Errorf("ran %q after the failing step; calls: %v", command, *calls)
+				}
+			}
+		})
+	}
 }
 
 func TestResolveTargetResolvesThenPassesProjectToProvider(t *testing.T) {
@@ -83,7 +210,7 @@ func TestResolveTargetResolvesThenPassesProjectToProvider(t *testing.T) {
 	}}
 	dir, err := ResolveTarget(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -110,88 +237,6 @@ func TestResolveTargetResolvesThenPassesProjectToProvider(t *testing.T) {
 	}
 }
 
-// TestResolveTargetAbortsWhenResolveFails pins that a non-zero resolve exit
-// aborts before the list, so no worktree request is sent.
-func TestResolveTargetAbortsWhenResolveFails(t *testing.T) {
-	ui := &termio.Mock{}
-	a := &recordingWorktreeAgent{}
-	sb := &msb.MockSandbox{
-		ShellOut:   map[string]msb.ShellResult{"resolve": msb.NewTestResult(false, 1, "", "boom", nil)},
-		ShellCalls: &[]string{},
-	}
-	if _, err := ResolveTarget(
-		context.Background(),
-		a,
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	); err == nil {
-		t.Fatal("expected an error when the resolve command exits non-zero")
-	}
-	for _, call := range *sb.ShellCalls {
-		if call == "list" || call == "create" {
-			t.Errorf("must not list or create after a failed resolve; calls: %v", *sb.ShellCalls)
-		}
-	}
-}
-
-// TestResolveTargetAbortsWhenProjectUnparsable pins that an unusable project
-// response aborts before the list, so no request is sent with an empty id.
-func TestResolveTargetAbortsWhenProjectUnparsable(t *testing.T) {
-	ui := &termio.Mock{}
-	a := &recordingWorktreeAgent{badProject: true}
-	sb := &msb.MockSandbox{
-		ShellOut:   map[string]msb.ShellResult{"resolve": msb.NewTestResult(true, 0, "garbage", "", nil)},
-		ShellCalls: &[]string{},
-	}
-	if _, err := ResolveTarget(
-		context.Background(),
-		a,
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	); err == nil {
-		t.Fatal("expected an error when the project cannot be parsed")
-	}
-	for _, call := range *sb.ShellCalls {
-		if call == "list" || call == "create" {
-			t.Errorf("must not list or create after an unparsable resolve; calls: %v", *sb.ShellCalls)
-		}
-	}
-}
-
-// TestResolveTargetAbortsWhenListUnparsable pins that a list payload the
-// provider's parser rejects aborts before create: a malformed list must never
-// read as "no worktrees" and spawn a duplicate.
-func TestResolveTargetAbortsWhenListUnparsable(t *testing.T) {
-	ui := &termio.Mock{}
-	a := &recordingWorktreeAgent{badList: true}
-	sb := &msb.MockSandbox{
-		ShellOut: map[string]msb.ShellResult{
-			"resolve": msb.NewTestResult(true, 0, `{}`, "", nil),
-			"list":    msb.NewTestResult(true, 0, "garbage", "", nil),
-		},
-		ShellCalls: &[]string{},
-	}
-	if _, err := ResolveTarget(
-		context.Background(),
-		a,
-		sb,
-		options.WorktreeSpec{Name: "feat-x"},
-		mounts.WorkspaceMountPath,
-		ui,
-	); err == nil {
-		t.Fatal("expected an error when the list payload cannot be parsed")
-	}
-	for _, call := range *sb.ShellCalls {
-		if call == "create" {
-			t.Errorf("must not create after an unparsable list; calls: %v", *sb.ShellCalls)
-		}
-	}
-}
-
 // TestResolveTargetV1SkipsResolveStep pins that an agent without a resolve
 // command (v1) shells out only for the list and create.
 func TestResolveTargetV1SkipsResolveStep(t *testing.T) {
@@ -208,7 +253,7 @@ func TestResolveTargetV1SkipsResolveStep(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -226,7 +271,7 @@ func TestResolveTargetEmptySpecReturnsWorkspace(t *testing.T) {
 	sb := &msb.MockSandbox{ShellCalls: &[]string{}}
 	dir, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{},
 		mounts.WorkspaceMountPath,
@@ -248,7 +293,7 @@ func TestResolveTargetNoDaemonProvider(t *testing.T) {
 	sb := &msb.MockSandbox{ShellCalls: &[]string{}}
 	dir, err := ResolveTarget(
 		context.Background(),
-		&fakeAgent{},
+		agent.Resolve(&fakeAgent{}),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -277,7 +322,7 @@ func TestResolveTargetReusesExistingWorktree(t *testing.T) {
 	}
 	dir, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "bugfix-exit-zero"},
 		mounts.WorkspaceMountPath,
@@ -308,7 +353,7 @@ func TestResolveTargetReuseWarnsIgnoredBase(t *testing.T) {
 	}
 	_, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "foo", Base: "main"},
 		mounts.WorkspaceMountPath,
@@ -361,7 +406,7 @@ func TestResolveTargetReuseIgnoresUnresolvableBase(t *testing.T) {
 	}
 	dir, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "foo", Base: "main"},
 		mounts.WorkspaceMountPath,
@@ -411,7 +456,7 @@ func TestResolveTargetCreatesWithoutBase(t *testing.T) {
 	}
 	dir, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -454,7 +499,7 @@ func TestResolveTargetCreatesWithBaseValidatesAndSendsStartCommand(t *testing.T)
 	}
 	dir, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x", Base: "main"},
 		mounts.WorkspaceMountPath,
@@ -509,7 +554,7 @@ func TestResolveTargetCreateFailsOnUnresolvableBase(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x", Base: "nope"},
 		mounts.WorkspaceMountPath,
@@ -522,34 +567,6 @@ func TestResolveTargetCreateFailsOnUnresolvableBase(t *testing.T) {
 			t.Errorf("expected no create request for an unresolvable base: %q", call)
 		}
 	}
-}
-
-// opencode2Agent returns the opencode2 profile for tests exercising v2's
-// agent-specific worktree behavior.
-func opencode2Agent(t *testing.T) agent.Agent {
-	t.Helper()
-	a, ok := agent.Lookup("opencode2")
-	if !ok {
-		t.Fatal("opencode2 agent not registered")
-	}
-	return a
-}
-
-// infoCallContains reports whether any recorded info message contains every part.
-func infoCallContains(calls []string, parts ...string) bool {
-	for _, call := range calls {
-		matched := true
-		for _, part := range parts {
-			if !strings.Contains(call, part) {
-				matched = false
-				break
-			}
-		}
-		if matched {
-			return true
-		}
-	}
-	return false
 }
 
 // TestResolveTargetCreateReportsWorktree pins that a fresh create is announced
@@ -571,7 +588,7 @@ func TestResolveTargetCreateReportsWorktree(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -600,7 +617,7 @@ func TestResolveTargetReuseReportsWorktree(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -634,7 +651,7 @@ func TestResolveTargetOpencode2ReportsDetachedHead(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -671,7 +688,7 @@ func TestResolveTargetOpencode2ReuseDoesNotClaimDetachedHead(t *testing.T) {
 	}
 	got, err := ResolveTarget(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -712,7 +729,7 @@ func TestResolveTargetOpencodeDoesNotReportDetachedHead(t *testing.T) {
 	}
 	if _, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -747,7 +764,7 @@ func TestResolveTargetWarnsOnRenamedWorktree(t *testing.T) {
 	}
 	dir, err := ResolveTarget(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		sb,
 		options.WorktreeSpec{Name: "feat-x"},
 		mounts.WorkspaceMountPath,
@@ -764,49 +781,49 @@ func TestResolveTargetWarnsOnRenamedWorktree(t *testing.T) {
 	}
 }
 
-func TestFindWorktreeDirMatch(t *testing.T) {
-	dirs := []string{
-		"/home/dev/.local/share/opencode/worktree/abc/review-test",
-		"/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero",
+// assertVerboseContains fails unless some verbose line contains want.
+func assertVerboseContains(t *testing.T, calls []string, want string) {
+	t.Helper()
+	if !slices.ContainsFunc(calls, func(call string) bool { return strings.Contains(call, want) }) {
+		t.Errorf("expected a verbose %q note; got %v", want, calls)
 	}
-	dir, ok := findWorktreeDir(dirs, "bugfix-exit-zero")
+}
+
+// mustWorktreeProvider returns the opencode profile's WorktreeProvider so tests
+// can build the exact worktree commands the production path shells out with.
+func mustWorktreeProvider(t *testing.T) agent.WorktreeProvider {
+	t.Helper()
+	provider, ok := agent.AsWorktreeProvider(opencodeAgent(t))
 	if !ok {
-		t.Fatal("expected to find existing worktree for slug bugfix-exit-zero")
+		t.Fatal("opencode agent does not implement WorktreeProvider")
 	}
-	if want := "/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"; dir != want {
-		t.Errorf("got dir %q, want %q", dir, want)
-	}
+	return provider
 }
 
-func TestFindWorktreeDirNoMatch(t *testing.T) {
-	if _, ok := findWorktreeDir(
-		[]string{"/home/dev/.local/share/opencode/worktree/abc/other-topic"},
-		"bugfix-exit-zero",
-	); ok {
-		t.Error("expected no match for a slug absent from the list")
+// opencode2Agent returns the opencode2 profile for tests exercising v2's
+// agent-specific worktree behavior.
+func opencode2Agent(t *testing.T) agent.Agent {
+	t.Helper()
+	a, ok := agent.Lookup("opencode2")
+	if !ok {
+		t.Fatal("opencode2 agent not registered")
 	}
+	return a
 }
 
-func TestFindWorktreeDirEmpty(t *testing.T) {
-	if _, ok := findWorktreeDir(nil, "bugfix-exit-zero"); ok {
-		t.Error("expected no match for an empty list")
+// infoCallContains reports whether any recorded info message contains every part.
+func infoCallContains(calls []string, parts ...string) bool {
+	for _, call := range calls {
+		matched := true
+		for _, part := range parts {
+			if !strings.Contains(call, part) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
 	}
-}
-
-func TestValidateWorktreeBaseOK(t *testing.T) {
-	sb := &msb.MockSandbox{ExecOut: map[string]msb.ShellResult{
-		"git -C /w/feat rev-parse --verify main^{commit}": msb.NewTestResult(true, 0, "abc123", "", nil),
-	}}
-	if err := validateWorktreeBase(context.Background(), sb, "/w/feat", "main"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestValidateWorktreeBaseMissing(t *testing.T) {
-	sb := &msb.MockSandbox{ExecOut: map[string]msb.ShellResult{
-		"git -C /w/feat rev-parse --verify nope^{commit}": msb.NewTestResult(false, 128, "", "unknown revision", nil),
-	}}
-	if err := validateWorktreeBase(context.Background(), sb, "/w/feat", "nope"); err == nil {
-		t.Error("expected error for unresolvable base")
-	}
+	return false
 }

@@ -103,13 +103,16 @@ func (p Policy) Effective() Policy {
 //
 // A deny-bearing policy that composes a profile also contributes a rule-order
 // marker. The marker is not policy content: it records that the policy is
-// emitted with egress-deny ahead of the profile allow rules, a change from the
-// pre-#231 order that an existing VM has not baked in. Including it makes the
-// fingerprint differ from the one persisted before that fix, so the VM is
-// recreated once to pick up the corrected order; the marker reaches state after
-// the recreate, so it fires only once. Policies whose emitted rules are
-// identical before and after (no deny entries, or the terminal `none` profile)
-// get no marker and keep their historical fingerprint.
+// emitted with egress-deny ahead of the profile allow rules. A VM created before
+// that emission order holds the older digest in network_state.hash, so the
+// marker makes the fingerprint differ and the VM is recreated once to pick up
+// the corrected order; the marker reaches state after the recreate, so it fires
+// only once. Policies whose emitted rules are identical either way (no deny
+// entries, or the terminal `none` profile) get no marker and keep their digest
+// stable.
+//
+// A `none` policy likewise contributes a marker for omitting the gateway-DNS
+// rule, so a VM created with the rule is recreated once without it.
 func (p Policy) Fingerprint() string {
 	p = p.Effective()
 	var lines []string
@@ -128,16 +131,18 @@ func (p Policy) Fingerprint() string {
 	if p.denyPrecedesProfileAllow() {
 		lines = append(lines, "rule-order=deny-before-profile")
 	}
+	if !p.allowsGatewayDNS() {
+		lines = append(lines, "gateway-dns=omitted")
+	}
 	sort.Strings(lines)
 	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
 	return hex.EncodeToString(sum[:])
 }
 
-// denyPrecedesProfileAllow reports whether the policy takes advantage of the
-// egress-deny-before-profile-allow emission order (#231): it has at least one
-// deny entry and at least one profile that contributes allow rules. When either
-// is absent the emitted rules are identical to the pre-fix order, so the policy
-// needs no migration marker.
+// denyPrecedesProfileAllow reports whether the policy emits egress-deny rules
+// ahead of the profile allow rules: it has at least one deny entry and at least
+// one profile that contributes allow rules. When either is absent the emitted
+// rules are identical either way, so the policy needs no rule-order marker.
 func (p Policy) denyPrecedesProfileAllow() bool {
 	if len(p.EgressDeny) == 0 {
 		return false
@@ -148,6 +153,15 @@ func (p Policy) denyPrecedesProfileAllow() bool {
 		}
 	}
 	return false
+}
+
+// allowsGatewayDNS reports whether the policy emits the gateway-DNS rule. With
+// that rule, microsandbox's DNS proxy forwards any name upstream, so a guest
+// could exfiltrate data in query names without a single allow entry. The
+// composable profiles allow broad egress anyway and keep it; `none` drops it,
+// and the proxy then resolves only names an egress-allow rule matches.
+func (p Policy) allowsGatewayDNS() bool {
+	return !slices.Contains(p.Effective().Profiles, ProfileNone)
 }
 
 // NormalizeDNSServers validates and normalizes DNS upstream resolvers. Bare IPs
@@ -187,10 +201,10 @@ func NormalizeDNSServers(in []string) ([]string, error) {
 // `public`, `private`, and `host` compose: the SDK unions their allow rules
 // (deduplicated, canonical order) and adds one narrow gateway-DNS rule. The
 // `none` profile is launcher-only and selects no profile rules — deny-by-default
-// egress, allow ingress — so the gateway-DNS rule is added manually. It is an
-// allowlist-only policy, not an airgap, and cannot be combined with another
-// profile. A policy with no profile, including one with only DNSServers set,
-// defaults to public.
+// egress, allow ingress — and no gateway-DNS rule, so only names matched by
+// egress-allow resolve. It is an allowlist-only policy, not an airgap, and
+// cannot be combined with another profile. A policy with no profile, including
+// one with only DNSServers set, defaults to public.
 func (p Policy) Config() (*msbSdk.NetworkConfig, error) {
 	profiles := dedupeProfiles(p.Effective().Profiles)
 	if err := checkProfileCombination(profiles); err != nil {
@@ -208,9 +222,9 @@ func (p Policy) Config() (*msbSdk.NetworkConfig, error) {
 		return nil, err
 	}
 	// FromProfilesChecked returns the gateway-DNS rule first, then the profile
-	// allow rules. Drop that DNS rule and re-emit our own at the front so the
-	// deny carve-outs can sit between them (#231); `none` selects no profile,
-	// so the SDK contributes no rules at all.
+	// allow rules. Drop that DNS rule and re-emit it at the front so the deny
+	// carve-outs can sit between them; `none` selects no profile, so the SDK
+	// contributes no rules at all.
 	profileRules := cfg.Rules
 	if len(msbProfiles) > 0 {
 		profileRules = cfg.Rules[1:]
@@ -227,8 +241,8 @@ func (p Policy) Config() (*msbSdk.NetworkConfig, error) {
 	// microsandbox evaluates rules first-match-wins in list order, so the
 	// user's egress-deny carve-outs must come before the profile allow rules;
 	// otherwise a profile's broad allow shadows the carve-out and the deny
-	// never fires (#231). The order is: gateway DNS, deny, profile allows,
-	// explicit allows.
+	// never fires. The order is: gateway DNS (not under `none`), deny, profile
+	// allows, explicit allows.
 	denyRules := make([]msbSdk.PolicyRule, 0, len(p.EgressDeny))
 	for _, d := range dedupe(p.EgressDeny) {
 		denyRules = append(denyRules, egressRule(msbSdk.PolicyActionDeny, d))
@@ -237,8 +251,12 @@ func (p Policy) Config() (*msbSdk.NetworkConfig, error) {
 	for _, d := range dedupe(p.EgressAllow) {
 		allowRules = append(allowRules, egressRule(msbSdk.PolicyActionAllow, d))
 	}
+	var gatewayDNSRules []msbSdk.PolicyRule
+	if p.allowsGatewayDNS() {
+		gatewayDNSRules = []msbSdk.PolicyRule{msbSdk.Rule.AllowDNS()}
+	}
 	cfg.Rules = slices.Concat(
-		[]msbSdk.PolicyRule{msbSdk.Rule.AllowDNS()},
+		gatewayDNSRules,
 		denyRules,
 		profileRules,
 		allowRules,

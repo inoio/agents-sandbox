@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/atomicwrite"
-
 	"go.yaml.in/yaml/v3"
+
+	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 )
 
 // RootState is the launcher-global state document at the top of the state root,
@@ -20,7 +20,7 @@ type RootState struct {
 	Migrations map[string]Migration `yaml:"migrations,omitempty"`
 	Updates    Updates              `yaml:"updates,omitempty"`
 	// AdoptedHomeVolumes records, per legacy project identity, the checkout that
-	// adopted its lost-state home volume (#144). See AdoptedHomeVolume.
+	// adopted its lost-state home volume. See AdoptedHomeVolume.
 	AdoptedHomeVolumes map[string]AdoptedHomeVolume `yaml:"adopted_home_volumes,omitempty"`
 }
 
@@ -37,8 +37,7 @@ func (u Updates) IsZero() bool {
 	return u.Launcher.IsZero() && len(u.Agents) == 0
 }
 
-// LauncherUpdateState is the launcher's own update-check state, formerly the
-// standalone upgrade.json file.
+// LauncherUpdateState is the launcher's own update-check state.
 type LauncherUpdateState struct {
 	LastChecked       time.Time `yaml:"last_checked"`
 	DismissedVersions []string  `yaml:"dismissed_versions,omitempty"`
@@ -101,7 +100,7 @@ func (s *RootState) SetMigration(name string, m Migration) {
 }
 
 // AdoptedHomeVolume records the checkout that adopted a legacy project
-// identity's lost-state home volume (#144). A legacy identity (every clone of
+// identity's lost-state home volume. A legacy identity (every clone of
 // one origin) has one VM and therefore one home volume, so exactly one checkout
 // may own it. The record is keyed under the *legacy* identity so a second clone
 // can see the claim and start fresh, instead of both recovering the same volume
@@ -214,8 +213,8 @@ func rootStateFile() string {
 	return filepath.Join(stateRoot(), "state.yaml")
 }
 
-// marshalRootState is a seam over yaml.Marshal so tests can exercise the
-// marshal failure path, which the concrete RootState shape cannot trigger.
+// marshalRootState is indirect because the concrete RootState shape cannot make
+// yaml.Marshal fail, so only a substitute reaches the marshal failure path.
 var marshalRootState = yaml.Marshal
 
 // ReadRootState loads the launcher-global state. A missing file yields a zero

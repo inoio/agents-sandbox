@@ -103,6 +103,15 @@ Docker: when they differ, for example after `docker pull debian:trixie-slim`, th
 `agents-sandbox build -r` (or `--rebuild`), which pulls the base before building. If that pull fails, for example
 offline, the build warns and uses the cached base.
 
+### Reuse a stale image
+
+Use `--no-rebuild` on `run` or `shell` when a rebuild would be slow or you are offline and the existing image is good
+enough. The launcher then uses the project's existing runner image even when an input changed, and prints the changes it
+skipped — for example `reusing runner image … despite changes (--no-rebuild): project Dockerfile changed`. It also skips
+the agent upgrade check, because accepting an upgrade would rebuild the image. A project without a runner image still
+gets one built. `--no-rebuild` can't be combined with `--rebuild` or `--agent-version`, since both only take effect
+through a rebuild. The next run without the flag rebuilds as usual.
+
 ### Content-verified load
 
 Before skipping a load, `EnsureLoaded` verifies the microsandbox cache content by comparing its config digest against the
@@ -170,7 +179,7 @@ stages with fixed parents, merged into the final stage with `COPY` **after** the
   needs none of those binaries and the tool layers cache across bases.
 - **`agents-sandbox-node`** *(only for agents that need node)* — installs Node.js into `/opt/agents-sandbox`. It is emitted
   only when the selected agent requires node (today only `pi`, an npm-installed node bundle); `opencode`, `opencode2`,
-  `claude-code`, `codex`, and `hermes` install native binaries or provision their own runtime, and their images carry no
+  `claude-code`, `codex`, `hermes`, and `oh-my-pi` install native binaries or provision their own runtime, and their images carry no
   tool-installed node.
 - **`agents-sandbox-agent`** *(conditional)* — installs the selected agent into `/opt/agents-sandbox`. It starts from the
   node stage when one was emitted, otherwise from the tool base, and creates `/opt/agents-sandbox/bin` itself. npm agents
@@ -230,7 +239,7 @@ base must meet these requirements:
   (the health probe, session and worktree calls, and notifications); the daemon is launched and stopped as a
   runtime-owned job, so no process-control tool is needed. `curl` is checked after your Dockerfile body runs, so it may
   be installed in the body or an earlier stage; if it is missing, the build fails and names the tool. `pi`,
-  `claude-code`, `codex`, and `hermes` run no daemon and need none.
+  `claude-code`, `codex`, `hermes`, and `oh-my-pi` run no daemon and need none.
 - **For the host opener**: `curl`. The launcher replays a browser-login callback inside the VM with it, so every custom
   base needs `curl` even when the agent runs no daemon (the daemon agents' `curl` requirement covers the same tool). It
   is checked after your Dockerfile body runs, and a missing `curl` fails the build naming the tool. See
@@ -242,8 +251,9 @@ base must meet these requirements:
   library fails the build naming it. The check is skipped on musl bases.
 - The recommended CLI tools listed here are documented for your convenience, not as requirements — as a custom base you install
   your own.
-- A base that already provides docker, node, or the agent is left alone (idempotency), and a pre-created `dev` user is
-  tolerated.
+- A base that already provides docker, node, or the agent is left alone (idempotency). A pre-created `dev` user is
+  tolerated, and the `dev` group is guaranteed: the runner creates it when the base or a pre-created `dev` user lacks it,
+  so the tool trees can always be handed to `dev` at copy time.
 
 Bases that do not provide these **out of the box** are not supported without a project Dockerfile that installs
 them — for example **Alpine** (busybox `adduser`/`addgroup`, no shadow-utils or bash) and **distroless**/ **scratch**
@@ -260,8 +270,9 @@ metadata, not an agent release version. A matching user-provided image is reused
 ### User context
 
 The `dev` user (host UID/GID) is created as the first instruction of the final stage, and the image always ends with
-`USER dev` active. If the host GID is already taken by another group in the base image (e.g. macOS `staff`/20 vs
-`dialout`), the `dev` group is created with the next free GID. Your Dockerfile body runs in the final stage, so it may
+`USER dev` active. The `dev` group is created if no base already provides it (including a base that pre-creates a `dev`
+user without a group), and if the host GID is already taken by another group in the base image (e.g. macOS `staff`/20 vs
+`dialout`), the group is created with the next free GID. Your Dockerfile body runs in the final stage, so it may
 switch to `USER dev` — but earlier build stages in a multi-stage Dockerfile run as root:
 
 ```dockerfile
@@ -303,15 +314,20 @@ print a one-time warning. A project Dockerfile using the legacy `runner-base-din
 marker keeps working and enables the engine, but warns on every run that ensures the runner image (including cached
 reuse).
 
-The Docker stage installs the engine from a docker static binary tarball. The `vfs` storage driver is forced **inside
-the VM** at start-up — the image never writes `/etc/docker/daemon.json`, so your edits to it are preserved. If your
-`daemon.json` already sets `"storage-driver": "vfs"`, agents-sandbox leaves the file alone and starts dockerd without
-the flag (passing both makes dockerd refuse to start); if it sets any other driver, start-up fails with an error, because
-the microsandbox filesystem requires `vfs`. The launcher starts dockerd (and the agent's `serve` daemon) as a
-microsandbox runtime-owned detached job inside the VM: startup is confirmed by health probe, and if the job fails the
-launcher reports its exit code and a log tail (there is no `dockerd.log`). `buildx` and `docker compose` are **not**
-installed — install them in your project Dockerfile if you need them. The static tarball's platform is selected by
-`uname -m` (`x86_64`/`aarch64`).
+The Docker stage installs the engine from a docker static binary tarball; the embedded managed base image installs
+`fuse-overlayfs` and its `libfuse3` runtime (the runner copies only `/opt/agents-sandbox` from the Docker stage, so the
+base is where a system package has to live — a custom base must provide both itself, otherwise the driver falls back to
+`vfs`). The storage driver is selected **inside the VM** at start-up: `fuse-overlayfs` when the image provides the
+binary and `/dev/fuse` is usable, falling back to `vfs` otherwise (the microsandbox filesystem cannot back the kernel
+`overlay2` driver, which is why `vfs` was the only option before). `fuse-overlayfs` merges in userspace and exposes its
+own FUSE mount, so it copies layers on write instead of copying each one whole, which cuts build time and data-root disk
+use. The image never writes `/etc/docker/daemon.json`, so your edits to it are preserved: if your `daemon.json` already
+sets `"storage-driver"` to `vfs` or `fuse-overlayfs`, agents-sandbox leaves the file alone and starts dockerd without the
+flag (passing both makes dockerd refuse to start); if it sets any other driver, start-up fails with an error naming the
+two accepted drivers. The launcher starts dockerd (and the agent's `serve` daemon) as a microsandbox runtime-owned
+detached job inside the VM: startup is confirmed by health probe, and if the job fails the launcher reports its exit code
+and a log tail (there is no `dockerd.log`). `buildx` and `docker compose` are **not** installed — install them in your
+project Dockerfile if you need them. The static tarball's platform is selected by `uname -m` (`x86_64`/`aarch64`).
 
 With a custom base, a thin `COPY --from=agents-sandbox-docker` plus an adopt step is appended after your Dockerfile body
 by default, so steps after it see `docker` (the heavy download stays in the cacheable Docker stage). To run your own steps
@@ -344,24 +360,26 @@ the v26 tarballs gained a hard `libatomic.so.1` runtime dependency, while v24 ha
 architecture, so a custom base needs no extra library to run the tool-installed node. (The managed base carries
 `libatomic1` anyway, for `hermes`.)
 
-Six agents are built in: `opencode`, `opencode2` (default, the opencode 2 beta), `pi`, `claude-code`, `codex`, and
-`hermes`. Only `pi` needs node: its published package is an npm-installed `#!/usr/bin/env node` bundle, so it installs
-through `npm install -g --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent@$PI_VERSION`. The other five ship
+Seven agents are built in: `opencode`, `opencode2` (default, the opencode 2 beta), `pi`, `claude-code`, `codex`,
+`hermes`, and `oh-my-pi`. Only `pi` needs node: its published package is an npm-installed `#!/usr/bin/env node` bundle, so it installs
+through `npm install -g --prefix /opt/agents-sandbox @earendil-works/pi-coding-agent@$PI_VERSION`. The other six ship
 self-contained native binaries or provision their own runtime — `opencode` and `opencode2` via their upstream
 installers `https://opencode.ai/install` and `https://opencode.ai/v2/install`, `claude-code` via
 `https://claude.ai/install.sh`, copying the binary into `/opt/agents-sandbox/bin`, and `codex` from the static
 `codex-package-<arch>-unknown-linux-musl` asset of its `openai/codex` GitHub release, unpacked into
 `/opt/agents-sandbox/codex` (codex runs commands through helpers in that package) and linked into
-`/opt/agents-sandbox/bin`; their images contain no node/npm. `hermes` is the one whose installer needs more than a
+`/opt/agents-sandbox/bin`, and `oh-my-pi` from the standalone `omp-linux-<arch>` binary of its `can1357/oh-my-pi`
+GitHub release (about 275 MB, Bun and the native addon embedded), checked against the release's `SHA256SUMS.txt`
+before it is installed as `/opt/agents-sandbox/bin/omp`; their images contain no node/npm. `hermes` is the one whose installer needs more than a
 binary copy: it clones the pinned release tag into `/opt/agents-sandbox/hermes` and provisions its own Python (and
 Node, for the TUI/web product build) into `/opt/agents-sandbox/hermes-home`, so the tool stage needs no node of its
 own, publishes its launcher into `/opt/agents-sandbox/bin`, and keeps its tree outside `/home/dev` — which the sandbox
-home volume covers at runtime — handed to the runner's `dev` user after it is copied in (`ImageSpec.OwnedToolPaths`: a
-`chown -R dev:dev` block emitted for agents that write into their own installation), because Hermes keeps its
+home volume covers at runtime — handed to the runner's `dev` user as it is copied in (`ImageSpec.OwnsToolTree`:
+a `COPY --chown=dev:dev` emitted for agents that write into their own installation), because Hermes keeps its
 dependency ledger and bytecode markers there. The launcher the stage publishes is therefore a small shim: it keeps user state in
 `$HERMES_HOME` (`/home/dev/.hermes`, so config, sessions, and memories persist on the home volume) and links the tool
 store, uv cache, and dependency environments from the image into it, so a fresh home volume starts Hermes without
-reinstalling its dependencies. All six resolve their latest version for an unpinned build — opencode and hermes via the
+reinstalling its dependencies. All seven resolve their latest version for an unpinned build — opencode, hermes, and oh-my-pi via the
 GitHub releases endpoint, opencode2 via the opencode update API (`/update/api/latest/cli/npm`, the installer's own
 source), pi via `pi.dev`, claude-code via the npm registry's `latest` dist-tag, and codex via its GitHub releases
 endpoint — as a host-side HTTP query, never inside the image. JS-based LSP servers are expected to run on the agent's

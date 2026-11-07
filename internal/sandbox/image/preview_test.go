@@ -17,19 +17,37 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+// TestPreviewImageNoRebuildReportsReuseWithSkippedReasons pins that the dry run
+// matches a real --no-rebuild run: reuse, with the skipped reasons.
+func TestPreviewImageNoRebuildReportsReuseWithSkippedReasons(t *testing.T) {
+	runnerAndBaseMock(t, seededRunnerLabels(t, "debian:trixie-slim@sha256:old"), "sha256:new")
+
+	preview, err := previewRunnerImage(context.Background(), docker.Get(), agentOpencode(t), nil, "proj",
+		BuildOptions{AgentVersion: "1.2.3", Docker: dockerOff, NoRebuild: true}, &termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("previewRunnerImage: %v", err)
+	}
+	if preview.NeedsBuild {
+		t.Error("NeedsBuild = true, want reuse under --no-rebuild")
+	}
+	if !slices.Equal(preview.Reasons, []string{"base image updated"}) {
+		t.Errorf("Reasons = %v, want the skipped base-image reason", preview.Reasons)
+	}
+}
+
 // TestPreviewImageNeverResolvesVersion guards the core preview invariant: the
 // read-only path must never resolve an agent version over the network, even
 // when no version is pinned.
 func TestPreviewImageNeverResolvesVersion(t *testing.T) {
-	WithMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
+	withMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
 		t.Fatal("previewRunnerImage must not resolve the agent version")
 		return "", nil
 	})
 	docker.WithNoopDockerMock(t)
 	a := agentOpencode(t)
 
-	p, err := previewRunnerImage(
-		context.Background(), a, nil, "slug",
+	p, err := previewRunnerImage(context.Background(), docker.Get(), a, nil, "slug",
 		BuildOptions{AgentVersion: testAgentVersion}, &termio.Mock{},
 	)
 	if err != nil {
@@ -69,8 +87,7 @@ func TestPreviewImageReportsReuseWhenDockerfileIDMatches(t *testing.T) {
 		},
 	})
 
-	p, err := previewRunnerImage(
-		context.Background(), a, nil, "slug",
+	p, err := previewRunnerImage(context.Background(), docker.Get(), a, nil, "slug",
 		BuildOptions{AgentVersion: testAgentVersion}, &termio.Mock{},
 	)
 	if err != nil {
@@ -90,8 +107,7 @@ func TestPreviewImageForcedBuild(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	a := agentOpencode(t)
 
-	p, err := previewRunnerImage(
-		context.Background(), a, nil, "slug",
+	p, err := previewRunnerImage(context.Background(), docker.Get(), a, nil, "slug",
 		BuildOptions{AgentVersion: testAgentVersion, Force: true}, &termio.Mock{},
 	)
 	if err != nil {
@@ -108,14 +124,14 @@ func TestPreviewImageForcedBuild(t *testing.T) {
 // TestPreviewImageEmptyVersionReportsResolveAtBuild pins that an unpinned
 // version is reported as resolved at build time, without resolving it now.
 func TestPreviewImageEmptyVersionReportsResolveAtBuild(t *testing.T) {
-	WithMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
+	withMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
 		t.Fatal("previewRunnerImage must not resolve the agent version")
 		return "", nil
 	})
 	docker.WithNoopDockerMock(t)
 	a := agentOpencode(t)
 
-	p, err := previewRunnerImage(context.Background(), a, nil, "slug", BuildOptions{}, &termio.Mock{})
+	p, err := previewRunnerImage(context.Background(), docker.Get(), a, nil, "slug", BuildOptions{}, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("previewRunnerImage: %v", err)
 	}
@@ -127,6 +143,94 @@ func TestPreviewImageEmptyVersionReportsResolveAtBuild(t *testing.T) {
 	}
 }
 
+// TestPreviewImageDelegatesToReadOnlyPlan exercises the exported entry: it warns
+// ignored project config and delegates to the read-only plan path with the
+// caller-supplied project Dockerfile bytes.
+func TestPreviewImageDelegatesToReadOnlyPlan(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	withMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
+		t.Fatal("PreviewImage must not resolve the agent version")
+		return "", nil
+	})
+	docker.WithNoopDockerMock(t)
+	a := agentOpencode(t)
+
+	p, err := PreviewImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		a,
+		"slug",
+		nil,
+		BuildOptions{AgentVersion: testAgentVersion},
+		&termio.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("PreviewImage: %v", err)
+	}
+	if want := runnerTag("slug", "opencode"); p.Tag != want {
+		t.Errorf("Tag = %q, want %q", p.Tag, want)
+	}
+}
+
+// TestPreviewImageSurfacesRenderError pins that a plan that cannot render (a
+// reserved stage alias) fails the preview instead of reporting a bogus plan.
+func TestPreviewImageSurfacesRenderError(t *testing.T) {
+	docker.WithNoopDockerMock(t)
+	a := agentOpencode(t)
+	project := []byte("FROM ubuntu:24.04 AS " + baseStageAlias + "\nRUN echo hi\n")
+
+	_, err := previewRunnerImage(context.Background(), docker.Get(), a, project, "slug",
+		BuildOptions{AgentVersion: testAgentVersion}, &termio.Mock{},
+	)
+	if err == nil {
+		t.Fatal("expected a render error for a reserved stage alias")
+	}
+}
+
+// TestPreviewImageWarnsOnLegacyDockerfile pins parity with EnsureImage: the
+// preview surfaces the same project-Dockerfile deprecation warnings.
+func TestPreviewImageWarnsOnLegacyDockerfile(t *testing.T) {
+	docker.WithNoopDockerMock(t)
+	a := agentOpencode(t)
+	project := []byte("FROM agents-sandbox/runner-base-dind\n# agents-sandbox:dind\nRUN echo hi\n")
+	ui := &termio.Mock{}
+
+	if _, err := previewRunnerImage(context.Background(), docker.Get(), a, project, "slug",
+		BuildOptions{AgentVersion: testAgentVersion}, ui,
+	); err != nil {
+		t.Fatalf("previewRunnerImage: %v", err)
+	}
+
+	joined := strings.Join(ui.WarnCalls, "\n")
+	for _, want := range []string{"runner-base-dind", "# agents-sandbox:dind"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("expected a deprecation warning mentioning %q, got %v", want, ui.WarnCalls)
+		}
+	}
+}
+
+// TestPreviewImageWarnsIgnoredWorktreeConfig pins the same warning on the
+// PreviewImage entry.
+func TestPreviewImageWarnsIgnoredWorktreeConfig(t *testing.T) {
+	synthesizeBareWorktree(t, true)
+	docker.WithDefaultErrorDockerMock(t)
+	ui := &termio.Mock{}
+
+	_, _ = PreviewImage(
+		context.Background(),
+		docker.Get(),
+		configpaths.Get(),
+		agentOpencode(t),
+		"slug",
+		nil,
+		BuildOptions{AgentVersion: testAgentVersion},
+		ui,
+	)
+
+	assertWarnsIgnoredWorktreeConfig(t, ui)
+}
+
 // TestRunnerDockerfileIDMatchesTheRenderedPlan pins the exported identity
 // helper that higher-layer preview tests seed an image label with: it must equal
 // computeDockerfileID over the rendered project Dockerfile, so a seeded image
@@ -135,11 +239,11 @@ func TestRunnerDockerfileIDMatchesTheRenderedPlan(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 
-	id, err := RunnerDockerfileID(a, testAgentVersion, dockerOff)
+	id, err := RunnerDockerfileID(configpaths.Get(), a, testAgentVersion, dockerOff)
 	if err != nil {
 		t.Fatalf("RunnerDockerfileID: %v", err)
 	}
-	rendered, err := RenderProjectDockerfile(a, testAgentVersion, dockerOff)
+	rendered, err := RenderProjectDockerfile(a, testAgentVersion, nil, dockerOff)
 	if err != nil {
 		t.Fatalf("RenderProjectDockerfile: %v", err)
 	}
@@ -161,69 +265,7 @@ func TestRunnerDockerfileIDSurfacesRenderError(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	if _, err := RunnerDockerfileID(a, testAgentVersion, dockerOff); err == nil {
+	if _, err := RunnerDockerfileID(configpaths.Get(), a, testAgentVersion, dockerOff); err == nil {
 		t.Fatal("expected a render error for a reserved stage alias")
-	}
-}
-
-// TestPreviewImageReadsProjectDockerfile exercises the exported entry: it warns
-// ignored project config, reads the project Dockerfile, and delegates to the
-// read-only plan path.
-func TestPreviewImageReadsProjectDockerfile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	WithMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
-		t.Fatal("PreviewImage must not resolve the agent version")
-		return "", nil
-	})
-	docker.WithNoopDockerMock(t)
-	a := agentOpencode(t)
-
-	p, err := PreviewImage(
-		context.Background(), a, "slug", BuildOptions{AgentVersion: testAgentVersion}, &termio.Mock{},
-	)
-	if err != nil {
-		t.Fatalf("PreviewImage: %v", err)
-	}
-	if want := runnerTag("slug", "opencode"); p.Tag != want {
-		t.Errorf("Tag = %q, want %q", p.Tag, want)
-	}
-}
-
-// TestPreviewImageSurfacesRenderError pins that a plan that cannot render (a
-// reserved stage alias) fails the preview instead of reporting a bogus plan.
-func TestPreviewImageSurfacesRenderError(t *testing.T) {
-	docker.WithNoopDockerMock(t)
-	a := agentOpencode(t)
-	project := []byte("FROM ubuntu:24.04 AS " + baseStageAlias + "\nRUN echo hi\n")
-
-	_, err := previewRunnerImage(
-		context.Background(), a, project, "slug",
-		BuildOptions{AgentVersion: testAgentVersion}, &termio.Mock{},
-	)
-	if err == nil {
-		t.Fatal("expected a render error for a reserved stage alias")
-	}
-}
-
-// TestPreviewImageWarnsOnLegacyDockerfile pins parity with EnsureImage: the
-// preview surfaces the same project-Dockerfile deprecation warnings.
-func TestPreviewImageWarnsOnLegacyDockerfile(t *testing.T) {
-	docker.WithNoopDockerMock(t)
-	a := agentOpencode(t)
-	project := []byte("FROM agents-sandbox/runner-base-dind\n# agents-sandbox:dind\nRUN echo hi\n")
-	ui := &termio.Mock{}
-
-	if _, err := previewRunnerImage(
-		context.Background(), a, project, "slug",
-		BuildOptions{AgentVersion: testAgentVersion}, ui,
-	); err != nil {
-		t.Fatalf("previewRunnerImage: %v", err)
-	}
-
-	joined := strings.Join(ui.WarnCalls, "\n")
-	for _, want := range []string{"runner-base-dind", "# agents-sandbox:dind"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("expected a deprecation warning mentioning %q, got %v", want, ui.WarnCalls)
-		}
 	}
 }

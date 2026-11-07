@@ -1,44 +1,46 @@
 package notify
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 )
 
-// opencodeSpec returns a representative v1-shaped EventStreamSpec used to drive
-// the tracker: it carries the event vocabulary the opencode (v1) profile wires
-// for the transitions the tests exercise, not a copy of production's spec.
-func opencodeSpec() agent.EventStreamSpec {
-	return agent.EventStreamSpec{
-		StreamCommand:     "curl -N -s http://127.0.0.1:4096/global/event",
-		BusyEvents:        []string{"message.part.updated", "session.updated"},
-		AwaitingInput:     []string{"permission.asked", "question.asked"},
-		IdleEvents:        []string{"session.idle"},
-		ErrorEvents:       []string{"session.error"},
-		StickyErrorEvents: []string{"session.error"},
-		Name:              "opencode",
-		Parse:             parseTestEvent,
+func TestTrackerAwaitingInputFromIdle(t *testing.T) {
+	tr := NewTracker(opencodeSpec())
+	n := tr.Handle(agent.StreamEvent{Type: "question.asked"})
+	if n == nil || n.Trigger != TriggerInput {
+		t.Fatalf("expected input notification from idle, got %+v", n)
 	}
 }
 
-// parseTestEvent decodes the v1-shaped payloads notify's tests build (see
-// sseBlock/sseBlockFor), mirroring agent.parseOpencodeV1Event without the
-// parentID field these tests don't exercise.
-func parseTestEvent(payload []byte) (agent.StreamEvent, bool) {
-	var raw struct {
-		Payload struct {
-			Type       string `json:"type"`
-			Properties struct {
-				SessionID string `json:"sessionID"`
-			} `json:"properties"`
-		} `json:"payload"`
+func TestTrackerAwaitingInputIsIdempotent(t *testing.T) {
+	tr := NewTracker(opencodeSpec())
+	tr.Handle(agent.StreamEvent{Type: "message.part.updated"}) // -> busy
+	tr.Handle(agent.StreamEvent{Type: "question.asked"})       // -> awaiting input, fires
+	if n := tr.Handle(agent.StreamEvent{Type: "question.asked"}); n != nil {
+		t.Fatalf("second awaiting-input should be deduped, got %+v", n)
 	}
-	if json.Unmarshal(payload, &raw) != nil || raw.Payload.Type == "" {
-		return agent.StreamEvent{}, false
+}
+
+func TestTrackerStuckOnError(t *testing.T) {
+	tr := NewTracker(opencodeSpec())
+	tr.Handle(agent.StreamEvent{Type: "session.error"}) // -> error
+	if n := tr.Handle(agent.StreamEvent{Type: "message.part.updated"}); n != nil {
+		t.Fatalf("busy event after error should not notify, got %+v", n)
 	}
-	return agent.StreamEvent{Type: raw.Payload.Type, SessionID: raw.Payload.Properties.SessionID}, true
+	if tr.states[""] != stateError {
+		t.Fatalf("state should stay error, got %v", tr.states[""])
+	}
+}
+
+func TestTrackerDoneFromAwaitingInput(t *testing.T) {
+	tr := NewTracker(opencodeSpec())
+	tr.Handle(agent.StreamEvent{Type: "question.asked"}) // idle -> awaiting input
+	n := tr.Handle(agent.StreamEvent{Type: "session.idle"})
+	if n == nil || n.Trigger != TriggerDone {
+		t.Fatalf("expected done notification from awaiting input, got %+v", n)
+	}
 }
 
 func TestTrackerBusyToIdleFiresDone(t *testing.T) {
@@ -58,20 +60,6 @@ func TestTrackerAwaitingInputFiresInput(t *testing.T) {
 	n := tr.Handle(agent.StreamEvent{Type: "permission.asked"})
 	if n == nil || n.Trigger != TriggerInput {
 		t.Fatalf("expected input notification, got %+v", n)
-	}
-}
-
-// opencode2Spec mirrors the v2 profile's transition lists: a turn is one
-// execution pair, each step start re-arms busy, and input requests arrive as
-// permission.asked / form.created.
-func opencode2Spec() agent.EventStreamSpec {
-	return agent.EventStreamSpec{
-		BusyEvents:    []string{"session.execution.started", "session.step.started"},
-		AwaitingInput: []string{"permission.asked", "form.created"},
-		IdleEvents:    []string{"session.execution.succeeded"},
-		ErrorEvents:   []string{"session.error", "session.execution.failed"},
-		Name:          "opencode2",
-		Parse:         parseTestEvent,
 	}
 }
 
@@ -272,6 +260,15 @@ func TestTrackerErrorStickiness(t *testing.T) {
 			},
 		},
 		{
+			name: "turn-scoped error leaves the session idle",
+			spec: turnScoped,
+			steps: []step{
+				{event: "session.execution.started"},
+				{event: "session.execution.failed", want: "error"},
+				{event: "session.execution.succeeded"},
+			},
+		},
+		{
 			name: "sticky error latches the session",
 			spec: sticky,
 			steps: []step{
@@ -302,5 +299,59 @@ func TestTrackerErrorStickiness(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestTrackerLearnsChildrenOnlyFromSessionEvents pins that a parent id on an
+// event outside SessionEvents does not mark the session as a child.
+func TestTrackerLearnsChildrenOnlyFromSessionEvents(t *testing.T) {
+	spec := opencodeSpec()
+	spec.SessionEvents = []string{"session.created"}
+	tr := NewTracker(spec)
+
+	tr.Handle(agent.StreamEvent{Type: "message.part.updated", SessionID: "ses_1", ParentID: "ses_root"})
+	if n := tr.Handle(
+		agent.StreamEvent{Type: "session.idle", SessionID: "ses_1"},
+	); n == nil ||
+		n.Trigger != TriggerDone {
+		t.Fatalf("idle = %+v, want done for a session that is not a child", n)
+	}
+}
+
+// TestTrackerAwaitingInputNeedsANewEnvelopeID pins that, while a session
+// already awaits input, only a request with a new, non-empty envelope id
+// notifies again.
+func TestTrackerAwaitingInputNeedsANewEnvelopeID(t *testing.T) {
+	tr := NewTracker(opencodeSpec())
+	tr.Handle(agent.StreamEvent{Type: "message.part.updated", SessionID: "ses_1"})
+	if n := tr.Handle(agent.StreamEvent{Type: "permission.asked", SessionID: "ses_1", EventID: "e1"}); n == nil {
+		t.Fatal("first request did not notify")
+	}
+	if n := tr.Handle(agent.StreamEvent{Type: "permission.asked", SessionID: "ses_1"}); n != nil {
+		t.Fatalf("request without an envelope id notified again: %+v", n)
+	}
+}
+
+// TestTrackerLatchedErrorMutesInputRequests pins that a session latched by a
+// sticky error does not notify for a later input request, even a new one.
+func TestTrackerLatchedErrorMutesInputRequests(t *testing.T) {
+	tr := NewTracker(opencodeSpec())
+	tr.Handle(agent.StreamEvent{Type: "session.error", SessionID: "ses_1"})
+	if n := tr.Handle(agent.StreamEvent{Type: "permission.asked", SessionID: "ses_1", EventID: "e1"}); n != nil {
+		t.Fatalf("input request after a sticky error notified: %+v", n)
+	}
+}
+
+// TestTrackerIgnoresParentOnSessionlessEvents pins that a session event
+// without a session id marks nothing as a child, so events that carry no
+// session still notify.
+func TestTrackerIgnoresParentOnSessionlessEvents(t *testing.T) {
+	spec := opencodeSpec()
+	spec.SessionEvents = []string{"session.created"}
+	tr := NewTracker(spec)
+
+	tr.Handle(agent.StreamEvent{Type: "session.created", ParentID: "ses_root"})
+	if n := tr.Handle(agent.StreamEvent{Type: "session.error"}); n == nil || n.Trigger != TriggerError {
+		t.Fatalf("session-less error = %+v, want an error notification", n)
 	}
 }

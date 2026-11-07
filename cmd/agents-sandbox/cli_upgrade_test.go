@@ -8,7 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -188,6 +190,44 @@ func TestUpgradeChannelSelection(t *testing.T) {
 		}
 	})
 
+	t.Run("explicit stable flag switches a canary to stable", func(t *testing.T) {
+		version = "0.6.0-canary.1"
+		t.Cleanup(func() { version = "1.0.0" })
+		upgrade.LatestVersion = func(context.Context, upgrade.Channel) (string, error) { return "0.5.3", nil }
+		var installed string
+		upgrade.Update = func(_ context.Context, latest string) error {
+			installed = latest
+			return nil
+		}
+		updateCmd, _ := setupUpgradeTestFixtures(t)
+		if err := updateCmd.Flags().Set(flagChannel, "stable"); err != nil {
+			t.Fatal(err)
+		}
+		if err := updateCmd.RunE(updateCmd, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if installed != "0.5.3" {
+			t.Fatalf("installed = %q, want the stable 0.5.3", installed)
+		}
+	})
+
+	t.Run("configured stable channel keeps a canary and hints at the flag", func(t *testing.T) {
+		version = "0.6.0-canary.1"
+		t.Cleanup(func() { version = "1.0.0" })
+		upgrade.LatestVersion = func(context.Context, upgrade.Channel) (string, error) { return "0.5.3", nil }
+		upgrade.Update = func(context.Context, string) error {
+			t.Fatal("Update must not switch channels without an explicit --channel")
+			return nil
+		}
+		updateCmd, testUI := setupUpgradeTestFixtures(t)
+		if err := updateCmd.RunE(updateCmd, nil); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(strings.Join(testUI.InfoCalls, " "), "--channel stable") {
+			t.Fatalf("expected a hint at --channel stable, got %v", testUI.InfoCalls)
+		}
+	})
+
 	t.Run("invalid flag is rejected", func(t *testing.T) {
 		upgrade.Update = func(context.Context, string) error { t.Fatal("Update should not be called"); return nil }
 		upgrade.LatestVersion = func(context.Context, upgrade.Channel) (string, error) {
@@ -324,4 +364,81 @@ func TestRunShellUpgradeError(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRunStartupStagesExitContract pins the (exit, error) pair the run/shell
+// callers branch on. A failing preflight and a failing upgrade check both
+// return exit=false alongside the error — the abort comes from the error, not
+// the flag — and only a completed upgrade-and-exit returns exit=true.
+func TestRunStartupStagesExitContract(t *testing.T) {
+	origCheck := upgradeCheck
+	t.Cleanup(func() { upgradeCheck = origCheck })
+
+	newCmd := func(t *testing.T, resolver *launcherconfig.Resolver) *cobra.Command {
+		t.Helper()
+		cmd := &cobra.Command{}
+		if resolver != nil {
+			cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil), resolver))
+		}
+		return cmd
+	}
+
+	t.Run("preflight failure returns exit=false", func(t *testing.T) {
+		doctor.MockedCheckAll(t, false)
+		exit, err := runStartupStages(
+			context.Background(),
+			newCmd(t, nil),
+			options.ModeRun,
+			options.RunOptions{Agent: defaultAgentName},
+			&termio.Mock{},
+		)
+		if err == nil {
+			t.Fatal("expected the preflight error to propagate")
+		}
+		if exit {
+			t.Error("exit = true, want false on a preflight failure")
+		}
+	})
+
+	t.Run("upgrade-check error returns exit=false", func(t *testing.T) {
+		doctor.MockedCheckAll(t, true)
+		upgradeCheck = func(context.Context, upgrade.Options) (upgrade.Result, error) {
+			return upgrade.Result{}, errors.New("upgrade failed")
+		}
+		r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{})
+		exit, err := runStartupStages(
+			context.Background(),
+			newCmd(t, r),
+			options.ModeRun,
+			options.RunOptions{Agent: defaultAgentName},
+			&termio.Mock{},
+		)
+		if err == nil {
+			t.Fatal("expected the upgrade-check error to propagate")
+		}
+		if exit {
+			t.Error("exit = true, want false when the upgrade check errored")
+		}
+	})
+
+	t.Run("upgrade-and-exit returns exit=true", func(t *testing.T) {
+		doctor.MockedCheckAll(t, true)
+		upgradeCheck = func(context.Context, upgrade.Options) (upgrade.Result, error) {
+			return upgrade.Result{Exit: true}, nil
+		}
+		r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{})
+		exit, err := runStartupStages(
+			context.Background(),
+			newCmd(t, r),
+			options.ModeRun,
+			options.RunOptions{Agent: defaultAgentName},
+			&termio.Mock{},
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !exit {
+			t.Error("exit = false, want true after an upgrade-and-exit")
+		}
+	})
 }

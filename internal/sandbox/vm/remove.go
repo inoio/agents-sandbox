@@ -25,7 +25,7 @@ func isProjectVMName(name string) bool {
 // before mutating, and leaves the persisted project state intact so the next run
 // reuses the recorded home volume. A forced removal stops the VM after the
 // confirmation succeeds, immediately before removing.
-func RemoveSandbox(ctx context.Context, name string, force bool, ui termio.UI) error {
+func RemoveSandbox(ctx context.Context, name string, force bool, ui termio.Prompter) error {
 	if !isProjectVMName(name) {
 		return fmt.Errorf("%q is not an agents-sandbox project VM", name)
 	}

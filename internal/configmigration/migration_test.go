@@ -53,7 +53,10 @@ func TestPlanOpenCodeAuthReplacesCredentialsWithPlaceholders(t *testing.T) {
 	}
 
 	authFile, ok := plan.fileAt(
-		filepath.Join(configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), "auth.json"),
+		filepath.Join(
+			testutil.EnsureDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+			"auth.json",
+		),
 	)
 	if !ok {
 		t.Fatalf("planned auth file missing: %+v", plan.Files)
@@ -108,13 +111,19 @@ func TestPlanPiSettingsAndAuthReplacesCredentialsWithPlaceholders(t *testing.T) 
 	}
 
 	configFile, ok := plan.fileAt(
-		filepath.Join(configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), "settings-migrated.json"),
+		filepath.Join(
+			testutil.EnsureDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+			"settings-migrated.json",
+		),
 	)
 	if !ok || !bytes.Contains(configFile.Data, []byte(`"defaultProvider": "anthropic"`)) {
 		t.Fatalf("planned pi settings file missing or incomplete: %+v", plan.Files)
 	}
 	authFile, ok := plan.fileAt(
-		filepath.Join(configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), "auth.json"),
+		filepath.Join(
+			testutil.EnsureDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+			"auth.json",
+		),
 	)
 	if !ok {
 		t.Fatalf("planned pi auth file missing: %+v", plan.Files)
@@ -157,7 +166,10 @@ func TestPlanClaudeSettingsMigratesEnvCredentials(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	settings, ok := plan.fileAt(
-		filepath.Join(configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), "settings-migrated.json"),
+		filepath.Join(
+			testutil.EnsureDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+			"settings-migrated.json",
+		),
 	)
 	if !ok || bytes.Contains(settings.Data, []byte("claude-secret")) ||
 		!bytes.Contains(settings.Data, []byte("$MSB_CLAUDE_ENV_ANTHROPIC_API_KEY")) {
@@ -352,7 +364,10 @@ func TestPlanPiDropsOAuthCredentials(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	if _, ok := plan.fileAt(
-		filepath.Join(configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), "auth.json"),
+		filepath.Join(
+			testutil.EnsureDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+			"auth.json",
+		),
 	); ok {
 		t.Fatalf("Pi oauth credentials should be dropped, not migrated: %+v", plan.Files)
 	}
@@ -388,7 +403,10 @@ func TestPlanPiMigratesModelsAndCustomProviderEndpoint(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	modelsFile, ok := plan.fileAt(
-		filepath.Join(configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), "models.json"),
+		filepath.Join(
+			testutil.EnsureDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+			"models.json",
+		),
 	)
 	if !ok || bytes.Contains(modelsFile.Data, []byte("gateway-token")) ||
 		!bytes.Contains(modelsFile.Data, []byte("$MSB_PI_CONFIG_PROVIDERS_GATEWAY_APIKEY")) {
@@ -927,7 +945,10 @@ func TestPlanPreservesWellKnownAuthKey(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	authFile, ok := plan.fileAt(
-		filepath.Join(configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), "auth.json"),
+		filepath.Join(
+			testutil.EnsureDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+			"auth.json",
+		),
 	)
 	if !ok {
 		t.Fatal("missing migrated auth file")
@@ -991,7 +1012,10 @@ func TestApplyWritesUserSecretFileAndHomeMapping(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	generatedAuth := filepath.Join(configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), "auth.json")
+	generatedAuth := filepath.Join(
+		testutil.EnsureDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+		"auth.json",
+	)
 	data, err := os.ReadFile(generatedAuth)
 	if err != nil {
 		t.Fatalf("read generated auth: %v", err)
@@ -999,7 +1023,12 @@ func TestApplyWritesUserSecretFileAndHomeMapping(t *testing.T) {
 	if bytes.Contains(data, []byte("secret-key")) {
 		t.Fatalf("generated auth contains raw secret: %s", data)
 	}
-	secretData, err := os.ReadFile(configpaths.Get().UserEnvSecretYAMLFile())
+	secretData, err := os.ReadFile(
+		configpaths.ConfigScope{
+			Kind: configpaths.ScopeGenericUser,
+			Dir:  configpaths.Get().UserConfigDir(),
+		}.EnvSecretYAMLFile(),
+	)
 	if err != nil {
 		t.Fatalf("read generated secrets: %v", err)
 	}
@@ -1014,7 +1043,12 @@ func TestApplyWritesUserSecretFileAndHomeMapping(t *testing.T) {
 		t.Fatalf("generated config has no auth mapping: %s", configData)
 	}
 
-	mode, err := os.Stat(configpaths.Get().UserEnvSecretYAMLFile())
+	mode, err := os.Stat(
+		configpaths.ConfigScope{
+			Kind: configpaths.ScopeGenericUser,
+			Dir:  configpaths.Get().UserConfigDir(),
+		}.EnvSecretYAMLFile(),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1042,7 +1076,14 @@ func TestApplyRejectsUnknownSecretHostInNonInteractiveMode(t *testing.T) {
 	if err := Apply(plan, &ui); err == nil || !strings.Contains(err.Error(), "allowed host") {
 		t.Fatalf("Apply error = %v, want missing allowed host", err)
 	}
-	if _, err := os.Stat(configpaths.Get().UserEnvSecretYAMLFile()); !os.IsNotExist(err) {
+	if _, err := os.Stat(
+		configpaths.ConfigScope{
+			Kind: configpaths.ScopeGenericUser,
+			Dir:  configpaths.Get().UserConfigDir(),
+		}.EnvSecretYAMLFile(),
+	); !os.IsNotExist(
+		err,
+	) {
 		t.Fatalf("secret file was written after rejected migration: %v", err)
 	}
 }
@@ -1106,7 +1147,14 @@ func TestGuideNonInteractiveDoesNotWrite(t *testing.T) {
 	if err := Guide(a, hostHome, testNetworkPolicy(), false, &ui); err != nil {
 		t.Fatalf("Guide: %v", err)
 	}
-	if _, err := os.Stat(configpaths.Get().UserEnvSecretYAMLFile()); !os.IsNotExist(err) {
+	if _, err := os.Stat(
+		configpaths.ConfigScope{
+			Kind: configpaths.ScopeGenericUser,
+			Dir:  configpaths.Get().UserConfigDir(),
+		}.EnvSecretYAMLFile(),
+	); !os.IsNotExist(
+		err,
+	) {
 		t.Fatalf("non-interactive guide wrote secrets: %v", err)
 	}
 	if len(ui.WarnCalls) != 1 || !strings.Contains(ui.WarnCalls[0], "config migrate") {
@@ -1727,7 +1775,12 @@ func TestReportListsGeneratedFilesWithoutSecretValues(t *testing.T) {
 func TestHasManagedConfigIgnoresUnrelatedFiles(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a, _ := agent.Lookup("opencode")
-	testutil.WriteFile(t, configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), "theme.json", "{}")
+	testutil.WriteFile(
+		t,
+		testutil.EnsureDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+		"theme.json",
+		"{}",
+	)
 	spec := a.(agent.MigrationSpecProvider).MigrationSpec()
 	if hasManagedConfig(a, spec) {
 		t.Fatal("unrelated managed file should not suppress migration")
@@ -1756,6 +1809,7 @@ type unsupportedMigrationAgent struct{}
 func (unsupportedMigrationAgent) Name() string               { return "unsupported" }
 func (unsupportedMigrationAgent) ConfigDirName() string      { return "unsupported" }
 func (unsupportedMigrationAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
+func (unsupportedMigrationAgent) Experimental() bool         { return false }
 
 func TestBuildAndNativeReadErrors(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)

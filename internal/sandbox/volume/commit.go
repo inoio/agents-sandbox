@@ -17,7 +17,7 @@ import (
 // expectedVolume, since the caller's msb I/O ran without the lock: if another
 // writer changed home_volume in the meantime, it aborts rather than clobber it.
 //
-// clearRecoveredMarker drops a pending identity-adoption marker (#144) when the
+// clearRecoveredMarker drops a pending identity-adoption marker when the
 // operation replaced the volume that marker recorded; leaving it set would make
 // the next home resolution recover the old volume and undo the operation.
 func commitNewHomeVolume(k state.Key, expectedVolume, newVolume, digest string, clearRecoveredMarker bool) error {

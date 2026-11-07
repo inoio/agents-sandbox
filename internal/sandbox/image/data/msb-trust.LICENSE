@@ -3,13 +3,13 @@ verbatim from the microsandbox project.
 
   Upstream: https://github.com/superradcompany/microsandbox
   Source:   scripts/msb-trust/msb-trust.sh
-  Version:  v0.7.11
+  Version:  v0.7.13
   SHA-256:  9ff4239eea35e80d67bf1b0710d2f3161f208ae3ecf3229ec7ce4ed5f1db52a8
 
 The script is unmodified. Re-sync it from the tag matching the pinned
 microsandbox SDK version:
 
-  curl -fsSL https://raw.githubusercontent.com/superradcompany/microsandbox/v0.7.11/scripts/msb-trust/msb-trust.sh
+  curl -fsSL https://raw.githubusercontent.com/superradcompany/microsandbox/v0.7.13/scripts/msb-trust/msb-trust.sh
 
 Upstream is licensed under the Apache License, Version 2.0, reproduced below
 in full as required by section 4(a).

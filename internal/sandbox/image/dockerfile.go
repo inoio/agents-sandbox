@@ -221,7 +221,7 @@ func computeDockerfileID(rendered []byte, agentVersion string) string {
 // Pinned third-party versions baked into the image. Node stays on the v24 line:
 // the v26 tarballs gained a hard libatomic.so.1 dependency the managed base does
 // not provide, while v24 (no libatomic on x86_64/arm64) satisfies every npm
-// agent (#132).
+// agent.
 const (
 	nodeVersion   = "v24.22.1"
 	dockerVersion = "29.7.2"
@@ -234,29 +234,6 @@ const (
 	dockerMarker       = "# agents-sandbox:docker"
 	legacyDockerMarker = "# agents-sandbox:dind"
 )
-
-// effectiveDocker reports whether the docker capability is enabled. An explicit
-// config/flag/env setting wins in both directions; otherwise a project
-// Dockerfile that extends the managed docker or legacy dind base, or that
-// carries a docker injection marker in its final-stage body, enables it.
-//
-// The two content signals have different reach: the managed base is resolved
-// through the final stage's base image (referencesImage), while the marker is
-// scanned only in the final-stage body, so an earlier stage's marker is not a
-// signal. Enablement matches the marker exactly (case-sensitive), while the
-// near-miss detection is deliberately case-insensitive so a case variant is
-// still surfaced instead of silently ignored.
-func effectiveDocker(projectDockerfile []byte, docker options.DockerSetting) bool {
-	if docker.Explicit {
-		return docker.Enabled
-	}
-	if referencesImage(projectDockerfile, managedBaseDindRef) ||
-		referencesImage(projectDockerfile, managedBaseDockerRef) {
-		return true
-	}
-	_, _, body := splitFinalStage(projectDockerfile)
-	return hasDockerMarker([]byte(body))
-}
 
 // DockerfileDiagnostics is the classified result for one project Dockerfile:
 // the effective capability, its source, and at most one message per offending
@@ -273,70 +250,7 @@ type DockerfileDiagnostics struct {
 // message, so a legacy marker outside the final stage reports only the
 // ignored-marker notice, never the deprecation spelling.
 func DiagnoseDockerfile(project []byte, setting options.DockerSetting) DockerfileDiagnostics {
-	_, _, finalBody := splitFinalStage(project)
-	finalMarker := hasDockerMarker([]byte(finalBody))
-	contentAsks := finalMarker ||
-		referencesImage(project, managedBaseDindRef) ||
-		referencesImage(project, managedBaseDockerRef)
-
-	d := DockerfileDiagnostics{Enabled: effectiveDocker(project, setting), Source: "", Messages: nil}
-
-	// Capability line first: the source when content enables, the suppression
-	// notice when explicit config turns content off.
-	switch {
-	case setting.Explicit && !setting.Enabled && contentAsks:
-		d.Source = "config"
-		d.Messages = append(d.Messages, "docker: off (config); project Dockerfile asks for docker")
-	case setting.Explicit:
-		d.Source = "config"
-	// finalMarker here implies d.Enabled: an explicit setting is handled above,
-	// so d.Enabled can only be false from content, which finalMarker would set.
-	case finalMarker:
-		d.Source = "Dockerfile marker"
-		d.Messages = append(d.Messages, "docker: on (project Dockerfile marker)")
-	case d.Enabled:
-		d.Source = "Dockerfile base"
-		d.Messages = append(d.Messages, "docker: on (project Dockerfile base)")
-	}
-
-	// Base-image deprecation (whole file, instruction-aware).
-	if referencesImage(project, managedBaseDindRef) {
-		d.Messages = append(
-			d.Messages,
-			"project Dockerfile uses the deprecated agents-sandbox/runner-base-dind base image; switch to agents-sandbox/runner-base-docker",
-		)
-	}
-
-	// Per-line marker scan: exactly one message per marker line. Heredoc bodies
-	// are skipped, so marker-like text inside a copied file stays inert.
-	lines := dockerfileLines(project)
-	lastFrom := lastFromLine(lines)
-	for _, i := range topLevelLineIndices(lines) {
-		text := strings.TrimSpace(lineText(lines[i]))
-		if marker, ok := dockerMarkerKind(text); ok {
-			// The FROM line is not a marker line, so i == lastFrom never occurs.
-			// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="a marker line is never the final FROM line, so i == lastFrom is unreachable"
-			if i <= lastFrom {
-				d.Messages = append(
-					d.Messages,
-					"project Dockerfile has a docker marker outside the final stage; it is ignored — move it into the final stage (after the last FROM)",
-				)
-				continue
-			}
-			if marker == legacyDockerMarker {
-				d.Messages = append(
-					d.Messages,
-					"project Dockerfile uses the deprecated # agents-sandbox:dind marker; switch to # agents-sandbox:docker",
-				)
-			}
-			continue
-		}
-		if nearMissDockerMarker(text) {
-			d.Messages = append(d.Messages,
-				fmt.Sprintf("project Dockerfile has a near-miss docker marker %q; use %q", text, dockerMarker))
-		}
-	}
-	return d
+	return parseProjectDockerfile(project).diagnostics(setting)
 }
 
 // nearMissDockerMarker reports whether a trimmed line looks like an injection
@@ -357,22 +271,23 @@ func nearMissDockerMarker(line string) bool {
 
 // EmitDockerfileDiagnostics writes every diagnostic message to the warn channel,
 // keeping stdout free for the rendered Dockerfile.
-func EmitDockerfileDiagnostics(ui termio.UI, d DockerfileDiagnostics) {
+func EmitDockerfileDiagnostics(ui termio.Logger, d DockerfileDiagnostics) {
 	for _, msg := range d.Messages {
 		ui.Warn(msg)
 	}
 }
 
-// EmitProjectDockerfileDiagnostics reads the on-disk project Dockerfile and
-// emits its diagnostics. Convenience for callers that have no bytes in hand.
-func EmitProjectDockerfileDiagnostics(ui termio.UI, setting options.DockerSetting) {
-	EmitDockerfileDiagnostics(ui, DiagnoseDockerfile(readProjectDockerfile(), setting))
+// EmitProjectDockerfileDiagnostics emits a project Dockerfile's diagnostics.
+// The caller reads the bytes (see ReadProjectDockerfile) so this stays a pure
+// classifier over an explicit input.
+func EmitProjectDockerfileDiagnostics(ui termio.Logger, project []byte, setting options.DockerSetting) {
+	EmitDockerfileDiagnostics(ui, DiagnoseDockerfile(project, setting))
 }
 
 // dockerMarkerKind reports whether line, ignoring surrounding whitespace, is
 // the current or legacy docker injection marker, returning the matched marker.
-// It is the single place the marker comparison lives, shared by the warning
-// scan and injectDockerBlock so the two cannot drift.
+// It is the single place the marker comparison lives, shared by the diagnostic
+// scan and firstMarkerIndex so the two cannot drift.
 func dockerMarkerKind(line string) (string, bool) {
 	marker := strings.TrimSpace(line)
 	switch marker {
@@ -383,32 +298,29 @@ func dockerMarkerKind(line string) (string, bool) {
 	}
 }
 
-// hasDockerMarker reports whether any top-level line of data carries a docker
-// injection marker, current or legacy. Heredoc bodies are skipped, so marker
-// text copied into a file is not read as a marker.
-func hasDockerMarker(data []byte) bool {
-	lines := dockerfileLines(data)
-	for _, i := range topLevelLineIndices(lines) {
+// firstMarkerIndex returns the index in the final-stage body's lines of the
+// first top-level line at or after bodyStart carrying a docker injection marker,
+// current or legacy, or -1. Heredoc bodies are skipped, so marker text copied
+// into a file is not read as a marker. It reads the one shared walk's top-level
+// indices instead of re-lexing the body, translating the marker's file index
+// into the body's line space (body line i is file line bodyStart+i).
+func firstMarkerIndex(lines [][]byte, topLevelLines []int, bodyStart int) int {
+	for _, i := range topLevelLines {
+		if i < bodyStart {
+			continue
+		}
 		if _, ok := dockerMarkerKind(lineText(lines[i])); ok {
-			return true
+			return i - bodyStart
 		}
 	}
-	return false
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="markerAt is only compared with < 0 and >= 0 so any negative sentinel is equivalent and -1 and -2 both inject nothing"
+	return -1
 }
 
-// RenderDockerfile composes the per-project runner Dockerfile from per-tool
-// multistage stages. The node/agent/docker stages build on a tool-owned
-// agents-sandbox-toolbase (pinned debian:trixie-slim plus curl, ca-certificates,
-// and tar), not on the user's base, so a custom base needs neither curl nor tar
-// and the tool layers cache across bases. Tool-owned layers cache independently
-// of the user body, the base, and each other; the runner stage builds on the
-// base stage and merges the tool trees with COPY after the user body.
-//
-// agentVersion is the resolved agent release baked into the agent stage's
-// install ARG default. Every tool stage (node, agent, docker) states its pinned
-// version as an ARG default in the rendered content, so a version bump changes
-// the content identity and invalidates that stage's install layer even when the
-// builder does not fold the version build arg into the cache key.
+// RenderDockerfile composes the per-project runner Dockerfile from a project
+// Dockerfile's bytes. It parses the bytes once (parseProjectDockerfile) and
+// renders from the resulting value, so the renderer cannot re-derive the docker
+// signals the diagnostics and identity already read.
 //
 // It returns an error when the project Dockerfile declares a reserved stage
 // alias.
@@ -418,87 +330,7 @@ func RenderDockerfile(
 	projectDockerfile []byte,
 	docker options.DockerSetting,
 ) ([]byte, error) {
-	if err := checkReservedAliases(projectDockerfile); err != nil {
-		return nil, err
-	}
-	dockerEnabled := effectiveDocker(projectDockerfile, docker)
-
-	managed := len(bytes.TrimSpace(projectDockerfile)) == 0 || isManagedBase(projectDockerfile)
-	earlier, baseFrom, body := splitFinalStage(projectDockerfile)
-
-	var baseStage, baseAlias string
-	if managed {
-		baseStage, baseAlias = managedBaseStage(), baseStageAlias
-	} else {
-		baseStage, baseAlias = customBaseStage(baseFrom)
-	}
-
-	body, dockerInjected := injectDockerBlock(body, dockerEnabled)
-
-	blocks := make([]string, 0, 7)
-	blocks = append(blocks, earlier, toolbaseStage())
-	agentParent := toolbaseStageAlias
-	if a.ImageSpec().RequiresNode {
-		blocks = append(blocks, nodeStage())
-		agentParent = nodeStageAlias
-	}
-	blocks = append(blocks, agentStage(a, agentParent, agentVersion))
-	if dockerEnabled {
-		blocks = append(blocks, dockerStage())
-	}
-	blocks = append(blocks, baseStage, runnerStage(a, baseAlias, body, dockerEnabled, dockerInjected))
-	return []byte(joinBlocks(blocks...)), nil
-}
-
-// checkReservedAliases rejects a project Dockerfile that declares one of the
-// renderer's reserved stage aliases.
-func checkReservedAliases(projectDockerfile []byte) error {
-	_, stageBase := scanFromStages(projectDockerfile)
-	reserved := make(map[string]struct{}, len(reservedStageAliases))
-	for _, alias := range reservedStageAliases {
-		reserved[strings.ToLower(alias)] = struct{}{}
-	}
-	var collided []string
-	for alias := range stageBase {
-		if _, ok := reserved[strings.ToLower(alias)]; ok {
-			collided = append(collided, alias)
-		}
-	}
-	if len(collided) == 0 {
-		return nil
-	}
-	sort.Strings(collided)
-	return fmt.Errorf("project Dockerfile declares reserved stage alias(es): %s", strings.Join(collided, ", "))
-}
-
-// isManagedBase reports whether the project Dockerfile's final stage uses one
-// of the managed base references.
-func isManagedBase(projectDockerfile []byte) bool {
-	return referencesImage(projectDockerfile, managedBaseRef) ||
-		referencesImage(projectDockerfile, managedBaseDindRef) ||
-		referencesImage(projectDockerfile, managedBaseDockerRef)
-}
-
-// splitFinalStage splits a project Dockerfile into the earlier build stages, the
-// final stage's base, and the body after it. Without a project Dockerfile the
-// embedded tools block is the whole base. A managed base has its final FROM
-// replaced by the embedded tools block, keeping earlier stages; a custom base
-// keeps its own FROM.
-func splitFinalStage(projectDockerfile []byte) (string, string, string) {
-	if len(bytes.TrimSpace(projectDockerfile)) == 0 {
-		return "", string(embeddedBaseToolsBlock), ""
-	}
-	lines := bytes.SplitAfter(projectDockerfile, []byte("\n"))
-	lastFrom := lastFromLine(lines)
-	if lastFrom < 0 {
-		return "", string(projectDockerfile), ""
-	}
-	earlier := string(bytes.Join(lines[:lastFrom], nil))
-	body := string(bytes.Join(lines[lastFrom+1:], nil))
-	if isManagedBase(projectDockerfile) {
-		return earlier, string(embeddedBaseToolsBlock), body
-	}
-	return earlier, string(lines[lastFrom]), body
+	return parseProjectDockerfile(projectDockerfile).render(a, agentVersion, docker)
 }
 
 // managedBaseStage renders the embedded tools block with its FROM given the
@@ -598,6 +430,13 @@ RUN mkdir -p %s && %s
 // runtime prerequisites (iptables, git, ps, xz): the check runs in the final
 // stage instead (dockerAdoptionBlock), after the user body, so a body that
 // installs them is accepted.
+//
+// It deliberately installs no system package: only toolDir is copied into the
+// runner (dockerMergeBlock), so a package installed here would not reach the
+// image. The storage driver's copy-on-write runtime (fuse-overlayfs + libfuse3)
+// is a system package, so the embedded managed base installs it instead; a
+// custom base must provide it or the launcher falls back to vfs. See
+// specs/image-composition.md.
 func dockerStage() string {
 	return fmt.Sprintf(`FROM %s AS %s
 USER root
@@ -611,7 +450,7 @@ RUN set -e; mkdir -p %s && \
 // runnerStage renders the final image stage: it creates the dev user, runs the
 // user body without the tool trees available, merges the tool trees with COPY,
 // records provenance, and finalizes the image contract.
-func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected bool) string {
+func runnerStage(a agent.Resolved, baseAlias, body string, docker, dockerInjected bool) string {
 	parts := []string{
 		fmt.Sprintf("FROM %s AS %s\n", baseAlias, runnerStageAlias),
 		devUserBlock(),
@@ -622,50 +461,44 @@ func runnerStage(a agent.Agent, baseAlias, body string, docker, dockerInjected b
 		parts = append(parts, dockerMergeBlock())
 	}
 	parts = append(parts,
-		fmt.Sprintf("COPY --from=%s %s %s\n", agentStageAlias, toolDir, toolDir),
+		agentToolTreeCopy(a.Profile),
 		agentAdoptionBlock(a),
-		agentOwnershipBlock(a),
-		agentImageConfigBlock(a),
+		agentImageConfigBlock(a.Profile),
 		finalizationBlock(),
 		guestToolsBlock(a),
-		runtimeLibsBlock(a),
+		runtimeLibsBlock(a.Profile),
 		launcherToolsBlock(),
 	)
 	return joinBlocks(parts...)
 }
 
-// agentOwnershipBlock hands the agent's self-written tool-tree paths to the
-// runtime user. It runs as root after the tool tree is copied in and before the
-// image switches to the dev user. The group is resolved at build time from the
-// dev user's own entry (`id -g dev`), not assumed to be a `dev` group nor taken
-// from the USER_UID/USER_GID build args: devUserBlock skips creation entirely
-// when a custom base already provides a `dev` user, which need not come with a
-// `dev` group, and groupadd -f may leave the dev group on a GID other than a
-// pinned host GID. Agents that declare no owned paths emit nothing.
-func agentOwnershipBlock(a agent.Agent) string {
-	paths := a.ImageSpec().OwnedToolPaths
-	if len(paths) == 0 {
-		return ""
+// agentToolTreeCopy copies the agent's tool tree into the runner, setting its
+// owner to the runtime user at copy time when the agent declares owned paths.
+// Handing ownership to the same COPY records it in the single tree layer; a
+// post-copy chown would write a second full copy of the tree. The dev group is
+// guaranteed by devUserBlock for every base, which makes the --chown name
+// resolvable on the production classic builder (it fails on an unresolvable
+// name, unlike BuildKit, which falls back to the user's primary group). Agents
+// that declare no owned paths get the plain, root-owned copy.
+func agentToolTreeCopy(a agent.Agent) string {
+	if !a.ImageSpec().OwnsToolTree {
+		return fmt.Sprintf("COPY --from=%s %s %s\n", agentStageAlias, toolDir, toolDir)
 	}
-	return fmt.Sprintf("USER root\nRUN chown -R dev:$(id -g dev) %s\n", strings.Join(paths, " "))
+	return fmt.Sprintf("COPY --chown=dev:dev --from=%s %s %s\n", agentStageAlias, toolDir, toolDir)
 }
 
-// injectDockerBlock replaces the first top-level docker marker line in body
-// with the thin docker copy/adopt block, or appends it when no marker is
-// present. A marker inside a heredoc body is not a marker and is left untouched.
-// It reports whether the block was injected at a marker.
-func injectDockerBlock(body string, docker bool) (string, bool) {
-	if !docker {
-		return body, false
+// injectDockerBlock replaces the first top-level docker marker line in the
+// final-stage body with the thin docker copy/adopt block, or leaves the body
+// untouched when there is no marker. markerAt is that marker's index in
+// bodyLines (see parsedProjectDockerfile), or -1 when none. A marker inside a
+// heredoc body is never markerAt and is left untouched. It reports whether the
+// block was injected at a marker.
+func injectDockerBlock(bodyLines [][]byte, markerAt int, docker bool) (string, bool) {
+	if !docker || markerAt < 0 {
+		return string(bytes.Join(bodyLines, nil)), false
 	}
 	block := dockerMergeBlock()
-	lines := dockerfileLines([]byte(body))
-	for _, i := range topLevelLineIndices(lines) {
-		if _, ok := dockerMarkerKind(lineText(lines[i])); ok {
-			return string(bytes.Join(lines[:i], nil)) + block + string(bytes.Join(lines[i+1:], nil)), true
-		}
-	}
-	return body, false
+	return string(bytes.Join(bodyLines[:markerAt], nil)) + block + string(bytes.Join(bodyLines[markerAt+1:], nil)), true
 }
 
 // dockerMergeBlock copies the docker tool tree into the runner and records its
@@ -705,7 +538,7 @@ RUN set -e; mkdir -p /etc/agents-sandbox; \
 // or the tool. It resets to root so a project body ending in a non-root USER
 // cannot break the block. PATH prefers base binaries, so a base-provided agent
 // resolves outside toolDir.
-func agentAdoptionBlock(a agent.Agent) string {
+func agentAdoptionBlock(a agent.Resolved) string {
 	return fmt.Sprintf(`USER root
 RUN set -e; mkdir -p /etc/agents-sandbox; \
     bin="$(command -v %s 2>/dev/null || true)"; \
@@ -736,12 +569,11 @@ func launcherToolsBlock() string {
 // commands will; a tool installed only there is still found. It fails the build
 // naming the missing tool instead of failing at runtime. Agents that run no
 // daemon declare no tools and emit nothing.
-func guestToolsBlock(a agent.Agent) string {
-	requirer, ok := agent.AsGuestToolRequirer(a)
-	if !ok {
+func guestToolsBlock(a agent.Resolved) string {
+	if a.GuestTools == nil {
 		return ""
 	}
-	return guestToolCheck(requirer.GuestTools(), "agent runtime tool missing", "required by "+a.Name())
+	return guestToolCheck(a.GuestTools.GuestTools(), "agent runtime tool missing", "required by "+a.Profile.Name())
 }
 
 // guestToolCheck renders the RUN loop that fails the build when any of tools is
@@ -810,13 +642,13 @@ func agentImageConfigBlock(a agent.Agent) string {
 }
 
 // agentBinary returns the command name the agent installs.
-func agentBinary(a agent.Agent) string {
-	if provider, ok := agent.AsVersionProvider(a); ok {
+func agentBinary(a agent.Resolved) string {
+	if provider := a.Version; provider != nil {
 		if fields := strings.Fields(provider.VersionCmd()); len(fields) > 0 {
 			return fields[0]
 		}
 	}
-	return a.Name()
+	return a.Profile.Name()
 }
 
 // joinBlocks concatenates non-empty blocks with a newline between them, so empty
@@ -831,34 +663,23 @@ func joinBlocks(blocks ...string) string {
 	return strings.Join(nonEmpty, "\n")
 }
 
-// devUserBlock creates the dev user as root, leaving the shell as root.
-// groupadd -f tolerates a host GID already taken in the base image (e.g. macOS
-// staff/20 vs dialout): the group then gets the next free GID, so useradd must
-// reference it by name. The login shell prefers bash, then zsh, then sh, so a
-// custom base need only provide a POSIX shell.
+// devUserBlock creates the dev user as root, leaving the shell as root. It
+// creates the dev group for every base, including a custom base that already
+// provides a dev user without one, so the group name resolves wherever the
+// runtime hands the tool tree to dev: groupadd -f is a no-op when the group
+// exists and otherwise creates it at USER_GID, or the next free GID when that
+// GID is taken (e.g. macOS staff/20 vs dialout), so useradd references it by
+// name. The login shell prefers bash, then zsh, then sh, so a custom base need
+// only provide a POSIX shell.
 func devUserBlock() string {
 	return `USER root
 ARG USER_UID=1000
 ARG USER_GID=1000
-RUN id -u dev >/dev/null 2>&1 || \
-      { groupadd -f -g "$USER_GID" dev && \
-        p=/bin/sh; for sh in bash zsh sh; do q="$(command -v "$sh" 2>/dev/null)" && { p="$q"; break; }; done; \
+RUN groupadd -f -g "$USER_GID" dev; \
+    id -u dev >/dev/null 2>&1 || \
+      { p=/bin/sh; for sh in bash zsh sh; do q="$(command -v "$sh" 2>/dev/null)" && { p="$q"; break; }; done; \
         useradd -m -u "$USER_UID" -g dev -s "$p" dev; }
 `
-}
-
-// lastFromLine returns the index of the last FROM instruction in lines, or -1.
-// Only real instruction starts are considered, so a FROM inside a heredoc body
-// or a continuation line is not a stage header; keywords are matched
-// case-insensitively.
-func lastFromLine(lines [][]byte) int {
-	lastFrom := -1
-	for _, i := range instructionLineIndices(lines) {
-		if keyword, _ := instruction(string(lines[i])); keyword == fromInstruction {
-			lastFrom = i
-		}
-	}
-	return lastFrom
 }
 
 // finalizationBlock records the image contract labels and makes dev the runtime
@@ -894,18 +715,26 @@ LABEL org.agents-sandbox.identity.user=$IDENTITY_USER
 }
 
 // RenderProjectDockerfile renders the runner Dockerfile exactly as it would be
-// built for the current project: the agent profile, the pinned agent version,
-// the on-disk project Dockerfile (if any), and the docker switch. It is the
-// single source of truth for previewing and building the image. An empty
+// built for a project: the agent profile, the pinned agent version, the project
+// Dockerfile's bytes (see ReadProjectDockerfile), and the docker switch. It is
+// the single source of truth for previewing and building the image. An empty
 // version renders the agent instance stage without a pinned default.
-func RenderProjectDockerfile(a agent.Agent, agentVersion string, docker options.DockerSetting) ([]byte, error) {
-	return RenderDockerfile(a, agentVersion, readProjectDockerfile(), docker)
+func RenderProjectDockerfile(
+	a agent.Agent,
+	agentVersion string,
+	projectDockerfile []byte,
+	docker options.DockerSetting,
+) ([]byte, error) {
+	return RenderDockerfile(a, agentVersion, projectDockerfile, docker)
 }
 
-// readProjectDockerfile returns the project Dockerfile bytes, or nil when none
-// exists.
-func readProjectDockerfile() []byte {
-	if data, err := os.ReadFile(configpaths.Get().ProjectDockerfile()); err == nil {
+// ReadProjectDockerfile returns the project Dockerfile bytes, or nil when none
+// exists. It is the single reader of the on-disk project Dockerfile: the CLI
+// and the run/shell boundary resolve the path resolver once and call it once,
+// then thread the bytes into the image entry points, so no lower layer reaches
+// for a process-global path.
+func ReadProjectDockerfile(paths configpaths.ConfigPaths) []byte {
+	if data, err := os.ReadFile(paths.ProjectDockerfile()); err == nil {
 		return data
 	}
 	return nil

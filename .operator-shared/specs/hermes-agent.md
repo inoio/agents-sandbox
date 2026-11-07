@@ -1,6 +1,6 @@
 ---
-description: Contract for the Hermes Agent profile (Nous `hermes-agent`, MIT): a CLI-only, daemon-less integration whose install runs the official installer at a pinned release tag into a baked Python/Node tool store outside the home volume, whose state lives in `HERMES_HOME`, and whose `config.yaml` snippets merge as YAML.
-read_if: Adding or changing the `hermes` agent profile, its installer/tool-store stage, version pinning or the latest-release fetch, `HERMES_HOME` or tool-store placement, YAML config provisioning, the `OwnedToolPaths` handover, or the Hermes harness smoke entry; or diagnosing a Hermes launch that fails before its REPL or a first-boot dependency sync.
+description: Contract for the Hermes Agent profile (Nous `hermes-agent`, MIT): a CLI-only, daemon-less integration whose install runs the official installer at a pinned release tag into a baked Python/Node tool store outside the home volume, whose state lives in `HERMES_HOME`, whose `config*.yaml` snippets merge as YAML, and whose build-only trees are pruned to trim its (largest) runner image.
+read_if: Adding or changing the `hermes` agent profile, its installer/tool-store stage, version pinning or the latest-release fetch, `HERMES_HOME` or tool-store placement, YAML config provisioning, the `OwnsToolTree` handover, or the Hermes harness smoke entry; or diagnosing a Hermes launch that fails before its REPL or a first-boot dependency sync.
 ---
 
 # Hermes Agent integration
@@ -45,13 +45,26 @@ home volume must boot without network.
 - **Launcher shim:** the installer's published launcher is replaced by a small shim at `/opt/agents-sandbox/bin/hermes`
   that keeps user state in `$HERMES_HOME` (default `/home/dev/.hermes`) and symlinks `tools`, `cache`, and `installs`
   back to the baked store when absent, so a fresh home volume starts Hermes without reinstalling its dependencies.
-- **Ownership:** both trees are declared through `ImageSpec.OwnedToolPaths` and chowned to the runner's `dev` user
-  (`chown -R dev:dev`) after the tool tree is copied in and before the image switches to `USER dev`. The chown names the
-  user and group rather than the `USER_UID`/`USER_GID` build args, because `devUserBlock`'s `groupadd -f` can leave the
-  `dev` group on a different GID. Hermes writes its dependency ledger and bytecode markers there, and git rejects a
-  checkout owned by another user.
+- **Ownership:** the tool tree is marked through `ImageSpec.OwnsToolTree`, so the runner's tool-tree `COPY` carries
+  `--chown=dev:dev` and hands it to the `dev` user at copy time (no separate chown layer). The name resolves because
+  `devUserBlock` guarantees a `dev` group for every base, even one that pre-creates a `dev` user without one and even when
+  `USER_GID` is taken. Hermes writes its dependency ledger and bytecode markers there, and git rejects a checkout owned by
+  another user.
 - **Version pin:** the one resolved semver is passed as `--commit v<version>`, the release tag that `git checkout
   --detach` and the installer's ancestry check both accept.
+
+## Image size
+
+Hermes's is the largest runner image because it bakes a whole Python/Node tool store, and the installer's
+build-only trees dominate it. After a successful install the `InstallCommand` prunes them
+(`hermesBuildOnlyPaths`): the blobless `.git` clone, `tests`, `website`, `apps` (desktop and bootstrap source; the
+built products land in `ui-tui/dist` and `hermes_cli/web_dist`), and the build-time `hermes-home/cache/uv`.
+
+Dropping `.git` is safe because the installer's `products` tail writes `install-stamp.json`, which
+`version_info.get_version_info()` reads before git and trusts without its `.git` cross-check when `.git` is absent,
+so `hermes --version` still reports the pinned release. The tree then classifies as sealed by an "unknown" steward,
+which only affects `hermes update`/uninstall (never invoked). `optional-skills` is deliberately kept: the skills hub
+(`tools/skills_sync_optional.py`) reads it.
 
 ## Version resolution and upgrade checks
 

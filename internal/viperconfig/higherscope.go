@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/spf13/cobra"
 	"github.com/titanous/json5"
 	"go.yaml.in/yaml/v3"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-
-	"github.com/spf13/cobra"
 )
 
 // flagNetworkName is the CLI flag name whose values feed the nested

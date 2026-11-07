@@ -10,7 +10,7 @@ read_if: Changing `.github/workflows/fuzz.yml`, the `make fuzz` target or its `F
 `.github/workflows/fuzz.yml` explores every fuzz target discovered in the module — the persisted state files
 (`state.FuzzParseState`, both the per-project and launcher-global documents), size and `--worktree` specs
 (`options.FuzzParseOptions`), configured mount-target validation (`mounts.FuzzResolveMountTarget`), the retired
-`updater.yaml` (`vm.FuzzParseLegacyUpdaterState`), the project Dockerfile (`image.FuzzRenderDockerfile`), the `home:`
+`updater.yaml` (`prepare.FuzzParseLegacyUpdaterState`), the project Dockerfile (`image.FuzzRenderDockerfile`), the `home:`
 manifest (`homeconfig.FuzzParseHomeSection`), `--older-than` durations (`viperconfig.FuzzParseHumanDuration`), and
 the naming package's artifact-name, content-image-reference, and runner-image-reference round-trips
 (`naming.FuzzArtifactNameRoundTrip`, `naming.FuzzContentImageRefRoundTrip`,
@@ -58,8 +58,8 @@ locally. `timeout-minutes: 45` bounds a single target.
   (GitHub caches are immutable, so a fixed key is written once and never updated), and the prefix restores the newest
   entry for that target. It must **not** rely on `setup-go`'s cache for this — that entry is keyed on `go.sum` and is
   never re-saved on an exact hit, so a run's discoveries would be thrown away, and other jobs sharing the key can save it
-  first. The corpus is small: a 3s run yields tens of inputs and ~128K. `name` widened from the flattened package path to
-  path-plus-target when discovery moved to one job per target, so each target's corpus restarts once under its new key.
+  first. The corpus is small: a 3s run yields tens of inputs and ~128K. `name` is the flattened package path plus the
+  target, so each target keeps its own corpus.
 - **A crasher leaves the runner as an artifact.** Go writes a failing input to the package's `testdata/fuzz/<Target>/` and
   prints it in the log; the failing job uploads `<path>/testdata/fuzz/<Target>/` for its own matrix entry, so a `cmd/` or
   `test/` target's crasher is captured too. CI does not commit the seed (that needs a push token, which the workflow

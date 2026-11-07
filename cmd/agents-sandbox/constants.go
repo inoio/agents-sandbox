@@ -48,6 +48,7 @@ const (
 	flagTier   = "tier"
 
 	flagRebuild        = runoptions.FlagRebuild
+	flagNoRebuild      = runoptions.FlagNoRebuild
 	flagCpus           = "cpus"
 	flagMemory         = "memory"
 	flagTmpSize        = "tmp-size"
@@ -65,6 +66,7 @@ const (
 	flagServeOnly  = runoptions.FlagServeOnly
 	flagNetwork    = runoptions.FlagNetwork
 	flagDNSServers = runoptions.FlagDNSServers
+	flagPort       = runoptions.FlagPort
 	flagAgent      = runoptions.FlagAgent
 	flagNotify     = runoptions.FlagNotify
 	flagOpenLinks  = runoptions.FlagOpenLinks

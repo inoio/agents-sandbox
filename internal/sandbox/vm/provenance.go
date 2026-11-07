@@ -4,12 +4,12 @@ import (
 	"context"
 	"strings"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // Provenance files baked into the image by the agent and docker blocks.
@@ -18,20 +18,14 @@ const (
 	dockerSourcePath = "/etc/agents-sandbox/docker-source"
 )
 
-// Agent-source provenance values baked into the image.
-const (
-	agentSourceTool = "tool"
-	agentSourceUser = "user"
-)
-
 // recordImageProvenance reads the image's install-provenance files on first
 // boot and writes them into the project's HomeState, detecting and recording
 // the installed agent version as the upgrade baseline for a tool-installed
 // agent. It is a read-modify-write so the project's fingerprints and offered
 // set survive, and a no-op when no state file exists: at that point home
 // resolution has not landed, so creating a document here would persist
-// home_volume: "" (#183, #430). Failures are logged, never fatal.
-func recordImageProvenance(ctx context.Context, k state.Key, a agent.Agent, sb msb.Sandbox, ui termio.UI) {
+// home_volume: "". Failures are logged, never fatal.
+func recordImageProvenance(ctx context.Context, k state.Key, a agent.Resolved, sb msb.Sandbox, ui termio.Logger) {
 	agentSource, err := sb.FS().ReadString(ctx, agentSourcePath)
 	if err != nil {
 		ui.Verbosef("no agent-source file in image (pre-provenance image); skipping")
@@ -43,7 +37,7 @@ func recordImageProvenance(ctx context.Context, k state.Key, a agent.Agent, sb m
 	dockerSource = strings.TrimSpace(dockerSource)
 
 	detectedVersion, hasVersion := "", false
-	if agentSource == agentSourceTool {
+	if agentSource == state.AgentSourceTool {
 		detectedVersion, hasVersion = detectToolAgentVersion(ctx, a, sb, ui)
 	}
 
@@ -65,9 +59,9 @@ func recordImageProvenance(ctx context.Context, k state.Key, a agent.Agent, sb m
 // detectToolAgentVersion detects the installed agent version via the agent's
 // VersionProvider. The bool reports success; on failure the caller keeps any
 // previously recorded version. Failures are logged, never fatal.
-func detectToolAgentVersion(ctx context.Context, a agent.Agent, sb msb.Sandbox, ui termio.UI) (string, bool) {
-	provider, ok := agent.AsVersionProvider(a)
-	if !ok {
+func detectToolAgentVersion(ctx context.Context, a agent.Resolved, sb msb.Sandbox, ui termio.Logger) (string, bool) {
+	provider := a.Version
+	if provider == nil {
 		return "", false
 	}
 	out, runErr := sb.Shell(ctx, provider.VersionCmd(), msbSdk.WithExecUser(DefaultSandboxUser))

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -19,18 +18,11 @@ import (
 // authorizes non-interactively through ui.Confirm's assume-yes path; a
 // non-interactive UI without --yes fails fast via ui.Confirm rather than
 // blocking.
-func confirmPrune(ui termio.UI, dryRun bool) error {
+func confirmPrune(ui termio.Prompter, dryRun bool) error {
 	if dryRun {
 		return nil
 	}
-	ok, err := ui.Confirm("Prune stale runtime objects?", false)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return errors.New("prune cancelled")
-	}
-	return nil
+	return termio.ConfirmAction(ui, "Prune stale runtime objects?")
 }
 
 // resolvePruneAge returns the effective prune threshold for a manual prune:
@@ -85,7 +77,10 @@ func runGroupPrune[R any](
 	cliout.RenderPruneReport(ui, mode,
 		func() { render(report, dryRun) },
 		jsonValue(report, dryRun))
-	return pruneErr
+	if pruneErr != nil {
+		return pruneErr
+	}
+	return nil
 }
 
 func resolvePruneFlags(cmd *cobra.Command) (time.Duration, bool, error) {
@@ -97,7 +92,7 @@ func resolvePruneFlags(cmd *cobra.Command) (time.Duration, bool, error) {
 	return age, dryRun, nil
 }
 
-func resolvePruneOutputMode(cmd *cobra.Command, ui termio.UI) (cliout.Mode, error) {
+func resolvePruneOutputMode(cmd *cobra.Command, ui termio.TerminalState) (cliout.Mode, error) {
 	format, _ := cmd.Flags().GetString(flagFormat)
 	return cliout.ResolveMode(format, ui.Quiet())
 }

@@ -38,6 +38,13 @@ type Config struct {
 
 	// Network holds the egress policy. Only Profiles is settable via env/flag.
 	Network network.Policy `mapstructure:"network"`
+
+	// Secrets holds secret-global settings that apply to every secret.
+	Secrets Secrets `mapstructure:"secrets"`
+
+	// Ports are user-published VM ports ("<port>" or "<host>:<guest>"), exposed
+	// on the host loopback at VM creation.
+	Ports []string `mapstructure:"ports"`
 	// Mounts is excluded from viper.Unmarshal (mapstructure:"-") and decoded
 	// from v.Get("mounts") instead: viper flattens dotted guest paths such as
 	// /home/dev/.m2 into nested keys, which would corrupt the map keys.
@@ -48,6 +55,10 @@ type Config struct {
 	Home homeconfig.Layers `mapstructure:"-"`
 	// hasHome reports whether any config file declared a home key.
 	hasHome bool
+	// ConfigSlug is the effective per-slug user config directory slug the
+	// resolver was built with (empty when no per-slug scope was selected). It is
+	// resolved at the run boundary, never read from a config file or env.
+	ConfigSlug string `mapstructure:"-"`
 
 	// dockerSource names the explicit docker or deprecated dind source the
 	// resolved docker value came from (DockerSourceNone when none), so the
@@ -65,6 +76,23 @@ type Config struct {
 	Notify NotifyConfig `mapstructure:"-"`
 }
 
+// Secrets holds secret-global launcher settings.
+type Secrets struct {
+	// Common holds settings shared by every secret.
+	Common SecretCommon `mapstructure:"common"`
+}
+
+// SecretCommon holds settings that apply to every secret.
+//
+//exhaustruct:ignore
+type SecretCommon struct {
+	// AllowPlaceholderFor lists hosts that may receive any secret's placeholder
+	// unchanged (the allow-placeholder-for key). It is config-file-only: no env
+	// var and no flag, so an LLM model host is trusted deliberately. A host a
+	// secret already allows keeps substitution (see docs/configuration/secrets.md).
+	AllowPlaceholderFor []string `mapstructure:"allow-placeholder-for" env:"-"`
+}
+
 // NotifyConfig is the resolved notify setting for a session.
 //
 //exhaustruct:ignore
@@ -80,6 +108,10 @@ type UpgradeConfig struct {
 // Resolver resolves launcher config with precedence flag > env > config > default.
 type Resolver struct {
 	cfg Config
+	// slug is the config slug the resolver was built for (the CLI's
+	// effectiveConfigSlug): the per-slug user config directory it reads is
+	// keyed by it, and a config write must target the same slug.
+	slug string
 	// legacyEnv holds deprecated-prefix variables that were in effect when the
 	// resolver was built. The CLI surfaces them once as a deprecation warning.
 	legacyEnv []string
@@ -124,6 +156,7 @@ const (
 	keyAutoStopMaxSessionRetries = "auto-stop-max-session-retries"
 	keyNetworkProfile            = "network.profile"
 	keyNetworkDNSServers         = "network.dns-servers"
+	keyPorts                     = "ports"
 	keyAgent                     = "agent"
 	// KeyDocker is the config key and CLI flag name for the docker capability.
 	KeyDocker = "docker"

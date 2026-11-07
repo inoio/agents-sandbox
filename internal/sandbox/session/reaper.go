@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -22,8 +23,7 @@ const (
 const defaultMaxSessionRetries = 10
 
 // waitQuiescentPollInterval is the delay between session-status polls while
-// waiting for active sessions to finish. It is a variable so tests can shrink
-// it instead of waiting out the production interval.
+// waiting for active sessions to finish.
 var waitQuiescentPollInterval = 2 * time.Second
 
 // SessionStatus is the decoded server-side /session/status entry. Busy and idle are
@@ -40,13 +40,15 @@ type QuestionRequest struct {
 }
 
 // reapOnLastClient runs after a client detaches. If this was not the last client it
-// is a no-op. If it was, per policy it either returns immediately (auto-stop-on-active
-// mode, so the idle timeout stops the VM) or holds the VM until sessions quiesce.
-// An agent whose daemon does not expose the v1 session-status endpoints skips the
-// quiescence wait, so the idle timeout stops the VM as in auto-stop mode.
+// is a no-op. If it was, it first warns (best-effort) when the VM still has
+// running containers, which the idle stop will stop; then per policy it either
+// returns immediately (auto-stop-on-active mode, so the idle timeout stops the
+// VM) or holds the VM until sessions quiesce. An agent whose daemon does not
+// expose the v1 session-status endpoints skips the quiescence wait, so the idle
+// timeout stops the VM as in auto-stop mode.
 func reapOnLastClient(
 	ctx context.Context,
-	a agent.Agent,
+	a agent.Resolved,
 	k state.Key,
 	sb msb.Sandbox,
 	policy options.ReapPolicy,
@@ -55,6 +57,9 @@ func reapOnLastClient(
 	if state.CountActiveClients(k) > 0 {
 		return nil
 	}
+	if sb != nil {
+		warnRunningContainers(ctx, sb, ui)
+	}
 	if policy.AutoStopOnActiveSessions {
 		ui.Verbosef("auto-stop-on-active-sessions: not waiting; idle timeout will stop VM")
 		return nil
@@ -62,18 +67,64 @@ func reapOnLastClient(
 	if sb == nil {
 		return nil
 	}
-	provider, ok := agent.AsSessionStatusProvider(a)
-	if !ok {
-		ui.Verbosef("agent %q has no session-status endpoints; skipping quiescence wait", a.Name())
+	provider := a.SessionStatus
+	if provider == nil {
+		ui.Verbosef("agent %q has no session-status endpoints; skipping quiescence wait", a.Profile.Name())
 		return nil
 	}
 	return waitQuiescent(ctx, k, sb, provider, policy.MaxSessionRetries, ui)
 }
 
+// runningContainersProbeCmd lists the IDs of running containers, one per line.
+// It is the probe for warnRunningContainers.
+const runningContainersProbeCmd = "docker ps -q"
+
+// containerProbeTimeout bounds the best-effort container probe. The probe runs
+// on the last-client detach, where the triggering context is often already
+// canceled (serve-only exits by canceling it), so the probe needs its own
+// deadline rather than the caller's.
+const containerProbeTimeout = 5 * time.Second
+
+// warnRunningContainers warns that the sandbox's idle stop will also stop any
+// containers the user left running, so their fate is not a surprise.
+//
+// It runs on every last-client detach regardless of the docker setting: a
+// project Dockerfile can enable docker in the image (a final-stage marker or a
+// managed docker base) without any config, so the config value cannot decide
+// whether the VM can hold containers. The probe self-guards instead — a VM
+// without docker answers the command with a failure, and a docker API error is
+// equally silent, so either contributes nothing.
+//
+// The probe derives its own short-lived context from ctx instead of using ctx
+// directly: on the serve-only exit path ctx is already canceled by the time the
+// reaper runs, and the SDK aborts Shell on a canceled context, which would
+// silently suppress the warning. WithoutCancel keeps ctx's values but drops its
+// cancellation, and the timeout bounds the probe.
+func warnRunningContainers(ctx context.Context, sb msb.Sandbox, ui termio.Logger) {
+	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), containerProbeTimeout)
+	defer cancel()
+	out, err := sb.Shell(probeCtx, runningContainersProbeCmd)
+	if err != nil || out == nil || !out.Success() {
+		return
+	}
+	running := 0
+	for line := range strings.SplitSeq(out.Stdout(), "\n") {
+		if strings.TrimSpace(line) != "" {
+			running++
+		}
+	}
+	if running > 0 {
+		ui.Warnf(
+			"%d running container(s) will be stopped when the sandbox idles; "+
+				"restart them with 'docker start' after the next connect",
+			running,
+		)
+	}
+}
+
 // waitQuiescent keeps the VM alive (keeper exec) and polls the provider's
-// session-status endpoint until no session is busy and no session is retrying
-// past the cutoff, or ctx is done. A client that reattaches during the wait
-// aborts it.
+// session-status endpoint until no session is busy and none is retrying below
+// the cap, or ctx is done. A client that reattaches during the wait aborts it.
 func waitQuiescent(
 	ctx context.Context,
 	k state.Key,
@@ -117,59 +168,79 @@ func waitQuiescent(
 		}
 
 		poll := pollQuiescence(ctx, sb, provider, maxRetry, ui)
-		if poll.terminal {
-			return nil
-		}
 		if poll.failed {
 			continue
 		}
-		if poll.busy == 0 && !poll.stuckRetry {
+		if poll.busy == 0 && poll.retry != retryBelowCap {
 			return nil
 		}
 	}
 }
 
-// sessionPoll is the outcome of one quiescence poll. terminal reports that the
-// held sandbox was replaced or removed, so waiting can stop; failed reports a
+// retryState classifies the sessions a poll found in retry: whether none is
+// retrying, one is retrying with an attempt still below the cap (in-flight work
+// that holds the VM), or every retry has reached the cap and no longer does.
+type retryState int
+
+const (
+	// retryNone means no session is retrying.
+	retryNone retryState = iota
+	// retryBelowCap means at least one session is retrying with an attempt
+	// below the cap, so it holds the VM.
+	retryBelowCap
+	// retryAtOrOverCap means sessions are retrying but none is below the cap,
+	// so none holds the VM.
+	retryAtOrOverCap
+)
+
+var retryStateName = map[retryState]string{
+	retryNone:        "none",
+	retryBelowCap:    "below-cap",
+	retryAtOrOverCap: "at-or-over-cap",
+}
+
+func (r retryState) String() string { return retryStateName[r] }
+
+// sessionPoll is the outcome of one quiescence poll. failed reports a
 // transient poll error, so the caller keeps waiting.
 //
 //exhaustruct:ignore
 type sessionPoll struct {
-	busy       int
-	stuckRetry bool
-	failed     bool
-	terminal   bool
+	busy   int
+	retry  retryState
+	failed bool
 }
 
 // pollQuiescence reads the provider's session-status endpoint once and reports
-// how many sessions are busy and whether any retry session is stuck.
+// how many sessions are busy and how the sessions in retry classify against the
+// cap: none, below the cap, or at or over it.
 func pollQuiescence(
 	ctx context.Context,
 	sb msb.Sandbox,
 	provider agent.SessionStatusProvider,
 	maxRetry int,
-	ui termio.UI,
+	ui termio.Logger,
 ) sessionPoll {
 	states, err := sessionStates(ctx, sb, provider.SessionStatusCmd())
 	if err != nil {
 		if msb.IsReplaced(err) || msb.IsNotFound(err) {
 			ui.Verbosef("sandbox was replaced or removed; stopping reaper wait")
-			return sessionPoll{terminal: true}
+			return sessionPoll{} // nothing is left to wait for
 		}
 		ui.Verbosef("session status poll failed: %v", err)
 		return sessionPoll{failed: true}
 	}
 
-	busy, stuckRetry := quiescenceOf(states, nil, maxRetry)
+	busy, retry := quiescenceOf(states, nil, maxRetry)
 	if busy > 0 {
 		pending, pendingErr := pendingQuestionSessionIDs(ctx, sb, provider.QuestionListCmd())
 		if pendingErr != nil {
 			ui.Verbosef("question status poll failed: %v", pendingErr)
 		}
-		busy, stuckRetry = quiescenceOf(states, pending, maxRetry)
+		busy, retry = quiescenceOf(states, pending, maxRetry)
 	}
-	ui.Verbosef("waiting: busy=%d stuckRetry=%v", busy, stuckRetry)
-	return sessionPoll{busy: busy, stuckRetry: stuckRetry}
+	ui.Verbosef("waiting: busy=%d retry=%s", busy, retry)
+	return sessionPoll{busy: busy, retry: retry}
 }
 
 // sessionStates reads the provider's session-status endpoint once via an in-VM
@@ -212,6 +283,7 @@ func pendingQuestionSessionIDs(ctx context.Context, sb msb.Sandbox, cmd string) 
 // a map of sessionID to SessionStatus. Returns an empty map for empty input.
 func decodeSessionStates(data string) (map[string]SessionStatus, error) {
 	if data == "" {
+		// gomutants:disable-next-line RETURN_ZERO reason="callers only range over and index the map, so an empty and a nil map read the same"
 		return map[string]SessionStatus{}, nil
 	}
 	var states map[string]SessionStatus
@@ -223,6 +295,7 @@ func decodeSessionStates(data string) (map[string]SessionStatus, error) {
 
 func decodeQuestionRequests(data string) ([]QuestionRequest, error) {
 	if data == "" {
+		// gomutants:disable-next-line RETURN_ZERO reason="callers only range over the slice, so an empty and a nil slice read the same"
 		return []QuestionRequest{}, nil
 	}
 	var reqs []QuestionRequest
@@ -232,12 +305,14 @@ func decodeQuestionRequests(data string) ([]QuestionRequest, error) {
 	return reqs, nil
 }
 
-// quiescenceOf reports how many sessions are busy and whether any retry
-// session has exceeded the retry cap. Sessions present in pending (awaiting an
-// answer to a surfaced question) are not counted as busy.
-func quiescenceOf(states map[string]SessionStatus, pending map[string]bool, maxRetry int) (int, bool) {
+// quiescenceOf reports how many sessions are busy and classifies the retry
+// sessions by whether any is still below the retry cap. A retry below the cap
+// holds the VM; one at or beyond it does not. Sessions present in pending
+// (awaiting an answer to a surfaced question) are not counted as busy.
+func quiescenceOf(states map[string]SessionStatus, pending map[string]bool, maxRetry int) (int, retryState) {
 	busy := 0
-	stuckRetry := false
+	holdsBelowCap := false
+	reachedCap := false
 	for id, st := range states {
 		switch st.Type {
 		case sessionTypeBusy:
@@ -245,12 +320,22 @@ func quiescenceOf(states map[string]SessionStatus, pending map[string]bool, maxR
 				busy++
 			}
 		case sessionTypeRetry:
-			if st.Attempt >= maxRetry {
-				stuckRetry = true
+			if st.Attempt < maxRetry {
+				holdsBelowCap = true
+			} else {
+				reachedCap = true
 			}
 		}
 	}
-	return busy, stuckRetry
+	switch {
+	case holdsBelowCap:
+		return busy, retryBelowCap
+	case reachedCap:
+		return busy, retryAtOrOverCap
+	default:
+		// gomutants:disable-next-line RETURN_ZERO reason="retryNone is the zero value of retryState, so a zero-value return is the same constant"
+		return busy, retryNone
+	}
 }
 
 // keepVMAlive starts a benign long-running in-VM exec so active_exec_sessions > 0,

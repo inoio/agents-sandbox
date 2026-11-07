@@ -1,34 +1,13 @@
 package notify
 
 import (
-	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
-
-// sharedSink records notifications from multiple Dedup instances backed by the
-// same underlying sink.
-type sharedSink struct {
-	mu  sync.Mutex
-	got []Notification
-}
-
-func (s *sharedSink) Notify(n Notification) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.got = append(s.got, n)
-}
-
-func (s *sharedSink) count() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.got)
-}
 
 func TestDedupCrossClientSingleNotification(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -92,13 +71,6 @@ func TestDedupBypassesWhenNoSessionID(t *testing.T) {
 	}
 }
 
-// sseBlockFor builds an SSE block carrying a sessionID, so dedup is exercised.
-func sseBlockFor(typ, sessionID string) []byte {
-	return []byte(
-		"data: {\"directory\":\"/workspace\",\"project\":\"p\",\"payload\":{\"id\":\"evt\",\"type\":\"" + typ + "\",\"properties\":{\"sessionID\":\"" + sessionID + "\"}}}\n\n",
-	)
-}
-
 func TestDedupSameClientSecondNotifyDropped(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	sink := &sharedSink{}
@@ -110,57 +82,6 @@ func TestDedupSameClientSecondNotifyDropped(t *testing.T) {
 	if sink.count() != 1 {
 		t.Fatalf("expected 1 notification after a repeat, got %d", sink.count())
 	}
-}
-
-// TestHandleEventSameStepInputRequestsBothNotify drives the full path for the
-// v2 gap: two approvals asked back to back in one step, with no step boundary
-// between them. The first request claims the input token; the second carries a
-// distinct envelope id, claims its own token, and notifies too.
-func TestHandleEventSameStepInputRequestsBothNotify(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	sink := &sharedSink{}
-	dedup := NewDedup("dedupinturn-b", StateClaimer{}, sink)
-	tr := NewTracker(opencode2Spec())
-	sid := "ses_top"
-
-	handleEvent(tr, dedup, agent.StreamEvent{Type: "session.execution.started", SessionID: sid})
-	handleEvent(tr, dedup, agent.StreamEvent{Type: "permission.asked", SessionID: sid, EventID: "evt_1"})
-	handleEvent(tr, dedup, agent.StreamEvent{Type: "permission.asked", SessionID: sid, EventID: "evt_2"})
-
-	if sink.count() != 2 {
-		t.Fatalf("expected both same-step input requests to notify, got %d", sink.count())
-	}
-}
-
-// TestHandleEventRepeatedInputEventNotifiesOnce is the other direction: the
-// same envelope id (a replayed event) claims the same token and notifies once.
-func TestHandleEventRepeatedInputEventNotifiesOnce(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	sink := &sharedSink{}
-	dedup := NewDedup("dedupinturn-c", StateClaimer{}, sink)
-	tr := NewTracker(opencode2Spec())
-	sid := "ses_top"
-
-	handleEvent(tr, dedup, agent.StreamEvent{Type: "session.execution.started", SessionID: sid})
-	handleEvent(tr, dedup, agent.StreamEvent{Type: "permission.asked", SessionID: sid, EventID: "evt_1"})
-	handleEvent(tr, dedup, agent.StreamEvent{Type: "permission.asked", SessionID: sid, EventID: "evt_1"})
-
-	if sink.count() != 1 {
-		t.Fatalf("expected a repeat of the same input event to notify once, got %d", sink.count())
-	}
-}
-
-// alwaysClaimer is a filesystem-free claimer that always wins.
-type alwaysClaimer struct{}
-
-func (alwaysClaimer) Acquire(string, string) (func(), bool, error) {
-	return func() {}, true, nil
-}
-
-// claimsDir returns the slug's claim-file directory under the mocked state root.
-func claimsDir(t *testing.T, slug string) string {
-	t.Helper()
-	return filepath.Join(configpaths.Get().UserStateDir(), slug, "claims")
 }
 
 // TestDedupReleasesInputClaims pins bounded storage: each request gets its own
@@ -186,24 +107,6 @@ func TestDedupReleasesInputClaims(t *testing.T) {
 	if n := countClaimFiles(t, claimsDir(t, slug)); n != 0 {
 		t.Fatalf("expected the released claim files removed, got %d", n)
 	}
-}
-
-func countClaimFiles(t *testing.T, dir string) int {
-	t.Helper()
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return 0
-		}
-		t.Fatal(err)
-	}
-	count := 0
-	for _, e := range entries {
-		if filepath.Ext(e.Name()) == ".claim" {
-			count++
-		}
-	}
-	return count
 }
 
 // TestDedupLaterInputNotBlockedByAnotherClient pins liveness: a client holding
@@ -260,13 +163,6 @@ func TestDedupCrossClientInputsDeliveredOnce(t *testing.T) {
 	}
 }
 
-// errorClaimer simulates a claim backend that is unavailable.
-type errorClaimer struct{}
-
-func (errorClaimer) Acquire(string, string) (func(), bool, error) {
-	return nil, false, errors.New("claim backend unavailable")
-}
-
 func TestDedupFailsOpenOnClaimError(t *testing.T) {
 	sink := &sharedSink{}
 	c := NewDedup("deduperr-a", errorClaimer{}, sink)
@@ -274,5 +170,48 @@ func TestDedupFailsOpenOnClaimError(t *testing.T) {
 	c.Notify(Notification{SessionID: "ses_A", Trigger: TriggerDone})
 	if sink.count() != 1 {
 		t.Fatalf("expected fail-open delivery on claim error, got %d", sink.count())
+	}
+}
+
+// claimsDir returns the slug's claim-file directory under the mocked state root.
+func claimsDir(t *testing.T, slug string) string {
+	t.Helper()
+	return filepath.Join(configpaths.Get().UserStateDir(), slug, "claims")
+}
+
+func countClaimFiles(t *testing.T, dir string) int {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0
+		}
+		t.Fatal(err)
+	}
+	count := 0
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) == ".claim" {
+			count++
+		}
+	}
+	return count
+}
+
+// TestClaimKey pins the dedup token: an input request carries its envelope id,
+// so two requests in one step get distinct tokens and a re-delivery the same;
+// other triggers, and an input without an id, key by session and trigger only.
+func TestClaimKey(t *testing.T) {
+	cases := []struct {
+		n    Notification
+		want string
+	}{
+		{Notification{SessionID: "s", Trigger: TriggerInput, EventID: "e1"}, fmt.Sprintf("s-%d-e1", int(TriggerInput))},
+		{Notification{SessionID: "s", Trigger: TriggerInput}, fmt.Sprintf("s-%d", int(TriggerInput))},
+		{Notification{SessionID: "s", Trigger: TriggerDone, EventID: "e1"}, fmt.Sprintf("s-%d", int(TriggerDone))},
+	}
+	for _, tc := range cases {
+		if got := claimKey(tc.n); got != tc.want {
+			t.Errorf("claimKey(%+v) = %q, want %q", tc.n, got, tc.want)
+		}
 	}
 }

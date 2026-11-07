@@ -1,6 +1,6 @@
 ---
 description: Contract for how the per-project runner Dockerfile is composed into per-tool multistage stages so tool-owned layers (apt tools, node, agent, docker) cache independently of the user body, the base, and each other; includes when the node stage is emitted (agent node dependency), the native vs npm agent install methods, and the `dind` → `docker` rename with deprecated aliases.
-read_if: Changing RenderDockerfile/stage composition, image layer caching, which agents need node, agent install methods (native installer vs npm), the `ImageSpec.OwnedToolPaths` ownership handover or `agentOwnershipBlock`, the dind/docker switch or marker, the Dockerfile-content docker enablement, its explicit-config precedence and the shared docker/dind source precedence (`viperconfig.EffectiveDockerSource`), the unified dockerfile diagnostics, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd vfs storage driver.
+read_if: Changing RenderDockerfile/stage composition, image layer caching, which agents need node, agent install methods (native installer vs npm), the `ImageSpec.OwnsToolTree` tool-tree ownership (`COPY --chown=dev:dev`, the `devUserBlock` `dev`-group guarantee), the dind/docker switch or marker, the Dockerfile-content docker enablement, its explicit-config precedence and the shared docker/dind source precedence (`viperconfig.EffectiveDockerSource`), the unified dockerfile diagnostics, custom-base handling, the node pin/libatomic dependency (node-removal direction), tool install paths (/opt/agents-sandbox), login-shell PATH handling (AGENTS_SANDBOX_IMAGE_PATH, the /etc/profile.d merge script), or the dockerd storage driver (fuse-overlayfs with a vfs fallback).
 ---
 
 # Runner image composition and tool-layer caching
@@ -44,14 +44,26 @@ The tool stages build on the tool-owned `agents-sandbox-toolbase` (a pinned `deb
 and the tool layers cache across bases. The tool base is never part of the runner's lineage; the runner still builds on
 `agents-sandbox-base` (the managed block or the custom base).
 
-**Tool-tree ownership handover.** A `COPY --from=agents-sandbox-agent /opt/agents-sandbox` preserves the source stage's
-root ownership. An agent whose install self-writes at runtime (Hermes keeps its dependency ledger and bytecode markers in
-its checkout) declares the affected paths in `ImageSpec.OwnedToolPaths`; the runner emits `agentOwnershipBlock` — a
-`USER root` + `RUN chown -R dev:$(id -g dev) <paths>` — after the `COPY` and before `finalizationBlock` switches to
-`USER dev`. It resolves the group from the `dev` user's own entry rather than assuming a `dev` group or the
-`USER_UID`/`USER_GID` build args: `devUserBlock` skips creation entirely when a custom base already provides `dev`
-(which need not come with a `dev` group, so `dev:dev` would fail the build), and `groupadd -f` can leave the `dev` group
-on a GID other than a pinned host GID. Agents that declare no paths emit nothing.
+**Tool-tree ownership handover.** A plain `COPY --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox`
+preserves the source stage's root ownership, so the runner sets the owner at copy time. An agent whose install self-writes
+at runtime (Hermes keeps its dependency ledger and bytecode markers in its checkout) sets `ImageSpec.OwnsToolTree`; the
+runner then emits `COPY --chown=dev:dev --from=agents-sandbox-agent /opt/agents-sandbox /opt/agents-sandbox`, handing the
+whole copied tree (`bin/hermes` included) to `dev`. There is no follow-up `chown`: a chown that rewrites ownership
+on every file records a second full copy of the tree in its layer diff, so the image would carry the tree twice — the
+doubling is a property of the diff, present under every storage driver and in `docker save`/`msb` import alike. The
+invariant is that the agent tool tree appears **once** in the runner image: no step rewrites ownership on the tree after
+the copy.
+
+`--chown=dev:dev` names the group, so it must always resolve. `devUserBlock` guarantees it for every base by running
+`groupadd -f -g "$USER_GID" dev` before the `dev` user guard: a custom base that pre-creates `dev` without a `dev` user
+group still gets one, and when `USER_GID` is already taken (macOS `dialout`/20) the group lands on the next free GID and
+the name still resolves to it. This matters because the production classic builder (`client.ImageBuild`) fails on an
+unresolvable `--chown` group name, where BuildKit silently falls back to the user's primary group. Guaranteeing the group
+adds no custom-base requirement — `shadow-utils` is already one (`docs/runner-image.md`) — and the runtime home-volume
+scripts (`PrefillVolume`, `CopyVolume` in `internal/sandbox/volume`) already run `chown -R dev:dev`, which needs the same
+group: a base that pre-creates a `dev` user without a `dev` group already fails first-run prefill/migrate, so guaranteeing
+the group only makes the build and the runtime agree and moves any failure to build time. Agents that do not set
+`OwnsToolTree` get the plain, root-owned copy.
 
 ### Pinned versions are rendered into the content
 
@@ -88,7 +100,10 @@ Resulting cache behaviour:
   `/etc/profile.d/agents-sandbox-path.sh` (mode 644), **`/usr/local/bin/msb-trust`** (mode 755: the executable bit
   travels in the context entry rather than a `chmod` `RUN`), and its license at
   **`/usr/share/licenses/msb-trust/LICENSE`** (mode 644), which Apache-2.0 section 4(a) requires to travel with the
-  vendored helper. See [ca-trust-helper.md](ca-trust-helper.md).
+  vendored helper (see [ca-trust-helper.md](ca-trust-helper.md)), and the in-VM **`/usr/local/bin/xdg-open`** opener
+  shim (mode 755, from `hostOpenerShimAsset`/`hostOpenerShimScript()`), installed by `hostOpenerBlock()` with the
+  `x-www-browser`/`sensible-browser` aliases and `BROWSER=xdg-open` set (#273; see
+  [agent-link-opening.md](../guides/agent-link-opening.md)).
 - `ImageSpec.InstallCommand` is responsible for landing the agent in that prefix: npm agents (pi) use
   `npm install -g --prefix /opt/agents-sandbox <pkg>@$VERSION`; every other agent copies the binary produced by its
   upstream installer to `/opt/agents-sandbox/bin` (opencode v1 and opencode2 copy the native installer's binary;
@@ -153,13 +168,20 @@ The heavy docker install lives in the `agents-sandbox-docker` stage. The final-s
 so steps after it see `docker`; without a marker that copy+adopt is appended after the body, matching the previous
 default. The download itself stays cacheable.
 
-The marker is also an **enable** signal, not only a position. `effectiveDocker(projectDockerfile, DockerSetting)` is the
-single decision site: the capability is on when the final-stage body carries either marker **or** the final stage's base
-resolves to the managed `runner-base-docker`/`runner-base-dind` alias (`referencesImage`). Both content signals work for
-a custom base and a managed base alike. Only the final-stage body is scanned, so a marker in an earlier stage neither
-enables nor positions. Markers are read only from top-level lines (`topLevelLineIndices`): a marker inside a heredoc body
-— e.g. a `COPY <<EOF` copying a sample Dockerfile — is inert for enablement, positioning, and diagnostics, so heredoc
-text is never rewritten by the injection.
+The marker is also an **enable** signal, not only a position. The project
+Dockerfile is lexed once into a `parsedProjectDockerfile` (`parseProjectDockerfile`), and
+`effectiveDocker(DockerSetting)` is the single decision site over that value: the capability is on
+when the final-stage body carries either marker **or** the final stage's base resolves to the
+managed `runner-base-docker`/`runner-base-dind` alias (`parsedProjectDockerfile.referencesImage`).
+Both content signals work for a custom base and a managed base alike. The renderer, the diagnostic
+classifier, and the image identity all consume the one parsed value, so the marker position, the
+enablement, and the recorded identity cannot disagree. Only the final-stage body is scanned, so a
+marker in an earlier stage neither enables nor positions. Markers are read only from top-level
+lines, from the same single walk (`dockerfileLineIndices`) that yields the instruction list: a marker
+inside a heredoc body — e.g. a `COPY <<EOF` copying a sample Dockerfile — or swallowed by a line
+continuation (for example under a file-level `# escape=`, or by the final `FROM`'s own continuation) is
+inert for enablement, positioning, and diagnostics, so text the lexer reads as heredoc body or
+continuation is never rewritten by the injection.
 
 **Precedence.** Explicit launcher config wins in both directions:
 `explicit config/flag/env (either value) > Dockerfile content > off`. "Explicit" is the canonical `docker` source (config
@@ -183,9 +205,13 @@ case-insensitive (`nearMissDockerMarker`) so a case variant is still surfaced an
 the token (`dockr`) are not caught.
 
 **Diagnostics.** One pure classifier and one emitter, both in `internal/sandbox/image`
-(`DiagnoseDockerfile`/`DockerfileDiagnostics` and `EmitDockerfileDiagnostics`), serve every emission site:
-`EnsureImageWithClient` (every ensure, cached reuse included), the dry-run preview, and `build dockerfile` (through
-`EmitProjectDockerfileDiagnostics`, which reads the file before diagnosing). Messages are the capability line
+(`DiagnoseDockerfile`/`DockerfileDiagnostics` and `EmitDockerfileDiagnostics`), serve every emission
+site: `EnsureImageWithClient` (every ensure, cached reuse included), the dry-run preview, and
+`build dockerfile` (through `EmitProjectDockerfileDiagnostics`). The bytes are an explicit input end
+to end: `ReadProjectDockerfile` is the single reader, called once at the CLI and run/shell boundary
+(`EnsureImage`/`Build`/`PreviewImage`/`RenderProjectDockerfile` take the bytes instead of reaching
+for the process-global path). `DiagnoseDockerfile` is a thin wrapper over
+`parsedProjectDockerfile.diagnostics`. Messages are the capability line
 (`docker: on (project Dockerfile marker)` / `docker: on (project Dockerfile base)`) or the suppression notice
 (`docker: off (config); project Dockerfile asks for docker`); the legacy base and marker deprecation warnings; exactly
 one ignored-marker message per earlier-stage marker, which replaces that line's deprecation warning; and one near-miss
@@ -236,22 +262,36 @@ Deprecated aliases stay accepted at lower precedence with a one-time warning, mi
 inputs that keep working: the `# agents-sandbox:dind` marker and a `FROM agents-sandbox/runner-base-dind` both still
 enable the engine, and each warns on every ensure; `agents-sandbox/runner-base-docker` is the new-name variant.
 
-## vfs storage driver
+## Storage driver: fuse-overlayfs with a vfs fallback
 
-`vfs` is required because the microsandbox filesystem does not support overlayfs. The launcher forces it from
-`vm/dockerd.go` at VM start and never writes `/etc/docker/daemon.json`, so a user's edits to it are preserved. Before
-choosing a start command it reads the image's `/etc/docker/daemon.json` through the msb FS API (a read error is fatal;
-absent or unparseable JSON counts as no entry, and a malformed file is left for dockerd to reject):
+The kernel cannot back `overlay2` on the microsandbox filesystem (an overlay upper on the guest overlay, and virtiofs,
+are both rejected), so the launcher selects a driver the guest supports. `fuse-overlayfs` merges in userspace and
+exposes its own FUSE mount, so neither restriction applies, and its copy-on-write layers cut build time and data-root
+disk use versus `vfs`'s full copy per layer. To provide it, the embedded managed base (`data/Dockerfile`) installs
+`fuse-overlayfs` and its `libfuse3` runtime from apt (the pinned trixie packages). The `agents-sandbox-docker` stage
+installs only the static docker tarball into `/opt/agents-sandbox`, because the runner copies nothing from that stage
+except `/opt/agents-sandbox` (`dockerMergeBlock`), so a system package installed there would not reach the image. A
+custom base must therefore provide `fuse-overlayfs` and `libfuse3` itself, or the probe falls back to `vfs`.
 
-- no `storage-driver` entry → start with `--storage-driver=vfs`.
-- `storage-driver` already `vfs` → start **without** the flag, because dockerd rejects a directive set both as a flag
-  and in the configuration file even when the values agree (#287). This is the case that broke images carrying the
-  `daemon.json` the pre-0.6 runner wrote.
-- any other `storage-driver` → hard error naming the value, rather than silently overriding the user's file or letting
-  the conflict surface as the 30s readiness timeout.
+The launcher selects the driver from `vm/dockerd.go` at VM start and never writes `/etc/docker/daemon.json`, so a
+user's edits to it are preserved. Before choosing a start command it reads the image's `/etc/docker/daemon.json`
+through the msb FS API (a read error is fatal; absent or unparseable JSON counts as no entry, and a malformed file is
+left for dockerd to reject):
+
+- no `storage-driver` entry → probe the guest (`command -v fuse-overlayfs` plus a usable `/dev/fuse`, run as root like
+  the daemon): request `--storage-driver=fuse-overlayfs` when both are present, else `--storage-driver=vfs`. A probe
+  transport error falls back to `vfs` rather than failing the VM start.
+- `storage-driver` already `vfs` or `fuse-overlayfs` → start **without** the flag, because dockerd rejects a directive
+  set both as a flag and in the configuration file even when the values agree (#287). This is the case that broke
+  images carrying the `daemon.json` the pre-0.6 runner wrote.
+- any other `storage-driver` → hard error naming the value and both accepted drivers, rather than silently overriding
+  the user's file or letting the conflict surface as the 30s readiness timeout.
 
 The old build-time `daemon.json` overwrite is removed; the build-time invariant still holds
-(`TestRenderDockerfileDockerStage` asserts no `daemon.json` is written).
+(`TestRenderDockerfileDockerStage` asserts no `daemon.json` is written, and
+`TestRenderDockerfileManagedBaseInstallsFuseOverlayfs` asserts the managed base carries the driver packages). The
+kernel reason `overlay2` fails (an overlay upper on the guest overlay, or on virtiofs, is rejected) and the
+fuse-overlayfs spike are recorded on issue #489.
 
 ## Invariants
 

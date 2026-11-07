@@ -7,37 +7,49 @@ import (
 	"os"
 	"strings"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/homeconfig"
-	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/agents-sandbox/internal/yamlfmt"
-
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/titanous/json5"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
 
 // ConfigLayers returns the launcher-config layers from lowest to highest
 // precedence, matching NewResolver's merge order and its documented precedence
 // (generic user dir, per-slug user dir when slug is non-empty, project dir,
-// legacy env, env, flags). NewResolver merges the file layers from this slice,
-// so the order shown to the user and the order actually merged cannot drift.
-func ConfigLayers(slug string) []ConfigLayer {
-	cfg := configpaths.Get()
-	layers := []ConfigLayer{
-		fileLayer(LayerNameGenericUserConfig, cfg.UserConfigDir()),
-	}
-	if slug != "" {
-		layers = append(layers, fileLayer(LayerNamePerSlugUserConfig, cfg.UserSlugConfigDir(slug)))
+// legacy env, env, flags). The file layers are a projection of the config
+// scopes, so the order shown to the user and the order actually merged cannot
+// drift. NewResolver merges the file layers from this slice.
+func ConfigLayers(paths configpaths.ConfigPaths, slug string) []ConfigLayer {
+	scopes := configpaths.ConfigScopes(paths, slug)
+	var layers []ConfigLayer
+	for _, scope := range scopes {
+		layers = append(layers, fileLayer(layerNameForScope(scope.Kind), scope.Dir))
 	}
 	layers = append(layers,
-		fileLayer(LayerNameProjectConfig, cfg.ProjectConfigDir()),
 		ConfigLayer{Name: LayerNameLegacyEnv, Path: "", Present: false},
 		ConfigLayer{Name: LayerNameEnv, Path: "", Present: false},
 		ConfigLayer{Name: LayerNameFlags, Path: "", Present: false},
 	)
 	return layers
+}
+
+// scopeLayerNames maps each config scope kind to its config-file layer name.
+// The map is exhaustive over ScopeKind, so a lookup cannot produce an unknown
+// name for a kind ConfigScopes emits.
+var scopeLayerNames = map[configpaths.ScopeKind]string{
+	configpaths.ScopeGenericUser: LayerNameGenericUserConfig,
+	configpaths.ScopePerSlugUser: LayerNamePerSlugUserConfig,
+	configpaths.ScopeProject:     LayerNameProjectConfig,
+}
+
+// layerNameForScope maps a config scope kind to its config-file layer name.
+func layerNameForScope(kind configpaths.ScopeKind) string {
+	return scopeLayerNames[kind]
 }
 
 // fileLayer reports the directory of a config-file layer and whether a config
@@ -55,10 +67,10 @@ func fileLayer(name, dir string) ConfigLayer {
 // flags. The file layers and their order come from ConfigLayers so the merged
 // order matches the order ConfigLayers reports. cmd may be nil to skip flag
 // binding.
-func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
+func NewResolver(cmd *cobra.Command, paths configpaths.ConfigPaths, slug string) (*Resolver, error) {
 	v := viper.New()
 
-	for _, layer := range ConfigLayers(slug) {
+	for _, layer := range ConfigLayers(paths, slug) {
 		// mergeDir with an empty path is a no-op, so the env and flag
 		// layers need no guard here.
 		if err := mergeDir(v, layer.Path); err != nil {
@@ -66,17 +78,16 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 		}
 	}
 
-	v.SetEnvPrefix(EnvPrefix)
-	// Env-var keys are all top-level and dash-separated; only the nested
-	// "network.profile" key uses a dot, which maps to "_" here. This is a
-	// repo-wide replacement, so a future dotted top-level key (e.g.
-	// "auto.stop") would collide with a dashed one ("auto-stop") and must be
-	// avoided.
-	v.SetEnvKeyReplacer(envKeyReplacer)
-	v.AutomaticEnv()
-	for _, key := range configEnvKeys {
+	// Env vars are bound explicitly rather than through viper's AutomaticEnv:
+	// AutomaticEnv resolves *any* key from the environment, so an
+	// AGENTS_SANDBOX_<KEY> variable would override a config-file-only key
+	// (env:"-") whenever a config file sets it. Binding only envKeys keeps
+	// those keys config-file-only. Each key binds the canonical
+	// AGENTS_SANDBOX_ name first and the deprecated OPENCODE_SANDBOX_ alias
+	// second, so the canonical value wins when both are set.
+	for _, key := range envKeys {
 		// Keys are non-empty constants, so binding cannot fail.
-		v.MustBindEnv(key, envVarName(LegacyEnvPrefix, key))
+		v.MustBindEnv(key, envVarName(EnvPrefix, key), envVarName(LegacyEnvPrefix, key))
 	}
 
 	if cmd != nil {
@@ -112,15 +123,15 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	cfg.Mounts = decodedMounts
 	cfg.Notify = decodeNotify(v)
 
-	homeLayers, hasHome, err := homeconfig.LoadLayers([]string{
-		configpaths.Get().UserConfigDir(),
-		configpaths.Get().ProjectConfigDir(),
-	})
+	homeLayers, hasHome, err := homeconfig.LoadLayers(
+		configpaths.ScopeDirs(configpaths.ConfigScopes(paths, slug)),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("decode launcher config: %w", err)
 	}
 	cfg.Home = homeLayers
 	cfg.hasHome = hasHome
+	cfg.ConfigSlug = slug
 	docker, dockerSource, dockerLegacy := resolveDockerAlias(v, cmd, cfg.Docker)
 	cfg.Docker = docker
 	cfg.dockerSource = dockerSource
@@ -130,6 +141,7 @@ func NewResolver(cmd *cobra.Command, slug string) (*Resolver, error) {
 	}
 	return &Resolver{
 		cfg:          cfg,
+		slug:         slug,
 		legacyEnv:    legacyEnvVarsInUse(),
 		dockerLegacy: dockerLegacy,
 		higherScope:  higherScope,
@@ -231,7 +243,7 @@ func dockerLegacySource(v *viper.Viper) string {
 //
 //deadcode:ignore reason="construction seam for cmd tests; see doc comment"
 func NewResolverWithConfig(cfg Config) *Resolver {
-	return &Resolver{cfg: cfg, legacyEnv: nil, dockerLegacy: "", higherScope: map[string]bool{}}
+	return &Resolver{cfg: cfg, slug: "", legacyEnv: nil, dockerLegacy: "", higherScope: map[string]bool{}}
 }
 
 func mergeDir(v *viper.Viper, dir string) error {

@@ -5,33 +5,6 @@ read_if: Changing the agent upgrade prompt, pendingUpgrade/resolveBuildVersion, 
 
 # Scoping of agent upgrade and provenance state
 
-## Intent
-
-The interactive agent-upgrade prompt can name a version that belongs to a different project. The prompt's `current`
-value comes from `vm.currentUpgradeVersion(a)`, which reads the machine-global `updater.yaml` keyed only by agent name.
-`recordImageProvenance` rewrote that file on every VM boot, so it tracked "the last image that booted", not the
-project being launched (it now updates the project's `HomeState` in place, skipped when no state file exists; #430).
-Because the runner image is per `(slug, agent)` (`naming.RunnerImageRef`) and the prompt fires
-before this project's image is touched (see `resolveBuildVersion`), a project can be told its image has another project's
-version (PR #225 review finding).
-
-The fix is to stop treating upgrade state as one global blob and split it by application: the network-facing facts are
-machine-global; everything that describes a project's image is per `(slug, agent)`. This removes the cross-project
-contamination structurally rather than by relabeling.
-
-## Current state (before this change)
-
-Three files under the user state dir (`configpaths.UserStateDir()`):
-
-- `<root>/state.yaml` - `state.RootState`, launcher-global, currently only the `migrations` registry.
-- `<root>/updater.yaml` - `vm.upgradeState`, machine-global, keyed by agent name: `last_checked`,
-  `current_version`, `agent_source`, `docker_source`, `offered_versions` (plus legacy flat fields folded into
-  `agents["opencode"]` on load).
-- `<root>/<slug>/<agent>/state.yaml` - `state.HomeState`, per `(slug, agent)`: `home_volume`, `image_digest`, and the
-  env/secret/network/mount fingerprints.
-
-`upgrade.json` (the launcher's own self-upgrade state, `internal/upgrade`) is unrelated and out of scope.
-
 ## Target model
 
 Two documents, split by application:
@@ -63,7 +36,7 @@ document that exists; no new project-level file is introduced (see Non-goals).
 
 ## Flow
 
-### Upgrade check (`vm.resolveBuildVersion` -> `vm.pendingUpgrade`)
+### Upgrade check (`prepare.resolveBuildVersion` -> `prepare.pendingUpgrade`)
 
 `resolveBuildVersion` takes the project `state.Key` (available in `PrepareSandbox`) and reads
 `current`/`agent_source` from that key's `HomeState` instead of the global file.
@@ -126,22 +99,20 @@ The label is the **authority for an existing image** and `HomeState.agent_versio
 ([agent-version-sync.md](agent-version-sync.md)). Recovery widens from "empty only" to "empty **or disagreeing**": a
 recorded value that disagrees with a present image's label is stale, the label wins, and the cache is rewritten, so a
 stale record can never pull the build toward an older release. The recorded cache stays authoritative only when the
-image is absent (pruned, host docker cleaned), which keeps offline reuse working. This supersedes the earlier
-"one-time recovery fallback" reading: the label is consulted whenever the image is present.
+image is absent (pruned, host docker cleaned), which keeps offline reuse working. The label is consulted whenever the
+image is present.
 
 ### State write serialization
 
-> **Superseded by [`project-state-transactions.md`](project-state-transactions.md).** The `UpdateRootState` /
-> `UpdateHomeState` / `UpdateExistingHomeState` / `ReplaceHomeState` / `LockHomeState` seam and the standalone root and
-> home locks described here are retired by the transaction API (`WithRootState` / `WithHomeState` / `RecoverHomeState` /
-> `RemoveHomeState`). The intent is unchanged: every read-modify-write is serialized by one lock per document, the
-> upgrade path and the legacy fold acquire the root transaction non-blocking and defer when it is held, and a writer
-> preserves the fields it does not own. Read that spec for the current mutation API, the lock files, and the lock
-> ordering.
+Every read-modify-write goes through one locked transaction per document: `state.WithHomeState` for a `HomeState` and
+`state.WithRootState` for the `RootState` (`project-state-transactions.md`). The upgrade path and the legacy fold acquire
+the root transaction non-blocking and defer when it is held, and a writer preserves the fields it does not own.
+`state.RemoveHomeStateIf` is the guarded read + decide + remove, run under the home lock, so a prune cannot delete state a
+concurrent writer is recreating.
 
 ### Provenance (`vm.recordImageProvenance`)
 
-`setUpSandbox` threads the project `state.Key` into `recordImageProvenance` (the caller already holds `k`). On boot it
+`SetUpSandbox` threads the project `state.Key` into `recordImageProvenance` (the caller already holds `k`). On boot it
 reads `HomeState(k)` and updates it in place — `agent_source`/`docker_source`, and for a tool-installed agent the version
 the `VersionProvider` detects, written to `agent_version` — so fingerprints and the offered set survive. It is a no-op
 when no state file exists, like every other pre-home-resolution writer
@@ -234,8 +205,3 @@ The presence of `<root>/updater.yaml` is the trigger. No user choice, no `migrat
   cache that follows it and remains the fallback when the image is absent (see [agent-version-sync.md](agent-version-sync.md)
   and Baseline recovery).
 - `config harden`, `upgrade.json`, and launcher self-upgrade are untouched.
-
-## Docs and changelog
-
-Update `docs/runner-image.md` and add a `CHANGELOG.md` `[Unreleased]` line. The existing PR #225 wording change to the
-prompt is retained; only the source of `current` and the state layout change.

@@ -48,42 +48,36 @@ func dockerfileLines(dockerfile []byte) [][]byte {
 	return bytes.SplitAfter(dockerfile, []byte("\n"))
 }
 
-// instructionLineIndices returns, in order, the indexes of the lines that begin a
-// Dockerfile instruction. Blank lines, comments, continuation lines, and heredoc
-// bodies are skipped, so text that merely resembles a keyword — a Python
-// "from ... import ..." inside a RUN heredoc, or a continued argument — is not
-// read as a stage header (#346).
-func instructionLineIndices(lines [][]byte) []int {
+// dockerfileLineIndices walks a Dockerfile once, returning both the indexes of
+// the lines that begin an instruction and the indexes of the top-level lines
+// (comments, blank lines, and instruction starts). Blank lines, comments,
+// continuation lines, and heredoc bodies are skipped, so text that merely
+// resembles a keyword — a Python "from ... import ..." inside a RUN heredoc, or
+// a continued argument — is not read as a stage header, and heredoc content that
+// resembles a marker — a COPY <<EOF file containing "# agents-sandbox:docker" —
+// is not read as a marker. The stage scan, the marker scan, and the
+// diagnostics all read this one walk instead of re-lexing the file.
+func dockerfileLineIndices(lines [][]byte) ([]int, []int) {
 	escape := escapeToken(lines)
-	var indices []int
+	var instructionLines, topLevelLines []int
 	for i := 0; i < len(lines); {
 		if isBlankOrComment(lineText(lines[i])) {
+			topLevelLines = append(topLevelLines, i)
 			i++
 			continue
 		}
-		indices = append(indices, i)
+		instructionLines = append(instructionLines, i)
+		topLevelLines = append(topLevelLines, i)
 		i = instructionEnd(lines, i, escape)
 	}
-	return indices
+	return instructionLines, topLevelLines
 }
 
-// topLevelLineIndices returns, in order, the indexes of the lines that sit
-// outside any instruction's continuation and heredoc bodies: comments, blank
-// lines, and instruction starts. A line that only resembles a marker because it
-// is heredoc content — a COPY <<EOF file containing "# agents-sandbox:docker" —
-// is skipped, so callers that scan for comment markers do not read heredoc text.
-func topLevelLineIndices(lines [][]byte) []int {
-	escape := escapeToken(lines)
-	var indices []int
-	for i := 0; i < len(lines); {
-		indices = append(indices, i)
-		if isBlankOrComment(lineText(lines[i])) {
-			i++
-			continue
-		}
-		i = instructionEnd(lines, i, escape)
-	}
-	return indices
+// instructionLineIndices returns, in order, the indexes of the lines that begin
+// a Dockerfile instruction (see dockerfileLineIndices).
+func instructionLineIndices(lines [][]byte) []int {
+	instructionLines, _ := dockerfileLineIndices(lines)
+	return instructionLines
 }
 
 // instructionEnd returns the index of the first line after the instruction that

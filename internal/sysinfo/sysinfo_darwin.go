@@ -22,3 +22,10 @@ func TotalMemoryGiB() int {
 	}
 	return int(size / (kiB * kiB * kiB))
 }
+
+// AvailableMemoryMiB reports ok=false on macOS: the free page count sysctl
+// exposes leaves out the inactive and compressible memory macOS reclaims on
+// demand, so it would understate what is available.
+func AvailableMemoryMiB() (uint32, bool) {
+	return 0, false
+}

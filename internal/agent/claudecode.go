@@ -13,6 +13,7 @@ type claudeCodeProfile struct{}
 
 func (claudeCodeProfile) Name() string          { return claudeCodeName }
 func (claudeCodeProfile) ConfigDirName() string { return "claude" }
+func (claudeCodeProfile) Experimental() bool    { return true }
 
 // MigrationSpec describes the portable Claude Code settings file. Claude Code
 // stores login credentials separately in .credentials.json or the OS keychain;
@@ -69,7 +70,7 @@ func (claudeCodeProfile) ImageSpec() ImageSpec {
 		AgentEnv:       map[string]string{"DISABLE_AUTOUPDATER": "1"},
 		InstallCommand: `curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_CODE_VERSION" && cp -L /root/.local/bin/claude /opt/agents-sandbox/bin/claude`,
 		RequiresNode:   false,
-		OwnedToolPaths: nil,
+		OwnsToolTree:   false,
 		RuntimeLibs:    nil,
 	}
 }

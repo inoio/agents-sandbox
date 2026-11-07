@@ -307,7 +307,7 @@ Home volumes are pruned when:
 ## Idle timeout: when a sandbox stops
 
 opencode is the only agent that waits for its sessions to finish before the sandbox stops; opencode2, pi, Claude
-Code, codex, and hermes skip that wait and stop as soon as the idle timeout expires. The idle timeout is `auto-stop-timeout`, which
+Code, codex, hermes, and oh-my-pi skip that wait and stop as soon as the idle timeout expires. The idle timeout is `auto-stop-timeout`, which
 defaults to 10 seconds.
 
 When the last client detaches, the sandbox is not stopped immediately. The launcher first evaluates
@@ -318,11 +318,18 @@ When the last client detaches, the sandbox is not stopped immediately. The launc
 | `false` (default) | Wait for quiescence. The sandbox is held while opencode sessions are in flight and is allowed to stop once every session is quiescent. |
 | `true` | Stop immediately. The sandbox is not held for in-flight work; it stops via the idle timeout even while sessions are busy. |
 
-A session counts as quiescent once no session is stuck in `retry` beyond `auto-stop-max-session-retries` (default 10).
+The sandbox is quiescent once no session is `busy` and none is in `retry` with an `attempt` under `auto-stop-max-session-retries`
+(default 10): a retry under the cap is in-flight work and holds the sandbox, one that has reached the cap has spent the tolerated
+attempts and no longer does.
 A `busy` session with a pending, unanswered question also counts as quiescent, because the agent is waiting for you
 rather than working; a `busy` session blocked without such a question (and with no client connected) is left alone
 rather than interrupted, and it blocks the stop. A graceful stop keeps the sandbox and its home volume, so the next run
 restarts in under a second. To clean up a stale sandbox, stop it manually or let `prune` reclaim it.
+
+The idle stop tears down everything inside the sandbox, including Docker containers. A container running in a
+Docker-enabled sandbox is stopped with the VM; its definition survives in the sandbox's Docker state, so `docker start`
+brings it back after the next connect. When the last client detaches with containers still running, the launcher warns
+you so the stop is not a surprise. Raise `auto-stop-timeout` if you want the sandbox to stay up longer between runs.
 
 Set all three fields in launcher config:
 

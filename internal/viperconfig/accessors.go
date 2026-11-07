@@ -22,6 +22,16 @@ func (r *Resolver) DockerLegacyAlias() string {
 	return r.dockerLegacy
 }
 
+// Slug returns the config slug the resolver was built for. A config write must
+// target this slug so it lands in a layer the resolver actually reads. A nil
+// resolver reports an empty slug (the caller then falls back to its own).
+func (r *Resolver) Slug() string {
+	if r == nil {
+		return ""
+	}
+	return r.slug
+}
+
 // DockerSource reports which explicit source the config's docker value came
 // from, or DockerSourceNone when no explicit source is present. It carries the
 // layer information the run and build paths need to fold their flags into the
@@ -60,14 +70,15 @@ func (r *Resolver) Config() *Config {
 }
 
 // clone returns a deep copy of the config, cloning its reference fields (the
-// network policy slices, mounts, and home layers) so the copy shares no mutable
-// state with the original.
+// network policy and secret-common slices, mounts, and home layers) so the copy
+// shares no mutable state with the original.
 func (c Config) clone() *Config {
 	out := c
 	out.Network.Profiles = slices.Clone(c.Network.Profiles)
 	out.Network.EgressAllow = slices.Clone(c.Network.EgressAllow)
 	out.Network.EgressDeny = slices.Clone(c.Network.EgressDeny)
 	out.Network.DNSServers = slices.Clone(c.Network.DNSServers)
+	out.Secrets.Common.AllowPlaceholderFor = slices.Clone(c.Secrets.Common.AllowPlaceholderFor)
 	out.Mounts = maps.Clone(c.Mounts)
 	out.Home = slices.Clone(c.Home)
 	for i := range out.Home {

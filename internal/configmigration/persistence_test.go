@@ -1310,7 +1310,12 @@ func TestGuideSkipsLoginHandoffWhenManagedConfigPresent(t *testing.T) {
 	}
 	testutil.WriteFile(t, authDir, "auth.json", `{"github-copilot":{"type":"oauth","access":"a","refresh":"r"}}`)
 	a, _ := agent.Lookup("opencode")
-	testutil.WriteFile(t, configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a)), "auth.json", "{}")
+	testutil.WriteFile(
+		t,
+		testutil.EnsureDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+		"auth.json",
+		"{}",
+	)
 
 	ui := termio.NewTestMock(t)
 	ui.IsInteractiveResult = true

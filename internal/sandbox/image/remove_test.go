@@ -108,38 +108,6 @@ func TestRemoveImagesFailsClosedOnCorruptState(t *testing.T) {
 	}
 }
 
-func TestRefuseReferencedImagesNamesProjects(t *testing.T) {
-	ref := naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")
-	references := map[string][]state.Key{
-		ref: {
-			{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"},
-			{Slug: "proj-bCd2345E", Agent: "pi"},
-		},
-	}
-
-	err := refuseReferencedImages([]string{ref, "unreferenced:latest"}, references)
-	if err == nil {
-		t.Fatal("refuseReferencedImages() error = nil, want a refusal")
-	}
-	for _, want := range []string{"proj-1mjusbm3wikhb0/opencode", "proj-bCd2345E/pi"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q does not name %q", err.Error(), want)
-		}
-	}
-	if strings.Contains(err.Error(), "unreferenced:latest") {
-		t.Errorf("error %q names an unreferenced image", err.Error())
-	}
-}
-
-func TestRefuseReferencedImagesAllowsUnreferenced(t *testing.T) {
-	if err := refuseReferencedImages(
-		[]string{naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")},
-		map[string][]state.Key{},
-	); err != nil {
-		t.Fatalf("refuseReferencedImages() error = %v, want nil for unreferenced refs", err)
-	}
-}
-
 func TestRemoveImagesRefusesNonRunnerRef(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{}
@@ -218,7 +186,7 @@ func TestRemoveImagesForceDoesNotBypassHashOwnershipGuard(t *testing.T) {
 func TestRemoveImagesAcceptsHashBearingRefsEitherScheme(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	resolutions := msb.WithCountingMsbMock(t, client)
 
 	ui := &termio.Mock{}
 	ui.SetAssumeYes(true)
@@ -228,6 +196,9 @@ func TestRemoveImagesAcceptsHashBearingRefsEitherScheme(t *testing.T) {
 	}
 	if err := RemoveImages(context.Background(), refs, false, ui); err != nil {
 		t.Fatalf("RemoveImages(hash-bearing refs) = %v, want both removed", err)
+	}
+	if *resolutions != 1 {
+		t.Errorf("msb.Get resolved %d times, want once per RemoveImages", *resolutions)
 	}
 	if len(client.RemovedImages) != len(refs) {
 		t.Fatalf("RemovedImages = %v, want %d", client.RemovedImages, len(refs))
@@ -251,26 +222,6 @@ func TestRemoveImagesGuardSurfacesScanError(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "check image references") {
 		t.Fatalf("RemoveImages(scan error) = %v, want a wrapped scan error", err)
-	}
-}
-
-func TestInUseImageReferencesKeepsPositionalSandbox(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ref := naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")
-	handle := &msb.MockSandboxHandle{Name_: "proj-1mjusbm3wikhb0-opencode", Cfg: &msbSdk.SandboxConfig{Image: ref}}
-	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{handle}}
-	msb.WithMsbMock(t, client)
-
-	references, err := inUseImageReferences(context.Background())
-	if err != nil {
-		t.Fatalf("inUseImageReferences() = %v", err)
-	}
-	if len(references[ref]) != 1 {
-		t.Fatalf(
-			"references[%q] = %v, want one (every sandbox in the private runtime home is ours)",
-			ref,
-			references[ref],
-		)
 	}
 }
 
@@ -311,5 +262,37 @@ func TestRemoveImagesSurfacesRemoveError(t *testing.T) {
 	)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("RemoveImages() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestRefuseReferencedImagesNamesProjects(t *testing.T) {
+	ref := naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")
+	references := map[string][]state.Key{
+		ref: {
+			{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"},
+			{Slug: "proj-bCd2345E", Agent: "pi"},
+		},
+	}
+
+	err := refuseReferencedImages([]string{ref, "unreferenced:latest"}, references)
+	if err == nil {
+		t.Fatal("refuseReferencedImages() error = nil, want a refusal")
+	}
+	for _, want := range []string{"proj-1mjusbm3wikhb0/opencode", "proj-bCd2345E/pi"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %q", err.Error(), want)
+		}
+	}
+	if strings.Contains(err.Error(), "unreferenced:latest") {
+		t.Errorf("error %q names an unreferenced image", err.Error())
+	}
+}
+
+func TestRefuseReferencedImagesAllowsUnreferenced(t *testing.T) {
+	if err := refuseReferencedImages(
+		[]string{naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")},
+		map[string][]state.Key{},
+	); err != nil {
+		t.Fatalf("refuseReferencedImages() error = %v, want nil for unreferenced refs", err)
 	}
 }

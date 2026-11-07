@@ -32,3 +32,12 @@ func WriteYAML(tb testing.TB, dir, name string, v map[string]any) {
 	}
 	WriteFile(tb, dir, name, string(data))
 }
+
+// EnsureDir creates dir (and parents) and returns it. Test support for a path
+// the launcher would create at runtime but a test writes into directly.
+func EnsureDir(dir string) string {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		panic(err)
+	}
+	return dir
+}

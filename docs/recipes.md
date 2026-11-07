@@ -13,8 +13,10 @@ self-contained, so you can jump straight to the one you need.
 
 - [Worktree Sessions]({% link branch-sessions.md %})
 - [Connect Opencode Desktop]({% link recipes/connect-desktop.md %})
+- [Expose a Dev Server]({% link recipes/expose-a-dev-server.md %})
 - [Bare Checkout with Worktrees Inside]({% link recipes/bare-worktrees.md %})
 - [Trust the Sandbox CA in Java]({% link recipes/java-ca-trust.md %})
+- [Install Opencode Plugin Dependencies]({% link recipes/opencode-plugin-dependencies.md %})
 - [Connect OpenChamber]({% link recipes/openchamber.md %})
 
 ## Agent context (AGENTS.md)

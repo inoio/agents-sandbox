@@ -30,7 +30,7 @@ both are still read, never produced.
 `<slug>` is `<folder≤20>-<14-char base36>` (`internal/git`), lowercase and alphanumeric-starting, so every target
 name still satisfies the runtime's name rules (sandbox ≤128 bytes / alnum-start / `[A-Za-z0-9._-]`; volume same
 charset) and the derived guest hostname (≤64 bytes). The shorter names are a side benefit: `<slug>-<agent>` is ~47
-bytes, so msb no longer truncates and hash-suffixes the guest hostname, and `projectVMName`'s 128-byte truncation
+bytes, so msb no longer truncates and hash-suffixes the guest hostname, and `ProjectVMName`'s 128-byte truncation
 stops biting.
 
 ## The Docker/msb reference split
@@ -108,9 +108,10 @@ Classification and identity **are** still needed, and both come from labels on a
   its still-active project stale (which otherwise reclaims the project's runner image and an unrecorded home volume).
 - Volumes have one kind (home volumes); images have one kind (runner images). Neither needs a marker.
 
-Two name-shape checks survive for a different reason: `runtimemigration/legacy.go` scans the **legacy
-`~/.microsandbox`**, which a user's own msb shared, so `IsHomeVolume`/`IsLauncherSandbox` are the only way to avoid
-copying foreign data there. Those predicates stay (and accept both shapes).
+Two name-shape checks survive for a different reason: `runtimemigration` scans the **legacy `~/.microsandbox`**, which a
+user's own msb shared, so `naming.IsLegacyHomeVolume` (through `homeVolumeNames`) and `naming.IsLegacyLauncherSandbox`
+(through `legacySandboxNames`) are the only way to avoid copying foreign data there. Those predicates stay (and accept
+both shapes).
 
 ## Non-goals
 
@@ -132,5 +133,3 @@ copying foreign data there. Those predicates stay (and accept both shapes).
   unrecorded home volume prunable.
 - A project whose folder begins with a legacy prefix (`agents-sandbox-vm`/`-task`/`-home`) keeps its full slug and is
   not misclassified.
-- `make check` green; `CHANGELOG.md` Unreleased line; `docs/how-it-works.md`, `docs/sandboxes.md` and
-  `docs/runner-image.md` updated for the new names/references.

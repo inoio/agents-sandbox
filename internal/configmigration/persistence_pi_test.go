@@ -26,7 +26,7 @@ func TestMigrationAlreadyConfiguredChecksSupplementalFiles(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
-			managedDir := configpaths.MustDir(configpaths.Get().UserAgentConfigDir(a))
+			managedDir := testutil.EnsureDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName()))
 			if test.writeManagedModels {
 				testutil.WriteFile(t, managedDir, "models.json", "{}")
 			}

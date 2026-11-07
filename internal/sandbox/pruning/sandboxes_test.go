@@ -226,3 +226,28 @@ func TestPruneSandboxes(t *testing.T) {
 		}
 	})
 }
+
+func TestPruneSandboxesVerboseAndDetails(t *testing.T) {
+	replaced := stoppedHandle("agents-sandbox-vm-proj1-1mjusbm3wikhb0")
+	replaced.RemoveErr = &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"}
+	ok := stoppedHandle("agents-sandbox-vm-proj2-1mjusbm3wikhb0")
+
+	client := &msb.MockMsbClient{}
+	msb.WithMsbMock(t, client)
+	ui := &termio.Mock{}
+	pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
+		{Slug: "proj1-1mjusbm3wikhb0"}: replaced,
+		{Slug: "proj2-1mjusbm3wikhb0"}: ok,
+	}}
+
+	r, err := PruneSandboxes(context.Background(), pruneState, false, ui)
+	if err != nil {
+		t.Fatalf("PruneSandboxes: %v", err)
+	}
+	if len(ui.VerboseCalls) != 1 || !strings.Contains(ui.VerboseCalls[0], "already replaced or removed") {
+		t.Errorf("VerboseCalls = %v, want the replaced/removed skip line", ui.VerboseCalls)
+	}
+	if len(r.Details) != 1 || r.Details[0].Name != ok.Name_ || r.Details[0].Slug != "proj2-1mjusbm3wikhb0" {
+		t.Errorf("Details = %v, want the pruned sandbox entry", r.Details)
+	}
+}

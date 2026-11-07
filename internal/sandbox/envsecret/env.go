@@ -39,14 +39,20 @@ func parseKeyValueLines(data string, onLine func(key, value string) error) error
 	return nil
 }
 
-// BuildEnvMap reads environment variables from a file.
-func BuildEnvMap(filename string) map[string]string {
+// BuildEnvMap reads environment variables from a file. A line without a
+// variable name is skipped with a warning, because the VM refuses to boot with
+// an empty env name.
+func BuildEnvMap(filename string, ui termio.Logger) map[string]string {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil
 	}
 	env := make(map[string]string)
 	_ = parseKeyValueLines(string(data), func(key, value string) error {
+		if key == "" {
+			ui.Warnf("ignoring an env entry without a variable name in %s", filename)
+			return nil
+		}
 		env[key] = value
 		return nil
 	})
@@ -74,20 +80,30 @@ type EnvSecrets struct {
 	Secrets []msbSdk.SecretEntry
 }
 
-// LoadEnvAndSecrets reads the user and project env files and secret-spec files
-// and merges them into the desired env and secrets. The project files override
-// the user files.
-func LoadEnvAndSecrets(ui termio.UI) EnvSecrets {
+// LoadEnvAndSecrets reads every config scope's env and secret-spec files and
+// merges them into the desired env and secrets. Scopes are ordered lowest
+// precedence first, so later scopes override earlier ones. Secret specs are
+// format-tiered: every scope's legacy specs merge before any scope's YAML specs,
+// so a YAML entry beats a legacy entry for the same key even across scopes.
+// allowPlaceholderFor lists hosts that may receive any secret's placeholder
+// unchanged (the secrets.common.allow-placeholder-for config key); each secret
+// still substitutes for the hosts it allows.
+func LoadEnvAndSecrets(ui termio.Logger, scopes []cp.ConfigScope, allowPlaceholderFor []string) EnvSecrets {
+	var envMaps []map[string]string
+	for _, scope := range scopes {
+		envMaps = append(envMaps, BuildEnvMap(scope.EnvFile(), ui))
+	}
+
+	var specs []map[string]SecretSpec
+	for _, scope := range scopes {
+		specs = append(specs, ParseSecretSpecLegacy(scope.EnvSecretFile(), ui))
+	}
+	for _, scope := range scopes {
+		specs = append(specs, ParseSecretSpecYAML(scope.EnvSecretYAMLFile(), ui))
+	}
+
 	return EnvSecrets{
-		Vars: MergeEnvMaps(
-			BuildEnvMap(cp.Get().UserEnvFile()),
-			BuildEnvMap(cp.Get().ProjectEnvFile()),
-		),
-		Secrets: BuildSecretsFromSpecs(MergeSecretSpecs(
-			ParseSecretSpecLegacy(cp.Get().UserEnvSecretFile(), ui),
-			ParseSecretSpecLegacy(cp.Get().ProjectEnvSecretFile(), ui),
-			ParseSecretSpecYAML(cp.Get().UserEnvSecretYAMLFile(), ui),
-			ParseSecretSpecYAML(cp.Get().ProjectEnvSecretYAMLFile(), ui),
-		), ui),
+		Vars:    MergeEnvMaps(envMaps...),
+		Secrets: BuildSecretsFromSpecs(MergeSecretSpecs(specs...), allowPlaceholderFor, ui),
 	}
 }

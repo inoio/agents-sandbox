@@ -13,12 +13,13 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
+	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // IdentityAdoption reports how a legacy origin-keyed project identity was
-// adopted for the current checkout (#144).
+// adopted for the current checkout.
 //
 //exhaustruct:ignore
 type IdentityAdoption struct {
@@ -53,54 +54,45 @@ var adoptKeysLockedHook func()
 // permission tricks, so tests force the failure through this seam.
 var renameConfigDir = os.Rename
 
-// AdoptLegacyIdentity moves a project from the legacy origin-keyed identity to
-// its checkout-scoped one on the first run after upgrade (#144).
+// AdoptLegacyIdentity migrates a project from the legacy origin-keyed identity
+// to its checkout-scoped one when a legacy identity is pending for the agent.
 //
-// Before the identity split, one origin-derived slug keyed the state directory,
-// the VM, the home volume and the runner image, so two clones of one remote
-// collided on a single VM. Adoption destroys the legacy VM first and then merges
-// the state directory onto the checkout slug. That order is crash-safe: a crash
-// in between leaves the legacy state in place, so the next run re-adopts and
-// merely recreates the VM, while moving first would leave an untracked VM
-// running against the shared home volume. The merge is the idempotence record —
-// the legacy state file is gone afterwards, so adoption cannot re-fire.
+// It destroys every legacy VM the move touches, then merges each legacy state
+// directory onto the checkout slug. That order is crash-safe: a crash in between
+// leaves the legacy state in place, so the next run re-adopts and merely
+// recreates the VM, whereas moving first could leave an untracked VM running
+// against the shared home volume. The merge makes adoption idempotent: the
+// legacy state file is gone afterwards, so it cannot re-fire.
 //
-// A bare root records a second legacy identity (its pre-split path-derived
-// slug), so adoption merges from every legacy identity the caller resolved, in
-// order. Migrating a directory moves every agent's state, so every moved agent's
-// legacy VM is destroyed, not only the requested one; otherwise a still-running
-// sibling agent would recreate itself over the same home volume.
+// Every slug the caller resolved is adopted, in order, including a bare root's
+// extra path-derived slug. The move carries every agent's state, so every moved
+// agent's legacy VM is destroyed, not only the requested one; a still-running
+// sibling would otherwise recreate itself over the same home volume.
 //
-// A live legacy VM is itself a legacy identity, even when its state file was
-// lost (issue #219): without adopting it the run would treat the checkout as
-// brand new, mint a fresh home volume and orphan the user's credentials and
-// files. That arm has no state file to move, so adoption records the mounted
-// home volume durably in the checkout state's RecoveredHomeVolume before it
-// destroys the VM, and home resolution later recovers it into HomeVolume. The
-// destroy is what makes the volume unreadable afterwards, so the reference has
-// to be written first; recording it in memory (as this once did) loses it the
-// moment the caller discards the return value, which every entry point except a
-// successful run did (issue #244 review).
+// A surviving legacy VM is a pending identity even when its state file was
+// lost; ignoring it would mint a fresh home volume and orphan the user's files.
+// Its mounted home volume is written durably into the checkout state before the
+// destroy, which removes the volume's only other reference, and home resolution
+// later recovers it.
 //
 // With apply=false (a dry run) it prints the notice and leaves everything in
 // place, returning the legacy slug so the rest of the pipeline keeps resolving
 // against the pre-migration location.
 //
-// The destroy-and-move runs inside one root-state transaction, so two concurrent
-// first-post-upgrade runs cannot both destroy and move. The trigger is
-// re-checked while the lock is held: a second run that lost the race to another
-// checkout sees the state already moved and continues normally under the
-// checkout identity instead of failing. The destroy and move additionally hold
-// the per-key home and project-VM locks (WithKeyLocks) of every key they touch,
-// so a concurrent per-key state write or VM creation cannot interleave with them
-// (#333).
+// The destroy and move run inside one root-state transaction, so two concurrent
+// runs cannot both adopt, and the trigger is re-checked while the lock is held:
+// a run that loses the race sees the state already moved and continues under
+// the checkout identity. They also hold the per-key home and project-VM locks of
+// every key they touch, so a concurrent per-key state write or VM creation
+// cannot interleave.
 func AdoptLegacyIdentity(
 	ctx context.Context,
+	paths configpaths.ConfigPaths,
 	client msb.Client,
 	identity git.Identity,
 	agentName string,
 	apply bool,
-	ui termio.UI,
+	ui termio.Logger,
 ) (IdentityAdoption, error) {
 	checkoutKey := state.Key{Slug: identity.CheckoutSlug, Agent: agentName}
 	slugs := legacySlugs(identity)
@@ -115,7 +107,7 @@ func AdoptLegacyIdentity(
 
 	notAdopted := IdentityAdoption{Slug: source.Slug, Pending: true}
 	if !apply {
-		ui.Warnf("%s", adoptionNotice(identity, agentName, source.HomeVolume, false))
+		ui.Warnf("%s", adoptionNotice(paths, identity, agentName, source.HomeVolume, false))
 		// Resolve the caller's remaining work against the source the state was
 		// actually found under, not always the repo slug: for a bare root the
 		// pending state can live under the path-derived legacy slug, and a
@@ -141,9 +133,10 @@ func AdoptLegacyIdentity(
 			result = IdentityAdoption{Slug: identity.CheckoutSlug}
 			return nil
 		}
-		ui.Warnf("%s", adoptionNotice(identity, agentName, source.HomeVolume, true))
+		ui.Warnf("%s", adoptionNotice(paths, identity, agentName, source.HomeVolume, true))
 		if adoptErr := adoptLegacyIdentity(
 			ctx,
+			paths,
 			client,
 			identity,
 			slugs,
@@ -200,8 +193,8 @@ func adoptionLockKeys(slugs []string, checkoutSlug, agentName string) ([]state.K
 }
 
 // legacyPendingSource is where a pending legacy identity was found. FromVM marks
-// an identity evidenced only by a surviving project VM whose state file was lost
-// (issue #219); HomeVolume is the volume to preserve in either case.
+// an identity evidenced only by a surviving project VM whose state file was
+// lost; HomeVolume is the volume to preserve in either case.
 type legacyPendingSource struct {
 	Slug       string
 	HomeVolume string
@@ -356,7 +349,7 @@ func legacyAdoptionPending(
 		if !errors.Is(err, state.ErrStateNotFound) {
 			return legacyPendingSource{}, false, err
 		}
-		volume, exists, vmErr := projectVMHomeVolume(ctx, client, state.Key{Slug: slug, Agent: checkoutKey.Agent})
+		volume, exists, vmErr := ProjectVMHomeVolume(ctx, client, state.Key{Slug: slug, Agent: checkoutKey.Agent})
 		if vmErr != nil {
 			return legacyPendingSource{}, false, fmt.Errorf("check legacy project VM for %s: %w", slug, vmErr)
 		}
@@ -377,13 +370,14 @@ func legacyAdoptionPending(
 // every moved key's per-key locks (see adoptionLockKeys).
 func adoptLegacyIdentity(
 	ctx context.Context,
+	paths configpaths.ConfigPaths,
 	client msb.Client,
 	identity git.Identity,
 	slugs []string,
 	checkoutKey state.Key,
 	source legacyPendingSource,
 	txn *state.RootTxn,
-	ui termio.UI,
+	ui termio.Logger,
 ) error {
 	// The VM-only arm destroys the only record of its home volume, so the
 	// recovered reference must be durable first. See persistAdoptionOwnership.
@@ -406,7 +400,7 @@ func adoptLegacyIdentity(
 		if adoptKeysLockedHook != nil {
 			adoptKeysLockedHook()
 		}
-		return migrateLegacyState(ctx, client, identity, slugs, checkoutKey, source, ui)
+		return migrateLegacyState(ctx, paths, client, identity, slugs, checkoutKey, source, ui)
 	})
 }
 
@@ -415,12 +409,13 @@ func adoptLegacyIdentity(
 // held (see adoptLegacyIdentity).
 func migrateLegacyState(
 	ctx context.Context,
+	paths configpaths.ConfigPaths,
 	client msb.Client,
 	identity git.Identity,
 	slugs []string,
 	checkoutKey state.Key,
 	source legacyPendingSource,
-	ui termio.UI,
+	ui termio.Logger,
 ) error {
 	primary := slugs[0]
 
@@ -453,7 +448,7 @@ func migrateLegacyState(
 		adoptKeysLockedHook()
 	}
 
-	if err := migrateLegacyConfigDirs(identity, ui); err != nil {
+	if err := migrateLegacyConfigDirs(paths, identity, ui); err != nil {
 		return err
 	}
 
@@ -479,7 +474,7 @@ func migrateLegacyState(
 				filepath.Join(state.KeyDir(checkoutKey), "state.yaml"),
 				strings.Join(skipped, ", "),
 				verifyErr,
-				projectVMName(primaryKey),
+				ProjectVMName(primaryKey),
 				state.SlugDir(identity.CheckoutSlug),
 			)
 		}
@@ -492,7 +487,7 @@ func migrateLegacyState(
 // whole set matters because the whole slug directory is moved: leaving a sibling
 // agent's VM running would let it keep writing the shared home volume while a
 // later run recreates that agent under the checkout name over the same volume.
-func destroyLegacyVMs(ctx context.Context, client msb.Client, slug, agentName string, ui termio.UI) error {
+func destroyLegacyVMs(ctx context.Context, client msb.Client, slug, agentName string, ui termio.Logger) error {
 	toDestroy, err := legacyAgentsToMigrate(slug, agentName)
 	if err != nil {
 		return err
@@ -508,9 +503,9 @@ func destroyLegacyVMs(ctx context.Context, client msb.Client, slug, agentName st
 // legacyAgentsToMigrate returns the agents whose legacy artifacts the move
 // touches: every agent with state under slug (state.StatefulAgentNames), plus the
 // command's own agent. The command's agent is included explicitly because a
-// legacy VM whose state file was lost is not listed by StatefulAgentNames (issue
-// #219), yet it is the VM that would otherwise keep running over the volume
-// adoption preserves.
+// legacy VM whose state file was lost is not listed by StatefulAgentNames, yet
+// it is the VM that would otherwise keep running over the volume adoption
+// preserves.
 func legacyAgentsToMigrate(slug, agentName string) ([]string, error) {
 	names, err := state.StatefulAgentNames(slug)
 	if err != nil {
@@ -527,10 +522,10 @@ func legacyAgentsToMigrate(slug, agentName string) ([]string, error) {
 // name that is already gone needs no destroy, but a handle whose identity was
 // replaced belongs to a sandbox this run did not create, so adopting it would
 // destroy a stranger's VM and the adoption stops instead.
-func destroyLegacyVM(ctx context.Context, client msb.Client, repoKey state.Key, ui termio.UI) error {
-	name := projectVMName(repoKey)
+func destroyLegacyVM(ctx context.Context, client msb.Client, repoKey state.Key, ui termio.Logger) error {
+	name := ProjectVMName(repoKey)
 
-	handle, found, err := findProjectVM(ctx, client, repoKey)
+	handle, found, err := FindProjectVM(ctx, client, repoKey)
 	if err != nil {
 		return fmt.Errorf("check legacy project VM %q: %w", name, err)
 	}
@@ -562,9 +557,9 @@ func destroyLegacyVM(ctx context.Context, client msb.Client, repoKey state.Key, 
 // now. It only applies to a legacy identity that is not already the repo slug (a
 // bare root's path-derived slug); a source whose slug is the repo slug already
 // reads the right directory. An absent legacy directory, or an existing target,
-// is left alone.
-func migrateLegacyConfigDirs(identity git.Identity, ui termio.UI) error {
-	paths := configpaths.Get()
+// is left alone; reportKeptLegacyConfigDir explains a left-behind legacy dir
+// holding a launcher config (#578).
+func migrateLegacyConfigDirs(paths configpaths.ConfigPaths, identity git.Identity, ui termio.Logger) error {
 	for _, slug := range identity.LegacyRepoSlugs {
 		if slug == identity.RepoSlug {
 			continue
@@ -575,7 +570,7 @@ func migrateLegacyConfigDirs(identity git.Identity, ui termio.UI) error {
 			continue
 		}
 		if _, err := os.Stat(to); err == nil {
-			ui.Verbosef("kept existing config dir %s; legacy config dir %s left in place", to, from)
+			reportKeptLegacyConfigDir(from, to, identity.RepoSlug, ui)
 			continue
 		}
 		if err := renameConfigDir(from, to); err != nil {
@@ -586,12 +581,44 @@ func migrateLegacyConfigDirs(identity git.Identity, ui termio.UI) error {
 	return nil
 }
 
+// reportKeptLegacyConfigDir reports a legacy config dir left in place because
+// the repo-slug target already exists. A legacy launcher config is stranded,
+// and warned about, only when the repo-slug dir actually takes over: a per-slug
+// input under the target (a config file, a secret file or an agent dir) selects
+// the repo slug and shadows the config. An empty target leaves the launcher
+// reading the legacy slug, so its config stays active and is reported as such;
+// a legacy dir without a launcher config is only a verbose note.
+func reportKeptLegacyConfigDir(from, to, repoSlug string, ui termio.Logger) {
+	if _, _, present := configpaths.FindConfigFile(from); !present {
+		ui.Verbosef("kept existing config dir %s; legacy config dir %s left in place", to, from)
+		return
+	}
+	if reprovision.SlugHasUserInputs(repoSlug) {
+		ui.Warnf(
+			"legacy config dir %s left in place: target %s already exists and its launcher config is no longer read",
+			from,
+			to,
+		)
+		return
+	}
+	ui.Warnf(
+		"legacy config dir %s left in place: target %s already exists but holds no per-slug input, so the legacy launcher config is still read",
+		from,
+		to,
+	)
+}
+
 // adoptionNotice renders the whole migration notice as one block: a headline,
 // a reassurance line, and the indented detail rows. It is emitted before any
 // work starts, so its rows are prospective ("destroyed", "recreated") rather
 // than a receipt, and one Warnf call carries it because the notice must survive
 // --quiet — it changes where the project's state lives.
-func adoptionNotice(identity git.Identity, agentName, legacyVolume string, apply bool) string {
+func adoptionNotice(
+	paths configpaths.ConfigPaths,
+	identity git.Identity,
+	agentName, legacyVolume string,
+	apply bool,
+) string {
 	headline := "Migrating this checkout to its own project identity (repository + checkout slugs)."
 	if !apply {
 		headline = "Would migrate this checkout to its own project identity (repository + checkout slugs)."
@@ -614,7 +641,6 @@ func adoptionNotice(identity git.Identity, agentName, legacyVolume string, apply
 		)
 	}
 	if len(identity.LegacyRepoSlugs) > 0 {
-		paths := configpaths.Get()
 		fmt.Fprintf(
 			&configRow,
 			"\n  config dir    %s  ->  %s   (if present)",
@@ -634,8 +660,8 @@ No action needed: files, credentials and the home volume are kept; only the proj
 		headline,
 		state.SlugDir(identity.RepoSlug), state.SlugDir(identity.CheckoutSlug), extraStateRows.String(),
 		homeVolume,
-		projectVMName(state.Key{Slug: identity.RepoSlug, Agent: agentName}),
-		projectVMName(state.Key{Slug: identity.CheckoutSlug, Agent: agentName}),
+		ProjectVMName(state.Key{Slug: identity.RepoSlug, Agent: agentName}),
+		ProjectVMName(state.Key{Slug: identity.CheckoutSlug, Agent: agentName}),
 		naming.DockerImageRef(identity.RepoSlug, agentName),
 		naming.DockerImageRef(identity.CheckoutSlug, agentName),
 		configRow.String(),

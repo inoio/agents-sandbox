@@ -56,8 +56,8 @@ type legacyState struct {
 	DismissedVersions []string  `json:"dismissed_versions"`
 }
 
-func legacyStatePath() string {
-	return filepath.Join(configpaths.Get().UserStateDir(), legacyStateFileName)
+func legacyStatePath(paths configpaths.ConfigPaths) string {
+	return filepath.Join(paths.UserStateDir(), legacyStateFileName)
 }
 
 // FoldLegacyState folds the retired upgrade.json into the injected store and
@@ -71,8 +71,8 @@ func legacyStatePath() string {
 // empty, or corrupt files fold nothing but are still removed; a read or write
 // failure leaves the file in place so a later check retries, and returns the
 // error so the caller can report it.
-func FoldLegacyState(s Store) error {
-	path := legacyStatePath()
+func FoldLegacyState(s Store, paths configpaths.ConfigPaths) error {
+	path := legacyStatePath(paths)
 	data, err := os.ReadFile(path)
 	switch {
 	case os.IsNotExist(err):

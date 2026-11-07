@@ -62,6 +62,26 @@ func migrationProviderSpec(a agent.Agent) (agent.ConfigMigrationSpec, error) {
 	return provider.MigrationSpec(), nil
 }
 
+// userAgentConfigDir returns the agent's config dir under the tool's user config
+// base, with the agent's dir name validated as a single path element.
+func userAgentConfigDir(a agent.Agent) (string, error) {
+	names, err := agent.ConfigDirNames(a)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(cp.Get().UserConfigDir(), names[0]), nil
+}
+
+// projectAgentConfigDir returns the agent's config dir under the project config
+// base, with the agent's dir name validated as a single path element.
+func projectAgentConfigDir(a agent.Agent) (string, error) {
+	names, err := agent.ConfigDirNames(a)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(cp.Get().ProjectConfigDir(), names[0]), nil
+}
+
 func newMigrationPlan(
 	a agent.Agent,
 	spec agent.ConfigMigrationSpec,
@@ -72,12 +92,15 @@ func newMigrationPlan(
 	sourceHash := hashNativeFiles(nativeFiles)
 	retrying := manifest.State == migrationStateApplying && manifest.SourceHash == sourceHash
 	return &Plan{ //nolint:exhaustruct_v5 // remaining fields are populated during planning
-		AgentName:            a.Name(),
-		Secrets:              make(map[string]Secret),
-		SourceHash:           sourceHash,
-		HasNativeConfig:      len(nativeFiles) > 0,
-		HasManagedConfig:     hasManagedConfig(a, spec) && !retrying,
-		SecretPath:           cp.Get().UserEnvSecretYAMLFile(),
+		AgentName:        a.Name(),
+		Secrets:          make(map[string]Secret),
+		SourceHash:       sourceHash,
+		HasNativeConfig:  len(nativeFiles) > 0,
+		HasManagedConfig: hasManagedConfig(a, spec) && !retrying,
+		SecretPath: cp.ConfigScope{
+			Kind: cp.ScopeGenericUser,
+			Dir:  cp.Get().UserConfigDir(),
+		}.EnvSecretYAMLFile(),
 		Retrying:             retrying,
 		RequiredNetworkHosts: append([]string(nil), spec.RequiredNetworkHosts...),
 		SetupOnly:            a.Name() == claudeCodeAgentName && len(nativeFiles) == 0,
@@ -93,7 +116,7 @@ func applyNativeConfigMigration(
 	hostHome string,
 ) ([]string, bool, error) {
 	_, nativeAuthPath := nativeAgentPaths(hostHome, spec)
-	userConfigDir, err := cp.Get().UserAgentConfigDir(a)
+	userConfigDir, err := userAgentConfigDir(a)
 	if err != nil {
 		return nil, false, err
 	}
@@ -108,8 +131,10 @@ func applyNativeConfigMigration(
 		maps.Copy(result.Secrets, configSecrets)
 	}
 	result.Warnings = append(result.Warnings, configWarnings...)
-	supplementalFiles, supplementalSecrets, supplementalWarnings, supplementalHosts, supplementalErr :=
-		migrateNativeSupplementalConfigFn(hostHome, spec)
+	supplementalFiles, supplementalSecrets, supplementalWarnings, supplementalHosts, supplementalErr := migrateNativeSupplementalConfigFn(
+		hostHome,
+		spec,
+	)
 	if supplementalErr != nil {
 		return nil, false, supplementalErr
 	}
@@ -191,7 +216,7 @@ func finalizeMigrationPlan(
 	configRequired bool,
 	supplementalNames []string,
 ) error {
-	userConfigDir, err := cp.Get().UserAgentConfigDir(a)
+	userConfigDir, err := userAgentConfigDir(a)
 	if err != nil {
 		return err
 	}

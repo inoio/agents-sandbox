@@ -67,7 +67,7 @@ anything writes `updates.launcher`, so the union is normally a straight copy).
 
 1. **`upgrade.json` → `updates.launcher`.** A one-time fold owned by
    `internal/upgrade`, mirroring the retired-`updater.yaml` fold
-   (`internal/sandbox/vm/upgrade_migration.go`): read the legacy JSON, fold any
+   (`internal/sandbox/prepare/upgrade_migration.go`): read the legacy JSON, fold any
    `last_checked`/`dismissed_versions` not already present, delete the file on a
    successful commit, and leave it in place on a contended root lock or a failed
    write so a later run retries. A missing, empty, or corrupt file folds nothing
@@ -131,10 +131,3 @@ noted in `CHANGELOG.md` and here, following the `updater.yaml` precedent (#225).
   (`migrations:`) survive. This is accepted — the state root is internal 0.x
   state and the alternative (a transitional dual-write of the legacy keys) would
   contradict the one-document rule. No dual-write.
-
-## Left to the builder
-
-- The exact shape of the `internal/upgrade` store seam and its wiring in `cmd`.
-- The call site and ordering of the `upgrade.json` fold relative to
-  `upgrade.Check` and `migrateLegacyUpdaterState`.
-- Docs sync, if any user-facing page describes the state layout.

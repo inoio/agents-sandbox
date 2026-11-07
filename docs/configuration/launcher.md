@@ -31,6 +31,10 @@ the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spe
 | `~/.config/agents-sandbox/config.(y[a]ml\|json[(c\|5)])` | Configuration file (incl. the `home:` key; see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}))                                                                    |
 | `~/.config/agents-sandbox/<agent>/*`                    | Agent config snippets, one subdir per agent (e.g. `opencode/`; see [Agent configuration]({% link configuration/agent.md %})) |
 | `~/.config/agents-sandbox/<slug>/config.(y[a]ml\|json[(c\|5)])` | Per-project (repo-slug) configuration file, shared by every clone (see [Per-slug configuration](#per-slug-configuration)) |
+| `~/.config/agents-sandbox/<slug>/env`                   | Per-project environment variables, shared by every clone                              |
+| `~/.config/agents-sandbox/<slug>/env.secret`            | Per-project secrets (legacy), shared by every clone (see [Secrets]({% link configuration/secrets.md %}))           |
+| `~/.config/agents-sandbox/<slug>/env.secret.yaml`       | Per-project secrets (YAML/JSON), shared by every clone (see [Secrets]({% link configuration/secrets.md %}))         |
+| `~/.config/agents-sandbox/<slug>/<agent>/*`             | Per-project agent config dir, shared by every clone (see [Agent configuration]({% link configuration/agent.md %})) |
 
 `env` uses `KEY=value` format. `env.secret` uses `KEY=value@host` (see [Secrets]({% link configuration/secrets.md %})).
 
@@ -99,7 +103,9 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `network.egress-allow`          | —                        | —                                                               | Egress destinations to allow: `host`, a CIDR, or a `.suffix` (config-file only; see [Networking]({% link configuration/networking.md %}))                                                                                                                              |
 | `network.egress-deny`           | —                        | —                                                               | Egress carve-outs, emitted before allow rules (config-file only; see [Networking]({% link configuration/networking.md %}))                                                                                                                                             
 | `network.dns-servers`           | `--dns`                  | `AGENTS_SANDBOX_NETWORK_DNS_SERVERS`                            | DNS upstream resolvers: bare IP (auto-appends `:53`) or `host:port` (see [Networking]({% link configuration/networking.md %}))                                                                                                                                 |
+| `ports`                         | `--port` / `-p`       | `AGENTS_SANDBOX_PORTS`                                           | Publish VM ports on the host loopback: `<port>` or `<host>:<guest>` (TCP only). Empty by default; applied at VM creation, a change triggers recreation (see [Networking]({% link configuration/networking.md %}#published-ports))                                                          |
 | `mounts`                        | —                        | —                                                               | Additional host directories mounted into the VM (config-file only; see [Host mounts]({% link configuration/mounts.md %}))                                                                                                                               |
+| `secrets.common.allow-placeholder-for` | —                  | —                                                               | Hosts that may receive any secret's placeholder unchanged (config-file only; see [Secrets]({% link configuration/secrets.md %}#placeholders-in-request-bodies))                                                                                           |
 | `agent`                         | `--agent`                | `AGENTS_SANDBOX_AGENT`                                          | Agent profile name to run, build, and provision (default `opencode2`, see [Agent configuration]({% link configuration/agent.md %}))                                                                                                        |
 | `provision-host-config`         | —                        | `AGENTS_SANDBOX_PROVISION_HOST_CONFIG`                          | Copy selected native agent files into the VM when enabled (default: false; see [Unsafe host-config drop-in]({% link provision-host-config.md %}) and [Agent configuration]({% link configuration/agent.md %}#host-config-drop-in-provisioning)) |
 | `open-links`                    | `--open-links`           | `AGENTS_SANDBOX_OPEN_LINKS`                                     | Open links from the VM (`xdg-open`) in the host's browser (default: true; set false to turn it off, see [Opening links]({% link configuration/opening-links.md %}))                                                                                     |
@@ -115,7 +121,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `notify` (override)              | `--notify`               | `AGENTS_SANDBOX_NOTIFY`                                         | Override the notify mode for one invocation: `on`, `off`, `desktop`, or `audio` (see [Notifications]({% link configuration/notifications.md %}))                                                                                                        |
 
 Every field in this table can also be set with its environment variable, except the list and map fields shown with
-`—` (`network.egress-allow`, `network.egress-deny`, and `mounts`), which are set in the config file. Env vars take precedence over config files
+`—` (`network.egress-allow`, `network.egress-deny`, `allow-placeholder-for`, and `mounts`), which are set in the config file. Env vars take precedence over config files
 but lose to an explicitly passed CLI flag. The prefix is `AGENTS_SANDBOX_`; dashes and dots in the field name become
 underscores.
 
@@ -187,7 +193,7 @@ session. The change type determines the mechanism used to apply the new settings
 | Resource          | Change type    | Behavior                                                                                                 |
 |-------------------|----------------|----------------------------------------------------------------------------------------------------------|
 | `cpus`            | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
-| `memory`          | Live Modify    | Applied live via SDK Modify (hotplug)                                                                    |
+| `memory`          | Live Modify / VM recreate | Applied live via SDK Modify (hotplug) up to the sandbox's boot maximum (the host RAM at creation); a higher value is capped there, and recreates the VM only when the host has gained RAM since |
 | `env`             | VM recreate    | microsandbox cannot apply env live or on a daemon restart, so the VM is rebuilt; env is baked in at creation |
 | `secrets`         | VM recreate    | microsandbox cannot apply secrets live or on a daemon restart, so the VM is rebuilt; secrets are baked in at creation |
 | `agent config` | Daemon restart | Config snippets and mirror files are provisioned into the VM; the agent daemon is restarted in-place to pick them up |
@@ -212,24 +218,43 @@ When multiple `agents-sandbox` sessions are actively connected to a VM, applying
 may disrupt active sessions. In this case, the launcher will prompt you whether to keep the current VM (defer),
 recreate, or quit to abort the change. The default is to keep/defer.
 
+#### Memory-limit detection and the raise proposal
+
+The launcher watches memory while a session runs, and checks the guest kernel log when a session ends abnormally or at
+the next launch. When it sees an out-of-memory kill or sustained memory pressure, it offers to raise the `memory`
+limit, up to the host's RAM; a sandbox already at that maximum gets an explanation instead. On Linux, a raise larger
+than the host's available memory is still saved, with a warning that the host may swap once the VM uses it. An accepted raise is
+written to the config layer that owns `memory`; offered at launch, it applies to that run, and offered after a session,
+it applies on your next run. A decline is remembered, so the same kill is not offered again; a non-interactive run records the hit and
+offers it on the next interactive launch. If `--memory` or `AGENTS_SANDBOX_MEMORY` already sets the value, the launcher
+reports that source and writes nothing, since a config file could not override it. A symlinked config file is edited through
+its target, so the link survives; an anchored value another key aliases is left unchanged, with a warning, rather than
+leaving a dangling alias.
+
 ## Per-slug configuration
 
 Beyond the generic user-level config, you can provide config for a **specific project** at
-`~/.config/agents-sandbox/<slug>/config.yaml` (slug = the project's **repo** slug, derived from the origin remote URL, so
+`~/.config/agents-sandbox/<slug>/` (slug = the project's **repo** slug, derived from the origin remote URL, so
 every clone of one remote shares this directory). It sits between the generic user-level config and the project-level
 config in precedence; see [Precedence](#precedence) for the full order.
 
-The same formats/filenames as the generic user config are supported (`config.yaml`, `config.yml`, `config.json`,
-`config.jsonc`, `config.json5`).
+The directory carries the same file-based inputs as the generic user directory, at the same paths relative to it: the
+config file (including its `home:` key), the `env`, `env.secret`, and `env.secret.yaml` environment and secret files, and
+the per-agent config dirs (`<agent>/`). Each is merged in the same precedence order as the config file — generic user,
+then per-slug user, then project, with later scopes overriding earlier ones per key, target, or file.
+
+The config file supports the same formats/filenames as the generic user config (`config.yaml`, `config.yml`,
+`config.json`, `config.jsonc`, `config.json5`).
 
 Because the per-slug dir is keyed by the repo slug, it is shared by every clone of one remote. Run
 `agents-sandbox config paths` to print the resolved layers, the concrete per-slug dir, and the repo slug.
 
 ## Environment variables
 
-Two files define environment variables passed to the sandbox:
+Three files define environment variables passed to the sandbox, merged so later files win:
 
 - `~/.config/agents-sandbox/env` — user-level, every project
+- `~/.config/agents-sandbox/<slug>/env` — per-project (repo-slug), shared by every clone
 - `.agents-sandbox/env` — project-level, current project only
 
 Format: one `KEY=value` per line. Comments (lines starting with `#`) and blank lines are ignored.

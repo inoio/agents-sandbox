@@ -54,6 +54,7 @@ Arguments after `--` are forwarded to the agent. Arguments before `--` that don'
 |----------------|-------|----------|--------------------------------------------------------------------------------------------------------------------------------------------|
 | `--worktree`   | `-w`  | `""`     | Isolated agent worktree named <name>, optionally starting from base ref <name>:<base>                                  |
 | `--rebuild`    | `-r`  | `false`  | Rebuild runner image before starting (clean rebuild that pulls the latest base image; still offers an agent upgrade if one is available)                                                                      |
+| `--no-rebuild` | —     | `false`  | Reuse the existing runner image even if its inputs changed, and skip the agent upgrade check. A missing image is still built. Can't be combined with `--rebuild` or `--agent-version`. See [Runner Image]({% link runner-image.md %}#reuse-a-stale-image) |
 | `--agent-version` | —  | `""`     | Pin the version agents-sandbox installs into the runner image (default: latest). Ignored for a user-provided agent. |
 | `--dry-run`    | `-n`  | `false`  | Read-only preview of a run: report the agent version (or that it resolves at build time), whether the runner image would build (with the reasons a real build logs) or be reused, and whether the home volume would be created or reused — without building, creating a volume, writing state, starting a VM, attaching, or making any network request. It also installs no microsandbox runtime, so a fresh host gets the plan without the download. When the reported version is a known, non-pinned one, its line notes `(upgrade check not run)` |
 | `--cpus`       | `-c`  | `0`      | vCPUs for the sandbox (0 = all)                                                                                                            |
@@ -63,7 +64,8 @@ Arguments after `--` are forwarded to the agent. Arguments before `--` that don'
 | `--workspace-quota` | — | `16G` | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `--dry-run-vm` | —     | `false`  | Skip the VM lifecycle but prepare everything else. A project without a home volume gets none: creating it needs a VM, so the first run with a VM creates it. |
 | `--serve-only` | `-s`  | `false`  | Start the agent server published on host loopback at a dynamically allocated host port (no in-VM TUI); press `Ctrl-D` to exit, or send `SIGINT`/`SIGTERM` when stdin is not a terminal. The printed `http://127.0.0.1:<port>` URL is authoritative — use it (rather than assuming a fixed port) to connect from clients like Opencode Desktop. Set `OPENCODE_SERVER_PASSWORD` for basic auth (opencode); opencode2's server requires the baked credential `opencode:opencode` (username:password). |
-| `--agent`      | —     | `opencode2` | Coding-agent profile to run: `opencode`, `opencode2` (default), `pi`, `claude-code`, `codex`, or `hermes`.                                                      |
+| `--port` | `-p` | `[]` | Publish a VM port on the host loopback: `<port>` or `<host>:<guest>` (TCP only, e.g. `3000` or `8080:3000`); comma-separated or repeated. Opt-in — no ports are published by default. Applied at VM creation; a change triggers recreation. Also settable via the `ports:` config key and `AGENTS_SANDBOX_PORTS`. See [Networking]({% link configuration/networking.md %}#published-ports). |
+| `--agent`      | —     | `opencode2` | Coding-agent profile to run: `opencode`, `opencode2` (default), `pi`, `claude-code`, `codex`, `hermes`, or `oh-my-pi`.                                                      |
 | `--notify`     | —     | `off`     | Notify on session status: `on`, `off`, `desktop`, or `audio` (bare `--notify` = `on`). Overridable via `AGENTS_SANDBOX_NOTIFY`. Only applies to the `opencode` and `opencode2` agents (the only agents with a session event stream). |
 | `--open-links` | —    | `true`   | Open links from the VM (`xdg-open`) in the host's browser; `--open-links=false` turns it off. Overridable via `AGENTS_SANDBOX_OPEN_LINKS`. See [Opening links]({% link configuration/opening-links.md %}). |
 | `--docker`     | —     | `false`  | Bake the Docker engine into the runner image; overrides the project Dockerfile's declaration in both directions (`--dind` is a deprecated alias)                                                               |
@@ -76,7 +78,7 @@ Arguments after `--` are forwarded to the agent. Arguments before `--` that don'
 
 Start a sandbox VM and open an interactive shell. Useful for debugging the sandbox environment. Shares the common run/shell flags with `run`.
 
-With `--dry-run`, `shell` builds no image, creates no volume, writes no state, starts no VM, and makes no network request — but unlike `run` it still runs the prerequisite check (`doctor`) first, which may install the microsandbox runtime.
+With `--dry-run`, `shell` builds no image, creates no volume, writes no state, starts no VM, and makes no network request. Like `run`, it skips the prerequisite check (`doctor`) on a preview, so it installs nothing.
 
 ```console
 agents-sandbox shell
@@ -110,7 +112,7 @@ agents-sandbox build --agent-version 0.5.0  # pin a specific agent version
 |----------------------|-------|----------|-----------------------------------------------------------------|
 | `--rebuild`          | `-r`  | `false`  | Force a clean rebuild that pulls the latest base image          |
 | `--dry-run`          | `-n`  | `false`  | Dry run without building or installing the microsandbox runtime |
-| `--agent`            | —     | `opencode2` | Coding-agent profile to build: `opencode`, `opencode2` (default), `pi`, `claude-code`, `codex`, or `hermes`. |
+| `--agent`            | —     | `opencode2` | Coding-agent profile to build: `opencode`, `opencode2` (default), `pi`, `claude-code`, `codex`, `hermes`, or `oh-my-pi`. |
 | `--agent-version`    | —     | `""`     | Pin the version agents-sandbox installs into the image (default: latest). Ignored for a user-provided agent |
 | `--docker`           | —     | `false`  | Bake the Docker engine into the runner image; overrides the project Dockerfile's declaration in both directions (`--dind` is a deprecated alias) |
 
@@ -133,7 +135,7 @@ agents-sandbox build dockerfile --agent claude-code
 
 | Flag              | Short | Default    | Purpose                                                     |
 |-------------------|-------|------------|-------------------------------------------------------------|
-| `--agent`         | —     | `opencode2` | Coding-agent profile to build: `opencode`, `opencode2`, `pi`, `claude-code`, `codex`, or `hermes`. |
+| `--agent`         | —     | `opencode2` | Coding-agent profile to build: `opencode`, `opencode2`, `pi`, `claude-code`, `codex`, `hermes`, or `oh-my-pi`. |
 | `--agent-version` | —     | `""`       | Pin the agent version rendered into the preview (default: no pinned default) |
 | `--docker`        | —     | `false`    | Bake the Docker engine into the runner image; overrides the project Dockerfile's declaration in both directions (`--dind` is a deprecated alias) |
 
@@ -418,17 +420,21 @@ agents-sandbox config agent --agent pi
 
 | Flag       | Short | Default    | Purpose                                                                 |
 |------------|-------|------------|-------------------------------------------------------------------------|
-| `--agent`  | —     | `opencode2` | Coding-agent profile to inspect: `opencode`, `opencode2` (default), `pi`, `claude-code`, `codex`, or `hermes`. |
+| `--agent`  | —     | `opencode2` | Coding-agent profile to inspect: `opencode`, `opencode2` (default), `pi`, `claude-code`, `codex`, `hermes`, or `oh-my-pi`. |
 
 The agent is resolved from the `--agent` flag, then the positional `[name]`, then the configured agent, then `opencode2`. Passing both `--agent` and a positional `[name]` (conflicting values) returns an "ambiguous" error.
 
-The output names the launcher (host) config dirs actually read, as absolute paths:
+The output names the launcher (host) config dirs actually read, as absolute paths, one line per scope:
 
 ```text
-config dir: user="/home/me/.config/agents-sandbox/opencode2"  project="/work/repo/.agents-sandbox/opencode2"  (primary)
+agent: opencode2
+config dirs (primary):
+  user: "/home/me/.config/agents-sandbox/opencode2"
+  user: "/home/me/.config/agents-sandbox/myproject-<hash>/opencode2"
+  project: "/work/repo/.agents-sandbox/opencode2"
 ```
 
-A dir that does not exist is marked `(missing)`, e.g. `user="/home/me/.config/agents-sandbox/opencode2" (missing)`. The trailing label is `primary` when the agent's own namespace is used, or `legacy fallback "<dir>"` when the agent is reading a shared legacy namespace (see [agent configuration]({% link configuration/agent.md %})). These are host launcher-config dirs; the guest agent config path is always `~/.config/opencode` regardless.
+One `user:` line is printed per user scope in precedence order — the generic user dir, then the per-slug user dir — and the project dir follows last. A dir that does not exist is marked `(missing)`, e.g. `user: "/home/me/.config/agents-sandbox/opencode2" (missing)`. The header label is `primary` when the agent's own namespace is used, or `legacy fallback "<namespace>"` when the agent is reading a shared legacy namespace (see [agent configuration]({% link configuration/agent.md %})). These are host launcher-config dirs; the guest agent config path is always `~/.config/opencode` regardless.
 
 Each host-file candidate is listed as `merged` (its VM path is the merged config path or part of the removed config-file family) or `not merged` (copied verbatim when provisioning is enabled). Verbatim mirror files are listed as their host source path → VM path.
 
@@ -656,7 +662,8 @@ agents-sandbox sandbox inspect <name> --quiet         # name only
 
 Remove a project sandbox VM by name. Only project VMs are accepted — the
 prefix-free `<slug>-<agent>` name or a name created by an earlier version
-(`agents-sandbox-vm-*`). Refuses a running VM unless `--force` is
+(`agents-sandbox-vm-*`). A task sandbox name is refused, and `--force` does not
+override that. Refuses a running VM unless `--force` is
 set, which stops it first. The project's persisted state is left intact, so the
 next run recreates the VM against the same recorded home volume. Prompts for
 confirmation unless the global `--yes` is set; non-interactively, `--yes` is
@@ -748,10 +755,12 @@ version takes effect on the next invocation. For a Homebrew-managed install the 
 ```console
 agents-sandbox upgrade
 agents-sandbox upgrade --channel canary     # one-shot override: upgrade from the canary line
+agents-sandbox upgrade --channel stable     # leave the canary line for the newest stable release
 ```
 
 `--channel` accepts `stable` or `canary` and applies to that invocation only, leaving the configured `upgrade.channel`
-unchanged.
+unchanged. `--channel stable` on a canary install switches to the newest stable release even when that release is
+older; without the flag, `upgrade` never downgrades.
 
 ---
 

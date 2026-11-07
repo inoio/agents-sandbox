@@ -39,6 +39,29 @@ func TestHarnessSpecsQuitKeyNonEmpty(t *testing.T) {
 	}
 }
 
+// TestOhMyPiSeedsAHomeConfigWithoutSetupWizard pins how the smoke test reaches
+// oh-my-pi's editor: the seeded home config turns off the first-run setup
+// wizard, which would otherwise take over the screen, and no egress is needed.
+func TestOhMyPiSeedsAHomeConfigWithoutSetupWizard(t *testing.T) {
+	spec, ok := harnessSpecs["oh-my-pi"]
+	if !ok {
+		t.Fatal("oh-my-pi has no smoke-test spec")
+	}
+	if !spec.KeepsNormalBuffer {
+		t.Error("oh-my-pi KeepsNormalBuffer = false; its TUI renders in the normal buffer")
+	}
+	if spec.Network != "" {
+		t.Errorf("oh-my-pi Network = %q, want the default `none`", spec.Network)
+	}
+	cfg, ok := spec.SeedHomeFiles[ohMyPiConfigPath]
+	if !ok {
+		t.Fatalf("oh-my-pi SeedHomeFiles missing %s", ohMyPiConfigPath)
+	}
+	if !strings.Contains(cfg, "setupWizard: false") {
+		t.Errorf("oh-my-pi seeded config must turn off the setup wizard:\n%s", cfg)
+	}
+}
+
 // TestReadyTimeoutPrefersThePerHarnessOverride pins the readiness-budget
 // selection: a spec that names an override uses it, and one that leaves it
 // unset falls back to the shared default.

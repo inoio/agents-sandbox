@@ -17,6 +17,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -25,6 +26,7 @@ import (
 const (
 	FlagWorktree     = "worktree"
 	FlagRebuild      = "rebuild"
+	FlagNoRebuild    = "no-rebuild"
 	FlagDryRun       = "dry-run"
 	FlagDryRunVM     = "dry-run-vm"
 	FlagServeOnly    = "serve-only"
@@ -33,7 +35,9 @@ const (
 	FlagAgentVersion = "agent-version"
 	FlagNetwork      = "network"
 	FlagDNSServers   = "dns"
+	FlagPort         = "port"
 	FlagNotify       = "notify"
+	FlagMemory       = "memory"
 	// FlagOpenLinks is the --open-links flag name, shared with the config key.
 	FlagOpenLinks = viperconfig.KeyOpenLinks
 )
@@ -64,17 +68,19 @@ func notifyEnvOverride() (string, string) {
 // nil config resolves the options from the command's flags alone, still applying
 // the agent default and the notify env override but leaving the config-derived
 // fields (policy, sizes, mounts, provisioning) at their zero values.
-func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.UI) (options.RunOptions, error) {
+func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.Logger) (options.RunOptions, error) {
 	opts, err := resolveFlags(cmd)
 	if err != nil {
 		return options.RunOptions{}, err
 	}
 
-	if err = resolveAgentAndValidate(cfg, cmd, &opts); err != nil {
+	a, err := resolveAgentAndValidate(cfg, cmd, &opts)
+	if err != nil {
 		return options.RunOptions{}, err
 	}
+	opts.ResolvedAgent = a
 
-	if err = resolveNotify(cfg, cmd, ui, &opts); err != nil {
+	if err = resolveNotify(cfg, cmd, ui, &opts, a); err != nil {
 		return options.RunOptions{}, err
 	}
 
@@ -93,6 +99,8 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.UI) (options.R
 		provisionHostConfig := cfg.ProvisionHostConfig
 		opts.ProvisionHostConfig = &provisionHostConfig
 		opts.OpenLinks = cfg.OpenLinks
+		opts.AllowPlaceholderFor = cfg.Secrets.Common.AllowPlaceholderFor
+		opts.ConfigSlug = cfg.ConfigSlug
 	} else {
 		opts.OpenLinks, _ = cmd.Flags().GetBool(FlagOpenLinks)
 	}
@@ -103,8 +111,19 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.UI) (options.R
 		return options.RunOptions{}, err
 	}
 
+	if err := resolvePorts(cfg, cmd, &opts); err != nil {
+		return options.RunOptions{}, err
+	}
+
 	if err := resolveSizes(&opts); err != nil {
 		return options.RunOptions{}, err
+	}
+
+	// The experimental notice is informational, so it is emitted only once all
+	// validation has passed: an invalid invocation errors without first printing
+	// the info line.
+	if a.Profile.Experimental() {
+		ui.Infof("%s is experimental — not well tested with agents-sandbox", a.Profile.Name())
 	}
 
 	return opts, nil
@@ -174,10 +193,14 @@ func resolveFlags(cmd *cobra.Command) (options.RunOptions, error) {
 	}
 	opts.Worktree = worktree
 	opts.Rebuild, _ = cmd.Flags().GetBool(FlagRebuild)
+	opts.NoRebuild, _ = cmd.Flags().GetBool(FlagNoRebuild)
 	opts.AgentVersion, _ = cmd.Flags().GetString(FlagAgentVersion)
 	opts.ServeOnly, _ = cmd.Flags().GetBool(FlagServeOnly)
 	if cmd.Flags().Lookup(FlagRoot) != nil {
 		opts.Root, _ = cmd.Flags().GetBool(FlagRoot)
+	}
+	if flag := cmd.Flags().Lookup(FlagMemory); flag != nil {
+		opts.MemoryFlagChanged = flag.Changed
 	}
 	return opts, nil
 }
@@ -194,9 +217,14 @@ func ResolveMode(cmd *cobra.Command) options.Mode {
 	return options.ModeRun
 }
 
-// resolveAgentAndValidate resolves the agent (default > config > flag) and
-// rejects unknown names and unsupported --worktree/--serve-only combinations.
-func resolveAgentAndValidate(cfg *viperconfig.Config, cmd *cobra.Command, opts *options.RunOptions) error {
+// resolveAgentAndValidate resolves the agent (default > config > flag),
+// rejecting unknown names and unsupported --worktree/--serve-only combinations,
+// and returns the validated profile and its resolved capabilities.
+func resolveAgentAndValidate(
+	cfg *viperconfig.Config,
+	cmd *cobra.Command,
+	opts *options.RunOptions,
+) (agent.Resolved, error) {
 	opts.Agent = defaultAgentName
 	if cfg != nil && cfg.Agent != "" {
 		opts.Agent = cfg.Agent
@@ -205,44 +233,52 @@ func resolveAgentAndValidate(cfg *viperconfig.Config, cmd *cobra.Command, opts *
 		opts.Agent = name
 	}
 	if !slices.Contains(agent.Names(), opts.Agent) {
-		return fmt.Errorf(
+		return agent.Resolved{}, fmt.Errorf(
 			"unknown agent %q: must be one of %s",
 			opts.Agent,
 			strings.Join(agent.Names(), ", "),
 		)
 	}
 	a, _ := agent.Lookup(opts.Agent)
+	resolved := agent.Resolve(a)
 	if opts.Worktree.Name != "" {
-		if _, ok := agent.AsWorktreeProvider(a); !ok {
-			return fmt.Errorf("--worktree is not supported by agent %q", a.Name())
+		if resolved.Worktree == nil {
+			return agent.Resolved{}, fmt.Errorf("--worktree is not supported by agent %q", a.Name())
 		}
 	}
 	if opts.ServeOnly {
-		if _, ok := agent.AsDaemonProvider(a); !ok {
-			return fmt.Errorf("--serve-only is not supported by agent %q", a.Name())
+		if resolved.Daemon == nil {
+			return agent.Resolved{}, fmt.Errorf("--serve-only is not supported by agent %q", a.Name())
 		}
 	}
-	return nil
+	return resolved, nil
 }
 
 // resolveNotify resolves the effective notify config (flag > env > config),
 // then validates agent support, warning or failing for agents without a daemon.
-func resolveNotify(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.UI, opts *options.RunOptions) error {
+// It reads the run's already-resolved capabilities instead of re-looking-up the
+// agent.
+func resolveNotify(
+	cfg *viperconfig.Config,
+	cmd *cobra.Command,
+	ui termio.Logger,
+	opts *options.RunOptions,
+	a agent.Resolved,
+) error {
 	nc, err := resolveNotifyConfig(cfg, cmd)
 	if err != nil {
 		return err
 	}
 	opts.Notify = nc
 	if nc.Active() {
-		a, _ := agent.Lookup(opts.Agent)
-		if _, ok := agent.AsDaemonProvider(a); !ok {
+		if a.Daemon == nil {
 			if override, _ := notifyEnvOverride(); cmd.Flags().Changed(FlagNotify) || override != "" {
 				return fmt.Errorf(
 					"--notify is not supported by agent %q (no daemon/event stream)",
-					a.Name(),
+					a.Profile.Name(),
 				)
 			}
-			ui.Warnf("notifications not supported by agent %q (no daemon/event stream); ignoring", a.Name())
+			ui.Warnf("notifications not supported by agent %q (no daemon/event stream); ignoring", a.Profile.Name())
 			opts.Notify = notify.Config{Audio: notify.AudioOff}
 		}
 	}
@@ -294,6 +330,24 @@ func resolveNetwork(cfg *viperconfig.Config, cmd *cobra.Command, opts *options.R
 	if dns, _ := cmd.Flags().GetStringSlice(FlagDNSServers); len(dns) > 0 {
 		opts.Network.DNSServers = dns
 	}
+	return nil
+}
+
+// resolvePorts resolves the user-published ports: the --port flag wins over
+// the resolved config's ports (config file or AGENTS_SANDBOX_PORTS env).
+func resolvePorts(cfg *viperconfig.Config, cmd *cobra.Command, opts *options.RunOptions) error {
+	var specs []string
+	if cfg != nil {
+		specs = cfg.Ports
+	}
+	if flag := cmd.Flags().Lookup(FlagPort); flag != nil && flag.Changed {
+		specs, _ = cmd.Flags().GetStringSlice(FlagPort)
+	}
+	mappings, err := ports.ParsePortMappings(specs)
+	if err != nil {
+		return err
+	}
+	opts.Ports = mappings
 	return nil
 }
 

@@ -51,6 +51,13 @@ It does not install a user-facing `msb` command, and does not require any
 particular `msb` version on your machine. If agents-sandbox is the only thing
 installed, the absence of an `msb` command is expected, not a defect.
 
+#### "database schema is newer than this msb binary"
+
+A newer agents-sandbox upgraded the runtime's data, and this version's bundled runtime cannot read it. This happens
+after a downgrade. Upgrade with `agents-sandbox upgrade`, or run the newer binary. If you switched from a canary back to
+an older stable release, `agents-sandbox upgrade` reports that you are up to date; run
+`agents-sandbox upgrade --channel canary` instead.
+
 If you encounter a runtime error, submit a bug report at:
 
 <https://github.com/inoio/agents-sandbox/issues/new?template=bug_report.yml>
@@ -210,6 +217,13 @@ git remote add origin https://example.com/repo.git
 
 If you need a tool that isn't in the base image (e.g., `go`, `rustc`, `python3`), add it to your project's custom Dockerfile, see [Runner Image]({% link runner-image.md %}) documentation.
 
+## Opencode plugins do not load in the sandbox
+
+opencode and opencode2 only: a local plugin or custom tool that imports an npm package works on your machine but not
+in the sandbox, and the opencode log in the VM shows `failed to load plugin ... Cannot find package`. The packages in
+`~/.config/opencode/node_modules` are not copied into the VM. Install them inside the VM as described in
+[Install Opencode Plugin Dependencies]({% link recipes/opencode-plugin-dependencies.md %}).
+
 ## Secrets not available
 
 Verify the secret is set with the correct format. For legacy `env.secret`, the format is `KEY=value@host` where the
@@ -219,6 +233,26 @@ secret is dropped with a warning.
 For `env.secret.yaml`, values may contain `@` without issues. Ensure the entry defines either `host`, `hosts`, or
 `allow_any_host_dangerous: true` — entries with no hosts definition are silently skipped. An empty `value` is valid
 and passed through unchanged.
+
+## Forbidden: Request blocked by network policy
+
+The VM's network policy does not allow the destination. An HTTP or HTTPS client receives a `403` whose JSON body names
+the blocked domain:
+
+```json
+{"code":"network_policy_denied","message":"Request blocked by network policy.","domain":"api.example.com"}
+```
+
+Other protocols see the connection fail instead. Allow the destination with `egress-allow`, or pick a profile that
+covers it (`private` for your local network, `host` for a service on the host); see
+[Networking]({% link configuration/networking.md %}).
+
+## Forbidden: Request blocked by secret policy
+
+The request carried a secret placeholder to a host that the secret is not allowed for, so the proxy refused to forward
+it. Add the host the application actually calls to the secret's `host`/`hosts`. A common case is GitHub Copilot on
+GitHub Enterprise, where OpenCode calls the enterprise domain instead of `api.githubcopilot.com`; see
+[GitHub Copilot on GitHub Enterprise]({% link configuration/secrets.md %}#github-copilot-on-github-enterprise-ghecom).
 
 ## TLS certificate errors for one application
 
@@ -251,6 +285,9 @@ Or set defaults in config:
 cpus: 4
 memory: 8G
 ```
+
+The launcher also detects an out-of-memory kill and offers to raise `memory` for you; see
+[Launcher configuration]({% link configuration/launcher.md %}).
 
 ## Config not applying
 

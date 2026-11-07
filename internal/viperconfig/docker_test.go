@@ -2,11 +2,6 @@ package viperconfig
 
 import (
 	"testing"
-
-	"github.com/spf13/cobra"
-
-	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // The deprecation policy's "replacement wins" rule, realized once over the
@@ -121,103 +116,5 @@ func TestDockerSourceDeprecated(t *testing.T) {
 		if got := tc.source.Deprecated(); got != tc.want {
 			t.Errorf("DockerSource(%d).Deprecated() = %v, want %v", tc.source, got, tc.want)
 		}
-	}
-}
-
-// Config.DockerSource reports the layer the resolved docker value came from, so
-// the run and build paths can rank their flags against it.
-func TestConfigDockerSource(t *testing.T) {
-	tests := []struct {
-		name      string
-		env       [][2]string
-		configYML string
-		flag      string
-		want      DockerSource
-	}{
-		{name: "nothing set", want: DockerSourceNone},
-		{
-			name:      "canonical config key",
-			configYML: "docker: false\n",
-			want:      DockerSourceDockerConfig,
-		},
-		{
-			name: "canonical env",
-			env:  [][2]string{{"AGENTS_SANDBOX_DOCKER", "true"}},
-			want: DockerSourceDockerEnv,
-		},
-		{
-			name: "deprecated canonical env prefix",
-			env:  [][2]string{{"OPENCODE_SANDBOX_DOCKER", "true"}},
-			want: DockerSourceDockerEnv,
-		},
-		{
-			name: "canonical flag",
-			flag: KeyDocker,
-			want: DockerSourceDockerFlag,
-		},
-		{
-			name:      "deprecated dind config key",
-			configYML: "dind: true\n",
-			want:      DockerSourceDindConfig,
-		},
-		{
-			name: "deprecated dind env",
-			env:  [][2]string{{"AGENTS_SANDBOX_DIND", "true"}},
-			want: DockerSourceDindEnv,
-		},
-		{
-			name: "deprecated dind env prefix",
-			env:  [][2]string{{"OPENCODE_SANDBOX_DIND", "true"}},
-			want: DockerSourceDindEnv,
-		},
-		{
-			name:      "canonical config beats a dind env",
-			env:       [][2]string{{"AGENTS_SANDBOX_DIND", "true"}},
-			configYML: "docker: false\n",
-			want:      DockerSourceDockerConfig,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
-			for _, kv := range tt.env {
-				t.Setenv(kv[0], kv[1])
-			}
-			if tt.configYML != "" {
-				testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", tt.configYML)
-			}
-			var cmd *cobra.Command
-			if tt.flag != "" {
-				cmd = &cobra.Command{Use: "root"}
-				cmd.Flags().Bool(tt.flag, false, "")
-				if err := cmd.Flags().Set(tt.flag, "true"); err != nil {
-					t.Fatalf("set %s: %v", tt.flag, err)
-				}
-			}
-
-			r, err := NewResolver(cmd, "")
-			if err != nil {
-				t.Fatalf("NewResolver: %v", err)
-			}
-			if got := r.Config().DockerSource(); got != tt.want {
-				t.Errorf("Config().DockerSource() = %d, want %d", got, tt.want)
-			}
-		})
-	}
-}
-
-// A command with no canonical --docker flag registered is not a docker source,
-// so the resolution falls through to the config layers.
-func TestConfigDockerSourceWithoutDockerFlag(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	root := &cobra.Command{Use: "root"}
-
-	r, err := NewResolver(root, "")
-	if err != nil {
-		t.Fatalf("NewResolver: %v", err)
-	}
-	if got := r.Config().DockerSource(); got != DockerSourceNone {
-		t.Errorf("Config().DockerSource() = %d, want none", got)
 	}
 }

@@ -4,22 +4,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
+	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
+	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // preparedSandbox is the subset of a prepared session that Run and Shell use.
-// It is satisfied by *sandbox.Session and by the fake used in tests.
+// It is satisfied by *prepare.Session and by the fake used in tests.
 type preparedSandbox interface {
 	Cleanup()
 	Sandbox() msb.Sandbox
@@ -32,14 +39,14 @@ type preparedSandbox interface {
 
 // prepareSandbox is a test seam swapped in tests to avoid real VM setup.
 var prepareSandbox = func(ctx context.Context, opts options.RunOptions, skipVM bool, ui termio.UI) (preparedSandbox, error) {
-	return sandbox.PrepareSandbox(ctx, opts, skipVM, ui)
+	return prepare.PrepareSandbox(ctx, opts, skipVM, ui)
 }
 
 // previewSandbox is a test seam swapped in tests to avoid real host inspection.
-var previewSandbox = sandbox.PreviewSandbox
+var previewSandbox = prepare.PreviewSandbox
 
 // renderPreview reports what a real run would do, without doing it.
-func renderPreview(ui termio.UI, p sandbox.Preview, shell bool) {
+func renderPreview(ui termio.Logger, p prepare.Preview, shell bool) {
 	switch {
 	case p.ResolveVersionAtBuild:
 		ui.Infof("dry-run: agent version resolved at build time")
@@ -48,9 +55,13 @@ func renderPreview(ui termio.UI, p sandbox.Preview, shell bool) {
 	default:
 		ui.Infof("dry-run: agent version %s", p.AgentVersion)
 	}
-	if p.BuildImage {
+	switch {
+	case p.BuildImage:
 		ui.Infof("dry-run: would build runner image %s (%s)", p.ImageTag, strings.Join(p.BuildReasons, "; "))
-	} else {
+	case len(p.BuildReasons) > 0:
+		ui.Infof("dry-run: would reuse runner image %s despite changes (--no-rebuild): %s",
+			p.ImageTag, strings.Join(p.BuildReasons, "; "))
+	default:
 		ui.Infof("dry-run: would reuse runner image %s", p.ImageTag)
 	}
 	if p.CreateHome {
@@ -68,7 +79,7 @@ func renderPreview(ui termio.UI, p sandbox.Preview, shell bool) {
 // previewAndRender resolves the read-only preview and reports it, returning nil
 // so a dry run ends here: nothing is built, created, written, started, or
 // attached.
-func previewAndRender(ctx context.Context, opts options.RunOptions, ui termio.UI, shell bool) error {
+func previewAndRender(ctx context.Context, opts options.RunOptions, ui termio.Logger, shell bool) error {
 	p, err := previewSandbox(ctx, opts, ui)
 	if err != nil {
 		return err
@@ -90,7 +101,7 @@ func startNotifyWatcher(
 	ctx context.Context,
 	sb msb.Sandbox,
 	cfg notify.Config,
-	ui termio.UI,
+	ui termio.Logger,
 	spec *agent.EventStreamSpec,
 	projectSlug string,
 ) func() error {
@@ -122,18 +133,17 @@ func startNotifyWatcher(
 	}
 }
 
-func buildAttachCommand(a agent.Agent, target string, args []string) string {
-	runner, ok := agent.AsAttachRunner(a)
-	if !ok {
+func buildAttachCommand(a agent.Resolved, target string, args []string) string {
+	if a.Attach == nil {
 		return ""
 	}
-	return runner.AttachCommand(target, args)
+	return a.Attach.AttachCommand(target, args)
 }
 
 // logNotifyWatcherError stops the notify watcher and logs its drop-summary
 // error, if any. It is deferred from Run so it runs only after the attach TUI
 // has closed and can no longer be corrupted by the message.
-func logNotifyWatcherError(stop func() error, ui termio.UI) {
+func logNotifyWatcherError(stop func() error, ui termio.Logger) {
 	if err := stop(); err != nil {
 		ui.Verbosef("notify watcher: %v", err)
 	}
@@ -143,10 +153,10 @@ func logNotifyWatcherError(stop func() error, ui termio.UI) {
 // external clients such as desktop apps. The basic-auth guidance is
 // agent-specific: opencode's is opt-in, opencode2's is mandatory with a baked
 // credential, so a client can only connect with the right hint.
-func serveOnlyMessage(a agent.Agent, host, port string) string {
+func serveOnlyMessage(a agent.Resolved, host, port string) string {
 	authHint := ""
-	if provider, ok := agent.AsDaemonProvider(a); ok {
-		if hint := provider.DaemonAuthHint(); hint != "" {
+	if a.Daemon != nil {
+		if hint := a.Daemon.DaemonAuthHint(); hint != "" {
 			authHint = hint + "\n"
 		}
 	}
@@ -156,8 +166,8 @@ func serveOnlyMessage(a agent.Agent, host, port string) string {
 // runServeOnly keeps the VM alive and blocks until ctx is done (CTRL-D or
 // SIGINT), without attaching an in-VM TUI. It holds the VM via a keeper exec so
 // the msb idle timeout does not stop it while serving.
-func runServeOnly(ctx context.Context, a agent.Agent, sb msb.Sandbox, ui termio.UI, hostPort int) error {
-	host := options.ServeOnlyBindAddr
+func runServeOnly(ctx context.Context, a agent.Resolved, sb msb.Sandbox, ui termio.Logger, hostPort int) error {
+	host := ports.ServeOnlyBindAddr
 	port := strconv.Itoa(hostPort)
 	ui.Infof("%s", serveOnlyMessage(a, host, port))
 	keeperCtx, cancel := context.WithCancel(context.Background())
@@ -193,21 +203,22 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 		return nil
 	}
 
-	projectSlug := ses.Key().Slug
+	opts.Trace.Record(lifecycle.Attach)
+	k := ses.Key()
 
-	a, _ := agent.Lookup(opts.Agent)
+	a := opts.ResolvedAgent
 	var streamSpec *agent.EventStreamSpec
-	if provider, ok := agent.AsEventStreamProvider(a); ok {
-		eventStream := provider.EventStream()
+	if a.EventStream != nil {
+		eventStream := a.EventStream.EventStream()
 		streamSpec = &eventStream
 	}
-	stopNotify := startNotifyWatcher(ctx, sb, opts.Notify, ui, streamSpec, projectSlug)
+	stopNotify := startNotifyWatcher(ctx, sb, opts.Notify, ui, streamSpec, k.Slug)
 	defer logNotifyWatcherError(stopNotify, ui)
 	stopHostOpener := startHostOpener(ctx, ses, opts.OpenLinks, ui)
 	defer stopHostOpener()
 
 	if opts.ServeOnly {
-		return runServeOnlySession(ctx, a, sb, opts, ui, ses.ServeHostPort(), projectSlug)
+		return runServeOnlySession(ctx, a, k, sb, opts.ReapPolicy, ui, ses.ServeHostPort())
 	}
 
 	setup := buildAttachCommand(a, ses.Target(), opts.Args)
@@ -216,39 +227,95 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 	// putting tools installed under /usr/local/go/bin and ~/go/bin on
 	// PATH for the agent and its child shells. The image's composed PATH
 	// is restored by the /etc/profile.d/agents-sandbox-path.sh merge.
-	return runAttach(ctx, sb, projectSlug, ses.GuestCWD(), ui, opts, "-l", "-c", setup)
+	return runAttach(ctx, k, sb, ses.GuestCWD(), ui, opts, "-l", "-c", setup)
 }
 
-// runServeOnlySession owns the lease acquire/serve/release/reap sequence for
-// serve-only mode.
-func runServeOnlySession(
+// withClientSession owns the client-lease lifecycle shared by the attach and
+// serve-only flows: it acquires a client lease for the run's resolved agent,
+// runs body, explicitly releases the lease before reaping so
+// state.CountActiveClients reflects only OTHER live clients, then reaps on the
+// last client when shouldReap reports the session's error as reap-able. body's
+// error is returned unchanged; the deferred release is a best-effort safety net
+// (for a panicking body or reap).
+func withClientSession(
 	ctx context.Context,
-	a agent.Agent,
+	k state.Key,
 	sb msb.Sandbox,
-	opts options.RunOptions,
+	policy options.ReapPolicy,
 	ui termio.UI,
-	hostPort int,
-	projectSlug string,
+	shouldReap func(sessionErr error) bool,
+	a agent.Resolved,
+	body func(a agent.Resolved) error,
 ) error {
-	k := state.Key{Slug: projectSlug, Agent: a.Name()}
+	// Acquire a client lease so state tracks this session.
 	release, acquireErr := state.AcquireClientLease(k)
 	if acquireErr != nil {
 		ui.Warnf("client lease failed: %v", acquireErr)
 	}
 	defer func() {
-		if acquireErr == nil && release != nil {
+		if release != nil {
 			release()
 		}
 	}()
-	if err := runServeOnly(ctx, a, sb, ui, hostPort); err != nil && !errors.Is(err, context.Canceled) {
-		return err
-	}
+
+	sessionErr := body(a)
+
+	// Explicitly release the lease after the payload returns, before reaping.
+	// This ensures state.CountActiveClients reflects only OTHER live clients.
+	// The deferred release above is a safety net.
 	if acquireErr == nil {
 		release()
 		release = nil
 	}
-	if err := reapOnLastClient(ctx, a, k, sb, opts.ReapPolicy, ui); err != nil {
-		ui.Warnf("reap failed: %v", err)
+
+	if shouldReap(sessionErr) {
+		if err := reapOnLastClient(ctx, a, k, sb, policy, ui); err != nil {
+			ui.Warnf("reap failed: %v", err)
+		}
+	}
+
+	return sessionErr
+}
+
+// alwaysReap is the attach reap predicate: an attach reaps on the last client
+// even when the attach itself failed.
+func alwaysReap(error) bool { return true }
+
+// serveOnlyShouldReap reports whether a serve-only session's end is reap-able: a
+// clean exit (nil) or a user cancel reaps, while any other payload error is an
+// abnormal end that skips the reap, leaving the VM to its idle timeout. The same
+// predicate classifies the result the caller sees: a reap-able exit reports a
+// clean ExitError 0, an abnormal one is returned to the caller.
+func serveOnlyShouldReap(sessionErr error) bool {
+	return sessionErr == nil || errors.Is(sessionErr, context.Canceled)
+}
+
+// runServeOnlySession supplies the serve-only payload around the shared client
+// session lifecycle: hold the VM (keeper exec) until ctx is done, then report a
+// clean exit.
+func runServeOnlySession(
+	ctx context.Context,
+	a agent.Resolved,
+	k state.Key,
+	sb msb.Sandbox,
+	policy options.ReapPolicy,
+	ui termio.UI,
+	hostPort int,
+) error {
+	sessionErr := withClientSession(
+		ctx,
+		k,
+		sb,
+		policy,
+		ui,
+		serveOnlyShouldReap,
+		a,
+		func(a agent.Resolved) error {
+			return runServeOnly(ctx, a, sb, ui, hostPort)
+		},
+	)
+	if !serveOnlyShouldReap(sessionErr) {
+		return sessionErr
 	}
 	return &sandbox.ExitError{Code: 0}
 }
@@ -274,11 +341,11 @@ func Shell(ctx context.Context, opts options.RunOptions, mode options.Mode, ui t
 		return nil
 	}
 
+	opts.Trace.Record(lifecycle.Attach)
 	stopHostOpener := startHostOpener(ctx, ses, opts.OpenLinks, ui)
 	defer stopHostOpener()
 
-	projectSlug := ses.Key().Slug
-	return runAttach(ctx, sb, projectSlug, ses.GuestCWD(), ui, opts, "-l")
+	return runAttach(ctx, ses.Key(), sb, ses.GuestCWD(), ui, opts, "-l")
 }
 
 func finalizeRun(attachErr error, exitCode int) error {
@@ -291,53 +358,82 @@ func finalizeRun(attachErr error, exitCode int) error {
 	return &sandbox.ExitError{Code: exitCode}
 }
 
-// runAttach performs the shared lease-acquire, attach, explicit release,
-// reap-on-last-client, and finalize sequence for Run and Shell. The guest CWD
-// is applied to every agent attach; pi and Claude Code ignore the attach
-// target and rely solely on the working directory.
+// runAttach supplies the attach payload around the shared client session
+// lifecycle. The guest CWD is applied to every agent attach; pi and Claude Code
+// ignore the attach target and rely solely on the working directory.
+//
+// Both Run and Shell route their attach through here, so the SIGINT/SIGTERM
+// handling is shared: a signal cancels the attach context, AttachWith returns,
+// and the reset below clears the guest TUI's emulator modes (the residue the
+// SDK's termios restore does not cover) before the process exits.
 func runAttach(
 	ctx context.Context,
+	k state.Key,
 	sb msb.Sandbox,
-	projectSlug string,
 	guestCWD string,
 	ui termio.UI,
 	opts options.RunOptions,
 	bashArgs ...string,
 ) error {
-	a, _ := agent.Lookup(opts.Agent)
-	k := state.Key{Slug: projectSlug, Agent: a.Name()}
+	return withClientSession(
+		ctx,
+		k,
+		sb,
+		opts.ReapPolicy,
+		ui,
+		alwaysReap,
+		opts.ResolvedAgent,
+		func(agent.Resolved) error {
+			stopPressure := startPressureWatcher(ctx, sb, pressure.DefaultThreshold())
+			attachOpts := []msbSdk.AttachOption{msbSdk.WithAttachCwd(guestCWD)}
+			if opts.Root {
+				attachOpts = append(attachOpts, msbSdk.WithAttachUser(sandbox.RootUser))
+			}
+			exitCode, interrupted, attachErr := attachUntilSignal(ctx, sb, bashArgs, attachOpts)
+			// The guest TUI's emulator modes (alternate screen, mouse) survive
+			// a killed TUI; clear them before the launcher's post-attach
+			// messages re-enter the terminal. A clean exit restored them
+			// itself, and leaving the alternate screen again would restore a
+			// stale saved cursor. ui.StdOut() is the real os.Stdout here;
+			// resetTerminal's TTY check only accepts an *os.File, so a
+			// wrapping writer would silently disable the reset.
+			endedAbnormally := abnormalEnd(attachErr, exitCode) || interrupted
+			if endedAbnormally {
+				resetTerminal(ui.StdOut())
+			}
+			// Stop sampling and read the summary while the VM is still alive
+			// and before the lease is released and the VM reaped.
+			summary := stopPressure()
+			if summary.ReadErr != nil {
+				ui.Verbosef("pressure watcher: metrics read failed: %v", summary.ReadErr)
+			}
+			ui.Verbosef(
+				"memory pressure during attach: min headroom fraction %.2f, tripped %v",
+				summary.MinHeadroomFraction,
+				summary.Tripped,
+			)
+			if endedAbnormally && !interrupted {
+				offerMemoryRaiseAfterAttach(ctx, k, sb, summary, opts, ui)
+			}
+			return finalizeRun(attachErr, exitCode)
+		},
+	)
+}
 
-	// Acquire a client lease so state tracks this session.
-	release, acquireErr := state.AcquireClientLease(k)
-	if acquireErr != nil {
-		ui.Warnf("client lease failed: %v", acquireErr)
-	}
-	defer func() {
-		if acquireErr == nil && release != nil {
-			release()
-		}
-	}()
-
-	// Attach to the sandbox and capture its exit code.
-	var exitCode int
-	var attachErr error
-	attachOpts := []msbSdk.AttachOption{msbSdk.WithAttachCwd(guestCWD)}
-	if opts.Root {
-		attachOpts = append(attachOpts, msbSdk.WithAttachUser(sandbox.RootUser))
-	}
-	exitCode, attachErr = sb.AttachWith(ctx, "/bin/bash", bashArgs, attachOpts...)
-
-	// Explicitly release the lease after attach returns, before reaping.
-	// This ensures state.CountActiveClients reflects only OTHER live clients.
-	// The deferred release above is a safety net.
-	if acquireErr == nil {
-		release()
-		release = nil
-	}
-
-	if err := reapOnLastClient(ctx, a, k, sb, opts.ReapPolicy, ui); err != nil {
-		ui.Warnf("reap failed: %v", err)
-	}
-
-	return finalizeRun(attachErr, exitCode)
+// attachUntilSignal runs the attach with SIGINT/SIGTERM canceling it, so a
+// signal ends the attach and the caller restores the terminal before exiting.
+// The signal handling is released when the attach returns: the post-attach
+// prompt keeps the default Ctrl-C behavior. interrupted reports whether a
+// signal ended the attach; the guest exit code and attach error are returned
+// alongside it.
+func attachUntilSignal(
+	ctx context.Context,
+	sb msb.Sandbox,
+	bashArgs []string,
+	attachOpts []msbSdk.AttachOption,
+) (int, bool, error) {
+	attachCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	exitCode, attachErr := sb.AttachWith(attachCtx, "/bin/bash", bashArgs, attachOpts...)
+	return exitCode, attachCtx.Err() != nil && ctx.Err() == nil, attachErr
 }

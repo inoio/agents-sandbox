@@ -16,7 +16,7 @@ starting point:
 - **Manual secrets** with `env.secret` or `env.secret.yaml`.
 - **Provision files and startup hooks** with the `home:` configuration key.
 
-> **Note:** If you are new to coding agents, set up your agent (opencode, opencode2, pi, claude-code, codex, or hermes) on your host first,
+> **Note:** If you are new to coding agents, set up your agent (opencode, opencode2, pi, claude-code, codex, hermes, or oh-my-pi) on your host first,
 > then come back here.
 
 Native host-agent configuration is never copied into the VM unless you opt in with `provision-host-config: true` (see
@@ -247,7 +247,7 @@ mkdir -p ~/.config/agents-sandbox/opencode
 cp opencode.jsonc ~/.config/agents-sandbox/opencode/opencode-model.jsonc
 ```
 
-(For opencode2 / pi / claude-code / codex / hermes, use `~/.config/agents-sandbox/opencode2/` / `.../pi/` / `.../claude/` / `.../codex/` / `.../hermes/`. An
+(For opencode2 / pi / claude-code / codex / hermes / oh-my-pi, use `~/.config/agents-sandbox/opencode2/` / `.../pi/` / `.../claude/` / `.../codex/` / `.../hermes/` / `.../oh-my-pi/`. An
 `opencode2` dir is separate from the `opencode` one; see the fallback note in
 [Agent configuration]({% link configuration/agent.md %}).) Snippets matching
 the agent's pattern (e.g. `opencode*.json*`) are deep-merged into the VM config; see
@@ -275,6 +275,12 @@ ANTHROPIC_API_KEY:
 The real value remains on the host. The VM sees a placeholder and Microsandbox substitutes the value only for an allowed,
 verifiable destination. See [Secrets]({% link configuration/secrets.md %}) for file formats, precedence, placeholder behavior,
 and agent-specific examples.
+
+For keys that are specific to one project rather than every project, put them in the per-slug secrets file
+`~/.config/agents-sandbox/<slug>/env.secret.yaml` (slug = the project's repo slug, so every clone of one remote shares
+the file). It merges after the generic user file and before the project's, and keeps the keys off the committed project
+config.
+
 
 For Claude Code, use one of the documented environment variables:
 

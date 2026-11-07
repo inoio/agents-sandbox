@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,27 +18,63 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// opencodeAgent returns the registered opencode profile, which implements
-// SessionStatusProvider (the v1 session-status endpoints the quiescence wait
-// polls).
-func opencodeAgent(t *testing.T) agent.Agent {
-	t.Helper()
-	a, ok := agent.Lookup("opencode")
-	if !ok {
-		t.Fatal("opencode agent not registered")
+func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	origInterval := waitQuiescentPollInterval
+	waitQuiescentPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { waitQuiescentPollInterval = origInterval })
+
+	slug := "reattachproj"
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{
+		Name_: "test-vm",
+		ShellOut: map[string]msb.ShellResult{
+			"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+				true, 0, `{"s1":{"type":"busy","attempt":0}}`, "", nil,
+			),
+		},
 	}
-	return a
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+	}
+
+	// A client reattaches 20ms into the wait, so a later poll sees an active
+	// client and aborts the reaper.
+	hold := make(chan struct{})
+	defer close(hold)
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		release, _ := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
+		<-hold
+		if release != nil {
+			release()
+		}
+	}()
+
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeResolved(t),
+		state.Key{Slug: slug, Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("reapOnLastClient: expected no error on client reattach, got %v", err)
+	}
+
+	found := false
+	for _, v := range ui.VerboseCalls {
+		if strings.Contains(v, "client reattached during wait") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected reattach verbose log, got %v", ui.VerboseCalls)
+	}
 }
-
-// noSessionStatusAgent implements agent.Agent without SessionStatusProvider,
-// modeling daemons whose servers expose no v1 session-status endpoints.
-type noSessionStatusAgent struct{}
-
-func (noSessionStatusAgent) Name() string               { return "no-session-status" }
-func (noSessionStatusAgent) ConfigDirName() string      { return "nosessionstatus" }
-func (noSessionStatusAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec{} }
-
-// --- ReapOnLastClient: no-op when other clients active ---
 
 func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -47,11 +84,12 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 	defer release()
 
 	ui := &termio.Mock{}
-	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+	var shellCalls, execCalls []string
+	sb := &msb.MockSandbox{Name_: "test-vm", ShellCalls: &shellCalls, ExecCalls: &execCalls}
 
 	err := reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -59,6 +97,13 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(shellCalls) != 0 || len(execCalls) != 0 {
+		t.Errorf(
+			"reaper touched the sandbox while another client is attached: shell %v, exec %v",
+			shellCalls,
+			execCalls,
+		)
 	}
 
 	for _, w := range ui.WarnCalls {
@@ -84,7 +129,7 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 
 	err = reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -94,8 +139,6 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 		t.Fatalf("expected no error (lease held), got %v", err)
 	}
 }
-
-// --- ReapOnLastClient: auto-stop mode ---
 
 func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -107,7 +150,7 @@ func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing
 
 	err := reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
@@ -135,8 +178,6 @@ func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing
 	}
 }
 
-// --- ReapOnLastClient: wait mode, idle from start ---
-
 func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -159,7 +200,7 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 
 	err := reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -169,8 +210,6 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 		t.Fatalf("ReapOnLastClient: expected no error, got %v", err)
 	}
 }
-
-// --- ReapOnLastClient: wait mode, empty status ---
 
 func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -188,7 +227,7 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 
 	err := reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -199,7 +238,93 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 	}
 }
 
-// --- ReapOnLastClient: context cancelled ---
+// TestReapOnLastClient_WaitMode_RetryBelowCapKeepsWaiting pins the tolerated
+// retry rule through the wait loop, not just the quiescence helper: a session
+// retrying below auto-stop-max-session-retries is in-flight work, so the reaper
+// keeps holding the VM. The short context turns "kept waiting" into a deadline
+// error; releasing early would return nil.
+func TestReapOnLastClient_WaitMode_RetryBelowCapKeepsWaiting(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer shortCancel()
+
+	ui := &termio.Mock{}
+	sb := &msb.MockSandbox{
+		Name_: "test-vm",
+		ShellOut: map[string]msb.ShellResult{
+			"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+				true, 0, `{"s1":{"type":"retry","attempt":5}}`, "", nil,
+			),
+		},
+	}
+	sb.ExecOut = map[string]msb.ShellResult{
+		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+	}
+
+	err := reapOnLastClient(
+		shortCtx,
+		opencodeResolved(t),
+		state.Key{Slug: "retrybelowproj", Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("reaper returned %v; a below-cap retry must hold the VM until the context expires", err)
+	}
+	if !slices.ContainsFunc(ui.VerboseCalls, func(line string) bool {
+		return strings.Contains(line, "retry=below-cap")
+	}) {
+		t.Errorf("expected the wait line to report the below-cap retry state, got %v", ui.VerboseCalls)
+	}
+}
+
+// TestReapOnLastClient_WaitMode_RetryAtOrOverCapReaps pins the other side of the
+// boundary through the wait loop: once a retry reaches
+// auto-stop-max-session-retries it has spent the tolerated attempts and must no
+// longer hold the VM. The bounded context only guards a regression that holds
+// forever.
+func TestReapOnLastClient_WaitMode_RetryAtOrOverCapReaps(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	tests := []struct {
+		name   string
+		status string
+	}{
+		{"at cap", `{"s1":{"type":"retry","attempt":10}}`},
+		{"over cap", `{"s1":{"type":"retry","attempt":11}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			ui := &termio.Mock{}
+			sb := &msb.MockSandbox{
+				Name_: "test-vm",
+				ShellOut: map[string]msb.ShellResult{
+					"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(true, 0, tt.status, "", nil),
+				},
+			}
+			sb.ExecOut = map[string]msb.ShellResult{
+				"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+			}
+
+			err := reapOnLastClient(
+				ctx,
+				opencodeResolved(t),
+				state.Key{Slug: "retrycapproj", Agent: "opencode"},
+				sb,
+				options.ReapPolicy{},
+				ui,
+			)
+			if err != nil {
+				t.Fatalf("reaper returned %v; a retry at or over the cap must release the VM", err)
+			}
+		})
+	}
+}
 
 func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -226,7 +351,7 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 
 	err := reapOnLastClient(
 		shortCtx,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: "ctxproj", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -257,7 +382,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
 	}
 	err := reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -289,7 +414,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.
 	}
 	err := reapOnLastClient(
 		shortCtx,
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -298,9 +423,12 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.
 	if err == nil {
 		t.Fatal("expected error when context times out (session stays busy)")
 	}
+	if !slices.ContainsFunc(ui.VerboseCalls, func(line string) bool {
+		return strings.Contains(line, "question status poll failed")
+	}) {
+		t.Errorf("expected the question poll failure logged, got %v", ui.VerboseCalls)
+	}
 }
-
-// --- ReapOnLastClient: nil sandbox ---
 
 func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -318,7 +446,7 @@ func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
 			ui := &termio.Mock{}
 			err := reapOnLastClient(
 				context.Background(),
-				opencodeAgent(t),
+				opencodeResolved(t),
 				state.Key{Slug: "nilproj", Agent: "opencode"},
 				nil,
 				tt.policy,
@@ -331,8 +459,6 @@ func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
 	}
 }
 
-// --- ReapOnLastClient: agent without session-status endpoints skips the wait ---
-
 func TestReapOnLastClient_NoSessionStatusProvider_SkipsWait(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -342,7 +468,7 @@ func TestReapOnLastClient_NoSessionStatusProvider_SkipsWait(t *testing.T) {
 
 	err := reapOnLastClient(
 		context.Background(),
-		noSessionStatusAgent{},
+		agent.Resolve(noSessionStatusAgent{}),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -357,8 +483,6 @@ func TestReapOnLastClient_NoSessionStatusProvider_SkipsWait(t *testing.T) {
 		t.Errorf("expected no spinner, got %d spinner calls", len(ui.SpinnerCalls))
 	}
 }
-
-// --- ReapOnLastClient: does not fail successful attach ---
 
 func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -389,7 +513,7 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 
 	err = reapOnLastClient(
 		context.Background(),
-		opencodeAgent(t),
+		opencodeResolved(t),
 		state.Key{Slug: slug, Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -399,8 +523,6 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 		t.Fatalf("ReapOnLastClient should not fail: %v", err)
 	}
 }
-
-// --- ReapOnLastClient: skips agents without session-status endpoints ---
 
 func TestReapOnLastClientSkipsNonDaemonAgent(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
@@ -415,7 +537,7 @@ func TestReapOnLastClientSkipsNonDaemonAgent(t *testing.T) {
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 	if err := reapOnLastClient(
 		context.Background(),
-		a,
+		agent.Resolve(a),
 		state.Key{Slug: "slug", Agent: "opencode"},
 		sb,
 		options.ReapPolicy{},
@@ -428,243 +550,302 @@ func TestReapOnLastClientSkipsNonDaemonAgent(t *testing.T) {
 	}
 }
 
-// --- quiescenceOf unit tests ---
+// TestReapOnLastClient_CanceledContextStillWarns covers the same serve-only exit
+// through the reaper's entry point: a canceled context must not suppress the
+// running-container warning on the last-client detach.
+func TestReapOnLastClient_CanceledContextStillWarns(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
 
-func TestQuiescenceOf_AllIdle(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
-		"s1": {Type: "idle", Attempt: 0},
-	}, map[string]bool{}, 10)
-	checkQuiescence(t, "all idle", busy, stuck, 0, false)
-}
+	sb := canceledContextSandbox{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{
+		ShellOut: map[string]msb.ShellResult{
+			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+		},
+	})}
+	ui := &termio.Mock{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 
-func TestQuiescenceOf_AllRetryUnderCap(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
-		"s1": {Type: "retry", Attempt: 5},
-	}, map[string]bool{}, 10)
-	checkQuiescence(t, "all retry under cap", busy, stuck, 0, false)
-}
-
-func TestQuiescenceOf_OneBusy(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
-		"s1": {Type: "busy", Attempt: 0},
-	}, map[string]bool{}, 10)
-	checkQuiescence(t, "one busy", busy, stuck, 1, false)
-}
-
-func TestQuiescenceOf_MultipleBusy(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
-		"s1": {Type: "busy", Attempt: 0},
-		"s2": {Type: "busy", Attempt: 0},
-	}, map[string]bool{}, 10)
-	checkQuiescence(t, "multiple busy", busy, stuck, 2, false)
-}
-
-func TestQuiescenceOf_RetryAtCap(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
-		"s1": {Type: "retry", Attempt: 10},
-	}, map[string]bool{}, 10)
-	checkQuiescence(t, "retry at cap", busy, stuck, 0, true)
-}
-
-func TestQuiescenceOf_RetryOverCap(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
-		"s1": {Type: "retry", Attempt: 11},
-	}, map[string]bool{}, 10)
-	checkQuiescence(t, "retry over cap", busy, stuck, 0, true)
-}
-
-func TestQuiescenceOf_MixedBusyAndRetry(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
-		"s1": {Type: "busy", Attempt: 0},
-		"s2": {Type: "retry", Attempt: 12},
-	}, map[string]bool{}, 10)
-	checkQuiescence(t, "mixed busy and retry", busy, stuck, 1, true)
-}
-
-func TestQuiescenceOf_Empty(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{}, map[string]bool{}, 10)
-	checkQuiescence(t, "empty", busy, stuck, 0, false)
-}
-
-func TestQuiescenceOf_MixedAllStates(t *testing.T) {
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
-		"s1": {Type: "idle", Attempt: 0},
-		"s2": {Type: "busy", Attempt: 1},
-		"s3": {Type: "retry", Attempt: 5},
-	}, map[string]bool{}, 10)
-	checkQuiescence(t, "mixed all", busy, stuck, 1, false)
-}
-
-func TestQuiescenceOf_RetryRetryBoundary(t *testing.T) {
-	// attempt = cap - 1 → not stuck
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
-		"s1": {Type: "retry", Attempt: 9},
-	}, map[string]bool{}, 10)
-	checkQuiescence(t, "retry one below cap", busy, stuck, 0, false)
-
-	// attempt = cap → stuck
-	_, stuck = quiescenceOf(map[string]SessionStatus{
-		"s1": {Type: "retry", Attempt: 10},
-	}, map[string]bool{}, 10)
-	if !stuck {
-		t.Error("attempt 10 == cap 10 should be stuck")
-	}
-}
-
-func TestQuiescenceOf_BusyWithQuestionNotCounted(t *testing.T) {
-	pending := map[string]bool{"s1": true}
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
-		"s1": {Type: "busy", Attempt: 0},
-	}, pending, 10)
-	checkQuiescence(t, "busy with question", busy, stuck, 0, false)
-}
-
-func TestQuiescenceOf_BusyWithoutQuestionCounted(t *testing.T) {
-	pending := map[string]bool{}
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
-		"s1": {Type: "busy", Attempt: 0},
-	}, pending, 10)
-	checkQuiescence(t, "busy no question", busy, stuck, 1, false)
-}
-
-func TestQuiescenceOf_MixedQuestionAndWork(t *testing.T) {
-	pending := map[string]bool{"s1": true}
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
-		"s1": {Type: "busy", Attempt: 0},
-		"s2": {Type: "busy", Attempt: 0},
-	}, pending, 10)
-	checkQuiescence(t, "mixed", busy, stuck, 1, false)
-}
-
-func TestQuiescenceOf_PendingDoesNotAffectRetry(t *testing.T) {
-	pending := map[string]bool{"s1": true}
-	busy, stuck := quiescenceOf(map[string]SessionStatus{
-		"s1": {Type: "retry", Attempt: 12},
-	}, pending, 10)
-	checkQuiescence(t, "retry unaffected", busy, stuck, 0, true)
-}
-
-// --- decodeSessionStates unit tests ---
-
-func TestDecodeSessionStates_ValidJSON(t *testing.T) {
-	input := `{"s1":{"type":"busy","attempt":3},"s2":{"type":"idle","attempt":0}}`
-	got, err := decodeSessionStates(input)
+	err := reapOnLastClient(
+		ctx,
+		opencodeResolved(t),
+		state.Key{Slug: "canceledprobe", Agent: "opencode"},
+		sb,
+		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		ui,
+	)
 	if err != nil {
-		t.Fatalf("decodeSessionStates: %v", err)
+		t.Fatalf("expected no error, got %v", err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(got))
-	}
-	if got["s1"].Type != "busy" || got["s1"].Attempt != 3 {
-		t.Errorf("s1 = %+v, want {Type:busy Attempt:3}", got["s1"])
-	}
-	if got["s2"].Type != "idle" || got["s2"].Attempt != 0 {
-		t.Errorf("s2 = %+v, want {Type:idle Attempt:0}", got["s2"])
+	if len(ui.WarnCalls) == 0 || !strings.Contains(ui.WarnCalls[0], "container") {
+		t.Errorf("expected a running-container warning despite the canceled context, got %v", ui.WarnCalls)
 	}
 }
 
-func TestDecodeSessionStates_EmptyJSON(t *testing.T) {
-	got, err := decodeSessionStates(`{}`)
+// TestReapOnLastClient_WarnsWhenContainersRunning verifies the warning fires on
+// the last-client detach when docker is in use and containers are still up. It
+// uses auto-stop mode, where the reaper returns immediately, so the warning must
+// precede that return.
+func TestReapOnLastClient_WarnsWhenContainersRunning(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	sb := msb.NewMockSandbox(msb.SandboxOpts{
+		ShellOut: map[string]msb.ShellResult{
+			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+		},
+	})
+	ui := &termio.Mock{}
+
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeResolved(t),
+		state.Key{Slug: "dockerwarnproj", Agent: "opencode"},
+		sb,
+		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		ui,
+	)
 	if err != nil {
-		t.Fatalf("decodeSessionStates: %v", err)
+		t.Fatalf("expected no error, got %v", err)
 	}
-	if len(got) != 0 {
-		t.Errorf("expected 0 entries, got %d", len(got))
+	if len(ui.WarnCalls) == 0 || !strings.Contains(ui.WarnCalls[0], "container") {
+		t.Errorf("expected a running-container warning, got %v", ui.WarnCalls)
 	}
 }
 
-func TestDecodeSessionStates_EmptyString(t *testing.T) {
-	got, err := decodeSessionStates("")
+// TestReapOnLastClient_WarnsWhenContainersRunningWithoutAutoStop covers the
+// holding path: the warning is independent of auto-stop mode, so it fires before
+// the quiescence wait begins.
+func TestReapOnLastClient_WarnsWhenContainersRunningWithoutAutoStop(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	sb := msb.NewMockSandbox(msb.SandboxOpts{
+		ShellOut: map[string]msb.ShellResult{
+			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+		},
+	})
+	ui := &termio.Mock{}
+
+	// noSessionStatusAgent returns before the quiescence wait, so the test does
+	// not need a session-status stub; the warning runs before that branch.
+	err := reapOnLastClient(
+		context.Background(),
+		agent.Resolve(noSessionStatusAgent{}),
+		state.Key{Slug: "dockerwarnholdproj", Agent: "opencode"},
+		sb,
+		options.ReapPolicy{},
+		ui,
+	)
 	if err != nil {
-		t.Fatalf("decodeSessionStates: %v", err)
+		t.Fatalf("expected no error, got %v", err)
 	}
-	if len(got) != 0 {
-		t.Errorf("expected 0 entries, got %d", len(got))
+	if len(ui.WarnCalls) == 0 || !strings.Contains(ui.WarnCalls[0], "container") {
+		t.Errorf("expected a running-container warning, got %v", ui.WarnCalls)
 	}
 }
 
-func TestDecodeSessionStates_MalformedJSON(t *testing.T) {
-	_, err := decodeSessionStates(`{invalid json`)
+// TestReapOnLastClient_ProbesRegardlessOfDockerSetting verifies the probe runs
+// even though nothing in the policy names docker: a project Dockerfile can
+// enable docker in the image (a final-stage marker or a managed docker base), so
+// the config/flag setting cannot decide whether the VM can hold containers. The
+// probe self-guards, so a docker-less VM's failure warns nothing.
+func TestReapOnLastClient_ProbesRegardlessOfDockerSetting(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	var shellCalls []string
+	sb := &msb.MockSandbox{Name_: "test-vm", ShellCalls: &shellCalls}
+	ui := &termio.Mock{}
+
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeResolved(t),
+		state.Key{Slug: "nodockerproj", Agent: "opencode"},
+		sb,
+		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !slices.Contains(shellCalls, runningContainersProbeCmd) {
+		t.Errorf("probe must run regardless of the docker setting, got shell calls %v", shellCalls)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("an empty/failed probe must not warn, got %v", ui.WarnCalls)
+	}
+}
+
+// TestReapOnLastClient_NoContainerProbeWhenSandboxNil verifies the warning is
+// skipped when there is no sandbox to probe, so a nil held sandbox cannot panic.
+func TestReapOnLastClient_NoContainerProbeWhenSandboxNil(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	ui := &termio.Mock{}
+
+	err := reapOnLastClient(
+		context.Background(),
+		opencodeResolved(t),
+		state.Key{Slug: "nilsandboxproj", Agent: "opencode"},
+		nil,
+		options.ReapPolicy{AutoStopOnActiveSessions: true},
+		ui,
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("expected no warnings without a sandbox, got %v", ui.WarnCalls)
+	}
+}
+
+// TestReapOnLastClient_SandboxReplacedOrGoneStopsWaiting covers the terminal
+// branch of the quiescence wait: when the held sandbox was replaced or removed,
+// the session-status poll fails closed and the reaper returns immediately
+// instead of spinning forever on a sandbox that no longer exists.
+func TestReapOnLastClient_SandboxReplacedOrGoneStopsWaiting(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"replaced", &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"}},
+		{"gone", &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ui := &termio.Mock{}
+			sb := &msb.MockSandbox{Name_: "test-vm", ShellErr: tc.err}
+
+			err := reapOnLastClient(
+				context.Background(),
+				opencodeResolved(t),
+				state.Key{Slug: "replacedproj-" + tc.name, Agent: "opencode"},
+				sb,
+				options.ReapPolicy{},
+				ui,
+			)
+			if err != nil {
+				t.Fatalf("expected nil error on replaced/gone sandbox, got %v", err)
+			}
+			found := false
+			for _, v := range ui.VerboseCalls {
+				if strings.Contains(v, "replaced or removed") {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected a verbose stop message, got %v", ui.VerboseCalls)
+			}
+		})
+	}
+}
+
+// TestWarnRunningContainers covers the container probe: it warns only when the
+// command succeeds and reports at least one running container.
+func TestWarnRunningContainers(t *testing.T) {
+	tests := []struct {
+		name     string
+		out      msb.ShellResult
+		shellErr error
+		wantWarn bool
+	}{
+		{"containers", msb.NewTestResult(true, 0, "id1\nid2\n", "", nil), nil, true},
+		{"none", msb.NewTestResult(true, 0, "", "", nil), nil, false},
+		{"blank lines", msb.NewTestResult(true, 0, "\n  \n", "", nil), nil, false},
+		// A failed probe that still printed a container id must not warn: the
+		// exit status, not the output alone, decides.
+		{"probe failure with output", msb.NewTestResult(false, 1, "id1\n", "cannot connect", nil), nil, false},
+		{"nil result", nil, nil, false},
+		{"shell error", nil, errors.New("boom"), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ui := &termio.Mock{}
+			sb := msb.NewMockSandbox(msb.SandboxOpts{
+				ShellOut: map[string]msb.ShellResult{runningContainersProbeCmd: tt.out},
+				ShellErr: tt.shellErr,
+			})
+			warnRunningContainers(context.Background(), sb, ui)
+			if got := len(ui.WarnCalls) > 0; got != tt.wantWarn {
+				t.Errorf("warn = %v (calls %v), want %v", got, ui.WarnCalls, tt.wantWarn)
+			}
+			if tt.wantWarn && !strings.Contains(ui.WarnCalls[0], "2") {
+				t.Errorf("warning must carry the container count, got %q", ui.WarnCalls[0])
+			}
+		})
+	}
+}
+
+// TestWarnRunningContainersShellErrorWithPartialResultDoesNotWarn pins the error
+// guard: an error from Shell must short-circuit before any output is counted,
+// even when a result is also returned.
+func TestWarnRunningContainersShellErrorWithPartialResultDoesNotWarn(t *testing.T) {
+	ui := &termio.Mock{}
+	sb := errWithResultSandbox{
+		MockSandbox: &msb.MockSandbox{},
+		out:         msb.NewTestResult(true, 0, "id1\n", "", nil),
+		err:         errors.New("partial failure"),
+	}
+	warnRunningContainers(context.Background(), sb, ui)
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("a Shell error must not warn even with a partial result, got %v", ui.WarnCalls)
+	}
+}
+
+// TestWarnRunningContainers_CanceledContextStillWarns pins the serve-only exit
+// path: the triggering context is canceled by the time the probe runs, and a
+// probe that used it directly (as the SDK aborts on cancellation) would silently
+// drop the warning. The probe must run on its own non-canceled context.
+func TestWarnRunningContainers_CanceledContextStillWarns(t *testing.T) {
+	ui := &termio.Mock{}
+	sb := canceledContextSandbox{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{
+		ShellOut: map[string]msb.ShellResult{
+			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+		},
+	})}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	warnRunningContainers(ctx, sb, ui)
+	if len(ui.WarnCalls) == 0 || !strings.Contains(ui.WarnCalls[0], "container") {
+		t.Errorf("probe must survive a canceled context, got warnings %v", ui.WarnCalls)
+	}
+}
+
+func TestSessionStatesShellError(t *testing.T) {
+	sb := &msb.MockSandbox{Name_: "test-vm"}
+	sb.ShellErr = errors.New("shell failed")
+
+	if _, err := sessionStates(context.Background(), sb, "curl -sf http://127.0.0.1:4096/session/status"); err == nil {
+		t.Error("sessionStates() with Shell error should return error")
+	}
+}
+
+func TestSessionStatesNonSuccess(t *testing.T) {
+	sb := &msb.MockSandbox{Name_: "test-vm"}
+	sb.ShellOut = map[string]msb.ShellResult{
+		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(false, 7, "", "curl error", nil),
+	}
+
+	if _, err := sessionStates(context.Background(), sb, "curl -sf http://127.0.0.1:4096/session/status"); err == nil {
+		t.Error("sessionStates() with non-success result should return error")
+	}
+}
+
+func TestPendingQuestionSessionIDs_DecodeError(t *testing.T) {
+	sb := &msb.MockSandbox{
+		Name_: "test-vm",
+		ShellOut: map[string]msb.ShellResult{
+			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(true, 0, `{invalid`, "", nil),
+		},
+	}
+	_, err := pendingQuestionSessionIDs(
+		context.Background(),
+		sb,
+		"curl -sf http://127.0.0.1:4096/question",
+	)
 	if err == nil {
-		t.Fatal("expected error for malformed JSON")
-	}
-}
-
-func TestDecodeSessionStates_StringType(t *testing.T) {
-	_, err := decodeSessionStates(`"string"`)
-	if err == nil {
-		t.Fatal("expected error for non-object JSON type")
-	}
-}
-
-func TestDecodeSessionStates_ArrayType(t *testing.T) {
-	_, err := decodeSessionStates(`[]`)
-	if err == nil {
-		t.Fatal("expected error for array JSON type")
-	}
-}
-
-// --- options.ReapPolicy defaults ---
-
-func TestDefaultMaxSessionRetriesIsTen(t *testing.T) {
-	if defaultMaxSessionRetries != 10 {
-		t.Errorf("defaultMaxSessionRetries = %d, want 10", defaultMaxSessionRetries)
-	}
-}
-
-func TestReapPolicy_DefaultZeroValue(t *testing.T) {
-	policy := options.ReapPolicy{}
-	if policy.AutoStopOnActiveSessions {
-		t.Error("default AutoStopOnActiveSessions should be false")
-	}
-	if policy.MaxSessionRetries != 0 {
-		t.Errorf("default MaxSessionRetries = %d, want 0", policy.MaxSessionRetries)
-	}
-}
-
-func TestDecodeQuestionRequests_ValidArray(t *testing.T) {
-	input := `[{"id":"que_1","sessionID":"ses_a","questions":[{"question":"q"}]},{"id":"que_2","sessionID":"ses_b","questions":[{"question":"r"}]}]`
-	got, err := decodeQuestionRequests(input)
-	if err != nil {
-		t.Fatalf("decodeQuestionRequests: %v", err)
-	}
-	if len(got) != 2 {
-		t.Fatalf("expected 2 entries, got %d", len(got))
-	}
-	if got[0].SessionID != "ses_a" || got[1].SessionID != "ses_b" {
-		t.Errorf("unexpected sessionIDs: %+v", got)
-	}
-}
-
-func TestDecodeQuestionRequests_EmptyArray(t *testing.T) {
-	got, err := decodeQuestionRequests(`[]`)
-	if err != nil {
-		t.Fatalf("decodeQuestionRequests: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("expected 0 entries, got %d", len(got))
-	}
-}
-
-func TestDecodeQuestionRequests_EmptyString(t *testing.T) {
-	got, err := decodeQuestionRequests("")
-	if err != nil {
-		t.Fatalf("decodeQuestionRequests: %v", err)
-	}
-	if len(got) != 0 {
-		t.Errorf("expected 0 entries, got %d", len(got))
-	}
-}
-
-func TestDecodeQuestionRequests_MalformedJSON(t *testing.T) {
-	if _, err := decodeQuestionRequests(`{invalid`); err == nil {
-		t.Fatal("expected error for malformed JSON")
-	}
-}
-
-func TestDecodeQuestionRequests_NonArray(t *testing.T) {
-	if _, err := decodeQuestionRequests(`{}`); err == nil {
-		t.Fatal("expected error for non-array JSON")
+		t.Fatal("expected error when question response is malformed")
 	}
 }
 
@@ -720,36 +901,6 @@ func TestPendingQuestionSessionIDs_CurlFailure(t *testing.T) {
 	}
 }
 
-func checkQuiescence(t *testing.T, name string, busy int, stuck bool, wantBusy int, wantStuck bool) {
-	t.Helper()
-	if busy != wantBusy {
-		t.Errorf("%s: busy = %d, want %d", name, busy, wantBusy)
-	}
-	if stuck != wantStuck {
-		t.Errorf("%s: stuckRetry = %v, want %v", name, stuck, wantStuck)
-	}
-}
-
-func TestSessionStatesShellError(t *testing.T) {
-	sb := &msb.MockSandbox{Name_: "test-vm"}
-	sb.ShellErr = errors.New("shell failed")
-
-	if _, err := sessionStates(context.Background(), sb, "curl -sf http://127.0.0.1:4096/session/status"); err == nil {
-		t.Error("sessionStates() with Shell error should return error")
-	}
-}
-
-func TestSessionStatesNonSuccess(t *testing.T) {
-	sb := &msb.MockSandbox{Name_: "test-vm"}
-	sb.ShellOut = map[string]msb.ShellResult{
-		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(false, 7, "", "curl error", nil),
-	}
-
-	if _, err := sessionStates(context.Background(), sb, "curl -sf http://127.0.0.1:4096/session/status"); err == nil {
-		t.Error("sessionStates() with non-success result should return error")
-	}
-}
-
 func TestPendingQuestionSessionIDsShellError(t *testing.T) {
 	sb := &msb.MockSandbox{Name_: "test-vm"}
 	sb.ShellErr = errors.New("shell failed")
@@ -763,46 +914,302 @@ func TestPendingQuestionSessionIDsShellError(t *testing.T) {
 	}
 }
 
-// TestReapOnLastClient_SandboxReplacedOrGoneStopsWaiting covers the terminal
-// branch of the quiescence wait: when the held sandbox was replaced or removed,
-// the session-status poll fails closed and the reaper returns immediately
-// instead of spinning forever on a sandbox that no longer exists.
-func TestReapOnLastClient_SandboxReplacedOrGoneStopsWaiting(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-
-	cases := []struct {
-		name string
-		err  error
-	}{
-		{"replaced", &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"}},
-		{"gone", &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}},
+// TestDecodeSessionStates pins the /session/status decoding: an object of
+// session id to status, nothing for an empty body, and a refusal that keeps the
+// JSON error for anything else.
+func TestDecodeSessionStates(t *testing.T) {
+	got, err := decodeSessionStates(`{"s1":{"type":"busy","attempt":3},"s2":{"type":"idle","attempt":0}}`)
+	if err != nil || len(got) != 2 || got["s1"] != (SessionStatus{Type: "busy", Attempt: 3}) ||
+		got["s2"] != (SessionStatus{Type: "idle", Attempt: 0}) {
+		t.Fatalf("decodeSessionStates = %+v, %v; want s1 busy/3 and s2 idle/0", got, err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			ui := &termio.Mock{}
-			sb := &msb.MockSandbox{Name_: "test-vm", ShellErr: tc.err}
+	for _, empty := range []string{"", `{}`} {
+		if got, err := decodeSessionStates(empty); err != nil || len(got) != 0 {
+			t.Errorf("decodeSessionStates(%q) = %v, %v; want no sessions", empty, got, err)
+		}
+	}
+	for _, bad := range []string{`{invalid json`, `"string"`, `[]`} {
+		_, err := decodeSessionStates(bad)
+		if err == nil || !strings.Contains(err.Error(), "decode session status") || errors.Unwrap(err) == nil {
+			t.Errorf("decodeSessionStates(%q) error = %v, want the decode failure wrapping its cause", bad, err)
+		}
+	}
+}
 
-			err := reapOnLastClient(
-				context.Background(),
-				opencodeAgent(t),
-				state.Key{Slug: "replacedproj-" + tc.name, Agent: "opencode"},
-				sb,
-				options.ReapPolicy{},
-				ui,
-			)
-			if err != nil {
-				t.Fatalf("expected nil error on replaced/gone sandbox, got %v", err)
-			}
-			found := false
-			for _, v := range ui.VerboseCalls {
-				if strings.Contains(v, "replaced or removed") {
-					found = true
-					break
-				}
-			}
-			if !found {
-				t.Errorf("expected a verbose stop message, got %v", ui.VerboseCalls)
-			}
-		})
+// TestDecodeQuestionRequests pins the question-list decoding: an array of
+// requests, nothing for an empty body, and a refusal that keeps the JSON error
+// for anything else.
+func TestDecodeQuestionRequests(t *testing.T) {
+	got, err := decodeQuestionRequests(
+		`[{"id":"que_1","sessionID":"ses_a","questions":[{"question":"q"}]},{"id":"que_2","sessionID":"ses_b","questions":[{"question":"r"}]}]`,
+	)
+	if err != nil || len(got) != 2 || got[0].SessionID != "ses_a" || got[1].SessionID != "ses_b" {
+		t.Fatalf("decodeQuestionRequests = %+v, %v; want ses_a and ses_b", got, err)
+	}
+	for _, empty := range []string{"", `[]`} {
+		if got, err := decodeQuestionRequests(empty); err != nil || len(got) != 0 {
+			t.Errorf("decodeQuestionRequests(%q) = %v, %v; want no requests", empty, got, err)
+		}
+	}
+	for _, bad := range []string{`{invalid`, `{}`} {
+		_, err := decodeQuestionRequests(bad)
+		if err == nil || !strings.Contains(err.Error(), "decode question requests") || errors.Unwrap(err) == nil {
+			t.Errorf("decodeQuestionRequests(%q) error = %v, want the decode failure wrapping its cause", bad, err)
+		}
+	}
+}
+
+func TestQuiescenceOf_AllIdle(t *testing.T) {
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "idle", Attempt: 0},
+	}, map[string]bool{}, 10)
+	checkQuiescence(t, "all idle", busy, retry, 0, retryNone)
+}
+
+func TestQuiescenceOf_AllRetryUnderCap(t *testing.T) {
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "retry", Attempt: 5},
+	}, map[string]bool{}, 10)
+	checkQuiescence(t, "all retry under cap", busy, retry, 0, retryBelowCap)
+}
+
+func TestQuiescenceOf_OneBusy(t *testing.T) {
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "busy", Attempt: 0},
+	}, map[string]bool{}, 10)
+	checkQuiescence(t, "one busy", busy, retry, 1, retryNone)
+}
+
+func TestQuiescenceOf_MultipleBusy(t *testing.T) {
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "busy", Attempt: 0},
+		"s2": {Type: "busy", Attempt: 0},
+	}, map[string]bool{}, 10)
+	checkQuiescence(t, "multiple busy", busy, retry, 2, retryNone)
+}
+
+func TestQuiescenceOf_RetryAtCap(t *testing.T) {
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "retry", Attempt: 10},
+	}, map[string]bool{}, 10)
+	checkQuiescence(t, "retry at cap", busy, retry, 0, retryAtOrOverCap)
+}
+
+func TestQuiescenceOf_RetryOverCap(t *testing.T) {
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "retry", Attempt: 11},
+	}, map[string]bool{}, 10)
+	checkQuiescence(t, "retry over cap", busy, retry, 0, retryAtOrOverCap)
+}
+
+func TestQuiescenceOf_MixedBusyAndRetry(t *testing.T) {
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "busy", Attempt: 0},
+		"s2": {Type: "retry", Attempt: 12},
+	}, map[string]bool{}, 10)
+	checkQuiescence(t, "mixed busy and retry", busy, retry, 1, retryAtOrOverCap)
+}
+
+func TestQuiescenceOf_Empty(t *testing.T) {
+	busy, retry := quiescenceOf(map[string]SessionStatus{}, map[string]bool{}, 10)
+	checkQuiescence(t, "empty", busy, retry, 0, retryNone)
+}
+
+func TestQuiescenceOf_MixedAllStates(t *testing.T) {
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "idle", Attempt: 0},
+		"s2": {Type: "busy", Attempt: 1},
+		"s3": {Type: "retry", Attempt: 5},
+	}, map[string]bool{}, 10)
+	checkQuiescence(t, "mixed all", busy, retry, 1, retryBelowCap)
+}
+
+func TestQuiescenceOf_RetryRetryBoundary(t *testing.T) {
+	// attempt = cap - 1 → still below the cap, so it holds
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "retry", Attempt: 9},
+	}, map[string]bool{}, 10)
+	checkQuiescence(t, "retry one below cap", busy, retry, 0, retryBelowCap)
+
+	// attempt = cap → reached the cap, so it no longer holds
+	_, retry = quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "retry", Attempt: 10},
+	}, map[string]bool{}, 10)
+	if retry != retryAtOrOverCap {
+		t.Errorf("attempt 10 == cap 10: retry = %s, want %s", retry, retryAtOrOverCap)
+	}
+}
+
+// TestQuiescenceOf_RetryBelowCapWinsOverAtCap pins the precedence between the
+// retry states: an in-flight (below-cap) retry holds the VM even when another
+// session has already reached the cap, so the signal must be retryBelowCap.
+func TestQuiescenceOf_RetryBelowCapWinsOverAtCap(t *testing.T) {
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "retry", Attempt: 5},
+		"s2": {Type: "retry", Attempt: 12},
+	}, map[string]bool{}, 10)
+	checkQuiescence(t, "below-cap wins", busy, retry, 0, retryBelowCap)
+}
+
+func TestQuiescenceOf_BusyWithQuestionNotCounted(t *testing.T) {
+	pending := map[string]bool{"s1": true}
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "busy", Attempt: 0},
+	}, pending, 10)
+	checkQuiescence(t, "busy with question", busy, retry, 0, retryNone)
+}
+
+func TestQuiescenceOf_BusyWithoutQuestionCounted(t *testing.T) {
+	pending := map[string]bool{}
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "busy", Attempt: 0},
+	}, pending, 10)
+	checkQuiescence(t, "busy no question", busy, retry, 1, retryNone)
+}
+
+func TestQuiescenceOf_MixedQuestionAndWork(t *testing.T) {
+	pending := map[string]bool{"s1": true}
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "busy", Attempt: 0},
+		"s2": {Type: "busy", Attempt: 0},
+	}, pending, 10)
+	checkQuiescence(t, "mixed", busy, retry, 1, retryNone)
+}
+
+func TestQuiescenceOf_PendingDoesNotAffectRetry(t *testing.T) {
+	pending := map[string]bool{"s1": true}
+	busy, retry := quiescenceOf(map[string]SessionStatus{
+		"s1": {Type: "retry", Attempt: 12},
+	}, pending, 10)
+	checkQuiescence(t, "retry unaffected", busy, retry, 0, retryAtOrOverCap)
+}
+
+// TestRetryStateString pins the poll's retry labels, which the verbose wait
+// line reports.
+func TestRetryStateString(t *testing.T) {
+	tests := map[retryState]string{
+		retryNone:        "none",
+		retryBelowCap:    "below-cap",
+		retryAtOrOverCap: "at-or-over-cap",
+	}
+	for state, want := range tests {
+		if got := state.String(); got != want {
+			t.Errorf("retryState(%d).String() = %q, want %q", state, got, want)
+		}
+	}
+}
+
+func TestDefaultMaxSessionRetriesIsTen(t *testing.T) {
+	if defaultMaxSessionRetries != 10 {
+		t.Errorf("defaultMaxSessionRetries = %d, want 10", defaultMaxSessionRetries)
+	}
+}
+
+func TestReapPolicy_DefaultZeroValue(t *testing.T) {
+	policy := options.ReapPolicy{}
+	if policy.AutoStopOnActiveSessions {
+		t.Error("default AutoStopOnActiveSessions should be false")
+	}
+	if policy.MaxSessionRetries != 0 {
+		t.Errorf("default MaxSessionRetries = %d, want 0", policy.MaxSessionRetries)
+	}
+}
+
+// TestContainerProbeTimeout pins the probe budget. The probe answers instantly
+// or fails, so the ±1 mutations of the literal are unobservable through an
+// immediate mock — but the value is not a false equivalent: a daemon answering
+// between 4s and 5s warns at 5s and does not at 4s. Assert the exact duration,
+// as dockerdReadyTimeoutDefault and heavyweightReadyTimeout do.
+func TestContainerProbeTimeout(t *testing.T) {
+	if containerProbeTimeout != 5*time.Second {
+		t.Errorf("containerProbeTimeout = %s, want 5s", containerProbeTimeout)
+	}
+}
+
+func checkQuiescence(t *testing.T, name string, busy int, retry retryState, wantBusy int, wantRetry retryState) {
+	t.Helper()
+	if busy != wantBusy {
+		t.Errorf("%s: busy = %d, want %d", name, busy, wantBusy)
+	}
+	if retry != wantRetry {
+		t.Errorf("%s: retry = %s, want %s", name, retry, wantRetry)
+	}
+}
+
+// blockingExecSandbox runs Exec until its context is cancelled and the test
+// releases it, so a test can hold the command open after cancellation.
+type blockingExecSandbox struct {
+	msb.Sandbox
+
+	cancelled chan struct{}
+	release   chan struct{}
+}
+
+func (s *blockingExecSandbox) Exec(
+	ctx context.Context,
+	_ string,
+	_ []string,
+	_ ...msbSdk.ExecOption,
+) (msb.ShellResult, error) {
+	<-ctx.Done()
+	close(s.cancelled)
+	<-s.release
+	return nil, ctx.Err()
+}
+
+// TestKeepVMAliveStopEndsTheKeeper pins that stopping the keep-alive cancels
+// its command and blocks until that command has ended.
+func TestKeepVMAliveStopEndsTheKeeper(t *testing.T) {
+	sb := &blockingExecSandbox{
+		Sandbox:   msb.NewMockSandbox(msb.SandboxOpts{}),
+		cancelled: make(chan struct{}),
+		release:   make(chan struct{}),
+	}
+	stop := keepVMAlive(context.Background(), sb)
+	stopped := make(chan struct{})
+	go func() {
+		_ = stop()
+		close(stopped)
+	}()
+	select {
+	case <-sb.cancelled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stop() did not cancel the keeper command")
+	}
+	select {
+	case <-stopped:
+		t.Fatal("stop() returned while the keeper command was still running")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(sb.release)
+	select {
+	case <-stopped:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stop() did not return after the keeper command ended")
+	}
+}
+
+// TestReapOnLastClient_IdleSessionsSkipTheQuestionPoll pins that questions
+// are only listed when a session is busy, since only a busy session can be
+// waiting on one.
+func TestReapOnLastClient_IdleSessionsSkipTheQuestionPoll(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	var shellCalls []string
+	sb := &msb.MockSandbox{
+		Name_:      "test-vm",
+		ShellCalls: &shellCalls,
+		ShellOut: map[string]msb.ShellResult{
+			"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+				true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
+			),
+		},
+	}
+	err := reapOnLastClient(context.Background(), opencodeResolved(t), state.Key{Slug: "idleq", Agent: "opencode"}, sb,
+		options.ReapPolicy{}, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("reapOnLastClient: %v", err)
+	}
+	if slices.Contains(shellCalls, "curl -sf http://127.0.0.1:4096/question") {
+		t.Errorf("question list polled with no busy session: %v", shellCalls)
 	}
 }

@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"time"
 
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // Mount point constants used by volume operations (prefill, copy, edit).
@@ -21,8 +22,7 @@ const (
 	dstMount  = "/dst"
 )
 
-// homeVolumeClock is the clock HomeVolumeName timestamps from. It is a seam so
-// tests can control the generated names.
+// homeVolumeClock is the clock HomeVolumeName timestamps from.
 var homeVolumeClock = time.Now
 
 // HomeVolumeName generates a prefix-free volume name for the given
@@ -32,14 +32,19 @@ func HomeVolumeName(k state.Key) string {
 	return naming.HomeVolumeName(k.Slug, k.Agent, ts)
 }
 
-// Manager manages home-volume lifecycle for projects.
+// Manager manages home-volume lifecycle for projects. It holds only the
+// injected Docker client (for loading the runner image into a throwaway
+// sandbox); each operation takes the UI it reports through as a parameter.
 type Manager struct {
-	ui termio.UI
+	dclient docker.Client
 }
 
-// NewManager returns a volume manager backed by the given UI.
-func NewManager(ui termio.UI) *Manager {
-	return &Manager{ui: ui}
+// NewManager returns a volume manager that loads the runner image through the
+// given Docker client, resolved once at the command boundary. A zero-value
+// Manager{} is not usable: the throwaway-sandbox path needs the client, so
+// always construct through NewManager.
+func NewManager(dclient docker.Client) *Manager {
+	return &Manager{dclient: dclient}
 }
 
 // PrefillVolume builds a throwaway sandbox from the given image, mounts the
@@ -52,7 +57,7 @@ func (vm *Manager) PrefillVolume(
 	info image.ImageInfo,
 	ui termio.UI,
 ) error {
-	return withThrowawaySandbox(ctx, client, k, info, throwawaySandbox{
+	return withThrowawaySandbox(ctx, vm.dclient, client, k, info, throwawaySandbox{
 		purpose: "prefill",
 		mounts: map[string]msbSdk.MountConfig{
 			homeMount: msbSdk.Mount.Named(volumeName, msbSdk.MountOptions{}),
@@ -129,7 +134,7 @@ func (vm *Manager) ApplyHomeAction(
 
 // cleanupVolume removes the given volume best-effort after a failed operation
 // that created it, so an uncommitted volume does not linger as an orphan.
-func (vm *Manager) cleanupVolume(ctx context.Context, client msb.Client, name string, ui termio.UI) {
+func (vm *Manager) cleanupVolume(ctx context.Context, client msb.Client, name string, ui termio.Logger) {
 	if err := client.RemoveVolume(ctx, name); err != nil {
 		ui.Warnf("failed to remove new volume %q after error: %v", name, err)
 	}
@@ -140,7 +145,7 @@ func (vm *Manager) cleanupVolume(ctx context.Context, client msb.Client, name st
 // post-rename durability failure): deleting the volume then would leave the
 // saved state pointing at a removed volume.
 func (vm *Manager) cleanupUncommittedVolume(
-	ctx context.Context, client msb.Client, name string, commitErr error, ui termio.UI,
+	ctx context.Context, client msb.Client, name string, commitErr error, ui termio.Logger,
 ) {
 	if state.WriteInstalled(commitErr) {
 		return
@@ -157,7 +162,7 @@ func (vm *Manager) CopyVolume(
 	info image.ImageInfo,
 	ui termio.UI,
 ) error {
-	return withThrowawaySandbox(ctx, client, k, info, throwawaySandbox{
+	return withThrowawaySandbox(ctx, vm.dclient, client, k, info, throwawaySandbox{
 		purpose: "copy",
 		mounts: map[string]msbSdk.MountConfig{
 			srcMount: msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{}),

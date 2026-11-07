@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"slices"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-
-	"go.yaml.in/yaml/v3"
 )
 
 // Key identifies a project artifact by project slug and agent.
@@ -64,6 +64,13 @@ type NetworkState = FingerprintState
 // MountState tracks host bind-mount fingerprint data for a project.
 type MountState = FingerprintState
 
+// Install-provenance values of HomeState.AgentSource and HomeState.DockerSource,
+// baked into the runner image: the tool installed the component, or the user did.
+const (
+	AgentSourceTool = "tool"
+	AgentSourceUser = "user"
+)
+
 // HomeState represents the per-project state file contents.
 //
 //exhaustruct:ignore
@@ -79,7 +86,7 @@ type HomeState struct {
 	NetworkState    NetworkState `yaml:"network_state,omitempty"`
 	MountState      MountState   `yaml:"mount_state,omitempty"`
 
-	// RecoveredHomeVolume is the home volume a VM-only identity adoption (#144)
+	// RecoveredHomeVolume is the home volume a VM-only identity adoption
 	// preserved by destroying a legacy VM whose state file was lost. Adoption
 	// records it before the destroy, because the legacy VM is then gone and its
 	// mount can no longer be read; home resolution recovers it into HomeVolume
@@ -87,6 +94,11 @@ type HomeState struct {
 	// only while a recovery is pending, so an empty value means the state is
 	// settled.
 	RecoveredHomeVolume string `yaml:"recovered_home_volume,omitempty"`
+
+	// ResourcePressure records a detected VM resource-limit hit and whether the
+	// user has answered a raise offer for it, so the same hit is not re-offered
+	// (see specs/resource-limit-proposal.md).
+	ResourcePressure *ResourcePressureState `yaml:"resource_pressure,omitempty"`
 }
 
 // Offered reports whether the version has already had its rebuild prompt shown
