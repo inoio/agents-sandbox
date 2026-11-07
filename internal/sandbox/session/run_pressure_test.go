@@ -231,3 +231,173 @@ func TestOfferMemoryRaiseAfterAttachWitnessedTrip(t *testing.T) {
 		}
 	})
 }
+
+// dfFullTmp is the probe's df output with /tmp short of space.
+const dfFullTmp = "Filesystem 1024-blocks Used Available Capacity Mounted on\n" +
+	"overlay 4194304 1048576 3145728 25% /\n" +
+	"workspace_x 16777216 1048576 15728640 7% /workspace\n" +
+	"tmpfs 2097152 1996800 100352 96% /tmp\n"
+
+// diskProbeKey is the MockSandbox exec key of the disk probe.
+func diskProbeKey() string {
+	command, args := pressure.DiskProbeCommand()
+	return command + " " + strings.Join(args, " ")
+}
+
+// TestOfferDiskRaiseAfterAttachOffersAFullTmp pins the post-attach disk probe:
+// a /tmp short of space is offered with the run's /tmp size and saved, and the
+// user learns it applies on the next run.
+func TestOfferDiskRaiseAfterAttachOffersAFullTmp(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	for _, key := range []string{"AGENTS_SANDBOX_TMP_SIZE", "OPENCODE_SANDBOX_TMP_SIZE"} {
+		t.Setenv(key, "")
+	}
+	k := state.Key{Slug: "diskoffer", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	var suggested string
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
+		InputFn: func(_, defaultValue string) (string, error) {
+			suggested = defaultValue
+			return defaultValue, nil
+		},
+	}
+	sb := &msb.MockSandbox{
+		ExecOut: map[string]msb.ShellResult{diskProbeKey(): msb.NewTestResult(true, 0, dfFullTmp, "", nil)},
+	}
+
+	offerDiskRaiseAfterAttach(context.Background(), k, sb, options.RunOptions{TmpSize: "2G", Memory: "4G"}, ui)
+
+	if suggested != "3G" {
+		t.Errorf("suggested %q, want 3G from the run's 2G /tmp", suggested)
+	}
+	if !slices.ContainsFunc(ui.InfoCalls, func(message string) bool { return strings.Contains(message, "next run") }) {
+		t.Errorf("info messages %q, want the next-run notice", ui.InfoCalls)
+	}
+}
+
+// TestOfferDiskRaiseAfterAttachProbeFailureIsSilent pins that a failed probe
+// offers nothing and is logged only at verbose.
+func TestOfferDiskRaiseAfterAttachProbeFailureIsSilent(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "diskprobefail", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	ui := &termio.Mock{IsInteractiveResult: true}
+	sb := &msb.MockSandbox{ExecErr: errors.New("exec refused")}
+
+	offerDiskRaiseAfterAttach(context.Background(), k, sb, options.RunOptions{}, ui)
+
+	if len(ui.InfoCalls) != 0 || len(ui.WarnCalls) != 0 {
+		t.Errorf("info %q warn %q, want nothing on a failed probe", ui.InfoCalls, ui.WarnCalls)
+	}
+	if !slices.ContainsFunc(
+		ui.VerboseCalls,
+		func(message string) bool { return strings.Contains(message, "disk probe failed") },
+	) {
+		t.Errorf("verbose calls %q, want the probe failure", ui.VerboseCalls)
+	}
+}
+
+// deadlineRecordingSandbox records the deadline of the context its Exec runs
+// under, so a test can check the probe is bounded.
+type deadlineRecordingSandbox struct {
+	*msb.MockSandbox
+
+	deadline    time.Time
+	hasDeadline bool
+}
+
+func (s *deadlineRecordingSandbox) Exec(
+	ctx context.Context,
+	command string,
+	args []string,
+	options ...msbSdk.ExecOption,
+) (msb.ShellResult, error) {
+	s.deadline, s.hasDeadline = ctx.Deadline()
+	return s.MockSandbox.Exec(ctx, command, args, options...)
+}
+
+// TestOfferDiskRaiseAfterAttachBoundsTheProbe pins that the in-guest probe runs
+// under its own timeout, so a wedged guest cannot hang the end of a session.
+func TestOfferDiskRaiseAfterAttachBoundsTheProbe(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := state.Key{Slug: "diskprobetimeout", Agent: "opencode"}
+	seedSessionHomeState(t, k)
+	sb := &deadlineRecordingSandbox{MockSandbox: &msb.MockSandbox{ExecErr: errors.New("exec refused")}}
+	started := time.Now()
+
+	offerDiskRaiseAfterAttach(context.Background(), k, sb, options.RunOptions{}, &termio.Mock{})
+
+	const wantTimeout = 10 * time.Second
+	if !sb.hasDeadline || sb.deadline.Before(started.Add(wantTimeout)) ||
+		sb.deadline.After(started.Add(wantTimeout+time.Second)) {
+		t.Errorf("probe deadline = %v (set %v), want %v after the call", sb.deadline, sb.hasDeadline, wantTimeout)
+	}
+}
+
+// TestOfferDiskRaiseAfterAttachHonoursTheRecordedState pins that the probe's
+// offer reads the project's disk markers: an answered /tmp hit is not offered
+// again, a declined offer says nothing about the next run, and a missing state
+// file is logged at verbose.
+func TestOfferDiskRaiseAfterAttachHonoursTheRecordedState(t *testing.T) {
+	probe := func() *msb.MockSandbox {
+		return &msb.MockSandbox{
+			ExecOut: map[string]msb.ShellResult{diskProbeKey(): msb.NewTestResult(true, 0, dfFullTmp, "", nil)},
+		}
+	}
+	t.Run("answered hit", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		k := state.Key{Slug: "diskanswered", Agent: "opencode"}
+		seen := time.Now().Add(-time.Hour)
+		if err := state.RecoverHomeState(k, func(hs *state.HomeState, _ bool) (bool, error) {
+			hs.HomeVolume = "vol"
+			hs.DiskPressure = map[string]state.DiskPressureState{"tmp": {SeenAt: seen, OfferedAt: seen}}
+			return true, nil
+		}); err != nil {
+			t.Fatalf("seed state: %v", err)
+		}
+		prompted := false
+		ui := &termio.Mock{
+			IsInteractiveResult: true,
+			SelectFn: func(string, []termio.Choice, string) (string, error) {
+				prompted = true
+				return "keep", nil
+			},
+		}
+		offerDiskRaiseAfterAttach(context.Background(), k, probe(), options.RunOptions{}, ui)
+		if prompted {
+			t.Error("an answered /tmp hit was offered again")
+		}
+	})
+	t.Run("declined", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		k := state.Key{Slug: "diskdeclined", Agent: "opencode"}
+		seedSessionHomeState(t, k)
+		ui := &termio.Mock{
+			IsInteractiveResult: true,
+			SelectFn:            func(string, []termio.Choice, string) (string, error) { return "keep", nil },
+		}
+		offerDiskRaiseAfterAttach(context.Background(), k, probe(), options.RunOptions{}, ui)
+		if len(ui.InfoCalls) != 0 {
+			t.Errorf("info messages %q after a decline, want none", ui.InfoCalls)
+		}
+	})
+	t.Run("missing state", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		ui := &termio.Mock{}
+		offerDiskRaiseAfterAttach(
+			context.Background(),
+			state.Key{Slug: "disknostate", Agent: "opencode"},
+			probe(),
+			options.RunOptions{},
+			ui,
+		)
+		if !slices.ContainsFunc(
+			ui.VerboseCalls,
+			func(message string) bool { return strings.Contains(message, "reading home state") },
+		) {
+			t.Errorf("verbose calls %q, want the state read failure", ui.VerboseCalls)
+		}
+	})
+}

@@ -2,10 +2,12 @@ package session
 
 import (
 	"context"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
+	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/resourceproposal"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
@@ -51,5 +53,48 @@ func offerMemoryRaiseAfterAttach(
 	)
 	if raised != "" {
 		ui.Infof("The raised memory limit applies on your next run.")
+	}
+}
+
+// diskProbeTimeout bounds the in-guest df, so a wedged guest cannot hang the
+// end of a session.
+const diskProbeTimeout = 10 * time.Second
+
+// offerDiskRaiseAfterAttach probes the VM's disk limits with an in-guest df and
+// offers to raise any that ran short. It runs after every attach end except a
+// signal, since disk pressure rarely ends a session. Best-effort: a failed probe
+// or state read is logged at verbose and offers nothing.
+func offerDiskRaiseAfterAttach(
+	ctx context.Context,
+	k state.Key,
+	sb msb.Sandbox,
+	opts options.RunOptions,
+	ui termio.UI,
+) {
+	probeCtx, cancel := context.WithTimeout(ctx, diskProbeTimeout)
+	defer cancel()
+	command, args := pressure.DiskProbeCommand()
+	result, err := sb.Exec(probeCtx, command, args)
+	if err != nil {
+		ui.Verbosef("disk probe failed: %v (continuing)", err)
+		return
+	}
+	var markers map[string]state.DiskPressureState
+	if hs, readErr := state.ReadState(k); readErr != nil {
+		ui.Verbosef("reading home state for disk detection failed: %v (continuing)", readErr)
+	} else {
+		markers = hs.DiskPressure
+	}
+	raised := resourceproposal.DetectAndOfferDiskRaise(
+		k,
+		pressure.ParseDiskUsage(result.Stdout()),
+		markers,
+		resourceproposal.WithHostFreeSpace(resourceproposal.RunDiskLimits(opts)),
+		opts,
+		configpaths.Get(),
+		ui,
+	)
+	if len(raised) > 0 {
+		ui.Infof("The raised disk limits apply on your next run.")
 	}
 }
