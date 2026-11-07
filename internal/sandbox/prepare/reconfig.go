@@ -227,7 +227,7 @@ func resolveReconfigDecision(
 // prepare path knows (the VM's configured and boot-maximum memory) and
 // delegates the detection, dedup, prompt, and persistence to the shared
 // resourceproposal core, so the next-launch and post-attach paths share one
-// anti-nag state machine (specs/resources/resource-limit-proposal.md §1, §7, §8). It
+// anti-nag state machine (specs/resources/resource-limit-proposal.md). It
 // returns the memory setting the user accepted and persisted, or "".
 func detectAndOfferMemoryRaise(
 	ctx context.Context,

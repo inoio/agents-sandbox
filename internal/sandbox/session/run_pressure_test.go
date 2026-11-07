@@ -85,7 +85,7 @@ func TestOfferMemoryRaiseAfterAttachUsesMetricsLimit(t *testing.T) {
 
 // TestAbnormalEnd pins the abnormal-end classification: a clean exit and an
 // ordinary non-zero exit are normal, while a signal death (-1) or an attach
-// error is abnormal (spec §1b: -1 is the guest's signal death; a non-zero exit
+// error is abnormal (spec: -1 is the guest's signal death; a non-zero exit
 // code is a deliberate agent exit, not a crash).
 func TestAbnormalEnd(t *testing.T) {
 	cases := []struct {

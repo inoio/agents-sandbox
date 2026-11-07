@@ -54,7 +54,7 @@ type MemoryLimits struct {
 // recovers below the re-arm level and trips again. Answering advances the
 // marker. The recorded OOM timestamp is preserved across a headroom re-arm, so
 // clearing pressure never replays an answered kill
-// (specs/resources/resource-limit-proposal.md §1, §7, §8).
+// (specs/resources/resource-limit-proposal.md).
 func DetectAndOfferMemoryRaise(
 	ctx context.Context,
 	k state.Key,
@@ -123,8 +123,7 @@ func DetectAndOfferMemoryRaise(
 	case !oomFound && unansweredOOM(marker):
 		// The recorded kill was never answered, but its log line has left the
 		// tail (or the VM was recreated). Offer it from the marker so a
-		// non-interactive run's promise is kept (specs/resources/resource-limit-proposal.md
-		// §1(d), §7).
+		// non-interactive run's promise is kept (specs/resources/resource-limit-proposal.md).
 		hit = pressure.Signal{
 			Kind:     pressure.KindMemory,
 			Evidence: pressure.EvidenceOOMLog,

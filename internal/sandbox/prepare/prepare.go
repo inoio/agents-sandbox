@@ -433,7 +433,7 @@ func planReconfigStage(
 	}
 	// A hit left by a previous session is offered before the decision, so a
 	// raise the user accepts applies to the VM this run creates or reconciles
-	// (specs/resources/resource-limit-proposal.md §1, §8). A skipVM (--dry-run-vm)
+	// (specs/resources/resource-limit-proposal.md). A skipVM (--dry-run-vm)
 	// prepare skips it: like the deferred home action, a dry run must not
 	// prompt or persist a change.
 	if !skipVM {

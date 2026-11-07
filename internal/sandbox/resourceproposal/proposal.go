@@ -135,7 +135,7 @@ func PersistMemory(
 	}
 	// The owning layer may be the project config: the write goes there so the
 	// raise is not shadowed. A project-config trust gate must also record the
-	// launcher's own change there (specs/resources/resource-limit-proposal.md §4).
+	// launcher's own change there (specs/resources/resource-limit-proposal.md).
 	if err := viperconfig.WriteSetting(dir, memoryKey, memorySetting(memoryMiB)); err != nil {
 		return "", err
 	}

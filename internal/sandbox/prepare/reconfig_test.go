@@ -2036,7 +2036,7 @@ func TestDetectAndOfferMemoryRaiseLogOrMetricsErrorIsBestEffort(t *testing.T) {
 	}
 }
 
-// TestDetectAndOfferMemoryRaiseNonInteractiveRecordsAndLaterOffers pins the §7
+// TestDetectAndOfferMemoryRaiseNonInteractiveRecordsAndLaterOffers pins the
 // deferral: a non-interactive launch records the hit but does not answer it, so
 // the next interactive launch offers it.
 func TestDetectAndOfferMemoryRaiseNonInteractiveRecordsAndLaterOffers(t *testing.T) {

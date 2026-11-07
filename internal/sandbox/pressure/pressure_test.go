@@ -313,7 +313,7 @@ func TestRecoveredBelowReArmLevel(t *testing.T) {
 // interaction: the absolute floor trips independently of the percent, so a
 // small-limit snapshot can be below ReArmPercent and still under pressure. It
 // must not report recovered, or an answered headroom offer re-arms and re-nags
-// on every launch (specs/resources/resource-limit-proposal.md §8).
+// on every launch (specs/resources/resource-limit-proposal.md).
 func TestRecoveredFloorTrippedButBelowReArm(t *testing.T) {
 	threshold := DefaultThreshold()
 	// 1000 MiB limit, 700 MiB used: 70% (< 80% re-arm) but only 300 MiB free

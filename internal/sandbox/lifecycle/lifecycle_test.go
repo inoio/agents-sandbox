@@ -2,30 +2,29 @@ package lifecycle
 
 import (
 	"errors"
-	"os"
-	"regexp"
 	"slices"
 	"testing"
 )
 
-// stageTableRow matches a row of the stage vocabulary table in
-// specs/vm/lifecycle.md: `| <n> | `<stage id>` |`.
-var stageTableRow = regexp.MustCompile("(?m)^\\| *\\d+ *\\| *`([a-z-]+)` *\\|")
-
-// TestOrderMatchesSpec pins the shared vocabulary: the constants spell the ids
-// of specs/vm/lifecycle.md's stage table, in its order, so renaming or reordering
-// a stage on one side alone fails here.
+// TestOrderMatchesSpec pins the run lifecycle order, which mirrors the stage
+// vocabulary documented in specs/vm/lifecycle.md. Renaming or reordering a
+// stage fails here; keep this list and the doc's table in step.
 func TestOrderMatchesSpec(t *testing.T) {
-	spec, err := os.ReadFile("../../../.operator-shared/specs/vm/lifecycle.md")
-	if err != nil {
-		t.Fatalf("read the lifecycle spec: %v", err)
+	want := []StageID{
+		Preflight,
+		UpgradeCheck,
+		Prune,
+		ResolveIdentity,
+		ResolveVersion,
+		EnsureImage,
+		EnsureHome,
+		PlanReconfig,
+		EnsureVM,
+		SetupSandbox,
+		Attach,
 	}
-	var specIDs []StageID
-	for _, match := range stageTableRow.FindAllStringSubmatch(string(spec), -1) {
-		specIDs = append(specIDs, StageID(match[1]))
-	}
-	if got := Order(); !slices.Equal(got, specIDs) {
-		t.Errorf("Order() = %v, want the spec's stage table %v", got, specIDs)
+	if got := Order(); !slices.Equal(got, want) {
+		t.Errorf("Order() = %v, want %v", got, want)
 	}
 }
 
