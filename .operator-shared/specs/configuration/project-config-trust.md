@@ -93,7 +93,7 @@ are.
   declining aborts the run before any side effect and returns a cancellation the caller treats as a user
   decline.
 - The approved projection and its digest are written through the `RootState` transaction
-  (`state.WithRootState`, `project-state-transactions.md`), preserving every field the transaction does not
+  (`state.WithRootState`, `../state/state-model.md`), preserving every field the transaction does not
   own. The projection is stored canonically. It holds no value from the project secret files (their effect
   is structure-only by construction), while launcher-config values and file inputs are stored in their
   resolved/content form — so it is safe at rest only to the same degree the project files themselves are; a
@@ -151,7 +151,7 @@ are persisted (State), nothing else.
 - The approval is per **checkout**, not per agent: one checkout's config content is approved once and its
   agents share that approval. It is a section keyed by the checkout slug (`../identity/checkout-identity.md`) in the
   machine-global `RootState` — the per-`(slug, agent)` `HomeState` is the wrong scope, and a new file is
-  forbidden (`state-by-scope.md`, `project-state-transactions.md`). The section holds the approved
+  forbidden (`../state/state-model.md`). The section holds the approved
   projection and its digest; the projection is retained so a later change can be shown as resolved
   old → new, and it holds no value from the project secret files. Losing `RootState` loses the approval, so
   the next run re-approves — the safe direction.

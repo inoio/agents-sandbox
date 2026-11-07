@@ -89,7 +89,7 @@ always a fresh version: for a user-provided agent it, like `run`, ignores the pi
 
 The image-ensuring paths are the writers of record for the baseline: `image.EnsureImage` (via `ImageInfo.AgentVersion`)
 and `image.Build` (which returns the `ImageInfo` from `EnsureLoaded`) surface the baked release so the caller records it
-in `HomeState.agent_version`. See `specs/agent-version-sync.md`.
+in `HomeState.agent_version`. See `specs/state/upgrade-state.md`.
 
 ### Latest-version sources
 

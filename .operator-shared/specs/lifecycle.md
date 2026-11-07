@@ -95,7 +95,7 @@ label recovery and the upgrade prompt (empty when nothing is recorded, leaving r
 `HomeState` writes copy the authority into the cache (a stale or empty `agent_version` is rewritten from the
 label) and mark an offered upgrade when state already exists.
 Prevents a stale `agent_version` cache from selecting a release older than the image already holds; an explicit pin
-may intentionally select an older release. See `agent-version-sync.md`, `upgrade-state-scoping.md`.
+may intentionally select an older release. See `state/upgrade-state.md`, `state/upgrade-state.md`.
 
 **`ensure-image`.** Builds or reuses the runner Docker image (`image.EnsureImage`) and returns `ImageInfo` carrying the
 Docker tag, the content-addressed msb ref, the digest and the baked agent version. The build stamps the resolved
@@ -113,7 +113,7 @@ independent of whether the profile can report its version in the VM. Guarantees 
 the VM will mount. Under `--dry-run-vm` a project without a home creates no volume and writes no state: it carries the
 would-be name and an in-memory, fingerprint-seeded state, so the first run with a VM creates and prefills the volume
 (#429). A concurrent first run that loses the state commit adopts the winner's volume and removes its own (#431). See
-`home-volume-recovery.md`, `project-state-transactions.md`, `runtime-home-decoupling.md`.
+`home-volume-recovery.md`, `state/state-model.md`, `runtime-home-decoupling.md`.
 
 **`plan-reconfig`.** Reads the live VM once (`readLiveProjectVM`: lookup, persisted config, agent config files),
 compares the desired fingerprints and image with the persisted ones and those facts to decide recreate vs daemon restart
@@ -157,12 +157,12 @@ Each value has one writer of record. A reader never re-derives it from a second 
   to the cache. Every registered profile, `hermes` included, has the same three sources and none has a distinct one: an
   `UpgradeChecker` resolves the release, `ImageSpec.VersionArg` bakes it into the label, and a `VersionProvider`
   reports it in the VM at boot. `internal/agent/version_sources_test.go` fails for a profile that lacks one.
-  (`agent-version-sync.md`)
+  (`state/upgrade-state.md`)
 - **Runner image ref.** Content-addressed; the authority is the Docker image ID, which equals the msb config digest.
   Writer: `ensure-image`. The Docker tag is a stable name, never an identity. (`image-ref-content-addressing.md`)
 - **Home volume.** Authority: `HomeState.home_volume`; when state is lost, the live VM's mounted volume. Writer:
   `ensure-home`, changed later only by `plan-reconfig`'s home action. (`home-volume-recovery.md`,
-  `project-state-transactions.md`)
+  `state/state-model.md`)
 - **Fingerprints.** Written once when a VM is created (`ensure-vm`), seeded into a fresh state by `ensure-home`; every
   other state rewrite carries them forward unchanged. Read by `plan-reconfig`. (`reconfig-decision.md`)
 - **Liveness.** Decided once per process by `prune`, under the rule below.
@@ -241,10 +241,10 @@ A change to any stage must keep all of these. Each names the spec that owns the 
   `image-ref-content-addressing.md`).
 - A project with no VM is not yet retired (Liveness).
 - The image's `agent-version` label is the version authority; a cache that disagrees is rewritten, never built toward
-  (`agent-version-sync.md`).
+  (`state/upgrade-state.md`).
 - The msb image ref is a pure function of `(slug, agent, docker image ID)` (`image-ref-content-addressing.md`).
 - A state rewrite preserves the fields it does not own, through the locked transaction API, and never holds a state lock
-  across msb I/O (`project-state-transactions.md`).
+  across msb I/O (`state/state-model.md`).
 - Reconfig and every other state rewrite carry the fingerprints forward; only VM creation writes them
   (`reconfig-decision.md`).
 - Identity adoption happens before any artifact is created under the new slug (`identity/checkout-identity.md`).

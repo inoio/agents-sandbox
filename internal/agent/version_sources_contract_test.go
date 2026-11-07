@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// versionSourceGaps names the version sources a lacks. specs/agent-version-sync.md
+// versionSourceGaps names the version sources a lacks. specs/state/upgrade-state.md
 // makes the runner image's agent-version label the version authority and
 // requires every tool-managed profile to also report its installed version in
 // the VM, so the HomeState.agent_version baseline can never silently go stale:
@@ -33,7 +33,7 @@ func TestRegisteredAgentsHaveVersionSources(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			a, _ := Lookup(name)
 			if gaps := versionSourceGaps(a); len(gaps) > 0 {
-				t.Errorf("agent %q lacks version sources %v (see specs/agent-version-sync.md)", name, gaps)
+				t.Errorf("agent %q lacks version sources %v (see specs/state/upgrade-state.md)", name, gaps)
 			}
 		})
 	}

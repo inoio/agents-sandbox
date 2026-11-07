@@ -104,10 +104,10 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 ### `state/` — State transactions, locking, and project state
 
 - `state.go`, `root.go`, `schema.go` — the `HomeState`/`RootState` documents (`state.go`/`root.go` hold the pure `parseHomeState`/`parseRootState` unmarshal steps the readers delegate to)
-- `home_txn.go`, `root_txn.go` — the locked transaction API (`specs/project-state-transactions.md`): `WithHomeState`/`RecoverHomeState`/`WithRootState`/`RemoveHomeStateIf` plus the lockless reads
+- `home_txn.go`, `root_txn.go` — the locked transaction API (`specs/state/state-model.md`): `WithHomeState`/`RecoverHomeState`/`WithRootState`/`RemoveHomeStateIf` plus the lockless reads
 - `homelock.go`, `rootlock.go`, `lockkeys.go`, `lockregistry.go`, `projectvmlock.go` — the per-document lock files and the per-project VM lock (`ProjectVMLockDir` → `ensure-vm.lock`)
 - `claim.go`, `clientlock.go` — client leases and claims
-- `fingerprint.go`, `agent_version.go`, `root_repair.go` — the config fingerprint, the `agent_version` baseline writer (`specs/agent-version-sync.md`), and root-state repair
+- `fingerprint.go`, `agent_version.go`, `root_repair.go` — the config fingerprint, the `agent_version` baseline writer (`specs/state/upgrade-state.md`), and root-state repair
 - `move.go` — `SlugDir` and `MoveSlugDir`: a project's state slug directory, and the recursive merge that migrates a legacy origin-keyed state onto its checkout slug, returning the source-relative paths it could not move (#144).
 - `references.go` — fail-closed project-state reference scan: `HomeVolumeReferences` and `ImageReferences` (the image analogue), both built on the shared `projectStateReferences` walk
 - `testmock.go`, `fuzz_test.go` — mock state and `FuzzParseState`: both state documents must never panic, classify malformed bytes as `ErrStateUnparsable`, and serialize stably (a re-read of the writer's output yields the same bytes)

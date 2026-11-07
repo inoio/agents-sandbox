@@ -299,7 +299,7 @@ var recoverHomeState = state.RecoverHomeState
 // of. The volume is kept when the write error reports an
 // installed-but-not-durable document (state.WriteInstalled): the installed state
 // already names it, so rolling it back would strand the state on a removed
-// volume (see specs/atomicwrite-durability.md).
+// volume (see specs/state/state-model.md).
 //
 // The commit is a compare-and-set against observedHomeVolume, the home volume
 // the state named when the caller decided a fresh volume is needed ("" when the

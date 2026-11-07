@@ -8,8 +8,8 @@ read_if: Changing `--dry-run`/`--dry-run-vm` behavior, the `options.Mode`/`runop
 Status: implemented.
 
 Closes [issue #228](https://github.com/inoio/agents-sandbox/issues/228). Supersedes the "`--dry-run` is side-effect-free"
-clause in [upgrade-state-scoping.md](upgrade-state-scoping.md) (which held only for the upgrade check) and the
-"documentation-only" resolution in [project-state-transactions.md](project-state-transactions.md).
+clause in [upgrade-state.md](../state/upgrade-state.md) (which held only for the upgrade check) and the
+"documentation-only" resolution in [state-model.md](../state/state-model.md).
 
 ## Problem
 
@@ -47,7 +47,7 @@ It reports, via `termio`:
 1. **Agent version.** The explicit pin, else the release the project's existing image reports through its
    `agent-version` label, else the recorded `agent_version` cache; when none, a message that the version would be
    resolved at build time. Never a network call. The label is the authority for a present image and the record follows
-   it ([agent-version-sync.md](agent-version-sync.md)), so a stale recorded value must not be reported. A user-provided
+   it ([upgrade-state.md](../state/upgrade-state.md)), so a stale recorded value must not be reported. A user-provided
    agent (recorded `agent_source` is `user`) takes the recorded version and ignores the pin, exactly as
    `resolveBuildVersion` does — a real run would never rebuild such an agent to the pin, so the preview must not report
    the resulting phantom rebuild.

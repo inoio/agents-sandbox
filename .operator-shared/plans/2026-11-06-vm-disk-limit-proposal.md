@@ -63,7 +63,7 @@ size 64 MiB, a managed root of 1 GiB and the default):
 - `HomeState.DiskPressure map[string]DiskPressureState` keyed by kind. `DiskPressureState` holds the hit's first-seen
   time, the measured size and free space (`SizeKiB`, `AvailKiB`) and the answer time, so the next launch can offer a
   recorded hit — free space included — without probing. Record / mark-offered / clear go through the existing locked
-  transactions (`specs/project-state-transactions.md`), with the memory headroom marker's semantics: an answered hit
+  transactions (`specs/state/state-model.md`), with the memory headroom marker's semantics: an answered hit
   stays closed until it recovers and trips again; an unanswered one stays offerable.
 - Tests: record, answer, re-arm only after recovery, unknown kinds kept on rewrite, missing state file is a no-op.
 
