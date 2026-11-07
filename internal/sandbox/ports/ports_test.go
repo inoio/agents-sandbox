@@ -62,6 +62,7 @@ func TestHostPorts(t *testing.T) {
 }
 
 func TestProbeHostPortReportsRealLoopbackState(t *testing.T) {
+	//testenv:allow binds loopback to assert the real probe
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("bind loopback listener: %v", err)
@@ -80,24 +81,16 @@ func TestProbeHostPortReportsRealLoopbackState(t *testing.T) {
 }
 
 func TestFirstFreeHostPortExcludingSkipsBoundAndExcluded(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:5999")
-	if err != nil {
-		t.Skipf("cannot bind 5999 for test: %v", err)
-	}
-	defer ln.Close()
-	if got := FirstFreeHostPortExcluding(5999, []int{6000}); got != 6001 {
-		t.Errorf("FirstFreeHostPortExcluding(5999, [6000]) = %d, want 6001", got)
+	probe := func(port int) bool { return port != 5999 }
+	if got := firstFreeHostPortExcluding(5999, []int{6000}, probe); got != 6001 {
+		t.Errorf("firstFreeHostPortExcluding(5999, [6000]) = %d, want 6001", got)
 	}
 }
 
 func TestFirstFreeHostPortExcludingWithoutExclusions(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:5999")
-	if err != nil {
-		t.Skipf("cannot bind 5999 for test: %v", err)
-	}
-	defer ln.Close()
-	if got := FirstFreeHostPortExcluding(5999, nil); got != 6000 {
-		t.Errorf("FirstFreeHostPortExcluding(5999, nil) = %d, want 6000", got)
+	probe := func(port int) bool { return port != 5999 }
+	if got := firstFreeHostPortExcluding(5999, nil, probe); got != 6000 {
+		t.Errorf("firstFreeHostPortExcluding(5999, nil) = %d, want 6000", got)
 	}
 }
 

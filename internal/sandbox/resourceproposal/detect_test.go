@@ -19,6 +19,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 // detectKey is the project/agent key the shared-core tests detect for.
@@ -92,8 +93,8 @@ func detectRun(
 // kill with no marker prompts once and an accepted raise is persisted.
 func TestDetectAndOfferMemoryRaiseOffersAndPersists(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	unsetEnv(t, "AGENTS_SANDBOX_MEMORY")
-	unsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
 	kill := time.Now()
@@ -125,8 +126,8 @@ func TestDetectAndOfferMemoryRaiseOffersAndPersists(t *testing.T) {
 // raise names the value and the config directory it was written to.
 func TestDetectAndOfferMemoryRaiseConfirmsTheWrittenConfig(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	unsetEnv(t, "AGENTS_SANDBOX_MEMORY")
-	unsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
 	r := &msb.MockSandbox{LogsResult: []msbSdk.LogEntry{oomLogLine(time.Now())}}
@@ -164,7 +165,7 @@ func TestDetectAndOfferMemoryRaiseShadowedExplainsInsteadOfPrompting(t *testing.
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
-			unsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+			testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 			t.Setenv("AGENTS_SANDBOX_MEMORY", tc.env)
 			k := detectKey()
 			seedDetectState(t, k, state.HomeState{})
@@ -219,8 +220,8 @@ func TestDetectAndOfferMemoryRaiseShadowedExplainsInsteadOfPrompting(t *testing.
 // satisfy, and the hit counts as answered.
 func TestDetectAndOfferMemoryRaiseAtTheBootMaximumExplains(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	unsetEnv(t, "AGENTS_SANDBOX_MEMORY")
-	unsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
 	r := &msb.MockSandbox{LogsResult: []msbSdk.LogEntry{oomLogLine(time.Now())}}
@@ -256,8 +257,8 @@ func TestDetectAndOfferMemoryRaiseAtTheBootMaximumExplains(t *testing.T) {
 // again.
 func TestDetectAndOfferMemoryRaiseAnsweredKillStaysAnsweredAfterStop(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	unsetEnv(t, "AGENTS_SANDBOX_MEMORY")
-	unsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
 	bootStart := time.Now().Add(-time.Minute)
@@ -443,8 +444,8 @@ func TestDetectAndOfferMemoryRaiseWarnsWhenTheHostLacksTheMemory(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
-			unsetEnv(t, "AGENTS_SANDBOX_MEMORY")
-			unsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+			testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+			testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 			k := detectKey()
 			seedDetectState(t, k, state.HomeState{})
 			r := &msb.MockSandbox{LogsResult: []msbSdk.LogEntry{oomLogLine(time.Now())}}
@@ -1153,8 +1154,8 @@ func TestDetectAndOfferMemoryRaiseMetricsReadErrorIsBestEffort(t *testing.T) {
 // suggestion basis: a zero currentMiB falls back to the metrics limit.
 func TestDetectAndOfferMemoryRaiseCurrentMemoryFallsBackToMetricsLimit(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	unsetEnv(t, "AGENTS_SANDBOX_MEMORY")
-	unsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
 	r := &msb.MockSandbox{
@@ -1215,8 +1216,8 @@ func TestDetectAndOfferMemoryRaisePersistErrorWarns(t *testing.T) {
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 		InputFn:             func(string, string) (string, error) { return "8G", nil },
 	}
-	unsetEnv(t, "AGENTS_SANDBOX_MEMORY")
-	unsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	configDir := configpaths.Get().UserSlugConfigDir(k.Slug)
 	if err := os.MkdirAll(configDir, 0o750); err != nil {
 		t.Fatalf("MkdirAll: %v", err)

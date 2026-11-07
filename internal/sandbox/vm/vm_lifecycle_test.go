@@ -668,8 +668,10 @@ func TestCreateProjectVMConfiguresTheVM(t *testing.T) {
 			name: "defaults",
 			opts: options.RunOptions{Memory: "1G"},
 			check: func(t *testing.T, cfg msbSdk.SandboxConfig) {
-				if cfg.CPUs != sysinfo.NumCPUs() || cfg.MaxCPUs != sysinfo.NumCPUs() {
-					t.Errorf("CPUs/MaxCPUs = %d/%d, want the host's %d", cfg.CPUs, cfg.MaxCPUs, sysinfo.NumCPUs())
+				//testenv:allow asserts the VM CPU default is the host's CPU count
+				hostCPUs := sysinfo.NumCPUs()
+				if cfg.CPUs != hostCPUs || cfg.MaxCPUs != hostCPUs {
+					t.Errorf("CPUs/MaxCPUs = %d/%d, want the host's %d", cfg.CPUs, cfg.MaxCPUs, hostCPUs)
 				}
 				if cfg.IdleTimeout != options.DefaultVMIdleTimeout {
 					t.Errorf("IdleTimeout = %v, want the default %v", cfg.IdleTimeout, options.DefaultVMIdleTimeout)
@@ -689,8 +691,10 @@ func TestCreateProjectVMConfiguresTheVM(t *testing.T) {
 			name: "configured CPUs",
 			opts: options.RunOptions{Memory: "1G", CPUs: 1},
 			check: func(t *testing.T, cfg msbSdk.SandboxConfig) {
-				if cfg.CPUs != 1 || cfg.MaxCPUs != sysinfo.NumCPUs() {
-					t.Errorf("CPUs/MaxCPUs = %d/%d, want 1/%d", cfg.CPUs, cfg.MaxCPUs, sysinfo.NumCPUs())
+				//testenv:allow asserts the VM CPU maximum is the host's CPU count
+				hostCPUs := sysinfo.NumCPUs()
+				if cfg.CPUs != 1 || cfg.MaxCPUs != hostCPUs {
+					t.Errorf("CPUs/MaxCPUs = %d/%d, want 1/%d", cfg.CPUs, cfg.MaxCPUs, hostCPUs)
 				}
 			},
 		},
@@ -1155,6 +1159,7 @@ func assertInfoCall(t *testing.T, ui *termio.Mock, wantSubstr string) {
 // TestBootMaxMemoryMiBIsTheHostRAM pins the boot maximum a project VM is created
 // with: the host's installed RAM in whole GiB, never zero on a real host.
 func TestBootMaxMemoryMiBIsTheHostRAM(t *testing.T) {
+	//testenv:allow asserts the boot maximum is the host's whole-GiB RAM
 	want := options.ParseMemoryGiB(uint32(sysinfo.TotalMemoryGiB()))
 	if got := BootMaxMemoryMiB(); got == 0 || got != want {
 		t.Errorf("BootMaxMemoryMiB = %d, want the host RAM %d MiB", got, want)

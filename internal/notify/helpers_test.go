@@ -20,7 +20,7 @@ type fakeCmd struct {
 
 func (f *fakeCmd) cmd(name string, args ...string) *exec.Cmd {
 	f.got = append([]string{}, append([]string{name}, args...)...)
-	return exec.Command("/bin/true")
+	return exec.Command("/bin/true") //testenv:allow a harmless no-op stands in for the real notifier
 }
 
 // recordingBackend records the notifications it receives.

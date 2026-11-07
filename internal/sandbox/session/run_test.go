@@ -1852,6 +1852,7 @@ func TestRunAttachSignalSkipsTheOfferAndStillReaps(t *testing.T) {
 		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
 		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 		AttachFn: func(ctx context.Context) (int, error) {
+			//testenv:allow sends SIGINT to this process to exercise the signal scope
 			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
 				return 0, err
 			}
@@ -1989,6 +1990,7 @@ func TestRunAttachResetsTheTerminalAfterASignal(t *testing.T) {
 	defer signal.Stop(guard)
 	ui, written := newTerminalStdoutUI(t)
 	sb := &msb.MockSandbox{AttachFn: func(ctx context.Context) (int, error) {
+		//testenv:allow sends SIGINT to this process to exercise the signal scope
 		if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
 			return 0, err
 		}

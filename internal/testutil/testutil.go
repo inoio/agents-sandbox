@@ -32,3 +32,20 @@ func WriteYAML(tb testing.TB, dir, name string, v map[string]any) {
 	}
 	WriteFile(tb, dir, name, string(data))
 }
+
+// UnsetEnv removes name from the process environment for the test's duration
+// and restores its previous value, or its absence, on cleanup.
+func UnsetEnv(tb testing.TB, name string) {
+	tb.Helper()                               // gomutants:disable STATEMENT_REMOVE reason="t.Helper only adjusts reported stack frames"
+	value, present := os.LookupEnv(name)      //testenv:allow saves and restores a process env var around the test
+	if err := os.Unsetenv(name); err != nil { //testenv:allow saves and restores a process env var around the test
+		tb.Fatalf("unset %s: %v", name, err)
+	}
+	tb.Cleanup(func() {
+		if present {
+			tb.Setenv(name, value)
+			return
+		}
+		_ = os.Unsetenv(name) //testenv:allow saves and restores a process env var around the test
+	})
+}

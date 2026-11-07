@@ -614,6 +614,7 @@ func TestMainProcess(t *testing.T) {
 func runMainHelper(t *testing.T, args []string) (string, int) {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=TestMainHelperProcess")
+	//testenv:allow the re-exec'd helper child needs the parent's environment
 	cmd.Env = append(os.Environ(),
 		"GO_WANT_MAIN_HELPER=1",
 		"GO_MAIN_ARGS="+strings.Join(args, "\n"),
@@ -629,9 +630,11 @@ func runMainHelper(t *testing.T, args []string) (string, int) {
 }
 
 func TestMainHelperProcess(t *testing.T) {
+	//testenv:allow reads the helper-process guard the child sets
 	if os.Getenv("GO_WANT_MAIN_HELPER") != "1" {
 		t.Skip("helper process only")
 	}
+	//testenv:allow reads the helper-process guard the child sets
 	os.Args = append([]string{"deadcodecheck"}, strings.Split(os.Getenv("GO_MAIN_ARGS"), "\n")...)
 	main()
 	os.Exit(0)
