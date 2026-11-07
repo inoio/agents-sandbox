@@ -14,7 +14,7 @@ The commands are grouped by area; jump to a group:
 
 - **Runtime:** [`run`](#run), [`shell`](#shell), [`stop`](#stop), [`kill`](#kill), [`list`](#list), [`tree`](#tree), [`doctor`](#doctor), [`version`](#version), [`upgrade`](#upgrade), [`completion`](#completion)
 - **Build and images:** [`build`](#build), [`image`](#image)
-- **Pruning:** [`prune`](#prune), [`image prune`](#image-prune), [`volume prune`](#volume-prune), [`sandbox prune`](#sandbox-prune), [`sandbox compact`](#sandbox-compact)
+- **Pruning:** [`prune`](#prune), [`prune --purge`](#prune---purge), [`image prune`](#image-prune), [`volume prune`](#volume-prune), [`sandbox prune`](#sandbox-prune), [`sandbox compact`](#sandbox-compact)
 - **Storage:** [`df`](#df), [`storage`](#storage)
 - **State:** [`state repair`](#state-repair)
 - **Configuration:** [`config`](#config), [`config paths`](#config-paths)
@@ -193,11 +193,24 @@ agents-sandbox kill -f     # kill and remove VM state (also a stopped or never-s
 
 ### prune
 
-Remove stale VMs, volumes, images, and unused runtime RAM in one pass. Staleness is determined by age — resources older
-than the threshold are pruned. The summary line reads `Pruned N VMs, N home volumes, N docker images, N msb images`;
-when the runtime reclaims runtime RAM or reports native image-prune data, following `runtime memory:` and `image data:`
-lines carry the file and byte counts. A byte count the runtime cannot measure renders as unknown (`-`), never `0`. To
-prune a single artifact type, use the `image prune`, `volume prune`, or `sandbox prune` subcommands.
+Prune stale VMs, runner images, dangling Docker images, unused runtime RAM, and stale internal state in one pass.
+Staleness is determined by age — resources older than the threshold are pruned. Batch `prune` is the **safe tier**: it
+never removes a home volume or the state that points at a surviving one, so `prune --yes` can never destroy agent state.
+To prune a single artifact type, use the `image prune`, `volume prune`, or `sandbox prune` subcommands.
+
+Instead of deleting a project that is gone, batch `prune` **lists retired projects** — projects with no kept sandbox
+whose most recent activity is older than the threshold — and points at [`prune --purge`](#prune---purge) to remove one.
+The candidates come from every artifact the launcher can still observe (state directories, home volumes, runner images,
+sandboxes, and root-state adoption claims), so a project whose state directory was deleted by hand still surfaces
+through its leftover volume. Attribution follows ownership: a volume is credited to the state keys that reference it, so
+a legacy-named volume a checkout adopted is listed under that checkout, not the ownerless legacy slug. The list is
+read-only: batch `prune` never deletes a retired project or its volume.
+
+The summary line reads `Pruned N VMs, N home volumes, N docker images, N msb images`; the home-volume count is always
+`0` here. When the runtime reclaims runtime RAM or reports native image-prune data, following `runtime memory:` and
+`image data:` lines carry the file and byte counts, and a line reports reclaimed internal state (unheld claims, stale
+client leases, state files that recorded no home volume, and emptied state subtrees) when any was swept. A byte
+count the runtime cannot measure renders as unknown (`-`), never `0`.
 
 The runtime-memory phase reclaims the published branch/snapshot memory backings that no live VM holds, gated by the same
 `--older-than` threshold, and honors `--dry-run` through the runtime's own preview. The runtime's age filter is in whole
@@ -205,7 +218,7 @@ seconds, so a subsecond `--older-than` (for example `500ms`) rounds up to one se
 
 Unless `--dry-run` is set, prune asks for confirmation before removing anything (defaulting to no). Pass the global
 `--yes` to skip the prompt; non-interactively, `--yes` is required or the command fails fast instead of blocking.
-`--dry-run` only previews and never prompts.
+`--dry-run` only previews and never prompts. `--older-than` rejects a non-positive value.
 
 ```console
 agents-sandbox prune                       # use --older-than, else manual-prune-age from config, else 7d
@@ -213,16 +226,46 @@ agents-sandbox prune --older-than 24h      # 24-hour threshold
 agents-sandbox prune --yes                 # skip the confirmation prompt
 agents-sandbox prune --dry-run             # preview only (no prompt)
 agents-sandbox prune --format json         # machine-readable report on stdout
+agents-sandbox prune --purge               # purge the current checkout's project
 ```
 
 **Flags:**
 
 | Flag           | Short | Default | Purpose                            |
 |----------------|-------|---------|------------------------------------|
-| `--older-than` | —     | `config` | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). |
+| `--older-than` | —     | `config` | Prune threshold. Falls back to `manual-prune-age` from config, then to `7d` (e.g. `24h`, `7d`). Rejects a non-positive value. |
 | `--age`        | `-a`  | —       | Deprecated alias for `--older-than`. Hidden; still honored but warns. Setting both is an error. |
 | `--dry-run`    | `-n`  | `false` | Preview what would be pruned (no confirmation) |
 | `--format`     | —     | `""`    | Output format. `json` prints a structured report on stdout. |
+| `--purge`      | —     | —       | Purge one project instead of pruning (see [`prune --purge`](#prune---purge)). Optional value or positional target. |
+| `--force`      | `-f`  | `false` | With `--purge`, purge even when a sandbox is running (stopping it first). Ignored without `--purge`. |
+
+---
+
+### prune --purge
+
+Remove one project's artifacts — its sandboxes (a running one stopped first), home volumes, runner images, state files,
+claims, and root-state adoption claims — in an order that never orphans a volume or drops the last pointer to one. A
+volume is removed only when the target owns it — by its name, by a state key the target covers, or by an adoption claim
+the target's checkout holds — so purging a legacy slug never deletes a saved home a different checkout adopted, and
+purging that checkout reclaims the legacy-named volume its state points at. A volume that fails to remove keeps its
+state file, so the pointer to it survives. The age gate does not apply: naming the project is the intent.
+
+`<target>` is a project slug (whole project) or a `<slug>-<agent>` key (one agent); omit it to purge the current
+checkout (an error outside one). A running sandbox fails fast; pass `--force` to stop it first. The plan is named, then
+confirmed once. `--yes` skips the prompt, `--dry-run` prints the plan without deleting, and `--format json` prints it as
+structured output.
+
+```console
+agents-sandbox prune --purge                                # purge the current checkout
+agents-sandbox prune --purge myproj-1mjusbm3wikhb0          # whole project
+agents-sandbox prune --purge myproj-1mjusbm3wikhb0-opencode # one agent key
+agents-sandbox prune --purge --dry-run                      # preview the plan
+agents-sandbox prune --purge --yes                          # skip the confirmation
+agents-sandbox prune --purge --force                        # stop a running sandbox first
+```
+
+`--purge` shares one engine with [`sandbox remove --purge`](#sandbox-remove).
 
 ---
 
@@ -235,7 +278,12 @@ reference whose parsed slug does not embed the launcher's 14-character hash — 
 registry image — is left untouched. Native microsandbox image pruning also reclaims
 unreferenced manifests and layers left behind by refreshing an image while an older VM still points at the previous
 manifest. Its report is surfaced: `N skipped (in use)` counts the image data retained because a live sandbox holds it,
-and the reclaimed byte count renders as `-` when the runtime cannot measure it.
+and the reclaimed byte count renders as `-` when the runtime cannot measure it. An msb image's `stale_for_seconds`
+detail is filled from its last use (falling back to its creation time), not always `0`.
+
+Dangling Docker images are pruned with the same `--older-than` threshold: `--dry-run` enumerates and lists them without
+deleting, and `--format json` reports each as a `docker-image` detail. Tagged images (base images and the current
+`:latest` runner) are left untouched.
 
 ```console
 agents-sandbox image prune                      # use manual-prune-age from config (default: 7d)
@@ -258,8 +306,10 @@ agents-sandbox image prune --format json        # machine-readable report on std
 
 ### volume prune
 
-Prune home volumes of stale projects (older than the threshold). When a project's last home volume is removed, its
-state file is removed too.
+Prune home volumes that no project state file references (orphaned volumes), once their project is stale. A volume still
+named by a project's state is never removed here — a project's stated volume is deleted only by
+[`prune --purge`](#prune---purge) (or `volume remove`). When a project's last home volume is removed, its state file is
+removed too.
 
 ```console
 agents-sandbox volume prune                     # use manual-prune-age from config (default: 7d)
@@ -282,7 +332,8 @@ agents-sandbox volume prune --format json       # machine-readable report on std
 
 ### sandbox prune
 
-Prune stale sandboxes and leftover task workers. Task sandboxes fold into the VM count.
+Prune stale sandboxes and leftover task workers. Task sandboxes fold into the VM count and have **no age gate** — a
+stopped task worker is transient and reclaimed regardless of age. Only project VMs are age-gated.
 
 ```console
 agents-sandbox sandbox prune                    # use manual-prune-age from config (default: 7d)
@@ -620,14 +671,23 @@ next run recreates the VM against the same recorded home volume. Prompts for
 confirmation unless the global `--yes` is set; non-interactively, `--yes` is
 required.
 
+With `--purge`, remove the whole project instead of one VM — the same engine as
+[`prune --purge`](#prune---purge). The optional `<name>` is a project slug or a
+`<slug>-<agent>` key, defaulting to the current checkout; the project's state,
+home volumes, runner images, and sandboxes are removed. A running sandbox fails
+fast unless `--force` stops it first.
+
 ```console
 agents-sandbox sandbox remove myproj-aBc1234D-opencode
-agents-sandbox sandbox remove <name> --force   # stop a running VM first
+agents-sandbox sandbox remove <name> --force                 # stop a running VM first
+agents-sandbox sandbox remove --purge                        # purge the current checkout
+agents-sandbox sandbox remove --purge myproj-1mjusbm3wikhb0  # purge a whole project
 ```
 
-- **Args:** `name` — the sandbox name
+- **Args:** `name` (optional with `--purge`) — the sandbox name, or the project target
 - **Flags:**
-  - `-f`/`--force` — remove a running VM (stopping it first)
+  - `-f`/`--force` — remove a running VM (stopping it first); with `--purge`, stop and purge a running sandbox
+  - `--purge` — remove the project's state, home volumes, runner images, and sandboxes
   - `--yes` (global) — skip the confirmation prompt
 
 **Aliases:** `sandbox rm`

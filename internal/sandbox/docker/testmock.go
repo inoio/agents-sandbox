@@ -91,6 +91,9 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 		ImageInspectFn: func(_ context.Context, _ string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{}, inspectErr
 		},
+		ImageListFn: func(_ context.Context, _ client.ImageListOptions) (client.ImageListResult, error) {
+			return client.ImageListResult{}, defaultErr
+		},
 		ImageSaveFn: func(_ context.Context, _ []string, saveOpts ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			return nil, saveErr
 		},
@@ -116,6 +119,7 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 type MockDockerClient struct {
 	ImageBuildFn   func(ctx context.Context, r io.Reader, options client.ImageBuildOptions) (client.ImageBuildResult, error)
 	ImageInspectFn func(ctx context.Context, ref string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error)
+	ImageListFn    func(ctx context.Context, opts client.ImageListOptions) (client.ImageListResult, error)
 	ImageSaveFn    func(ctx context.Context, refs []string, saveOpts ...client.ImageSaveOption) (client.ImageSaveResult, error)
 	ImagePullFn    func(ctx context.Context, ref string, opts client.ImagePullOptions) (client.ImagePullResponse, error)
 	ImageRemoveFn  func(ctx context.Context, ref string, options client.ImageRemoveOptions) (client.ImageRemoveResult, error)
@@ -150,6 +154,16 @@ func (m *MockDockerClient) ImageInspect(
 		Config: &dockerspec.DockerOCIImageConfig{},
 	}
 	return result, nil
+}
+
+func (m *MockDockerClient) ImageList(
+	ctx context.Context,
+	opts client.ImageListOptions,
+) (client.ImageListResult, error) {
+	if m.ImageListFn != nil {
+		return m.ImageListFn(ctx, opts)
+	}
+	return client.ImageListResult{}, nil
 }
 
 func (m *MockDockerClient) ImageSave(
@@ -241,6 +255,14 @@ func (f *failFastDockerClient) ImageInspect(
 ) (client.ImageInspectResult, error) {
 	f.mustMock()
 	return client.ImageInspectResult{}, nil
+}
+
+func (f *failFastDockerClient) ImageList(
+	_ context.Context,
+	_ client.ImageListOptions,
+) (client.ImageListResult, error) {
+	f.mustMock()
+	return client.ImageListResult{}, nil
 }
 
 func (f *failFastDockerClient) ImageSave(

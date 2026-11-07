@@ -25,6 +25,11 @@ const clientLeaseGraceWindow = time.Second
 // deterministically; production leaves it nil.
 var clientLeaseOpened func(f *os.File, path string)
 
+// clientLeaseDirReady is a test seam invoked after the clients dir is ensured
+// and before the lease file is opened, on every attempt. It lets a test simulate
+// a sweep reclaiming the empty dir in that window; production leaves it nil.
+var clientLeaseDirReady func(dir string)
+
 // AcquireClientLease creates a unique lock file for the current client under the
 // project/agent key's client state dir and holds an exclusive flock on it. It
 // returns a release function. The flock is auto-released if the process exits or
@@ -43,8 +48,21 @@ func AcquireClientLease(k Key) (func(), error) {
 	}
 	for range 5 {
 		path := filepath.Join(dir, fmt.Sprintf("%d-%d.lock", os.Getpid(), time.Now().UnixNano()))
+		if clientLeaseDirReady != nil {
+			clientLeaseDirReady(dir)
+		}
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
+			// RemoveSlugDirIfEmpty can reclaim this empty clients dir between our
+			// MkdirAll and the open, so an ENOENT is retried after recreating it
+			// rather than failing the session's lease (which would leave it out of
+			// the active-client count).
+			if os.IsNotExist(err) {
+				if mkErr := os.MkdirAll(dir, 0o700); mkErr != nil {
+					return nil, fmt.Errorf("create client lock dir: %w", mkErr)
+				}
+				continue
+			}
 			return nil, fmt.Errorf("open client lock %s: %w", path, err)
 		}
 		if clientLeaseOpened != nil {
@@ -79,13 +97,25 @@ func AcquireClientLease(k Key) (func(), error) {
 // The freshness check and the removal happen while the probe lock is held, so an
 // acquirer cannot take its flock between the "unlocked" decision and the unlink;
 // AcquireClientLease detects a removal that did happen via sameFile and retries.
+// The walk is shared with SweepClientLeases, so both apply the exact
+// leaseIsFresh rule.
 func CountActiveClients(k Key) int {
+	active, _ := sweepClientLeases(k)
+	return active
+}
+
+// sweepClientLeases walks a key's clients dir once, counting live leases and
+// unlinking free, non-fresh ones (a crashed client's leftover). CountActiveClients
+// and SweepClientLeases share it so the leaseIsFresh rule cannot drift between
+// the two.
+func sweepClientLeases(k Key) (int, int) {
 	dir := filepath.Join(KeyDir(k), "clients")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return 0
+		return 0, 0
 	}
 	active := 0
+	removed := 0
 	for _, e := range entries {
 		path := filepath.Join(dir, e.Name())
 		f, err := os.OpenFile(path, os.O_RDWR, 0o600)
@@ -107,8 +137,9 @@ func CountActiveClients(k Key) int {
 		}
 		_ = os.Remove(path)
 		_ = f.Close()
+		removed++
 	}
-	return active
+	return active, removed
 }
 
 // leaseIsFresh reports whether an unlocked lease file is young enough to be a

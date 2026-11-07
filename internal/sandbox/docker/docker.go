@@ -22,6 +22,10 @@ type Client interface {
 		imageID string,
 		inspectOpts ...client.ImageInspectOption,
 	) (client.ImageInspectResult, error)
+	ImageList(
+		ctx context.Context,
+		opts client.ImageListOptions,
+	) (client.ImageListResult, error)
 	ImageSave(
 		ctx context.Context,
 		imageIDs []string,
@@ -65,7 +69,10 @@ var (
 	errMobyClient  error
 )
 
-func ensureMobyClient() error {
+// ensureMobyClient lazily creates the shared moby client. It is a package var so
+// a unit test can force the construction failure branch the real methods guard
+// on, without a docker daemon.
+var ensureMobyClient = func() error {
 	mobyClientOnce.Do(func() {
 		mobyClient, errMobyClient = client.New(clientOptions()...)
 	})
@@ -94,6 +101,16 @@ func (realDockerClient) ImageInspect(
 		return client.ImageInspectResult{}, err
 	}
 	return mobyClient.ImageInspect(ctx, imageID, inspectOpts...)
+}
+
+func (realDockerClient) ImageList(
+	ctx context.Context,
+	opts client.ImageListOptions,
+) (client.ImageListResult, error) {
+	if err := ensureMobyClient(); err != nil {
+		return client.ImageListResult{}, err
+	}
+	return mobyClient.ImageList(ctx, opts)
 }
 
 func (realDockerClient) ImageSave(

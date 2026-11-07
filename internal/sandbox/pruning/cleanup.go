@@ -20,7 +20,7 @@ var autoPruneDefaultThreshold = 30 * 24 * time.Hour
 // Threshold of 0 defaults to autoPruneDefaultThreshold. retain names the keys the
 // current invocation is about to use; their images are never reclaimed (see
 // Prune). It applies only to the first call, whose retain set is the one that
-// matters.
+// matters. AutoPrune is the safe tier and can never delete a home volume.
 func AutoPrune(
 	ctx context.Context,
 	dclient docker.Client,
@@ -33,7 +33,11 @@ func AutoPrune(
 		threshold = autoPruneDefaultThreshold
 	}
 	autoPruneOnce.Do(func() {
-		report, err := Prune(ctx, dclient, threshold, dryRun, ui, retain...)
+		report, err := Prune(ctx, dclient, PruneOptions{
+			Age:    threshold,
+			DryRun: dryRun,
+			Retain: retain,
+		}, ui)
 		if report != nil {
 			RenderPruneSummary(ui, report, dryRun)
 		}

@@ -178,7 +178,11 @@ func runRealStartupPrune(t *testing.T) {
 	t.Helper()
 	original := autoPrune
 	autoPrune = func(ctx context.Context, dclient docker.Client, age time.Duration, dryRun bool, ui termio.UI, retain ...state.Key) {
-		if _, err := pruning.Prune(ctx, dclient, age, dryRun, ui, retain...); err != nil {
+		if _, err := pruning.Prune(ctx, dclient, pruning.PruneOptions{
+			Age:    age,
+			DryRun: dryRun,
+			Retain: retain,
+		}, ui); err != nil {
 			t.Errorf("startup prune: %v", err)
 		}
 	}

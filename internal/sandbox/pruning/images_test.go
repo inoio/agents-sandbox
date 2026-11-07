@@ -3,6 +3,7 @@ package pruning
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -1128,24 +1129,325 @@ func TestPruneImagesEmptyAgentLatestTagIsSurplus(t *testing.T) {
 	}
 }
 
-func TestPruneDockerImagesDryRunReturnsZero(t *testing.T) {
-	docker.WithDockerMock(t, deletedImagesDockerMock(3))
-	if n := pruneDockerImages(context.Background(), docker.Get(), true, &termio.Mock{}); n != 0 {
-		t.Errorf("dry-run pruneDockerImages = %d, want 0", n)
+// TestPruneImagesPopulatesStaleFor pins that an msb-image StaleEntry reports
+// how long the image has been stale: measured from LastUsedAt, falling back to
+// CreatedAt when the image was never used, and zero when it has no timestamps.
+func TestPruneImagesPopulatesStaleFor(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	now := time.Now()
+	client := &msb.MockMsbClient{Images: []msb.ImageHandle{
+		&msb.MockImageHandle{
+			Reference_:  "agents-sandbox/runner-used-1mjusbm3wikhb0:digest1",
+			LastUsedAt_: now.Add(-3 * 24 * time.Hour),
+			CreatedAt_:  now.Add(-10 * 24 * time.Hour),
+		},
+		&msb.MockImageHandle{
+			Reference_: "agents-sandbox/runner-created-1mjusbm3wikhb0:digest2",
+			CreatedAt_: now.Add(-10 * 24 * time.Hour),
+		},
+		&msb.MockImageHandle{Reference_: "agents-sandbox/runner-dateless-1mjusbm3wikhb0:digest3"},
+	}}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("PruneImages: %v", err)
 	}
-	if n := pruneDockerImages(context.Background(), docker.Get(), false, &termio.Mock{}); n != 3 {
-		t.Errorf("pruneDockerImages = %d, want 3", n)
+	if len(r.Details) != 3 {
+		t.Fatalf("Details = %v, want three entries", r.Details)
+	}
+	if stale := r.Details[0].StaleFor; stale < 2*24*time.Hour || stale > 4*24*time.Hour {
+		t.Errorf("Details[0].StaleFor = %v, want ~3 days since LastUsedAt", stale)
+	}
+	if stale := r.Details[1].StaleFor; stale < 9*24*time.Hour || stale > 11*24*time.Hour {
+		t.Errorf("Details[1].StaleFor = %v, want ~10 days since CreatedAt", stale)
+	}
+	if r.Details[2].StaleFor != 0 {
+		t.Errorf("Details[2].StaleFor = %v, want 0 without timestamps", r.Details[2].StaleFor)
+	}
+}
+
+// managedDanglingImage builds an untagged, launcher-managed image.Summary
+// created at the given time, the shape pruneDockerImages treats as a candidate.
+func managedDanglingImage(id string, createdAt time.Time) imagetypes.Summary {
+	return imagetypes.Summary{
+		ID:      id,
+		Created: createdAt.Unix(),
+		Labels:  map[string]string{"org.agents-sandbox.managed": "true"},
+	}
+}
+
+// TestPruneDockerImagesDryRunListsCandidatesWithoutDeleting replaces the old
+// dry-run-short-circuits test: a dry-run enumerates every managed dangling
+// image older than the age and never calls ImagePrune.
+func TestPruneDockerImagesDryRunListsCandidatesWithoutDeleting(t *testing.T) {
+	pruned := false
+	mock := &docker.MockDockerClient{
+		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
+			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
+				managedDanglingImage("sha256:old1", time.Now().Add(-48*time.Hour)),
+				managedDanglingImage("sha256:old2", time.Now().Add(-72*time.Hour)),
+			}}, nil
+		},
+		ImagePruneFn: func(context.Context, mobyclient.ImagePruneOptions) (mobyclient.ImagePruneResult, error) {
+			pruned = true
+			return mobyclient.ImagePruneResult{}, nil
+		},
+	}
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, true, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("pruneDockerImages: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("count = %d, want 2", count)
+	}
+	if len(details) != 2 || details[0].Name != "sha256:old1" || details[1].Name != "sha256:old2" {
+		t.Errorf("details = %v, want the two candidate ids", details)
+	}
+	if pruned {
+		t.Error("a dry run must not prune docker images")
+	}
+}
+
+// TestPruneDockerImagesHonorsAge pins that the age reaches both the candidate
+// predicate and the ImagePrune until filter: a fresh image is skipped, and the
+// prune call carries dangling, the managed label and until=<age>.
+func TestPruneDockerImagesHonorsAge(t *testing.T) {
+	age := 24 * time.Hour
+	var listOpts mobyclient.ImageListOptions
+	var pruneOpts mobyclient.ImagePruneOptions
+	mock := &docker.MockDockerClient{
+		ImageListFn: func(_ context.Context, opts mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
+			listOpts = opts
+			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
+				managedDanglingImage("sha256:fresh", time.Now()),
+				managedDanglingImage("sha256:old", time.Now().Add(-48*time.Hour)),
+			}}, nil
+		},
+		ImagePruneFn: func(_ context.Context, opts mobyclient.ImagePruneOptions) (mobyclient.ImagePruneResult, error) {
+			pruneOpts = opts
+			return mobyclient.ImagePruneResult{
+				Report: imagetypes.PruneReport{ImagesDeleted: []imagetypes.DeleteResponse{{Deleted: "sha256:old"}}},
+			}, nil
+		},
+	}
+	count, details, err := pruneDockerImages(context.Background(), mock, age, false, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("pruneDockerImages: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1 (only the daemon-deleted image)", count)
+	}
+	if len(details) != 1 || details[0].Name != "sha256:old" {
+		t.Errorf("details = %v, want only the aged candidate", details)
+	}
+	if !listOpts.Filters["dangling"]["true"] {
+		t.Errorf("ImageList filters = %v, want dangling=true", listOpts.Filters)
+	}
+	if !pruneOpts.Filters["dangling"]["true"] ||
+		!pruneOpts.Filters["label"]["org.agents-sandbox.managed=true"] ||
+		!pruneOpts.Filters["until"][age.String()] {
+		t.Errorf("ImagePrune filters = %v, want dangling, label and until=%s", pruneOpts.Filters, age)
+	}
+}
+
+// TestPruneDockerImagesReportsDetails pins the StaleEntry shape a docker
+// candidate produces: Type StaleTypeDockerImage, Name = image id, no slug, and
+// StaleFor measured from Created.
+func TestPruneDockerImagesReportsDetails(t *testing.T) {
+	created := time.Now().Add(-48 * time.Hour)
+	mock := &docker.MockDockerClient{
+		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
+			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
+				managedDanglingImage("sha256:reported", created),
+			}}, nil
+		},
+		ImagePruneFn: func(context.Context, mobyclient.ImagePruneOptions) (mobyclient.ImagePruneResult, error) {
+			return mobyclient.ImagePruneResult{
+				Report: imagetypes.PruneReport{
+					ImagesDeleted: []imagetypes.DeleteResponse{{Deleted: "sha256:reported"}},
+				},
+			}, nil
+		},
+	}
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, false, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("pruneDockerImages: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+	if len(details) != 1 {
+		t.Fatalf("details = %v, want one entry", details)
+	}
+	entry := details[0]
+	if entry.Type != StaleTypeDockerImage {
+		t.Errorf("Type = %v, want StaleTypeDockerImage", entry.Type)
+	}
+	if entry.Name != "sha256:reported" {
+		t.Errorf("Name = %q, want the image id", entry.Name)
+	}
+	if entry.Slug != "" {
+		t.Errorf("Slug = %q, want empty for a docker image", entry.Slug)
+	}
+	if entry.StaleFor < 47*time.Hour || entry.StaleFor > 49*time.Hour {
+		t.Errorf("StaleFor = %v, want ~48h from Created", entry.StaleFor)
+	}
+}
+
+// TestPruneDockerImagesReportsOnlyDeletedCandidates pins that a candidate the
+// daemon kept (it gained a tag between list and prune) is absent from the count
+// and the details: the report agrees with what the daemon actually deleted.
+func TestPruneDockerImagesReportsOnlyDeletedCandidates(t *testing.T) {
+	old := time.Now().Add(-48 * time.Hour)
+	mock := &docker.MockDockerClient{
+		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
+			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
+				managedDanglingImage("sha256:gone", old),
+				managedDanglingImage("sha256:kept", old),
+			}}, nil
+		},
+		ImagePruneFn: func(context.Context, mobyclient.ImagePruneOptions) (mobyclient.ImagePruneResult, error) {
+			return mobyclient.ImagePruneResult{
+				Report: imagetypes.PruneReport{
+					ImagesDeleted: []imagetypes.DeleteResponse{{Deleted: "sha256:gone"}},
+				},
+			}, nil
+		},
+	}
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, false, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("pruneDockerImages: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1 (only the daemon-deleted image)", count)
+	}
+	if len(details) != 1 || details[0].Name != "sha256:gone" {
+		t.Errorf("details = %v, want only sha256:gone", details)
+	}
+}
+
+// TestPruneDockerImagesErrorReturnsNoDetails pins that a failed real prune
+// reports no candidate details: the images were not deleted, so naming them
+// would put phantom docker-image entries in the JSON report.
+func TestPruneDockerImagesErrorReturnsNoDetails(t *testing.T) {
+	mock := &docker.MockDockerClient{
+		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
+			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
+				managedDanglingImage("sha256:ghost", time.Now().Add(-48*time.Hour)),
+			}}, nil
+		},
+		ImagePruneFn: func(context.Context, mobyclient.ImagePruneOptions) (mobyclient.ImagePruneResult, error) {
+			return mobyclient.ImagePruneResult{}, errBoom
+		},
+	}
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, false, &termio.Mock{})
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("expected the prune error, got %v", err)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0 on error", count)
+	}
+	if len(details) != 0 {
+		t.Errorf("details = %v, want none on a failed prune", details)
+	}
+}
+
+// TestPruneDockerImagesSkipsForeignAndTagged pins the ownership boundary: a
+// tagged image and an unmanaged dangling image are never candidates, only a
+// managed, untagged image is.
+func TestPruneDockerImagesSkipsForeignAndTagged(t *testing.T) {
+	old := time.Now().Add(-48 * time.Hour)
+	mock := &docker.MockDockerClient{
+		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
+			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
+				managedDanglingImage("sha256:ours", old),
+				{
+					ID:       "sha256:tagged",
+					Created:  old.Unix(),
+					Labels:   map[string]string{"org.agents-sandbox.managed": "true"},
+					RepoTags: []string{"example/project:latest"},
+				},
+				{ID: "sha256:foreign", Created: old.Unix()},
+			}}, nil
+		},
+	}
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, true, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("pruneDockerImages: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+	if len(details) != 1 || details[0].Name != "sha256:ours" {
+		t.Errorf("details = %v, want only the managed dangling image", details)
 	}
 }
 
 // deletedImagesDockerMock returns a docker mock whose ImagePrune reports n
 // deleted images.
 func deletedImagesDockerMock(n int) *docker.MockDockerClient {
+	items := make([]imagetypes.Summary, n)
+	deleted := make([]imagetypes.DeleteResponse, n)
+	for i := range n {
+		id := fmt.Sprintf("sha256:deleted%d", i)
+		items[i] = managedDanglingImage(id, time.Now().Add(-48*time.Hour))
+		deleted[i] = imagetypes.DeleteResponse{Deleted: id}
+	}
 	return &docker.MockDockerClient{
+		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
+			return mobyclient.ImageListResult{Items: items}, nil
+		},
 		ImagePruneFn: func(context.Context, mobyclient.ImagePruneOptions) (mobyclient.ImagePruneResult, error) {
 			return mobyclient.ImagePruneResult{
-				Report: imagetypes.PruneReport{ImagesDeleted: make([]imagetypes.DeleteResponse, n)},
+				Report: imagetypes.PruneReport{ImagesDeleted: deleted},
 			}, nil
 		},
+	}
+}
+
+// TestPruneImagesIncludesDockerDetailsInReport pins that the docker images a
+// prune deleted are folded into the report's details, alongside the msb-image
+// entries, so the rendered report names every reclaimed image.
+func TestPruneImagesIncludesDockerDetailsInReport(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	docker.WithDockerMock(t, deletedImagesDockerMock(2))
+
+	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("PruneImages: %v", err)
+	}
+	dockerDetails := 0
+	for _, detail := range r.Details {
+		if detail.Type == StaleTypeDockerImage {
+			dockerDetails++
+		}
+	}
+	if dockerDetails != 2 {
+		t.Errorf("docker entries in Details = %d, want 2 (details = %v)", dockerDetails, r.Details)
+	}
+}
+
+// TestPruneDockerImagesExcludesFreshManagedImages pins the age rule on the
+// candidate predicate directly: a managed, dangling image newer than the age is
+// not a candidate, even on a dry-run that lists rather than prunes.
+func TestPruneDockerImagesExcludesFreshManagedImages(t *testing.T) {
+	mock := &docker.MockDockerClient{
+		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
+			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
+				managedDanglingImage("sha256:fresh", time.Now()),
+			}}, nil
+		},
+	}
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, true, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("pruneDockerImages: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0 for a fresh managed image", count)
+	}
+	if len(details) != 0 {
+		t.Errorf("details = %v, want none for a fresh managed image", details)
 	}
 }

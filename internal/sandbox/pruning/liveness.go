@@ -165,11 +165,17 @@ func keySet(keys []state.Key) map[state.Key]struct{} {
 // heuristic for a sandbox created before the labels existed. A config read error
 // degrades to the name fallback rather than failing the whole prune.
 func noteIdentity(h msb.SandboxHandle) naming.ArtifactInfo {
-	var labels map[string]string
+	return naming.SandboxIdentity(h.Name(), sandboxLabels(h))
+}
+
+// sandboxLabels reads a sandbox's labels, degrading to nil on a config read
+// error so the name heuristic applies. Callers that need both the identity and
+// an ownership check read the labels once and pass them to both.
+func sandboxLabels(h msb.SandboxHandle) map[string]string {
 	if cfg, err := h.Config(); err == nil && cfg != nil {
-		labels = cfg.Labels
+		return cfg.Labels
 	}
-	return naming.SandboxIdentity(h.Name(), labels)
+	return nil
 }
 
 // prunable reports whether a project VM should be reclaimed: a stopped VM older

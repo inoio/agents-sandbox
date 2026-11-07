@@ -21,7 +21,8 @@ where you do; the sections that follow carry the detail.
 | Stop the project sandbox | `agents-sandbox stop` |
 | Remove the project sandbox | `agents-sandbox sandbox remove <name>` |
 | Merge the disk layers of long-lived sandboxes | `agents-sandbox sandbox compact --dry-run`, then `agents-sandbox sandbox compact` |
-| Reclaim stale sandboxes, volumes, and images | `agents-sandbox prune --dry-run`, then `agents-sandbox prune --yes` |
+| Reclaim stale sandboxes, images, and internal state | `agents-sandbox prune --dry-run`, then `agents-sandbox prune --yes` |
+| Remove a whole project (sandbox, home volume, image, state) | `agents-sandbox prune --purge [<slug>]` |
 | See storage use | `agents-sandbox df` |
 
 ### Listing sandboxes
@@ -50,7 +51,7 @@ Unknown statuses are treated as unsafe and are not pruned or reused automaticall
 
 ### Pruning
 
-Reclaim stale sandboxes, home volumes, images, and unused runtime RAM:
+Reclaim stale sandboxes, runner images, dangling Docker images, unused runtime RAM, and stale internal state:
 
 ```console
 agents-sandbox prune                       # use manual-prune-age from config (default: 7d)
@@ -62,19 +63,25 @@ agents-sandbox prune --yes                 # skip confirmation
 Prune prompts for confirmation before removing anything (defaulting to no). Pass `--yes` to skip the prompt;
 non-interactively, `--yes` is required or the command fails fast. `--dry-run` only previews and never prompts.
 
+Batch `prune` is the **safe tier**: it never removes a home volume or the state that points at a surviving one, so
+`prune --yes` can never destroy agent state. Instead, it **lists retired projects** — projects with no kept sandbox whose
+most recent activity is older than the threshold — and points at `prune --purge` to remove one; it never deletes a
+retired project or its volume. See [Retiring a project](#retiring-a-project) to delete one for real.
+
 To prune a single artifact type rather than everything, use the dedicated subcommands:
 
 ```console
-agents-sandbox image prune                 # cached runner images
-agents-sandbox volume prune                # home volumes
+agents-sandbox image prune                 # cached runner images and dangling Docker images
+agents-sandbox volume prune                # home volumes no project state references
 agents-sandbox sandbox prune               # sandboxes (stale ones and leftover task workers)
 ```
 
 Pruning removes:
 
 - Stale sandboxes (not active in the age threshold) and everything they reference; task sandboxes count into the
-  sandbox total. A stale sandbox's home volumes and images are reclaimed based on the snapshot taken at prune time,
-  even if the sandbox's own removal fails.
+  sandbox total and have **no age gate** — a stopped task worker is transient and reclaimed regardless of age. A stale
+  sandbox's runner images are reclaimed based on the snapshot taken at prune time, even if the sandbox's own removal
+  fails.
 - Runner images of projects whose sandbox is gone, once they age out of the threshold (for example, after `kill --force`,
   or a prune whose image removal failed). A project keeps its cached image while it is within the age even with no
   running sandbox, so a `build` followed by a `run` reuses the built image instead of reimporting it; the auto-prune a
@@ -85,20 +92,56 @@ Pruning removes:
   a reference whose parsed slug does not embed the launcher's 14-character hash (a manually loaded single-segment image,
   or a registry image) is left untouched, the same ownership boundary `image list` and `image remove` enforce.
 - Dangling Docker images: after a rebuild the previous runner image is no longer referenced by any tag and is reclaimed
-  by a scoped Docker image prune. Tagged images (base images and the current `:latest` runner) are left untouched.
+  by a scoped Docker image prune, gated by the `--older-than` threshold. Tagged images (base images and the current
+  `:latest` runner) are left untouched; `--dry-run` enumerates and lists them without deleting.
 - Unused runtime RAM: the published branch/snapshot memory backings that no live VM holds and that are older than the
   age threshold are reclaimed. The runtime revalidates ownership under its own locks, so the phase never races a live
   VM. The report also carries the native image-prune data — the image data skipped because a live sandbox holds it, and
   the bytes reclaimed; a byte count the runtime cannot measure renders as unknown (`-`), never `0`.
+- Stale internal state: a `state.yaml` that records no home volume, unheld `claims/*.claim`, stale
+  `clients/*.lock` leases, and emptied state subtrees (an empty `clients/` or agent dir as well as the slug dir). A state that records a home volume and root-state adoption
+  claims are reclaimed only by `prune --purge`/`sandbox remove --purge`. The `locks/` tree is deliberately left
+  alone — an empty file, and deleting a held one would split the lock. Internal state is swept only on a real prune,
+  never a `--dry-run`.
 
-Age is applied when deciding which sandboxes are stale, and that decision is shared across sandboxes and home volumes:
-a project whose sandbox has activity in the age threshold is left alone entirely. Home volumes are reclaimed only when
-the project's sandbox is actually pruned (never for a merely sandbox-less project, since they hold user data), while
-runner images of a sandbox-less project are reclaimed once they age out — they can always be rebuilt, but a recent build
-is kept so the next run reuses it instead of reimporting it.
+Age is applied when deciding which sandboxes are stale, and that decision governs the runner images of a retired key: a
+project whose sandbox has activity in the age threshold is left alone. Home volumes are never reclaimed by `prune`; a
+project's volume is deleted only by its targeted `prune --purge`, and an orphaned volume (one no state points at) only
+by `volume prune`. Runner images of a sandbox-less project are reclaimed once they age out — they can always be rebuilt,
+but a recent build is kept so the next run reuses it instead of reimporting it.
 
-Auto-pruning runs before run commands (for example, `agents-sandbox`, `agents-sandbox run`, `agents-sandbox sandbox run`)
-via `sync.Once`. It uses a fixed default threshold of 30 days unless `auto-prune-age` is set in config.
+### Retiring a project
+
+A project is **retired** when both hold: it has no **kept sandbox** — no running VM and no inactive VM within the age
+threshold, for any of its keys, with task sandboxes not counting — and its most recent activity is older than the
+threshold. Activity is the newest of the project VM's update time, the newest home volume's creation time, the newest
+runner image's last use (falling back to creation), and the newest state-file mtime, so a recent build or run keeps the
+project out of the candidate set. A live task sandbox keeps the project out of the candidate set too: it mounts the
+project's home volume and image, so it must not be retired underneath.
+
+Candidates come from every artifact the launcher can still observe — state directories, home volumes, runner images,
+sandboxes, and root-state adoption claims — so a project whose state directory was deleted by hand, whose state was
+lost, or that never reached a state write still surfaces through its leftover volume. Attribution follows ownership: a
+home volume is credited to the state keys that reference it, so a legacy-named volume a checkout adopted is listed under
+that checkout (never under the now-ownerless legacy slug), and only an orphan volume no state references is listed under
+its own name. Batch `prune` only lists them; full removal is a targeted purge:
+
+```console
+agents-sandbox prune --purge [<slug>]              # or prune --purge=<slug>
+agents-sandbox sandbox remove --purge [<slug>]     # the same engine, next to the remove command
+```
+
+`<slug>` is a project slug (whole project) or a `<slug>-<agent>` key (one agent); omit it to target the current
+checkout. The age gate does not apply — naming the project is the intent. A running sandbox fails fast until `--force`
+stops it first. The plan (sandboxes, home volumes, runner images, state, claims) is named before a single confirmation;
+`--yes` skips the prompt and `--dry-run` previews it. A volume that fails to remove keeps its state file, so the pointer
+to it survives. A purge removes a home volume only when the target owns it — by its name, by a state key the target
+covers, or by an adoption claim the target's checkout holds — so purging a legacy slug never deletes a saved home a
+different checkout adopted, and purging that checkout reclaims the legacy-named volume its state points at.
+
+Auto-pruning runs before `run` and `shell` (`agents-sandbox`, `agents-sandbox run`, `agents-sandbox sandbox run`) via
+`sync.Once`. It is the safe tier too — it never removes a home volume — and uses a fixed default threshold of 30 days
+unless `auto-prune-age` is set in config.
 
 ## Stopping and removing a sandbox
 
@@ -118,7 +161,8 @@ place, so the next run recreates the sandbox against the same recorded home volu
 unless `--force` is set, which stops it first.
 
 > **Note:** Stopping or removing a sandbox never deletes its home volume. The volume holds the agent's state and
-> configuration, and `prune` reclaims it; see Pruning.
+> configuration; it is deleted only by `volume prune` (once orphaned), `prune --purge` (a whole project), or an explicit
+> `volume remove`. See Pruning.
 
 ## Lifecycle
 
@@ -127,7 +171,7 @@ Each run follows this lifecycle:
 ![Sandbox lifecycle diagram]({% link diagrams/lifecycle.svg %})
 
 ```text
-- Auto-prune: Remove stale sandboxes, volumes, and images
+- Auto-prune: Remove stale sandboxes, images, and internal state (never volumes)
 - Pre-flight checks (doctor): Docker, KVM, Git, private microsandbox runtime
 - Image verify/build: `.agents-sandbox/Dockerfile` (or default image) → Docker image -> microsandbox image (read from the bare root next to `.git` in a bare checkout)
 - Home volume verify/build: Persistent microsandbox home volume (`<checkout-slug>-<agent>-<timestamp>`) per checkout
@@ -239,7 +283,8 @@ mounted at `$HOME`. Until then the running sandbox keeps the previous home volum
 Home volumes are pruned when:
 
 - You run `volume migrate|reset` with `--rm` (removes the old volume)
-- `prune` is run with an age threshold older than the volume's last use
+- `volume prune` reclaims an orphaned volume of a stale project (no state references it)
+- `prune --purge` or `sandbox remove --purge` removes a whole project's volumes
 - The state file is missing and a fresh volume is created (old volumes become orphaned)
 
 ## Idle timeout: when a sandbox stops
