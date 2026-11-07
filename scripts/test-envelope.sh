@@ -74,6 +74,17 @@ else
     /*) : ;;
     *) work_dir="$PWD/$work_dir" ;;
   esac
+  # The work dir is removed on exit, so never point it at the source (the copy
+  # would nest) or at an existing directory whose contents would be lost.
+  case "$work_dir" in
+    "$source_dir"|"$source_dir"/*)
+      echo "test-envelope: --work-dir must be outside --source ($source_dir)" >&2
+      exit 2 ;;
+  esac
+  if (( keep == 0 )) && [[ -d "$work_dir" ]] && [[ -n "$(ls -A "$work_dir" 2>/dev/null)" ]]; then
+    echo "test-envelope: --work-dir $work_dir exists and is not empty; pass --keep to reuse it" >&2
+    exit 2
+  fi
   mkdir -p "$work_dir"
 fi
 
@@ -90,7 +101,7 @@ env_args=(
   "PWD=$work_dir/module"
   "GOCACHE=${GOCACHE:-$(go env GOCACHE)}"
   "GOMODCACHE=${GOMODCACHE:-$(go env GOMODCACHE)}"
-  "GOFLAGS=-count=1${GOFLAGS:+ $GOFLAGS}"
+  "GOFLAGS=${GOFLAGS:+$GOFLAGS }-count=1"
   "CGO_ENABLED=${CGO_ENABLED:-0}"
   "LANG=${LANG:-C.UTF-8}"
   "TZ=${TZ:-UTC}"

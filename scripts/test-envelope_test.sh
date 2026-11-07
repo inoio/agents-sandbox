@@ -65,6 +65,14 @@ leftovers="$(find "$fixture" -mindepth 1 -maxdepth 1 -not \( -name Makefile -o -
 # Case: no test-result cache can stand in for a real run.
 assert_contains "GOFLAGS pins -count=1" "$output" "GOFLAGS=-count=1"
 
+# Case: the forced -count=1 is the last flag, so an inherited -count cannot win.
+printed="$(GOFLAGS=-count=3 "$ENVELOPE" --source "$fixture" --print)" && rc=0 || rc=$?
+goflags_line="$(grep '^env GOFLAGS=' <<<"$printed")"
+case "$goflags_line" in
+  *-count=1) ok "forced -count=1 is last" ;;
+  *) bad "forced -count=1 is last ($goflags_line)" ;;
+esac
+
 # Case: --print reports the plan and runs nothing.
 printed="$("$ENVELOPE" --source "$fixture" --print)" && rc=0 || rc=$?
 assert_contains     "print shows the command" "$printed" "command: make test"
@@ -77,15 +85,30 @@ output="$("$ENVELOPE" --source "$spaced" --work-dir "$spaced_work" -- make test)
 [[ "$rc" -eq 0 ]] && ok "spaced source exits 0" || bad "spaced source exits 0 (rc=$rc)"
 assert_contains "spaced source runs in work dir" "$output" "PWD=$spaced_work/module"
 
-# Case: --netns is rejected when the host cannot provide it (self-skips on a
-# netns-capable Linux host, which is where the strict run is meant to work).
-if netns_capable; then
-  ok "netns rejected without prerequisites (skipped: host is netns-capable)"
-else
-  err="$("$ENVELOPE" --source "$fixture" --netns --print 2>&1)" && rc=0 || rc=$?
-  [[ "$rc" -ne 0 ]] && ok "netns rejected without prerequisites" || bad "netns rejected without prerequisites (rc=$rc)"
-  assert_contains "netns rejection names the prerequisite" "$err" "netns"
-fi
+# Case: refuses to clobber an existing non-empty work dir (it removes the work
+# dir on exit, so a reused path would be lost).
+existing="$fixture_root/existing"
+mkdir -p "$existing"
+: >"$existing/keepme"
+"$ENVELOPE" --source "$fixture" --work-dir "$existing" -- make test >/dev/null 2>&1 && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] && ok "existing work dir refused" || bad "existing work dir refused (rc=$rc)"
+[[ -f "$existing/keepme" ]] && ok "existing work dir left intact" || bad "existing work dir left intact"
+
+# Case: refuses a work dir inside the source tree (the copy would nest into it).
+inside="$fixture_root/base/inside"
+"$ENVELOPE" --source "$fixture" --work-dir "$inside" -- make test >/dev/null 2>&1 && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] && ok "work dir inside source refused" || bad "work dir inside source refused (rc=$rc)"
+
+# Case: --netns is rejected with a clear message when the host is not Linux.
+# A `uname` shim forces the branch so it runs on a capable Linux host too,
+# rather than self-skipping exactly where the strict run is meant to work.
+shim="$fixture_root/shim"
+mkdir -p "$shim"
+printf '#!/bin/sh\necho Darwin\n' >"$shim/uname"
+chmod +x "$shim/uname"
+err="$(PATH="$shim:$PATH" "$ENVELOPE" --source "$fixture" --netns --print 2>&1)" && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] && ok "netns rejected off Linux" || bad "netns rejected off Linux (rc=$rc)"
+assert_contains "netns rejection names the host os" "$err" "Darwin"
 
 # Case: --netns wraps the command in a loopback-only namespace.
 if netns_capable; then
