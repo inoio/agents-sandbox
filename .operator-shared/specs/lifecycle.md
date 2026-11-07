@@ -43,7 +43,7 @@ element calls one named `…Stage` step with the values it reads and hands its t
 `versionDecision`, `preparedHome`, `reconfigPlan`) to the stages after it. There is no shared `State` bag: a step sees
 only what its signature names. Stage 11 runs in `session`.
 
-**Packages.** The layering is `cmd` → `session` → `prepare` → `vm` (`run-orchestration-layer.md`). `prepare` owns
+**Packages.** The layering is `cmd` → `session` → `prepare` → `vm` (`architecture/package-boundaries.md`). `prepare` owns
 stages 4–10, the `--dry-run` preview and the decisions only they make: the agent version and upgrade prompt
 (`resolveBuildVersion`), the reconfig decision and home action (`resolveReconfigDecision`, `applyReconfigHomeAction`)
 and the fingerprints. `vm` holds the capabilities that act on a project VM; `prepare` reaches them only through `vm`'s

@@ -12,7 +12,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 ## Architecture
 
 - `internal/sandbox/` is the largest area of the codebase; it drives VM lifecycle, runner-image builds, docker & microsandbox (msb) clients, volumes, pruning, sessions, and state locking.
-- A run is layered `session/` → `prepare/` → `vm/` (`specs/run-orchestration-layer.md`): `prepare/` runs the stages that ready the project VM and makes the version/reconfig/home decisions; `vm/` holds the capabilities that act on a project VM (create/ensure, setup with the dockerd sidecar and agent daemon, worktree handling, adoption, VM env/control).
+- A run is layered `session/` → `prepare/` → `vm/` (`specs/architecture/package-boundaries.md`): `prepare/` runs the stages that ready the project VM and makes the version/reconfig/home decisions; `vm/` holds the capabilities that act on a project VM (create/ensure, setup with the dockerd sidecar and agent daemon, worktree handling, adoption, VM env/control).
 - Cross-cutting dependencies: `msb/` (microsandbox SDK client) and `docker/` are the external system clients; `naming/`, `options/`, `state/`, `network/`, `mounts/` provide shared configuration/locking primitives used across sandbox subpackages.
 - Heavily test-driven (many `*_test.go` / `coverage_*.go` files per package); most integration seams are mockable via `testmock.go` / `main_test.go` per package.
 

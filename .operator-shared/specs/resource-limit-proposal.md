@@ -58,7 +58,7 @@ terminal, the un-explained session death) rather than leaving the user to diagno
 ## Non-goals
 
 - **The huh prompt backend.** Building on `termio.Prompter` is in scope; implementing the
-  deferred `OPENCODE_SANDBOX_PROMPT` backend (`specs/termio-ui-backends.md`) is not. The prompt
+  deferred `OPENCODE_SANDBOX_PROMPT` backend (`specs/architecture/termio-ui.md`) is not. The prompt
   must be implementable with the existing line backend (`Select`/`Input`).
 - **Auto-raising during a session.** The watcher observes; it never modifies resources
   mid-session. A user-opt-in auto-raise is a possible later addition.

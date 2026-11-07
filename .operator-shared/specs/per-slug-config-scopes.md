@@ -148,7 +148,7 @@ intended reading (the user is migrating) and is surfaced by the existing fallbac
 
 The scope list needs the effective config slug. It is resolved once at the CLI boundary as
 `effectiveConfigSlug(identity)` in `cmd/agents-sandbox`. It is threaded the same way `ResolvedAgent`
-is: resolved at the boundary and carried on `options.RunOptions` (`run-orchestration-layer.md`).
+is: resolved at the boundary and carried on `options.RunOptions` (`architecture/package-boundaries.md`).
 
 - `viperconfig.Config` gains `ConfigSlug string` (`mapstructure:"-"`), set by `NewResolver` from its
   existing slug parameter. `NewResolverWithConfig` leaves it empty, so tests keep generic-only
