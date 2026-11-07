@@ -1,6 +1,11 @@
 package view
 
-import "github.com/inoio/agents-sandbox/internal/sandbox/pruning"
+import (
+	"fmt"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
+	"github.com/inoio/agents-sandbox/internal/termio"
+)
 
 type pruneDetailJSON struct {
 	Type            string `json:"type"`
@@ -105,4 +110,92 @@ func newPruneDetailsJSON(entries []pruning.StaleEntry) []pruneDetailJSON {
 		})
 	}
 	return details
+}
+
+// RemovalPlanJSON is the --format json shape of a targeted purge plan. Keys are
+// rendered "slug/agent" (a legacy agent-less key as the bare slug), matching the
+// claim-key convention. Empty artifact lists marshal as [] rather than null.
+type RemovalPlanJSON struct {
+	DryRun         bool     `json:"dry_run"`
+	Slugs          []string `json:"slugs"`
+	Keys           []string `json:"keys"`
+	Sandboxes      []string `json:"sandboxes"`
+	Volumes        []string `json:"volumes"`
+	Images         []string `json:"images"`
+	StateFiles     []string `json:"state_files"`
+	Claims         []string `json:"claims"`
+	AdoptionClaims []string `json:"adoption_claims"`
+}
+
+func NewRemovalPlanJSON(plan *pruning.RemovalPlan, dryRun bool) RemovalPlanJSON {
+	keys := make([]string, 0, len(plan.Keys))
+	for _, key := range plan.Keys {
+		name := key.Slug
+		if key.Agent != "" {
+			name += "/" + key.Agent
+		}
+		keys = append(keys, name)
+	}
+	return RemovalPlanJSON{
+		DryRun:         dryRun,
+		Slugs:          removalPlanSlice(plan.Slugs),
+		Keys:           keys,
+		Sandboxes:      removalPlanSlice(plan.Sandboxes),
+		Volumes:        removalPlanSlice(plan.Volumes),
+		Images:         removalPlanSlice(plan.Images),
+		StateFiles:     removalPlanSlice(plan.StateFiles),
+		Claims:         removalPlanSlice(plan.Claims),
+		AdoptionClaims: removalPlanSlice(plan.AdoptionClaims),
+	}
+}
+
+// removalPlanSlice copies names into a non-nil slice, so an empty plan artifact
+// marshals as [] rather than null.
+func removalPlanSlice(names []string) []string {
+	return append([]string{}, names...)
+}
+
+// RenderRemovalPlan names every artifact a targeted purge removes, so a user
+// approves exactly what will be deleted. The same list is printed for a dry
+// run, phrased as what would be removed. It writes through termio.Output;
+// cliout stays domain-free.
+func RenderRemovalPlan(plan *pruning.RemovalPlan, ui termio.Output, dryRun bool) {
+	verb := "will"
+	if dryRun {
+		verb = "would"
+	}
+	ui.Header(fmt.Sprintf("Purge %s remove:", verb))
+	renderRemovalSlugs(ui, plan.Slugs)
+	renderRemovalArtifacts(ui, "sandboxes", plan.Sandboxes)
+	renderRemovalArtifacts(ui, "home volumes", plan.Volumes)
+	renderRemovalArtifacts(ui, "runner images", plan.Images)
+	renderRemovalArtifacts(ui, "state files", plan.StateFiles)
+	renderRemovalArtifacts(ui, "claims", plan.Claims)
+	renderRemovalArtifacts(ui, "adoption claims", plan.AdoptionClaims)
+}
+
+// renderRemovalSlugs prints the plan's projects, singular when there is one.
+func renderRemovalSlugs(ui termio.Output, slugs []string) {
+	switch len(slugs) {
+	case 0:
+		return
+	case 1:
+		ui.Outf("  project: %s", slugs[0])
+	default:
+		ui.Out("  projects:")
+		for _, slug := range slugs {
+			ui.Outf("    - %s", slug)
+		}
+	}
+}
+
+// renderRemovalArtifacts prints a non-empty artifact group as an indented list.
+func renderRemovalArtifacts(ui termio.Output, label string, names []string) {
+	if len(names) == 0 {
+		return
+	}
+	ui.Outf("  %s:", label)
+	for _, name := range names {
+		ui.Outf("    - %s", name)
+	}
 }
