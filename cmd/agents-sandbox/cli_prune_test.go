@@ -92,6 +92,27 @@ func TestResolvePruneAgeErrorReturnsZero(t *testing.T) {
 	})
 }
 
+// TestResolvePruneAgeRejectsZero pins that a parsed non-positive duration is
+// rejected with the config-validation error pattern, and that the returned
+// duration is zero.
+func TestResolvePruneAgeRejectsZero(t *testing.T) {
+	for _, age := range []string{"0", "0d", "0w", "0s", "0h", "0m", "0ns"} {
+		cmd := buildPruneCmd(&termio.Mock{})
+		_ = cmd.Flags().Set(flagOlderThan, age)
+		got, err := resolvePruneAge(cmd)
+		if err == nil {
+			t.Errorf("age %q: expected a non-positive-age error", age)
+			continue
+		}
+		if !strings.Contains(err.Error(), "must be > 0") {
+			t.Errorf("age %q: error %q does not match the config-validation pattern", age, err)
+		}
+		if got != 0 {
+			t.Errorf("age %q: duration = %v, want 0 on error", age, got)
+		}
+	}
+}
+
 // TestResolvePruneFlagsErrorReturnsZero pins the error return's zero age and
 // false dry-run.
 func TestResolvePruneFlagsErrorReturnsZero(t *testing.T) {

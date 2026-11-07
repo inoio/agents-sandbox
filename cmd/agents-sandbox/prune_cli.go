@@ -48,6 +48,9 @@ func resolvePruneAge(cmd *cobra.Command) (time.Duration, error) {
 	if !ok {
 		return 0, fmt.Errorf("invalid age %q: use a Go duration or suffix d/w (e.g. 7d, 2w)", ageStr)
 	}
+	if d <= 0 {
+		return 0, fmt.Errorf("--%s must be > 0, got %v", flagOlderThan, ageStr)
+	}
 	return d, nil
 }
 
