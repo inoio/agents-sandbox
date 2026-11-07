@@ -31,7 +31,7 @@ Invariant: **`/workspace` must always expose the worktree the session is in.** F
 
 The `git rev-parse` phrasing describes the facts, not the implementation: the derivation reuses the host-side, go-git-based inspection (`projectSlugAt` / `resolveGitDir` in `internal/git`). A host `git` binary is not a runtime prerequisite and must not be introduced. A linked worktree's `.git` file may record the shared git dir relatively (git ≥ 2.48 with `worktree.useRelativePaths true`, which this layout requires); the derivation resolves a relative gitdir against the worktree root.
 
-Project config (`.agents-sandbox`) resolution is not part of this rule: the launcher read it from the CWD, so in a bare layout it came from the launched worktree rather than the bare root. That gap and its `core.bare`-based fix are owned by `configuration/project-config-root.md`.
+Project config (`.agents-sandbox`) resolution is not part of this rule: the launcher read it from the CWD, so in a bare layout it came from the launched worktree rather than the bare root. That gap and its `core.bare`-based fix are owned by `specs/configuration/project-config-root.md`.
 
 The bind source is a VM-creation-time property, not part of reconfig change detection (only the `/workspace` quota is compared). The change therefore takes effect on freshly created VMs; an existing VM keeps its original bind source until recreated or removed. Adding bind-source-change detection to reconfig is deliberately not done.
 

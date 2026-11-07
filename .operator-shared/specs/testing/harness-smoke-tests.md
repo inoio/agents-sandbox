@@ -12,7 +12,7 @@ Harness support can break without any test noticing. `opencode2` did: its `Daemo
 sent no credentials, v2's `serve` answers every `/api/*` route with `401` when unauthenticated, and
 `ensureDaemon` (`internal/sandbox/vm/daemon.go`) polled to its `daemonReadyTimeout` (60s) before failing. The
 daemon was healthy; the launcher could not see it, and the user got "… did not become healthy within 60s"
-instead of a TUI. See `agents/opencode2.md` for the fix.
+instead of a TUI. See `specs/agents/opencode2.md` for the fix.
 
 No existing test could catch it:
 

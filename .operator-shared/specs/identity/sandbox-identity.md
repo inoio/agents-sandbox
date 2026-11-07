@@ -32,4 +32,4 @@ The name-based `msb.Client.RemoveSandbox(ctx, name)` is retired so no path can a
 
 Identity is compared live only. No last-known ID is written to `state.yaml` and no state migration is added: a freshly acquired handle legitimately adopts the current identity, so a persisted ID would create false positives.
 
-This contract is defense-in-depth against a name collision redirecting a destructive operation to the wrong VM; the separate concern of two checkouts deriving one VM name is `checkout-identity.md`.
+This contract is defense-in-depth against a name collision redirecting a destructive operation to the wrong VM; the separate concern of two checkouts deriving one VM name is `specs/identity/checkout-identity.md`.

@@ -213,7 +213,7 @@ func TestBuildAllowPlaceholderForFromConfig(t *testing.T) {
 
 // TestBuildMemoryFlagChanged pins the --memory flag provenance: Build records
 // whether the flag was explicitly set, so a persisted raise is not written as a
-// shadowed config value (specs/resource-limit-proposal.md §8).
+// shadowed config value (specs/resources/resource-limit-proposal.md §8).
 func TestBuildMemoryFlagChanged(t *testing.T) {
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
 

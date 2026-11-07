@@ -13,7 +13,7 @@ import (
 // ports as PublishedPortSpec values (snake_case fields, the protocol spelled as
 // the Rust variant name), while the Go SDK's SandboxConfig.UnmarshalJSON drops
 // them: Config().PortBindings is empty on every read-back. See
-// .operator-shared/specs/live-mount-readback.md.
+// .operator-shared/specs/vm/live-mount-readback.md.
 type persistedConfigPorts struct {
 	Network persistedNetworkPorts `json:"network"`
 }

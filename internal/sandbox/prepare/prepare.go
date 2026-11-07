@@ -1,5 +1,5 @@
 // Package prepare runs the stages of a run/shell that ready the project VM,
-// resolve-identity through setup-sandbox (specs/lifecycle.md): it decides the
+// resolve-identity through setup-sandbox (specs/vm/lifecycle.md): it decides the
 // agent version, the home volume and the VM reconfiguration, and calls the
 // capabilities in package vm to act on those decisions. PreviewSandbox is the
 // read-only --dry-run variant of the same stages.
@@ -107,7 +107,7 @@ func runtimeHomeMigrationOffer(seams options.Seams) func(context.Context, msb.Cl
 // Run and Shell in the session package call it and then attach to the result.
 //
 // Its body is the ordered list of the vm-owned lifecycle stages
-// (specs/lifecycle.md, resolve-identity through setup-sandbox), run by one loop
+// (specs/vm/lifecycle.md, resolve-identity through setup-sandbox), run by one loop
 // that records each stage into opts.Trace. Each stage calls one step with the
 // values it reads and keeps the values it produces for the stages after it; the
 // locals below are that hand-off, not a state the steps reach into.
@@ -433,7 +433,7 @@ func planReconfigStage(
 	}
 	// A hit left by a previous session is offered before the decision, so a
 	// raise the user accepts applies to the VM this run creates or reconciles
-	// (specs/resource-limit-proposal.md §1, §8). A skipVM (--dry-run-vm)
+	// (specs/resources/resource-limit-proposal.md §1, §8). A skipVM (--dry-run-vm)
 	// prepare skips it: like the deferred home action, a dry run must not
 	// prompt or persist a change.
 	if !skipVM {
@@ -765,7 +765,7 @@ func persistOfferedVersion(k state.Key, version string, ui termio.Logger) {
 // or "" when the project has no VM or its mounts cannot be read. It lets home
 // resolution recover the volume when the state file was lost. The
 // mount is read from the VM's persisted config, because the SDK's Config()
-// leaves cfg.Volumes empty on a read-back (specs/live-mount-readback.md). A
+// leaves cfg.Volumes empty on a read-back (specs/vm/live-mount-readback.md). A
 // not-found VM is expected (first run); any other lookup error is logged so a
 // transient failure is visible rather than silently orphaning the volume.
 func liveHomeVolume(ctx context.Context, client msb.Client, k state.Key, ui termio.Logger) string {

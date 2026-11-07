@@ -7,7 +7,7 @@ read_if: Adding or reviewing volume/image/sandbox inspection, removal, and disk-
 
 ## Intent
 
-agents-sandbox owns its microsandbox runtime in a private home (`$MSB_HOME`, `specs/runtime-home-decoupling.md`) and no
+agents-sandbox owns its microsandbox runtime in a private home (`$MSB_HOME`, `specs/volumes/runtime-home-decoupling.md`) and no
 longer installs or advertises a user-facing `msb`. That removes the user's only way to inspect and clean up the runtime's
 own objects (volumes, images, sandboxes) with msb's own tooling; the `volume remove` command is the first piece of the
 replacement.
@@ -95,7 +95,7 @@ portability features.
   `agents-sandbox-vm-*` name is accepted, and otherwise the name must not parse as
   a task sandbox or a home-volume/runner-image name. This is a project-vs-task
   classification, not artifact ownership (which is positional; see
-  `identity/artifact-naming.md`). It does **not** drop the persisted state, so the
+  `specs/identity/artifact-naming.md`). It does **not** drop the persisted state, so the
   recorded home volume survives and the next run recreates the VM against it.
 - `sandbox compact [name]` — merge the oldest sealed copy-on-write disk layers of
   every project VM's disks (or only the named one), briefly pausing a running VM.

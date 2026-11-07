@@ -77,7 +77,7 @@ protects whatever ref a kept sandbox holds via its `config.Image`.
 ## Ownership vs classification
 
 Ownership is positional for sandboxes and volumes: the private runtime home (`configpaths.MSBHome()`) is ours alone and
-the external-runtime escape hatch was removed (`runtime-home-decoupling.md`), so their prefix-based "is this ours?"
+the external-runtime escape hatch was removed (`specs/volumes/runtime-home-decoupling.md`), so their prefix-based "is this ours?"
 filters in `vm/list.go` and `volume/list.go` are dropped. **Runner-image ownership is deliberately a per-object
 name-shape predicate**: the parsed slug must embed the 14-character base36 hash every launcher-built slug ends with
 (`naming.IsRunnerImageRef`, reusing `isBase36Hash`). A prefix test cannot stand in for it — a manually loaded

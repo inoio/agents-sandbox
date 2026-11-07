@@ -83,7 +83,7 @@ before its first SDK call (`ensureIsolatedRuntime`). The runtime install is lazy
 `TestMain` — so `compile-all`'s `-run=^$` stays inert. Without this the SDK resolves its default `~/.microsandbox`,
 where a runtime left by a pre-decoupling agents-sandbox install fails sandbox creation with the native library's
 "no tested sandbox launch contract for runtime <v>" after an SDK bump; the launcher repairs only its own private home
-(`runtime-home-decoupling.md`).
+(`specs/volumes/runtime-home-decoupling.md`).
 
 Because that home is **fresh per test process**, a sandbox leaked by one run is invisible to the next: `WithReplace`
 only replaces a same-name sandbox within one runtime home, and the teardown deletes the home, so a surviving VM can
@@ -150,7 +150,7 @@ that repeats a package) into the next iteration. The suite must be idempotent: `
 
 ### Injected clients vs. the remaining seams
 
-Per `client-injection.md`, the Docker client and the path resolver are explicit
+Per `specs/architecture/client-injection.md`, the Docker client and the path resolver are explicit
 parameters below each entry point, and `image` no longer imports `"testing"`:
 its agent-release resolution is injected through `BuildOptions.ResolveVersion`,
 and image's own tests override the unexported `defaultAgentVersionResolver`
@@ -158,7 +158,7 @@ default (via `withMockAgentVersion*`), never an exported hook. The
 `docker.InstallFailFastGet` and `configpaths.InstallFailFastConfigPaths`
 installers stay required: `docker.Get`/`configpaths.Get` are still the boundary
 factories and still fail fast under tests, and the process-root residue named in
-`client-injection.md` reads them.
+`specs/architecture/client-injection.md` reads them.
 
 The former exported behavior hooks (`vm.SetProjectVMLock`,
 `vm.SetDaemonHealthFunc`, `prepare.SetAgentLatestVersion`,
@@ -214,7 +214,7 @@ from them). Keep any future host-path need in them injected, never global.
 `TestConfigAgentPrintsMergedAndHostFiles` built the host opencode dir from `os.Getenv("HOME")` and wrote
 `{"model":"host"}` into the developer's real `~/.config/opencode/opencode.jsonc`. The next launcher start read that file
 as the agent's merged config, found it different from the host snippet merge, and raised the daemon-restart
-"agent config changed" prompt (see `reconfig-decision.md`). `go test` must not leave the host in a state a later run
+"agent config changed" prompt (see `specs/vm/reconfig-decision.md`). `go test` must not leave the host in a state a later run
 reacts to. The tree-wide fail-fast defaults and the `$HOME` redirect close this class.
 
 A later incident closed the sibling class: `TestProjectDirsAndFiles`/`TestProjectConfigDirAbs` read the real resolver

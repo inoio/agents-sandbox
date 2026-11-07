@@ -58,20 +58,20 @@ launcher sets.
   variant name — `"Raw"` — while `DiskOptions.Format` is the lowercase hint. An entry whose `type` is unrecognized (a
   newer runtime) is skipped rather than failing the whole read; a `guest`-less entry, invalid JSON, or an empty
   `config_json` is an error. A duplicated `guest` path resolves deterministically — the last entry wins — so a
-  repeated mount cannot make the decision output order-dependent (see `reconfig-decision.md`).
+  repeated mount cannot make the decision output order-dependent (see `specs/vm/reconfig-decision.md`).
 - Consumers and what they read:
   - `reconfig.PlanReconfig` via `resolveReconfigDecision` — `tmpSizeChange` (`size_mib` at `/tmp`), `workspaceQuotaChange`
     (`quota_mib` at `/workspace`), `homeVolumeChange` (the `name` of the `Named` mount at `/home/dev`). It degrades,
     never fails: a parse/lookup failure is logged and the run proceeds with no mounts.
   - `vm.ProjectVMHomeVolume` — the same `Named` mount for home-volume recovery (#219,
-    `specs/home-volume-recovery.md`); the shared reader behind both `prepare.liveHomeVolume` and the #144 adoption path.
+    `specs/volumes/home-volume-recovery.md`); the shared reader behind both `prepare.liveHomeVolume` and the #144 adoption path.
     It returns `(volume, exists, err)` and is **fail-closed**: a mounts-read failure returns `exists=true` with the
     error, so a caller that might destroy the VM on the strength of the result can fail closed instead of dropping its
     volume. `prepare.liveHomeVolume` is a verbose-logging wrapper that discards the error (so home-volume recovery and the
     dry-run preview keep the previous degrade behaviour), while `vm.legacyAdoptionPending` propagates it and aborts
     adoption.
   - `vm.InspectSandbox` — the mount list rendered by `sandbox inspect`
-    (`specs/runtime-management-commands.md`, Slice 3). It reports the read failure like its `Config()` read does, so
+    (`specs/volumes/runtime-management-commands.md`, Slice 3). It reports the read failure like its `Config()` read does, so
     `sandbox inspect` never silently shows zero mounts for a VM that has them.
 - A missing `mounts` key is not an error — a config persisted by a runtime that does not record mounts is valid, and
   must not read as "everything changed". It yields an empty (non-nil) map. The same holds for `network.ports`: a

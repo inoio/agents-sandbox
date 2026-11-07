@@ -179,7 +179,7 @@ takes the legacy state, and the others start fresh.
 `<state>/<checkoutSlug>/<agent>/state.yaml`. The predicate is state-**file** absence, not directory absence,
 so a stray or aborted run that creates the empty checkout directory cannot permanently skip migration.
 **Or** the agent's legacy **project VM** is still live under a legacy slug while no checkout-keyed state
-file exists — the lost-state case of `home-volume-recovery.md` (#219), where the VM is the only remaining
+file exists — the lost-state case of `specs/volumes/home-volume-recovery.md` (#219), where the VM is the only remaining
 legacy artifact. Treating that as "brand new" would mint a fresh home volume and orphan the previous one
 (credentials, files), so the VM arm adopts instead. Because destroying the VM removes the only record of its
 volume, adoption first writes the mounted volume into the checkout state's `recovered_home_volume`, then

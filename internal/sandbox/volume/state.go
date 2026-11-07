@@ -164,7 +164,7 @@ func (vm *Manager) ResolveHomeVolume(
 // repairs a missing or unparsable document, and a still-readable prior
 // document (recorded volume gone) is carried forward so its fingerprints, which
 // describe the live VM rather than the home volume, survive and dropping them
-// does not trigger a spurious rebuild (see specs/reconfig-decision.md).
+// does not trigger a spurious rebuild (see specs/vm/reconfig-decision.md).
 func (vm *Manager) commitHomeVolumePlan(
 	ctx context.Context,
 	client msb.Client,

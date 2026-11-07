@@ -77,4 +77,4 @@ read_if: Navigating the codebase.
 
 - `release/` — the release runbook (`SKILL.md`, `RELEASE-NOTES.md`, `NON-GO-DEPS.md`); `bare-worktrees/` — the bare-checkout layout this repo uses.
 - `handle-pr-feedback/`, `maintain/`, `pr/` — repo-adapted skills: the PR-mergeability loop, the GitHub maintainer flow, and the PR-body template.
-- `compacting-context/` — the `session.compact` recipe so an agent told to compact its own context loads the skill instead of scanning for a nonexistent tool.
+- `compacting-context/` — the `session.compact` recipe so an agent told to compact its own context loads the skill instead of scanning for a nonexistent tool; `opencode2-self-management/`, `opencode2-probe/`, `terminal-reset/` — runbooks retired from the shared brain (the `session.compact` API, driving the opencode2 daemon's event stream, and verifying the post-attach terminal reset).

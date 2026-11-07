@@ -122,12 +122,12 @@ type SandboxHandle interface {
 	// guest path. Config() cannot supply them: the SDK's
 	// SandboxConfig.UnmarshalJSON drops the persisted mounts, so
 	// cfg.Volumes is always empty on a read-back
-	// (specs/live-mount-readback.md).
+	// (specs/vm/live-mount-readback.md).
 	ConfigMounts() (map[string]msbSdk.MountConfig, error)
 	// ConfigPorts returns the published port bindings the persisted config
 	// records. Config() cannot supply them either: the same SDK decode drops
 	// the persisted network.ports, so cfg.PortBindings is always empty on a
-	// read-back (specs/live-mount-readback.md).
+	// read-back (specs/vm/live-mount-readback.md).
 	ConfigPorts() ([]msbSdk.PortBinding, error)
 	Modify(ctx context.Context, opts msbSdk.ModifyOptions) (*msbSdk.SandboxModificationPlan, error)
 	Compact(ctx context.Context, opts msbSdk.DiskCompactionOptions) (*msbSdk.DiskCompactionResult, error)

@@ -5,13 +5,13 @@ read_if: Changing image build/caching, `buildDecision`/`buildReasons`/`BuildOpti
 
 # Runner image build and content addressing
 
-How the rendered Dockerfile is arranged into stages (so layer caching works as assumed here) is owned by `image-composition.md`.
+How the rendered Dockerfile is arranged into stages (so layer caching works as assumed here) is owned by `specs/runner-image/image-composition.md`.
 
 ## Build decision vs cache bypass
 
 `EnsureImageWithClient` makes two independent decisions from one input, `BuildOptions.Force`:
 
-- **Build at all:** `buildDecision` (`internal/sandbox/image/inspect.go`) short-circuits on `Force`, then `buildReasons` requests a build when the host Docker image is absent or its recorded `dockerfile-id` differs from the rendered one. The `dockerfile-id` label is the source signature (rendered Dockerfile + resolved agent version + every build-context file with its name, mode, and content; the files travel via the build context rather than the Dockerfile text, so each is folded into the signature for an edit to invalidate a warm image — see `image-composition.md`); a mismatch means the rendered recipe changed and triggers a build. It is a signature of the declared inputs, not a content identity: it deliberately excludes host-dependent inputs (the resolved base digest and the dev user's uid/gid), so a label match does not imply equal image bytes.
+- **Build at all:** `buildDecision` (`internal/sandbox/image/inspect.go`) short-circuits on `Force`, then `buildReasons` requests a build when the host Docker image is absent or its recorded `dockerfile-id` differs from the rendered one. The `dockerfile-id` label is the source signature (rendered Dockerfile + resolved agent version + every build-context file with its name, mode, and content; the files travel via the build context rather than the Dockerfile text, so each is folded into the signature for an edit to invalidate a warm image — see `specs/runner-image/image-composition.md`); a mismatch means the rendered recipe changed and triggers a build. It is a signature of the declared inputs, not a content identity: it deliberately excludes host-dependent inputs (the resolved base digest and the dev user's uid/gid), so a label match does not imply equal image bytes.
 - **Bypass cache:** `Force` is passed through to `NoCache` on the Docker build.
 
 So `Force` means **clean rebuild**: rebuild even when the identity matches, with `NoCache=true`. It is set only by an explicit user `--rebuild` on `build`, `run`, or `shell`.

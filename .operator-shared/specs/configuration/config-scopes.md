@@ -7,7 +7,7 @@ read_if: Changing config-scope order or precedence, per-slug user config, host c
 
 ## Host-path seam
 
-`internal/configpaths` is the single authority for the **host** paths agents-sandbox resolves. `configpaths.Get()` returns a `ConfigPaths`; production code obtains host paths through it, never by hand-building them. The resolver is also injected below each entry point (image render helpers, `vm.AdoptLegacyIdentity`, `viperconfig`, the prepare/upgrade migrations) so those call sites take a `ConfigPaths` parameter; `Get()` remains the boundary factory and the process-root residue (`state`, `runtime`/`MSBHome`, `homeconfig`) — see `architecture/client-injection.md`.
+`internal/configpaths` is the single authority for the **host** paths agents-sandbox resolves. `configpaths.Get()` returns a `ConfigPaths`; production code obtains host paths through it, never by hand-building them. The resolver is also injected below each entry point (image render helpers, `vm.AdoptLegacyIdentity`, `viperconfig`, the prepare/upgrade migrations) so those call sites take a `ConfigPaths` parameter; `Get()` remains the boundary factory and the process-root residue (`state`, `runtime`/`MSBHome`, `homeconfig`) — see `specs/architecture/client-injection.md`.
 
 - Methods cover the tool's XDG dirs (`UserConfigDir`/`UserSlugConfigDir`/`UserCacheDir`/`UserStateDir`/`UserDataDir`), the project config dir and env/secret/Dockerfile paths, `IgnoredWorktreeConfigDir`, and `UserHomeDir() (string, error)` — the host user's home, the root the home-relative agent config and `home:` manifests resolve against.
 - The per-agent config-dir candidates are resolved by `agent.ConfigDirNames(a) ([]string, error)` (the primary name then each `ConfigDirAliaser` alias), joined under the tool's user/project config dir by `reprovision.joinUnder` inside `reprovision.ResolveConfigSource`. `agent.validateConfigDirName` is the one guard: it returns an error when a profile's config-dir name is not a single clean path element (`""`, `"."`, `".."`, or one containing a path separator), so a malformed profile fails at the resolution boundary (`reprovision.ResolveConfigSource` / `LoadConfigFilesForHost`) with a message naming the agent, rather than panicking deep inside a path join.
@@ -19,7 +19,7 @@ Deliberate exceptions (host paths that are not the tool's config and keep their 
 
 ### Test isolation
 
-Under tests `configpaths.Get()` defaults to a fail-fast implementation that panics on first use; a test exercising home-relative resolution installs `WithMockConfigPaths(t)` (which also redirects `$HOME` into its temp tree) or `WithMockConfigPathsHomeError(t, err)`. `homeconfig` and `runtime` tests that resolve the home via an empty or `~` manifest source therefore opt in explicitly. See `../testing/test-isolation.md` for the full fail-fast and host-home-redirect contract, and `vm/reconfig-decision.md` for the spurious "agent config changed" prompt that motivated it.
+Under tests `configpaths.Get()` defaults to a fail-fast implementation that panics on first use; a test exercising home-relative resolution installs `WithMockConfigPaths(t)` (which also redirects `$HOME` into its temp tree) or `WithMockConfigPathsHomeError(t, err)`. `homeconfig` and `runtime` tests that resolve the home via an empty or `~` manifest source therefore opt in explicitly. See `../testing/test-isolation.md` for the full fail-fast and host-home-redirect contract, and `specs/vm/reconfig-decision.md` for the spurious "agent config changed" prompt that motivated it.
 
 ## Ordered config scopes
 
@@ -31,7 +31,7 @@ Under tests `configpaths.Get()` defaults to a fail-fast implementation that pani
 
 Non-goals:
 
-- The project layer's trust gate (`project-config-trust.md`) is unchanged. The per-slug user dir is in the trusted user layer and is never gated.
+- The project layer's trust gate (`specs/configuration/project-config-trust.md`) is unchanged. The per-slug user dir is in the trusted user layer and is never gated.
 - No user-level Dockerfile; the project Dockerfile stays project-only.
 - No new config-file formats or new file-based inputs beyond the existing four.
 - No change to the `config paths` displayed layer names or the relative project row.
@@ -96,7 +96,7 @@ The primary/legacy-namespace choice is one global decision, extended to the thre
 
 ### Slug threading
 
-The scope list needs the effective config slug. It is resolved once at the CLI boundary as `effectiveConfigSlug(identity)` in `cmd/agents-sandbox` and threaded the same way `ResolvedAgent` is — resolved at the boundary and carried on `options.RunOptions` (see `architecture/package-boundaries.md`).
+The scope list needs the effective config slug. It is resolved once at the CLI boundary as `effectiveConfigSlug(identity)` in `cmd/agents-sandbox` and threaded the same way `ResolvedAgent` is — resolved at the boundary and carried on `options.RunOptions` (see `specs/architecture/package-boundaries.md`).
 
 - `viperconfig.Config` gains `ConfigSlug string` (`mapstructure:"-"`), set by `NewResolver` from its existing slug parameter. `NewResolverWithConfig` leaves it empty, so tests keep generic-only behavior unless they set it.
 - `runoptions.Build` copies it to `RunOptions.ConfigSlug`.
@@ -121,4 +121,4 @@ Adoption renames a bare root's legacy per-slug dir onto the repo slug, so the sl
 
 Non-impact: env/secret fingerprints derive from loaded values, so absent per-slug files leave them unchanged; `home:` and agent config changes already apply on the next startup / daemon restart (no new recreate path); the project trust projection is unchanged (it reads the project scope alone).
 
-`config harden` / `config wizard` do not exist in this tree (they are described by `onboarding/onboarding.md` but unlanded), so no scope inspection is added for them. When they land, they should consume `ConfigScopes` for their per-scope findings.
+`config harden` / `config wizard` do not exist in this tree (they are described by `specs/onboarding/onboarding.md` but unlanded), so no scope inspection is added for them. When they land, they should consume `ConfigScopes` for their per-scope findings.

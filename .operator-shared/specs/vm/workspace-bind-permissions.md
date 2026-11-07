@@ -41,6 +41,6 @@ this change: the SDK's `Config()` does not round-trip volumes when reading an ex
 doc), and the managed `/workspace` bind is not part of the persisted `MountState` fingerprint (which covers
 `opts.Mounts` only), so `PlanReconfig` detects nothing. A VM recreated for any other reason (image, env/secret, network,
 configured mounts, …) picks up `mirror`. If applying it to existing VMs is required, the live `/workspace` bind's
-`host_permissions` is now readable (`specs/live-mount-readback.md`), so a comparison against it is possible; the
+`host_permissions` is now readable (`specs/vm/live-mount-readback.md`), so a comparison against it is possible; the
 alternative is a dedicated one-time fingerprint in `HomeState` (seeded like `NetworkState`, empty-applied = changed).
 Before #223 the `/workspace` bind was invisible on a read-back and neither route could fire.

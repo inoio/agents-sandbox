@@ -43,7 +43,7 @@ element calls one named `…Stage` step with the values it reads and hands its t
 `versionDecision`, `preparedHome`, `reconfigPlan`) to the stages after it. There is no shared `State` bag: a step sees
 only what its signature names. Stage 11 runs in `session`.
 
-**Packages.** The layering is `cmd` → `session` → `prepare` → `vm` (`architecture/package-boundaries.md`). `prepare` owns
+**Packages.** The layering is `cmd` → `session` → `prepare` → `vm` (`specs/architecture/package-boundaries.md`). `prepare` owns
 stages 4–10, the `--dry-run` preview and the decisions only they make: the agent version and upgrade prompt
 (`resolveBuildVersion`), the reconfig decision and home action (`resolveReconfigDecision`, `applyReconfigHomeAction`)
 and the fingerprints. `vm` holds the capabilities that act on a project VM; `prepare` reaches them only through `vm`'s
@@ -85,7 +85,7 @@ itself (`currentRunImageKeys`: the checkout slug plus the legacy repo slugs, bes
 **`resolve-identity`.** Looks up the agent, resolves the workspace identity (`git.ResolveIdentity`: bind root, repo
 slug, checkout slug) and adopts a legacy origin-keyed identity (`AdoptLegacyIdentity`) before any artifact is touched,
 so every later stage keys on the effective checkout slug. Under `--dry-run-vm` the adoption is read-only and the run
-keeps resolving against the legacy location. See `identity/checkout-identity.md`, `worktrees/worktree-layout.md`.
+keeps resolving against the legacy location. See `specs/identity/checkout-identity.md`, `specs/worktrees/worktree-layout.md`.
 
 **`resolve-version`.** Decides the agent release to bake: an explicit pin, else the release the existing image's label
 reports, else the `agent_version` cache, then the upgrade prompt, which may raise it. A user-provided agent is the one
@@ -95,14 +95,14 @@ label recovery and the upgrade prompt (empty when nothing is recorded, leaving r
 `HomeState` writes copy the authority into the cache (a stale or empty `agent_version` is rewritten from the
 label) and mark an offered upgrade when state already exists.
 Prevents a stale `agent_version` cache from selecting a release older than the image already holds; an explicit pin
-may intentionally select an older release. See `state/upgrade-state.md`, `state/upgrade-state.md`.
+may intentionally select an older release. See `specs/state/upgrade-state.md`, `specs/state/upgrade-state.md`.
 
 **`ensure-image`.** Builds or reuses the runner Docker image (`image.EnsureImage`) and returns `ImageInfo` carrying the
 Docker tag, the content-addressed msb ref, the digest and the baked agent version. The build stamps the resolved
 release as the image's `agent-version` label, the version authority. It does not load the image into msb: the stage
 that first needs it there loads it under that ref (`image.EnsureLoaded`), skipping the load when the cached content
 already matches. Guarantees a Docker image whose content every later stage refers to by the same ref. See
-`runner-image/image-build.md`, `runner-image/image-composition.md`.
+`specs/runner-image/image-build.md`, `specs/runner-image/image-composition.md`.
 
 **`ensure-home`.** Offers the opt-in legacy runtime-home copy, then resolves the project's home volume: state, else the
 live VM's mounted volume, else a freshly created and prefilled one with a fingerprint-seeded state
@@ -113,26 +113,26 @@ independent of whether the profile can report its version in the VM. Guarantees 
 the VM will mount. Under `--dry-run-vm` a project without a home creates no volume and writes no state: it carries the
 would-be name and an in-memory, fingerprint-seeded state, so the first run with a VM creates and prefills the volume
 (#429). A concurrent first run that loses the state commit adopts the winner's volume and removes its own (#431). See
-`home-volume-recovery.md`, `state/state-model.md`, `runtime-home-decoupling.md`.
+`specs/volumes/home-volume-recovery.md`, `specs/state/state-model.md`, `specs/volumes/runtime-home-decoupling.md`.
 
 **`plan-reconfig`.** Reads the live VM once (`readLiveProjectVM`: lookup, persisted config, agent config files),
 compares the desired fingerprints and image with the persisted ones and those facts to decide recreate vs daemon restart
 vs nothing (`resolveReconfigDecision`), then applies the resulting home-volume action (keep/migrate/reset) separately
 (`applyReconfigHomeAction`). Guarantees `ensure-vm` a decision whose home volume is final, and the VM handle the
 decision was read from (`reconfigPlan.existingVM`). Under `--dry-run-vm` a migrate or reset action is left uncommitted.
-See `reconfig-decision.md`.
+See `specs/vm/reconfig-decision.md`.
 
 **`ensure-vm`.** Creates, starts, recreates or reconnects the project VM, using the handle `plan-reconfig` read instead
 of looking the VM up again. Creation and recreation take the per-project `ensure-vm.lock`; starting or reconnecting to
 an existing VM takes the lock-free fast path (`resolveExistingVM`). A creation first loads the runner image into msb
 unless it is cached with matching content (`createProjectVM` → `image.EnsureLoaded`), then persists the fingerprints
 (`persistConfigHashes`). Returns the boot kind. Skipped under `--dry-run-vm` (no VM, nil sandbox). See
-`reconfig-decision.md`, `identity/sandbox-identity.md`, `idle-timeout.md`.
+`specs/vm/reconfig-decision.md`, `specs/identity/sandbox-identity.md`, `specs/vm/idle-timeout.md`.
 
 **`setup-sandbox`.** Provisions the agent config files, records boot provenance on a fresh boot
 (`recordImageProvenance`), runs startup hooks, starts dockerd and the agent daemon (or restarts the daemon when the
 plan asked for it), and resolves the attach target, including `--worktree` (`ResolveTarget`). Skipped under
-`--dry-run-vm`. See `detached-jobs.md`, `../agents/opencode2.md`.
+`--dry-run-vm`. See `specs/vm/detached-jobs.md`, `../agents/opencode2.md`.
 
 **`attach`.** Opens the interactive session as a login shell (`runAttach`), with the notify watcher and host link
 opener alongside; `shell` attaches a plain login shell. Under `--serve-only` the attach is replaced by a keeper that
@@ -147,7 +147,7 @@ Each value has one writer of record. A reader never re-derives it from a second 
 - **Project key / identity.** Writer: `resolve-identity`. The checkout slug names state, VM, home volume, locks and the
   runner image; the repo slug names the per-slug config dir and the grouping label. A legacy adoption changes the
   effective slug before any artifact is touched. `prune`'s pre-resolved retain keys are a best-effort projection of it,
-  not a second authority. (`identity/checkout-identity.md`)
+  not a second authority. (`specs/identity/checkout-identity.md`)
 - **Agent version.** Authority: the runner image's `agent-version` label. `HomeState.agent_version` is a cache that
   follows it. Writer of record: the image-ensuring path — `ensure-image` surfaces `ImageInfo.AgentVersion` and
   `ensure-home` persists it once state exists; `build` writes it through `image.Build`. `resolve-version`'s
@@ -157,14 +157,14 @@ Each value has one writer of record. A reader never re-derives it from a second 
   to the cache. Every registered profile, `hermes` included, has the same three sources and none has a distinct one: an
   `UpgradeChecker` resolves the release, `ImageSpec.VersionArg` bakes it into the label, and a `VersionProvider`
   reports it in the VM at boot. `internal/agent/version_sources_test.go` fails for a profile that lacks one.
-  (`state/upgrade-state.md`)
+  (`specs/state/upgrade-state.md`)
 - **Runner image ref.** Content-addressed; the authority is the Docker image ID, which equals the msb config digest.
-  Writer: `ensure-image`. The Docker tag is a stable name, never an identity. (`runner-image/image-build.md`)
+  Writer: `ensure-image`. The Docker tag is a stable name, never an identity. (`specs/runner-image/image-build.md`)
 - **Home volume.** Authority: `HomeState.home_volume`; when state is lost, the live VM's mounted volume. Writer:
-  `ensure-home`, changed later only by `plan-reconfig`'s home action. (`home-volume-recovery.md`,
-  `state/state-model.md`)
+  `ensure-home`, changed later only by `plan-reconfig`'s home action. (`specs/volumes/home-volume-recovery.md`,
+  `specs/state/state-model.md`)
 - **Fingerprints.** Written once when a VM is created (`ensure-vm`), seeded into a fresh state by `ensure-home`; every
-  other state rewrite carries them forward unchanged. Read by `plan-reconfig`. (`reconfig-decision.md`)
+  other state rewrite carries them forward unchanged. Read by `plan-reconfig`. (`specs/vm/reconfig-decision.md`)
 - **Liveness.** Decided once per process by `prune`, under the rule below.
 
 ## Liveness
@@ -223,7 +223,7 @@ stale, keeps the built image and does not reimport it, and fails when the run pa
 | `setup-sandbox`    | yes                  | —                             | skipped                               | as `run`          |
 | `attach`           | session or keeper    | preview line                  | would-start line                      | login shell       |
 
-- **`--dry-run`** is a read-only preview (`dry-run-preview.md`): `session.previewAndRender` runs read-only variants of
+- **`--dry-run`** is a read-only preview (`specs/architecture/dry-run-preview.md`): `session.previewAndRender` runs read-only variants of
   `resolve-identity` through `ensure-home` (`prepare.PreviewSandbox`), reports would-build/would-reuse, and returns before
   `prepare.PrepareSandbox` is ever entered. No build, pull, network version lookup, volume, state write or VM.
 - **`--dry-run-vm`** prepares for real through `plan-reconfig` (the KVM-less mode) and stops before `ensure-vm`. It
@@ -238,15 +238,15 @@ A change to any stage must keep all of these. Each names the spec that owns the 
 - Every cross-stage value has exactly one writer of record (above); a second stage that needs it reads or derives it,
   never re-decides it.
 - A run never reclaims the runner image or the home volume it is about to use (Liveness;
-  `runner-image/image-build.md`).
+  `specs/runner-image/image-build.md`).
 - A project with no VM is not yet retired (Liveness).
 - The image's `agent-version` label is the version authority; a cache that disagrees is rewritten, never built toward
-  (`state/upgrade-state.md`).
-- The msb image ref is a pure function of `(slug, agent, docker image ID)` (`runner-image/image-build.md`).
+  (`specs/state/upgrade-state.md`).
+- The msb image ref is a pure function of `(slug, agent, docker image ID)` (`specs/runner-image/image-build.md`).
 - A state rewrite preserves the fields it does not own, through the locked transaction API, and never holds a state lock
-  across msb I/O (`state/state-model.md`).
+  across msb I/O (`specs/state/state-model.md`).
 - Reconfig and every other state rewrite carry the fingerprints forward; only VM creation writes them
-  (`reconfig-decision.md`).
-- Identity adoption happens before any artifact is created under the new slug (`identity/checkout-identity.md`).
-- A lost state recovers the live VM's home volume before minting a new one (`home-volume-recovery.md`).
-- `--dry-run` performs no mutation and no network request (`dry-run-preview.md`).
+  (`specs/vm/reconfig-decision.md`).
+- Identity adoption happens before any artifact is created under the new slug (`specs/identity/checkout-identity.md`).
+- A lost state recovers the live VM's home volume before minting a new one (`specs/volumes/home-volume-recovery.md`).
+- `--dry-run` performs no mutation and no network request (`specs/architecture/dry-run-preview.md`).

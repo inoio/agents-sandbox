@@ -39,7 +39,7 @@ host-side gate on the project layer.
 - Approval is **by content, per checkout**. The user approves an exact projection of the layer once; every
   later run whose projection matches is silent. When the projection changes, it is gated again.
 - The gate is authority, not reconfiguration. It decides whether the project layer may contribute at all;
-  it does **not** decide whether the VM must be recreated or restarted (`reconfig-decision.md`). The two
+  it does **not** decide whether the VM must be recreated or restarted (`specs/vm/reconfig-decision.md`). The two
   are separate decisions and separate prompts.
 
 ## What is gated
@@ -102,7 +102,7 @@ are.
   diff is not useful.
 - **A launcher-initiated edit to the project layer must update the approved projection.** When the
   launcher itself writes a project-config file — e.g. `resourceproposal.PersistMemory` raising `memory`
-  (`resource-limit-proposal.md` §4) — it must record the resulting projection and digest in the same act,
+  (`specs/resources/resource-limit-proposal.md` §4) — it must record the resulting projection and digest in the same act,
   or the next run gates the launcher's own change. The write and the projection update are one operation;
   a write whose projection update fails must not leave the file changed without the matching approval.
 
@@ -126,14 +126,14 @@ are.
   config key including `mounts` and `home` (resolved per-layer; see Provenance), the project env and secret
   files, the agent snippets and mirrored files, the Dockerfile, `provision-host-config`, and `docker` — and
   the values it approves are the ones later stages use: the single host env/secret load
-  (`envsecret.LoadEnvAndSecrets`, the same call `reconfig-decision.md` names), the provisioned files, the
+  (`envsecret.LoadEnvAndSecrets`, the same call `specs/vm/reconfig-decision.md` names), the provisioned files, the
   build, and the VM config all take their values from the gated resolution. No stage re-reads
   `<project-config>` after the gate, so a guest edit during approval or the image build cannot slip
   unreviewed content into the VM.
 - The image-build entry points (`build`, `image build`) never call `PrepareSandbox` and would otherwise
   bypass the gate: they must run the same check before building, since they read the project Dockerfile and
   the project `docker` setting.
-- `--dry-run` is a read-only preview (`dry-run-preview.md`): it reports that approval would be required and
+- `--dry-run` is a read-only preview (`specs/architecture/dry-run-preview.md`): it reports that approval would be required and
   what would change, and never prompts or writes.
 
 ## Provenance

@@ -459,7 +459,7 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
 ### State-file placement
 
 - Launcher-global state is the single scope-based root `state.yaml`
-  (`state/state-model.md`); this work adds only its `migrations.runtime_home` entry
+  (`specs/state/state-model.md`); this work adds only its `migrations.runtime_home` entry
   there and introduces no feature-named file of its own.
 
 ## Verification
@@ -483,4 +483,4 @@ any `msb` version they like without affecting agents-sandbox, and vice versa.
 
 - Supersedes the runtime-sharing assumptions behind the mismatch-recovery
   behavior described in the troubleshooting docs.
-- Its key lives in the root `state.yaml` owned by `state/state-model.md`.
+- Its key lives in the root `state.yaml` owned by `specs/state/state-model.md`.

@@ -17,7 +17,7 @@ reads its persisted config and live mounts, and reads the agent config files thr
 before returning (under the caller's context without its cancellation). It returns a `liveProjectVM` value that
 `resolveReconfigDecision` plans from, so the decision itself neither looks up nor attaches to the VM. The handle it
 read travels in `reconfigPlan.existingVM` to `EnsureProjectVM`, which reuses it instead of looking the VM up again: a
-recreate destroys exactly the VM the decision judged (`identity/sandbox-identity.md`), and a kept VM is connected through the
+recreate destroys exactly the VM the decision judged (`specs/identity/sandbox-identity.md`), and a kept VM is connected through the
 same handle, whose stale status after a long prompt is recovered by `resolveExistingVM`'s refresh-and-resume. The
 second attach, in `ensure-vm`, remains: holding the read connection across the reconfig prompt and the home action
 was judged not worth the ownership it would add.
@@ -26,7 +26,7 @@ was judged not worth the ownership it would add.
 
 The microsandbox SDK's `Config()` does not round-trip env, secrets, or network when reading an existing VM back, so
 those changes are detected against fingerprints persisted in the per-`(slug, agent)` `state.yaml` (`state.HomeState`).
-Mounts are the exception: they are read live from the persisted config JSON (`specs/live-mount-readback.md`), and
+Mounts are the exception: they are read live from the persisted config JSON (`specs/vm/live-mount-readback.md`), and
 `MountState` fingerprints only the user's extra host bind mounts. The fingerprints:
 
 - `EnvState`, `SecretState`, `MountState` — content hashes. Empty applied means "no persisted state yet" and counts as
@@ -37,7 +37,7 @@ Mounts are the exception: they are read live from the persisted config JSON (`sp
   (#231) recreates once to adopt the corrected rule order; a policy whose emitted rules did not change keeps its
   historical hash and is not recreated. `BuildNetworkState` applies `Policy.Effective()`, so an unset profile fingerprints
   as the `public` default; `Fingerprint` sorts its lines, so profile and list order do not matter. Profile composition and
-  its fingerprint-stability rule are in `specs/network-profiles.md`.
+  its fingerprint-stability rule are in `specs/network-and-secrets/network-profiles.md`.
 
 The host env and secret files are read once per run (`envsecret.LoadEnvAndSecrets`, in `PrepareSandbox`) and the one
 `envsecret.EnvSecrets` value is threaded to the fingerprint seed, `resolveReconfigDecision`, and VM creation. The
@@ -95,7 +95,7 @@ The deleted-state route is now handled by home-volume recovery (issue #219): whe
 and its volume survive, `ResolveHomeVolume` adopts the volume the VM still mounts and seeds the recovered state with the
 desired fingerprints, so no duplicate volume is minted, the old volume is not orphaned, and `homeVolumeChange` does not
 fire. When a prior state is still readable but its recorded volume is gone, that state's fingerprints are carried
-forward instead. See `specs/home-volume-recovery.md`.
+forward instead. See `specs/volumes/home-volume-recovery.md`.
 
 The trade-off: the seed write briefly asserts "applied" before the VM exists. If creation then fails the state overstates
 what is baked in, which is harmless because with no VM `PlanReconfig` short-circuits to no recreate. Recreated VMs (a
@@ -103,12 +103,12 @@ genuine config change against an existing home) still refresh fingerprints via `
 state is never fingerprint-less on that path, so the change detected there is real.
 
 The per-`(slug, agent)` creation flock (`ensure-vm.lock`) now also covers a recreate's teardown (#397); the identity
-contract governing that destroy is in [identity/sandbox-identity.md](../identity/sandbox-identity.md).
+contract governing that destroy is in [specs/identity/sandbox-identity.md](../identity/sandbox-identity.md).
 
 ## Live mounts and the size/quota/home detectors (issue #223)
 
 `tmpSizeChange`, `workspaceQuotaChange`, and `homeVolumeChange` compare against the live VM's mounts. The launcher reads
-those from the persisted config JSON through `msb.SandboxHandle.ConfigMounts()` (`specs/live-mount-readback.md`),
+those from the persisted config JSON through `msb.SandboxHandle.ConfigMounts()` (`specs/vm/live-mount-readback.md`),
 because the SDK's `Config()` leaves `cfg.Volumes` empty on every read-back. `readLiveProjectVM` applies that read before
 `resolveReconfigDecision` calls `PlanReconfig`, so the three detectors see the VM's real `/tmp` (`size_mib`),
 `/workspace` (`quota_mib`), and `/home/dev` (`Named.name`) mounts. `rootDiskChange` reads `cfg.RootDisk`, which does

@@ -37,7 +37,7 @@ updates:
 - `dismissed_versions` ("the user said do not notify me") and the per-agent `latest_version` cache keep their existing semantics.
 - `updates:` and its `launcher`/`agents` children omit themselves when empty via an `IsZero()` method (yaml.v3 honours `IsZeroer` for `omitempty` on a value struct; `time.Time` is handled natively).
 
-This document owns the **shape and placement** of launcher-global state; `upgrade-state.md` owns the **semantics** of the agent check state. The `RootState.updates.agents` field path is the current shape.
+This document owns the **shape and placement** of launcher-global state; `specs/state/upgrade-state.md` owns the **semantics** of the agent check state. The `RootState.updates.agents` field path is the current shape.
 
 ### Backwards compatibility (silent, no user interaction)
 
@@ -45,7 +45,7 @@ Three legacy sources fold into `updates:`. Nothing prompts. For scalars a presen
 
 1. **`upgrade.json` → `updates.launcher`.** A one-time fold owned by `internal/upgrade`, mirroring the retired-`updater.yaml` fold (`internal/sandbox/prepare/upgrade_migration.go`): read the legacy JSON, fold any `last_checked`/`dismissed_versions` not already present, delete the file on a successful commit, and leave it in place on a contended root lock or a failed write so a later run retries. A missing, empty, or corrupt file folds nothing but is still removed. The fold runs **only when a real store is injected**: with a nil `Store` the check runs against an ephemeral in-memory store, so folding would delete the real file after a "write" that cannot outlive the process. The caller, which alone knows whether persistence is real, guards it. A fold that fails **defers the whole check**: the process's state view is then known to be missing the legacy dismissals, and checking anyway could re-offer a version the user already dismissed. This bounds to the *automatic* check: `agents-sandbox upgrade` installs directly and never folds or reads this state, so a stuck fold cannot block an upgrade.
 2. **Legacy top-level `state.yaml` `agents:` → `updates.agents`.** Handled in the pure parse step: it recognises the old key and normalises it in memory, so the next `Commit` writes the new shape and the old key disappears. Purely a read-side normalization; no separate migration file. The key is decoded into its own single-field struct, **never a mirror of `RootState`**: a mirror silently drops every field it does not restate, which is how the `adopted_home_volumes` registry would have been lost on the next write. The new shape wins wholesale — a non-empty `updates.agents` means the legacy key is ignored and never decoded, so a malformed legacy value fails the read only when `updates.agents` is empty.
-3. **Retired `updater.yaml`** (already folded): its fold target moves from the top-level `agents:` key to `updates.agents`. No new file, only a retarget. The fold is detailed in `upgrade-state.md`.
+3. **Retired `updater.yaml`** (already folded): its fold target moves from the top-level `agents:` key to `updates.agents`. No new file, only a retarget. The fold is detailed in `specs/state/upgrade-state.md`.
 
 `upgrade.json` and `updater.yaml` are **internal state files**, not user-facing config, so this needs **no entry in the user-facing deprecation register** (which covers flags, config keys, env vars, commands); the retired files are noted in the changelog.
 
@@ -163,7 +163,7 @@ A process-local set of currently-held lock paths is checked before flock; a seco
 
 ### Preview boundary
 
-The execution mode lives at the session/CLI boundary (`options.Mode`, resolved by `runoptions.ResolveMode`), and the preview returns before `PrepareSandbox`, so that hub needs no dry-run gates. The full `--dry-run` contract lives in `architecture/dry-run-preview.md`.
+The execution mode lives at the session/CLI boundary (`options.Mode`, resolved by `runoptions.ResolveMode`), and the preview returns before `PrepareSandbox`, so that hub needs no dry-run gates. The full `--dry-run` contract lives in `specs/architecture/dry-run-preview.md`.
 
 ### API after this change
 

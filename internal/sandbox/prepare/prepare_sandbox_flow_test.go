@@ -2144,7 +2144,7 @@ func existingProjectVMHandle(k state.Key) *msb.MockSandboxHandle {
 }
 
 // prepareOwnedStages returns the stages PrepareSandbox owns, in the order of
-// specs/lifecycle.md: resolve-identity through setup-sandbox.
+// specs/vm/lifecycle.md: resolve-identity through setup-sandbox.
 func prepareOwnedStages(t *testing.T) []lifecycle.StageID {
 	t.Helper()
 	order := lifecycle.Order()

@@ -13,7 +13,7 @@ import (
 // config. The runtime stores a SandboxSpec whose mounts are an internally tagged
 // VolumeMount array, while the Go SDK's SandboxConfig.UnmarshalJSON drops them:
 // Config().Volumes is empty on every read-back. See
-// .operator-shared/specs/live-mount-readback.md.
+// .operator-shared/specs/vm/live-mount-readback.md.
 type persistedConfigMounts struct {
 	Mounts []persistedMount `json:"mounts"`
 }
@@ -81,7 +81,7 @@ var errUnknownMountType = errors.New("unknown mount type")
 
 // ParseConfigMounts decodes the mounts a persisted sandbox config records, keyed
 // by guest path. It is the launcher's source of truth for a live VM's mounts,
-// because Config() cannot supply them (specs/live-mount-readback.md).
+// because Config() cannot supply them (specs/vm/live-mount-readback.md).
 //
 // A config without a `mounts` key yields an empty map and no error: a record
 // that does not describe mounts is valid and must not read as "every mount

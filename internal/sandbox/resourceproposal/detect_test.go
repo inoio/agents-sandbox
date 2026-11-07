@@ -538,7 +538,7 @@ func TestDetectAndOfferMemoryRaiseNonInteractiveRecordsWithoutAnswer(t *testing.
 // TestDetectAndOfferMemoryRaiseUnansweredOOMWithoutLogOffers pins that a
 // recorded-but-unanswered OOM kill is still offered when its log line has left
 // the read tail (or the VM was recreated): the marker alone keeps the promise to
-// the non-interactive run (specs/resource-limit-proposal.md §1(d), §7).
+// the non-interactive run (specs/resources/resource-limit-proposal.md §1(d), §7).
 func TestDetectAndOfferMemoryRaiseUnansweredOOMWithoutLogOffers(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := detectKey()

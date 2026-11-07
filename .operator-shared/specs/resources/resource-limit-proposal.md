@@ -223,7 +223,7 @@ pressure, and re-arming on the ratio alone would re-offer every launch.)
   effect. In that case, tell the user the value comes from a higher-precedence source instead of
   prompting, do not write a shadowed file value, and count the hit as answered. An accepted raise
   names the value and the config directory it was written to.
-- **Project config is untrusted** (`specs/project-config-trust.md`): writing the raise to a
+- **Project config is untrusted** (`specs/configuration/project-config-trust.md`): writing the raise to a
   project config must also update the approved projection/digest so the trust gate does not
   reject the launcher's own change on the next run. If that proves too entangled, fall back to
   the user config and warn that project config overrides it (surface, don't silently lose).

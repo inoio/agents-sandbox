@@ -22,7 +22,7 @@ call, so the two cannot drift apart (#527). Resolution order:
 1. **State** — if `state.yaml` names a volume that still resolves, reuse it (unchanged).
 2. **Live VM** — when state is absent or its recorded volume is gone, adopt the home volume the project VM still
    mounts, if that volume still exists. The mount is read from the VM's persisted config JSON as the `Named` mount at
-   `mounts.VMHomeDir` (`msb.SandboxHandle.ConfigMounts()`, `specs/live-mount-readback.md`); the `prepare` package supplies it
+   `mounts.VMHomeDir` (`msb.SandboxHandle.ConfigMounts()`, `specs/vm/live-mount-readback.md`); the `prepare` package supplies it
    via `liveHomeVolume`, which delegates to `vm.ProjectVMHomeVolume` (`client.GetSandbox(ProjectVMName(k))`), because the
    volume package cannot import vm.
 3. **Fresh prefill** — otherwise `EnsureNewHome` creates a new volume, as before.
@@ -44,7 +44,7 @@ A state written by a VM-only identity adoption (#144) records a pending `recover
 rewritten with the current digest and seeded fingerprints. Unlike the live-VM branch it does not consult the
 VM, because adoption destroyed it; the durable field is what preserves the volume. Recovery also retires the
 adoption's ownership claim under the legacy identity (`state.ClearAdoptedHomeVolume`), which is what keeps a
-second clone from adopting the same volume; see `identity/checkout-identity.md`.
+second clone from adopting the same volume; see `specs/identity/checkout-identity.md`.
 
 `liveHomeVolume` originally read `cfg.Volumes[mounts.VMHomeDir].Named`, which the SDK always leaves empty on a
 read-back, so until #223 this branch never fired and recovery always fell through to a fresh prefill (a silent
@@ -67,7 +67,7 @@ on which branch triggered recovery:
   seed, a live VM whose config differs from the desired one is masked (the trade-off #183 accepted).
 - **State readable but its recorded volume gone** — the state's fingerprints are still valid (they describe the live
   VM, not the home volume), so they are carried forward into the recovered state, matching `ApplyHomeAction`'s
-  preservation invariant (`specs/reconfig-decision.md`). A genuine config change is still detected against them.
+  preservation invariant (`specs/vm/reconfig-decision.md`). A genuine config change is still detected against them.
 - **No recoverable volume** — falls back to `EnsureNewHome`, which seeds the desired fingerprints (#183).
 
 ## Non-interactive

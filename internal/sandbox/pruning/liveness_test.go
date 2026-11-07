@@ -230,7 +230,7 @@ func TestBuildPruneStateRecordsRetainKeys(t *testing.T) {
 }
 
 // TestKeepImagePrecedence pins keepImage's first-match-wins order from
-// specs/lifecycle.md (kept-VM ref → RetainKeys → ToPrune → agent within age →
+// specs/vm/lifecycle.md (kept-VM ref → RetainKeys → ToPrune → agent within age →
 // reclaim): each case sets up two conflicting rules and expects the earlier one
 // to decide, so reordering the checks fails a case.
 func TestKeepImagePrecedence(t *testing.T) {

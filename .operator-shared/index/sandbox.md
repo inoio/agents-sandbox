@@ -36,14 +36,14 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 - `build.go` (options, `ImageInfo`, build plan, `EnsureImage`/`Build`), `from_stages.go` (FROM/stage parsing), `docker_build.go` (Docker build, build context, failure classification), `load.go` (`EnsureLoaded` into msb), `base_digest.go` (base-image digest/pull), `fetch.go`, `image.go`, `format.go`, `inspect.go`, `inspect_detail.go` (`InspectImage`), `list.go`, `remove.go`, `references.go` (`InUseImageReferences`: the fail-closed in-use guard), `tags.go`, `embed.go` — image build/inspect/list/remove pipeline
 - `dockerfile.go`, `dockerfile_lines.go`, `instructions.go`, `project_dockerfile.go`, `warn.go` — `RenderDockerfile` stage composition and the project-Dockerfile parse/docker-decision (`specs/runner-image/image-composition.md`)
-- `preview.go` — `PreviewImage`: the `--dry-run` image plan (`specs/dry-run-preview.md`)
+- `preview.go` — `PreviewImage`: the `--dry-run` image plan (`specs/architecture/dry-run-preview.md`)
 - `data/` — build-context assets embedded into the image: the managed-base `Dockerfile`, `agents-sandbox-path.sh` (profile.d `PATH` merge, 0644), `msb-trust.sh` (the vendored CA-trust helper, installed 0755; `msb-trust.LICENSE` beside it records provenance and is neither embedded nor shipped; see `specs/runner-image/ca-trust-helper.md`), and `xdg-open.sh` (the in-VM opener shim, installed 0755; see `guides/agent-link-opening.md`)
 - `render_integration_test.go` — `//go:build integration` docker-build tests for `RenderDockerfile` composition (no Dockerfile / managed base / custom Fedora base, each ± dind). Run via `make test-integration`; wired into CI as a selective job — main and release tags, manual dispatch, and a PR labeled `run-integration` (the gating contract is `specs/ci/ci-pipeline.md`). **In the agents-sandbox VM, microsandbox's egress-inspection CA makes in-image downloads (apt/dnf/node) fail** unless each base image is replaced by a CA-trusting rebuild first (the `AGENTS.md` workaround covers `debian:trixie-slim`, so the managed-base cases run; the custom-base cases need the same for `fedora:latest`).
 - Custom-base requirements (shadow-utils, POSIX shell bash→zsh→sh, curl+tar, dind prereqs) and unsupported bases (Alpine/distroless/scratch) are documented in `docs/runner-image.md`.
 
 ### `lifecycle/` — Run lifecycle vocabulary and trace
 
-- `lifecycle.go` — the `StageID` constants and `Order()` of `specs/lifecycle.md` (`TestOrderMatchesSpec` parses the spec's stage table), the nil-safe `Trace` recorder, and `Run`, the loop that runs an ordered `Stage` list and records each stage. No stage logic: `cmd`, `prepare` and `session` own their stages.
+- `lifecycle.go` — the `StageID` constants and `Order()` of `specs/vm/lifecycle.md` (`TestOrderMatchesSpec` parses the spec's stage table), the nil-safe `Trace` recorder, and `Run`, the loop that runs an ordered `Stage` list and records each stage. No stage logic: `cmd`, `prepare` and `session` own their stages.
 
 ### `mounts/` — Filesystem mount handling
 
@@ -53,7 +53,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 ### `msb/` — Microsandbox SDK client
 
 - `msb.go`, `stream.go` — msb client and stream handling; also storage observation (`StorageUsage`) and the `IsUnsupportedOperation` classifier
-- `configmounts.go` — `ParseConfigMounts` / `SandboxHandle.ConfigMounts()`: the live-mount read-back the Go SDK drops (`specs/live-mount-readback.md`)
+- `configmounts.go` — `ParseConfigMounts` / `SandboxHandle.ConfigMounts()`: the live-mount read-back the Go SDK drops (`specs/vm/live-mount-readback.md`)
 
 ### `naming/` — Naming, labels, artifacts
 
@@ -79,7 +79,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `pruning/` — Cleanup and prune of images, sandboxes, volumes
 
-- `cleanup.go`, `compact.go`, `helpers.go`, `images.go`, `liveness.go`, `prune.go`, `report.go`, `sandboxes.go`, `storage.go`, `volumes.go` — `liveness.go` holds `PruneState`, its builder and the liveness rules (`prunable`, `retires`, `keepImage`, `allowsNativeImagePrune`) of `specs/lifecycle.md`; `compact.go` backs `sandbox compact`; `storage.go` is the age-gated runtime-RAM phase (`PruneStorage`) that enriches the top-level `prune`
+- `cleanup.go`, `compact.go`, `helpers.go`, `images.go`, `liveness.go`, `prune.go`, `report.go`, `sandboxes.go`, `storage.go`, `volumes.go` — `liveness.go` holds `PruneState`, its builder and the liveness rules (`prunable`, `retires`, `keepImage`, `allowsNativeImagePrune`) of `specs/vm/lifecycle.md`; `compact.go` backs `sandbox compact`; `storage.go` is the age-gated runtime-RAM phase (`PruneStorage`) that enriches the top-level `prune`
 
 ### `reconfig/` — Reconfiguration planning
 
@@ -91,7 +91,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `runtime/` — Runtime selection and private runtime home
 
-- `home.go`, `runtime.go` — runtime selection plus the private runtime home (`PrivateHome`, home migration) of `specs/runtime-home-decoupling.md`
+- `home.go`, `runtime.go` — runtime selection plus the private runtime home (`PrivateHome`, home migration) of `specs/volumes/runtime-home-decoupling.md`
 
 ### `runtimemigration/` — Legacy runtime-home copy campaign
 

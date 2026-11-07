@@ -43,7 +43,7 @@ const testIdleTimeout = 5 * time.Minute
 // Without this the SDK resolves its default home (~/.microsandbox), so a stale
 // runtime left there by a pre-decoupling agents-sandbox install or a manual msb
 // would fail sandbox creation with "no tested sandbox launch contract for
-// runtime <v>" after an SDK bump (runtime-home-decoupling.md). The launcher
+// runtime <v>" after an SDK bump (specs/volumes/runtime-home-decoupling.md). The launcher
 // repairs its own private home, not this one, so the tests must provision their
 // own.
 func installIsolatedRuntimeHome() func() {

@@ -29,7 +29,7 @@
 - `github-merge-driver-support.md`
   - Description: Verdict, with primary sources, that GitHub's server-side merge and merge-queue build ignore `.gitattributes` merge drivers, so `CHANGELOG.md merge=union` does not resolve a conflict; libgit2 does implement `union` but GitHub does not consult it, and GitLab dropped it in 17.1.
   - Read If: Considering `merge=union`, a custom merge driver, or any `.gitattributes` merge attribute to auto-resolve conflicts on GitHub; or explaining why a server-side conflict persists when the CLI git merges cleanly.
-- `mutation-testing.md`
+- `specs/ci/mutation-testing.md`
   - Description: Mutation testing for Go in this repo - the tool survey and why gomutants was chosen, how to close gomutants survivors (recurring mutant types, the equivalent-mutant traps, the record-with-a-reason fallback), and the multi-turn sweep runbook for the #268 survivor tracker.
   - Read If: Evaluating or changing a Go mutation-testing tool or the `make mutation` target; triaging LIVED mutants from a sweep; picking a `SINCE` scope for a branch/PR sweep; or coordinating a #268 survivor-reduction pass.
 - `operator-brain-maintenance.md`
@@ -52,190 +52,190 @@
 
 #### `specs/agents/` - Agent profiles and their daemons
 
-- `hermes-agent.md`
+- `specs/agents/hermes-agent.md`
   - Description: Contract for the Hermes Agent profile (Nous `hermes-agent`, MIT): a CLI-only, daemon-less integration whose install runs the official installer at a pinned release tag into a baked Python/Node tool store outside the home volume, whose state lives in `HERMES_HOME`, whose `config*.yaml` snippets merge as YAML, and whose build-only trees are pruned to trim its (largest) runner image.
   - Read If: Adding or changing the `hermes` agent profile, its installer/tool-store stage, version pinning or the latest-release fetch, `HERMES_HOME` or tool-store placement, YAML config provisioning, the `OwnsToolTree` handover, or the Hermes harness smoke entry; or diagnosing a Hermes launch that fails before its REPL.
-- `notify.md`
+- `specs/agents/notify.md`
   - Description: Contract for the notify event watcher on opencode/opencode2 - the agent owns the harness JSON shape via `EventStreamSpec.Parse`/`SessionListSpec`, `notify` keeps only SSE framing; opencode2's authed `GET /api/event` envelope maps to the same triggers as v1, subagent sessions (`parentID` non-empty) never notify, and v2's turn-scoped errors do not latch.
   - Read If: Changing notify for opencode/opencode2, the event-stream decode seam (`agent.EventStreamSpec`/`Parse`/`SessionListSpec`), subagent filtering via `parentID`, the v1/v2 SSE event mapping, or the tracker's child/busy/idle/error state; or diagnosing "notify does nothing on opencode2".
-- `opencode2.md`
+- `specs/agents/opencode2.md`
   - Description: Contract for the opencode2 (opencode v2) agent - its own launcher config namespace (`opencode2/`) with an `opencode` fallback while the guest path stays `opencode`, the baked fixed `OPENCODE_SERVER_PASSWORD` and `opencode:<password>` basic auth on every `/api/*` call, and the v2 worktree API (project-scoped routes, the `WorktreeProvider` seam with no guest `jq`, base-ref handling).
   - Read If: Changing the opencode2 profile, its config-namespace fork / `ConfigDirAliaser` / snippet merge / mirror resolution, `OPENCODE_SERVER_PASSWORD` / `DaemonHealthCmd`, the v2 worktree routes or `WorktreeProvider` seam, or `vm.ResolveTarget`/`validateWorktreeBase`; or diagnosing a dead-looking opencode2 daemon or a `--worktree` that 404s.
 
 #### `specs/architecture/` - Cross-cutting package seams and run orchestration
 
-- `client-injection.md`
+- `specs/architecture/client-injection.md`
   - Description: Contract for resolving the external clients (msb, docker, config-paths) once at an entry point and threading them explicitly, the four behavior test seams as one injected `options.Seams` value on `options.RunOptions`, and the process-root `configpaths.Get()` reads that stay global by design.
   - Read If: Changing a `docker.Get()`/`configpaths.Get()` call site, `image.EnsureImage*`/`EnsureLoaded`/`Build`/`PreviewImage` or the image render helpers, adding a client or path resolver parameter to a run/build/doctor/prune entry point, or the image build's agent-release resolver.
-- `dry-run-preview.md`
+- `specs/architecture/dry-run-preview.md`
   - Description: Contract making the user-facing `--dry-run` a true make-no-changes preview of a run/shell: it inspects the existing runner image and home volume and reports would-build/would-reuse, but on the preview path performs no image build, volume creation, prefill, state write, VM start, attach, or network request. `--dry-run-vm` remains the KVM-less "prepare everything, skip the VM" flag.
   - Read If: Changing `--dry-run`/`--dry-run-vm` behavior, the `options.Mode`/`runoptions.ResolveMode` boundary, the run/shell preview, `image.EnsureImageWithClient`'s build decision, or the `agentLatestVersion` test seam.
-- `package-boundaries.md`
+- `specs/architecture/package-boundaries.md`
   - Description: Contract for the launcher's package boundaries - `internal/cliout` stays domain-free (generic rendering only) with the sandbox-shaped renderers and report DTOs in `internal/view`, and the run orchestration lives in `internal/sandbox/prepare` with the layering `cmd` → `session` → `prepare` → `vm` and no shared mutable stage `State`.
   - Read If: Moving a Printer, report-JSON DTO, or renderer between `internal/cliout` and `internal/view`, or run-preparation code between `internal/sandbox/prepare` and `internal/sandbox/vm`; or proposing a shared context/`State` object for the stages.
-- `termio-ui.md`
+- `specs/architecture/termio-ui.md`
   - Description: Contract for termio's UI seam - the role-interface split (Logger/Output/Prompter/SpinnerFactory/TerminalState/Streams) composed into `termio.UI`, plus the deferred (not-on-main) design for a huh-backed prompt switch and the accessibility/non-TTY invariants.
   - Read If: Changing a termio role interface, `termio.UI` or `New`, which UI surface a caller depends on, the termio mock, interactive prompts or spinners, swapping in or scoping a UI library, or reasoning about mockability and non-TTY/accessibility behavior.
 
 #### `specs/ci/` - CI pipeline and quality gates
 
-- `ci-pipeline.md`
+- `specs/ci/ci-pipeline.md`
   - Description: Contract for the CI pipeline - what `.github/workflows/ci.yml` runs and gates (the always-run required `lint`/`test`/`race`/`deadcode`/`changelog` set, `vulncheck`, the opt-in `integration`/`integration-podman` jobs), the `main` merge queue and `merge_group` trigger, the `changes` code-free gate, the CodeQL workflow, the fuzz workflow, and per-PR changelog fragments.
   - Read If: Changing `.github/workflows/ci.yml`/`codeql.yml`/`fuzz.yml`, the CI triggers or job conditions, the merge queue or `merge_group`, the required-check set or `protect main` ruleset, the `changes` gate or PR concurrency, the `run-integration`/`run-integration-podman` labels, the CodeQL languages/path filter/default-setup state, the `make fuzz` target or its knobs, or how changelog entries are authored/assembled/checked.
-- `mutation-testing.md`
+- `specs/ci/mutation-testing.md`
   - Description: Contract for the on-demand, per-package mutation-testing practice - a version-pinned `make mutation` target over gomutants, scoped by default to mutants on lines changed since the last release tag, never a required CI or `make check` gate (an advisory `mutation` workflow runs the sweep on every PR as a signal only); the kill/delete/record triage rule and the reduction-not-elimination stance.
   - Read If: Changing the `make mutation` target, the `GOMUTANTS_VERSION` pin, the triage convention for surviving mutants, or the advisory `mutation` CI workflow; or evaluating a Go mutation-testing tool (see `guides/mutation-testing.md`).
-- `quality-gates.md`
+- `specs/ci/quality-gates.md`
   - Description: Contract for the repo's quality gates - the golangci-lint standard (formatter set and linter posture in `.golangci.yml`), the dead-code gate (`make deadcode` over a pinned x/tools deadcode with the reason-bearing `//deadcode:ignore` marker and `ci/check-deadcode.sh`), and the documentation-fragment gate in `ci/check-docs.sh` (the kramdown slug mirror and `internal/docslink`).
   - Read If: Changing `.golangci.yml` (formatters or linters), the dead-code gate (`make deadcode`, the `//deadcode:ignore` marker, `ci/check-deadcode.sh`, the `DEADCODE_VERSION` pin), or the doc-link gate (`ci/check-docs.sh`, `internal/docslink`, the doctor/build-error `Docs:` links); or diagnosing a lint/format disagreement or an unmarked dead-code finding.
 
 #### `specs/configuration/` - Config scopes, keys, project-config root and trust
 
-- `config-keys.md`
+- `specs/configuration/config-keys.md`
   - Description: Contract for the launcher config-key registry: the env-var and CLI-flag key sets are derived from the `Config` struct's mapstructure tags, `env:"-"` marks a config-file-only key, and a bound flag's default type comes from the owning field's Go kind.
   - Read If: Adding or changing a launcher config key, its env var, or its CLI flag; or reasoning about why an env var is silently ignored or where `flagTypedDefault`'s type comes from.
-- `config-scopes.md`
+- `specs/configuration/config-scopes.md`
   - Description: Contract for the launcher's config path resolution and scope order - `internal/configpaths` is the one authority for host paths (the `ConfigPaths` seam, home included), and `configpaths.ConfigScopes` is the one ordered list of file-based config dirs (generic user < per-slug user < project) that the launcher config file, env/secret files, `home:` sources, and agent config dirs all derive from.
   - Read If: Changing config-scope order or precedence, per-slug user config, host config/home path resolution, `configpaths.ConfigPaths`/`ConfigScopes`, `viperconfig.ConfigLayers`, `envsecret.LoadEnvAndSecrets`, `homeconfig` layer loading, or `reprovision.ResolveConfigSource`; or diagnosing a per-slug user file that is silently ignored, or a test that must not touch the real home.
-- `project-config-root.md`
+- `specs/configuration/project-config-root.md`
   - Description: Contract for where a bare checkout's project config (`.agents-sandbox`) is read from: the bare root next to `.git`, selected by `core.bare`, with every project accessor routed through one base-dir resolver; a bare checkout's worktree-level `.agents-sandbox` is ignored with a warning.
   - Read If: Changing the bare-layout project-config root fix, the `core.bare` discriminator, the project config base-dir resolver, or the bare-worktrees recipe/Beta marking.
-- `project-config-trust.md`
+- `specs/configuration/project-config-trust.md`
   - Description: Contract for the project config trust guard: the project config layer is untrusted in its entirety, everything the launcher consumes from it requires approval-on-change recorded per checkout, an unapproved change refuses to start non-interactively, and the prompt shows the resolved old → new effect and its source.
   - Read If: Working on the project config trust gate, the approve-on-change gate, project-layer provenance, or `config harden`; or diagnosing a run that refuses to start because `.agents-sandbox` changed.
 
 #### `specs/conventions/` - Repo-wide conventions
 
-- `deprecation-policy.md`
+- `specs/conventions/deprecation-policy.md`
   - Description: Durable deprecation policy for agents-sandbox (0.x, high UX bar): how a flag/config key/env var/command is deprecated, how long it survives, how it is surfaced, and the current deprecation register with replacement and removal targets.
   - Read If: Deprecating or removing a CLI flag, config key, env var, or command; deciding whether a change needs a shim or a clean break; or enforcing the deprecation register in tests.
-- `yaml-library.md`
+- `specs/conventions/yaml-library.md`
   - Description: Contract for the YAML dependency - every parse/serialize goes through the maintained `go.yaml.in/yaml/v3`, not the unmaintained `gopkg.in/yaml.v3` v3.0.1, whose emitter dropped a leading blank line and broke the state serialization-stability invariant `FuzzParseState` asserts.
   - Read If: Adding or changing a YAML parse/serialize path, touching `go.mod`'s YAML dependency, or triaging a `FuzzParseState` serialization-stability failure.
 
 #### `specs/identity/` - Project, artifact, and sandbox identity and naming
 
-- `artifact-naming.md`
+- `specs/identity/artifact-naming.md`
   - Description: Contract for the prefix-free artifact naming strategy: sandboxes, home volumes and microsandbox image references drop the `agents-sandbox-` prefix while Docker images keep it, new artifacts follow the new scheme and existing ones stay discoverable (write-new, read-both), and discovery relies on the private runtime home plus labels rather than a name prefix.
   - Read If: Changing `internal/sandbox/naming`, the VM/home-volume/runner-image name or reference constructors or parsers, artifact discovery (list/remove/prune/reference scans), the sandbox or volume labels, or the Docker-vs-msb image reference split (`ImageInfo`); or diagnosing a legacy artifact that stopped being found or rebuilt.
-- `checkout-identity.md`
+- `specs/identity/checkout-identity.md`
   - Description: Contract for splitting project identity in two: a repo-scoped slug (origin-derived) driving the per-slug user config dir and the sandbox grouping label, and a checkout-scoped slug (resolved git common dir) driving state, VM name, home volume, locks/claims, and the runner image tag. Includes the automatic, noticed migration that adopts the legacy origin-keyed identity, the prune home-volume reference guard, the side-effect-free dry-run, and the outside-worktree identity.
   - Read If: Changing the repo-vs-checkout slug derivation, the runner-image tag identity, the `config paths` command, the checkout-identity migration and its notice, the prune reference guard, or the identity of a worktree outside its checkout.
-- `sandbox-identity.md`
+- `specs/identity/sandbox-identity.md`
   - Description: Contract distinguishing a sandbox's mutable *name* from its stable *identity* - operations that act on a specific sandbox key off the SDK's identity-aware lifecycle methods and fail closed on `ErrSandboxReplaced` (`msb.IsReplaced`); the per-path handling for prune, throwaway task sandboxes, reconfig replace, the reaper, project-VM create, and `ConnectOrStart`; and no persisted identity.
   - Read If: Working on the msb seam's sandbox create/removal/attach paths, `EnsureProjectVM`, prune, the reaper, or reconfig-replace; or diagnosing `ErrSandboxReplaced`/`ErrSandboxAlreadyExists`.
 
 #### `specs/network-and-secrets/` - Network profiles and secret scoping
 
-- `network-profiles.md`
+- `specs/network-and-secrets/network-profiles.md`
   - Description: Contract for the launcher's composable network profiles: public/private/host compose into one microsandbox policy, none is terminal and allowlist-only, the config/env/flag surfaces accept a scalar, comma string, or list, and the fingerprint keeps one `profile=` line per profile so single-profile digests do not change.
   - Read If: Changing `network.Policy`, profile parsing or validation, the `network.profile`/`--network`/`AGENTS_SANDBOX_NETWORK_PROFILE` surface, or network fingerprinting and its VM-reconfiguration trigger.
-- `secret-header-scoping.md`
+- `specs/network-and-secrets/secret-header-scoping.md`
   - Description: Contract for scoping a secret's placeholder substitution to named request-header fields via `env.secret.yaml` `header_fields`: the lowercase/dedupe/sort normalization shared by the built entry and the fingerprint, the all-headers default for an absent or empty list, and the `HeaderFields` fold in `SecretsContentHash`.
   - Read If: Changing per-secret header substitution, `envsecret.SecretSpec`/`BuildSecretsFromSpecs`, the `header_fields` docs, or `state.SecretsContentHash`'s field set.
 
 #### `specs/onboarding/` - First-run guidance and config migration
 
-- `onboarding.md`
+- `specs/onboarding/onboarding.md`
   - Description: Contract for guiding a fresh install to a working sandbox - safe config migration (static-vs-login credential kinds, host determination, the derived-state machine, the `Guide` outcomes), the tiered `config wizard`, `config harden`, and the doctor-remediation + Get started docs flow.
   - Read If: Working on `config migrate`/`config wizard`/`config harden`, first-run guidance, credential/auth handling, network egress derivation, the `Guide` outcomes and their warning/`HasChanges` gating, the doctor output and its troubleshooting anchors, or the Get started docs.
 
 #### `specs/release/` - Release branching, assets, self-upgrade, darwin cross-build
 
-- `darwin-cross-compile.md`
+- `specs/release/darwin-cross-compile.md`
   - Description: Contract for the darwin cross-build's zig prerequisite - beyond zig on PATH, the macOS linker stubs (`.github/stubs/*.tbd`) must be baked into `<zig-root>/lib/libc/darwin`; the three consumers (CI release job, dev VM image, `make bootstrap`); `make bootstrap`'s classify-then-act guarantee; the symlink-following `ZIG_ROOT` resolution; and the accepted stub duplication.
   - Read If: Changing the macOS/darwin cross-compile path, `make bootstrap` or its zig classification, the release job's stub step, `.github/stubs/*.tbd`, the dev VM Dockerfile's stub step, or the Makefile's `ZIG_ROOT`/`ZIG_MANAGED_ROOT` resolution; or diagnosing a darwin cross-build that cannot find CoreFoundation, Security, or resolv.
-- `release-asset-integrity.md`
+- `specs/release/release-asset-integrity.md`
   - Description: Contract for verifying a downloaded release asset before the self-update installs it: the release publishes one `checksums.txt`, the updater verifies SHA-256 against it, and every metadata failure is fail-closed.
   - Read If: Changing the self-update download/verify/replace path, the release job's asset or checksums publishing, or `internal/upgrade`'s checksum handling.
-- `release-branching.md`
+- `specs/release/release-branching.md`
   - Description: Contract for the per-minor release branch `release/<major>.<minor>` - cut at the release commit, the branch the line's patch releases are tagged from, and where fixes for a released line land while `main` keeps new work.
   - Read If: Deciding where a release tag or a fix lands, cutting a patch release for a released line, backporting a fix, or changing the release branch name or flow.
-- `self-upgrade-channels.md`
+- `specs/release/self-upgrade-channels.md`
   - Description: Design for the launcher's self-upgrade release channels - an `upgrade.channel` setting (`stable` default, `canary`) where canary means the newest eligible release, a tag-addressed download replacing the `/latest` URL, a switch back to stable only via an explicit `--channel` (a configured channel never downgrades), an undocumented dev-build lever, and the release-CI prerelease classification.
   - Read If: Changing `upgrade.channel`, canary resolution/eligibility, the tag-pinned release download, the `--channel` switch, the undocumented dev-build upgrade lever, or the release CI's prerelease classification and the docs workflow's prerelease guard.
 
 #### `specs/resources/` - Resource-limit detection and proposal
 
-- `resource-limit-proposal.md`
+- `specs/resources/resource-limit-proposal.md`
   - Description: Contract for detecting a project VM resource-limit hit (memory OOM first, disk later) and prompting the user to raise the persisted setting, with the host terminal recovered automatically - the evidence classes, the threshold and re-arm, the anti-nag marker, the persistence-layer selection and env-shadow rule, and which limits apply live vs recreate.
   - Read If: Working on the OOM/limit-hit detector, the "raise the limit" proposal, terminal corruption after an in-VM kill, the `msb.Sandbox.Metrics`/`Logs` seam, the per-project `memory` persistence, or the memory-above-boot-max recreate rule.
 
 #### `specs/runner-image/` - Runner image build, composition, PATH, CA trust
 
-- `ca-trust-helper.md`
+- `specs/runner-image/ca-trust-helper.md`
   - Description: Contract for the CA-trust helper the runner image installs as `/usr/local/bin/msb-trust` - which application trust stores need it and which do not, the verbatim-vendoring pin, why it is not run automatically, and where it is documented.
   - Read If: Working on TLS interception, secret-substitution failures in a specific application (Java/Gradle, Chrome), the runner image's build-context files, or the `msb-trust` helper.
-- `image-build.md`
+- `specs/runner-image/image-build.md`
   - Description: Contract for the runner-image build and its microsandbox cache - which agent version is baked, when the image is (re)built and when Docker's layer cache is bypassed (`BuildOptions.Force`), the lazy msb load decision over a content-addressed reference (`<slug>:<agent>.<contentid>`, with the Docker tag kept stable), `ParseImageTag`/ownership round-trip, and prune retention.
   - Read If: Changing image build/caching, `buildDecision`/`buildReasons`/`BuildOptions.Force`/`--rebuild`, `image.EnsureImage`/`Build`/`EnsureLoaded`/`ImageInfo`, `prepare.ResolveAgentVersionForBuild`/`resolveBuildVersion`/`recoverAgentVersion`, `naming.RunnerImageRef`/`ImageIdentity`/`ParseImageTag`, `state.ImageReferences`, `pruning.PruneImages`/`keepImage`, or the volume subcommands' image handling; or diagnosing an unexpected `loading image … into microsandbox`.
-- `image-composition.md`
+- `specs/runner-image/image-composition.md`
   - Description: Contract for how the per-project runner Dockerfile is composed into per-tool multistage stages so tool-owned layers cache independently of the user body, the base, and each other; includes the node stage, the native vs npm agent install methods, and the `dind` → `docker` rename with deprecated aliases.
   - Read If: Changing `RenderDockerfile`/stage composition, image layer caching, which agents need node, agent install methods, tool-tree ownership (`COPY --chown=dev:dev`), the dind/docker switch or marker, custom-base handling, tool install paths, login-shell PATH handling, or the dockerd storage driver.
-- `login-shell-path.md`
+- `specs/runner-image/login-shell-path.md`
   - Description: Contract for keeping the runner image's composed PATH (`ENV PATH`, `/opt/agents-sandbox/bin`, project toolchains) effective in login-shell contexts by re-merging dropped entries from `AGENTS_SANDBOX_IMAGE_PATH` through a `/etc/profile.d` drop-in.
   - Read If: Working on runner-image PATH handling, login-shell (`-l`) sessions, `run`/`shell` attach, custom Dockerfile `ENV PATH`, or the `/etc/profile.d` merge helper.
 
 #### `specs/state/` - Persisted state model and upgrade/provenance state
 
-- `state-model.md`
+- `specs/state/state-model.md`
   - Description: Contract for how the launcher persists state - launcher-global state is one root `state.yaml` document (with the `updates:` namespace and silent legacy folds), every read-modify-write goes through one locked transaction per document (`WithHomeState`/`RecoverHomeState`/`WithRootState`/`WithKeyLocks`/`RemoveHomeStateIf`), locks live under `<root>/locks/` and are never deleted, and `internal/atomicwrite` makes each write crash-durable with an installed-write error marker.
   - Read If: Adding or changing launcher-global persisted state or the root `state.yaml` shape; changing any project/launcher state read-modify-write; the state locking primitives or recovery; `internal/upgrade`'s state seam; the `upgrade.json`/`updater.yaml` folds; or `internal/atomicwrite` and the callers that roll back a resource after a failed state write.
-- `upgrade-state.md`
+- `specs/state/upgrade-state.md`
   - Description: Contract for the agent upgrade-check and provenance state - machine-global network facts (`RootState.updates.agents`: cadence + cached `latest_version`) split from per-(slug, agent) image facts (`HomeState`), with the runner image's `agent-version` label the authority and `agent_version` a cache the image-ensuring paths reconcile, so a stale cache never rebuilds to an older release.
   - Read If: Changing the agent upgrade prompt, `pendingUpgrade`/`resolveBuildVersion`/`recoverAgentVersion`/`recordImageProvenance`, `PrepareSandbox`'s version handling, the release resolution, the `agent-version` label, `--agent-version`, or the legacy `updater.yaml` migration; or diagnosing a baseline that stays empty after deletion or an accepted upgrade that reverts.
 
 #### `specs/testing/` - Test coverage, isolation, and harness smoke tests
 
-- `harness-smoke-tests.md`
+- `specs/testing/harness-smoke-tests.md`
   - Description: Contract for the `msb`-tagged harness smoke tests that start every registered harness to its TUI in a real microsandbox VM (readiness by alternate-screen marker, startup-line marker, or a settled wait; optional seeded home files), and the isolation that keeps them off the developer's existing agents-sandbox state.
   - Read If: Adding or changing the harness smoke tests, the `msb` build tag or `make test-msb`, the harness quit-press table, the readiness signals or seeded home files, or when a harness's TUI startup or quit behavior changes.
-- `test-coverage.md`
+- `specs/testing/test-coverage.md`
   - Description: Contract for the coverage bar on added and changed lines - every added line must be executed by a test (error/transport/status branches included), a branch unreachable by construction must be removed, records where the numeric thresholds live (`.codecov.yml`), and that codecov is not a required status check.
   - Read If: Adding or changing production code and deciding what to test, reviewing a diff for coverage gaps, or triaging a failing `codecov/patch` or `codecov/project` check on a PR.
-- `test-isolation.md`
+- `specs/testing/test-isolation.md`
   - Description: Contract for keeping tests off real host state - the fail-fast seam mocks installed by every test package's `TestMain`, the host-home redirect in `WithMockConfigPaths`, the seam import-chain exceptions, the msb-tagged isolated runtime home and its teardown, and the rule that seam overrides must be restored so the suite stays idempotent under `-count>1`.
   - Read If: Adding a test package or a `TestMain`, debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, or a test that fails only under `-count>1`.
 
 #### `specs/vm/` - VM lifecycle and per-VM behaviours
 
-- `detached-jobs.md`
+- `specs/vm/detached-jobs.md`
   - Description: Contract for running dockerd and the agent serve daemon as microsandbox runtime-owned detached jobs (`ExecDetached`/`Job`) instead of shell-backgrounded `nohup` processes; health-probe readiness with `Job.Inspect` crash detection and `Job.Logs` on failure, no shell fallback, marker identity for kill rediscovery, and the running-container idle-stop warning.
   - Read If: Working on the VM's dockerd/agent-serve startup, readiness, or restart in `internal/sandbox/vm`, the msb detached-job seam, the agent `DaemonProvider` daemon command, or the VM idle timeout.
-- `idle-timeout.md`
+- `specs/vm/idle-timeout.md`
   - Description: Contract for the VM idle timeout default: it lives only in `options.DefaultVMIdleTimeout`; the config layer carries `auto-stop-timeout` as-is and never substitutes its own default.
   - Read If: Changing the idle timeout default, `Config.AutoStopTimeout`/`Config.IdleTimeout`, `RunOptions.IdleTimeout`, `runoptions.Build`, or the VM lifecycle's `WithIdleTimeout` wiring.
-- `lifecycle.md`
+- `specs/vm/lifecycle.md`
   - Description: Canonical model of the `run`/`shell` lifecycle: the ordered stage ids the code constants (`internal/sandbox/lifecycle`) and the trace tests share, what each stage reads, writes and guarantees, the single authority for every cross-stage value, the liveness principle and its per-artifact rules, the mode model, and the invariants a stage change must not break.
   - Read If: Making any change to a run/shell/session lifecycle stage or a cross-stage value (`cmd.runFunc`, `pruning.AutoPrune`/`keepImage`/`PruneVolumes`, `prepare.PrepareSandbox`, `session.Run`/`session.Shell`, the `--dry-run`/`--dry-run-vm`/`--serve-only` modes); or diagnosing two subsystems that disagree about what is live or current.
-- `live-mount-readback.md`
+- `specs/vm/live-mount-readback.md`
   - Description: Contract for reading a live project VM's mounts and published ports. The microsandbox Go SDK's `SandboxConfig.UnmarshalJSON` drops the persisted `mounts` and `network.ports`, so the launcher decodes the persisted config JSON through `msb.SandboxHandle.ConfigMounts()`/`ConfigPorts()` instead.
   - Read If: Reading or changing how the launcher learns a live VM's mounts or published ports, or diagnosing an empty `cfg.Volumes` / `mounts (0)` / ignored `tmp_size`, `workspace-quota`, or `ports:` change.
-- `reconfig-decision.md`
+- `specs/vm/reconfig-decision.md`
   - Description: Contract for the per-startup project-VM reconfiguration decision: how changed settings are detected via persisted fingerprints, which changes recreate the VM vs restart the daemon, the fingerprint-preservation invariant, the #183 seeding fix, and the per-project creation lock that also covers the recreate destroy.
   - Read If: Changing `readLiveProjectVM`/`resolveReconfigDecision`/`applyReconfigHomeAction`/`PlanReconfig`, the env/secret/network/mount fingerprints, the reconfig prompt, or the `ensure-vm.lock` scope; or diagnosing a spurious VM rebuild or "network policy changed" prompt.
-- `session-reaper.md`
+- `specs/vm/session-reaper.md`
   - Description: Contract for what a session in retry does to the detach reaper's VM hold, and where the retry cap applies.
   - Read If: Changing `waitQuiescent`/`quiescenceOf`/`sessionPoll`, `options.ReapPolicy`, or `auto-stop-max-session-retries`; or diagnosing a VM that idles out while a session is still retrying, or one held past the retry cap.
-- `workspace-bind-permissions.md`
+- `specs/vm/workspace-bind-permissions.md`
   - Description: Contract for the `/workspace` bind mount's host-permission policy - guest rwx bits mirror to the real host inode (`host-permissions=mirror`) so host git trees stay consistent, while ownership/setuid are never propagated and configured mounts keep the `private` default.
   - Read If: Changing the `/workspace` bind mount options in `buildMounts`, diagnosing host-vs-VM permission (exec-bit) divergence or dirty host git trees, or reasoning about whether a VM recreate is needed to apply a mount-permission change.
 
 #### `specs/volumes/` - Home volume recovery/decoupling and volume commands
 
-- `home-volume-recovery.md`
+- `specs/volumes/home-volume-recovery.md`
   - Description: Contract for recovering a project's home volume when its `state.yaml` is lost - reuse the live VM's mounted volume instead of minting a duplicate and orphaning the original.
   - Read If: Changing home-volume resolution (`volume.resolveHomeVolumePlan`/`Manager.ResolveHomeVolume`/`commitHomeVolumePlan`/`PreviewHomeVolume`), `liveHomeVolume` in `internal/sandbox/prepare` (delegating to `vm.ProjectVMHomeVolume`), or diagnosing a duplicate/orphaned home volume after state loss.
-- `runtime-home-decoupling.md`
+- `specs/volumes/runtime-home-decoupling.md`
   - Description: Design for decoupling agents-sandbox's microsandbox runtime home from any user-installed microsandbox: a private XDG data home, no user-facing msb, retired version-matching recovery, and an opt-in copy of legacy home volumes tracked in the root `state.yaml` `migrations` registry, plus a one-time post-migration legacy-runtime notice and the `volume remove` cleanup command.
   - Read If: Implementing or reviewing runtime-home decoupling, the private `MSB_HOME`, removal of the runtime mismatch recovery menu, the legacy home-volume copy prompt and its persisted migration state, the ambiguous-state offer, the post-migration notice, or `volume remove`.
-- `runtime-management-commands.md`
+- `specs/volumes/runtime-management-commands.md`
   - Description: Contract for agents-sandbox's microsandbox management surface - volume/image/sandbox inspection, image and sandbox removal, sandbox disk compaction, a top-level `df` plus a `storage` group alias, and uniform `-q`/`--format json`/`--yes`/`--older-than` conventions.
   - Read If: Adding or reviewing volume/image/sandbox inspection, removal, and disk-compaction commands, the `df`/`storage` accounting commands, prune confirmation/format flags, or command-surface consistency conventions.
 
 #### `specs/worktrees/` - The `/workspace` bind rule
 
-- `worktree-layout.md`
+- `specs/worktrees/worktree-layout.md`
   - Description: Contract for the `/workspace` bind-source rule - bind the smallest enclosing checkout containing the CWD, so a session in a nested or bare-layout worktree always exposes its worktree, with guest-CWD derivation for subdirectories and the outside-worktree case (bind its own root, run it as its own checkout with its shared git dir mounted). The bare-checkout recipe is the tracked `bare-worktrees` skill; per-checkout identity is `specs/identity/checkout-identity.md`.
   - Read If: Changing the `/workspace` bind-source resolution, guest-CWD derivation, the worktree mount rule, or the outside-worktree shared-git-dir mount; or diagnosing a session that hides the worktree it was launched from or a `git` command that cannot resolve inside the VM.
 

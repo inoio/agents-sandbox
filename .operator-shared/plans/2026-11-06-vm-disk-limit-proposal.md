@@ -10,7 +10,7 @@ with one in-guest `df` after every attach; `resourceproposal` gets a disk counte
 unanswered disk hit at the next launch before the reconfig decision; `reconfig`/`vm` turn a root-disk increase into a
 live grow.
 
-**Spec:** `.operator-shared/specs/resource-limit-proposal.md` (§1e, §1 threshold, §3, §4, §5, §6). Phase 1 is merged;
+**Spec:** `.operator-shared/specs/resources/resource-limit-proposal.md` (§1e, §1 threshold, §3, §4, §5, §6). Phase 1 is merged;
 this plan builds on its code, not on its plan.
 
 ## Host findings (KVM host, msb 0.7.13, 2026-11-06)
