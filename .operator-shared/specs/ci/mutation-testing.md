@@ -47,14 +47,14 @@ carries, so tests that guard behaviour are strengthened as they land rather than
     a testable change and can leave the package reading 0 LIVED while survivors remain.
   A survivor left open is tracked debt in the `#268` queue, not a blocked PR. A PR's survivor list is a signal to
   investigate, not a mandate to reach zero. A dedicated reduction pass (`#268`) works the backlog and aims at reduction, not
-  elimination. See `guides/mutation-triage.md` for the recurring types and their kills, and
-  `guides/mutation-sweep-execution.md` for the reduction-pass runbook.
+  elimination. See `guides/mutation-testing.md` for the recurring types and their kills, and
+  `guides/mutation-testing.md` for the reduction-pass runbook.
 
 ## Tool and invocation
 
 `gomutants` (`github.com/gomutants/gomutants`), pinned at the version in the `Makefile`. Chosen over `gremlins` (mature
 but needs `/cmd/gremlins` in the `go run` path, copies the whole module per run, no overlay, no `-race`) and the rest;
-see `guides/mutation-testing-go.md` for the full survey and evidence.
+see `guides/mutation-testing.md` for the full survey and evidence.
 
 `make mutation` wraps `CGO_ENABLED=1 go run github.com/gomutants/gomutants@$(GOMUTANTS_VERSION)` with knobs:
 

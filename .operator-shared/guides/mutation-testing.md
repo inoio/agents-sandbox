@@ -1,16 +1,103 @@
 ---
-description: How to close gomutants survivors in this repo — the recurring mutant types, the assertion that kills each (including the `errors.Unwrap` kill for a `%w`→`%v` whose cause has no sentinel), the equivalent/near-equivalent traps (including false "returns nil on error" equivalence claims, unparameterized clamp bounds, yaml.v3's partial decode, map-iteration randomization, seam call-counting, a guard whose error is re-derived downstream, cobra's Find-vs-ValidateArgs default, a test double's interactivity gate, a lone-return `RETURN_ERROR_NIL` that will not compile, a sub-unit factor below a rounding threshold, a blocking-flock seam, a negative "drop" sentinel, a wall-clock budget constant, a try-verify-fallback design, and package-scoped test runs), and the record-with-a-reason fallback.
-read_if: Triaging LIVED mutants from a `make mutation` sweep, or deciding whether to strengthen a test or record a `// gomutants:disable` reason.
+description: Mutation testing for Go in this repo - the tool survey and why gomutants was chosen (on-demand `go run module@version`, never a CI gate), how to close gomutants survivors (the recurring mutant types and their kills, the equivalent-mutant traps, the record-with-a-reason fallback), and the multi-turn sweep runbook for the #268 survivor tracker.
+read_if: Evaluating or changing a Go mutation-testing tool or the `make mutation` target; triaging LIVED mutants from a sweep (strengthen a test, delete redundant production code, or record a `// gomutants:disable` reason); picking a `SINCE` scope for a branch/PR sweep; or coordinating a #268 survivor-reduction pass.
 ---
 
-# Triaging mutation survivors
+# Mutation testing for Go
+
+Three concerns, one guide: the tool survey, survivor triage, and the multi-turn sweep runbook.
+
+
+## Mutation testing for Go — tool survey
+
+Constraint recap: an **on-demand, per-package** command, invoked as `go run <module>@<version>` (no global install), version pinned by a `Makefile` constant **exactly like `GOVULNCHECK_VERSION`**, and **never** wired into `check`/`verify` or made a required CI check (the advisory `mutation` workflow runs it on every code-changing PR and gates nothing). Whole-module runs take hours, so single-package scoping is required.
+
+All invocations below were executed in this sandbox with `go version go1.27.1 linux/amd64`; failures and successes are quoted from that output.
+
+### Comparison
+
+| | gomutants | gremlins | go-mutesting (avito) | go-mutesting (zimmski) | ooze | gomu |
+|---|---|---|---|---|---|---|
+| `go run <root>@<ver>` | ✅ root `main.go` — **works** | ❌ root is a library; must use `/cmd/gremlins` | ❌ `/cmd/go-mutesting` | ❌ `/cmd/go-mutesting` | ❌ library only | ❌ `/cmd/gomu` |
+| Latest tag / module path | `v0.7.2`, root pkg | `v0.6.0`, `cmd/gremlins` | `v2.3.1` — **unusable** (no `/v2`), pin pseudo-version | no tags (pseudo `v0.0.0-2021…`) | `v0.2.0` | `v0.3.0`, `cmd/gomu` |
+| Per-package scope | package patterns (`./internal/foo`) | one path arg (subtree) | targets (dirs/pkg) | targets (dirs/pkg) | package of the test file | one path arg |
+| Go supported (go.mod) | `go 1.26.10` | `go 1.25.0` | `go 1.27` | `go 1.10` | `go 1.25` | `go 1.26.0` |
+| Maintenance (as of 2026-10-21) | pushed 2026-10-21, 13★, 3 open | pushed 2026-06-26, 448★, 64 open | pushed 2026-10-02, 279★, 25 open | pushed 2024-07-04, 43 open | pushed 2026-10-13, 290★ | pushed 2026-10-18, 46★ |
+| Mutant statuses | KILLED/LIVED/NOT COVERED/NOT VIABLE/TIMED OUT/INFRA ERROR/EQUIVALENT | KILLED/LIVED/NOT COVERED/NOT VIABLE/TIMED OUT/RUNNABLE | pass/fail (+score) | pass/fail (+score) | killed/living | killed/lived/etc |
+| Machine-readable | JSON (default) + Stryker + HTML | JSON (`--output`) | JSON/HTML via config | none | none | console/json/html/text |
+| Ignore / allowlist | inline `// gomutants:disable*` + `--exclude-calls` | `--exclude-files` regex only | `mutator-disable-*` annotations + MD5 blacklist | MD5 `--blacklist` | `IgnoreSourceFiles` regex | `.gomuignore` |
+| Mutation applied by | `go test -overlay` (source untouched) | full module copy to temp dir, rewrite | source rewrite in temp, then test | source rewrite in temp, then test | rewrites source | `go test` overlay |
+| Default exit gate | none (thresholds 0) | none (thresholds 0) | none | none | threshold default `1.0` | `--fail-on-gate` default **true** |
+
+### gomutants
+
+- Repo `github.com/gomutants/gomutants`; module root package is `main`. `go install github.com/gomutants/gomutants@<ver>` is the documented install, and the Claude plugin "falls back to `go run github.com/gomutants/gomutants@latest`" ([README](https://github.com/gomutants/gomutants)).
+- **`go run github.com/gomutants/gomutants@v0.7.2 --help` works** here on go1.27.1 (downloaded and printed usage). `go.mod` requires only `gopkg.in/yaml.v3`, `go 1.26.10` ([go.mod](https://raw.githubusercontent.com/gomutants/gomutants/main/go.mod)); "The minimum supported version of Go for gomutants is **1.26**" ([README](https://github.com/gomutants/gomutants)).
+- Per-package: usage is `gomutants [flags] <package patterns>`, e.g. `gomutants ./internal/mypackage` or `gomutants -v ./internal/foo` ([README](https://github.com/gomutants/gomutants)); package patterns are positional.
+- Scope to changed lines: `--changed-since <ref>` keeps only mutants on lines added/modified vs `git diff --unified=0 --merge-base <ref>`, includes uncommitted edits to tracked files, and requires a **new** file to be `git add`ed to be visible. On a shallow clone (no reachable merge base) it fails with a hint rather than silently widening. **The flag is `--changed-since` in the pinned v0.7.2** — verified by running `go run github.com/gomutants/gomutants@v0.7.2 --changed-since v0.5.0 --dry-run ./internal/humanize` (works) and `-n v0.5.0` (`flag provided but not defined: -n`, exit 2). An earlier verbal summary said `-n`; it is wrong for this pin ([README](https://github.com/gomutants/gomutants), [flags.go](https://github.com/gomutants/gomutants/blob/main/flags.go)).
+- Output/triage: JSON report by default (`--output`/`-o`, default `mutation-report.json`), plus `--stryker-output`, `--html-output`, `--annotations github`; statuses `KILLED`, `LIVED`, `NOT COVERED`, `NOT VIABLE`, `TIMED OUT`, `INFRA ERROR`, `EQUIVALENT`; `--list-mutators`. Equivalent/uninteresting mutants are recorded via inline `// gomutants:disable`, `disable-next-line`, `disable-func`, `disable-regexp` and call-site `--exclude-calls` globs ([README](https://github.com/gomutants/gomutants)).
+- GitHub annotations: `--annotations github` (the only accepted value) writes one `::warning file=<path>,line=<n>,col=<n>::Mutant LIVED — <TYPE> (<original> → <replacement>)` per LIVED mutant to stdout, with `%`/CR/LF escaped in the message and `%`/`:`/`,` in the path. It does **not** gate — a non-zero exit needs an explicit `--threshold-efficacy`/`--threshold-mcover` (both default `0`) — so annotations surface survivors without failing the job. GitHub caps the annotation channel at **10 warnings per step** (50 per job), so a larger survivor set needs an uncapped surface (a PR comment, the step summary, or the report artifact).
+- Applied by `go test -overlay` — "the source tree is never rewritten" ([README](https://github.com/gomutants/gomutants)). Speed features: content-addressed cache, per-test coverage routing, adaptive per-mutant timeouts. The README's own benchmarks put it ~1.5–1.8× faster than gremlins on medium single-package targets (self-reported; treat as a claim).
+- `-race`: forwarded through `--test-flags` (build flags such as `-race` go to the compile). `-overlay`, `-c` and `-args` are gomutants-managed and not forwarded; `-o`/`--output` is gomutants' own JSON report path (default `mutation-report.json`), not a pass-through to the inner `go test` ([README](https://github.com/gomutants/gomutants), `--help`).
+- Not a gate by default: `--threshold-efficacy`/`--threshold-mcover` default `0` (disabled), so exit is `0`; exit `10`/`11` only when thresholds are set ([README](https://github.com/gomutants/gomutants)).
+- Caveat: the project is new (created 2026-04-04, 13 stars, 3 open issues, PRs `collaborators_only`) ([repo API](https://api.github.com/repos/gomutants/gomutants)). Single-organisation bus factor; version-pin deliberately.
+
+### gremlins
+
+- Repo `github.com/go-gremlins/gremlins`; **root is not a main package**. `go run github.com/go-gremlins/gremlins@v0.6.0 --help` fails with `module github.com/go-gremlins/gremlins@v0.6.0 found, but does not contain package github.com/go-gremlins/gremlins`; the binary is `cmd/gremlins`, and **`go run github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0 --help` works**. Documented install is `go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0` ([docs](https://gremlins.dev/latest/install/)); layout in [cmd/](https://github.com/go-gremlins/gremlins/tree/main/cmd).
+- `go.mod` is `go 1.25.0` ([go.mod](https://raw.githubusercontent.com/go-gremlins/gremlins/main/go.mod)). gomutants' README claims "gremlins is broken on Go 1.26.x" (competitor claim, unverified here; building gremlins itself succeeded on go1.27.1).
+- Per-package: `gremlins unleash [path]` accepts at most one path; that path sets `CallingDir`, the coverage run becomes `./<CallingDir>/...`, and mutant paths are made relative to it ([cmd/unleash.go](https://raw.githubusercontent.com/go-gremlins/gremlins/main/cmd/unleash.go), [coverage.go](https://raw.githubusercontent.com/go-gremlins/gremlins/main/internal/coverage/coverage.go)). So `gremlins unleash ./internal/foo` scopes to that subtree.
+- Output/triage: statuses `RUNNABLE`/`NOT COVERED`/`KILLED`/`LIVED`/`TIMED OUT`/`NOT VIABLE`; machine-readable via `--output=output.json` (not pretty-printed); `--output-statuses` filters the human stream; YAML config; `--exclude-files` regex. No per-mutant inline ignore ([unleash docs](https://gremlins.dev/latest/usage/commands/unleash/), [configuration](https://gremlins.dev/latest/usage/configuration/)).
+- Applied by copying the **entire module root** into a temp workdir, mutating the copy, and running `go test` there ([workdir.go](https://raw.githubusercontent.com/go-gremlins/gremlins/main/internal/engine/workdir/workdir.go)) — a per-package run pays the whole-module copy.
+- Its `go test` invocation is `go test -cover -coverprofile …` with optional `-tags`/`-coverpkg` only; there is no way to pass `-race` ([coverage.go](https://raw.githubusercontent.com/go-gremlins/gremlins/main/internal/coverage/coverage.go)).
+- Thresholds default `0`; gremlins never exits non-zero unless a threshold is set ([unleash docs](https://gremlins.dev/latest/usage/commands/unleash/)). 448★, Apache-2.0, docs site, official GitHub Action.
+
+### go-mutesting — avito-tech fork
+
+- Repo `github.com/avito-tech/go-mutesting`; main package at `cmd/go-mutesting`. **Tag pinning is broken**: `go run github.com/avito-tech/go-mutesting/cmd/go-mutesting@v2.3.1` fails — `invalid version: module contains a go.mod file, so module path must match major version ("github.com/avito-tech/go-mutesting/v2")` — because the module path has no `/v2` while tags are `v2.x`. `@latest` resolves to the pseudo-version `v0.0.0-20261002081621-9ce5f731e321` and works ([tags](https://api.github.com/repos/avito-tech/go-mutesting/tags), [go.mod](https://raw.githubusercontent.com/avito-tech/go-mutesting/master/go.mod)). A `Makefile` constant would have to pin a commit/pseudo-version, not a release tag.
+- `go.mod` is `go 1.27`; last push 2026-10-02; 279★; MIT.
+- Per-package: positional targets — files, directories, packages, `...` patterns, e.g. `go-mutesting ./internal/foo` or `go-mutesting .` ([README](https://github.com/avito-tech/go-mutesting)).
+- Output: per-mutation `PASS`/`FAIL` plus a mutation score; YAML config with `json_output`/`html_output`; inline `mutator-disable-func` / `mutator-disable-next-line` / `mutator-disable-regexp` annotations; MD5 `--blacklist` for equivalent mutants ([README](https://github.com/avito-tech/go-mutesting)).
+- Applied by AST mutators with the built-in exec replacing the original file with the mutation and running the package's tests (source rewrite); an external `--exec` command can be supplied ([README](https://github.com/avito-tech/go-mutesting)).
+
+### go-mutesting — zimmski original
+
+- Repo `github.com/zimmski/go-mutesting`; main at `cmd/go-mutesting`; no release tags — `@latest` = `v0.0.0-20210610104036-6d9217011a00`; `go run github.com/zimmski/go-mutesting/cmd/go-mutesting@latest --help` works here. `go.mod` is `go 1.10` with 2019-era deps (`golang.org/x/tools` from 2019), last push 2024-07-04 ([go.mod](https://raw.githubusercontent.com/zimmski/go-mutesting/master/go.mod), [repo API](https://api.github.com/repos/zimmski/go-mutesting)). Expect trouble parsing modern Go (generics) — unverified, but the pinned `x/tools` predates them. Output is `PASS`/`FAIL` + score with an MD5 `--blacklist`; no JSON ([README](https://github.com/zimmski/go-mutesting)). 678★.
+
+### ooze
+
+- Repo `github.com/gtramontina/ooze`; **library only** — confirmed: `go run github.com/gtramontina/ooze@v0.2.0` → `package github.com/gtramontina/ooze is not a main package`. Usage is to add a `mutation_test.go` and run `go test -v -tags=mutation`; Ooze becomes a dependency in the project's `go.mod` ([readme](https://raw.githubusercontent.com/gtramontina/ooze/main/readme.md)). This violates the no-global-install-but-`go run` constraint.
+- `WithTestCommand` defaults to `go test -count=1 ./...` and is user-overridable (so `-race` is possible in principle); `WithMinimumThreshold` defaults to `1.0` (a gate unless overridden); `Parallel()`, `WithViruses`, `IgnoreSourceFiles` regex ([readme](https://raw.githubusercontent.com/gtramontina/ooze/main/readme.md)).
+- No JSON report; prints a report and a diff per living mutant. Scoping is by where you place the test / which package you run. 290★, MIT, supports Go 1.25 through current.
+
+### gomu
+
+- Repo `github.com/sivchari/gomu`; main at `cmd/gomu`; **`go run github.com/sivchari/gomu/cmd/gomu@v0.3.0 version` works** (printed `gomu version dev`). `go.mod` is `go 1.26.0`; created 2025-07-14, pushed 2026-10-18; 46★, MIT ([go.mod](https://raw.githubusercontent.com/sivchari/gomu/main/go.mod)).
+- Per-package: `gomu run ./internal/foo`; flags after `--` are forwarded to `go test` (`-short`, `-run`, `-tags`, `-race`) ([README](https://github.com/sivchari/gomu)).
+- Output: `--output console|json|html|text`; `.gomuignore`; incremental history. Mutations applied via a managed `go test` overlay (`-overlay` rejected as gomu-managed) ([internal/execution/overlay.go](https://github.com/sivchari/gomu/tree/main/internal/execution)).
+- Gate risk: `--fail-on-gate` defaults to **`true`** with `--threshold 80` — for a never-a-gate target you must pass `--fail-on-gate=false` (and/or `--threshold 0`).
+
+### Recommendation
+
+1. **gomutants** — best fit. It is the only candidate whose module root is the binary, so `go run github.com/gomutants/gomutants@<ver>` is clean and was verified here; it takes package patterns for exact per-package scoping; it applies mutations by overlay so the working tree is never corrupted; JSON is the default output; inline disable directives and `--exclude-calls` give a real allowlist for equivalent/uninteresting mutants; and thresholds default off, so it is inert unless explicitly gated. Accept the maturity caveat by pinning the version constant.
+2. **gremlins** — the conservative, mature alternative (448★, docs, Action). Costs: `/cmd/gremlins` in the `go run` path, a full-module temp copy per run, no overlay, and a competitor's unverified Go 1.26+ compatibility claim.
+3. **gomu** — overlay-based like gomutants, `/cmd/gomu` path; must disable its default gate.
+4. **go-mutesting (avito)** — viable only with a pseudo-version pin (v2 tags are not Go-module-legal) and no overlay.
+5. **go-mutesting (zimmski)**, **ooze** — reject: stale/`go 1.10`, and library-only respectively.
+
+#### Makefile
+
+The canonical `make mutation` target, its `GOMUTANTS_VERSION` pin, and the `ANNOTATIONS`/`CGO_ENABLED` handling live in `specs/ci/mutation-testing.md`.
+
+
+## Triaging mutation survivors
 
 The rule lives in `specs/ci/mutation-testing.md`: a survivor is killed, deleted, or recorded, and an unclosed survivor is
 tracked debt rather than a merge blocker. This is the field guide for the recurring types. It was distilled from the
 first full sweep of `internal/agent` (`make mutation FULL=1 PKG=./internal/agent/`): 36 survivors from 322 mutants, all
 under-asserted tests, no defects.
 
-## Redundant production code: delete it
+### Redundant production code: delete it
 
 A survivor that no input can kill because the code it mutates is implied by other code points at code to delete, in
 the same change. It is one of the most valuable sweep results. Prove the redundancy before deleting: trace every
@@ -20,7 +107,7 @@ always-true `hasChecker` flag (its only caller returns earlier for a checker-les
 and only that guard defers the offer. Its survivor was a missing test. An early `return err` whose error the next step
 would re-derive is not redundant code either: dropping it would ignore an error, so record it as equivalent.
 
-## Recurring mutant types and their kills
+### Recurring mutant types and their kills
 
 - **`ERRORF_WRAP` (`%w` → `%v`)** is invisible to `err != nil` because the message text is unchanged; only the wrapping
   relationship is lost. Kill it by reaching the preserved cause with `errors.Is`/`errors.AsType`. Causes seen here:
@@ -57,7 +144,7 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   observed against a local server that answers immediately, and the value is not a contract. Record it:
   `// gomutants:disable-next-line INTEGER_INCREMENT,INTEGER_DECREMENT,ARITHMETIC_BASE reason="…"`.
 
-## Traps
+### Traps
 
 - **`EXPRESSION_REMOVE` on `A && B` emits two mutants, one per operand.** If an operand is redundant the mutant is
   equivalent and unfalsifiable: `strings.HasPrefix(p, "!") && p == "!"` with the left operand removed becomes
@@ -329,7 +416,7 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   probe made a dozen tests each poll out 2 s and the sweep reported 17 `TIMED OUT`. Passing cases are healthy on their
   first probe, so 200 ms costs nothing and turns them into kills.
 
-## Operational
+### Operational
 
 - A cold `FULL=1` run of one package (`internal/agent`, ~320 mutants) exceeds 15 minutes in a fresh worktree; reruns
   resume from `.gomutants-cache.json` and are much faster. Run it in the background.
@@ -348,3 +435,195 @@ would re-derive is not redundant code either: dropping it would ignore an error,
 - `make mutation FULL=1 PKG=./internal/agent/` writes `mutation-report.json` (gitignored) plus the cache into the
   worktree. Read the result with `jq`:
   `jq -r '[.files[] as $f | $f.mutations[] | select(.status=="LIVED") | "\($f.file_name):\(.line) \(.type)"] | .[]'`.
+
+
+## Mutation sweep execution
+
+### Intent
+
+`#268` records 1811 LIVED survivors of 10315 mutants across 36 packages (the 37 attached reports, one per package plus
+an empty `notify/assets`). One row is out of the working queue (see *Snapshot caveats*): `internal/agent` (36) was closed
+by #259, leaving **1775 survivors across 35 packages**. The reports are the expensive artifact, so the goal is to work the
+queue down **over turns without putting `make mutation` in anyone's inner loop**: a coordinator owns the reports,
+assignment, verification and issue text, while implementer subagents only fix. The reduction goal, the closing rule (a
+survivor is killed, deleted, or recorded), and the recurring types live in `specs/ci/mutation-testing.md` and
+this guide; this runbook is only the execution around them. A turn ends with a smaller, re-verified
+survivor count, and a human decides whether another turn is worth it.
+
+### Inputs
+
+The source data is the **37 JSON reports attached to `#268`**, treated as an immutable snapshot.
+
+- Download with plain unauthenticated `curl -L` (302-redirects). The URLs are the issue's **"Done when" checklist**,
+  which is the source of truth for the list; the `#issuecomment-6327799337` link in the prose is dead (404). Reading the
+  list from the issue (`gh issue view 268 --json body`) means no hardcoded URL table to rot.
+- Verified: 37 files download, and their top-level `mutants_lived` sums to exactly 1811 (10315 mutants).
+- Report shape: `{go_module, files: [{file_name, mutations: [{id, type, status, line, column, original, replacement}]}],
+  mutants_lived, …}`. A mutant **id** is `<module-path>:<func>:<TYPE>#n` (`<func>` may be empty → `::`), carrying the
+  package and file. **`#n` is an ordinal per (file, function, type) in source order, not a stable key** (see
+  *Verification*).
+- **Scope is a FULL per-package sweep, not changed-line.** Verified against the tree: `./internal/humanize` full-sweeps
+  to 34 mutants and the report holds 34, while `--changed-since v0.5.0` yields 0; `yamlfmt` likewise 6/6 vs 0. The
+  issue's "default scope `--changed-since v0.5.0`" line is inconsistent with the attachments — reproduce with
+  `make mutation FULL=1 PKG=<pkg>`, not the default scope.
+- The snapshot is **immutable**. Progress is never written back into it — it lives in the issue text (below).
+
+### Snapshot caveats
+
+- `notify_assets` is an empty report (`files: null`, 0 mutants) — nothing to close.
+- The `./cmd/agents-sandbox` row is a real full sweep now (`mutation-report._cmd_agents-sandbox.json`), **184 survivors of
+  1190** — the largest concentrated rows are `commands_system.go` (59), `commands_cli.go` (49), `inspect_output.go` (26),
+  `tree.go` (26). The earlier `mutation-report-cmd-agents-sandbox.json` (322 ids byte-identical to `internal/agent`'s) was
+  a duplicate and is superseded; read the `._cmd_agents-sandbox` attachment.
+- Report → package maps by the filename convention (`mutation-report-._internal_sandbox_vm.json` → `./internal/sandbox/vm`).
+
+### Roles
+
+- **Coordinator** — one agent session in a dedicated git worktree. Owns the snapshot, the queue, assignment,
+  verification, the `#268` text, and the turn PR. The only writer of the issue.
+- **Worker** — an `implementer-small` subagent. **Fixes only.** It never runs `make mutation`, and never runs the
+  module-wide `make fmt`/`make lint`/`make check` (see *Worker protocol*). Workers do not self-select work.
+
+### Queue
+
+- The **worker unit** is a source file plus the `_test.go` files that exercise it (a cluster inside one package) — never a
+  single file, because a `kill` edits tests and a test-support helper's mutants need tests in the test files. Units are
+  **file-disjoint**, which is what lets several workers run without colliding. The **coordinator assigns** each unit;
+  workers do not pull from a shared queue, because disjointness depends on assignment and the coordinator cannot
+  arbitrate a mid-flight collision.
+- **Two workers in one package interfere even when file-disjoint: they share the package's compile and test run.** A
+  worker that runs `go test ./pkg/...` while a peer is mid-edit sees the peer's broken intermediate state and reports
+  phantom failures (observed in the spike). Either serialize workers within a package — parallelize across packages
+  instead — or have each worker re-run at the end and treat mid-run failures as noise.
+- **Across packages they still interfere: the module build and the gomutants cache are shared.** The first real turn
+  (14 packages, one `implementer-small` per package) hit this hard: one peer's broken in-flight edit
+  (`filewalk.go:63: undefined: data`) broke every other worker's `go test` and coverage build, because a changed
+  dependency recompiles for all of them; `.gomutants-cache.json` is a single file too. One worker also wandered off its
+  unit into another package and reverted that worker's edits. **Run units serially** (one worker; commit each handback,
+  then start the next) or give each worker **its own worktree**; do not fan a dozen out in one checkout.
+- **A worker's step budget bounds the unit.** The per-survivor evidence loop (hand-apply → run the named test → revert)
+  is expensive, and in the first real turn almost every worker exhausted its step budget, several mid-investigation with
+  nothing landed. Size a unit to what one worker closes in a session — a file-cluster of **≲10 survivors** — and keep
+  the analysis (mutant-type grouping, reachability) inside the same budget, not ahead of it.
+- The **package is the verification unit** (see *Verification*), which is coarser than the worker unit. A turn's
+  breadth — how many packages it targets — is the main cost knob: verification re-sweeps every touched package, so a
+  turn that spreads across all 35 pays for all 35. Prefer concentrating a turn in fewer packages.
+- Inside a unit, survivors are ordered **by mutant type**, using this guide as the playbook: a worker
+  that closes ten `ERRORF_WRAP`s back to back applies `errors.Is`/`errors.AsType` once instead of re-deriving it.
+- **The order that made turn 3's single-agent sweep work: re-sweep first, drive off the fresh report, batch by type
+  within a file, and restructure an order-dependent loop/comparator first.** (1) Re-sweep before working: the attached
+  snapshot drifts (its mutant counts and even the functions it names go stale), so the fresh per-package LIVED set is
+  the worklist. (2) The **fresh report is the one with mutant types** — a posted residual summary often carries only
+  `file:line` and function names, which cannot be batched; take `(file, type, original → replacement)` from the sweep's
+  `mutation-report.json` (and, when only counts were posted, the per-package `jq` extracts survive in the session's
+  shell-output logs). (3) Batch same-type survivors inside one file. (4) Restructure an order-dependent loop or
+  comparator **before** the rest: a pre-sorted loop makes a redundant `sort.Slice` untestable, and a map-ordered loop
+  makes a `continue`→`break` non-deterministic, so make the iteration order deterministic and the comparator
+  load-bearing (or delete the redundant construct) first — otherwise later test edits are written against masked
+  ordering and have to be redone.
+- **Max unit size is discovered in the first turns.** A package is not a unit: in `internal/sandbox/vm`, 109 of 310
+  survivors sit in `vm_lifecycle.go` and 61 in `reconfig.go`. The first real turn fixed the working figure: **one
+  file-cluster of ≲10 survivors per worker** (e.g. `internal/sandbox/doctor`'s eight, all in `testmock.go`, closed
+  cleanly; `internal/sysinfo`'s sixteen did not).
+- **Durable progress** is the `#268` body's "Survivors by package" table, rewritten once per turn; a per-turn comment
+  carries the detail. The in-turn queue, per-unit cursors, and worker dispositions live in a gitignored working file so
+  that compaction or a fresh session loses nothing.
+
+### Worker protocol
+
+Given a unit, the worker closes each survivor by the spec's rule — kill, delete, or record — and hands back:
+
+- a **disposition per id** — closed-by (`kill`/`delete`/`record`) or deferred with a reason;
+- the **evidence** for each close: for a `kill`, the named test that fails once the mutant is applied; for a `record`,
+  that applying the mutant left the suite green; for a `delete`, the reason the construct is redundant;
+- a **resume cursor** (the last id it closed); and
+- the **diff**.
+
+**The prompt carries the mutant's content, not its line.** Snapshot line numbers drift as `main` moves — the spike's
+report was 8 lines stale — so hand the worker `file:type:original → replacement` and let it locate the site.
+
+**Only the coordinator writes shared files.** A worker never edits the triage guide, the issue, or another unit's files;
+it surfaces a generalizable lesson in its handback and the coordinator folds it in. Two workers editing one shared
+document collide exactly like two workers editing one source file — and the spike's worker did wander into
+this guide unprompted.
+
+**Partial returns are expected.** A unit larger than one session stops at its cursor, and the coordinator hands the
+remainder to the next worker (or the next turn). The coordinator reuses a worker's session for its next unit until the
+session has run long, then rotates to a fresh one — amortizing startup without letting context sprawl.
+
+**Formatting and lint.** A worker formats only the files it touched (`gofmt -w <files>`), which is file-scoped and safe
+beside other workers. The module-wide `make fmt`/`make lint`/`make check` runs run in the **coordinator**, serially, at
+the turn boundary — a worker's `make fmt` would rewrite a peer's in-flight files, and concurrent `golangci-lint` shares
+a cache.
+
+### Review
+
+Every unit's diff gets an adversarial review before acceptance. The `delete` and `record` closes edit production code,
+and a green suite hides fragile tests: the spike's review caught a umask-fragile mode assertion (a false failure under
+`umask 0077`) and a global `os.Stdout` swap with no restore-on-panic, neither visible from a passing run. Dispatch a fresh
+reviewer with the diff and the invariant each deletion leans on, and require a counterexample or a confirmation.
+
+### Landing
+
+**One PR per turn.** Workers share the coordinator's worktree — a subagent inherits the coordinator session's directory, so
+moving the coordinator into the worktree puts every worker there (verified) — so disjoint files compose without merges
+and the coordinator commits each handback as its own commit on the turn branch, each independently revertable, with no
+per-worker worktrees or cherry-picks.
+
+**Turns sequence through `main`.** Turn N+1 branches from `main` **after** turn N is merged; if N is still open, stack
+N+1 on N's branch rather than branching from `main`. This matters because verification re-sweeps from the branch's base:
+branching from `main` before N merges would re-report N's own fixes as LIVED and regress the `#268` table. The table is
+always written from the newest turn's base.
+
+### Coordinator lifecycle
+
+All progress state is external, so the coordinator survives context pressure losslessly:
+
+- **Compaction** is safe. OpenCode auto-compacts near the model's context limit (keeping ~15k recent tokens beside a
+  structured summary), and the coordinator may request one deliberately at a safe point:
+  `opencode api post /api/session/<id>/compact`. The summary format (objective / next-move / decisions / files) is built
+  for handoff, so even dropping the session and starting fresh costs only re-reading the queue.
+- **Stops** are sized. The natural end is the **turn boundary** (sweep done, issue updated, PR opened); inside a turn, the
+  **cursor** makes any stop resumable.
+
+### Verification
+
+At **end of turn**, for each package the turn touched, re-sweep with the snapshot's scope —
+`make mutation FULL=1 PKG=<pkg>` — and join the fresh LIVED mutants to the snapshot's:
+
+- **closed** = a snapshot survivor absent from the fresh LIVED set;
+- **residual** = a snapshot survivor still LIVED, left for a later turn.
+
+**Join on mutant identity as a multiset, not on the id.** The `#n` ordinal renumbers when a delete removes a sibling, so
+a snapshot id can silently denote a different mutant; do not join on ids, and do not "strip `#n`" either — that key is
+even coarser, merging every same-type mutant in a function. Join on `(file, type, original, replacement)`, **by count**:
+three identical `t.Helper()` calls share that key, so a set-based comparison would mistake two still-LIVED copies for the
+progress of closing the third. Compare the snapshot's per-key count against the fresh count; the difference is closed. A
+key whose count reaches zero is fully closed — legitimately, whether we deleted it or an unrelated merge removed it. Do
+**not** count a newly-appearing key as a survivor: our dispositions are tests, deletes, and directives.
+
+**The sweep's `Suppressed` count is a cheap self-check.** It counts the `// gomutants:disable` directives that took effect,
+so it should equal the unit's `record` closes (the spike's 6 records → `Suppressed: 6`). A `delete` disposition lowers the
+package's `mutants_total`, so compare against the snapshot by identity, never by counts.
+
+**Cost, honestly.** The incremental cache keys on the mutant's package **and its covering tests**, so test-only `kill`
+dispositions re-run just the affected mutants, while a source edit (`delete`/`record`) invalidates the whole package and
+forces a full re-sweep of it. The sweep's own cache is not in the repo, so a fresh worktree starts cold. Budget one
+package sweep per touched package, and let that bound a turn's breadth. `-run-mutant-id <id>` re-measures a single
+mutant fresh (skipping the cache) for a spot check — safe only while its `#n` has not shifted.
+
+### Turns
+
+One turn = one pass over the queue (or the subset of packages it chose to target), ending at verification + issue
+update + PR.
+
+### Not in scope
+
+The spec's non-goals and anti-goals apply: this runbook adds no gate and no zero-survivor target.
+
+### Open to the builder
+
+- The unit-size / clustering rule and a turn's package breadth, tuned from the first turn's measured throughput and
+  verification cost.
+- Whether the in-turn queue and cursors are one file or per-unit files.
+- The downloader's home (a `ci/` script plus a `make` target, or a standalone script).
