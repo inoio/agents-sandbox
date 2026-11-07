@@ -1,3 +1,8 @@
+---
+name: opencode2-probe
+description: Observe and drive the running opencode2 (v2) daemon's SSE event stream from inside an agents-sandbox VM - reach the authed daemon, create a session with an `effect: ask` permission rule, capture `/api/event`, and reply to permission requests. Use when you need to see real opencode2 events, reproduce an input/awaiting-input trigger, or verify a notify change against the live daemon.
+---
+
 # Probing the running opencode2 daemon's event stream
 
 How to observe the real `opencode2` (v2) SSE events from inside an agents-sandbox VM, without a
@@ -72,8 +77,7 @@ session.execution.succeeded
 ```
 
 So a watcher that re-arms only on a step boundary cannot fire the second ask; the two asks are
-distinguishable only by their event ids. This is the evidence behind
-`specs/agents/notify.md` finding 6.
+distinguishable only by their event ids. This is the evidence behind `specs/agents/notify.md`.
 
 ## Cleanup
 

@@ -1,3 +1,8 @@
+---
+name: opencode2-self-management
+description: Drive your own opencode2 session from inside an agents-sandbox VM - request a context compaction through the session.compact API, tell the TUI's --port server from the CLI's `serve --service` background service, and refresh an edited skill or scope a skill query. Use when an agent is asked to compact/shrink its own context, when an edited skill "didn't change", or when a project skill is missing from the bare /api/skill list.
+---
+
 # Managing your own opencode2 session from inside the VM
 
 How an agent inside an agents-sandbox VM drives its own opencode2 session and finds its skills.

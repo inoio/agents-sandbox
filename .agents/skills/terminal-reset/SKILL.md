@@ -1,13 +1,17 @@
+---
+name: terminal-reset
+description: Verify the post-attach terminal reset by hand - which DEC private modes and keyboard protocols each harness TUI enables, how to simulate a TUI kill (not a real OOM), and the per-terminal checklist for the residue a kill leaves. Use when changing session.terminalReset or when it is emitted, adding a harness, or checking a report of a broken terminal after an agent was killed.
+---
+
 # Verifying the post-attach terminal reset
 
 When a harness TUI dies without restoring the terminal (an OOM kill, a `kill -9`), the modes it enabled stay set on
-the host terminal. The launcher emits `session.terminalReset` after an abnormal attach end
-(`specs/resource-limit-proposal.md` §2). This guide records which modes the harnesses enable and how to check by hand
+the host terminal. The launcher emits `session.terminalReset` after an abnormal attach end (`specs/resources/resource-limit-proposal.md` §2). This guide records which modes the harnesses enable and how to check by hand
 what residue a kill leaves in a real terminal emulator, which a pty-based test cannot show.
 
 ## Modes the harnesses enable
 
-Measured on 2026-11-06 on a KVM host. The harness smoke suite (`test/harness`) was run with a temporary dump of
+Measured on a KVM host. The harness smoke suite (`test/harness`) was run with a temporary dump of
 `ses.output()` after readiness, and the raw bytes were scanned for `CSI ? Pm h|l`, `CSI > Ps u` (kitty keyboard
 push), `CSI ? u` (kitty query) and `CSI > 4 ; Ps m` (xterm modifyOtherKeys).
 
