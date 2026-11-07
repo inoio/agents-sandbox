@@ -128,6 +128,44 @@ sits inside a bare checkout). A test that needs a specific layout chdirs into it
 bare-checkout tests do. This is why `configpaths`' project-path accessor tests assert the relative base without
 pinning the CWD themselves, and it closes the incident below.
 
+## Ambient-environment gate
+
+The fail-fast seams cover config, home, docker, msb, doctor, notify and the host opener. They do not cover
+the ambient OS itself: a default-suite test can still open a real socket, read or write the process environment,
+stat a device path, signal the process, or exec an absolute-path binary.
+`TestUntaggedTestsReachNoUnsanctionedEnvironment` (`internal/testutil/ambient_environment_contract_test.go`)
+closes that gap for known direct forms. It parses every `_test.go` the default build compiles and fails on such a call
+unless the statement carries, or has immediately above it, a reason-bearing `//testenv:allow <reason>` marker,
+mirroring the dead-code gate's `//deadcode:ignore`.
+
+A marker sanctions the innermost statement that contains the call, so a formatter that wraps the call does not detach
+the marker. It may sit inside that statement's own lines or on a standalone line immediately above it; a marker
+elsewhere in the enclosing function does not sanction the call, and it must carry a reason (`//testenv:allow <reason>`;
+a bare marker, or a longer word such as `allowance`, does not count). Markers are read from the file's real comments,
+so marker text inside a string literal is not a sanction, and a control statement (`if`/`for`/`range`/`switch`/
+`select`) stops at its body's opening brace: a marker in the body cannot approve an unmarked read in the condition.
+The gate covers these known direct forms:
+
+- `net.Listen`/`Dial`/`Lookup*` (a real socket or name resolution; an `httptest` server is addressed through its
+  own client and is not flagged);
+- `os.Getenv`/`LookupEnv`/`Setenv`/`Unsetenv`/`Environ` (Go's testing package owns this surface through
+  `t.Setenv`, so a direct call leaks across tests);
+- `os.Open`/`OpenFile`/`Stat`/`Lstat`/`ReadFile`/`ReadDir`/`Readlink` of a `/dev/...` literal;
+- `syscall.Kill`;
+- `exec.Command`/`CommandContext` of an absolute-path literal (the existing ambient-tool check in
+  `real_command_contract_test.go` still covers `docker`/`gh`/`git`/`gpg`/`msb`/`ssh`, and a shell interpreter is
+  allowed there);
+- a known host-figure read — `sysinfo.NumCPUs`/`TotalMemoryGiB`/`AvailableMemoryMiB` and
+  `sandbox/vm.BootMaxMemoryMiB` (`hostProbeCalls`) — because such a read makes the test depend on the runner's
+  hardware.
+
+The scan is a source heuristic over known direct selector calls, not a proof of isolation. It does not see method
+forms (`net.Dialer.Dial`, `net.DefaultResolver.LookupHost`, `net.ListenTCP`), an `http` client, `os.UserHomeDir`
+(a `$HOME` read), a device path computed instead of written as a literal, or a shell interpreter running the command.
+Those stay a review responsibility; the gate guards against the common direct form regressing.
+
+`TestAmbientEnvironmentUses` pins the scanner and the marker semantics.
+
 ## Deliberate real-state reads
 
 The `integration`-tagged image tests (`internal/sandbox/image/render_integration_test.go`) are the one sanctioned
@@ -177,7 +215,7 @@ The incident: `TestResolveBuildVersionPromptNamesThisProjectsVersion` replaced `
 it, so the coverage tests asserting the real default closure passed at `-count=1` (alphabetical file order runs them
 first) but failed 19/20 at `-count=20`.
 
-## Audit status (2026-10-16)
+## Audit status (2026-11-06)
 
 A full sweep of `internal/**` and `cmd/**` found the seam model holding: no production path outside the documented
 `configpaths` exceptions (`mounts` `~/` sources, `docker`'s `~/.docker`) reads or writes host config/home state, and no
@@ -205,6 +243,32 @@ seam family is reached without its injectable factory. The remaining ambient pat
   setting (`TestResolveIdentityOutsideWorktreeReportsSharedGitDir`). Because those tests are `integration`-tagged they are
   outside the default coverage profile, so the test-support file `testgit.go` is excluded from the Codecov gate
   (`.codecov.yml`); its pure `gitIsolationEnvironment` is unit-tested in `testgit_test.go`.
+
+A 2026-11-06 re-sweep of `internal/**` and `cmd/**` confirmed the model and closed the ambient-OS half with the
+gate above. Every sanctioned use now carries a `//testenv:allow <reason>` marker. Three residuals remain:
+
+- **Indirect host reads.** The gate catches a test's *direct* host-probe call, but a production function with no
+  seam can still reach the host through a test's call path, which a scan of test sources cannot see.
+  `sandbox.BootMaxMemoryMiB` (`sysinfo.TotalMemoryGiB` → `/proc/meminfo`) bounds the memory-raise offer, so
+  `session`'s offer tests failed on any host with ≤ 8 GiB RAM (the boot maximum came out below the tests' fixed
+  8192 MiB metric limit, `SuggestRaise` clamped to it, and the "already the host maximum" branch suppressed the
+  prompt). The reads are now injected through the `bootMaxMemoryMiB`/`hostAvailableMemoryMiB` var seams, pinned in
+  the package's `TestMain` like `waitQuiescentPollInterval`. When a production read of a host figure becomes
+  reachable from a test, route it through a seam the same way rather than asserting against the runner's hardware.
+  The gate's `hostProbeCalls` list should grow with each such production read, so a direct call from a test cannot
+  reintroduce the dependency unnoticed.
+- **Git identity from the ambient CWD.** Untagged `cmd/**` and `prepare`/`session` tests call
+  `git.MustCheckoutSlug`/`MustRepoSlug`/`ResolveIdentity` on the suite's real checkout, so the suite must run inside
+  the repo (the `Must*` variants panic otherwise). Read-only and self-consistent — the fixture lands under the mock
+  state dir for that same key — but it is the last sizable ambient dependency not behind a seam. A
+  `testutil.CheckoutSlug(t)` helper that owns the one intentional resolution (or `t.Chdir(testutil.InitRepo(t))`
+  first) would centralize it.
+- **Wall-clock waits.** Several tests `time.Sleep` through interval seams (`spinnerInterval`,
+  `pressureWatchInterval`, `watchReconnectPolicy`); under load they are slower but not host-dependent. Prefer
+  channel synchronization where a test does not need the interval dwell.
+
+The gate also moved the `ports` exclusion tests off the hardcoded `5999` onto a bound-`:0` port, so they no longer
+collide with whatever the host already holds.
 
 `agent` and `filewalk` install every fail-fast family except `notify` (which imports both, so it cannot be installed
 from them). Keep any future host-path need in them injected, never global.

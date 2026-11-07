@@ -70,7 +70,7 @@ func TestBuildDesktopCommandDarwin(t *testing.T) {
 	var got []string
 	execCommand = func(name string, args ...string) *exec.Cmd {
 		got = append([]string{name}, args...)
-		return exec.Command("/bin/true")
+		return exec.Command("/bin/true") //testenv:allow a harmless no-op stands in for the real notifier
 	}
 
 	buildDesktopCommand("darwin", `Ti"tle\`, `Bo"dy\`)
@@ -92,7 +92,7 @@ func TestBuildDesktopCommandLinux(t *testing.T) {
 	var got []string
 	execCommand = func(name string, args ...string) *exec.Cmd {
 		got = append([]string{name}, args...)
-		return exec.Command("/bin/true")
+		return exec.Command("/bin/true") //testenv:allow a harmless no-op stands in for the real notifier
 	}
 
 	buildDesktopCommand("linux", `a"b\c`, "plain body")
@@ -186,7 +186,7 @@ func TestSystemAudioNotifierFallsBackToBell(t *testing.T) {
 	called := false
 	execCommand = func(_ string, _ ...string) *exec.Cmd {
 		called = true
-		return exec.Command("/bin/true")
+		return exec.Command("/bin/true") //testenv:allow a harmless no-op stands in for the real notifier
 	}
 
 	(&SystemAudioNotifier{}).Notify(Notification{Trigger: TriggerDone})
@@ -230,7 +230,7 @@ func TestCompositeBackendTriggerEnabled(t *testing.T) {
 func TestBellWritesBELOnCharDevice(t *testing.T) {
 	origStdout := os.Stdout
 	defer func() { os.Stdout = origStdout }()
-	dev, err := os.OpenFile("/dev/null", os.O_WRONLY, 0)
+	dev, err := os.OpenFile("/dev/null", os.O_WRONLY, 0) //testenv:allow opens the null device to redirect stdout
 	if err != nil {
 		t.Skipf("cannot open char device: %v", err)
 	}

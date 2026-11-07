@@ -16,7 +16,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -162,7 +161,7 @@ func TestOfferMemoryRaiseAfterAttachSaysTheRaiseAppliesNextRun(t *testing.T) {
 // is clamped to the host maximum a project VM is created with.
 func TestOfferMemoryRaiseAfterAttachClampsToTheBootMaximum(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	bootMaxMiB := sandbox.BootMaxMemoryMiB()
+	bootMaxMiB := bootMaxMemoryMiB()
 	k := state.Key{Slug: "clampedoffer", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	var suggested string

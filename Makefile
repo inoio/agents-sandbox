@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test fuzz test-race test-integration test-msb compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint fmt validate-fmt run cleanup-branches cleanup-branches-test check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test fuzz test-race test-integration test-msb compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint fmt validate-fmt run cleanup-branches cleanup-branches-test test-scrubbed test-hermetic envelope-test check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test docs-serve
 
 VERSION ?= dev
 
@@ -265,10 +265,26 @@ cleanup-branches:
 cleanup-branches-test:
 	./scripts/test-cleanup-merged-branches.sh
 
-check: fmt lint test compile-all docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test cleanup-branches-test
+# Run the default suite in a hermetic envelope: a module copy outside any git
+# checkout and a scrubbed environment. See specs/test-isolation.md.
+test-scrubbed:
+	./scripts/test-envelope.sh -- make test
+
+# Strict envelope: adds a network namespace with only loopback (Linux).
+# Currently red: the six uid/permission fixtures still assume an unprivileged
+# uid and the strict run is uid 0. See
+# .operator-shared/plans/2026-11-07-hermetic-uid-permission-surface.md.
+test-hermetic:
+	./scripts/test-envelope.sh --netns -- make test
+
+# Test the hermetic envelope driver itself (fixtures only: never touches this repo).
+envelope-test:
+	./scripts/test-envelope_test.sh
+
+check: fmt lint test compile-all docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test cleanup-branches-test envelope-test
 
 # Read-only check for CI parity: fmt-check + lint + test + race + vulncheck (does not modify files).
-verify: validate-fmt lint test test-race compile-all vulncheck deadcode docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test cleanup-branches-test
+verify: validate-fmt lint test test-race compile-all vulncheck deadcode docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test cleanup-branches-test envelope-test
 
 all: fmt lint test docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test build cleanup-branches-test
 

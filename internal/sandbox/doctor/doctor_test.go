@@ -233,7 +233,7 @@ func errStrings(errs []error) []string {
 }
 
 func TestCheckPlatform(t *testing.T) {
-	_, err := os.Stat("/dev/kvm")
+	_, err := os.Stat("/dev/kvm") //testenv:allow probes the host device the platform check reads
 	switch {
 	case err == nil:
 		if err := checkPlatform(); err != nil {
