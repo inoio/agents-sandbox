@@ -18,7 +18,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/superradcompany/microsandbox/sdk/go v0.7.13
 	github.com/titanous/json5 v1.0.0
-	go.yaml.in/yaml/v3 v3.0.5
+	go.yaml.in/yaml/v3 v3.0.6
 	golang.org/x/term v0.47.0
 	oneyaml.dev/go v1.0.0
 )
