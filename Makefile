@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test fuzz test-race test-integration test-msb compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint fmt validate-fmt run cleanup-branches cleanup-branches-test test-scrubbed test-hermetic envelope-test check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint fmt validate-fmt run cleanup-branches cleanup-branches-test test-scrubbed test-hermetic envelope-test check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test docs-serve
 
 VERSION ?= dev
 
@@ -125,6 +125,9 @@ bootstrap:
 
 test:
 	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -timeout $(TEST_TIMEOUT) ./...
+
+test-uncached:
+	CGO_ENABLED=1 go test -tags $(NO_EMBEDDED_FFI_TAG) -timeout $(TEST_TIMEOUT) -count=1 ./...
 
 # Race-detector run across the module. The launcher runs concurrent state
 # transactions, legacy-volume copy campaigns, daemon health polling, and
