@@ -254,27 +254,31 @@ func TestPruneAggregateParity(t *testing.T) {
 	cp.WithMockConfigPaths(t)
 
 	testUI := termio.NewTestMock(t)
-	if _, err := Prune(context.Background(), docker.Get(), PruneOptions{
-		Age:                       7 * 24 * time.Hour,
-		RemoveUnreferencedVolumes: true,
-	}, &testUI); err != nil {
+	report, err := Prune(context.Background(), docker.Get(), PruneOptions{
+		Age: 7 * 24 * time.Hour,
+	}, &testUI)
+	if err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
 	if !staleHandle.DidRemove() {
 		t.Error("expected the stale project VM to be removed through its handle")
 	}
-	if got := len(client.RemovedVolumes); got != 1 {
-		t.Errorf("RemovedVolumes = %d, want 1", got)
+	if got := len(client.RemovedVolumes); got != 0 {
+		t.Errorf("RemovedVolumes = %d, want 0 (Prune never removes a home volume)", got)
+	}
+	if report.PrunedVolumes != 0 {
+		t.Errorf("PrunedVolumes = %d, want 0", report.PrunedVolumes)
 	}
 	if got := len(client.RemovedImages); got != 2 {
 		t.Errorf("RemovedImages = %d, want 2 (stale proj image + live surplus)", got)
 	}
 }
 
-// TestPruneSkipsVolumeRemovalWhenNotAllowed pins the safe-tier boundary: without
-// RemoveUnreferencedVolumes the volume phase never runs, so a stale key's
-// unreferenced home volume survives a prune (the auto-prune path).
-func TestPruneSkipsVolumeRemovalWhenNotAllowed(t *testing.T) {
+// TestPruneNeverRemovesVolumes pins the safe-tier boundary: Prune runs no
+// volume phase, so a stale key's unreferenced home volume survives a prune even
+// with a stale VM present (the batch/auto-prune path). Volume removal lives in
+// PruneVolumes (`volume prune`) and the purge engine.
+func TestPruneNeverRemovesVolumes(t *testing.T) {
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	const slug = "proj-1mjusbm3wikhb0"
 	volumeName := "agents-sandbox-home-" + slug + "-20260806T143022"
@@ -304,47 +308,6 @@ func TestPruneSkipsVolumeRemovalWhenNotAllowed(t *testing.T) {
 	}
 	if report.PrunedVolumes != 0 {
 		t.Errorf("PrunedVolumes = %d, want 0", report.PrunedVolumes)
-	}
-}
-
-// TestPruneRemovesUnreferencedVolumeWhenAllowed pins that an explicit caller may
-// remove a stale key's unreferenced home volume (the approval-gated path).
-func TestPruneRemovesUnreferencedVolumeWhenAllowed(t *testing.T) {
-	old := time.Now().Add(-15 * 24 * time.Hour)
-	const slug = "proj-1mjusbm3wikhb0"
-	volumeName := "agents-sandbox-home-" + slug + "-20260806T143022"
-	client := &msb.MockMsbClient{
-		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{
-				Name_:      "agents-sandbox-vm-" + slug,
-				Status_:    msbSdk.SandboxStatusStopped,
-				UpdatedAt_: old,
-			},
-		},
-		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: volumeName, CreatedAt_: old},
-		},
-	}
-	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
-	cp.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
-
-	report, err := Prune(context.Background(), docker.Get(), PruneOptions{
-		Age:                       7 * 24 * time.Hour,
-		RemoveUnreferencedVolumes: true,
-	}, &testUI)
-	if err != nil {
-		t.Fatalf("Prune: %v", err)
-	}
-	if got := len(client.RemovedVolumes); got != 1 {
-		t.Fatalf("RemovedVolumes = %v, want 1", client.RemovedVolumes)
-	}
-	if client.RemovedVolumes[0] != volumeName {
-		t.Errorf("removed volume %q, want %q", client.RemovedVolumes[0], volumeName)
-	}
-	if report.PrunedVolumes != 1 {
-		t.Errorf("PrunedVolumes = %d, want 1", report.PrunedVolumes)
 	}
 }
 
@@ -420,21 +383,14 @@ func TestPrune_BuildStateError(t *testing.T) {
 }
 
 func TestPruneSurfacesSubPrunerError(t *testing.T) {
-	client := &msb.MockMsbClient{
-		ListVolumesFn: func(context.Context) ([]msb.VolumeHandle, error) {
-			return nil, errBoom
-		},
-	}
+	client := &msb.MockMsbClient{ListImagesErr: errBoom}
 	msb.WithMsbMock(t, client)
 	docker.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
-	_, err := Prune(context.Background(), docker.Get(), PruneOptions{
-		Age:                       7 * 24 * time.Hour,
-		RemoveUnreferencedVolumes: true,
-	}, &testUI)
+	_, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &testUI)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
-		t.Errorf("expected the volume sub-pruner error to surface, got %v", err)
+		t.Errorf("expected the image sub-pruner error to surface, got %v", err)
 	}
 }
 

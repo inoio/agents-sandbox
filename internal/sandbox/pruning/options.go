@@ -7,15 +7,14 @@ import (
 )
 
 // PruneOptions configures a Prune run: the stale-age threshold, whether the run
-// only reports, whether unreferenced home volumes may be removed, and the keys
-// the current invocation is about to use (their images are never reclaimed).
+// only reports, and the keys the current invocation is about to use (their images
+// are never reclaimed).
 //
-// RemoveUnreferencedVolumes is the safe/approval-gated tier boundary: only a
-// caller that has already confirmed with the user may set it, so auto-prune can
-// never delete a home volume.
+// Prune is the safe tier and can never remove a home volume: the volume phase
+// lives in PruneVolumes, reachable only through `volume prune` and the explicit
+// project purge.
 type PruneOptions struct {
-	Age                       time.Duration
-	DryRun                    bool
-	RemoveUnreferencedVolumes bool
-	Retain                    []state.Key
+	Age    time.Duration
+	DryRun bool
+	Retain []state.Key
 }

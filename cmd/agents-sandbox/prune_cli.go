@@ -133,10 +133,9 @@ func runPruneBatch(
 		return err
 	}
 	report, pruneErr := pruning.Prune(cmd.Context(), docker.Get(), pruning.PruneOptions{
-		Age:                       age,
-		DryRun:                    dryRun,
-		RemoveUnreferencedVolumes: false,
-		Retain:                    nil,
+		Age:    age,
+		DryRun: dryRun,
+		Retain: nil,
 	}, ui)
 	var retired []string
 	var retiredErr error
@@ -224,11 +223,13 @@ func resolvePurgeSlugs(target string) ([]string, string, error) {
 }
 
 // retiredProjectSlugs returns the slugs the artifact union still observes and
-// the age threshold retires, ordered by slug.
+// the age threshold retires, ordered by slug. It returns an empty slice (never
+// nil) alongside an error, so the caller's retired_projects JSON always marshals
+// as an array.
 func retiredProjectSlugs(ctx context.Context, age time.Duration) ([]string, error) {
 	candidates, err := pruning.EnumerateCandidates(ctx, age)
 	if err != nil {
-		return nil, err
+		return []string{}, err
 	}
 	now := time.Now()
 	retired := make([]string, 0, len(candidates))

@@ -943,7 +943,15 @@ func TestPrunePurgeRemovesProjectArtifacts(t *testing.T) {
 func TestPruneBatchListsRetiredProjectsWithoutDeletingVolumes(t *testing.T) {
 	const retireSlug = "retireme-1mjusbm3wikhb0"
 	volumeName := homeVolumeNameFor(retireSlug)
+	// A stale stopped VM puts the slug's key in the retire set, so a
+	// re-enabled volume phase would delete volumeName; the assertion below that
+	// RemovedVolumes stays empty is what catches it.
 	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
+		Name_:      "agents-sandbox-vm-" + retireSlug,
+		Status_:    msb.SandboxStatusStopped,
+		UpdatedAt_: oldArtifactTime(),
+	})
 	m.Volumes = append(m.Volumes, homeVol(volumeName))
 
 	cmd, ui := setupCommandFixtures(t, "prune", "--yes")

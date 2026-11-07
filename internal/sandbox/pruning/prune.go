@@ -14,16 +14,19 @@ import (
 // MsbClient is a type alias for msb.Client, matching the original sandbox-level alias.
 type MsbClient = msb.Client
 
-// Prune orchestrates all four pruners against one shared snapshot and returns a
-// merged report. Task sandboxes count into PrunedVMs.
+// Prune orchestrates the safe-tier pruners against one shared snapshot and
+// returns a merged report. Task sandboxes count into PrunedVMs.
 //
 // The keep-set comes from the snapshot taken before pruning runs, so a stale VM's
 // home volumes and images are reclaimed even if the VM's own removal fails.
 // opts.Retain names the keys the current invocation is about to use (a `run`/`shell`
 // passes its own project key): their images survive regardless of VM liveness or
 // age, so a run's startup prune never reclaims the image it is about to import.
-// The volume phase runs only when opts.RemoveUnreferencedVolumes is set: the
-// approval-gated tier that may delete a home volume, never reached by auto-prune.
+//
+// Prune never removes a home volume. The volume phase is unreachable here by
+// design: it lives in PruneVolumes, which only the `volume prune` command and the
+// explicit project purge call, so batch and auto-prune can never destroy one.
+// StaleReport.PrunedVolumes therefore stays zero.
 func Prune(
 	ctx context.Context,
 	dclient docker.Client,
@@ -35,11 +38,6 @@ func Prune(
 		return nil, err
 	}
 	vmReport, vmErr := PruneSandboxes(ctx, pruneState, opts.DryRun, ui)
-	var volReport VolumeReport
-	var volErr error
-	if opts.RemoveUnreferencedVolumes {
-		volReport, volErr = PruneVolumes(ctx, pruneState, opts.DryRun, ui)
-	}
 	imgReport, imgErr := PruneImages(ctx, dclient, pruneState, opts.DryRun, ui)
 	storageReport, storageErr := PruneStorage(ctx, pruneState, opts.DryRun, ui)
 	// The state phase runs after the sandbox/image phases so a just-retired
@@ -54,16 +52,16 @@ func Prune(
 
 	report := &StaleReport{
 		PrunedSandboxes:     vmReport.VMsPruned,
-		PrunedVolumes:       volReport.VolumesPruned,
+		PrunedVolumes:       0,
 		PrunedDockerImages:  imgReport.DockerImagesPruned,
 		PrunedSandboxImages: imgReport.MSBImagesPruned,
 		SkippedImagesInUse:  imgReport.SkippedInUse,
 		ImageBytesReclaimed: imgReport.BytesReclaimed,
 		Storage:             storageReport,
 		State:               stateReport,
-		Details:             append(append(vmReport.Details, volReport.Details...), imgReport.Details...),
+		Details:             append(vmReport.Details, imgReport.Details...),
 	}
-	return report, errors.Join(vmErr, volErr, imgErr, storageErr, stateErr)
+	return report, errors.Join(vmErr, imgErr, storageErr, stateErr)
 }
 
 func RenderPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
