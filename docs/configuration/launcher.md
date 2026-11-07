@@ -88,7 +88,7 @@ Configuration is resolved in this order (later entries override earlier ones):
 | `log-level`                     | `--log-level` / `-l`     | `AGENTS_SANDBOX_LOG_LEVEL`                                      | Minimum log level to show on the console: `error`, `warning`, `info`, `verbose` (default `info`)                                                                                                                          |
 | `cpus`                          | `--cpus` / `-c`          | `AGENTS_SANDBOX_CPUS`                                           | Number of vCPUs for the VM                                                                                                                                                                                                |
 | `memory`                        | `--memory` / `-m`        | `AGENTS_SANDBOX_MEMORY`                                         | Memory limit (e.g. `8G`)                                                                                                                                                                                                  |
-| `disk-size`                     | `--disk-size`            | `AGENTS_SANDBOX_DISK_SIZE`                                      | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error.                                  |
+| `disk-size`                     | `--disk-size`            | `AGENTS_SANDBOX_DISK_SIZE`                                      | Project VM root disk size (e.g. `16G`). Empty = microsandbox runtime default (~4 GiB). A larger value grows the root disk live; a smaller one rebuilds the VM. An invalid value is rejected with an error.                                  |
 | `tmp-size`                      | `--tmp-size`             | `AGENTS_SANDBOX_TMP_SIZE`                                       | Size of `/tmp` tmpfs in the sandbox. An invalid value is rejected with an error.                                                                                                                                          |
 | `workspace-quota`               | `--workspace-quota`      | `AGENTS_SANDBOX_WORKSPACE_QUOTA`                                | Guest-write quota for the `/workspace` bind mount (e.g. `32G`), bounding writes on top of the host repo. Default `16G`. Applied at VM creation; a change triggers recreation. An invalid value is rejected with an error. |
 | `auto-prune-age`                | —                        | `AGENTS_SANDBOX_AUTO_PRUNE_AGE`                                 | Auto-prune threshold, runs before every command (default: 30d, only in config). Applies to VMs, volumes, and images alike.                                                                                                |
@@ -194,7 +194,7 @@ session. The change type determines the mechanism used to apply the new settings
 | `secrets`         | VM recreate    | microsandbox cannot apply secrets live or on a daemon restart, so the VM is rebuilt; secrets are baked in at creation |
 | `agent config` | Daemon restart | Files are always copied into the VM (provisioning); the agent daemon is restarted in-place to pick them up   |
 | `tmp-size`        | VM recreate    | VM is stopped, removed, and rebuilt with new tmpfs size. Home volume is preserved.                       |
-| `disk-size`       | VM recreate    | VM is stopped, removed, and rebuilt with new disk size. Home volume is preserved.                        |
+| `disk-size`       | Live grow / VM recreate | A larger size grows the root disk live; a smaller one stops, removes, and rebuilds the VM. Home volume is preserved. |
 | `workspace-quota` | VM recreate    | VM is stopped, removed, and rebuilt with new workspace write quota. Home volume is preserved.            |
 | `image`           | VM recreate    | VM is recreated with the new root image. Home volume is preserved.                                       |
 | `home volume`     | VM recreate    | After `volume migrate`/`reset`, the new home volume is mounted by recreating the VM; the mount is baked in at creation. |
@@ -213,7 +213,7 @@ When multiple `agents-sandbox` sessions are actively connected to a VM, applying
 may disrupt active sessions. In this case, the launcher will prompt you whether to keep the current VM (defer),
 recreate, or quit to abort the change. The default is to keep/defer.
 
-#### Memory-limit detection and the raise proposal
+#### Resource-limit detection and the raise proposal
 
 The launcher watches memory while a session runs, and checks the guest kernel log when a session ends abnormally or at
 the next launch. When it sees an out-of-memory kill or sustained memory pressure, it offers to raise the `memory`
@@ -225,6 +225,14 @@ offers it on the next interactive launch. If `--memory` or `AGENTS_SANDBOX_MEMOR
 reports that source and writes nothing, since a config file could not override it. A symlinked config file is edited through
 its target, so the link survives; an anchored value another key aliases is left unchanged, with a warning, rather than
 leaving a dangling alias.
+
+The launcher also checks the VM's disks after every session: the root disk (`disk-size`), the `/workspace` write quota
+(`workspace-quota`) and `/tmp` (`tmp-size`). When one is short of space (less than 15 % of its size, at most 2 GiB, left
+free; for `/workspace`, of the quota, since the repository's own files do not count against it), it offers to raise that setting by about half, rounded up to a whole GiB. A non-interactive session records the
+hit and the next interactive launch offers it. The root disk grows live; a larger `/workspace` quota or `/tmp` rebuilds
+the VM, keeping the home volume. `/tmp` lives in the VM's memory, so its size cannot exceed the `memory` limit. A raise
+larger than the free space on the host filesystem it draws on is still saved, with a warning. The same rules as for
+`memory` apply to the config layer that is written and to a value set by a flag or environment variable.
 
 ## Per-slug configuration
 
