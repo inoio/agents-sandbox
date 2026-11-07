@@ -113,6 +113,24 @@ func TestResolvePruneAgeRejectsZero(t *testing.T) {
 	}
 }
 
+// TestResolvePruneAgeAcceptsOneNanosecond pins that a one-nanosecond age on the
+// flag path is accepted and returned unchanged. Only-zero inputs cannot
+// distinguish the guard's integer bound, so this kills the boundary mutants
+// (d <= 0 -> d <= 1 and d <= 0 -> d == 0) that TestResolvePruneAgeRejectsZero
+// leaves alive; TestResolvePruneAgeSmallPositiveResolverValue covers only the
+// resolver path, not this guard.
+func TestResolvePruneAgeAcceptsOneNanosecond(t *testing.T) {
+	cmd := buildPruneCmd(&termio.Mock{})
+	_ = cmd.Flags().Set(flagOlderThan, "1ns")
+	got, err := resolvePruneAge(cmd)
+	if err != nil {
+		t.Fatalf("resolvePruneAge: %v", err)
+	}
+	if got != time.Nanosecond {
+		t.Errorf("resolvePruneAge = %v, want 1ns", got)
+	}
+}
+
 // TestResolvePruneFlagsErrorReturnsZero pins the error return's zero age and
 // false dry-run.
 func TestResolvePruneFlagsErrorReturnsZero(t *testing.T) {
