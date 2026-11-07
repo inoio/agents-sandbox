@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -337,5 +338,228 @@ func TestExecuteKeepsStateWhenVolumeRemovalFails(t *testing.T) {
 	}
 	if _, statErr := state.ReadState(agentKey); statErr != nil {
 		t.Errorf("the state pointer must survive, read err = %v", statErr)
+	}
+}
+
+// TestPlanRemovalScopesToAgent pins that a non-empty agent scopes every deletion
+// set, not only the key map: with two agents' volumes, images and sandboxes for
+// one slug, only the targeted agent's artifacts are planned.
+func TestPlanRemovalScopesToAgent(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const slug = "purge-agent-1mjusbm3wikhb0"
+	opencodeVolume := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
+	piVolume := naming.HomeVolumeName(slug, "pi", "20260101T000000")
+	opencodeImage := naming.RunnerImageRef(slug, "opencode")
+	piImage := naming.RunnerImageRef(slug, "pi")
+	opencodeVM := slug + "-opencode"
+	piVM := slug + "-pi"
+
+	for _, key := range []state.Key{{Slug: slug, Agent: "opencode"}, {Slug: slug, Agent: "pi"}} {
+		if err := seedHomeState(key, state.HomeState{}); err != nil {
+			t.Fatalf("seed %s state: %v", key.Agent, err)
+		}
+	}
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		Volumes: []msb.VolumeHandle{
+			&msb.MockVolumeHandle{Name_: opencodeVolume},
+			&msb.MockVolumeHandle{Name_: piVolume},
+		},
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{Reference_: opencodeImage},
+			&msb.MockImageHandle{Reference_: piImage},
+		},
+		Sandboxes: []msb.SandboxHandle{
+			&msb.MockSandboxHandle{Name_: opencodeVM, Status_: msbSdk.SandboxStatusStopped},
+			&msb.MockSandboxHandle{Name_: piVM, Status_: msbSdk.SandboxStatusStopped},
+		},
+	})
+
+	plan, err := PlanRemoval(context.Background(), []string{slug}, "opencode")
+	if err != nil {
+		t.Fatalf("PlanRemoval: %v", err)
+	}
+	if want := []state.Key{{Slug: slug, Agent: "opencode"}}; !slices.Equal(plan.Keys, want) {
+		t.Errorf("Keys = %v, want %v", plan.Keys, want)
+	}
+	if !slices.Equal(plan.Volumes, []string{opencodeVolume}) {
+		t.Errorf("Volumes = %v, want only %s", plan.Volumes, opencodeVolume)
+	}
+	if !slices.Equal(plan.Images, []string{opencodeImage}) {
+		t.Errorf("Images = %v, want only %s", plan.Images, opencodeImage)
+	}
+	if !slices.Equal(plan.Sandboxes, []string{opencodeVM}) {
+		t.Errorf("Sandboxes = %v, want only %s", plan.Sandboxes, opencodeVM)
+	}
+}
+
+// TestExecuteKeepsStateForUnplannedVolume pins the stronger pointer rule: a
+// state that records a home volume the plan never enumerated (the runtime did
+// not list it) keeps its state file, so deleting the state can never orphan a
+// volume that still exists.
+func TestExecuteKeepsStateForUnplannedVolume(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const slug = "purge-unplanned-1mjusbm3wikhb0"
+	agentKey := state.Key{Slug: slug, Agent: "opencode"}
+	recorded := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
+	if err := seedHomeState(agentKey, state.HomeState{HomeVolume: recorded}); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+	stateFile := filepath.Join(state.KeyDir(agentKey), "state.yaml")
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	testUI := termio.NewTestMock(t)
+
+	plan, err := PlanRemoval(context.Background(), []string{slug}, "")
+	if err != nil {
+		t.Fatalf("PlanRemoval: %v", err)
+	}
+	if len(plan.Volumes) != 0 {
+		t.Fatalf("plan unexpectedly lists volumes: %v", plan.Volumes)
+	}
+	if err := plan.Execute(context.Background(), false, false, &testUI); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if _, statErr := os.Stat(stateFile); statErr != nil {
+		t.Errorf("state recording an unplanned volume must survive, stat err = %v", statErr)
+	}
+}
+
+// TestExecuteRemovesPlannedImage pins the success branch of the image step: the
+// planned runner image is removed in a real purge.
+func TestExecuteRemovesPlannedImage(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const slug = "purge-image-1mjusbm3wikhb0"
+	ref := naming.RunnerImageRef(slug, "opencode")
+	mock := &msb.MockMsbClient{
+		Images: []msb.ImageHandle{&msb.MockImageHandle{Reference_: ref}},
+	}
+	msb.WithMsbMock(t, mock)
+	testUI := termio.NewTestMock(t)
+
+	plan, err := PlanRemoval(context.Background(), []string{slug}, "")
+	if err != nil {
+		t.Fatalf("PlanRemoval: %v", err)
+	}
+	if err := plan.Execute(context.Background(), false, false, &testUI); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	want := []msb.MockRemoveImageCall{{Ref: ref, Force: true}}
+	if !slices.Equal(mock.RemovedImages, want) {
+		t.Errorf("RemovedImages = %v, want %v", mock.RemovedImages, want)
+	}
+}
+
+// TestExecuteImageRemovalFailureWarnsAndContinues pins the failure branch of the
+// image step: a failed removal warns, is joined into the returned error, and the
+// purge still removes the rest.
+func TestExecuteImageRemovalFailureWarnsAndContinues(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const slug = "purge-imagefail-1mjusbm3wikhb0"
+	ref := naming.RunnerImageRef(slug, "opencode")
+	volumeName := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
+	mock := &msb.MockMsbClient{
+		Images:  []msb.ImageHandle{&msb.MockImageHandle{Reference_: ref}},
+		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volumeName}},
+		ImageRemoveFn: func(context.Context, string, bool) error {
+			return errors.New("image in use")
+		},
+	}
+	msb.WithMsbMock(t, mock)
+	testUI := termio.NewTestMock(t)
+
+	plan, err := PlanRemoval(context.Background(), []string{slug}, "")
+	if err != nil {
+		t.Fatalf("PlanRemoval: %v", err)
+	}
+	if err := plan.Execute(context.Background(), false, false, &testUI); err == nil {
+		t.Fatal("Execute should surface the failed image removal")
+	}
+	if len(testUI.WarnCalls) == 0 {
+		t.Error("a failed image removal should warn")
+	}
+	if !slices.Contains(mock.RemovedVolumes, volumeName) {
+		t.Errorf("RemovedVolumes = %v, want to contain %s (the purge continues)", mock.RemovedVolumes, volumeName)
+	}
+}
+
+// TestExecuteRemovesAdoptionClaim pins the root-state cleanup branch: a purge
+// drops the slug's adopted_home_volumes claim.
+func TestExecuteRemovesAdoptionClaim(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const slug = "purge-claim-1mjusbm3wikhb0"
+	if _, err := state.WithRootState(true, func(txn *state.RootTxn) error {
+		txn.State().ClaimAdoptedHomeVolume(slug, "pi", "other-checkout", "legacy-volume")
+		return txn.Commit()
+	}); err != nil {
+		t.Fatalf("seed adoption claim: %v", err)
+	}
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	testUI := termio.NewTestMock(t)
+
+	plan, err := PlanRemoval(context.Background(), []string{slug}, "")
+	if err != nil {
+		t.Fatalf("PlanRemoval: %v", err)
+	}
+	if err := plan.Execute(context.Background(), false, false, &testUI); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	root, err := state.ReadRootState()
+	if err != nil {
+		t.Fatalf("ReadRootState: %v", err)
+	}
+	if _, ok := root.AdoptedHomeVolume(slug, "pi"); ok {
+		t.Errorf("adoption claim survived the purge: %+v", root.AdoptedHomeVolumes)
+	}
+}
+
+// TestExecuteSweepsClaimsAndLeases pins the step-1 branches: an unheld claim and
+// a stale client lease are removed, a held claim is kept.
+func TestExecuteSweepsClaimsAndLeases(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const slug = "purge-sweep-1mjusbm3wikhb0"
+	agentKey := state.Key{Slug: slug, Agent: "opencode"}
+	if err := seedHomeState(agentKey, state.HomeState{}); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	claimsDir := filepath.Join(state.SlugDir(slug), "claims")
+	if err := os.MkdirAll(claimsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, filepath.Join(claimsDir, "free.claim"), "")
+	releaseClaim, claimed, err := state.AcquireClaim(slug, "held")
+	if err != nil || !claimed {
+		t.Fatalf("AcquireClaim: claimed=%v err=%v", claimed, err)
+	}
+	defer releaseClaim()
+
+	clientsDir := filepath.Join(state.KeyDir(agentKey), "clients")
+	if err := os.MkdirAll(clientsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	staleLease := filepath.Join(clientsDir, "22222-4000000000.lock")
+	testutil.WritePath(t, staleLease, "stale")
+	aged := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(staleLease, aged, aged); err != nil {
+		t.Fatal(err)
+	}
+
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	testUI := termio.NewTestMock(t)
+
+	plan, err := PlanRemoval(context.Background(), []string{slug}, "")
+	if err != nil {
+		t.Fatalf("PlanRemoval: %v", err)
+	}
+	if err := plan.Execute(context.Background(), false, false, &testUI); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(claimsDir, "free.claim")); !os.IsNotExist(statErr) {
+		t.Errorf("free claim should be gone, stat err = %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(claimsDir, "held.claim")); statErr != nil {
+		t.Errorf("held claim should remain, stat err = %v", statErr)
+	}
+	if _, statErr := os.Stat(staleLease); !os.IsNotExist(statErr) {
+		t.Errorf("stale lease should be gone, stat err = %v", statErr)
 	}
 }

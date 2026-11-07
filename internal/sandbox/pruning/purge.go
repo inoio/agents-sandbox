@@ -60,11 +60,11 @@ func PlanRemoval(ctx context.Context, slugs []string, agent string) (*RemovalPla
 	}
 
 	client := msb.Get()
-	volumes, err := planVolumes(ctx, client, slugSet, addKey)
+	volumes, err := planVolumes(ctx, client, slugSet, agent, addKey)
 	if err != nil {
 		return nil, err
 	}
-	images, err := planImages(ctx, client, slugSet, addKey)
+	images, err := planImages(ctx, client, slugSet, agent, addKey)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,8 @@ func (p *RemovalPlan) HasRunningSandbox() bool {
 //  2. the slug's runner images;
 //  3. the sandboxes, a running one stopped first (which requires force);
 //  4. the home volumes;
-//  5. the remaining state, except a key whose volume failed to remove;
+//  5. the remaining state, except a key whose state still records a volume that
+//     was not removed (a failed removal, or one the plan never enumerated);
 //  6. the root-state adoption claims;
 //  7. the slug's now-empty state directories.
 //
@@ -156,9 +157,9 @@ func (p *RemovalPlan) Execute(ctx context.Context, force, dryRun bool, ui termio
 	errs = append(errs, p.removeImages(ctx, client, ui)...)
 	errs = append(errs, removeSandboxes(ctx, handles, ui)...)
 
-	failedVolumes, volumeErrs := p.removeVolumes(ctx, client, ui)
+	removedVolumes, volumeErrs := p.removeVolumes(ctx, client, ui)
 	errs = append(errs, volumeErrs...)
-	errs = append(errs, p.removeState(failedVolumes, ui)...)
+	errs = append(errs, p.removeState(removedVolumes, ui)...)
 
 	if err := p.removeAdoptionClaims(); err != nil {
 		ui.Warnf("failed to remove root-state adoption claims: %v", err)
@@ -214,11 +215,14 @@ func planStateKeys(slugSet map[string]struct{}, addKey func(state.Key)) error {
 }
 
 // planVolumes returns the home volumes of the slug set; a foreign volume whose
-// name does not parse to a launcher slug is ignored.
+// name does not parse to a launcher slug is ignored. agent scopes the deletion
+// set exactly as it scopes the keys: a non-empty agent keeps only that agent's
+// volumes, so a single-key purge never deletes another agent's home volume.
 func planVolumes(
 	ctx context.Context,
 	client msb.Client,
 	slugSet map[string]struct{},
+	agent string,
 	addKey func(state.Key),
 ) (map[string]struct{}, error) {
 	handles, err := client.ListVolumes(ctx)
@@ -231,6 +235,9 @@ func planVolumes(
 		if _, owned := slugSet[artifact.Slug]; artifact.Slug == "" || !owned {
 			continue
 		}
+		if agent != "" && artifact.Agent != agent {
+			continue
+		}
 		addKey(state.Key{Slug: artifact.Slug, Agent: artifact.Agent})
 		volumes[handle.Name()] = struct{}{}
 	}
@@ -238,11 +245,13 @@ func planVolumes(
 }
 
 // planImages returns the slug set's runner-image references; a reference that is
-// not a launcher runner image is ignored.
+// not a launcher runner image is ignored. As with planVolumes, agent scopes the
+// deletion set so a single-key purge never deletes another agent's image.
 func planImages(
 	ctx context.Context,
 	client msb.Client,
 	slugSet map[string]struct{},
+	agent string,
 	addKey func(state.Key),
 ) (map[string]struct{}, error) {
 	handles, err := client.ImageList(ctx)
@@ -257,6 +266,9 @@ func planImages(
 		}
 		artifact := naming.ParseImageTag(ref)
 		if _, owned := slugSet[artifact.Slug]; artifact.Slug == "" || !owned {
+			continue
+		}
+		if agent != "" && artifact.Agent != agent {
 			continue
 		}
 		addKey(state.Key{Slug: artifact.Slug, Agent: artifact.Agent})
@@ -452,37 +464,36 @@ func removeSandboxes(ctx context.Context, handles []msb.SandboxHandle, ui termio
 	return errs
 }
 
-// removeVolumes removes the planned home volumes. A failed removal returns the
-// volume's key so its state file is kept, so the pointer to a surviving volume
-// is never dropped.
+// removeVolumes removes the planned home volumes and returns the names removed
+// successfully. A failed removal joins the error and continues; the name is
+// simply absent from the returned set, so its key's state file is kept.
 func (p *RemovalPlan) removeVolumes(
 	ctx context.Context,
 	client msb.Client,
 	ui termio.Logger,
-) (map[state.Key]struct{}, []error) {
-	failed := make(map[state.Key]struct{})
+) (map[string]struct{}, []error) {
+	removed := make(map[string]struct{})
 	var errs []error
 	for _, name := range p.Volumes {
 		if err := client.RemoveVolume(ctx, name); err != nil {
 			ui.Warnf("failed to remove home volume %s: %v", name, err)
 			errs = append(errs, err)
-			if artifact := naming.ParseHomeVolumeName(name); artifact.Slug != "" {
-				failed[state.Key{Slug: artifact.Slug, Agent: artifact.Agent}] = struct{}{}
-			}
-		}
-	}
-	return failed, errs
-}
-
-// removeState removes the remaining state files, skipping a key whose volume
-// failed to remove.
-func (p *RemovalPlan) removeState(failedVolumes map[state.Key]struct{}, ui termio.Logger) []error {
-	var errs []error
-	for _, key := range p.Keys {
-		if _, failed := failedVolumes[key]; failed {
 			continue
 		}
-		if err := state.RemoveHomeStateIf(key, alwaysRemoveState); err != nil {
+		removed[name] = struct{}{}
+	}
+	return removed, errs
+}
+
+// removeState removes the remaining state files. A state is kept whenever it
+// still records a home volume that was not removed in this run — whether the
+// removal failed or the volume was never in the plan — so the purge never drops
+// the last pointer to a surviving volume.
+func (p *RemovalPlan) removeState(removedVolumes map[string]struct{}, ui termio.Logger) []error {
+	shouldRemove := stateRemovableAfterVolumes(removedVolumes)
+	var errs []error
+	for _, key := range p.Keys {
+		if err := state.RemoveHomeStateIf(key, shouldRemove); err != nil {
 			ui.Warnf("failed to remove state for key (slug %s, agent %s): %v", key.Slug, key.Agent, err)
 			errs = append(errs, err)
 		}
@@ -525,10 +536,25 @@ func (p *RemovalPlan) removeAdoptionClaims() error {
 	return err
 }
 
-// alwaysRemoveState is the tear-down predicate for step 5: the volume is already
-// gone (or its removal failed and the key was skipped), so the state file may be
-// removed unconditionally.
-func alwaysRemoveState(*state.HomeState) bool { return true }
+// stateRemovableAfterVolumes returns the tear-down predicate for step 5: a state
+// is removable only when it records no home volume, or the volume it records was
+// removed in this run's set. A state that still names a surviving volume — a
+// failed removal, or a volume the plan never enumerated — is kept, so the purge
+// never drops the last pointer to a volume that still exists.
+func stateRemovableAfterVolumes(removedVolumes map[string]struct{}) func(*state.HomeState) bool {
+	return func(cur *state.HomeState) bool {
+		switch {
+		case cur.HomeVolume != "":
+			_, removed := removedVolumes[cur.HomeVolume]
+			return removed
+		case cur.RecoveredHomeVolume != "":
+			_, removed := removedVolumes[cur.RecoveredHomeVolume]
+			return removed
+		default:
+			return true
+		}
+	}
+}
 
 // stateFileExists reports whether a key has a state file on disk. A missing file
 // is absence, not an error.
