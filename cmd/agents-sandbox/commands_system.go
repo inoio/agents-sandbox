@@ -530,7 +530,12 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 			if err = confirmPrune(ui, dryRun); err != nil {
 				return err
 			}
-			report, pruneErr := pruning.Prune(cmd.Context(), docker.Get(), age, dryRun, ui)
+			report, pruneErr := pruning.Prune(cmd.Context(), docker.Get(), pruning.PruneOptions{
+				Age:                       age,
+				DryRun:                    dryRun,
+				RemoveUnreferencedVolumes: true,
+				Retain:                    nil,
+			}, ui)
 			if report != nil {
 				cliout.RenderPruneReport(ui, mode,
 					func() { pruning.RenderPruneSummary(ui, report, dryRun) },

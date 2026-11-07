@@ -254,7 +254,10 @@ func TestPruneAggregateParity(t *testing.T) {
 	cp.WithMockConfigPaths(t)
 
 	testUI := termio.NewTestMock(t)
-	if _, err := Prune(context.Background(), docker.Get(), 7*24*time.Hour, false, &testUI); err != nil {
+	if _, err := Prune(context.Background(), docker.Get(), PruneOptions{
+		Age:                       7 * 24 * time.Hour,
+		RemoveUnreferencedVolumes: true,
+	}, &testUI); err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
 	if !staleHandle.DidRemove() {
@@ -265,6 +268,83 @@ func TestPruneAggregateParity(t *testing.T) {
 	}
 	if got := len(client.RemovedImages); got != 2 {
 		t.Errorf("RemovedImages = %d, want 2 (stale proj image + live surplus)", got)
+	}
+}
+
+// TestPruneSkipsVolumeRemovalWhenNotAllowed pins the safe-tier boundary: without
+// RemoveUnreferencedVolumes the volume phase never runs, so a stale key's
+// unreferenced home volume survives a prune (the auto-prune path).
+func TestPruneSkipsVolumeRemovalWhenNotAllowed(t *testing.T) {
+	old := time.Now().Add(-15 * 24 * time.Hour)
+	const slug = "proj-1mjusbm3wikhb0"
+	volumeName := "agents-sandbox-home-" + slug + "-20260806T143022"
+	client := &msb.MockMsbClient{
+		Sandboxes: []msb.SandboxHandle{
+			&msb.MockSandboxHandle{
+				Name_:      "agents-sandbox-vm-" + slug,
+				Status_:    msbSdk.SandboxStatusStopped,
+				UpdatedAt_: old,
+			},
+		},
+		Volumes: []msb.VolumeHandle{
+			&msb.MockVolumeHandle{Name_: volumeName, CreatedAt_: old},
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	cp.WithMockConfigPaths(t)
+	testUI := termio.NewTestMock(t)
+
+	report, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &testUI)
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if len(client.RemovedVolumes) != 0 {
+		t.Errorf("RemovedVolumes = %v, want none (volume removal is gated)", client.RemovedVolumes)
+	}
+	if report.PrunedVolumes != 0 {
+		t.Errorf("PrunedVolumes = %d, want 0", report.PrunedVolumes)
+	}
+}
+
+// TestPruneRemovesUnreferencedVolumeWhenAllowed pins that an explicit caller may
+// remove a stale key's unreferenced home volume (the approval-gated path).
+func TestPruneRemovesUnreferencedVolumeWhenAllowed(t *testing.T) {
+	old := time.Now().Add(-15 * 24 * time.Hour)
+	const slug = "proj-1mjusbm3wikhb0"
+	volumeName := "agents-sandbox-home-" + slug + "-20260806T143022"
+	client := &msb.MockMsbClient{
+		Sandboxes: []msb.SandboxHandle{
+			&msb.MockSandboxHandle{
+				Name_:      "agents-sandbox-vm-" + slug,
+				Status_:    msbSdk.SandboxStatusStopped,
+				UpdatedAt_: old,
+			},
+		},
+		Volumes: []msb.VolumeHandle{
+			&msb.MockVolumeHandle{Name_: volumeName, CreatedAt_: old},
+		},
+	}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	cp.WithMockConfigPaths(t)
+	testUI := termio.NewTestMock(t)
+
+	report, err := Prune(context.Background(), docker.Get(), PruneOptions{
+		Age:                       7 * 24 * time.Hour,
+		RemoveUnreferencedVolumes: true,
+	}, &testUI)
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if got := len(client.RemovedVolumes); got != 1 {
+		t.Fatalf("RemovedVolumes = %v, want 1", client.RemovedVolumes)
+	}
+	if client.RemovedVolumes[0] != volumeName {
+		t.Errorf("removed volume %q, want %q", client.RemovedVolumes[0], volumeName)
+	}
+	if report.PrunedVolumes != 1 {
+		t.Errorf("PrunedVolumes = %d, want 1", report.PrunedVolumes)
 	}
 }
 
@@ -285,7 +365,7 @@ func TestPruneRunsStoragePhase(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
 
-	report, err := Prune(context.Background(), docker.Get(), 7*24*time.Hour, false, &termio.Mock{})
+	report, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
@@ -316,7 +396,7 @@ func TestPruneJoinsStorageError(t *testing.T) {
 	cp.WithMockConfigPaths(t)
 
 	ui := &termio.Mock{}
-	_, err := Prune(context.Background(), docker.Get(), 7*24*time.Hour, false, ui)
+	_, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, ui)
 	if err == nil || !strings.Contains(err.Error(), "storage boom") {
 		t.Fatalf("Prune error = %v, want the storage error joined", err)
 	}
@@ -333,7 +413,7 @@ func TestPrune_BuildStateError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	testUI := termio.NewTestMock(t)
-	_, err := Prune(context.Background(), docker.Get(), 7*24*time.Hour, false, &testUI)
+	_, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &testUI)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected buildPruneState error, got %v", err)
 	}
@@ -349,7 +429,10 @@ func TestPruneSurfacesSubPrunerError(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
-	_, err := Prune(context.Background(), docker.Get(), 7*24*time.Hour, false, &testUI)
+	_, err := Prune(context.Background(), docker.Get(), PruneOptions{
+		Age:                       7 * 24 * time.Hour,
+		RemoveUnreferencedVolumes: true,
+	}, &testUI)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected the volume sub-pruner error to surface, got %v", err)
 	}
@@ -505,7 +588,10 @@ func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 	testUI := termio.NewTestMock(t)
 
-	if _, err := Prune(context.Background(), docker.Get(), time.Hour, false, &testUI, key); err != nil {
+	if _, err := Prune(context.Background(), docker.Get(), PruneOptions{
+		Age:    time.Hour,
+		Retain: []state.Key{key},
+	}, &testUI); err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
 	if len(client.RemovedImages) != 0 {

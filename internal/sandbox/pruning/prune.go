@@ -8,37 +8,40 @@ import (
 	"github.com/inoio/agents-sandbox/internal/humanize"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // MsbClient is a type alias for msb.Client, matching the original sandbox-level alias.
 type MsbClient = msb.Client
 
-// Prune orchestrates all three pruners against one shared snapshot and returns a
+// Prune orchestrates all four pruners against one shared snapshot and returns a
 // merged report. Task sandboxes count into PrunedVMs.
 //
 // The keep-set comes from the snapshot taken before pruning runs, so a stale VM's
 // home volumes and images are reclaimed even if the VM's own removal fails.
-// retain names the keys the current invocation is about to use (a `run`/`shell`
+// opts.Retain names the keys the current invocation is about to use (a `run`/`shell`
 // passes its own project key): their images survive regardless of VM liveness or
 // age, so a run's startup prune never reclaims the image it is about to import.
+// The volume phase runs only when opts.RemoveUnreferencedVolumes is set: the
+// approval-gated tier that may delete a home volume, never reached by auto-prune.
 func Prune(
 	ctx context.Context,
 	dclient docker.Client,
-	threshold time.Duration,
-	dryRun bool,
+	opts PruneOptions,
 	ui termio.UI,
-	retain ...state.Key,
 ) (*StaleReport, error) {
-	pruneState, err := buildPruneState(ctx, threshold, retain...)
+	pruneState, err := buildPruneState(ctx, opts.Age, opts.Retain...)
 	if err != nil {
 		return nil, err
 	}
-	vmReport, vmErr := PruneSandboxes(ctx, pruneState, dryRun, ui)
-	volReport, volErr := PruneVolumes(ctx, pruneState, dryRun, ui)
-	imgReport, imgErr := PruneImages(ctx, dclient, pruneState, dryRun, ui)
-	storageReport, storageErr := PruneStorage(ctx, pruneState, dryRun, ui)
+	vmReport, vmErr := PruneSandboxes(ctx, pruneState, opts.DryRun, ui)
+	var volReport VolumeReport
+	var volErr error
+	if opts.RemoveUnreferencedVolumes {
+		volReport, volErr = PruneVolumes(ctx, pruneState, opts.DryRun, ui)
+	}
+	imgReport, imgErr := PruneImages(ctx, dclient, pruneState, opts.DryRun, ui)
+	storageReport, storageErr := PruneStorage(ctx, pruneState, opts.DryRun, ui)
 
 	report := &StaleReport{
 		PrunedSandboxes:     vmReport.VMsPruned,
