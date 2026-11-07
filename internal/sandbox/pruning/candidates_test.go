@@ -321,13 +321,17 @@ func TestEnumerateCandidatesIncludesStateKeysAndModTime(t *testing.T) {
 	}
 }
 
-// TestEnumerateCandidatesIncludesAdoptionClaims pins the root-state source: a
-// legacy identity's adoption claim surfaces as a candidate even when no state
-// directory, volume, image or sandbox remains.
+// TestEnumerateCandidatesIncludesAdoptionClaims pins the root-state source: an
+// adoption claim surfaces its owning checkout as a candidate — the identity whose
+// purge can remove the claim — even when no state directory, volume, image or
+// sandbox remains, and the claim's (ownerless) legacy key does not surface.
 func TestEnumerateCandidatesIncludesAdoptionClaims(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	const slug = "adopted-1mjusbm3wikhb0"
-	seedAdoptionClaim(t, slug, "opencode", "checkout-slug", "legacy-volume")
+	const (
+		legacy   = "adopted-1mjusbm3wikhb0"
+		checkout = "adopting-checkout-2nkvtdn4xjlic1"
+	)
+	seedAdoptionClaim(t, legacy, "opencode", checkout, "legacy-volume")
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 
 	candidates, err := EnumerateCandidates(context.Background(), 7*24*time.Hour)
@@ -337,8 +341,11 @@ func TestEnumerateCandidatesIncludesAdoptionClaims(t *testing.T) {
 	if len(candidates) != 1 {
 		t.Fatalf("candidates = %+v, want exactly one", candidates)
 	}
-	if got := candidates[0].Keys; !slices.Equal(got, []state.Key{{Slug: slug, Agent: "opencode"}}) {
-		t.Errorf("Keys = %v, want the adoption claim's key", got)
+	if candidates[0].Slug != checkout {
+		t.Errorf("Slug = %q, want the owning checkout %q", candidates[0].Slug, checkout)
+	}
+	if got := candidates[0].Keys; !slices.Equal(got, []state.Key{{Slug: checkout, Agent: "opencode"}}) {
+		t.Errorf("Keys = %v, want the owning checkout's key", got)
 	}
 }
 
@@ -377,6 +384,23 @@ func TestEnumerateCandidatesPropagatesSourceErrors(t *testing.T) {
 		msb.WithMsbMock(t, &msb.MockMsbClient{ListVolumesErr: errBoom})
 		if _, err := EnumerateCandidates(context.Background(), time.Hour); !errors.Is(err, errBoom) {
 			t.Fatalf("err = %v, want %v", err, errBoom)
+		}
+	})
+
+	t.Run("volume references", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		key := state.Key{Slug: "cand-corrupt-1mjusbm3wikhb0", Agent: "opencode"}
+		if err := os.MkdirAll(state.KeyDir(key), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(
+			filepath.Join(state.KeyDir(key), "state.yaml"), []byte("schema: [not-valid"), 0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		if _, err := EnumerateCandidates(context.Background(), time.Hour); err == nil {
+			t.Fatal("expected the volume-reference read error to propagate")
 		}
 	})
 
@@ -483,7 +507,7 @@ func TestEnumerateSourceListErrors(t *testing.T) {
 
 	t.Run("volumes", func(t *testing.T) {
 		msb.WithMsbMock(t, &msb.MockMsbClient{ListVolumesErr: errBoom})
-		if err := enumerateVolumeCandidates(ctx, emptyBuilderFor); !errors.Is(err, errBoom) {
+		if err := enumerateVolumeCandidates(ctx, nil, emptyBuilderFor); !errors.Is(err, errBoom) {
 			t.Fatalf("err = %v, want %v", err, errBoom)
 		}
 	})
@@ -541,4 +565,70 @@ func TestEnumerateAdoptionClaimsEdgeCases(t *testing.T) {
 			t.Errorf("builder slugs = %v, want none for a key without a separator", seen)
 		}
 	})
+}
+
+// TestEnumerateCandidatesAttributesAdoptedVolumeToItsCheckout pins that a
+// legacy-named volume a checkout adopted surfaces as that checkout, not as the
+// ownerless legacy slug whose purge could not remove it. An orphan legacy-named
+// volume, by contrast, still surfaces under its own name.
+func TestEnumerateCandidatesAttributesAdoptedVolumeToItsCheckout(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const (
+		legacy   = "vollegacy-1mjusbm3wikhb0"
+		checkout = "volcheckout-2nkvtdn4xjlic1"
+		orphan   = "volorphan-1mjusbm3wikhb0"
+	)
+	adopted := naming.HomeVolumeName(legacy, "opencode", "20260101T000000")
+	orphanVolume := naming.HomeVolumeName(orphan, "opencode", "20260101T000000")
+	if err := seedHomeState(
+		state.Key{Slug: checkout, Agent: "opencode"},
+		state.HomeState{HomeVolume: adopted},
+	); err != nil {
+		t.Fatalf("seed checkout state: %v", err)
+	}
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		Volumes: []msb.VolumeHandle{
+			&msb.MockVolumeHandle{Name_: adopted, CreatedAt_: time.Now()},
+			&msb.MockVolumeHandle{Name_: orphanVolume, CreatedAt_: time.Now()},
+		},
+	})
+
+	candidates, err := EnumerateCandidates(context.Background(), 7*24*time.Hour)
+	if err != nil {
+		t.Fatalf("EnumerateCandidates: %v", err)
+	}
+	bySlug := map[string][]state.Key{}
+	for _, candidate := range candidates {
+		bySlug[candidate.Slug] = candidate.Keys
+	}
+	if _, ok := bySlug[legacy]; ok {
+		t.Errorf("the ownerless legacy slug %q must not surface; got %v", legacy, bySlug)
+	}
+	if want := []state.Key{{Slug: checkout, Agent: "opencode"}}; !slices.Equal(bySlug[checkout], want) {
+		t.Errorf("checkout keys = %v, want %v", bySlug[checkout], want)
+	}
+	if want := []state.Key{{Slug: orphan, Agent: "opencode"}}; !slices.Equal(bySlug[orphan], want) {
+		t.Errorf("orphan keys = %v, want %v", bySlug[orphan], want)
+	}
+}
+
+// TestEnumerateCandidatesAdoptionClaimWithoutCheckout pins the fallback: a claim
+// that records no owning checkout surfaces under its legacy key, so a malformed
+// or pre-checkout claim is still discoverable.
+func TestEnumerateCandidatesAdoptionClaimWithoutCheckout(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const legacy = "adopted-nocheckout-1mjusbm3wikhb0"
+	seedAdoptionClaim(t, legacy, "opencode", "", "legacy-volume")
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+
+	candidates, err := EnumerateCandidates(context.Background(), 7*24*time.Hour)
+	if err != nil {
+		t.Fatalf("EnumerateCandidates: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].Slug != legacy {
+		t.Fatalf("candidates = %+v, want the legacy slug %q", candidates, legacy)
+	}
+	if want := []state.Key{{Slug: legacy, Agent: "opencode"}}; !slices.Equal(candidates[0].Keys, want) {
+		t.Errorf("Keys = %v, want %v", candidates[0].Keys, want)
+	}
 }

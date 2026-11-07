@@ -139,7 +139,12 @@ portability features.
   `retired_projects` section with a hint to purge. Candidates come from the
   artifact union (state dirs, volume names, image refs, sandbox identities, root
   adoption claims), so a state-less slug with a leftover volume still surfaces;
-  foreign artifacts are ignored.
+  foreign artifacts are ignored. Attribution follows ownership, not names: a home
+  volume is attributed to the state keys that reference it, so a legacy-named
+  volume a checkout adopted surfaces as that checkout (the identity whose purge
+  can remove it), never as the now-ownerless legacy slug, and only a volume no
+  state references surfaces under its name; a root-state adoption claim likewise
+  surfaces its owning checkout.
 - **`prune --purge [<target>]` and `sandbox remove --purge [<target>]` share one
   engine.** They remove one project's artifacts — sandboxes (a running one
   stopped first under `--force`), home volumes, runner images, state files,

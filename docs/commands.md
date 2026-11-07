@@ -202,7 +202,9 @@ Instead of deleting a project that is gone, batch `prune` **lists retired projec
 whose most recent activity is older than the threshold — and points at [`prune --purge`](#prune---purge) to remove one.
 The candidates come from every artifact the launcher can still observe (state directories, home volumes, runner images,
 sandboxes, and root-state adoption claims), so a project whose state directory was deleted by hand still surfaces
-through its leftover volume. The list is read-only: batch `prune` never deletes a retired project or its volume.
+through its leftover volume. Attribution follows ownership: a volume is credited to the state keys that reference it, so
+a legacy-named volume a checkout adopted is listed under that checkout, not the ownerless legacy slug. The list is
+read-only: batch `prune` never deletes a retired project or its volume.
 
 The summary line reads `Pruned N VMs, N home volumes, N docker images, N msb images`; the home-volume count is always
 `0` here. When the runtime reclaims runtime RAM or reports native image-prune data, following `runtime memory:` and

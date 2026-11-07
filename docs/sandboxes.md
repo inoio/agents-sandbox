@@ -121,8 +121,10 @@ project's home volume and image, so it must not be retired underneath.
 
 Candidates come from every artifact the launcher can still observe — state directories, home volumes, runner images,
 sandboxes, and root-state adoption claims — so a project whose state directory was deleted by hand, whose state was
-lost, or that never reached a state write still surfaces through its leftover volume. Batch `prune` only lists them;
-full removal is a targeted purge:
+lost, or that never reached a state write still surfaces through its leftover volume. Attribution follows ownership: a
+home volume is credited to the state keys that reference it, so a legacy-named volume a checkout adopted is listed under
+that checkout (never under the now-ownerless legacy slug), and only an orphan volume no state references is listed under
+its own name. Batch `prune` only lists them; full removal is a targeted purge:
 
 ```console
 agents-sandbox prune --purge [<slug>]              # or prune --purge=<slug>
