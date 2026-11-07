@@ -94,7 +94,7 @@ join `ci.yml`'s `release.needs`.
 - **A PR scopes to its own changeset.** `SINCE=origin/<base_ref>`, fetched at full depth so gomutants has a merge base;
   the sweep then covers only lines the PR changed, not every unreleased line.
 - **A dispatch leaves `SINCE` unset**, so it falls back to the last release tag — the release sweep. Dispatch is only
-  available once this workflow is on the default branch (`ci-job-gating.md`).
+  available once this workflow is on the default branch (`specs/ci/ci-pipeline.md`).
 - **Docs-only PRs are filtered out.** `paths-ignore` on the `pull_request` trigger drops changes that cannot alter which
   mutants exist — `**.md`, `docs/**`, `.operator-shared/**` (the operator brain), `Formula/**`, the issue templates, and
   `.gitignore`. The sweep is about Go code, so paying the coverage pass for a markdown edit is pure waste. A PR that

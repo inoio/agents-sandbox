@@ -29,7 +29,7 @@
 - `github-merge-driver-support.md`
   - Description: Verdict, with primary sources, that GitHub's server-side merge and merge-queue build ignore `.gitattributes` merge drivers, so `CHANGELOG.md merge=union` does not resolve a conflict; libgit2 does implement `union` but GitHub does not consult it, and GitLab dropped it in 17.1.
   - Read If: Considering `merge=union`, a custom merge driver, or any `.gitattributes` merge attribute to auto-resolve conflicts on GitHub; or explaining why a server-side conflict persists when the CLI git merges cleanly.
-- `specs/ci/mutation-testing.md`
+- `guides/mutation-testing.md`
   - Description: Mutation testing for Go in this repo - the tool survey and why gomutants was chosen, how to close gomutants survivors (recurring mutant types, the equivalent-mutant traps, the record-with-a-reason fallback), and the multi-turn sweep runbook for the #268 survivor tracker.
   - Read If: Evaluating or changing a Go mutation-testing tool or the `make mutation` target; triaging LIVED mutants from a sweep; picking a `SINCE` scope for a branch/PR sweep; or coordinating a #268 survivor-reduction pass.
 - `operator-brain-maintenance.md`
