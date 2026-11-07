@@ -167,7 +167,7 @@ func PersistSetting(paths configpaths.ConfigPaths, slug, key, value string, setB
 	}
 	// The owning layer may be the project config: the write goes there so the
 	// raise is not shadowed. A project-config trust gate must also record the
-	// launcher's own change there (specs/resource-limit-proposal.md §4).
+	// launcher's own change there (specs/resources/resource-limit-proposal.md §4).
 	if err := viperconfig.WriteSetting(dir, key, value); err != nil {
 		return "", err
 	}

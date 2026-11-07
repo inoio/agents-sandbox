@@ -69,7 +69,7 @@ const (
 // FromSystemLogAt returns the most recent OOM kill found in the entries along
 // with its fingerprint, or ok=false when none is found. The fingerprint is what
 // the anti-nag dedup compares a recorded kill against
-// (specs/resource-limit-proposal.md §8); see oomFingerprint.
+// (specs/resources/resource-limit-proposal.md); see oomFingerprint.
 func FromSystemLogAt(entries []msbSdk.LogEntry) (Signal, time.Time, bool) {
 	var (
 		newest  Signal
@@ -235,7 +235,7 @@ func bytesToMiB(bytes uint64) uint32 {
 // percent: for a small limit (free ≤ FloorMiB) a snapshot can sit below
 // ReArmPercent and still be under pressure. Calling that recovered would re-arm
 // and re-offer the same answered condition on every launch
-// (specs/resource-limit-proposal.md §8).
+// (specs/resources/resource-limit-proposal.md).
 func Recovered(m *msbSdk.Metrics, t Threshold) bool {
 	if m == nil || m.MemoryLimitBytes == 0 {
 		return false

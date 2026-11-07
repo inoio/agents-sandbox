@@ -214,7 +214,7 @@ func TestBuildAllowPlaceholderForFromConfig(t *testing.T) {
 // TestBuildRecordsExplicitLimitFlags pins the limit flags' provenance: Build
 // records which of --memory, --disk-size, --workspace-quota and --tmp-size were
 // set explicitly, so a raise is not written as a config value the flag would
-// shadow (specs/resource-limit-proposal.md §4).
+// shadow (specs/resources/resource-limit-proposal.md §4).
 func TestBuildRecordsExplicitLimitFlags(t *testing.T) {
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
 

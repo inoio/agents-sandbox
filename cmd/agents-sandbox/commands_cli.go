@@ -38,7 +38,7 @@ const minUsagePadding = 25
 var autoPrune = pruning.AutoPrune
 
 // newLifecycleTrace creates the trace a run or shell records its lifecycle
-// stages into (specs/lifecycle.md). It is a seam so a test can keep the trace it
+// stages into (specs/vm/lifecycle.md). It is a seam so a test can keep the trace it
 // hands out and assert the recorded stage order.
 var newLifecycleTrace = func() *lifecycle.Trace { return &lifecycle.Trace{} }
 

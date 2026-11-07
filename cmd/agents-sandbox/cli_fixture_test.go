@@ -58,15 +58,13 @@ var stopKillFlags = []FlagSet{
 }
 
 // pruneAgeFlags contains --older-than threshold variations for the prune
-// command, plus one deprecated --age/-a case proving the old spelling still
-// works. All represent different valid age specifications that should produce
-// the same command structure (only the value differs at this layer).
+// command. All represent different valid age specifications that should produce
+// the same command structure (only the value differs at this layer). One
+// variation is enough: the deprecated --age/-a spellings are covered by
+// TestPruneAgeDeprecated and TestDeprecatedFlagAliasesWarnExactlyOnce, and
+// TestPruneOlderThan covers the value.
 var pruneAgeFlags = []FlagSet{
 	{"--older-than", "7d"},
-	{"--older-than", "2w"},
-	{"--older-than", "14d"},
-	{"--age", "7d"},
-	{"-a", "2w"},
 }
 
 func setupCommandFixtures(t *testing.T, args ...string) (*cobra.Command, *termio.Mock) {

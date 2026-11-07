@@ -422,7 +422,7 @@ emptied at the next release.
 
 - CI: coverage gating is now configured in-repo by a root `.codecov.yml` instead of Codecov's app settings. Project
   coverage may not drop by more than 0.1%, patch coverage must be 100% (matching the coverage contract in
-  `.operator-shared/specs/test-coverage.md`), the PR comment updates in place and only when coverage changes, and
+  `.operator-shared/specs/testing/test-coverage.md`), the PR comment updates in place and only when coverage changes, and
   uncovered patch lines get inline annotations.
 - Runner image: the tool-owned distro base is registry-qualified (`docker.io/library/debian:trixie-slim`) where the
   Dockerfile is rendered, so the build no longer depends on the engine's short-name resolution (a podman with an empty

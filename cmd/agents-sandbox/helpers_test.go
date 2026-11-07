@@ -12,10 +12,12 @@ import (
 )
 
 // mustIdentity resolves a fixture cwd to its project identity, failing the test
-// on the now-fallible ResolveIdentity: fixtures always point at real paths.
+// on the now-fallible resolution: fixtures always point at real paths. It reads
+// through the same seam as the preflight, so a test that asserts the identity it
+// expects and the command that resolves it share the memoized result.
 func mustIdentity(t testing.TB, cwd string) git.Identity {
 	t.Helper()
-	identity, err := git.ResolveIdentity(cwd)
+	identity, err := resolveIdentity(cwd)
 	require.NoError(t, err)
 	return identity
 }

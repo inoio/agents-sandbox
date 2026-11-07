@@ -14,7 +14,7 @@ Status: Accepted.
 `viperconfig.WriteSetting` persists an accepted VM resource raise into the owning config layer by editing
 the file in place. `TestWriteSettingPreservesFileBytes` pins byte-for-byte preservation of everything but
 the edited value, and comments (including on the edited key) must survive; the edited layer can be
-untrusted project config (`specs/project-config-trust.md`). The previous implementation hand-rolled the
+untrusted project config (`specs/configuration/project-config-trust.md`). The previous implementation hand-rolled the
 edit: parse into a `yaml.Node` tree, splice the value text with a read-back check, fall back to a
 node-tree re-encode with `copyComments`, plus a case-folded key match and an anchored-value refusal —
 ~430 lines in `setting_writer.go`.

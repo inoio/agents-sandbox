@@ -7,7 +7,7 @@
 # The command runs under `env -i` with an explicit allowlist, so no ambient
 # variable reaches it, and (when a directory is copied) from a copy in a temp
 # work dir, so nothing it writes touches the source tree. See
-# specs/test-isolation.md.
+# specs/testing/test-isolation.md.
 #
 # Usage:
 #   test-envelope.sh [options] [-- COMMAND...]

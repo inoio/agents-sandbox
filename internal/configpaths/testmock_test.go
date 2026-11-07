@@ -217,6 +217,51 @@ func TestWithMockConfigPathsHomeErrorRestoresGet(t *testing.T) {
 	}
 }
 
+// TestMockAccessorsAreStableAcrossCalls pins the contract the create-once
+// optimization must preserve: a repeated accessor call returns the same path
+// and that path still exists. It is the guard for the per-mock directory cache,
+// which skips the redundant os.MkdirAll on the second call.
+func TestMockAccessorsAreStableAcrossCalls(t *testing.T) {
+	WithMockConfigPaths(t)
+	paths := Get()
+
+	for name, accessor := range map[string]func() string{
+		"UserConfigDir": paths.UserConfigDir,
+		"UserCacheDir":  paths.UserCacheDir,
+		"UserStateDir":  paths.UserStateDir,
+		"UserDataDir":   paths.UserDataDir,
+	} {
+		first := accessor()
+		if second := accessor(); second != first {
+			t.Errorf("%s returned %q then %q, want a stable path", name, first, second)
+		}
+		if info, err := os.Stat(first); err != nil || !info.IsDir() {
+			t.Errorf("%s path %q does not exist after repeated calls (stat err = %v)", name, first, err)
+		}
+	}
+}
+
+// TestMockAccessorDoesNotRecreateARemovedDirectory pins the create-only cache:
+// an accessor returns a path once created and does not re-run MkdirAll, so a
+// directory a test removed stays removed. This is what makes the cache
+// observable — an "always MkdirAll" mutant recreates the directory and fails
+// here, where the stability test above cannot see the difference.
+func TestMockAccessorDoesNotRecreateARemovedDirectory(t *testing.T) {
+	WithMockConfigPaths(t)
+	paths := Get()
+	dir := paths.UserCacheDir()
+
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("remove %q: %v", dir, err)
+	}
+	if got := paths.UserCacheDir(); got != dir {
+		t.Fatalf("accessor returned %q after removal, want the stable path %q", got, dir)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the mock recreated %q; the create-only cache must not re-run MkdirAll", dir)
+	}
+}
+
 func TestCreateDirCreatesAndReturnsTheDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "userconfig", "opencode")
 

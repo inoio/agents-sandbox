@@ -12,7 +12,7 @@ import (
 // single-key state writer or VM creation. An empty or nil set runs fn with no
 // locks. A failed acquire releases every lock already taken. The global order
 // root -> per-key holds: callers take per-key locks only inside a root
-// transaction, never the reverse. See specs/project-state-transactions.md.
+// transaction, never the reverse. See specs/state/state-model.md.
 func WithKeyLocks(keys []Key, fn func() error) error {
 	var releases []func()
 	releaseAll := func() {

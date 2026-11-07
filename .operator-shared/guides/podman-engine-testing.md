@@ -16,7 +16,7 @@ references the useful contract.
 
 The `integration-podman` job in `.github/workflows/ci.yml` installs podman, starts `podman system service` on a socket,
 points `DOCKER_HOST` at it, and runs the same `make test-integration` as the Docker job. Gating, the
-`run-integration-podman` opt-in label, and why the job stays outside `release.needs`: `specs/ci-job-gating.md`. A green
+`run-integration-podman` opt-in label, and why the job stays outside `release.needs`: `specs/ci/ci-pipeline.md`. A green
 run of that job is the evidence behind the docs naming podman a **Tested** engine; without it the docs claim is
 unfounded.
 

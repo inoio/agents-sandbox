@@ -1,5 +1,5 @@
 // Package lifecycle holds the run lifecycle's shared vocabulary: the stage ids
-// of specs/lifecycle.md, a trace that records the stages an invocation reaches,
+// of specs/vm/lifecycle.md, a trace that records the stages an invocation reaches,
 // and the loop that runs an ordered stage list. It holds no stage logic: cmd,
 // vm and session own their stages and record them here, so the three packages
 // contribute to one ordered trace.
@@ -8,7 +8,7 @@ package lifecycle
 import "slices"
 
 // StageID names one run lifecycle stage. The values are the ids
-// specs/lifecycle.md uses.
+// specs/vm/lifecycle.md uses.
 type StageID string
 
 // The stage ids, in lifecycle order.

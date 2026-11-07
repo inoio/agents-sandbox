@@ -1159,7 +1159,7 @@ func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
 
 // TestPlanReconfigStageSkipVMSuppressesMemoryRaise pins the --dry-run-vm guard:
 // a skipVM prepare must not prompt or persist a memory or disk raise, matching the
-// deferred home action (specs/resource-limit-proposal.md §1, §8).
+// deferred home action (specs/resources/resource-limit-proposal.md §1, §8).
 func TestPlanReconfigStageSkipVMSuppressesMemoryRaise(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	withoutMemoryEnv(t)

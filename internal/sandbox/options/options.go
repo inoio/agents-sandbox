@@ -96,7 +96,7 @@ type RunOptions struct {
 	// workspace-quota, tmp-size) an explicit CLI flag set on this invocation. A
 	// persisted raise cannot take effect while a flag supplies the value, so
 	// resourceproposal refuses to write a shadowed config value
-	// (specs/resource-limit-proposal.md §4).
+	// (specs/resources/resource-limit-proposal.md §4).
 	ExplicitFlags []string
 	// Trace records the lifecycle stages the invocation reaches. cmd creates
 	// it; the stages in vm and session record into it. Nil records nothing.

@@ -436,7 +436,7 @@ RUN mkdir -p %s && %s
 // image. The storage driver's copy-on-write runtime (fuse-overlayfs + libfuse3)
 // is a system package, so the embedded managed base installs it instead; a
 // custom base must provide it or the launcher falls back to vfs. See
-// specs/image-composition.md.
+// specs/runner-image/image-composition.md.
 func dockerStage() string {
 	return fmt.Sprintf(`FROM %s AS %s
 USER root

@@ -11,7 +11,7 @@ On the merge queue the conflict instead ejects the PR: GitHub's own docs say a P
 open in Oct 2026). **High-to-medium** for (b) (same merge engine, and the queue's documented
 conflict→ejection behavior; no source singles out the queue).
 
-Practical consequence: keep using fragment files (`specs/changelog-fragments.md`) — `merge=union`
+Practical consequence: keep using fragment files (`specs/ci/ci-pipeline.md`) — `merge=union`
 buys nothing server-side, however cleanly it merges with the CLI git and in local clones.
 
 ## What is documented, vs. inferred
@@ -139,7 +139,7 @@ This does not speak to GitHub directly, but it shows that "some server-side impl
 ## Recommendation
 
 Do not rely on `merge=union` for `CHANGELOG.md` on GitHub. Prefer **per-PR fragment files** (one file per
-change, assembled at release, per `specs/changelog-fragments.md`), which cannot collide by construction.
+change, assembled at release, per `specs/ci/ci-pipeline.md`), which cannot collide by construction.
 
 ## Sources
 

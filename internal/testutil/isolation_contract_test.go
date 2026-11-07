@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/build"
-	"go/parser"
-	"go/token"
 	"os"
 	"path"
 	"path/filepath"
@@ -79,10 +77,7 @@ func declaredSeamInstallers(t *testing.T, root string, packages []modulePackage)
 			if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 				continue
 			}
-			file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, 0)
-			if err != nil {
-				t.Fatalf("parse %s: %v", filepath.Join(pkg.dir, name), err)
-			}
+			file := cachedParseGoFile(t, filepath.Join(dir, name), nil).file
 			for _, decl := range file.Decls {
 				installers = append(installers, declaredInstallersIn(pkg.dir, file.Name.Name, decl)...)
 			}
@@ -254,7 +249,7 @@ func moduleImportPath(t *testing.T, root string) string {
 
 // modulePackages lists every directory under root holding at least one .go file,
 // recording whether it holds non-test and test sources.
-func modulePackages(t *testing.T, root string) []modulePackage {
+func scanModulePackages(t *testing.T, root string) []modulePackage {
 	t.Helper()
 	var packages []modulePackage
 	err := filepath.WalkDir(root, func(p string, entry os.DirEntry, err error) error {
@@ -381,13 +376,14 @@ func acyclicSeamFamilies(pkgDir string, transitive map[string]map[string]bool) [
 // families its TestMain installs before the tests run.
 func installedSeamFamilies(root, pkgDir, modulePath string) ([]string, error) {
 	mainTestPath := filepath.Join(root, pkgDir, "main_test.go")
-	file, err := parser.ParseFile(token.NewFileSet(), mainTestPath, nil, 0)
+	parsed, err := loadParsedModuleFile(mainTestPath, nil)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, errors.New("no main_test.go (add one with a TestMain that installs the fail-fast mocks)")
 		}
 		return nil, fmt.Errorf("parse main_test.go: %w", err)
 	}
+	file := parsed.file
 	testMain := findFunc(file, "TestMain")
 	if testMain == nil {
 		return nil, errors.New("main_test.go has no TestMain")
@@ -409,10 +405,7 @@ func wrapperInstalledFamilies(t *testing.T, root, pkgDir, modulePath string) []s
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, 0)
-		if err != nil {
-			t.Fatalf("parse %s: %v", filepath.Join(pkgDir, name), err)
-		}
+		file := cachedParseGoFile(t, filepath.Join(dir, name), nil).file
 		if wrapper := findFunc(file, fullSetInstaller); wrapper != nil {
 			return installedFamiliesIn(file, wrapper, modulePath)
 		}

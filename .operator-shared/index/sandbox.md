@@ -12,7 +12,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 ## Architecture
 
 - `internal/sandbox/` is the largest area of the codebase; it drives VM lifecycle, runner-image builds, docker & microsandbox (msb) clients, volumes, pruning, sessions, and state locking.
-- A run is layered `session/` → `prepare/` → `vm/` (`specs/run-orchestration-layer.md`): `prepare/` runs the stages that ready the project VM and makes the version/reconfig/home decisions; `vm/` holds the capabilities that act on a project VM (create/ensure, setup with the dockerd sidecar and agent daemon, worktree handling, adoption, VM env/control).
+- A run is layered `session/` → `prepare/` → `vm/` (`specs/architecture/package-boundaries.md`): `prepare/` runs the stages that ready the project VM and makes the version/reconfig/home decisions; `vm/` holds the capabilities that act on a project VM (create/ensure, setup with the dockerd sidecar and agent daemon, worktree handling, adoption, VM env/control).
 - Cross-cutting dependencies: `msb/` (microsandbox SDK client) and `docker/` are the external system clients; `naming/`, `options/`, `state/`, `network/`, `mounts/` provide shared configuration/locking primitives used across sandbox subpackages.
 - Heavily test-driven (many `*_test.go` / `coverage_*.go` files per package); most integration seams are mockable via `testmock.go` / `main_test.go` per package.
 
@@ -35,15 +35,15 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 ### `image/` — Runner image build, Dockerfile, fetch, inspect, tags
 
 - `build.go` (options, `ImageInfo`, build plan, `EnsureImage`/`Build`), `from_stages.go` (FROM/stage parsing), `docker_build.go` (Docker build, build context, failure classification), `load.go` (`EnsureLoaded` into msb), `base_digest.go` (base-image digest/pull), `fetch.go`, `image.go`, `format.go`, `inspect.go`, `inspect_detail.go` (`InspectImage`), `list.go`, `remove.go`, `references.go` (`InUseImageReferences`: the fail-closed in-use guard), `tags.go`, `embed.go` — image build/inspect/list/remove pipeline
-- `dockerfile.go`, `dockerfile_lines.go`, `instructions.go`, `project_dockerfile.go`, `warn.go` — `RenderDockerfile` stage composition and the project-Dockerfile parse/docker-decision (`specs/image-composition.md`)
-- `preview.go` — `PreviewImage`: the `--dry-run` image plan (`specs/dry-run-preview.md`)
-- `data/` — build-context assets embedded into the image: the managed-base `Dockerfile`, `agents-sandbox-path.sh` (profile.d `PATH` merge, 0644), `msb-trust.sh` (the vendored CA-trust helper, installed 0755; `msb-trust.LICENSE` beside it records provenance and is neither embedded nor shipped; see `specs/ca-trust-helper.md`), and `xdg-open.sh` (the in-VM opener shim, installed 0755; see `guides/agent-link-opening.md`)
-- `render_integration_test.go` — `//go:build integration` docker-build tests for `RenderDockerfile` composition (no Dockerfile / managed base / custom Fedora base, each ± dind). Run via `make test-integration`; wired into CI as a selective job — main and release tags, manual dispatch, and a PR labeled `run-integration` (the gating contract is `specs/ci-job-gating.md`). **In the agents-sandbox VM, microsandbox's egress-inspection CA makes in-image downloads (apt/dnf/node) fail** unless each base image is replaced by a CA-trusting rebuild first (the `AGENTS.md` workaround covers `debian:trixie-slim`, so the managed-base cases run; the custom-base cases need the same for `fedora:latest`).
+- `dockerfile.go`, `dockerfile_lines.go`, `instructions.go`, `project_dockerfile.go`, `warn.go` — `RenderDockerfile` stage composition and the project-Dockerfile parse/docker-decision (`specs/runner-image/image-composition.md`)
+- `preview.go` — `PreviewImage`: the `--dry-run` image plan (`specs/architecture/dry-run-preview.md`)
+- `data/` — build-context assets embedded into the image: the managed-base `Dockerfile`, `agents-sandbox-path.sh` (profile.d `PATH` merge, 0644), `msb-trust.sh` (the vendored CA-trust helper, installed 0755; `msb-trust.LICENSE` beside it records provenance and is neither embedded nor shipped; see `specs/runner-image/ca-trust-helper.md`), and `xdg-open.sh` (the in-VM opener shim, installed 0755; see `guides/agent-link-opening.md`)
+- `render_integration_test.go` — `//go:build integration` docker-build tests for `RenderDockerfile` composition (no Dockerfile / managed base / custom Fedora base, each ± dind). Run via `make test-integration`; wired into CI as a selective job — main and release tags, manual dispatch, and a PR labeled `run-integration` (the gating contract is `specs/ci/ci-pipeline.md`). **In the agents-sandbox VM, microsandbox's egress-inspection CA makes in-image downloads (apt/dnf/node) fail** unless each base image is replaced by a CA-trusting rebuild first (the `AGENTS.md` workaround covers `debian:trixie-slim`, so the managed-base cases run; the custom-base cases need the same for `fedora:latest`).
 - Custom-base requirements (shadow-utils, POSIX shell bash→zsh→sh, curl+tar, dind prereqs) and unsupported bases (Alpine/distroless/scratch) are documented in `docs/runner-image.md`.
 
 ### `lifecycle/` — Run lifecycle vocabulary and trace
 
-- `lifecycle.go` — the `StageID` constants and `Order()` of `specs/lifecycle.md` (`TestOrderMatchesSpec` parses the spec's stage table), the nil-safe `Trace` recorder, and `Run`, the loop that runs an ordered `Stage` list and records each stage. No stage logic: `cmd`, `prepare` and `session` own their stages.
+- `lifecycle.go` — the `StageID` constants and `Order()` of `specs/vm/lifecycle.md` (`TestOrderMatchesSpec` parses the spec's stage table), the nil-safe `Trace` recorder, and `Run`, the loop that runs an ordered `Stage` list and records each stage. No stage logic: `cmd`, `prepare` and `session` own their stages.
 
 ### `mounts/` — Filesystem mount handling
 
@@ -53,7 +53,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 ### `msb/` — Microsandbox SDK client
 
 - `msb.go`, `stream.go` — msb client and stream handling; also storage observation (`StorageUsage`) and the `IsUnsupportedOperation` classifier
-- `configmounts.go` — `ParseConfigMounts` / `SandboxHandle.ConfigMounts()`: the live-mount read-back the Go SDK drops (`specs/live-mount-readback.md`)
+- `configmounts.go` — `ParseConfigMounts` / `SandboxHandle.ConfigMounts()`: the live-mount read-back the Go SDK drops (`specs/vm/live-mount-readback.md`)
 
 ### `naming/` — Naming, labels, artifacts
 
@@ -79,7 +79,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `pruning/` — Cleanup and prune of images, sandboxes, volumes
 
-- `cleanup.go`, `compact.go`, `helpers.go`, `images.go`, `liveness.go`, `prune.go`, `report.go`, `sandboxes.go`, `storage.go`, `volumes.go` — `liveness.go` holds `PruneState`, its builder and the liveness rules (`prunable`, `retires`, `keepImage`, `allowsNativeImagePrune`) of `specs/lifecycle.md`; `compact.go` backs `sandbox compact`; `storage.go` is the age-gated runtime-RAM phase (`PruneStorage`) that enriches the top-level `prune`
+- `cleanup.go`, `compact.go`, `helpers.go`, `images.go`, `liveness.go`, `prune.go`, `report.go`, `sandboxes.go`, `storage.go`, `volumes.go` — `liveness.go` holds `PruneState`, its builder and the liveness rules (`prunable`, `retires`, `keepImage`, `allowsNativeImagePrune`) of `specs/vm/lifecycle.md`; `compact.go` backs `sandbox compact`; `storage.go` is the age-gated runtime-RAM phase (`PruneStorage`) that enriches the top-level `prune`
 
 ### `reconfig/` — Reconfiguration planning
 
@@ -91,7 +91,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `runtime/` — Runtime selection and private runtime home
 
-- `home.go`, `runtime.go` — runtime selection plus the private runtime home (`PrivateHome`, home migration) of `specs/runtime-home-decoupling.md`
+- `home.go`, `runtime.go` — runtime selection plus the private runtime home (`PrivateHome`, home migration) of `specs/volumes/runtime-home-decoupling.md`
 
 ### `runtimemigration/` — Legacy runtime-home copy campaign
 
@@ -104,10 +104,10 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 ### `state/` — State transactions, locking, and project state
 
 - `state.go`, `root.go`, `schema.go` — the `HomeState`/`RootState` documents (`state.go`/`root.go` hold the pure `parseHomeState`/`parseRootState` unmarshal steps the readers delegate to)
-- `home_txn.go`, `root_txn.go` — the locked transaction API (`specs/project-state-transactions.md`): `WithHomeState`/`RecoverHomeState`/`WithRootState`/`RemoveHomeStateIf` plus the lockless reads
+- `home_txn.go`, `root_txn.go` — the locked transaction API (`specs/state/state-model.md`): `WithHomeState`/`RecoverHomeState`/`WithRootState`/`RemoveHomeStateIf` plus the lockless reads
 - `homelock.go`, `rootlock.go`, `lockkeys.go`, `lockregistry.go`, `projectvmlock.go` — the per-document lock files and the per-project VM lock (`ProjectVMLockDir` → `ensure-vm.lock`)
 - `claim.go`, `clientlock.go` — client leases and claims
-- `fingerprint.go`, `agent_version.go`, `root_repair.go` — the config fingerprint, the `agent_version` baseline writer (`specs/agent-version-sync.md`), and root-state repair
+- `fingerprint.go`, `agent_version.go`, `root_repair.go` — the config fingerprint, the `agent_version` baseline writer (`specs/state/upgrade-state.md`), and root-state repair
 - `move.go` — `SlugDir` and `MoveSlugDir`: a project's state slug directory, and the recursive merge that migrates a legacy origin-keyed state onto its checkout slug, returning the source-relative paths it could not move (#144).
 - `references.go` — fail-closed project-state reference scan: `HomeVolumeReferences` and `ImageReferences` (the image analogue), both built on the shared `projectStateReferences` walk
 - `testmock.go`, `fuzz_test.go` — mock state and `FuzzParseState`: both state documents must never panic, classify malformed bytes as `ErrStateUnparsable`, and serialize stably (a re-read of the writer's output yields the same bytes)

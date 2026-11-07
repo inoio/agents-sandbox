@@ -33,7 +33,7 @@ them into the entries a reader wants. Read from the branch that will be tagged (
 minor or major release, `release/<major>.<minor>` for a patch release, where the line's fixes and
 their fragments live. Order the fragments by section (`Added`, `Changed`, `Deprecated`, `Docs`,
 `Fixed`) and, within a section, by filename ascending, per
-[`specs/changelog-fragments.md`](../../../.operator-shared/specs/changelog-fragments.md).
+[`specs/ci/ci-pipeline.md`](../../../.operator-shared/specs/ci/ci-pipeline.md).
 
 - Use one heading per section in the order `Added`, `Changed`, `Deprecated`, `Docs`, `Fixed`. Merge duplicate headings
   if the section accumulated them, and put documentation-only entries under `Docs`. Do not invent other headings.
@@ -110,7 +110,7 @@ content.
 Every minor (or major) release gets a release branch `release/<major>.<minor>` at the merged `main`
 tip; the tag lands on that branch. `main` keeps taking new work, and a released line's fixes land on
 its release branch — forward-port anything that still applies to `main`. See
-[`specs/release-branching.md`](../../../.operator-shared/specs/release-branching.md).
+[`specs/release/release-branching.md`](../../../.operator-shared/specs/release/release-branching.md).
 
 The maintainer may push from the host, or ask the agent to do it through `gh`:
 

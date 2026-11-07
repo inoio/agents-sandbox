@@ -118,8 +118,37 @@ func (f *CallbackForwarder) Forward(ctx context.Context, redirect LoopbackRedire
 	for _, listener := range listeners {
 		go func() { _ = server.Serve(listener) }()
 	}
-	go f.forwardLifetime(ctx, done, forward, server, redirect.Port)
+	// Start the lifetime timer here, in Forward's goroutine, before launching
+	// the lifetime goroutine that waits on it: the factory is a package global a
+	// test swaps, and a goroutine reading it after Forward returned could race a
+	// later test's swap (or capture its fake).
+	lifetimeTimer := newForwardTimer(f.lifetime)
+	go f.forwardLifetime(ctx, done, forward, server, redirect.Port, lifetimeTimer)
 	return nil
+}
+
+// forwardTimer is the lifetime timer forwardLifetime waits on, behind an
+// interface so a test can drive expiry or a reset without real time. Production
+// uses a real *time.Timer.
+type forwardTimer interface {
+	channel() <-chan time.Time
+	reset(time.Duration)
+	stop()
+}
+
+type realForwardTimer struct{ timer *time.Timer }
+
+func (t *realForwardTimer) channel() <-chan time.Time { return t.timer.C }
+func (t *realForwardTimer) reset(d time.Duration)     { t.timer.Reset(d) }
+
+// gomutants:disable-next-line STATEMENT_REMOVE reason="the only caller stops the timer on the lifetime goroutine's return; nothing reads the timer's channel afterward, so skipping the stop only defers the runtime timer's own cleanup"
+func (t *realForwardTimer) stop() { t.timer.Stop() }
+
+// newForwardTimer is a test seam; production starts a real timer. Forward reads
+// it before starting the lifetime goroutine, so swapping it in a test cannot be
+// raced by a goroutine from an earlier test.
+var newForwardTimer = func(d time.Duration) forwardTimer {
+	return &realForwardTimer{timer: time.NewTimer(d)}
 }
 
 // forwardLifetime closes a forward after its lifetime, once the callback was
@@ -132,15 +161,15 @@ func (f *CallbackForwarder) forwardLifetime(
 	forward *activeForward,
 	server *http.Server,
 	port int,
+	timer forwardTimer,
 ) {
-	timer := time.NewTimer(f.lifetime)
-	defer timer.Stop()
+	defer timer.stop()
 	for {
 		select {
 		case <-done.Done():
-		case <-timer.C:
+		case <-timer.channel():
 		case <-forward.extend:
-			timer.Reset(f.lifetime)
+			timer.reset(f.lifetime)
 			continue
 		}
 		if f.retire(ctx, done, forward, server, port, timer) {
@@ -160,14 +189,14 @@ func (f *CallbackForwarder) retire(
 	forward *activeForward,
 	server *http.Server,
 	port int,
-	timer *time.Timer,
+	timer forwardTimer,
 ) bool {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 	if done.Err() == nil {
 		select {
 		case <-forward.extend:
-			timer.Reset(f.lifetime)
+			timer.reset(f.lifetime)
 			return false
 		default:
 		}

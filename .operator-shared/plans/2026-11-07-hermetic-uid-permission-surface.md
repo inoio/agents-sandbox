@@ -8,12 +8,12 @@
 
 **Tech Stack:** Go 1.27, the repo's package-level test seams, `scripts/test-envelope.sh`.
 
-**Spec:** `.operator-shared/plans/2026-11-07-hermetic-test-suite-design.md`; the surface is recorded in `.operator-shared/plans/2026-11-07-hermetic-inventory.md`. Follows `specs/test-isolation.md` (seams restored, tests off host state). This is Plan 2 of the design; the identity/CWD, host-figure sentinel, wall-clock, and cadence surfaces remain separate plans.
+**Spec:** `.operator-shared/plans/2026-11-07-hermetic-test-suite-design.md`; the surface is recorded in `.operator-shared/plans/2026-11-07-hermetic-inventory.md`. Follows `specs/testing/test-isolation.md` (seams restored, tests off host state). This is Plan 2 of the design; the identity/CWD, host-figure sentinel, wall-clock, and cadence surfaces remain separate plans.
 
 ## Global Constraints
 
 - No test may depend on the effective uid: a green `make test-hermetic` (which runs as uid 0) is the acceptance.
-- Seam overrides are restored in `t.Cleanup`, so the suite stays idempotent under `-count>1` (`specs/test-isolation.md`).
+- Seam overrides are restored in `t.Cleanup`, so the suite stays idempotent under `-count>1` (`specs/testing/test-isolation.md`).
 - The stub must return the same error class the permission trick produced — `fs.ErrPermission` and, for the claim-commit test, an `*os.PathError` — so the production error contract is unchanged.
 - Production changes are indirection only (a call through a var); no behavior changes.
 - Format/lint with `make fmt`/`make lint` (golangci-lint), never `gofmt`/`go vet`.

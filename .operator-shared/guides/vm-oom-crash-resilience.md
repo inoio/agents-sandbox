@@ -282,7 +282,7 @@ Ranked; each names the seam, cost/risk, and whether it is verified or needs a KV
    next `run`, keyed off the health pre-check and `JobInfo.ExitCode != nil`. *Gap to close:* log the
    dead job's recorded command and `-1` exit code coherently ("the serve daemon exited by signal
    since the last run"), and warn that any running containers were stopped with a restarted dockerd
-   (`detached-jobs.md` already warns on last-client detach). *Cost:* low. *Risk:* none material.
+   (`specs/vm/detached-jobs.md` already warns on last-client detach). *Cost:* low. *Risk:* none material.
    *Verified:* the re-ensure path exists; *Needs KVM host:* an actual OOM-killed daemon being
    restarted cleanly.
 
@@ -291,7 +291,7 @@ Ranked; each names the seam, cost/risk, and whether it is verified or needs a KV
    one change that could let the session survive. *Caveat:* in opencode's model the "heavy" process
    is the serve daemon itself, so protecting it may just relocate the kill. *Cost/risk:* the
    detached-job ABI has `WithJobRlimits` (POSIX rlimits, e.g. `nofile`) but no `oom_score_adj`
-   control, and the no-shell-fallback rule (`detached-jobs.md`) forbids the obvious
+   control, and the no-shell-fallback rule (`specs/vm/detached-jobs.md`) forbids the obvious
    `sh -c 'echo -500 >/proc/self/oom_score_adj; exec …'` wrapper because it breaks the command-line
    marker identity. A tiny dedicated helper binary would be needed. *Needs KVM host:* whichever
    process the killer actually picks, and whether protecting the daemon helps.

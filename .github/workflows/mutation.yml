@@ -5,7 +5,7 @@ name: mutation
 # is either a missing assertion or a genuinely equivalent mutation), so closing
 # one is human judgement, not a check. This workflow runs on every PR that can
 # change the code (and on manual dispatch); it is never a required check and
-# never a release prerequisite (see `.operator-shared/specs/mutation-testing.md`).
+# never a release prerequisite (see `.operator-shared/specs/ci/mutation-testing.md`).
 on:
   pull_request:
     # A change that cannot alter which mutants exist need not pay the

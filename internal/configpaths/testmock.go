@@ -11,6 +11,10 @@ import (
 type mockConfigPaths struct {
 	baseDir string
 	homeErr error
+	// created records the directories this instance already made, so a repeated
+	// accessor call skips the os.MkdirAll the config layer would otherwise pay
+	// on every accessor call within one test.
+	created map[string]struct{}
 }
 
 // InstallFailFastConfigPaths binds the sandbox config-path factory to its
@@ -102,6 +106,23 @@ func ensureMockConfigDirectory(path string) string {
 	return path
 }
 
+// ensureDir creates path once per mock instance. It is ensureMockConfigDirectory
+// plus a cache: the accessor methods are called many times per test, and the
+// redundant MkdirAll on an already-created directory is pure cost. The mock tree
+// is create-only — a path exists after its first call and is not re-created if a
+// test removes it — which no current test relies on.
+func (m *mockConfigPaths) ensureDir(path string) string {
+	if m.created == nil {
+		m.created = map[string]struct{}{}
+	}
+	if _, ok := m.created[path]; ok {
+		return path
+	}
+	ensureMockConfigDirectory(path)
+	m.created[path] = struct{}{}
+	return path
+}
+
 // CreateDir creates dir like a mock directory and returns it. Test support:
 // tests write agent config into the agent's config dir under the mock tree.
 func CreateDir(dir string) string {
@@ -109,34 +130,34 @@ func CreateDir(dir string) string {
 }
 
 func (m *mockConfigPaths) UserConfigDir() string {
-	return ensureMockConfigDirectory(filepath.Join(m.baseDir, "userconfig"))
+	return m.ensureDir(filepath.Join(m.baseDir, "userconfig"))
 }
 
 func (m *mockConfigPaths) UserSlugConfigDir(slug string) string {
-	return ensureMockConfigDirectory(filepath.Join(m.UserConfigDir(), slug))
+	return m.ensureDir(filepath.Join(m.UserConfigDir(), slug))
 }
 
 func (m *mockConfigPaths) UserCacheDir() string {
-	return ensureMockConfigDirectory(filepath.Join(m.baseDir, "usercache"))
+	return m.ensureDir(filepath.Join(m.baseDir, "usercache"))
 }
 
 func (m *mockConfigPaths) UserStateDir() string {
-	return ensureMockConfigDirectory(filepath.Join(m.baseDir, "userstate"))
+	return m.ensureDir(filepath.Join(m.baseDir, "userstate"))
 }
 
 func (m *mockConfigPaths) UserDataDir() string {
-	return ensureMockConfigDirectory(filepath.Join(m.baseDir, "userdata"))
+	return m.ensureDir(filepath.Join(m.baseDir, "userdata"))
 }
 
 func (m *mockConfigPaths) UserHomeDir() (string, error) {
 	if m.homeErr != nil {
 		return "", m.homeErr
 	}
-	return ensureMockConfigDirectory(filepath.Join(m.baseDir, "home")), nil
+	return m.ensureDir(filepath.Join(m.baseDir, "home")), nil
 }
 
 func (m *mockConfigPaths) ProjectConfigDir() string {
-	return ensureMockConfigDirectory(filepath.Join(m.baseDir, "projectconfig"))
+	return m.ensureDir(filepath.Join(m.baseDir, "projectconfig"))
 }
 
 func (m *mockConfigPaths) ProjectConfigDirAbs() string {
