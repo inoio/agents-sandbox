@@ -46,6 +46,11 @@ var (
 	}, 2: {
 		"agent_source",
 		"agent_version",
+		"disk_pressure",
+		"disk_pressure[].avail_kib",
+		"disk_pressure[].offered_at",
+		"disk_pressure[].seen_at",
+		"disk_pressure[].size_kib",
 		"docker_source",
 		"env_state",
 		"env_state.hash",
