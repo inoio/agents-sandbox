@@ -322,3 +322,26 @@ func TestRemovalPlanRenderEmptyPlanPrintsOnlyHeader(t *testing.T) {
 		t.Errorf("empty plan must render only the header, got:\n%s", rendered)
 	}
 }
+
+// TestRenderRetiredProjectsNamesEachWithAHint pins the retired-project listing:
+// every slug is named and pointed at the purge command, and an empty list prints
+// nothing (so an ordinary prune keeps its previous output).
+func TestRenderRetiredProjectsNamesEachWithAHint(t *testing.T) {
+	ui := termio.Mock{}
+	RenderRetiredProjects(&ui, []string{"one-1mjusbm3wikhb0", "two-1mjusbm3wikhb0"})
+	rendered := strings.Join(ui.OutCalls, "\n")
+	for _, want := range []string{
+		"retired project: one-1mjusbm3wikhb0 (purge with: prune --purge one-1mjusbm3wikhb0)",
+		"retired project: two-1mjusbm3wikhb0 (purge with: prune --purge two-1mjusbm3wikhb0)",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("render missing %q:\n%s", want, rendered)
+		}
+	}
+
+	empty := termio.Mock{}
+	RenderRetiredProjects(&empty, nil)
+	if len(empty.OutCalls) != 0 {
+		t.Errorf("no retired project should print nothing, got %v", empty.OutCalls)
+	}
+}

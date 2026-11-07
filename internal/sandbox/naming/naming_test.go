@@ -285,6 +285,14 @@ func TestIsLauncherSandbox(t *testing.T) {
 			want:   true,
 		},
 		{
+			// The launcher slug label is authoritative even when its value does
+			// not itself parse to a hash-anchored slug: the name is foreign, so
+			// only the label can prove ownership.
+			name:   "builder-vm",
+			labels: map[string]string{LabelSlug: "not-a-hash-anchored-slug"},
+			want:   true,
+		},
+		{
 			// The type/task labels alone do not prove ownership: a sandbox
 			// labelled as a task but named foreign stays foreign.
 			name:   "builder-vm",

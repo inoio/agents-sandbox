@@ -572,6 +572,37 @@ func TestRenderPruneSummaryDryRunAction(t *testing.T) {
 	}
 }
 
+// TestRenderPruneSummaryReportsInternalState pins that the state sweep's
+// removals appear on their own line, so a prune that reclaimed only internal
+// state still reports what it did.
+func TestRenderPruneSummaryReportsInternalState(t *testing.T) {
+	ui := &termio.Mock{}
+	report := &StaleReport{
+		State: StateSweepReport{
+			ClaimsRemoved:   2,
+			LeasesRemoved:   1,
+			StatesRemoved:   3,
+			StaleStatesKept: 4,
+			DirsRemoved:     1,
+		},
+	}
+	RenderPruneSummary(ui, report, false)
+	joined := strings.Join(ui.OutCalls, "\n")
+	if !strings.Contains(joined, "internal state: 2 claims, 1 leases, 3 state files removed, 4 kept, 1 dirs removed") {
+		t.Errorf("missing internal-state line: %v", ui.OutCalls)
+	}
+}
+
+// TestRenderPruneSummaryOmitsEmptyStateLine pins that a state sweep that
+// reclaimed nothing stays off the output.
+func TestRenderPruneSummaryOmitsEmptyStateLine(t *testing.T) {
+	ui := &termio.Mock{}
+	RenderPruneSummary(ui, &StaleReport{State: StateSweepReport{StaleStatesKept: 1}}, false)
+	if len(ui.OutCalls) != 1 {
+		t.Errorf("out = %v, want only the counts line (a no-removal state sweep is not rendered)", ui.OutCalls)
+	}
+}
+
 func TestInvokePruneFunc(t *testing.T) {
 	t.Run("builds state and invokes the pruner", func(t *testing.T) {
 		client := &msb.MockMsbClient{

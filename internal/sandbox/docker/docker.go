@@ -69,7 +69,10 @@ var (
 	errMobyClient  error
 )
 
-func ensureMobyClient() error {
+// ensureMobyClient lazily creates the shared moby client. It is a package var so
+// a unit test can force the construction failure branch the real methods guard
+// on, without a docker daemon.
+var ensureMobyClient = func() error {
 	mobyClientOnce.Do(func() {
 		mobyClient, errMobyClient = client.New(clientOptions()...)
 	})

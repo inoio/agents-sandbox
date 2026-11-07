@@ -2,6 +2,7 @@ package pruning
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -260,6 +261,33 @@ func TestEnumerateCandidatesAdmitsLauncherOwnedSandboxes(t *testing.T) {
 	}
 }
 
+// TestEnumerateCandidatesSkipsMalformedLegacySandbox pins the slug guard: a
+// launcher-prefixed name that strips to no parsed slug (a bare "agents-sandbox-vm-")
+// is launcher-owned by its prefix but must not surface an empty-slug candidate a
+// purge could target.
+func TestEnumerateCandidatesSkipsMalformedLegacySandbox(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		Sandboxes: []msb.SandboxHandle{
+			&msb.MockSandboxHandle{Name_: naming.LegacyVMPrefix, Status_: msbSdk.SandboxStatusStopped},
+			&msb.MockSandboxHandle{
+				Name_:      "myproject-1mjusbm3wikhb0-opencode",
+				Status_:    msbSdk.SandboxStatusRunning,
+				UpdatedAt_: time.Now(),
+			},
+		},
+	})
+
+	candidates, err := EnumerateCandidates(context.Background(), 7*24*time.Hour)
+	if err != nil {
+		t.Fatalf("EnumerateCandidates: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].Slug != "myproject-1mjusbm3wikhb0" {
+		t.Fatalf("candidates = %+v, want only the well-formed slug", candidates)
+	}
+}
+
 // TestEnumerateCandidatesIncludesStateKeysAndModTime pins the state-directory
 // source: a slug whose only trace is a per-agent state file surfaces with that
 // key, and the state file's mtime is an activity signal.
@@ -323,4 +351,194 @@ func seedAdoptionClaim(t *testing.T, slug, agent, checkoutSlug, volume string) {
 	if err != nil {
 		t.Fatalf("seed adoption claim: %v", err)
 	}
+}
+
+// emptyBuilderFor returns a builder lookup that folds nothing, so an enumerator
+// can be driven in isolation.
+func emptyBuilderFor(string) *candidateBuilder {
+	return &candidateBuilder{keys: map[state.Key]struct{}{}}
+}
+
+// TestEnumerateCandidatesPropagatesSourceErrors pins that a failure in any one
+// union source fails the whole enumeration rather than silently dropping that
+// source's artifacts.
+func TestEnumerateCandidatesPropagatesSourceErrors(t *testing.T) {
+	t.Run("state enumeration", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		breakStateRoot(t)
+		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		if _, err := EnumerateCandidates(context.Background(), time.Hour); err == nil {
+			t.Fatal("expected the state enumeration error to propagate")
+		}
+	})
+
+	t.Run("volume enumeration", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		msb.WithMsbMock(t, &msb.MockMsbClient{ListVolumesErr: errBoom})
+		if _, err := EnumerateCandidates(context.Background(), time.Hour); !errors.Is(err, errBoom) {
+			t.Fatalf("err = %v, want %v", err, errBoom)
+		}
+	})
+
+	t.Run("image enumeration", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		msb.WithMsbMock(t, &msb.MockMsbClient{ListImagesErr: errBoom})
+		if _, err := EnumerateCandidates(context.Background(), time.Hour); !errors.Is(err, errBoom) {
+			t.Fatalf("err = %v, want %v", err, errBoom)
+		}
+	})
+
+	t.Run("sandbox enumeration", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		msb.WithMsbMock(t, &msb.MockMsbClient{ListSandboxesErr: errBoom})
+		if _, err := EnumerateCandidates(context.Background(), time.Hour); !errors.Is(err, errBoom) {
+			t.Fatalf("err = %v, want %v", err, errBoom)
+		}
+	})
+
+	t.Run("adoption claims", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		root := configpaths.Get().UserStateDir()
+		if err := os.WriteFile(filepath.Join(root, "state.yaml"), []byte("schema: [not-valid"), 0o600); err != nil {
+			t.Fatalf("corrupt root state: %v", err)
+		}
+		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		if _, err := EnumerateCandidates(context.Background(), time.Hour); err == nil {
+			t.Fatal("expected the adoption-claim read error to propagate")
+		}
+	})
+}
+
+// TestEnumerateStateCandidatesPropagatesErrors pins the state-source fail-closed
+// paths: an unreadable state root, an unreadable slug dir, and a legacy state
+// path that is not absent but cannot be stat'd.
+func TestEnumerateStateCandidatesPropagatesErrors(t *testing.T) {
+	t.Run("state root unreadable", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		breakStateRoot(t)
+		if err := enumerateStateCandidates(emptyBuilderFor); err == nil {
+			t.Fatal("expected the state-root read error")
+		}
+	})
+
+	t.Run("slug dir unreadable", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		const slug = "cand-unreadable"
+		dir := state.SlugDir(slug)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, 0o300); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+		if err := enumerateStateCandidates(emptyBuilderFor); err == nil {
+			t.Fatal("expected the StatefulAgentNames error")
+		}
+	})
+
+	t.Run("legacy state not absent", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		const slug = "cand-legacy-loop"
+		dir := state.SlugDir(slug)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		// A self-referential symlink stats as neither a file nor absent, so the
+		// legacy noteStateFile path surfaces the stat error instead of treating
+		// it as no state.
+		if err := os.Symlink("state.yaml", filepath.Join(dir, "state.yaml")); err != nil {
+			t.Fatal(err)
+		}
+		if err := enumerateStateCandidates(emptyBuilderFor); err == nil {
+			t.Fatal("expected the legacy state stat error")
+		}
+	})
+
+	t.Run("per-agent note error", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		const slug = "cand-agent-note-err"
+		key := state.Key{Slug: slug, Agent: "opencode"}
+		if err := seedHomeState(key, state.HomeState{}); err != nil {
+			t.Fatalf("seed state: %v", err)
+		}
+		// StatefulAgentNames has already stat'd this state file, so the agent
+		// note error is a stat failure a real filesystem only produces under a
+		// race; the seam drives the fail-closed propagation.
+		original := noteStateFile
+		noteStateFile = func(*candidateBuilder, state.Key) error { return errBoom }
+		t.Cleanup(func() { noteStateFile = original })
+
+		if err := enumerateStateCandidates(emptyBuilderFor); !errors.Is(err, errBoom) {
+			t.Fatalf("err = %v, want %v", err, errBoom)
+		}
+	})
+}
+
+// TestEnumerateSourceListErrors pins the per-source list-failure returns, one
+// for volumes, images and sandboxes.
+func TestEnumerateSourceListErrors(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ctx := context.Background()
+
+	t.Run("volumes", func(t *testing.T) {
+		msb.WithMsbMock(t, &msb.MockMsbClient{ListVolumesErr: errBoom})
+		if err := enumerateVolumeCandidates(ctx, emptyBuilderFor); !errors.Is(err, errBoom) {
+			t.Fatalf("err = %v, want %v", err, errBoom)
+		}
+	})
+
+	t.Run("images", func(t *testing.T) {
+		msb.WithMsbMock(t, &msb.MockMsbClient{ListImagesErr: errBoom})
+		if err := enumerateImageCandidates(ctx, emptyBuilderFor); !errors.Is(err, errBoom) {
+			t.Fatalf("err = %v, want %v", err, errBoom)
+		}
+	})
+
+	t.Run("sandboxes", func(t *testing.T) {
+		msb.WithMsbMock(t, &msb.MockMsbClient{ListSandboxesErr: errBoom})
+		if err := enumerateSandboxCandidates(ctx, time.Hour, emptyBuilderFor); !errors.Is(err, errBoom) {
+			t.Fatalf("err = %v, want %v", err, errBoom)
+		}
+	})
+}
+
+// TestEnumerateAdoptionClaimsEdgeCases pins the root-state read failure and the
+// claim key that carries no separator: a read failure fails the enumeration, a
+// key without "/" is skipped rather than fabricating a slug.
+func TestEnumerateAdoptionClaimsEdgeCases(t *testing.T) {
+	t.Run("read error", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		root := configpaths.Get().UserStateDir()
+		if err := os.WriteFile(filepath.Join(root, "state.yaml"), []byte("schema: [not-valid"), 0o600); err != nil {
+			t.Fatalf("corrupt root state: %v", err)
+		}
+		if err := enumerateAdoptionClaims(emptyBuilderFor); err == nil {
+			t.Fatal("expected the root-state read error")
+		}
+	})
+
+	t.Run("key without separator", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		_, err := state.WithRootState(true, func(txn *state.RootTxn) error {
+			txn.State().AdoptedHomeVolumes = map[string]state.AdoptedHomeVolume{
+				"no-separator": {CheckoutSlug: "checkout", Volume: "volume"},
+			}
+			return txn.Commit()
+		})
+		if err != nil {
+			t.Fatalf("seed malformed claim: %v", err)
+		}
+		var seen []string
+		collect := func(slug string) *candidateBuilder {
+			seen = append(seen, slug)
+			return &candidateBuilder{keys: map[state.Key]struct{}{}}
+		}
+		if err := enumerateAdoptionClaims(collect); err != nil {
+			t.Fatalf("enumerateAdoptionClaims: %v", err)
+		}
+		if len(seen) != 0 {
+			t.Errorf("builder slugs = %v, want none for a key without a separator", seen)
+		}
+	})
 }

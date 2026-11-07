@@ -42,6 +42,29 @@ type RemovalPlan struct {
 	hasRunningSandbox bool
 }
 
+// purgeScope is the slug/agent selection one purge targets: the project slugs
+// to remove and an optional agent narrowing each to a single key.
+type purgeScope struct {
+	slugs map[string]struct{}
+	agent string
+}
+
+// ownsSlug reports whether a project slug is inside the purge.
+func (s purgeScope) ownsSlug(slug string) bool {
+	_, ok := s.slugs[slug]
+	return ok
+}
+
+// ownsKey reports whether a project/agent key falls inside the purge: its slug
+// is targeted and, when an agent is given, its agent matches (an empty agent
+// matches every agent, including the legacy agent-less key).
+func (s purgeScope) ownsKey(k state.Key) bool {
+	if !s.ownsSlug(k.Slug) {
+		return false
+	}
+	return s.agent == "" || s.agent == k.Agent
+}
+
 // PlanRemoval enumerates everything one project owns. slugs are the on-disk
 // project slugs to purge; agent selects a single key ("", all keys of every
 // slug). Enumeration is the artifact union — state directories, home volumes,
@@ -50,43 +73,53 @@ type RemovalPlan struct {
 // still planned from its leftover volume, image or claim. Foreign artifacts are
 // never planned: volumes, images and sandboxes are filtered through the naming
 // ownership predicates. The result is deduped and sorted for stable output.
-func PlanRemoval(ctx context.Context, slugs []string, agent string) (*RemovalPlan, error) {
-	slugSet := slugSetOf(slugs)
+//
+// Home-volume ownership is not the name's alone: a legacy identity adoption
+// moves the state to a checkout slug without renaming its HomeVolume, and a
+// root-state adoption claim records the checkout that owns a lost-state volume.
+// A volume is therefore planned when its name parses into the scope OR a state
+// key in scope OR an in-scope checkout's adoption claim references it, and it is
+// refused (with a warning through ui) when a state key or checkout outside the
+// scope still owns it, so a purge can never drop another project's saved home.
+func PlanRemoval(ctx context.Context, slugs []string, agent string, ui termio.Logger) (*RemovalPlan, error) {
+	scope := purgeScope{slugs: slugSetOf(slugs), agent: agent}
 	keys := make(map[state.Key]struct{})
 	addKey := plannedKeyAdder(keys, agent)
 
-	if err := planStateKeys(slugSet, addKey); err != nil {
+	if err := planStateKeys(scope.slugs, addKey); err != nil {
+		return nil, err
+	}
+
+	root, err := state.ReadRootState()
+	if err != nil {
 		return nil, err
 	}
 
 	client := msb.Get()
-	volumes, err := planVolumes(ctx, client, slugSet, agent, addKey)
+	volumes, err := planVolumes(ctx, client, scope, root, addKey, ui)
 	if err != nil {
 		return nil, err
 	}
-	images, err := planImages(ctx, client, slugSet, agent, addKey)
+	images, err := planImages(ctx, client, scope.slugs, agent, addKey)
 	if err != nil {
 		return nil, err
 	}
-	sandboxes, hasRunning, err := planSandboxes(ctx, client, slugSet, agent, addKey)
+	sandboxes, hasRunning, err := planSandboxes(ctx, client, scope.slugs, agent, addKey)
 	if err != nil {
 		return nil, err
 	}
-	adoptionClaims, err := planAdoptionClaims(slugSet, agent, addKey)
-	if err != nil {
-		return nil, err
-	}
+	adoptionClaims := planAdoptionClaims(scope, root, addKey)
 	stateFiles, err := planStateFiles(keys)
 	if err != nil {
 		return nil, err
 	}
-	claims, err := planClaims(slugSet)
+	claims, err := planClaims(scope.slugs)
 	if err != nil {
 		return nil, err
 	}
 
 	return &RemovalPlan{
-		Slugs:             sortedStrings(slugSet),
+		Slugs:             sortedStrings(scope.slugs),
 		Keys:              sortedKeys(keys),
 		Sandboxes:         sortedStrings(sandboxes),
 		Volumes:           sortedStrings(volumes),
@@ -214,34 +247,103 @@ func planStateKeys(slugSet map[string]struct{}, addKey func(state.Key)) error {
 	return nil
 }
 
-// planVolumes returns the home volumes of the slug set; a foreign volume whose
-// name does not parse to a launcher slug is ignored. agent scopes the deletion
-// set exactly as it scopes the keys: a non-empty agent keeps only that agent's
-// volumes, so a single-key purge never deletes another agent's home volume.
+// planVolumes returns the home volumes the purge owns. A volume is owned when
+// its name parses into the scope, when a state key in the scope references it,
+// or when an in-scope checkout holds the adoption claim for it. A volume an
+// out-of-scope state key or checkout still owns is refused with a warning, so
+// purging a legacy slug can never delete another checkout's saved home and
+// purging a checkout reclaims the legacy-named volume its state points at.
+// agent scopes the deletion set exactly as it scopes the keys.
 func planVolumes(
 	ctx context.Context,
 	client msb.Client,
-	slugSet map[string]struct{},
-	agent string,
+	scope purgeScope,
+	root *state.RootState,
 	addKey func(state.Key),
+	ui termio.Logger,
 ) (map[string]struct{}, error) {
 	handles, err := client.ListVolumes(ctx)
 	if err != nil {
 		return nil, err
 	}
+	references, err := state.HomeVolumeReferences()
+	if err != nil {
+		return nil, err
+	}
+	ownedInScope, ownedElsewhere := classifyVolumeOwners(scope, references, root)
 	volumes := make(map[string]struct{})
 	for _, handle := range handles {
-		artifact := naming.ParseHomeVolumeName(handle.Name())
-		if _, owned := slugSet[artifact.Slug]; artifact.Slug == "" || !owned {
+		name := handle.Name()
+		artifact := naming.ParseHomeVolumeName(name)
+		nameOwned := artifact.Slug != "" && scope.ownsSlug(artifact.Slug) &&
+			(scope.agent == "" || artifact.Agent == scope.agent)
+		if !nameOwned {
+			if _, referenced := ownedInScope[name]; !referenced {
+				continue
+			}
+		}
+		if _, blocked := ownedElsewhere[name]; blocked {
+			ui.Warnf("keeping home volume %s: still owned by another project", name)
 			continue
 		}
-		if agent != "" && artifact.Agent != agent {
-			continue
+		if nameOwned {
+			addKey(state.Key{Slug: artifact.Slug, Agent: artifact.Agent})
 		}
-		addKey(state.Key{Slug: artifact.Slug, Agent: artifact.Agent})
-		volumes[handle.Name()] = struct{}{}
+		volumes[name] = struct{}{}
 	}
 	return volumes, nil
+}
+
+// classifyVolumeOwners maps every volume name to the scope that owns it: a
+// state key in scope or an in-scope checkout's adoption claim puts a name in
+// owned, while an out-of-scope state key or checkout puts it in elsewhere. A
+// name can be in both, and elsewhere always wins the removal decision, so an
+// in-scope pointer never overrides an outside owner.
+func classifyVolumeOwners(
+	scope purgeScope,
+	references map[string][]state.Key,
+	root *state.RootState,
+) (map[string]struct{}, map[string]struct{}) {
+	owned := map[string]struct{}{}
+	elsewhere := map[string]struct{}{}
+	for name, keys := range references {
+		for _, key := range keys {
+			if scope.ownsKey(key) {
+				owned[name] = struct{}{}
+			} else {
+				elsewhere[name] = struct{}{}
+			}
+		}
+	}
+	for claimKey, claim := range root.AdoptedHomeVolumes {
+		if claim.Volume == "" {
+			continue
+		}
+		// The claim's owner is the checkout, not the legacy identity the claim
+		// is keyed under: purging the checkout reclaims the volume, purging the
+		// legacy slug leaves the checkout's saved home untouched.
+		if scope.ownsClaim(claimKey, claim) {
+			owned[claim.Volume] = struct{}{}
+		} else {
+			elsewhere[claim.Volume] = struct{}{}
+		}
+	}
+	return owned, elsewhere
+}
+
+// ownsClaim reports whether the scope owns an adoption claim: the claim holds
+// the target checkout and, when an agent is given, the claim's agent matches.
+// The legacy identity the claim is keyed under does not scope ownership — a
+// checkout's claim belongs to that checkout and to the key it names.
+func (s purgeScope) ownsClaim(claimKey string, claim state.AdoptedHomeVolume) bool {
+	if !s.ownsSlug(claim.CheckoutSlug) {
+		return false
+	}
+	if s.agent == "" {
+		return true
+	}
+	_, claimAgent, ok := strings.Cut(claimKey, "/")
+	return ok && claimAgent == s.agent
 }
 
 // planImages returns the slug set's runner-image references; a reference that is
@@ -314,33 +416,32 @@ func planSandboxes(
 	return sandboxes, hasRunning, nil
 }
 
-// planAdoptionClaims returns the root-state adoption claims of the slug set; the
-// claim's legacy identity also contributes its key.
+// planAdoptionClaims returns the root-state adoption claims the purge owns. A
+// claim is keyed by the legacy identity but owned by the checkout that adopted
+// the volume, so it is planned when the purge owns that checkout (and, under an
+// agent scope, that agent's claim). This is what keeps purging a legacy slug
+// from deleting a live checkout's recovery marker, and what lets purging a
+// checkout retire its own claims.
 func planAdoptionClaims(
-	slugSet map[string]struct{},
-	agent string,
+	scope purgeScope,
+	root *state.RootState,
 	addKey func(state.Key),
-) (map[string]struct{}, error) {
-	root, err := state.ReadRootState()
-	if err != nil {
-		return nil, err
-	}
+) map[string]struct{} {
 	claims := make(map[string]struct{})
-	for claimKey := range root.AdoptedHomeVolumes {
+	for claimKey, claim := range root.AdoptedHomeVolumes {
+		if !scope.ownsClaim(claimKey, claim) {
+			continue
+		}
 		slug, claimAgent, ok := strings.Cut(claimKey, "/")
 		if !ok {
 			continue
 		}
-		if _, owned := slugSet[slug]; !owned {
-			continue
+		if scope.ownsKey(state.Key{Slug: slug, Agent: claimAgent}) {
+			addKey(state.Key{Slug: slug, Agent: claimAgent})
 		}
-		if agent != "" && claimAgent != agent {
-			continue
-		}
-		addKey(state.Key{Slug: slug, Agent: claimAgent})
 		claims[claimKey] = struct{}{}
 	}
-	return claims, nil
+	return claims
 }
 
 // planStateFiles returns the paths of the keys' state files that exist on disk.

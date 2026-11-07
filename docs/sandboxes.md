@@ -99,7 +99,7 @@ Pruning removes:
   VM. The report also carries the native image-prune data — the image data skipped because a live sandbox holds it, and
   the bytes reclaimed; a byte count the runtime cannot measure renders as unknown (`-`), never `0`.
 - Stale internal state: a `state.yaml` that records no home volume, unheld `claims/*.claim`, stale
-  `clients/*.lock` leases, and empty slug directories. A state that records a home volume and root-state adoption
+  `clients/*.lock` leases, and emptied state subtrees (an empty `clients/` or agent dir as well as the slug dir). A state that records a home volume and root-state adoption
   claims are reclaimed only by `prune --purge`/`sandbox remove --purge`. The `locks/` tree is deliberately left
   alone — an empty file, and deleting a held one would split the lock. Internal state is swept only on a real prune,
   never a `--dry-run`.
@@ -133,7 +133,9 @@ agents-sandbox sandbox remove --purge [<slug>]     # the same engine, next to th
 checkout. The age gate does not apply — naming the project is the intent. A running sandbox fails fast until `--force`
 stops it first. The plan (sandboxes, home volumes, runner images, state, claims) is named before a single confirmation;
 `--yes` skips the prompt and `--dry-run` previews it. A volume that fails to remove keeps its state file, so the pointer
-to it survives.
+to it survives. A purge removes a home volume only when the target owns it — by its name, by a state key the target
+covers, or by an adoption claim the target's checkout holds — so purging a legacy slug never deletes a saved home a
+different checkout adopted, and purging that checkout reclaims the legacy-named volume its state points at.
 
 Auto-pruning runs before `run` and `shell` (`agents-sandbox`, `agents-sandbox run`, `agents-sandbox sandbox run`) via
 `sync.Once`. It is the safe tier too — it never removes a home volume — and uses a fixed default threshold of 30 days

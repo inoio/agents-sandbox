@@ -1145,3 +1145,74 @@ func TestResolvePruneAgeFromResolver(t *testing.T) {
 		t.Errorf("resolvePruneAge = %v, want 5h", d)
 	}
 }
+
+// TestPrunePurgeRejectsInvalidTarget pins the resolvePurgeSlugs failure reaching
+// the purge engine: a target that is not a launcher slug is refused before any
+// plan is built.
+func TestPrunePurgeRejectsInvalidTarget(t *testing.T) {
+	runPruneTestError(t, []string{"prune", "--purge=not-a-slug"}, "invalid purge target")
+}
+
+// TestPrunePurgePlanRemovalError pins that a runtime listing failure building the
+// removal plan surfaces instead of purging a partial plan.
+func TestPrunePurgePlanRemovalError(t *testing.T) {
+	cmd, _ := setupCommandFixtures(t, "prune", "--purge="+purgeTestSlug, "--yes")
+	mock := &sandboxmsb.MockMsbClient{}
+	mock.ListVolumesErr = errBoom
+	sandboxmsb.WithMsbMock(t, mock)
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("expected the plan build error, got: %v", err)
+	}
+}
+
+// TestPrunePurgeTargetBarePurgeReturnsCwdTarget pins purgeTarget's branches: an
+// explicit target is returned as-is, a bare --purge with no positional argument
+// returns the empty cwd-implicit target, and a bare --purge with one positional
+// argument returns that argument.
+func TestPrunePurgeTargetBarePurgeReturnsCwdTarget(t *testing.T) {
+	cmd := buildPruneCmd(&termio.Mock{})
+	if err := cmd.Flags().Set(flagPurge, purgeCwdTarget); err != nil {
+		t.Fatal(err)
+	}
+	if got := purgeTarget(cmd, nil); got != "" {
+		t.Errorf("purgeTarget(bare, no arg) = %q, want empty cwd target", got)
+	}
+	if got := purgeTarget(cmd, []string{"explicit"}); got != "explicit" {
+		t.Errorf("purgeTarget(bare, arg) = %q, want %q", got, "explicit")
+	}
+	if err := cmd.Flags().Set(flagPurge, "named-slug"); err != nil {
+		t.Fatal(err)
+	}
+	if got := purgeTarget(cmd, nil); got != "named-slug" {
+		t.Errorf("purgeTarget(named) = %q, want %q", got, "named-slug")
+	}
+}
+
+// TestResolvePurgeSlugsIdentityErrors pins the two cwd-implicit failures: an
+// unresolvable git dir and a cwd outside any checkout, so a target-less purge
+// never guesses a project.
+func TestResolvePurgeSlugsIdentityErrors(t *testing.T) {
+	t.Run("unresolvable git dir", func(t *testing.T) {
+		t.Chdir(unresolvableIdentityDir(t))
+		if _, _, err := resolvePurgeSlugs(
+			"",
+		); err == nil ||
+			!strings.Contains(err.Error(), "resolve project identity") {
+			t.Fatalf("resolvePurgeSlugs error = %v, want a project identity error", err)
+		}
+	})
+	t.Run("outside a checkout", func(t *testing.T) {
+		t.Chdir(t.TempDir())
+		if _, _, err := resolvePurgeSlugs(""); err == nil || !strings.Contains(err.Error(), "not inside a checkout") {
+			t.Fatalf("resolvePurgeSlugs error = %v, want a not-inside-a-checkout error", err)
+		}
+	})
+}
+
+// TestPruneRejectsPositionalArgWithoutPurge pins that a bare target is only
+// accepted with --purge, so `prune <slug>` cannot be mistaken for a purge.
+func TestPruneRejectsPositionalArgWithoutPurge(t *testing.T) {
+	runPruneTestError(t, []string{"prune", "some-slug"}, "unexpected argument")
+}

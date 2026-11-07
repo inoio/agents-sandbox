@@ -3,6 +3,7 @@ package pruning
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -1354,10 +1355,20 @@ func TestPruneDockerImagesSkipsForeignAndTagged(t *testing.T) {
 // deletedImagesDockerMock returns a docker mock whose ImagePrune reports n
 // deleted images.
 func deletedImagesDockerMock(n int) *docker.MockDockerClient {
+	items := make([]imagetypes.Summary, n)
+	deleted := make([]imagetypes.DeleteResponse, n)
+	for i := range n {
+		id := fmt.Sprintf("sha256:deleted%d", i)
+		items[i] = managedDanglingImage(id, time.Now().Add(-48*time.Hour))
+		deleted[i] = imagetypes.DeleteResponse{Deleted: id}
+	}
 	return &docker.MockDockerClient{
+		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
+			return mobyclient.ImageListResult{Items: items}, nil
+		},
 		ImagePruneFn: func(context.Context, mobyclient.ImagePruneOptions) (mobyclient.ImagePruneResult, error) {
 			return mobyclient.ImagePruneResult{
-				Report: imagetypes.PruneReport{ImagesDeleted: make([]imagetypes.DeleteResponse, n)},
+				Report: imagetypes.PruneReport{ImagesDeleted: deleted},
 			}, nil
 		},
 	}

@@ -156,7 +156,23 @@ func pruneDockerImages(
 		// reporting them would name docker images the daemon never removed.
 		return 0, nil, err
 	}
-	return len(result.Report.ImagesDeleted), details, nil
+	// The daemon is authoritative: it returns every image it deleted, which can
+	// be fewer than we listed (a candidate gained a tag between ImageList and
+	// ImagePrune, so the daemon kept it). Report only the candidates the daemon
+	// actually deleted, so the count and the details agree.
+	deleted := make(map[string]struct{}, len(result.Report.ImagesDeleted))
+	for _, response := range result.Report.ImagesDeleted {
+		if response.Deleted != "" {
+			deleted[response.Deleted] = struct{}{}
+		}
+	}
+	removed := make([]StaleEntry, 0, len(details))
+	for _, detail := range details {
+		if _, ok := deleted[detail.Name]; ok {
+			removed = append(removed, detail)
+		}
+	}
+	return len(deleted), removed, nil
 }
 
 // dockerImageIsCandidate reports whether a listed docker image is one of ours

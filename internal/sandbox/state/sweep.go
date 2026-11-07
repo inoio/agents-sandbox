@@ -131,23 +131,48 @@ func SweepClientLeases(k Key) int {
 	return removed
 }
 
-// RemoveSlugDirIfEmpty removes a slug's state directory when it holds no
-// entries. A non-empty directory is left in place without error (the slug
-// still owns state), and a missing directory is a no-op.
+// RemoveSlugDirIfEmpty removes a slug's state directory when its whole subtree
+// holds no files, reclaiming the empty child directories a sweep leaves behind
+// (an emptied <agent>/clients/ lease dir and the <agent>/ state dir) so the slug
+// is not rediscovered by project discovery. It descends bottom-up and keeps any
+// directory that still has an entry — a file, a symlink, or a non-empty child.
+// A missing directory is a no-op.
 func RemoveSlugDirIfEmpty(slug string) error {
-	dir := SlugDir(slug)
-	entries, err := os.ReadDir(dir)
+	_, err := removeEmptyTree(SlugDir(slug))
+	return err
+}
+
+// removeEmptyTree removes path and every directory beneath it when the whole
+// subtree holds no entries, deepest first, and reports whether it removed path.
+// A directory that still contains anything is kept, as is a path that is not a
+// directory.
+func removeEmptyTree(path string) (bool, error) {
+	entries, err := os.ReadDir(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return false, nil
 		}
-		return fmt.Errorf("read state dir %s: %w", dir, err)
+		return false, fmt.Errorf("read state dir %s: %w", path, err)
 	}
-	if len(entries) > 0 {
-		return nil
+	empty := true
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			empty = false
+			continue
+		}
+		removed, err := removeEmptyTree(filepath.Join(path, entry.Name()))
+		if err != nil {
+			return false, err
+		}
+		if !removed {
+			empty = false
+		}
 	}
-	if err := os.Remove(dir); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove state dir %s: %w", dir, err)
+	if !empty {
+		return false, nil
 	}
-	return nil
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return false, fmt.Errorf("remove state dir %s: %w", path, err)
+	}
+	return true, nil
 }

@@ -190,7 +190,7 @@ func runProjectPurge(
 	if err != nil {
 		return err
 	}
-	plan, err := pruning.PlanRemoval(cmd.Context(), slugs, agent)
+	plan, err := pruning.PlanRemoval(cmd.Context(), slugs, agent, ui)
 	if err != nil {
 		return err
 	}

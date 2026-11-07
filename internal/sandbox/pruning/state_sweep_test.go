@@ -218,3 +218,270 @@ func TestPruneDryRunSkipsStateReclamation(t *testing.T) {
 		t.Errorf("dry-run State report = %+v, want zero (nothing removed)", report.State)
 	}
 }
+
+// TestPruneStateArtifactsReclaimsEmptyAgentAndClientDirs pins the bottom-up
+// reclaim: an agent whose state file is already absent but whose clients/ dir
+// held a stale lease must not leave an empty clients/ and agent shell behind, or
+// the slug is rediscovered by project discovery on every sweep.
+func TestPruneStateArtifactsReclaimsEmptyAgentAndClientDirs(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testUI := termio.NewTestMock(t)
+
+	const slug = "sweep-empty-shells"
+	agentKey := state.Key{Slug: slug, Agent: "opencode"}
+	clientsDir := filepath.Join(state.KeyDir(agentKey), "clients")
+	if err := os.MkdirAll(clientsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	staleLease := filepath.Join(clientsDir, "22222-4000000000.lock")
+	testutil.WritePath(t, staleLease, "stale")
+	aged := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(staleLease, aged, aged); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := PruneStateArtifacts(context.Background(), &testUI)
+	if err != nil {
+		t.Fatalf("PruneStateArtifacts: %v", err)
+	}
+	if report.LeasesRemoved != 1 {
+		t.Errorf("LeasesRemoved = %d, want 1", report.LeasesRemoved)
+	}
+	if _, err := os.Stat(state.SlugDir(slug)); !os.IsNotExist(err) {
+		t.Errorf("the emptied slug dir should be reclaimed, stat err = %v", err)
+	}
+	if report.DirsRemoved != 1 {
+		t.Errorf("DirsRemoved = %d, want 1", report.DirsRemoved)
+	}
+}
+
+// TestPruneStateArtifactsPropagatesRootReadError pins that an unreadable state
+// root fails the sweep closed rather than reporting nothing removed.
+func TestPruneStateArtifactsPropagatesRootReadError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	breakStateRoot(t)
+	testUI := termio.NewTestMock(t)
+
+	if _, err := PruneStateArtifacts(context.Background(), &testUI); err == nil {
+		t.Fatal("PruneStateArtifacts should fail closed on an unreadable state root")
+	}
+}
+
+// TestPruneStateArtifactsStopsOnCancelledContext pins that a cancelled context
+// aborts the sweep before it touches the next slug.
+func TestPruneStateArtifactsStopsOnCancelledContext(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testUI := termio.NewTestMock(t)
+	if err := os.MkdirAll(state.SlugDir("sweep-cancelled"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := PruneStateArtifacts(ctx, &testUI); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}
+
+// TestPruneStateArtifactsPropagatesSweepError pins that a per-slug sweep failure
+// propagates instead of being swallowed as a partial report.
+func TestPruneStateArtifactsPropagatesSweepError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testUI := termio.NewTestMock(t)
+	dir := state.SlugDir("sweep-slugerr")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A claims path that is not a directory cannot be read as a claims dir.
+	testutil.WritePath(t, filepath.Join(dir, "claims"), "")
+
+	if _, err := PruneStateArtifacts(context.Background(), &testUI); err == nil {
+		t.Fatal("PruneStateArtifacts should propagate the sweep error")
+	}
+}
+
+// TestSweepSlugPropagatesChildErrors pins each fail-closed path of sweepSlug:
+// a claims read error, a state-dir read error, a claims-dir removal error, and a
+// slug-dir removal error.
+func TestSweepSlugPropagatesChildErrors(t *testing.T) {
+	t.Run("claims read error", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		const slug = "sweep-child-claims-read"
+		dir := state.SlugDir(slug)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		testutil.WritePath(t, filepath.Join(dir, "claims"), "")
+		var report StateSweepReport
+		if err := report.sweepSlug(slug); err == nil {
+			t.Fatal("expected the claims read error")
+		}
+	})
+
+	t.Run("state dir read error", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		const slug = "sweep-child-statedir-read"
+		dir := state.SlugDir(slug)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, 0o300); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+		var report StateSweepReport
+		if err := report.sweepSlug(slug); err == nil {
+			t.Fatal("expected the state-dir read error")
+		}
+	})
+
+	t.Run("claims dir removal error", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		const slug = "sweep-child-claims-rm"
+		dir := state.SlugDir(slug)
+		if err := os.MkdirAll(filepath.Join(dir, claimsDirName), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+		var report StateSweepReport
+		if err := report.sweepSlug(slug); err == nil {
+			t.Fatal("expected the claims-dir removal error")
+		}
+	})
+
+	t.Run("slug dir removal error", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		const slug = "sweep-child-slug-rm"
+		dir := state.SlugDir(slug)
+		if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+		var report StateSweepReport
+		if err := report.sweepSlug(slug); err == nil {
+			t.Fatal("expected the slug-dir removal error")
+		}
+	})
+}
+
+// TestSweepClaimsPropagatesErrors pins the claim-token read failure and the
+// unheld-claim removal failure.
+func TestSweepClaimsPropagatesErrors(t *testing.T) {
+	t.Run("token read error", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		const slug = "sweep-claims-read"
+		dir := state.SlugDir(slug)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		testutil.WritePath(t, filepath.Join(dir, claimsDirName), "")
+		var report StateSweepReport
+		if err := report.sweepClaims(slug); err == nil {
+			t.Fatal("expected the claims read error")
+		}
+	})
+
+	t.Run("removal error", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		const slug = "sweep-claims-rm"
+		claimsDir := filepath.Join(state.SlugDir(slug), claimsDirName)
+		if err := os.MkdirAll(claimsDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		testutil.WritePath(t, filepath.Join(claimsDir, "free.claim"), "")
+		if err := os.Chmod(claimsDir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(claimsDir, 0o700) })
+		var report StateSweepReport
+		if err := report.sweepClaims(slug); err == nil {
+			t.Fatal("expected the claim removal error")
+		}
+	})
+}
+
+// TestSweepStatesAndLeasesPropagatesKeyStateError pins that a corrupt per-agent
+// state fails the slug's sweep closed.
+func TestSweepStatesAndLeasesPropagatesKeyStateError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const slug = "sweep-corrupt-agent"
+	key := state.Key{Slug: slug, Agent: "opencode"}
+	if err := os.MkdirAll(state.KeyDir(key), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, filepath.Join(state.KeyDir(key), "state.yaml"), "schema: [not-valid")
+
+	var report StateSweepReport
+	if err := report.sweepStatesAndLeases(slug); err == nil {
+		t.Fatal("expected the corrupt per-agent state error")
+	}
+}
+
+// TestSweepStatesAndLeasesMissingDirIsNoOp pins that a slug dir that is already
+// gone is absence, not an error.
+func TestSweepStatesAndLeasesMissingDirIsNoOp(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	var report StateSweepReport
+	if err := report.sweepStatesAndLeases("sweep-states-missing"); err != nil {
+		t.Fatalf("sweepStatesAndLeases on a missing dir = %v, want nil", err)
+	}
+}
+
+// TestSweepKeyStatePropagatesErrors pins the two fail-closed paths of
+// sweepKeyState: an unreadable state file and a removal that fails.
+func TestSweepKeyStatePropagatesErrors(t *testing.T) {
+	t.Run("read error", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		key := state.Key{Slug: "sweep-key-corrupt", Agent: "opencode"}
+		if err := os.MkdirAll(state.KeyDir(key), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		testutil.WritePath(t, filepath.Join(state.KeyDir(key), "state.yaml"), "schema: [not-valid")
+		var report StateSweepReport
+		if err := report.sweepKeyState(key); err == nil {
+			t.Fatal("expected the state read error")
+		}
+	})
+
+	t.Run("removal error", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		const slug = "sweep-key-rm"
+		key := state.Key{Slug: slug, Agent: "opencode"}
+		if err := seedHomeState(key, state.HomeState{}); err != nil {
+			t.Fatalf("seed state: %v", err)
+		}
+		if err := os.Chmod(state.SlugDir(slug), 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(state.SlugDir(slug), 0o700) })
+		var report StateSweepReport
+		if err := report.sweepKeyState(key); err == nil {
+			t.Fatal("expected the state removal error")
+		}
+	})
+}
+
+// TestRemoveEmptyClaimsDirPropagatesError pins that a claims dir that cannot be
+// removed for a reason other than absence or non-emptiness is surfaced.
+func TestRemoveEmptyClaimsDirPropagatesError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const slug = "sweep-claimsdir-rm"
+	dir := state.SlugDir(slug)
+	if err := os.MkdirAll(filepath.Join(dir, claimsDirName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	if err := removeEmptyClaimsDir(slug); err == nil {
+		t.Fatal("expected the claims-dir removal error")
+	}
+}

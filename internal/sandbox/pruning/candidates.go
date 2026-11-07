@@ -17,8 +17,7 @@ import (
 // the union rather than state directories alone, so a project whose state
 // directory was deleted by hand, whose state was lost, or that never reached a
 // state write still surfaces through its volume, image, sandbox or adoption
-// claim. See specs/pruning-consistency-and-project-retirement-design.md
-// ("Retired-project candidate").
+// claim. See specs/runtime-management-commands.md ("Lists retired projects").
 //
 //exhaustruct:ignore
 type Candidate struct {
@@ -124,8 +123,10 @@ func enumerateStateCandidates(builderFor func(string) *candidateBuilder) error {
 
 // noteStateFile records a key and its state-file mtime when the state file
 // exists. A state file removed between enumeration and the stat is absence, not
-// an error.
-func noteStateFile(builder *candidateBuilder, key state.Key) error {
+// an error. It is a variable so tests can drive the per-agent stat failure that
+// StatefulAgentNames' preceding stat of the same path makes unreachable without
+// a filesystem race.
+var noteStateFile = func(builder *candidateBuilder, key state.Key) error {
 	mod, err := state.StateFileModTime(key)
 	if err != nil {
 		if errors.Is(err, state.ErrStateNotFound) {
@@ -171,9 +172,6 @@ func enumerateImageCandidates(ctx context.Context, builderFor func(string) *cand
 			continue
 		}
 		artifact := naming.ParseImageTag(ref)
-		if artifact.Slug == "" {
-			continue
-		}
 		builder := builderFor(artifact.Slug)
 		builder.keys[state.Key{Slug: artifact.Slug, Agent: artifact.Agent}] = struct{}{}
 		builder.noteActivity(imageActivity(handle))
@@ -193,9 +191,12 @@ func imageActivity(handle msb.ImageHandle) time.Time {
 
 // enumerateSandboxCandidates adds each launcher-owned sandbox's parsed slug and
 // agent; a foreign sandbox whose name carries no launcher slug hash is skipped.
-// A project VM's UpdatedAt is activity, and a non-prunable VM is a kept sandbox.
-// A running task sandbox marks the project as having a running task; its
-// timestamps are not activity and it never counts as a kept sandbox.
+// A launcher-prefixed name that does not parse to a slug — a malformed legacy
+// name like "agents-sandbox-vm-" — is skipped too, so it never becomes an
+// empty-slug candidate a purge could target. A project VM's UpdatedAt is
+// activity, and a non-prunable VM is a kept sandbox. A running task sandbox
+// marks the project as having a running task; its timestamps are not activity
+// and it never counts as a kept sandbox.
 func enumerateSandboxCandidates(
 	ctx context.Context,
 	age time.Duration,

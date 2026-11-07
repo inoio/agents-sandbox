@@ -125,7 +125,8 @@ portability features.
 - **Safe tier only.** Reclaims stale project VMs, runner-image refs and native
   image data, dangling Docker images, runtime RAM, and stale internal state (a
   `state.yaml` recording no home volume, unheld `claims/*.claim`, stale
-  `clients/*.lock` leases, empty slug dirs). It **never removes a home volume** or
+  `clients/*.lock` leases, and empty slug subtrees — an emptied `clients/` and
+  agent dir as well as the slug dir). It **never removes a home volume** or
   the state that points at a surviving one — a state recording a home volume and
   root-state adoption claims are reclaimed only by
   `prune --purge`/`sandbox remove --purge` — so `prune --yes` cannot destroy
@@ -144,11 +145,21 @@ portability features.
   stopped first under `--force`), home volumes, runner images, state files,
   claims and root adoption claims — in an order that never orphans a volume or
   drops the last pointer to one; a volume that fails to remove keeps its state
-  file. `<target>` is a slug (whole project) or `<slug>-<agent>` (one key); an
-  omitted target resolves the cwd (an error outside a checkout). The age gate is
-  bypassed: `prune --purge` takes `--dry-run`/`--format json`/`--yes`, while
-  `sandbox remove --purge` confirms and honors `--yes`; both honor `--force` to
-  stop a running sandbox first.
+  file. Home-volume and adoption-claim ownership is not the name's alone: a
+  legacy identity adoption moves the state to a checkout slug without renaming
+  its volume, and a root-state adoption claim records the checkout that owns a
+  lost-state volume. A volume is therefore removed when its name parses into the
+  target, a state key in the target references it, or an in-target checkout holds
+  its adoption claim, and is refused (with a warning) when an out-of-target state
+  key or checkout still owns it — so purging a legacy slug can never delete
+  another checkout's saved home, and purging a checkout reclaims the
+  legacy-named volume its state points at. An adoption claim is owned by its
+  `checkout_slug`, so purging a checkout retires its own claims while purging a
+  legacy slug leaves a live checkout's claim intact. `<target>` is a slug (whole
+  project) or `<slug>-<agent>` (one key); an omitted target resolves the cwd (an
+  error outside a checkout). The age gate is bypassed: `prune --purge` takes
+  `--dry-run`/`--format json`/`--yes`, while `sandbox remove --purge` confirms and
+  honors `--yes`; both honor `--force` to stop a running sandbox first.
 - `--older-than` must be positive: a non-positive value is rejected.
 
 `storage` / `df`:

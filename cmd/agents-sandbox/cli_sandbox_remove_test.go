@@ -386,3 +386,30 @@ func TestSandboxRemovePurgeRefusesRunningWithoutForce(t *testing.T) {
 		t.Errorf("the running guard must fail before prompting, got: %v", ui.ConfirmCalls)
 	}
 }
+
+// TestSandboxRemoveArgValidation pins the argument rules: a plain remove needs
+// exactly one name, while --purge accepts at most one target (defaulting to the
+// cwd). An extra argument is rejected before any runtime access.
+func TestSandboxRemoveArgValidation(t *testing.T) {
+	t.Run("plain remove requires a name", func(t *testing.T) {
+		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--yes")
+		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		if err := cmd.Execute(); err == nil {
+			t.Fatal("plain sandbox remove without a name should fail")
+		}
+	})
+	t.Run("plain remove rejects a second name", func(t *testing.T) {
+		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--yes", "one", "two")
+		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		if err := cmd.Execute(); err == nil {
+			t.Fatal("plain sandbox remove with two names should fail")
+		}
+	})
+	t.Run("purge rejects a second target", func(t *testing.T) {
+		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--purge", "--yes", "one", "two")
+		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		if err := cmd.Execute(); err == nil {
+			t.Fatal("sandbox remove --purge with two targets should fail")
+		}
+	})
+}
