@@ -96,7 +96,7 @@ sources too. Compose expected URLs from `BaseURL` rather than a second literal.
 
 The package itself stays dependency-free, but `doctor` imports it, which puts `docslink` in the seam import chain:
 its `main_test.go` installs the wrapper's families minus `doctor` directly rather than importing
-`internal/testutil/mocks` (which would cycle) — see `specs/test-isolation.md`.
+`internal/testutil/mocks` (which would cycle) — see `specs/testing/test-isolation.md`.
 
 ## Checker behaviour
 

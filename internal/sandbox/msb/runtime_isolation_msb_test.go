@@ -81,7 +81,7 @@ func ensureIsolatedRuntime(t *testing.T) {
 // expiry, SIGINT, SIGKILL) exits without returning from m.Run(), so the sweep
 // cannot run and the sandbox's idle timeout is the backstop instead. The
 // harness suite guards the same failure with its sandbox sweep
-// (specs/harness-smoke-tests.md); this is the msb package's equivalent.
+// (specs/testing/harness-smoke-tests.md); this is the msb package's equivalent.
 //
 // Destroy stops and removes, because Remove requires an already-stopped
 // sandbox. A failure is returned rather than swallowed, naming the home and

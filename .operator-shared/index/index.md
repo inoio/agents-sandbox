@@ -50,7 +50,7 @@ read_if: Navigating the codebase.
 
 ### `test/harness/` — `msb`-tagged harness smoke tests
 
-- Starts every registered harness in a real microsandbox VM under a sized pty and asserts it reaches its TUI and exits (`harness.go` table, `pty.go` driver, `smoke_msb_test.go`; untagged unit tests for the table/pty). See `specs/harness-smoke-tests.md`.
+- Starts every registered harness in a real microsandbox VM under a sized pty and asserts it reaches its TUI and exits (`harness.go` table, `pty.go` driver, `smoke_msb_test.go`; untagged unit tests for the table/pty). See `specs/testing/harness-smoke-tests.md`.
 
 ### `docs/` — Jekyll documentation site (just-the-docs)
 

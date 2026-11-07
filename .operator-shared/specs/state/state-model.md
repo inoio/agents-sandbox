@@ -79,7 +79,7 @@ Correctness is structural, not per-call-site discipline: one locked transaction 
 - `offered_versions` does not survive a total state loss; the accepted cost is at most one extra ordinary upgrade prompt. No second document or `RootState` keyed by `(slug, agent)` is introduced.
 - The primitive is a function that scopes a lock, not a storage abstraction, repository pattern, or event log.
 
-Constraints: flock is not reentrant, so a single call path must never take the same key's lock twice; the root lock is held for a long time by an in-flight runtime-home copy campaign (minutes), so non-blocking acquirers must defer, not queue; many test packages seed state directly through the transaction API; the `testing/test-isolation.md` fail-fast seams and the near-100% coverage bar apply.
+Constraints: flock is not reentrant, so a single call path must never take the same key's lock twice; the root lock is held for a long time by an in-flight runtime-home copy campaign (minutes), so non-blocking acquirers must defer, not queue; many test packages seed state directly through the transaction API; the `../testing/test-isolation.md` fail-fast seams and the near-100% coverage bar apply.
 
 ### Home transaction
 

@@ -19,7 +19,7 @@ Deliberate exceptions (host paths that are not the tool's config and keep their 
 
 ### Test isolation
 
-Under tests `configpaths.Get()` defaults to a fail-fast implementation that panics on first use; a test exercising home-relative resolution installs `WithMockConfigPaths(t)` (which also redirects `$HOME` into its temp tree) or `WithMockConfigPathsHomeError(t, err)`. `homeconfig` and `runtime` tests that resolve the home via an empty or `~` manifest source therefore opt in explicitly. See `testing/test-isolation.md` for the full fail-fast and host-home-redirect contract, and `vm/reconfig-decision.md` for the spurious "agent config changed" prompt that motivated it.
+Under tests `configpaths.Get()` defaults to a fail-fast implementation that panics on first use; a test exercising home-relative resolution installs `WithMockConfigPaths(t)` (which also redirects `$HOME` into its temp tree) or `WithMockConfigPathsHomeError(t, err)`. `homeconfig` and `runtime` tests that resolve the home via an empty or `~` manifest source therefore opt in explicitly. See `../testing/test-isolation.md` for the full fail-fast and host-home-redirect contract, and `vm/reconfig-decision.md` for the spurious "agent config changed" prompt that motivated it.
 
 ## Ordered config scopes
 

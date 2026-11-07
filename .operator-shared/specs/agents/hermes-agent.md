@@ -110,7 +110,7 @@ Hermes's config home is **not** XDG: it is `HERMES_HOME` (default `/home/dev/.he
 - `ReadyMarker: "Hermes Agent v"` — the classic CLI's startup banner (`show_banner`), printed before it accepts input,
   readies the subtest; the version itself is not pinned.
 - `ReadyTimeout: heavyweightReadyTimeout` — a ceiling on the readiness wait (not a sleep); the runner image carries a
-  whole Python/Node tool store, so hermes' startup is the slowest (`harness-smoke-tests.md`).
+  whole Python/Node tool store, so hermes' startup is the slowest (`../testing/harness-smoke-tests.md`).
 - `SeedHomeFiles: {".hermes/config.yaml": …}` — a home config naming a dummy, loopback `custom` provider (and settling
   the shared-metrics offer) so hermes starts its classic CLI REPL. With no provider it stops at its first-run setup
   guard (`_first_run_setup_guard`), which always exits `1`; the seeded provider is what lets Ctrl-D exit `0`.
