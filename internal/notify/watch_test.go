@@ -7,6 +7,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -128,6 +129,32 @@ func TestWatchRetriesUntilCancelled(t *testing.T) {
 	}
 }
 
+// fakeWatchClock is a self-advancing watchClockSource: wait moves the clock
+// forward by the backoff instead of blocking, so a test measures the reconnect
+// gaps without waiting them out. now reads the current instant; the test can
+// advance it by hand to simulate a connection held open past longLived.
+type fakeWatchClock struct {
+	mu      sync.Mutex
+	current time.Time
+}
+
+func (c *fakeWatchClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.current
+}
+
+func (c *fakeWatchClock) wait(ctx context.Context, d time.Duration) bool {
+	c.advance(d)
+	return ctx.Err() == nil
+}
+
+func (c *fakeWatchClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.current = c.current.Add(d)
+}
+
 func TestWatchBackoffResetsAfterLongLived(t *testing.T) {
 	// longLived must sit well above a failing call's latency and well below the
 	// time the long-lived connection is held: a failing call that takes longer
@@ -143,12 +170,17 @@ func TestWatchBackoffResetsAfterLongLived(t *testing.T) {
 	}
 	defer func() { watchReconnectPolicy = orig }()
 
+	clock := &fakeWatchClock{current: time.Unix(0, 0)}
+	origClock := watchClock
+	watchClock = watchClockSource{now: clock.now, wait: clock.wait}
+	defer func() { watchClock = origClock }()
+
 	release := make(chan struct{})
 	invoked := make(chan time.Time, 8)
 	var call int
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 	sb.(*msb.MockSandbox).ShellStreamFn = func(string) (msb.StreamHandle, error) {
-		invoked <- time.Now()
+		invoked <- clock.now()
 		call++
 		switch {
 		case call <= 3:
@@ -157,7 +189,8 @@ func TestWatchBackoffResetsAfterLongLived(t *testing.T) {
 			// Long-lived connection: held open past longLived, then drops.
 			return &gateHandle{release: release, event: msb.StreamEvent{Kind: msb.StreamEventExited, ExitCode: 0}}, nil
 		default:
-			return failHandle{}, nil
+			// The reconnect after the reset stays open until the test cancels.
+			return &streamStub{}, nil
 		}
 	}
 
@@ -180,8 +213,8 @@ func TestWatchBackoffResetsAfterLongLived(t *testing.T) {
 	record("call 1")
 	record("call 2")
 	record("call 3")
-	record("call 4")                   // long-lived connection now being held
-	time.Sleep(250 * time.Millisecond) // exceed longLived (100ms)
+	record("call 4")                      // long-lived connection now being held
+	clock.advance(250 * time.Millisecond) // exceed longLived (100ms)
 	close(release)
 	record("call 5") // reconnect after the long-lived drop
 	cancel()

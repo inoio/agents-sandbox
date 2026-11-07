@@ -122,6 +122,26 @@ func (f *CallbackForwarder) Forward(ctx context.Context, redirect LoopbackRedire
 	return nil
 }
 
+// forwardTimer is the lifetime timer forwardLifetime waits on, behind an
+// interface so a test can drive expiry or a reset without real time. Production
+// uses a real *time.Timer.
+type forwardTimer interface {
+	channel() <-chan time.Time
+	reset(time.Duration)
+	stop()
+}
+
+type realForwardTimer struct{ timer *time.Timer }
+
+func (t *realForwardTimer) channel() <-chan time.Time { return t.timer.C }
+func (t *realForwardTimer) reset(d time.Duration)     { t.timer.Reset(d) }
+func (t *realForwardTimer) stop()                     { t.timer.Stop() }
+
+// newForwardTimer is a test seam; production starts a real timer.
+var newForwardTimer = func(d time.Duration) forwardTimer {
+	return &realForwardTimer{timer: time.NewTimer(d)}
+}
+
 // forwardLifetime closes a forward after its lifetime, once the callback was
 // answered (done fires), or when ctx ends. A reused forward pushes to extend,
 // which restarts the lifetime so a login that replaced an abandoned one is not
@@ -133,14 +153,14 @@ func (f *CallbackForwarder) forwardLifetime(
 	server *http.Server,
 	port int,
 ) {
-	timer := time.NewTimer(f.lifetime)
-	defer timer.Stop()
+	timer := newForwardTimer(f.lifetime)
+	defer timer.stop()
 	for {
 		select {
 		case <-done.Done():
-		case <-timer.C:
+		case <-timer.channel():
 		case <-forward.extend:
-			timer.Reset(f.lifetime)
+			timer.reset(f.lifetime)
 			continue
 		}
 		if f.retire(ctx, done, forward, server, port, timer) {
@@ -160,14 +180,14 @@ func (f *CallbackForwarder) retire(
 	forward *activeForward,
 	server *http.Server,
 	port int,
-	timer *time.Timer,
+	timer forwardTimer,
 ) bool {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 	if done.Err() == nil {
 		select {
 		case <-forward.extend:
-			timer.Reset(f.lifetime)
+			timer.reset(f.lifetime)
 			return false
 		default:
 		}
