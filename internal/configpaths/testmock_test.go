@@ -217,6 +217,30 @@ func TestWithMockConfigPathsHomeErrorRestoresGet(t *testing.T) {
 	}
 }
 
+// TestMockAccessorsAreStableAcrossCalls pins the contract the create-once
+// optimization must preserve: a repeated accessor call returns the same path
+// and that path still exists. It is the guard for the per-mock directory cache,
+// which skips the redundant os.MkdirAll on the second call.
+func TestMockAccessorsAreStableAcrossCalls(t *testing.T) {
+	WithMockConfigPaths(t)
+	paths := Get()
+
+	for name, accessor := range map[string]func() string{
+		"UserConfigDir": paths.UserConfigDir,
+		"UserCacheDir":  paths.UserCacheDir,
+		"UserStateDir":  paths.UserStateDir,
+		"UserDataDir":   paths.UserDataDir,
+	} {
+		first := accessor()
+		if second := accessor(); second != first {
+			t.Errorf("%s returned %q then %q, want a stable path", name, first, second)
+		}
+		if info, err := os.Stat(first); err != nil || !info.IsDir() {
+			t.Errorf("%s path %q does not exist after repeated calls (stat err = %v)", name, first, err)
+		}
+	}
+}
+
 func TestCreateDirCreatesAndReturnsTheDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "userconfig", "opencode")
 
