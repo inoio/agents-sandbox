@@ -207,7 +207,7 @@ through its leftover volume. The list is read-only: batch `prune` never deletes 
 The summary line reads `Pruned N VMs, N home volumes, N docker images, N msb images`; the home-volume count is always
 `0` here. When the runtime reclaims runtime RAM or reports native image-prune data, following `runtime memory:` and
 `image data:` lines carry the file and byte counts, and a line reports reclaimed internal state (unheld claims, stale
-client leases, state files that recorded no surviving volume, and empty slug directories) when any was swept. A byte
+client leases, state files that recorded no home volume, and empty slug directories) when any was swept. A byte
 count the runtime cannot measure renders as unknown (`-`), never `0`.
 
 The runtime-memory phase reclaims the published branch/snapshot memory backings that no live VM holds, gated by the same
