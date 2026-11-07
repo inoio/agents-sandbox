@@ -145,10 +145,12 @@ them; because that native prune reclaims any image no sandbox references, a `run
 to keep the image it is about to load, and only an explicit `image prune` runs it. See
 [Commands]({% link commands.md %}) for details on the prune command.
 
-agents-sandbox also auto-prunes all resources that are ephemeral, unused or haven't been in use for more than 30 days by
-default. Cached runner images and home volumes are only pruned once they are older than the threshold, so a recently
-used project keeps its image and home state across restarts. See [Sandboxes]({% link sandboxes.md %}) for more
-information
+agents-sandbox also auto-prunes, at the start of `run` and `shell`, the resources that are ephemeral, unused or
+haven't been in use for more than 30 days by default (`auto-prune-age`). Cached runner images and dangling Docker
+images are reclaimed only once they are older than the threshold, so a recently used project keeps its image across
+restarts. Auto-prune is the safe tier: it never removes a home volume — a project's home state survives pruning and is
+deleted only by `volume prune` or `prune --purge`. The Docker-image pass honors the same `--older-than` threshold and is
+previewed by `--dry-run`. See [Sandboxes]({% link sandboxes.md %}#pruning) for the pruning model
 and [Configuration]({% link configuration/index.md %}) for how to configure auto-pruning.
 
 ## Home directory

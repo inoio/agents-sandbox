@@ -16,7 +16,20 @@ type StaleReport struct {
 	SkippedImagesInUse  uint32
 	ImageBytesReclaimed *uint64
 	Storage             StorageReport
+	State               StateSweepReport
 	Details             []StaleEntry
+}
+
+// StateSweepReport summarizes a safe-tier internal-state reclaim run: how many
+// unheld claims, stale client leases and no-volume state files were removed,
+// how many volume-recording states were kept (never reclaimed in this tier),
+// and how many slug dirs were emptied and removed.
+type StateSweepReport struct {
+	ClaimsRemoved   int
+	LeasesRemoved   int
+	StatesRemoved   int
+	StaleStatesKept int
+	DirsRemoved     int
 }
 
 // StorageReport summarizes a runtime-memory reclaim run. PhysicalBytesReclaimed

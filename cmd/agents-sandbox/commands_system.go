@@ -489,36 +489,67 @@ func buildSandboxCmd(ui termio.UI) *cobra.Command {
 	return cmd
 }
 
-// buildSandboxRemoveCmd builds `sandbox remove <name>`, which removes a project
+// buildSandboxRemoveCmd builds `sandbox remove [name]`, which removes a project
 // VM by name. It refuses a running VM unless --force is set (which stops it
 // first); the persisted project state is left intact so the next run reuses the
-// recorded home volume.
-func buildSandboxRemoveCmd(ui termio.Prompter) *cobra.Command {
-	var force bool
+// recorded home volume. With --purge it removes the whole project instead: the
+// name (a project slug or a <slug>-<agent> key) is optional and defaults to the
+// current checkout, and the shared purge engine removes the project's VMs, home
+// volumes, runner images, state and claims after a single confirmation.
+func buildSandboxRemoveCmd(ui purgeUI) *cobra.Command {
+	var (
+		force bool
+		purge bool
+	)
 	cmd := &cobra.Command{
-		Use:     cmdRemove + " <name>",
+		Use:     cmdRemove + " [name]",
 		Aliases: cmdRemoveAliases,
-		Args:    cobra.ExactArgs(1),
+		Args:    sandboxRemoveArgs,
 		Short:   "Remove a project sandbox VM by name",
 		Long: "Remove an agents-sandbox project VM. Refuses a running VM unless --force is set, " +
-			"which stops it first. The project's persisted state is left intact. Prompts unless --yes is set.",
+			"which stops it first. The project's persisted state is left intact. Prompts unless --yes is set. " +
+			"With --purge the optional name is a project slug or a <slug>-<agent> key, defaulting to the " +
+			"current checkout, and the project's state, home volumes, runner images and sandboxes are removed too.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sandbox.RemoveSandbox(cmd.Context(), args[0], force, ui)
+			if !purge {
+				return sandbox.RemoveSandbox(cmd.Context(), args[0], force, ui)
+			}
+			target := ""
+			if len(args) == 1 {
+				target = args[0]
+			}
+			return runProjectPurge(cmd, ui, cliout.ModeTable, false, force, target)
 		},
 	}
 	cmd.Flags().BoolVarP(&force, flagForce, flagForce[:1], false, "Remove a running VM (stopping it first)")
+	cmd.Flags().BoolVar(&purge, flagPurge, false,
+		"Purge the project's artifacts (state, home volumes, runner images, sandboxes) instead of one VM")
 	return cmd
+}
+
+// sandboxRemoveArgs requires exactly one argument unless --purge is set, where
+// the target is optional and an omitted one resolves from the cwd.
+func sandboxRemoveArgs(cmd *cobra.Command, args []string) error {
+	if purge, _ := cmd.Flags().GetBool(flagPurge); purge {
+		return cobra.MaximumNArgs(1)(cmd, args)
+	}
+	return cobra.ExactArgs(1)(cmd, args)
 }
 
 func buildPruneCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   cmdPrune,
-		Args:  cobra.NoArgs,
-		Short: "Prune stale VMs, volumes, and images",
+		Use:   cmdPrune + " [target]",
+		Args:  cobra.MaximumNArgs(1),
+		Short: "Prune stale VMs, images, and internal state",
+		Long: "Prune stale runtime objects. Without --purge this is list-and-prune only: it never " +
+			"removes a home volume or a retired project's state, and lists the retired projects it " +
+			"observes with a hint to purge them. With --purge it removes one project's artifacts " +
+			"(its VMs, home volumes, runner images, state and claims); the optional target is a " +
+			"project slug or a <slug>-<agent> key, defaulting to the current checkout.",
 		Annotations: map[string]string{
 			annotationAlsoAs: cmdStorage + " " + cmdPrune,
 		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			age, dryRun, err := resolvePruneFlags(cmd)
 			if err != nil {
 				return err
@@ -527,19 +558,20 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err = confirmPrune(ui, dryRun); err != nil {
-				return err
+			if cmd.Flags().Changed(flagPurge) {
+				return runPrunePurge(cmd, ui, mode, dryRun, purgeTarget(cmd, args))
 			}
-			report, pruneErr := pruning.Prune(cmd.Context(), docker.Get(), age, dryRun, ui)
-			if report != nil {
-				cliout.RenderPruneReport(ui, mode,
-					func() { pruning.RenderPruneSummary(ui, report, dryRun) },
-					view.NewPruneReportJSON(report, dryRun))
+			if len(args) > 0 {
+				return fmt.Errorf("unexpected argument %q: pass --purge to purge a project", args[0])
 			}
-			return pruneErr
+			return runPruneBatch(cmd, ui, mode, age, dryRun)
 		},
 	}
 	setPruneFlags(cmd)
+	cmd.Flags().String(flagPurge, "",
+		"Purge a retired project instead of pruning (optional <slug> or <slug>-<agent>; default: current checkout)")
+	cmd.Flags().Lookup(flagPurge).NoOptDefVal = purgeCwdTarget
+	cmd.Flags().BoolP(flagForce, flagForce[:1], false, "Purge a project even when one of its sandboxes is running")
 	return cmd
 }
 

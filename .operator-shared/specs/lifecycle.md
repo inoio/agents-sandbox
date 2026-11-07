@@ -77,10 +77,15 @@ under `--dry-run`.
 **`upgrade-check`.** Offers, performs or announces a launcher self-upgrade (`self-upgrade-channels.md`); an
 upgrade-and-exit ends the invocation here. Skipped under `--dry-run` for both `run` and `shell`.
 
-**`prune`.** Reclaims stale VMs, home volumes and runner images once per process under the liveness rules below,
-passing the current invocation's keys as `RetainKeys`. It runs before `resolve-identity`, so it pre-resolves those keys
-itself (`currentRunImageKeys`: the checkout slug plus the legacy repo slugs, best effort, nothing retained on failure);
-`resolve-identity` stays the authority for the key the rest of the run uses. Under `--dry-run` it only reports.
+**`prune`.** Reclaims stale VMs, runner images, dangling Docker images, runtime RAM, and stale internal state once per
+process under the liveness rules below, passing the current invocation's keys as `RetainKeys`. It is the **safe tier**:
+it never removes a home volume or the state that points at a surviving one, and it only lists retired projects rather
+than deleting them. The volume phase lives in `PruneVolumes`, reachable only from `volume prune`, so auto-prune and
+batch `prune` can never destroy a home volume; the explicit purge removes a planned volume by name (`RemoveVolume`). It
+runs before `resolve-identity`, so it pre-resolves
+those keys itself (`currentRunImageKeys`: the checkout slug plus the legacy repo slugs, best effort, nothing retained on
+failure); `resolve-identity` stays the authority for the key the rest of the run uses. Under `--dry-run` it only
+reports.
 
 **`resolve-identity`.** Looks up the agent, resolves the workspace identity (`git.ResolveIdentity`: bind root, repo
 slug, checkout slug) and adopts a legacy origin-keyed identity (`AdoptLegacyIdentity`) before any artifact is touched,
@@ -185,7 +190,7 @@ artifact kind applies the principle as follows:
 | Artifact     | Reclaimed when                                                                                       | Retained by                                                                     |
 |--------------|-------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------|
 | Runner image | not retained, and its key is in `ToPrune`, it parses no agent, or it was last used beyond the age (`keepImage`) | a kept VM's config holds it; its key is in `RetainKeys`; used within the age, unless its key is in `ToPrune` |
-| Home volume  | its key is in `ToPrune` and no state file references it (`PruneVolumes`)                               | any key not in `ToPrune` (VM-less included); a referencing `HomeState`           |
+| Home volume  | its key is in `ToPrune` and no state file references it — in `volume prune` only (`PruneVolumes`); the purge removes a planned volume by name (`RemoveVolume`), never the `prune` stage | any key not in `ToPrune` (VM-less included); a referencing `HomeState`           |
 | Project VM   | stopped and older than the age — including the current invocation's own VM                             | running, or stopped within the age                                              |
 | Runtime memory backings | older than the age (`PruneStorage`, the runtime's own age-based sweep) | newer than the age; not key-aware |
 | Task sandbox | stopped                                                                                               | running; never counts toward its project's liveness                             |
@@ -239,6 +244,9 @@ A change to any stage must keep all of these. Each names the spec that owns the 
   never re-decides it.
 - A run never reclaims the runner image or the home volume it is about to use (Liveness;
   `image-ref-content-addressing.md`).
+- The `prune` stage is the safe tier: it never removes a home volume or the state that points at a surviving one, and it
+  only lists retired projects. The approval-gated volume phase is reachable only from `volume prune` and the purge
+  (`runtime-management-commands.md`).
 - A project with no VM is not yet retired (Liveness).
 - The image's `agent-version` label is the version authority; a cache that disagrees is rewritten, never built toward
   (`agent-version-sync.md`).

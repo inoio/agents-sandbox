@@ -92,6 +92,45 @@ func TestResolvePruneAgeErrorReturnsZero(t *testing.T) {
 	})
 }
 
+// TestResolvePruneAgeRejectsZero pins that a parsed non-positive duration is
+// rejected with the config-validation error pattern, and that the returned
+// duration is zero.
+func TestResolvePruneAgeRejectsZero(t *testing.T) {
+	for _, age := range []string{"0", "0d", "0w", "0s", "0h", "0m", "0ns"} {
+		cmd := buildPruneCmd(&termio.Mock{})
+		_ = cmd.Flags().Set(flagOlderThan, age)
+		got, err := resolvePruneAge(cmd)
+		if err == nil {
+			t.Errorf("age %q: expected a non-positive-age error", age)
+			continue
+		}
+		if !strings.Contains(err.Error(), "must be > 0") {
+			t.Errorf("age %q: error %q does not match the config-validation pattern", age, err)
+		}
+		if got != 0 {
+			t.Errorf("age %q: duration = %v, want 0 on error", age, got)
+		}
+	}
+}
+
+// TestResolvePruneAgeAcceptsOneNanosecond pins that a one-nanosecond age on the
+// flag path is accepted and returned unchanged. Only-zero inputs cannot
+// distinguish the guard's integer bound, so this kills the boundary mutants
+// (d <= 0 -> d <= 1 and d <= 0 -> d == 0) that TestResolvePruneAgeRejectsZero
+// leaves alive; TestResolvePruneAgeSmallPositiveResolverValue covers only the
+// resolver path, not this guard.
+func TestResolvePruneAgeAcceptsOneNanosecond(t *testing.T) {
+	cmd := buildPruneCmd(&termio.Mock{})
+	_ = cmd.Flags().Set(flagOlderThan, "1ns")
+	got, err := resolvePruneAge(cmd)
+	if err != nil {
+		t.Fatalf("resolvePruneAge: %v", err)
+	}
+	if got != time.Nanosecond {
+		t.Errorf("resolvePruneAge = %v, want 1ns", got)
+	}
+}
+
 // TestResolvePruneFlagsErrorReturnsZero pins the error return's zero age and
 // false dry-run.
 func TestResolvePruneFlagsErrorReturnsZero(t *testing.T) {
@@ -150,6 +189,7 @@ type pruneJSONReport struct {
 	RuntimeLogicalBytesRemoved    uint64            `json:"runtime_logical_bytes_removed"`
 	RuntimePhysicalBytesReclaimed *uint64           `json:"runtime_physical_bytes_reclaimed"`
 	Details                       []pruneJSONDetail `json:"details"`
+	RetiredProjects               []string          `json:"retired_projects"`
 }
 
 func unmarshalPruneJSON(t *testing.T, outCalls []string) pruneJSONReport {
@@ -218,16 +258,17 @@ func recentMsbImg(ref string) sandboxmsb.ImageHandle {
 }
 
 // staleSummary returns the aggregate prune summary line for the given counts.
-func staleSummary(dryRun string, vms, vols, msbImgs int) string {
-	return fmt.Sprintf("%s %d VMs, %d home volumes, 0 docker images, %d msb images",
-		dryRun, vms, vols, msbImgs)
+// Batch prune never reclaims a home volume, so the volume count is always 0.
+func staleSummary(dryRun string, vms, msbImgs int) string {
+	return fmt.Sprintf("%s %d VMs, 0 home volumes, 0 docker images, %d msb images",
+		dryRun, vms, msbImgs)
 }
 
 func TestPrune(t *testing.T) {
 	t.Run("no stale items", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
-				runPruneTest(t, flags, nil, staleSummary("Pruned", 0, 0, 0))
+				runPruneTest(t, flags, nil, staleSummary("Pruned", 0, 0))
 			})
 		}
 	})
@@ -245,7 +286,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("agents-sandbox/runner-projectname-1mjusbm3wikhb0:xyz789"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, staleSummary("dry-run: Would prune", 1, 1, 1))
+				}, staleSummary("dry-run: Would prune", 1, 1))
 			})
 		}
 	})
@@ -270,7 +311,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("agents-sandbox/runner-second-1mjusbm3wikhb0:v1"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, staleSummary("Pruned", 2, 1, 1))
+				}, staleSummary("Pruned", 2, 1))
 			})
 		}
 	})
@@ -282,7 +323,7 @@ func TestPrune(t *testing.T) {
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 			})
-		}, staleSummary("Pruned", 1, 0, 0))
+		}, staleSummary("Pruned", 1, 0))
 	})
 
 	t.Run("invalid age error", func(t *testing.T) {
@@ -324,7 +365,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("agents-sandbox/runner-projectname-1mjusbm3wikhb0:v2"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, staleSummary("Pruned", 2, 1, 1))
+				}, staleSummary("Pruned", 2, 1))
 			})
 		}
 	})
@@ -353,7 +394,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						recentMsbImg("agents-sandbox/runner-activeproject-1mjusbm3wikhb0:opencode-latest"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, staleSummary("Pruned", 1, 0, 0))
+				}, staleSummary("Pruned", 1, 0))
 			})
 		}
 	})
@@ -372,7 +413,7 @@ func TestPrune(t *testing.T) {
 					m.Images = append(m.Images,
 						msbImg("agents-sandbox/runner-projectname-1mjusbm3wikhb0:v2"))
 					sandboxmsb.WithMsbMock(t, m)
-				}, staleSummary("Pruned", 1, 1, 1))
+				}, staleSummary("Pruned", 1, 1))
 			})
 		}
 	})
@@ -431,7 +472,7 @@ func TestPruneDryRunSkipsConfirmation(t *testing.T) {
 	if vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
 		t.Error("dry-run must not remove anything")
 	}
-	if !slices.Contains(ui.OutCalls, staleSummary("dry-run: Would prune", 1, 0, 0)) {
+	if !slices.Contains(ui.OutCalls, staleSummary("dry-run: Would prune", 1, 0)) {
 		t.Errorf("expected dry-run preview, got: %v", ui.OutCalls)
 	}
 }
@@ -470,14 +511,14 @@ func TestPruneFormatJSON(t *testing.T) {
 	}
 
 	got := unmarshalPruneJSON(t, ui.OutCalls)
-	if got.Sandboxes != 1 || got.Volumes != 1 || got.Images != 1 || got.DockerImages != 0 {
+	if got.Sandboxes != 1 || got.Volumes != 0 || got.Images != 1 || got.DockerImages != 0 {
 		t.Errorf("unexpected counts: %+v", got)
 	}
 	if got.DryRun {
 		t.Error("dry_run = true, want false")
 	}
-	if len(got.Details) != 3 {
-		t.Fatalf("expected 3 details, got %d: %+v", len(got.Details), got.Details)
+	if len(got.Details) != 2 {
+		t.Fatalf("expected 2 details, got %d: %+v", len(got.Details), got.Details)
 	}
 	for _, detail := range got.Details {
 		if detail.Type == "" || detail.Name == "" || detail.Slug == "" {
@@ -646,8 +687,12 @@ func TestPruneQuietSuppressesOutput(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(ui.OutCalls) != 0 {
-		t.Errorf("quiet prune should write no stdout, got: %v", ui.OutCalls)
+	// A batch prune's summary renders through the quiet-gated Outf/Out, so the
+	// production printer emits nothing; the mock still records the renderer's
+	// calls. The invariant under --quiet is that nothing reaches the
+	// quiet-immune Print channel (which the purge plan alone uses).
+	if len(ui.PrintCalls) != 0 {
+		t.Errorf("quiet prune must not write through the quiet-immune channel, got: %v", ui.PrintCalls)
 	}
 }
 
@@ -664,8 +709,8 @@ func TestPruneEnvQuietSuppressesOutput(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(ui.OutCalls) != 0 {
-		t.Errorf("env quiet prune should write no stdout, got: %v", ui.OutCalls)
+	if len(ui.PrintCalls) != 0 {
+		t.Errorf("env quiet prune must not write through the quiet-immune channel, got: %v", ui.PrintCalls)
 	}
 }
 
@@ -684,7 +729,7 @@ func TestPrunePartialErrorRendersReport(t *testing.T) {
 	if !errors.Is(err, errBoom) {
 		t.Fatalf("expected joined prune error, got: %v", err)
 	}
-	if !slices.Contains(ui.OutCalls, staleSummary("Pruned", 1, 0, 0)) {
+	if !slices.Contains(ui.OutCalls, staleSummary("Pruned", 1, 0)) {
 		t.Errorf("expected partial summary despite error, got: %v", ui.OutCalls)
 	}
 }
@@ -714,7 +759,7 @@ func TestPruneOlderThan(t *testing.T) {
 			Status_:    msb.SandboxStatusStopped,
 			UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 		})
-	}, staleSummary("Pruned", 1, 0, 0))
+	}, staleSummary("Pruned", 1, 0))
 }
 
 func TestPruneOlderThanInvalid(t *testing.T) {
@@ -733,7 +778,7 @@ func TestPruneAgeDeprecated(t *testing.T) {
 			Status_:    msb.SandboxStatusStopped,
 			UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 		})
-	}, staleSummary("Pruned", 1, 0, 0))
+	}, staleSummary("Pruned", 1, 0))
 
 	cmd, _ := setupCommandFixtures(t, "prune")
 	pruneCmd, _, err := cmd.Find([]string{cmdPrune})
@@ -825,6 +870,263 @@ func TestPruneCatalogError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected 'boom' error, got: %v", err)
+	}
+}
+
+// purgeTestSlug is a hash-anchored project slug for the purge tests: the
+// embedded 14-character base36 hash is what naming.ParseProjectTarget and the
+// ownership predicates recognise. purgeTestAgent is the single agent its
+// artifact names carry.
+const (
+	purgeTestSlug  = "projname-1mjusbm3wikhb0"
+	purgeTestAgent = "opencode"
+)
+
+// homeVolumeNameFor builds the home-volume name a slug owns under purgeTestAgent.
+func homeVolumeNameFor(slug string) string {
+	return slug + "-" + purgeTestAgent + "-20260806T143022"
+}
+
+func TestPrunePurgeRejectsRunningSandboxWithoutForce(t *testing.T) {
+	running := mkActiveVM(purgeTestSlug)
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, running)
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--purge", purgeTestSlug, "--yes")
+	sandboxmsb.WithMsbMock(t, m)
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("expected a --force hint error, got: %v", err)
+	}
+	if running.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+		t.Error("a refused purge must not remove the running sandbox")
+	}
+	if len(ui.ConfirmCalls) != 0 {
+		t.Errorf("the running-sandbox guard must fail before prompting, got: %v", ui.ConfirmCalls)
+	}
+}
+
+func TestPrunePurgeRemovesProjectArtifacts(t *testing.T) {
+	volumeName := homeVolumeNameFor(purgeTestSlug)
+
+	cmd, _ := setupCommandFixtures(t, "prune", "--purge="+purgeTestSlug, "--yes")
+	if err := seedHomeState(
+		state.Key{Slug: purgeTestSlug, Agent: purgeTestAgent},
+		state.HomeState{HomeVolume: volumeName},
+	); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+
+	imageRef := purgeTestSlug + ":" + purgeTestAgent + "-latest"
+	vm := mkStoppedVM(purgeTestSlug)
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, vm)
+	m.Volumes = append(m.Volumes, homeVol(volumeName))
+	m.Images = append(m.Images, msbImg(imageRef))
+	sandboxmsb.WithMsbMock(t, m)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !slices.Contains(m.RemovedVolumes, volumeName) {
+		t.Errorf("expected volume %q removed, got: %v", volumeName, m.RemovedVolumes)
+	}
+	if len(m.RemovedImages) != 1 || m.RemovedImages[0].Ref != imageRef {
+		t.Errorf("expected image %q removed, got: %+v", imageRef, m.RemovedImages)
+	}
+	if !vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+		t.Error("expected the sandbox removed")
+	}
+	key := state.Key{Slug: purgeTestSlug, Agent: purgeTestAgent}
+	if _, err := state.StateFileModTime(key); !errors.Is(err, state.ErrStateNotFound) {
+		t.Errorf("expected the state file removed, got: %v", err)
+	}
+}
+
+// TestPrunePurgeQuietNamesVolumes proves a targeted purge names the home volume
+// it will delete even under --quiet: the plan is written through the
+// quiet-immune Print channel before the confirmation, so a user can never
+// approve deleting a volume that was never named.
+func TestPrunePurgeQuietNamesVolumes(t *testing.T) {
+	volumeName := homeVolumeNameFor(purgeTestSlug)
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--purge="+purgeTestSlug, "--quiet")
+	ui.IsInteractiveResult = true
+	ui.ConfirmResult = true
+
+	if err := seedHomeState(
+		state.Key{Slug: purgeTestSlug, Agent: purgeTestAgent},
+		state.HomeState{HomeVolume: volumeName},
+	); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+	m := &sandboxmsb.MockMsbClient{}
+	m.Volumes = append(m.Volumes, homeVol(volumeName))
+	sandboxmsb.WithMsbMock(t, m)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ui.ConfirmCalls) == 0 {
+		t.Fatal("expected the purge to prompt for confirmation")
+	}
+	if !slices.Contains(ui.PrintCalls, "    - "+volumeName) {
+		t.Errorf("quiet purge must name the volume via Print before the prompt; PrintCalls=%v", ui.PrintCalls)
+	}
+	if len(ui.OutCalls) != 0 {
+		t.Errorf("quiet purge must not write table output, got OutCalls=%v", ui.OutCalls)
+	}
+}
+
+// TestPrunePurgeFormatJSONOmitsHumanPlan proves --format json emits only the
+// structured plan: the human "Purge will remove:" text is never mixed into the
+// JSON stream.
+func TestPrunePurgeFormatJSONOmitsHumanPlan(t *testing.T) {
+	volumeName := homeVolumeNameFor(purgeTestSlug)
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--purge="+purgeTestSlug, "--format", "json", "--yes")
+	if err := seedHomeState(
+		state.Key{Slug: purgeTestSlug, Agent: purgeTestAgent},
+		state.HomeState{HomeVolume: volumeName},
+	); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+	m := &sandboxmsb.MockMsbClient{}
+	m.Volumes = append(m.Volumes, homeVol(volumeName))
+	sandboxmsb.WithMsbMock(t, m)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	if !strings.Contains(joined, `"volumes"`) || !strings.Contains(joined, volumeName) {
+		t.Errorf("expected the volume in the JSON plan, got OutCalls=%v", ui.OutCalls)
+	}
+	if strings.Contains(joined, "Purge will remove:") {
+		t.Errorf("JSON purge must not emit the human plan, got OutCalls=%v", ui.OutCalls)
+	}
+	if len(ui.PrintCalls) != 0 {
+		t.Errorf("JSON purge must not write through the quiet-immune channel, got PrintCalls=%v", ui.PrintCalls)
+	}
+}
+
+func TestPruneBatchListsRetiredProjectsWithoutDeletingVolumes(t *testing.T) {
+	const retireSlug = "retireme-1mjusbm3wikhb0"
+	volumeName := homeVolumeNameFor(retireSlug)
+	// A stale stopped VM puts the slug's key in the retire set, so a
+	// re-enabled volume phase would delete volumeName; the assertion below that
+	// RemovedVolumes stays empty is what catches it.
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
+		Name_:      "agents-sandbox-vm-" + retireSlug,
+		Status_:    msb.SandboxStatusStopped,
+		UpdatedAt_: oldArtifactTime(),
+	})
+	m.Volumes = append(m.Volumes, homeVol(volumeName))
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--yes")
+	sandboxmsb.WithMsbMock(t, m)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(m.RemovedVolumes) != 0 {
+		t.Errorf("batch prune must never delete a home volume, got: %v", m.RemovedVolumes)
+	}
+	if !slices.ContainsFunc(ui.OutCalls, func(s string) bool {
+		return strings.Contains(s, "prune --purge "+retireSlug)
+	}) {
+		t.Errorf("expected a purge hint for %s, got: %v", retireSlug, ui.OutCalls)
+	}
+
+	jsonCmd, jsonUI := setupCommandFixtures(t, "prune", "--format", "json", "--yes")
+	sandboxmsb.WithMsbMock(t, m)
+	if err := jsonCmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := unmarshalPruneJSON(t, jsonUI.OutCalls); !slices.Contains(got.RetiredProjects, retireSlug) {
+		t.Errorf("retired_projects = %v, want %q", got.RetiredProjects, retireSlug)
+	}
+}
+
+func TestPrunePurgeDryRunDoesNotPromptOrDelete(t *testing.T) {
+	vm := mkStoppedVM(purgeTestSlug)
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, vm)
+	m.Volumes = append(m.Volumes, homeVol(homeVolumeNameFor(purgeTestSlug)))
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--purge", purgeTestSlug, "--dry-run")
+	sandboxmsb.WithMsbMock(t, m)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ui.ConfirmCalls) != 0 {
+		t.Errorf("dry-run must not prompt, got: %v", ui.ConfirmCalls)
+	}
+	if vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+		t.Error("dry-run must not remove the sandbox")
+	}
+	if len(m.RemovedVolumes) != 0 {
+		t.Errorf("dry-run must not remove volumes, got: %v", m.RemovedVolumes)
+	}
+	if !slices.ContainsFunc(ui.PrintCalls, func(s string) bool { return strings.Contains(s, "would remove") }) {
+		t.Errorf("expected the purge preview, got: %v", ui.PrintCalls)
+	}
+}
+
+func TestPrunePurgeNonInteractiveWithoutYesFailsFast(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		extra []string
+	}{
+		{name: "without-force"},
+		{name: "with-force", extra: []string{"--force"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vm := mkStoppedVM(purgeTestSlug)
+			m := &sandboxmsb.MockMsbClient{}
+			m.Sandboxes = append(m.Sandboxes, vm)
+			m.Volumes = append(m.Volumes, homeVol(homeVolumeNameFor(purgeTestSlug)))
+
+			args := append([]string{"prune", "--purge", purgeTestSlug}, tc.extra...)
+			cmd, _ := setupCommandFixtures(t, args...)
+			sandboxmsb.WithMsbMock(t, m)
+
+			err := cmd.Execute()
+			if !errors.Is(err, termio.ErrConfirmationRequired) {
+				t.Fatalf("expected ErrConfirmationRequired, got: %v", err)
+			}
+			if vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+				t.Error("a failed confirmation must not remove the sandbox")
+			}
+			if len(m.RemovedVolumes) != 0 {
+				t.Errorf("a failed confirmation must not remove volumes, got: %v", m.RemovedVolumes)
+			}
+		})
+	}
+}
+
+// TestPrunePurgeForceStopsRunningSandbox pins that --force overrides the
+// running-sandbox guard by stopping the VM before removing it, while --yes
+// remains the separate authorization for the prompt.
+func TestPrunePurgeForceStopsRunningSandbox(t *testing.T) {
+	running := mkActiveVM(purgeTestSlug)
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, running)
+
+	cmd, _ := setupCommandFixtures(t, "prune", "--purge", purgeTestSlug, "--force", "--yes")
+	sandboxmsb.WithMsbMock(t, m)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !running.(*sandboxmsb.MockSandboxHandle).DidStop {
+		t.Error("expected the running sandbox stopped before removal")
+	}
+	if !running.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+		t.Error("expected the running sandbox removed with --force")
 	}
 }
 

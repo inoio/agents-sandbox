@@ -371,7 +371,7 @@ func TestStoragePruneDryRun(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("storage prune --dry-run: %v", err)
 	}
-	if !slices.Contains(ui.OutCalls, staleSummary("dry-run: Would prune", 0, 0, 0)) {
+	if !slices.Contains(ui.OutCalls, staleSummary("dry-run: Would prune", 0, 0)) {
 		t.Errorf("storage prune output = %v, want the prune summary", ui.OutCalls)
 	}
 }

@@ -41,6 +41,21 @@ func IsLegacyHomeVolume(name string) bool {
 	return strings.HasPrefix(name, LegacyHomePrefix)
 }
 
+// IsLauncherSandbox reports whether a sandbox belongs to agents-sandbox. It is
+// true when the labels carry a launcher slug, when the name is a legacy-prefixed
+// launcher sandbox, or when the name parses to a hash-anchored project slug. A
+// foreign sandbox created directly with msb — a name without the launcher's
+// 14-character slug hash — is not owned.
+func IsLauncherSandbox(name string, labels map[string]string) bool {
+	if labels[LabelSlug] != "" {
+		return true
+	}
+	if IsLegacyLauncherSandbox(name) {
+		return true
+	}
+	return slugEmbedsHash(SandboxIdentity(name, labels).Slug)
+}
+
 // SandboxIdentity resolves a sandbox's project key and kind. Labels the launcher
 // writes are authoritative; a sandbox created before they existed falls back to
 // the name heuristic (ParseVMName plus the legacy task marker). A nil labels map

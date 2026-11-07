@@ -8,49 +8,59 @@ import (
 	"github.com/inoio/agents-sandbox/internal/humanize"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 // MsbClient is a type alias for msb.Client, matching the original sandbox-level alias.
 type MsbClient = msb.Client
 
-// Prune orchestrates all three pruners against one shared snapshot and returns a
-// merged report. Task sandboxes count into PrunedVMs.
+// Prune orchestrates the safe-tier pruners against one shared snapshot and
+// returns a merged report. Task sandboxes count into PrunedVMs.
 //
-// The keep-set comes from the snapshot taken before pruning runs, so a stale VM's
-// home volumes and images are reclaimed even if the VM's own removal fails.
-// retain names the keys the current invocation is about to use (a `run`/`shell`
+// The keep-set comes from the snapshot taken before pruning runs.
+// opts.Retain names the keys the current invocation is about to use (a `run`/`shell`
 // passes its own project key): their images survive regardless of VM liveness or
 // age, so a run's startup prune never reclaims the image it is about to import.
+//
+// Prune never removes a home volume. The volume phase is unreachable here by
+// design: it lives in PruneVolumes, which only the `volume prune` command calls,
+// so batch and auto-prune can never destroy one. StaleReport.PrunedVolumes
+// therefore stays zero.
 func Prune(
 	ctx context.Context,
 	dclient docker.Client,
-	threshold time.Duration,
-	dryRun bool,
+	opts PruneOptions,
 	ui termio.UI,
-	retain ...state.Key,
 ) (*StaleReport, error) {
-	pruneState, err := buildPruneState(ctx, threshold, retain...)
+	pruneState, err := buildPruneState(ctx, opts.Age, opts.Retain...)
 	if err != nil {
 		return nil, err
 	}
-	vmReport, vmErr := PruneSandboxes(ctx, pruneState, dryRun, ui)
-	volReport, volErr := PruneVolumes(ctx, pruneState, dryRun, ui)
-	imgReport, imgErr := PruneImages(ctx, dclient, pruneState, dryRun, ui)
-	storageReport, storageErr := PruneStorage(ctx, pruneState, dryRun, ui)
+	vmReport, vmErr := PruneSandboxes(ctx, pruneState, opts.DryRun, ui)
+	imgReport, imgErr := PruneImages(ctx, dclient, pruneState, opts.DryRun, ui)
+	storageReport, storageErr := PruneStorage(ctx, pruneState, opts.DryRun, ui)
+	// The state phase runs after the sandbox/image phases so a just-retired
+	// key's state is swept, and never in a dry-run: reclaiming a state file is a
+	// change, and --dry-run makes no changes. It is the safe tier, so a state
+	// that records a surviving home volume is always kept.
+	var stateReport StateSweepReport
+	var stateErr error
+	if !opts.DryRun {
+		stateReport, stateErr = PruneStateArtifacts(ctx, ui)
+	}
 
 	report := &StaleReport{
 		PrunedSandboxes:     vmReport.VMsPruned,
-		PrunedVolumes:       volReport.VolumesPruned,
+		PrunedVolumes:       0,
 		PrunedDockerImages:  imgReport.DockerImagesPruned,
 		PrunedSandboxImages: imgReport.MSBImagesPruned,
 		SkippedImagesInUse:  imgReport.SkippedInUse,
 		ImageBytesReclaimed: imgReport.BytesReclaimed,
 		Storage:             storageReport,
-		Details:             append(append(vmReport.Details, volReport.Details...), imgReport.Details...),
+		State:               stateReport,
+		Details:             append(vmReport.Details, imgReport.Details...),
 	}
-	return report, errors.Join(vmErr, volErr, imgErr, storageErr)
+	return report, errors.Join(vmErr, imgErr, storageErr, stateErr)
 }
 
 func RenderPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
@@ -83,6 +93,17 @@ func RenderPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
 			report.Storage.FilesRemoved,
 			humanize.FormatBytes(report.Storage.LogicalBytesRemoved),
 			formatOptionalBytes(report.Storage.PhysicalBytesReclaimed),
+		)
+	}
+	if report.State.ClaimsRemoved > 0 || report.State.LeasesRemoved > 0 ||
+		report.State.StatesRemoved > 0 || report.State.DirsRemoved > 0 {
+		ui.Outf(
+			"  internal state: %d claims, %d leases, %d state files removed, %d kept, %d dirs removed",
+			report.State.ClaimsRemoved,
+			report.State.LeasesRemoved,
+			report.State.StatesRemoved,
+			report.State.StaleStatesKept,
+			report.State.DirsRemoved,
 		)
 	}
 	for _, detail := range report.Details {
