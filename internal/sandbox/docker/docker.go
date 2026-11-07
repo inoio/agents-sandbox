@@ -22,6 +22,10 @@ type Client interface {
 		imageID string,
 		inspectOpts ...client.ImageInspectOption,
 	) (client.ImageInspectResult, error)
+	ImageList(
+		ctx context.Context,
+		opts client.ImageListOptions,
+	) (client.ImageListResult, error)
 	ImageSave(
 		ctx context.Context,
 		imageIDs []string,
@@ -94,6 +98,16 @@ func (realDockerClient) ImageInspect(
 		return client.ImageInspectResult{}, err
 	}
 	return mobyClient.ImageInspect(ctx, imageID, inspectOpts...)
+}
+
+func (realDockerClient) ImageList(
+	ctx context.Context,
+	opts client.ImageListOptions,
+) (client.ImageListResult, error) {
+	if err := ensureMobyClient(); err != nil {
+		return client.ImageListResult{}, err
+	}
+	return mobyClient.ImageList(ctx, opts)
 }
 
 func (realDockerClient) ImageSave(
