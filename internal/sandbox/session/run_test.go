@@ -2034,6 +2034,7 @@ func TestRunAttachProbesDiskAfterEveryEndButASignal(t *testing.T) {
 		defer signal.Stop(guard)
 		var execs []string
 		sb := &msb.MockSandbox{ExecCalls: &execs, AttachFn: func(ctx context.Context) (int, error) {
+			//testenv:allow sends SIGINT to this process to exercise the signal scope
 			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
 				return 0, err
 			}

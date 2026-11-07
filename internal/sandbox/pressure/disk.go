@@ -68,7 +68,7 @@ func parseKiB(column string) (uint64, bool) {
 
 // diskTripLevelKiB is the free space below which a mount trips: 15 % of its
 // size, at most 2 GiB, so small mounts trip at 85 % used and large ones at
-// 2 GiB free (specs/resource-limit-proposal.md §1, threshold).
+// 2 GiB free (specs/resources/resource-limit-proposal.md §1, threshold).
 func diskTripLevelKiB(sizeKiB uint64) uint64 {
 	return min(sizeKiB*15/100, diskTripCapKiB)
 }

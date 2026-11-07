@@ -17,7 +17,7 @@ import (
 // against the real runtime: the in-guest probe reports the root disk, the
 // /workspace write budget and /tmp at their configured limits, a filled /tmp
 // trips the threshold, and a larger RootDiskSizeMiB applies live and persists
-// (specs/resource-limit-proposal.md §1e, §5).
+// (specs/resources/resource-limit-proposal.md §1e, §5).
 func TestRealDiskProbeAndRootGrow(t *testing.T) {
 	ensureIsolatedRuntime(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)

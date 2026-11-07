@@ -399,15 +399,15 @@ func TestPersistSettingRejectsEnvShadow(t *testing.T) {
 // source, while it does not shadow memory.
 func TestPersistSettingShadowNamesTheKeysSource(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	unsetEnv(t, "AGENTS_SANDBOX_MEMORY")
-	unsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	t.Setenv("AGENTS_SANDBOX_DISK_SIZE", "16G")
 
 	if _, err := PersistSetting(configpaths.Get(), testSlug, "disk-size", "20G", false); err == nil ||
 		!strings.Contains(err.Error(), "AGENTS_SANDBOX_DISK_SIZE") {
 		t.Errorf("disk-size with its env set: err = %v, want a refusal naming AGENTS_SANDBOX_DISK_SIZE", err)
 	}
-	unsetEnv(t, "AGENTS_SANDBOX_DISK_SIZE")
+	testutil.UnsetEnv(t, "AGENTS_SANDBOX_DISK_SIZE")
 	if _, err := PersistSetting(configpaths.Get(), testSlug, "disk-size", "20G", true); err == nil ||
 		!strings.Contains(err.Error(), "--disk-size") {
 		t.Errorf("disk-size set by flag: err = %v, want a refusal naming --disk-size", err)

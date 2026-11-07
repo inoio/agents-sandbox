@@ -122,7 +122,7 @@ func (limit diskLimit) limitUsage(usage pressure.DiskUsage, limits DiskLimits) p
 // only recorded hits. A recovered limit clears its marker so a later trip is
 // offered again; an answered hit stays closed until then. It returns the
 // persisted settings by config key. It never fails the caller: prompt and
-// write failures are logged (specs/resource-limit-proposal.md §1e, §3).
+// write failures are logged (specs/resources/resource-limit-proposal.md §1e, §3).
 func DetectAndOfferDiskRaise(
 	k state.Key,
 	usages map[pressure.Kind]pressure.DiskUsage,

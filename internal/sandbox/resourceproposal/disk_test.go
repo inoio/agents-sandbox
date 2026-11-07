@@ -94,8 +94,8 @@ func diskRun(
 func unsetDiskEnv(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{"DISK_SIZE", "WORKSPACE_QUOTA", "TMP_SIZE"} {
-		unsetEnv(t, "AGENTS_SANDBOX_"+key)
-		unsetEnv(t, "OPENCODE_SANDBOX_"+key)
+		testutil.UnsetEnv(t, "AGENTS_SANDBOX_"+key)
+		testutil.UnsetEnv(t, "OPENCODE_SANDBOX_"+key)
 	}
 }
 
