@@ -331,25 +331,66 @@ func TestForwarderKeepsReusedListenerWhenEarlierCallbackReturns(t *testing.T) {
 	waitForPortRelease(t, port)
 }
 
+// fakeForwardTimer is a forwardTimer a test drives directly: reset signals on
+// resetCh (so a test waits for a restart without real time) and records the
+// duration it was reset to. It never fires on its own.
+type fakeForwardTimer struct {
+	resetCh chan struct{}
+	mu      sync.Mutex
+	last    time.Duration
+}
+
+func (t *fakeForwardTimer) channel() <-chan time.Time { return make(chan time.Time) }
+func (t *fakeForwardTimer) stop()                     {}
+
+func (t *fakeForwardTimer) reset(d time.Duration) {
+	t.mu.Lock()
+	t.last = d
+	t.mu.Unlock()
+	select {
+	case t.resetCh <- struct{}{}:
+	default:
+	}
+}
+
+func (t *fakeForwardTimer) lastReset() time.Duration {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.last
+}
+
 // TestForwarderRefreshesLifetimeOnReuse covers a login that replaces an
 // abandoned one on the same port: the second login must get the full lifetime,
 // not inherit the first's nearly expired deadline (which would close the
-// listener while the new login is still underway).
+// listener while the new login is still underway). The timer is faked, so the
+// restart is observed directly rather than by sleeping past the first deadline.
 func TestForwarderRefreshesLifetimeOnReuse(t *testing.T) {
 	port := freePort(t)
 	fetcher := &recordingFetcher{response: "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"}
 	forwarder := NewCallbackForwarder(fetcher.fetch)
 	forwarder.lifetime = 400 * time.Millisecond
+
+	timer := &fakeForwardTimer{resetCh: make(chan struct{}, 1)}
+	origTimer := newForwardTimer
+	newForwardTimer = func(time.Duration) forwardTimer { return timer }
+	t.Cleanup(func() { newForwardTimer = origTimer })
+
 	ctx := t.Context()
 	if err := forwarder.Forward(ctx, LoopbackRedirect{Port: port, Path: "/first"}); err != nil {
 		t.Fatalf("first Forward: %v", err)
 	}
-	time.Sleep(250 * time.Millisecond)
+	// A later login reuses the forward and restarts its lifetime.
 	if err := forwarder.Forward(ctx, LoopbackRedirect{Port: port, Path: "/second"}); err != nil {
 		t.Fatalf("second Forward: %v", err)
 	}
-	// Past the first login's deadline, but inside the refreshed one.
-	time.Sleep(250 * time.Millisecond)
+	select {
+	case <-timer.resetCh:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("the reused forward did not restart the lifetime")
+	}
+	if got := timer.lastReset(); got != forwarder.lifetime {
+		t.Errorf("lifetime restarted to %v, want the full %v", got, forwarder.lifetime)
+	}
 	response, err := noRedirectClient.Get(fmt.Sprintf("http://127.0.0.1:%d/second?code=c", port))
 	if err != nil {
 		t.Fatalf("GET after reuse: %v", err)
@@ -713,16 +754,37 @@ func TestRetireKeepsAForwardExtendedAfterItsTimerFired(t *testing.T) {
 	forwarder.mutex.Unlock()
 	forward.extend <- struct{}{}
 
-	timer := time.NewTimer(time.Hour)
-	defer timer.Stop()
+	timer := &fakeForwardTimer{resetCh: make(chan struct{}, 1)}
 	if forwarder.retire(t.Context(), t.Context(), forward, &http.Server{}, port, timer) {
 		t.Fatal("retire closed a forward that was extended")
+	}
+	select {
+	case <-timer.resetCh:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("retire kept the forward but did not restart its lifetime timer")
+	}
+	if got := timer.lastReset(); got != forwarder.lifetime {
+		t.Errorf("lifetime restarted to %v, want the full %v", got, forwarder.lifetime)
 	}
 	forwarder.mutex.Lock()
 	_, stillActive := forwarder.active[port]
 	forwarder.mutex.Unlock()
 	if !stillActive {
 		t.Fatal("extended forward was dropped from active")
+	}
+}
+
+// TestRealForwardTimerResetRearms pins the production timer adapter's reset: a
+// reset moves the timer's deadline onto its channel, so forwardLifetime's reuse
+// refresh actually extends the wait rather than leaving the old deadline running.
+func TestRealForwardTimerResetRearms(t *testing.T) {
+	timer := newForwardTimer(time.Hour)
+	defer timer.stop()
+	timer.reset(time.Millisecond)
+	select {
+	case <-timer.channel():
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("reset did not re-arm the timer onto its channel")
 	}
 }
 

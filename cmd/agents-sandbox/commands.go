@@ -136,7 +136,7 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 		// every clone of one origin, so it must not follow the checkout slug. A
 		// bare root before its config migration is the one exception, resolved by
 		// effectiveConfigSlug.
-		identity, err := git.ResolveIdentity(".")
+		identity, err := resolveIdentity(".")
 		if err != nil {
 			return fmt.Errorf("resolve project identity: %w", err)
 		}
@@ -193,6 +193,10 @@ var prepareMSBRuntime = msbruntime.PrepareRuntime
 // applyPreviewHome is the preview path's home redirection, a seam so a test can
 // drive its error branch.
 var applyPreviewHome = msbruntime.ApplyPreviewHome
+
+// resolveIdentity derives the preflight's project identity. It is a var so the
+// cmd tests can install a cwd-keyed memo; production uses git.ResolveIdentity.
+var resolveIdentity = git.ResolveIdentity
 
 // commandNeedsMSBRuntime reports whether the root preflight should provision the
 // microsandbox runtime before the command body runs. Commands that only inspect

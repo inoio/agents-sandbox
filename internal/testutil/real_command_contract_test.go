@@ -2,7 +2,6 @@ package testutil
 
 import (
 	"go/ast"
-	"go/parser"
 	"go/token"
 	"slices"
 	"sort"
@@ -49,12 +48,8 @@ func realCommandUses(t *testing.T, root, modulePath string, packages []modulePac
 	t.Helper()
 	var uses []realCommandUse
 	for _, source := range defaultBuildTestSources(t, root, packages) {
-		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, source.path, source.src, 0)
-		if err != nil {
-			t.Fatalf("parse %s: %v", source.path, err)
-		}
-		uses = append(uses, realCommandUsesIn(fset, file, modulePath)...)
+		parsed := cachedParseGoFile(t, source.path, source.src)
+		uses = append(uses, realCommandUsesIn(parsed.fset, parsed.file, modulePath)...)
 	}
 	sort.Slice(uses, func(i, j int) bool { return uses[i].pos.String() < uses[j].pos.String() })
 	return uses

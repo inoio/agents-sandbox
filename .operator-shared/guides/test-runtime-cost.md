@@ -9,13 +9,19 @@ read_if: Trying to speed up `go test`/`make test`, investigating a slow or hangi
 
 `go test ./...` spends most of its wall time building and starting test binaries, not running test bodies.
 
-Measured on 2026-10-24 (16-core VM, warm `GOCACHE`, this repo's `GOFLAGS=-count=1`):
+Measured on 2026-10-24 (16-core VM, warm `GOCACHE`, `-count=1`):
 
 - Full run: ~12 s wall, ~55 s user + ~31 s sys.
 - Compile-and-start only (`go test -count=1 -run '^$' ./...`): ~10 s wall, ~49 s user + ~24 s sys.
 
 The gap is ~1-2 s. Optimizing test bodies alone can therefore move wall time only marginally; the lever with
-real headroom is the build/link step.
+real headroom is the build/link step. (On a loaded host the absolute numbers are larger and the ratio shifts, but
+the split holds: a 2026-11-07 re-measurement on a shared 16-core VM saw compile-and-start roughly equal the full
+run, with test bodies adding only a few seconds.)
+
+`make test-uncached` is `make test` plus `-count=1`, so it re-runs every test rather than returning Go's cached
+result — the target to use when measuring or profiling test bodies. A second `make test` on an unchanged tree is
+cache-fast.
 
 ## Why linking is paid on every run
 
@@ -64,11 +70,44 @@ the binary size and the ~1.3 GB/run of writes are what drop.
 
 ## Test-body hotspots
 
-Per-package wall from a `go test -json` profile: `cmd/agents-sandbox` ~3.3 s (273 tests, all serial);
-`internal/git` ~2.4 s (many tests spawn the real `git` for `worktree add`/`clone`/`submodule add`);
-`test/harness` ~0.7 s of deliberate pty timeout waits. `internal/sandbox/msb` was ~2.4 s, almost entirely
-`TestRealMsbClientEnsureInstalled` running the real SDK installer over the network; it now injects the
-`ensureRuntime` seam, and the package's real-client tests moved to the `msb` tag, so it runs in ~0.1 s.
+Wall time is build-bound (above), and test bodies add only a few seconds; the
+packages run in parallel, so an individual package's cost rarely reaches the
+critical path. The numbers below are per-package test-binary time (min of 3,
+`-count=1`, warm `GOCACHE`) on a 16-core VM, after the timing-seam work. The host
+is shared with other agents, so absolute wall times swing with load; treat them
+as relative.
+
+| package | test body | dominant cost |
+|---|---|---|
+| `cmd/agents-sandbox` | ~0.8 s | 300+ small tests; per-`Execute()` preflight, now dominated by `viperconfig.NewResolver` and `t.TempDir` cleanup |
+| `internal/testutil` | ~0.9 s | four module-wide contract scans (below) |
+| `internal/opener` | ~0.5 s | `TestForwarderKeepsReusedListenerWhenEarlierCallbackReturns` waits 150 ms for a wrong close to manifest |
+| `test/harness` | ~0.5 s | deliberate pty timeout waits (`waitForTUI`/`waitForMarker`/`waitSettled`) |
+| `internal/sandbox/prepare` | ~0.4 s | many small tests, none over 0.1 s |
+| `internal/sandbox/image` | ~0.4 s | `TestHostOpenerShimTimesOutWithoutLauncher` (real shim subprocess, 0.1 s timeout) |
+| `internal/sandbox/state` | ~0.2 s | `TestCountActiveClients_AcquireVsCountRace` filesystem loop |
+| `internal/notify` | <0.05 s | was ~1.3 s before the clock seam |
+
+`internal/git` and `internal/sandbox/msb` are no longer hotspots: the real-git tests moved behind the `integration`
+tag, and the msb real-client tests inject `ensureRuntime` or run under the `msb` tag.
+
+The four `internal/testutil` contract tests (`TestUntaggedTestsExecuteNoAmbientTool`,
+`TestUntaggedTestsReachNoUnsanctionedEnvironment`, `TestEveryTestPackageInstallsItsAcyclicFailFastMocks`,
+`TestSeamFamiliesMatchDeclaredInstallers`) all need the same module-wide view, so they share it through
+`module_scan_cache_test.go` — `modulePackages`, `defaultBuildTestSources`, and a per-path parsed-AST cache
+(`cachedParseGoFile`). Before the cache each walked the tree and parsed every source four times (~2.1 s); now the
+walk, the read, and the parse each happen once (~0.9 s). A new contract gate must go through those helpers, not a
+fresh `filepath.WalkDir`.
+
+`cmd/agents-sandbox`'s per-test cost was the root preflight: every `Execute()` resolved the project identity
+(`git.ResolveIdentity`, ~23% of the package) and the config mock re-ran `os.MkdirAll` on every accessor call
+(`configpaths.ensureMockConfigDirectory`, ~10%). Both are gone: the mock remembers the directories it created
+(`mockConfigPaths.ensureDir`), and `PersistentPreRunE` resolves through a `resolveIdentity` seam whose test
+`TestMain` installs as a cwd-keyed memo of the real resolver (`memoizeIdentity`, in `identity_memo_test.go`). The
+memo keys on `filepath.Abs(cwd)`, not the literal `"."` the preflight passes, so the chdir fixtures resolve
+separately; it returns the real identity, so the config-slug assertions keep their value. Production keeps the bare
+`git.ResolveIdentity`. Remaining cmd cost is `NewResolver` (~17%) — real config assembly the config tests depend on —
+and `t.TempDir` cleanup, neither worth removing.
 
 There is no `t.Parallel()` in the repo. It is not absent by oversight: `configpaths.WithMockConfigPaths` uses
 `t.Setenv`, and the `InstallFailFast*`/`Get` seams are process-global, so within-package parallelism is
@@ -84,7 +123,8 @@ before failing. The catchable package vars and their production values:
 - `session`: `waitQuiescentPollInterval` 2 s.
 - `termio`: `spinnerInterval` 100 ms.
 - `options`: `SandboxStopTimeout` 30 s; `DefaultVMIdleTimeout` 10 s (consts).
-- `notify`: `backoffStart` 1 s / `backoffMax` 30 s / `longLived` 30 s; HTTP clients in `agent`/`upgrade` use
+- `notify`: `backoffStart` 1 s / `backoffMax` 30 s / `longLived` 30 s (the reconnect timing reads `watchClock`'s
+  `now`/`wait`, which the backoff test fakes instead of sleeping); HTTP clients in `agent`/`upgrade` use
   10 s (and a 5 min download).
 
 `vm`'s and `session`'s `TestMain`s cap `daemonReadyTimeout`/`daemonPollInterval`,
@@ -108,3 +148,18 @@ with a stack dump instead of blocking for Go's default 10 minutes per package.
   binary; must exceed the slowest single package on the slowest runner.
 - **Keep the network and the real runtime out of the unit tier** (done). The SDK installer test injects
   `ensureRuntime`; the real-client round trips are `msb`-tagged.
+- **Memoize the module-wide test scans** (done, `internal/testutil/module_scan_cache_test.go`). The four contract
+  gates re-walked and re-parsed the whole module; sharing `modulePackages`/`defaultBuildTestSources`/parsed ASTs cut
+  the package from ~2.1 s to ~0.9 s. New gates must use those helpers.
+- **Give a timing test a clock seam, not a real sleep** (done for `notify.Watch` via `watchClock`, and
+  `opener.CallbackForwarder` via `forwardTimer`/`newForwardTimer`). A test that proved a dwell by sleeping now drives
+  the seam: notify's backoff test fell from ~1.3 s to <0.05 s. Prefer channel synchronization where the test only
+  needs the signal; reach for a seam when the dwell itself is the assertion. This also removes a
+  `specs/test-isolation.md` "wall-clock waits" residual.
+- **Keep a timeout-path test's timeout just above its poll interval** (done: pty waits 50–100 ms, the opener shim
+  0.1 s). A timeout only needs to be long enough to elapse.
+- **Memoize a per-test-constant lookup behind a seam** (done for the cmd preflight identity). A value that only
+  depends on the working directory was recomputed on every `Execute()`; a `resolveIdentity` seam plus a cwd-keyed memo
+  in `TestMain` computes it once per directory (~23% of the package). Key the memo on the resolved path when the
+  caller passes `"."`, or every chdir fixture collapses into one entry. The same shape works for the config mock's
+  directory creation (`mockConfigPaths.ensureDir`), which makes each mock dir once instead of per accessor call.

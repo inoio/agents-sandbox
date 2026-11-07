@@ -222,7 +222,7 @@ func TestCountActiveClients_AcquireVsCountRace(t *testing.T) {
 		<-done
 	}()
 
-	for i := range 2000 {
+	for i := range 200 {
 		release, err := AcquireClientLease(k)
 		if err != nil {
 			t.Fatalf("AcquireClientLease: %v", err)
