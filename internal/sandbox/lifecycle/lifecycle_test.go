@@ -9,14 +9,14 @@ import (
 )
 
 // stageTableRow matches a row of the stage vocabulary table in
-// specs/lifecycle.md: `| <n> | `<stage id>` |`.
+// specs/vm/lifecycle.md: `| <n> | `<stage id>` |`.
 var stageTableRow = regexp.MustCompile("(?m)^\\| *\\d+ *\\| *`([a-z-]+)` *\\|")
 
 // TestOrderMatchesSpec pins the shared vocabulary: the constants spell the ids
-// of specs/lifecycle.md's stage table, in its order, so renaming or reordering
+// of specs/vm/lifecycle.md's stage table, in its order, so renaming or reordering
 // a stage on one side alone fails here.
 func TestOrderMatchesSpec(t *testing.T) {
-	spec, err := os.ReadFile("../../../.operator-shared/specs/lifecycle.md")
+	spec, err := os.ReadFile("../../../.operator-shared/specs/vm/lifecycle.md")
 	if err != nil {
 		t.Fatalf("read the lifecycle spec: %v", err)
 	}

@@ -103,7 +103,7 @@ genuine config change against an existing home) still refresh fingerprints via `
 state is never fingerprint-less on that path, so the change detected there is real.
 
 The per-`(slug, agent)` creation flock (`ensure-vm.lock`) now also covers a recreate's teardown (#397); the identity
-contract governing that destroy is in [identity/sandbox-identity.md](identity/sandbox-identity.md).
+contract governing that destroy is in [identity/sandbox-identity.md](../identity/sandbox-identity.md).
 
 ## Live mounts and the size/quota/home detectors (issue #223)
 

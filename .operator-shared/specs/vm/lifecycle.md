@@ -127,7 +127,7 @@ of looking the VM up again. Creation and recreation take the per-project `ensure
 an existing VM takes the lock-free fast path (`resolveExistingVM`). A creation first loads the runner image into msb
 unless it is cached with matching content (`createProjectVM` → `image.EnsureLoaded`), then persists the fingerprints
 (`persistConfigHashes`). Returns the boot kind. Skipped under `--dry-run-vm` (no VM, nil sandbox). See
-`reconfig-decision.md`, `identity/sandbox-identity.md`, `vm-idle-timeout-default.md`.
+`reconfig-decision.md`, `identity/sandbox-identity.md`, `idle-timeout.md`.
 
 **`setup-sandbox`.** Provisions the agent config files, records boot provenance on a fresh boot
 (`recordImageProvenance`), runs startup hooks, starts dockerd and the agent daemon (or restarts the daemon when the
