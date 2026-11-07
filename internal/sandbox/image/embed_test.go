@@ -158,7 +158,7 @@ func TestHostOpenerShimUsage(t *testing.T) {
 }
 
 func TestHostOpenerShimTimesOutWithoutLauncher(t *testing.T) {
-	t.Setenv("AGENTS_SANDBOX_OPEN_TIMEOUT_TENTHS", "2")
+	t.Setenv("AGENTS_SANDBOX_OPEN_TIMEOUT_TENTHS", "1")
 	code, stderr := runShim(t, nil, false, "https://example.com")
 	if code != 3 || !strings.Contains(stderr, "open-links") {
 		t.Fatalf("code %d, stderr %s", code, stderr)
