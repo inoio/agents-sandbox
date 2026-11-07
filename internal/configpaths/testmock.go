@@ -108,8 +108,9 @@ func ensureMockConfigDirectory(path string) string {
 
 // ensureDir creates path once per mock instance. It is ensureMockConfigDirectory
 // plus a cache: the accessor methods are called many times per test, and the
-// redundant MkdirAll on an already-created directory is pure cost. The contract
-// is unchanged — after the call the directory exists.
+// redundant MkdirAll on an already-created directory is pure cost. The mock tree
+// is create-only — a path exists after its first call and is not re-created if a
+// test removes it — which no current test relies on.
 func (m *mockConfigPaths) ensureDir(path string) string {
 	if m.created == nil {
 		m.created = map[string]struct{}{}

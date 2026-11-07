@@ -264,8 +264,9 @@ gate above. Every sanctioned use now carries a `//testenv:allow <reason>` marker
   `testutil.CheckoutSlug(t)` helper that owns the one intentional resolution (or `t.Chdir(testutil.InitRepo(t))`
   first) would centralize it.
 - **Wall-clock waits.** Several tests `time.Sleep` through interval seams (`spinnerInterval`,
-  `pressureWatchInterval`, `watchReconnectPolicy`); under load they are slower but not host-dependent. Prefer
-  channel synchronization where a test does not need the interval dwell.
+  `pressureWatchInterval`); under load they are slower but not host-dependent. Prefer channel synchronization where a
+  test does not need the interval dwell. `watchReconnectPolicy` moved behind the `watchClock` seam, so the notify
+  backoff no longer sleeps.
 
 The gate also moved the `ports` exclusion tests off the hardcoded `5999` onto a bound-`:0` port, so they no longer
 collide with whatever the host already holds.
