@@ -118,7 +118,12 @@ func (f *CallbackForwarder) Forward(ctx context.Context, redirect LoopbackRedire
 	for _, listener := range listeners {
 		go func() { _ = server.Serve(listener) }()
 	}
-	go f.forwardLifetime(ctx, done, forward, server, redirect.Port)
+	// Start the lifetime timer here, in Forward's goroutine, before launching
+	// the lifetime goroutine that waits on it: the factory is a package global a
+	// test swaps, and a goroutine reading it after Forward returned could race a
+	// later test's swap (or capture its fake).
+	lifetimeTimer := newForwardTimer(f.lifetime)
+	go f.forwardLifetime(ctx, done, forward, server, redirect.Port, lifetimeTimer)
 	return nil
 }
 
@@ -152,8 +157,8 @@ func (f *CallbackForwarder) forwardLifetime(
 	forward *activeForward,
 	server *http.Server,
 	port int,
+	timer forwardTimer,
 ) {
-	timer := newForwardTimer(f.lifetime)
 	defer timer.stop()
 	for {
 		select {
