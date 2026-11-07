@@ -90,3 +90,15 @@ func TestNewReapPolicyKeepsSingleRetry(t *testing.T) {
 		t.Errorf("NewReapPolicy(false, 1).MaxSessionRetries = %d, want 1 (only <=0 clamps)", got)
 	}
 }
+
+// TestSetByFlag pins the lookup of the run's explicit limit flags.
+func TestSetByFlag(t *testing.T) {
+	opts := RunOptions{ExplicitFlags: []string{"memory", "tmp-size"}}
+	if !opts.SetByFlag("tmp-size") || opts.SetByFlag("disk-size") {
+		t.Errorf(
+			"SetByFlag: tmp-size=%v disk-size=%v, want true and false",
+			opts.SetByFlag("tmp-size"),
+			opts.SetByFlag("disk-size"),
+		)
+	}
+}

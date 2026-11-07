@@ -24,20 +24,23 @@ import (
 
 // Exported flag names that Build reads directly from the command.
 const (
-	FlagWorktree     = "worktree"
-	FlagRebuild      = "rebuild"
-	FlagNoRebuild    = "no-rebuild"
-	FlagDryRun       = "dry-run"
-	FlagDryRunVM     = "dry-run-vm"
-	FlagServeOnly    = "serve-only"
-	FlagRoot         = "root"
-	FlagAgent        = "agent"
-	FlagAgentVersion = "agent-version"
-	FlagNetwork      = "network"
-	FlagDNSServers   = "dns"
-	FlagPort         = "port"
-	FlagNotify       = "notify"
-	FlagMemory       = "memory"
+	FlagWorktree       = "worktree"
+	FlagRebuild        = "rebuild"
+	FlagNoRebuild      = "no-rebuild"
+	FlagDryRun         = "dry-run"
+	FlagDryRunVM       = "dry-run-vm"
+	FlagServeOnly      = "serve-only"
+	FlagRoot           = "root"
+	FlagAgent          = "agent"
+	FlagAgentVersion   = "agent-version"
+	FlagNetwork        = "network"
+	FlagDNSServers     = "dns"
+	FlagPort           = "port"
+	FlagNotify         = "notify"
+	FlagMemory         = "memory"
+	FlagDiskSize       = "disk-size"
+	FlagWorkspaceQuota = "workspace-quota"
+	FlagTmpSize        = "tmp-size"
 	// FlagOpenLinks is the --open-links flag name, shared with the config key.
 	FlagOpenLinks = viperconfig.KeyOpenLinks
 )
@@ -199,8 +202,10 @@ func resolveFlags(cmd *cobra.Command) (options.RunOptions, error) {
 	if cmd.Flags().Lookup(FlagRoot) != nil {
 		opts.Root, _ = cmd.Flags().GetBool(FlagRoot)
 	}
-	if flag := cmd.Flags().Lookup(FlagMemory); flag != nil {
-		opts.MemoryFlagChanged = flag.Changed
+	for _, name := range []string{FlagMemory, FlagDiskSize, FlagWorkspaceQuota, FlagTmpSize} {
+		if flag := cmd.Flags().Lookup(name); flag != nil && flag.Changed {
+			opts.ExplicitFlags = append(opts.ExplicitFlags, name)
+		}
 	}
 	return opts, nil
 }
