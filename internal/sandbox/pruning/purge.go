@@ -36,6 +36,11 @@ type RemovalPlan struct {
 	Claims         []string
 	AdoptionClaims []string
 
+	// scope is the slug/agent selection the plan targets. Execute re-derives
+	// home-volume ownership from it under the root lock, so a volume another
+	// checkout adopts while the confirmation prompt is open is refused.
+	scope purgeScope
+
 	// hasRunningSandbox records whether any planned sandbox was active at plan
 	// time. HasRunningSandbox reports it so a caller can fail fast before
 	// prompting; Execute re-checks the live status before deleting anything.
@@ -128,6 +133,7 @@ func PlanRemoval(ctx context.Context, slugs []string, agent string, ui termio.Lo
 		StateFiles:        sortedStrings(stateFiles),
 		Claims:            sortedStrings(claims),
 		AdoptionClaims:    sortedStrings(adoptionClaims),
+		scope:             scope,
 		hasRunningSandbox: hasRunning,
 	}, nil
 }
@@ -146,11 +152,12 @@ func (p *RemovalPlan) HasRunningSandbox() bool {
 //     unreadable or corrupt state aborts here, before anything is deleted;
 //  2. the slug's runner images;
 //  3. the sandboxes, a running one stopped first (which requires force);
-//  4. the home volumes;
+//  4. the home volumes and the adoption claims of the ones removed, under the
+//     root lock, re-deriving ownership so a volume another checkout adopted
+//     since planning is refused and a surviving volume keeps its claim;
 //  5. the remaining state, except a key whose state still records a volume that
 //     was not removed (a failed removal, or one the plan never enumerated);
-//  6. the root-state adoption claims;
-//  7. the slug's now-empty state directories.
+//  6. the slug's now-empty state directories.
 //
 // dryRun performs no deletion and returns nil (the caller renders the plan). A
 // running sandbox without force fails fast and deletes nothing. A failed volume
@@ -195,10 +202,6 @@ func (p *RemovalPlan) Execute(ctx context.Context, force, dryRun bool, ui termio
 	errs = append(errs, volumeErrs...)
 	errs = append(errs, p.removeState(removedVolumes, ui)...)
 
-	if err := p.removeAdoptionClaims(); err != nil {
-		ui.Warnf("failed to remove root-state adoption claims: %v", err)
-		errs = append(errs, err)
-	}
 	errs = append(errs, p.removeEmptyDirs(ui)...)
 
 	return errors.Join(errs...)
@@ -566,9 +569,14 @@ func removeSandboxes(ctx context.Context, handles []msb.SandboxHandle, ui termio
 	return errs
 }
 
-// removeVolumes removes the planned home volumes and returns the names removed
-// successfully. A failed removal joins the error and continues; the name is
-// simply absent from the returned set, so its key's state file is kept.
+// removeVolumes removes the planned home volumes and prunes the adoption claims
+// of the ones it removed, returning the names removed successfully. Ownership is
+// re-derived under the launcher-global root lock — the lock an identity adoption
+// serializes on — so a volume another checkout adopts while the confirmation
+// prompt is open is refused instead of deleted, and the lock is held across the
+// removals so no adoption can interleave. A failed removal joins the error and
+// continues; the name is absent from the returned set, so its key's state file
+// and its adoption claim (the surviving home's owner record) are kept.
 func (p *RemovalPlan) removeVolumes(
 	ctx context.Context,
 	client msb.Client,
@@ -576,15 +584,68 @@ func (p *RemovalPlan) removeVolumes(
 ) (map[string]struct{}, []error) {
 	removed := make(map[string]struct{})
 	var errs []error
-	for _, name := range p.Volumes {
-		if err := client.RemoveVolume(ctx, name); err != nil {
-			ui.Warnf("failed to remove home volume %s: %v", name, err)
-			errs = append(errs, err)
-			continue
+	_, err := state.WithRootState(true, func(txn *state.RootTxn) error {
+		references, err := state.HomeVolumeReferences()
+		if err != nil {
+			return err
 		}
-		removed[name] = struct{}{}
+		_, ownedElsewhere := classifyVolumeOwners(p.scope, references, txn.State())
+		for _, name := range p.Volumes {
+			if _, blocked := ownedElsewhere[name]; blocked {
+				ui.Warnf("keeping home volume %s: adopted by another project while confirming", name)
+				continue
+			}
+			if err := client.RemoveVolume(ctx, name); err != nil {
+				ui.Warnf("failed to remove home volume %s: %v", name, err)
+				errs = append(errs, err)
+				continue
+			}
+			removed[name] = struct{}{}
+		}
+		if p.pruneSurvivingClaims(txn.State(), removed) {
+			return txn.Commit()
+		}
+		return nil
+	})
+	if err != nil {
+		ui.Warnf("failed to update home-volume ownership: %v", err)
+		errs = append(errs, err)
 	}
 	return removed, errs
+}
+
+// pruneSurvivingClaims deletes the planned adoption claims whose volume this run
+// removed or whose volume no longer exists, and keeps a claim whose volume
+// survived a failed removal. The kept claim is the surviving home's only owner
+// record when the checkout's state is gone, so dropping it would let another
+// checkout claim a home that still exists. It reports whether the document
+// changed.
+func (p *RemovalPlan) pruneSurvivingClaims(
+	root *state.RootState,
+	removed map[string]struct{},
+) bool {
+	planned := make(map[string]struct{}, len(p.Volumes))
+	for _, name := range p.Volumes {
+		planned[name] = struct{}{}
+	}
+	changed := false
+	for _, claimKey := range p.AdoptionClaims {
+		claim, ok := root.AdoptedHomeVolumes[claimKey]
+		if !ok {
+			continue
+		}
+		if claim.Volume != "" {
+			_, wasPlanned := planned[claim.Volume]
+			_, wasRemoved := removed[claim.Volume]
+			if wasPlanned && !wasRemoved {
+				// The volume survived the purge: keep its owner record.
+				continue
+			}
+		}
+		delete(root.AdoptedHomeVolumes, claimKey)
+		changed = true
+	}
+	return changed
 }
 
 // removeState removes the remaining state files. A state is kept whenever it
@@ -617,25 +678,6 @@ func (p *RemovalPlan) removeEmptyDirs(ui termio.Logger) []error {
 		}
 	}
 	return errs
-}
-
-// removeAdoptionClaims drops the slug's root-state adoption claims, and only
-// those: the launcher-global migrations and updates entries are never touched.
-func (p *RemovalPlan) removeAdoptionClaims() error {
-	if len(p.AdoptionClaims) == 0 {
-		return nil
-	}
-	_, err := state.WithRootState(true, func(txn *state.RootTxn) error {
-		before := len(txn.State().AdoptedHomeVolumes)
-		for _, claimKey := range p.AdoptionClaims {
-			delete(txn.State().AdoptedHomeVolumes, claimKey)
-		}
-		if len(txn.State().AdoptedHomeVolumes) == before {
-			return nil
-		}
-		return txn.Commit()
-	})
-	return err
 }
 
 // stateRemovableAfterVolumes returns the tear-down predicate for step 5: a state

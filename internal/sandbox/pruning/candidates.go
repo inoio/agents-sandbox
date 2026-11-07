@@ -72,7 +72,11 @@ func EnumerateCandidates(ctx context.Context, age time.Duration) ([]Candidate, e
 	if err != nil {
 		return nil, err
 	}
-	if err := enumerateVolumeCandidates(ctx, references, builderFor); err != nil {
+	root, err := state.ReadRootState()
+	if err != nil {
+		return nil, err
+	}
+	if err := enumerateVolumeCandidates(ctx, references, root.AdoptedHomeVolumes, builderFor); err != nil {
 		return nil, err
 	}
 	if err := enumerateImageCandidates(ctx, builderFor); err != nil {
@@ -81,9 +85,7 @@ func EnumerateCandidates(ctx context.Context, age time.Duration) ([]Candidate, e
 	if err := enumerateSandboxCandidates(ctx, age, builderFor); err != nil {
 		return nil, err
 	}
-	if err := enumerateAdoptionClaims(builderFor); err != nil {
-		return nil, err
-	}
+	enumerateAdoptionClaims(root.AdoptedHomeVolumes, builderFor)
 
 	candidates := make([]Candidate, 0, len(builders))
 	for slug, builder := range builders {
@@ -144,40 +146,73 @@ var noteStateFile = func(builder *candidateBuilder, key state.Key) error {
 }
 
 // enumerateVolumeCandidates adds each home volume under the keys that own it,
-// with its creation time as activity. A volume's owner is the state keys that
-// reference it, not the slug its name embeds: a legacy identity adoption moves
-// the state to a checkout slug without renaming the volume, so a legacy-named
-// volume a live checkout adopted must surface as that checkout, never as the
-// now-ownerless legacy slug (whose purge could not remove it). A volume no state
-// references is an orphan and surfaces under its name-parsed key; a foreign
-// volume name parses to no slug and is skipped. A volume a state references
-// contributes activity to every referencing key.
+// with its creation time as activity. A volume's owner is not the slug its name
+// embeds but its current pointers: the state keys that reference it and the
+// checkout of any adoption claim that names it (see volumeOwners). An ownership
+// fix moves a legacy identity's state to a checkout slug without renaming the
+// volume, and a lost-state adoption leaves no state at all, so a legacy-named
+// volume must surface as its checkout, never as the now-ownerless legacy slug
+// (whose purge could not remove it). Only a volume with no pointer is an orphan
+// and surfaces under its name-parsed key; a foreign volume name parses to no
+// slug and is skipped. A volume contributes its creation time as activity to
+// every owning key.
 func enumerateVolumeCandidates(
 	ctx context.Context,
 	references map[string][]state.Key,
+	claims map[string]state.AdoptedHomeVolume,
 	builderFor func(string) *candidateBuilder,
 ) error {
 	handles, err := msb.Get().ListVolumes(ctx)
 	if err != nil {
 		return err
 	}
+	owners := volumeOwners(references, claims)
 	for _, handle := range handles {
 		name := handle.Name()
-		owners := references[name]
-		if len(owners) == 0 {
+		keys := owners[name]
+		if len(keys) == 0 {
 			artifact := naming.ParseHomeVolumeName(name)
 			if artifact.Slug == "" {
 				continue
 			}
-			owners = []state.Key{{Slug: artifact.Slug, Agent: artifact.Agent}}
+			keys = []state.Key{{Slug: artifact.Slug, Agent: artifact.Agent}}
 		}
-		for _, key := range owners {
+		for _, key := range keys {
 			builder := builderFor(key.Slug)
 			builder.keys[key] = struct{}{}
 			builder.noteActivity(handle.CreatedAt())
 		}
 	}
 	return nil
+}
+
+// volumeOwners maps each home volume to the keys that currently own it: every
+// state key that references it plus the checkout of every adoption claim that
+// names it. A claim has no state file to reference (that is why it exists), so
+// without folding it in a live checkout's home would be attributed to the slug
+// its name embeds and the checkout could look retired.
+func volumeOwners(
+	references map[string][]state.Key,
+	claims map[string]state.AdoptedHomeVolume,
+) map[string][]state.Key {
+	owners := make(map[string][]state.Key, len(references))
+	for name, keys := range references {
+		owners[name] = append(owners[name], keys...)
+	}
+	for claimKey, claim := range claims {
+		if claim.Volume == "" || claim.CheckoutSlug == "" {
+			continue
+		}
+		_, agent, ok := strings.Cut(claimKey, "/")
+		if !ok {
+			continue
+		}
+		key := state.Key{Slug: claim.CheckoutSlug, Agent: agent}
+		if !slices.Contains(owners[claim.Volume], key) {
+			owners[claim.Volume] = append(owners[claim.Volume], key)
+		}
+	}
+	return owners
 }
 
 // enumerateImageCandidates adds the parsed slug and agent of every launcher
@@ -255,17 +290,16 @@ func enumerateSandboxCandidates(
 
 // enumerateAdoptionClaims adds the owning checkout of every root-state adoption
 // claim, so a checkout that adopted a legacy identity's lost-state volume still
-// surfaces even when nothing else records it. The claim is keyed by the legacy
-// identity but owned by the checkout that adopted the volume, so the checkout —
-// the identity whose purge can actually remove the claim and its volume — is the
-// candidate, not the legacy key. A claim with no recorded checkout falls back to
-// its legacy key.
-func enumerateAdoptionClaims(builderFor func(string) *candidateBuilder) error {
-	root, err := state.ReadRootState()
-	if err != nil {
-		return err
-	}
-	for claimKey, claim := range root.AdoptedHomeVolumes {
+// surfaces even when nothing else records it (its volume is gone, or its only
+// trace is the claim). The claim is keyed by the legacy identity but owned by the
+// checkout that adopted the volume, so the checkout — the identity whose purge
+// can actually remove the claim and its volume — is the candidate, not the legacy
+// key. A claim with no recorded checkout falls back to its legacy key.
+func enumerateAdoptionClaims(
+	claims map[string]state.AdoptedHomeVolume,
+	builderFor func(string) *candidateBuilder,
+) {
+	for claimKey, claim := range claims {
 		legacySlug, claimAgent, ok := strings.Cut(claimKey, "/")
 		if !ok {
 			continue
@@ -276,7 +310,6 @@ func enumerateAdoptionClaims(builderFor func(string) *candidateBuilder) error {
 		}
 		builderFor(ownerSlug).keys[state.Key{Slug: ownerSlug, Agent: claimAgent}] = struct{}{}
 	}
-	return nil
 }
 
 func (b *candidateBuilder) noteActivity(at time.Time) {

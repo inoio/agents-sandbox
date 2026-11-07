@@ -462,29 +462,66 @@ func TestRemoveSandboxesWarnsAndJoinsFailures(t *testing.T) {
 	}
 }
 
-// TestRemoveAdoptionClaimsNoChange pins that removing claims that are not present
-// is a silent no-op that leaves the root state untouched.
-func TestRemoveAdoptionClaimsNoChange(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	const slug = "purge-claimnoop-1mjusbm3wikhb0"
-	seedAdoptionClaim(t, slug, "opencode", slug, "legacy-volume")
-
-	plan := &RemovalPlan{AdoptionClaims: []string{slug + "/absent"}}
-	if err := plan.removeAdoptionClaims(); err != nil {
-		t.Fatalf("removeAdoptionClaims: %v", err)
+// TestPruneSurvivingClaims pins the claim-retention rule: a planned claim is
+// dropped when its volume was removed or no longer exists, but kept when its
+// volume survived a failed removal — the surviving home's only owner record when
+// the checkout's state is gone. A claim key not in the plan is never touched.
+func TestPruneSurvivingClaims(t *testing.T) {
+	const volume = "legacy-volume"
+	const slug = "purge-claimkeep-1mjusbm3wikhb0"
+	cases := []struct {
+		name           string
+		volumes        []string
+		removed        map[string]struct{}
+		claims         []string
+		wantClaimDrops bool
+	}{
+		{
+			name:           "removed volume drops the claim",
+			volumes:        []string{volume},
+			removed:        map[string]struct{}{volume: {}},
+			claims:         []string{slug + "/opencode"},
+			wantClaimDrops: true,
+		},
+		{
+			name:           "absent volume drops the claim",
+			claims:         []string{slug + "/opencode"},
+			wantClaimDrops: true,
+		},
+		{
+			name:    "surviving volume keeps the claim",
+			volumes: []string{volume},
+			claims:  []string{slug + "/opencode"},
+		},
+		{
+			name:   "unmatched claim key is a no-op",
+			claims: []string{slug + "/absent"},
+		},
 	}
-	root, err := state.ReadRootState()
-	if err != nil {
-		t.Fatalf("ReadRootState: %v", err)
-	}
-	if _, ok := root.AdoptedHomeVolume(slug, "opencode"); !ok {
-		t.Error("an unmatched claim key must not drop the real claim")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			seedAdoptionClaim(t, slug, "opencode", slug, volume)
+			root, err := state.ReadRootState()
+			if err != nil {
+				t.Fatalf("ReadRootState: %v", err)
+			}
+			plan := &RemovalPlan{Volumes: tc.volumes, AdoptionClaims: tc.claims}
+			changed := plan.pruneSurvivingClaims(root, tc.removed)
+			_, kept := root.AdoptedHomeVolume(slug, "opencode")
+			if kept == tc.wantClaimDrops {
+				t.Errorf("claim kept = %v, want kept = %v", kept, !tc.wantClaimDrops)
+			}
+			if changed != tc.wantClaimDrops {
+				t.Errorf("changed = %v, want %v", changed, tc.wantClaimDrops)
+			}
+		})
 	}
 }
 
-// TestExecuteJoinsAdoptionClaimRemovalFailure pins that a root-state write
-// failure during claim removal warns, is joined, and does not abort the rest.
-func TestExecuteJoinsAdoptionClaimRemovalFailure(t *testing.T) {
+// TestExecuteJoinsOwnershipUpdateFailure pins that a root-state write failure
+// while pruning claims warns, is joined, and does not abort the rest.
+func TestExecuteJoinsOwnershipUpdateFailure(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	const slug = "purge-claimfail-1mjusbm3wikhb0"
@@ -506,10 +543,10 @@ func TestExecuteJoinsAdoptionClaimRemovalFailure(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
 
 	if err := plan.Execute(context.Background(), false, false, &ui); err == nil {
-		t.Fatal("expected the adoption-claim removal failure to be joined")
+		t.Fatal("expected the ownership-update failure to be joined")
 	}
-	if !slices.ContainsFunc(ui.WarnCalls, func(s string) bool { return strings.Contains(s, "adoption claims") }) {
-		t.Errorf("WarnCalls = %v, want a warning naming the adoption-claim failure", ui.WarnCalls)
+	if !slices.ContainsFunc(ui.WarnCalls, func(s string) bool { return strings.Contains(s, "home-volume ownership") }) {
+		t.Errorf("WarnCalls = %v, want a warning naming the ownership-update failure", ui.WarnCalls)
 	}
 }
 
@@ -635,5 +672,112 @@ func TestPlanRemovalScopesAdoptionClaimsToAgent(t *testing.T) {
 	}
 	if _, ok := root.AdoptedHomeVolume(legacyOpencode, "opencode"); !ok {
 		t.Error("another agent's adoption claim must survive the scoped purge")
+	}
+}
+
+// TestExecuteRefusesVolumeAdoptedAfterPlanning pins the purge/adoption race: a
+// volume another checkout adopts while the confirmation prompt is open must not
+// be deleted, and its new owner record must survive, because ownership is
+// re-derived under the root lock at execution time.
+func TestExecuteRefusesVolumeAdoptedAfterPlanning(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	const (
+		legacy   = "purge-lateadopt-1mjusbm3wikhb0"
+		checkout = "purge-latecheckout-2nkvtdn4xjlic1"
+	)
+	volumeName := naming.HomeVolumeName(legacy, "opencode", "20260101T000000")
+	if err := seedHomeState(
+		state.Key{Slug: legacy, Agent: "opencode"},
+		state.HomeState{HomeVolume: volumeName},
+	); err != nil {
+		t.Fatalf("seed legacy state: %v", err)
+	}
+	mock := &msb.MockMsbClient{
+		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volumeName}},
+	}
+	msb.WithMsbMock(t, mock)
+
+	plan, err := PlanRemoval(context.Background(), []string{legacy}, "", &ui)
+	if err != nil {
+		t.Fatalf("PlanRemoval: %v", err)
+	}
+	if !slices.Contains(plan.Volumes, volumeName) {
+		t.Fatalf("Volumes = %v, want the legacy volume planned", plan.Volumes)
+	}
+
+	// Between planning and execution another checkout adopts the volume, so the
+	// volume is no longer unmounted: the purge must refuse it.
+	seedAdoptionClaim(t, legacy, "opencode", checkout, volumeName)
+
+	if err := plan.Execute(context.Background(), false, false, &ui); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if slices.Contains(mock.RemovedVolumes, volumeName) {
+		t.Errorf("RemovedVolumes = %v, want the adopted volume kept", mock.RemovedVolumes)
+	}
+	if !slices.ContainsFunc(ui.WarnCalls, func(s string) bool {
+		return strings.Contains(s, "adopted by another project")
+	}) {
+		t.Errorf("WarnCalls = %v, want the adoption refusal", ui.WarnCalls)
+	}
+	root, err := state.ReadRootState()
+	if err != nil {
+		t.Fatalf("ReadRootState: %v", err)
+	}
+	if _, ok := root.AdoptedHomeVolume(legacy, "opencode"); !ok {
+		t.Error("the adopted home's claim must survive the refused purge")
+	}
+}
+
+// TestExecuteFailsClosedWhenReferencesGoCorrupt pins the fail-closed re-derivation:
+// if a project state file becomes unreadable between planning and execution, the
+// ownership recheck cannot prove a volume is unreferenced, so the purge warns and
+// removes nothing.
+func TestExecuteFailsClosedWhenReferencesGoCorrupt(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	const (
+		target  = "purge-refcorrupt-1mjusbm3wikhb0"
+		foreign = "purge-refcorrupt-other-1mjusbm3wikhb0"
+	)
+	volumeName := naming.HomeVolumeName(target, "opencode", "20260101T000000")
+	if err := seedHomeState(
+		state.Key{Slug: target, Agent: "opencode"},
+		state.HomeState{HomeVolume: volumeName},
+	); err != nil {
+		t.Fatalf("seed target state: %v", err)
+	}
+	mock := &msb.MockMsbClient{
+		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volumeName}},
+	}
+	msb.WithMsbMock(t, mock)
+
+	plan, err := PlanRemoval(context.Background(), []string{target}, "", &ui)
+	if err != nil {
+		t.Fatalf("PlanRemoval: %v", err)
+	}
+
+	// A state file outside the target's keys goes corrupt after planning.
+	foreignKey := state.Key{Slug: foreign, Agent: "opencode"}
+	if err := os.MkdirAll(state.KeyDir(foreignKey), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(state.KeyDir(foreignKey), "state.yaml"), []byte("schema: [not-valid"), 0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := plan.Execute(context.Background(), false, false, &ui); err == nil {
+		t.Fatal("expected the reference-read failure to be joined")
+	}
+	if slices.Contains(mock.RemovedVolumes, volumeName) {
+		t.Errorf("RemovedVolumes = %v, want nothing removed on a failed reference read", mock.RemovedVolumes)
+	}
+	if !slices.ContainsFunc(ui.WarnCalls, func(s string) bool {
+		return strings.Contains(s, "home-volume ownership")
+	}) {
+		t.Errorf("WarnCalls = %v, want the ownership-update failure warning", ui.WarnCalls)
 	}
 }

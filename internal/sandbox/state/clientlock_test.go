@@ -353,6 +353,65 @@ func TestAcquireClientLease_RetriesThenSucceeds(t *testing.T) {
 	}
 }
 
+// TestAcquireClientLease_RecreatesSweptClientsDir pins the sweep race: a prune
+// can reclaim the empty clients dir between MkdirAll and the lease open, so an
+// ENOENT open must recreate the dir and retry rather than fail the session's
+// lease (which would leave the client out of the active count).
+func TestAcquireClientLease_RecreatesSweptClientsDir(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := Key{Slug: "sweptleaseproj", Agent: "opencode"}
+
+	swept := false
+	clientLeaseDirReady = func(dir string) {
+		if swept {
+			return
+		}
+		swept = true
+		if err := os.Remove(dir); err != nil {
+			t.Fatalf("simulate sweep: %v", err)
+		}
+	}
+	t.Cleanup(func() { clientLeaseDirReady = nil })
+
+	release, err := AcquireClientLease(k)
+	if err != nil {
+		t.Fatalf("AcquireClientLease: %v", err)
+	}
+	defer release()
+
+	if got := CountActiveClients(k); got != 1 {
+		t.Fatalf("CountActiveClients = %d, want 1 after the dir was recreated", got)
+	}
+}
+
+// TestAcquireClientLease_RecreateFailureSurfaces pins that a clients dir which
+// cannot be recreated after the sweep race (its parent turned unwritable) fails
+// the acquisition rather than looping.
+func TestAcquireClientLease_RecreateFailureSurfaces(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("cannot make a dir unwritable as root")
+	}
+	configpaths.WithMockConfigPaths(t)
+	k := Key{Slug: "sweptfailproj", Agent: "opencode"}
+
+	clientLeaseDirReady = func(dir string) {
+		if err := os.Remove(dir); err != nil {
+			t.Fatalf("simulate sweep: %v", err)
+		}
+		if err := os.Chmod(KeyDir(k), 0o500); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		clientLeaseDirReady = nil
+		_ = os.Chmod(KeyDir(k), 0o700)
+	})
+
+	if _, err := AcquireClientLease(k); err == nil {
+		t.Fatal("expected the failed recreate to surface")
+	}
+}
+
 func TestAcquireClientLease_ErrorsWhenUnlinkedEveryAttempt(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 

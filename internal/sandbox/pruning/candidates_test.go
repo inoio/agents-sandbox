@@ -507,7 +507,7 @@ func TestEnumerateSourceListErrors(t *testing.T) {
 
 	t.Run("volumes", func(t *testing.T) {
 		msb.WithMsbMock(t, &msb.MockMsbClient{ListVolumesErr: errBoom})
-		if err := enumerateVolumeCandidates(ctx, nil, emptyBuilderFor); !errors.Is(err, errBoom) {
+		if err := enumerateVolumeCandidates(ctx, nil, nil, emptyBuilderFor); !errors.Is(err, errBoom) {
 			t.Fatalf("err = %v, want %v", err, errBoom)
 		}
 	})
@@ -527,44 +527,21 @@ func TestEnumerateSourceListErrors(t *testing.T) {
 	})
 }
 
-// TestEnumerateAdoptionClaimsEdgeCases pins the root-state read failure and the
-// claim key that carries no separator: a read failure fails the enumeration, a
-// key without "/" is skipped rather than fabricating a slug.
+// TestEnumerateAdoptionClaimsEdgeCases pins that a claim key carrying no
+// separator is skipped rather than fabricating a slug.
 func TestEnumerateAdoptionClaimsEdgeCases(t *testing.T) {
-	t.Run("read error", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
-		root := configpaths.Get().UserStateDir()
-		if err := os.WriteFile(filepath.Join(root, "state.yaml"), []byte("schema: [not-valid"), 0o600); err != nil {
-			t.Fatalf("corrupt root state: %v", err)
-		}
-		if err := enumerateAdoptionClaims(emptyBuilderFor); err == nil {
-			t.Fatal("expected the root-state read error")
-		}
-	})
-
-	t.Run("key without separator", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
-		_, err := state.WithRootState(true, func(txn *state.RootTxn) error {
-			txn.State().AdoptedHomeVolumes = map[string]state.AdoptedHomeVolume{
-				"no-separator": {CheckoutSlug: "checkout", Volume: "volume"},
-			}
-			return txn.Commit()
-		})
-		if err != nil {
-			t.Fatalf("seed malformed claim: %v", err)
-		}
-		var seen []string
-		collect := func(slug string) *candidateBuilder {
-			seen = append(seen, slug)
-			return &candidateBuilder{keys: map[state.Key]struct{}{}}
-		}
-		if err := enumerateAdoptionClaims(collect); err != nil {
-			t.Fatalf("enumerateAdoptionClaims: %v", err)
-		}
-		if len(seen) != 0 {
-			t.Errorf("builder slugs = %v, want none for a key without a separator", seen)
-		}
-	})
+	configpaths.WithMockConfigPaths(t)
+	var seen []string
+	collect := func(slug string) *candidateBuilder {
+		seen = append(seen, slug)
+		return &candidateBuilder{keys: map[state.Key]struct{}{}}
+	}
+	enumerateAdoptionClaims(map[string]state.AdoptedHomeVolume{
+		"no-separator": {CheckoutSlug: "checkout", Volume: "volume"},
+	}, collect)
+	if len(seen) != 0 {
+		t.Errorf("builder slugs = %v, want none for a key without a separator", seen)
+	}
 }
 
 // TestEnumerateCandidatesAttributesAdoptedVolumeToItsCheckout pins that a
@@ -630,5 +607,80 @@ func TestEnumerateCandidatesAdoptionClaimWithoutCheckout(t *testing.T) {
 	}
 	if want := []state.Key{{Slug: legacy, Agent: "opencode"}}; !slices.Equal(candidates[0].Keys, want) {
 		t.Errorf("Keys = %v, want %v", candidates[0].Keys, want)
+	}
+}
+
+// TestEnumerateCandidatesAttributesClaimOnlyVolumeToItsCheckout pins the
+// lost-state adoption: when only an adoption claim records the checkout and its
+// volume, the volume contributes its activity to the checkout, so the checkout
+// is not listed as retired just because no state file references the volume.
+func TestEnumerateCandidatesAttributesClaimOnlyVolumeToItsCheckout(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const (
+		legacy   = "claimonly-1mjusbm3wikhb0"
+		checkout = "claimonlycheckout-2nkvtdn4xjlic1"
+	)
+	volumeName := naming.HomeVolumeName(legacy, "opencode", "20260101T000000")
+	seedAdoptionClaim(t, legacy, "opencode", checkout, volumeName)
+	createdAt := time.Now().Add(-2 * time.Hour)
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volumeName, CreatedAt_: createdAt}},
+	})
+
+	candidates, err := EnumerateCandidates(context.Background(), 24*time.Hour)
+	if err != nil {
+		t.Fatalf("EnumerateCandidates: %v", err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("candidates = %+v, want exactly the checkout", candidates)
+	}
+	got := candidates[0]
+	if got.Slug != checkout {
+		t.Fatalf("Slug = %q, want the owning checkout %q", got.Slug, checkout)
+	}
+	if got.NewestActivity.Sub(createdAt).Abs() > time.Second {
+		t.Errorf("NewestActivity = %v, want the volume's creation time %v", got.NewestActivity, createdAt)
+	}
+	if got.Retired(time.Now(), 24*time.Hour) {
+		t.Error("a checkout with a 2h-old adopted volume must not be retired")
+	}
+}
+
+// TestVolumeOwners pins the ownership index: a volume is owned by every state
+// key that references it plus the checkout of every well-formed claim that names
+// it, deduplicated, while a malformed or empty claim is ignored so it cannot
+// fabricate an owner.
+func TestVolumeOwners(t *testing.T) {
+	references := map[string][]state.Key{
+		"referenced": {{Slug: "state-slug", Agent: "opencode"}},
+	}
+	claims := map[string]state.AdoptedHomeVolume{
+		// A claim on a referenced volume adds its checkout alongside the state key.
+		"legacy/opencode": {CheckoutSlug: "checkout", Volume: "referenced"},
+		// A second claim resolving to an existing owner is not duplicated.
+		"legacy2/opencode": {CheckoutSlug: "state-slug", Volume: "referenced"},
+		// A claim-only volume is owned by its checkout.
+		"legacy/pi": {CheckoutSlug: "checkout", Volume: "claimed"},
+		// These must be ignored: no separator, no checkout, no volume.
+		"no-separator":        {CheckoutSlug: "checkout", Volume: "ignored"},
+		"nocheckout/opencode": {Volume: "ignored"},
+		"novolume/opencode":   {CheckoutSlug: "checkout"},
+	}
+	owners := volumeOwners(references, claims)
+
+	want := map[string][]state.Key{
+		"referenced": {
+			{Slug: "state-slug", Agent: "opencode"},
+			{Slug: "checkout", Agent: "opencode"},
+		},
+		"claimed": {{Slug: "checkout", Agent: "pi"}},
+	}
+	if len(owners) != len(want) {
+		t.Fatalf("owners = %v, want %v", owners, want)
+	}
+	for name, wantKeys := range want {
+		if !slices.Equal(owners[name], wantKeys) {
+			t.Errorf("owners[%q] = %v, want %v", name, owners[name], wantKeys)
+		}
 	}
 }

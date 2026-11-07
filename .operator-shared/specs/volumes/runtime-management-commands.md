@@ -140,11 +140,12 @@ portability features.
   artifact union (state dirs, volume names, image refs, sandbox identities, root
   adoption claims), so a state-less slug with a leftover volume still surfaces;
   foreign artifacts are ignored. Attribution follows ownership, not names: a home
-  volume is attributed to the state keys that reference it, so a legacy-named
-  volume a checkout adopted surfaces as that checkout (the identity whose purge
-  can remove it), never as the now-ownerless legacy slug, and only a volume no
-  state references surfaces under its name; a root-state adoption claim likewise
-  surfaces its owning checkout.
+  volume is attributed to the state keys that reference it and to the checkout of
+  any adoption claim that names it, so a legacy-named volume a checkout adopted —
+  even a lost-state adoption whose only record is the claim — surfaces as that
+  checkout (the identity whose purge can remove it), never as the now-ownerless
+  legacy slug, and only a volume with neither pointer surfaces under its name; a
+  root-state adoption claim likewise surfaces its owning checkout.
 - **`prune --purge [<target>]` and `sandbox remove --purge [<target>]` share one
   engine.** They remove one project's artifacts — sandboxes (a running one
   stopped first under `--force`), home volumes, runner images, state files,
@@ -158,9 +159,14 @@ portability features.
   its adoption claim, and is refused (with a warning) when an out-of-target state
   key or checkout still owns it — so purging a legacy slug can never delete
   another checkout's saved home, and purging a checkout reclaims the
-  legacy-named volume its state points at. An adoption claim is owned by its
+  legacy-named volume its state points at. Ownership is re-derived at execution
+  under the launcher-global root lock — the lock an identity adoption serializes
+  on — so a volume another checkout adopts while the confirmation prompt is open
+  is refused rather than deleted. An adoption claim is owned by its
   `checkout_slug`, so purging a checkout retires its own claims while purging a
-  legacy slug leaves a live checkout's claim intact. `<target>` is a slug (whole
+  legacy slug leaves a live checkout's claim intact; a claim is dropped only once
+  its volume was removed or found absent, so a volume that survives a failed
+  removal keeps its owner record. `<target>` is a slug (whole
   project) or `<slug>-<agent>` (one key); an omitted target resolves the cwd (an
   error outside a checkout). The age gate is bypassed: `prune --purge` takes
   `--dry-run`/`--format json`/`--yes`, while `sandbox remove --purge` confirms and
