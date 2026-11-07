@@ -79,12 +79,15 @@ fi
 
 # The environment the child sees, and no other. PWD is set explicitly so the
 # child's working directory is deterministic on every host rather than derived
-# from the machine's real path.
+# from the machine's real path. The module lives in a `module/` subdirectory so
+# HOME and TMPDIR are siblings of it, not descendants of the copied tree: a
+# suite that walks the module (the isolation contract tests do) must not trip
+# over the envelope's own scratch.
 env_args=(
   "PATH=$PATH"
   "HOME=$work_dir/home"
   "TMPDIR=$work_dir/tmp"
-  "PWD=$work_dir"
+  "PWD=$work_dir/module"
   "GOCACHE=${GOCACHE:-$(go env GOCACHE)}"
   "GOMODCACHE=${GOMODCACHE:-$(go env GOMODCACHE)}"
   "GOFLAGS=-count=1${GOFLAGS:+ $GOFLAGS}"
@@ -123,7 +126,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$work_dir/home" "$work_dir/tmp"
-rsync -a --exclude=.git --exclude=.gomutants-cache.json "$source_dir"/ "$work_dir"/
+mkdir -p "$work_dir/home" "$work_dir/tmp" "$work_dir/module"
+rsync -a --exclude=.git --exclude=.gomutants-cache.json "$source_dir"/ "$work_dir/module"/
 
-( cd "$work_dir" && env -i "${env_args[@]}" "${run_command[@]}" )
+( cd "$work_dir/module" && env -i "${env_args[@]}" "${run_command[@]}" )

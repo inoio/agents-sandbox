@@ -53,7 +53,7 @@ fixture="$(new_fixture base)"
 work="$fixture_root/work"
 output="$(HOST_ONLY_VAR=leak "$ENVELOPE" --source "$fixture" --work-dir "$work" -- make test)" && rc=0 || rc=$?
 [[ "$rc" -eq 0 ]] && ok "scrubbed run exits 0" || bad "scrubbed run exits 0 (rc=$rc)"
-assert_contains     "runs in the work dir"     "$output" "PWD=$work"
+assert_contains     "runs in the work dir"     "$output" "PWD=$work/module"
 assert_contains     "HOME points in work dir"  "$output" "HOME=$work/home"
 assert_contains     "TMPDIR points in work dir" "$output" "TMPDIR=$work/tmp"
 assert_not_contains "host-only var dropped"    "$output" "leak"
@@ -75,7 +75,7 @@ spaced="$(new_fixture "with space")"
 spaced_work="$fixture_root/space work"
 output="$("$ENVELOPE" --source "$spaced" --work-dir "$spaced_work" -- make test)" && rc=0 || rc=$?
 [[ "$rc" -eq 0 ]] && ok "spaced source exits 0" || bad "spaced source exits 0 (rc=$rc)"
-assert_contains "spaced source runs in work dir" "$output" "PWD=$spaced_work"
+assert_contains "spaced source runs in work dir" "$output" "PWD=$spaced_work/module"
 
 # Case: --netns is rejected when the host cannot provide it (self-skips on a
 # netns-capable Linux host, which is where the strict run is meant to work).
