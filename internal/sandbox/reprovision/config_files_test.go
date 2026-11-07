@@ -379,12 +379,86 @@ func TestLoadConfigFilesProvisioningDisabled(t *testing.T) {
 			t.Errorf("expected config file %s in Remove, got %v", want, cf.Remove)
 		}
 	}
+	// A login inside the VM must survive restarts: only VM files identical
+	// to the host file, i.e. copies from an earlier provisioning run, are
+	// marked for removal.
 	authPath := filepath.Join(vmHome, ".local", "share", "opencode", "auth.json")
-	if !slices.Contains(cf.Remove, authPath) {
-		t.Errorf("expected auth.json in Remove when provisioning disabled, got %v", cf.Remove)
+	if slices.Contains(cf.Remove, authPath) {
+		t.Errorf("Remove = %v, must not unconditionally contain auth.json", cf.Remove)
+	}
+	if got := string(cf.RemoveHostCopies[authPath]); got != `{"t":"x"}` {
+		t.Errorf("RemoveHostCopies[auth.json] = %q, want host content", got)
 	}
 	if !cf.HasSnippets || len(cf.Merged) == 0 {
 		t.Error("expected merged config to be built despite disabled provisioning")
+	}
+}
+
+// TestPiSensitiveFilesAreOnlyRemovedWhenTheyAreHostCopies verifies that Pi's
+// provisioning-excluded secrets are never removed unconditionally (a login
+// inside the VM must survive restarts); only VM files identical to the host
+// file, i.e. stale copies from an older provisioning run, are marked.
+func TestPiSensitiveFilesAreOnlyRemovedWhenTheyAreHostCopies(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a, _ := agent.Lookup("pi")
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+	hostPiDir := filepath.Join(hostHome, ".pi", "agent")
+	if err := os.MkdirAll(hostPiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, hostPiDir, "auth.json", `{"secret":"host"}`)
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	authPath := filepath.Join(vmHome, ".pi", "agent", "auth.json")
+	modelsPath := filepath.Join(vmHome, ".pi", "agent", "models.json")
+	for _, path := range []string{authPath, modelsPath} {
+		if slices.Contains(cf.Remove, path) {
+			t.Errorf("Remove = %v, must not unconditionally contain %s", cf.Remove, path)
+		}
+	}
+	if got := string(cf.RemoveHostCopies[authPath]); got != `{"secret":"host"}` {
+		t.Errorf("RemoveHostCopies[auth.json] = %q, want host content", got)
+	}
+	if _, ok := cf.RemoveHostCopies[modelsPath]; ok {
+		t.Errorf("RemoveHostCopies = %v, want no entry for models.json missing on the host", cf.RemoveHostCopies)
+	}
+}
+
+// TestClaudeCredentialsAreNotRemovedFromPersistentHome verifies that Claude
+// Code's login credentials, which live only inside the persistent home, are
+// never marked for unconditional removal when host provisioning is disabled.
+func TestClaudeCredentialsAreNotRemovedFromPersistentHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	a, _ := agent.Lookup("claude-code")
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentialsPath := filepath.Join(vmHome, ".claude", ".credentials.json")
+	if slices.Contains(cf.Remove, credentialsPath) {
+		t.Fatalf("Claude credentials would be removed from persistent home: %v", cf.Remove)
+	}
+}
+
+// TestLoadConfigFilesNoHostCopiesForNonProvisioner verifies that an agent
+// without provision rules has no stale host copies to remove when host config
+// provisioning is disabled.
+func TestLoadConfigFilesNoHostCopiesForNonProvisioner(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	ui := termio.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(plainAgent{}), "", t.TempDir(), t.TempDir(), &ui, false)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+	if len(cf.RemoveHostCopies) != 0 {
+		t.Errorf("RemoveHostCopies = %v, want none for a non-Provisioner agent", cf.RemoveHostCopies)
 	}
 }
 
@@ -1889,7 +1963,7 @@ func TestLoadProvisionedNoProvisionerYieldsNothing(t *testing.T) {
 
 // TestProvisionDestinationsNoProvisionerYieldsNone verifies the subject's
 // provisioner guard for the removal destinations.
-func TestProvisionDestinationsNoProvisionerYieldsNone(t *testing.T) {
+func TestProvisionedHostCopiesNoProvisionerYieldsNone(t *testing.T) {
 	hostHome := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(hostHome, ".config", "tool"), 0o755); err != nil {
 		t.Fatal(err)
@@ -1900,8 +1974,8 @@ func TestProvisionDestinationsNoProvisionerYieldsNone(t *testing.T) {
 		provisionRules: []agent.ProvisionRule{{Dir: ".config/tool", Patterns: []string{"**"}}},
 		vmHome:         "/home/dev",
 	}
-	if dsts := subject.provisionDestinations(hostHome); len(dsts) != 0 {
-		t.Errorf("provisionDestinations without a provisioner = %v, want none", dsts)
+	if copies := subject.provisionedHostCopies(hostHome); len(copies) != 0 {
+		t.Errorf("provisionedHostCopies without a provisioner = %v, want none", copies)
 	}
 }
 

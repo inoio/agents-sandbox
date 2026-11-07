@@ -113,6 +113,12 @@ encoding it in a query name such as `<encoded-secret>.attacker.example`. Directl
 including over DNS-over-HTTPS when an allowed host serves it, and through any name under an allowed `.suffix` whose
 domain someone else controls. Allow-list only hosts you trust with the data in the VM.
 
+With `profile: none`, only the gateway DNS is auto-allowed, so a custom resolver's IP must also be listed in
+`egress-allow` (e.g. `egress-allow: [1.1.1.1]`) for DNS lookups to reach it.
+
+Claude Code normal login also requires egress to `platform.claude.com`, `claude.ai`, and `claude.com` in addition to
+`api.anthropic.com`. `agents-sandbox config migrate --agent claude-code` adds these hosts automatically; the first interactive start with Claude Code
+offers the same setup.
 ## Published ports
 
 The `ports:` list publishes VM ports on the host so a service inside the sandbox (a dev server, a database) is
@@ -149,3 +155,4 @@ For concrete walkthroughs — a dev server with hot reload, or a database inspec
 It is also configurable via the `AGENTS_SANDBOX_PORTS` environment variable (comma-separated, e.g. `3000,8080:3000`)
 and the `--port`/`-p` flag on `run`/`shell` (comma-separated or repeated; matching msb's own `--port`). Precedence:
 **flag > env > config**.
+

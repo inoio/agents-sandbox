@@ -54,7 +54,70 @@ func (opencodeConfig) ConfigFileNames() []string {
 func (opencodeConfig) ProvisionRules() []ProvisionRule {
 	return []ProvisionRule{
 		{Dir: ".config/opencode", Patterns: []string{"**", "!node_modules/", "!package*.json", "!.gitignore"}},
-		{Dir: ".local/share/opencode", Patterns: []string{"auth.json"}},
+		{Dir: ".local/share/opencode", Patterns: []string{authFileName}},
+	}
+}
+
+// MigrationSpec describes the OpenCode files that can be migrated without
+// copying native credentials into the VM. Both OpenCode profiles use the same
+// auth format and paths.
+//
+//nolint:gosec // these are public provider hostnames, not credentials
+func (opencodeConfig) MigrationSpec() ConfigMigrationSpec {
+	const wellKnownAuthType = "wellknown"
+	const tokenField = authTokenField
+	return ConfigMigrationSpec{
+		NativeConfigDir:       ".config/opencode",
+		NativeConfigEnv:       "XDG_CONFIG_HOME",
+		NativeConfigEnvIsPath: false,
+		NativeConfigSubdir:    opencodeConfigDirName,
+		NativeCredential:      ".local/share/opencode/auth.json",
+		NativeDataEnv:         "XDG_DATA_HOME",
+		NativeDataEnvIsPath:   false,
+		NativeDataSubdir:      opencodeConfigDirName,
+		CredentialTarget:      ".local/share/opencode/auth.json",
+		ManagedCredential:     authFileName,
+		ManagedSnippet:        "opencode-migrated.jsonc",
+		NativeConfigFiles: []string{
+			"config.json",
+			"opencode.json",
+			"opencode.jsonc",
+			"opencode.json5",
+			"opencode.yaml",
+			"opencode.yml",
+		},
+		NativeConfigStrictJSON:    false,
+		RequiredNetworkHosts:      nil,
+		NativeSupplementalFiles:   nil,
+		ManagedSupplementalFiles:  nil,
+		ProvisioningExcludedFiles: nil,
+		KnownProviderHosts: map[string]string{
+			authAnthropicProvider: anthropicAPIHost,
+			githubCopilotProvider: githubCopilotAPIHost,
+			"openai":              "api.openai.com",
+			"openrouter":          "openrouter.ai",
+		},
+		LoginHosts: map[string][]string{
+			githubCopilotProvider: {githubCopilotLoginHost, githubCopilotAPIHost},
+		},
+		Auth: AuthMigrationSpec{
+			SecretPrefix: "OPENCODE",
+			AuthFields: map[string][]string{
+				"api":             {authKeyField},
+				wellKnownAuthType: {tokenField},
+			},
+			LoginAuthTypes:  []string{oauthAuthType},
+			SensitiveFields: defaultSensitiveAuthFields,
+			SafeFields: []string{
+				"accountid", "enterpriseurl", "expires", "scopes", authTypeField,
+			},
+			ConfigSensitiveFields:   defaultConfigSensitiveFields,
+			EndpointFields:          []string{authBaseURLField, authEndpointField, "enterpriseUrl", authURLField},
+			AuthPlaceholderPrefix:   migrationPlaceholderPrefix,
+			ConfigPlaceholderPrefix: "{env:",
+			ConfigPlaceholderSuffix: "}",
+			RejectUnresolvedValues:  false,
+		},
 	}
 }
 

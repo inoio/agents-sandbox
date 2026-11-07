@@ -210,8 +210,8 @@ func IsDir(path string) bool {
 }
 
 // ConfigFiles holds the merged agent config, the set of home files to
-// provision into the VM, the default drop-in copy from the host, and the VM
-// paths to remove so stale host config cannot shadow the merged config.
+// provision into the VM, the optional host drop-in copy, and the VM paths to
+// remove so stale host config cannot shadow the merged config.
 type ConfigFiles struct {
 	HasSnippets bool                   // whether any agent snippet existed
 	Merged      []byte                 // merged agent config content
@@ -219,12 +219,16 @@ type ConfigFiles struct {
 	Sources     []string               // host snippet paths merged into Merged
 	Source      ConfigSource           // resolved launcher config-dir pair (with legacy fallback marker)
 	HomeFiles   map[string][]byte      // VM absolute path -> content (from the home: key)
-	Provisioned map[string][]byte      // VM absolute path -> content (drop-in copy)
+	Provisioned map[string][]byte      // VM absolute path -> content (host drop-in copy)
 	Mirror      map[string][]byte      // VM absolute path -> content (verbatim <agent> mirror)
 	Modes       map[string]os.FileMode // VM absolute path -> ordinary file permission bits
 	Remove      []string               // VM absolute paths to delete before writing
-	Hooks       []homeconfig.HookSpec  // startup hooks to run at vm.SetUpSandbox
-	Keys        []string               // merged config path first (when snippets exist), then the remaining VM paths sorted
+	// RemoveHostCopies maps VM paths that may hold a stale copy of a host file
+	// to the host content; a VM file is deleted only when it equals it.
+	RemoveHostCopies map[string][]byte
+
+	Hooks []homeconfig.HookSpec // startup hooks to run at vm.SetUpSandbox
+	Keys  []string              // merged config path first (when snippets exist), then the remaining VM paths sorted
 }
 
 // configSubject materializes the agent facts the config pipeline needs, derived
@@ -328,8 +332,9 @@ func LoadConfigFilesForHost(
 	// snippets exist the merged config must be the only config, and when host
 	// config provisioning is disabled no host file may remain.
 	remove := configFileFamilyPaths(merged.path, subject.familyNames)
+	removeHostCopies := excludedHostCopies(a.Profile, hostHome, vmHome)
 	if !provisionHostConfig {
-		remove = append(remove, subject.provisionDestinations(hostHome)...)
+		maps.Copy(removeHostCopies, subject.provisionedHostCopies(hostHome))
 	}
 	keys := configKeys(merged.path, merged.hasSnippets, homeFiles, mirror, provisioned)
 	if src.Fallback != "" {
@@ -354,18 +359,19 @@ func LoadConfigFilesForHost(
 		)
 	}
 	return &ConfigFiles{
-		HasSnippets: merged.hasSnippets,
-		Merged:      merged.content,
-		MergedPath:  merged.path,
-		Sources:     merged.sources,
-		Source:      src,
-		HomeFiles:   homeFiles,
-		Provisioned: provisioned,
-		Mirror:      mirror,
-		Modes:       modes,
-		Remove:      remove,
-		Hooks:       hooks,
-		Keys:        keys,
+		HasSnippets:      merged.hasSnippets,
+		Merged:           merged.content,
+		MergedPath:       merged.path,
+		Sources:          merged.sources,
+		Source:           src,
+		HomeFiles:        homeFiles,
+		Provisioned:      provisioned,
+		Mirror:           mirror,
+		Modes:            modes,
+		Remove:           remove,
+		RemoveHostCopies: removeHostCopies,
+		Hooks:            hooks,
+		Keys:             keys,
 	}, nil
 }
 
@@ -482,11 +488,16 @@ func (s configSubject) applyPrecedence(
 	for path := range homeFiles {
 		delete(provisioned, path)
 	}
-	// The merged config overrides the drop-in copy when snippets exist.
+	// The merged config overrides the drop-in copy when snippets exist. The
+	// whole config-file family is dropped from the drop-in copy, not just the
+	// merged path, so a stale sibling (e.g. config.json) cannot shadow the
+	// merged config.
 	if hasSnippets {
-		delete(provisioned, s.vmConfigPath)
-		// gomutants:disable-next-line STATEMENT_REMOVE reason="the mirror-override block below removes this same key from modes under the identical hasSnippets condition, so dropping the statement leaves ConfigFiles.Modes unchanged"
-		delete(modes, s.vmConfigPath)
+		for _, path := range configFileFamilyPaths(s.vmConfigPath, s.familyNames) {
+			delete(provisioned, path)
+			// gomutants:disable-next-line STATEMENT_REMOVE reason="the mirror-override block below removes this same key from modes under the identical hasSnippets condition, so dropping the statement leaves ConfigFiles.Modes unchanged"
+			delete(modes, path)
+		}
 	}
 	// The mirror's modes take effect, then the home files' modes are applied
 	// last so they win over both the drop-in copy and the mirror.
@@ -613,25 +624,48 @@ func mirrorMaps(entries map[string]config.MirrorEntry) (map[string][]byte, map[s
 	return mirror, modes
 }
 
-// provisionDestinations returns the VM paths the subject's provision rules
-// would copy for the given host, without copying anything. It mirrors the
-// drop-in copy's destinations so they can be removed when host provisioning is
-// disabled.
-func (s configSubject) provisionDestinations(hostHome string) []string {
+// provisionedHostCopies returns the host content the subject's provision rules
+// would copy, keyed by VM path. With provisioning disabled, such copies left
+// in the persistent home by an earlier run are removed, while files created
+// inside the VM (e.g. by a login there) differ from the host content and are
+// kept.
+func (s configSubject) provisionedHostCopies(hostHome string) map[string][]byte {
+	hostCopies := make(map[string][]byte)
 	if s.provisioner == nil {
-		return nil
+		return hostCopies
 	}
-	var dsts []string
 	_, _ = agent.EvalProvisionRules(
 		s.provisionRules,
 		hostHome,
 		s.vmHome,
-		func(dst string, _ []byte, _ os.FileMode) error {
-			dsts = append(dsts, dst)
+		func(dst string, data []byte, _ os.FileMode) error {
+			hostCopies[dst] = data
 			return nil
 		},
 	)
-	return dsts
+	return hostCopies
+}
+
+// excludedHostCopies returns the host content of the agent's files that are
+// excluded from provisioning (e.g. Pi's auth.json), keyed by VM path. An
+// earlier provisioning run may have copied them into the persistent home;
+// such stale host secrets are removed, while files created inside the VM
+// (e.g. by a login there) differ from the host content and are kept.
+func excludedHostCopies(a agent.Agent, hostHome, vmHome string) map[string][]byte {
+	hostCopies := make(map[string][]byte)
+	provider, ok := agent.AsMigrationSpecProvider(a)
+	if !ok {
+		return hostCopies
+	}
+	spec := provider.MigrationSpec()
+	for _, name := range spec.ProvisioningExcludedFiles {
+		hostContent, err := os.ReadFile(filepath.Join(hostHome, spec.NativeConfigDir, name))
+		if err != nil {
+			continue
+		}
+		hostCopies[filepath.Join(vmHome, spec.NativeConfigDir, name)] = hostContent
+	}
+	return hostCopies
 }
 
 // HostFile is one host file the drop-in provisioning would copy.

@@ -176,6 +176,34 @@ func TestProvisionRemovesStalePaths(t *testing.T) {
 	}
 }
 
+// TestProvisionRemovesOnlyStaleHostCopies verifies that Provision removes a
+// VM file marked as a potential host copy only when its content matches, so a
+// login written inside the VM survives while a stale copy from an earlier
+// provisioning run is reclaimed.
+func TestProvisionRemovesOnlyStaleHostCopies(t *testing.T) {
+	staleCopy := "/home/agent/.pi/agent/auth.json"
+	vmLogin := "/home/agent/.pi/agent/models.json"
+	missing := "/home/agent/.pi/agent/other.json"
+	cf := &ConfigFiles{
+		RemoveHostCopies: map[string][]byte{
+			staleCopy: []byte("host"),
+			vmLogin:   []byte("host"),
+			missing:   []byte("host"),
+		},
+	}
+	fs := msb.NewTestFS(map[string][]byte{
+		staleCopy: []byte("host"),
+		vmLogin:   []byte("logged in inside the VM"),
+	}, nil)
+	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
+	if err := Provision(context.Background(), sb, cf); err != nil {
+		t.Fatalf("Provision: %v", err)
+	}
+	if !slices.Equal(fs.Removed, []string{staleCopy}) {
+		t.Errorf("Removed = %v, want only %s", fs.Removed, staleCopy)
+	}
+}
+
 // TestProvisionWritesProvisioned verifies that Provision writes the default
 // drop-in copy just like home files.
 func TestProvisionWritesProvisioned(t *testing.T) {

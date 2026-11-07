@@ -10,6 +10,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -69,6 +70,17 @@ func TestResourcePressureInteractiveAcceptPersists(t *testing.T) {
 	// to the wrong slug is observable.
 	t.Chdir(newOriginClone(t))
 	withoutMemoryEnv(t)
+
+	// This test drives the interactive pressure prompt, so disable the
+	// onboarding steps that would otherwise consume the Select/Input stubs.
+	originalWizard := runConfigWizardFn
+	originalGuide := guideConfigMigrationFn
+	t.Cleanup(func() {
+		runConfigWizardFn = originalWizard
+		guideConfigMigrationFn = originalGuide
+	})
+	runConfigWizardFn = func(*viperconfig.Resolver, termio.UI) error { return nil }
+	guideConfigMigrationFn = func(options.RunOptions, termio.UI, bool) error { return nil }
 
 	mock := &sandboxmsb.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, memoryPressureSandbox(), "run")

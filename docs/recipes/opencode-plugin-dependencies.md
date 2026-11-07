@@ -14,7 +14,7 @@ machine but not in the sandbox, and the only trace is a `failed to load plugin .
 opencode log inside the VM.
 
 The launcher copies your `~/.config/opencode` into the VM, but not its `node_modules/` or `package*.json` (see
-[Default drop-in provisioning]({% link configuration/agent.md %}#default-drop-in-provisioning)). Copying them would
+[Host-config drop-in provisioning]({% link configuration/agent.md %}#host-config-drop-in-provisioning)). Copying them would
 not help: your machine and the Linux VM are different platforms, so a package with native code would be built for the
 wrong one, and a copy goes stale silently after you change the packages on your machine. opencode does not install the
 packages of a local plugin either. Instead, you install them inside the VM, where they are built for Linux and kept in

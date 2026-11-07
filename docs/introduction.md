@@ -28,14 +28,19 @@ reset separately. The VM root is replaceable, but the project checkout and writa
 
 ## Credentials and network access
 
-The secret mechanism is not the same as copying a credential file. With `env.secret` or `env.secret.yaml`, the real value stays
-on the host and the guest receives a placeholder; the microsandbox proxy can substitute the value only for an allowed,
-verifiable destination. Ordinary `env`, `home:`, mounts, and files in `/workspace` are not protected by that mechanism.
+The VM boundary does not make credentials safe by itself. With `env.secret` or `env.secret.yaml`, the real value stays on the
+host and the guest receives a placeholder; the microsandbox proxy can substitute the value only for an allowed, verifiable
+destination. Ordinary `env`, `home:`, mounts, and files in `/workspace` are not protected by that mechanism.
 
-Host agent configuration is copied by default for convenience. For opencode, this may include
-`~/.local/share/opencode/auth.json`, which means credentials can be present in the VM. Set `provision-host-config: false` and
-use secret-backed configuration when that is not acceptable. Project `.env` files are also visible because `/workspace` is
-shared; they are not hidden by the VM boundary.
+Native host-agent configuration stays out of the VM by default. When an existing supported setup is detected, the first
+interactive start offers a safe, reviewable migration before the VM starts. Where credentials are migrated, the VM gets
+microsandbox placeholders and the raw values remain in the host-side secret file; machine-bound login state is not copied. See
+[Manage config in the sandbox]({% link manage-config.md %}) for this workflow and for manual configuration.
+
+The explicit `provision-host-config: true` option is an unsafe compatibility exception, not the default migration path. It copies
+selected native files as ordinary files into the persistent VM home. For OpenCode, this may include
+`~/.local/share/opencode/auth.json`, so credentials can then be present in the VM. Project `.env` files are also visible because
+`/workspace` is shared; they are not hidden by the VM boundary.
 
 Network egress uses the `public` profile by default, so the agent can reach its APIs and package registries. The `network:`
 configuration can refine this: profiles `private` and `host` compose with `public`, the allowlist-only `none` profile

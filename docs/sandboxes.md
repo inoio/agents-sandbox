@@ -24,6 +24,68 @@ where you do; the sections that follow carry the detail.
 | Reclaim stale sandboxes, volumes, and images | `agents-sandbox prune --dry-run`, then `agents-sandbox prune --yes` |
 | See storage use | `agents-sandbox df` |
 
+```
+- Auto-prune: Remove stale VMs, volumes, and images
+- Pre-flight checks (doctor): Docker, KVM, Git, msb
+- Image verify/build: `.agents-sandbox/Dockerfile` (or default image) → Docker image -> microsandbox image
+- Home volume verify/build: Persistent msb volume (`agents-sandbox-home-<slug>-<timestamp>`) per project
+- VM creation or reuse: New or existing project-specific VM
+- Provisioning: Provision config snippets, mirrors, and `home:` files; the optional [unsafe host-config drop-in]({% link provision-host-config.md %})
+  is conditional on `provision-host-config: true` (updated configs are re-provisioned).
+- Daemon verify/start: Ensure/start microsandbox internal services
+- Branch resolve: If `--worktree` (`-w`) specified, reuse or create an agent VM-internal worktree via daemon API
+- Agent run: Execute the agent's attach command (e.g. `opencode attach`) against the worktree inside the sandbox
+- Cleanup: Detach
+```
+
+## VM Identity
+
+Each (project, agent) pair gets its own VM identified by the project slug and agent:
+
+```
+agents-sandbox-vm-<project-slug>-<agent>
+```
+
+The project slug consists of the repository name and a hash of the repository host and full path. For example, a repo
+cloned from `git@github.com:inoio/myproject.git` gets:
+
+```
+agents-sandbox-vm-myproject-<hash>-opencode
+```
+
+Where `<hash>` is the hash of `github.com:inoio/myproject` (username and extension removed). Every clone and linked
+worktree of the same remote shares the same project (and therefore the same VM, volume, and image names) for the same
+agent.
+
+The VM is **per-(project, agent), not per-invocation**. Subsequent runs connect to the existing VM (or start it if
+stopped) rather than creating a new one. When the Docker image's Dockerfile has changed, the existing VM has to be
+recreated, but it keeps its name. The home volume is untouched, so no user state is lost (see [Volumes](#volumes)).
+
+VMs, home volumes, and state are scoped per `--agent`, so switching agents no longer tears down the project sandbox, and
+multiple agents (e.g. `opencode` and `opencode2`) can serve the same project concurrently. VMs created by earlier
+per-project versions (which did not carry an agent suffix) are abandoned rather than migrated — they are not picked up
+by the agent-scoped names, and are reclaimed by `prune`.
+
+## Volumes
+
+### Volume Lifecycle
+
+Home volumes are persistent storage for the VM's `$HOME` directory. They survive VM destruction and Dockerfile changes.
+
+Home volumes are named `agents-sandbox-home-<slug>-<timestamp>`. Information which home volume is the current one is
+stored in a state file (under `~/.local/state/<slug>/state.yaml`).
+
+When the Dockerfile changes (new image digest), most of the times the current home volume can continue to be used. Only
+if the Dockerfile changes lead to changes in the home directory, keeping the current home volume might be an issue.
+Therefore, when a Dockerfile change actually leads to a VM rebuild (and not just the VM continuing on the current image,
+e.g. when the rebuild is deferred to a later run), agents-sandbox prompts you to decide what to do with the home
+volume:
+
+- *keep*: Keep on using the home volume
+- *reset*: Build a completely new home volume from the new VM's home directory, discarding the current home (e.g. losing
+  the agent's session history)
+- *migrate*: Build a new home volume like reset, but afterwards copy all files from the current home on top.
+
 ### Listing sandboxes
 
 ```console

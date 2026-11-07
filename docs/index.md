@@ -36,8 +36,9 @@ Legend for the first four rows: ✅ = stronger isolation or host-side handling; 
 
 ## How to start using agents-sandbox
 
-- If you already have a supported agent configured, start with **[Switch from your existing agent]({% link switch.md %})**.
-- If you want reproducible configuration and explicit credential handling, start with **[Manage config in the sandbox]({% link manage-config.md %})**.
+- If you already have a supported agent configured, start `agents-sandbox`. It detects native config for the selected
+  agent and offers the safe migration automatically. See **[Manage config in the sandbox]({% link manage-config.md %})** for details.
+- If you want to build a clean, reproducible setup without reading native host files, use the manual configuration path on that page.
 - If you have not used a supported agent before, set it up using its normal host installation first, then return here.
 
 ## Explore

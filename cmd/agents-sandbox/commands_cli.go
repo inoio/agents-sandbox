@@ -13,7 +13,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/configmigration"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configwizard"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
@@ -144,7 +147,9 @@ func rpad(s string, padding int) string {
 	return s + strings.Repeat(" ", padding-len(s))
 }
 
-func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
+func runFunc(
+	ui termio.UI,
+) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		r := resolverFromContext(cmd.Context())
 		opts, err := runoptions.Build(r.Config(), cmd, ui)
@@ -164,8 +169,108 @@ func runFunc(ui termio.UI) func(cmd *cobra.Command, args []string) error {
 		if err != nil || exit {
 			return err
 		}
+		isDryRun := mode.Previews()
+		if !isDryRun {
+			if wizardErr := runConfigWizardFn(r, ui); wizardErr != nil {
+				return wizardErr
+			}
+			if err := refreshRunOptions(&opts, cmd, args, ui); err != nil {
+				return err
+			}
+		}
+		if migrationErr := guideConfigMigrationFn(opts, ui, isDryRun); migrationErr != nil {
+			return handleMigrationError(migrationErr)
+		}
+		if err := refreshRunOptions(&opts, cmd, args, ui); err != nil {
+			return err
+		}
 		return session.Run(ctx, opts, mode, ui)
 	}
+}
+
+// refreshRunOptions rebuilds opts after a startup step (the setup wizard or
+// credential migration) may have changed launcher config, so the run sees the
+// new values. The lifecycle trace and the boundary run seams are not config and
+// do not come from the resolver, so they are carried across the rebuild;
+// dropping them would discard the trace recorded so far and bypass the seams
+// the command was built with.
+func refreshRunOptions(
+	opts *options.RunOptions,
+	cmd *cobra.Command,
+	args []string,
+	ui termio.UI,
+) error {
+	trace := opts.Trace
+	refreshed, _, err := refreshRunOptionsAfterMigrationFn(cmd, args, ui)
+	if err != nil {
+		return err
+	}
+	refreshed.Trace = trace
+	*opts = withRunSeams(refreshed)
+	return nil
+}
+
+//nolint:gochecknoglobals // test seam for the first-run setup wizard
+var runConfigWizardFn = runConfigWizard
+
+// runConfigWizard runs the essentials-tier setup wizard on first launch so the
+// agent and network posture are chosen before credential migration.
+func runConfigWizard(r *launcherconfig.Resolver, ui termio.UI) error {
+	return configwizard.Run(r, ui, configwizard.Selection{FirstRun: true, Tier: 0})
+}
+
+//nolint:gochecknoglobals // test seam for post-migration resolver refresh
+var refreshRunOptionsAfterMigrationFn = refreshRunOptionsAfterMigration
+
+// refreshRunOptionsAfterMigration reloads launcher configuration after the
+// first-run migration may have written new network, home, or agent settings.
+// Rebuilding through the resolver preserves normal flag-over-config precedence.
+func refreshRunOptionsAfterMigration(
+	cmd *cobra.Command,
+	args []string,
+	ui termio.UI,
+) (options.RunOptions, *launcherconfig.Resolver, error) {
+	identity, err := git.ResolveIdentity(".")
+	if err != nil {
+		return options.RunOptions{}, nil, fmt.Errorf("resolve project identity: %w", err)
+	}
+	resolver, err := launcherconfig.NewResolver(cmd, configpaths.Get(), effectiveConfigSlug(identity))
+	if err != nil {
+		return options.RunOptions{}, nil, err
+	}
+	cmd.SetContext(context.WithValue(cmd.Context(), (*launcherConfigKey)(nil), resolver))
+	runOptions, err := runoptions.Build(resolver.Config(), cmd, ui)
+	if err != nil {
+		return options.RunOptions{}, nil, err
+	}
+	runOptions.Args = args
+	return runOptions, resolver, nil
+}
+
+func handleMigrationError(err error) error {
+	if errors.Is(err, configmigration.ErrRerunRequired) || errors.Is(err, configmigration.ErrStartDeferred) {
+		return &sandbox.ExitError{Code: 0}
+	}
+	return err
+}
+
+//nolint:gochecknoglobals // test seam for the credential migration guide
+var guideConfigMigrationFn = guideConfigMigration
+
+func guideConfigMigration(opts options.RunOptions, ui termio.UI, dryRun bool) error {
+	if dryRun {
+		return nil
+	}
+	a, ok := agent.Lookup(opts.Agent)
+	if !ok {
+		return fmt.Errorf("unknown agent %q", opts.Agent)
+	}
+	hostHome, err := migrationHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve host home: %w", err)
+	}
+	provisionHostConfig := opts.ProvisionHostConfig != nil && *opts.ProvisionHostConfig
+	return configmigration.Guide(a, hostHome, opts.Network, provisionHostConfig, ui)
 }
 
 // runStartupStages runs the stages run and shell share before the session,
@@ -229,6 +334,7 @@ func currentRunImageKeys(agentName string) []state.Key {
 	return keys
 }
 
+//nolint:gochecknoglobals // test seam for the otherwise hard-to-reach upgrade check
 var upgradeCheck = upgrade.Check
 
 // upgradeAnyVersionEnv is the undocumented lever that lets a locally built dev

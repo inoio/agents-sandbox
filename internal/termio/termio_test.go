@@ -45,7 +45,8 @@ func (p *prompterOnly) Confirm(string, bool) (bool, error) {
 	p.confirmed = true
 	return true, nil
 }
-func (p *prompterOnly) Acknowledge(string) error { return nil }
+func (p *prompterOnly) Acknowledge(string) error           { return nil }
+func (p *prompterOnly) SecretInput(string) (string, error) { return "", nil }
 
 func TestConfirmActionAcceptsPrompterOnly(t *testing.T) {
 	p := &prompterOnly{}
