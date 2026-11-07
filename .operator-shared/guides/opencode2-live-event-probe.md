@@ -73,7 +73,7 @@ session.execution.succeeded
 
 So a watcher that re-arms only on a step boundary cannot fire the second ask; the two asks are
 distinguishable only by their event ids. This is the evidence behind
-`specs/notify-opencode2-subagent-filter.md` finding 6.
+`specs/agents/notify.md` finding 6.
 
 ## Cleanup
 

@@ -45,6 +45,11 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   the return.
 - **`STATEMENT_REMOVE` on `req.Header.Set`** needs the test server to assert what it received
   (`Accept: application/json`, `User-Agent: agents-sandbox`).
+- **`STATEMENT_REMOVE` inside a conditional record-build needs an exact-value assertion, not an inequality.** Two
+  folded writes (`b.WriteString("|")`, `b.WriteString(fields)`) in `state.SecretsContentHash` survived a test that
+  asserted only `scoped != allHeaders`: dropping either write still left the scoped digest differing from the unscoped
+  one. Pin a golden digest of the scoped record (and assert two distinct field sets hash differently) so dropping a
+  write changes the asserted value.
 - **`RETURN_TRUE` / `RETURN_FALSE` / `RETURN_ZERO`** need the *value* asserted alongside the error: the returned `ok`,
   the copied `count` before a later rule failed, the boolean from a version compare. `if _, err := f(); err == nil`
   leaves the value free.
@@ -120,6 +125,15 @@ would re-derive is not redundant code either: dropping it would ignore an error,
   `return 0` → `return 1` in `resourceproposal` survived although `prepare` and `session` tests checked the value the
   callers received. Return a value the callers cannot misread (the persisted setting string rather than a MiB count
   with a zero sentinel) and assert it on every path in the package's tests.
+- **`tb.Setenv` inside a `tb.Cleanup` is a no-op restore; use `os.Setenv` (error ignored).** `testing.T.Setenv`
+  registers its *own* cleanup that resets the variable to its pre-call value; called from within a cleanup that inner
+  cleanup runs afterward (LIFO) and undoes the restore. `testutil.UnsetEnv`'s `tb.Setenv(name, value)` therefore left a
+  previously-present variable **unset** after the test — restoring neither its value nor its presence. The three
+  survivors on the cleanup body (the `STATEMENT_REMOVE` of the whole `tb.Cleanup`, the `BRANCH_IF` body removal, and the
+  `STATEMENT_REMOVE` of the `Setenv`) were a real isolation defect, not inert code: they were the only changed-line
+  mutants on the PR, all LIVED, and the existing tests asserted only that the variable got unset, never that cleanup
+  restored it. Replace the call with `os.Setenv(name, value)` and pin the restore with a subtest whose *parent* asserts
+  the value after the subtest returns (the subtest's cleanups run before the parent's assertion).
 - **A `termio.Mock` needs `IsInteractiveResult` (or `assumeYes`) for `Confirm` to reach the code under test.** With
   neither, `Confirm` returns `ErrConfirmationRequired` before the prompt, so a test that sets only `ConfirmResult` never
   exercises the path it meant to — a `RETURN_ERROR_NIL` on the pruner's error return stayed green that way.

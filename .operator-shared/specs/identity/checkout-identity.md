@@ -126,7 +126,7 @@ concrete per-slug user dir (the effective layer, i.e. a bare root's legacy dir w
 and the resolved repo slug, and stating that repo-wide knobs belong in the committed project config
 (`.agents-sandbox/config.yaml`) or the generic user config. A `config edit` helper to create/open the
 per-slug `config.yaml` is optional. The ordered-multi-dir resolver machinery from
-`opencode2-config-fork.md` is available but not required, since nothing renames.
+`../agents/opencode2.md` is available but not required, since nothing renames.
 
 `config paths` prints the layer block to stdout through `Outf` and the "where to put what" hint to stderr
 through `Infof`; one `viperconfig.ConfigLayers(slug)` list drives both the display and `NewResolver`'s

@@ -132,7 +132,7 @@ unless it is cached with matching content (`createProjectVM` → `image.EnsureLo
 **`setup-sandbox`.** Provisions the agent config files, records boot provenance on a fresh boot
 (`recordImageProvenance`), runs startup hooks, starts dockerd and the agent daemon (or restarts the daemon when the
 plan asked for it), and resolves the attach target, including `--worktree` (`ResolveTarget`). Skipped under
-`--dry-run-vm`. See `detached-jobs.md`, `opencode2-worktree-api.md`.
+`--dry-run-vm`. See `detached-jobs.md`, `../agents/opencode2.md`.
 
 **`attach`.** Opens the interactive session as a login shell (`runAttach`), with the notify watcher and host link
 opener alongside; `shell` attaches a plain login shell. Under `--serve-only` the attach is replaced by a keeper that
