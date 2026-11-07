@@ -32,7 +32,7 @@ environment" into an executable bar and drives the suite to it.
 - Fix the host dependencies at their surface: identity/CWD, host resource
   figures, environment, network, wall-clock.
 - Keep the durable rule in one place: fold the resulting contract into
-  `.operator-shared/specs/test-isolation.md` rather than starting a second
+  `.operator-shared/specs/testing/test-isolation.md` rather than starting a second
   source of truth, and update the user-facing docs and the release runbook.
 
 ## Non-goals
@@ -298,7 +298,7 @@ copy must not write into the source tree (build/test writes go to the scrubbed
   analyzer upgrade (a `go/analysis` analyzer replacing the AST/text scanner) is a
   separate improvement, not required for this bar.
 - After the work lands, fold the contract into
-  `.operator-shared/specs/test-isolation.md` (new sections for the envelope, the
+  `.operator-shared/specs/testing/test-isolation.md` (new sections for the envelope, the
   host-figure seams, the wall-clock rule, and the cadence) and retire this design
   document.
 
@@ -314,7 +314,7 @@ copy must not write into the source tree (build/test writes go to the scrubbed
 4. **Wall-clock** (surface 5): remove sleeps, add the `time.Sleep` gate category.
 5. **Cadence wiring**: strict run in the release workflow (required), the optional
    PR job, `test-scrubbed` on macOS; docs and `AGENTS.md` updated.
-6. **Contract fold** into `test-isolation.md`; delete this design.
+6. **Contract fold** into `specs/testing/test-isolation.md`; delete this design.
 
 ## Left to the builder
 

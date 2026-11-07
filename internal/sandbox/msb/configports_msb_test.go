@@ -15,7 +15,7 @@ import (
 // TestRealHandleConfigPortsRoundTrip proves the read-back contract against the
 // real runtime: a sandbox created with published ports persists them in its
 // config_json under network.ports, the SDK's Config() drops them (the gap
-// specs/live-mount-readback.md records), and ConfigPorts() decodes them back.
+// specs/vm/live-mount-readback.md records), and ConfigPorts() decodes them back.
 // The mock-based decision tests rely on this shape matching the real one.
 func TestRealHandleConfigPortsRoundTrip(t *testing.T) {
 	ensureIsolatedRuntime(t)

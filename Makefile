@@ -14,7 +14,7 @@ ZIG_VERSION ?= 0.17.0
 # it resolves whether zig is reached via ~/.local/bin or the ~/.local/zig install-root
 # symlink. Empty when zig is absent. Assumes a flat tarball layout: the binary's directory
 # is the libc root. A package-manager layout (Homebrew: bin/ and lib/ siblings) is not
-# resolved and the stub probe below will miss — see specs/darwin-cross-compile.md.
+# resolved and the stub probe below will miss — see specs/release/darwin-cross-compile.md.
 ZIG_ROOT = $(shell f="$$(command -v zig)"; [ -n "$$f" ] || exit 0; cd "$$(dirname "$$f")" 2>/dev/null || exit 0; t="$$(readlink "$$f" 2>/dev/null || true)"; if [ -n "$$t" ]; then cd "$$(dirname "$$t")" 2>/dev/null || exit 0; fi; pwd -P)
 # Realpath of the bootstrap-managed zig install root, or empty when absent. Lets
 # the recipe tell the managed zig apart from one PATH resolves to elsewhere.
@@ -196,7 +196,7 @@ vulncheck:
 # reason-bearing //deadcode:ignore marker. deadcode always exits 0, so
 # ci/check-deadcode.sh decides the verdict; a failed analysis is a hard error,
 # never a silent pass. Analyses the host's own GOOS, once per build-tag
-# configuration. See the specs/dead-code-gate contract in .operator-shared/.
+# configuration. See the specs/ci/quality-gates contract in .operator-shared/.
 #   make deadcode
 #   make deadcode PKG=./cmd/...         # inspection only; stale markers not checked
 #   make deadcode TAGS=integration      # one configuration instead of the matrix
@@ -266,7 +266,7 @@ cleanup-branches-test:
 	./scripts/test-cleanup-merged-branches.sh
 
 # Run the default suite in a hermetic envelope: a module copy outside any git
-# checkout and a scrubbed environment. See specs/test-isolation.md.
+# checkout and a scrubbed environment. See specs/testing/test-isolation.md.
 test-scrubbed:
 	./scripts/test-envelope.sh -- make test
 
@@ -310,7 +310,7 @@ docs-linkcheck:
 docs-linkcheck-test:
 	ci/test-check-docs.sh
 
-# Validate the changelog fragment convention (shape). See specs/changelog-fragments.md.
+# Validate the changelog fragment convention (shape). See specs/ci/ci-pipeline.md.
 changelog-check:
 	ci/check-changelog.sh
 

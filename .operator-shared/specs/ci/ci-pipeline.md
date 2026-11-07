@@ -1,0 +1,126 @@
+---
+description: Contract for the CI pipeline - what `.github/workflows/ci.yml` runs and gates (the always-run required `lint`/`test`/`race`/`deadcode`/`changelog` set, `vulncheck`, the opt-in `integration`/`integration-podman` jobs), the `main` merge queue and `merge_group` trigger, the `changes` code-free gate, the CodeQL workflow (languages, path filter, default-setup state), the fuzz workflow (target discovery, budgets, corpus), and per-PR changelog fragments.
+read_if: Changing `.github/workflows/ci.yml`/`codeql.yml`/`fuzz.yml`, the CI triggers or job conditions, the merge queue or `merge_group`, the required-check set or `protect main` ruleset, the `changes` gate or PR concurrency, the `run-integration`/`run-integration-podman` labels, the CodeQL languages/path filter/default-setup state, the `make fuzz` target or its knobs, or how changelog entries are authored/assembled/checked; or diagnosing a missing/duplicated changelog entry, a code-free change that still ran code jobs, or a red/absent CodeQL check.
+---
+
+# CI pipeline
+
+## Job gating
+
+`.github/workflows/ci.yml` always runs `lint` (`make lint`, `make compile-all`, `make validate-fmt`, `make docs-linkcheck`, `make docs-linkcheck-test`, `make cleanup-branches-test`), `test` (`make coverage-junit`), `race` (`make test-race`), `deadcode` (`make deadcode`), and `changelog` (`ci/check-changelog.sh`, which requires a `changelog.d/` fragment when the changeset touches code) — the five required branch checks, so none is gated and each runs on every event.
+
+`vulncheck` (`make vulncheck`) is **not** required: it `needs: [changes]` and runs on a PR, main push, tag, or dispatch only when the `changes` gate reports `code=true`, and it is excluded from a merge group.
+
+The `integration` job (`make test-integration`, the `integration`-tagged docker-build suite, ~10 minutes) is gated to four paths:
+
+1. `github.ref == 'refs/heads/main'` **and** the `changes` job reports `code=true` — a code-affecting push to `main`. A merge touching only docs, the operator brain, the Homebrew formula, issue templates, or `.gitignore` sets `code=false` and skips both integration jobs.
+2. `startsWith(github.ref, 'refs/tags/')` — every release tag. `release` declares `needs: [lint, test, integration, integration-podman]`, so both integration jobs stay in this workflow; a second workflow would drop that gate.
+3. `github.event_name == 'workflow_dispatch'` — a manual run.
+4. `github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'run-integration')` — a maintainer opts a PR in by adding the label. This is the only path that exercises the suite on PR code before merge.
+
+`integration-podman` runs the same suite against a rootless podman endpoint (the step starts `podman system service` and points `DOCKER_HOST` at its socket) with the same four gates and its own `run-integration-podman` label. It holds podman to the claim that it is a tested Docker-compatible engine, so a podman-only failure has its own job and label and never blocks a PR a maintainer ran Docker Engine for.
+
+`release` gates on `lint`, `test`, `integration`, and `integration-podman`: both the reference engine and the alternative engine must pass their build suite before a release publishes. `race` and `vulncheck` run on a tag but do not block publishing, so a new reachable vulnerability cannot wedge a release.
+
+### Merge queue
+
+`main` merges only through a GitHub **merge queue** (the `protect main` ruleset's `merge_queue` rule: `MERGE` method, `ALLGREEN` grouping, up to 5 entries, a 60-minute check-response timeout). The queue builds the queued PRs on top of the current `main` on a throwaway `gh-readonly-queue/main/pr-<n>-<sha>` ref and runs the five required checks there, so a combination of two independently-green PRs that does not build is rejected before `main` moves.
+
+The required set is exactly `lint`/`test`/`race`/`deadcode`/`changelog` because each runs in parallel (a queue cycle is about two minutes, bounded by `race`) and none depends on the network or on nondeterminism. `vulncheck`, `mutation`, `fuzz`, and both `integration` jobs are deliberately kept out — requiring the integration builds would make a cycle ~12 minutes and let image-build flake eject PRs.
+
+`ci.yml` declares the `merge_group` trigger; without it the required checks never report on the queue ref and every entry is dropped on the check-response timeout. The `changes` job derives a merge group's base from `github.event.merge_group.base_sha`, since that payload carries no `before`.
+
+### Concurrency and the `changes` gate
+
+The workflow sets `concurrency.group` to `ci-<ref>` for pull requests and a per-run id otherwise, with `cancel-in-progress: true` only for pull requests: a re-pushed PR cancels its superseded run, while a main push, tag, dispatch, or merge group is never cancelled or serialized.
+
+The `changes` job runs on every event, cheaply, and reports whether the push changed anything that can affect the runner image or the tests — the complement of `mutation.yml`'s `paths-ignore` list (docs, `.operator-shared/`, `Formula/`, `.github/ISSUE_TEMPLATE/`, `**.md`, `.gitignore`). It diffs the event's base against `github.sha`: a push uses the payload's `before` tip, a pull request the base branch's merge base, and a merge group `github.event.merge_group.base_sha`. `vulncheck` `needs: [changes]` and, on a PR or main push, runs only when `code=true`; tags and dispatch always run it, and a merge group excludes it. Both integration jobs `needs: [changes]` and, on a `refs/heads/main` push, additionally require `needs.changes.outputs.code == 'true'`. Tags, dispatch, and the PR opt-in labels ignore the gate. `race` and `deadcode` are required, so they are not gated and always run: GitHub reports a job skipped by its `if` as Success, which would satisfy the required check without running it. CodeQL keeps its own equivalent `paths-ignore`.
+
+### Invariants
+
+- Every `github.event_name == '<event>'` a job condition references must be declared in the workflow's `on:` block. Breaking this is silent: the condition is merely never true. The same applies to an event consumed outside a job condition: the `protect main` ruleset requires checks that only report on `merge_group`, so `on:` must declare `merge_group` or nothing ever satisfies the queue.
+- `on.pull_request.types` must list `labeled` **and** repeat the defaults (`opened`, `synchronize`, `reopened`): declaring `types:` replaces the default set rather than extending it.
+- Both `ci.yml` and `fuzz.yml` declare a workflow-level `permissions: contents: read`; the `publish` job raises its own (`contents: write`, `pull-requests: write`) to publish the Release and open the Homebrew bump PR. `mutation.yml` does the same for its sticky survivor comment. CodeQL's `actions/missing-workflow-permissions` query reports one alert **per job** with no effective limitation, so removing the workflow-level block reopens one alert per job.
+- GitHub only offers dispatch for workflows whose file exists on the default branch, so `workflow_dispatch` becomes usable when it reaches `main`.
+- The label names have no single source of truth: each appears in its job condition, the job's comment, and CONTRIBUTING's Testing section. GitHub also needs a label to exist in the repository first; `run-integration` and `run-integration-podman` are created there. A `run-mutation` label was created for an earlier opt-in design and is now unused. Applying a label needs the repository's **triage** role or higher; a label a contributor sets in their own fork does nothing.
+- The `protect main` ruleset requires `lint`, `test`, `race`, `deadcode`, and `changelog`, and carries the `merge_queue` rule. A job skipped by its `if` reports Success, so a skipped required check *is* treated as passed — gating one would leave it green without running. A workflow skipped by path or branch filtering is the opposite: it leaves its checks Pending and blocks the PR. So `race`/`deadcode` are not gated, while `vulncheck` (gated) and both integration jobs must stay optional. The ruleset requires the checks without `strict_required_status_checks_policy`; the merge queue, not strict, is the up-to-date guarantee.
+- The gate is not a privilege boundary: `lint`/`test` already execute PR code on the same runner, so labeling adds compute, not trust. For fork PRs, `pull_request` withholds secrets and forces a read-only token, and the integration job uses no secrets. A first-time contributor's fork PR needs a maintainer's workflow approval before any job runs.
+- Adding either label re-runs the whole workflow, and the label persists, so every later `synchronize` push runs the integration job again.
+
+## CodeQL scanning
+
+Code scanning runs from the committed advanced-setup workflow `.github/workflows/codeql.yml`, not GitHub's default setup. The repository's default setup must remain `not-configured`: the two cannot coexist, and an advanced analysis whose SARIF is uploaded while default setup is enabled is rejected. State is readable/set with `gh api repos/inoio/agents-sandbox/code-scanning/default-setup` (`-X PATCH … -f state=not-configured`).
+
+The scanned languages mirror what default setup covered: `actions`, `go`, and `ruby`. Each is a matrix entry with its own `build-mode` — `none` for the interpreted languages, `autobuild` for Go. Go's autobuild runs with `CGO_ENABLED=1`, matching the Makefile, because the module binds the microsandbox FFI through cgo. The query suite is the default.
+
+| Trigger | Notes |
+|---|---|
+| `push` to `main` | filtered by `paths-ignore` |
+| `pull_request` | filtered by `paths-ignore` |
+| `schedule`, weekly (`27 4 * * 1`) | the depth/coverage run |
+| `workflow_dispatch` | a manual scan; ignores the paths filter |
+
+The `paths-ignore` list is the complement of `ci.yml`'s `changes` gate and matches `mutation.yml`'s: `**.md`, `docs/**`, `.operator-shared/**`, `Formula/**`, `.github/ISSUE_TEMPLATE/**`, `.gitignore`. A change to the workflow files or any code is not ignored, so `codeql.yml` edits scan themselves. Because `docs/**` is ignored wholesale, the Jekyll Gemfile is scanned only by the weekly run. CodeQL is **not** a required branch check, so a skipped or failing scan never blocks a merge.
+
+Invariants: default setup stays disabled while this workflow is the scanner (re-enabling it silently breaks the upload); a language dropped from the matrix is a coverage loss invisible to CI, so all three stay until deliberately retired.
+
+## Fuzz workflow
+
+`.github/workflows/fuzz.yml` explores every fuzz target discovered in the module — the persisted state files (`state.FuzzParseState`), size and `--worktree` specs (`options.FuzzParseOptions`), configured mount-target validation (`mounts.FuzzResolveMountTarget`), the retired `updater.yaml` (`prepare.FuzzParseLegacyUpdaterState`), the project Dockerfile (`image.FuzzRenderDockerfile`), the `home:` manifest (`homeconfig.FuzzParseHomeSection`), `--older-than` durations (`viperconfig.FuzzParseHumanDuration`), and the naming package's round-trips (`naming.FuzzArtifactNameRoundTrip`, `naming.FuzzContentImageRefRoundTrip`, `naming.FuzzRunnerImageRefRoundTrip`) — on `ubuntu-latest`. These targets are pure Go: no KVM, no docker daemon, no network, so they run on a GitHub-hosted runner at all.
+
+| Trigger | Budget passed to `make fuzz` | Why |
+|---|---|---|
+| `push` to `main` touching `internal/**`, `cmd/**`, or `test/**` | `60s` | attributable to the merge that broke it |
+| `schedule`, nightly at `17 3 * * *` | `15m` | where depth comes from, accumulating into the corpus |
+| `workflow_dispatch`, `fuzztime` input | the input (default `15m`) | an explicit long run before a release |
+
+**Target discovery** is derived, not hardcoded. A `discover` job walks every `*_test.go` under `internal/`, `cmd/`, and `test/` that declares a `func Fuzz…`, emitting one entry per target — `{name, path, target}` — and the `fuzz` job builds its matrix from `fromJSON(needs.discover.outputs.targets)`. Adding a `func Fuzz...` joins the matrix with no workflow edit. The merge `paths` filter names the same three trees, so CI and the Makefile agree on what a target is by construction. `name` is the package path with `/` flattened to `-` plus the target, unique across the matrix, keying both the per-target corpus cache and the concurrency group.
+
+One matrix job per target, because `go test -fuzz` accepts exactly one target per run; the workflow passes `FUZZPKG=<path>` and `FUZZTARGET=<name>` to `make fuzz`, which runs that target alone with `-fuzz='^Name$'`. `fail-fast: false` keeps one target's failure from hiding another's. `timeout-minutes: 45` bounds a single target.
+
+Invariants:
+
+- **Never a gate.** Fuzzing is not a PR check, not a step in `make check`/`make verify`, and not in `ci.yml`'s `release.needs`. What makes a finding durable is the committed corpus, not the run.
+- **Discovery can never yield an empty matrix.** The `discover` job exits non-zero when it finds no target, mirroring `make fuzz FUZZPKG`, so GitHub's "matrix must contain at least one value" error can never be reached.
+- **A cancelled run is a wasted run.** The concurrency group is `fuzz-<name>` with `cancel-in-progress: false`, so a new run waits for the in-flight one. GitHub still drops a superseded *pending* job.
+- **The corpus accumulates in `$GOCACHE/fuzz`, cached per target.** The job restores `~/.cache/go-build/fuzz` from an `actions/cache` entry keyed `fuzz-corpus-<name>-<run id>-<run attempt>` with a `fuzz-corpus-<name>-` restore prefix: a unique key always saves (GitHub caches are immutable), the prefix restores the newest entry. It must not rely on `setup-go`'s cache — that entry is keyed on `go.sum` and is never re-saved on an exact hit, so discoveries would be thrown away.
+- **A crasher leaves the runner as an artifact.** Go writes a failing input to the package's `testdata/fuzz/<Target>/` and prints it; the failing job uploads it for its matrix entry. CI does not commit the seed (needs a push token the workflow lacks) — a maintainer or agent commits it, and it then runs under `make test`.
+- **`FUZZPKG`/`FUZZTARGET` fail loudly.** An unknown package, or a target matching nowhere, exits non-zero — a typo cannot read as a green run over zero targets.
+- A schedule runs only from the default branch's copy of the workflow, and always against the default branch: the workflow is inert until it merges and never fuzzes a PR branch.
+
+## Changelog fragments
+
+Every behavior change adds a bullet under `CHANGELOG.md`'s `## [Unreleased]`, so any two PRs that share only that anchor conflict when the merge queue builds them together. `CHANGELOG.md merge=union` cannot fix this: GitHub's server-side merge and merge-queue build ignore `.gitattributes` merge drivers (evidence in `../../guides/github-merge-driver-support.md`). The fix is to stop editing one shared file.
+
+### The fragment contract
+
+A fragment is one file in `changelog.d/` at the repository root:
+
+- **Name**: `<slug>.<type>.md`.
+  - `<type>` is one of `added`, `changed`, `deprecated`, `docs`, `fixed` — exactly the `CHANGELOG.md` section.
+  - `<slug>` is the **PR number** (unique by construction, which removes the conflict). An issue number is not: two PRs that close the same issue collide. A descriptive slug is not used either. The issue/PR reference (`(#432)`) stays in the bullet text, so the filename needs only uniqueness.
+  - Several entries of the same type from one PR number them: `<slug>.<type>-<n>.md`, `<n>` from `1`. A single entry omits the ordinal.
+- **Content**: exactly the text of one `CHANGELOG.md` bullet, without the leading `- `, continuation lines indented two spaces. One fragment becomes one bullet; a change spanning two sections uses two fragments.
+- The directory may carry a short `README.md` (rendered in GitHub's directory view, read by agents). The check ignores the towncrier-standard set — `README.md`, `README.rst`, `README`, `.gitignore`, `.gitkeep`, `.keep`.
+
+### Assembly contract
+
+Fragments are assembled by the release process; there is no separate tool and no continuous writer to `main`. Between releases, `changelog.d/` is the live record.
+
+- **Order**: sections in the fixed order `Added`, `Changed`, `Deprecated`, `Docs`, `Fixed`; within a section, fragments ordered by filename ascending, so assembly is deterministic.
+- **Emission**: each fragment's first line is prefixed with `- ` and its remaining lines follow verbatim; the bullet is appended to its section's list.
+- **Target**: at release the assembled content forms the new `## [X.Y.Z] - <date>` section, with any legacy `[Unreleased]` entries curated per the release process; the fragment files are deleted in the same change.
+- The result keeps the Keep-a-Changelog shape and section headings. The vocabulary is closed: a new section is a deliberate change to this contract.
+
+### Enforcement contract
+
+Two rules, enforced by a dedicated `changelog` check that **always runs** and is a required status check. It must never be conditionally skipped (a skipped required check reports success; see the gating invariants). It decides the presence rule internally from the PR's diff rather than gating its own execution.
+
+- **Shape** (every run): every file in `changelog.d/` matches `<slug>.<type>.md` (or `<slug>.<type>-<n>.md`) with a known type, except the ignored names.
+- **Presence** (from the changeset, on every event): a changeset that touches production code must add at least one top-level, non-ignored fragment. "Production code" is the complement of the `changes` filter — `docs/`, `.operator-shared/`, `Formula/`, `.github/ISSUE_TEMPLATE/`, any `*.md`, and `.gitignore` are exempt — minus a further exemption for test files (`*_test.go`): a test-only changeset needs no fragment. An ignored name or a nested path under `changelog.d/` does not count. The job runs on the PR's diff and again on the queue/merge diff.
+
+### Transition
+
+Existing `## [Unreleased]` entries stay where they are and are consumed by the next release; they are frozen — from adoption on, no change edits `[Unreleased]` directly. After that first release the section is empty and `changelog.d/` is the only live record. Migrating the current entries into fragments is deliberately not done.
+
+Non-goals: no change to the Keep-a-Changelog format or vocabulary beyond `changelog.d/`; no generation from commit messages/PR titles/labels; no bot or CI commit to `main`.

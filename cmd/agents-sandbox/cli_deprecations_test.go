@@ -11,7 +11,7 @@ import (
 )
 
 // This file is the #202 regression check for the deprecation register in
-// .operator-shared/specs/deprecation-policy.md: every deprecated alias must
+// .operator-shared/specs/conventions/deprecation-policy.md: every deprecated alias must
 // still resolve (proved by the resolution tests named in each comment) while
 // emitting exactly one warning. A change that drops an alias or its one-time
 // warning breaks one of these tests.

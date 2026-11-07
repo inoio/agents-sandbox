@@ -512,7 +512,7 @@ func TestDetectAndOfferMemoryRaiseDeclineAdvancesMarker(t *testing.T) {
 	}
 }
 
-// TestDetectAndOfferMemoryRaiseNonInteractiveRecordsWithoutAnswer pins §7: a
+// TestDetectAndOfferMemoryRaiseNonInteractiveRecordsWithoutAnswer pins a
 // non-interactive detection records the hit but leaves it unanswered so a later
 // interactive run offers it.
 func TestDetectAndOfferMemoryRaiseNonInteractiveRecordsWithoutAnswer(t *testing.T) {
@@ -539,7 +539,7 @@ func TestDetectAndOfferMemoryRaiseNonInteractiveRecordsWithoutAnswer(t *testing.
 // TestDetectAndOfferMemoryRaiseUnansweredOOMWithoutLogOffers pins that a
 // recorded-but-unanswered OOM kill is still offered when its log line has left
 // the read tail (or the VM was recreated): the marker alone keeps the promise to
-// the non-interactive run (specs/resource-limit-proposal.md §1(d), §7).
+// the non-interactive run (specs/resources/resource-limit-proposal.md).
 func TestDetectAndOfferMemoryRaiseUnansweredOOMWithoutLogOffers(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := detectKey()

@@ -15,7 +15,7 @@ import (
 
 // abnormalEnd reports whether an attach ended abnormally: a signal death (the
 // guest reports exit code -1 for any signal) or a non-nil attach error
-// (specs/resource-limit-proposal.md §1b).
+// (specs/resources/resource-limit-proposal.md).
 func abnormalEnd(attachErr error, exitCode int) bool {
 	return attachErr != nil || exitCode == -1
 }

@@ -40,7 +40,7 @@ The SDK ships a build tag that removes the embed: `-tags microsandbox_ffi_path` 
 `bundle_path.go`, which reads the library bytes from `$MICROSANDBOX_FFI_PATH` at runtime instead. The library is
 `dlopen`ed either way, so the tag only changes where the bytes come from.
 
-Because the unit and integration suites reach the SDK only through seams (`specs/test-isolation.md`), they never
+Because the unit and integration suites reach the SDK only through seams (`specs/testing/test-isolation.md`), they never
 load the library, so they build with the tag and need no `MICROSANDBOX_FFI_PATH`:
 
 | package | default | tagged |

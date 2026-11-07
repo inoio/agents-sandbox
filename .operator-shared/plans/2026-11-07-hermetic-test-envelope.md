@@ -171,7 +171,7 @@ git commit -m "test: add the strict network-namespace envelope"
 
 ```make
 # Run the default suite in a hermetic envelope: a module copy outside any git
-# checkout and a scrubbed environment. See specs/test-isolation.md.
+# checkout and a scrubbed environment. See specs/testing/test-isolation.md.
 test-scrubbed:
 	./scripts/test-envelope.sh -- make test
 

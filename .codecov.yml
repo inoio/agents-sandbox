@@ -1,6 +1,6 @@
 # Coverage gating for agents-sandbox. Settings here override Codecov's
 # app-level configuration for this repository, so the bar is versioned and
-# reviewable in the checkout — see .operator-shared/specs/test-coverage.md.
+# reviewable in the checkout — see .operator-shared/specs/testing/test-coverage.md.
 # Validate a change at https://api.codecov.io/validate before pushing.
 coverage:
   precision: 2
@@ -18,7 +18,7 @@ coverage:
 
 # Test doubles (testmock.go) are shared fixtures for other packages' tests, not
 # product code; their own tests pin only fail-open contracts (see
-# .operator-shared/specs/test-coverage.md), so their coverage is not gated.
+# .operator-shared/specs/testing/test-coverage.md), so their coverage is not gated.
 # testgit.go is test support too: RunGit executes the real git binary, so its
 # behaviour tests need the integration build tag and cannot run in the default
 # coverage profile; its env-building is unit-tested purely instead.

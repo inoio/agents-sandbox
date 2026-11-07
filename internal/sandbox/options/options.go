@@ -94,7 +94,7 @@ type RunOptions struct {
 	// MemoryFlagChanged reports whether the --memory flag was explicitly set on
 	// this invocation. A persisted raise cannot take effect when the flag
 	// supplies the value, so PersistMemory refuses to write a shadowed config
-	// value (specs/resource-limit-proposal.md §8).
+	// value (specs/resources/resource-limit-proposal.md).
 	MemoryFlagChanged bool
 	// Trace records the lifecycle stages the invocation reaches. cmd creates
 	// it; the stages in vm and session record into it. Nil records nothing.

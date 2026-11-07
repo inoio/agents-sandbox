@@ -25,7 +25,7 @@ import (
 // unreadableVMConfigChangeLabel names the forced recreate when an existing VM's
 // config cannot be read: the change detectors have nothing to compare against,
 // so the VM must be recreated rather than reused with possibly stale image,
-// env, or network settings (specs/reconfig-decision.md).
+// env, or network settings (specs/vm/reconfig-decision.md).
 const unreadableVMConfigChangeLabel = "unreadable VM config"
 
 // reconfigDecision is the resolved reconfiguration plan for a project VM. Named
@@ -67,7 +67,7 @@ func existingServeHostPort(cfg *msbSdk.SandboxConfig, fallback int) int {
 type liveProjectVM struct {
 	// handle is the project VM the decision is read from; vm.EnsureProjectVM
 	// reuses it rather than looking the VM up again, so a recreate destroys
-	// exactly this VM (specs/sandbox-identity.md).
+	// exactly this VM (specs/identity/sandbox-identity.md).
 	handle           msb.SandboxHandle
 	config           *msbSdk.SandboxConfig
 	configUnreadable bool
@@ -227,7 +227,7 @@ func resolveReconfigDecision(
 // prepare path knows (the VM's configured and boot-maximum memory) and
 // delegates the detection, dedup, prompt, and persistence to the shared
 // resourceproposal core, so the next-launch and post-attach paths share one
-// anti-nag state machine (specs/resource-limit-proposal.md §1, §7, §8). It
+// anti-nag state machine (specs/resources/resource-limit-proposal.md). It
 // returns the memory setting the user accepted and persisted, or "".
 func detectAndOfferMemoryRaise(
 	ctx context.Context,
@@ -307,7 +307,7 @@ func applyReconfigHomeAction(
 // readExistingVMConfig reads the existing project VM's config, including its
 // live mounts. A failed Config read is surfaced as a warning and reported as
 // unreadable, so the caller can force a recreate instead of silently reusing a
-// VM whose image, env, or network may differ (specs/reconfig-decision.md).
+// VM whose image, env, or network may differ (specs/vm/reconfig-decision.md).
 func readExistingVMConfig(
 	handle msb.SandboxHandle,
 	k state.Key,
@@ -327,7 +327,7 @@ func readExistingVMConfig(
 }
 
 // applyLiveMounts fills cfg.Volumes with the mounts the persisted config
-// records, which the SDK's Config() drops (specs/live-mount-readback.md). Until
+// records, which the SDK's Config() drops (specs/vm/live-mount-readback.md). Until
 // it runs, cfg.Volumes is empty and the size/quota/home detectors see nothing. A
 // read failure is reported at verbose level and leaves cfg.Volumes untouched, so
 // the decision proceeds without the mount-based detectors instead of aborting
@@ -346,7 +346,7 @@ func applyLiveMounts(cfg *msbSdk.SandboxConfig, handle msb.SandboxHandle, ui ter
 
 // applyLivePorts fills cfg.PortBindings with the published ports the persisted
 // config records, which the SDK's Config() drops just like mounts
-// (specs/live-mount-readback.md). Until it runs, cfg.PortBindings is empty and
+// (specs/vm/live-mount-readback.md). Until it runs, cfg.PortBindings is empty and
 // the ports detectors would see every run as changed. A read failure is
 // reported at verbose level and leaves the bindings untouched, so the decision
 // degrades instead of aborting the run.
