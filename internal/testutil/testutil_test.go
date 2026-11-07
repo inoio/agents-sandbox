@@ -330,3 +330,27 @@ func TestWriteYAMLReportsAMarshalError(t *testing.T) {
 		t.Errorf("WriteYAML fatal message %q does not mention YAML marshalling", message)
 	}
 }
+
+func TestUnsetEnvRemovesAPresentVariable(t *testing.T) {
+	const name = "TESTUTIL_UNSET_ENV_PRESENT"
+	t.Setenv(name, "before")
+
+	UnsetEnv(t, name)
+
+	if _, ok := os.LookupEnv(name); ok { //testenv:allow asserts the variable UnsetEnv removed
+		t.Errorf("%s is still set after UnsetEnv", name)
+	}
+}
+
+func TestUnsetEnvKeepsAnAbsentVariableAbsent(t *testing.T) {
+	const name = "TESTUTIL_UNSET_ENV_ABSENT"
+	if value, ok := os.LookupEnv(name); ok { //testenv:allow guards a name this test expects to be unset
+		t.Skipf("%s is set in the ambient environment (%q)", name, value)
+	}
+
+	UnsetEnv(t, name)
+
+	if _, ok := os.LookupEnv(name); ok { //testenv:allow asserts UnsetEnv left the absent variable absent
+		t.Errorf("%s is set after UnsetEnv", name)
+	}
+}
