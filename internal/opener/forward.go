@@ -140,9 +140,13 @@ type realForwardTimer struct{ timer *time.Timer }
 
 func (t *realForwardTimer) channel() <-chan time.Time { return t.timer.C }
 func (t *realForwardTimer) reset(d time.Duration)     { t.timer.Reset(d) }
-func (t *realForwardTimer) stop()                     { t.timer.Stop() }
 
-// newForwardTimer is a test seam; production starts a real timer.
+// gomutants:disable-next-line STATEMENT_REMOVE reason="the only caller stops the timer on the lifetime goroutine's return; nothing reads the timer's channel afterward, so skipping the stop only defers the runtime timer's own cleanup"
+func (t *realForwardTimer) stop() { t.timer.Stop() }
+
+// newForwardTimer is a test seam; production starts a real timer. Forward reads
+// it before starting the lifetime goroutine, so swapping it in a test cannot be
+// raced by a goroutine from an earlier test.
 var newForwardTimer = func(d time.Duration) forwardTimer {
 	return &realForwardTimer{timer: time.NewTimer(d)}
 }

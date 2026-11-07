@@ -385,7 +385,7 @@ func TestForwarderRefreshesLifetimeOnReuse(t *testing.T) {
 	}
 	select {
 	case <-timer.resetCh:
-	case <-time.After(2 * time.Second):
+	case <-time.After(200 * time.Millisecond):
 		t.Fatal("the reused forward did not restart the lifetime")
 	}
 	if got := timer.lastReset(); got != forwarder.lifetime {
@@ -754,16 +754,37 @@ func TestRetireKeepsAForwardExtendedAfterItsTimerFired(t *testing.T) {
 	forwarder.mutex.Unlock()
 	forward.extend <- struct{}{}
 
-	timer := newForwardTimer(time.Hour)
-	defer timer.stop()
+	timer := &fakeForwardTimer{resetCh: make(chan struct{}, 1)}
 	if forwarder.retire(t.Context(), t.Context(), forward, &http.Server{}, port, timer) {
 		t.Fatal("retire closed a forward that was extended")
+	}
+	select {
+	case <-timer.resetCh:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("retire kept the forward but did not restart its lifetime timer")
+	}
+	if got := timer.lastReset(); got != forwarder.lifetime {
+		t.Errorf("lifetime restarted to %v, want the full %v", got, forwarder.lifetime)
 	}
 	forwarder.mutex.Lock()
 	_, stillActive := forwarder.active[port]
 	forwarder.mutex.Unlock()
 	if !stillActive {
 		t.Fatal("extended forward was dropped from active")
+	}
+}
+
+// TestRealForwardTimerResetRearms pins the production timer adapter's reset: a
+// reset moves the timer's deadline onto its channel, so forwardLifetime's reuse
+// refresh actually extends the wait rather than leaving the old deadline running.
+func TestRealForwardTimerResetRearms(t *testing.T) {
+	timer := newForwardTimer(time.Hour)
+	defer timer.stop()
+	timer.reset(time.Millisecond)
+	select {
+	case <-timer.channel():
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("reset did not re-arm the timer onto its channel")
 	}
 }
 
