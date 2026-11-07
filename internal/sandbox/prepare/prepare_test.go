@@ -199,7 +199,7 @@ func TestEnsureVMStageAppliesThePlannedMemory(t *testing.T) {
 		sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)},
 		image.ImageInfo{},
 		preparedHome{client: client, homeVolume: "vol"},
-		reconfigPlan{existingVM: handle, homeVolume: "vol", memory: "8G"},
+		reconfigPlan{existingVM: handle, homeVolume: "vol", limits: plannedLimits{memory: "8G"}},
 		false,
 		options.RunOptions{Agent: "opencode", Memory: "4G"},
 		&ui,
@@ -209,6 +209,20 @@ func TestEnsureVMStageAppliesThePlannedMemory(t *testing.T) {
 	}
 	if len(handle.ModifiedOptions) != 1 || handle.ModifiedOptions[0].MemoryMiB != 8192 {
 		t.Errorf("modifications = %+v, want the planned 8192 MiB applied", handle.ModifiedOptions)
+	}
+}
+
+// TestPlannedLimitsApplyToTheRun pins that ensure-vm uses the limits the plan
+// carries, which include raises accepted while planning.
+func TestPlannedLimitsApplyToTheRun(t *testing.T) {
+	limits := plannedLimits{memory: "8192M", diskSize: "6144M", workspaceQuota: "24576M", tmpSize: "3072M"}
+	opts := limits.applyTo(options.RunOptions{Agent: "opencode", Memory: "4G", TmpSize: "2G"})
+	if opts.Memory != "8192M" || opts.DiskSize != "6144M" || opts.WorkspaceQuota != "24576M" ||
+		opts.TmpSize != "3072M" || opts.Agent != "opencode" {
+		t.Errorf("applyTo = %+v, want the planned limits and the rest kept", opts)
+	}
+	if got := plannedLimitsOf(opts); got != limits {
+		t.Errorf("plannedLimitsOf = %+v, want %+v", got, limits)
 	}
 }
 
@@ -1082,19 +1096,23 @@ func symlinkedDir(t *testing.T) (realDir, linkDir string) {
 // TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun pins that a raise
 // accepted at launch applies to the VM this run creates or reconciles, not only
 // to the next run: the launch right after an OOM kill would otherwise boot at the
-// limit that was just hit. A declined offer keeps the configured memory.
+// limit that was just hit, and a recorded disk hit accepted at launch likewise.
+// A declined offer keeps the configured limits.
 func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
 	tests := []struct {
 		answer     string
 		wantMemory string
+		wantTmp    string
 	}{
-		{answer: "raise", wantMemory: "8192M"},
-		{answer: "keep", wantMemory: "4G"},
+		{answer: "raise", wantMemory: "8192M", wantTmp: "8192M"},
+		{answer: "keep", wantMemory: "4G", wantTmp: "2G"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.answer, func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
 			withoutMemoryEnv(t)
+			t.Setenv("AGENTS_SANDBOX_TMP_SIZE", "")
+			t.Setenv("OPENCODE_SANDBOX_TMP_SIZE", "")
 			handle := &msb.MockSandboxHandle{
 				Name_:      "vm",
 				Status_:    msbSdk.SandboxStatusRunning,
@@ -1107,7 +1125,9 @@ func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
 			}}
 			msb.WithMsbMock(t, client)
 			provisionHostConfig := false
-			opts := options.RunOptions{Agent: "opencode", Memory: "4G", ProvisionHostConfig: &provisionHostConfig}
+			opts := options.RunOptions{
+				Agent: "opencode", Memory: "4G", TmpSize: "2G", ProvisionHostConfig: &provisionHostConfig,
+			}
 			session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
 			ui := &termio.Mock{
 				IsInteractiveResult: true,
@@ -1118,7 +1138,9 @@ func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
 				client:     client,
 				volumes:    volume.NewManager(docker.Get()),
 				homeVolume: "vol",
-				homeState:  state.HomeState{HomeVolume: "vol"},
+				homeState: state.HomeState{HomeVolume: "vol", DiskPressure: map[string]state.DiskPressureState{
+					"tmp": {SeenAt: time.Now().Add(-time.Hour), SizeKiB: 2 << 20, AvailKiB: 100 << 10},
+				}},
 			}
 
 			plan, err := planReconfigStage(
@@ -1127,16 +1149,17 @@ func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
 			if err != nil {
 				t.Fatalf("planReconfigStage: %v", err)
 			}
-			if plan.memory != tc.wantMemory {
-				t.Errorf("plan memory = %q, want %q for this run", plan.memory, tc.wantMemory)
+			if plan.limits.memory != tc.wantMemory || plan.limits.tmpSize != tc.wantTmp {
+				t.Errorf("plan memory %q tmp %q, want %q and %q for this run",
+					plan.limits.memory, plan.limits.tmpSize, tc.wantMemory, tc.wantTmp)
 			}
 		})
 	}
 }
 
 // TestPlanReconfigStageSkipVMSuppressesMemoryRaise pins the --dry-run-vm guard:
-// a skipVM prepare must not prompt or persist a memory raise, matching the
-// deferred home action (specs/resources/resource-limit-proposal.md).
+// a skipVM prepare must not prompt or persist a memory or disk raise, matching the
+// deferred home action (specs/resources/resource-limit-proposal.md §1, §8).
 func TestPlanReconfigStageSkipVMSuppressesMemoryRaise(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	withoutMemoryEnv(t)
@@ -1168,7 +1191,9 @@ func TestPlanReconfigStageSkipVMSuppressesMemoryRaise(t *testing.T) {
 		client:     client,
 		volumes:    volume.NewManager(docker.Get()),
 		homeVolume: "vol",
-		homeState:  state.HomeState{HomeVolume: "vol"},
+		homeState: state.HomeState{HomeVolume: "vol", DiskPressure: map[string]state.DiskPressureState{
+			"tmp": {SeenAt: kill, SizeKiB: 2 << 20, AvailKiB: 100 << 10},
+		}},
 	}
 
 	if _, err := planReconfigStage(
@@ -1200,7 +1225,7 @@ func TestPlanReconfigStageSkipVMSuppressesMemoryRaise(t *testing.T) {
 	); err != nil {
 		t.Fatalf("planReconfigStage: %v", err)
 	}
-	if selects != 1 {
-		t.Fatalf("selects=%d on a real prepare, want 1", selects)
+	if selects != 2 {
+		t.Fatalf("selects=%d on a real prepare, want 2 (the memory and the /tmp hit)", selects)
 	}
 }

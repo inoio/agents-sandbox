@@ -164,8 +164,8 @@
 #### `specs/resources/` - Resource-limit detection and proposal
 
 - `specs/resources/resource-limit-proposal.md`
-  - Description: Contract for detecting a project VM resource-limit hit (memory OOM first, disk later) and prompting the user to raise the persisted setting, with the host terminal recovered automatically - the evidence classes, the threshold and re-arm, the anti-nag marker, the persistence-layer selection and env-shadow rule, and which limits apply live vs recreate.
-  - Read If: Working on the OOM/limit-hit detector, the "raise the limit" proposal, terminal corruption after an in-VM kill, the `msb.Sandbox.Metrics`/`Logs` seam, the per-project `memory` persistence, or the memory-above-boot-max recreate rule.
+  - Description: Contract for detecting a project VM resource-limit hit (memory OOM and full disks) and prompting the user to raise the persisted setting, with the host terminal recovered automatically - the evidence classes (guest OOM kernel-log line, metrics headroom, in-guest probe), the threshold and re-arm, the anti-nag marker, the persistence-layer selection and env-shadow rule, and which limits apply live vs recreate.
+  - Read If: Working on the OOM/limit-hit or disk-limit detector or raise proposal, the `pressure`/`resourceproposal` packages, the `msb.Sandbox.Metrics`/`Logs` seam, persistence of `memory`/`disk-size`/`workspace-quota`/`tmp-size`, the live root-disk grow, or the automatic terminal reset after an attach.
 
 #### `specs/runner-image/` - Runner image build, composition, PATH, CA trust
 
@@ -247,9 +247,6 @@
 
 ### `plans/` - TDD implementation plans
 
-- `2026-11-06-vm-disk-limit-proposal.md`
-  - Description: Phase 2 TDD plan for disk-limit detection (the `df` signal, size-adaptive threshold, disk markers in `HomeState`, `DetectAndOfferDiskRaise`, the live root-disk grow, and `disk-size`/`workspace-quota`/`tmp-size` persistence).
-  - Read If: Implementing disk-limit detection or the disk raise proposal.
 - `2026-11-07-hermetic-test-suite-design.md`
   - Description: Design for making the default `go test` suite hermetic: the acceptance envelope (module copy outside any checkout + scrubbed env + network namespace), the host-figure sentinel pass on injected seams, the wall-clock rule, and the release-to-default cadence.
   - Read If: Working on test decoupling from the execution environment, the hermetic envelope targets, the host-figure sentinel pass, or the hermetic suite's cadence.

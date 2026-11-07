@@ -1,6 +1,7 @@
 package options
 
 import (
+	"slices"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -91,11 +92,12 @@ type RunOptions struct {
 	// OpenLinks starts the host side of the in-VM xdg-open shim for the
 	// session, so links opened in the VM open on the host (internal/opener).
 	OpenLinks bool
-	// MemoryFlagChanged reports whether the --memory flag was explicitly set on
-	// this invocation. A persisted raise cannot take effect when the flag
-	// supplies the value, so PersistMemory refuses to write a shadowed config
-	// value (specs/resources/resource-limit-proposal.md).
-	MemoryFlagChanged bool
+	// ExplicitFlags lists the limit settings (memory, disk-size,
+	// workspace-quota, tmp-size) an explicit CLI flag set on this invocation. A
+	// persisted raise cannot take effect while a flag supplies the value, so
+	// resourceproposal refuses to write a shadowed config value
+	// (specs/resources/resource-limit-proposal.md §4).
+	ExplicitFlags []string
 	// Trace records the lifecycle stages the invocation reaches. cmd creates
 	// it; the stages in vm and session record into it. Nil records nothing.
 	Trace *lifecycle.Trace
@@ -137,4 +139,10 @@ func NewReapPolicy(autoStopOnActiveSessions bool, maxSessionRetries int) ReapPol
 type WorktreeSpec struct {
 	Name string
 	Base string
+}
+
+// SetByFlag reports whether an explicit CLI flag set the limit setting key on
+// this invocation.
+func (o RunOptions) SetByFlag(key string) bool {
+	return slices.Contains(o.ExplicitFlags, key)
 }

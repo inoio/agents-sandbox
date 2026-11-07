@@ -2006,6 +2006,56 @@ func TestRunAttachResetsTheTerminalAfterASignal(t *testing.T) {
 	}
 }
 
+// TestRunAttachProbesDiskAfterEveryEndButASignal pins when the disk probe runs:
+// after a clean exit too (disk pressure rarely ends a session), never after a
+// signal ended the attach.
+func TestRunAttachProbesDiskAfterEveryEndButASignal(t *testing.T) {
+	t.Run("clean exit", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		var execs []string
+		sb := &msb.MockSandbox{AttachCode: 0, ExecCalls: &execs}
+		_ = runAttach(
+			context.Background(),
+			state.Key{Slug: "diskclean", Agent: "opencode"},
+			sb,
+			"/workspace",
+			&termio.Mock{},
+			resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}),
+			"-l",
+		)
+		if !slices.Contains(execs, diskProbeKey()) {
+			t.Errorf("execs %q, want the disk probe after a clean exit", execs)
+		}
+	})
+	t.Run("signal", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		guard := make(chan os.Signal, 1)
+		signal.Notify(guard, os.Interrupt)
+		defer signal.Stop(guard)
+		var execs []string
+		sb := &msb.MockSandbox{ExecCalls: &execs, AttachFn: func(ctx context.Context) (int, error) {
+			//testenv:allow sends SIGINT to this process to exercise the signal scope
+			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+				return 0, err
+			}
+			<-ctx.Done()
+			return -1, nil
+		}}
+		_ = runAttach(
+			context.Background(),
+			state.Key{Slug: "disksignal", Agent: "opencode"},
+			sb,
+			"/workspace",
+			&termio.Mock{},
+			resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}),
+			"-l",
+		)
+		if slices.Contains(execs, diskProbeKey()) {
+			t.Errorf("execs %q, want no disk probe after a signal", execs)
+		}
+	})
+}
+
 // TestRunAttachCanceledParentIsNotASignal pins that an attach ended by its
 // parent context, not by a signal to the launcher, is no interruption: the
 // memory offer for the abnormal end still runs.

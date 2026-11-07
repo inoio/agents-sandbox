@@ -229,3 +229,16 @@ func TestDocumentedSizeDefaults(t *testing.T) {
 		t.Errorf("mibPerGib = %d, want 1024", mibPerGib)
 	}
 }
+
+// TestResolveDiskSizeMiB pins the root-disk size: the configured value, or the
+// microsandbox runtime's default managed root when unset or unparseable.
+func TestResolveDiskSizeMiB(t *testing.T) {
+	for spec, want := range map[string]uint32{"": DefaultRootDiskMiB, "bogus": DefaultRootDiskMiB, "20G": 20480} {
+		if got := ResolveDiskSizeMiB(spec); got != want {
+			t.Errorf("ResolveDiskSizeMiB(%q) = %d, want %d", spec, got, want)
+		}
+	}
+	if DefaultRootDiskMiB != 4096 {
+		t.Errorf("DefaultRootDiskMiB = %d, want the runtime's 4 GiB default", DefaultRootDiskMiB)
+	}
+}

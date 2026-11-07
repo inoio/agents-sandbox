@@ -101,7 +101,7 @@ are.
   stored by content for a human diff; a large or binary input may be stored as a digest where a content
   diff is not useful.
 - **A launcher-initiated edit to the project layer must update the approved projection.** When the
-  launcher itself writes a project-config file — e.g. `resourceproposal.PersistMemory` raising `memory`
+  launcher itself writes a project-config file — e.g. `resourceproposal.PersistSetting` raising `memory` or a disk limit
   (`specs/resources/resource-limit-proposal.md` §4) — it must record the resulting projection and digest in the same act,
   or the next run gates the launcher's own change. The write and the projection update are one operation;
   a write whose projection update fails must not leave the file changed without the matching approval.

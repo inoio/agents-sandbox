@@ -1896,7 +1896,7 @@ func resolvePreparedMemory(t *testing.T, slug string) string {
 	return r.Config().Memory
 }
 
-// withoutMemoryEnv clears the memory env vars so PersistMemory's shadow guard
+// withoutMemoryEnv clears the memory env vars so PersistSetting's shadow guard
 // does not refuse the write.
 func withoutMemoryEnv(t *testing.T) {
 	t.Helper()
@@ -2299,5 +2299,54 @@ func TestBootMaxMemoryMiB(t *testing.T) {
 	}
 	if got := bootMaxMemoryMiB(liveProjectVM{}); got != 0 {
 		t.Errorf("bootMaxMemoryMiB(nil config) = %d, want 0", got)
+	}
+}
+
+// TestDetectAndOfferDiskRaiseAtLaunch pins the next-launch disk offer: each
+// recorded, unanswered disk hit is offered from its marker, and an accepted
+// raise replaces the run's size so this run applies it; a decline keeps it.
+func TestDetectAndOfferDiskRaiseAtLaunch(t *testing.T) {
+	for _, tc := range []struct {
+		answer                       string
+		wantDisk, wantQuota, wantTmp string
+	}{
+		{answer: "raise", wantDisk: "6144M", wantQuota: "24576M", wantTmp: "3072M"},
+		{answer: "keep", wantDisk: "4G", wantQuota: "16G", wantTmp: "2G"},
+	} {
+		t.Run(tc.answer, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			for _, key := range []string{"DISK_SIZE", "WORKSPACE_QUOTA", "TMP_SIZE"} {
+				t.Setenv("AGENTS_SANDBOX_"+key, "")
+				t.Setenv("OPENCODE_SANDBOX_"+key, "")
+			}
+			k := testVMKey()
+			seen := time.Now().Add(-time.Hour)
+			hs := state.HomeState{HomeVolume: "vol", DiskPressure: map[string]state.DiskPressureState{
+				"root-disk":       {SeenAt: seen, SizeKiB: 4 << 20, AvailKiB: 100 << 10},
+				"workspace-quota": {SeenAt: seen, SizeKiB: 16 << 20, AvailKiB: 100 << 10},
+				"tmp":             {SeenAt: seen, SizeKiB: 2 << 20, AvailKiB: 100 << 10},
+			}}
+			if err := seedHomeState(k, hs); err != nil {
+				t.Fatalf("seedHomeState: %v", err)
+			}
+			ui := &termio.Mock{
+				IsInteractiveResult: true,
+				SelectFn:            func(string, []termio.Choice, string) (string, error) { return tc.answer, nil },
+				InputFn:             func(_, defaultValue string) (string, error) { return defaultValue, nil },
+			}
+
+			opts := detectAndOfferDiskRaise(
+				k,
+				options.RunOptions{DiskSize: "4G", WorkspaceQuota: "16G", TmpSize: "2G", Memory: "4G"},
+				hs,
+				configpaths.Get(),
+				ui,
+			)
+
+			if opts.DiskSize != tc.wantDisk || opts.WorkspaceQuota != tc.wantQuota || opts.TmpSize != tc.wantTmp {
+				t.Errorf("disk %q quota %q tmp %q, want %q %q %q",
+					opts.DiskSize, opts.WorkspaceQuota, opts.TmpSize, tc.wantDisk, tc.wantQuota, tc.wantTmp)
+			}
+		})
 	}
 }

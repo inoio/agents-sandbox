@@ -19,24 +19,40 @@ const (
 	memoryKey = "memory"
 )
 
-// Suggestion is the prefilled raise offered for a hit. BootMaxMiB is the VM's
-// boot maximum (host RAM at creation); zero means unknown.
+// Suggestion is the prefilled raise offered for a hit. BootMaxMiB is the
+// maximum a raise may reach (for memory the VM's boot maximum, host RAM at
+// creation); zero means none.
 type Suggestion struct {
 	CurrentMiB  uint32
 	ProposedMiB uint32
 	BootMaxMiB  uint32
 }
 
-// SuggestRaise returns the prefilled raise: a 25% increment over currentMiB,
-// rounded up to the next whole GiB and at least currentMiB+1GiB. A non-zero
-// bootMaxMiB clamps the result, and the result never falls below currentMiB.
+// SuggestRaise returns the prefilled memory raise: a 25% increment over
+// currentMiB, rounded up to the next whole GiB and at least currentMiB+1GiB. A
+// non-zero bootMaxMiB clamps the result, and the result never falls below
+// currentMiB.
 func SuggestRaise(currentMiB, bootMaxMiB uint32) uint32 {
-	proposedMiB := roundUpGiB(currentMiB + currentMiB/4)
+	return suggestIncrease(currentMiB, bootMaxMiB, currentMiB/4)
+}
+
+// SuggestDiskRaise returns the prefilled disk raise: a 50% increment, with the
+// same rounding, floor and clamp as SuggestRaise.
+func SuggestDiskRaise(currentMiB, maxMiB uint32) uint32 {
+	return suggestIncrease(currentMiB, maxMiB, currentMiB/2)
+}
+
+// suggestIncrease adds incrementMiB to currentMiB, rounds up to a whole GiB,
+// raises by at least 1 GiB, clamps to a non-zero maxMiB, and never falls below
+// currentMiB.
+func suggestIncrease(currentMiB, maxMiB, incrementMiB uint32) uint32 {
+	proposedMiB := roundUpGiB(currentMiB + incrementMiB)
 	if floorMiB := currentMiB + mibPerGiB; proposedMiB < floorMiB {
 		proposedMiB = floorMiB
 	}
-	if bootMaxMiB > 0 && proposedMiB > bootMaxMiB {
-		proposedMiB = bootMaxMiB
+	// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="clamping a proposal equal to maxMiB to maxMiB leaves it unchanged"
+	if maxMiB > 0 && proposedMiB > maxMiB {
+		proposedMiB = maxMiB
 	}
 	if proposedMiB < currentMiB {
 		proposedMiB = currentMiB
@@ -53,12 +69,34 @@ func roundUpGiB(mib uint32) uint32 {
 // returns ok=false when the UI is non-interactive (never blocking) or the user
 // declines. It never writes anything.
 func Ask(ui termio.Prompter, hit pressure.Signal, s Suggestion) (uint32, bool, error) {
+	return askRaise(ui, raiseOffer{
+		question:   selectPrompt(hit),
+		limitName:  "memory limit",
+		maximumFor: "the host maximum",
+		suggestion: s,
+	})
+}
+
+// raiseOffer is one limit raise put to the user: the question, the limit's
+// name, what its maximum is (for a rejected answer), and the suggestion.
+type raiseOffer struct {
+	question   string
+	limitName  string
+	maximumFor string
+	suggestion Suggestion
+}
+
+// askRaise asks whether to raise the limit, then for the new size, re-prompting
+// with the reason until the answer is valid. It returns ok=false when the UI is
+// non-interactive or the user declines.
+func askRaise(ui termio.Prompter, o raiseOffer) (uint32, bool, error) {
 	if !ui.IsInteractive() {
 		return 0, false, nil
 	}
-	decision, err := ui.Select(selectPrompt(hit), []termio.Choice{
-		{Key: "raise", Label: "Raise", Description: "Set the memory limit to " + formatMiB(s.ProposedMiB)},
-		{Key: "keep", Label: "Keep", Description: "Leave the memory limit unchanged"},
+	s := o.suggestion
+	decision, err := ui.Select(o.question, []termio.Choice{
+		{Key: "raise", Label: "Raise", Description: "Set the " + o.limitName + " to " + formatMiB(s.ProposedMiB)},
+		{Key: "keep", Label: "Keep", Description: "Leave the " + o.limitName + " unchanged"},
 	}, "raise")
 	if err != nil {
 		return 0, false, err
@@ -66,34 +104,33 @@ func Ask(ui termio.Prompter, hit pressure.Signal, s Suggestion) (uint32, bool, e
 	if decision != "raise" {
 		return 0, false, nil
 	}
-	prompt := memoryInputPrompt
+	inputPrompt := "New " + o.limitName + " (for example 6G or 6144M)"
+	prompt := inputPrompt
 	for {
 		answer, err := ui.Input(prompt, formatMiB(s.ProposedMiB))
 		if err != nil {
 			return 0, false, err
 		}
 		newMiB, parsed := options.ParseMemoryOK(answer)
-		problem := raiseProblem(answer, newMiB, parsed, s)
+		problem := raiseProblem(answer, newMiB, parsed, s, o.maximumFor)
 		if problem == "" {
 			return newMiB, true, nil
 		}
-		prompt = problem + ". " + memoryInputPrompt
+		prompt = problem + ". " + inputPrompt
 	}
 }
 
-const memoryInputPrompt = "New memory limit (for example 6G or 6144M)"
-
 // raiseProblem checks that a parsed answer raises the current limit without
-// exceeding the boot maximum. It returns the reason for a rejected answer, or ""
-// when the answer is valid.
-func raiseProblem(answer string, newMiB uint32, parsed bool, s Suggestion) string {
+// exceeding the maximum, which maximumFor names. It returns the reason for a
+// rejected answer, or "" when the answer is valid.
+func raiseProblem(answer string, newMiB uint32, parsed bool, s Suggestion, maximumFor string) string {
 	switch {
 	case !parsed:
 		return fmt.Sprintf("%q is not a size", answer)
 	case newMiB <= s.CurrentMiB:
 		return "The new limit must be above the current " + formatMiB(s.CurrentMiB)
 	case s.BootMaxMiB > 0 && newMiB > s.BootMaxMiB:
-		return "The new limit must not exceed the host maximum " + formatMiB(s.BootMaxMiB)
+		return "The new limit must not exceed " + maximumFor + " " + formatMiB(s.BootMaxMiB)
 	}
 	return ""
 }
@@ -116,40 +153,35 @@ func formatMiB(mib uint32) string {
 	return fmt.Sprintf("%dM", mib)
 }
 
-// PersistMemory writes the accepted memory to the config layer that owns the
-// memory key, defaulting to the per-project user config, and returns that
-// directory. It returns an error rather than writing a shadowed value when the
-// --memory flag or an environment variable supplies the key.
-func PersistMemory(
-	paths configpaths.ConfigPaths,
-	slug string,
-	memoryMiB uint32,
-	memoryFlagChanged bool,
-) (string, error) {
-	if source, shadowed := MemoryShadowSource(memoryFlagChanged); shadowed {
-		return "", fmt.Errorf("memory is set by %s; not writing a config value it would override", source)
+// PersistSetting writes value for the limit setting key to the config layer that
+// owns the key, defaulting to the per-project user config, and returns that
+// directory. It returns an error rather than writing a shadowed value when a
+// flag (setByFlag) or an environment variable supplies the key.
+func PersistSetting(paths configpaths.ConfigPaths, slug, key, value string, setByFlag bool) (string, error) {
+	if source, shadowed := ShadowSource(key, setByFlag); shadowed {
+		return "", fmt.Errorf("%s is set by %s; not writing a config value it would override", key, source)
 	}
-	dir, ok := viperconfig.LayerSettingOwner(paths, slug, memoryKey)
+	dir, ok := viperconfig.LayerSettingOwner(paths, slug, key)
 	if !ok {
 		dir = paths.UserSlugConfigDir(slug)
 	}
 	// The owning layer may be the project config: the write goes there so the
 	// raise is not shadowed. A project-config trust gate must also record the
-	// launcher's own change there (specs/resources/resource-limit-proposal.md).
-	if err := viperconfig.WriteSetting(dir, memoryKey, memorySetting(memoryMiB)); err != nil {
+	// launcher's own change there (specs/resources/resource-limit-proposal.md §4).
+	if err := viperconfig.WriteSetting(dir, key, value); err != nil {
 		return "", err
 	}
 	return dir, nil
 }
 
-// MemoryShadowSource names the higher-precedence source that supplies memory
-// (the --memory flag or a memory environment variable), so a config value would
-// not take effect. It reports false when config decides the value.
-func MemoryShadowSource(memoryFlagChanged bool) (string, bool) {
-	if memoryFlagChanged {
-		return "the --memory flag", true
+// ShadowSource names the higher-precedence source that supplies the limit
+// setting key (its --<key> flag or an environment variable), so a config value
+// would not take effect. It reports false when config decides the value.
+func ShadowSource(key string, setByFlag bool) (string, bool) {
+	if setByFlag {
+		return "the --" + key + " flag", true
 	}
-	for _, name := range viperconfig.EnvVarNames(memoryKey) {
+	for _, name := range viperconfig.EnvVarNames(key) {
 		if os.Getenv(name) != "" {
 			return "the " + name + " environment variable", true
 		}

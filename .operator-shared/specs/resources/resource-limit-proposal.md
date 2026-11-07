@@ -1,6 +1,6 @@
 ---
-description: Contract for detecting a project VM resource-limit hit (memory OOM first, disk later) and prompting the user to raise the persisted setting, with the host terminal recovered automatically — the evidence classes (guest OOM kernel-log line, metrics headroom, in-guest probe), the threshold and re-arm, the anti-nag marker, the persistence-layer selection and env-shadow rule, and which limits apply live vs recreate.
-read_if: Working on the OOM/limit-hit detector, the "raise the limit" proposal, terminal corruption after an in-VM kill, the `msb.Sandbox.Metrics`/`Logs` seam, the per-project `memory` persistence, or the memory-above-boot-max recreate rule.
+description: Contract for detecting a project VM resource-limit hit (memory OOM and full disks) and prompting the user to raise the persisted setting, with the host terminal recovered automatically — the evidence classes (guest OOM kernel-log line, metrics headroom, in-guest probe), the threshold and re-arm, the anti-nag marker, the persistence-layer selection and env-shadow rule, and which limits apply live vs recreate.
+read_if: Working on the OOM/limit-hit detector, the disk probe or disk raise, the "raise the limit" proposal, terminal corruption after an in-VM kill, the `msb.Sandbox.Metrics`/`Logs` seam, the persistence of `memory`/`disk-size`/`workspace-quota`/`tmp-size`, the live root-disk grow, or the memory-above-boot-max recreate rule.
 ---
 
 # Resource-limit detection and raise proposal
@@ -25,8 +25,8 @@ terminal, the un-explained session death) rather than leaving the user to diagno
 - **The reconfig machinery already splits changes by how they can be applied**
   (`internal/sandbox/reconfig`): memory/CPU are applied live by `vm.reconcileResourceConfig`
   (`buildModifyOptions`, `ModificationPolicyNoRestart`, clamped to `MaxMemoryMiB`/`MaxCPUs`),
-  while `tmpSizeChange`, `workspaceQuotaChange`, `rootDiskChange`, ports, network, and the home
-  volume all force a recreate. `ResolveReconfig` + `PromptA`/`PromptB` drive the apply/keep
+  while `tmpSizeChange`, `workspaceQuotaChange`, a root-disk decrease (`rootDiskChange`), ports,
+  network, and the home volume all force a recreate. `ResolveReconfig` + `PromptA`/`PromptB` drive the apply/keep
   choice.
   This path triggers on **desired-vs-live config drift**, never on a limit actually being hit.
 - **The serve daemon and dockerd are re-ensured on every run** (`vm.SetUpSandbox` →
@@ -143,7 +143,13 @@ fails with `ENOSPC`/`EDQUOT` and the agent keeps running — so disk is probed a
 end, clean or abnormal (skipped when a signal ended it), and recorded in a per-kind marker
 (`HomeState.DiskPressure`) together with the measured size and free space. The next launch offers
 only a recorded, unanswered disk hit, built from those recorded values; it does not probe, because
-the VM may be stopped.
+the VM may be stopped. A raise of the root disk or `/tmp` starts from the larger of the configured and
+the measured size, so a VM larger than its config (created with a flag, run without it) is never
+offered a shrink that the next launch would rebuild to. `/workspace`'s mount size is the host
+repository's content plus the quota (confirmed on a KVM host), so it is judged and raised against the
+configured quota instead: its free space is what is left of the quota. The probe runs under its own
+timeout so a wedged guest cannot hang the end of a session. The marker writers are guarded under the state lock: recording keeps a
+hit another session stored first (answered or not), and clearing drops only the hit that recovered.
 `--serve-only` (no attach) is not covered.
 - **Signal: one in-guest `df -Pk / /workspace /tmp`** over `sb.Exec`, for all three limits.
   Confirmed on a KVM host: it reports them immediately — `/` is the overlay at the root-disk size,
@@ -256,7 +262,8 @@ pressure, and re-arming on the ratio alone would re-offer every launch.)
   and do not read once.
 - **Root disk**: `buildModifyOptions` stages `ModifyOptions.RootDiskSizeMiB` when the desired size
   exceeds the current one (`SandboxConfig.RootDisk.SizeMiB`), and `reconcileResourceConfig` applies
-  it live; only a decrease is a recreate (`rootDiskChange`). Confirmed on a KVM host that even a
+  it live; only a decrease, or a VM whose root disk size is not recorded, is a recreate
+  (`rootDiskChange`). Confirmed on a KVM host that even a
   default (no `--disk-size`) VM has a managed root (4 GiB default) that grows live, and that the
   grown size is persisted.
 - **Disk raises apply at the next launch**, like memory: an accepted value is persisted, and a raise
@@ -313,13 +320,13 @@ These are the author's calls, not user decisions; a builder may follow them as w
   carries the previous boot's kernel lines at all (the marker covers that). When the tail holds an
   OOM line, a second read up to it (no tail limit) supplies the boot start. Without a boot start or
   an uptime prefix, the entry timestamp stands in.
-- **Enable the live root-disk grow** by having `buildModifyOptions`/`reconcileResourceConfig`
-  stage `RootDiskSizeMiB` (grow-only) and by reading `SandboxConfig.RootDisk`; `rootDiskChange`
-  stops forcing a recreate for a pure increase.
 - **env/flag provenance.** Reuse the derived key registry's env-var name (see
   `specs/configuration/config-keys.md`) — which includes the deprecated `OPENCODE_SANDBOX_` alias bound
-  for the same key — plus `cmd.Flags().Changed("memory")`; when either supplies the key, do not
-  write a shadowed config value and tell the user the source.
+  for the same key — plus whether the key's own flag was set explicitly
+  (`options.RunOptions.ExplicitFlags`, recorded by `runoptions.Build` for `--memory`,
+  `--disk-size`, `--workspace-quota` and `--tmp-size`); when either supplies the key, do not
+  write a shadowed config value and tell the user the source. `resourceproposal.PersistSetting`
+  and `ShadowSource` apply this to every limit key.
 - **Detection scope.** The watcher + post-attach handling live in the shared attach path so both
   `Run` and `Shell` get them. The detached serve-daemon death is handled at the `SetUpSandbox` /
   `ensureDaemon` re-ensure (next launch, via marker + log), not by a second watcher.
@@ -333,16 +340,20 @@ These are the author's calls, not user decisions; a builder may follow them as w
 
 - `msb.Sandbox` and/or `msb.SandboxHandle`: add `Metrics` and `Logs` (real + mock).
 - `session`: a metrics watcher; abnormal-end classification; terminal reset emission; signal
-  handling around attach; the post-attach memory-raise offer.
-- `prepare`: the next-launch detection + proposal (in the plan-reconfig stage) and its caller.
-- `resourceproposal`: the shared `DetectAndOfferMemoryRaise` core (read, classify, dedup against
-  the marker, offer, persist) used by both the next-launch and post-attach paths.
-- `reconfig`: extend the live modify stage with root-disk grow; a proposal/prompt path for a
-  detected hit.
+  handling around attach; the post-attach memory-raise offer; the post-attach disk probe.
+- `prepare`: the next-launch memory and disk offers (in the plan-reconfig stage, before the
+  reconfig decision) and the plan's resource limits that ensure-vm applies.
+- `resourceproposal`: the shared `DetectAndOfferMemoryRaise` and `DetectAndOfferDiskRaise` cores
+  (classify, dedup against the marker, offer, persist) used by both paths, with one raise prompt.
+- `pressure`: the OOM and headroom classifiers; the `df` probe command, its parser and the disk
+  threshold.
+- `vm`: the live root-disk grow in `buildModifyOptions`; `reconfig.rootDiskChange` recreates only
+  for a decrease or an unrecorded disk.
 - `configpaths`/`viperconfig`: a "which file layer owns key K" helper; write the raise to the
   right layer.
-- `state`: a `HomeState` marker for the detected hit.
-- `sysinfo`: available host memory (`AvailableMemoryMiB`).
+- `state`: `HomeState` markers for the memory hit and per disk limit.
+- `sysinfo`: available host memory (`AvailableMemoryMiB`) and host free disk space
+  (`FreeDiskMiB`).
 
 ## Testing
 
@@ -350,18 +361,20 @@ These are the author's calls, not user decisions; a builder may follow them as w
   threshold, inconclusive → no proposal); layer-ownership selection; persistence round-trip;
   prompt + non-interactive fallback; terminal reset emission; the `Metrics`/`Logs` seams via the
   msb mocks.
-- CLI: an OOM-like abnormal end and a next-launch marker are exercised in the
-  `cmd/agents-sandbox/cli_*_test.go` style with mocked seams.
+- CLI: an OOM-like abnormal end, a next-launch marker, a full `/tmp` after a clean exit and a
+  disk size set by its flag are exercised in the `cmd/agents-sandbox/cli_*_test.go` style with
+  mocked seams.
 - Real VM (`msb` tag / KVM host): that an OOM writes a parseable kernel-log line; that
-  `Metrics` headroom reflects a near-limit guest; that live root-disk grow succeeds; that the
-  emitted reset clears the actual harness residue.
+  `Metrics` headroom reflects a near-limit guest; that the `df` probe reports all three disk limits
+  and a filled `/tmp` trips; that a live root-disk grow applies and persists; that the emitted
+  reset clears the actual harness residue.
 
 ## Staging
 
-1. **Memory detection + propose + terminal recovery** (the core ask): seams, watcher,
-   attribution, prompt, per-project-user-config persistence, terminal reset, next-launch
-   fallback.
-2. **Disk**: root live grow + quota/tmp recreate proposals.
+1. **Memory detection + propose + terminal recovery**: seams, watcher, attribution, prompt,
+   owner-layer persistence, terminal reset, next-launch fallback, host-memory warning. Landed.
+2. **Disk**: the `df` probe, per-limit markers, root live grow + quota/tmp recreate proposals,
+   host free-space warning. Landed.
 3. **(Later, separate)** huh backend; mid-session auto-raise; process protection.
 
 ## Open questions

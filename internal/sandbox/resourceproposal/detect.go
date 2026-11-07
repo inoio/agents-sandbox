@@ -246,7 +246,7 @@ func presentMemoryRaise(
 		ProposedMiB: SuggestRaise(currentMiB, limits.BootMaxMiB),
 		BootMaxMiB:  limits.BootMaxMiB,
 	}
-	if source, shadowed := MemoryShadowSource(opts.MemoryFlagChanged); shadowed {
+	if source, shadowed := ShadowSource(memoryKey, opts.SetByFlag(memoryKey)); shadowed {
 		// A raise saved to config could not take effect, so explain instead of
 		// asking; the explanation answers the hit.
 		ui.Warnf(
@@ -278,7 +278,9 @@ func presentMemoryRaise(
 		return ""
 	}
 	warnIfTheHostLacksTheRaise(newMiB-currentMiB, limits, ui)
-	dir, persistErr := PersistMemory(paths, configSlug(opts, k), newMiB, opts.MemoryFlagChanged)
+	dir, persistErr := PersistSetting(
+		paths, configSlug(opts, k), memoryKey, memorySetting(newMiB), opts.SetByFlag(memoryKey),
+	)
 	if persistErr != nil {
 		ui.Warnf("could not persist the raised memory limit: %v", persistErr)
 		return ""

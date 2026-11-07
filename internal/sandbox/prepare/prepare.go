@@ -396,15 +396,40 @@ func ensureHomeStage(
 // reconfigPlan is what plan-reconfig hands to the later stages: the merged
 // agent config files (loaded once per startup, shared with provisioning), the
 // project VM the decision was read from, the reconfig decision, the home
-// volume after its home action, and the memory setting the run applies.
+// volume after its home action, and the resource limits the run applies.
 type reconfigPlan struct {
 	configFiles *reprovision.ConfigFiles
 	existingVM  msb.SandboxHandle
 	decision    reconfigDecision
 	homeVolume  string
-	// memory is the run's memory setting, including a raise accepted while
+	// limits are the run's resource limits, including raises accepted while
 	// planning.
-	memory string
+	limits plannedLimits
+}
+
+// plannedLimits are the resource-limit settings a run applies.
+type plannedLimits struct {
+	memory         string
+	diskSize       string
+	workspaceQuota string
+	tmpSize        string
+}
+
+func plannedLimitsOf(opts options.RunOptions) plannedLimits {
+	return plannedLimits{
+		memory:         opts.Memory,
+		diskSize:       opts.DiskSize,
+		workspaceQuota: opts.WorkspaceQuota,
+		tmpSize:        opts.TmpSize,
+	}
+}
+
+func (l plannedLimits) applyTo(opts options.RunOptions) options.RunOptions {
+	opts.Memory = l.memory
+	opts.DiskSize = l.diskSize
+	opts.WorkspaceQuota = l.workspaceQuota
+	opts.TmpSize = l.tmpSize
+	return opts
 }
 
 // planReconfigStage is the plan-reconfig stage: it loads the merged agent
@@ -448,6 +473,7 @@ func planReconfigStage(
 		); raised != "" {
 			opts.Memory = raised
 		}
+		opts = detectAndOfferDiskRaise(session.key, opts, home.homeState, paths, ui)
 	}
 	decision, err := resolveReconfigDecision(
 		ctx, home.volumes, session.key, opts, imageInfo, home.homeVolume, home.homeState, configFiles,
@@ -469,7 +495,7 @@ func planReconfigStage(
 		existingVM:  live.handle,
 		decision:    decision,
 		homeVolume:  homeVolume,
-		memory:      opts.Memory,
+		limits:      plannedLimitsOf(opts),
 	}, nil
 }
 
@@ -485,8 +511,8 @@ func ensureVMStage(
 	opts options.RunOptions,
 	ui termio.UI,
 ) (msb.Sandbox, vm.VMBoot, error) {
-	// The plan's memory includes a raise accepted while planning.
-	opts.Memory = plan.memory
+	// The plan's limits include raises accepted while planning.
+	opts = plan.limits.applyTo(opts)
 	sb, boot, err := vm.EnsureProjectVM(ctx, vm.ProjectVMCreation{
 		Client:       home.client,
 		DockerClient: home.dclient,

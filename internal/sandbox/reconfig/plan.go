@@ -294,7 +294,9 @@ func rootDiskChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change,
 	if !ok {
 		return Change{}, false
 	}
-	if cfg.RootDisk != nil && cfg.RootDisk.SizeMiB == want {
+	// A managed root disk grows live (vm.reconcileResourceConfig); only a
+	// decrease, or a disk whose size is not recorded, needs a recreate.
+	if cfg.RootDisk != nil && cfg.RootDisk.SizeMiB <= want {
 		return Change{}, false
 	}
 	// The display form normalises back to "<size>M", so passing no raw spec is

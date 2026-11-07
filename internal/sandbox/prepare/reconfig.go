@@ -361,3 +361,35 @@ func applyLivePorts(cfg *msbSdk.SandboxConfig, handle msb.SandboxHandle, ui term
 	}
 	cfg.PortBindings = livePorts
 }
+
+// detectAndOfferDiskRaise offers the project's recorded, unanswered disk hits
+// (the next launch does not probe; the VM may be stopped) and returns opts with
+// any accepted size, so this run applies it (specs/resources/resource-limit-proposal.md
+// §1e, §5).
+func detectAndOfferDiskRaise(
+	k state.Key,
+	opts options.RunOptions,
+	hs state.HomeState,
+	paths configpaths.ConfigPaths,
+	ui termio.UI,
+) options.RunOptions {
+	raised := resourceproposal.DetectAndOfferDiskRaise(
+		k,
+		nil,
+		hs.DiskPressure,
+		resourceproposal.WithHostFreeSpace(resourceproposal.RunDiskLimits(opts)),
+		opts,
+		paths,
+		ui,
+	)
+	if setting, ok := raised["disk-size"]; ok {
+		opts.DiskSize = setting
+	}
+	if setting, ok := raised["workspace-quota"]; ok {
+		opts.WorkspaceQuota = setting
+	}
+	if setting, ok := raised["tmp-size"]; ok {
+		opts.TmpSize = setting
+	}
+	return opts
+}

@@ -12,8 +12,8 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// Kind identifies the limited resource. Phase 2 adds root-disk, workspace-quota
-// and tmp kinds.
+// Kind identifies the limited resource: memory here, the disk limits in
+// disk.go.
 type Kind string
 
 const (

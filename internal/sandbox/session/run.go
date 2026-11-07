@@ -415,6 +415,9 @@ func runAttach(
 			if endedAbnormally && !interrupted {
 				offerMemoryRaiseAfterAttach(ctx, k, sb, summary, opts, ui)
 			}
+			if !interrupted {
+				offerDiskRaiseAfterAttach(ctx, k, sb, opts, ui)
+			}
 			return finalizeRun(attachErr, exitCode)
 		},
 	)

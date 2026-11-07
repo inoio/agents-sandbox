@@ -99,6 +99,10 @@ type HomeState struct {
 	// user has answered a raise offer for it, so the same hit is not re-offered
 	// (see specs/resources/resource-limit-proposal.md).
 	ResourcePressure *ResourcePressureState `yaml:"resource_pressure,omitempty"`
+
+	// DiskPressure records detected disk-limit hits keyed by kind (root-disk,
+	// workspace-quota, tmp) and whether the user has answered their offers.
+	DiskPressure map[string]DiskPressureState `yaml:"disk_pressure,omitempty"`
 }
 
 // Offered reports whether the version has already had its rebuild prompt shown
