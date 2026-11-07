@@ -317,7 +317,7 @@ These are the author's calls, not user decisions; a builder may follow them as w
   stage `RootDiskSizeMiB` (grow-only) and by reading `SandboxConfig.RootDisk`; `rootDiskChange`
   stops forcing a recreate for a pure increase.
 - **env/flag provenance.** Reuse the derived key registry's env-var name (see
-  `specs/config-key-registry.md`) — which includes the deprecated `OPENCODE_SANDBOX_` alias bound
+  `specs/configuration/config-keys.md`) — which includes the deprecated `OPENCODE_SANDBOX_` alias bound
   for the same key — plus `cmd.Flags().Changed("memory")`; when either supplies the key, do not
   write a shadowed config value and tell the user the source.
 - **Detection scope.** The watcher + post-attach handling live in the shared attach path so both
