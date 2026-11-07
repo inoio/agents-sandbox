@@ -266,3 +266,6 @@
 - `2026-11-07-hermetic-test-envelope.md`
   - Description: Plan 1 of the hermetic design: `scripts/test-envelope.sh` (module copy + `env -i` scrub, `--netns` strict wrapper), the `test-scrubbed`/`test-hermetic`/`envelope-test` targets, and the task that records the failing inventory and runtime budget that scope the surface plans.
   - Read If: Implementing the hermetic envelope targets, the scrubbed/strict runners, or the inventory step that sequences the identity, host-figure, and wall-clock fixes.
+- `2026-11-07-hermetic-inventory.md`
+  - Description: First-run envelope record: the runtime budget (envelope ~1.5× an uncached `go test`, ~4.5× a cached `make test`), the green scrubbed run, and the one failing surface (6 uid/permission `chmod`-based tests the strict run runs as root) that scopes the follow-up work.
+  - Read If: Picking up a hermetic surface fix, choosing the next hermetic plan's tasks, or checking the envelope's measured runtime against `make test`.
