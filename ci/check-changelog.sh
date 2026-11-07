@@ -4,7 +4,7 @@
 # A fragment is changelog.d/<slug>.<type>.md, one file per change: slug is the
 # PR number, and type is one of the changelog sections.
 # A PR with several entries of the same type numbers them: <slug>.<type>-<n>.md.
-# See .operator-shared/specs/changelog-fragments.md.
+# See .operator-shared/specs/ci/ci-pipeline.md.
 #
 # - Shape (always): every file in changelog.d/ is named <slug>.<type>.md (or
 #   <slug>.<type>-<n>.md) with a known type; the ignored names are skipped.

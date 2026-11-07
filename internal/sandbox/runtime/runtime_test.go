@@ -14,13 +14,14 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestInspectRuntimeEqual(t *testing.T) {
 	home := writeRuntimeFixture(t, currentMSBVersion(), true)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 
 	inspection, err := inspectRuntime(msbSdk.SDKVersion())
 	if err != nil {
@@ -70,8 +71,8 @@ func TestInspectRuntimeNewerAndOlder(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			home := writeRuntimeFixture(t, test.version, true)
 			t.Setenv("HOME", home)
-			unsetEnv(t, "MSB_HOME")
-			unsetEnv(t, "MSB_PATH")
+			testutil.UnsetEnv(t, "MSB_HOME")
+			testutil.UnsetEnv(t, "MSB_PATH")
 
 			inspection, err := inspectRuntime(msbSdk.SDKVersion())
 			if err != nil {
@@ -87,8 +88,8 @@ func TestInspectRuntimeNewerAndOlder(t *testing.T) {
 func TestInspectRuntimeMissingLibraryIsIncomplete(t *testing.T) {
 	home := writeRuntimeFixture(t, currentMSBVersion(), false)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 
 	inspection, err := inspectRuntime(msbSdk.SDKVersion())
 	if err != nil {
@@ -102,8 +103,8 @@ func TestInspectRuntimeMissingLibraryIsIncomplete(t *testing.T) {
 func TestInspectRuntimeUnknownVersion(t *testing.T) {
 	home := writeRuntimeFixture(t, "not-a-version", true)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 
 	inspection, err := inspectRuntime(msbSdk.SDKVersion())
 	if err != nil {
@@ -117,8 +118,8 @@ func TestInspectRuntimeUnknownVersion(t *testing.T) {
 func TestInspectRuntimeVersionCommandFailure(t *testing.T) {
 	home := writeRuntimeFixture(t, currentMSBVersion(), true)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 	oldVersion := runMSBVersion
 	runMSBVersion = func(string) (string, error) { return "", errors.New("exec failed") }
 	t.Cleanup(func() { runMSBVersion = oldVersion })
@@ -136,8 +137,8 @@ func TestInspectRuntimeInvalidRequiredVersion(t *testing.T) {
 	resetRuntimeState(t)
 	home := writeRuntimeFixture(t, currentMSBVersion(), true)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 	inspection, err := inspectRuntime("not-a-semver")
 	if err != nil {
 		t.Fatalf("inspectRuntime() error = %v", err)
@@ -358,8 +359,8 @@ func TestPrepareRuntimePublicGateUsesRealClient(t *testing.T) {
 	t.Cleanup(func() { runtimeClientIsReal = oldReal })
 	home := writeRuntimeFixture(t, currentMSBVersion(), true)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 	oldValidate := validateRuntime
 	validateRuntime = func(context.Context) error { return nil }
 	t.Cleanup(func() { validateRuntime = oldValidate })
@@ -374,11 +375,12 @@ func TestApplyPreviewHomeSkipsMockClient(t *testing.T) {
 	runtimeClientIsReal = func() bool { return false }
 	t.Cleanup(func() { runtimeClientIsReal = oldReal })
 
-	unsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_HOME")
 
 	if err := ApplyPreviewHome(); err != nil {
 		t.Fatalf("ApplyPreviewHome() error = %v", err)
 	}
+	//testenv:allow asserts the MSB_HOME the runtime Apply step exported
 	if got := os.Getenv("MSB_HOME"); got != "" {
 		t.Errorf("MSB_HOME = %q; want unset for a mock client", got)
 	}
@@ -386,7 +388,7 @@ func TestApplyPreviewHomeSkipsMockClient(t *testing.T) {
 
 func TestApplyPreviewHomePointsAtPrivateHome(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	unsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_HOME")
 	oldReal := runtimeClientIsReal
 	runtimeClientIsReal = func() bool { return true }
 	t.Cleanup(func() { runtimeClientIsReal = oldReal })
@@ -394,6 +396,7 @@ func TestApplyPreviewHomePointsAtPrivateHome(t *testing.T) {
 	if err := ApplyPreviewHome(); err != nil {
 		t.Fatalf("ApplyPreviewHome() error = %v", err)
 	}
+	//testenv:allow asserts the MSB_HOME the runtime Apply step exported
 	if got := os.Getenv("MSB_HOME"); got != PrivateHome() {
 		t.Errorf("MSB_HOME = %q; want the private home %q", got, PrivateHome())
 	}
@@ -417,8 +420,8 @@ func TestApplyPreviewHomeWrapsApplyHomeError(t *testing.T) {
 func TestPrepareRuntimeMissingInstallsAndValidates(t *testing.T) {
 	resetRuntimeState(t)
 	home := mockRuntimeHome(t)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 
 	oldEnsure, oldValidate := ensureRuntime, validateRuntime
 	ensureCalls, validateCalls := 0, 0
@@ -451,8 +454,8 @@ func TestPrepareRuntimeMissingManagedRuntimeInstallFails(t *testing.T) {
 	// it points at a real install the runtime would be found and the install
 	// path never reached.
 	configpaths.WithMockConfigPaths(t)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 	oldEnsure := ensureRuntime
 	ensureRuntime = func(context.Context) error { return errors.New("install failed") }
 	t.Cleanup(func() { ensureRuntime = oldEnsure })
@@ -464,8 +467,8 @@ func TestPrepareRuntimeMissingManagedRuntimeInstallFails(t *testing.T) {
 func TestPrepareRuntimeMissingManagedRuntimeValidationFails(t *testing.T) {
 	resetRuntimeState(t)
 	home := mockRuntimeHome(t)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 
 	oldEnsure, oldValidate := ensureRuntime, validateRuntime
 	ensureRuntime = func(context.Context) error {
@@ -519,8 +522,8 @@ func TestPrepareRuntimeMismatchRepairsByForceInstalling(t *testing.T) {
 			resetRuntimeState(t)
 			home := writeRuntimeFixture(t, test.version, true)
 			t.Setenv("HOME", home)
-			unsetEnv(t, "MSB_HOME")
-			unsetEnv(t, "MSB_PATH")
+			testutil.UnsetEnv(t, "MSB_HOME")
+			testutil.UnsetEnv(t, "MSB_PATH")
 
 			oldInstall, oldValidate := installRuntime, validateRuntime
 			installCalls, validateCalls := 0, 0
@@ -556,8 +559,8 @@ func TestPrepareRuntimeIncompleteRepairsAfterRemovingStrayFile(t *testing.T) {
 	resetRuntimeState(t)
 	home := writeRuntimeFixture(t, currentMSBVersion(), false)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 
 	oldInstall, oldValidate := installRuntime, validateRuntime
 	installRuntime = func(context.Context) error {
@@ -582,8 +585,8 @@ func TestPrepareRuntimeRepairLockFails(t *testing.T) {
 	resetRuntimeState(t)
 	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 
 	blockRuntimeLock(t)
 
@@ -597,8 +600,8 @@ func TestPrepareRuntimeRepairReinspectFails(t *testing.T) {
 	resetRuntimeState(t)
 	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 
 	oldInspect := inspectRuntimeFunc
 	inspectionCalls := 0
@@ -650,8 +653,8 @@ func TestPrepareRuntimeRepairSeesConcurrentRepair(t *testing.T) {
 	resetRuntimeState(t)
 	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 
 	oldInspect, oldInstall, oldValidate := inspectRuntimeFunc, installRuntime, validateRuntime
 	inspectionCalls := 0
@@ -689,8 +692,8 @@ func TestPrepareRuntimeRepairValidationFails(t *testing.T) {
 	resetRuntimeState(t)
 	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 
 	oldInstall, oldValidate := installRuntime, validateRuntime
 	installRuntime = func(context.Context) error {
@@ -712,8 +715,8 @@ func TestPrepareRuntimeRepairInstallFails(t *testing.T) {
 	resetRuntimeState(t)
 	home := writeRuntimeFixture(t, olderMSBVersion(t), true)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 
 	oldInstall := installRuntime
 	installRuntime = func(context.Context) error { return errors.New("install failed") }
@@ -728,8 +731,8 @@ func TestPrepareRuntimeEqualValidates(t *testing.T) {
 	resetRuntimeState(t)
 	home := writeRuntimeFixture(t, currentMSBVersion(), true)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 
 	oldEnsure, oldValidate := ensureRuntime, validateRuntime
 	ensureRuntime = func(context.Context) error { return errors.New("installer must not run") }
@@ -769,8 +772,8 @@ func TestPrepareRuntimeValidationErrorOnEqualRuntime(t *testing.T) {
 	resetRuntimeState(t)
 	home := writeRuntimeFixture(t, currentMSBVersion(), true)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 	oldValidate := validateRuntime
 	validateRuntime = func(context.Context) error { return errors.New("validation failed") }
 	t.Cleanup(func() { validateRuntime = oldValidate })
@@ -782,8 +785,8 @@ func TestPrepareRuntimeValidationErrorOnEqualRuntime(t *testing.T) {
 func TestValidatePreparedRuntimeRejectsMisalignedRuntime(t *testing.T) {
 	home := writeRuntimeFixture(t, newerMSBVersion(t), true)
 	t.Setenv("HOME", home)
-	unsetEnv(t, "MSB_HOME")
-	unsetEnv(t, "MSB_PATH")
+	testutil.UnsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_PATH")
 	if err := validatePreparedRuntime(context.Background()); err == nil {
 		t.Fatal("validatePreparedRuntime() returned nil for mismatched runtime")
 	}
@@ -932,21 +935,6 @@ func writeRuntimeFiles(t *testing.T, home, version string) {
 	if err := os.WriteFile(filepath.Join(libDir, "libkrunfw.so.5.6.1"), []byte("fixture"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func unsetEnv(t *testing.T, name string) {
-	t.Helper()
-	value, present := os.LookupEnv(name)
-	if err := os.Unsetenv(name); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if present {
-			t.Setenv(name, value)
-			return
-		}
-		_ = os.Unsetenv(name)
-	})
 }
 
 func resetRuntimeState(t *testing.T) {

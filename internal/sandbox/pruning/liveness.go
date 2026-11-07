@@ -11,7 +11,7 @@ import (
 
 // PruneState is a point-in-time view of the project VMs and task sandboxes in
 // the private runtime home, plus the keys the current invocation retains: the
-// inputs of the liveness rules in specs/lifecycle.md, which this file alone
+// inputs of the liveness rules in specs/vm/lifecycle.md, which this file alone
 // implements. ToPrune holds the project/agent keys whose project VM is being
 // reclaimed (a stale, stopped VM) with its handle: those keys are retired in this
 // pass. ToKeep holds the keys that have a live, kept project VM. A key in neither

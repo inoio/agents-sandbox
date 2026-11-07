@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestPrivateHomeUsesDataDir(t *testing.T) {
@@ -20,13 +21,15 @@ func TestPrivateHomeUsesDataDir(t *testing.T) {
 
 func TestApplyHomeSetsMSBHome(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	unsetEnv(t, "MSB_HOME")
+	testutil.UnsetEnv(t, "MSB_HOME")
 	home, err := ApplyHome()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if os.Getenv("MSB_HOME") != home {
-		t.Errorf("MSB_HOME = %q, want %q", os.Getenv("MSB_HOME"), home)
+	//testenv:allow asserts the MSB_HOME the runtime ApplyHome step exported
+	got := os.Getenv("MSB_HOME")
+	if got != home {
+		t.Errorf("MSB_HOME = %q, want %q", got, home)
 	}
 }
 

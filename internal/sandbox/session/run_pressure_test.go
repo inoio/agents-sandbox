@@ -16,7 +16,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -86,7 +85,7 @@ func TestOfferMemoryRaiseAfterAttachUsesMetricsLimit(t *testing.T) {
 
 // TestAbnormalEnd pins the abnormal-end classification: a clean exit and an
 // ordinary non-zero exit are normal, while a signal death (-1) or an attach
-// error is abnormal (spec §1b: -1 is the guest's signal death; a non-zero exit
+// error is abnormal (spec: -1 is the guest's signal death; a non-zero exit
 // code is a deliberate agent exit, not a crash).
 func TestAbnormalEnd(t *testing.T) {
 	cases := []struct {
@@ -162,7 +161,7 @@ func TestOfferMemoryRaiseAfterAttachSaysTheRaiseAppliesNextRun(t *testing.T) {
 // is clamped to the host maximum a project VM is created with.
 func TestOfferMemoryRaiseAfterAttachClampsToTheBootMaximum(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	bootMaxMiB := sandbox.BootMaxMemoryMiB()
+	bootMaxMiB := bootMaxMemoryMiB()
 	k := state.Key{Slug: "clampedoffer", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	var suggested string

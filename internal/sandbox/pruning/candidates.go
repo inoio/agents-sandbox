@@ -17,7 +17,7 @@ import (
 // the union rather than state directories alone, so a project whose state
 // directory was deleted by hand, whose state was lost, or that never reached a
 // state write still surfaces through its volume, image, sandbox or adoption
-// claim. See specs/runtime-management-commands.md ("Lists retired projects").
+// claim. See specs/volumes/runtime-management-commands.md ("Lists retired projects").
 //
 //exhaustruct:ignore
 type Candidate struct {

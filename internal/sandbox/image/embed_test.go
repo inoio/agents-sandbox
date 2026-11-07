@@ -184,7 +184,10 @@ func runShim(t *testing.T, handle opener.Handler, serve bool, arguments ...strin
 		})
 	}
 	command := exec.Command("sh", append([]string{hostOpenerShimPath}, arguments...)...)
-	command.Env = append(os.Environ(), "AGENTS_SANDBOX_OPEN_SPOOL="+filepath.Join(homeVolume, opener.SpoolRelativePath))
+	//testenv:allow the shim child needs the parent's environment
+	command.Env = append(os.Environ(),
+		"AGENTS_SANDBOX_OPEN_SPOOL="+filepath.Join(homeVolume, opener.SpoolRelativePath),
+	)
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	err := command.Run()

@@ -18,6 +18,7 @@ import (
 // freePort returns a loopback port that is free right now.
 func freePort(t *testing.T) int {
 	t.Helper()
+	//testenv:allow binds loopback to drive the real forwarder
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -117,6 +118,7 @@ func TestForwarderRelaysChunkedGuestResponse(t *testing.T) {
 }
 
 func TestForwarderRefusesPortTakenOnIPv6Loopback(t *testing.T) {
+	//testenv:allow binds loopback to drive the real forwarder
 	occupied, err := net.Listen("tcp", "[::1]:0")
 	if err != nil {
 		t.Skip("no IPv6 loopback on this machine")
@@ -177,6 +179,7 @@ func TestForwarderReportsGuestFailureAsBadGateway(t *testing.T) {
 }
 
 func TestForwarderRefusesPortInUseOnHost(t *testing.T) {
+	//testenv:allow binds loopback to drive the real forwarder
 	occupied, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -481,6 +484,7 @@ func waitForPortRelease(t *testing.T, port int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
+		//testenv:allow binds loopback to drive the real forwarder
 		listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 		if err == nil {
 			listener.Close()
@@ -511,6 +515,7 @@ func TestHostHandlerForwardsLoopbackRedirectThenOpens(t *testing.T) {
 	if len(opened) != 1 || opened[0] != target {
 		t.Fatalf("opened %q", opened)
 	}
+	//testenv:allow binds loopback to drive the real forwarder
 	if listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port)); err == nil {
 		listener.Close()
 		t.Fatal("callback port is not being forwarded")
@@ -518,6 +523,7 @@ func TestHostHandlerForwardsLoopbackRedirectThenOpens(t *testing.T) {
 }
 
 func TestHostHandlerRefusesLoopbackRedirectWhenForwardFails(t *testing.T) {
+	//testenv:allow binds loopback to drive the real forwarder
 	occupied, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

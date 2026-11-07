@@ -2,7 +2,7 @@
 // creating, starting, stopping and removing it, setting up a running sandbox
 // (config files, startup hooks, dockerd, the agent daemon, the attach target),
 // adopting a legacy identity, and listing and inspecting VMs. Deciding what a
-// run needs from them is package prepare's job (specs/lifecycle.md).
+// run needs from them is package prepare's job (specs/vm/lifecycle.md).
 package vm
 
 import (

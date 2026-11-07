@@ -51,4 +51,4 @@ directly, so pull requests no longer conflict on the changelog.
 
 A required `changelog` check enforces a fragment whenever a pull request changes production code (a
 docs-only or test-only change needs none). The full contract is in
-[`.operator-shared/specs/changelog-fragments.md`](../.operator-shared/specs/changelog-fragments.md).
+[`.operator-shared/specs/ci/ci-pipeline.md`](../.operator-shared/specs/ci/ci-pipeline.md).

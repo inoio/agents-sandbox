@@ -445,7 +445,7 @@ func TestResolveReconfigDecisionOffersUnreadableVMConfigToAttachedClients(t *tes
 // digest already matches. That is the state a failed replacement leaves behind —
 // the image-change home action records the new digest before the VM is replaced
 // — so the content id is the only remaining signal that the live VM is still on
-// the old image (specs/image-ref-content-addressing.md).
+// the old image (specs/runner-image/image-build.md).
 func TestResolveReconfigDecisionRecreatesOnContentIDSwitch(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -1807,7 +1807,7 @@ func TestExistingServeHostPort(t *testing.T) {
 // above the live boot maximum: only a live VM booted with a lower maximum than
 // a fresh VM would get counts.
 func TestBootMaxMemoryGrew(t *testing.T) {
-	freshMaxMiB := vm.BootMaxMemoryMiB()
+	freshMaxMiB := vm.BootMaxMemoryMiB() //testenv:allow the recreate flag compares against the host's current boot maximum
 	tests := []struct {
 		name string
 		live liveProjectVM
@@ -2036,7 +2036,7 @@ func TestDetectAndOfferMemoryRaiseLogOrMetricsErrorIsBestEffort(t *testing.T) {
 	}
 }
 
-// TestDetectAndOfferMemoryRaiseNonInteractiveRecordsAndLaterOffers pins the §7
+// TestDetectAndOfferMemoryRaiseNonInteractiveRecordsAndLaterOffers pins the
 // deferral: a non-interactive launch records the hit but does not answer it, so
 // the next interactive launch offers it.
 func TestDetectAndOfferMemoryRaiseNonInteractiveRecordsAndLaterOffers(t *testing.T) {

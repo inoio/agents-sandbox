@@ -22,8 +22,10 @@ what `AGENTS.md` does not cover.
   concept, prefer **superpowers** — its discipline is stricter and it is present
   in every session. Keep a `.agents/skills/` skill only when it produces a
   distinct artifact superpowers has no equivalent for (the architecture/domain
-  vocabulary and the design review), or when it is repo-specific (the release,
-  bare-worktree, maintainer, PR-feedback, and PR-body skills).
+  vocabulary and the design review), or when it is repo-specific: the release,
+  bare-worktree, maintainer, PR-feedback, and PR-body skills, plus the
+  operating runbooks retired from the brain (opencode2-self-management,
+  opencode2-probe, terminal-reset).
 - Do not run both libraries' skills for the same step. Pick one per task.
 
 ## Private / Shared Policy

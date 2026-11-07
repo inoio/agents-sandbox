@@ -44,13 +44,13 @@ read_if: Navigating the codebase.
 - `upgrade/` — Self-upgrade (channel selection, Homebrew).
 - `viperconfig/` — Viper-based launcher config: `Config`/`Resolver`, layer discovery (`ConfigLayers`, the six-layer precedence list), env/flag binding, the derived config-key registry, decode hooks, and validation.
 - `runoptions/` — `*cobra.Command`-driven run/shell option resolution (`Build`) into `options.RunOptions`.
-- `cliout/` + `view/` — Output rendering: `cliout` is domain-free (generic list/JSON plus `RenderPruneReport`); `view` holds the sandbox-shaped printers and report DTOs (see `specs/cliout-package-boundary.md`).
+- `cliout/` + `view/` — Output rendering: `cliout` is domain-free (generic list/JSON plus `RenderPruneReport`); `view` holds the sandbox-shaped printers and report DTOs (see `specs/architecture/package-boundaries.md`).
 - `sandbox/` — **See [sandbox subindex](sandbox.md)** (VM lifecycle, docker, image, msb, volumes, pruning, sessions, state).
 - Leaf utilities — `atomicwrite` (durable state/config writes), `configmerge`, `filewalk`, `humanize`, `sysinfo`, `yamlfmt`.
 
 ### `test/harness/` — `msb`-tagged harness smoke tests
 
-- Starts every registered harness in a real microsandbox VM under a sized pty and asserts it reaches its TUI and exits (`harness.go` table, `pty.go` driver, `smoke_msb_test.go`; untagged unit tests for the table/pty). See `specs/harness-smoke-tests.md`.
+- Starts every registered harness in a real microsandbox VM under a sized pty and asserts it reaches its TUI and exits (`harness.go` table, `pty.go` driver, `smoke_msb_test.go`; untagged unit tests for the table/pty). See `specs/testing/harness-smoke-tests.md`.
 
 ### `docs/` — Jekyll documentation site (just-the-docs)
 
@@ -67,7 +67,7 @@ read_if: Navigating the codebase.
 ### `.github/` — CI, Pages, and templates
 
 - `workflows/` — `ci.yml`, `pages.yml`, `codeql.yml`, `fuzz.yml`, `mutation.yml`.
-- `stubs/*.tbd` — macOS framework/library stubs the darwin cross-build needs (see `specs/darwin-cross-compile.md`); `ISSUE_TEMPLATE/`, `PULL_REQUEST_TEMPLATE.md`, `dependabot.yml`.
+- `stubs/*.tbd` — macOS framework/library stubs the darwin cross-build needs (see `specs/release/darwin-cross-compile.md`); `ISSUE_TEMPLATE/`, `PULL_REQUEST_TEMPLATE.md`, `dependabot.yml`.
 
 ### `.agents-sandbox/` — Development VM
 
@@ -77,3 +77,4 @@ read_if: Navigating the codebase.
 
 - `release/` — the release runbook (`SKILL.md`, `RELEASE-NOTES.md`, `NON-GO-DEPS.md`); `bare-worktrees/` — the bare-checkout layout this repo uses.
 - `handle-pr-feedback/`, `maintain/`, `pr/` — repo-adapted skills: the PR-mergeability loop, the GitHub maintainer flow, and the PR-body template.
+- `compacting-context/` — the `session.compact` recipe so an agent told to compact its own context loads the skill instead of scanning for a nonexistent tool; `opencode2-self-management/`, `opencode2-probe/`, `terminal-reset/` — runbooks retired from the shared brain (the `session.compact` API, driving the opencode2 daemon's event stream, and verifying the post-attach terminal reset).

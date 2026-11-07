@@ -97,7 +97,7 @@ type HomeState struct {
 
 	// ResourcePressure records a detected VM resource-limit hit and whether the
 	// user has answered a raise offer for it, so the same hit is not re-offered
-	// (see specs/resource-limit-proposal.md).
+	// (see specs/resources/resource-limit-proposal.md).
 	ResourcePressure *ResourcePressureState `yaml:"resource_pressure,omitempty"`
 }
 
@@ -128,7 +128,7 @@ func NewHomeState(homeVolume, digest string) HomeState {
 // Seeding a fresh HomeState with the desired fingerprints keeps an empty
 // (fingerprint-less) state from coexisting with a VM, where it would be
 // mistaken for a change on the next decision (see NetworkChanged and
-// specs/reconfig-decision.md).
+// specs/vm/reconfig-decision.md).
 type Fingerprints struct {
 	Env     EnvState
 	Secret  SecretState
