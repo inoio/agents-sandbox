@@ -110,12 +110,10 @@ func ambientUses(t *testing.T, root string, packages []modulePackage) []ambientU
 	t.Helper()
 	var uses []ambientUse
 	for _, source := range defaultBuildTestSources(t, root, packages) {
-		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, source.path, source.src, parser.ParseComments)
-		if err != nil {
-			t.Fatalf("parse %s: %v", source.path, err)
-		}
-		uses = append(uses, ambientEnvironmentUsesIn(fset, file, strings.Split(string(source.src), "\n"))...)
+		parsed := cachedParseGoFile(t, source.path, source.src)
+		uses = append(
+			uses,
+			ambientEnvironmentUsesIn(parsed.fset, parsed.file, strings.Split(string(source.src), "\n"))...)
 	}
 	sort.Slice(uses, func(i, j int) bool { return uses[i].pos.String() < uses[j].pos.String() })
 	return uses
@@ -332,7 +330,7 @@ func (m testEnvMarkers) standaloneAboveHasTestEnvAllow(start int) bool {
 
 // defaultBuildTestSources returns the source of every *_test.go file the default
 // build compiles, so a scanner can read both the AST and the raw lines.
-func defaultBuildTestSources(t *testing.T, root string, packages []modulePackage) []testSource {
+func scanDefaultBuildTestSources(t *testing.T, root string, packages []modulePackage) []testSource {
 	t.Helper()
 	var sources []testSource
 	for _, pkg := range packages {
