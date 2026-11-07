@@ -24,6 +24,10 @@ bad() { fail=$((fail + 1)); printf 'FAIL - %s\n' "$1"; }
 assert_contains()     { if grep -qF -- "$3" <<<"$2"; then ok "$1"; else bad "$1 (missing: $3)"; fi; }
 assert_not_contains() { if grep -qF -- "$3" <<<"$2"; then bad "$1 (unexpected: $3)"; else ok "$1"; fi; }
 
+netns_capable() {
+  [[ "$(uname -s)" == "Linux" ]] && command -v unshare >/dev/null 2>&1 && command -v ip >/dev/null 2>&1
+}
+
 new_fixture() { # name -> prints the fixture dir
   local name="$1"
   local dir="$fixture_root/$name"
@@ -72,6 +76,38 @@ spaced_work="$fixture_root/space work"
 output="$("$ENVELOPE" --source "$spaced" --work-dir "$spaced_work" -- make test)" && rc=0 || rc=$?
 [[ "$rc" -eq 0 ]] && ok "spaced source exits 0" || bad "spaced source exits 0 (rc=$rc)"
 assert_contains "spaced source runs in work dir" "$output" "PWD=$spaced_work"
+
+# Case: --netns is rejected when the host cannot provide it (self-skips on a
+# netns-capable Linux host, which is where the strict run is meant to work).
+if netns_capable; then
+  ok "netns rejected without prerequisites (skipped: host is netns-capable)"
+else
+  err="$("$ENVELOPE" --source "$fixture" --netns --print 2>&1)" && rc=0 || rc=$?
+  [[ "$rc" -ne 0 ]] && ok "netns rejected without prerequisites" || bad "netns rejected without prerequisites (rc=$rc)"
+  assert_contains "netns rejection names the prerequisite" "$err" "netns"
+fi
+
+# Case: --netns wraps the command in a loopback-only namespace.
+if netns_capable; then
+  printed="$("$ENVELOPE" --source "$fixture" --netns --print)" && rc=0 || rc=$?
+  assert_contains "print shows netns on"      "$printed" "netns: yes"
+  assert_contains "print shows unshare --net" "$printed" "unshare --net"
+  assert_contains "print shows loopback up"   "$printed" "ip link set lo up"
+else
+  ok "netns wraps the command (skipped: no netns on this host)"
+fi
+
+# Case: --netns actually denies egress (name resolution fails inside).
+if unshare --net --map-root-user true >/dev/null 2>&1 && command -v getent >/dev/null 2>&1; then
+  resolving="$(new_fixture resolving)"
+  cat >"$resolving/check.sh" <<'EOF'
+getent hosts example.com
+EOF
+  "$ENVELOPE" --source "$resolving" --work-dir "$fixture_root/netns-work" --netns -- make test >/dev/null 2>&1 && rc=0 || rc=$?
+  [[ "$rc" -ne 0 ]] && ok "netns blocks egress" || bad "netns blocks egress (unexpected success)"
+else
+  ok "netns blocks egress (skipped: no netns-capable unshare or getent)"
+fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 ((fail == 0))

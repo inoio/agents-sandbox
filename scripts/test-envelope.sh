@@ -17,6 +17,10 @@
 #                   root).
 #   --work-dir DIR  Work dir for the copy and the scrubbed HOME/TMPDIR
 #                   (default: a fresh mktemp dir).
+#   --netns         Run the command in a network namespace whose only interface
+#                   is loopback, so everything else egresses nowhere (Linux
+#                   only; needs unshare and ip). Fails loudly when unavailable
+#                   rather than silently degrading to a scrubbed run.
 #   --keep          Keep the work dir on exit (default: remove it).
 #   --print         Print the plan (work dir, environment, command) and exit
 #                   without running anything.
@@ -30,10 +34,11 @@ source_dir="$(cd "$script_dir/.." && pwd -P)"
 work_dir=""
 keep=0
 print_only=0
+netns=0
 command=()
 
 usage() {
-  sed -n '3,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 while (( $# > 0 )); do
@@ -46,6 +51,7 @@ while (( $# > 0 )); do
       work_dir="$2"; shift 2 ;;
     --keep) keep=1; shift ;;
     --print) print_only=1; shift ;;
+    --netns) netns=1; shift ;;
     --) shift; command=("$@"); break ;;
     -h|--help) usage; exit 0 ;;
     *) echo "test-envelope: unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -87,12 +93,26 @@ env_args=(
   "TZ=${TZ:-UTC}"
 )
 
+run_command=("${command[@]}")
+if (( netns )); then
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    echo "test-envelope: --netns needs Linux (host is $(uname -s))" >&2
+    exit 2
+  fi
+  command -v unshare >/dev/null || { echo "test-envelope: --netns needs 'unshare' on PATH" >&2; exit 2; }
+  command -v ip >/dev/null || { echo "test-envelope: --netns needs 'ip' on PATH" >&2; exit 2; }
+  map_root=()
+  (( EUID == 0 )) || map_root=(--map-root-user)
+  run_command=(unshare --net "${map_root[@]}" bash -c 'ip link set lo up; exec "$@"' bash "${command[@]}")
+fi
+
 if (( print_only )); then
   printf 'work_dir=%s\n' "$work_dir"
   for key_value in "${env_args[@]}"; do
     printf 'env %s\n' "$key_value"
   done
-  printf 'command: %s\n' "${command[*]}"
+  if (( netns )); then printf 'netns: yes\n'; else printf 'netns: no\n'; fi
+  printf 'command: %s\n' "${run_command[*]}"
   exit 0
 fi
 
@@ -106,4 +126,4 @@ trap cleanup EXIT
 mkdir -p "$work_dir/home" "$work_dir/tmp"
 rsync -a --exclude=.git --exclude=.gomutants-cache.json "$source_dir"/ "$work_dir"/
 
-( cd "$work_dir" && env -i "${env_args[@]}" "${command[@]}" )
+( cd "$work_dir" && env -i "${env_args[@]}" "${run_command[@]}" )
