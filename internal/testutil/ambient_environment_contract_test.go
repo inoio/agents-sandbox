@@ -111,7 +111,7 @@ func ambientUses(t *testing.T, root string, packages []modulePackage) []ambientU
 	var uses []ambientUse
 	for _, source := range defaultBuildTestSources(t, root, packages) {
 		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, source.path, source.src, 0)
+		file, err := parser.ParseFile(fset, source.path, source.src, parser.ParseComments)
 		if err != nil {
 			t.Fatalf("parse %s: %v", source.path, err)
 		}
@@ -128,6 +128,7 @@ func ambientUses(t *testing.T, root string, packages []modulePackage) []ambientU
 func ambientEnvironmentUsesIn(fset *token.FileSet, file *ast.File, lines []string) []ambientUse {
 	imports := importedPackagesByLocalName(file)
 	statements := fileStatements(file)
+	markers := newTestEnvMarkers(fset, file, lines)
 	var uses []ambientUse
 	ast.Inspect(file, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
@@ -146,7 +147,7 @@ func ambientEnvironmentUsesIn(fset *token.FileSet, file *ast.File, lines []strin
 		if what == "" {
 			return true
 		}
-		if callIsSanctioned(fset, lines, statements, call) {
+		if callIsSanctioned(fset, markers, statements, call) {
 			return true
 		}
 		uses = append(uses, ambientUse{pos: fset.Position(call.Pos()), what: what})
@@ -173,17 +174,41 @@ func fileStatements(file *ast.File) []ast.Stmt {
 // contains it (or immediately above that statement). The innermost statement is
 // the unit a reader reasons about ("this statement intentionally touches the
 // host"); a marker elsewhere in the enclosing function must not sanction it.
-func callIsSanctioned(fset *token.FileSet, lines []string, statements []ast.Stmt, call *ast.CallExpr) bool {
+func callIsSanctioned(fset *token.FileSet, markers testEnvMarkers, statements []ast.Stmt, call *ast.CallExpr) bool {
 	start, end := fset.Position(call.Pos()).Line, fset.Position(call.End()).Line
-	if lineRangeHasTestEnvAllow(lines, start, end) || precedingLineHasTestEnvAllow(lines, start) {
+	if markers.rangeHasTestEnvAllow(start, end) || markers.standaloneAboveHasTestEnvAllow(start) {
 		return true
 	}
 	statement := innermostContainingStatement(statements, call)
 	if statement == nil {
 		return false
 	}
-	start, end = fset.Position(statement.Pos()).Line, fset.Position(statement.End()).Line
-	return precedingLineHasTestEnvAllow(lines, start) || lineRangeHasTestEnvAllow(lines, start, end)
+	start = fset.Position(statement.Pos()).Line
+	end = statementMarkerEndLine(fset, statement)
+	return markers.standaloneAboveHasTestEnvAllow(start) || markers.rangeHasTestEnvAllow(start, end)
+}
+
+// statementMarkerEndLine is the last line a marker may sit on to sanction a call
+// in statement. A control statement stops at its body's opening brace, so its
+// header is the only part a marker can sanction: a marker inside the body must
+// not approve an unmarked read in the condition. Every other statement ends at
+// its own end, so a wrapped statement keeps its trailing marker.
+func statementMarkerEndLine(fset *token.FileSet, statement ast.Stmt) int {
+	switch typed := statement.(type) {
+	case *ast.IfStmt:
+		return fset.Position(typed.Body.Lbrace).Line
+	case *ast.ForStmt:
+		return fset.Position(typed.Body.Lbrace).Line
+	case *ast.RangeStmt:
+		return fset.Position(typed.Body.Lbrace).Line
+	case *ast.SwitchStmt:
+		return fset.Position(typed.Body.Lbrace).Line
+	case *ast.TypeSwitchStmt:
+		return fset.Position(typed.Body.Lbrace).Line
+	case *ast.SelectStmt:
+		return fset.Position(typed.Body.Lbrace).Line
+	}
+	return fset.Position(statement.End()).Line
 }
 
 // innermostContainingStatement returns the smallest non-block statement whose
@@ -239,45 +264,70 @@ func isDevPath(path string) bool {
 	return strings.HasPrefix(path, "/dev/")
 }
 
-// lineRangeHasTestEnvAllow reports whether any line in the inclusive 1-based
-// range [start,end] carries a //testenv:allow marker with a non-empty reason.
-// Scanning the range covers a call or statement that a formatter wrapped, so the
-// marker can sit anywhere in it rather than only on its first line.
-func lineRangeHasTestEnvAllow(lines []string, start, end int) bool {
+// testEnvMarkers indexes the reason-bearing //testenv:allow markers a file's
+// real comments carry. Matching comments rather than raw lines means marker text
+// inside a string literal is not a sanction, and the recorded column lets a
+// standalone marker be told from a trailing marker on the previous statement.
+type testEnvMarkers struct {
+	lines   []string
+	onLine  map[int]bool
+	columns map[int]int
+}
+
+// newTestEnvMarkers collects the marker comments from a file parsed with
+// parser.ParseComments, keyed by the line they sit on.
+func newTestEnvMarkers(fset *token.FileSet, file *ast.File, lines []string) testEnvMarkers {
+	markers := testEnvMarkers{lines: lines, onLine: map[int]bool{}, columns: map[int]int{}}
+	for _, group := range file.Comments {
+		for _, comment := range group.List {
+			if !isReasonBearingTestEnvAllow(comment.Text) {
+				continue
+			}
+			position := fset.Position(comment.Pos())
+			markers.onLine[position.Line] = true
+			markers.columns[position.Line] = position.Column
+		}
+	}
+	return markers
+}
+
+// isReasonBearingTestEnvAllow reports whether a comment's text is a
+// //testenv:allow marker followed by a reason. A bare marker, or a longer word
+// such as "allowance", is not a sanction.
+func isReasonBearingTestEnvAllow(text string) bool {
+	rest, found := strings.CutPrefix(text, testEnvAllowMarker)
+	if !found || rest == "" || (rest[0] != ' ' && rest[0] != '\t') {
+		return false
+	}
+	reason := strings.TrimSpace(rest)
+	return reason != "" && reason != "TODO" && reason != "FIXME"
+}
+
+// rangeHasTestEnvAllow reports whether any line in the inclusive 1-based range
+// [start,end] carries a marker comment. Scanning the range covers a call or
+// statement that a formatter wrapped, so the marker can sit anywhere in it
+// rather than only on its first line.
+func (m testEnvMarkers) rangeHasTestEnvAllow(start, end int) bool {
 	for line := start; line <= end; line++ {
-		if lineHasTestEnvAllow(lines, line) {
+		if m.onLine[line] {
 			return true
 		}
 	}
 	return false
 }
 
-// precedingLineHasTestEnvAllow reports whether the line immediately above start
-// is a standalone //testenv:allow marker, the form that keeps a wrapped
-// statement readable. A trailing marker on the previous statement is not a
-// standalone marker for this one.
-func precedingLineHasTestEnvAllow(lines []string, start int) bool {
+// standaloneAboveHasTestEnvAllow reports whether the line immediately above
+// start is a standalone marker comment (nothing but whitespace precedes it), the
+// form that keeps a wrapped statement readable. A trailing marker on the
+// previous statement is not a standalone marker for this one.
+func (m testEnvMarkers) standaloneAboveHasTestEnvAllow(start int) bool {
 	line := start - 1
-	if line < 1 || line > len(lines) {
+	column, ok := m.columns[line]
+	if !ok || line < 1 || line > len(m.lines) {
 		return false
 	}
-	return strings.HasPrefix(strings.TrimSpace(lines[line-1]), testEnvAllowMarker) &&
-		lineHasTestEnvAllow(lines, line)
-}
-
-// lineHasTestEnvAllow reports whether the 1-based source line carries a
-// //testenv:allow marker followed by a reason. A bare marker, or a longer word
-// such as "allowance", is not a sanction.
-func lineHasTestEnvAllow(lines []string, line int) bool {
-	if line < 1 || line > len(lines) {
-		return false
-	}
-	_, rest, found := strings.Cut(lines[line-1], testEnvAllowMarker)
-	if !found || rest == "" || (rest[0] != ' ' && rest[0] != '\t') {
-		return false
-	}
-	reason := strings.TrimSpace(rest)
-	return reason != "" && reason != "TODO" && reason != "FIXME"
+	prefixEnd := min(column-1, len(m.lines[line-1]))
+	return strings.TrimSpace(m.lines[line-1][:prefixEnd]) == ""
 }
 
 // defaultBuildTestSources returns the source of every *_test.go file the default
@@ -583,12 +633,71 @@ func TestX(t *testing.T) { _ = os.Getenv("HOME") //testenv:allowance is not a ma
 `,
 			want: []string{"os.Getenv"},
 		},
+		{
+			name: "marker text inside a string literal does not sanction the call",
+			file: `package example
+import (
+	"os"
+	"testing"
+)
+func TestX(t *testing.T) {
+	_ = append(os.Environ(), "//testenv:allow this is fixture text, not a comment")
+}
+`,
+			want: []string{"os.Environ"},
+		},
+		{
+			name: "a marker in a control statement's body does not sanction its condition",
+			file: `package example
+import (
+	"os"
+	"testing"
+)
+func TestX(t *testing.T) {
+	if os.Getenv("HOME") != "" {
+		_ = "value" //testenv:allow this marker is in the body, not on the condition
+	}
+}
+`,
+			want: []string{"os.Getenv"},
+		},
+		{
+			name: "a marker on a control statement's condition sanctions it",
+			file: `package example
+import (
+	"os"
+	"testing"
+)
+func TestX(t *testing.T) {
+	if os.Getenv("HOME") != "" { //testenv:allow the condition read is intentional
+		_ = "value"
+	}
+}
+`,
+			want: nil,
+		},
+		{
+			name: "a standalone marker above a control statement sanctions its condition",
+			file: `package example
+import (
+	"os"
+	"testing"
+)
+func TestX(t *testing.T) {
+	//testenv:allow the condition read is intentional
+	if os.Getenv("HOME") != "" {
+		_ = "value"
+	}
+}
+`,
+			want: nil,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fset := token.NewFileSet()
-			file, err := parser.ParseFile(fset, "example_test.go", tt.file, 0)
+			file, err := parser.ParseFile(fset, "example_test.go", tt.file, parser.ParseComments)
 			if err != nil {
 				t.Fatalf("parse fixture: %v", err)
 			}

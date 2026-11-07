@@ -141,7 +141,10 @@ mirroring the dead-code gate's `//deadcode:ignore`.
 A marker sanctions the innermost statement that contains the call, so a formatter that wraps the call does not detach
 the marker. It may sit inside that statement's own lines or on a standalone line immediately above it; a marker
 elsewhere in the enclosing function does not sanction the call, and it must carry a reason (`//testenv:allow <reason>`;
-a bare marker, or a longer word such as `allowance`, does not count). The gate covers these known direct forms:
+a bare marker, or a longer word such as `allowance`, does not count). Markers are read from the file's real comments,
+so marker text inside a string literal is not a sanction, and a control statement (`if`/`for`/`range`/`switch`/
+`select`) stops at its body's opening brace: a marker in the body cannot approve an unmarked read in the condition.
+The gate covers these known direct forms:
 
 - `net.Listen`/`Dial`/`Lookup*` (a real socket or name resolution; an `httptest` server is addressed through its
   own client and is not flagged);
