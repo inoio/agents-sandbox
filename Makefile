@@ -271,6 +271,9 @@ test-scrubbed:
 	./scripts/test-envelope.sh -- make test
 
 # Strict envelope: adds a network namespace with only loopback (Linux).
+# Currently red: the six uid/permission fixtures still assume an unprivileged
+# uid and the strict run is uid 0. See
+# .operator-shared/plans/2026-11-07-hermetic-uid-permission-surface.md.
 test-hermetic:
 	./scripts/test-envelope.sh --netns -- make test
 

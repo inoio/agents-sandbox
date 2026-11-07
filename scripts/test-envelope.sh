@@ -38,7 +38,7 @@ netns=0
 command=()
 
 usage() {
-  sed -n '3,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '3,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 while (( $# > 0 )); do
@@ -64,8 +64,10 @@ fi
 
 source_dir="$(cd "$source_dir" && pwd -P)"
 
+auto_work_dir=0
 if [[ -z "$work_dir" ]]; then
   work_dir="$(mktemp -d "${TMPDIR:-/tmp}/test-envelope.XXXXXX")"
+  auto_work_dir=1
 else
   # Keep the path as given (do not resolve symlinks: the child must see the
   # same PWD the caller asked for, which matters on hosts where TMPDIR lives
@@ -87,6 +89,27 @@ else
   fi
   mkdir -p "$work_dir"
 fi
+
+# Resolve the work dir physically and refuse one inside the source tree: a
+# symlinked parent or a `..` component slips past the textual check above, and
+# the mktemp default lands inside the source when TMPDIR points there. Either
+# would let the copy reach into its own destination, nesting without bound, so
+# this guards both branches before anything is copied. Only a directory we
+# created ourselves is safe to remove here.
+work_dir_phys="$(cd "$work_dir" && pwd -P)"
+case "$work_dir_phys" in
+  "$source_dir"|"$source_dir"/*)
+    echo "test-envelope: --work-dir resolves inside --source ($source_dir)" >&2
+    if (( auto_work_dir )); then rm -rf "$work_dir"; fi
+    exit 2 ;;
+esac
+
+cleanup() {
+  if (( keep == 0 )); then
+    rm -rf "$work_dir"
+  fi
+}
+trap cleanup EXIT
 
 # The environment the child sees, and no other. PWD is set explicitly so the
 # child's working directory is deterministic on every host rather than derived
@@ -117,10 +140,11 @@ if (( netns )); then
   command -v ip >/dev/null || { echo "test-envelope: --netns needs 'ip' on PATH" >&2; exit 2; }
   map_root=()
   (( EUID == 0 )) || map_root=(--map-root-user)
-  run_command=(unshare --net "${map_root[@]}" bash -c 'ip link set lo up; exec "$@"' bash "${command[@]}")
+  run_command=(unshare --net "${map_root[@]}" bash -c 'ip link set lo up && exec "$@"' bash "${command[@]}")
 fi
 
 if (( print_only )); then
+  printf 'source_dir=%s\n' "$source_dir"
   printf 'work_dir=%s\n' "$work_dir"
   for key_value in "${env_args[@]}"; do
     printf 'env %s\n' "$key_value"
@@ -129,13 +153,6 @@ if (( print_only )); then
   printf 'command: %s\n' "${run_command[*]}"
   exit 0
 fi
-
-cleanup() {
-  if (( keep == 0 )); then
-    rm -rf "$work_dir"
-  fi
-}
-trap cleanup EXIT
 
 mkdir -p "$work_dir/home" "$work_dir/tmp" "$work_dir/module"
 rsync -a --exclude=.git --exclude=.gomutants-cache.json "$source_dir"/ "$work_dir/module"/

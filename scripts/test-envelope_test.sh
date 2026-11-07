@@ -10,6 +10,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENVELOPE="$SCRIPT_DIR/test-envelope.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 
 pass=0
 fail=0
@@ -48,10 +49,11 @@ EOF
   printf '%s\n' "$dir"
 }
 
-# Case: runs in a copy with a scrubbed environment.
+# Case: runs in a copy with a scrubbed environment. GOFLAGS is cleared so the
+# exact `GOFLAGS=-count=1` assertion below does not depend on the caller's env.
 fixture="$(new_fixture base)"
 work="$fixture_root/work"
-output="$(HOST_ONLY_VAR=leak "$ENVELOPE" --source "$fixture" --work-dir "$work" -- make test)" && rc=0 || rc=$?
+output="$(env -u GOFLAGS HOST_ONLY_VAR=leak "$ENVELOPE" --source "$fixture" --work-dir "$work" -- make test)" && rc=0 || rc=$?
 [[ "$rc" -eq 0 ]] && ok "scrubbed run exits 0" || bad "scrubbed run exits 0 (rc=$rc)"
 assert_contains     "runs in the work dir"     "$output" "PWD=$work/module"
 assert_contains     "HOME points in work dir"  "$output" "HOME=$work/home"
@@ -78,6 +80,32 @@ printed="$("$ENVELOPE" --source "$fixture" --print)" && rc=0 || rc=$?
 assert_contains     "print shows the command" "$printed" "command: make test"
 assert_not_contains "print does not run"      "$printed" "MARKER"
 
+# Case: --print with no --source reports the default source (this repo's root).
+printed_default="$("$ENVELOPE" --print)" && rc=0 || rc=$?
+assert_contains "print shows the default source" "$printed_default" "source_dir=$REPO_ROOT"
+
+# Case: --help exits 0 and prints the full usage, including the default command
+# line (the usage extraction must not drop it).
+help_out="$("$ENVELOPE" --help)" && rc=0 || rc=$?
+[[ "$rc" -eq 0 ]] && ok "--help exits 0" || bad "--help exits 0 (rc=$rc)"
+assert_contains "--help shows the usage"        "$help_out" "Usage:"
+assert_contains "--help shows the default command" "$help_out" 'With no `-- COMMAND...`, the command is `make test`.'
+
+# Case: --keep preserves the work dir after a run.
+keep_work="$fixture_root/keep-work"
+"$ENVELOPE" --source "$fixture" --work-dir "$keep_work" --keep -- make test >/dev/null 2>&1 && rc=0 || rc=$?
+[[ "$rc" -eq 0 ]] && ok "--keep run exits 0" || bad "--keep run exits 0 (rc=$rc)"
+[[ -d "$keep_work" ]] && ok "--keep keeps the work dir" || bad "--keep keeps the work dir"
+
+# Case: --print removes its work dir (the cleanup trap is installed before the
+# print branch, so a preview does not leak a temp directory).
+print_work="$(sed -n 's/^work_dir=//p' <<<"$printed")"
+if [[ -n "$print_work" && ! -e "$print_work" ]]; then
+  ok "print cleans its work dir"
+else
+  bad "print cleans its work dir (work_dir=$print_work left: $( [[ -e "$print_work" ]] && echo yes || echo no ))"
+fi
+
 # Case: a source path with a space survives quoting.
 spaced="$(new_fixture "with space")"
 spaced_work="$fixture_root/space work"
@@ -99,6 +127,22 @@ inside="$fixture_root/base/inside"
 "$ENVELOPE" --source "$fixture" --work-dir "$inside" -- make test >/dev/null 2>&1 && rc=0 || rc=$?
 [[ "$rc" -ne 0 ]] && ok "work dir inside source refused" || bad "work dir inside source refused (rc=$rc)"
 
+# Case: refuses a work dir that resolves inside the source through a symlinked
+# parent, which the textual check above cannot see.
+mkdir -p "$fixture/inside-link-target"
+ln -s "$fixture/inside-link-target" "$fixture_root/sneaky-link"
+"$ENVELOPE" --source "$fixture" --work-dir "$fixture_root/sneaky-link" -- make test >/dev/null 2>&1 && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] && ok "symlinked work dir inside source refused" || bad "symlinked work dir inside source refused (rc=$rc)"
+
+# Case: the default work dir is refused when TMPDIR points inside the source
+# (nothing is copied, and the stray temp dir is cleaned up).
+inside_tmp="$fixture_root/base/host-tmp"
+mkdir -p "$inside_tmp"
+TMPDIR="$inside_tmp" "$ENVELOPE" --source "$fixture" -- make test >/dev/null 2>&1 && rc=0 || rc=$?
+[[ "$rc" -ne 0 ]] && ok "TMPDIR work dir inside source refused" || bad "TMPDIR work dir inside source refused (rc=$rc)"
+leftover_tmp="$(find "$inside_tmp" -mindepth 1 -print -quit)"
+[[ -z "$leftover_tmp" ]] && ok "rejected temp dir cleaned up" || bad "rejected temp dir cleaned up (left: $leftover_tmp)"
+
 # Case: --netns is rejected with a clear message when the host is not Linux.
 # A `uname` shim forces the branch so it runs on a capable Linux host too,
 # rather than self-skipping exactly where the strict run is meant to work.
@@ -115,21 +159,45 @@ if netns_capable; then
   printed="$("$ENVELOPE" --source "$fixture" --netns --print)" && rc=0 || rc=$?
   assert_contains "print shows netns on"      "$printed" "netns: yes"
   assert_contains "print shows unshare --net" "$printed" "unshare --net"
-  assert_contains "print shows loopback up"   "$printed" "ip link set lo up"
+  assert_contains "print guards loopback setup" "$printed" 'ip link set lo up && exec'
 else
   ok "netns wraps the command (skipped: no netns on this host)"
 fi
 
-# Case: --netns actually denies egress (name resolution fails inside).
-if unshare --net --map-root-user true >/dev/null 2>&1 && command -v getent >/dev/null 2>&1; then
-  resolving="$(new_fixture resolving)"
-  cat >"$resolving/check.sh" <<'EOF'
-getent hosts example.com
+# Case: --netns actually denies egress (name resolution fails inside). The host
+# must first resolve the name itself, so a host with no working network does not
+# pass trivially; the fixture echoes a start marker so a setup failure is
+# distinguished from a denied lookup, and bounds the lookup so a blackholed DNS
+# cannot stall the run.
+if unshare --net --map-root-user true >/dev/null 2>&1 && command -v ip >/dev/null 2>&1 && command -v getent >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
+  if timeout 10 getent hosts example.com >/dev/null 2>&1; then
+    resolving="$(new_fixture resolving)"
+    cat >"$resolving/check.sh" <<'EOF'
+echo "REACHED_NET_CHECK"
+timeout 10 getent hosts example.com
 EOF
-  "$ENVELOPE" --source "$resolving" --work-dir "$fixture_root/netns-work" --netns -- make test >/dev/null 2>&1 && rc=0 || rc=$?
-  [[ "$rc" -ne 0 ]] && ok "netns blocks egress" || bad "netns blocks egress (unexpected success)"
+    egress_out="$("$ENVELOPE" --source "$resolving" --work-dir "$fixture_root/netns-work" --netns -- make test 2>&1)" && rc=0 || rc=$?
+    assert_contains "netns child reached its check" "$egress_out" "REACHED_NET_CHECK"
+    [[ "$rc" -ne 0 ]] && ok "netns blocks egress" || bad "netns blocks egress (unexpected success)"
+  else
+    ok "netns blocks egress (skipped: host cannot resolve example.com)"
+  fi
 else
-  ok "netns blocks egress (skipped: no netns-capable unshare or getent)"
+  ok "netns blocks egress (skipped: no netns-capable unshare/ip/getent/timeout)"
+fi
+
+# Case: a successful child run inside the namespace proves loopback is up (the
+# driver's guarded `ip link set lo up` ran before the child).
+if unshare --net --map-root-user true >/dev/null 2>&1 && command -v ip >/dev/null 2>&1; then
+  loopback="$(new_fixture loopback)"
+  cat >"$loopback/check.sh" <<'EOF'
+ip -o link show lo | grep -q 'UP' && echo "LOOPBACK_UP"
+EOF
+  loopback_out="$("$ENVELOPE" --source "$loopback" --work-dir "$fixture_root/loopback-work" --netns -- make test 2>&1)" && rc=0 || rc=$?
+  [[ "$rc" -eq 0 ]] && ok "netns child run succeeds" || bad "netns child run succeeds (rc=$rc: $loopback_out)"
+  assert_contains "loopback is up inside the namespace" "$loopback_out" "LOOPBACK_UP"
+else
+  ok "loopback is up inside the namespace (skipped: no netns-capable unshare/ip)"
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
