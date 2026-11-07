@@ -40,7 +40,7 @@ its message says what it looked for, not that the zig is broken.
   `$(dirname "$(command -v zig)")/lib/libc/darwin` before building. Release binaries are cross-built on `ubuntu-latest`;
   no macOS runner is involved.
 - `.agents-sandbox/Dockerfile` (dev VM image) — bakes the same three stubs. The bytes are inlined with `printf` because
-  the image build context is synthetic, so `.github/stubs` is not in it (see `specs/image-composition.md`).
+  the image build context is synthetic, so `.github/stubs` is not in it (see `specs/runner-image/image-composition.md`).
 - `make bootstrap` — the host route. It ensures the zig it manages *and* the stubs in one classify-then-act step (below).
 
 ## `make bootstrap`'s guarantee

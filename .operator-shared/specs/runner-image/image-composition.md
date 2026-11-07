@@ -103,7 +103,7 @@ Resulting cache behaviour:
   vendored helper (see [ca-trust-helper.md](ca-trust-helper.md)), and the in-VM **`/usr/local/bin/xdg-open`** opener
   shim (mode 755, from `hostOpenerShimAsset`/`hostOpenerShimScript()`), installed by `hostOpenerBlock()` with the
   `x-www-browser`/`sensible-browser` aliases and `BROWSER=xdg-open` set (#273; see
-  [agent-link-opening.md](../guides/agent-link-opening.md)).
+  [agent-link-opening.md](../../guides/agent-link-opening.md)).
 - `ImageSpec.InstallCommand` is responsible for landing the agent in that prefix: npm agents (pi) use
   `npm install -g --prefix /opt/agents-sandbox <pkg>@$VERSION`; every other agent copies the binary produced by its
   upstream installer to `/opt/agents-sandbox/bin` (opencode v1 and opencode2 copy the native installer's binary;
@@ -298,7 +298,7 @@ fuse-overlayfs spike are recorded on issue #489.
 - Stage aliases are deterministic and reserved (`agents-sandbox-base|toolbase|node|agent|docker|runner`); a user Dockerfile
   declaring one is a hard error, and the `node` alias stays reserved even when no node stage is emitted. They must not
   contain a random uuid/hash — the `dockerfile-id` is a content hash of the rendered Dockerfile, and nondeterminism would
-  defeat the skip-build check in `specs/runner-image-build.md`.
+  defeat the skip-build check in `specs/runner-image/image-build.md`.
 - `baseImageRef`/`resolveBaseDigest` resolve the `agents-sandbox-base` stage's underlying image (the embedded
   `debian:trixie-slim` for managed, the user's image for custom), never the `runner` stage alias or the tool base.
 - `resolveBaseDigest` waits on the pull stream (moby `ImagePullResponse.Wait`) and routes a failed pull — the call error

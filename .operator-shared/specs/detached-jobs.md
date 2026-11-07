@@ -83,7 +83,7 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
   the accepted cost of the idle fix, not a keepalive. The launcher makes it non-surprising by warning on the last-client
   detach when `docker ps -q` lists containers. The probe runs on every last-client detach rather than being gated on the
   resolved docker option: a project Dockerfile can enable docker in the image (a final-stage marker or a managed docker
-  base, `specs/image-composition.md`) with no config, so the config value cannot decide whether the VM can hold
+  base, `specs/runner-image/image-composition.md`) with no config, so the config value cannot decide whether the VM can hold
   containers. It self-guards instead — a VM without docker fails the command, and a docker API error is equally silent,
   so both contribute nothing; only a held sandbox is skipped. The probe uses its own short-lived context rather than the
   caller's: on the serve-only exit path the caller's context is already canceled, and the SDK aborts `Shell` on a canceled

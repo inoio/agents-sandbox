@@ -445,7 +445,7 @@ func TestResolveReconfigDecisionOffersUnreadableVMConfigToAttachedClients(t *tes
 // digest already matches. That is the state a failed replacement leaves behind —
 // the image-change home action records the new digest before the VM is replaced
 // — so the content id is the only remaining signal that the live VM is still on
-// the old image (specs/image-ref-content-addressing.md).
+// the old image (specs/runner-image/image-build.md).
 func TestResolveReconfigDecisionRecreatesOnContentIDSwitch(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 

@@ -102,7 +102,7 @@ Docker tag, the content-addressed msb ref, the digest and the baked agent versio
 release as the image's `agent-version` label, the version authority. It does not load the image into msb: the stage
 that first needs it there loads it under that ref (`image.EnsureLoaded`), skipping the load when the cached content
 already matches. Guarantees a Docker image whose content every later stage refers to by the same ref. See
-`runner-image-build.md`, `image-ref-content-addressing.md`, `image-composition.md`.
+`runner-image/image-build.md`, `runner-image/image-composition.md`.
 
 **`ensure-home`.** Offers the opt-in legacy runtime-home copy, then resolves the project's home volume: state, else the
 live VM's mounted volume, else a freshly created and prefilled one with a fingerprint-seeded state
@@ -159,7 +159,7 @@ Each value has one writer of record. A reader never re-derives it from a second 
   reports it in the VM at boot. `internal/agent/version_sources_test.go` fails for a profile that lacks one.
   (`state/upgrade-state.md`)
 - **Runner image ref.** Content-addressed; the authority is the Docker image ID, which equals the msb config digest.
-  Writer: `ensure-image`. The Docker tag is a stable name, never an identity. (`image-ref-content-addressing.md`)
+  Writer: `ensure-image`. The Docker tag is a stable name, never an identity. (`runner-image/image-build.md`)
 - **Home volume.** Authority: `HomeState.home_volume`; when state is lost, the live VM's mounted volume. Writer:
   `ensure-home`, changed later only by `plan-reconfig`'s home action. (`home-volume-recovery.md`,
   `state/state-model.md`)
@@ -238,11 +238,11 @@ A change to any stage must keep all of these. Each names the spec that owns the 
 - Every cross-stage value has exactly one writer of record (above); a second stage that needs it reads or derives it,
   never re-decides it.
 - A run never reclaims the runner image or the home volume it is about to use (Liveness;
-  `image-ref-content-addressing.md`).
+  `runner-image/image-build.md`).
 - A project with no VM is not yet retired (Liveness).
 - The image's `agent-version` label is the version authority; a cache that disagrees is rewritten, never built toward
   (`state/upgrade-state.md`).
-- The msb image ref is a pure function of `(slug, agent, docker image ID)` (`image-ref-content-addressing.md`).
+- The msb image ref is a pure function of `(slug, agent, docker image ID)` (`runner-image/image-build.md`).
 - A state rewrite preserves the fields it does not own, through the locked transaction API, and never holds a state lock
   across msb I/O (`state/state-model.md`).
 - Reconfig and every other state rewrite carry the fingerprints forward; only VM creation writes them

@@ -22,7 +22,7 @@ Docker keeps the prefix so our runner images are distinguishable from user image
 is a naming change inside a runtime we own; it needs no runtime replacement, and it is not a user-facing rename (the
 names are internal keys, not CLI dialect).
 
-The produced microsandbox runner reference is **content-addressed** (`specs/image-ref-content-addressing.md`):
+The produced microsandbox runner reference is **content-addressed** (`specs/runner-image/image-build.md`):
 `<slug>:<agent>.<contentid>` keys each distinct image content, so a project's variants coexist. `<slug>:<agent>-latest`
 survives as the *name* form, and the pre-0.6 `agents-sandbox/runner-<slug>:<agent>-latest` string as the *legacy* form;
 both are still read, never produced.
@@ -60,7 +60,7 @@ scheme-shaped fixtures from the exported prefixes.
   shape so the volume still appears and is still classified. A legacy-named volume stays legacy until the project
   next rotates its volume.
 - **msb image — resolve by content.** The produced ref is content-addressed, derived from the image content id
-  (`<slug>:<agent>.<contentid>`, see `specs/image-ref-content-addressing.md`); the name ref `<slug>:<agent>-latest` and
+  (`<slug>:<agent>.<contentid>`, see `specs/runner-image/image-build.md`); the name ref `<slug>:<agent>-latest` and
   the legacy prefixed ref are read-only fallbacks. Resolution is: if any candidate already holds the current content
   (`cachedImageMatches`), reuse it — no reimport; otherwise load under the content ref. The digest check is what makes
   "not reimported" exact: a fallback ref is reused only when it already holds the current content. Changed content

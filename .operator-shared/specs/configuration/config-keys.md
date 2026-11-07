@@ -16,7 +16,7 @@ default silently ignored the env/config value, so `internal/viperconfig/configke
 
 - `configEnvKeys` = the derived keys + `KeyDind`, bound to `AGENTS_SANDBOX_<KEY>` (and the deprecated
   `OPENCODE_SANDBOX_<KEY>` alias). `dind` is the one env-bound key with **no** `Config` field: it is the
-  deprecated alias for `docker` (see [deprecation policy](deprecation-policy.md)).
+  deprecated alias for `docker` (see [deprecation policy](../conventions/deprecation-policy.md)).
 - `configBindKeys` = the derived keys offered to `bindConfigFlags`, which looks each key's flag up by name and
   skips keys with no flag. A key therefore never has to declare that it is a flag, and `dind` is deliberately
   absent — binding `--dind` to viper would make `IsSet("dind")` always true and turn `resolveDockerAlias` into
@@ -34,7 +34,7 @@ default silently ignored the env/config value, so `internal/viperconfig/configke
 
 An exported field tagged `env:"-"` is omitted from every derived list: it has no env var and no CLI flag and is
 set in the config file only. Today that is `network.Policy.EgressAllow`/`EgressDeny`
-(see [network profiles](network-profiles.md) and `docs/configuration/networking.md`) and
+(see [network profiles](../network-and-secrets/network-profiles.md) and `docs/configuration/networking.md`) and
 `SecretCommon.AllowPlaceholderFor`. A field tagged `mapstructure:"-"` is decoded outside viper (mounts, home,
 notify) and is likewise skipped.
 

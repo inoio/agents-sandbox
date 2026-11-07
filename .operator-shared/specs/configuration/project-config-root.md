@@ -116,7 +116,7 @@ within a run without a process-global guard.
 `WithMockConfigPaths` fixes the project dir and cannot express a bare base, so the four-row resolution is
 unit-tested in `configpaths` against a real temp bare repo (`t.Chdir`); the CLI acceptance for `build dockerfile`
 and `run` uses real config paths (XDG pinned for isolation) for the bare case. The real-resolver opt-in,
-`WithRealConfigPaths`, pins the CWD to a temp dir (see [test-isolation.md](test-isolation.md)), so a project-path
+`WithRealConfigPaths`, pins the CWD to a temp dir (see [test-isolation.md](../testing/test-isolation.md)), so a project-path
 accessor test that does not chdir cannot inherit the checkout layout the suite runs in; the bare cases chdir into
 their own fixture after opting in.
 
