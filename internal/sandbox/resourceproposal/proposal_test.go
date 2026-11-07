@@ -227,10 +227,10 @@ func TestAskRepromptsUntilAValidRaise(t *testing.T) {
 // TestRaiseProblemHonoursEveryKnownBootMaximum pins that any known boot
 // maximum, however small, bounds the raise; only zero means unknown.
 func TestRaiseProblemHonoursEveryKnownBootMaximum(t *testing.T) {
-	if problem := raiseProblem("2M", 2, true, Suggestion{BootMaxMiB: 1}); problem == "" {
+	if problem := raiseProblem("2M", 2, true, Suggestion{BootMaxMiB: 1}, "the host maximum"); problem == "" {
 		t.Error("a raise above a 1 MiB boot maximum was accepted")
 	}
-	if problem := raiseProblem("2M", 2, true, Suggestion{BootMaxMiB: 0}); problem != "" {
+	if problem := raiseProblem("2M", 2, true, Suggestion{BootMaxMiB: 0}, "the host maximum"); problem != "" {
 		t.Errorf("raise under an unknown boot maximum rejected: %q", problem)
 	}
 }
@@ -371,15 +371,15 @@ func TestSelectPromptNamesVictimOnlyForOOM(t *testing.T) {
 	}
 }
 
-// TestPersistMemoryRejectsEnvShadow pins that either env name supplying the key
+// TestPersistSettingRejectsEnvShadow pins that either env name supplying the key
 // refuses to write a shadowed value.
-func TestPersistMemoryRejectsEnvShadow(t *testing.T) {
+func TestPersistSettingRejectsEnvShadow(t *testing.T) {
 	for _, name := range []string{"AGENTS_SANDBOX_MEMORY", "OPENCODE_SANDBOX_MEMORY"} {
 		t.Run(name, func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
 			t.Setenv(name, "8G")
 
-			dir, err := PersistMemory(configpaths.Get(), testSlug, 6144, false)
+			dir, err := PersistSetting(configpaths.Get(), testSlug, memoryKey, "6144M", false)
 			if err == nil {
 				t.Fatal("expected an error when the env supplies memory")
 			}
@@ -394,12 +394,36 @@ func TestPersistMemoryRejectsEnvShadow(t *testing.T) {
 	}
 }
 
-// TestPersistMemoryRejectsFlagShadow pins that a changed --memory flag refuses
+// TestPersistSettingShadowNamesTheKeysSource pins that shadowing is per key: a
+// disk-size env variable or flag refuses a disk-size write and names its own
+// source, while it does not shadow memory.
+func TestPersistSettingShadowNamesTheKeysSource(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	unsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+	unsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+	t.Setenv("AGENTS_SANDBOX_DISK_SIZE", "16G")
+
+	if _, err := PersistSetting(configpaths.Get(), testSlug, "disk-size", "20G", false); err == nil ||
+		!strings.Contains(err.Error(), "AGENTS_SANDBOX_DISK_SIZE") {
+		t.Errorf("disk-size with its env set: err = %v, want a refusal naming AGENTS_SANDBOX_DISK_SIZE", err)
+	}
+	unsetEnv(t, "AGENTS_SANDBOX_DISK_SIZE")
+	if _, err := PersistSetting(configpaths.Get(), testSlug, "disk-size", "20G", true); err == nil ||
+		!strings.Contains(err.Error(), "--disk-size") {
+		t.Errorf("disk-size set by flag: err = %v, want a refusal naming --disk-size", err)
+	}
+	t.Setenv("AGENTS_SANDBOX_DISK_SIZE", "16G")
+	if _, err := PersistSetting(configpaths.Get(), testSlug, memoryKey, "6144M", false); err != nil {
+		t.Errorf("memory with only disk-size's env set: err = %v, want the write", err)
+	}
+}
+
+// TestPersistSettingRejectsFlagShadow pins that a changed --memory flag refuses
 // to write a shadowed value.
-func TestPersistMemoryRejectsFlagShadow(t *testing.T) {
+func TestPersistSettingRejectsFlagShadow(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	dir, err := PersistMemory(configpaths.Get(), testSlug, 6144, true)
+	dir, err := PersistSetting(configpaths.Get(), testSlug, memoryKey, "6144M", true)
 	if err == nil {
 		t.Fatal("expected an error when the --memory flag supplies memory")
 	}
@@ -412,9 +436,9 @@ func TestPersistMemoryRejectsFlagShadow(t *testing.T) {
 	assertNoConfigWritten(t, configpaths.Get())
 }
 
-// TestPersistMemoryWritesToOwningLayer pins the success path: the value lands in
+// TestPersistSettingWritesToOwningLayer pins the success path: the value lands in
 // the layer that already sets memory and a resolver re-read yields it.
-func TestPersistMemoryWritesToOwningLayer(t *testing.T) {
+func TestPersistSettingWritesToOwningLayer(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
@@ -422,9 +446,9 @@ func TestPersistMemoryWritesToOwningLayer(t *testing.T) {
 	owner := cp.UserSlugConfigDir(testSlug)
 	writeMemoryConfig(t, owner, "2G")
 
-	dir, err := PersistMemory(cp, testSlug, 6144, false)
+	dir, err := PersistSetting(cp, testSlug, memoryKey, "6144M", false)
 	if err != nil {
-		t.Fatalf("PersistMemory: %v", err)
+		t.Fatalf("PersistSetting: %v", err)
 	}
 	if dir != owner {
 		t.Errorf("dir = %q; want the owning layer %q", dir, owner)
@@ -434,20 +458,20 @@ func TestPersistMemoryWritesToOwningLayer(t *testing.T) {
 	}
 }
 
-// TestPersistMemoryOverwritesDifferentlyCasedOwnerKey pins the end-to-end
+// TestPersistSettingOverwritesDifferentlyCasedOwnerKey pins the end-to-end
 // Greptile fix: a project config spelling the key `Memory:` already owns it, so
 // the raise is written there (in place, keeping the spelling) rather than to the
 // lower-precedence user config where the project's `Memory:` would still win.
-func TestPersistMemoryOverwritesDifferentlyCasedOwnerKey(t *testing.T) {
+func TestPersistSettingOverwritesDifferentlyCasedOwnerKey(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "Memory: 4G\n")
 
-	dir, err := PersistMemory(cp, testSlug, 6144, false)
+	dir, err := PersistSetting(cp, testSlug, memoryKey, "6144M", false)
 	if err != nil {
-		t.Fatalf("PersistMemory: %v", err)
+		t.Fatalf("PersistSetting: %v", err)
 	}
 	if dir != cp.ProjectConfigDir() {
 		t.Errorf("dir = %q; want the project config dir %q", dir, cp.ProjectConfigDir())
@@ -457,17 +481,17 @@ func TestPersistMemoryOverwritesDifferentlyCasedOwnerKey(t *testing.T) {
 	}
 }
 
-// TestPersistMemoryDefaultsToUserSlugLayer pins that with no file layer owning
+// TestPersistSettingDefaultsToUserSlugLayer pins that with no file layer owning
 // memory the raise is written to the per-project user config.
-func TestPersistMemoryDefaultsToUserSlugLayer(t *testing.T) {
+func TestPersistSettingDefaultsToUserSlugLayer(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	cp := configpaths.Get()
 
-	dir, err := PersistMemory(cp, testSlug, 8192, false)
+	dir, err := PersistSetting(cp, testSlug, memoryKey, "8192M", false)
 	if err != nil {
-		t.Fatalf("PersistMemory: %v", err)
+		t.Fatalf("PersistSetting: %v", err)
 	}
 	if dir != cp.UserSlugConfigDir(testSlug) {
 		t.Errorf("dir = %q; want the per-slug user config dir %q", dir, cp.UserSlugConfigDir(testSlug))
@@ -477,18 +501,18 @@ func TestPersistMemoryDefaultsToUserSlugLayer(t *testing.T) {
 	}
 }
 
-// TestPersistMemoryWritesToProjectLayer pins that a project config already
+// TestPersistSettingWritesToProjectLayer pins that a project config already
 // setting memory is the owner written to, so the raise is not shadowed.
-func TestPersistMemoryWritesToProjectLayer(t *testing.T) {
+func TestPersistSettingWritesToProjectLayer(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	cp := configpaths.Get()
 	writeMemoryConfig(t, cp.ProjectConfigDir(), "4G")
 
-	dir, err := PersistMemory(cp, testSlug, 6144, false)
+	dir, err := PersistSetting(cp, testSlug, memoryKey, "6144M", false)
 	if err != nil {
-		t.Fatalf("PersistMemory: %v", err)
+		t.Fatalf("PersistSetting: %v", err)
 	}
 	if dir != cp.ProjectConfigDir() {
 		t.Errorf("dir = %q; want the project config dir %q", dir, cp.ProjectConfigDir())
@@ -498,10 +522,10 @@ func TestPersistMemoryWritesToProjectLayer(t *testing.T) {
 	}
 }
 
-// TestPersistMemorySurfacesWriteFailure pins that a writer refusal (here a
+// TestPersistSettingSurfacesWriteFailure pins that a writer refusal (here a
 // non-YAML config file the writer cannot edit format-preservingly) is surfaced
 // rather than swallowed.
-func TestPersistMemorySurfacesWriteFailure(t *testing.T) {
+func TestPersistSettingSurfacesWriteFailure(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
@@ -510,7 +534,7 @@ func TestPersistMemorySurfacesWriteFailure(t *testing.T) {
 	const json5 = "{\n  // comment\n  \"memory\": \"2G\",\n}\n"
 	testutil.WriteFile(t, dir, "config.json5", json5)
 
-	got, err := PersistMemory(cp, testSlug, 8192, false)
+	got, err := PersistSetting(cp, testSlug, memoryKey, "8192M", false)
 	if err == nil {
 		t.Fatal("expected a write error for a non-YAML config file")
 	}

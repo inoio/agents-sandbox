@@ -48,9 +48,9 @@ func registerRunFlags(cmd *cobra.Command) {
 
 	cmd.Flags().Uint8("cpus", 0, "cpus")
 	cmd.Flags().String(FlagMemory, "4G", "memory")
-	cmd.Flags().String("tmp-size", "2G", "tmp-size")
-	cmd.Flags().String("disk-size", "", "disk-size")
-	cmd.Flags().String("workspace-quota", "16G", "workspace-quota")
+	cmd.Flags().String(FlagTmpSize, "2G", "tmp-size")
+	cmd.Flags().String(FlagDiskSize, "", "disk-size")
+	cmd.Flags().String(FlagWorkspaceQuota, "16G", "workspace-quota")
 	cmd.Flags().Bool("docker", false, "docker")
 	cmd.Flags().Bool("dind", false, "dind")
 }
@@ -211,10 +211,11 @@ func TestBuildAllowPlaceholderForFromConfig(t *testing.T) {
 	}
 }
 
-// TestBuildMemoryFlagChanged pins the --memory flag provenance: Build records
-// whether the flag was explicitly set, so a persisted raise is not written as a
-// shadowed config value (specs/resource-limit-proposal.md §8).
-func TestBuildMemoryFlagChanged(t *testing.T) {
+// TestBuildRecordsExplicitLimitFlags pins the limit flags' provenance: Build
+// records which of --memory, --disk-size, --workspace-quota and --tmp-size were
+// set explicitly, so a raise is not written as a config value the flag would
+// shadow (specs/resource-limit-proposal.md §4).
+func TestBuildRecordsExplicitLimitFlags(t *testing.T) {
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
 
 	unset := newRunCommand()
@@ -222,33 +223,36 @@ func TestBuildMemoryFlagChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if opts.MemoryFlagChanged {
-		t.Error("MemoryFlagChanged = true for an unchanged --memory flag; want false")
+	if len(opts.ExplicitFlags) != 0 {
+		t.Errorf("ExplicitFlags = %v for unchanged flags, want none", opts.ExplicitFlags)
 	}
 
 	changed := newRunCommand()
-	if err := changed.Flags().Set(FlagMemory, "8G"); err != nil {
-		t.Fatalf("set --memory: %v", err)
+	for flag, value := range map[string]string{FlagMemory: "8G", FlagDiskSize: "20G", FlagWorkspaceQuota: "32G", FlagTmpSize: "4G"} {
+		if err := changed.Flags().Set(flag, value); err != nil {
+			t.Fatalf("set --%s: %v", flag, err)
+		}
 	}
 	opts, err = Build(r.Config(), changed, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if !opts.MemoryFlagChanged {
-		t.Error("MemoryFlagChanged = false after --memory was set; want true")
+	want := []string{FlagMemory, FlagDiskSize, FlagWorkspaceQuota, FlagTmpSize}
+	if !slices.Equal(opts.ExplicitFlags, want) {
+		t.Errorf("ExplicitFlags = %v, want %v", opts.ExplicitFlags, want)
 	}
 }
 
-// TestBuildMemoryFlagAbsent pins the lookup guard: a command that does not
-// register --memory reports it unchanged rather than panicking.
-func TestBuildMemoryFlagAbsent(t *testing.T) {
+// TestBuildLimitFlagsAbsent pins the lookup guard: a command that registers
+// none of the limit flags records none rather than panicking.
+func TestBuildLimitFlagsAbsent(t *testing.T) {
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
 	opts, err := Build(r.Config(), &cobra.Command{Use: "bare"}, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if opts.MemoryFlagChanged {
-		t.Error("MemoryFlagChanged = true for a command without --memory")
+	if len(opts.ExplicitFlags) != 0 {
+		t.Errorf("ExplicitFlags = %v for a command without the limit flags", opts.ExplicitFlags)
 	}
 }
 

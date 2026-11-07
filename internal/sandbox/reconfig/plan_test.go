@@ -150,10 +150,18 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 			want:    false,
 		},
 		{
-			name:    "disk mismatch (explicit)",
+			name:    "larger disk grows live",
 			cfg:     mkConfig(4, 4096, 8192, 2048),
 			image:   planImage(),
 			opts:    options.RunOptions{DiskSize: "16G"},
+			homeVol: "agents-sandbox-home-proj-vol",
+			want:    false,
+		},
+		{
+			name:    "smaller disk recreates",
+			cfg:     mkConfig(4, 4096, 16384, 2048),
+			image:   planImage(),
+			opts:    options.RunOptions{DiskSize: "8G"},
 			homeVol: "agents-sandbox-home-proj-vol",
 			want:    true,
 		},
@@ -903,15 +911,21 @@ func TestHomeVolumeChangeEmptyRequested(t *testing.T) {
 	}
 }
 
+// TestRootDiskChangeOldValue pins which root-disk changes need a recreate: a
+// decrease (a managed disk only grows) and an unrecorded disk, not an increase,
+// which the live reconcile grows.
 func TestRootDiskChangeOldValue(t *testing.T) {
-	disk := msbSdk.RootDisk.Managed(8192)
+	disk := msbSdk.RootDisk.Managed(16384)
 	cfg := &msbSdk.SandboxConfig{RootDisk: &disk}
-	change, changed := rootDiskChange(cfg, options.RunOptions{DiskSize: "16G"})
+	change, changed := rootDiskChange(cfg, options.RunOptions{DiskSize: "8G"})
 	if !changed {
-		t.Fatal("expected a change for a different root disk")
+		t.Fatal("expected a change for a smaller root disk")
 	}
-	if change.Label != "root disk size" || change.Old != "8192M" || change.New != "16G" {
+	if change.Label != "root disk size" || change.Old != "16384M" || change.New != "8G" {
 		t.Errorf("rootDiskChange() = %+v", change)
+	}
+	if _, changed := rootDiskChange(cfg, options.RunOptions{DiskSize: "32G"}); changed {
+		t.Error("a larger root disk must not be a recreate change")
 	}
 	if _, changed := rootDiskChange(&msbSdk.SandboxConfig{}, options.RunOptions{DiskSize: "16G"}); !changed {
 		t.Error("a nil root disk with a requested size must be a change")

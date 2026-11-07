@@ -16,6 +16,10 @@ const (
 	maxGiBCount = math.MaxUint32 / mibPerGib
 )
 
+// DefaultRootDiskMiB is the managed root disk the microsandbox runtime gives a
+// VM created without a disk size.
+const DefaultRootDiskMiB uint32 = 4096
+
 // ParseMemoryGiB converts GiB to MiB.
 func ParseMemoryGiB(gib uint32) uint32 {
 	return gib * mibPerGib
@@ -78,4 +82,13 @@ func ResolveWorkspaceQuotaMiB(spec string) uint32 {
 		return v
 	}
 	return DefaultWorkspaceQuotaMiB
+}
+
+// ResolveDiskSizeMiB returns the root disk size in MiB. An empty spec is the
+// runtime's default managed root.
+func ResolveDiskSizeMiB(spec string) uint32 {
+	if v, ok := ParseMemoryOK(spec); ok {
+		return v
+	}
+	return DefaultRootDiskMiB
 }

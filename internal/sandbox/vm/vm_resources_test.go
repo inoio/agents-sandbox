@@ -93,6 +93,31 @@ func TestReconcileResourceConfig(t *testing.T) {
 			wantWarn:   []string{"cpus limited to 8"},
 		},
 		{
+			name:       "a larger root disk grows live",
+			handle:     reconcileHandleWithRootDisk(),
+			opts:       options.RunOptions{DiskSize: "8G"},
+			wantModify: &msbSdk.ModifyOptions{RootDiskSizeMiB: 8192},
+		},
+		{
+			name:   "a root disk at the requested size",
+			handle: reconcileHandleWithRootDisk(),
+			opts:   options.RunOptions{DiskSize: "4G"},
+		},
+		{
+			name:   "a smaller root disk is not staged",
+			handle: reconcileHandleWithRootDisk(),
+			opts:   options.RunOptions{DiskSize: "2G"},
+		},
+		{
+			name:   "an unrecorded root disk is not staged",
+			handle: reconcileHandle(8, 8192),
+			opts:   options.RunOptions{DiskSize: "8G"},
+		},
+		{
+			name:   "no disk size keeps the root disk",
+			handle: reconcileHandleWithRootDisk(),
+		},
+		{
 			name:   "unchanged request",
 			handle: reconcileHandle(8, 8192),
 			opts:   options.RunOptions{CPUs: 2, Memory: "2048"},
@@ -189,6 +214,15 @@ func TestSummarizeConflicts(t *testing.T) {
 // the given CPU and memory boot maxima, and a plan that applies cleanly. The
 // boot values stay below every requested count, so a change always registers
 // unless a test intends none.
+// reconcileHandleWithRootDisk is reconcileHandle's VM with the runtime's
+// default 4 GiB managed root disk.
+func reconcileHandleWithRootDisk() *msb.MockSandboxHandle {
+	handle := reconcileHandle(8, 8192)
+	rootDisk := msbSdk.RootDisk.Managed(options.DefaultRootDiskMiB)
+	handle.Cfg.RootDisk = &rootDisk
+	return handle
+}
+
 func reconcileHandle(maxCPUs uint8, maxMemoryMiB uint32) *msb.MockSandboxHandle {
 	return &msb.MockSandboxHandle{
 		Cfg: &msbSdk.SandboxConfig{

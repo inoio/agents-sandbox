@@ -186,7 +186,7 @@ func TestDetectAndOfferMemoryRaiseShadowedExplainsInsteadOfPrompting(t *testing.
 				nil,
 				MemoryLimits{CurrentMiB: 4096, BootMaxMiB: 8192, HostAvailableMiB: 0, HostAvailableKnown: false},
 				false,
-				options.RunOptions{MemoryFlagChanged: tc.flag},
+				options.RunOptions{ExplicitFlags: explicitFlags(tc.flag, memoryKey)},
 				configpaths.Get(),
 				ui,
 			); raised != "" {
@@ -1304,4 +1304,12 @@ func withFailingDetectStateDir(t *testing.T) {
 		return failingDetectStateDirConfigPaths{stateDir: stateFile}
 	}
 	t.Cleanup(func() { configpaths.Get = orig })
+}
+
+// explicitFlags is the run's explicit-flag list with key in it when set.
+func explicitFlags(set bool, key string) []string {
+	if set {
+		return []string{key}
+	}
+	return nil
 }
