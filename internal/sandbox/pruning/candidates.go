@@ -191,9 +191,10 @@ func imageActivity(handle msb.ImageHandle) time.Time {
 	return used
 }
 
-// enumerateSandboxCandidates adds each sandbox's parsed slug and agent. A
-// project VM's UpdatedAt is activity, and a non-prunable VM is a kept sandbox. A
-// running task sandbox marks the project as having a running task; its
+// enumerateSandboxCandidates adds each launcher-owned sandbox's parsed slug and
+// agent; a foreign sandbox whose name carries no launcher slug hash is skipped.
+// A project VM's UpdatedAt is activity, and a non-prunable VM is a kept sandbox.
+// A running task sandbox marks the project as having a running task; its
 // timestamps are not activity and it never counts as a kept sandbox.
 func enumerateSandboxCandidates(
 	ctx context.Context,
@@ -205,7 +206,11 @@ func enumerateSandboxCandidates(
 		return err
 	}
 	for _, handle := range handles {
-		identity := noteIdentity(handle)
+		labels := sandboxLabels(handle)
+		if !naming.IsLauncherSandbox(handle.Name(), labels) {
+			continue
+		}
+		identity := naming.SandboxIdentity(handle.Name(), labels)
 		if identity.Slug == "" {
 			continue
 		}

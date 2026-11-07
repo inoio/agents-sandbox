@@ -192,7 +192,8 @@ func TestCandidateNotRetiredWithRunningTask(t *testing.T) {
 
 // TestEnumerateCandidatesIgnoresForeignArtifacts pins that artifacts that do not
 // parse to a launcher slug are never candidates: a foreign volume, a foreign
-// image and an unparseable sandbox name all contribute nothing.
+// image, and a foreign sandbox whose name carries no launcher slug hash all
+// contribute nothing.
 func TestEnumerateCandidatesIgnoresForeignArtifacts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -205,8 +206,10 @@ func TestEnumerateCandidatesIgnoresForeignArtifacts(t *testing.T) {
 			&msb.MockImageHandle{Reference_: "not-a-slug-hash:latest", LastUsedAt_: time.Now()},
 		},
 		Sandboxes: []msb.SandboxHandle{
+			// A sandbox the user created directly with msb: no launcher labels,
+			// no legacy prefix, no slug hash, so it is not ours.
 			&msb.MockSandboxHandle{
-				Name_:      "agents-sandbox-vm-",
+				Name_:      "builder-vm",
 				Status_:    msbSdk.SandboxStatusRunning,
 				UpdatedAt_: time.Now(),
 			},
@@ -219,6 +222,41 @@ func TestEnumerateCandidatesIgnoresForeignArtifacts(t *testing.T) {
 	}
 	if len(candidates) != 0 {
 		t.Fatalf("candidates = %+v, want none for foreign artifacts", candidates)
+	}
+}
+
+// TestEnumerateCandidatesAdmitsLauncherOwnedSandboxes pins the positive side of
+// the ownership gate: a hash-anchored sandbox name and a legacy-prefixed name
+// each surface their slug, so the gate rejects only genuinely foreign sandboxes.
+func TestEnumerateCandidatesAdmitsLauncherOwnedSandboxes(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		Sandboxes: []msb.SandboxHandle{
+			&msb.MockSandboxHandle{
+				Name_:      "myproject-1mjusbm3wikhb0-opencode",
+				Status_:    msbSdk.SandboxStatusRunning,
+				UpdatedAt_: time.Now(),
+			},
+			&msb.MockSandboxHandle{
+				Name_:      naming.LegacyVMPrefix + "legacyproject",
+				Status_:    msbSdk.SandboxStatusRunning,
+				UpdatedAt_: time.Now(),
+			},
+		},
+	})
+
+	candidates, err := EnumerateCandidates(context.Background(), 7*24*time.Hour)
+	if err != nil {
+		t.Fatalf("EnumerateCandidates: %v", err)
+	}
+	gotSlugs := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		gotSlugs = append(gotSlugs, candidate.Slug)
+	}
+	wantSlugs := []string{"legacyproject", "myproject-1mjusbm3wikhb0"}
+	if !slices.Equal(gotSlugs, wantSlugs) {
+		t.Fatalf("candidate slugs = %v, want %v", gotSlugs, wantSlugs)
 	}
 }
 

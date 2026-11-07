@@ -262,3 +262,39 @@ func TestIsLegacyHomeVolume(t *testing.T) {
 		}
 	}
 }
+
+// TestIsLauncherSandbox pins the ownership predicate: only a launcher-labelled,
+// legacy-prefixed, or hash-anchored sandbox is owned. A foreign name without the
+// 14-character project-slug hash (a sandbox created directly with msb) is not.
+func TestIsLauncherSandbox(t *testing.T) {
+	cases := []struct {
+		name   string
+		labels map[string]string
+		want   bool
+	}{
+		{name: "builder-vm", want: false},
+		{name: "user-sandbox", want: false},
+		{name: "", want: false},
+		{name: "myproject-1mjusbm3wikhb0-opencode", want: true},
+		{name: "myproject-1mjusbm3wikhb0-opencode-1729000000000000000", want: true},
+		{name: LegacyVMPrefix + "myproject", want: true},
+		{name: LegacyTaskPrefix + "myproject", want: true},
+		{
+			name:   "unrelated-name",
+			labels: map[string]string{LabelSlug: "proj-1mjusbm3wikhb0"},
+			want:   true,
+		},
+		{
+			// The type/task labels alone do not prove ownership: a sandbox
+			// labelled as a task but named foreign stays foreign.
+			name:   "builder-vm",
+			labels: map[string]string{LabelType: SandboxTypeTask},
+			want:   false,
+		},
+	}
+	for _, c := range cases {
+		if got := IsLauncherSandbox(c.name, c.labels); got != c.want {
+			t.Errorf("IsLauncherSandbox(%q, %v) = %v, want %v", c.name, c.labels, got, c.want)
+		}
+	}
+}
