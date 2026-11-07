@@ -42,6 +42,15 @@ func Prune(
 	}
 	imgReport, imgErr := PruneImages(ctx, dclient, pruneState, opts.DryRun, ui)
 	storageReport, storageErr := PruneStorage(ctx, pruneState, opts.DryRun, ui)
+	// The state phase runs after the sandbox/image phases so a just-retired
+	// key's state is swept, and never in a dry-run: reclaiming a state file is a
+	// change, and --dry-run makes no changes. It is the safe tier, so a state
+	// that records a surviving home volume is always kept.
+	var stateReport StateSweepReport
+	var stateErr error
+	if !opts.DryRun {
+		stateReport, stateErr = PruneStateArtifacts(ctx, ui)
+	}
 
 	report := &StaleReport{
 		PrunedSandboxes:     vmReport.VMsPruned,
@@ -51,9 +60,10 @@ func Prune(
 		SkippedImagesInUse:  imgReport.SkippedInUse,
 		ImageBytesReclaimed: imgReport.BytesReclaimed,
 		Storage:             storageReport,
+		State:               stateReport,
 		Details:             append(append(vmReport.Details, volReport.Details...), imgReport.Details...),
 	}
-	return report, errors.Join(vmErr, volErr, imgErr, storageErr)
+	return report, errors.Join(vmErr, volErr, imgErr, storageErr, stateErr)
 }
 
 func RenderPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
@@ -86,6 +96,17 @@ func RenderPruneSummary(ui termio.UI, report *StaleReport, dryRun bool) {
 			report.Storage.FilesRemoved,
 			humanize.FormatBytes(report.Storage.LogicalBytesRemoved),
 			formatOptionalBytes(report.Storage.PhysicalBytesReclaimed),
+		)
+	}
+	if report.State.ClaimsRemoved > 0 || report.State.LeasesRemoved > 0 ||
+		report.State.StatesRemoved > 0 || report.State.DirsRemoved > 0 {
+		ui.Outf(
+			"  internal state: %d claims, %d leases, %d state files removed, %d kept, %d dirs removed",
+			report.State.ClaimsRemoved,
+			report.State.LeasesRemoved,
+			report.State.StatesRemoved,
+			report.State.StaleStatesKept,
+			report.State.DirsRemoved,
 		)
 	}
 	for _, detail := range report.Details {
