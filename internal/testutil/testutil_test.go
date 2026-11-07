@@ -354,3 +354,22 @@ func TestUnsetEnvKeepsAnAbsentVariableAbsent(t *testing.T) {
 		t.Errorf("%s is set after UnsetEnv", name)
 	}
 }
+
+func TestUnsetEnvRestoresTheVariableOnCleanup(t *testing.T) {
+	const name = "TESTUTIL_UNSET_ENV_RESTORE"
+	t.Setenv(name, "original")
+
+	// UnsetEnv registers its restore on the subtest, so the subtest's cleanups
+	// run before this assertion and the parent observes the restored value.
+	t.Run("removed for the subtest duration", func(t *testing.T) {
+		UnsetEnv(t, name)
+		if _, ok := os.LookupEnv(name); ok { //testenv:allow asserts UnsetEnv removed the variable
+			t.Errorf("%s is still set inside the subtest", name)
+		}
+	})
+
+	value, ok := os.LookupEnv(name) //testenv:allow asserts UnsetEnv restored the variable on cleanup
+	if !ok || value != "original" {
+		t.Errorf("after cleanup %s = %q (present=%v), want %q present", name, value, ok, "original")
+	}
+}
