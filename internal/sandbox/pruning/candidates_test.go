@@ -684,3 +684,126 @@ func TestVolumeOwners(t *testing.T) {
 		}
 	}
 }
+
+// TestEnumerateCandidatesContinuesPastNonMatchingArtifacts pins that a foreign
+// volume, a foreign image and a task sandbox are skipped rather than ending
+// their list: a matching artifact listed after a non-matching one still
+// surfaces. A skip mutated from `continue` to `break` would drop it.
+func TestEnumerateCandidatesContinuesPastNonMatchingArtifacts(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const (
+		volSlug = "skipvol-1mjusbm3wikhb0"
+		imgSlug = "skipimg-1mjusbm3wikhb0"
+		sbSlug  = "skipsb-1mjusbm3wikhb0"
+	)
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		Volumes: []msb.VolumeHandle{
+			&msb.MockVolumeHandle{Name_: "user-data", CreatedAt_: time.Now()},
+			&msb.MockVolumeHandle{
+				Name_:      naming.HomeVolumeName(volSlug, "opencode", "20260101T000000"),
+				CreatedAt_: time.Now(),
+			},
+		},
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{Reference_: "docker.io/library/alpine:latest", LastUsedAt_: time.Now()},
+			&msb.MockImageHandle{Reference_: naming.RunnerImageRef(imgSlug, "opencode"), LastUsedAt_: time.Now()},
+		},
+		Sandboxes: []msb.SandboxHandle{
+			&msb.MockSandboxHandle{
+				Name_:      naming.TaskSandboxName("skiptask-1mjusbm3wikhb0", "opencode", 1729000000000000000),
+				Status_:    msbSdk.SandboxStatusStopped,
+				UpdatedAt_: time.Now(),
+			},
+			&msb.MockSandboxHandle{Name_: "builder-vm", Status_: msbSdk.SandboxStatusRunning, UpdatedAt_: time.Now()},
+			&msb.MockSandboxHandle{
+				Name_:      sbSlug + "-opencode",
+				Status_:    msbSdk.SandboxStatusStopped,
+				UpdatedAt_: time.Now(),
+			},
+		},
+	})
+
+	candidates, err := EnumerateCandidates(context.Background(), 7*24*time.Hour)
+	if err != nil {
+		t.Fatalf("EnumerateCandidates: %v", err)
+	}
+	got := map[string]bool{}
+	for _, candidate := range candidates {
+		got[candidate.Slug] = true
+	}
+	for _, slug := range []string{volSlug, imgSlug, sbSlug} {
+		if !got[slug] {
+			t.Errorf("slug %q missing from candidates %v; a non-matching artifact ended its list early", slug, got)
+		}
+	}
+}
+
+// TestEnumerateImageOnlyCandidateRecordsKeyAndCreatedActivity pins that a slug
+// whose only trace is a runner image surfaces with the image's key and, when the
+// image has never been used, derives its activity from the image's creation
+// time.
+func TestEnumerateImageOnlyCandidateRecordsKeyAndCreatedActivity(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const slug = "imgonly-1mjusbm3wikhb0"
+	created := time.Now().Add(-48 * time.Hour)
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{Reference_: naming.RunnerImageRef(slug, "opencode"), CreatedAt_: created},
+		},
+	})
+
+	candidates, err := EnumerateCandidates(context.Background(), 7*24*time.Hour)
+	if err != nil {
+		t.Fatalf("EnumerateCandidates: %v", err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("candidates = %+v, want exactly one", candidates)
+	}
+	got := candidates[0]
+	if want := []state.Key{{Slug: slug, Agent: "opencode"}}; !slices.Equal(got.Keys, want) {
+		t.Errorf("Keys = %v, want the image's key %v", got.Keys, want)
+	}
+	if got.NewestActivity.Sub(created).Abs() > time.Second {
+		t.Errorf("NewestActivity = %v, want the image's creation time %v", got.NewestActivity, created)
+	}
+}
+
+// TestEnumerateSandboxOnlyCandidateRecordsKeyActivityAndKept pins that a slug
+// whose only trace is a project VM surfaces with the VM's key, uses its
+// UpdatedAt as activity, and — because a running VM is not prunable — is marked
+// as having a kept sandbox.
+func TestEnumerateSandboxOnlyCandidateRecordsKeyActivityAndKept(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const slug = "sbonly-1mjusbm3wikhb0"
+	updated := time.Now().Add(-48 * time.Hour)
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		Sandboxes: []msb.SandboxHandle{
+			&msb.MockSandboxHandle{
+				Name_:      slug + "-opencode",
+				Status_:    msbSdk.SandboxStatusRunning,
+				UpdatedAt_: updated,
+			},
+		},
+	})
+
+	candidates, err := EnumerateCandidates(context.Background(), 7*24*time.Hour)
+	if err != nil {
+		t.Fatalf("EnumerateCandidates: %v", err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("candidates = %+v, want exactly one", candidates)
+	}
+	got := candidates[0]
+	if want := []state.Key{{Slug: slug, Agent: "opencode"}}; !slices.Equal(got.Keys, want) {
+		t.Errorf("Keys = %v, want the VM's key %v", got.Keys, want)
+	}
+	if got.NewestActivity.Sub(updated).Abs() > time.Second {
+		t.Errorf("NewestActivity = %v, want the VM's UpdatedAt %v", got.NewestActivity, updated)
+	}
+	if !got.HasKeptSandbox {
+		t.Error("a running (non-prunable) project VM must set HasKeptSandbox")
+	}
+	if got.Retired(time.Now(), 7*24*time.Hour) {
+		t.Error("a kept sandbox must block retirement")
+	}
+}

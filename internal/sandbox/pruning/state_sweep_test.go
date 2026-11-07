@@ -485,3 +485,32 @@ func TestRemoveEmptyClaimsDirPropagatesError(t *testing.T) {
 		t.Fatal("expected the claims-dir removal error")
 	}
 }
+
+// TestPruneStateArtifactsCountsLeasesAcrossAgents pins that the lease count
+// accumulates over every agent of a slug: two agents each holding a stale lease
+// report two, not the last agent's one.
+func TestPruneStateArtifactsCountsLeasesAcrossAgents(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testUI := termio.NewTestMock(t)
+	const slug = "sweep-leases-two-agents"
+	aged := time.Now().Add(-time.Hour)
+	for _, agent := range []string{"opencode", "pi"} {
+		clientsDir := filepath.Join(state.KeyDir(state.Key{Slug: slug, Agent: agent}), "clients")
+		if err := os.MkdirAll(clientsDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		lease := filepath.Join(clientsDir, "22222-4000000000.lock")
+		testutil.WritePath(t, lease, "stale")
+		if err := os.Chtimes(lease, aged, aged); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	report, err := PruneStateArtifacts(context.Background(), &testUI)
+	if err != nil {
+		t.Fatalf("PruneStateArtifacts: %v", err)
+	}
+	if report.LeasesRemoved != 2 {
+		t.Errorf("LeasesRemoved = %d, want 2 (one per agent)", report.LeasesRemoved)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -779,5 +780,131 @@ func TestExecuteFailsClosedWhenReferencesGoCorrupt(t *testing.T) {
 		return strings.Contains(s, "home-volume ownership")
 	}) {
 		t.Errorf("WarnCalls = %v, want the ownership-update failure warning", ui.WarnCalls)
+	}
+}
+
+// TestPlanRemovalScopesVolumesByAgent pins agent scoping of volume ownership: a
+// volume referenced solely by the scoped agent's state is planned, while one
+// referenced solely by another agent's state is refused, so a single-key purge
+// never deletes another agent's home.
+func TestPlanRemovalScopesVolumesByAgent(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const slug = "agentscope-1mjusbm3wikhb0"
+	ownedVolume := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
+	foreignVolume := naming.HomeVolumeName(slug, "pi", "20260101T000000")
+	if err := seedHomeState(
+		state.Key{Slug: slug, Agent: "opencode"},
+		state.HomeState{HomeVolume: ownedVolume},
+	); err != nil {
+		t.Fatalf("seed scoped state: %v", err)
+	}
+	if err := seedHomeState(
+		state.Key{Slug: slug, Agent: "pi"},
+		state.HomeState{HomeVolume: foreignVolume},
+	); err != nil {
+		t.Fatalf("seed foreign state: %v", err)
+	}
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		Volumes: []msb.VolumeHandle{
+			&msb.MockVolumeHandle{Name_: ownedVolume, CreatedAt_: time.Now()},
+			&msb.MockVolumeHandle{Name_: foreignVolume, CreatedAt_: time.Now()},
+		},
+	})
+
+	plan, err := PlanRemoval(context.Background(), []string{slug}, "opencode", &termio.Mock{})
+	if err != nil {
+		t.Fatalf("PlanRemoval: %v", err)
+	}
+	if want := []string{ownedVolume}; !slices.Equal(plan.Volumes, want) {
+		t.Errorf("plan.Volumes = %v, want only the scoped agent's volume %v", plan.Volumes, want)
+	}
+}
+
+// TestStateFileExistsMissingStateIsAbsent pins that a missing state file is
+// absence, not "exists": planStateFiles must never list a path that does not
+// exist on disk.
+func TestStateFileExistsMissingStateIsAbsent(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	exists, err := stateFileExists(state.Key{Slug: "missing-1mjusbm3wikhb0", Agent: "opencode"})
+	if err != nil {
+		t.Fatalf("stateFileExists: %v", err)
+	}
+	if exists {
+		t.Error("stateFileExists = true for a missing state file, want false")
+	}
+}
+
+// TestSortedStringsOrdersLexicographically pins that a plan's string sets render
+// in stable sorted order rather than map-iteration order.
+func TestSortedStringsOrdersLexicographically(t *testing.T) {
+	got := sortedStrings(map[string]struct{}{"c": {}, "a": {}, "b": {}})
+	if want := []string{"a", "b", "c"}; !slices.Equal(got, want) {
+		t.Errorf("sortedStrings = %v, want %v", got, want)
+	}
+}
+
+// TestPlanRemovalContinuesPastForeignAndBlockedArtifacts pins that a foreign or
+// out-of-scope artifact ahead of an owned one does not end its list: the owned
+// volume, image and sandbox listed last are still planned. A skip mutated from
+// `continue` to `break` would silently under-plan the purge.
+func TestPlanRemovalContinuesPastForeignAndBlockedArtifacts(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	const (
+		owned = "purgemix-1mjusbm3wikhb0"
+		other = "purgemixother-2nkvtdn4xjlic1"
+	)
+	ownedVolume := naming.HomeVolumeName(owned, "opencode", "20260101T000000")
+	blockedVolume := naming.HomeVolumeName(owned, "pi", "20260101T000000")
+	ownedImage := naming.RunnerImageRef(owned, "opencode")
+	unownedImage := naming.RunnerImageRef(other, "opencode")
+	ownedSandbox := owned + "-opencode"
+	unownedSandbox := other + "-opencode"
+
+	if err := seedHomeState(
+		state.Key{Slug: owned, Agent: "opencode"},
+		state.HomeState{HomeVolume: ownedVolume},
+	); err != nil {
+		t.Fatalf("seed owned state: %v", err)
+	}
+	// blockedVolume is referenced in scope and by another checkout, so it is
+	// refused rather than planned; a break there would drop the owned volume.
+	for _, key := range []state.Key{
+		{Slug: owned, Agent: "pi"},
+		{Slug: other, Agent: "pi"},
+	} {
+		if err := seedHomeState(key, state.HomeState{HomeVolume: blockedVolume}); err != nil {
+			t.Fatalf("seed blocked state: %v", err)
+		}
+	}
+	msb.WithMsbMock(t, &msb.MockMsbClient{
+		Volumes: []msb.VolumeHandle{
+			&msb.MockVolumeHandle{Name_: "user-data", CreatedAt_: time.Now()},
+			&msb.MockVolumeHandle{Name_: blockedVolume, CreatedAt_: time.Now()},
+			&msb.MockVolumeHandle{Name_: ownedVolume, CreatedAt_: time.Now()},
+		},
+		Images: []msb.ImageHandle{
+			&msb.MockImageHandle{Reference_: "docker.io/library/alpine:latest", LastUsedAt_: time.Now()},
+			&msb.MockImageHandle{Reference_: unownedImage, LastUsedAt_: time.Now()},
+			&msb.MockImageHandle{Reference_: ownedImage, LastUsedAt_: time.Now()},
+		},
+		Sandboxes: []msb.SandboxHandle{
+			&msb.MockSandboxHandle{Name_: "builder-vm", Status_: msbSdk.SandboxStatusRunning, UpdatedAt_: time.Now()},
+			&msb.MockSandboxHandle{Name_: unownedSandbox, Status_: msbSdk.SandboxStatusStopped, UpdatedAt_: time.Now()},
+			&msb.MockSandboxHandle{Name_: ownedSandbox, Status_: msbSdk.SandboxStatusStopped, UpdatedAt_: time.Now()},
+		},
+	})
+
+	plan, err := PlanRemoval(context.Background(), []string{owned}, "", &termio.Mock{})
+	if err != nil {
+		t.Fatalf("PlanRemoval: %v", err)
+	}
+	if want := []string{ownedVolume}; !slices.Equal(plan.Volumes, want) {
+		t.Errorf("plan.Volumes = %v, want %v", plan.Volumes, want)
+	}
+	if want := []string{ownedImage}; !slices.Equal(plan.Images, want) {
+		t.Errorf("plan.Images = %v, want %v", plan.Images, want)
+	}
+	if want := []string{ownedSandbox}; !slices.Equal(plan.Sandboxes, want) {
+		t.Errorf("plan.Sandboxes = %v, want %v", plan.Sandboxes, want)
 	}
 }

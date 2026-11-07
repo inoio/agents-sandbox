@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
@@ -1215,4 +1216,82 @@ func TestResolvePurgeSlugsIdentityErrors(t *testing.T) {
 // accepted with --purge, so `prune <slug>` cannot be mistaken for a purge.
 func TestPruneRejectsPositionalArgWithoutPurge(t *testing.T) {
 	runPruneTestError(t, []string{"prune", "some-slug"}, "unexpected argument")
+}
+
+// TestPruneRejectsMultiplePositionalArgs pins the argument-count limit: batch
+// prune accepts at most one target, so a second bare argument is refused before
+// the command body runs.
+func TestPruneRejectsMultiplePositionalArgs(t *testing.T) {
+	runPruneTestError(t, []string{"prune", "some-slug", "another-slug"}, "accepts at most")
+}
+
+// TestPrunePurgeDryRunPreviewsRunningSandbox pins that a dry-run previews a
+// target whose sandbox is running instead of failing: the running-sandbox
+// refusal is skipped for a dry-run, which deletes nothing.
+func TestPrunePurgeDryRunPreviewsRunningSandbox(t *testing.T) {
+	running := mkActiveVM(purgeTestSlug)
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, running)
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--purge", purgeTestSlug, "--dry-run")
+	sandboxmsb.WithMsbMock(t, m)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("a dry-run must preview a running-sandbox target without failing: %v", err)
+	}
+	if running.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+		t.Error("a dry-run must not remove the running sandbox")
+	}
+	if len(ui.ConfirmCalls) != 0 {
+		t.Errorf("a dry-run must not prompt, got: %v", ui.ConfirmCalls)
+	}
+}
+
+// TestPrunePurgeRunningSandboxRefusalSkipsPlanAndPrompt pins that the running
+// sandbox guard fails before the plan is rendered or the confirmation prompt is
+// shown, so a refused purge never prints a plan the user could mistake for an
+// executed one.
+func TestPrunePurgeRunningSandboxRefusalSkipsPlanAndPrompt(t *testing.T) {
+	running := mkActiveVM(purgeTestSlug)
+	m := &sandboxmsb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, running)
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--purge", purgeTestSlug)
+	ui.IsInteractiveResult = true
+	ui.ConfirmResult = true
+	sandboxmsb.WithMsbMock(t, m)
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("expected a --force hint error, got: %v", err)
+	}
+	if len(ui.ConfirmCalls) != 0 {
+		t.Errorf("the running-sandbox guard must fail before prompting, got: %v", ui.ConfirmCalls)
+	}
+	if len(ui.PrintCalls) != 0 || len(ui.OutCalls) != 0 {
+		t.Errorf(
+			"the running-sandbox guard must fail before rendering the plan, Print=%v Out=%v",
+			ui.PrintCalls,
+			ui.OutCalls,
+		)
+	}
+}
+
+// TestRetiredProjectSlugsErrorReturnsEmptySlice pins that a candidate-listing
+// failure surfaces while the returned slice stays non-nil, so the caller's
+// retired_projects JSON always marshals as an array rather than null.
+func TestRetiredProjectSlugsErrorReturnsEmptySlice(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{ListSandboxesErr: errBoom})
+
+	slugs, err := retiredProjectSlugs(context.Background(), time.Hour)
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("err = %v, want %v", err, errBoom)
+	}
+	if slugs == nil {
+		t.Error("retiredProjectSlugs must return a non-nil empty slice so JSON marshals as an array")
+	}
+	if len(slugs) != 0 {
+		t.Errorf("slugs = %v, want empty", slugs)
+	}
 }

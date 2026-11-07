@@ -670,3 +670,30 @@ func TestInvokePruneFunc(t *testing.T) {
 		}
 	})
 }
+
+// TestPruneNonDryRunSweepsState pins that a real (non-dry-run) Prune runs the
+// state phase: a state recording no home volume is reclaimed, so the phase is
+// not silently skipped.
+func TestPruneNonDryRunSweepsState(t *testing.T) {
+	cp.WithMockConfigPaths(t)
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	docker.WithNoopDockerMock(t)
+	testUI := termio.NewTestMock(t)
+
+	const slug = "sweep-non-dry-run"
+	agentKey := state.Key{Slug: slug, Agent: "opencode"}
+	if err := seedHomeState(agentKey, state.HomeState{ImageDigest: "digest"}); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	report, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: time.Hour}, &testUI)
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if report.State.StatesRemoved != 1 {
+		t.Errorf("StatesRemoved = %d, want 1 (a non-dry-run must sweep state)", report.State.StatesRemoved)
+	}
+	if _, err := state.ReadState(agentKey); !errors.Is(err, state.ErrStateNotFound) {
+		t.Errorf("the volume-less state file should be removed, read err = %v", err)
+	}
+}

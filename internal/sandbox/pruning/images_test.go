@@ -1405,3 +1405,49 @@ func deletedImagesDockerMock(n int) *docker.MockDockerClient {
 		},
 	}
 }
+
+// TestPruneImagesIncludesDockerDetailsInReport pins that the docker images a
+// prune deleted are folded into the report's details, alongside the msb-image
+// entries, so the rendered report names every reclaimed image.
+func TestPruneImagesIncludesDockerDetailsInReport(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	docker.WithDockerMock(t, deletedImagesDockerMock(2))
+
+	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("PruneImages: %v", err)
+	}
+	dockerDetails := 0
+	for _, detail := range r.Details {
+		if detail.Type == StaleTypeDockerImage {
+			dockerDetails++
+		}
+	}
+	if dockerDetails != 2 {
+		t.Errorf("docker entries in Details = %d, want 2 (details = %v)", dockerDetails, r.Details)
+	}
+}
+
+// TestPruneDockerImagesExcludesFreshManagedImages pins the age rule on the
+// candidate predicate directly: a managed, dangling image newer than the age is
+// not a candidate, even on a dry-run that lists rather than prunes.
+func TestPruneDockerImagesExcludesFreshManagedImages(t *testing.T) {
+	mock := &docker.MockDockerClient{
+		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
+			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
+				managedDanglingImage("sha256:fresh", time.Now()),
+			}}, nil
+		},
+	}
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, true, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("pruneDockerImages: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0 for a fresh managed image", count)
+	}
+	if len(details) != 0 {
+		t.Errorf("details = %v, want none for a fresh managed image", details)
+	}
+}
