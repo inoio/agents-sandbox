@@ -153,14 +153,37 @@ func runPruneBatch(
 	return errors.Join(pruneErr, retiredErr)
 }
 
-// runPrunePurge runs a targeted purge: it resolves the target, plans the
-// removal, refuses a running sandbox until --force, names the plan, confirms,
-// and executes. A dry run previews the plan without prompting or deleting.
+// purgeUI is the role set a targeted purge needs: render the plan, confirm it,
+// and warn while executing. It is narrower than termio.UI, so a command builder
+// that only purges stays off the full UI.
+type purgeUI interface {
+	termio.Prompter
+	termio.Output
+	termio.Logger
+}
+
+// runPrunePurge runs `prune --purge`: it reads the command's --force flag and
+// delegates to the shared purge engine.
 func runPrunePurge(
 	cmd *cobra.Command,
-	ui termio.UI,
+	ui purgeUI,
 	mode cliout.Mode,
 	dryRun bool,
+	target string,
+) error {
+	force, _ := cmd.Flags().GetBool(flagForce)
+	return runProjectPurge(cmd, ui, mode, dryRun, force, target)
+}
+
+// runProjectPurge is the shared targeted-purge engine behind `prune --purge`
+// and `sandbox remove --purge`. It resolves the target, plans the removal,
+// refuses a running sandbox until force, names the plan, confirms once, and
+// executes. A dry run previews the plan without prompting or deleting.
+func runProjectPurge(
+	cmd *cobra.Command,
+	ui purgeUI,
+	mode cliout.Mode,
+	dryRun, force bool,
 	target string,
 ) error {
 	slugs, agent, err := resolvePurgeSlugs(target)
@@ -171,7 +194,6 @@ func runPrunePurge(
 	if err != nil {
 		return err
 	}
-	force, _ := cmd.Flags().GetBool(flagForce)
 	if !force && !dryRun && plan.HasRunningSandbox() {
 		return errors.New("a purge target has a running sandbox: stop it first or pass --force to purge it")
 	}

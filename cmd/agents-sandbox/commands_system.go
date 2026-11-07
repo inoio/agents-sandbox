@@ -489,25 +489,51 @@ func buildSandboxCmd(ui termio.UI) *cobra.Command {
 	return cmd
 }
 
-// buildSandboxRemoveCmd builds `sandbox remove <name>`, which removes a project
+// buildSandboxRemoveCmd builds `sandbox remove [name]`, which removes a project
 // VM by name. It refuses a running VM unless --force is set (which stops it
 // first); the persisted project state is left intact so the next run reuses the
-// recorded home volume.
-func buildSandboxRemoveCmd(ui termio.Prompter) *cobra.Command {
-	var force bool
+// recorded home volume. With --purge it removes the whole project instead: the
+// name (a project slug or a <slug>-<agent> key) is optional and defaults to the
+// current checkout, and the shared purge engine removes the project's VMs, home
+// volumes, runner images, state and claims after a single confirmation.
+func buildSandboxRemoveCmd(ui purgeUI) *cobra.Command {
+	var (
+		force bool
+		purge bool
+	)
 	cmd := &cobra.Command{
-		Use:     cmdRemove + " <name>",
+		Use:     cmdRemove + " [name]",
 		Aliases: cmdRemoveAliases,
-		Args:    cobra.ExactArgs(1),
+		Args:    sandboxRemoveArgs,
 		Short:   "Remove a project sandbox VM by name",
 		Long: "Remove an agents-sandbox project VM. Refuses a running VM unless --force is set, " +
-			"which stops it first. The project's persisted state is left intact. Prompts unless --yes is set.",
+			"which stops it first. The project's persisted state is left intact. Prompts unless --yes is set. " +
+			"With --purge the optional name is a project slug or a <slug>-<agent> key, defaulting to the " +
+			"current checkout, and the project's state, home volumes, runner images and sandboxes are removed too.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return sandbox.RemoveSandbox(cmd.Context(), args[0], force, ui)
+			if !purge {
+				return sandbox.RemoveSandbox(cmd.Context(), args[0], force, ui)
+			}
+			target := ""
+			if len(args) == 1 {
+				target = args[0]
+			}
+			return runProjectPurge(cmd, ui, cliout.ModeTable, false, force, target)
 		},
 	}
 	cmd.Flags().BoolVarP(&force, flagForce, flagForce[:1], false, "Remove a running VM (stopping it first)")
+	cmd.Flags().BoolVar(&purge, flagPurge, false,
+		"Purge the project's artifacts (state, home volumes, runner images, sandboxes) instead of one VM")
 	return cmd
+}
+
+// sandboxRemoveArgs requires exactly one argument unless --purge is set, where
+// the target is optional and an omitted one resolves from the cwd.
+func sandboxRemoveArgs(cmd *cobra.Command, args []string) error {
+	if purge, _ := cmd.Flags().GetBool(flagPurge); purge {
+		return cobra.MaximumNArgs(1)(cmd, args)
+	}
+	return cobra.ExactArgs(1)(cmd, args)
 }
 
 func buildPruneCmd(ui termio.UI) *cobra.Command {

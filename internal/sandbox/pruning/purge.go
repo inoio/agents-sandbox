@@ -122,7 +122,7 @@ func (p *RemovalPlan) HasRunningSandbox() bool {
 // running sandbox without force fails fast and deletes nothing. A failed volume
 // removal warns, keeps the key's state file (the pointer survives), joins the
 // error, and lets the other keys continue.
-func (p *RemovalPlan) Execute(ctx context.Context, force, dryRun bool, ui termio.UI) error {
+func (p *RemovalPlan) Execute(ctx context.Context, force, dryRun bool, ui termio.Logger) error {
 	if p == nil {
 		return nil
 	}

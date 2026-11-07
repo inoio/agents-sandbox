@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -181,4 +182,176 @@ func TestSandboxRemove(t *testing.T) {
 			t.Errorf("guard must run before the prompt, got %v", ui.ConfirmCalls)
 		}
 	})
+}
+
+// TestSandboxRemoveWithoutPurgeLeavesStateAndVolume pins the unchanged default:
+// plain `sandbox remove` removes the VM only, leaving the recorded home volume
+// and the project's state so the next run reuses it.
+func TestSandboxRemoveWithoutPurgeLeavesStateAndVolume(t *testing.T) {
+	key := state.Key{Slug: purgeTestSlug, Agent: purgeTestAgent}
+	volumeName := homeVolumeNameFor(purgeTestSlug)
+	handle := &msb.MockSandboxHandle{
+		Name_:   naming.LegacyVMPrefix + key.Slug + "-" + key.Agent,
+		Status_: msbSdk.SandboxStatusStopped,
+	}
+	m := &msb.MockMsbClient{}
+	m.SetGotSandbox(handle)
+	m.Volumes = append(m.Volumes, homeVol(volumeName))
+
+	cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--yes", handle.Name_)
+	msb.WithMsbMock(t, m)
+	if err := seedHomeState(key, state.HomeState{HomeVolume: volumeName}); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("sandbox remove: %v", err)
+	}
+	if !handle.DidRmv {
+		t.Error("the VM must be removed")
+	}
+	if len(m.RemovedVolumes) != 0 {
+		t.Errorf("plain sandbox remove must not remove a volume, got: %v", m.RemovedVolumes)
+	}
+	st, err := state.ReadState(key)
+	if err != nil || st.HomeVolume != volumeName {
+		t.Errorf("state after removal = %+v, %v; want the recorded home volume kept", st, err)
+	}
+}
+
+// TestSandboxRemovePurgeAcceptsSlugAndSlugAgent pins the two purge target forms:
+// a bare project slug removes every artifact of the whole project, while a
+// <slug>-<agent> key removes only that agent's artifacts and state.
+func TestSandboxRemovePurgeAcceptsSlugAndSlugAgent(t *testing.T) {
+	t.Run("slug purges every agent", func(t *testing.T) {
+		volumeName := homeVolumeNameFor(purgeTestSlug)
+		imageRef := purgeTestSlug + ":" + purgeTestAgent + "-latest"
+		vm := mkStoppedVM(purgeTestSlug)
+		m := &msb.MockMsbClient{}
+		m.Sandboxes = append(m.Sandboxes, vm)
+		m.Volumes = append(m.Volumes, homeVol(volumeName))
+		m.Images = append(m.Images, msbImg(imageRef))
+
+		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--purge", purgeTestSlug, "--yes")
+		msb.WithMsbMock(t, m)
+		if err := seedHomeState(
+			state.Key{Slug: purgeTestSlug, Agent: purgeTestAgent},
+			state.HomeState{HomeVolume: volumeName},
+		); err != nil {
+			t.Fatalf("seed state: %v", err)
+		}
+
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("sandbox remove --purge: %v", err)
+		}
+		if !slices.Contains(m.RemovedVolumes, volumeName) {
+			t.Errorf("expected volume %q removed, got: %v", volumeName, m.RemovedVolumes)
+		}
+		if len(m.RemovedImages) != 1 || m.RemovedImages[0].Ref != imageRef {
+			t.Errorf("expected image %q removed, got: %+v", imageRef, m.RemovedImages)
+		}
+		if !vm.(*msb.MockSandboxHandle).DidRemove() {
+			t.Error("expected the sandbox removed")
+		}
+		key := state.Key{Slug: purgeTestSlug, Agent: purgeTestAgent}
+		if _, err := state.StateFileModTime(key); !errors.Is(err, state.ErrStateNotFound) {
+			t.Errorf("expected the state file removed, got: %v", err)
+		}
+	})
+
+	t.Run("slug-agent purges one key only", func(t *testing.T) {
+		const otherAgent = "codex"
+		opencodeVolume := homeVolumeNameFor(purgeTestSlug)
+		codexVolume := naming.HomeVolumeName(purgeTestSlug, otherAgent, "20260806T143022")
+		m := &msb.MockMsbClient{}
+		m.Volumes = append(m.Volumes, homeVol(opencodeVolume), homeVol(codexVolume))
+
+		cmd, _ := setupCommandFixtures(
+			t, "sandbox", "remove", "--purge", purgeTestSlug+"-"+purgeTestAgent, "--yes",
+		)
+		msb.WithMsbMock(t, m)
+		for key, volumeName := range map[state.Key]string{
+			{Slug: purgeTestSlug, Agent: purgeTestAgent}: opencodeVolume,
+			{Slug: purgeTestSlug, Agent: otherAgent}:     codexVolume,
+		} {
+			if err := seedHomeState(key, state.HomeState{HomeVolume: volumeName}); err != nil {
+				t.Fatalf("seed state %+v: %v", key, err)
+			}
+		}
+
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("sandbox remove --purge <slug>-<agent>: %v", err)
+		}
+		if !slices.Contains(m.RemovedVolumes, opencodeVolume) {
+			t.Errorf("expected volume %q removed, got: %v", opencodeVolume, m.RemovedVolumes)
+		}
+		if slices.Contains(m.RemovedVolumes, codexVolume) {
+			t.Errorf("a single-key purge must not remove another agent's volume %q", codexVolume)
+		}
+		otherKey := state.Key{Slug: purgeTestSlug, Agent: otherAgent}
+		if _, err := state.StateFileModTime(otherKey); err != nil {
+			t.Errorf("another agent's state must survive, got: %v", err)
+		}
+	})
+}
+
+// TestSandboxRemovePurgeImplicitCwdTarget pins that `sandbox remove --purge`
+// with no target resolves the current checkout's slug, purging its artifacts
+// while leaving an unrelated project alone.
+func TestSandboxRemovePurgeImplicitCwdTarget(t *testing.T) {
+	clone := newOriginClone(t)
+	identity := mustIdentity(t, clone)
+	t.Chdir(clone)
+
+	volumeName := homeVolumeNameFor(identity.CheckoutSlug)
+	otherVolumeName := homeVolumeNameFor("otherproject-1mjusbm3wikhb0")
+	vm := mkStoppedVM(identity.CheckoutSlug)
+	m := &msb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, vm)
+	m.Volumes = append(m.Volumes, homeVol(volumeName), homeVol(otherVolumeName))
+
+	cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--purge", "--yes")
+	msb.WithMsbMock(t, m)
+	if err := seedHomeState(
+		state.Key{Slug: identity.CheckoutSlug, Agent: purgeTestAgent},
+		state.HomeState{HomeVolume: volumeName},
+	); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("sandbox remove --purge (implicit): %v", err)
+	}
+	if !slices.Contains(m.RemovedVolumes, volumeName) {
+		t.Errorf("expected the checkout slug's volume %q removed, got: %v", volumeName, m.RemovedVolumes)
+	}
+	if slices.Contains(m.RemovedVolumes, otherVolumeName) {
+		t.Errorf("an unrelated project's volume %q must survive", otherVolumeName)
+	}
+	if !vm.(*msb.MockSandboxHandle).DidRemove() {
+		t.Error("expected the checkout slug's sandbox removed")
+	}
+}
+
+// TestSandboxRemovePurgeRefusesRunningWithoutForce pins that the purge path
+// shares the running-sandbox guard: it fails fast naming --force and prompts
+// nothing.
+func TestSandboxRemovePurgeRefusesRunningWithoutForce(t *testing.T) {
+	running := mkActiveVM(purgeTestSlug)
+	m := &msb.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, running)
+
+	cmd, ui := setupCommandFixtures(t, "sandbox", "remove", "--purge", purgeTestSlug, "--yes")
+	msb.WithMsbMock(t, m)
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("expected a --force hint error, got: %v", err)
+	}
+	if running.(*msb.MockSandboxHandle).DidRemove() {
+		t.Error("a refused purge must not remove the running sandbox")
+	}
+	if len(ui.ConfirmCalls) != 0 {
+		t.Errorf("the running guard must fail before prompting, got: %v", ui.ConfirmCalls)
+	}
 }
