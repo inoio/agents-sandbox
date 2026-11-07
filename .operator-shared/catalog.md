@@ -12,6 +12,15 @@
   - Description: Operator Memory overview and install instructions.
   - Read If: Onboarding to Operator / setting up the plugin.
 
+### `adr/` - Architecture decision records
+
+- `0001-yaml-handling.md`
+  - Description: Decision to adopt `oneyaml.dev/go` for the config write path (`viperconfig.WriteSetting`) and cap untrusted config/secret/snippet reads at 16 MiB (`internal/configread`); `goccy/go-yaml` rejected, `go.yaml.in/yaml/v3` (never `gopkg.in/yaml.v3`) kept for reads, the owner scan and JSON5 depth recorded.
+  - Read If: Changing `viperconfig.WriteSetting`, the YAML edit path, or the `configread` bound; evaluating oneyaml vs goccy; touching `go.mod`'s YAML dependency; or triaging a `FuzzParseState` serialization-stability failure.
+- `TEMPLATE.md`
+  - Description: Template for an ADR in this directory (Context / Options / Decision / Consequences).
+  - Read If: Writing a new ADR.
+
 ### `guides/` - How-to and reference notes for this partition
 
 - `agent-link-opening.md`
@@ -109,9 +118,6 @@
 - `specs/conventions/deprecation-policy.md`
   - Description: Durable deprecation policy for agents-sandbox (0.x, high UX bar): how a flag/config key/env var/command is deprecated, how long it survives, how it is surfaced, and the current deprecation register with replacement and removal targets.
   - Read If: Deprecating or removing a CLI flag, config key, env var, or command; deciding whether a change needs a shim or a clean break; or enforcing the deprecation register in tests.
-- `specs/conventions/yaml-library.md`
-  - Description: Contract for the YAML dependency - every parse/serialize goes through the maintained `go.yaml.in/yaml/v3`, not the unmaintained `gopkg.in/yaml.v3` v3.0.1, whose emitter dropped a leading blank line and broke the state serialization-stability invariant `FuzzParseState` asserts.
-  - Read If: Adding or changing a YAML parse/serialize path, touching `go.mod`'s YAML dependency, or triaging a `FuzzParseState` serialization-stability failure.
 
 #### `specs/identity/` - Project, artifact, and sandbox identity and naming
 
@@ -194,8 +200,8 @@
   - Description: Contract for the coverage bar on added and changed lines - every added line must be executed by a test (error/transport/status branches included), a branch unreachable by construction must be removed, records where the numeric thresholds live (`.codecov.yml`), and that codecov is not a required status check.
   - Read If: Adding or changing production code and deciding what to test, reviewing a diff for coverage gaps, or triaging a failing `codecov/patch` or `codecov/project` check on a PR.
 - `specs/testing/test-isolation.md`
-  - Description: Contract for keeping tests off real host state - the fail-fast seam mocks installed by every test package's `TestMain`, the host-home redirect in `WithMockConfigPaths`, the seam import-chain exceptions, the msb-tagged isolated runtime home and its teardown, and the rule that seam overrides must be restored so the suite stays idempotent under `-count>1`.
-  - Read If: Adding a test package or a `TestMain`, debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, or a test that fails only under `-count>1`.
+  - Description: Contract for keeping tests off real host state: the fail-fast seam mocks installed by every package's `TestMain`, the `realMsbClient` SDK seams that keep unit tests off the native library, the msb-tagged tests' isolated SDK-pinned runtime home and its stop-before-remove / post-run sweep / idle-timeout-backstop teardown, the `WithMockConfigPaths` home redirect, the image integration tests' deliberate cached-release read, the enforcement tests that derive each package's required set from the import graph, the ambient-environment gate (the reason-bearing `//testenv:allow` marker over net/env/device/signal/absolute-exec/host-probe calls), the injected-client/in-package-resolver shift (see `specs/architecture/client-injection.md`), the rule that seam overrides must be restored so the suite stays idempotent under `-count>1`, and the real-git artifact tests living behind the `integration` tag in `<unit>_integration_test.go` with a hermetic git environment.
+  - Read If: Adding a test package or a `TestMain`, adding a real-SDK test, debugging a test that reads or writes real host state (config, home, docker, msb, doctor, notify), adding a default-suite test that touches the process environment, a socket, a device, a signal, an absolute-path binary, or a host figure like installed RAM (the `//testenv:allow` gate), an msb-tagged test that leaks a sandbox/VM, or a test that fails only under repeated runs (`-count>1`).
 
 #### `specs/vm/` - VM lifecycle and per-VM behaviours
 
@@ -244,3 +250,15 @@
 - `2026-11-06-vm-disk-limit-proposal.md`
   - Description: Phase 2 TDD plan for disk-limit detection (the `df` signal, size-adaptive threshold, disk markers in `HomeState`, `DetectAndOfferDiskRaise`, the live root-disk grow, and `disk-size`/`workspace-quota`/`tmp-size` persistence).
   - Read If: Implementing disk-limit detection or the disk raise proposal.
+- `2026-11-07-hermetic-test-suite-design.md`
+  - Description: Design for making the default `go test` suite hermetic: the acceptance envelope (module copy outside any checkout + scrubbed env + network namespace), the host-figure sentinel pass on injected seams, the wall-clock rule, and the release-to-default cadence.
+  - Read If: Working on test decoupling from the execution environment, the hermetic envelope targets, the host-figure sentinel pass, or the hermetic suite's cadence.
+- `2026-11-07-hermetic-test-envelope.md`
+  - Description: Plan 1 of the hermetic design: `scripts/test-envelope.sh` (module copy + `env -i` scrub, `--netns` strict wrapper), the `test-scrubbed`/`test-hermetic`/`envelope-test` targets, and the task that records the failing inventory and runtime budget.
+  - Read If: Implementing the hermetic envelope targets, the scrubbed/strict runners, or the inventory step that sequences the identity, host-figure, and wall-clock fixes.
+- `2026-11-07-hermetic-inventory.md`
+  - Description: First-run envelope record: the runtime budget (envelope ~1.5× an uncached `go test`, ~4.5× a cached `make test`), the green scrubbed run, and the one failing surface (6 uid/permission `chmod`-based tests the strict run runs as root).
+  - Read If: Picking up a hermetic surface fix, choosing the next hermetic plan's tasks, or checking the envelope's measured runtime against `make test`.
+- `2026-11-07-hermetic-uid-permission-surface.md`
+  - Description: Plan 2 of the hermetic design: remove the effective-uid dependence from the six tests the strict envelope runs as uid 0 (via `configmerge.readFile`, `runtimemigration.readDir`, and a `state.OverrideStateWriteForTest` hook), pin `GOTOOLCHAIN=local`, and verify `make test-hermetic` is green.
+  - Read If: Implementing the uid/permission surface fix that makes the strict hermetic envelope green, or adding a read/write failure seam to `configmerge`, `runtimemigration`, or `state`.

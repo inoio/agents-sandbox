@@ -928,7 +928,9 @@ func TestLatestReleaseDecodeError(t *testing.T) {
 // re-runs a copy of this test binary with a helper marker and replaces its own
 // binary with the served asset.
 func TestUpdateExecutableReplacesTheRunningBinary(t *testing.T) {
+	//testenv:allow reads the helper-process guard the child sets
 	if os.Getenv("UPGRADE_HELPER_PROCESS") == "1" {
+		//testenv:allow reads the helper-process guard the child sets
 		downloadBase = os.Getenv("UPGRADE_DOWNLOAD_BASE")
 		if err := updateExecutable(context.Background(), "2.0.0"); err != nil {
 			os.Exit(1)
@@ -949,6 +951,7 @@ func TestUpdateExecutableReplacesTheRunningBinary(t *testing.T) {
 
 	childBinary := copyTestBinary(t)
 	cmd := exec.Command(childBinary, "-test.run=^TestUpdateExecutableReplacesTheRunningBinary$")
+	//testenv:allow the re-exec'd helper child needs the parent's environment
 	cmd.Env = append(os.Environ(),
 		"UPGRADE_HELPER_PROCESS=1",
 		"UPGRADE_DOWNLOAD_BASE="+srv.URL,
@@ -967,6 +970,7 @@ func TestUpdateExecutableReplacesTheRunningBinary(t *testing.T) {
 }
 
 func TestUpdateExecutableReportsADownloadFailure(t *testing.T) {
+	//testenv:allow reads the helper-process guard the child sets
 	if os.Getenv("UPGRADE_HELPER_PROCESS") == "1" {
 		downloadBase = "http://127.0.0.1:1"
 		if err := updateExecutable(context.Background(), "2.0.0"); err == nil {
@@ -976,7 +980,10 @@ func TestUpdateExecutableReportsADownloadFailure(t *testing.T) {
 	}
 
 	cmd := exec.Command(copyTestBinary(t), "-test.run=^TestUpdateExecutableReportsADownloadFailure$")
-	cmd.Env = append(os.Environ(), "UPGRADE_HELPER_PROCESS=1")
+	//testenv:allow the re-exec'd helper child needs the parent's environment
+	cmd.Env = append(os.Environ(),
+		"UPGRADE_HELPER_PROCESS=1",
+	)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("helper failed: %v\n%s", err, out)
 	}

@@ -122,6 +122,7 @@ jobs:
       - run: make docs-linkcheck
       - run: make docs-linkcheck-test
       - run: make cleanup-branches-test
+      - run: make envelope-test
 
   test:
     name: test

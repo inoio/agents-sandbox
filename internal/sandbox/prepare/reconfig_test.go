@@ -1807,7 +1807,7 @@ func TestExistingServeHostPort(t *testing.T) {
 // above the live boot maximum: only a live VM booted with a lower maximum than
 // a fresh VM would get counts.
 func TestBootMaxMemoryGrew(t *testing.T) {
-	freshMaxMiB := vm.BootMaxMemoryMiB()
+	freshMaxMiB := vm.BootMaxMemoryMiB() //testenv:allow the recreate flag compares against the host's current boot maximum
 	tests := []struct {
 		name string
 		live liveProjectVM

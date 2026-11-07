@@ -156,6 +156,7 @@ func TestMockConfigPaths(t *testing.T) {
 	if home != filepath.Join(base, "home") {
 		t.Errorf("UserHomeDir() = %q, want %q", home, filepath.Join(base, "home"))
 	}
+	//testenv:allow asserts the HOME the mock path resolver exported
 	if got := os.Getenv("HOME"); got != filepath.Join(base, "home") {
 		t.Errorf("$HOME = %q, want %q (WithMockConfigPaths must redirect HOME)", got, filepath.Join(base, "home"))
 	}
@@ -192,6 +193,7 @@ func TestWithMockConfigPathsHomeError(t *testing.T) {
 func TestWithMockConfigPathsHomeErrorRedirectsHome(t *testing.T) {
 	WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
 	base := Get().(*mockConfigPaths).baseDir
+	//testenv:allow asserts the HOME the mock path resolver exported
 	if got, want := os.Getenv("HOME"), filepath.Join(base, "home"); got != want {
 		t.Errorf("$HOME = %q, want %q (WithMockConfigPathsHomeError must redirect HOME)", got, want)
 	}

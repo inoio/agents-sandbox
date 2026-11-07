@@ -60,7 +60,7 @@ func TestOpenOnHostReportsHandlerFailure(t *testing.T) {
 
 func TestOpenOnHostReportsStartFailure(t *testing.T) {
 	original := execCommand
-	execCommand = func(string, ...string) *exec.Cmd { return exec.Command("/nonexistent/opener") }
+	execCommand = func(string, ...string) *exec.Cmd { return exec.Command("/nonexistent/opener") } //testenv:allow a missing path exercises the opener spawn-failure branch
 	t.Cleanup(func() { execCommand = original })
 	err := OpenOnHost("https://example.com")
 	if err == nil || !strings.Contains(err.Error(), "start ") {
