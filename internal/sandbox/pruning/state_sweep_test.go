@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -182,5 +184,37 @@ func TestPruneStateArtifactsLeavesLocksTree(t *testing.T) {
 	}
 	if _, err := os.Stat(locksDir); err != nil {
 		t.Errorf("locks dir should survive the sweep, stat err = %v", err)
+	}
+}
+
+// TestPruneDryRunSkipsStateReclamation pins the dry-run gate on the state
+// phase: --dry-run makes no changes (specs/dry-run-preview.md), so a state
+// file the sweep would remove must survive a dry-run Prune and the report must
+// carry no state removals. The state records no volume, so dropping the gate
+// would remove it and fail both assertions.
+func TestPruneDryRunSkipsStateReclamation(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	docker.WithNoopDockerMock(t)
+	testUI := termio.NewTestMock(t)
+
+	const slug = "sweep-dry-run"
+	agentKey := state.Key{Slug: slug, Agent: "opencode"}
+	if err := seedHomeState(agentKey, state.HomeState{ImageDigest: "digest"}); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+
+	report, err := Prune(context.Background(), docker.Get(), PruneOptions{
+		Age:    time.Hour,
+		DryRun: true,
+	}, &testUI)
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if _, err := state.ReadState(agentKey); err != nil {
+		t.Errorf("a dry-run must not remove a state file, read err = %v", err)
+	}
+	if report.State != (StateSweepReport{}) {
+		t.Errorf("dry-run State report = %+v, want zero (nothing removed)", report.State)
 	}
 }
