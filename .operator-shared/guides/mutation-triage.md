@@ -5,7 +5,7 @@ read_if: Triaging LIVED mutants from a `make mutation` sweep, or deciding whethe
 
 # Triaging mutation survivors
 
-The rule lives in `specs/mutation-testing.md`: a survivor is killed, deleted, or recorded, and an unclosed survivor is
+The rule lives in `specs/ci/mutation-testing.md`: a survivor is killed, deleted, or recorded, and an unclosed survivor is
 tracked debt rather than a merge blocker. This is the field guide for the recurring types. It was distilled from the
 first full sweep of `internal/agent` (`make mutation FULL=1 PKG=./internal/agent/`): 36 survivors from 322 mutants, all
 under-asserted tests, no defects.

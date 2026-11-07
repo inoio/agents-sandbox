@@ -67,7 +67,7 @@ read_if: Navigating the codebase.
 ### `.github/` — CI, Pages, and templates
 
 - `workflows/` — `ci.yml`, `pages.yml`, `codeql.yml`, `fuzz.yml`, `mutation.yml`.
-- `stubs/*.tbd` — macOS framework/library stubs the darwin cross-build needs (see `specs/darwin-cross-compile.md`); `ISSUE_TEMPLATE/`, `PULL_REQUEST_TEMPLATE.md`, `dependabot.yml`.
+- `stubs/*.tbd` — macOS framework/library stubs the darwin cross-build needs (see `specs/release/darwin-cross-compile.md`); `ISSUE_TEMPLATE/`, `PULL_REQUEST_TEMPLATE.md`, `dependabot.yml`.
 
 ### `.agents-sandbox/` — Development VM
 

@@ -119,7 +119,7 @@ Hermes's config home is **not** XDG: it is `HERMES_HOME` (default `/home/dev/.he
 - `QuitKey: Ctrl-D`.
 - CI coverage: `TestRenderDockerfileBuildsEveryAgent` (integration) builds the runner image and runs `hermes --version`
   on the managed and a custom non-Debian base. The `integration` job is opt-in — the `run-integration` PR label, plus every
-  code-affecting `main` push and release tag — not one of the required PR checks (`ci-job-gating.md`), so hermes's install
+  code-affecting `main` push and release tag — not one of the required PR checks (`../ci/ci-pipeline.md`), so hermes's install
   and its provisioned Python/Node runtime are exercised there and end-to-end by this host-only `msb` smoke.
 
 ## Scope decisions

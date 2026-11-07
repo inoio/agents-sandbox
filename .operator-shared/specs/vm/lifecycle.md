@@ -74,7 +74,7 @@ a preview only applies the private `MSB_HOME`), then `doctor.CheckAll` verifies 
 a missing one. Guarantees every later stage a usable runtime and Docker. `run` and `shell` skip `doctor.CheckAll`
 under `--dry-run`.
 
-**`upgrade-check`.** Offers, performs or announces a launcher self-upgrade (`self-upgrade-channels.md`); an
+**`upgrade-check`.** Offers, performs or announces a launcher self-upgrade (`../release/self-upgrade-channels.md`); an
 upgrade-and-exit ends the invocation here. Skipped under `--dry-run` for both `run` and `shell`.
 
 **`prune`.** Reclaims stale VMs, home volumes and runner images once per process under the liveness rules below,

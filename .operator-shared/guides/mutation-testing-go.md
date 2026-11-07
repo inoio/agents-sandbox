@@ -82,4 +82,4 @@ All invocations below were executed in this sandbox with `go version go1.27.1 li
 
 ### Makefile
 
-The canonical `make mutation` target, its `GOMUTANTS_VERSION` pin, and the `ANNOTATIONS`/`CGO_ENABLED` handling live in `specs/mutation-testing.md`.
+The canonical `make mutation` target, its `GOMUTANTS_VERSION` pin, and the `ANNOTATIONS`/`CGO_ENABLED` handling live in `specs/ci/mutation-testing.md`.

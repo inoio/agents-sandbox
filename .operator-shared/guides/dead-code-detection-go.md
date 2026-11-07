@@ -34,7 +34,7 @@ Test-support code that lives in **non-`_test.go`** files can never be reached fr
 - `internal/testutil/**`
 - `test/harness/**` (non-test files behind the `msb` build tag)
 
-What is left over is production files whose functions only tests reach. Triage (recorded in `specs/dead-code-gate.md`) sorts this class three ways:
+What is left over is production files whose functions only tests reach. Triage (recorded in `specs/ci/quality-gates.md`) sorts this class three ways:
 
 - **An intentional seam**, kept in production and marked in source with `//deadcode:ignore reason="…"` — `agent.Register`, `viperconfig.NewResolverWithConfig`, `git.MustRepoSlug`/`git.MustCheckoutSlug`, `image.RunnerDockerfileID`, `docker.RealClient`, `lifecycle.Order`/`(*lifecycle.Trace).Stages`.
 - **A convenience helper** reached only from `_test.go`, moved into test code.
@@ -47,4 +47,4 @@ What is left over is production files whose functions only tests reach. Triage (
 - **One configuration per run.** The analysis is valid only for a single `GOOS`/`GOARCH`/`-tags` combination, so a function legitimately dead on linux may be live on darwin, or only behind a build tag. This repo has `_darwin.go`/`_linux.go` files and the `integration` and `msb` tags — run the relevant variants (`deadcode -tags integration ./...`) and use the line-oriented output to intersect across runs.
 - **Method retention.** A method required to satisfy an interface but never invoked is reported dead; deleting it breaks compilation. Likewise anything reached only through `//go:linkname` is a false positive.
 - **Generated files** are excluded by default (use `-generated` to include them); marker interface methods are excluded unconditionally.
-- **A gate, not just an audit.** `make deadcode` runs `ci/check-deadcode.sh` over the pinned `x/tools/cmd/deadcode` (`DEADCODE_VERSION` in the `Makefile`, currently `v0.52.0`), analysing the four build-tag configurations and failing on any unmarked unreachable function; it is wired into `make verify` and a dedicated CI job. `specs/dead-code-gate.md` owns the contract. The raw default output stays noisy — run `make deadcode` for the verdict and use the two-mode diff above for triage.
+- **A gate, not just an audit.** `make deadcode` runs `ci/check-deadcode.sh` over the pinned `x/tools/cmd/deadcode` (`DEADCODE_VERSION` in the `Makefile`, currently `v0.52.0`), analysing the four build-tag configurations and failing on any unmarked unreachable function; it is wired into `make verify` and a dedicated CI job. `specs/ci/quality-gates.md` owns the contract. The raw default output stays noisy — run `make deadcode` for the verdict and use the two-mode diff above for triage.

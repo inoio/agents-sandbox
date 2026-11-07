@@ -7,8 +7,8 @@ read_if: Adding or changing production code and deciding what to test, reviewing
 
 ## Intent
 
-Line coverage proves a test *executes* a line; mutation testing (see `mutation-testing.md`) proves a test would *notice*
-the line changing. Both matter, and they are different jobs. `mutation-testing.md` explicitly defers uncovered lines
+Line coverage proves a test *executes* a line; mutation testing (see `../ci/mutation-testing.md`) proves a test would *notice*
+the line changing. Both matter, and they are different jobs. `../ci/mutation-testing.md` explicitly defers uncovered lines
 here: "`NOT COVERED` mutants are already the patch-coverage check's job."
 
 The practical gate is **patch coverage**: the coverage of the lines a change adds or alters. A PR that adds code its own

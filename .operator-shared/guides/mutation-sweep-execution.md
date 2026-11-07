@@ -12,7 +12,7 @@ an empty `notify/assets`). One row is out of the working queue (see *Snapshot ca
 by #259, leaving **1775 survivors across 35 packages**. The reports are the expensive artifact, so the goal is to work the
 queue down **over turns without putting `make mutation` in anyone's inner loop**: a coordinator owns the reports,
 assignment, verification and issue text, while implementer subagents only fix. The reduction goal, the closing rule (a
-survivor is killed, deleted, or recorded), and the recurring types live in `specs/mutation-testing.md` and
+survivor is killed, deleted, or recorded), and the recurring types live in `specs/ci/mutation-testing.md` and
 `guides/mutation-triage.md`; this runbook is only the execution around them. A turn ends with a smaller, re-verified
 survivor count, and a human decides whether another turn is worth it.
 
