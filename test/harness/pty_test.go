@@ -66,7 +66,7 @@ func TestPTYWaitExitTimesOutWhileProcessRuns(t *testing.T) {
 	ses := mustStartUnderPTY(t, "", nil, "/bin/sh", "-c", "sleep 30")
 	defer ses.close()
 
-	if _, err := ses.waitExit(200 * time.Millisecond); err == nil {
+	if _, err := ses.waitExit(20 * time.Millisecond); err == nil {
 		t.Fatal("waitExit = nil error, want a timeout error")
 	}
 }
@@ -88,7 +88,7 @@ func TestPTYWaitForTUITimesOutWhileProcessRuns(t *testing.T) {
 	ses := mustStartUnderPTY(t, "", nil, "/bin/sh", "-c", "sleep 30")
 	defer ses.close()
 
-	err := ses.waitForTUI(200 * time.Millisecond)
+	err := ses.waitForTUI(50 * time.Millisecond)
 	if err == nil {
 		t.Fatal("waitForTUI = nil, want a timeout error")
 	}
@@ -143,7 +143,7 @@ func TestPTYWaitForMarkerTimesOutWhileProcessRuns(t *testing.T) {
 	ses := mustStartUnderPTY(t, "", nil, "/bin/sh", "-c", "sleep 30")
 	defer ses.close()
 
-	err := ses.waitForMarker("never-seen", 200*time.Millisecond)
+	err := ses.waitForMarker("never-seen", 50*time.Millisecond)
 	if err == nil {
 		t.Fatal("waitForMarker = nil, want a timeout error")
 	}
@@ -238,7 +238,7 @@ func TestPTYWaitSettledReturnsOnceTheChildOutlastsTheSettle(t *testing.T) {
 	ses := mustStartUnderPTY(t, "", nil, "/bin/sh", "-c", "sleep 30")
 	defer ses.close()
 
-	if err := ses.waitSettled(200 * time.Millisecond); err != nil {
+	if err := ses.waitSettled(50 * time.Millisecond); err != nil {
 		t.Fatalf("waitSettled: %v", err)
 	}
 }
