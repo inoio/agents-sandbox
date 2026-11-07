@@ -44,7 +44,7 @@ A state written by a VM-only identity adoption (#144) records a pending `recover
 rewritten with the current digest and seeded fingerprints. Unlike the live-VM branch it does not consult the
 VM, because adoption destroyed it; the durable field is what preserves the volume. Recovery also retires the
 adoption's ownership claim under the legacy identity (`state.ClearAdoptedHomeVolume`), which is what keeps a
-second clone from adopting the same volume; see `checkout-identity.md`.
+second clone from adopting the same volume; see `identity/checkout-identity.md`.
 
 `liveHomeVolume` originally read `cfg.Volumes[mounts.VMHomeDir].Named`, which the SDK always leaves empty on a
 read-back, so until #223 this branch never fired and recovery always fell through to a fresh prefill (a silent

@@ -137,7 +137,7 @@ func EnsureProjectVM(ctx context.Context, creation ProjectVMCreation) (msb.Sandb
 
 	// Recreate: destroy the handle this session held, under the lock. The
 	// destroy keeps context.Background() — a cancelled run must not leave a
-	// half-replaced VM — and the pre-lock handle: per specs/sandbox-identity.md
+	// half-replaced VM — and the pre-lock handle: per specs/identity/sandbox-identity.md
 	// the launcher never re-looks-up the name to adopt a replacement.
 	if found {
 		alreadyGone, destroyErr := destroyProjectVMHandle(
@@ -364,7 +364,7 @@ func createProjectVM(ctx context.Context, creation ProjectVMCreation, name strin
 	sb, err := creation.Client.CreateSandbox(ctx, name, optsList...)
 	if msb.IsSandboxAlreadyExists(err) {
 		// Never replace or adopt it: it is not the VM this run checked for
-		// (specs/sandbox-identity.md).
+		// (specs/identity/sandbox-identity.md).
 		err = fmt.Errorf(
 			"project VM %q appeared after it was checked for; rerun to attach to it: %w",
 			name,

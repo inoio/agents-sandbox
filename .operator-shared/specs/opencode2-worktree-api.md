@@ -167,7 +167,7 @@ both before the list, each naming the resolve failure (mirroring the list's abor
 ## Non-goals
 
 - No worktree location control: the launcher sends no `directory`, so worktrees stay on the home
-  volume. Nesting them inside the checkout remains `bare-worktree-layout.md`'s convention-only story,
+  volume. Nesting them inside the checkout remains `worktrees/worktree-layout.md`'s convention-only story,
   and `--worktree` there stays "kept as-is".
 - No `from`/stacked worktrees, no `--worktree` CLI surface change (no new flag, no `:base` change).
 - No daemon-side worktree removal or `refresh` wiring, and no worktree listing command in the CLI.

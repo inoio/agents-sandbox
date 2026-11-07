@@ -81,7 +81,7 @@ const (
 
 // TestRealClientSandboxLifecycle drives the sandbox create and connect-or-start
 // adapters against the real runtime and pins the semantics the project VM
-// lifecycle relies on (specs/sandbox-identity.md), so an SDK bump that changes
+// lifecycle relies on (specs/identity/sandbox-identity.md), so an SDK bump that changes
 // them fails here instead of in a user's run:
 //   - creating a taken name without replace fails with "already exists";
 //   - of several processes calling ConnectOrStart on one stopped sandbox,

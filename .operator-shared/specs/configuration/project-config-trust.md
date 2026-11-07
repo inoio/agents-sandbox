@@ -149,7 +149,7 @@ are persisted (State), nothing else.
 ## State
 
 - The approval is per **checkout**, not per agent: one checkout's config content is approved once and its
-  agents share that approval. It is a section keyed by the checkout slug (`checkout-identity.md`) in the
+  agents share that approval. It is a section keyed by the checkout slug (`../identity/checkout-identity.md`) in the
   machine-global `RootState` — the per-`(slug, agent)` `HomeState` is the wrong scope, and a new file is
   forbidden (`state-by-scope.md`, `project-state-transactions.md`). The section holds the approved
   projection and its digest; the projection is retained so a later change can be shown as resolved

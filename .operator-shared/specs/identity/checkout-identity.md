@@ -20,7 +20,7 @@ checkout land in the first.
 The origin-derived slug is also the *only* slug, so the config namespace, which should be shared by
 all clones of a remote, is inseparable from the stateful artifacts, which should not be.
 
-`bare-worktree-layout.md` (#145) deliberately kept "one origin, one VM" for worktrees. That premise
+`../worktrees/worktree-layout.md` (#145) deliberately kept "one origin, one VM" for worktrees. That premise
 is wrong for independent clones and is corrected here; the worktree behavior it introduced (bind the
 smallest enclosing checkout, guest CWD derivation) is preserved.
 

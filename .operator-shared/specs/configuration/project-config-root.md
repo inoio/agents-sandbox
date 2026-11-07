@@ -6,7 +6,7 @@ read_if: Implementing or reviewing the bare-layout project-config root fix, the 
 # Bare checkout project config root
 
 Status: merged (PR #247).
-Related: [bare-worktree-layout.md](bare-worktree-layout.md) (the `/workspace` bind rule this builds on; supersedes its "project config unchanged" implication) and [checkout-identity.md](checkout-identity.md) (the checkout-scoped identity that extends the same `configpaths` seam).
+Related: [worktree-layout.md](../worktrees/worktree-layout.md) (the `/workspace` bind rule this builds on; supersedes its "project config unchanged" implication) and [checkout-identity.md](../identity/checkout-identity.md) (the checkout-scoped identity that extends the same `configpaths` seam).
 
 ## Problem
 
@@ -127,7 +127,7 @@ their own fixture after opting in.
   still moving. There is no callout system in the site; use a leading blockquote notice (e.g.
   `> **Beta** — the bare-checkout layout and its configuration rules may still change.`).
 - `.agents/skills/bare-worktrees/SKILL.md` is a 1:1 content copy of the recipe (required by
-  [bare-worktree-layout.md](bare-worktree-layout.md)) and must carry the same Beta notice.
+  [worktree-layout.md](../worktrees/worktree-layout.md)) and must carry the same Beta notice.
 - Keep in sync: `configuration/launcher.md` (the `.agents-sandbox/<file>` table and "project directory"
   wording), `commands.md` (`build`/`dockerfile`, `.agents-sandbox/Dockerfile`), `how-it-works.md`,
   `sandboxes.md`, and the CHANGELOG Unreleased section.

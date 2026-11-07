@@ -17,7 +17,7 @@ reads its persisted config and live mounts, and reads the agent config files thr
 before returning (under the caller's context without its cancellation). It returns a `liveProjectVM` value that
 `resolveReconfigDecision` plans from, so the decision itself neither looks up nor attaches to the VM. The handle it
 read travels in `reconfigPlan.existingVM` to `EnsureProjectVM`, which reuses it instead of looking the VM up again: a
-recreate destroys exactly the VM the decision judged (`sandbox-identity.md`), and a kept VM is connected through the
+recreate destroys exactly the VM the decision judged (`identity/sandbox-identity.md`), and a kept VM is connected through the
 same handle, whose stale status after a long prompt is recovered by `resolveExistingVM`'s refresh-and-resume. The
 second attach, in `ensure-vm`, remains: holding the read connection across the reconfig prompt and the home action
 was judged not worth the ownership it would add.
@@ -103,7 +103,7 @@ genuine config change against an existing home) still refresh fingerprints via `
 state is never fingerprint-less on that path, so the change detected there is real.
 
 The per-`(slug, agent)` creation flock (`ensure-vm.lock`) now also covers a recreate's teardown (#397); the identity
-contract governing that destroy is in [sandbox-identity.md](sandbox-identity.md).
+contract governing that destroy is in [identity/sandbox-identity.md](identity/sandbox-identity.md).
 
 ## Live mounts and the size/quota/home detectors (issue #223)
 

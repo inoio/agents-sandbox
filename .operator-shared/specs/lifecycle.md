@@ -85,7 +85,7 @@ itself (`currentRunImageKeys`: the checkout slug plus the legacy repo slugs, bes
 **`resolve-identity`.** Looks up the agent, resolves the workspace identity (`git.ResolveIdentity`: bind root, repo
 slug, checkout slug) and adopts a legacy origin-keyed identity (`AdoptLegacyIdentity`) before any artifact is touched,
 so every later stage keys on the effective checkout slug. Under `--dry-run-vm` the adoption is read-only and the run
-keeps resolving against the legacy location. See `checkout-identity.md`, `bare-worktree-layout.md`.
+keeps resolving against the legacy location. See `identity/checkout-identity.md`, `worktrees/worktree-layout.md`.
 
 **`resolve-version`.** Decides the agent release to bake: an explicit pin, else the release the existing image's label
 reports, else the `agent_version` cache, then the upgrade prompt, which may raise it. A user-provided agent is the one
@@ -127,7 +127,7 @@ of looking the VM up again. Creation and recreation take the per-project `ensure
 an existing VM takes the lock-free fast path (`resolveExistingVM`). A creation first loads the runner image into msb
 unless it is cached with matching content (`createProjectVM` → `image.EnsureLoaded`), then persists the fingerprints
 (`persistConfigHashes`). Returns the boot kind. Skipped under `--dry-run-vm` (no VM, nil sandbox). See
-`reconfig-decision.md`, `sandbox-identity.md`, `vm-idle-timeout-default.md`.
+`reconfig-decision.md`, `identity/sandbox-identity.md`, `vm-idle-timeout-default.md`.
 
 **`setup-sandbox`.** Provisions the agent config files, records boot provenance on a fresh boot
 (`recordImageProvenance`), runs startup hooks, starts dockerd and the agent daemon (or restarts the daemon when the
@@ -147,7 +147,7 @@ Each value has one writer of record. A reader never re-derives it from a second 
 - **Project key / identity.** Writer: `resolve-identity`. The checkout slug names state, VM, home volume, locks and the
   runner image; the repo slug names the per-slug config dir and the grouping label. A legacy adoption changes the
   effective slug before any artifact is touched. `prune`'s pre-resolved retain keys are a best-effort projection of it,
-  not a second authority. (`checkout-identity.md`)
+  not a second authority. (`identity/checkout-identity.md`)
 - **Agent version.** Authority: the runner image's `agent-version` label. `HomeState.agent_version` is a cache that
   follows it. Writer of record: the image-ensuring path — `ensure-image` surfaces `ImageInfo.AgentVersion` and
   `ensure-home` persists it once state exists; `build` writes it through `image.Build`. `resolve-version`'s
@@ -247,6 +247,6 @@ A change to any stage must keep all of these. Each names the spec that owns the 
   across msb I/O (`project-state-transactions.md`).
 - Reconfig and every other state rewrite carry the fingerprints forward; only VM creation writes them
   (`reconfig-decision.md`).
-- Identity adoption happens before any artifact is created under the new slug (`checkout-identity.md`).
+- Identity adoption happens before any artifact is created under the new slug (`identity/checkout-identity.md`).
 - A lost state recovers the live VM's home volume before minting a new one (`home-volume-recovery.md`).
 - `--dry-run` performs no mutation and no network request (`dry-run-preview.md`).

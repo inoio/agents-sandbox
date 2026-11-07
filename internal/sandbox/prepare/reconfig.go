@@ -67,7 +67,7 @@ func existingServeHostPort(cfg *msbSdk.SandboxConfig, fallback int) int {
 type liveProjectVM struct {
 	// handle is the project VM the decision is read from; vm.EnsureProjectVM
 	// reuses it rather than looking the VM up again, so a recreate destroys
-	// exactly this VM (specs/sandbox-identity.md).
+	// exactly this VM (specs/identity/sandbox-identity.md).
 	handle           msb.SandboxHandle
 	config           *msbSdk.SandboxConfig
 	configUnreadable bool

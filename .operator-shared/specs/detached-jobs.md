@@ -41,7 +41,7 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
   helper's binary, so a marker-less `containerd`, a path to the binary, or a shell command naming it is not a helper.
   `TestDetachedHelperMarkerlessFallbackScope` pins that scope.
 - **One daemon per VM, so the daemon marker needs no agent.** Project VMs are named and labelled per
-  `(slug, agent)` (`specs/artifact-naming.md`), so a VM hosts exactly one agent's serve daemon and the agent-independent
+  `(slug, agent)` (`specs/identity/artifact-naming.md`), so a VM hosts exactly one agent's serve daemon and the agent-independent
   `agent-daemon` marker cannot target another agent's helper; `killJobs` only ever lists that VM's jobs.
 - **No persisted job state.** Jobs die with the VM, so a stopped/restarted VM re-launches both on the next boot. There
   are no job IDs in `state.yaml` and no cross-boot rediscovery: an earlier generation's job survives only as a terminal

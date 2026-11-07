@@ -95,7 +95,7 @@ portability features.
   `agents-sandbox-vm-*` name is accepted, and otherwise the name must not parse as
   a task sandbox or a home-volume/runner-image name. This is a project-vs-task
   classification, not artifact ownership (which is positional; see
-  `artifact-naming.md`). It does **not** drop the persisted state, so the
+  `identity/artifact-naming.md`). It does **not** drop the persisted state, so the
   recorded home volume survives and the next run recreates the VM against it.
 - `sandbox compact [name]` — merge the oldest sealed copy-on-write disk layers of
   every project VM's disks (or only the named one), briefly pausing a running VM.
