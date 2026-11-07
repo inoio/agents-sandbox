@@ -241,6 +241,27 @@ func TestMockAccessorsAreStableAcrossCalls(t *testing.T) {
 	}
 }
 
+// TestMockAccessorDoesNotRecreateARemovedDirectory pins the create-only cache:
+// an accessor returns a path once created and does not re-run MkdirAll, so a
+// directory a test removed stays removed. This is what makes the cache
+// observable — an "always MkdirAll" mutant recreates the directory and fails
+// here, where the stability test above cannot see the difference.
+func TestMockAccessorDoesNotRecreateARemovedDirectory(t *testing.T) {
+	WithMockConfigPaths(t)
+	paths := Get()
+	dir := paths.UserCacheDir()
+
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatalf("remove %q: %v", dir, err)
+	}
+	if got := paths.UserCacheDir(); got != dir {
+		t.Fatalf("accessor returned %q after removal, want the stable path %q", got, dir)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the mock recreated %q; the create-only cache must not re-run MkdirAll", dir)
+	}
+}
+
 func TestCreateDirCreatesAndReturnsTheDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "userconfig", "opencode")
 
