@@ -66,6 +66,30 @@ func nextBackoff(consecutiveFails int, prev time.Duration) time.Duration {
 	return p.jitter(prev)
 }
 
+// watchClockSource is Watch's timing source: now reads the clock for the
+// long-lived check, and wait blocks for the reconnect backoff (returning false
+// when ctx ends first). watchClock is the production source; a test substitutes
+// a fake to exercise the long-lived reset and the backoff without waiting them
+// out, or to hold a stream open past longLived deterministically.
+type watchClockSource struct {
+	now  func() time.Time
+	wait func(ctx context.Context, d time.Duration) bool
+}
+
+var watchClock = watchClockSource{
+	now: time.Now,
+	wait: func(ctx context.Context, d time.Duration) bool {
+		timer := time.NewTimer(d)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return false
+		case <-timer.C:
+			return true
+		}
+	},
+}
+
 // summaryFirstDrops bounds how many early drops dropSummary retains.
 const summaryFirstDrops = 3
 
@@ -153,22 +177,20 @@ func Watch(ctx context.Context, streams StreamOpener, spec agent.EventStreamSpec
 	var backoff time.Duration
 loop:
 	for attempt := 1; ; attempt++ {
-		start := time.Now()
+		start := watchClock.now()
 		reason := watchOnce(ctx, streams, tracker, sink, spec)
 		if ctx.Err() != nil {
 			break loop
 		}
-		if time.Since(start) > watchReconnectPolicy.longLived {
+		if watchClock.now().Sub(start) > watchReconnectPolicy.longLived {
 			consecutiveFails = 0
 			backoff = 0
 		}
 		consecutiveFails++
 		summary.record(attempt, reason.Error())
 		backoff = nextBackoff(consecutiveFails, backoff)
-		select {
-		case <-ctx.Done():
+		if !watchClock.wait(ctx, backoff) {
 			break loop
-		case <-time.After(backoff):
 		}
 	}
 	return summary.err()
