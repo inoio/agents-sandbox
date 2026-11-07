@@ -1,6 +1,7 @@
 package state
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -263,5 +264,34 @@ func TestRemoveSlugDirIfEmptyKeepsNonEmpty(t *testing.T) {
 	// A missing slug dir is a no-op.
 	if err := RemoveSlugDirIfEmpty("sweep-dir-missing"); err != nil {
 		t.Fatalf("RemoveSlugDirIfEmpty on a missing dir: %v", err)
+	}
+}
+
+func TestStateFileModTime(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	k := Key{Slug: "sweep-modtime", Agent: "opencode"}
+	path := filepath.Join(KeyDir(k), "state.yaml")
+	if err := os.MkdirAll(KeyDir(k), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WritePath(t, path, "schema: 1\n")
+	want := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := os.Chtimes(path, want, want); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := StateFileModTime(k)
+	if err != nil {
+		t.Fatalf("StateFileModTime: %v", err)
+	}
+	if !got.Equal(want) {
+		t.Errorf("StateFileModTime = %v, want %v", got, want)
+	}
+
+	// A missing state file is ErrStateNotFound, distinguishing absence from a
+	// stat failure.
+	if _, err := StateFileModTime(Key{Slug: "sweep-modtime-missing"}); !errors.Is(err, ErrStateNotFound) {
+		t.Errorf("StateFileModTime on a missing file error = %v, want ErrStateNotFound", err)
 	}
 }

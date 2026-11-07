@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
@@ -32,6 +33,21 @@ func ProjectSlugs() ([]string, error) {
 		slugs = append(slugs, entry.Name())
 	}
 	return slugs, nil
+}
+
+// StateFileModTime returns the modification time of k's state file. A missing
+// file returns ErrStateNotFound, so a caller can treat absence as "no state"
+// distinctly from a stat failure.
+func StateFileModTime(k Key) (time.Time, error) {
+	path := stateFile(k)
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return time.Time{}, ErrStateNotFound
+		}
+		return time.Time{}, fmt.Errorf("stat state file %s: %w", path, err)
+	}
+	return info.ModTime(), nil
 }
 
 // ClaimTokens returns the settled token names of the *.claim files under a
