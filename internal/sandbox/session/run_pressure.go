@@ -22,6 +22,16 @@ func abnormalEnd(attachErr error, exitCode int) bool {
 	return attachErr != nil || exitCode == -1
 }
 
+// bootMaxMemoryMiB and hostAvailableMemoryMiB are the host-RAM reads the offer
+// bounds come from. They are vars so a test can pin a host, rather than assert
+// against the installed RAM and /proc/meminfo of the machine running the suite
+// (the boot maximum is the host's whole-GiB RAM, so the raise the offer can
+// suggest depends on it).
+var (
+	bootMaxMemoryMiB       = sandbox.BootMaxMemoryMiB
+	hostAvailableMemoryMiB = sysinfo.AvailableMemoryMiB
+)
+
 // offerMemoryRaiseAfterAttach detects a memory hit from the just-ended session
 // and offers a raise. It runs inside the attach closure so the VM is still
 // alive and the client lease not yet released/reaped. Best-effort: every error
@@ -40,12 +50,12 @@ func offerMemoryRaiseAfterAttach(
 	} else {
 		marker = hs.ResourcePressure
 	}
-	hostAvailableMiB, hostAvailableKnown := sysinfo.AvailableMemoryMiB()
+	hostAvailableMiB, hostAvailableKnown := hostAvailableMemoryMiB()
 	raised := resourceproposal.DetectAndOfferMemoryRaise(
 		ctx, k, sb, marker,
 		resourceproposal.MemoryLimits{
 			CurrentMiB:         0,
-			BootMaxMiB:         sandbox.BootMaxMemoryMiB(),
+			BootMaxMiB:         bootMaxMemoryMiB(),
 			HostAvailableMiB:   hostAvailableMiB,
 			HostAvailableKnown: hostAvailableKnown,
 		},

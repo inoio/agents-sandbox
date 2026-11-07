@@ -12,6 +12,15 @@
   - Description: Operator Memory overview and install instructions.
   - Read If: Onboarding to Operator / setting up the plugin.
 
+### `adr/` - Architecture decision records
+
+- `0001-yaml-handling.md`
+  - Description: Decision to adopt `oneyaml.dev/go` for the config write path (`viperconfig.WriteSetting`) and cap untrusted config/secret/snippet reads at 16 MiB (`internal/configread`); `goccy/go-yaml` rejected, `go.yaml.in/yaml/v3` (never `gopkg.in/yaml.v3`) kept for reads, the owner scan and JSON5 depth recorded.
+  - Read If: Changing `viperconfig.WriteSetting`, the YAML edit path, or the `configread` bound; evaluating oneyaml vs goccy; touching `go.mod`'s YAML dependency; or triaging a `FuzzParseState` serialization-stability failure.
+- `TEMPLATE.md`
+  - Description: Template for an ADR in this directory (Context / Options / Decision / Consequences).
+  - Read If: Writing a new ADR.
+
 ### `guides/` - How-to and reference notes for this partition
 
 - `mutation-testing-go.md`
@@ -108,8 +117,8 @@
   - Description: Contract for resolving the msb/docker/config-paths clients once at an entry point and threading them explicitly, with the image build's injected release resolver (`BuildOptions.ResolveVersion`, so `image` does not import `testing`) and the four behavior test seams as one injected `options.Seams` struct on `options.RunOptions` (#518); the process-root `configpaths.Get()` sites (`state`, `runtime`/`MSBHome`, `homeconfig`) stay global by design.
   - Read If: Changing a `docker.Get()`/`configpaths.Get()` call site, an `image.EnsureImage*`/`EnsureLoaded`/`Build`/`PreviewImage` signature or the image render helpers, adding a client/path parameter to a run/build/doctor/prune entry point, or the image build's agent-release resolver.
 - `test-isolation.md`
-  - Description: Contract for keeping tests off real host state: the fail-fast seam mocks installed by every package's `TestMain`, the `realMsbClient` SDK seams that keep unit tests off the native library, the msb-tagged tests' isolated SDK-pinned runtime home and its stop-before-remove / post-run sweep / idle-timeout-backstop teardown, the `WithMockConfigPaths` home redirect, the image integration tests' deliberate cached-release read, the enforcement tests that derive each package's required set from the import graph, the injected-client/in-package-resolver shift (see `client-injection.md`), the rule that seam overrides must be restored so the suite stays idempotent under `-count>1`, and the real-git artifact tests living behind the `integration` tag in `<unit>_integration_test.go` with a hermetic git environment.
-  - Read If: Adding a test package or a `TestMain`, adding a real-SDK test, debugging a test that reads or writes real host state (config, home, docker, msb, doctor, notify), an msb-tagged test that leaks a sandbox/VM, or a test that fails only under repeated runs (`-count>1`).
+  - Description: Contract for keeping tests off real host state: the fail-fast seam mocks installed by every package's `TestMain`, the `realMsbClient` SDK seams that keep unit tests off the native library, the msb-tagged tests' isolated SDK-pinned runtime home and its stop-before-remove / post-run sweep / idle-timeout-backstop teardown, the `WithMockConfigPaths` home redirect, the image integration tests' deliberate cached-release read, the enforcement tests that derive each package's required set from the import graph, the ambient-environment gate (the reason-bearing `//testenv:allow` marker over net/env/device/signal/absolute-exec/host-probe calls), the injected-client/in-package-resolver shift (see `client-injection.md`), the rule that seam overrides must be restored so the suite stays idempotent under `-count>1`, and the real-git artifact tests living behind the `integration` tag in `<unit>_integration_test.go` with a hermetic git environment.
+  - Read If: Adding a test package or a `TestMain`, adding a real-SDK test, debugging a test that reads or writes real host state (config, home, docker, msb, doctor, notify), adding a default-suite test that touches the process environment, a socket, a device, a signal, an absolute-path binary, or a host figure like installed RAM (the `//testenv:allow` gate), an msb-tagged test that leaks a sandbox/VM, or a test that fails only under repeated runs (`-count>1`).
 - `opencode2-config-fork.md`
   - Description: Design for forking opencode2's launcher config namespace (`opencode2` for user/project dirs, while the guest VM path and host drop-in stay `opencode`), via the `ConfigDirAliaser` capability and the `reprovision.ResolveConfigSource` legacy fallback (directories, not files).
   - Read If: Working on opencode2 config provisioning, snippet merge or mirror, agent config-dir resolution, or the opencode2 config-namespace fork.
@@ -242,9 +251,6 @@
 - `vm-idle-timeout-default.md`
   - Description: Contract for the single VM idle-timeout default: it lives only in `options.DefaultVMIdleTimeout`, the config layer carries `auto-stop-timeout` as-is with no fallback, the VM lifecycle applies the default (required because the SDK treats zero as unlimited), and the documented 10s value is that constant (#365).
   - Read If: Changing the idle timeout default, `Config.AutoStopTimeout`, `RunOptions.IdleTimeout`, `runoptions.Build`, or the VM lifecycle's `WithIdleTimeout` wiring; or diagnosing a VM that never idles out.
-- `yaml-library.md`
-  - Description: Contract for the YAML dependency: every parse/serialize goes through the maintained `go.yaml.in/yaml/v3`, never `gopkg.in/yaml.v3` v3.0.1, whose emitter drops a leading blank line on marshal.
-  - Read If: Adding a YAML parse/serialize path, touching `go.mod`'s YAML dependency, or triaging a `FuzzParseState` serialization-stability failure.
 - `resource-limit-proposal.md`
   - Description: Contract for detecting a project VM resource-limit hit and prompting a raise: memory OOM via the guest kernel-log line (primary) with a metrics-headroom fallback watched during the session, the 90%/1 GiB threshold and 80% re-arm, the `HomeState` anti-nag marker with an answer-identity guard, persistence to the owning config layer (project config when it would shadow, error on an env override) through a symlink-preserving, anchor-safe writer, the async live memory apply and the memory-above-boot-max recreate, terminal reset after an abnormal attach end, and the disk limits: the in-guest `df` probe after every session, the size-adaptive threshold, per-limit markers, the live root-disk grow and the quota/`/tmp` rebuild, and the host memory/free-space warnings.
   - Read If: Working on the OOM/limit-hit or disk-limit detector or raise proposal, the `pressure`/`resourceproposal` packages, the `msb.Sandbox.Metrics`/`Logs` seam, persistence of `memory`/`disk-size`/`workspace-quota`/`tmp-size`, the live root-disk grow, or the automatic terminal reset after an attach.
@@ -257,3 +263,15 @@
 - `2026-11-05-per-slug-config-scopes.md`
   - Description: TDD plan for `specs/per-slug-config-scopes.md` (#578): the `configpaths.ConfigScope` authority, slug on `RunOptions`, and deriving the launcher config file, env/secret files, `home:` layers, and agent config dirs from the scopes across 9 tasks.
   - Read If: Implementing per-slug config-scope parity (#578).
+- `2026-11-07-hermetic-test-suite-design.md`
+  - Description: Design for making the default `go test` suite hermetic: the acceptance envelope (module copy outside any checkout + scrubbed env + network namespace), the host-figure sentinel pass on injected seams, the wall-clock rule, and the release-to-default cadence.
+  - Read If: Working on test decoupling from the execution environment, the hermetic envelope targets, the host-figure sentinel pass, or the hermetic suite's cadence.
+- `2026-11-07-hermetic-test-envelope.md`
+  - Description: Plan 1 of the hermetic design: `scripts/test-envelope.sh` (module copy + `env -i` scrub, `--netns` strict wrapper), the `test-scrubbed`/`test-hermetic`/`envelope-test` targets, and the task that records the failing inventory and runtime budget that scope the surface plans.
+  - Read If: Implementing the hermetic envelope targets, the scrubbed/strict runners, or the inventory step that sequences the identity, host-figure, and wall-clock fixes.
+- `2026-11-07-hermetic-inventory.md`
+  - Description: First-run envelope record: the runtime budget (envelope ~1.5× an uncached `go test`, ~4.5× a cached `make test`), the green scrubbed run, and the one failing surface (6 uid/permission `chmod`-based tests the strict run runs as root) that scopes the follow-up work.
+  - Read If: Picking up a hermetic surface fix, choosing the next hermetic plan's tasks, or checking the envelope's measured runtime against `make test`.
+- `2026-11-07-hermetic-uid-permission-surface.md`
+  - Description: Plan 2 of the hermetic design: remove the effective-uid dependence from the six tests the strict envelope runs as uid 0 (via `configmerge.readFile`, `runtimemigration.readDir`, and a `state.OverrideStateWriteForTest` hook), pin `GOTOOLCHAIN=local`, and verify `make test-hermetic` is green.
+  - Read If: Implementing the uid/permission surface fix that makes the strict hermetic envelope green, or adding a read/write failure seam to `configmerge`, `runtimemigration`, or `state`.

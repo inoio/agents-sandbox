@@ -231,7 +231,10 @@ func TestMainProcess(t *testing.T) {
 
 	t.Run("sandbox exit error propagates code", func(t *testing.T) {
 		cmd := exec.Command(os.Args[0], "-test.run=TestMainHelperProcessExitError")
-		cmd.Env = append(os.Environ(), "GO_WANT_MAIN_HELPER=1")
+		//testenv:allow the re-exec'd helper child needs the parent's environment
+		cmd.Env = append(os.Environ(),
+			"GO_WANT_MAIN_HELPER=1",
+		)
 		out, err := cmd.CombinedOutput()
 		exitCode := 0
 		if err != nil {
@@ -252,6 +255,7 @@ func TestMainProcess(t *testing.T) {
 func runMainHelper(t *testing.T, args []string) (string, int) {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=TestMainHelperProcess")
+	//testenv:allow the re-exec'd helper child needs the parent's environment
 	cmd.Env = append(os.Environ(),
 		"GO_WANT_MAIN_HELPER=1",
 		"GO_MAIN_ARGS="+strings.Join(args, ","),
@@ -267,9 +271,11 @@ func runMainHelper(t *testing.T, args []string) (string, int) {
 }
 
 func TestMainHelperProcess(t *testing.T) {
+	//testenv:allow reads the helper-process guard the child sets
 	if os.Getenv("GO_WANT_MAIN_HELPER") != "1" {
 		t.Skip("helper process only")
 	}
+	//testenv:allow reads the helper-process guard the child sets
 	args := strings.Split(os.Getenv("GO_MAIN_ARGS"), ",")
 	configpaths.WithMockConfigPaths(t)
 	os.Args = append([]string{"agents-sandbox"}, args...)
@@ -281,6 +287,7 @@ func TestMainHelperProcess(t *testing.T) {
 // with code 5, so main's sandbox.ExitError branch (os.Exit with the exit code)
 // is exercised in a subprocess.
 func TestMainHelperProcessExitError(t *testing.T) {
+	//testenv:allow reads the helper-process guard the child sets
 	if os.Getenv("GO_WANT_MAIN_HELPER") != "1" {
 		t.Skip("helper process only")
 	}

@@ -2,15 +2,11 @@ package testutil
 
 import (
 	"go/ast"
-	"go/build"
 	"go/parser"
 	"go/token"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
-	"strings"
 	"testing"
 )
 
@@ -52,34 +48,13 @@ func TestUntaggedTestsExecuteNoAmbientTool(t *testing.T) {
 func realCommandUses(t *testing.T, root, modulePath string, packages []modulePackage) []realCommandUse {
 	t.Helper()
 	var uses []realCommandUse
-	for _, pkg := range packages {
-		if !pkg.hasTests {
-			continue
-		}
-		dir := filepath.Join(root, pkg.dir)
-		entries, err := os.ReadDir(dir)
+	for _, source := range defaultBuildTestSources(t, root, packages) {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, source.path, source.src, 0)
 		if err != nil {
-			t.Fatalf("read %s: %v", pkg.dir, err)
+			t.Fatalf("parse %s: %v", source.path, err)
 		}
-		for _, entry := range entries {
-			name := entry.Name()
-			if entry.IsDir() || !strings.HasSuffix(name, "_test.go") {
-				continue
-			}
-			inDefaultBuild, err := build.Default.MatchFile(dir, name)
-			if err != nil {
-				t.Fatalf("match %s: %v", filepath.Join(pkg.dir, name), err)
-			}
-			if !inDefaultBuild {
-				continue
-			}
-			fset := token.NewFileSet()
-			file, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
-			if err != nil {
-				t.Fatalf("parse %s: %v", filepath.Join(pkg.dir, name), err)
-			}
-			uses = append(uses, realCommandUsesIn(fset, file, modulePath)...)
-		}
+		uses = append(uses, realCommandUsesIn(fset, file, modulePath)...)
 	}
 	sort.Slice(uses, func(i, j int) bool { return uses[i].pos.String() < uses[j].pos.String() })
 	return uses
