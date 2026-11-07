@@ -13,6 +13,7 @@ import (
 	"github.com/titanous/json5"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/yamlfmt"
@@ -251,7 +252,7 @@ func mergeDir(v *viper.Viper, dir string) error {
 	if !ok {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := configread.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read launcher config %s: %w", path, err)
 	}

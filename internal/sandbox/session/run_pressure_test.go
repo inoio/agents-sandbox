@@ -16,7 +16,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -79,14 +78,8 @@ func TestOfferMemoryRaiseAfterAttachUsesMetricsLimit(t *testing.T) {
 
 	offerMemoryRaiseAfterAttach(context.Background(), k, sb, pressureSummary{Tripped: true}, options.RunOptions{}, ui)
 
-	// The metrics limit (8192 MiB) raised by a quarter and rounded up to the
-	// next GiB is 10 GiB, clamped to the host boot maximum, which varies by host.
-	wantMiB := uint32(10 * 1024)
-	if maxMiB := sandbox.BootMaxMemoryMiB(); maxMiB > 0 && wantMiB > maxMiB {
-		wantMiB = maxMiB
-	}
-	if want := fmt.Sprintf("%dG", wantMiB/1024); inputDefault != want {
-		t.Errorf("Input default = %q, want %s from the metrics limit", inputDefault, want)
+	if inputDefault != "10G" {
+		t.Errorf("Input default = %q, want 10G from the metrics limit", inputDefault)
 	}
 }
 
@@ -168,7 +161,7 @@ func TestOfferMemoryRaiseAfterAttachSaysTheRaiseAppliesNextRun(t *testing.T) {
 // is clamped to the host maximum a project VM is created with.
 func TestOfferMemoryRaiseAfterAttachClampsToTheBootMaximum(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	bootMaxMiB := sandbox.BootMaxMemoryMiB()
+	bootMaxMiB := bootMaxMemoryMiB()
 	k := state.Key{Slug: "clampedoffer", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	var suggested string

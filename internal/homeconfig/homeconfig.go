@@ -19,6 +19,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
 
@@ -79,7 +80,7 @@ func ReadHomeFromConfigDir(dir string) (Manifest, bool, error) {
 	if !ok {
 		return Manifest{}, false, nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := configread.ReadFile(path)
 	if err != nil {
 		return nil, false, fmt.Errorf("read config %s: %w", path, err)
 	}
