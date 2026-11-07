@@ -68,7 +68,7 @@ func reconcileResourceConfig(
 		return nil
 	}
 	mo := buildModifyOptions(cfg, opts, ui)
-	if mo.CPUs == 0 && mo.MemoryMiB == 0 {
+	if mo.CPUs == 0 && mo.MemoryMiB == 0 && mo.RootDiskSizeMiB == 0 {
 		return nil
 	}
 	mo.Policy = msbSdk.ModificationPolicyNoRestart
@@ -90,7 +90,8 @@ func reconcileResourceConfig(
 // buildModifyOptions derives the live resource change for opts against the
 // boot config, clamping each requested value to its boot maximum with a
 // warning. A zero CPUs means "all CPUs" (left unchanged); a zero MemoryMiB
-// means "unchanged".
+// means "unchanged". A root disk grows to a larger requested size; a smaller
+// one is a recreate (reconfig.PlanReconfig), never staged here.
 func buildModifyOptions(cfg *msbSdk.SandboxConfig, opts options.RunOptions, ui termio.Logger) msbSdk.ModifyOptions {
 	var mo msbSdk.ModifyOptions
 	if opts.CPUs != 0 {
@@ -112,6 +113,10 @@ func buildModifyOptions(cfg *msbSdk.SandboxConfig, opts options.RunOptions, ui t
 		if want != cfg.MemoryMiB {
 			mo.MemoryMiB = want
 		}
+	}
+	// An unset or unparseable disk size reads as 0, which never grows the disk.
+	if want, _ := options.ParseMemoryOK(opts.DiskSize); cfg.RootDisk != nil && want > cfg.RootDisk.SizeMiB {
+		mo.RootDiskSizeMiB = want
 	}
 	return mo
 }
