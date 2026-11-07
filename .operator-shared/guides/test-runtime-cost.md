@@ -109,9 +109,11 @@ separately; it returns the real identity, so the config-slug assertions keep the
 `git.ResolveIdentity`. Remaining cmd cost is `NewResolver` (~17%) — real config assembly the config tests depend on —
 and `t.TempDir` cleanup, neither worth removing.
 
-There is no `t.Parallel()` in the repo. It is not absent by oversight: `configpaths.WithMockConfigPaths` uses
-`t.Setenv`, and the `InstallFailFast*`/`Get` seams are process-global, so within-package parallelism is
-precluded by the same design that makes the fail-fast defaults work.
+There is no `t.Parallel()` in the default unit suite. It is not absent by oversight:
+`configpaths.WithMockConfigPaths` uses `t.Setenv`, and the `InstallFailFast*`/`Get` seams are
+process-global, so within-package parallelism is precluded by the same design that makes the
+fail-fast defaults work. The host-only tiers use it where their shared state allows: the integration
+image-build subtests, and the harness subtests (each with its own prepared HOME tree).
 
 ## Timeout seams and failure latency
 
@@ -163,3 +165,53 @@ with a stack dump instead of blocking for Go's default 10 minutes per package.
   in `TestMain` computes it once per directory (~23% of the package). Key the memo on the resolved path when the
   caller passes `"."`, or every chdir fixture collapses into one entry. The same shape works for the config mock's
   directory creation (`mockConfigPaths.ensureDir`), which makes each mock dir once instead of per accessor call.
+
+## Host-only tiers (test-integration, test-msb)
+
+The `integration` and `msb` tiers are a different cost shape from the unit suite: they are
+dominated by real docker builds and real VM/image operations, not by Go linking.
+
+Baseline measured on 2026-11-07 (shared 16-core host, warm caches, before the 2026-11-07
+host-tier changes below):
+
+- `make test-integration` ~3m56s warm / ~4m45s cold. `internal/sandbox/image` is ~221s of it;
+  every other package is ≤17s. The cost is real docker builds, largest single test
+  `TestRenderDockerfileAgentVersionRebuildsInstall`.
+- `make test-msb` ~13m37s warm / ~14m38s cold. `test/harness` is ~813s (`TestHarnessSmoke`
+  one-off setup ~471s + 7 subtests ~228s; `TestDockerStorageDriverIsFuseOverlayfs` ~106s), and
+  `internal/sandbox/msb` ~45s runs concurrently.
+
+After the 2026-11-07 host-tier changes (same host, warm caches, `make test-msb-reuse`):
+
+- `make test-msb-reuse` ~20s (from ~13m37s): `internal/sandbox/msb` ~10s runs concurrently, so `test/harness` is
+  ~20s. That package is now one top-level test, `TestHarnessSmoke`, whose parallel subtests are the seven harnesses
+  plus the docker-storage smoke as a sibling — so it is bounded by its slowest subtest (hermes ~15s) rather than a
+  sum. Both oh-my-pi and the docker-storage shell ready on a real signal (a startup marker; the shell's first echoed
+  command, retried) instead of the 25s `settledReadyTimeout` sleep, which had been the floor.
+- `make test-integration` ~30s warm (was ~3m56s): `internal/sandbox/image` ~26s, its build subtests in parallel.
+
+Two structural costs dominate, neither visible from the call sites:
+
+- A harness image prebuild runs `agents-sandbox build`, which ends in `EnsureLoaded` — a
+  `docker save | msb ImageLoad` of the multi-GB runner image
+  (`internal/sandbox/image/load.go`). The suite's microsandbox home is a fresh `os.MkdirTemp`
+  per run (`runtime_isolation_msb_test.go`, `smoke_msb_test.go`), so the microsandbox image
+  cache never survives between runs and the transfer is repaid in full each time (hermes alone
+  ~190s of the ~420s prebuild; its docker build is ~7s). The `AGENTS_SANDBOX_SMOKE_ROOT` /
+  `AGENTS_SANDBOX_MSB_TEST_HOME` reuse opt-in (`make test-msb-reuse`) keeps the home between
+  runs so the transfer is paid once; `make test-msb` stays fresh-per-run.
+- The classic builder's intermediate-layer cache lives in untagged parent images. Test image
+  removal must use `PruneChildren: false` (`removeTestImage`) to preserve it;
+  `PruneChildren: true` deletes those parents and forces every later build — and every later
+  run — to re-run the node/agent/docker installs (the reason
+  `TestRenderDockerfileAgentVersionRebuildsInstall` drops from ~100s to ~5s on the second run).
+
+Both tiers run their independent stages with small bounded concurrency: `t.Parallel` on the
+integration build subtests (the `INTEGRATION_PARALLEL` knob), and in `test-msb` a small internal
+image-prebuild pool plus a number of parallel harness subtests sized to the host's **free memory**
+(`harnessConcurrencyFor`: 1.5 GiB working-set VMs after a 2 GiB host reserve; `AGENTS_SANDBOX_MSB_PARALLEL`/`MSB_PARALLEL`
+overrides it). Each smoke run boots its VM at `--memory 2G` rather than the launcher's 4 GiB default; the count uses
+a working-set estimate, not that ceiling, because a guest allocates only the pages it touches.
+Each harness gets its own prepared HOME tree (`prepareHome`), so overlapping harnesses never share a
+home. Both tiers stay serial across their top-level tests, so a per-test cache or a process-global
+seam is not raced.

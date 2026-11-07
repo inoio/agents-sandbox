@@ -36,26 +36,54 @@ const destroyTimeout = 30 * time.Second
 // sandbox, which is why Destroy and the sweep stay primary.
 const testIdleTimeout = 5 * time.Minute
 
-// installIsolatedRuntimeHome points the process at a fresh microsandbox home and
+// reuseRuntimeHomeEnv, when set, points the msb-tagged tests at an existing
+// microsandbox home they keep between runs instead of a fresh temp home. A kept
+// home skips reinstalling the SDK-pinned runtime and reloading cached images.
+// Local iteration only: unset (the default) creates and removes a fresh home.
+const reuseRuntimeHomeEnv = "AGENTS_SANDBOX_MSB_TEST_HOME"
+
+// installIsolatedRuntimeHome points the process at a microsandbox home and
 // returns a cleanup that removes it. It is cheap — the runtime installs lazily
 // in ensureIsolatedRuntime, so compile-all's -run=^$ stays a no-op.
 //
-// Without this the SDK resolves its default home (~/.microsandbox), so a stale
-// runtime left there by a pre-decoupling agents-sandbox install or a manual msb
-// would fail sandbox creation with "no tested sandbox launch contract for
-// runtime <v>" after an SDK bump (specs/volumes/runtime-home-decoupling.md). The launcher
-// repairs its own private home, not this one, so the tests must provision their
-// own.
+// A set reuseRuntimeHomeEnv reuses that directory and keeps it (the cleanup is a
+// no-op), so the runtime and image cache survive between runs. Otherwise a fresh
+// temp home is created and removed. Both paths set MSB_HOME: the SDK resolves
+// its FFI cache and all non-setup operations through MSB_HOME, so a reuse that
+// only named the home in RuntimeConfig would leave sandbox creation pointed at
+// the real ~/.microsandbox.
+//
+// Without an isolated home the SDK resolves its default home (~/.microsandbox),
+// so a stale runtime left there by a pre-decoupling agents-sandbox install or a
+// manual msb would fail sandbox creation with "no tested sandbox launch contract
+// for runtime <v>" after an SDK bump (specs/volumes/runtime-home-decoupling.md).
+// The launcher repairs its own private home, not this one, so the tests must
+// provision their own.
 func installIsolatedRuntimeHome() func() {
+	if dir := os.Getenv(reuseRuntimeHomeEnv); dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			panic(fmt.Sprintf("create reused microsandbox home %s: %v", dir, err))
+		}
+		setMSBHome(dir)
+		isolatedRuntimeHome = dir
+		return func() {}
+	}
 	home, err := os.MkdirTemp("", "agents-sandbox-msb-test-")
 	if err != nil {
 		panic(fmt.Sprintf("create isolated microsandbox home: %v", err))
 	}
+	setMSBHome(home)
+	isolatedRuntimeHome = home
+	return func() { _ = os.RemoveAll(home) }
+}
+
+// setMSBHome points the SDK at home. The SDK resolves its FFI cache and all
+// non-setup operations through MSB_HOME; RuntimeConfig{Home: ...} alone only
+// governs runtime setup.
+func setMSBHome(home string) {
 	if err := os.Setenv("MSB_HOME", home); err != nil {
 		panic(fmt.Sprintf("set MSB_HOME: %v", err))
 	}
-	isolatedRuntimeHome = home
-	return func() { _ = os.RemoveAll(home) }
 }
 
 // ensureIsolatedRuntime resolves the SDK-pinned runtime in the isolated home,
@@ -108,4 +136,28 @@ func sweepIsolatedSandboxes() error {
 		}
 	}
 	return errors.Join(destroyErrors...)
+}
+
+// TestInstallIsolatedRuntimeHomeSetsMSBHomeOnReuse pins that the reuse path
+// points the SDK at the reused home. Setting only RuntimeConfig{Home: ...}
+// would leave MSB_HOME at the real ~/.microsandbox, and sandbox creation — which
+// resolves its storage root through MSB_HOME — would fail the "catalog ancestor
+// permits path substitution" check on a reused home.
+func TestInstallIsolatedRuntimeHomeSetsMSBHomeOnReuse(t *testing.T) {
+	reuseDir := t.TempDir()
+	t.Setenv(reuseRuntimeHomeEnv, reuseDir)
+	// Register MSB_HOME for restoration: it starts at the home TestMain
+	// installed, and installIsolatedRuntimeHome overwrites it through setMSBHome.
+	t.Setenv("MSB_HOME", os.Getenv("MSB_HOME"))
+
+	previousHome := isolatedRuntimeHome
+	t.Cleanup(func() { isolatedRuntimeHome = previousHome })
+	t.Cleanup(installIsolatedRuntimeHome())
+
+	if got := os.Getenv("MSB_HOME"); got != reuseDir {
+		t.Errorf("MSB_HOME = %q, want the reused home %q", got, reuseDir)
+	}
+	if isolatedRuntimeHome != reuseDir {
+		t.Errorf("isolatedRuntimeHome = %q, want %q", isolatedRuntimeHome, reuseDir)
+	}
 }

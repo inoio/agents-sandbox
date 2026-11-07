@@ -85,7 +85,12 @@ where a runtime left by a pre-decoupling agents-sandbox install fails sandbox cr
 "no tested sandbox launch contract for runtime <v>" after an SDK bump; the launcher repairs only its own private home
 (`specs/volumes/runtime-home-decoupling.md`).
 
-Because that home is **fresh per test process**, a sandbox leaked by one run is invisible to the next: `WithReplace`
+A set `AGENTS_SANDBOX_MSB_TEST_HOME` overrides this with a directory kept between runs (and the harness suite's
+`AGENTS_SANDBOX_SMOKE_ROOT` does the same for its temp root), so the SDK runtime and cached images are not
+reinstalled or re-transferred on every run — `make test-msb-reuse`. It is an explicit local-iteration opt-in
+(the microsandbox image transfer dominates the suite's wall time), so the default stays fresh per process.
+
+By default, because that home is **fresh per test process**, a sandbox leaked by one run is invisible to the next: `WithReplace`
 only replaces a same-name sandbox within one runtime home, and the teardown deletes the home, so a surviving VM can
 never be reached by a later invocation. Three rules keep the msb-tagged tests from leaking:
 

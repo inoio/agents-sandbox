@@ -1,4 +1,4 @@
-.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint fmt validate-fmt run cleanup-branches cleanup-branches-test test-scrubbed test-hermetic envelope-test check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test docs-serve
+.PHONY: build build-release build-release-all bootstrap test test-uncached fuzz test-race test-integration test-msb test-msb-reuse compile-all vulncheck deadcode deadcode-test mutation coverage coverage-junit lint fmt validate-fmt run cleanup-branches cleanup-branches-test test-scrubbed test-hermetic envelope-test check verify all clean install-bash-completion install-head install-head-and-bash-completion upgrade-deps docs-diagrams docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test docs-serve
 
 VERSION ?= dev
 
@@ -26,6 +26,18 @@ DEADCODE_VERSION = v0.52.0
 # Per-binary cap for the unit suite: a wedged test panics with a stack dump
 # instead of blocking for go test's default 10m. Override for a slow machine.
 TEST_TIMEOUT ?= 5m
+# Bounded concurrency for the host-only tiers' parallel stages; both suites are
+# otherwise serial across their top-level tests. test-integration uses
+# INTEGRATION_PARALLEL. test-msb sizes its parallel harnesses from the host's
+# free memory (test/harness) and is additionally capped by an internal
+# semaphore, so a bare `go test -tags msb` cannot start a VM per harness; set
+# MSB_PARALLEL to a count to force it instead of the memory-derived default.
+INTEGRATION_PARALLEL ?= 4
+MSB_PARALLEL ?=
+# Stable root for `test-msb-reuse`: it must stay short enough for microsandbox's
+# derived sandbox control socket (see test/harness/harness.go). Remove it to
+# start fresh.
+MSB_REUSE_ROOT ?= /tmp/asb-reuse
 # The SDK's microsandbox_ffi_path tag swaps its //go:embed for reading the FFI
 # library from $MICROSANDBOX_FFI_PATH at runtime. The unit and integration
 # suites reach the SDK only through seams, so they never read that path and need
@@ -173,14 +185,25 @@ fuzz:
 # build tag. Requires a working docker daemon and network access (base image
 # pulls, agent installs, registry round-trips).
 test-integration:
-	CGO_ENABLED=1 go test -tags 'integration $(NO_EMBEDDED_FFI_TAG)' -timeout 60m -count=1 ./...
+	CGO_ENABLED=1 go test -tags 'integration $(NO_EMBEDDED_FFI_TAG)' -timeout 60m -count=1 -parallel $(INTEGRATION_PARALLEL) ./...
 
 # Harness smoke tests plus the real-client msb tests: start every registered
 # harness to its TUI in a real microsandbox VM, and drive the real SDK client
 # against the host runtime. Host-only (needs /dev/kvm, a docker daemon, and
 # network); excluded from test/check via the `msb` build tag. These keep the
-# embedded native library: they are the tests that actually load it.
+# embedded native library: they are the tests that actually load it. Each run
+# uses a fresh, isolated microsandbox home.
 test-msb:
+	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
+
+# Like test-msb, but reuses a stable microsandbox home so the multi-GB
+# `docker save | msb ImageLoad` each prebuild otherwise repays is paid once.
+# Local iteration only: the home outlives the run, so remove $(MSB_REUSE_ROOT)
+# to start fresh. Add -v to see the per-image prebuild timings.
+test-msb-reuse:
+	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
+	AGENTS_SANDBOX_MSB_TEST_HOME=$(MSB_REUSE_ROOT)/msb \
+	AGENTS_SANDBOX_MSB_PARALLEL=$(MSB_PARALLEL) \
 	CGO_ENABLED=1 go test -tags msb -timeout 60m -count=1 ./test/harness/... ./internal/sandbox/msb/...
 
 # Compile every test binary including build-tagged files (`//go:build
@@ -247,8 +270,11 @@ coverage-junit:
 	CGO_ENABLED=1 go run gotest.tools/gotestsum@v$(GOTESTSUM_VERSION) --junitfile junit.xml -- -tags $(NO_EMBEDDED_FFI_TAG) -timeout $(TEST_TIMEOUT) -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1
 
+# Lint the whole module, including the integration, msb, and
+# microsandbox_ffi_path build-tagged files that golangci-lint's default build
+# constraints otherwise omit.
 lint:
-	golangci-lint run ./...
+	golangci-lint run --build-tags 'integration msb microsandbox_ffi_path' ./...
 
 fmt:
 	golangci-lint fmt ./...

@@ -87,9 +87,9 @@ Common development commands (run from the Go module root):
 - `make test-msb` — run the `msb`-tagged harness smoke tests, which start every registered harness to its full-screen
   TUI in a real microsandbox VM. Host-only (needs KVM, a docker daemon, and network) and excluded from
   `make check`/`make test` via the `msb` build tag; `make compile-all` still compiles it. Run it (or a single test via
-  `CGO_ENABLED=1 go test -tags msb -run <Test> ./internal/sandbox/msb/`) whenever you are on the host. `make lint`
-  skips `msb`-tagged files; lint them with `golangci-lint run --build-tags msb <pkg>`.
-- `make lint`/`golangci-lint run` — run the linter. ALWAYS use! DON'T use `go vet`!
+  `CGO_ENABLED=1 go test -tags msb -run <Test> ./internal/sandbox/msb/`) whenever you are on the host.
+- `make lint`/`golangci-lint run` — run the linter over the `integration`, `msb`, and `microsandbox_ffi_path`
+  build-tagged files too. ALWAYS use! DON'T use `go vet`!
 - `make fmt`/`golangci-lint fmt` — format all files. ALWAYS use! DON'T manually rewrite / use `go fmt`!
 - `go mod tidy` — sync `go.mod`/`go.sum` (run after adding/removing imports).
 - `make build` - build binary to `./agents-sandbox`

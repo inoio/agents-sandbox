@@ -87,7 +87,8 @@ library, third-party, and this module (in that order) by `gci`, and `goimports`/
 
 ### Linting
 
-Use `make lint` (`golangci-lint run ./...`), which includes `vet`.
+Use `make lint` (`golangci-lint run --build-tags 'integration msb microsandbox_ffi_path' ./...`), which includes `vet`
+and covers the build-tagged `integration`/`msb`/`microsandbox_ffi_path` files.
 
 ## Testing
 

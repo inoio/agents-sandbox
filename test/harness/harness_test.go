@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -50,6 +51,10 @@ func TestOhMyPiSeedsAHomeConfigWithoutSetupWizard(t *testing.T) {
 	if !spec.KeepsNormalBuffer {
 		t.Error("oh-my-pi KeepsNormalBuffer = false; its TUI renders in the normal buffer")
 	}
+	if spec.ReadyMarker != ohMyPiReadyMarker {
+		t.Errorf("oh-my-pi ReadyMarker = %q, want %q; without it the subtest waits out the settle",
+			spec.ReadyMarker, ohMyPiReadyMarker)
+	}
 	if spec.Network != "" {
 		t.Errorf("oh-my-pi Network = %q, want the default `none`", spec.Network)
 	}
@@ -66,17 +71,15 @@ func TestOhMyPiSeedsAHomeConfigWithoutSetupWizard(t *testing.T) {
 // selection: a spec that names an override uses it, and one that leaves it
 // unset falls back to the shared default.
 func TestReadyTimeoutPrefersThePerHarnessOverride(t *testing.T) {
-	const fallback = 25 * time.Second
-
-	if got := (harnessSpec{ReadyTimeout: 90 * time.Second}).readyTimeout(fallback); got != 90*time.Second {
+	if got := (harnessSpec{ReadyTimeout: 90 * time.Second}).readyTimeout(); got != 90*time.Second {
 		t.Errorf("readyTimeout() = %s, want the override 90s", got)
 	}
-	if got := (harnessSpec{}).readyTimeout(fallback); got != fallback {
-		t.Errorf("readyTimeout() = %s, want the fallback %s", got, fallback)
+	if got := (harnessSpec{}).readyTimeout(); got != settledReadyTimeout {
+		t.Errorf("readyTimeout() = %s, want the fallback %s", got, settledReadyTimeout)
 	}
 	// The smallest positive override must win over the fallback: a
 	// truthiness test (`> 1`) would drop it.
-	if got := (harnessSpec{ReadyTimeout: time.Nanosecond}).readyTimeout(fallback); got != time.Nanosecond {
+	if got := (harnessSpec{ReadyTimeout: time.Nanosecond}).readyTimeout(); got != time.Nanosecond {
 		t.Errorf("readyTimeout() = %s, want the nanosecond override", got)
 	}
 }
@@ -160,6 +163,49 @@ func TestSeedHomeFiles(t *testing.T) {
 		if string(got) != want {
 			t.Errorf("%s = %q, want %q", rel, got, want)
 		}
+	}
+}
+
+// TestPrepareHomeCreatesTheChildEnvTree pins that prepareHome materialises every
+// directory isolatedEnv points the child at. A missing TMPDIR is fatal: the
+// launcher and the microsandbox runtime create temporary files through
+// os.TempDir() while setting up a sandbox, so an uncreated TMPDIR fails the run
+// with "create prefill sandbox: io error: no such file or directory".
+func TestPrepareHomeCreatesTheChildEnvTree(t *testing.T) {
+	homeBase := filepath.Join(t.TempDir(), "run")
+	if err := prepareHome(homeBase); err != nil {
+		t.Fatalf("prepareHome: %v", err)
+	}
+	for _, dir := range []string{homeDirName, tmpDirName, configDirName, stateDirName, cacheDirName} {
+		info, err := os.Stat(filepath.Join(homeBase, dir))
+		if err != nil {
+			t.Errorf("stat %s: %v", dir, err)
+			continue
+		}
+		if !info.IsDir() {
+			t.Errorf("%s is not a directory", dir)
+		}
+	}
+}
+
+// TestPrepareHomeReportsFailures pins that a home base that cannot be created
+// names the directory and preserves the filesystem cause, so the smoke test
+// reports why preparation failed rather than a bare message.
+func TestPrepareHomeReportsFailures(t *testing.T) {
+	// A file where the home base must go makes the first MkdirAll fail.
+	homeBase := filepath.Join(t.TempDir(), "run")
+	if err := os.WriteFile(homeBase, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := prepareHome(homeBase)
+	if err == nil {
+		t.Fatal("prepareHome = nil, want an error when the home base cannot be created")
+	}
+	if !strings.Contains(err.Error(), "create "+homeDirName) {
+		t.Errorf("prepareHome error %q, want it to name the directory it could not create", err)
+	}
+	if !errors.Is(err, syscall.ENOTDIR) {
+		t.Errorf("prepareHome error %q, want it to wrap the filesystem cause ENOTDIR", err)
 	}
 }
 
@@ -263,7 +309,7 @@ func TestIsolatedEnvAllowlist(t *testing.T) {
 		"MSB_HOME=/real/msb",
 		"SECRET_TOKEN=leak",
 	}
-	env := isolatedEnv("/root", inherited)
+	env := isolatedEnv("/root", "/root", inherited)
 	got := map[string]string{}
 	for _, kv := range env {
 		k, v, _ := strings.Cut(kv, "=")
@@ -309,24 +355,86 @@ func TestIsolatedEnvAllowlist(t *testing.T) {
 func TestSmokeRootStaysShortEnoughForSandboxSockets(t *testing.T) {
 	// os.MkdirTemp appends nine random characters after the pattern.
 	const mkdirTempSuffix = "123456789"
-	// The private microsandbox home agents-sandbox derives from XDG_DATA_HOME:
-	// <data>/agents-sandbox/msb (configpaths.UserDataDir plus its "msb" child).
-	home := filepath.Join(smokeRootBase, smokeRootPrefix+mkdirTempSuffix, dataDirName, "agents-sandbox", "msb")
-	// microsandbox builds the socket path by appending a fixed suffix to the
-	// home (50 bytes as of v0.7.8) and rejects one that does not fit a Unix
-	// socket's sun_path, 104 bytes on macOS, the tighter of the two targets.
-	const (
-		socketPathSuffix = 50
-		sunPathLimit     = 104
-	)
-	if derived := len(home) + socketPathSuffix; derived >= sunPathLimit {
+	root := filepath.Join(smokeRootBase, smokeRootPrefix+mkdirTempSuffix)
+	if !rootFitsSandboxSocket(root) {
 		t.Errorf(
-			"derived sandbox socket path for home %q is %d bytes, at or above the %d-byte sun_path limit; keep smokeRootBase and smokeRootPrefix short",
-			home,
-			derived,
+			"the default suite root %q derives a %d-byte sandbox control-socket path, at or above the %d-byte sun_path limit; keep smokeRootBase and smokeRootPrefix short",
+			root,
+			len(msbHomeUnderRoot(root))+sandboxSocketPathSuffix,
 			sunPathLimit,
 		)
 	}
+}
+
+// TestResolveSuiteRootReusesEnv pins the reuse escape hatch: a set
+// smokeRootReuseEnv reuses (and creates) that directory, while an unset one
+// creates a fresh temp root, and a reused path whose derived socket would exceed
+// the budget is rejected.
+func TestResolveSuiteRootReusesEnv(t *testing.T) {
+	// The reuse path must stay short (sun_path budget), so it is fixed under the
+	// default base rather than t.TempDir, whose test-named path is too long.
+	shortRoot := filepath.Join(smokeRootBase, smokeRootPrefix+"reuse-test")
+	t.Cleanup(func() { _ = os.RemoveAll(shortRoot) })
+
+	t.Setenv(smokeRootReuseEnv, shortRoot)
+	root, reused, err := resolveSuiteRoot()
+	if err != nil {
+		t.Fatalf("resolveSuiteRoot: %v", err)
+	}
+	if !reused || root != shortRoot {
+		t.Errorf("resolveSuiteRoot = (%q, %v), want (%q, true)", root, reused, shortRoot)
+	}
+
+	t.Setenv(smokeRootReuseEnv, filepath.Join(t.TempDir(), strings.Repeat("x", sunPathLimit)))
+	if _, _, err := resolveSuiteRoot(); err == nil {
+		t.Error("resolveSuiteRoot = nil error, want a too-long reuse path rejected")
+	}
+
+	t.Setenv(smokeRootReuseEnv, "")
+	root, reused, err = resolveSuiteRoot()
+	if err != nil {
+		t.Fatalf("resolveSuiteRoot: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	if reused || root == "" {
+		t.Errorf("resolveSuiteRoot = (%q, %v), want a fresh, non-reused root", root, reused)
+	}
+}
+
+// TestIsolatedEnvSharesDataKeepsHome pins the per-harness split: two harnesses
+// sharing one root keep separate HOME/config/state/cache dirs (so a seeded config
+// cannot clobber another harness) while sharing XDG_DATA_HOME (so the
+// microsandbox image cache stays common).
+func TestIsolatedEnvSharesDataKeepsHome(t *testing.T) {
+	root := "/suite"
+	first := envMap(isolatedEnv(root, harnessHomeBase(root, "opencode"), nil))
+	second := envMap(isolatedEnv(root, harnessHomeBase(root, "pi"), nil))
+
+	if first["HOME"] == second["HOME"] {
+		t.Errorf("HOME = %q for both harnesses, want a distinct per-harness home", first["HOME"])
+	}
+	if first["XDG_STATE_HOME"] == second["XDG_STATE_HOME"] {
+		t.Errorf(
+			"XDG_STATE_HOME = %q for both harnesses, want a distinct per-harness state dir",
+			first["XDG_STATE_HOME"],
+		)
+	}
+	wantData := filepath.Join(root, dataDirName)
+	for name, env := range map[string]map[string]string{"opencode": first, "pi": second} {
+		if env["XDG_DATA_HOME"] != wantData {
+			t.Errorf("%s XDG_DATA_HOME = %q, want the shared %q", name, env["XDG_DATA_HOME"], wantData)
+		}
+	}
+}
+
+// envMap flattens a KEY=VALUE slice into a map.
+func envMap(env []string) map[string]string {
+	got := make(map[string]string, len(env))
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		got[k] = v
+	}
+	return got
 }
 
 // TestIsolatedEnvKeepsDockerEndpoint pins that the docker endpoint variables
@@ -339,7 +447,7 @@ func TestIsolatedEnvKeepsDockerEndpoint(t *testing.T) {
 		"DOCKER_CONFIG=/real/.docker",
 	}
 	got := map[string]string{}
-	for _, kv := range isolatedEnv("/root", inherited) {
+	for _, kv := range isolatedEnv("/root", "/root", inherited) {
 		k, v, _ := strings.Cut(kv, "=")
 		got[k] = v
 	}
@@ -374,7 +482,7 @@ func TestIsolatedEnvDefaultsTerm(t *testing.T) {
 			if test.set {
 				inherited = append(inherited, envTerm+"="+test.value)
 			}
-			if got := envValue(isolatedEnv("/root", inherited), envTerm); got != test.want {
+			if got := envValue(isolatedEnv("/root", "/root", inherited), envTerm); got != test.want {
 				t.Errorf("TERM = %q, want %q", got, test.want)
 			}
 		})
@@ -407,5 +515,40 @@ func TestTUIStarted(t *testing.T) {
 	}
 	if tuiStarted([]byte("launcher output\nno tui yet")) {
 		t.Error("tuiStarted = true, want false without the sequence")
+	}
+}
+
+// TestHarnessConcurrencyForFreeMemory pins the memory-derived parallel-harness
+// count: as many smoke VMs as fit after the host reserve, floored, and never
+// fewer than one.
+func TestHarnessConcurrencyForFreeMemory(t *testing.T) {
+	perVM := smokeWorkingSetMiB
+	tests := []struct {
+		name    string
+		freeMiB int
+		want    int
+	}{
+		{"plenty of headroom", 32 * 1024, (32*1024 - harnessHostReserveMiB) / perVM},
+		{"exactly the reserve", harnessHostReserveMiB, 1},
+		{"below the reserve", 512, 1},
+		{"one smoke VM fits", harnessHostReserveMiB + perVM, 1},
+		{"a partial VM does not round up", harnessHostReserveMiB + 3*perVM + perVM - 1, 3},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := harnessConcurrencyFor(tc.freeMiB); got != tc.want {
+				t.Errorf("harnessConcurrencyFor(%d) = %d, want %d", tc.freeMiB, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestHarnessRunArgsCapTheSmokeMemory pins that a harness smoke run boots its VM
+// at the smoke memory, not the launcher's larger default.
+func TestHarnessRunArgsCapTheSmokeMemory(t *testing.T) {
+	got := harnessRunArgs("opencode", "none")
+	want := []string{"run", "--agent", "opencode", "--network", "none", "--memory", smokeMemorySpec()}
+	if !slices.Equal(got, want) {
+		t.Errorf("harnessRunArgs = %v, want %v", got, want)
 	}
 }
