@@ -1128,6 +1128,44 @@ func TestPruneImagesEmptyAgentLatestTagIsSurplus(t *testing.T) {
 	}
 }
 
+// TestPruneImagesPopulatesStaleFor pins that an msb-image StaleEntry reports
+// how long the image has been stale: measured from LastUsedAt, falling back to
+// CreatedAt when the image was never used, and zero when it has no timestamps.
+func TestPruneImagesPopulatesStaleFor(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	now := time.Now()
+	client := &msb.MockMsbClient{Images: []msb.ImageHandle{
+		&msb.MockImageHandle{
+			Reference_:  "agents-sandbox/runner-used-1mjusbm3wikhb0:digest1",
+			LastUsedAt_: now.Add(-3 * 24 * time.Hour),
+			CreatedAt_:  now.Add(-10 * 24 * time.Hour),
+		},
+		&msb.MockImageHandle{
+			Reference_: "agents-sandbox/runner-created-1mjusbm3wikhb0:digest2",
+			CreatedAt_: now.Add(-10 * 24 * time.Hour),
+		},
+		&msb.MockImageHandle{Reference_: "agents-sandbox/runner-dateless-1mjusbm3wikhb0:digest3"},
+	}}
+	msb.WithMsbMock(t, client)
+	docker.WithNoopDockerMock(t)
+	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("PruneImages: %v", err)
+	}
+	if len(r.Details) != 3 {
+		t.Fatalf("Details = %v, want three entries", r.Details)
+	}
+	if stale := r.Details[0].StaleFor; stale < 2*24*time.Hour || stale > 4*24*time.Hour {
+		t.Errorf("Details[0].StaleFor = %v, want ~3 days since LastUsedAt", stale)
+	}
+	if stale := r.Details[1].StaleFor; stale < 9*24*time.Hour || stale > 11*24*time.Hour {
+		t.Errorf("Details[1].StaleFor = %v, want ~10 days since CreatedAt", stale)
+	}
+	if r.Details[2].StaleFor != 0 {
+		t.Errorf("Details[2].StaleFor = %v, want 0 without timestamps", r.Details[2].StaleFor)
+	}
+}
+
 // managedDanglingImage builds an untagged, launcher-managed image.Summary
 // created at the given time, the shape pruneDockerImages treats as a candidate.
 func managedDanglingImage(id string, createdAt time.Time) imagetypes.Summary {

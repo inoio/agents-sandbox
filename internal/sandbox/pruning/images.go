@@ -24,6 +24,20 @@ type ImageReport struct {
 	Details            []StaleEntry
 }
 
+// imageStaleFor reports how long a cached image has been stale: since it was
+// last used, falling back to its creation time when it was never used, and zero
+// when it has neither timestamp.
+func imageStaleFor(imageHandle msb.ImageHandle) time.Duration {
+	used := imageHandle.LastUsedAt()
+	if used.IsZero() {
+		used = imageHandle.CreatedAt()
+	}
+	if used.IsZero() {
+		return 0
+	}
+	return time.Since(used)
+}
+
 // PruneImages prunes MSB runner-image references that the launcher no longer
 // needs, then asks microsandbox to reclaim unreferenced image data. Retained are
 // the refs a kept sandbox still holds, the keys the current invocation is about
@@ -73,7 +87,7 @@ func PruneImages(
 		report.Details = append(report.Details, StaleEntry{
 			Type:     StaleTypeMsbImage,
 			Name:     ref,
-			StaleFor: 0,
+			StaleFor: imageStaleFor(imageHandle),
 			Slug:     imageArtifact.Slug,
 			Digest:   digest,
 		})

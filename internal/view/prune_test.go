@@ -83,6 +83,82 @@ func TestNewImageReportJSONIncludesNativeReport(t *testing.T) {
 	}
 }
 
+// TestImageReportJSONIncludesDockerDetails pins that the image-prune JSON
+// details surface docker-image entries: the type rendered from StaleType, the
+// image id as name and the stale age measured from Created.
+func TestImageReportJSONIncludesDockerDetails(t *testing.T) {
+	got := NewImageReportJSON(pruning.ImageReport{
+		DockerImagesPruned: 1,
+		Details: []pruning.StaleEntry{{
+			Type:     pruning.StaleTypeDockerImage,
+			Name:     "sha256:deadbeef",
+			StaleFor: 48 * time.Hour,
+		}},
+	}, false)
+	if got.DockerImages != 1 {
+		t.Errorf("DockerImages = %d, want 1", got.DockerImages)
+	}
+	if len(got.Details) != 1 {
+		t.Fatalf("Details = %v, want one entry", got.Details)
+	}
+	detail := got.Details[0]
+	if detail.Type != "docker-image" {
+		t.Errorf("Type = %q, want docker-image", detail.Type)
+	}
+	if detail.Name != "sha256:deadbeef" {
+		t.Errorf("Name = %q, want the image id", detail.Name)
+	}
+	if detail.StaleForSeconds != int64((48 * time.Hour).Seconds()) {
+		t.Errorf("StaleForSeconds = %d, want %d", detail.StaleForSeconds, int64((48 * time.Hour).Seconds()))
+	}
+}
+
+// TestPruneReportJSONIncludesDockerDetails pins that the full prune-report JSON
+// details carry docker-image entries alongside msb-image ones, each with its
+// type string, identity and stale age.
+func TestPruneReportJSONIncludesDockerDetails(t *testing.T) {
+	got := NewPruneReportJSON(&pruning.StaleReport{
+		PrunedSandboxImages: 1,
+		PrunedDockerImages:  1,
+		Details: []pruning.StaleEntry{
+			{
+				Type:     pruning.StaleTypeMsbImage,
+				Name:     "agents-sandbox/runner-proj-1mjusbm3wikhb0:old",
+				Slug:     "proj-1mjusbm3wikhb0",
+				Digest:   "digest1",
+				StaleFor: 7 * 24 * time.Hour,
+			},
+			{
+				Type:     pruning.StaleTypeDockerImage,
+				Name:     "sha256:deadbeef",
+				StaleFor: 48 * time.Hour,
+			},
+		},
+	}, false)
+	if got.Images != 1 || got.DockerImages != 1 {
+		t.Errorf("counts = %+v, want one msb and one docker image", got)
+	}
+	if len(got.Details) != 2 {
+		t.Fatalf("Details = %v, want two entries", got.Details)
+	}
+	msbDetail, dockerDetail := got.Details[0], got.Details[1]
+	if msbDetail.Type != "msb-image" || msbDetail.Name != "agents-sandbox/runner-proj-1mjusbm3wikhb0:old" ||
+		msbDetail.Slug != "proj-1mjusbm3wikhb0" || msbDetail.Digest != "digest1" ||
+		msbDetail.StaleForSeconds != int64((7*24*time.Hour).Seconds()) {
+		t.Errorf("msb detail = %+v, want type, name, slug, digest and stale age", msbDetail)
+	}
+	if dockerDetail.Type != "docker-image" || dockerDetail.Name != "sha256:deadbeef" ||
+		dockerDetail.Slug != "" || dockerDetail.StaleForSeconds != int64((48*time.Hour).Seconds()) {
+		t.Errorf("docker detail = %+v, want type, id, no slug and stale age", dockerDetail)
+	}
+	encoded := marshal(t, got)
+	for _, key := range []string{`"type":"msb-image"`, `"type":"docker-image"`, `"stale_for_seconds":604800`} {
+		if !strings.Contains(encoded, key) {
+			t.Errorf("JSON missing %s: %s", key, encoded)
+		}
+	}
+}
+
 func TestGroupReportJSONsKeepEmptyDetailsAsArray(t *testing.T) {
 	values := []any{
 		NewImageReportJSON(pruning.ImageReport{MSBImagesPruned: 1}, false),
