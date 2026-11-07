@@ -17,16 +17,15 @@ type MsbClient = msb.Client
 // Prune orchestrates the safe-tier pruners against one shared snapshot and
 // returns a merged report. Task sandboxes count into PrunedVMs.
 //
-// The keep-set comes from the snapshot taken before pruning runs, so a stale VM's
-// home volumes and images are reclaimed even if the VM's own removal fails.
+// The keep-set comes from the snapshot taken before pruning runs.
 // opts.Retain names the keys the current invocation is about to use (a `run`/`shell`
 // passes its own project key): their images survive regardless of VM liveness or
 // age, so a run's startup prune never reclaims the image it is about to import.
 //
 // Prune never removes a home volume. The volume phase is unreachable here by
-// design: it lives in PruneVolumes, which only the `volume prune` command and the
-// explicit project purge call, so batch and auto-prune can never destroy one.
-// StaleReport.PrunedVolumes therefore stays zero.
+// design: it lives in PruneVolumes, which only the `volume prune` command calls,
+// so batch and auto-prune can never destroy one. StaleReport.PrunedVolumes
+// therefore stays zero.
 func Prune(
 	ctx context.Context,
 	dclient docker.Client,

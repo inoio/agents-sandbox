@@ -540,7 +540,7 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   cmdPrune + " [target]",
 		Args:  cobra.MaximumNArgs(1),
-		Short: "Prune stale VMs, volumes, and images",
+		Short: "Prune stale VMs, images, and internal state",
 		Long: "Prune stale runtime objects. Without --purge this is list-and-prune only: it never " +
 			"removes a home volume or a retired project's state, and lists the retired projects it " +
 			"observes with a hint to purge them. With --purge it removes one project's artifacts " +

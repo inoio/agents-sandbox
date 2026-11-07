@@ -124,10 +124,12 @@ portability features.
 
 - **Safe tier only.** Reclaims stale project VMs, runner-image refs and native
   image data, dangling Docker images, runtime RAM, and stale internal state (a
-  `state.yaml` recording no surviving volume, unheld `claims/*.claim`, stale
-  `clients/*.lock` leases, empty slug dirs, orphaned root-state entries). It
-  **never removes a home volume** or the state that points at a surviving one, so
-  `prune --yes` cannot destroy agent state. `locks/` is deliberately excluded.
+  `state.yaml` recording no home volume, unheld `claims/*.claim`, stale
+  `clients/*.lock` leases, empty slug dirs). It **never removes a home volume** or
+  the state that points at a surviving one — a state recording a home volume and
+  root-state adoption claims are reclaimed only by
+  `prune --purge`/`sandbox remove --purge` — so `prune --yes` cannot destroy
+  agent state. `locks/` is deliberately excluded.
 - **Lists retired projects, never deletes them.** A project is retired when it
   has no kept sandbox (no running VM and no inactive VM within the age, task
   sandboxes not counting) and its newest activity — VM `UpdatedAt`, newest home

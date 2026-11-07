@@ -159,14 +159,16 @@ func removalPlanSlice(names []string) []string {
 
 // RenderRemovalPlan names every artifact a targeted purge removes, so a user
 // approves exactly what will be deleted. The same list is printed for a dry
-// run, phrased as what would be removed. It writes through termio.Output;
-// cliout stays domain-free.
+// run, phrased as what would be removed. It writes through the quiet-immune
+// channel (termio.Output.Print): a destructive purge must name what it removes
+// even under --quiet, unlike an ordinary prune summary. It reports through
+// termio.Output; cliout stays domain-free.
 func RenderRemovalPlan(plan *pruning.RemovalPlan, ui termio.Output, dryRun bool) {
 	verb := "will"
 	if dryRun {
 		verb = "would"
 	}
-	ui.Header(fmt.Sprintf("Purge %s remove:", verb))
+	ui.Print(fmt.Sprintf("Purge %s remove:", verb))
 	renderRemovalSlugs(ui, plan.Slugs)
 	renderRemovalArtifacts(ui, "sandboxes", plan.Sandboxes)
 	renderRemovalArtifacts(ui, "home volumes", plan.Volumes)
@@ -182,11 +184,11 @@ func renderRemovalSlugs(ui termio.Output, slugs []string) {
 	case 0:
 		return
 	case 1:
-		ui.Outf("  project: %s", slugs[0])
+		ui.Print(fmt.Sprintf("  project: %s", slugs[0]))
 	default:
-		ui.Out("  projects:")
+		ui.Print("  projects:")
 		for _, slug := range slugs {
-			ui.Outf("    - %s", slug)
+			ui.Print(fmt.Sprintf("    - %s", slug))
 		}
 	}
 }
@@ -196,9 +198,9 @@ func renderRemovalArtifacts(ui termio.Output, label string, names []string) {
 	if len(names) == 0 {
 		return
 	}
-	ui.Outf("  %s:", label)
+	ui.Print(fmt.Sprintf("  %s:", label))
 	for _, name := range names {
-		ui.Outf("    - %s", name)
+		ui.Print(fmt.Sprintf("    - %s", name))
 	}
 }
 

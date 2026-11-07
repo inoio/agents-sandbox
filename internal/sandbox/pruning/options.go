@@ -11,8 +11,7 @@ import (
 // are never reclaimed).
 //
 // Prune is the safe tier and can never remove a home volume: the volume phase
-// lives in PruneVolumes, reachable only through `volume prune` and the explicit
-// project purge.
+// lives in PruneVolumes, reachable only through `volume prune`.
 type PruneOptions struct {
 	Age    time.Duration
 	DryRun bool

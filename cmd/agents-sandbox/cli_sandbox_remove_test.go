@@ -295,6 +295,37 @@ func TestSandboxRemovePurgeAcceptsSlugAndSlugAgent(t *testing.T) {
 	})
 }
 
+// TestSandboxRemovePurgeQuietNamesVolumes proves the shared purge engine names
+// the home volume it removes even under --quiet on the `sandbox remove --purge`
+// surface, which shares runProjectPurge with `prune --purge`.
+func TestSandboxRemovePurgeQuietNamesVolumes(t *testing.T) {
+	volumeName := homeVolumeNameFor(purgeTestSlug)
+
+	cmd, ui := setupCommandFixtures(t, "sandbox", "remove", "--purge", purgeTestSlug, "--quiet")
+	ui.IsInteractiveResult = true
+	ui.ConfirmResult = true
+
+	if err := seedHomeState(
+		state.Key{Slug: purgeTestSlug, Agent: purgeTestAgent},
+		state.HomeState{HomeVolume: volumeName},
+	); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+	m := &msb.MockMsbClient{}
+	m.Volumes = append(m.Volumes, homeVol(volumeName))
+	msb.WithMsbMock(t, m)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("sandbox remove --purge --quiet: %v", err)
+	}
+	if !slices.Contains(ui.PrintCalls, "    - "+volumeName) {
+		t.Errorf("quiet purge must name the volume via Print; PrintCalls=%v", ui.PrintCalls)
+	}
+	if len(ui.OutCalls) != 0 {
+		t.Errorf("quiet purge must not write table output, got OutCalls=%v", ui.OutCalls)
+	}
+}
+
 // TestSandboxRemovePurgeImplicitCwdTarget pins that `sandbox remove --purge`
 // with no target resolves the current checkout's slug, purging its artifacts
 // while leaving an unrelated project alone.

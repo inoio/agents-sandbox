@@ -15,7 +15,7 @@ func TestRenderPruneReportModes(t *testing.T) {
 	}{
 		{"table calls human renderer", ModeTable, true, false},
 		{"json writes value", ModeJSON, false, true},
-		{"quiet writes nothing", ModeIdentifiers, false, false},
+		{"identifiers calls human renderer", ModeIdentifiers, true, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

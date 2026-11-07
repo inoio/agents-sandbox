@@ -258,7 +258,7 @@ func TestRemovalPlanRenderNamesVolumes(t *testing.T) {
 		AdoptionClaims: []string{"myproj-1mjusbm3wikhb0/opencode"},
 	}
 	RenderRemovalPlan(plan, &ui, false)
-	rendered := strings.Join(ui.OutCalls, "\n")
+	rendered := strings.Join(ui.PrintCalls, "\n")
 	for _, want := range []string{
 		"Purge will remove:",
 		"project: myproj-1mjusbm3wikhb0",
@@ -289,7 +289,7 @@ func TestRemovalPlanRenderDryRunPhrasesWouldRemove(t *testing.T) {
 		Slugs:   []string{"myproj-1mjusbm3wikhb0"},
 		Volumes: []string{"myproj-1mjusbm3wikhb0-opencode-20260812T123456"},
 	}, &ui, true)
-	rendered := strings.Join(ui.OutCalls, "\n")
+	rendered := strings.Join(ui.PrintCalls, "\n")
 	if !strings.Contains(rendered, "Purge would remove:") {
 		t.Errorf("dry run must phrase as 'would remove', got:\n%s", rendered)
 	}
@@ -303,7 +303,7 @@ func TestRemovalPlanRenderListsEverySlug(t *testing.T) {
 		Slugs:   []string{"myproj-1mjusbm3wikhb0", "legacy-1mjusbm3wikhb0"},
 		Volumes: []string{"myproj-1mjusbm3wikhb0-opencode-20260812T123456"},
 	}, &ui, false)
-	rendered := strings.Join(ui.OutCalls, "\n")
+	rendered := strings.Join(ui.PrintCalls, "\n")
 	for _, want := range []string{"projects:", "- myproj-1mjusbm3wikhb0", "- legacy-1mjusbm3wikhb0"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("render missing %q:\n%s", want, rendered)
@@ -317,7 +317,7 @@ func TestRemovalPlanRenderListsEverySlug(t *testing.T) {
 func TestRemovalPlanRenderEmptyPlanPrintsOnlyHeader(t *testing.T) {
 	ui := termio.Mock{}
 	RenderRemovalPlan(&pruning.RemovalPlan{}, &ui, false)
-	rendered := strings.Join(ui.OutCalls, "\n")
+	rendered := strings.Join(ui.PrintCalls, "\n")
 	if !strings.Contains(rendered, "Purge will remove:") || strings.Contains(rendered, "- ") {
 		t.Errorf("empty plan must render only the header, got:\n%s", rendered)
 	}

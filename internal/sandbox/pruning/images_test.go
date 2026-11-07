@@ -1294,6 +1294,32 @@ func TestPruneDockerImagesReportsDetails(t *testing.T) {
 	}
 }
 
+// TestPruneDockerImagesErrorReturnsNoDetails pins that a failed real prune
+// reports no candidate details: the images were not deleted, so naming them
+// would put phantom docker-image entries in the JSON report.
+func TestPruneDockerImagesErrorReturnsNoDetails(t *testing.T) {
+	mock := &docker.MockDockerClient{
+		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
+			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
+				managedDanglingImage("sha256:ghost", time.Now().Add(-48*time.Hour)),
+			}}, nil
+		},
+		ImagePruneFn: func(context.Context, mobyclient.ImagePruneOptions) (mobyclient.ImagePruneResult, error) {
+			return mobyclient.ImagePruneResult{}, errBoom
+		},
+	}
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, false, &termio.Mock{})
+	if !errors.Is(err, errBoom) {
+		t.Fatalf("expected the prune error, got %v", err)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0 on error", count)
+	}
+	if len(details) != 0 {
+		t.Errorf("details = %v, want none on a failed prune", details)
+	}
+}
+
 // TestPruneDockerImagesSkipsForeignAndTagged pins the ownership boundary: a
 // tagged image and an unmanaged dangling image are never candidates, only a
 // managed, untagged image is.

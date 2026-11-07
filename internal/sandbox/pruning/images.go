@@ -152,7 +152,9 @@ func pruneDockerImages(
 	})
 	if err != nil {
 		ui.Warnf("failed to prune docker images: %v", err)
-		return 0, details, err
+		// No details on a failed prune: the candidates were not deleted, so
+		// reporting them would name docker images the daemon never removed.
+		return 0, nil, err
 	}
 	return len(result.Report.ImagesDeleted), details, nil
 }

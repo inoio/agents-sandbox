@@ -98,10 +98,11 @@ Pruning removes:
   age threshold are reclaimed. The runtime revalidates ownership under its own locks, so the phase never races a live
   VM. The report also carries the native image-prune data — the image data skipped because a live sandbox holds it, and
   the bytes reclaimed; a byte count the runtime cannot measure renders as unknown (`-`), never `0`.
-- Stale internal state: a `state.yaml` that records no surviving home volume, unheld `claims/*.claim`, stale
-  `clients/*.lock` leases, empty slug directories, and orphaned root-state entries. The `locks/` tree is deliberately
-  left alone — an empty file, and deleting a held one would split the lock. Internal state is swept only on a real
-  prune, never a `--dry-run`.
+- Stale internal state: a `state.yaml` that records no home volume, unheld `claims/*.claim`, stale
+  `clients/*.lock` leases, and empty slug directories. A state that records a home volume and root-state adoption
+  claims are reclaimed only by `prune --purge`/`sandbox remove --purge`. The `locks/` tree is deliberately left
+  alone — an empty file, and deleting a held one would split the lock. Internal state is swept only on a real prune,
+  never a `--dry-run`.
 
 Age is applied when deciding which sandboxes are stale, and that decision governs the runner images of a retired key: a
 project whose sandbox has activity in the age threshold is left alone. Home volumes are never reclaimed by `prune`; a

@@ -687,8 +687,12 @@ func TestPruneQuietSuppressesOutput(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(ui.OutCalls) != 0 {
-		t.Errorf("quiet prune should write no stdout, got: %v", ui.OutCalls)
+	// A batch prune's summary renders through the quiet-gated Outf/Out, so the
+	// production printer emits nothing; the mock still records the renderer's
+	// calls. The invariant under --quiet is that nothing reaches the
+	// quiet-immune Print channel (which the purge plan alone uses).
+	if len(ui.PrintCalls) != 0 {
+		t.Errorf("quiet prune must not write through the quiet-immune channel, got: %v", ui.PrintCalls)
 	}
 }
 
@@ -705,8 +709,8 @@ func TestPruneEnvQuietSuppressesOutput(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(ui.OutCalls) != 0 {
-		t.Errorf("env quiet prune should write no stdout, got: %v", ui.OutCalls)
+	if len(ui.PrintCalls) != 0 {
+		t.Errorf("env quiet prune must not write through the quiet-immune channel, got: %v", ui.PrintCalls)
 	}
 }
 
@@ -940,6 +944,73 @@ func TestPrunePurgeRemovesProjectArtifacts(t *testing.T) {
 	}
 }
 
+// TestPrunePurgeQuietNamesVolumes proves a targeted purge names the home volume
+// it will delete even under --quiet: the plan is written through the
+// quiet-immune Print channel before the confirmation, so a user can never
+// approve deleting a volume that was never named.
+func TestPrunePurgeQuietNamesVolumes(t *testing.T) {
+	volumeName := homeVolumeNameFor(purgeTestSlug)
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--purge="+purgeTestSlug, "--quiet")
+	ui.IsInteractiveResult = true
+	ui.ConfirmResult = true
+
+	if err := seedHomeState(
+		state.Key{Slug: purgeTestSlug, Agent: purgeTestAgent},
+		state.HomeState{HomeVolume: volumeName},
+	); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+	m := &sandboxmsb.MockMsbClient{}
+	m.Volumes = append(m.Volumes, homeVol(volumeName))
+	sandboxmsb.WithMsbMock(t, m)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(ui.ConfirmCalls) == 0 {
+		t.Fatal("expected the purge to prompt for confirmation")
+	}
+	if !slices.Contains(ui.PrintCalls, "    - "+volumeName) {
+		t.Errorf("quiet purge must name the volume via Print before the prompt; PrintCalls=%v", ui.PrintCalls)
+	}
+	if len(ui.OutCalls) != 0 {
+		t.Errorf("quiet purge must not write table output, got OutCalls=%v", ui.OutCalls)
+	}
+}
+
+// TestPrunePurgeFormatJSONOmitsHumanPlan proves --format json emits only the
+// structured plan: the human "Purge will remove:" text is never mixed into the
+// JSON stream.
+func TestPrunePurgeFormatJSONOmitsHumanPlan(t *testing.T) {
+	volumeName := homeVolumeNameFor(purgeTestSlug)
+
+	cmd, ui := setupCommandFixtures(t, "prune", "--purge="+purgeTestSlug, "--format", "json", "--yes")
+	if err := seedHomeState(
+		state.Key{Slug: purgeTestSlug, Agent: purgeTestAgent},
+		state.HomeState{HomeVolume: volumeName},
+	); err != nil {
+		t.Fatalf("seedHomeState: %v", err)
+	}
+	m := &sandboxmsb.MockMsbClient{}
+	m.Volumes = append(m.Volumes, homeVol(volumeName))
+	sandboxmsb.WithMsbMock(t, m)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	joined := strings.Join(ui.OutCalls, "\n")
+	if !strings.Contains(joined, `"volumes"`) || !strings.Contains(joined, volumeName) {
+		t.Errorf("expected the volume in the JSON plan, got OutCalls=%v", ui.OutCalls)
+	}
+	if strings.Contains(joined, "Purge will remove:") {
+		t.Errorf("JSON purge must not emit the human plan, got OutCalls=%v", ui.OutCalls)
+	}
+	if len(ui.PrintCalls) != 0 {
+		t.Errorf("JSON purge must not write through the quiet-immune channel, got PrintCalls=%v", ui.PrintCalls)
+	}
+}
+
 func TestPruneBatchListsRetiredProjectsWithoutDeletingVolumes(t *testing.T) {
 	const retireSlug = "retireme-1mjusbm3wikhb0"
 	volumeName := homeVolumeNameFor(retireSlug)
@@ -1000,8 +1071,8 @@ func TestPrunePurgeDryRunDoesNotPromptOrDelete(t *testing.T) {
 	if len(m.RemovedVolumes) != 0 {
 		t.Errorf("dry-run must not remove volumes, got: %v", m.RemovedVolumes)
 	}
-	if !slices.ContainsFunc(ui.OutCalls, func(s string) bool { return strings.Contains(s, "would remove") }) {
-		t.Errorf("expected the purge preview, got: %v", ui.OutCalls)
+	if !slices.ContainsFunc(ui.PrintCalls, func(s string) bool { return strings.Contains(s, "would remove") }) {
+		t.Errorf("expected the purge preview, got: %v", ui.PrintCalls)
 	}
 }
 
