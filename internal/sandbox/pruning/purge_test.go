@@ -514,8 +514,9 @@ func TestExecuteJoinsAdoptionClaimRemovalFailure(t *testing.T) {
 }
 
 // TestExecuteJoinsStateAndDirRemovalFailures pins the fail-closed state removal
-// and the empty-dir reclaim failures: a slug dir that cannot be written keeps
-// the state file and leaves the dirs in place, and both errors are joined.
+// and the empty-dir reclaim failures: a state dir that cannot be written keeps
+// the state file, a slug dir that cannot be written keeps its claims dir, and
+// both errors are joined.
 func TestExecuteJoinsStateAndDirRemovalFailures(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
@@ -537,23 +538,26 @@ func TestExecuteJoinsStateAndDirRemovalFailures(t *testing.T) {
 		t.Fatalf("PlanRemoval: %v", err)
 	}
 
-	slugDir := state.SlugDir(slug)
-	if err := os.Chmod(slugDir, 0o500); err != nil {
-		t.Fatal(err)
+	// Neither the agent dir (the state file's parent) nor the slug dir (the
+	// claims dir's parent) is writable, so both removals fail.
+	for _, dir := range []string{state.KeyDir(agentKey), state.SlugDir(slug)} {
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 	}
-	t.Cleanup(func() { _ = os.Chmod(slugDir, 0o700) })
 
 	if err := plan.Execute(context.Background(), false, false, &ui); err == nil {
 		t.Fatal("expected the state and dir removal failures to be joined")
 	}
 	if len(ui.WarnCalls) < 2 {
-		t.Errorf("WarnCalls = %v, want a warning for the state and the dir failures", ui.WarnCalls)
+		t.Errorf("WarnCalls = %v, want a warning for the state and the claims-dir failures", ui.WarnCalls)
 	}
-	if _, statErr := os.Stat(
-		filepath.Join(state.KeyDir(agentKey), "state.yaml"),
-	); statErr != nil &&
-		!os.IsNotExist(statErr) {
-		t.Errorf("state file stat err = %v, want it kept or partially removed without a stat error", statErr)
+	if _, statErr := os.Stat(filepath.Join(state.KeyDir(agentKey), "state.yaml")); statErr != nil {
+		t.Errorf("the state file must survive a failed removal, stat err = %v", statErr)
+	}
+	if _, readErr := state.ReadState(agentKey); readErr != nil {
+		t.Errorf("the state pointer must survive, read err = %v", readErr)
 	}
 }
 

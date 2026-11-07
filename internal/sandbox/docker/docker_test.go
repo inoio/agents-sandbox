@@ -40,12 +40,16 @@ func TestRealClientImageListSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("client.New: %v", err)
 	}
-	orig := ensureMobyClient
+	origEnsure := ensureMobyClient
+	origClient := mobyClient
 	ensureMobyClient = func() error {
 		mobyClient = mobyClientForTest
 		return nil
 	}
-	t.Cleanup(func() { ensureMobyClient = orig })
+	t.Cleanup(func() {
+		ensureMobyClient = origEnsure
+		mobyClient = origClient
+	})
 
 	result, err := (realDockerClient{}).ImageList(context.Background(), client.ImageListOptions{})
 	if err != nil {

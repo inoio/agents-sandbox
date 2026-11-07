@@ -172,7 +172,7 @@ func pruneDockerImages(
 			removed = append(removed, detail)
 		}
 	}
-	return len(deleted), removed, nil
+	return len(removed), removed, nil
 }
 
 // dockerImageIsCandidate reports whether a listed docker image is one of ours

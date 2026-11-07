@@ -77,10 +77,11 @@ func (s purgeScope) ownsKey(k state.Key) bool {
 // Home-volume ownership is not the name's alone: a legacy identity adoption
 // moves the state to a checkout slug without renaming its HomeVolume, and a
 // root-state adoption claim records the checkout that owns a lost-state volume.
-// A volume is therefore planned when its name parses into the scope OR a state
-// key in scope OR an in-scope checkout's adoption claim references it, and it is
-// refused (with a warning through ui) when a state key or checkout outside the
-// scope still owns it, so a purge can never drop another project's saved home.
+// A volume is therefore planned when its name parses into the scope, when a
+// state key in scope references it, or when an in-scope checkout's adoption
+// claim references it, and it is refused (with a warning through ui) when a state
+// key or checkout outside the scope still owns it, so a purge can never drop
+// another project's saved home.
 func PlanRemoval(ctx context.Context, slugs []string, agent string, ui termio.Logger) (*RemovalPlan, error) {
 	scope := purgeScope{slugs: slugSetOf(slugs), agent: agent}
 	keys := make(map[state.Key]struct{})

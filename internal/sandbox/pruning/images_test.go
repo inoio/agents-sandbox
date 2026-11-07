@@ -1295,6 +1295,38 @@ func TestPruneDockerImagesReportsDetails(t *testing.T) {
 	}
 }
 
+// TestPruneDockerImagesReportsOnlyDeletedCandidates pins that a candidate the
+// daemon kept (it gained a tag between list and prune) is absent from the count
+// and the details: the report agrees with what the daemon actually deleted.
+func TestPruneDockerImagesReportsOnlyDeletedCandidates(t *testing.T) {
+	old := time.Now().Add(-48 * time.Hour)
+	mock := &docker.MockDockerClient{
+		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
+			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
+				managedDanglingImage("sha256:gone", old),
+				managedDanglingImage("sha256:kept", old),
+			}}, nil
+		},
+		ImagePruneFn: func(context.Context, mobyclient.ImagePruneOptions) (mobyclient.ImagePruneResult, error) {
+			return mobyclient.ImagePruneResult{
+				Report: imagetypes.PruneReport{
+					ImagesDeleted: []imagetypes.DeleteResponse{{Deleted: "sha256:gone"}},
+				},
+			}, nil
+		},
+	}
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, false, &termio.Mock{})
+	if err != nil {
+		t.Fatalf("pruneDockerImages: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1 (only the daemon-deleted image)", count)
+	}
+	if len(details) != 1 || details[0].Name != "sha256:gone" {
+		t.Errorf("details = %v, want only sha256:gone", details)
+	}
+}
+
 // TestPruneDockerImagesErrorReturnsNoDetails pins that a failed real prune
 // reports no candidate details: the images were not deleted, so naming them
 // would put phantom docker-image entries in the JSON report.
