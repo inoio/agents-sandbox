@@ -87,6 +87,12 @@ so neither the prefix nor the label route can tell it apart. `image/list.go`, `i
 `refuseNonRunnerRefs` refuses a hashless ref without `--force` overriding it. Do not "simplify" this back to
 `naming.ParseImageTag(ref).Slug == ""`.
 
+Pruning's retired-project enumeration (`pruning.EnumerateCandidates`) and the shared purge engine apply these same
+ownership predicates across the artifact union: every project/agent key found in state directories, home volumes,
+runner-image refs, launcher-owned sandboxes and root-state adoption claims. A candidate is therefore discovered from
+whichever artifact still exists — a state-less slug with a leftover volume still surfaces — and a foreign volume, image
+or sandbox is never enumerated, listed, or removed.
+
 Classification and identity **are** still needed, and both come from labels on anything the launcher creates:
 
 - Every sandbox is created with `org.agents-sandbox.type` (`project`/`task`), `org.agents-sandbox.slug` (the full

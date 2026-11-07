@@ -63,7 +63,8 @@ portability features.
   capacity, disk format, disk fstype, labels, creation time.
 - `volume remove <name>...` (`rm`) — by-name deletion with the fail-closed
   project-reference guard and `-f/--force`; confirms under `--yes`.
-- `volume prune` — unreferenced home volumes above `--older-than`.
+- `volume prune` — orphaned home volumes (no project state references them) above `--older-than`. It never removes the
+  volume a project's state records, so a whole project's volumes go only through the purge path.
 - `volume create` — excluded: home volumes come from the runner image via
   `volume migrate`/`reset`/`edit`; a raw create would bypass that model.
 
@@ -78,7 +79,10 @@ portability features.
   runner image is refused by the reference guard unless `-f/--force`, naming the
   referencing projects.
 - `image prune` — keeps a live project's variants used within the prune age and
-  in-use images; supports `--yes`, `--format json`, and `-q`.
+  in-use images; supports `--yes`, `--format json`, and `-q`. Its Docker-image
+  pass honors `--older-than`, is previewed by `--dry-run`, and reports each as a
+  `docker-image` detail; an msb image's `stale_for_seconds` is populated from its
+  last use (falling back to its creation time).
 - `image pull`/`load`/`save` — excluded: runner images are built, not moved.
 
 `sandbox`:
@@ -97,6 +101,11 @@ portability features.
   classification, not artifact ownership (which is positional; see
   `artifact-naming.md`). It does **not** drop the persisted state, so the
   recorded home volume survives and the next run recreates the VM against it.
+  With `--purge [<target>]` it becomes the project-removal path (same engine as
+  `prune --purge`, see below): the optional target is a slug or a `<slug>-<agent>`
+  key, defaulting to the cwd, and the project's state, home volumes, runner images
+  and sandboxes are removed after a single confirmation; a running sandbox fails
+  fast until `--force`.
 - `sandbox compact [name]` — merge the oldest sealed copy-on-write disk layers of
   every project VM's disks (or only the named one), briefly pausing a running VM.
   Opt-in only: it never runs on the automatic prune path, and named volumes such
@@ -110,6 +119,35 @@ portability features.
   excluded: lifecycle/exec surface agents-sandbox does not expose.
 - `sandbox modify`/`fork`/`snap`/`ssh`/`install` — excluded: no fit for the
   project-VM model (reconfiguration flows through reprovision, not `msb modify`).
+
+`prune` (batch; also `storage prune`):
+
+- **Safe tier only.** Reclaims stale project VMs, runner-image refs and native
+  image data, dangling Docker images, runtime RAM, and stale internal state (a
+  `state.yaml` recording no surviving volume, unheld `claims/*.claim`, stale
+  `clients/*.lock` leases, empty slug dirs, orphaned root-state entries). It
+  **never removes a home volume** or the state that points at a surviving one, so
+  `prune --yes` cannot destroy agent state. `locks/` is deliberately excluded.
+- **Lists retired projects, never deletes them.** A project is retired when it
+  has no kept sandbox (no running VM and no inactive VM within the age, task
+  sandboxes not counting) and its newest activity — VM `UpdatedAt`, newest home
+  volume `CreatedAt`, newest image `LastUsedAt`/`CreatedAt`, newest state-file
+  mtime — is older than `--older-than`. Batch `prune` reports them as a read-only
+  `retired_projects` section with a hint to purge. Candidates come from the
+  artifact union (state dirs, volume names, image refs, sandbox identities, root
+  adoption claims), so a state-less slug with a leftover volume still surfaces;
+  foreign artifacts are ignored.
+- **`prune --purge [<target>]` and `sandbox remove --purge [<target>]` share one
+  engine.** They remove one project's artifacts — sandboxes (a running one
+  stopped first under `--force`), home volumes, runner images, state files,
+  claims and root adoption claims — in an order that never orphans a volume or
+  drops the last pointer to one; a volume that fails to remove keeps its state
+  file. `<target>` is a slug (whole project) or `<slug>-<agent>` (one key); an
+  omitted target resolves the cwd (an error outside a checkout). The age gate is
+  bypassed: `prune --purge` takes `--dry-run`/`--format json`/`--yes`, while
+  `sandbox remove --purge` confirms and honors `--yes`; both honor `--force` to
+  stop a running sandbox first.
+- `--older-than` must be positive: a non-positive value is rejected.
 
 `storage` / `df`:
 
@@ -156,7 +194,9 @@ never `0`.
   non-interactive invocation without `--yes` fails fast with
   `termio.ErrConfirmationRequired` and never parks on stdin. Removal `--force`
   flags bind with `BoolVarP` so the closure variable updates (`BoolP` parses the
-  flag but leaves that variable false).
+  flag but leaves that variable false). Home-volume deletion is confirmation-gated:
+  it is reachable only from `volume prune`, `prune --purge`, and
+  `sandbox remove --purge`, never from auto-prune or the batch `prune`.
 - **Age threshold**: `--older-than` is the canonical flag (msb's spelling),
   defaulting to `7d` and parsed with `viperconfig.ParseHumanDuration`; `--age` is
   deprecated (hidden, warns, still honored; both set together is an error).
@@ -164,7 +204,9 @@ never `0`.
   `-q`. The JSON object carries the per-group counts (`sandboxes`, `volumes`,
   `images`, `docker_images`), a `dry_run` flag, and a `details` array of
   `type`/`name`/`slug`/`digest`/`stale_for_seconds` entries; each group prune's
-  object carries only its own counts plus `dry_run`/`details`. The report is
+  object carries only its own counts plus `dry_run`/`details`. The full `prune`
+  report also carries a `retired_projects` string array, and a reclaimed Docker
+  image is reported as a `docker-image` detail. The report is
   rendered before an error is returned: a prune whose per-group errors are joined
   (top-level `prune` and `AutoPrune`) still reports what it removed first
   ("summary, then error"). Output mode and flag validation (`--format`/`--quiet`
