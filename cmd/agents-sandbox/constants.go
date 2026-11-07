@@ -56,6 +56,7 @@ const (
 	flagDryRunShort    = "n"
 	flagDryRunVM       = runoptions.FlagDryRunVM
 	flagForce          = "force"
+	flagPurge          = "purge"
 	flagOlderThan      = "older-than"
 	// flagAge is the deprecated alias for --older-than.
 	flagAge        = "age"

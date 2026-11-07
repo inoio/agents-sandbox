@@ -29,6 +29,7 @@ type PruneReportJSON struct {
 	RuntimeLogicalBytesRemoved    uint64            `json:"runtime_logical_bytes_removed"`
 	RuntimePhysicalBytesReclaimed *uint64           `json:"runtime_physical_bytes_reclaimed"`
 	Details                       []pruneDetailJSON `json:"details"`
+	RetiredProjects               []string          `json:"retired_projects"`
 }
 
 // ImageReportJSON is the --format json shape of an image prune report.
@@ -68,6 +69,7 @@ func NewPruneReportJSON(report *pruning.StaleReport, dryRun bool) PruneReportJSO
 		RuntimeLogicalBytesRemoved:    report.Storage.LogicalBytesRemoved,
 		RuntimePhysicalBytesReclaimed: report.Storage.PhysicalBytesReclaimed,
 		Details:                       newPruneDetailsJSON(report.Details),
+		RetiredProjects:               []string{},
 	}
 }
 
@@ -197,5 +199,16 @@ func renderRemovalArtifacts(ui termio.Output, label string, names []string) {
 	ui.Outf("  %s:", label)
 	for _, name := range names {
 		ui.Outf("    - %s", name)
+	}
+}
+
+// RenderRetiredProjects names each retired project and the purge command that
+// removes it. A batch prune never deletes a retired project's home volume or
+// state; it lists the candidate and points at the explicit purge. It prints
+// nothing when no project is retired, so a batch prune with nothing to report
+// keeps its previous output.
+func RenderRetiredProjects(ui termio.Output, slugs []string) {
+	for _, slug := range slugs {
+		ui.Outf("  retired project: %s (purge with: prune --purge %s)", slug, slug)
 	}
 }

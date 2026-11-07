@@ -512,13 +512,18 @@ func buildSandboxRemoveCmd(ui termio.Prompter) *cobra.Command {
 
 func buildPruneCmd(ui termio.UI) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   cmdPrune,
-		Args:  cobra.NoArgs,
+		Use:   cmdPrune + " [target]",
+		Args:  cobra.MaximumNArgs(1),
 		Short: "Prune stale VMs, volumes, and images",
+		Long: "Prune stale runtime objects. Without --purge this is list-and-prune only: it never " +
+			"removes a home volume or a retired project's state, and lists the retired projects it " +
+			"observes with a hint to purge them. With --purge it removes one project's artifacts " +
+			"(its VMs, home volumes, runner images, state and claims); the optional target is a " +
+			"project slug or a <slug>-<agent> key, defaulting to the current checkout.",
 		Annotations: map[string]string{
 			annotationAlsoAs: cmdStorage + " " + cmdPrune,
 		},
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			age, dryRun, err := resolvePruneFlags(cmd)
 			if err != nil {
 				return err
@@ -527,24 +532,20 @@ func buildPruneCmd(ui termio.UI) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err = confirmPrune(ui, dryRun); err != nil {
-				return err
+			if cmd.Flags().Changed(flagPurge) {
+				return runPrunePurge(cmd, ui, mode, dryRun, purgeTarget(cmd, args))
 			}
-			report, pruneErr := pruning.Prune(cmd.Context(), docker.Get(), pruning.PruneOptions{
-				Age:                       age,
-				DryRun:                    dryRun,
-				RemoveUnreferencedVolumes: true,
-				Retain:                    nil,
-			}, ui)
-			if report != nil {
-				cliout.RenderPruneReport(ui, mode,
-					func() { pruning.RenderPruneSummary(ui, report, dryRun) },
-					view.NewPruneReportJSON(report, dryRun))
+			if len(args) > 0 {
+				return fmt.Errorf("unexpected argument %q: pass --purge to purge a project", args[0])
 			}
-			return pruneErr
+			return runPruneBatch(cmd, ui, mode, age, dryRun)
 		},
 	}
 	setPruneFlags(cmd)
+	cmd.Flags().String(flagPurge, "",
+		"Purge a retired project instead of pruning (optional <slug> or <slug>-<agent>; default: current checkout)")
+	cmd.Flags().Lookup(flagPurge).NoOptDefVal = purgeCwdTarget
+	cmd.Flags().BoolP(flagForce, flagForce[:1], false, "Purge a project even when one of its sandboxes is running")
 	return cmd
 }
 
