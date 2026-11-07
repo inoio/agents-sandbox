@@ -144,7 +144,12 @@ func DetectAndOfferDiskRaise(
 			}
 			continue
 		}
-		if !recorded && pressure.DiskTripped(usage) {
+		// Record through the locked write even when a marker was already read,
+		// so the offer uses the marker stored now rather than the stale copy:
+		// another session may have recorded and answered a newer hit since the
+		// read. RecordDiskPressure keeps an existing marker and returns it, so
+		// an answered hit stays closed and an unanswered one stays offerable.
+		if pressure.DiskTripped(usage) {
 			marker = recordDiskPressure(k, limit.kind, state.DiskPressureState{
 				SeenAt:    time.Now(),
 				SizeKiB:   usage.SizeKiB,

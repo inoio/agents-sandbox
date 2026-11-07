@@ -401,3 +401,48 @@ func TestOfferDiskRaiseAfterAttachHonoursTheRecordedState(t *testing.T) {
 		}
 	})
 }
+
+// TestOfferDiskRaiseAfterAttachOffersARecordedHitInTheBand pins that an
+// unanswered recorded hit is offered even when the fresh probe no longer trips
+// (the mount sits between the trip and recovery levels): the recorded marker,
+// not the probe, decides, so the probe's markers must reach the core.
+func TestOfferDiskRaiseAfterAttachOffersARecordedHitInTheBand(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	for _, key := range []string{"AGENTS_SANDBOX_TMP_SIZE", "OPENCODE_SANDBOX_TMP_SIZE"} {
+		t.Setenv(key, "")
+	}
+	k := state.Key{Slug: "diskband", Agent: "opencode"}
+	seen := time.Now().Add(-time.Hour)
+	if err := state.RecoverHomeState(k, func(hs *state.HomeState, _ bool) (bool, error) {
+		hs.HomeVolume = "vol"
+		hs.DiskPressure = map[string]state.DiskPressureState{
+			"tmp": {SeenAt: seen, SizeKiB: 2 << 20, AvailKiB: 98 << 10},
+		}
+		return true, nil
+	}); err != nil {
+		t.Fatalf("seed state: %v", err)
+	}
+	// /tmp free space is between its trip level (15 % of 2 GiB) and twice that:
+	// neither tripped nor recovered, so only the recorded marker can offer.
+	const dfBandTmp = "Filesystem 1024-blocks Used Available Capacity Mounted on\n" +
+		"overlay 4194304 1048576 3145728 25% /\n" +
+		"workspace_x 16777216 1048576 15728640 7% /workspace\n" +
+		"tmpfs 2097152 1697152 400000 81% /tmp\n"
+	prompted := false
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn: func(string, []termio.Choice, string) (string, error) {
+			prompted = true
+			return "keep", nil
+		},
+	}
+	sb := &msb.MockSandbox{
+		ExecOut: map[string]msb.ShellResult{diskProbeKey(): msb.NewTestResult(true, 0, dfBandTmp, "", nil)},
+	}
+
+	offerDiskRaiseAfterAttach(context.Background(), k, sb, options.RunOptions{TmpSize: "2G", Memory: "4G"}, ui)
+
+	if !prompted {
+		t.Error("a recorded unanswered /tmp hit in the band was not offered")
+	}
+}

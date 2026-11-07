@@ -668,6 +668,92 @@ func TestDetectAndOfferDiskRaiseJudgesTheWorkspaceByItsQuota(t *testing.T) {
 	}
 }
 
+// TestDetectAndOfferDiskRaiseStartsFromTheLargerSize pins that the configured
+// limit and the mount the probe measured are both considered, and the offer
+// starts from the larger: a configured limit above the live mount (a size set
+// for the next launch but not yet applied) is the starting point, never the
+// smaller measured mount.
+func TestDetectAndOfferDiskRaiseStartsFromTheLargerSize(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		kind         pressure.Kind
+		limits       DiskLimits
+		usage        pressure.DiskUsage
+		wantProposed string
+	}{
+		{
+			name:         "root disk configured above the live size",
+			kind:         pressure.KindRootDisk,
+			limits:       DiskLimits{RootMiB: 16384, WorkspaceQuotaMiB: 16384, TmpMiB: 2048, MemoryMiB: 4096},
+			usage:        pressure.DiskUsage{SizeKiB: 4 << 20, AvailKiB: 100 << 10},
+			wantProposed: "24G",
+		},
+		{
+			name:         "/tmp configured above the live size",
+			kind:         pressure.KindTmp,
+			limits:       DiskLimits{RootMiB: 4096, WorkspaceQuotaMiB: 16384, TmpMiB: 16384, MemoryMiB: 65536},
+			usage:        pressure.DiskUsage{SizeKiB: 2 << 20, AvailKiB: 98 << 10},
+			wantProposed: "24G",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			unsetDiskEnv(t)
+			k := detectKey()
+			seedDetectState(t, k, state.HomeState{})
+			var proposed string
+			ui := &termio.Mock{
+				IsInteractiveResult: true,
+				SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
+				InputFn: func(_, defaultValue string) (string, error) {
+					proposed = defaultValue
+					return defaultValue, nil
+				},
+			}
+
+			DetectAndOfferDiskRaise(
+				k, probeResult(probed{tc.kind, tc.usage}), nil, tc.limits, options.RunOptions{}, configpaths.Get(), ui,
+			)
+
+			if proposed != tc.wantProposed {
+				t.Errorf("proposed %q, want %q from the configured size", proposed, tc.wantProposed)
+			}
+		})
+	}
+}
+
+// TestDetectAndOfferDiskRaiseRefreshesAStaleMarker pins the race guard for a
+// marker the caller read before another session answered it: even though the
+// caller passes the older, unanswered copy, the offer uses the marker stored
+// now, so the answered hit is not offered again.
+func TestDetectAndOfferDiskRaiseRefreshesAStaleMarker(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	unsetDiskEnv(t)
+	k := detectKey()
+	seen := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+	answered := state.DiskPressureState{SeenAt: seen, SizeKiB: 2 << 20, AvailKiB: 10 << 10, OfferedAt: seen}
+	seedDetectState(t, k, state.HomeState{DiskPressure: map[string]state.DiskPressureState{
+		string(pressure.KindTmp): answered,
+	}})
+	var selects int
+	ui := &termio.Mock{
+		IsInteractiveResult: true,
+		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
+	}
+	// The caller read the marker before it was answered: it carries the older,
+	// unanswered copy while the stored marker is answered.
+	staleMarkers := map[string]state.DiskPressureState{
+		string(pressure.KindTmp): {SeenAt: seen, SizeKiB: 2 << 20, AvailKiB: 10 << 10},
+	}
+	usages := probeResult(probed{pressure.KindTmp, pressure.DiskUsage{SizeKiB: 2 << 20, AvailKiB: 98 << 10}})
+
+	DetectAndOfferDiskRaise(k, usages, staleMarkers, diskTestLimits(), options.RunOptions{}, configpaths.Get(), ui)
+
+	if selects != 0 {
+		t.Errorf("prompted %d times, want 0: the offer must use the marker stored now (already answered)", selects)
+	}
+}
+
 // TestSuggestDiskRaise pins the disk suggestion: +50 % rounded up to a whole
 // GiB, at least +1 GiB, capped at a known maximum and never below the current.
 func TestSuggestDiskRaise(t *testing.T) {
