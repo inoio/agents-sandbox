@@ -79,7 +79,7 @@ as relative.
 
 | package | test body | dominant cost |
 |---|---|---|
-| `cmd/agents-sandbox` | ~1.5 s | 300+ small tests; `setupCommandFixtures` rebuilds the whole root command per test |
+| `cmd/agents-sandbox` | ~0.8 s | 300+ small tests; per-`Execute()` preflight, now dominated by `viperconfig.NewResolver` and `t.TempDir` cleanup |
 | `internal/testutil` | ~0.9 s | four module-wide contract scans (below) |
 | `internal/opener` | ~0.5 s | `TestForwarderKeepsReusedListenerWhenEarlierCallbackReturns` waits 150 ms for a wrong close to manifest |
 | `test/harness` | ~0.5 s | deliberate pty timeout waits (`waitForTUI`/`waitForMarker`/`waitSettled`) |
@@ -98,6 +98,16 @@ The four `internal/testutil` contract tests (`TestUntaggedTestsExecuteNoAmbientT
 (`cachedParseGoFile`). Before the cache each walked the tree and parsed every source four times (~2.1 s); now the
 walk, the read, and the parse each happen once (~0.9 s). A new contract gate must go through those helpers, not a
 fresh `filepath.WalkDir`.
+
+`cmd/agents-sandbox`'s per-test cost was the root preflight: every `Execute()` resolved the project identity
+(`git.ResolveIdentity`, ~23% of the package) and the config mock re-ran `os.MkdirAll` on every accessor call
+(`configpaths.ensureMockConfigDirectory`, ~10%). Both are gone: the mock remembers the directories it created
+(`mockConfigPaths.ensureDir`), and `PersistentPreRunE` resolves through a `resolveIdentity` seam whose test
+`TestMain` installs as a cwd-keyed memo of the real resolver (`memoizeIdentity`, in `identity_memo_test.go`). The
+memo keys on `filepath.Abs(cwd)`, not the literal `"."` the preflight passes, so the chdir fixtures resolve
+separately; it returns the real identity, so the config-slug assertions keep their value. Production keeps the bare
+`git.ResolveIdentity`. Remaining cmd cost is `NewResolver` (~17%) — real config assembly the config tests depend on —
+and `t.TempDir` cleanup, neither worth removing.
 
 There is no `t.Parallel()` in the repo. It is not absent by oversight: `configpaths.WithMockConfigPaths` uses
 `t.Setenv`, and the `InstallFailFast*`/`Get` seams are process-global, so within-package parallelism is
@@ -148,3 +158,8 @@ with a stack dump instead of blocking for Go's default 10 minutes per package.
   `specs/test-isolation.md` "wall-clock waits" residual.
 - **Keep a timeout-path test's timeout just above its poll interval** (done: pty waits 50–100 ms, the opener shim
   0.1 s). A timeout only needs to be long enough to elapse.
+- **Memoize a per-test-constant lookup behind a seam** (done for the cmd preflight identity). A value that only
+  depends on the working directory was recomputed on every `Execute()`; a `resolveIdentity` seam plus a cwd-keyed memo
+  in `TestMain` computes it once per directory (~23% of the package). Key the memo on the resolved path when the
+  caller passes `"."`, or every chdir fixture collapses into one entry. The same shape works for the config mock's
+  directory creation (`mockConfigPaths.ensureDir`), which makes each mock dir once instead of per accessor call.
