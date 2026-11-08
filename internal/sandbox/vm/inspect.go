@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -79,12 +77,12 @@ func InspectSandbox(ctx context.Context, name string) (SandboxDetail, error) {
 
 // mountDetails renders a sandbox's guest-path mount map as a stable,
 // guest-path-sorted slice.
-func mountDetails(volumes map[string]msbSdk.MountConfig) []MountDetail {
+func mountDetails(volumes map[string]msb.MountConfig) []MountDetail {
 	mounts := make([]MountDetail, 0, len(volumes))
 	for guestPath, mount := range volumes {
 		mounts = append(mounts, MountDetail{
 			GuestPath: guestPath,
-			Kind:      mountKindString(mount.Kind()),
+			Kind:      mountKindString(mount.Kind),
 			Source:    mountSource(mount),
 			Readonly:  mount.Readonly,
 		})
@@ -101,17 +99,17 @@ func lessMountByGuestPath(a, b MountDetail) bool {
 
 // mountKindString names a mount kind for display, or "unknown" for an
 // unrecognized value (including a pre-kind persisted config).
-func mountKindString(kind msbSdk.MountKind) string {
+func mountKindString(kind msb.MountKind) string {
 	switch kind {
-	case msbSdk.MountKindBind:
+	case msb.MountKindBind:
 		return "bind"
-	case msbSdk.MountKindNamed:
+	case msb.MountKindNamed:
 		return "named"
-	case msbSdk.MountKindTmpfs:
+	case msb.MountKindTmpfs:
 		return "tmpfs"
-	case msbSdk.MountKindDisk:
+	case msb.MountKindDisk:
 		return "disk"
-	case msbSdk.MountKindOwned:
+	case msb.MountKindOwned:
 		return "owned"
 	default:
 		return "unknown"
@@ -121,17 +119,17 @@ func mountKindString(kind msbSdk.MountKind) string {
 // mountSource returns the backing source of a mount: the host path for a bind,
 // the volume name for a named mount, the image path for a disk, or empty for
 // kinds without a single source.
-func mountSource(mount msbSdk.MountConfig) string {
-	switch mount.Kind() {
-	case msbSdk.MountKindBind:
+func mountSource(mount msb.MountConfig) string {
+	switch mount.Kind {
+	case msb.MountKindBind:
 		return mount.Bind
-	case msbSdk.MountKindNamed:
+	case msb.MountKindNamed:
 		return mount.Named
-	case msbSdk.MountKindDisk:
+	case msb.MountKindDisk:
 		return mount.Disk
-	case msbSdk.MountKindOwned:
+	case msb.MountKindOwned:
 		return mount.Owned
-	case msbSdk.MountKindTmpfs:
+	case msb.MountKindTmpfs:
 		return ""
 	default:
 		return ""

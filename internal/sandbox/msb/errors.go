@@ -1,6 +1,10 @@
 package msb
 
-import msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+import (
+	"errors"
+
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+)
 
 // IsNotFound reports whether err is the microsandbox "sandbox does not exist"
 // error, unwrapping any wrapped errors.
@@ -42,4 +46,13 @@ func IsReplaced(err error) bool {
 // categories to unknown rather than reporting zero.
 func IsUnsupportedOperation(err error) bool {
 	return msbSdk.IsKind(err, msbSdk.ErrUnsupportedOperation)
+}
+
+// IsJobNotRunning reports whether err indicates a detached job is no longer
+// running — it already finished, or its runtime generation is gone. The desired
+// end state, the job not running, already holds, so a caller treats the error as
+// success. It unwraps any wrapped errors.
+func IsJobNotRunning(err error) bool {
+	var jobErr *msbSdk.JobError
+	return errors.As(err, &jobErr) && jobErr.Code == "job_not_running"
 }

@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -286,7 +284,7 @@ func TestSandboxInspect(t *testing.T) {
 			BackendKind_: sandboxmsb.BackendLocal,
 			CreatedAt_:   time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC),
 			UpdatedAt_:   time.Date(2026, 8, 17, 11, 0, 0, 0, time.UTC),
-			Cfg: &msbSdk.SandboxConfig{
+			Cfg: &sandboxmsb.SandboxConfig{
 				Image:        "agents-sandbox/runner-proj:latest",
 				MemoryMiB:    4096,
 				CPUs:         4,
@@ -294,9 +292,9 @@ func TestSandboxInspect(t *testing.T) {
 				MaxCPUs:      8,
 				Labels:       map[string]string{"project": "proj"},
 			},
-			Mounts: map[string]msbSdk.MountConfig{
-				"/workspace": msbSdk.Mount.Bind("/host/workspace", msbSdk.MountOptions{Readonly: true}),
-				"/home/dev":  msbSdk.Mount.Named("agents-sandbox-home-proj", msbSdk.MountOptions{}),
+			Mounts: map[string]sandboxmsb.MountConfig{
+				"/workspace": sandboxmsb.Mount.Bind("/host/workspace", sandboxmsb.MountOptions{Readonly: true}),
+				"/home/dev":  sandboxmsb.Mount.Named("agents-sandbox-home-proj", sandboxmsb.MountOptions{}),
 			},
 		},
 	}
@@ -338,12 +336,12 @@ func TestSandboxInspectFormatJSON(t *testing.T) {
 			BackendKind_: sandboxmsb.BackendLocal,
 			CreatedAt_:   time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC),
 			UpdatedAt_:   time.Date(2026, 8, 17, 11, 0, 0, 0, time.UTC),
-			Cfg: &msbSdk.SandboxConfig{
+			Cfg: &sandboxmsb.SandboxConfig{
 				Image:     "agents-sandbox/runner-proj:latest",
 				MemoryMiB: 4096,
 			},
-			Mounts: map[string]msbSdk.MountConfig{
-				"/workspace": msbSdk.Mount.Bind("/host/workspace", msbSdk.MountOptions{Readonly: true}),
+			Mounts: map[string]sandboxmsb.MountConfig{
+				"/workspace": sandboxmsb.Mount.Bind("/host/workspace", sandboxmsb.MountOptions{Readonly: true}),
 			},
 		},
 	}
@@ -394,7 +392,7 @@ func TestSandboxInspectQuiet(t *testing.T) {
 		&sandboxmsb.MockSandboxHandle{
 			Name_:   "agents-sandbox-vm-abc",
 			Status_: sandboxmsb.SandboxStatusRunning,
-			Cfg:     &msbSdk.SandboxConfig{Image: "agents-sandbox/runner-proj:latest"},
+			Cfg:     &sandboxmsb.SandboxConfig{Image: "agents-sandbox/runner-proj:latest"},
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdSandbox, cmdInspect, "--quiet", "agents-sandbox-vm-abc")

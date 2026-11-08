@@ -13,7 +13,6 @@ import (
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/client"
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
@@ -196,7 +195,7 @@ func staleProjectVM(k state.Key) sandboxmsb.SandboxHandle {
 		Name_:      "stale-" + k.Slug,
 		Status_:    sandboxmsb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-365 * 24 * time.Hour),
-		Cfg: &msbSdk.SandboxConfig{Labels: map[string]string{
+		Cfg: &sandboxmsb.SandboxConfig{Labels: map[string]string{
 			naming.LabelSlug:  k.Slug,
 			naming.LabelAgent: k.Agent,
 		}},

@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -34,7 +32,7 @@ func TestInspectSandboxWrapsLookupError(t *testing.T) {
 }
 
 func TestInspectSandboxPopulatesDetail(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
+	cfg := &msb.SandboxConfig{
 		Image:        "agents-sandbox/runner-proj:latest",
 		MemoryMiB:    4096,
 		CPUs:         4,
@@ -52,9 +50,9 @@ func TestInspectSandboxPopulatesDetail(t *testing.T) {
 			CreatedAt_:   time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC),
 			UpdatedAt_:   time.Date(2026, 8, 17, 11, 0, 0, 0, time.UTC),
 			Cfg:          cfg,
-			Mounts: map[string]msbSdk.MountConfig{
-				"/workspace": msbSdk.Mount.Bind("/host/workspace", msbSdk.MountOptions{}),
-				"/home/dev":  msbSdk.Mount.Named("agents-sandbox-home-proj", msbSdk.MountOptions{}),
+			Mounts: map[string]msb.MountConfig{
+				"/workspace": msb.Mount.Bind("/host/workspace", msb.MountOptions{}),
+				"/home/dev":  msb.Mount.Named("agents-sandbox-home-proj", msb.MountOptions{}),
 			},
 		},
 	}
@@ -112,7 +110,7 @@ func TestInspectSandboxMountsError(t *testing.T) {
 	mock.Sandboxes = []msb.SandboxHandle{
 		&msb.MockSandboxHandle{
 			Name_:     "agents-sandbox-vm-abc",
-			Cfg:       &msbSdk.SandboxConfig{Image: "img:tag"},
+			Cfg:       &msb.SandboxConfig{Image: "img:tag"},
 			MountsErr: mountsErr,
 		},
 	}
@@ -137,7 +135,7 @@ func TestInspectSandboxMissing(t *testing.T) {
 // TestMountDetailsSortsGuestPaths pins the end-to-end ordering across a map
 // whose iteration order is randomized.
 func TestMountDetailsSortsGuestPaths(t *testing.T) {
-	volumes := map[string]msbSdk.MountConfig{
+	volumes := map[string]msb.MountConfig{
 		"/z": {},
 		"/a": {},
 		"/m": {},
@@ -175,14 +173,14 @@ func TestLessMountByGuestPathIsStrict(t *testing.T) {
 }
 
 func TestMountKindString(t *testing.T) {
-	cases := map[msbSdk.MountKind]string{
-		msbSdk.MountKindBind:   "bind",
-		msbSdk.MountKindNamed:  "named",
-		msbSdk.MountKindTmpfs:  "tmpfs",
-		msbSdk.MountKindDisk:   "disk",
-		msbSdk.MountKindOwned:  "owned",
-		msbSdk.MountKind(0):    "unknown",
-		msbSdk.MountKind(0xff): "unknown",
+	cases := map[msb.MountKind]string{
+		msb.MountKindBind:   "bind",
+		msb.MountKindNamed:  "named",
+		msb.MountKindTmpfs:  "tmpfs",
+		msb.MountKindDisk:   "disk",
+		msb.MountKindOwned:  "owned",
+		msb.MountKind(0):    "unknown",
+		msb.MountKind(0xff): "unknown",
 	}
 	for kind, want := range cases {
 		if got := mountKindString(kind); got != want {
@@ -194,15 +192,19 @@ func TestMountKindString(t *testing.T) {
 func TestMountSource(t *testing.T) {
 	cases := []struct {
 		name  string
-		mount msbSdk.MountConfig
+		mount msb.MountConfig
 		want  string
 	}{
-		{"bind", msbSdk.Mount.Bind("/host/workspace", msbSdk.MountOptions{}), "/host/workspace"},
-		{"named", msbSdk.Mount.Named("vol-name", msbSdk.MountOptions{}), "vol-name"},
-		{"disk", msbSdk.Mount.Disk("/host/data.img", msbSdk.DiskOptions{}), "/host/data.img"},
-		{"owned", msbSdk.Mount.Owned(msbSdk.OwnedVolumeOptions{}), string(msbSdk.VolumeKindDir)},
-		{"tmpfs", msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{}), ""},
-		{"unknown", msbSdk.MountConfig{}, ""},
+		{"bind", msb.Mount.Bind("/host/workspace", msb.MountOptions{}), "/host/workspace"},
+		{"named", msb.Mount.Named("vol-name", msb.MountOptions{}), "vol-name"},
+		{"disk", msb.MountConfig{Kind: msb.MountKindDisk, Disk: "/host/data.img"}, "/host/data.img"},
+		{
+			"owned",
+			msb.MountConfig{Kind: msb.MountKindOwned, Owned: string(msb.VolumeKindDir)},
+			string(msb.VolumeKindDir),
+		},
+		{"tmpfs", msb.Mount.Tmpfs(msb.TmpfsOptions{}), ""},
+		{"unknown", msb.MountConfig{}, ""},
 	}
 	for _, tc := range cases {
 		if got := mountSource(tc.mount); got != tc.want {

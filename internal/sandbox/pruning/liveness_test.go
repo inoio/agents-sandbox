@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -157,7 +155,7 @@ func TestPruneStateLabelBeatsLegacyNamePrefix(t *testing.T) {
 		Name_:      "agents-sandbox-task-1mjusbm3wikhb0-opencode",
 		Status_:    msb.SandboxStatusRunning,
 		UpdatedAt_: time.Now(),
-		Cfg: &msbSdk.SandboxConfig{Labels: map[string]string{
+		Cfg: &msb.SandboxConfig{Labels: map[string]string{
 			naming.LabelType:  naming.SandboxTypeProject,
 			naming.LabelSlug:  "agents-sandbox-task-1mjusbm3wikhb0",
 			naming.LabelAgent: "opencode",
@@ -167,7 +165,7 @@ func TestPruneStateLabelBeatsLegacyNamePrefix(t *testing.T) {
 		Name_:      "x-1mjusbm3wikhb0-opencode-1729000000000000000",
 		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now(),
-		Cfg: &msbSdk.SandboxConfig{Labels: map[string]string{
+		Cfg: &msb.SandboxConfig{Labels: map[string]string{
 			naming.LabelType:  naming.SandboxTypeTask,
 			naming.LabelSlug:  "x-1mjusbm3wikhb0",
 			naming.LabelAgent: "opencode",
@@ -346,7 +344,7 @@ func TestBuildPruneState_ListError(t *testing.T) {
 func TestNoteIdentityPrefersLabelsOverName(t *testing.T) {
 	handle := &msb.MockSandboxHandle{
 		Name_: "unparseable-name",
-		Cfg: &msbSdk.SandboxConfig{Labels: map[string]string{
+		Cfg: &msb.SandboxConfig{Labels: map[string]string{
 			naming.LabelType:  naming.SandboxTypeProject,
 			naming.LabelSlug:  "labeled-1mjusbm3wikhb0",
 			naming.LabelAgent: "opencode",
@@ -364,7 +362,7 @@ func TestNoteIdentityPrefersLabelsOverName(t *testing.T) {
 func TestNoteIdentityFallsBackOnConfigError(t *testing.T) {
 	handle := &msb.MockSandboxHandle{
 		Name_: "unparseable-name",
-		Cfg: &msbSdk.SandboxConfig{Labels: map[string]string{
+		Cfg: &msb.SandboxConfig{Labels: map[string]string{
 			naming.LabelType:  naming.SandboxTypeProject,
 			naming.LabelSlug:  "labeled-1mjusbm3wikhb0",
 			naming.LabelAgent: "opencode",

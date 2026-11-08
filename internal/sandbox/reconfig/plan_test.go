@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -16,21 +14,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
-
-// sdkBindings translates launcher bindings onto the SDK read-back type so a
-// test can seed an SDK SandboxConfig that the plan still reads.
-func sdkBindings(bindings []msb.PortBinding) []msbSdk.PortBinding {
-	out := make([]msbSdk.PortBinding, len(bindings))
-	for i, b := range bindings {
-		out[i] = msbSdk.PortBinding{
-			Bind:      b.Bind,
-			HostPort:  b.HostPort,
-			GuestPort: b.GuestPort,
-			Protocol:  msbSdk.PortProtocol(b.Protocol),
-		}
-	}
-	return out
-}
 
 // TestFormatSizeSpecKeepsTheRawSpellingOnlyWhenItMatches pins that the user's
 // spelling is shown only when it parses to the value; otherwise, and without
@@ -94,7 +77,7 @@ func TestConfigChangeList(t *testing.T) {
 // whose config records no root disk counts as 0M, so a requested disk size
 // recreates it.
 func TestPlanReconfigRecreatesOnDiskSizeWithoutARecordedRootDisk(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{Image: naming.RunnerImageRef(planSlug, "opencode")}
+	cfg := &msb.SandboxConfig{Image: naming.RunnerImageRef(planSlug, "opencode")}
 	plan := PlanReconfig(cfg, planImage(), options.RunOptions{DiskSize: "8G"}, ChangeFlags{}, "")
 	if !plan.Recreate {
 		t.Fatal("expected recreate on disk size change with nil RootDisk")
@@ -111,18 +94,18 @@ func TestPlanReconfigRecreatesOnDiskSizeWithoutARecordedRootDisk(t *testing.T) {
 }
 
 func TestPlanReconfigDecidesRecreate(t *testing.T) {
-	mkConfig := func(cpus uint8, mem uint32, diskMiB uint32, tmpMiB uint32) *msbSdk.SandboxConfig {
-		var rootDisk *msbSdk.RootDiskConfig
+	mkConfig := func(cpus uint8, mem uint32, diskMiB uint32, tmpMiB uint32) *msb.SandboxConfig {
+		var rootDisk *msb.RootDiskConfig
 		if diskMiB > 0 {
-			d := msbSdk.RootDisk.Managed(diskMiB)
+			d := msb.RootDiskConfig{SizeMiB: diskMiB}
 			rootDisk = &d
 		}
-		return &msbSdk.SandboxConfig{
+		return &msb.SandboxConfig{
 			CPUs:      cpus,
 			MemoryMiB: mem,
 			RootDisk:  rootDisk,
 			Image:     naming.RunnerImageRef(planSlug, "opencode"),
-			Volumes: map[string]msbSdk.MountConfig{
+			Volumes: map[string]msb.MountConfig{
 				mounts.TmpMountPath:       {SizeMiB: tmpMiB},
 				mounts.WorkspaceMountPath: {QuotaMiB: options.DefaultWorkspaceQuotaMiB},
 				mounts.VMHomeDir:          {Named: "agents-sandbox-home-proj-vol"},
@@ -132,7 +115,7 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 
 	cases := []struct {
 		name    string
-		cfg     *msbSdk.SandboxConfig
+		cfg     *msb.SandboxConfig
 		image   naming.ImageIdentity
 		opts    options.RunOptions
 		homeVol string
@@ -222,10 +205,10 @@ func TestPlanReconfigDecidesRecreate(t *testing.T) {
 }
 
 func TestPlanReconfigServeHostPortReuse(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
+	cfg := &msb.SandboxConfig{
 		Image: naming.RunnerImageRef(planSlug, "opencode"),
-		PortBindings: []msbSdk.PortBinding{
-			{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+		PortBindings: []msb.PortBinding{
+			{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msb.PortProtocolTCP},
 		},
 	}
 	opts := options.RunOptions{ServeOnly: true}
@@ -254,13 +237,13 @@ func TestPlanReconfigServeOnly(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var cfg *msbSdk.SandboxConfig
+			var cfg *msb.SandboxConfig
 			if tt.cfgPorts == nil {
 				// A running VM always has a non-nil SandboxConfig; PortBindings
 				// is simply nil/empty when nothing is published.
-				cfg = &msbSdk.SandboxConfig{PortBindings: nil}
+				cfg = &msb.SandboxConfig{PortBindings: nil}
 			} else {
-				cfg = &msbSdk.SandboxConfig{PortBindings: sdkBindings(tt.cfgPorts)}
+				cfg = &msb.SandboxConfig{PortBindings: tt.cfgPorts}
 			}
 			plan := PlanReconfig(
 				cfg,
@@ -293,7 +276,7 @@ func TestPlanReconfigServeOnly(t *testing.T) {
 // recreates the VM, while the same content id does not.
 func TestPlanReconfigTriggersRecreateOnImageChange(t *testing.T) {
 	const persistedContentID = "4b8d0e6f2a1c3b57"
-	cfg := &msbSdk.SandboxConfig{Image: naming.ContentImageRef(planSlug, "opencode", persistedContentID)}
+	cfg := &msb.SandboxConfig{Image: naming.ContentImageRef(planSlug, "opencode", persistedContentID)}
 
 	planSame := PlanReconfig(
 		cfg,
@@ -345,7 +328,7 @@ func TestPlanReconfigToleratesLegacyImageRef(t *testing.T) {
 		{"content ref, different agent", naming.ContentImageRef(planSlug, "pi", planContentID), true},
 	}
 	for _, tc := range cases {
-		cfg := &msbSdk.SandboxConfig{Image: tc.persisted}
+		cfg := &msb.SandboxConfig{Image: tc.persisted}
 		plan := PlanReconfig(cfg, planNameImage(), options.RunOptions{}, ChangeFlags{}, "")
 		if plan.Recreate != tc.wantRecreate {
 			t.Errorf(
@@ -379,7 +362,7 @@ func TestPlanReconfigToleratesContentImageRef(t *testing.T) {
 		{"prefixed different content id", naming.DockerImagePrefix + planSlug + ":opencode.4b8d0e6f2a1c3b57", true},
 	}
 	for _, tc := range cases {
-		cfg := &msbSdk.SandboxConfig{Image: tc.persisted}
+		cfg := &msb.SandboxConfig{Image: tc.persisted}
 		plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{}, "")
 		if plan.Recreate != tc.wantRecreate {
 			t.Errorf(
@@ -426,7 +409,7 @@ func TestPlanReconfigUserPorts(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &msbSdk.SandboxConfig{PortBindings: sdkBindings(tt.cfgPorts)}
+			cfg := &msb.SandboxConfig{PortBindings: tt.cfgPorts}
 			plan := PlanReconfig(
 				cfg,
 				planImage(),
@@ -442,13 +425,13 @@ func TestPlanReconfigUserPorts(t *testing.T) {
 }
 
 func TestPlanReconfigUserPortsWithServeOnly(t *testing.T) {
-	serveBinding := msbSdk.PortBinding{
-		Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP,
+	serveBinding := msb.PortBinding{
+		Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msb.PortProtocolTCP,
 	}
-	userBinding := msbSdk.PortBinding{
-		Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP,
+	userBinding := msb.PortBinding{
+		Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msb.PortProtocolTCP,
 	}
-	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{userBinding, serveBinding}}
+	cfg := &msb.SandboxConfig{PortBindings: []msb.PortBinding{userBinding, serveBinding}}
 	opts := options.RunOptions{
 		ServeOnly: true,
 		Ports:     []ports.PortMapping{{HostPort: 3000, GuestPort: 3000}},
@@ -480,7 +463,7 @@ func TestPlanReconfigChangeFlagsDecideRecreateOrRestart(t *testing.T) {
 		{name: "agent config", flags: ChangeFlags{AgentConfig: []string{agentConfigPath}}, wantRestart: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := &msbSdk.SandboxConfig{Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096}
+			cfg := &msb.SandboxConfig{Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096}
 			plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, tc.flags, "")
 			if plan.Recreate != tc.wantRecreate || plan.RestartDaemons != tc.wantRestart {
 				t.Errorf("PlanReconfig: recreate=%v restart=%v, want recreate=%v restart=%v",
@@ -491,9 +474,9 @@ func TestPlanReconfigChangeFlagsDecideRecreateOrRestart(t *testing.T) {
 }
 
 func TestPlanReconfigHomeVolumeChangeTriggersRecreate(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
+	cfg := &msb.SandboxConfig{
 		Image: naming.RunnerImageRef(planSlug, "opencode"),
-		Volumes: map[string]msbSdk.MountConfig{
+		Volumes: map[string]msb.MountConfig{
 			mounts.VMHomeDir: {Named: "agents-sandbox-home-proj-old"},
 		},
 	}
@@ -515,9 +498,9 @@ func TestPlanReconfigHomeVolumeChangeTriggersRecreate(t *testing.T) {
 }
 
 func TestPlanReconfigHomeVolumeSameNoRecreate(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
+	cfg := &msb.SandboxConfig{
 		Image: naming.RunnerImageRef(planSlug, "opencode"),
-		Volumes: map[string]msbSdk.MountConfig{
+		Volumes: map[string]msb.MountConfig{
 			mounts.VMHomeDir: {Named: "agents-sandbox-home-proj-vol"},
 		},
 	}
@@ -537,7 +520,7 @@ func TestPlanReconfigNilCfgHomeVolumeSafe(t *testing.T) {
 }
 
 func TestPlanReconfigMountsChangeTriggersRecreate(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{}
+	cfg := &msb.SandboxConfig{}
 	plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{Mounts: changedSetting()}, "")
 	if !plan.Recreate {
 		t.Fatal("expected Recreate when host bind mounts change")
@@ -558,7 +541,7 @@ func TestPlanReconfigMountsChangeTriggersRecreate(t *testing.T) {
 // plan was derived from cfg.Volumes, which the SDK never populates when
 // reading an existing VM back: every run would then rebuild the VM.
 func TestPlanReconfigMountsUnchangedNoRecreate(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{}
+	cfg := &msb.SandboxConfig{}
 	opts := options.RunOptions{Mounts: mounts.Mounts{
 		"/home/dev/.m2": {Source: "/host/.m2"},
 	}}
@@ -569,7 +552,7 @@ func TestPlanReconfigMountsUnchangedNoRecreate(t *testing.T) {
 }
 
 func TestPlanReconfigAgentConfigSuppressedByRecreate(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
+	cfg := &msb.SandboxConfig{
 		Image: naming.ContentImageRef(planSlug, "opencode", "4b8d0e6f2a1c3b57"), CPUs: 4, MemoryMiB: 4096,
 	}
 	plan := PlanReconfig(
@@ -596,7 +579,7 @@ func TestPlanReconfigAgentConfigSuppressedByRecreate(t *testing.T) {
 // into an already-decided recreate: they must not be appended as extra change
 // lines, which would misreport why the VM is rebuilt.
 func TestPlanReconfigRecreateSuppressesEnvChange(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
+	cfg := &msb.SandboxConfig{
 		Image: naming.ContentImageRef(planSlug, "opencode", "4b8d0e6f2a1c3b57"), CPUs: 4, MemoryMiB: 4096,
 	}
 	plan := PlanReconfig(
@@ -617,7 +600,7 @@ func TestPlanReconfigRecreateSuppressesEnvChange(t *testing.T) {
 }
 
 func TestPlanReconfigAgentConfigAppendsChange(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
+	cfg := &msb.SandboxConfig{
 		Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096,
 	}
 	plan := PlanReconfig(
@@ -642,8 +625,8 @@ func TestPlanReconfigAgentConfigAppendsChange(t *testing.T) {
 }
 
 func TestPlanReconfigRecreateOnTmpMismatch(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
-		Volumes: map[string]msbSdk.MountConfig{mounts.TmpMountPath: {SizeMiB: 2048}},
+	cfg := &msb.SandboxConfig{
+		Volumes: map[string]msb.MountConfig{mounts.TmpMountPath: {SizeMiB: 2048}},
 	}
 	d := PlanReconfig(cfg, planImage(), options.RunOptions{TmpSize: "4G"},
 		ChangeFlags{}, "")
@@ -660,7 +643,7 @@ func TestPlanReconfigRecreateOnImageMismatch(t *testing.T) {
 	if d.Recreate {
 		t.Error("image comparison requires cfg.Image; see resolver, planner.cpp nil-cfg safe")
 	}
-	cfg := &msbSdk.SandboxConfig{Image: naming.ContentImageRef(planSlug, "opencode", "4b8d0e6f2a1c3b57")}
+	cfg := &msb.SandboxConfig{Image: naming.ContentImageRef(planSlug, "opencode", "4b8d0e6f2a1c3b57")}
 	d = PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{}, "")
 	if !d.Recreate {
 		t.Error("expected recreate on image mismatch")
@@ -668,7 +651,7 @@ func TestPlanReconfigRecreateOnImageMismatch(t *testing.T) {
 }
 
 func TestPlanReconfigRecreateOnImageDigestChange(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{Image: naming.DockerImageRef(planSlug, "opencode")}
+	cfg := &msb.SandboxConfig{Image: naming.DockerImageRef(planSlug, "opencode")}
 
 	d := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{Image: true}, "")
 	if !d.Recreate {
@@ -683,7 +666,7 @@ func TestPlanReconfigRecreateOnImageDigestChange(t *testing.T) {
 }
 
 func TestPlanReconfigNoActionsWhenUnchanged(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{CPUs: 4, MemoryMiB: 4096}
+	cfg := &msb.SandboxConfig{CPUs: 4, MemoryMiB: 4096}
 	d := PlanReconfig(cfg, planImage(), options.RunOptions{CPUs: 4, Memory: "4G"},
 		ChangeFlags{}, "")
 	if d.Recreate || d.RestartDaemons {
@@ -692,9 +675,9 @@ func TestPlanReconfigNoActionsWhenUnchanged(t *testing.T) {
 }
 
 func TestPlanReconfigEnvWithRecreateNoRestartFlag(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
+	cfg := &msb.SandboxConfig{
 		Image: naming.ContentImageRef(planSlug, "opencode", "4b8d0e6f2a1c3b57"), CPUs: 4, MemoryMiB: 4096,
-		Volumes: map[string]msbSdk.MountConfig{
+		Volumes: map[string]msb.MountConfig{
 			mounts.TmpMountPath: {SizeMiB: 2048},
 		},
 	}
@@ -712,7 +695,7 @@ func TestPlanReconfigEnvWithRecreateNoRestartFlag(t *testing.T) {
 // contract end to end: 16G against a 8192 MiB boot maximum recreates with a
 // descriptive change line and stages no clamped live memory change.
 func TestPlanReconfigMemoryAboveBootMaxRecreates(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
+	cfg := &msb.SandboxConfig{
 		Image:        naming.RunnerImageRef(planSlug, "opencode"),
 		MemoryMiB:    4096,
 		MaxMemoryMiB: 8192,
@@ -736,7 +719,7 @@ func TestPlanReconfigMemoryAboveBootMaxRecreates(t *testing.T) {
 // above-boot-max recreate folds an agent-config change the same way every other
 // recreate does: no daemon restart alongside it.
 func TestPlanReconfigMemoryAboveBootMaxSuppressesAgentConfig(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
+	cfg := &msb.SandboxConfig{
 		Image:        naming.RunnerImageRef(planSlug, "opencode"),
 		MemoryMiB:    4096,
 		MaxMemoryMiB: 8192,
@@ -757,7 +740,7 @@ func TestPlanReconfigMemoryAboveBootMaxSuppressesAgentConfig(t *testing.T) {
 }
 
 func TestImageRecreateEmptyImageRef(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{Image: "old:1"}
+	cfg := &msb.SandboxConfig{Image: "old:1"}
 	if imageRecreate(cfg, naming.ImageIdentity{}, false) {
 		t.Error("an empty desired image identity must not trigger a recreate")
 	}
@@ -778,7 +761,7 @@ func TestImageRecreateNonRunnerRefs(t *testing.T) {
 		"docker.io/library/foreign:1",
 		planSlug + ":4e8oeqohbmalok",
 	} {
-		cfg := &msbSdk.SandboxConfig{Image: persisted}
+		cfg := &msb.SandboxConfig{Image: persisted}
 		if !imageRecreate(cfg, planImage(), false) {
 			t.Errorf("persisted %q must trigger a recreate against the desired identity", persisted)
 		}
@@ -872,14 +855,14 @@ func TestIsNameImage(t *testing.T) {
 }
 
 func TestTmpSizeChangeMissingVolume(t *testing.T) {
-	if _, changed := tmpSizeChange(&msbSdk.SandboxConfig{}, options.RunOptions{TmpSize: "4G"}); changed {
+	if _, changed := tmpSizeChange(&msb.SandboxConfig{}, options.RunOptions{TmpSize: "4G"}); changed {
 		t.Error("a requested tmp size with no mounted /tmp volume must not be a change")
 	}
 }
 
 func TestTmpSizeChangeInvalidSpec(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
-		Volumes: map[string]msbSdk.MountConfig{mounts.TmpMountPath: {SizeMiB: 2048}},
+	cfg := &msb.SandboxConfig{
+		Volumes: map[string]msb.MountConfig{mounts.TmpMountPath: {SizeMiB: 2048}},
 	}
 	if _, changed := tmpSizeChange(cfg, options.RunOptions{TmpSize: "not-a-size"}); changed {
 		t.Error("an unparseable tmp size must not be a change")
@@ -894,9 +877,9 @@ func TestTmpSizeChangeInvalidSpec(t *testing.T) {
 // (vm.effectiveTmpSizeMiB), so a host-RAM clamp cannot recreate the VM on every
 // run.
 func TestTmpSizeChangeClampedAtBootMax(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
+	cfg := &msb.SandboxConfig{
 		MaxMemoryMiB: 32 * 1024,
-		Volumes:      map[string]msbSdk.MountConfig{mounts.TmpMountPath: {SizeMiB: 32 * 1024}},
+		Volumes:      map[string]msb.MountConfig{mounts.TmpMountPath: {SizeMiB: 32 * 1024}},
 	}
 	if _, changed := tmpSizeChange(cfg, options.RunOptions{TmpSize: "48G"}); changed {
 		t.Error("a tmp above the boot maximum was created clamped to it; it must not be a change")
@@ -907,9 +890,9 @@ func TestTmpSizeChangeClampedAtBootMax(t *testing.T) {
 // live VM's boot maximum is compared as-is, so an unchanged value is not a change
 // and does not recreate the VM.
 func TestTmpSizeChangeBelowBootMaxIsNotClamped(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
+	cfg := &msb.SandboxConfig{
 		MaxMemoryMiB: 32 * 1024,
-		Volumes:      map[string]msbSdk.MountConfig{mounts.TmpMountPath: {SizeMiB: 8192}},
+		Volumes:      map[string]msb.MountConfig{mounts.TmpMountPath: {SizeMiB: 8192}},
 	}
 	if _, changed := tmpSizeChange(cfg, options.RunOptions{TmpSize: "8G"}); changed {
 		t.Error("an explicit tmp below the boot maximum, equal to the mount, must not be a change")
@@ -917,12 +900,12 @@ func TestTmpSizeChangeBelowBootMaxIsNotClamped(t *testing.T) {
 }
 
 func TestWorkspaceQuotaChange(t *testing.T) {
-	vol := func(quotaMiB uint32) map[string]msbSdk.MountConfig {
-		return map[string]msbSdk.MountConfig{mounts.WorkspaceMountPath: {QuotaMiB: quotaMiB}}
+	vol := func(quotaMiB uint32) map[string]msb.MountConfig {
+		return map[string]msb.MountConfig{mounts.WorkspaceMountPath: {QuotaMiB: quotaMiB}}
 	}
 	tests := []struct {
 		name    string
-		volumes map[string]msbSdk.MountConfig
+		volumes map[string]msb.MountConfig
 		spec    string
 		want    bool
 	}{
@@ -938,7 +921,7 @@ func TestWorkspaceQuotaChange(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := &msbSdk.SandboxConfig{Volumes: tc.volumes}
+			cfg := &msb.SandboxConfig{Volumes: tc.volumes}
 			if _, changed := workspaceQuotaChange(
 				cfg,
 				options.RunOptions{WorkspaceQuota: tc.spec},
@@ -950,8 +933,8 @@ func TestWorkspaceQuotaChange(t *testing.T) {
 }
 
 func TestWorkspaceQuotaChangeReturnValue(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
-		Volumes: map[string]msbSdk.MountConfig{mounts.WorkspaceMountPath: {QuotaMiB: 1024}},
+	cfg := &msb.SandboxConfig{
+		Volumes: map[string]msb.MountConfig{mounts.WorkspaceMountPath: {QuotaMiB: 1024}},
 	}
 	change, changed := workspaceQuotaChange(cfg, options.RunOptions{WorkspaceQuota: "32G"})
 	if !changed {
@@ -963,13 +946,13 @@ func TestWorkspaceQuotaChangeReturnValue(t *testing.T) {
 }
 
 func TestHomeVolumeChangeEmptyRequested(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{
-		Volumes: map[string]msbSdk.MountConfig{mounts.VMHomeDir: {Named: "vol"}},
+	cfg := &msb.SandboxConfig{
+		Volumes: map[string]msb.MountConfig{mounts.VMHomeDir: {Named: "vol"}},
 	}
 	if homeVolumeChange(cfg, "") {
 		t.Error("an empty desired home volume must not be a change")
 	}
-	if homeVolumeChange(&msbSdk.SandboxConfig{}, "vol") {
+	if homeVolumeChange(&msb.SandboxConfig{}, "vol") {
 		t.Error("a missing mounted home volume must not be a change")
 	}
 	if !homeVolumeChange(cfg, "other") {
@@ -981,8 +964,8 @@ func TestHomeVolumeChangeEmptyRequested(t *testing.T) {
 // decrease (a managed disk only grows) and an unrecorded disk, not an increase,
 // which the live reconcile grows.
 func TestRootDiskChangeOldValue(t *testing.T) {
-	disk := msbSdk.RootDisk.Managed(16384)
-	cfg := &msbSdk.SandboxConfig{RootDisk: &disk}
+	disk := msb.RootDiskConfig{SizeMiB: 16384}
+	cfg := &msb.SandboxConfig{RootDisk: &disk}
 	change, changed := rootDiskChange(cfg, options.RunOptions{DiskSize: "8G"})
 	if !changed {
 		t.Fatal("expected a change for a smaller root disk")
@@ -993,7 +976,7 @@ func TestRootDiskChangeOldValue(t *testing.T) {
 	if _, changed := rootDiskChange(cfg, options.RunOptions{DiskSize: "32G"}); changed {
 		t.Error("a larger root disk must not be a recreate change")
 	}
-	if _, changed := rootDiskChange(&msbSdk.SandboxConfig{}, options.RunOptions{DiskSize: "16G"}); !changed {
+	if _, changed := rootDiskChange(&msb.SandboxConfig{}, options.RunOptions{DiskSize: "16G"}); !changed {
 		t.Error("a nil root disk with a requested size must be a change")
 	}
 }
@@ -1001,12 +984,12 @@ func TestRootDiskChangeOldValue(t *testing.T) {
 func TestPublishReconfigHostPort(t *testing.T) {
 	if hostPort, _, changed := publishReconfig(
 		options.RunOptions{},
-		&msbSdk.SandboxConfig{},
+		&msb.SandboxConfig{},
 	); hostPort != 0 ||
 		changed {
 		t.Errorf("not serve-only: hostPort=%d changed=%v, want 0 false", hostPort, changed)
 	}
-	cfg := &msbSdk.SandboxConfig{PortBindings: sdkBindings(ports.ServeOnlyBindings(4097))}
+	cfg := &msb.SandboxConfig{PortBindings: ports.ServeOnlyBindings(4097)}
 	if hostPort, _, changed := publishReconfig(options.RunOptions{ServeOnly: true}, cfg); hostPort != 4097 || changed {
 		t.Errorf("serve-only reuse: hostPort=%d changed=%v, want 4097 false", hostPort, changed)
 	}
@@ -1016,7 +999,7 @@ func TestPublishReconfigHostPort(t *testing.T) {
 // boot maximum can never be applied live: the plan recreates instead of staging a
 // clamped Modify.
 func TestMemoryAboveBootMaxForcesRecreate(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{CPUs: 4, MemoryMiB: 4096, MaxMemoryMiB: 4096}
+	cfg := &msb.SandboxConfig{CPUs: 4, MemoryMiB: 4096, MaxMemoryMiB: 4096}
 	plan := PlanReconfig(cfg, planImage(), options.RunOptions{Memory: "8G"}, ChangeFlags{BootMaxMemoryGrew: true}, "")
 	if !plan.Recreate {
 		t.Fatal("expected recreate for a memory raise above the boot maximum")
@@ -1027,7 +1010,7 @@ func TestMemoryAboveBootMaxForcesRecreate(t *testing.T) {
 // operand: with no memory requested the helper reports false even though the
 // default parse would exceed a small boot maximum.
 func TestMemoryAboveBootMaxRequiresARequestedMemory(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{MemoryMiB: 1024, MaxMemoryMiB: 2048}
+	cfg := &msb.SandboxConfig{MemoryMiB: 1024, MaxMemoryMiB: 2048}
 	if memoryAboveBootMax(cfg, options.RunOptions{}) {
 		t.Error("memoryAboveBootMax with no requested memory = true, want false")
 	}
@@ -1044,7 +1027,7 @@ func TestMemoryAboveBootMaxNeedsAKnownBootMaximum(t *testing.T) {
 		{maxMemoryMiB: 1, wantRecreate: true},
 	}
 	for _, tc := range tests {
-		cfg := &msbSdk.SandboxConfig{CPUs: 4, MemoryMiB: 1, MaxMemoryMiB: tc.maxMemoryMiB}
+		cfg := &msb.SandboxConfig{CPUs: 4, MemoryMiB: 1, MaxMemoryMiB: tc.maxMemoryMiB}
 		plan := PlanReconfig(
 			cfg,
 			planImage(),
@@ -1063,7 +1046,7 @@ func TestMemoryAboveBootMaxNeedsAKnownBootMaximum(t *testing.T) {
 // the same maximum, a recreate could not apply the value either and would
 // repeat on every launch; the live reconcile clamps it instead.
 func TestMemoryAboveAnUnchangedBootMaxDoesNotRecreate(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{CPUs: 4, MemoryMiB: 4096, MaxMemoryMiB: 6144}
+	cfg := &msb.SandboxConfig{CPUs: 4, MemoryMiB: 4096, MaxMemoryMiB: 6144}
 	plan := PlanReconfig(cfg, planImage(), options.RunOptions{Memory: "8G"}, ChangeFlags{}, "")
 	if plan.Recreate {
 		t.Fatal("expected no recreate when a fresh VM would get the same boot maximum")
@@ -1074,7 +1057,7 @@ func TestMemoryAboveAnUnchangedBootMaxDoesNotRecreate(t *testing.T) {
 // to) the boot maximum is left to the live reconcile: only an above-max raise
 // recreates.
 func TestMemoryAtOrBelowBootMaxStaysLive(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}
+	cfg := &msb.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}
 	plan := PlanReconfig(cfg, planImage(), options.RunOptions{Memory: "8G"}, ChangeFlags{BootMaxMemoryGrew: true}, "")
 	if plan.Recreate {
 		t.Fatal("expected no recreate for a memory raise within the boot maximum")
@@ -1264,7 +1247,7 @@ func TestPlanReconfigShowsResolvedValues(t *testing.T) {
 	}
 	t.Run("mounts", func(t *testing.T) {
 		plan := PlanReconfig(
-			&msbSdk.SandboxConfig{},
+			&msb.SandboxConfig{},
 			planImage(),
 			options.RunOptions{},
 			ChangeFlags{Mounts: newMount},
@@ -1278,7 +1261,7 @@ func TestPlanReconfigShowsResolvedValues(t *testing.T) {
 			Applied: []string{"profile: none"}, Desired: []string{"profile: public"},
 		}
 		plan := PlanReconfig(
-			&msbSdk.SandboxConfig{},
+			&msb.SandboxConfig{},
 			planImage(),
 			options.RunOptions{},
 			ChangeFlags{Network: widened},
@@ -1290,7 +1273,7 @@ func TestPlanReconfigShowsResolvedValues(t *testing.T) {
 	})
 	t.Run("env and secrets", func(t *testing.T) {
 		rotated := SettingDiff{Changed: true, AppliedRecorded: true, Applied: []string{"A"}, Desired: []string{"A"}}
-		plan := PlanReconfig(&msbSdk.SandboxConfig{}, planImage(), options.RunOptions{},
+		plan := PlanReconfig(&msb.SandboxConfig{}, planImage(), options.RunOptions{},
 			ChangeFlags{Env: rotated, Secrets: rotated}, "")
 		assertChange(t, plan, Change{Label: changeLabelEnv, Details: []string{"values changed"}})
 		assertChange(
@@ -1300,31 +1283,31 @@ func TestPlanReconfigShowsResolvedValues(t *testing.T) {
 		)
 	})
 	t.Run("agent config", func(t *testing.T) {
-		plan := PlanReconfig(&msbSdk.SandboxConfig{}, planImage(), options.RunOptions{},
+		plan := PlanReconfig(&msb.SandboxConfig{}, planImage(), options.RunOptions{},
 			ChangeFlags{AgentConfig: []string{agentConfigPath}}, "")
 		assertChange(t, plan, Change{Label: changeLabelAgentConfig, Details: []string{agentConfigPath}})
 	})
 	t.Run("image", func(t *testing.T) {
-		cfg := &msbSdk.SandboxConfig{Image: "other-1mjusbm3wikhb0:opencode"}
+		cfg := &msb.SandboxConfig{Image: "other-1mjusbm3wikhb0:opencode"}
 		plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{}, "")
 		assertChange(t, plan, Change{Label: changeLabelImage, Old: cfg.Image, New: planImage().Ref()})
 	})
 	t.Run("image digest only", func(t *testing.T) {
-		cfg := &msbSdk.SandboxConfig{Image: planImage().Ref()}
+		cfg := &msb.SandboxConfig{Image: planImage().Ref()}
 		plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{Image: true}, "")
 		assertChange(t, plan, Change{Label: changeLabelImage})
 	})
 	t.Run("home volume", func(t *testing.T) {
-		cfg := &msbSdk.SandboxConfig{Volumes: map[string]msbSdk.MountConfig{
+		cfg := &msb.SandboxConfig{Volumes: map[string]msb.MountConfig{
 			mounts.VMHomeDir: {Named: "old-home"},
 		}}
 		plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{}, "new-home")
 		assertChange(t, plan, Change{Label: changeLabelHomeVolume, Old: "old-home", New: "new-home"})
 	})
 	t.Run("published ports", func(t *testing.T) {
-		cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
-			{Bind: "127.0.0.1", HostPort: 9000, GuestPort: 9000, Protocol: msbSdk.PortProtocolTCP},
-			{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP},
+		cfg := &msb.SandboxConfig{PortBindings: []msb.PortBinding{
+			{Bind: "127.0.0.1", HostPort: 9000, GuestPort: 9000, Protocol: msb.PortProtocolTCP},
+			{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msb.PortProtocolTCP},
 		}}
 		opts := options.RunOptions{Ports: []ports.PortMapping{{HostPort: 8080, GuestPort: 5173}}}
 		plan := PlanReconfig(cfg, planImage(), opts, ChangeFlags{}, "")
@@ -1333,7 +1316,7 @@ func TestPlanReconfigShowsResolvedValues(t *testing.T) {
 		}})
 	})
 	t.Run("published ports keep the serve host port", func(t *testing.T) {
-		cfg := &msbSdk.SandboxConfig{PortBindings: sdkBindings(ports.ServeOnlyBindings(4555))}
+		cfg := &msb.SandboxConfig{PortBindings: ports.ServeOnlyBindings(4555)}
 		opts := options.RunOptions{ServeOnly: true, Ports: []ports.PortMapping{{HostPort: 8080, GuestPort: 5173}}}
 		plan := PlanReconfig(cfg, planImage(), opts, ChangeFlags{}, "")
 		if !plan.PortsChanged || plan.ServeHostPort != 4555 {
@@ -1357,8 +1340,8 @@ func assertChange(t *testing.T, plan *Plan, want Change) {
 }
 
 func TestDesiredPublishBindingsDelegatesToOptions(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
-		{Bind: "127.0.0.1", HostPort: 4097, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+	cfg := &msb.SandboxConfig{PortBindings: []msb.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 4097, GuestPort: 4096, Protocol: msb.PortProtocolTCP},
 	}}
 	optsBindings := ports.ServeOnlyBindings(4097)
 	planBindings := desiredPublishBindings(options.RunOptions{ServeOnly: true}, cfg)

@@ -50,15 +50,17 @@ launcher sets.
   `cfg.PortBindings` must not be treated as populated on a read-back; a consumer that needs them applies
   `ConfigMounts()`/`ConfigPorts()` first (this is the one place the SDK gap is worked around). In `prepare`,
   `readLiveProjectVM` applies both (`applyLiveMounts`/`applyLivePorts`) before any detector sees the config.
-- `ParseConfigMounts` keys by guest path and maps the five upstream variants onto the SDK's `MountConfig` through its
-  `Mount` factories: `Bind` → `quota_mib` + `options.readonly`, `Tmpfs` → `size_mib`, `Named` → `name`, `Owned` and
-  `DiskImage` for completeness. `Owned`'s `storage.kind` maps upstream's `"directory"`/`"disk"` onto
-  `VolumeKindDir`/`VolumeKindDisk` — never passed through, because the SDK spells the directory kind `"dir"`, not
-  `"directory"`; `DiskImage`'s `format` is lowercased, because upstream serializes `DiskImageFormat` as the bare
-  variant name — `"Raw"` — while `DiskOptions.Format` is the lowercase hint. An entry whose `type` is unrecognized (a
-  newer runtime) is skipped rather than failing the whole read; a `guest`-less entry, invalid JSON, or an empty
-  `config_json` is an error. A duplicated `guest` path resolves deterministically — the last entry wins — so a
-  repeated mount cannot make the decision output order-dependent (see `specs/vm/reconfig-decision.md`).
+- `ParseConfigMounts` keys by guest path and maps the five upstream variants onto the launcher's
+  `MountConfig` directly: `Bind` → `quota_mib` + `options.readonly`, `Tmpfs` → `size_mib`, `Named` →
+  `name`, `Owned` and `DiskImage` for completeness. `Owned`'s `storage.kind` maps upstream's
+  `"directory"`/`"disk"` onto `VolumeKindDir`/`VolumeKindDisk` — never passed through, because
+  upstream spells the directory kind `"directory"`, not `"dir"`; `DiskImage`'s `format` is lowercased,
+  because upstream serializes `DiskImageFormat` as the bare variant name — `"Raw"` — while the
+  launcher's `Format` is the lowercase hint. An entry whose `type` is unrecognized (a newer runtime)
+  is skipped rather than failing the whole read; a `guest`-less entry, invalid JSON, or an empty
+  `config_json` is an error. A duplicated `guest` path resolves deterministically — the last entry
+  wins — so a repeated mount cannot make the decision output order-dependent (see
+  `specs/vm/reconfig-decision.md`).
 - Consumers and what they read:
   - `reconfig.PlanReconfig` via `resolveReconfigDecision` — `tmpSizeChange` (`size_mib` at `/tmp`), `workspaceQuotaChange`
     (`quota_mib` at `/workspace`), `homeVolumeChange` (the `name` of the `Named` mount at `/home/dev`). It degrades,

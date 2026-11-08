@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
-
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -91,7 +89,7 @@ func TestListSandboxes(t *testing.T) {
 						Status_:    sandboxmsb.SandboxStatusRunning,
 						CreatedAt_: time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC),
 						UpdatedAt_: time.Date(2026, 8, 17, 11, 0, 0, 0, time.UTC),
-						Cfg:        &msb.SandboxConfig{Image: "agents-sandbox/runner:latest"},
+						Cfg:        &sandboxmsb.SandboxConfig{Image: "agents-sandbox/runner:latest"},
 					},
 				}
 			},
@@ -109,21 +107,21 @@ func TestListSandboxes(t *testing.T) {
 						Status_:    sandboxmsb.SandboxStatusRunning,
 						CreatedAt_: time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC),
 						UpdatedAt_: time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC),
-						Cfg:        &msb.SandboxConfig{Image: "agents-sandbox/runner:latest"},
+						Cfg:        &sandboxmsb.SandboxConfig{Image: "agents-sandbox/runner:latest"},
 					},
 					&sandboxmsb.MockSandboxHandle{
 						Name_:      "agents-sandbox-vm-beta",
 						Status_:    sandboxmsb.SandboxStatusStopped,
 						CreatedAt_: time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC),
 						UpdatedAt_: time.Date(2026, 8, 16, 13, 0, 0, 0, time.UTC),
-						Cfg:        &msb.SandboxConfig{Image: "agents-sandbox/runner:v1.0.0"},
+						Cfg:        &sandboxmsb.SandboxConfig{Image: "agents-sandbox/runner:v1.0.0"},
 					},
 					&sandboxmsb.MockSandboxHandle{
 						Name_:      "agents-sandbox-vm-gamma",
 						Status_:    sandboxmsb.SandboxStatusDraining,
 						CreatedAt_: time.Date(2026, 8, 15, 8, 30, 0, 0, time.UTC),
 						UpdatedAt_: time.Date(2026, 8, 15, 9, 15, 0, 0, time.UTC),
-						Cfg:        &msb.SandboxConfig{Image: "agents-sandbox/runner:v2.0.0"},
+						Cfg:        &sandboxmsb.SandboxConfig{Image: "agents-sandbox/runner:v2.0.0"},
 					},
 				}
 			},
@@ -144,7 +142,7 @@ func TestListSandboxes(t *testing.T) {
 						Status_:    sandboxmsb.SandboxStatusRunning,
 						CreatedAt_: time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC),
 						UpdatedAt_: time.Date(2026, 8, 17, 11, 0, 0, 0, time.UTC),
-						Cfg:        &msb.SandboxConfig{Image: "agents-sandbox/runner:latest"},
+						Cfg:        &sandboxmsb.SandboxConfig{Image: "agents-sandbox/runner:latest"},
 					},
 				}
 			},
@@ -183,7 +181,7 @@ func projectSandbox(name string, labels map[string]string) *sandboxmsb.MockSandb
 		Status_:    sandboxmsb.SandboxStatusRunning,
 		CreatedAt_: time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC),
 		UpdatedAt_: time.Date(2026, 8, 17, 11, 0, 0, 0, time.UTC),
-		Cfg:        &msb.SandboxConfig{Image: "agents-sandbox/runner:latest", Labels: labels},
+		Cfg:        &sandboxmsb.SandboxConfig{Image: "agents-sandbox/runner:latest", Labels: labels},
 	}
 }
 

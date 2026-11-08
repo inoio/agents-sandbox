@@ -9,15 +9,18 @@ read_if: Changing `internal/sandbox/msb` interfaces, its roles/composites, the m
 (`github.com/superradcompany/microsandbox/sdk/go`). It exists because there are two adapters behind it
 (the real SDK client and the hand-rolled mock) and because the SDK has identity/no-op edge cases the
 port normalizes (`ConfigMounts`/`ConfigPorts` hide an upstream `UnmarshalJSON` defect;
-`IsUnsupportedOperation`/`IsReplaced`/`IsNotFound` fold error classes). It is **not** meant to mirror
+`IsUnsupportedOperation`/`IsReplaced`/`IsNotFound`/`IsJobNotRunning` fold error classes). It is **not**
+meant to mirror
 the SDK: the interface method set is exactly what callers use, and SDK types must not be the seam's
 currency.
 
 Issue #196 narrows the adapter to that contract. Phase 0 (dead surface + the `realVolumeHandle`
 silent-zero fix), Phase 1 (role interfaces), Phase 2 (launcher-owned option types), Phase 3
-(launcher-owned value types and lifecycle enums) and Phase 4a (the launcher-owned creation model)
-have landed; Phase 4b (the read-back config model) remains. The sections below are the durable
-contract, stated as the end state; the "Status" note at the end records what is already true.
+(launcher-owned value types and lifecycle enums), Phase 4a (the launcher-owned creation model) and
+Phase 4b (the launcher-owned read-back config model) have all landed. The SDK is now an
+implementation detail of `internal/sandbox/msb` alone, with `internal/sandbox/runtime` the one
+documented residue. The sections below are the durable contract, stated as the end state; the
+"Status" note at the end records what is already true.
 
 ## Roles and composites
 
@@ -58,14 +61,19 @@ provider-owned split avoids an adapter per consumer.
   returns an SDK option is an anti-goal.
 - **Values out.** The interfaces return launcher-owned value types, not `*msbSdk.Metrics`,
   `*msbSdk.StorageUsageReport`, `*msbSdk.ImageConfig`, `msbSdk.JobInfo`, enum types, etc.
-  `ImageDetail`/`ParseConfigMounts` are the existing model. Aliases that must stay distinct from an
-  SDK enum keep their values verbatim (e.g. `msb.SandboxStatus` string-mirrors `msbSdk.SandboxStatus`
-  so `string(x)` and `==` keep working), and the sync guards below cover them.
-- **Target.** No production file outside `internal/sandbox/msb` imports `msbSdk`. The one accepted
-  residue is `runtime/runtime.go`'s `SDKVersion`/`RuntimeConfig`, if it cannot be convincingly
-  re-homed. After Phase 3, `storage`, `pressure`, `resourceproposal`, `image` and `session` are
-  already `msbSdk`-free (pinned by `phase3_boundary_test.go`); `vm`, `volume` and `pruning` still
-  import it for the Phase-4 config model.
+  `ImageDetail`/`ParseConfigMounts`/`ParseConfigPorts` are the existing model; Phase 4b added the
+  read-back `SandboxConfig`/`RootDiskConfig`, `ModifyOptions`/`SandboxModificationPlan`/
+  `ModificationConflict`, `DiskCompactionResult`/`DiskCompactionDiskResult`, and the
+  `ModificationPolicy` string enum. `ConfigMounts`/`ConfigPorts` now return the launcher `MountConfig`/
+  `PortBinding`. Aliases that must stay distinct from an SDK enum keep their values verbatim (e.g.
+  `msb.SandboxStatus` string-mirrors `msbSdk.SandboxStatus` so `string(x)` and `==` keep working), and
+  the sync guards below cover them.
+- **Target.** No production file outside `internal/sandbox/msb` imports `msbSdk`, pinned by
+  `phase4_boundary_test.go`. The one accepted residue is `internal/sandbox/runtime`'s
+  `SDKVersion`/`RuntimeConfig`/`EnsureRuntime`/`InstallRuntime` install surface, which has no
+  launcher-owned equivalent. `storage`, `pressure`, `resourceproposal`, `image` and `session` were
+  the first to drop it (`phase3_boundary_test.go`); `reconfig`, `prepare`, `vm`, `volume` and
+  `pruning` dropped it with the Phase-4b read-back model.
 
 ## Upstream sync guards
 
@@ -124,7 +132,7 @@ files.
   `VolumeKind` (`SandboxIdentity.Status`/`BackendKind`, `VolumeHandle.Kind`). The `JobLogOptions` and
   `StoragePruneOptions` inputs joined the reflection register. `realVolumeHandle` wraps the SDK
   volume handle, translating only `Kind()`. `Modify`/`msbSdk.ModifyOptions` and the compaction result
-  stay SDK types for Phase 4.
+  were still SDK types until Phase 4b.
 - **Landed (#196 Phase 4a):** the creation path no longer speaks the SDK.
   `CreateSandbox(name, SandboxSpec)` and `CreateVolume(name, VolumeSpec)` take launcher-owned specs;
   `translate.go` gained `sandboxOptions`, the mount/port/secret/network translators (`networkConfig`
@@ -135,7 +143,16 @@ files.
   `NetworkSpec`/`NetworkProfile`. `vm` project-VM creation, the `volume`/`runtimemigration` create
   paths, and the `network`/`envsecret`/`ports`/`state/fingerprint` producers are SDK-free. The
   `SandboxConfig`/`VolumeConfig` inputs joined the reflection register.
-- **Pending:** Phase 4b — the read-back config model (`SandboxConfig`, `ConfigMounts`/`ConfigPorts`,
-  `Modify`/`ModifyOptions`/plan, `DiskCompaction*`, `ports.ResolveServeHostPort`), which removes the
-  last direct `msbSdk` imports (`reconfig/plan`, `prepare/reconfig`, `pruning/compact`,
-  `vm/inspect`/`vm_resources`/`detached`, `runtime`).
+- **Landed (#196 Phase 4b):** the read-back path no longer speaks the SDK.
+  `SandboxConfigReader.Config` returns the launcher `SandboxConfig`, `ConfigMounts`/`ConfigPorts`
+  return launcher `MountConfig`/`PortBinding` (translated by `sandboxConfigFrom`/`mountConfigFrom`/
+  `portBindingsFrom`), and `SandboxResourceControl.Modify`/`Compact` take `ModifyOptions` and return
+  `SandboxModificationPlan`/`DiskCompactionResult` (translated by `modifyOptions`/
+  `modificationPlanFrom`/`diskCompactionResultFrom`). `ParseConfigMounts`/`ParseConfigPorts` build
+  launcher values directly. The `ModifyOptions`/`SandboxModificationPlan`/`DiskCompactionResult`/
+  `DiskCompactionDiskResult` structs joined the reflection register. Consumers migrated:
+  `reconfig/plan`, `prepare/reconfig`, `pruning/compact`, `vm/inspect`/`vm_resources`/`vm_name`,
+  `volume/operations`, `image/references`, `ports.ResolveServeHostPort` (and the transitional
+  `ports.BindingsFromSDK` was removed). `msb.IsJobNotRunning` re-homed `vm/detached`'s `JobError`
+  check, so `vm` is SDK-free. `phase4_boundary_test.go` pins the whole-module end state, with
+  `internal/sandbox/runtime` the documented residue.

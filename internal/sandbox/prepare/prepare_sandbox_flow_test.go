@@ -1060,15 +1060,15 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 	existing := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(k),
 		Status_:   msb.SandboxStatusRunning,
-		Cfg:       &msbSdk.SandboxConfig{},
+		Cfg:       &msb.SandboxConfig{},
 		ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil), ShellOut: shellOut},
-		Mounts: map[string]msbSdk.MountConfig{
-			mounts.TmpMountPath: msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{SizeMiB: 1024}),
-			mounts.WorkspaceMountPath: msbSdk.Mount.Bind(
+		Mounts: map[string]msb.MountConfig{
+			mounts.TmpMountPath: msb.Mount.Tmpfs(msb.TmpfsOptions{SizeMiB: 1024}),
+			mounts.WorkspaceMountPath: msb.Mount.Bind(
 				"/host/repo",
-				msbSdk.MountOptions{QuotaMiB: options.DefaultWorkspaceQuotaMiB},
+				msb.MountOptions{QuotaMiB: options.DefaultWorkspaceQuotaMiB},
 			),
-			mounts.VMHomeDir: msbSdk.Mount.Named("home-vol", msbSdk.MountOptions{}),
+			mounts.VMHomeDir: msb.Mount.Named("home-vol", msb.MountOptions{}),
 		},
 	}
 	createdSb := &msb.MockSandbox{Name_: vm.ProjectVMName(k), FSValue_: msb.NewTestFS(nil), ShellOut: shellOut}
@@ -2132,7 +2132,7 @@ func existingProjectVMHandle(k state.Key) *msb.MockSandboxHandle {
 	return &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(k),
 		Status_:   msb.SandboxStatusRunning,
-		Cfg:       &msbSdk.SandboxConfig{},
+		Cfg:       &msb.SandboxConfig{},
 		ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil)},
 	}
 }

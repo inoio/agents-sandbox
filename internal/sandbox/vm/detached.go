@@ -2,12 +2,9 @@ package vm
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -111,8 +108,7 @@ func (h detachedHelper) matches(command []string) bool {
 // runner is gone. The desired end state, the job not running, already holds, so
 // the error is not a failure.
 func jobAlreadyStopped(err error) bool {
-	var jobErr *msbSdk.JobError
-	return errors.As(err, &jobErr) && jobErr.Code == "job_not_running"
+	return msb.IsJobNotRunning(err)
 }
 
 // killJobs kills every detached job belonging to the helper, so a stale helper

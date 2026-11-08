@@ -13,8 +13,6 @@ import (
 	"strconv"
 	"strings"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -198,25 +196,6 @@ func BindingsEqual(a, b []msb.PortBinding) bool {
 	return slices.Equal(sortBindings(a), sortBindings(b))
 }
 
-// BindingsFromSDK translates SDK read-back port bindings onto the launcher
-// type. It bridges the reconfiguration decision (Task 4.2) to the launcher
-// binding model and is removed once the read-back model is launcher-owned.
-func BindingsFromSDK(bindings []msbSdk.PortBinding) []msb.PortBinding {
-	if bindings == nil {
-		return nil
-	}
-	out := make([]msb.PortBinding, len(bindings))
-	for i, binding := range bindings {
-		out[i] = msb.PortBinding{
-			Bind:      binding.Bind,
-			HostPort:  binding.HostPort,
-			GuestPort: binding.GuestPort,
-			Protocol:  msb.PortProtocol(binding.Protocol),
-		}
-	}
-	return out
-}
-
 // sortBindings returns bindings ordered deterministically so publication drift
 // compares sets rather than list order.
 func sortBindings(bindings []msb.PortBinding) []msb.PortBinding {
@@ -237,16 +216,13 @@ func sortBindings(bindings []msb.PortBinding) []msb.PortBinding {
 // stable across runs), or the first free host port at or above
 // ServeOnlyBasePort that no user-published port takes. It returns 0 when not
 // serving, and when no free port remains in the probe range.
-//
-// cfg stays SDK-typed until the read-back model is launcher-owned (Task 4.2);
-// the bindings are translated onto the launcher type before comparison.
-func ResolveServeHostPort(cfg *msbSdk.SandboxConfig, serveOnly bool, mappings []PortMapping) int {
+func ResolveServeHostPort(cfg *msb.SandboxConfig, serveOnly bool, mappings []PortMapping) int {
 	if !serveOnly {
 		return 0
 	}
 	published := HostPorts(mappings)
 	if cfg != nil {
-		live := BindingsFromSDK(cfg.PortBindings)
+		live := cfg.PortBindings
 		if port, ok := ServeHostBinding(live); ok && !slices.Contains(published, port) {
 			return port
 		}

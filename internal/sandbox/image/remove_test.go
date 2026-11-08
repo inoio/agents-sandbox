@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -44,7 +42,7 @@ func TestRemoveImagesRefusesImageHeldByLiveSandbox(t *testing.T) {
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	handle := &msb.MockSandboxHandle{
 		Name_: naming.LegacyVMPrefix + key.Slug + "-" + key.Agent,
-		Cfg:   &msbSdk.SandboxConfig{Image: naming.RunnerImageRef(key.Slug, key.Agent)},
+		Cfg:   &msb.SandboxConfig{Image: naming.RunnerImageRef(key.Slug, key.Agent)},
 	}
 	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{handle}}
 	msb.WithMsbMock(t, client)

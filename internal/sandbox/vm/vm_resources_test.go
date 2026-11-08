@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -27,7 +25,7 @@ func TestReconcileResourceConfig(t *testing.T) {
 		name       string
 		handle     *msb.MockSandboxHandle // boot config: 2 CPUs, 2048 MiB
 		opts       options.RunOptions
-		wantModify *msbSdk.ModifyOptions
+		wantModify *msb.ModifyOptions
 		wantWarn   []string
 		wantErr    func(error) bool
 	}{
@@ -35,68 +33,68 @@ func TestReconcileResourceConfig(t *testing.T) {
 			name:       "cpus and memory change",
 			handle:     reconcileHandle(8, 8192),
 			opts:       options.RunOptions{CPUs: 4, Memory: "4G"},
-			wantModify: &msbSdk.ModifyOptions{CPUs: 4, MemoryMiB: 4096},
+			wantModify: &msb.ModifyOptions{CPUs: 4, MemoryMiB: 4096},
 		},
 		{
 			name:       "one cpu is a change",
 			handle:     reconcileHandle(0, 0),
 			opts:       options.RunOptions{CPUs: 1},
-			wantModify: &msbSdk.ModifyOptions{CPUs: 1},
+			wantModify: &msb.ModifyOptions{CPUs: 1},
 		},
 		{
 			name:       "memory with an unknown boot maximum",
 			handle:     reconcileHandle(0, 0),
 			opts:       options.RunOptions{Memory: "4G"},
-			wantModify: &msbSdk.ModifyOptions{MemoryMiB: 4096},
+			wantModify: &msb.ModifyOptions{MemoryMiB: 4096},
 		},
 		{
 			name:       "memory-only change",
 			handle:     reconcileHandle(8, 8192),
 			opts:       options.RunOptions{Memory: "4G"},
-			wantModify: &msbSdk.ModifyOptions{MemoryMiB: 4096},
+			wantModify: &msb.ModifyOptions{MemoryMiB: 4096},
 		},
 		{
 			name:       "both clamped to the boot maximum",
 			handle:     reconcileHandle(4, 4096),
 			opts:       options.RunOptions{CPUs: 16, Memory: "16G"},
-			wantModify: &msbSdk.ModifyOptions{CPUs: 4, MemoryMiB: 4096},
+			wantModify: &msb.ModifyOptions{CPUs: 4, MemoryMiB: 4096},
 			wantWarn:   []string{"cpus limited to 4 (boot maximum); requested 16", "memory limited to 4096 MiB"},
 		},
 		{
 			name:       "a boot maximum of one cpu clamps",
 			handle:     reconcileHandle(1, 0),
 			opts:       options.RunOptions{CPUs: 4},
-			wantModify: &msbSdk.ModifyOptions{CPUs: 1},
+			wantModify: &msb.ModifyOptions{CPUs: 1},
 			wantWarn:   []string{"cpus limited to 1"},
 		},
 		{
 			name:       "a boot maximum of one MiB clamps",
 			handle:     reconcileHandle(0, 1),
 			opts:       options.RunOptions{Memory: "4G"},
-			wantModify: &msbSdk.ModifyOptions{MemoryMiB: 1},
+			wantModify: &msb.ModifyOptions{MemoryMiB: 1},
 			wantWarn:   []string{"memory limited to 1 MiB"},
 		},
 		{
 			name:       "a request at the boot maximum does not warn",
 			handle:     reconcileHandle(8, 4096),
 			opts:       options.RunOptions{CPUs: 8, Memory: "4G"},
-			wantModify: &msbSdk.ModifyOptions{CPUs: 8, MemoryMiB: 4096},
+			wantModify: &msb.ModifyOptions{CPUs: 8, MemoryMiB: 4096},
 		},
 		{
 			name: "clamped cpus with unchanged memory",
 			handle: &msb.MockSandboxHandle{
-				Cfg:  &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8, MemoryMiB: 4096, MaxMemoryMiB: 8192},
-				Plan: &msbSdk.SandboxModificationPlan{Applied: true},
+				Cfg:  &msb.SandboxConfig{CPUs: 2, MaxCPUs: 8, MemoryMiB: 4096, MaxMemoryMiB: 8192},
+				Plan: &msb.SandboxModificationPlan{},
 			},
 			opts:       options.RunOptions{CPUs: 16, Memory: "4G"},
-			wantModify: &msbSdk.ModifyOptions{CPUs: 8},
+			wantModify: &msb.ModifyOptions{CPUs: 8},
 			wantWarn:   []string{"cpus limited to 8"},
 		},
 		{
 			name:       "a larger root disk grows live",
 			handle:     reconcileHandleWithRootDisk(),
 			opts:       options.RunOptions{DiskSize: "8G"},
-			wantModify: &msbSdk.ModifyOptions{RootDiskSizeMiB: 8192},
+			wantModify: &msb.ModifyOptions{RootDiskSizeMiB: 8192},
 		},
 		{
 			name:   "a root disk at the requested size",
@@ -143,20 +141,20 @@ func TestReconcileResourceConfig(t *testing.T) {
 				return h
 			}(),
 			opts:       options.RunOptions{CPUs: 4},
-			wantModify: &msbSdk.ModifyOptions{CPUs: 4},
+			wantModify: &msb.ModifyOptions{CPUs: 4},
 			wantErr:    func(err error) bool { return errors.Is(err, modifyFailed) },
 		},
 		{
 			name: "modification conflicts",
 			handle: func() *msb.MockSandboxHandle {
 				h := reconcileHandle(8, 8192)
-				h.Plan = &msbSdk.SandboxModificationPlan{
-					Conflicts: []msbSdk.ModificationConflict{{Field: "cpus", Message: "conflict"}},
+				h.Plan = &msb.SandboxModificationPlan{
+					Conflicts: []msb.ModificationConflict{{Field: "cpus", Message: "conflict"}},
 				}
 				return h
 			}(),
 			opts:       options.RunOptions{CPUs: 4},
-			wantModify: &msbSdk.ModifyOptions{CPUs: 4},
+			wantModify: &msb.ModifyOptions{CPUs: 4},
 			wantErr: func(err error) bool {
 				return strings.Contains(err.Error(), "resource change not applied: cpus: conflict")
 			},
@@ -180,7 +178,7 @@ func TestReconcileResourceConfig(t *testing.T) {
 				t.Errorf("modified %+v, want no modification", tc.handle.ModifiedOptions)
 			case tc.wantModify != nil:
 				want := *tc.wantModify
-				want.Policy = msbSdk.ModificationPolicyNoRestart
+				want.Policy = msb.ModificationPolicyNoRestart
 				if len(tc.handle.ModifiedOptions) != 1 || !reflect.DeepEqual(tc.handle.ModifiedOptions[0], want) {
 					t.Errorf("modified %+v, want exactly %+v", tc.handle.ModifiedOptions, want)
 				}
@@ -198,7 +196,7 @@ func TestReconcileResourceConfig(t *testing.T) {
 }
 
 func TestSummarizeConflicts(t *testing.T) {
-	cs := []msbSdk.ModificationConflict{
+	cs := []msb.ModificationConflict{
 		{Field: "cpus", Message: "too high"},
 		{Field: "memory", Message: "not enough"},
 	}
@@ -218,20 +216,20 @@ func TestSummarizeConflicts(t *testing.T) {
 // default 4 GiB managed root disk.
 func reconcileHandleWithRootDisk() *msb.MockSandboxHandle {
 	handle := reconcileHandle(8, 8192)
-	rootDisk := msbSdk.RootDisk.Managed(options.DefaultRootDiskMiB)
+	rootDisk := msb.RootDiskConfig{SizeMiB: options.DefaultRootDiskMiB}
 	handle.Cfg.RootDisk = &rootDisk
 	return handle
 }
 
 func reconcileHandle(maxCPUs uint8, maxMemoryMiB uint32) *msb.MockSandboxHandle {
 	return &msb.MockSandboxHandle{
-		Cfg: &msbSdk.SandboxConfig{
+		Cfg: &msb.SandboxConfig{
 			CPUs:         2,
 			MaxCPUs:      maxCPUs,
 			MemoryMiB:    2048,
 			MaxMemoryMiB: maxMemoryMiB,
 		},
-		Plan: &msbSdk.SandboxModificationPlan{Applied: true},
+		Plan: &msb.SandboxModificationPlan{},
 		// A staged live memory change is waited on until the limit converges; a
 		// large snapshot lets every memory case converge immediately without
 		// affecting the staged Modify under test.

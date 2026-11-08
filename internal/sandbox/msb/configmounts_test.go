@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 func TestParseConfigMountsMapsEveryVariant(t *testing.T) {
@@ -18,33 +16,33 @@ func TestParseConfigMountsMapsEveryVariant(t *testing.T) {
 	}
 
 	home := got["/home/dev"]
-	if home.Kind() != msbSdk.MountKindNamed || home.Named != "agents-sandbox-home-proj-opencode-20261016T101010" {
+	if home.Kind != MountKindNamed || home.Named != "agents-sandbox-home-proj-opencode-20261016T101010" {
 		t.Errorf("home mount = %+v, want named agents-sandbox-home-proj-opencode-20261016T101010", home)
 	}
 
 	workspace := got["/workspace"]
-	if workspace.Kind() != msbSdk.MountKindBind || workspace.Bind != "/host/proj" || workspace.QuotaMiB != 16384 {
+	if workspace.Kind != MountKindBind || workspace.Bind != "/host/proj" || workspace.QuotaMiB != 16384 {
 		t.Errorf("workspace mount = %+v, want bind /host/proj quota 16384", workspace)
 	}
-	if workspace.HostPermissions != msbSdk.HostPermissionsMirror {
+	if workspace.HostPermissions != HostPermissionsMirror {
 		t.Errorf(
 			"workspace mount host permissions = %q, want %q",
 			workspace.HostPermissions,
-			msbSdk.HostPermissionsMirror,
+			HostPermissionsMirror,
 		)
 	}
 
 	tmp := got["/tmp"]
-	if tmp.Kind() != msbSdk.MountKindTmpfs || tmp.SizeMiB != 2048 {
+	if tmp.Kind != MountKindTmpfs || tmp.SizeMiB != 2048 {
 		t.Errorf("tmp mount = %+v, want tmpfs size 2048", tmp)
 	}
 
-	if owned := got["/data"]; owned.Kind() != msbSdk.MountKindOwned || owned.Owned != string(msbSdk.VolumeKindDir) {
+	if owned := got["/data"]; owned.Kind != MountKindOwned || owned.Owned != string(VolumeKindDir) {
 		t.Errorf("owned mount = %+v, want owned kind dir", owned)
 	}
 
 	disk := got["/disk"]
-	if disk.Kind() != msbSdk.MountKindDisk || disk.Disk != "/images/seed.img" || !disk.Readonly {
+	if disk.Kind != MountKindDisk || disk.Disk != "/images/seed.img" || !disk.Readonly {
 		t.Errorf("disk mount = %+v, want disk /images/seed.img read-only", disk)
 	}
 	// Upstream serializes DiskImageFormat without rename_all ("Raw"), while the
@@ -131,7 +129,7 @@ func TestParseConfigMountsOwnedDiskKind(t *testing.T) {
 		t.Fatalf("ParseConfigMounts() error = %v", err)
 	}
 	owned := got["/data"]
-	if owned.Kind() != msbSdk.MountKindOwned || owned.Owned != string(msbSdk.VolumeKindDisk) {
+	if owned.Kind != MountKindOwned || owned.Owned != string(VolumeKindDisk) {
 		t.Errorf("owned mount = %+v, want owned kind disk", owned)
 	}
 	if owned.SizeMiB != 1024 || owned.QuotaMiB != 512 {
@@ -140,8 +138,8 @@ func TestParseConfigMountsOwnedDiskKind(t *testing.T) {
 }
 
 func TestMockSandboxHandleConfigMounts(t *testing.T) {
-	want := map[string]msbSdk.MountConfig{
-		"/tmp": msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{SizeMiB: 2048}),
+	want := map[string]MountConfig{
+		"/tmp": Mount.Tmpfs(TmpfsOptions{SizeMiB: 2048}),
 	}
 	m := &MockSandboxHandle{Mounts: want}
 	got, err := m.ConfigMounts()

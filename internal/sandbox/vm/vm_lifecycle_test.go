@@ -483,7 +483,7 @@ func stoppedVM(sb msb.Sandbox) *msb.MockSandboxHandle {
 
 // withFailingReconcile makes reconciling the VM's resources fail.
 func withFailingReconcile(h *msb.MockSandboxHandle) *msb.MockSandboxHandle {
-	h.Cfg = &msbSdk.SandboxConfig{CPUs: 2, MaxCPUs: 8}
+	h.Cfg = &msb.SandboxConfig{CPUs: 2, MaxCPUs: 8}
 	h.ModifyErr = errors.New("modify failed")
 	return h
 }

@@ -23,9 +23,9 @@ func TestRealHandleConfigPortsRoundTrip(t *testing.T) {
 	defer cancel()
 	name := "agents-sandbox-msb-test-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 
-	created := []msbSdk.PortBinding{
-		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
-		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP},
+	created := []PortBinding{
+		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: PortProtocolTCP},
+		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: PortProtocolTCP},
 	}
 	if _, err := msbSdk.CreateSandbox(
 		ctx,
@@ -33,7 +33,7 @@ func TestRealHandleConfigPortsRoundTrip(t *testing.T) {
 		msbSdk.WithImage("alpine:3.20"),
 		msbSdk.WithReplace(),
 		msbSdk.WithDetached(),
-		msbSdk.WithPortBindings(created...),
+		msbSdk.WithPortBindings(portBindings(created)...),
 	); err != nil {
 		t.Fatalf("CreateSandbox: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestRealHandleConfigPortsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConfigPorts: %v", err)
 	}
-	if !slices.EqualFunc(readBack, created, func(got, want msbSdk.PortBinding) bool {
+	if !slices.EqualFunc(readBack, created, func(got, want PortBinding) bool {
 		return got.Bind == want.Bind && got.HostPort == want.HostPort &&
 			got.GuestPort == want.GuestPort && got.Protocol == want.Protocol
 	}) {

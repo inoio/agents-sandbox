@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
@@ -50,11 +48,11 @@ type reconfigDecision struct {
 // existingServeHostPort returns the host port the running VM's config
 // publishes for the agent guest port, or fallback when it carries no such
 // binding (a freshly created VM, or a read-back that lost the guest port).
-func existingServeHostPort(cfg *msbSdk.SandboxConfig, fallback int) int {
+func existingServeHostPort(cfg *msb.SandboxConfig, fallback int) int {
 	if cfg == nil {
 		return fallback
 	}
-	if port, ok := ports.ServeHostBinding(ports.BindingsFromSDK(cfg.PortBindings)); ok {
+	if port, ok := ports.ServeHostBinding(cfg.PortBindings); ok {
 		return port
 	}
 	return fallback
@@ -69,7 +67,7 @@ type liveProjectVM struct {
 	// reuses it rather than looking the VM up again, so a recreate destroys
 	// exactly this VM (specs/identity/sandbox-identity.md).
 	handle           msb.SandboxHandle
-	config           *msbSdk.SandboxConfig
+	config           *msb.SandboxConfig
 	configUnreadable bool
 	// agentConfigFiles holds the agent config files read from the running VM,
 	// keyed by guest path; nil when the VM could not be connected.
@@ -335,7 +333,7 @@ func readExistingVMConfig(
 	handle msb.SandboxHandle,
 	k state.Key,
 	ui termio.Logger,
-) (*msbSdk.SandboxConfig, bool) {
+) (*msb.SandboxConfig, bool) {
 	cfg, configReadErr := handle.Config()
 	configUnreadable := configReadErr != nil
 	if configUnreadable {
@@ -355,7 +353,7 @@ func readExistingVMConfig(
 // read failure is reported at verbose level and leaves cfg.Volumes untouched, so
 // the decision proceeds without the mount-based detectors instead of aborting
 // the run.
-func applyLiveMounts(cfg *msbSdk.SandboxConfig, handle msb.SandboxHandle, ui termio.Logger) {
+func applyLiveMounts(cfg *msb.SandboxConfig, handle msb.SandboxHandle, ui termio.Logger) {
 	if cfg == nil {
 		return
 	}
@@ -373,7 +371,7 @@ func applyLiveMounts(cfg *msbSdk.SandboxConfig, handle msb.SandboxHandle, ui ter
 // the ports detectors would see every run as changed. A read failure is
 // reported at verbose level and leaves the bindings untouched, so the decision
 // degrades instead of aborting the run.
-func applyLivePorts(cfg *msbSdk.SandboxConfig, handle msb.SandboxHandle, ui termio.Logger) {
+func applyLivePorts(cfg *msb.SandboxConfig, handle msb.SandboxHandle, ui termio.Logger) {
 	if cfg == nil {
 		return
 	}

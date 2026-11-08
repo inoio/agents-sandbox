@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -17,7 +15,7 @@ func compactTestHandle() *msb.MockSandboxHandle {
 	return &msb.MockSandboxHandle{
 		Name_:   compactTestVMName,
 		Status_: msb.SandboxStatusStopped,
-		CompactResult: &msbSdk.DiskCompactionResult{
+		CompactResult: &msb.DiskCompactionResult{
 			InputLayers: 4, SelectedLayers: 4, OutputLayers: 1, MaterializedBytes: 2048,
 		},
 	}
