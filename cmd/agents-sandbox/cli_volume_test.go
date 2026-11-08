@@ -17,7 +17,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -52,7 +52,7 @@ func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}
 
-	doctor.MockedCheckAll(t, !tc.preflightFail)
+	doctortest.MockedCheckAll(t, !tc.preflightFail)
 	withMockAgentVersion(t, "0.0.0-test")
 	if tc.ensureImageErr {
 		dockertest.WithDefaultErrorDockerMock(t)
@@ -181,7 +181,7 @@ func TestVolumeOpsDryRunDoesNotEnsureImage(t *testing.T) {
 				},
 			}
 			dockertest.WithDockerMock(t, dockerMock)
-			doctor.MockedCheckAll(t, true)
+			doctortest.MockedCheckAll(t, true)
 			withMockAgentVersion(t, "0.0.0-test")
 
 			slug := git.MustCheckoutSlug()
@@ -494,7 +494,7 @@ func TestVolumeMigrateWithPositionalArg(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}
-	doctor.MockedCheckAll(t, true)
+	doctortest.MockedCheckAll(t, true)
 	withMockAgentVersion(t, "0.0.0-test")
 	dockertest.WithNoopDockerMock(t)
 	slug := git.MustCheckoutSlug()
@@ -528,7 +528,7 @@ func TestBuildVolumeOpsRejectsTwoArgs(t *testing.T) {
 func TestBuildVolumeOpsForwardsPositionalNameAndInfo(t *testing.T) {
 	initTestProjectDir(t)
 	configpaths.WithMockConfigPaths(t)
-	doctor.MockedCheckAll(t, true)
+	doctortest.MockedCheckAll(t, true)
 	withMockAgentVersion(t, "3.3.3")
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
@@ -576,7 +576,7 @@ func TestBuildVolumeOpsForwardsPositionalNameAndInfo(t *testing.T) {
 func TestVolumeOpsEnsureImageErrorWrapsCause(t *testing.T) {
 	initTestProjectDir(t)
 	configpaths.WithMockConfigPaths(t)
-	doctor.MockedCheckAll(t, true)
+	doctortest.MockedCheckAll(t, true)
 	withMockAgentVersion(t, "0.0.0-test")
 	dockertest.WithDefaultErrorDockerMock(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})

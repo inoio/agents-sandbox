@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
@@ -140,7 +140,7 @@ func TestServeOnlyStdinReaderSelectsOnTerminal(t *testing.T) {
 func TestRunFuncServeOnlyReportsAFailedPreflight(t *testing.T) {
 	initTestProjectDir(t)
 	configpaths.WithMockConfigPaths(t)
-	doctor.MockedCheckAll(t, false)
+	doctortest.MockedCheckAll(t, false)
 	ui := &termio.Mock{}
 
 	cmd := buildRunCmd(ui)

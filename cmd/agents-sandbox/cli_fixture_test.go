@@ -12,7 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -74,8 +74,8 @@ func setupCommandFixtures(t *testing.T, args ...string) (*cobra.Command, *termio
 	withMockAgentVersion(t, "0.0.0-test")
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	dockertest.WithNoopDockerMock(t)
-	doctor.MockedCheckAll(t, true)
-	doctor.MockedCheckDocker(t, true)
+	doctortest.MockedCheckAll(t, true)
+	doctortest.MockedCheckDocker(t, true)
 	ui := &termio.Mock{}
 	cmd := buildRootCmd(ui)
 	cmd.SetArgs(args)

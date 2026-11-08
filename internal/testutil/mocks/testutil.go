@@ -8,7 +8,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -18,7 +18,7 @@ import (
 func InitFailFastMocks(m *testing.M) {
 	configpaths.InstallFailFastConfigPaths()
 	dockertest.InstallFailFastGet()
-	doctor.InstallFailFast()
+	doctortest.InstallFailFast()
 	msb.InstallFailFastGet()
 	notify.InstallFailFast()
 	// gomutants:disable-next-line STATEMENT_REMOVE reason="reachable only through another package's TestMain: InitFailFastMocks calls m.Run() after this, so no test inside this package can invoke it; the installed seam (opener.InstallFailFast) is itself covered by internal/opener's tests"

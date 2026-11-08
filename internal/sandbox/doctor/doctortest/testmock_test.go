@@ -1,32 +1,13 @@
-package doctor
+package doctortest
 
 import (
 	"context"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
-
-func TestCheckAllUsesMockedCheckAll(t *testing.T) {
-	tests := []struct {
-		name    string
-		success bool
-	}{
-		{"success", true},
-		{"failure", false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			testUI := termio.NewTestMock(t)
-			MockedCheckAll(t, tc.success)
-
-			if got := CheckAll(context.Background(), docker.Get(), &testUI); got != tc.success {
-				t.Errorf("CheckAll() = %v, want %v", got, tc.success)
-			}
-		})
-	}
-}
 
 func TestInstallFailFastFactoriesPanic(t *testing.T) {
 	MockedCheckAll(t, true)
@@ -62,14 +43,15 @@ func assertFactoryPanics(t *testing.T, name string, fn func()) {
 	fn()
 }
 
-// assertFailFastFactoriesPanic asserts every doctor factory is the fail-fast
-// default installed by InstallFailFast.
+// assertFailFastFactoriesPanic asserts the CheckAll and CheckDocker factories are
+// the fail-fast default installed by InstallFailFast. It deliberately stays off
+// the ensure-installed factory: ensureMsbInstalled is unexported, so its
+// fail-fast default is asserted from doctor's own internal tests instead.
 func assertFailFastFactoriesPanic(t *testing.T) {
 	t.Helper()
-	assertFactoryPanics(t, "CheckDocker", func() { _ = CheckDocker(context.Background(), docker.Get()) })
+	assertFactoryPanics(t, "CheckDocker", func() { _ = doctor.CheckDocker(context.Background(), docker.Get()) })
 	assertFactoryPanics(t, "CheckAll", func() {
 		testUI := termio.NewTestMock(t)
-		_ = CheckAll(context.Background(), docker.Get(), &testUI)
+		_ = doctor.CheckAll(context.Background(), docker.Get(), &testUI)
 	})
-	assertFactoryPanics(t, "ensureMsbInstalled", func() { _ = ensureMsbInstalled(context.Background()) })
 }

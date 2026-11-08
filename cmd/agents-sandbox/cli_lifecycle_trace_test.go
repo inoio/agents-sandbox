@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -74,7 +74,7 @@ func TestNewLifecycleTraceIsNotNil(t *testing.T) {
 // preflight records preflight-only and returns exit=false with the error, so the
 // caller aborts on the error rather than the flag.
 func TestRunStartupStagesPreflightFailure(t *testing.T) {
-	doctor.MockedCheckAll(t, false)
+	doctortest.MockedCheckAll(t, false)
 	trace := &lifecycle.Trace{}
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())

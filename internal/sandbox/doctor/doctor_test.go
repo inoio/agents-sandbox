@@ -18,8 +18,41 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
+// errMockedEnsureInstalledDoctor is the cause mockEnsureInstalled returns when
+// asked to raise, so the tests can assert the cause survives wrapping through
+// errors.Is.
+var errMockedEnsureInstalledDoctor = errors.New("mocked error")
+
+// mockEnsureInstalled installs a succeeding or failing msb ensure-installed seam
+// for the duration of the test. doctor's own tests cannot import doctortest
+// (that would close the doctor -> doctortest -> doctor cycle), so they drive the
+// same exported setter doctortest drives.
+func mockEnsureInstalled(t *testing.T, raise bool) {
+	t.Helper()
+	previous := SetEnsureInstalled(func(context.Context) error {
+		if raise {
+			return errMockedEnsureInstalledDoctor
+		}
+		return nil
+	})
+	t.Cleanup(func() { SetEnsureInstalled(previous) })
+}
+
+// mockCheckDocker installs a succeeding or failing Docker check seam for the
+// duration of the test, for the same cycle reason as mockEnsureInstalled.
+func mockCheckDocker(t *testing.T, success bool) {
+	t.Helper()
+	previous := SetCheckDocker(func(context.Context, docker.Client) error {
+		if success {
+			return nil
+		}
+		return errors.New("mocked docker not available")
+	})
+	t.Cleanup(func() { SetCheckDocker(previous) })
+}
+
 func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.T) {
-	MockedEnsureInstalled(t, true)
+	mockEnsureInstalled(t, true)
 
 	_, err := checkMsb(context.Background())
 	if err == nil {
@@ -31,7 +64,7 @@ func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.
 	if !strings.Contains(err.Error(), "mock") {
 		t.Errorf("expected error to contain the underlying error, got %q", err.Error())
 	}
-	if !errors.Is(err, errMockedEnsureInstalled) {
+	if !errors.Is(err, errMockedEnsureInstalledDoctor) {
 		t.Errorf("expected error to preserve the ensureInstalled cause for errors.Is, got %v", err)
 	}
 	if strings.Contains(err.Error(), "Install microsandbox") ||
@@ -45,7 +78,7 @@ func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.
 
 func TestCheckMsbReportsPrivateHomeBinPathWithoutPathHints(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	MockedEnsureInstalled(t, false)
+	mockEnsureInstalled(t, false)
 	t.Setenv("PATH", "/nonexistent")
 	t.Setenv("SHELL", "/bin/zsh")
 
@@ -68,7 +101,7 @@ func TestCheckMsbReportsPrivateHomeBinPathWithoutPathHints(t *testing.T) {
 
 func TestCheckMsbIgnoresMsbHomeAndMsbPathEnv(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	MockedEnsureInstalled(t, false)
+	mockEnsureInstalled(t, false)
 
 	legacyHome := filepath.Join(t.TempDir(), "legacy-home")
 	t.Setenv("MSB_HOME", legacyHome)
@@ -166,8 +199,8 @@ func TestRealCheckDockerPingOK(t *testing.T) {
 
 func TestCollectChecksAggregatesFailures(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	MockedCheckDocker(t, false)
-	MockedEnsureInstalled(t, false)
+	mockCheckDocker(t, false)
+	mockEnsureInstalled(t, false)
 	t.Setenv("PATH", "/nonexistent")
 
 	results := collectChecks(context.Background(), docker.Get())
@@ -188,8 +221,8 @@ func TestCollectChecksAggregatesFailures(t *testing.T) {
 
 func TestCollectChecksMsbInfoNamesPrivateHome(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	MockedCheckDocker(t, true)
-	MockedEnsureInstalled(t, false)
+	mockCheckDocker(t, true)
+	mockEnsureInstalled(t, false)
 	t.Setenv("PATH", "/nonexistent")
 
 	results := collectChecks(context.Background(), docker.Get())
@@ -215,8 +248,8 @@ func TestCollectChecksMsbInfoNamesPrivateHome(t *testing.T) {
 // failure when the private runtime cannot be ensured.
 func TestCollectChecksCollectsMsbError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	MockedCheckDocker(t, true)
-	MockedEnsureInstalled(t, true)
+	mockCheckDocker(t, true)
+	mockEnsureInstalled(t, true)
 
 	results := collectChecks(context.Background(), docker.Get())
 	joined := strings.Join(errStrings(results.errs), " ")
@@ -273,7 +306,7 @@ func TestCheckAllReportsMsbRuntimeFailureWithDocsLink(t *testing.T) {
 			return client.PingResult{}, errors.New("docker down")
 		},
 	})
-	MockedEnsureInstalled(t, true)
+	mockEnsureInstalled(t, true)
 
 	origCheckAll := checkAllFunc
 	checkAllFunc = realCheckAll

@@ -6,7 +6,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -15,7 +15,7 @@ func TestMain(m *testing.M) {
 	// package. Keep in sync with testutil.InitFailFastMocks' body.
 	configpaths.InstallFailFastConfigPaths()
 	dockertest.InstallFailFastGet()
-	doctor.InstallFailFast()
+	doctortest.InstallFailFast()
 	msb.InstallFailFastGet()
 	InstallFailFast()
 	opener.InstallFailFast()

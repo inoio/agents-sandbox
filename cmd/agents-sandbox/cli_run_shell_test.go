@@ -16,7 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
@@ -359,7 +359,7 @@ func runRunShellErrorScenario(t *testing.T, tc runShellScenario) {
 	}
 	root, _ := setupRunMocks(t, mock, tc.sandbox, tc.args...)
 
-	doctor.MockedCheckAll(t, tc.doctorPass)
+	doctortest.MockedCheckAll(t, tc.doctorPass)
 
 	err := root.Execute()
 	if err == nil {
@@ -391,7 +391,7 @@ func TestRunShellPreviewSkipsPreflight(t *testing.T) {
 			initTestProjectDir(t)
 			mock := &sandboxmsb.MockMsbClient{}
 			root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, command, "--dry-run")
-			doctor.MockedCheckAll(t, false)
+			doctortest.MockedCheckAll(t, false)
 
 			if err := root.Execute(); err != nil {
 				t.Fatalf("%s --dry-run with a failing preflight: %v", command, err)

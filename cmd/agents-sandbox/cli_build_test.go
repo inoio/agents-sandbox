@@ -18,7 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -121,7 +121,7 @@ func TestBuildCommand(t *testing.T) {
 			strings.Join(commands, " "),
 		), func(t *testing.T) {
 			cmd, _ := setupCommandFixtures(t, commands...)
-			doctor.MockedCheckDocker(t, false)
+			doctortest.MockedCheckDocker(t, false)
 
 			err := cmd.Execute()
 			if err == nil {
@@ -655,7 +655,7 @@ func TestBuildChecksDockerBeforeAdoption(t *testing.T) {
 	t.Chdir(clone)
 
 	cmd, _ := setupCommandFixtures(t, cmdBuild)
-	doctor.MockedCheckDocker(t, false)
+	doctortest.MockedCheckDocker(t, false)
 
 	// A running legacy VM that adoption would destroy if it ran first.
 	legacyVM := &msb.MockSandboxHandle{
@@ -724,7 +724,7 @@ func TestResolveBuildAgentVersion(t *testing.T) {
 func TestBuildDockerCheckErrorWrapsCause(t *testing.T) {
 	initTestProjectDir(t)
 	cmd, _ := setupCommandFixtures(t, cmdBuild)
-	doctor.MockedCheckDocker(t, false)
+	doctortest.MockedCheckDocker(t, false)
 
 	err := cmd.Execute()
 	if err == nil {

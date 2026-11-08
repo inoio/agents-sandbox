@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -384,7 +384,7 @@ func TestRunStartupStagesExitContract(t *testing.T) {
 	}
 
 	t.Run("preflight failure returns exit=false", func(t *testing.T) {
-		doctor.MockedCheckAll(t, false)
+		doctortest.MockedCheckAll(t, false)
 		exit, err := runStartupStages(
 			context.Background(),
 			newCmd(t, nil),
@@ -401,7 +401,7 @@ func TestRunStartupStagesExitContract(t *testing.T) {
 	})
 
 	t.Run("upgrade-check error returns exit=false", func(t *testing.T) {
-		doctor.MockedCheckAll(t, true)
+		doctortest.MockedCheckAll(t, true)
 		upgradeCheck = func(context.Context, upgrade.Options) (upgrade.Result, error) {
 			return upgrade.Result{}, errors.New("upgrade failed")
 		}
@@ -422,7 +422,7 @@ func TestRunStartupStagesExitContract(t *testing.T) {
 	})
 
 	t.Run("upgrade-and-exit returns exit=true", func(t *testing.T) {
-		doctor.MockedCheckAll(t, true)
+		doctortest.MockedCheckAll(t, true)
 		upgradeCheck = func(context.Context, upgrade.Options) (upgrade.Result, error) {
 			return upgrade.Result{Exit: true}, nil
 		}

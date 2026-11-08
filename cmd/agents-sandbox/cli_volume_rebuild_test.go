@@ -8,7 +8,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -43,7 +43,7 @@ func TestVolumeMigrateRebuildIsDeprecatedNoOp(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}
-	doctor.MockedCheckAll(t, true)
+	doctortest.MockedCheckAll(t, true)
 	withMockAgentVersion(t, "0.0.0-test")
 	dockertest.WithNoopDockerMock(t)
 	slug := git.MustCheckoutSlug()
@@ -79,7 +79,7 @@ func TestVolumeOpsRebuildDeprecatedAcrossOps(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
 			ui := &termio.Mock{}
 			mock := &msb.MockMsbClient{}
-			doctor.MockedCheckAll(t, true)
+			doctortest.MockedCheckAll(t, true)
 			withMockAgentVersion(t, "0.0.0-test")
 			dockertest.WithNoopDockerMock(t)
 			slug := git.MustCheckoutSlug()

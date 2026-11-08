@@ -54,8 +54,8 @@ var seamFamilies = []seamFamily{
 		name:                 "doctor",
 		dir:                  "internal/sandbox/doctor",
 		packageName:          "doctor",
-		installerDir:         "internal/sandbox/doctor",
-		installerPackageName: "doctor",
+		installerDir:         "internal/sandbox/doctor/doctortest",
+		installerPackageName: "doctortest",
 		installer:            "InstallFailFast",
 	},
 	{

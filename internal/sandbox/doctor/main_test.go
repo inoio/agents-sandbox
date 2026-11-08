@@ -1,4 +1,4 @@
-package doctor
+package doctor_test
 
 import (
 	"testing"
@@ -7,15 +7,17 @@ import (
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
-// TestMain installs the fail-fast defaults for the doctor factories so no
-// doctor test can silently touch real msb or Docker.
+// TestMain installs the fail-fast defaults for every seam family the doctor
+// tests can reach. It is an external test package, so it can import doctortest
+// (which imports doctor) without an import cycle.
 func TestMain(m *testing.M) {
 	configpaths.InstallFailFastConfigPaths()
 	dockertest.InstallFailFastGet()
-	InstallFailFast()
+	doctortest.InstallFailFast()
 	msb.InstallFailFastGet()
 	notify.InstallFailFast()
 	opener.InstallFailFast()
