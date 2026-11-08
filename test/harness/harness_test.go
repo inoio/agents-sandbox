@@ -401,6 +401,46 @@ func TestResolveSuiteRootReusesEnv(t *testing.T) {
 	}
 }
 
+// TestResolveSuiteRootReportsCreateFailures pins both failure surfaces: a reuse
+// root that cannot be created (a file where its parent must be), and a temp root
+// that cannot be created. Each error preserves the filesystem cause so a run
+// reports why it failed.
+func TestResolveSuiteRootReportsCreateFailures(t *testing.T) {
+	t.Run("reuse root cannot be created", func(t *testing.T) {
+		// The path must still pass the sun_path budget check before MkdirAll, so
+		// it stays short and based under smokeRootBase.
+		blocker := filepath.Join(smokeRootBase, smokeRootPrefix+"reuse-blocked")
+		if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Remove(blocker) })
+
+		t.Setenv(smokeRootReuseEnv, filepath.Join(blocker, "child"))
+		_, _, err := resolveSuiteRoot()
+		if err == nil {
+			t.Fatal("resolveSuiteRoot = nil error, want the create failure reported")
+		}
+		if !errors.Is(err, syscall.ENOTDIR) {
+			t.Errorf("resolveSuiteRoot error %q, want it to wrap the filesystem cause ENOTDIR", err)
+		}
+	})
+
+	t.Run("temp root cannot be created", func(t *testing.T) {
+		originalMkdtemp := mkdtemp
+		t.Cleanup(func() { mkdtemp = originalMkdtemp })
+		mkdtemp = func(string, string) (string, error) { return "", syscall.ENOSPC }
+
+		t.Setenv(smokeRootReuseEnv, "")
+		_, _, err := resolveSuiteRoot()
+		if err == nil {
+			t.Fatal("resolveSuiteRoot = nil error, want the temp-root failure reported")
+		}
+		if !errors.Is(err, syscall.ENOSPC) {
+			t.Errorf("resolveSuiteRoot error %q, want it to wrap the filesystem cause ENOSPC", err)
+		}
+	})
+}
+
 // TestIsolatedEnvSharesDataKeepsHome pins the per-harness split: two harnesses
 // sharing one root keep separate HOME/config/state/cache dirs (so a seeded config
 // cannot clobber another harness) while sharing XDG_DATA_HOME (so the

@@ -177,7 +177,7 @@ func resolveSuiteRoot() (string, bool, error) {
 		}
 		return dir, true, nil
 	}
-	root, err := os.MkdirTemp(smokeRootBase, smokeRootPrefix)
+	root, err := mkdtemp(smokeRootBase, smokeRootPrefix)
 	if err != nil {
 		return "", false, err
 	}
@@ -440,10 +440,13 @@ func seedHomeFiles(homeBase string, files map[string]string) error {
 	return nil
 }
 
-// mkdirAll and writeFile are the filesystem seams seedHomeFiles writes through.
+// mkdirAll and writeFile are the filesystem seams seedHomeFiles writes through;
+// mkdtemp is the seam resolveSuiteRoot creates a fresh root through. A test
+// replaces one to assert its failure branch.
 var (
 	mkdirAll  = os.MkdirAll
 	writeFile = os.WriteFile
+	mkdtemp   = os.MkdirTemp
 )
 
 // usableTerm returns the TERM to run the child under: the inherited value
