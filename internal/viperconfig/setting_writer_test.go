@@ -1242,3 +1242,11 @@ func parseYAMLMap(t *testing.T, data string) map[string]any {
 	}
 	return parsed
 }
+
+// TestWriteSettingRejectsEmptyDir pins that an unresolved (empty) config dir is
+// refused rather than writing config.yaml into the process working directory.
+func TestWriteSettingRejectsEmptyDir(t *testing.T) {
+	if err := WriteSetting("", "memory", "1G"); err == nil {
+		t.Error("WriteSetting with an empty dir = nil error, want a rejection")
+	}
+}

@@ -39,6 +39,9 @@ func rootLockPath() string {
 //nolint:nonamedreturns // the documented (release, ok, err) signature is the contract
 func lockRootState(blocking bool) (release func(), ok bool, err error) {
 	path := rootLockPath()
+	if pathErr := requireAbsoluteStatePath(path); pathErr != nil {
+		return nil, false, pathErr
+	}
 	if mkdirErr := mkdirRootLock(filepath.Dir(path), 0o700); mkdirErr != nil {
 		return nil, false, fmt.Errorf("create lock dir: %w", mkdirErr)
 	}

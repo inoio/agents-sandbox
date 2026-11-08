@@ -43,6 +43,9 @@ var clientLeaseDirReady func(dir string)
 // is never left locked on an anonymous inode no later count can see.
 func AcquireClientLease(k Key) (func(), error) {
 	dir := filepath.Join(KeyDir(k), "clients")
+	if err := requireAbsoluteStatePath(dir); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create client lock dir: %w", err)
 	}

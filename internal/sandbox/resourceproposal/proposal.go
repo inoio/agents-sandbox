@@ -5,6 +5,7 @@ package resourceproposal
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -165,6 +166,9 @@ func PersistSetting(paths configpaths.ConfigPaths, slug, key, value string, setB
 	if !ok {
 		dir = paths.UserSlugConfigDir(slug)
 	}
+	if err := requireWritableConfigDir(paths, dir); err != nil {
+		return "", err
+	}
 	// The owning layer may be the project config: the write goes there so the
 	// raise is not shadowed. A project-config trust gate must also record the
 	// launcher's own change there (specs/resources/resource-limit-proposal.md §4).
@@ -172,6 +176,21 @@ func PersistSetting(paths configpaths.ConfigPaths, slug, key, value string, setB
 		return "", err
 	}
 	return dir, nil
+}
+
+// requireWritableConfigDir rejects a resolved config directory that is not a
+// usable location: empty, or relative and not the project config base. A user or
+// per-slug config directory is absolute; only the project layer is relative (the
+// `.agents-sandbox` base), so any other relative directory would write the
+// config into the process working directory instead of a config location.
+func requireWritableConfigDir(paths configpaths.ConfigPaths, dir string) error {
+	if dir == "" {
+		return fmt.Errorf("config dir is empty; the config path did not resolve")
+	}
+	if filepath.IsAbs(dir) || dir == paths.ProjectConfigDir() {
+		return nil
+	}
+	return fmt.Errorf("config dir %q is neither absolute nor the project config dir", dir)
 }
 
 // ShadowSource names the higher-precedence source that supplies the limit

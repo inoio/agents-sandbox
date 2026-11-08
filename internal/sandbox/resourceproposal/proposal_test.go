@@ -576,3 +576,47 @@ func assertNoConfigWritten(t *testing.T, cp configpaths.ConfigPaths) {
 		}
 	}
 }
+
+// unresolvableConfigPaths is a ConfigPaths whose per-slug config dir is the
+// test's chosen value, standing in for an unresolved config path: a relative or
+// empty dir would make PersistSetting write into the process working directory.
+type unresolvableConfigPaths struct{ slugDir string }
+
+func (unresolvableConfigPaths) UserConfigDir() string             { return "cfg" }
+func (c unresolvableConfigPaths) UserSlugConfigDir(string) string { return c.slugDir }
+func (unresolvableConfigPaths) UserCacheDir() string              { return "cache" }
+func (unresolvableConfigPaths) UserStateDir() string              { return "state" }
+func (unresolvableConfigPaths) UserDataDir() string               { return "data" }
+func (unresolvableConfigPaths) UserHomeDir() (string, error)      { return "home", nil }
+func (unresolvableConfigPaths) ProjectConfigDir() string          { return ".agents-sandbox" }
+func (unresolvableConfigPaths) ProjectConfigDirAbs() string       { return "" }
+func (unresolvableConfigPaths) IgnoredWorktreeConfigDir() string  { return "" }
+
+func (unresolvableConfigPaths) ProjectDockerfile() string {
+	return filepath.Join(".agents-sandbox", "Dockerfile")
+}
+
+// TestPersistSettingRejectsAnUnresolvedConfigDir pins that a config dir which
+// did not resolve — empty, or relative and not the project base — is refused
+// rather than written into the process working directory (the mutation-sweep
+// residue).
+func TestPersistSettingRejectsAnUnresolvedConfigDir(t *testing.T) {
+	for _, tc := range []struct{ name, slugDir string }{
+		{"empty", ""},
+		{"relative", "widget-bbb"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Pin the CWD so a write made with the guard removed lands in a temp
+			// tree, not the package directory.
+			t.Chdir(t.TempDir())
+			testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+			testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+
+			if _, err := PersistSetting(
+				unresolvableConfigPaths{slugDir: tc.slugDir}, testSlug, memoryKey, "8192M", false,
+			); err == nil {
+				t.Fatal("PersistSetting with an unresolved config dir = nil error, want a rejection")
+			}
+		})
+	}
+}
