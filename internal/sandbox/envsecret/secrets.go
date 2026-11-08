@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 
 	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/termio"

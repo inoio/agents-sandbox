@@ -1,6 +1,6 @@
 ---
-description: Decision record for the config write path (`oneyaml.dev/go` over `goccy/go-yaml`) and the 16 MiB cap on untrusted config/secret/snippet reads.
-read_if: Changing `viperconfig.WriteSetting`, the YAML edit path, or untrusted config/secret read bounds; or evaluating oneyaml vs goccy.
+description: Decision record for the config write path (`oneyaml.dev/go` over `goccy/go-yaml`), the YAML serialize library (`go.yaml.in/yaml/v4` for every path we own), and the 16 MiB cap on untrusted config/secret/snippet reads.
+read_if: Changing `viperconfig.WriteSetting`, the YAML edit path, or untrusted config/secret read bounds; touching `go.mod`'s YAML dependency or the `yaml/v3`↔`v4` choice; or evaluating oneyaml vs goccy.
 ---
 
 # YAML handling
@@ -56,13 +56,23 @@ untrusted input.
 
 ### The YAML dependency
 
-- Every YAML parse and serialize goes through `go.yaml.in/yaml/v3` (the maintained continuation of go-yaml);
-  `gopkg.in/yaml.v3` is never imported directly. It still resolves as an indirect *test* dependency of
-  `go-git` via `gomega`, so it stays in `go.sum`; that is not a licence to import it.
-- Why: `gopkg.in/yaml.v3` v3.0.1's emitter corrupts a string with a single leading newline on marshal
-  (`home_volume: |4-` followed by the content), dropping the leading blank line so a re-read differs; the
-  maintained fork (v3.0.4+) round-trips. The crasher (`home_volume: >\n\n 0`) is the fuzz seed
-  `internal/sandbox/state/testdata/fuzz/FuzzParseState/79cbe6941173cc3b`, run under `make test`.
+- Every YAML parse and serialize we own goes through `go.yaml.in/yaml/v4` (the maintained continuation of
+  go-yaml); neither `gopkg.in/yaml.v3` nor `go.yaml.in/yaml/v3` is imported directly. `gopkg.in/yaml.v3`
+  still resolves as an indirect *test* dependency of `go-git` via `gomega`, and viper v1.21.0 pulls
+  `go.yaml.in/yaml/v3` for its own config decoding, so both stay in `go.sum`; that is not a licence to
+  import either.
+- Two emitter defects drove the choice, both in the persist-a-value-then-cannot-read-it class the
+  `FuzzParseState` stability invariant guards. `gopkg.in/yaml.v3` v3.0.1 corrupted a string with a single
+  leading newline (`home_volume: |4-`, dropping the leading blank line); `go.yaml.in/yaml/v3` corrupted a
+  string whose first content character is a tab (`agent_version: |` then an indent plus tab, with no block
+  indentation indicator), emitting a block scalar it cannot itself re-parse. v4 emits the tab-bearing
+  string quoted and round-trips.
+- viper only reads YAML and never marshals, so its pinned `go.yaml.in/yaml/v3` cannot reintroduce the
+  emitter defect; every write path we own (`state`, `configmerge`) is on v4. Migrating viper itself is not
+  ours to do and would not change the write path.
+- Both crashers are committed regression seeds under
+  `internal/sandbox/state/testdata/fuzz/FuzzParseState/`, run under `make test`: `79cbe6941173cc3b`
+  (`home_volume: >\n\n 0`) and `f51287d7a34b879e` / `95bcaa4bcca42f8c` (`agent_version: "\t\n"`).
 
 ### Parse bounds — a shared input-size cap
 

@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	"github.com/titanous/json5"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 	oneyaml "oneyaml.dev/go"
 
 	"github.com/inoio/agents-sandbox/internal/atomicwrite"
