@@ -2,11 +2,14 @@ package msb
 
 import msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-// The projection registers below name every exported field of the SDK config
-// struct a translator projects. The drift test reflects over each struct and
-// fails when a field is neither projected nor listed in the matching
-// notModeled register, so an SDK release adding a field is caught here rather
-// than silently ignored.
+// The projection registers below name every exported field of an SDK struct a
+// translator projects — both the option (input) structs and the return structs
+// the phase-3 translators copy field for field. The drift test reflects over
+// each struct and fails when a field is neither projected nor listed in the
+// matching notModeled register, so an SDK release adding a field is caught here
+// rather than silently ignored.
+//
+//nolint:goconst // The repeated strings are SDK field names the registers pin verbatim, not extractable constants.
 var (
 	execProjected = map[string]struct{}{
 		"Cwd":       {},
@@ -79,6 +82,182 @@ var (
 	// jobLogNotModeled names msbSdk.JobLogOptions fields the launcher
 	// deliberately drops. Empty today: every field is projected.
 	jobLogNotModeled = map[string]string{}
+
+	// storageUsageReportProjected names every field of
+	// msbSdk.StorageUsageReport the launcher projects onto StorageReport;
+	// storageUsageReportNotModeled is empty because every field is projected.
+	storageUsageReportProjected = map[string]struct{}{
+		"Images":         {},
+		"Snapshots":      {},
+		"Sandboxes":      {},
+		"Volumes":        {},
+		"BranchMemory":   {},
+		"SnapshotMemory": {},
+		"Notes":          {},
+	}
+	storageUsageReportNotModeled = map[string]string{}
+
+	// storageCategoryProjected names every field of
+	// msbSdk.StorageCategoryUsage the launcher projects onto StorageCategory;
+	// storageCategoryNotModeled is empty because every field is projected.
+	storageCategoryProjected = map[string]struct{}{
+		"Count":                   {},
+		"InUse":                   {},
+		"LogicalBytes":            {},
+		"AllocatedBytes":          {},
+		"ReclaimableLogicalBytes": {},
+		"Items":                   {},
+		"Notes":                   {},
+	}
+	storageCategoryNotModeled = map[string]string{}
+
+	// storageItemProjected names every field of msbSdk.StorageItemUsage the
+	// launcher projects onto StorageItem; storageItemNotModeled is empty
+	// because every field is projected.
+	storageItemProjected = map[string]struct{}{
+		"Name":           {},
+		"Path":           {},
+		"LogicalBytes":   {},
+		"AllocatedBytes": {},
+		"InUse":          {},
+		"Reclaimable":    {},
+		"Reasons":        {},
+	}
+	storageItemNotModeled = map[string]string{}
+
+	// storagePruneReportProjected names the msbSdk.StoragePruneReport fields
+	// the launcher projects onto PruneReport. The notModeled register names
+	// the rest, which PruneReport deliberately drops: it keeps only the
+	// reclaimed totals.
+	storagePruneReportProjected = map[string]struct{}{
+		"FilesRemoved":           {},
+		"LogicalBytesRemoved":    {},
+		"PhysicalBytesReclaimed": {},
+	}
+	storagePruneReportNotModeled = map[string]string{
+		"DryRun":    "the caller issued the prune, so the dry-run echo adds nothing",
+		"Entries":   "per-file outcomes are not surfaced",
+		"Truncated": "the entries-listing cap is not surfaced",
+	}
+
+	// jobInfoProjected names every field of msbSdk.JobInfo the launcher
+	// projects onto JobInfo; jobInfoNotModeled is empty because every field
+	// is projected.
+	jobInfoProjected = map[string]struct{}{
+		"ID":            {},
+		"RuntimeBootID": {},
+		"Command":       {},
+		"State":         {},
+		"TTY":           {},
+		"StdinClosed":   {},
+		"PID":           {},
+		"CreatedAt":     {},
+		"StartedAt":     {},
+		"FinishedAt":    {},
+		"ExitCode":      {},
+		"TimedOut":      {},
+		"Failure":       {},
+		"Error":         {},
+	}
+	jobInfoNotModeled = map[string]string{}
+
+	// jobLogEntryProjected names every field of msbSdk.JobLogEntry the
+	// launcher projects onto JobLogEntry; jobLogEntryNotModeled is empty
+	// because every field is projected.
+	jobLogEntryProjected = map[string]struct{}{
+		"Timestamp": {},
+		"Source":    {},
+		"Data":      {},
+		"Cursor":    {},
+	}
+	jobLogEntryNotModeled = map[string]string{}
+
+	// execFailureProjected names every field of msbSdk.ExecFailure the
+	// launcher projects onto ExecFailure; execFailureNotModeled is empty
+	// because every field is projected.
+	execFailureProjected = map[string]struct{}{
+		"Kind":      {},
+		"Errno":     {},
+		"ErrnoName": {},
+		"Message":   {},
+		"Path":      {},
+	}
+	execFailureNotModeled = map[string]string{}
+
+	// logEntryProjected names every field of msbSdk.LogEntry the launcher
+	// projects onto LogEntry; logEntryNotModeled is empty because every field
+	// is projected.
+	logEntryProjected = map[string]struct{}{
+		"Source":    {},
+		"SessionID": {},
+		"Timestamp": {},
+		"Data":      {},
+		"Cursor":    {},
+	}
+	logEntryNotModeled = map[string]string{}
+
+	// metricsProjected names every field of msbSdk.Metrics the launcher
+	// projects onto Metrics; metricsNotModeled is empty because every field
+	// is projected.
+	metricsProjected = map[string]struct{}{
+		"CPUPercent":              {},
+		"VCPUTimeNs":              {},
+		"MemoryBytes":             {},
+		"MemoryAvailableBytes":    {},
+		"MemoryHostResidentBytes": {},
+		"MemoryLimitBytes":        {},
+		"DiskReadBytes":           {},
+		"DiskWriteBytes":          {},
+		"NetRxBytes":              {},
+		"NetTxBytes":              {},
+		"UpperUsedBytes":          {},
+		"UpperFreeBytes":          {},
+		"UpperHostAllocatedBytes": {},
+		"Uptime":                  {},
+	}
+	metricsNotModeled = map[string]string{}
+
+	// imageConfigProjected names every field of msbSdk.ImageConfig the
+	// launcher projects onto ImageConfig; imageConfigNotModeled is empty
+	// because every field is projected.
+	imageConfigProjected = map[string]struct{}{
+		"Digest":     {},
+		"Env":        {},
+		"Cmd":        {},
+		"Entrypoint": {},
+		"WorkingDir": {},
+		"User":       {},
+		"Labels":     {},
+		"StopSignal": {},
+	}
+	imageConfigNotModeled = map[string]string{}
+
+	// imagePruneReportProjected names every field of
+	// msbSdk.ImagePruneReport the launcher projects onto ImagePruneReport;
+	// imagePruneReportNotModeled is empty because every field is projected.
+	imagePruneReportProjected = map[string]struct{}{
+		"SkippedInUse":     {},
+		"ImageRefsRemoved": {},
+		"ManifestsRemoved": {},
+		"LayersRemoved":    {},
+		"FsmetaRemoved":    {},
+		"VMDKRemoved":      {},
+		"BytesReclaimed":   {},
+	}
+	imagePruneReportNotModeled = map[string]string{}
+
+	// imageLayerProjected names every field of msbSdk.ImageLayer the
+	// launcher projects onto ImageLayer; imageLayerNotModeled is empty
+	// because every field is projected.
+	imageLayerProjected = map[string]struct{}{
+		"DiffID":              {},
+		"BlobDigest":          {},
+		"MediaType":           {},
+		"CompressedSizeBytes": {},
+		"ErofsSizeBytes":      {},
+		"Position":            {},
+	}
+	imageLayerNotModeled = map[string]string{}
 )
 
 // execOptions translates an ExecRequest into the SDK exec options. Options

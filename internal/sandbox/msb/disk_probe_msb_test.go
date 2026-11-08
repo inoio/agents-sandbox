@@ -8,13 +8,13 @@ package msb_test
 
 import (
 	"context"
-	"os"
 	"strconv"
 	"testing"
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 )
 
@@ -24,20 +24,6 @@ const (
 	diskProbeDestroyTimeout = 30 * time.Second
 	diskProbeIdleTimeout    = 5 * time.Minute
 )
-
-// ensureDiskProbeRuntime resolves the SDK-pinned runtime in the isolated home
-// TestMain installed, installing it on first use. It must run before the first
-// real SDK call.
-func ensureDiskProbeRuntime(t *testing.T) {
-	t.Helper()
-	if _, err := msbSdk.EnsureRuntime(
-		context.Background(),
-		msbSdk.RuntimeConfig{Home: os.Getenv("MSB_HOME")},
-		msbSdk.InstallOptions{},
-	); err != nil {
-		t.Fatalf("ensure isolated msb runtime: %v", err)
-	}
-}
 
 // probeDiskUsage runs the launcher's in-guest disk probe against sb and parses
 // its output.
@@ -72,7 +58,7 @@ func assertConfiguredDiskLimits(t *testing.T, usages map[pressure.Kind]pressure.
 // trips the threshold, and a larger RootDiskSizeMiB applies live and persists
 // (specs/resources/resource-limit-proposal.md §1e, §5).
 func TestRealDiskProbeAndRootGrow(t *testing.T) {
-	ensureDiskProbeRuntime(t)
+	msb.EnsureIsolatedRuntime(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	name := "agents-sandbox-msb-test-disk-" + strconv.FormatInt(time.Now().UnixNano(), 10)

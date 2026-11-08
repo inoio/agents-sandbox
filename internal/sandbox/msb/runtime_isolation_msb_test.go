@@ -133,6 +133,14 @@ func ensureIsolatedRuntime(t *testing.T) {
 	isolatedRuntimeReady = true
 }
 
+// EnsureIsolatedRuntime resolves the SDK-pinned runtime in the isolated home
+// and marks the post-test sweep ready. The external msb_test package cannot
+// reach the unexported helper or flag, so it calls this.
+func EnsureIsolatedRuntime(t *testing.T) {
+	t.Helper()
+	ensureIsolatedRuntime(t)
+}
+
 // sweepIsolatedSandboxes best-effort destroys every sandbox left in the
 // isolated runtime home after m.Run() returns. A test that reached its own
 // cleanup leaves nothing; one that failed or panicked without reaching it would

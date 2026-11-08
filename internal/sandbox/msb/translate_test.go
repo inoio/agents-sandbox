@@ -1,9 +1,11 @@
 package msb
 
-// Reflection covers only the exported config structs. The SDK's jobExecConfig,
-// jobListConfig, lifecycleOptions and destroyOptions are unexported and mutate
-// unexported fields, so they cannot be reflected; drift there is caught only by
-// the compiler when the adapters call the SDK constructors (Task 2.3).
+// Reflection covers the exported SDK structs a translator projects — both the
+// option (input) structs and the return structs the phase-3 translators copy
+// field for field. The SDK's jobExecConfig, jobListConfig, lifecycleOptions and
+// destroyOptions are unexported and mutate unexported fields, so they cannot be
+// reflected; drift there is caught only by the compiler when the adapters call
+// the SDK constructors (Task 2.3).
 
 import (
 	"reflect"
@@ -14,7 +16,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-func TestSDKConfigFieldsAreClassified(t *testing.T) {
+func TestSDKStructFieldsAreClassified(t *testing.T) {
 	tests := []struct {
 		name       string
 		structType reflect.Type
@@ -42,6 +44,43 @@ func TestSDKConfigFieldsAreClassified(t *testing.T) {
 			jobLogProjected,
 			jobLogNotModeled,
 		},
+		{
+			"StorageUsageReport",
+			reflect.TypeFor[msbSdk.StorageUsageReport](),
+			storageUsageReportProjected,
+			storageUsageReportNotModeled,
+		},
+		{
+			"StorageCategoryUsage",
+			reflect.TypeFor[msbSdk.StorageCategoryUsage](),
+			storageCategoryProjected,
+			storageCategoryNotModeled,
+		},
+		{
+			"StorageItemUsage",
+			reflect.TypeFor[msbSdk.StorageItemUsage](),
+			storageItemProjected,
+			storageItemNotModeled,
+		},
+		{
+			"StoragePruneReport",
+			reflect.TypeFor[msbSdk.StoragePruneReport](),
+			storagePruneReportProjected,
+			storagePruneReportNotModeled,
+		},
+		{"JobInfo", reflect.TypeFor[msbSdk.JobInfo](), jobInfoProjected, jobInfoNotModeled},
+		{"JobLogEntry", reflect.TypeFor[msbSdk.JobLogEntry](), jobLogEntryProjected, jobLogEntryNotModeled},
+		{"ExecFailure", reflect.TypeFor[msbSdk.ExecFailure](), execFailureProjected, execFailureNotModeled},
+		{"LogEntry", reflect.TypeFor[msbSdk.LogEntry](), logEntryProjected, logEntryNotModeled},
+		{"Metrics", reflect.TypeFor[msbSdk.Metrics](), metricsProjected, metricsNotModeled},
+		{"ImageConfig", reflect.TypeFor[msbSdk.ImageConfig](), imageConfigProjected, imageConfigNotModeled},
+		{
+			"ImagePruneReport",
+			reflect.TypeFor[msbSdk.ImagePruneReport](),
+			imagePruneReportProjected,
+			imagePruneReportNotModeled,
+		},
+		{"ImageLayer", reflect.TypeFor[msbSdk.ImageLayer](), imageLayerProjected, imageLayerNotModeled},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
