@@ -98,8 +98,10 @@ func lineDiff(before, after []string) []string {
 	}
 	// common[i][j] is the length of the longest common subsequence of
 	// before[i:] and after[j:].
+	// gomutants:disable-next-line INTEGER_INCREMENT reason="an extra row is never read: the walk stops at the last row of before"
 	common := make([][]int, len(before)+1)
 	for i := range common {
+		// gomutants:disable-next-line INTEGER_INCREMENT reason="an extra column is never read: the walk stops at the last column of after"
 		common[i] = make([]int, len(after)+1)
 	}
 	for i, beforeLine := range slices.Backward(before) {

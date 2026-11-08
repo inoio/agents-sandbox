@@ -232,18 +232,16 @@ func (c inputCollector) addFile(path string) error {
 	return nil
 }
 
-// addTree adds every file under root; a missing root adds nothing.
+// addTree adds every file under root. A missing root or an entry the walk
+// cannot read adds nothing, as provisioning, which walks the same way, does not
+// copy it either.
 func (c inputCollector) addTree(root string) error {
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+	return filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil || entry.IsDir() {
-			return walkErr
+			return nil //nolint:nilerr // an entry the walk cannot read is not provisioned, so it is skipped
 		}
 		return c.addFile(path)
 	})
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	return err
 }
 
 // addHomeSource adds a guest-writable home: source by content, or by digest

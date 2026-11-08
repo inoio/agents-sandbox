@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -137,4 +138,66 @@ func TestEvaluateNotesABytesOnlyChange(t *testing.T) {
 	if got.Approved || len(got.Changes) != 1 || !slices.Equal(got.Changes[0].Lines, []string{bytesChangedNote}) {
 		t.Errorf("Evaluate = %+v, want one change with the bytes note", got)
 	}
+}
+
+// TestLineDiffIsAMinimalEditScript checks the diff against an independent
+// longest common subsequence: every pair of A/B sequences up to four lines, and
+// a longer case a wrong table entry would get wrong, yields exactly the lines
+// outside a longest common subsequence, each side in order.
+func TestLineDiffIsAMinimalEditScript(t *testing.T) {
+	cases := [][2][]string{{
+		{"C", "A", "B", "C", "A", "C"}, {"B", "B", "C"},
+	}}
+	var sequences [][]string
+	for length := range 5 {
+		for bits := range 1 << length {
+			var sequence []string
+			for position := range length {
+				sequence = append(sequence, string("AB"[bits>>position&1]))
+			}
+			sequences = append(sequences, sequence)
+		}
+	}
+	for _, before := range sequences {
+		for _, after := range sequences {
+			cases = append(cases, [2][]string{before, after})
+		}
+	}
+	for _, tc := range cases {
+		before, after := tc[0], tc[1]
+		lines := lineDiff(before, after)
+		var removed, added []string
+		for _, line := range lines {
+			if text, ok := strings.CutPrefix(line, "- "); ok {
+				removed = append(removed, text)
+			} else {
+				added = append(added, strings.TrimPrefix(line, "+ "))
+			}
+		}
+		common := longestCommonSubsequence(before, after)
+		if len(removed) != len(before)-common || len(added) != len(after)-common ||
+			!isSubsequence(removed, before) || !isSubsequence(added, after) {
+			t.Fatalf("lineDiff(%q, %q) = %q, not a minimal edit script (common %d)", before, after, lines, common)
+		}
+	}
+}
+
+func longestCommonSubsequence(a, b []string) int {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	if a[0] == b[0] {
+		return 1 + longestCommonSubsequence(a[1:], b[1:])
+	}
+	return max(longestCommonSubsequence(a[1:], b), longestCommonSubsequence(a, b[1:]))
+}
+
+func isSubsequence(part, whole []string) bool {
+	next := 0
+	for _, line := range whole {
+		if next < len(part) && part[next] == line {
+			next++
+		}
+	}
+	return next == len(part)
 }

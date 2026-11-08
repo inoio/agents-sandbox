@@ -464,9 +464,10 @@ func TestComputeSkipsAHomeSourceThatIsNoRegularFile(t *testing.T) {
 	if err := os.Symlink("/dev/zero", link); err != nil {
 		t.Fatal(err)
 	}
-	f.write(t, "config.yaml", "home:\n  zero: "+link+"\n")
-	if got := f.compute(t); hasInput(got, link) {
-		t.Errorf("a device home: source became an input: %+v", got.Inputs)
+	config := f.write(t, "config.yaml", "home:\n  zero: "+link+"\n")
+	got := f.compute(t)
+	if len(got.Inputs) != 2 || hasInput(got, link) {
+		t.Errorf("inputs = %+v, want only the config file's two inputs %s", got.Inputs, config)
 	}
 }
 
