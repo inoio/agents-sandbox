@@ -460,7 +460,10 @@ func TestReportActivePorts(t *testing.T) {
 		{
 			name: "kept with deferred ports",
 			opts: requested,
-			plan: reconfigPlan{existingVM: &msbtest.MockSandboxHandle{}, decision: reconfigDecision{PortsChanged: true}},
+			plan: reconfigPlan{
+				existingVM: &msbtest.MockSandboxHandle{},
+				decision:   reconfigDecision{PortsChanged: true},
+			},
 		},
 		{name: "nothing requested"},
 	}

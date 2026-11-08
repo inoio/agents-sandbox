@@ -19,7 +19,11 @@ func compactableHandle(name string, result *msb.DiskCompactionResult) *msbtest.M
 	return labelledHandle(name, map[string]string{naming.LabelSlug: strings.SplitN(name, "-", 2)[0]}, result)
 }
 
-func labelledHandle(name string, labels map[string]string, result *msb.DiskCompactionResult) *msbtest.MockSandboxHandle {
+func labelledHandle(
+	name string,
+	labels map[string]string,
+	result *msb.DiskCompactionResult,
+) *msbtest.MockSandboxHandle {
 	return &msbtest.MockSandboxHandle{
 		Name_:         name,
 		Status_:       msb.SandboxStatusStopped,

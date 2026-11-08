@@ -124,16 +124,18 @@ func TestFindProjectVM(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-				lookupErr, exists := tc.sandboxes[name]
-				switch {
-				case !exists:
-					return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
-				case lookupErr != nil:
-					return nil, lookupErr
-				}
-				return &msbtest.MockSandboxHandle{Name_: name}, nil
-			}}
+			client := &msbtest.MockMsbClient{
+				GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+					lookupErr, exists := tc.sandboxes[name]
+					switch {
+					case !exists:
+						return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
+					case lookupErr != nil:
+						return nil, lookupErr
+					}
+					return &msbtest.MockSandboxHandle{Name_: name}, nil
+				},
+			}
 
 			handle, found, err := FindProjectVM(context.Background(), client, k)
 
