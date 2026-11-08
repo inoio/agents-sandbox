@@ -146,10 +146,11 @@ type StreamOpener interface {
 	Shell(ctx context.Context, command string) (msb.ShellResult, error)
 }
 
-// SandboxStreamOpener adapts an msb.Sandbox to StreamOpener, narrowing it to the
-// two operations the watcher uses and dropping the exec options it never passes.
+// SandboxStreamOpener adapts an msb.SandboxStreamer to StreamOpener, narrowing
+// it to the two operations the watcher uses and dropping the exec options it
+// never passes.
 type SandboxStreamOpener struct {
-	Sandbox msb.Sandbox
+	Sandbox msb.SandboxStreamer
 }
 
 // ShellStream delegates to the sandbox.
