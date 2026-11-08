@@ -22,7 +22,7 @@ func TestProvisionWritesOpenCodeAndHomeFiles(t *testing.T) {
 			"/home/dev/.config/tool/cfg.toml": []byte("k=v\n"),
 		},
 	}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	sb := &msb.MockSandbox{FSValue_: fs}
 	if err := Provision(context.Background(), sb, cf); err != nil {
 		t.Fatalf("Provision: %v", err)
@@ -37,7 +37,7 @@ func TestProvisionWritesOpenCodeAndHomeFiles(t *testing.T) {
 
 func TestProvisionNoSnippetsSkipsOpenCode(t *testing.T) {
 	cf := &ConfigFiles{Merged: nil, HomeFiles: map[string][]byte{}}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	sb := &msb.MockSandbox{FSValue_: fs}
 	if err := Provision(context.Background(), sb, cf); err != nil {
 		t.Fatalf("Provision: %v", err)
@@ -61,7 +61,7 @@ func TestProvisionChownsHomeFiles(t *testing.T) {
 		},
 		Modes: map[string]os.FileMode{"/home/dev/.gitconfig": 0o755},
 	}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	var calls []string
 	var execCalls []string
 	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &calls, ExecCalls: &execCalls}
@@ -99,7 +99,7 @@ func TestProvisionReturnsHomeChmodError(t *testing.T) {
 		HomeFiles: map[string][]byte{path: []byte("user.name=X\n")},
 		Modes:     map[string]os.FileMode{path: 0o755},
 	}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	sb := &msb.MockSandbox{
 		FSValue_: fs,
 		ExecOut: map[string]msb.ShellResult{
@@ -117,7 +117,7 @@ func TestProvisionReturnsHomeChmodError(t *testing.T) {
 // when there are no files to provision.
 func TestProvisionNoFilesSkipsChown(t *testing.T) {
 	var calls []string
-	sb := &msb.MockSandbox{FSValue_: msb.NewTestFS(nil, nil), ShellCalls: &calls}
+	sb := &msb.MockSandbox{FSValue_: msb.NewTestFS(nil), ShellCalls: &calls}
 	if err := Provision(context.Background(), sb, &ConfigFiles{}); err != nil {
 		t.Fatalf("Provision: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestProvisionJoinsErrors(t *testing.T) {
 	writeErr := errors.New("write boom")
 	chownErr := errors.New("chown boom")
 	cf := &ConfigFiles{HomeFiles: map[string][]byte{"/home/dev/.gitconfig": []byte("x\n")}}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	fs.WriteErr = writeErr
 	sb := &msb.MockSandbox{FSValue_: fs, ShellErr: chownErr}
 
@@ -157,7 +157,7 @@ func TestProvisionRemovesStalePaths(t *testing.T) {
 			resolveConfigSubject(agent.Resolve(opencodeTestAgent()), VMHomeDir).familyNames,
 		),
 	}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
 	if err := Provision(context.Background(), sb, cf); err != nil {
 		t.Fatalf("Provision: %v", err)
@@ -185,7 +185,7 @@ func TestProvisionWritesProvisioned(t *testing.T) {
 			"/home/dev/.local/share/opencode/auth.json": []byte(`{"t":"x"}`),
 		},
 	}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
 	if err := Provision(context.Background(), sb, cf); err != nil {
 		t.Fatalf("Provision: %v", err)
@@ -203,7 +203,7 @@ func TestProvisionAppliesProvisionedFileMode(t *testing.T) {
 		Provisioned: map[string][]byte{path: []byte("#!/bin/sh\n")},
 		Modes:       map[string]os.FileMode{path: 0o755},
 	}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	var execCalls []string
 	sb := &msb.MockSandbox{
 		FSValue_:  fs,
@@ -224,7 +224,7 @@ func TestProvisionReturnsChmodError(t *testing.T) {
 		Provisioned: map[string][]byte{path: []byte("#!/bin/sh\n")},
 		Modes:       map[string]os.FileMode{path: 0o755},
 	}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	sb := &msb.MockSandbox{
 		FSValue_: fs,
 		ExecOut: map[string]msb.ShellResult{
@@ -245,7 +245,7 @@ func TestProvisionReturnsChmodExecError(t *testing.T) {
 		Provisioned: map[string][]byte{path: []byte("#!/bin/sh\n")},
 		Modes:       map[string]os.FileMode{path: 0o755},
 	}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	sb := &msb.MockSandbox{FSValue_: fs, ExecErr: wantErr}
 
 	err := Provision(context.Background(), sb, cf)
@@ -260,7 +260,7 @@ func TestProvisionReturnsMirrorChmodError(t *testing.T) {
 		Mirror: map[string][]byte{path: []byte("#!/bin/sh\n")},
 		Modes:  map[string]os.FileMode{path: 0o755},
 	}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	sb := &msb.MockSandbox{
 		FSValue_: fs,
 		ExecOut: map[string]msb.ShellResult{
@@ -286,7 +286,7 @@ func TestProvisionWritesMirror(t *testing.T) {
 		},
 		Modes: map[string]os.FileMode{launcherPath: 0o755},
 	}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	var execCalls []string
 	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}, ExecCalls: &execCalls}
 
@@ -312,7 +312,7 @@ func TestProvisionPropagatesMkdirError(t *testing.T) {
 		Merged:      []byte(`{"model":"x"}`),
 		MergedPath:  filepath.Join(VMHomeDir, ".config", "opencode", "opencode.jsonc"),
 	}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	fs.MkdirErr = mkdirErr
 	sb := &msb.MockSandbox{FSValue_: fs}
 
@@ -327,7 +327,7 @@ func TestProvisionPropagatesMkdirError(t *testing.T) {
 func TestProvisionWriteOpenCodeError(t *testing.T) {
 	writeErr := errors.New("write boom")
 	cf := &ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	fs.WriteErr = writeErr
 	sb := &msb.MockSandbox{FSValue_: fs, ShellErr: nil}
 	err := Provision(context.Background(), sb, cf)
@@ -343,7 +343,7 @@ func TestProvisionReturnsMkdirError(t *testing.T) {
 	cf := &ConfigFiles{
 		HomeFiles: map[string][]byte{"/home/dev/.config/tool/cfg.toml": []byte("k=v\n")},
 	}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	fs.MkdirErr = mkdirErr
 	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
 
@@ -358,7 +358,7 @@ func TestProvisionReturnsErrorWhenProvisionedWriteFails(t *testing.T) {
 	cf := &ConfigFiles{
 		Provisioned: map[string][]byte{"/home/dev/.config/tool/cfg.toml": []byte("k=v\n")},
 	}
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	fs.WriteErr = writeErr
 	sb := &msb.MockSandbox{FSValue_: fs, ShellCalls: &[]string{}}
 
@@ -373,7 +373,7 @@ func TestProvisionReturnsErrorWhenProvisionedWriteFails(t *testing.T) {
 func TestChownPathsReportsUnsuccessfulShell(t *testing.T) {
 	cmd := "chown -R dev:dev /a /b"
 	sb := &msb.MockSandbox{
-		FSValue_: msb.NewTestFS(nil, nil),
+		FSValue_: msb.NewTestFS(nil),
 		ShellOut: map[string]msb.ShellResult{
 			cmd: msb.NewTestResult(false, 1, "", "permission denied", nil),
 		},
@@ -386,7 +386,7 @@ func TestChownPathsReportsUnsuccessfulShell(t *testing.T) {
 
 // TestMkdirAllFSExisting verifies that an existing directory short-circuits.
 func TestMkdirAllFSExisting(t *testing.T) {
-	fs := msb.NewTestFS(map[string][]byte{"/home/dev/.config/opencode": nil}, nil)
+	fs := msb.NewTestFS(map[string][]byte{"/home/dev/.config/opencode": nil})
 	made, err := mkdirAllFS(context.Background(), fs, "/home/dev/.config/opencode")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -398,7 +398,7 @@ func TestMkdirAllFSExisting(t *testing.T) {
 
 // TestMkdirAllFSRootPath verifies the root/empty/`.` short-circuit branches.
 func TestMkdirAllFSRootPath(t *testing.T) {
-	fs := msb.NewTestFS(nil, nil)
+	fs := msb.NewTestFS(nil)
 	for _, p := range []string{"", "/", "."} {
 		made, err := mkdirAllFS(context.Background(), fs, p)
 		if err != nil {
@@ -484,7 +484,7 @@ func TestProvisionChownsWhatItCreatedBeforeAFailure(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls []string
 			sb := &msb.MockSandbox{
-				FSValue_:   pathFailingFS{TestFS: msb.NewTestFS(nil, nil), failPath: tc.failPath},
+				FSValue_:   pathFailingFS{TestFS: msb.NewTestFS(nil), failPath: tc.failPath},
 				ShellCalls: &calls,
 				ExecErr:    tc.execErr,
 			}

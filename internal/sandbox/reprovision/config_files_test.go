@@ -1670,7 +1670,6 @@ func TestReadVMConfigReadsPaths(t *testing.T) {
 				opencodeMergedPath:     data,
 				"/home/dev/.gitconfig": []byte("x=y\n"),
 			},
-			nil,
 		),
 	}
 	want := map[string][]byte{

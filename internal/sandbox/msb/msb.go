@@ -147,7 +147,6 @@ type Sandbox interface {
 	AttachWith(ctx context.Context, command string, args []string, opts ...msbSdk.AttachOption) (int, error)
 	Attach(ctx context.Context, command string, args ...string) (int, error)
 	Detach(ctx context.Context) error
-	Stop(ctx context.Context, opts ...msbSdk.StopOption) error
 	Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error
 	Close() error
 	Metrics(ctx context.Context) (*msbSdk.Metrics, error)
@@ -158,7 +157,6 @@ type Sandbox interface {
 // detached processes (dockerd, the agent serve daemon). Closing a job detaches
 // the handle; it never terminates the process.
 type Job interface {
-	ID() string
 	Inspect(ctx context.Context) (*msbSdk.JobInfo, error)
 	Kill(ctx context.Context) error
 	Logs(ctx context.Context, options msbSdk.JobLogOptions) ([]msbSdk.JobLogEntry, error)
@@ -205,7 +203,6 @@ type VolumeHandle interface {
 	Path() string
 	Kind() msbSdk.VolumeKind
 	CreatedAt() time.Time
-	IsDefault() bool
 	QuotaMiB() *uint32
 	UsedBytes() uint64
 	CapacityBytes() *uint64
@@ -242,10 +239,7 @@ type ImageDetail struct {
 // SandboxFS is the subset of the sandbox filesystem operations used by the launcher.
 type SandboxFS interface {
 	Exists(ctx context.Context, path string) (bool, error)
-	Stat(ctx context.Context, path string) (*msbSdk.FsStat, error)
-	List(ctx context.Context, path string) ([]msbSdk.FsEntry, error)
 	ReadString(ctx context.Context, path string) (string, error)
-	ReadStream(ctx context.Context, path string) (*msbSdk.FsReadStream, error)
 	Mkdir(ctx context.Context, path string) error
 	Write(ctx context.Context, path string, data []byte) error
 	Read(ctx context.Context, path string) ([]byte, error)
@@ -557,13 +551,6 @@ func (v realVolumeHandle) CreatedAt() time.Time {
 	return time.Time{}
 }
 
-func (v realVolumeHandle) IsDefault() bool {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.IsDefault()
-	}
-	return false
-}
-
 func (v realVolumeHandle) QuotaMiB() *uint32 {
 	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
 		return h.QuotaMiB()
@@ -815,14 +802,11 @@ var (
 	realSandboxExecDetached = (*msbSdk.Sandbox).ExecDetached
 	realSandboxGetJob       = (*msbSdk.Sandbox).GetJob
 	realSandboxListJobs     = (*msbSdk.Sandbox).ListJobs
-	realJobID               = (*msbSdk.Job).ID
 	realJobInspect          = (*msbSdk.Job).Inspect
 	realJobKill             = (*msbSdk.Job).Kill
 	realJobLogs             = (*msbSdk.Job).Logs
 	realJobClose            = (*msbSdk.Job).Close
 )
-
-func (j realJob) ID() string { return realJobID(j.job) }
 
 func (j realJob) Inspect(ctx context.Context) (*msbSdk.JobInfo, error) {
 	return realJobInspect(j.job, ctx)
@@ -896,7 +880,6 @@ var (
 	realSandboxAttach     = (*msbSdk.Sandbox).Attach
 	realSandboxAttachWith = (*msbSdk.Sandbox).AttachWith
 	realSandboxDetach     = (*msbSdk.Sandbox).Detach
-	realSandboxStop       = (*msbSdk.Sandbox).Stop
 	realSandboxDestroy    = (*msbSdk.Sandbox).Destroy
 	realSandboxClose      = (*msbSdk.Sandbox).Close
 	realSandboxMetrics    = (*msbSdk.Sandbox).Metrics
@@ -921,10 +904,6 @@ func (s realSandbox) AttachWith(
 
 func (s realSandbox) Detach(ctx context.Context) error {
 	return realSandboxDetach(s.sandbox, ctx)
-}
-
-func (s realSandbox) Stop(ctx context.Context, opts ...msbSdk.StopOption) error {
-	return realSandboxStop(s.sandbox, ctx, opts...)
 }
 
 func (s realSandbox) Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error {

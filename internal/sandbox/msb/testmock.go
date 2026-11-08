@@ -35,7 +35,6 @@ type MockDetachedCall struct {
 
 // MockJob is a test double for Job. Nil callbacks return the configured fields.
 type MockJob struct {
-	ID_       string
 	Info      *msbSdk.JobInfo
 	InfoErr   error
 	Logs_     []msbSdk.JobLogEntry
@@ -50,8 +49,6 @@ type MockJob struct {
 
 // Compile-time check.
 var _ Job = (*MockJob)(nil)
-
-func (m *MockJob) ID() string { return m.ID_ }
 
 func (m *MockJob) Inspect(ctx context.Context) (*msbSdk.JobInfo, error) {
 	if m.InspectFn != nil {
@@ -505,6 +502,7 @@ func (m *MockSandboxHandle) Destroy(ctx context.Context, _ ...msbSdk.DestroyOpti
 	m.Destroyed = true
 	return nil
 }
+
 func (m *MockSandboxHandle) DidDestroy() bool { return m.Destroyed }
 
 func (m *MockSandboxHandle) Config() (*msbSdk.SandboxConfig, error) {
@@ -582,7 +580,6 @@ type MockSandbox struct {
 	// DetachFn overrides DetachErr when set, so a test can observe the
 	// context a detach runs under.
 	DetachFn   func(ctx context.Context) error
-	StopErr    error
 	DestroyErr error
 	Destroyed  bool
 	CloseErr   error
@@ -681,7 +678,7 @@ func (m *MockSandbox) GetJob(ctx context.Context, id string) (Job, error) {
 	if m.Job_ != nil {
 		return m.Job_, nil
 	}
-	return &MockJob{ID_: id}, nil
+	return &MockJob{}, nil
 }
 
 func (m *MockSandbox) ListJobs(ctx context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error) {
@@ -724,7 +721,7 @@ func (m *MockSandbox) Detach(ctx context.Context) error {
 	}
 	return m.DetachErr
 }
-func (m *MockSandbox) Stop(_ context.Context, _ ...msbSdk.StopOption) error { return m.StopErr }
+
 func (m *MockSandbox) Destroy(_ context.Context, _ ...msbSdk.DestroyOption) error {
 	if m.DestroyErr != nil {
 		return m.DestroyErr
@@ -781,7 +778,6 @@ type SandboxOpts struct {
 	AttachCode int
 	AttachErr  error
 	DetachErr  error
-	StopErr    error
 	DestroyErr error
 	CloseErr   error
 	// StreamHandle_ is returned by ShellStream when ShellStreamFn is nil.
@@ -812,7 +808,6 @@ func NewMockSandbox(opts SandboxOpts) Sandbox {
 		AttachCode:        opts.AttachCode,
 		AttachErr:         opts.AttachErr,
 		DetachErr:         opts.DetachErr,
-		StopErr:           opts.StopErr,
 		DestroyErr:        opts.DestroyErr,
 		CloseErr:          opts.CloseErr,
 		StreamHandle_:     opts.StreamHandle_,
@@ -827,13 +822,11 @@ func NewMockSandbox(opts SandboxOpts) Sandbox {
 	}
 }
 
-// TestFS is a test double for SandboxFS that supports configurable file contents,
-// listing, and error injection.
+// TestFS is a test double for SandboxFS that supports configurable file contents
+// and error injection.
 type TestFS struct {
 	Contents map[string][]byte
-	LS       []msbSdk.FsEntry
 	ReadErr  error
-	ListErr  error
 	WriteErr error
 	MkdirErr error
 	Writes   map[string][]byte
@@ -842,26 +835,14 @@ type TestFS struct {
 }
 
 // NewTestFS creates a SandboxFS backed by the given files. Files is a map from
-// path to file content; ls is the return value for List. Nil map values
-// produce sensible defaults.
-func NewTestFS(files map[string][]byte, ls []msbSdk.FsEntry) *TestFS {
-	return &TestFS{Contents: files, LS: ls}
+// path to file content. Nil map values produce sensible defaults.
+func NewTestFS(files map[string][]byte) *TestFS {
+	return &TestFS{Contents: files}
 }
 
 func (t *TestFS) Exists(_ context.Context, path string) (bool, error) {
 	_, ok := t.Contents[path]
 	return ok, nil
-}
-
-func (t *TestFS) Stat(_ context.Context, _ string) (*msbSdk.FsStat, error) {
-	return &msbSdk.FsStat{}, nil
-}
-
-func (t *TestFS) List(_ context.Context, _ string) ([]msbSdk.FsEntry, error) {
-	if t.ListErr != nil {
-		return nil, t.ListErr
-	}
-	return t.LS, nil
 }
 
 func (t *TestFS) ReadString(_ context.Context, path string) (string, error) {
@@ -872,13 +853,6 @@ func (t *TestFS) ReadString(_ context.Context, path string) (string, error) {
 		return string(d), nil
 	}
 	return "", fmt.Errorf("file not found: %s", path)
-}
-
-func (t *TestFS) ReadStream(_ context.Context, _ string) (*msbSdk.FsReadStream, error) {
-	if t.ReadErr != nil {
-		return nil, t.ReadErr
-	}
-	return &msbSdk.FsReadStream{}, nil
 }
 
 func (t *TestFS) Mkdir(_ context.Context, path string) error {
@@ -945,7 +919,6 @@ type MockVolumeHandle struct {
 	Path_          string
 	Kind_          msbSdk.VolumeKind
 	CreatedAt_     time.Time
-	IsDefault_     bool
 	QuotaMiB_      *uint32
 	UsedBytes_     uint64
 	CapacityBytes_ *uint64
@@ -963,7 +936,6 @@ func (m MockVolumeHandle) Kind() msbSdk.VolumeKind {
 	return m.Kind_
 }
 func (m MockVolumeHandle) CreatedAt() time.Time   { return m.CreatedAt_ }
-func (m MockVolumeHandle) IsDefault() bool        { return m.IsDefault_ }
 func (m MockVolumeHandle) QuotaMiB() *uint32      { return m.QuotaMiB_ }
 func (m MockVolumeHandle) UsedBytes() uint64      { return m.UsedBytes_ }
 func (m MockVolumeHandle) CapacityBytes() *uint64 { return m.CapacityBytes_ }

@@ -233,7 +233,7 @@ func TestEnsureDaemonKillsStaleJobByChangedArgs(t *testing.T) {
 	fastDaemonPoll(t)
 	seams := healthQueue(unhealthy(), healthy())
 
-	stale := &msb.MockJob{ID_: "stale-daemon"}
+	stale := &msb.MockJob{}
 	// The stale daemon was launched by a release that bound the previous
 	// serve hostname, so matching the current command missed it (#343).
 	sb := &msb.MockSandbox{
@@ -256,7 +256,7 @@ func TestEnsureDaemonReportsCloseFailure(t *testing.T) {
 	fastDaemonPoll(t)
 	seams := healthQueue(unhealthy(), healthy())
 
-	sb := &msb.MockSandbox{Job_: &msb.MockJob{ID_: "daemon", CloseErr: errors.New("close boom")}}
+	sb := &msb.MockSandbox{Job_: &msb.MockJob{CloseErr: errors.New("close boom")}}
 	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
 		t.Fatalf("ensureDaemon failed: %v", err)
 	}

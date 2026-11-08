@@ -70,7 +70,7 @@ func TestReadLiveProjectVMReadsAgentConfigAndDetaches(t *testing.T) {
 	const configPath = "/home/dev/.config/opencode/opencode.json"
 	var detachContexts []context.Context
 	connected := &msb.MockSandbox{
-		FSValue_: msb.NewTestFS(map[string][]byte{configPath: []byte(`{"model":"m"}`)}, nil),
+		FSValue_: msb.NewTestFS(map[string][]byte{configPath: []byte(`{"model":"m"}`)}),
 		DetachFn: func(ctx context.Context) error {
 			detachContexts = append(detachContexts, ctx)
 			return nil

@@ -45,7 +45,7 @@ func TestDockerdArgsSelectsTheStorageDriver(t *testing.T) {
 		{
 			name: "fuse probe fails",
 			sb: func() *msb.MockSandbox {
-				return &msb.MockSandbox{FSValue_: msb.NewTestFS(nil, nil), ShellErr: errors.New("probe boom")}
+				return &msb.MockSandbox{FSValue_: msb.NewTestFS(nil), ShellErr: errors.New("probe boom")}
 			},
 			wantDriver: vfsStorageDriver,
 			wantFlag:   true,
@@ -97,7 +97,7 @@ func TestDockerdArgsSelectsTheStorageDriver(t *testing.T) {
 		{
 			name: "unreadable daemon.json",
 			sb: func() *msb.MockSandbox {
-				fs := msb.NewTestFS(map[string][]byte{dockerdDaemonConfigPath: []byte(`{}`)}, nil)
+				fs := msb.NewTestFS(map[string][]byte{dockerdDaemonConfigPath: []byte(`{}`)})
 				fs.ReadErr = readErr
 				return &msb.MockSandbox{FSValue_: fs}
 			},
@@ -137,7 +137,7 @@ func TestDockerdArgsSelectsTheStorageDriver(t *testing.T) {
 // be checked for aborts with its cause, rather than being treated as absent.
 func TestGuestStorageDriverExistsErrorWrapsCause(t *testing.T) {
 	sentinel := errors.New("exists boom")
-	sb := &msb.MockSandbox{FSValue_: existsErrorFS{TestFS: msb.NewTestFS(nil, nil), err: sentinel}}
+	sb := &msb.MockSandbox{FSValue_: existsErrorFS{TestFS: msb.NewTestFS(nil), err: sentinel}}
 
 	driver, err := guestStorageDriver(context.Background(), sb)
 	if err == nil {
@@ -361,8 +361,8 @@ func TestStartDockerdIfPresentProbesBeforeWaiting(t *testing.T) {
 
 func TestStartDockerdIfPresentKillsStaleJobWithChangedArgs(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	stale := &msb.MockJob{ID_: "stale-dockerd"}
-	running := &msb.MockJob{ID_: "new-dockerd"}
+	stale := &msb.MockJob{}
+	running := &msb.MockJob{}
 	sb := newCountingSandbox(1)
 	// The stale job was launched by a release whose dockerd arguments differ
 	// from this one's (no storage-driver flag), which is exactly the case the
@@ -418,7 +418,7 @@ func TestStartDockerdIfPresentContinuesAfterCleanupError(t *testing.T) {
 func TestStartDockerdIfPresentReportsCloseFailure(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	sb := newCountingSandbox(1)
-	sb.Job_ = &msb.MockJob{ID_: "new-dockerd", CloseErr: errors.New("close boom")}
+	sb.Job_ = &msb.MockJob{CloseErr: errors.New("close boom")}
 
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
 		t.Fatalf("startDockerdIfPresent: %v", err)
@@ -506,7 +506,7 @@ func daemonJSONSandboxWithFuse(content string, fuseAvailable bool) *msb.MockSand
 		files[dockerdDaemonConfigPath] = []byte(content)
 	}
 	return &msb.MockSandbox{
-		FSValue_: msb.NewTestFS(files, nil),
+		FSValue_: msb.NewTestFS(files),
 		ShellOut: map[string]msb.ShellResult{
 			fuseOverlayfsProbeCmd: msb.NewTestResult(fuseAvailable, 0, "", "", nil),
 		},
@@ -520,7 +520,7 @@ func newDockerdStartSandbox(content string) (*dockerdStartSandbox, *[]msb.MockDe
 	}
 	detachedCalls := &[]msb.MockDetachedCall{}
 	mock := &msb.MockSandbox{
-		FSValue_:          msb.NewTestFS(files, nil),
+		FSValue_:          msb.NewTestFS(files),
 		ExecDetachedCalls: detachedCalls,
 	}
 	return &dockerdStartSandbox{Sandbox: mock}, detachedCalls

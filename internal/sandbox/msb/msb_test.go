@@ -599,15 +599,6 @@ func TestRealSandboxDetachedDelegates(t *testing.T) {
 func TestRealJobDelegates(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("ID", func(t *testing.T) {
-		original := realJobID
-		t.Cleanup(func() { realJobID = original })
-		realJobID = func(_ *msbSdk.Job) string { return "job-1" }
-		if got := (realJob{}).ID(); got != "job-1" {
-			t.Fatalf("ID() = %q, want job-1", got)
-		}
-	})
-
 	t.Run("Inspect", func(t *testing.T) {
 		original := realJobInspect
 		t.Cleanup(func() { realJobInspect = original })
@@ -831,9 +822,6 @@ func TestRealVolumeHandleFromHandle(t *testing.T) {
 	if !v.CreatedAt().Equal(time.Time{}) {
 		t.Errorf("CreatedAt() = %v, want zero time", v.CreatedAt())
 	}
-	if v.IsDefault() {
-		t.Error("IsDefault() = true, want false")
-	}
 	if v.QuotaMiB() != nil {
 		t.Errorf("QuotaMiB() = %v, want nil", v.QuotaMiB())
 	}
@@ -871,9 +859,6 @@ func TestRealVolumeHandleFromVolumeKind(t *testing.T) {
 	}
 	if got := v.CreatedAt(); !got.Equal(time.Time{}) {
 		t.Errorf("CreatedAt() from *Volume = %v, want zero time", got)
-	}
-	if v.IsDefault() {
-		t.Error("IsDefault() from *Volume = true, want false")
 	}
 	if v.QuotaMiB() != nil {
 		t.Errorf("QuotaMiB() from *Volume = %v, want nil", v.QuotaMiB())
@@ -1220,19 +1205,6 @@ func TestRealSandboxDelegatesToSDK(t *testing.T) {
 		}
 		if err := (realSandbox{}).Detach(ctx); err != nil || !called {
 			t.Fatalf("Detach() = %v, called=%v; want nil, true", err, called)
-		}
-	})
-
-	t.Run("Stop", func(t *testing.T) {
-		original := realSandboxStop
-		t.Cleanup(func() { realSandboxStop = original })
-		called := false
-		realSandboxStop = func(_ *msbSdk.Sandbox, _ context.Context, _ ...msbSdk.StopOption) error {
-			called = true
-			return nil
-		}
-		if err := (realSandbox{}).Stop(ctx); err != nil || !called {
-			t.Fatalf("Stop() = %v, called=%v; want nil, true", err, called)
 		}
 	})
 
