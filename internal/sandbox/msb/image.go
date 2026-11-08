@@ -1,10 +1,6 @@
 package msb
 
-import (
-	"time"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-)
+import "time"
 
 // ImageHandle is the subset of *msb.ImageHandle that the launcher needs.
 type ImageHandle interface {
@@ -17,7 +13,7 @@ type ImageHandle interface {
 
 // ImageDetail is the inspected detail of a cached image: its manifest identity
 // plus the parsed OCI config and layer list. It mirrors the useful fields of
-// microsandbox's ImageDetail without exposing the SDK handle.
+// microsandbox's ImageDetail without exposing the SDK handle or types.
 //
 //exhaustruct:ignore
 type ImageDetail struct {
@@ -27,6 +23,6 @@ type ImageDetail struct {
 	OS             string
 	SizeBytes      *int64
 	CreatedAt      time.Time
-	Config         msbSdk.ImageConfig
-	Layers         []msbSdk.ImageLayer
+	Config         ImageConfig
+	Layers         []ImageLayer
 }

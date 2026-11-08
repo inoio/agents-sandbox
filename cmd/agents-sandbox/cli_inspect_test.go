@@ -22,7 +22,7 @@ func TestVolumeInspect(t *testing.T) {
 		&sandboxmsb.MockVolumeHandle{
 			Name_:          "agents-sandbox-home-proj-opencode-20260817T104236",
 			Path_:          "/home/dev/.local/share/agents-sandbox/msb/volumes/agents-sandbox-home-proj",
-			Kind_:          msbSdk.VolumeKindDisk,
+			Kind_:          sandboxmsb.VolumeKindDisk,
 			CreatedAt_:     time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
 			QuotaMiB_:      &quota,
 			UsedBytes_:     1024 * 1024 * 1024,
@@ -62,7 +62,7 @@ func TestVolumeInspectFormatJSON(t *testing.T) {
 		&sandboxmsb.MockVolumeHandle{
 			Name_:      "agents-sandbox-home-proj",
 			Path_:      "/msb/volumes/agents-sandbox-home-proj",
-			Kind_:      msbSdk.VolumeKindDir,
+			Kind_:      sandboxmsb.VolumeKindDir,
 			QuotaMiB_:  &quota,
 			UsedBytes_: 1024,
 			CreatedAt_: time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
@@ -95,7 +95,7 @@ func TestVolumeInspectFormatJSON(t *testing.T) {
 func TestVolumeInspectQuiet(t *testing.T) {
 	mock := &sandboxmsb.MockMsbClient{}
 	mock.Volumes = []sandboxmsb.VolumeHandle{
-		&sandboxmsb.MockVolumeHandle{Name_: "agents-sandbox-home-proj", Kind_: msbSdk.VolumeKindDir},
+		&sandboxmsb.MockVolumeHandle{Name_: "agents-sandbox-home-proj", Kind_: sandboxmsb.VolumeKindDir},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdInspect, "--quiet", "agents-sandbox-home-proj")
 	sandboxmsb.WithMsbMock(t, mock)
@@ -157,7 +157,7 @@ func TestImageInspect(t *testing.T) {
 				OS:             "linux",
 				SizeBytes:      &size,
 				CreatedAt:      time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
-				Config: msbSdk.ImageConfig{
+				Config: sandboxmsb.ImageConfig{
 					Env:        []string{"A=1", "B=2"},
 					Entrypoint: []string{"/entry"},
 					WorkingDir: "/workspace",
@@ -165,7 +165,7 @@ func TestImageInspect(t *testing.T) {
 					StopSignal: "SIGTERM",
 					Labels:     map[string]string{"k": "v"},
 				},
-				Layers: []msbSdk.ImageLayer{
+				Layers: []sandboxmsb.ImageLayer{
 					{
 						Position:            0,
 						DiffID:              "sha256:layer0",
@@ -211,8 +211,8 @@ func TestImageInspectFormatJSON(t *testing.T) {
 				ManifestDigest: "sha256:abc123",
 				Architecture:   "amd64",
 				OS:             "linux",
-				Config:         msbSdk.ImageConfig{Labels: map[string]string{"k": "v"}},
-				Layers:         []msbSdk.ImageLayer{{Position: 2, DiffID: "sha256:l"}},
+				Config:         sandboxmsb.ImageConfig{Labels: map[string]string{"k": "v"}},
+				Layers:         []sandboxmsb.ImageLayer{{Position: 2, DiffID: "sha256:l"}},
 			}, nil
 		},
 	}
@@ -282,8 +282,8 @@ func TestSandboxInspect(t *testing.T) {
 		&sandboxmsb.MockSandboxHandle{
 			Name_:        "agents-sandbox-vm-abc",
 			ID_:          "sbx-123",
-			Status_:      msbSdk.SandboxStatusRunning,
-			BackendKind_: msbSdk.BackendLocal,
+			Status_:      sandboxmsb.SandboxStatusRunning,
+			BackendKind_: sandboxmsb.BackendLocal,
 			CreatedAt_:   time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC),
 			UpdatedAt_:   time.Date(2026, 8, 17, 11, 0, 0, 0, time.UTC),
 			Cfg: &msbSdk.SandboxConfig{
@@ -334,8 +334,8 @@ func TestSandboxInspectFormatJSON(t *testing.T) {
 		&sandboxmsb.MockSandboxHandle{
 			Name_:        "agents-sandbox-vm-abc",
 			ID_:          "sbx-123",
-			Status_:      msbSdk.SandboxStatusStopped,
-			BackendKind_: msbSdk.BackendLocal,
+			Status_:      sandboxmsb.SandboxStatusStopped,
+			BackendKind_: sandboxmsb.BackendLocal,
 			CreatedAt_:   time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC),
 			UpdatedAt_:   time.Date(2026, 8, 17, 11, 0, 0, 0, time.UTC),
 			Cfg: &msbSdk.SandboxConfig{
@@ -393,7 +393,7 @@ func TestSandboxInspectQuiet(t *testing.T) {
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
 		&sandboxmsb.MockSandboxHandle{
 			Name_:   "agents-sandbox-vm-abc",
-			Status_: msbSdk.SandboxStatusRunning,
+			Status_: sandboxmsb.SandboxStatusRunning,
 			Cfg:     &msbSdk.SandboxConfig{Image: "agents-sandbox/runner-proj:latest"},
 		},
 	}

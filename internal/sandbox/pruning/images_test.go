@@ -11,7 +11,6 @@ import (
 
 	imagetypes "github.com/moby/moby/api/types/image"
 	mobyclient "github.com/moby/moby/client"
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
@@ -312,13 +311,13 @@ func TestPruneImagesKeepsLiveProjectImageWithLeftoverTask(t *testing.T) {
 	const slug = "proj-1mjusbm3wikhb0"
 	live := &msb.MockSandboxHandle{
 		Name_:      slug + "-opencode",
-		Status_:    msbSdk.SandboxStatusRunning,
+		Status_:    msb.SandboxStatusRunning,
 		UpdatedAt_: time.Now(),
 		Image_:     slug + ":opencode-latest",
 	}
 	task := &msb.MockSandboxHandle{
 		Name_:      slug + "-opencode-1729000000000000000",
-		Status_:    msbSdk.SandboxStatusStopped,
+		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now(),
 	}
 	client := &msb.MockMsbClient{
@@ -429,9 +428,9 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 				events = append(events, "remove")
 				return nil
 			},
-			ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+			ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 				events = append(events, "prune")
-				return &msbSdk.ImagePruneReport{ManifestsRemoved: 1}, nil
+				return &msb.ImagePruneReport{ManifestsRemoved: 1}, nil
 			},
 		}
 		resolutions := msb.WithCountingMsbMock(t, client)
@@ -451,9 +450,9 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 	t.Run("dry run", func(t *testing.T) {
 		called := false
 		client := &msb.MockMsbClient{
-			ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+			ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 				called = true
-				return &msbSdk.ImagePruneReport{}, nil
+				return &msb.ImagePruneReport{}, nil
 			},
 		}
 		msb.WithMsbMock(t, client)
@@ -469,7 +468,7 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 
 	t.Run("native prune error", func(t *testing.T) {
 		client := &msb.MockMsbClient{
-			ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+			ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 				return nil, errors.New("native prune failed")
 			},
 		}
@@ -491,8 +490,8 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 func TestPruneImagesCapturesNativeReport(t *testing.T) {
 	physical := uint64(2048)
 	client := &msb.MockMsbClient{
-		ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
-			return &msbSdk.ImagePruneReport{SkippedInUse: 4, BytesReclaimed: &physical}, nil
+		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
+			return &msb.ImagePruneReport{SkippedInUse: 4, BytesReclaimed: &physical}, nil
 		},
 	}
 	msb.WithMsbMock(t, client)
@@ -514,8 +513,8 @@ func TestPruneImagesCapturesNativeReport(t *testing.T) {
 // the native report's byte count.
 func TestPruneImagesUnknownNativeBytesStayNil(t *testing.T) {
 	client := &msb.MockMsbClient{
-		ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
-			return &msbSdk.ImagePruneReport{SkippedInUse: 1}, nil
+		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
+			return &msb.ImagePruneReport{SkippedInUse: 1}, nil
 		},
 	}
 	msb.WithMsbMock(t, client)
@@ -992,7 +991,7 @@ func TestPruneImagesKeepsImageReferencedByKeptVM(t *testing.T) {
 		ToKeep: map[state.Key]msb.SandboxHandle{
 			{Slug: "proj-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{
 				Name_:   "agents-sandbox-vm-proj-1mjusbm3wikhb0",
-				Status_: msbSdk.SandboxStatusStopped,
+				Status_: msb.SandboxStatusStopped,
 				Image_:  "agents-sandbox/runner-proj-1mjusbm3wikhb0:4e8oeqohbmalok",
 			},
 		},
@@ -1029,9 +1028,9 @@ func TestPruneImagesSkipsNativePruneWhenRetaining(t *testing.T) {
 			removed = true
 			return nil
 		},
-		ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 			pruned = true
-			return &msbSdk.ImagePruneReport{ManifestsRemoved: 1}, nil
+			return &msb.ImagePruneReport{ManifestsRemoved: 1}, nil
 		},
 	}
 	msb.WithMsbMock(t, client)

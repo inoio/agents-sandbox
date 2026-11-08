@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -40,7 +38,7 @@ func TestVolumePrune(t *testing.T) {
 			Sandboxes: []msb.SandboxHandle{
 				&msb.MockSandboxHandle{
 					Name_:      "agents-sandbox-vm-orphan-1mjusbm3wikhb0",
-					Status_:    msbSdk.SandboxStatusStopped,
+					Status_:    msb.SandboxStatusStopped,
 					UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 				},
 			},
@@ -80,7 +78,7 @@ func TestVolumePruneFormatJSON(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-orphan-1mjusbm3wikhb0",
-				Status_:    msbSdk.SandboxStatusStopped,
+				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 			},
 		},

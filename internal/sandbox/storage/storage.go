@@ -8,8 +8,6 @@ import (
 	"context"
 	"fmt"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	sandboxruntime "github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 )
@@ -82,7 +80,7 @@ type Object struct {
 
 // storageUsageOf and privateHome are seams for tests.
 var (
-	storageUsageOf = func(ctx context.Context) (*msbSdk.StorageUsageReport, error) {
+	storageUsageOf = func(ctx context.Context) (*msb.StorageReport, error) {
 		return msb.Get().StorageUsage(ctx)
 	}
 	privateHome = sandboxruntime.PrivateHome
@@ -117,22 +115,22 @@ func Observe(ctx context.Context, opts Options) (*Report, error) {
 // selector for its usage in a report, so the report order and the usage mapping
 // share one source of truth.
 var msbCategorySources = []msbCategorySource{
-	{name: CategoryImages, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
+	{name: CategoryImages, usageOf: func(r *msb.StorageReport) msb.StorageCategory {
 		return r.Images
 	}},
-	{name: CategorySnapshots, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
+	{name: CategorySnapshots, usageOf: func(r *msb.StorageReport) msb.StorageCategory {
 		return r.Snapshots
 	}},
-	{name: CategoryBranchMemory, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
+	{name: CategoryBranchMemory, usageOf: func(r *msb.StorageReport) msb.StorageCategory {
 		return r.BranchMemory
 	}},
-	{name: CategorySnapshotMemory, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
+	{name: CategorySnapshotMemory, usageOf: func(r *msb.StorageReport) msb.StorageCategory {
 		return r.SnapshotMemory
 	}},
-	{name: CategorySandboxes, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
+	{name: CategorySandboxes, usageOf: func(r *msb.StorageReport) msb.StorageCategory {
 		return r.Sandboxes
 	}},
-	{name: CategoryVolumes, usageOf: func(r *msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage {
+	{name: CategoryVolumes, usageOf: func(r *msb.StorageReport) msb.StorageCategory {
 		return r.Volumes
 	}},
 }
@@ -142,7 +140,7 @@ var msbCategorySources = []msbCategorySource{
 //exhaustruct:ignore
 type msbCategorySource struct {
 	name    string
-	usageOf func(*msbSdk.StorageUsageReport) msbSdk.StorageCategoryUsage
+	usageOf func(*msb.StorageReport) msb.StorageCategory
 }
 
 // msbCategories returns the six microsandbox-owned categories in report order,
@@ -157,7 +155,7 @@ func msbCategories() []Category {
 
 // applyMSBUsage fills each category from the microsandbox report, preserving nil
 // counters as unknown and adding per-object rows when requested.
-func applyMSBUsage(categories []Category, report *msbSdk.StorageUsageReport, opts Options) {
+func applyMSBUsage(categories []Category, report *msb.StorageReport, opts Options) {
 	for i, source := range msbCategorySources {
 		usage := source.usageOf(report)
 		categories[i].Totals = totalsFrom(usage)
@@ -170,7 +168,7 @@ func applyMSBUsage(categories []Category, report *msbSdk.StorageUsageReport, opt
 
 // totalsFrom maps a microsandbox category usage, keeping optional counters nil
 // so unknown stays unknown.
-func totalsFrom(usage msbSdk.StorageCategoryUsage) Totals {
+func totalsFrom(usage msb.StorageCategory) Totals {
 	return Totals{
 		Count:            usage.Count,
 		InUse:            usage.InUse,
@@ -181,7 +179,7 @@ func totalsFrom(usage msbSdk.StorageCategoryUsage) Totals {
 }
 
 // objectsFrom maps microsandbox items to objects, returning nil for none.
-func objectsFrom(items []msbSdk.StorageItemUsage) []Object {
+func objectsFrom(items []msb.StorageItem) []Object {
 	if len(items) == 0 {
 		return nil
 	}

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 // Kind identifies the limited resource: memory here, the disk limits in
@@ -70,7 +70,7 @@ const (
 // with its fingerprint, or ok=false when none is found. The fingerprint is what
 // the anti-nag dedup compares a recorded kill against
 // (specs/resources/resource-limit-proposal.md); see oomFingerprint.
-func FromSystemLogAt(entries []msbSdk.LogEntry) (Signal, time.Time, bool) {
+func FromSystemLogAt(entries []msb.LogEntry) (Signal, time.Time, bool) {
 	var (
 		newest  Signal
 		newestT time.Time
@@ -100,7 +100,7 @@ func FromSystemLogAt(entries []msbSdk.LogEntry) (Signal, time.Time, bool) {
 
 // NewestOOMLoggedAt returns when the runtime logged the newest OOM line, the
 // bound for a read reaching back to that kill's boot start.
-func NewestOOMLoggedAt(entries []msbSdk.LogEntry) (time.Time, bool) {
+func NewestOOMLoggedAt(entries []msb.LogEntry) (time.Time, bool) {
 	var (
 		newest time.Time
 		found  bool
@@ -119,7 +119,7 @@ func NewestOOMLoggedAt(entries []msbSdk.LogEntry) (time.Time, bool) {
 // kill's boot start (the latest boot-start line logged before it) plus the
 // kernel uptime in the line is stable and orders kills across boots. Without
 // either, the entry timestamp stands in.
-func oomFingerprint(entries []msbSdk.LogEntry, oom msbSdk.LogEntry) time.Time {
+func oomFingerprint(entries []msb.LogEntry, oom msb.LogEntry) time.Time {
 	uptime, ok := kernelUptime(string(oom.Data))
 	if !ok {
 		return oom.Timestamp
@@ -187,7 +187,7 @@ func UnderPressure(usedMiB, limitMiB uint32, t Threshold) bool {
 
 // FromMetrics classifies memory pressure from a snapshot, or ok=false when the
 // limit is unknown (zero) or the usage does not trip t.
-func FromMetrics(m *msbSdk.Metrics, t Threshold) (Signal, bool) {
+func FromMetrics(m *msb.Metrics, t Threshold) (Signal, bool) {
 	if m == nil || m.MemoryLimitBytes == 0 {
 		return Signal{}, false
 	}
@@ -208,7 +208,7 @@ func FromMetrics(m *msbSdk.Metrics, t Threshold) (Signal, bool) {
 // MemoryLimitMiB returns a snapshot's memory limit in MiB, or 0 when the
 // snapshot or its limit is unknown. It is the fallback basis for a suggested
 // raise when the live VM's config cannot be read.
-func MemoryLimitMiB(m *msbSdk.Metrics) uint32 {
+func MemoryLimitMiB(m *msb.Metrics) uint32 {
 	if m == nil {
 		return 0
 	}
@@ -236,7 +236,7 @@ func bytesToMiB(bytes uint64) uint32 {
 // ReArmPercent and still be under pressure. Calling that recovered would re-arm
 // and re-offer the same answered condition on every launch
 // (specs/resources/resource-limit-proposal.md).
-func Recovered(m *msbSdk.Metrics, t Threshold) bool {
+func Recovered(m *msb.Metrics, t Threshold) bool {
 	if m == nil || m.MemoryLimitBytes == 0 {
 		return false
 	}

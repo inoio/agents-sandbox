@@ -39,7 +39,7 @@ func TestRemoveSandboxRefusesTaskSandboxName(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	handle := &msb.MockSandboxHandle{
 		Name_:   naming.LegacyTaskPrefix + "x-1729",
-		Status_: msbSdk.SandboxStatusStopped,
+		Status_: msb.SandboxStatusStopped,
 	}
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(handle)
@@ -58,7 +58,7 @@ func TestRemoveSandboxRefusesRunningWithoutForce(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	handle := &msb.MockSandboxHandle{
 		Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
-		Status_: msbSdk.SandboxStatusRunning,
+		Status_: msb.SandboxStatusRunning,
 	}
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(handle)
@@ -81,7 +81,7 @@ func TestRemoveSandboxForceStopsThenRemoves(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	handle := &msb.MockSandboxHandle{
 		Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
-		Status_: msbSdk.SandboxStatusRunning,
+		Status_: msb.SandboxStatusRunning,
 	}
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(handle)
@@ -104,26 +104,26 @@ func TestRemoveSandboxForceStopsThenRemoves(t *testing.T) {
 func TestRemoveSandboxRemovesNothingWithoutConfirmation(t *testing.T) {
 	cases := []struct {
 		name    string
-		status  msbSdk.SandboxStatus
+		status  msb.SandboxStatus
 		force   bool
 		ui      *termio.Mock
 		wantErr error
 	}{
 		{
 			name:    "non-interactive",
-			status:  msbSdk.SandboxStatusStopped,
+			status:  msb.SandboxStatusStopped,
 			ui:      &termio.Mock{},
 			wantErr: termio.ErrConfirmationRequired,
 		},
 		{
 			name:    "declined",
-			status:  msbSdk.SandboxStatusStopped,
+			status:  msb.SandboxStatusStopped,
 			ui:      &termio.Mock{IsInteractiveResult: true, ConfirmResult: false},
 			wantErr: termio.ErrCancelled,
 		},
 		{
 			name:    "declined with force on a running VM",
-			status:  msbSdk.SandboxStatusRunning,
+			status:  msb.SandboxStatusRunning,
 			force:   true,
 			ui:      &termio.Mock{IsInteractiveResult: true, ConfirmResult: false},
 			wantErr: termio.ErrCancelled,
@@ -162,7 +162,7 @@ func TestRemoveSandboxKeepsTheProjectState(t *testing.T) {
 			}
 			handle := &msb.MockSandboxHandle{
 				Name_:   naming.LegacyVMPrefix + key.Slug + "-" + key.Agent,
-				Status_: msbSdk.SandboxStatusStopped,
+				Status_: msb.SandboxStatusStopped,
 			}
 			client := &msb.MockMsbClient{}
 			client.SetGotSandbox(handle)
@@ -187,7 +187,7 @@ func TestRemoveSandboxReplacedFailsClosed(t *testing.T) {
 	replaced := &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "handle was replaced"}
 	handle := &msb.MockSandboxHandle{
 		Name_:     naming.LegacyVMPrefix + "proj-aBc1234D",
-		Status_:   msbSdk.SandboxStatusStopped,
+		Status_:   msb.SandboxStatusStopped,
 		RemoveErr: replaced,
 	}
 	client := &msb.MockMsbClient{}
@@ -224,7 +224,7 @@ func TestRemoveSandboxSurfacesStopError(t *testing.T) {
 	stopErr := errors.New("stop failed")
 	handle := &msb.MockSandboxHandle{
 		Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
-		Status_: msbSdk.SandboxStatusRunning,
+		Status_: msb.SandboxStatusRunning,
 		StopErr: stopErr,
 	}
 	client := &msb.MockMsbClient{}
@@ -248,7 +248,7 @@ func TestRemoveSandboxSurfacesRemoveError(t *testing.T) {
 	removeErr := errors.New("remove failed")
 	handle := &msb.MockSandboxHandle{
 		Name_:     naming.LegacyVMPrefix + "proj-aBc1234D",
-		Status_:   msbSdk.SandboxStatusStopped,
+		Status_:   msb.SandboxStatusStopped,
 		RemoveErr: removeErr,
 	}
 	client := &msb.MockMsbClient{}
@@ -266,7 +266,7 @@ func TestRemoveSandboxSurfacesRemoveError(t *testing.T) {
 
 func TestRemoveSandboxBarePrefixRemoves(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	handle := &msb.MockSandboxHandle{Name_: naming.LegacyVMPrefix, Status_: msbSdk.SandboxStatusStopped}
+	handle := &msb.MockSandboxHandle{Name_: naming.LegacyVMPrefix, Status_: msb.SandboxStatusStopped}
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(handle)
 	msb.WithMsbMock(t, client)

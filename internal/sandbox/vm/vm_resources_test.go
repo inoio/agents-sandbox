@@ -235,7 +235,7 @@ func reconcileHandle(maxCPUs uint8, maxMemoryMiB uint32) *msb.MockSandboxHandle 
 		// A staged live memory change is waited on until the limit converges; a
 		// large snapshot lets every memory case converge immediately without
 		// affecting the staged Modify under test.
-		MetricsResult: &msbSdk.Metrics{MemoryLimitBytes: 64 << 30},
+		MetricsResult: &msb.Metrics{MemoryLimitBytes: 64 << 30},
 	}
 }
 
@@ -258,12 +258,12 @@ func setMemoryConvergeSeams(t *testing.T, timeout time.Duration) {
 func TestWaitForMemoryLimitMemoryConvergesOnSequentialRead(t *testing.T) {
 	setMemoryConvergeSeams(t, time.Second)
 	calls := 0
-	read := func(context.Context) (*msbSdk.Metrics, error) {
+	read := func(context.Context) (*msb.Metrics, error) {
 		calls++
 		if calls == 1 {
-			return &msbSdk.Metrics{MemoryLimitBytes: 1 << 20}, nil
+			return &msb.Metrics{MemoryLimitBytes: 1 << 20}, nil
 		}
-		return &msbSdk.Metrics{MemoryLimitBytes: 4 << 20}, nil
+		return &msb.Metrics{MemoryLimitBytes: 4 << 20}, nil
 	}
 
 	err := waitForMemoryLimit(context.Background(), read, 4)
@@ -279,8 +279,8 @@ func TestWaitForMemoryLimitMemoryConvergesOnSequentialRead(t *testing.T) {
 // limit that never reaches the requested value errors instead of hanging.
 func TestWaitForMemoryLimitMemoryConvergeTimeout(t *testing.T) {
 	setMemoryConvergeSeams(t, 5*time.Millisecond)
-	read := func(context.Context) (*msbSdk.Metrics, error) {
-		return &msbSdk.Metrics{MemoryLimitBytes: 1 << 20}, nil
+	read := func(context.Context) (*msb.Metrics, error) {
+		return &msb.Metrics{MemoryLimitBytes: 1 << 20}, nil
 	}
 
 	err := waitForMemoryLimit(context.Background(), read, 4)
@@ -298,7 +298,7 @@ func TestWaitForMemoryLimitMemoryConvergeReadErrorTerminal(t *testing.T) {
 	setMemoryConvergeSeams(t, time.Second)
 	sentinel := errors.New("metrics boom")
 	calls := 0
-	read := func(context.Context) (*msbSdk.Metrics, error) {
+	read := func(context.Context) (*msb.Metrics, error) {
 		calls++
 		return nil, sentinel
 	}
@@ -317,7 +317,7 @@ func TestWaitForMemoryLimitMemoryConvergeReadErrorTerminal(t *testing.T) {
 // succeeds.
 func TestReconcileResourceConfigMemoryConverges(t *testing.T) {
 	handle := reconcileHandle(8, 8192)
-	handle.MetricsResult = &msbSdk.Metrics{MemoryLimitBytes: 4096 << 20}
+	handle.MetricsResult = &msb.Metrics{MemoryLimitBytes: 4096 << 20}
 	ui := termio.NewTestMock(t)
 
 	if err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{Memory: "4G"}, &ui); err != nil {
@@ -347,8 +347,8 @@ func TestWaitForMemoryLimitMemoryConvergeCanceled(t *testing.T) {
 	setMemoryConvergeSeams(t, time.Second)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	read := func(context.Context) (*msbSdk.Metrics, error) {
-		return &msbSdk.Metrics{MemoryLimitBytes: 1 << 20}, nil
+	read := func(context.Context) (*msb.Metrics, error) {
+		return &msb.Metrics{MemoryLimitBytes: 1 << 20}, nil
 	}
 
 	err := waitForMemoryLimit(ctx, read, 4)
@@ -363,7 +363,7 @@ func TestWaitForMemoryLimitMemoryConvergeCanceled(t *testing.T) {
 func TestReconcileResourceConfigMemoryConvergeFailure(t *testing.T) {
 	setMemoryConvergeSeams(t, 5*time.Millisecond)
 	handle := reconcileHandle(8, 8192)
-	handle.MetricsResult = &msbSdk.Metrics{MemoryLimitBytes: 1 << 20}
+	handle.MetricsResult = &msb.Metrics{MemoryLimitBytes: 1 << 20}
 	ui := termio.NewTestMock(t)
 
 	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{Memory: "4G"}, &ui)
@@ -393,8 +393,8 @@ func TestMemoryConvergeSeamDefaults(t *testing.T) {
 // 2 MiB does not satisfy a 4 MiB request.
 func TestWaitForMemoryLimitUsesMiB(t *testing.T) {
 	setMemoryConvergeSeams(t, 5*time.Millisecond)
-	read := func(context.Context) (*msbSdk.Metrics, error) {
-		return &msbSdk.Metrics{MemoryLimitBytes: 4 << 19}, nil
+	read := func(context.Context) (*msb.Metrics, error) {
+		return &msb.Metrics{MemoryLimitBytes: 4 << 19}, nil
 	}
 
 	err := waitForMemoryLimit(context.Background(), read, 4)
@@ -407,7 +407,7 @@ func TestWaitForMemoryLimitUsesMiB(t *testing.T) {
 // nil read result is not converged and must not be dereferenced.
 func TestWaitForMemoryLimitNilMetricsKeepsPolling(t *testing.T) {
 	setMemoryConvergeSeams(t, 5*time.Millisecond)
-	read := func(context.Context) (*msbSdk.Metrics, error) {
+	read := func(context.Context) (*msb.Metrics, error) {
 		//nolint:nilnil // a nil snapshot with no error is exactly the state this guard handles
 		return nil, nil
 	}

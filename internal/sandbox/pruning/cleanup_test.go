@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -83,7 +81,7 @@ func TestAutoPruneZeroThresholdKeepsFreshStoppedVM(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	fresh := &msb.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
-		Status_:    msbSdk.SandboxStatusStopped,
+		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now(),
 	}
 	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{fresh}}

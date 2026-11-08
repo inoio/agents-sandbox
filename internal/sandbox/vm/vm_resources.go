@@ -27,7 +27,7 @@ var (
 // unconverged.
 func waitForMemoryLimit(
 	ctx context.Context,
-	read func(context.Context) (*msbSdk.Metrics, error),
+	read func(context.Context) (*msb.Metrics, error),
 	wantMiB uint32,
 ) error {
 	ctx, cancel := context.WithTimeout(ctx, memoryConvergeTimeout)

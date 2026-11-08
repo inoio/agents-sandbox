@@ -19,18 +19,18 @@ func TestJobExited(t *testing.T) {
 	if got, exited := jobExited(nil); exited || got != 0 {
 		t.Errorf("jobExited(nil) = (%d, %v), want (0, false)", got, exited)
 	}
-	if got, exited := jobExited(&msbSdk.JobInfo{}); exited || got != 0 {
+	if got, exited := jobExited(&msb.JobInfo{}); exited || got != 0 {
 		t.Errorf("jobExited(no exit code) = (%d, %v), want (0, false)", got, exited)
 	}
 	code := 7
-	got, exited := jobExited(&msbSdk.JobInfo{ExitCode: &code})
+	got, exited := jobExited(&msb.JobInfo{ExitCode: &code})
 	if !exited || got != 7 {
 		t.Fatalf("jobExited() = (%d, %v), want (7, true)", got, exited)
 	}
 }
 
 func TestJobTailLogs(t *testing.T) {
-	job := &msb.MockJob{Logs_: []msbSdk.JobLogEntry{{Data: []byte("hello ")}, {Data: []byte("world")}}}
+	job := &msb.MockJob{Logs_: []msb.JobLogEntry{{Data: []byte("hello ")}, {Data: []byte("world")}}}
 	if got := jobTailLogs(context.Background(), job); got != "hello world" {
 		t.Errorf("jobTailLogs() = %q, want %q", got, "hello world")
 	}
@@ -40,8 +40,8 @@ func TestJobTailLogs(t *testing.T) {
 	}
 	// A read can return partial entries alongside an error; the tail must be
 	// discarded then, not concatenated from the partial slice.
-	partial := &msb.MockJob{LogsFn: func(context.Context, msbSdk.JobLogOptions) ([]msbSdk.JobLogEntry, error) {
-		return []msbSdk.JobLogEntry{{Data: []byte("partial")}}, errors.New("mid-read")
+	partial := &msb.MockJob{LogsFn: func(context.Context, msb.JobLogQuery) ([]msb.JobLogEntry, error) {
+		return []msb.JobLogEntry{{Data: []byte("partial")}}, errors.New("mid-read")
 	}}
 	if got := jobTailLogs(context.Background(), partial); got != "" {
 		t.Errorf("jobTailLogs() on partial-error = %q, want empty", got)
@@ -52,8 +52,8 @@ func TestJobTailLogs(t *testing.T) {
 // runtime only returns the trailing bytes when Tail is set, and a symbolic
 // expectation would move with a mutated constant instead of killing it.
 func TestJobTailLogsRequestsTail(t *testing.T) {
-	var captured msbSdk.JobLogOptions
-	job := &msb.MockJob{LogsFn: func(_ context.Context, opts msbSdk.JobLogOptions) ([]msbSdk.JobLogEntry, error) {
+	var captured msb.JobLogQuery
+	job := &msb.MockJob{LogsFn: func(_ context.Context, opts msb.JobLogQuery) ([]msb.JobLogEntry, error) {
 		captured = opts
 		return nil, nil
 	}}
@@ -278,7 +278,7 @@ func TestJobAlreadyStopped(t *testing.T) {
 func TestKillJobsDoesNotRequestAllJobs(t *testing.T) {
 	var gotQuery msb.JobQuery
 	sb := &msb.MockSandbox{
-		ListJobsFn: func(_ context.Context, query msb.JobQuery) ([]msbSdk.JobInfo, error) {
+		ListJobsFn: func(_ context.Context, query msb.JobQuery) ([]msb.JobInfo, error) {
 			gotQuery = query
 			return nil, nil
 		},
@@ -301,7 +301,7 @@ func TestKillJobsTreatsAlreadyStoppedAsSuccess(t *testing.T) {
 		KillErr: &msbSdk.JobError{Code: "job_not_running", Message: "job belongs to an earlier runtime generation"},
 	}
 	sb := &msb.MockSandbox{
-		Jobs: []msbSdk.JobInfo{{ID: "stopped", Command: []string{"dockerd"}}},
+		Jobs: []msb.JobInfo{{ID: "stopped", Command: []string{"dockerd"}}},
 		GetJobFn: func(context.Context, string) (msb.Job, error) {
 			return stopped, nil
 		},
@@ -332,7 +332,7 @@ func TestKillJobsTargetsStaleHelperWithChangedArgs(t *testing.T) {
 	marked := &msb.MockJob{}
 	otherHelper := &msb.MockJob{}
 	sb := &msb.MockSandbox{
-		Jobs: []msbSdk.JobInfo{
+		Jobs: []msb.JobInfo{
 			{ID: "legacy-dockerd", Command: []string{"dockerd", "-H", "unix:///var/run/docker.sock"}},
 			{
 				ID: "marked-dockerd",
@@ -374,7 +374,7 @@ func TestKillJobsKillsMatches(t *testing.T) {
 	// The non-matching job comes first: a matcher that stopped at the first
 	// non-match (instead of continuing) would leave the matching job alive.
 	sb := &msb.MockSandbox{
-		Jobs: []msbSdk.JobInfo{
+		Jobs: []msb.JobInfo{
 			{ID: "other", Command: []string{"sleep", "1"}},
 			{ID: "stale", Command: []string{"dockerd", "-H", "x"}},
 		},
@@ -409,7 +409,7 @@ func TestKillJobsContinuesPastAJobItCannotKill(t *testing.T) {
 	killFails := &msb.MockJob{KillErr: errors.New("kill boom")}
 	healthy := &msb.MockJob{}
 	sb := &msb.MockSandbox{
-		Jobs: []msbSdk.JobInfo{
+		Jobs: []msb.JobInfo{
 			{ID: "a", Command: []string{"dockerd"}},
 			{ID: "b", Command: []string{"dockerd"}},
 			{ID: "c", Command: []string{"dockerd"}},
@@ -443,7 +443,7 @@ func TestKillJobsContinuesPastAJobItCannotKill(t *testing.T) {
 func TestKillJobsReportsAListFailure(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	sb := &msb.MockSandbox{
-		ListJobsFn: func(context.Context, msb.JobQuery) ([]msbSdk.JobInfo, error) {
+		ListJobsFn: func(context.Context, msb.JobQuery) ([]msb.JobInfo, error) {
 			return nil, errors.New("list boom")
 		},
 	}
@@ -457,7 +457,7 @@ func TestKillJobsReportsCloseFailure(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	closing := &msb.MockJob{CloseErr: errors.New("close boom")}
 	sb := &msb.MockSandbox{
-		Jobs: []msbSdk.JobInfo{{ID: "closing", Command: []string{"dockerd"}}},
+		Jobs: []msb.JobInfo{{ID: "closing", Command: []string{"dockerd"}}},
 		GetJobFn: func(context.Context, string) (msb.Job, error) {
 			return closing, nil
 		},
@@ -474,7 +474,7 @@ func TestKillJobsReportsCloseFailure(t *testing.T) {
 
 func TestAwaitJobReadyInspectErrorKeepsPolling(t *testing.T) {
 	job := &msb.MockJob{
-		InspectFn: func(context.Context) (*msbSdk.JobInfo, error) { return nil, errors.New("inspect boom") },
+		InspectFn: func(context.Context) (*msb.JobInfo, error) { return nil, errors.New("inspect boom") },
 	}
 	probe := func(context.Context) (bool, string) { return true, "" }
 	if err := awaitJobReady(
@@ -500,8 +500,8 @@ func TestAwaitJobReadyReturnsOnProbe(t *testing.T) {
 func TestAwaitJobReadyCrashReturnsExitAndLogs(t *testing.T) {
 	code := 1
 	job := &msb.MockJob{
-		Info:  &msbSdk.JobInfo{ExitCode: &code},
-		Logs_: []msbSdk.JobLogEntry{{Data: []byte("containerd failed")}},
+		Info:  &msb.JobInfo{ExitCode: &code},
+		Logs_: []msb.JobLogEntry{{Data: []byte("containerd failed")}},
 	}
 	err := awaitJobReady(
 		context.Background(),
@@ -518,7 +518,7 @@ func TestAwaitJobReadyCrashReturnsExitAndLogs(t *testing.T) {
 }
 
 func TestAwaitJobReadyTimeoutIncludesLogs(t *testing.T) {
-	job := &msb.MockJob{Logs_: []msbSdk.JobLogEntry{{Data: []byte("timed-out sentinel")}}}
+	job := &msb.MockJob{Logs_: []msb.JobLogEntry{{Data: []byte("timed-out sentinel")}}}
 	err := awaitJobReady(
 		context.Background(),
 		job,
@@ -558,8 +558,8 @@ func TestAwaitJobReadyContextDone(t *testing.T) {
 // so the readiness loop keeps polling rather than treating a stale result as
 // current.
 func TestInspectJobErrorReturnsNil(t *testing.T) {
-	job := &msb.MockJob{InspectFn: func(context.Context) (*msbSdk.JobInfo, error) {
-		return &msbSdk.JobInfo{ID: "x"}, errors.New("inspect boom")
+	job := &msb.MockJob{InspectFn: func(context.Context) (*msb.JobInfo, error) {
+		return &msb.JobInfo{ID: "x"}, errors.New("inspect boom")
 	}}
 	if got := inspectJob(context.Background(), job); got != nil {
 		t.Fatalf("inspectJob() = %v, want nil on error", got)

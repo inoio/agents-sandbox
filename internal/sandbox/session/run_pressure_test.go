@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -41,7 +39,7 @@ func TestOfferMemoryRaiseAfterAttachUsesMarker(t *testing.T) {
 		OOMSeenAt: time.Now().Add(-time.Hour),
 	})
 	sb := &msb.MockSandbox{
-		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1 << 20, MemoryLimitBytes: 4096 << 20},
+		MetricsResult: &msb.Metrics{MemoryBytes: 1 << 20, MemoryLimitBytes: 4096 << 20},
 	}
 	var selects int
 	ui := &termio.Mock{
@@ -64,7 +62,7 @@ func TestOfferMemoryRaiseAfterAttachUsesMetricsLimit(t *testing.T) {
 	k := state.Key{Slug: "runpressurelimit", Agent: "opencode"}
 	seedPressureMarker(t, k, state.ResourcePressureState{})
 	sb := &msb.MockSandbox{
-		MetricsResult: &msbSdk.Metrics{MemoryBytes: 7800 << 20, MemoryLimitBytes: 8192 << 20},
+		MetricsResult: &msb.Metrics{MemoryBytes: 7800 << 20, MemoryLimitBytes: 8192 << 20},
 	}
 	var inputDefault string
 	ui := &termio.Mock{
@@ -119,8 +117,8 @@ func TestOfferMemoryRaiseAfterAttachDeclinedSaysNothingAboutTheNextRun(t *testin
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "keep", nil },
 	}
 	sb := &msb.MockSandbox{
-		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
-		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 	}
 
 	offerMemoryRaiseAfterAttach(context.Background(), k, sb, pressureSummary{}, options.RunOptions{}, ui)
@@ -145,8 +143,8 @@ func TestOfferMemoryRaiseAfterAttachSaysTheRaiseAppliesNextRun(t *testing.T) {
 		InputFn:             func(_, defaultValue string) (string, error) { return defaultValue, nil },
 	}
 	sb := &msb.MockSandbox{
-		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
-		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 	}
 
 	offerMemoryRaiseAfterAttach(context.Background(), k, sb, pressureSummary{}, options.RunOptions{}, ui)
@@ -174,7 +172,7 @@ func TestOfferMemoryRaiseAfterAttachClampsToTheBootMaximum(t *testing.T) {
 		},
 	}
 	nearMax := uint64(bootMaxMiB-512) << 20
-	sb := &msb.MockSandbox{MetricsResult: &msbSdk.Metrics{MemoryBytes: nearMax, MemoryLimitBytes: nearMax}}
+	sb := &msb.MockSandbox{MetricsResult: &msb.Metrics{MemoryBytes: nearMax, MemoryLimitBytes: nearMax}}
 
 	offerMemoryRaiseAfterAttach(
 		context.Background(), k, sb, pressureSummary{Tripped: true}, options.RunOptions{}, ui,
@@ -190,7 +188,7 @@ func TestOfferMemoryRaiseAfterAttachClampsToTheBootMaximum(t *testing.T) {
 // with no OOM line and recovered fresh metrics, while an untripped one is silent.
 func TestOfferMemoryRaiseAfterAttachWitnessedTrip(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	recovered := &msbSdk.Metrics{MemoryBytes: 5000 << 20, MemoryLimitBytes: 8192 << 20}
+	recovered := &msb.Metrics{MemoryBytes: 5000 << 20, MemoryLimitBytes: 8192 << 20}
 
 	t.Run("tripped summary offers", func(t *testing.T) {
 		k := state.Key{Slug: "witnessedtrip", Agent: "opencode"}

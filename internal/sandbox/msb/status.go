@@ -2,8 +2,6 @@ package msb
 
 import (
 	"fmt"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // VMStatusKind is the semantic lifecycle class of a sandbox status, as
@@ -22,15 +20,15 @@ const (
 // active runtime transition; running, draining, and paused have an active
 // runtime; created has no runtime but can be started; stopped and crashed are
 // terminal. Unknown statuses return an error so callers can fail closed.
-func GetVMStatus(status msbSdk.SandboxStatus) (VMStatusKind, error) {
+func GetVMStatus(status SandboxStatus) (VMStatusKind, error) {
 	switch status {
-	case msbSdk.SandboxStatusCreated:
+	case SandboxStatusCreated:
 		return VMStatusCreated, nil
-	case msbSdk.SandboxStatusStarting:
+	case SandboxStatusStarting:
 		return VMStatusStarting, nil
-	case msbSdk.SandboxStatusRunning, msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
+	case SandboxStatusRunning, SandboxStatusDraining, SandboxStatusPaused:
 		return VMStatusActive, nil
-	case msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
+	case SandboxStatusStopped, SandboxStatusCrashed:
 		return VMStatusStopped, nil
 	default:
 		// gomutants:disable-next-line RETURN_ZERO reason="VMStatusUnknown is VMStatusKind's zero value, so a RETURN_ZERO replacement is identical"
@@ -41,7 +39,7 @@ func GetVMStatus(status msbSdk.SandboxStatus) (VMStatusKind, error) {
 // IsSandboxActive reports whether a sandbox has a live runtime or is in an
 // active runtime transition. Starting is included to protect a VM that another
 // caller is booting, although it is not ready for commands yet.
-func IsSandboxActive(status msbSdk.SandboxStatus) bool {
+func IsSandboxActive(status SandboxStatus) bool {
 	// An unknown status reads as VMStatusUnknown, which is neither.
 	kind, _ := GetVMStatus(status)
 	return kind == VMStatusStarting || kind == VMStatusActive
@@ -50,7 +48,7 @@ func IsSandboxActive(status msbSdk.SandboxStatus) bool {
 // IsSandboxInactive reports whether a sandbox has no live runtime and is safe
 // to treat as a stopped resource. Unknown statuses return false so callers
 // that remove or reuse resources fail closed.
-func IsSandboxInactive(status msbSdk.SandboxStatus) bool {
+func IsSandboxInactive(status SandboxStatus) bool {
 	kind, _ := GetVMStatus(status)
 	return kind == VMStatusCreated || kind == VMStatusStopped
 }

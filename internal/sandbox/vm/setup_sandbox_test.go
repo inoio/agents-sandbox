@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -106,7 +104,7 @@ func TestRestartDaemonsRestartsPastAFailedKill(t *testing.T) {
 	command := opencodeProvider(t).DaemonCommand(false)
 	sb := &msb.MockSandbox{
 		Name_: "vm",
-		Jobs: []msbSdk.JobInfo{
+		Jobs: []msb.JobInfo{
 			{ID: "stale", Command: append([]string{command.Binary}, command.Args...)},
 		},
 		GetJobFn:          func(context.Context, string) (msb.Job, error) { return stale, nil },

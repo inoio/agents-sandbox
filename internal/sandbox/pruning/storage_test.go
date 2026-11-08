@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -76,8 +74,8 @@ func TestPruneStorageZeroAgeDisablesAgeFilter(t *testing.T) {
 func TestPruneStorageReportsBytes(t *testing.T) {
 	physical := uint64(4096)
 	client := &msb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error) {
-			return &msbSdk.StoragePruneReport{
+		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
+			return &msb.PruneReport{
 				FilesRemoved:           2,
 				LogicalBytesRemoved:    8192,
 				PhysicalBytesReclaimed: &physical,
@@ -103,8 +101,8 @@ func TestPruneStorageReportsBytes(t *testing.T) {
 // having reclaimed zero bytes.
 func TestPruneStorageUnknownPhysicalBytesStayNil(t *testing.T) {
 	client := &msb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error) {
-			return &msbSdk.StoragePruneReport{FilesRemoved: 1, LogicalBytesRemoved: 100}, nil
+		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
+			return &msb.PruneReport{FilesRemoved: 1, LogicalBytesRemoved: 100}, nil
 		},
 	}
 	msb.WithMsbMock(t, client)
@@ -120,7 +118,7 @@ func TestPruneStorageUnknownPhysicalBytesStayNil(t *testing.T) {
 
 func TestPruneStorageFailureWarnsAndReturnsError(t *testing.T) {
 	client := &msb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error) {
+		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
 			return nil, errors.New("storage boom")
 		},
 	}

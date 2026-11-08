@@ -14,10 +14,10 @@ the SDK: the interface method set is exactly what callers use, and SDK types mus
 currency.
 
 Issue #196 narrows the adapter to that contract. Phase 0 (dead surface + the `realVolumeHandle`
-silent-zero fix), Phase 1 (role interfaces) and Phase 2 (launcher-owned option types) have landed;
-Phases 3–4 (launcher-owned value types/enums, then the config model) remain. The sections below are
-the durable contract, stated as the end state; the "Status" note at the end records what is already
-true.
+silent-zero fix), Phase 1 (role interfaces), Phase 2 (launcher-owned option types) and Phase 3
+(launcher-owned value types and lifecycle enums) have landed; Phase 4 (the config model) remains. The
+sections below are the durable contract, stated as the end state; the "Status" note at the end records
+what is already true.
 
 ## Roles and composites
 
@@ -58,10 +58,14 @@ provider-owned split avoids an adapter per consumer.
   returns an SDK option is an anti-goal.
 - **Values out.** The interfaces return launcher-owned value types, not `*msbSdk.Metrics`,
   `*msbSdk.StorageUsageReport`, `*msbSdk.ImageConfig`, `msbSdk.JobInfo`, enum types, etc.
-  `ImageDetail`/`ParseConfigMounts` are the existing model.
+  `ImageDetail`/`ParseConfigMounts` are the existing model. Aliases that must stay distinct from an
+  SDK enum keep their values verbatim (e.g. `msb.SandboxStatus` string-mirrors `msbSdk.SandboxStatus`
+  so `string(x)` and `==` keep working), and the sync guards below cover them.
 - **Target.** No production file outside `internal/sandbox/msb` imports `msbSdk`. The one accepted
   residue is `runtime/runtime.go`'s `SDKVersion`/`RuntimeConfig`, if it cannot be convincingly
-  re-homed.
+  re-homed. After Phase 3, `storage`, `pressure`, `resourceproposal`, `image` and `session` are
+  already `msbSdk`-free (pinned by `phase3_boundary_test.go`); `vm`, `volume` and `pruning` still
+  import it for the Phase-4 config model.
 
 ## Upstream sync guards
 
@@ -111,10 +115,16 @@ files.
   `ExecDetached` takes `JobSpec`, `ListJobs` takes `JobQuery`, `Stop`/`Kill`/`Destroy` take
   `LifecycleOptions`, `Logs` takes `LogQuery`, `Compact` takes `CompactionRequest` — with the
   adapter translating each through `translate.go` (defaults omitted, so a zero request emits no
-  option). `resourceproposal.MemoryReads` follows the `SandboxObserver.Logs` shape. Return types
-  (`[]msbSdk.LogEntry`, `*msbSdk.DiskCompactionResult`, `[]msbSdk.JobInfo`, `*msbSdk.Metrics`) and
-  `Modify`/`msbSdk.ModifyOptions` (Phase 4) and `Job.Logs`/`msbSdk.JobLogOptions` (Phase 3) stay SDK
-  types.
-- **Pending:** Phases 3–4 — launcher-owned value types (storage → jobs/logs/metrics → image → enums),
-  then the config model (`SandboxSpec`/`VolumeSpec`, mounts/secrets/network; moving `vm.buildMounts`
-  behind the adapter). Until they land, the interfaces still return SDK value types.
+  option). `resourceproposal.MemoryReads` follows the `SandboxObserver.Logs` shape.
+- **Landed (#196 Phase 3):** the interfaces now return launcher-owned value types:
+  `*StorageReport`/`StorageCategory`/`StorageItem` and `PruneRequest`/`PruneReport` (`StorageStore`);
+  `JobInfo`/`JobLogEntry`/`JobLogQuery`/`LogEntry`/`Metrics` (`SandboxJobs`, `Job`, `SandboxObserver`,
+  `SandboxResourceControl`); `ImageConfig`/`ImageLayer`/`ImagePruneReport` (`ImageStore`, and the
+  `ImageDetail` fields); and the string-backed lifecycle enums `SandboxStatus`/`BackendKind`/
+  `VolumeKind` (`SandboxIdentity.Status`/`BackendKind`, `VolumeHandle.Kind`). The `JobLogOptions` and
+  `StoragePruneOptions` inputs joined the reflection register. `realVolumeHandle` wraps the SDK
+  volume handle, translating only `Kind()`. `Modify`/`msbSdk.ModifyOptions` and the compaction result
+  stay SDK types for Phase 4.
+- **Pending:** Phase 4 — the config model (`SandboxSpec`/`VolumeSpec`, mounts/secrets/network; moving
+  `vm.buildMounts` behind the adapter), which removes the last direct `msbSdk` imports
+  (`network`, `envsecret`, `state/fingerprint`, `reconfig/plan`, `runtime`).

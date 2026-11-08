@@ -10,8 +10,6 @@ import (
 	"fmt"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/humanize"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -87,12 +85,12 @@ func ListSandboxes(ctx context.Context, opt ListOption) ([]Info, error) {
 
 // statusMatchesFilter reports whether a sandbox status passes the running/
 // stopped filter. RunningOnly takes precedence when both are set.
-func statusMatchesFilter(status msbSdk.SandboxStatus, opt ListOption) bool {
+func statusMatchesFilter(status msb.SandboxStatus, opt ListOption) bool {
 	if opt.RunningOnly {
-		return status == msbSdk.SandboxStatusRunning
+		return status == msb.SandboxStatusRunning
 	}
 	if opt.StoppedOnly {
-		return status == msbSdk.SandboxStatusStopped
+		return status == msb.SandboxStatusStopped
 	}
 	return true
 }

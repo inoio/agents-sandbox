@@ -133,7 +133,7 @@ func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	connected := &msb.MockSandbox{}
-	handle := &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusRunning, ConnectSb: connected}
+	handle := &msb.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning, ConnectSb: connected}
 	lookups := 0
 	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		lookups++
@@ -183,10 +183,10 @@ func TestEnsureVMStageAppliesThePlannedMemory(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	handle := &msb.MockSandboxHandle{
 		Name_:         "vm",
-		Status_:       msbSdk.SandboxStatusRunning,
+		Status_:       msb.SandboxStatusRunning,
 		ConnectSb:     &msb.MockSandbox{},
 		Cfg:           &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 16384},
-		MetricsResult: &msbSdk.Metrics{MemoryLimitBytes: 8192 << 20},
+		MetricsResult: &msb.Metrics{MemoryLimitBytes: 8192 << 20},
 		Plan:          &msbSdk.SandboxModificationPlan{},
 	}
 	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
@@ -1115,10 +1115,10 @@ func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
 			t.Setenv("OPENCODE_SANDBOX_TMP_SIZE", "")
 			handle := &msb.MockSandboxHandle{
 				Name_:      "vm",
-				Status_:    msbSdk.SandboxStatusRunning,
+				Status_:    msb.SandboxStatusRunning,
 				ConnectSb:  &msb.MockSandbox{},
 				Cfg:        &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 16384},
-				LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(time.Now().Add(-time.Hour))},
+				LogsResult: []msb.LogEntry{memoryRaiseLogEntry(time.Now().Add(-time.Hour))},
 			}
 			client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 				return handle, nil
@@ -1173,10 +1173,10 @@ func TestPlanReconfigStageSkipVMSuppressesMemoryRaise(t *testing.T) {
 	kill := time.Now().Add(-time.Hour)
 	handle := &msb.MockSandboxHandle{
 		Name_:      "vm",
-		Status_:    msbSdk.SandboxStatusRunning,
+		Status_:    msb.SandboxStatusRunning,
 		ConnectSb:  &msb.MockSandbox{},
 		Cfg:        &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192},
-		LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(kill)},
+		LogsResult: []msb.LogEntry{memoryRaiseLogEntry(kill)},
 	}
 	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return handle, nil

@@ -12,10 +12,10 @@ import (
 type SandboxIdentity interface {
 	Name() string
 	ID() string
-	Status() msbSdk.SandboxStatus
+	Status() SandboxStatus
 	UpdatedAt() time.Time
 	CreatedAt() time.Time
-	BackendKind() msbSdk.BackendKind
+	BackendKind() BackendKind
 	Image() string
 }
 
@@ -55,8 +55,8 @@ type SandboxConfigReader interface {
 type SandboxResourceControl interface {
 	Modify(ctx context.Context, opts msbSdk.ModifyOptions) (*msbSdk.SandboxModificationPlan, error)
 	Compact(ctx context.Context, req CompactionRequest) (*msbSdk.DiskCompactionResult, error)
-	Metrics(ctx context.Context) (*msbSdk.Metrics, error)
-	Logs(ctx context.Context, query LogQuery) ([]msbSdk.LogEntry, error)
+	Metrics(ctx context.Context) (*Metrics, error)
+	Logs(ctx context.Context, query LogQuery) ([]LogEntry, error)
 }
 
 // SandboxHandle is the subset of *msb.SandboxHandle used by the launcher.
@@ -91,13 +91,13 @@ type SandboxAttacher interface {
 type SandboxJobs interface {
 	ExecDetached(ctx context.Context, cmd string, args []string, spec JobSpec) (Job, error)
 	GetJob(ctx context.Context, id string) (Job, error)
-	ListJobs(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error)
+	ListJobs(ctx context.Context, query JobQuery) ([]JobInfo, error)
 }
 
 // SandboxObserver reads a sandbox's metrics and logs.
 type SandboxObserver interface {
-	Metrics(ctx context.Context) (*msbSdk.Metrics, error)
-	Logs(ctx context.Context, query LogQuery) ([]msbSdk.LogEntry, error)
+	Metrics(ctx context.Context) (*Metrics, error)
+	Logs(ctx context.Context, query LogQuery) ([]LogEntry, error)
 }
 
 // SandboxLifecycle destroys and closes a sandbox.
@@ -129,8 +129,8 @@ func (w realSandboxHandle) ID() string {
 	return w.handle.ID()
 }
 
-func (w realSandboxHandle) Status() msbSdk.SandboxStatus {
-	return w.handle.Status()
+func (w realSandboxHandle) Status() SandboxStatus {
+	return sandboxStatusFrom(realSandboxHandleStatus(w.handle))
 }
 
 func (w realSandboxHandle) UpdatedAt() time.Time {
@@ -141,8 +141,8 @@ func (w realSandboxHandle) CreatedAt() time.Time {
 	return w.handle.CreatedAt()
 }
 
-func (w realSandboxHandle) BackendKind() msbSdk.BackendKind {
-	return w.handle.BackendKind()
+func (w realSandboxHandle) BackendKind() BackendKind {
+	return backendKindFrom(realSandboxHandleBackendKind(w.handle))
 }
 
 func (w realSandboxHandle) Image() string {
@@ -167,6 +167,13 @@ var (
 	realSandboxHandleConfig     = (*msbSdk.SandboxHandle).Config
 	realSandboxHandleConfigJSON = (*msbSdk.SandboxHandle).ConfigJSON
 	realSandboxHandleConnect    = (*msbSdk.SandboxHandle).Connect
+)
+
+// The handle identity accessors delegate through package-level seams (method
+// expressions) so their enum translation is unit-testable without a live VM.
+var (
+	realSandboxHandleStatus      = (*msbSdk.SandboxHandle).Status
+	realSandboxHandleBackendKind = (*msbSdk.SandboxHandle).BackendKind
 )
 
 // The connect-or-start delegation targets are package-level seams (method
@@ -238,12 +245,20 @@ func (w realSandboxHandle) Compact(
 	return w.handle.Compact(ctx, compactionOptions(req))
 }
 
-func (w realSandboxHandle) Metrics(ctx context.Context) (*msbSdk.Metrics, error) {
-	return realSandboxHandleMetrics(w.handle, ctx)
+func (w realSandboxHandle) Metrics(ctx context.Context) (*Metrics, error) {
+	metrics, err := realSandboxHandleMetrics(w.handle, ctx)
+	if err != nil {
+		return nil, err
+	}
+	return metricsFrom(metrics), nil
 }
 
-func (w realSandboxHandle) Logs(ctx context.Context, query LogQuery) ([]msbSdk.LogEntry, error) {
-	return realSandboxHandleLogs(w.handle, ctx, logOptions(query))
+func (w realSandboxHandle) Logs(ctx context.Context, query LogQuery) ([]LogEntry, error) {
+	entries, err := realSandboxHandleLogs(w.handle, ctx, logOptions(query))
+	if err != nil {
+		return nil, err
+	}
+	return logEntriesFrom(entries), nil
 }
 
 // realSandbox adapts *msbSdk.Sandbox to Sandbox.
@@ -302,9 +317,9 @@ func (s realSandbox) GetJob(ctx context.Context, id string) (Job, error) {
 }
 
 // ListJobs returns every job known to the sandbox, following pagination.
-func (s realSandbox) ListJobs(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error) {
+func (s realSandbox) ListJobs(ctx context.Context, query JobQuery) ([]JobInfo, error) {
 	opts := jobListOptions(query)
-	var result []msbSdk.JobInfo
+	var result []JobInfo
 	var cursor *string
 	for {
 		pageOpts := opts
@@ -315,7 +330,7 @@ func (s realSandbox) ListJobs(ctx context.Context, query JobQuery) ([]msbSdk.Job
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, page.Items...)
+		result = append(result, jobInfosFrom(page.Items)...)
 		cursor = page.NextCursor
 		// The SDK drops an empty cursor (its listJobs only sends "cursor" when
 		// non-empty), so a pointer to "" means no more pages; treating it as a
@@ -374,10 +389,18 @@ func (s realSandbox) Close() error {
 	return realSandboxClose(s.sandbox)
 }
 
-func (s realSandbox) Metrics(ctx context.Context) (*msbSdk.Metrics, error) {
-	return realSandboxMetrics(s.sandbox, ctx)
+func (s realSandbox) Metrics(ctx context.Context) (*Metrics, error) {
+	metrics, err := realSandboxMetrics(s.sandbox, ctx)
+	if err != nil {
+		return nil, err
+	}
+	return metricsFrom(metrics), nil
 }
 
-func (s realSandbox) Logs(ctx context.Context, query LogQuery) ([]msbSdk.LogEntry, error) {
-	return realSandboxLogs(s.sandbox, ctx, logOptions(query))
+func (s realSandbox) Logs(ctx context.Context, query LogQuery) ([]LogEntry, error) {
+	entries, err := realSandboxLogs(s.sandbox, ctx, logOptions(query))
+	if err != nil {
+		return nil, err
+	}
+	return logEntriesFrom(entries), nil
 }

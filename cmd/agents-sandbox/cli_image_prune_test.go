@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -42,7 +40,7 @@ func TestImagePrune(t *testing.T) {
 			Sandboxes: []sandboxmsb.SandboxHandle{
 				&sandboxmsb.MockSandboxHandle{
 					Name_:      "agents-sandbox-vm-orphan-1mjusbm3wikhb0",
-					Status_:    msbSdk.SandboxStatusStopped,
+					Status_:    sandboxmsb.SandboxStatusStopped,
 					UpdatedAt_: time.Now().Add(-2 * 24 * time.Hour),
 				},
 			},
@@ -69,7 +67,7 @@ func TestImagePrune(t *testing.T) {
 			Sandboxes: []sandboxmsb.SandboxHandle{
 				&sandboxmsb.MockSandboxHandle{
 					Name_:      "agents-sandbox-vm-orphan-1mjusbm3wikhb0",
-					Status_:    msbSdk.SandboxStatusStopped,
+					Status_:    sandboxmsb.SandboxStatusStopped,
 					UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 				},
 			},
@@ -101,7 +99,7 @@ func TestImagePruneFormatJSON(t *testing.T) {
 		Sandboxes: []sandboxmsb.SandboxHandle{
 			&sandboxmsb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-orphan-1mjusbm3wikhb0",
-				Status_:    msbSdk.SandboxStatusStopped,
+				Status_:    sandboxmsb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 			},
 		},
@@ -145,8 +143,8 @@ func TestImagePruneFormatJSON(t *testing.T) {
 func TestImagePruneFormatJSONIncludesNativeReport(t *testing.T) {
 	physical := uint64(2048)
 	m := &sandboxmsb.MockMsbClient{
-		ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
-			return &msbSdk.ImagePruneReport{SkippedInUse: 4, BytesReclaimed: &physical}, nil
+		ImagePruneFn: func(context.Context) (*sandboxmsb.ImagePruneReport, error) {
+			return &sandboxmsb.ImagePruneReport{SkippedInUse: 4, BytesReclaimed: &physical}, nil
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "image", "prune", "--format", "json", "--yes")

@@ -117,10 +117,10 @@ func (m *MockVolumeStore) RemoveVolume(ctx context.Context, name string) error {
 type MockImageStore struct {
 	ImageGetFn           func(ctx context.Context, ref string) error
 	ImageListFn          func(ctx context.Context) ([]ImageHandle, error)
-	ImagePruneFn         func(ctx context.Context) (*msbSdk.ImagePruneReport, error)
+	ImagePruneFn         func(ctx context.Context) (*ImagePruneReport, error)
 	ImageRemoveFn        func(ctx context.Context, ref string, force bool) error
 	ImageLoadFn          func(ctx context.Context, ref string, r io.Reader) error
-	ImageInspectFn       func(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
+	ImageInspectFn       func(ctx context.Context, ref string) (*ImageConfig, error)
 	ImageInspectDetailFn func(ctx context.Context, ref string) (*ImageDetail, error)
 }
 
@@ -144,7 +144,7 @@ func (m *MockImageStore) ImageList(ctx context.Context) ([]ImageHandle, error) {
 }
 
 // ImagePrune implements ImageStore.
-func (m *MockImageStore) ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, error) {
+func (m *MockImageStore) ImagePrune(ctx context.Context) (*ImagePruneReport, error) {
 	if m.ImagePruneFn != nil {
 		return m.ImagePruneFn(ctx)
 	}
@@ -168,7 +168,7 @@ func (m *MockImageStore) ImageLoad(ctx context.Context, ref string, r io.Reader)
 }
 
 // ImageInspect implements ImageStore.
-func (m *MockImageStore) ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error) {
+func (m *MockImageStore) ImageInspect(ctx context.Context, ref string) (*ImageConfig, error) {
 	if m.ImageInspectFn != nil {
 		return m.ImageInspectFn(ctx, ref)
 	}
@@ -186,15 +186,15 @@ func (m *MockImageStore) ImageInspectDetail(ctx context.Context, ref string) (*I
 // MockStorageStore is a test double for StorageStore. A nil callback means
 // return the zero value with no error.
 type MockStorageStore struct {
-	StorageUsageFn func(ctx context.Context) (*msbSdk.StorageUsageReport, error)
-	PruneStorageFn func(ctx context.Context, options msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error)
+	StorageUsageFn func(ctx context.Context) (*StorageReport, error)
+	PruneStorageFn func(ctx context.Context, req PruneRequest) (*PruneReport, error)
 }
 
 // Compile-time check.
 var _ StorageStore = (*MockStorageStore)(nil)
 
 // StorageUsage implements StorageStore.
-func (m *MockStorageStore) StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error) {
+func (m *MockStorageStore) StorageUsage(ctx context.Context) (*StorageReport, error) {
 	if m.StorageUsageFn != nil {
 		return m.StorageUsageFn(ctx)
 	}
@@ -204,10 +204,10 @@ func (m *MockStorageStore) StorageUsage(ctx context.Context) (*msbSdk.StorageUsa
 // PruneStorage implements StorageStore.
 func (m *MockStorageStore) PruneStorage(
 	ctx context.Context,
-	options msbSdk.StoragePruneOptions,
-) (*msbSdk.StoragePruneReport, error) {
+	req PruneRequest,
+) (*PruneReport, error) {
 	if m.PruneStorageFn != nil {
-		return m.PruneStorageFn(ctx, options)
+		return m.PruneStorageFn(ctx, req)
 	}
 	return nil, nil
 }
@@ -335,7 +335,7 @@ func (m *MockSandboxAttacher) Detach(ctx context.Context) error {
 type MockSandboxJobs struct {
 	ExecDetachedFn func(ctx context.Context, cmd string, args []string, spec JobSpec) (Job, error)
 	GetJobFn       func(ctx context.Context, id string) (Job, error)
-	ListJobsFn     func(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error)
+	ListJobsFn     func(ctx context.Context, query JobQuery) ([]JobInfo, error)
 }
 
 // Compile-time check.
@@ -363,7 +363,7 @@ func (m *MockSandboxJobs) GetJob(ctx context.Context, id string) (Job, error) {
 }
 
 // ListJobs implements SandboxJobs.
-func (m *MockSandboxJobs) ListJobs(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error) {
+func (m *MockSandboxJobs) ListJobs(ctx context.Context, query JobQuery) ([]JobInfo, error) {
 	if m.ListJobsFn != nil {
 		return m.ListJobsFn(ctx, query)
 	}
@@ -373,15 +373,15 @@ func (m *MockSandboxJobs) ListJobs(ctx context.Context, query JobQuery) ([]msbSd
 // MockSandboxObserver is a test double for SandboxObserver. A nil callback
 // means return the zero value with no error.
 type MockSandboxObserver struct {
-	MetricsFn func(ctx context.Context) (*msbSdk.Metrics, error)
-	LogsFn    func(ctx context.Context, query LogQuery) ([]msbSdk.LogEntry, error)
+	MetricsFn func(ctx context.Context) (*Metrics, error)
+	LogsFn    func(ctx context.Context, query LogQuery) ([]LogEntry, error)
 }
 
 // Compile-time check.
 var _ SandboxObserver = (*MockSandboxObserver)(nil)
 
 // Metrics implements SandboxObserver.
-func (m *MockSandboxObserver) Metrics(ctx context.Context) (*msbSdk.Metrics, error) {
+func (m *MockSandboxObserver) Metrics(ctx context.Context) (*Metrics, error) {
 	if m.MetricsFn != nil {
 		return m.MetricsFn(ctx)
 	}
@@ -389,7 +389,7 @@ func (m *MockSandboxObserver) Metrics(ctx context.Context) (*msbSdk.Metrics, err
 }
 
 // Logs implements SandboxObserver.
-func (m *MockSandboxObserver) Logs(ctx context.Context, query LogQuery) ([]msbSdk.LogEntry, error) {
+func (m *MockSandboxObserver) Logs(ctx context.Context, query LogQuery) ([]LogEntry, error) {
 	if m.LogsFn != nil {
 		return m.LogsFn(ctx, query)
 	}

@@ -34,17 +34,17 @@ type VolumeStore interface {
 type ImageStore interface {
 	ImageGet(ctx context.Context, ref string) error
 	ImageList(ctx context.Context) ([]ImageHandle, error)
-	ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, error)
+	ImagePrune(ctx context.Context) (*ImagePruneReport, error)
 	ImageRemove(ctx context.Context, ref string, force bool) error
 	ImageLoad(ctx context.Context, ref string, r io.Reader) error
-	ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
+	ImageInspect(ctx context.Context, ref string) (*ImageConfig, error)
 	ImageInspectDetail(ctx context.Context, ref string) (*ImageDetail, error)
 }
 
 // StorageStore reports and prunes runtime storage.
 type StorageStore interface {
-	StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error)
-	PruneStorage(ctx context.Context, options msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error)
+	StorageUsage(ctx context.Context) (*StorageReport, error)
+	PruneStorage(ctx context.Context, req PruneRequest) (*PruneReport, error)
 }
 
 // Client is the public abstraction over the microsandbox SDK used by the
@@ -143,7 +143,7 @@ func (realMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandle, 
 	if err != nil {
 		return nil, err
 	}
-	return v, nil
+	return realVolumeHandle{handle: v}, nil
 }
 
 func (realMsbClient) CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error) {
@@ -161,7 +161,7 @@ func (realMsbClient) CreateVolume(ctx context.Context, name string, opts ...msbS
 		}
 		return nil, err
 	}
-	return handle, nil
+	return realVolumeHandle{handle: handle}, nil
 }
 
 func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
@@ -171,7 +171,7 @@ func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
 	}
 	result := make([]VolumeHandle, len(handles))
 	for i, h := range handles {
-		result[i] = h
+		result[i] = realVolumeHandle{handle: h}
 	}
 	return result, nil
 }
@@ -197,15 +197,23 @@ func (realMsbClient) ImageList(ctx context.Context) ([]ImageHandle, error) {
 	return result, nil
 }
 
-func (realMsbClient) ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, error) {
-	return imagePrune(ctx)
+func (realMsbClient) ImagePrune(ctx context.Context) (*ImagePruneReport, error) {
+	report, err := imagePrune(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return imagePruneReportFrom(report), nil
 }
 
 func (realMsbClient) PruneStorage(
 	ctx context.Context,
-	options msbSdk.StoragePruneOptions,
-) (*msbSdk.StoragePruneReport, error) {
-	return storagePrune(ctx, options)
+	req PruneRequest,
+) (*PruneReport, error) {
+	report, err := storagePrune(ctx, storagePruneOptions(req))
+	if err != nil {
+		return nil, err
+	}
+	return pruneReportFrom(report), nil
 }
 
 func (realMsbClient) ImageRemove(ctx context.Context, ref string, force bool) error {
@@ -251,12 +259,12 @@ func (realMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) (er
 	return nil
 }
 
-func (realMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error) {
+func (realMsbClient) ImageInspect(ctx context.Context, ref string) (*ImageConfig, error) {
 	detail, err := realImageInspect(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	return detail.Config, nil
+	return imageConfigFrom(detail.Config), nil
 }
 
 func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*ImageDetail, error) {
@@ -264,7 +272,7 @@ func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*Image
 	if err != nil {
 		return nil, err
 	}
-	out := &ImageDetail{Layers: detail.Layers}
+	out := &ImageDetail{Layers: imageLayersFrom(detail.Layers)}
 	if detail.ImageHandle != nil {
 		out.Reference = detail.Reference()
 		out.ManifestDigest = detail.ManifestDigest()
@@ -273,12 +281,16 @@ func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*Image
 		out.SizeBytes = detail.SizeBytes()
 		out.CreatedAt = detail.CreatedAt()
 	}
-	if detail.Config != nil {
-		out.Config = *detail.Config
+	if config := imageConfigFrom(detail.Config); config != nil {
+		out.Config = *config
 	}
 	return out, nil
 }
 
-func (realMsbClient) StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error) {
-	return storageUsage(ctx)
+func (realMsbClient) StorageUsage(ctx context.Context) (*StorageReport, error) {
+	report, err := storageUsage(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return storageReportFrom(report), nil
 }

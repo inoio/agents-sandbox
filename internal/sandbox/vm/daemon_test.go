@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -237,7 +235,7 @@ func TestEnsureDaemonKillsStaleJobByChangedArgs(t *testing.T) {
 	// The stale daemon was launched by a release that bound the previous
 	// serve hostname, so matching the current command missed it (#343).
 	sb := &msb.MockSandbox{
-		Jobs: []msbSdk.JobInfo{
+		Jobs: []msb.JobInfo{
 			{ID: "stale-daemon", Command: []string{"opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"}},
 		},
 		GetJobFn: func(context.Context, string) (msb.Job, error) { return stale, nil },
@@ -273,8 +271,8 @@ func TestEnsureDaemonCrashSurfacesExitAndLogs(t *testing.T) {
 	code := 2
 	sb := &msb.MockSandbox{
 		Job_: &msb.MockJob{
-			Info:  &msbSdk.JobInfo{ExitCode: &code},
-			Logs_: []msbSdk.JobLogEntry{{Data: []byte("serve exploded")}},
+			Info:  &msb.JobInfo{ExitCode: &code},
+			Logs_: []msb.JobLogEntry{{Data: []byte("serve exploded")}},
 		},
 	}
 
@@ -388,7 +386,7 @@ func TestEnsureDaemonTimeoutIncludesJobLogs(t *testing.T) {
 
 	sb := &msb.MockSandbox{
 		Job_: &msb.MockJob{
-			Logs_: []msbSdk.JobLogEntry{{Data: []byte("error: cannot bind to 127.0.0.1:4096")}},
+			Logs_: []msb.JobLogEntry{{Data: []byte("error: cannot bind to 127.0.0.1:4096")}},
 		},
 	}
 

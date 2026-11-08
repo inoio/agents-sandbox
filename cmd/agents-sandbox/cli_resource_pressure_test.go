@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -24,12 +22,12 @@ import (
 func memoryPressureSandbox() *sandboxmsb.MockSandbox {
 	return &sandboxmsb.MockSandbox{
 		AttachCode: -1,
-		LogsResult: []msbSdk.LogEntry{{
-			Source:    msbSdk.LogSourceSystem,
+		LogsResult: []sandboxmsb.LogEntry{{
+			Source:    sandboxmsb.LogSourceSystem,
 			Timestamp: time.Now(),
 			Data:      []byte("Out of memory: Killed process 42 (opencode) total-vm:1kB"),
 		}},
-		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+		MetricsResult: &sandboxmsb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 	}
 }
 

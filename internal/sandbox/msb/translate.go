@@ -2,11 +2,14 @@ package msb
 
 import msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-// The projection registers below name every exported field of the SDK config
-// struct a translator projects. The drift test reflects over each struct and
-// fails when a field is neither projected nor listed in the matching
-// notModeled register, so an SDK release adding a field is caught here rather
-// than silently ignored.
+// The projection registers below name every exported field of an SDK struct a
+// translator projects — both the option (input) structs and the return structs
+// the phase-3 translators copy field for field. The drift test reflects over
+// each struct and fails when a field is neither projected nor listed in the
+// matching notModeled register, so an SDK release adding a field is caught here
+// rather than silently ignored.
+//
+//nolint:goconst // The repeated strings are SDK field names the registers pin verbatim, not extractable constants.
 var (
 	execProjected = map[string]struct{}{
 		"Cwd":       {},
@@ -53,6 +56,208 @@ var (
 	// compactionNotModeled names msbSdk.DiskCompactionOptions fields the
 	// launcher deliberately drops. Empty today.
 	compactionNotModeled = map[string]string{}
+
+	// storagePruneProjected names every field of msbSdk.StoragePruneOptions
+	// the launcher projects onto PruneRequest.
+	storagePruneProjected = map[string]struct{}{
+		"DryRun":           {},
+		"OlderThanSeconds": {},
+	}
+
+	// storagePruneNotModeled names msbSdk.StoragePruneOptions fields the
+	// launcher deliberately drops. Empty today: every field is projected.
+	storagePruneNotModeled = map[string]string{}
+
+	// jobLogProjected names every field of msbSdk.JobLogOptions the launcher
+	// projects onto JobLogQuery.
+	jobLogProjected = map[string]struct{}{
+		"Tail":       {},
+		"Since":      {},
+		"Until":      {},
+		"Sources":    {},
+		"FromCursor": {},
+		"Follow":     {},
+	}
+
+	// jobLogNotModeled names msbSdk.JobLogOptions fields the launcher
+	// deliberately drops. Empty today: every field is projected.
+	jobLogNotModeled = map[string]string{}
+
+	// storageUsageReportProjected names every field of
+	// msbSdk.StorageUsageReport the launcher projects onto StorageReport;
+	// storageUsageReportNotModeled is empty because every field is projected.
+	storageUsageReportProjected = map[string]struct{}{
+		"Images":         {},
+		"Snapshots":      {},
+		"Sandboxes":      {},
+		"Volumes":        {},
+		"BranchMemory":   {},
+		"SnapshotMemory": {},
+		"Notes":          {},
+	}
+	storageUsageReportNotModeled = map[string]string{}
+
+	// storageCategoryProjected names every field of
+	// msbSdk.StorageCategoryUsage the launcher projects onto StorageCategory;
+	// storageCategoryNotModeled is empty because every field is projected.
+	storageCategoryProjected = map[string]struct{}{
+		"Count":                   {},
+		"InUse":                   {},
+		"LogicalBytes":            {},
+		"AllocatedBytes":          {},
+		"ReclaimableLogicalBytes": {},
+		"Items":                   {},
+		"Notes":                   {},
+	}
+	storageCategoryNotModeled = map[string]string{}
+
+	// storageItemProjected names every field of msbSdk.StorageItemUsage the
+	// launcher projects onto StorageItem; storageItemNotModeled is empty
+	// because every field is projected.
+	storageItemProjected = map[string]struct{}{
+		"Name":           {},
+		"Path":           {},
+		"LogicalBytes":   {},
+		"AllocatedBytes": {},
+		"InUse":          {},
+		"Reclaimable":    {},
+		"Reasons":        {},
+	}
+	storageItemNotModeled = map[string]string{}
+
+	// storagePruneReportProjected names the msbSdk.StoragePruneReport fields
+	// the launcher projects onto PruneReport. The notModeled register names
+	// the rest, which PruneReport deliberately drops: it keeps only the
+	// reclaimed totals.
+	storagePruneReportProjected = map[string]struct{}{
+		"FilesRemoved":           {},
+		"LogicalBytesRemoved":    {},
+		"PhysicalBytesReclaimed": {},
+	}
+	storagePruneReportNotModeled = map[string]string{
+		"DryRun":    "the caller issued the prune, so the dry-run echo adds nothing",
+		"Entries":   "per-file outcomes are not surfaced",
+		"Truncated": "the entries-listing cap is not surfaced",
+	}
+
+	// jobInfoProjected names every field of msbSdk.JobInfo the launcher
+	// projects onto JobInfo; jobInfoNotModeled is empty because every field
+	// is projected.
+	jobInfoProjected = map[string]struct{}{
+		"ID":            {},
+		"RuntimeBootID": {},
+		"Command":       {},
+		"State":         {},
+		"TTY":           {},
+		"StdinClosed":   {},
+		"PID":           {},
+		"CreatedAt":     {},
+		"StartedAt":     {},
+		"FinishedAt":    {},
+		"ExitCode":      {},
+		"TimedOut":      {},
+		"Failure":       {},
+		"Error":         {},
+	}
+	jobInfoNotModeled = map[string]string{}
+
+	// jobLogEntryProjected names every field of msbSdk.JobLogEntry the
+	// launcher projects onto JobLogEntry; jobLogEntryNotModeled is empty
+	// because every field is projected.
+	jobLogEntryProjected = map[string]struct{}{
+		"Timestamp": {},
+		"Source":    {},
+		"Data":      {},
+		"Cursor":    {},
+	}
+	jobLogEntryNotModeled = map[string]string{}
+
+	// execFailureProjected names every field of msbSdk.ExecFailure the
+	// launcher projects onto ExecFailure; execFailureNotModeled is empty
+	// because every field is projected.
+	execFailureProjected = map[string]struct{}{
+		"Kind":      {},
+		"Errno":     {},
+		"ErrnoName": {},
+		"Message":   {},
+		"Path":      {},
+	}
+	execFailureNotModeled = map[string]string{}
+
+	// logEntryProjected names every field of msbSdk.LogEntry the launcher
+	// projects onto LogEntry; logEntryNotModeled is empty because every field
+	// is projected.
+	logEntryProjected = map[string]struct{}{
+		"Source":    {},
+		"SessionID": {},
+		"Timestamp": {},
+		"Data":      {},
+		"Cursor":    {},
+	}
+	logEntryNotModeled = map[string]string{}
+
+	// metricsProjected names every field of msbSdk.Metrics the launcher
+	// projects onto Metrics; metricsNotModeled is empty because every field
+	// is projected.
+	metricsProjected = map[string]struct{}{
+		"CPUPercent":              {},
+		"VCPUTimeNs":              {},
+		"MemoryBytes":             {},
+		"MemoryAvailableBytes":    {},
+		"MemoryHostResidentBytes": {},
+		"MemoryLimitBytes":        {},
+		"DiskReadBytes":           {},
+		"DiskWriteBytes":          {},
+		"NetRxBytes":              {},
+		"NetTxBytes":              {},
+		"UpperUsedBytes":          {},
+		"UpperFreeBytes":          {},
+		"UpperHostAllocatedBytes": {},
+		"Uptime":                  {},
+	}
+	metricsNotModeled = map[string]string{}
+
+	// imageConfigProjected names every field of msbSdk.ImageConfig the
+	// launcher projects onto ImageConfig; imageConfigNotModeled is empty
+	// because every field is projected.
+	imageConfigProjected = map[string]struct{}{
+		"Digest":     {},
+		"Env":        {},
+		"Cmd":        {},
+		"Entrypoint": {},
+		"WorkingDir": {},
+		"User":       {},
+		"Labels":     {},
+		"StopSignal": {},
+	}
+	imageConfigNotModeled = map[string]string{}
+
+	// imagePruneReportProjected names every field of
+	// msbSdk.ImagePruneReport the launcher projects onto ImagePruneReport;
+	// imagePruneReportNotModeled is empty because every field is projected.
+	imagePruneReportProjected = map[string]struct{}{
+		"SkippedInUse":     {},
+		"ImageRefsRemoved": {},
+		"ManifestsRemoved": {},
+		"LayersRemoved":    {},
+		"FsmetaRemoved":    {},
+		"VMDKRemoved":      {},
+		"BytesReclaimed":   {},
+	}
+	imagePruneReportNotModeled = map[string]string{}
+
+	// imageLayerProjected names every field of msbSdk.ImageLayer the
+	// launcher projects onto ImageLayer; imageLayerNotModeled is empty
+	// because every field is projected.
+	imageLayerProjected = map[string]struct{}{
+		"DiffID":              {},
+		"BlobDigest":          {},
+		"MediaType":           {},
+		"CompressedSizeBytes": {},
+		"ErofsSizeBytes":      {},
+		"Position":            {},
+	}
+	imageLayerNotModeled = map[string]string{}
 )
 
 // execOptions translates an ExecRequest into the SDK exec options. Options
@@ -187,4 +392,277 @@ func compactionOptions(r CompactionRequest) msbSdk.DiskCompactionOptions {
 		Disk:         r.Disk,
 		RootDiskOnly: r.RootDiskOnly,
 	}
+}
+
+// storagePruneOptions translates a PruneRequest into the SDK prune selection.
+func storagePruneOptions(req PruneRequest) msbSdk.StoragePruneOptions {
+	return msbSdk.StoragePruneOptions{
+		DryRun:           req.DryRun,
+		OlderThanSeconds: req.OlderThanSeconds,
+	}
+}
+
+// storageReportFrom translates the SDK storage observation, keeping optional
+// counters nil so unknown stays unknown. A nil report stays nil.
+func storageReportFrom(report *msbSdk.StorageUsageReport) *StorageReport {
+	if report == nil {
+		return nil
+	}
+	return &StorageReport{
+		Images:         storageCategoryFrom(report.Images),
+		Snapshots:      storageCategoryFrom(report.Snapshots),
+		Sandboxes:      storageCategoryFrom(report.Sandboxes),
+		Volumes:        storageCategoryFrom(report.Volumes),
+		BranchMemory:   storageCategoryFrom(report.BranchMemory),
+		SnapshotMemory: storageCategoryFrom(report.SnapshotMemory),
+		Notes:          report.Notes,
+	}
+}
+
+// storageCategoryFrom translates one category's totals and items, preserving
+// nil collections as nil.
+func storageCategoryFrom(category msbSdk.StorageCategoryUsage) StorageCategory {
+	return StorageCategory{
+		Count:                   category.Count,
+		InUse:                   category.InUse,
+		LogicalBytes:            category.LogicalBytes,
+		AllocatedBytes:          category.AllocatedBytes,
+		ReclaimableLogicalBytes: category.ReclaimableLogicalBytes,
+		Items:                   storageItemsFrom(category.Items),
+		Notes:                   category.Notes,
+	}
+}
+
+// storageItemsFrom translates items, preserving nil as nil.
+func storageItemsFrom(items []msbSdk.StorageItemUsage) []StorageItem {
+	if items == nil {
+		return nil
+	}
+	out := make([]StorageItem, len(items))
+	for i, item := range items {
+		out[i] = storageItemFrom(item)
+	}
+	return out
+}
+
+// storageItemFrom translates one storage item field for field.
+func storageItemFrom(item msbSdk.StorageItemUsage) StorageItem {
+	return StorageItem{
+		Name:           item.Name,
+		Path:           item.Path,
+		LogicalBytes:   item.LogicalBytes,
+		AllocatedBytes: item.AllocatedBytes,
+		InUse:          item.InUse,
+		Reclaimable:    item.Reclaimable,
+		Reasons:        item.Reasons,
+	}
+}
+
+// pruneReportFrom translates the SDK prune report, keeping only the reclaimed
+// totals the launcher surfaces. A nil report stays nil.
+func pruneReportFrom(report *msbSdk.StoragePruneReport) *PruneReport {
+	if report == nil {
+		return nil
+	}
+	return &PruneReport{
+		FilesRemoved:           report.FilesRemoved,
+		LogicalBytesRemoved:    report.LogicalBytesRemoved,
+		PhysicalBytesReclaimed: report.PhysicalBytesReclaimed,
+	}
+}
+
+// jobLogOptions translates a JobLogQuery into the SDK detached-job log filter.
+func jobLogOptions(q JobLogQuery) msbSdk.JobLogOptions {
+	return msbSdk.JobLogOptions{
+		Tail:       q.Tail,
+		Since:      q.Since,
+		Until:      q.Until,
+		Sources:    q.Sources,
+		FromCursor: q.FromCursor,
+		Follow:     q.Follow,
+	}
+}
+
+// jobInfoFrom translates the SDK job metadata field for field. A nil info
+// stays nil.
+func jobInfoFrom(info *msbSdk.JobInfo) *JobInfo {
+	if info == nil {
+		return nil
+	}
+	return &JobInfo{
+		ID:            info.ID,
+		RuntimeBootID: info.RuntimeBootID,
+		Command:       info.Command,
+		State:         info.State,
+		TTY:           info.TTY,
+		StdinClosed:   info.StdinClosed,
+		PID:           info.PID,
+		CreatedAt:     info.CreatedAt,
+		StartedAt:     info.StartedAt,
+		FinishedAt:    info.FinishedAt,
+		ExitCode:      info.ExitCode,
+		TimedOut:      info.TimedOut,
+		Failure:       execFailureFrom(info.Failure),
+		Error:         info.Error,
+	}
+}
+
+// jobInfosFrom translates a slice of SDK job metadata, preserving nil as nil.
+func jobInfosFrom(infos []msbSdk.JobInfo) []JobInfo {
+	if infos == nil {
+		return nil
+	}
+	out := make([]JobInfo, len(infos))
+	for i, info := range infos {
+		out[i] = *jobInfoFrom(&info)
+	}
+	return out
+}
+
+// execFailureFrom translates the SDK's structured launch failure field for
+// field. A nil failure stays nil.
+func execFailureFrom(failure *msbSdk.ExecFailure) *ExecFailure {
+	if failure == nil {
+		return nil
+	}
+	return &ExecFailure{
+		Kind:      failure.Kind,
+		Errno:     failure.Errno,
+		ErrnoName: failure.ErrnoName,
+		Message:   failure.Message,
+		Path:      failure.Path,
+	}
+}
+
+// jobLogEntriesFrom translates a slice of SDK job log entries, preserving nil
+// as nil.
+func jobLogEntriesFrom(entries []msbSdk.JobLogEntry) []JobLogEntry {
+	if entries == nil {
+		return nil
+	}
+	out := make([]JobLogEntry, len(entries))
+	for i, entry := range entries {
+		out[i] = JobLogEntry{
+			Timestamp: entry.Timestamp,
+			Source:    entry.Source,
+			Data:      entry.Data,
+			Cursor:    entry.Cursor,
+		}
+	}
+	return out
+}
+
+// logEntriesFrom translates a slice of SDK sandbox log entries, preserving nil
+// as nil.
+func logEntriesFrom(entries []msbSdk.LogEntry) []LogEntry {
+	if entries == nil {
+		return nil
+	}
+	out := make([]LogEntry, len(entries))
+	for i, entry := range entries {
+		out[i] = LogEntry{
+			Source:    LogSource(entry.Source),
+			SessionID: entry.SessionID,
+			Timestamp: entry.Timestamp,
+			Data:      entry.Data,
+			Cursor:    entry.Cursor,
+		}
+	}
+	return out
+}
+
+// metricsFrom translates the SDK metrics snapshot field for field. A nil
+// snapshot stays nil.
+func metricsFrom(metrics *msbSdk.Metrics) *Metrics {
+	if metrics == nil {
+		return nil
+	}
+	return &Metrics{
+		CPUPercent:              metrics.CPUPercent,
+		VCPUTimeNs:              metrics.VCPUTimeNs,
+		MemoryBytes:             metrics.MemoryBytes,
+		MemoryAvailableBytes:    metrics.MemoryAvailableBytes,
+		MemoryHostResidentBytes: metrics.MemoryHostResidentBytes,
+		MemoryLimitBytes:        metrics.MemoryLimitBytes,
+		DiskReadBytes:           metrics.DiskReadBytes,
+		DiskWriteBytes:          metrics.DiskWriteBytes,
+		NetRxBytes:              metrics.NetRxBytes,
+		NetTxBytes:              metrics.NetTxBytes,
+		UpperUsedBytes:          metrics.UpperUsedBytes,
+		UpperFreeBytes:          metrics.UpperFreeBytes,
+		UpperHostAllocatedBytes: metrics.UpperHostAllocatedBytes,
+		Uptime:                  metrics.Uptime,
+	}
+}
+
+// imageConfigFrom translates the SDK image config block field for field. A nil
+// config stays nil.
+func imageConfigFrom(config *msbSdk.ImageConfig) *ImageConfig {
+	if config == nil {
+		return nil
+	}
+	return &ImageConfig{
+		Digest:     config.Digest,
+		Env:        config.Env,
+		Cmd:        config.Cmd,
+		Entrypoint: config.Entrypoint,
+		WorkingDir: config.WorkingDir,
+		User:       config.User,
+		Labels:     config.Labels,
+		StopSignal: config.StopSignal,
+	}
+}
+
+// imageLayersFrom translates a slice of SDK image layers, preserving nil as
+// nil.
+func imageLayersFrom(layers []msbSdk.ImageLayer) []ImageLayer {
+	if layers == nil {
+		return nil
+	}
+	out := make([]ImageLayer, len(layers))
+	for i, layer := range layers {
+		out[i] = ImageLayer{
+			DiffID:              layer.DiffID,
+			BlobDigest:          layer.BlobDigest,
+			MediaType:           layer.MediaType,
+			CompressedSizeBytes: layer.CompressedSizeBytes,
+			ErofsSizeBytes:      layer.ErofsSizeBytes,
+			Position:            layer.Position,
+		}
+	}
+	return out
+}
+
+// imagePruneReportFrom translates the SDK image prune report field for field.
+// A nil report stays nil.
+func imagePruneReportFrom(report *msbSdk.ImagePruneReport) *ImagePruneReport {
+	if report == nil {
+		return nil
+	}
+	return &ImagePruneReport{
+		SkippedInUse:     report.SkippedInUse,
+		ImageRefsRemoved: report.ImageRefsRemoved,
+		ManifestsRemoved: report.ManifestsRemoved,
+		LayersRemoved:    report.LayersRemoved,
+		FsmetaRemoved:    report.FsmetaRemoved,
+		VMDKRemoved:      report.VMDKRemoved,
+		BytesReclaimed:   report.BytesReclaimed,
+	}
+}
+
+// sandboxStatusFrom translates the SDK sandbox status onto the launcher enum.
+// The launcher mirrors every SDK value, so a raw conversion preserves an
+// unknown status rather than collapsing it to a known one.
+func sandboxStatusFrom(status msbSdk.SandboxStatus) SandboxStatus {
+	return SandboxStatus(status)
+}
+
+// backendKindFrom translates the SDK backend kind onto the launcher enum.
+func backendKindFrom(kind msbSdk.BackendKind) BackendKind {
+	return BackendKind(kind)
+}
+
+// volumeKindFrom translates the SDK volume kind onto the launcher enum.
+func volumeKindFrom(kind msbSdk.VolumeKind) VolumeKind {
+	return VolumeKind(kind)
 }

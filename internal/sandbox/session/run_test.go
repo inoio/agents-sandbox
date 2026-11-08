@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/creack/pty"
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -1787,9 +1786,9 @@ func seedSessionHomeState(t *testing.T, k state.Key) {
 }
 
 // sessionOOMLogLine builds a system-log entry carrying a parseable OOM kill.
-func sessionOOMLogLine(at time.Time) msbSdk.LogEntry {
-	return msbSdk.LogEntry{
-		Source:    msbSdk.LogSourceSystem,
+func sessionOOMLogLine(at time.Time) msb.LogEntry {
+	return msb.LogEntry{
+		Source:    msb.LogSourceSystem,
 		Timestamp: at,
 		Data:      []byte("Out of memory: Killed process 7 (opencode) total-vm:1kB"),
 	}
@@ -1809,8 +1808,8 @@ func TestRunPostAttachOOMOffersAndDeclineRecords(t *testing.T) {
 	}
 	sb := &msb.MockSandbox{
 		AttachCode:    -1,
-		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
-		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 	}
 
 	err := runAttach(context.Background(), k, sb, "/workspace", ui,
@@ -1849,8 +1848,8 @@ func TestRunAttachSignalSkipsTheOfferAndStillReaps(t *testing.T) {
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
 	sb := &msb.MockSandbox{
-		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
-		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 		AttachFn: func(ctx context.Context) (int, error) {
 			//testenv:allow sends SIGINT to this process to exercise the signal scope
 			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
@@ -1935,8 +1934,8 @@ func TestRunAttachPromptsOutsideTheSignalScope(t *testing.T) {
 		},
 	}
 	sb := &msb.MockSandbox{
-		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
-		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 		AttachFn: func(ctx context.Context) (int, error) {
 			attachDone = ctx.Done()
 			return -1, nil
@@ -1967,8 +1966,8 @@ func TestRunPostAttachCleanExitNoOffer(t *testing.T) {
 	}
 	sb := &msb.MockSandbox{
 		AttachCode:    0,
-		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
-		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 	}
 
 	err := runAttach(context.Background(), k, sb, "/workspace", ui,
@@ -2070,8 +2069,8 @@ func TestRunAttachCanceledParentIsNotASignal(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	sb := &msb.MockSandbox{
-		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
-		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 		AttachFn: func(context.Context) (int, error) {
 			cancel()
 			return -1, nil
@@ -2173,8 +2172,8 @@ func TestShellPostAttachOffer(t *testing.T) {
 	}
 	sb := &msb.MockSandbox{
 		AttachCode:    -1,
-		LogsResult:    []msbSdk.LogEntry{sessionOOMLogLine(time.Now())},
-		MetricsResult: &msbSdk.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
+		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
+		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 	}
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {

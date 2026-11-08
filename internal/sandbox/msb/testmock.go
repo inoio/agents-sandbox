@@ -35,14 +35,14 @@ type MockDetachedCall struct {
 
 // MockJob is a test double for Job. Nil callbacks return the configured fields.
 type MockJob struct {
-	Info      *msbSdk.JobInfo
+	Info      *JobInfo
 	InfoErr   error
-	Logs_     []msbSdk.JobLogEntry
+	Logs_     []JobLogEntry
 	LogsErr   error
 	KillErr   error
 	CloseErr  error
-	InspectFn func(ctx context.Context) (*msbSdk.JobInfo, error)
-	LogsFn    func(ctx context.Context, opts msbSdk.JobLogOptions) ([]msbSdk.JobLogEntry, error)
+	InspectFn func(ctx context.Context) (*JobInfo, error)
+	LogsFn    func(ctx context.Context, query JobLogQuery) ([]JobLogEntry, error)
 	DidKill   bool
 	DidClose  bool
 }
@@ -50,7 +50,7 @@ type MockJob struct {
 // Compile-time check.
 var _ Job = (*MockJob)(nil)
 
-func (m *MockJob) Inspect(ctx context.Context) (*msbSdk.JobInfo, error) {
+func (m *MockJob) Inspect(ctx context.Context) (*JobInfo, error) {
 	if m.InspectFn != nil {
 		return m.InspectFn(ctx)
 	}
@@ -62,9 +62,9 @@ func (m *MockJob) Kill(context.Context) error {
 	return m.KillErr
 }
 
-func (m *MockJob) Logs(ctx context.Context, opts msbSdk.JobLogOptions) ([]msbSdk.JobLogEntry, error) {
+func (m *MockJob) Logs(ctx context.Context, query JobLogQuery) ([]JobLogEntry, error) {
 	if m.LogsFn != nil {
-		return m.LogsFn(ctx, opts)
+		return m.LogsFn(ctx, query)
 	}
 	return m.Logs_, m.LogsErr
 }
@@ -91,13 +91,13 @@ type MockMsbClient struct {
 	RemoveVolumeFn       func(ctx context.Context, name string) error
 	ImageGetFn           func(ctx context.Context, ref string) error
 	ImageListFn          func(ctx context.Context) ([]ImageHandle, error)
-	ImagePruneFn         func(ctx context.Context) (*msbSdk.ImagePruneReport, error)
+	ImagePruneFn         func(ctx context.Context) (*ImagePruneReport, error)
 	ImageRemoveFn        func(ctx context.Context, ref string, force bool) error
 	ImageLoadFn          func(ctx context.Context, ref string, r io.Reader) error
-	ImageInspectFn       func(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
+	ImageInspectFn       func(ctx context.Context, ref string) (*ImageConfig, error)
 	ImageInspectDetailFn func(ctx context.Context, ref string) (*ImageDetail, error)
-	StorageUsageFn       func(ctx context.Context) (*msbSdk.StorageUsageReport, error)
-	StoragePruneFn       func(ctx context.Context, options msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error)
+	StorageUsageFn       func(ctx context.Context) (*StorageReport, error)
+	StoragePruneFn       func(ctx context.Context, req PruneRequest) (*PruneReport, error)
 
 	// Pre-populated collections — List* methods return these when the callback is nil.
 	// Tests can append to these fields freely.
@@ -118,8 +118,8 @@ type MockMsbClient struct {
 	RemovedImages []MockRemoveImageCall
 	// LoadedImages holds refs passed to ImageLoad calls.
 	LoadedImages []string
-	// StoragePruneCalls holds the options passed to PruneStorage calls.
-	StoragePruneCalls []msbSdk.StoragePruneOptions
+	// StoragePruneCalls holds the requests passed to PruneStorage calls.
+	StoragePruneCalls []PruneRequest
 
 	// Error fields.
 	CreateSandboxErr error
@@ -266,26 +266,26 @@ func (m *MockMsbClient) ImageList(ctx context.Context) ([]ImageHandle, error) {
 }
 
 // ImagePrune implements Client.
-func (m *MockMsbClient) ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, error) {
+func (m *MockMsbClient) ImagePrune(ctx context.Context) (*ImagePruneReport, error) {
 	if m.ImagePruneFn != nil {
 		return m.ImagePruneFn(ctx)
 	}
-	return &msbSdk.ImagePruneReport{}, nil
+	return &ImagePruneReport{}, nil
 }
 
-// PruneStorage implements Client, recording every call's options.
+// PruneStorage implements Client, recording every call's request.
 func (m *MockMsbClient) PruneStorage(
 	ctx context.Context,
-	options msbSdk.StoragePruneOptions,
-) (*msbSdk.StoragePruneReport, error) {
+	req PruneRequest,
+) (*PruneReport, error) {
 	m.mu.Lock()
-	m.StoragePruneCalls = append(m.StoragePruneCalls, options)
+	m.StoragePruneCalls = append(m.StoragePruneCalls, req)
 	// gomutants:disable-next-line STATEMENT_REMOVE reason="a test double's mutex unlock is only observable under concurrency, where a missing unlock deadlocks rather than failing an assertion"
 	m.mu.Unlock()
 	if m.StoragePruneFn != nil {
-		return m.StoragePruneFn(ctx, options)
+		return m.StoragePruneFn(ctx, req)
 	}
-	return &msbSdk.StoragePruneReport{}, nil
+	return &PruneReport{}, nil
 }
 
 // ImageRemove implements Client.
@@ -310,11 +310,11 @@ func (m *MockMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) 
 	return nil
 }
 
-func (m *MockMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error) {
+func (m *MockMsbClient) ImageInspect(ctx context.Context, ref string) (*ImageConfig, error) {
 	if m.ImageInspectFn != nil {
 		return m.ImageInspectFn(ctx, ref)
 	}
-	return &msbSdk.ImageConfig{}, nil
+	return &ImageConfig{}, nil
 }
 
 func (m *MockMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*ImageDetail, error) {
@@ -325,14 +325,14 @@ func (m *MockMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*Im
 }
 
 // StorageUsage implements Client.
-func (m *MockMsbClient) StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error) {
+func (m *MockMsbClient) StorageUsage(ctx context.Context) (*StorageReport, error) {
 	if m.StorageUsageFn != nil {
 		return m.StorageUsageFn(ctx)
 	}
 	if m.storageUsageErr != nil {
 		return nil, m.storageUsageErr
 	}
-	return &msbSdk.StorageUsageReport{}, nil
+	return &StorageReport{}, nil
 }
 
 // SetStorageUsageErr sets the error returned by MockMsbClient.StorageUsage.
@@ -383,10 +383,10 @@ func (m *MockMsbClient) SetGetVolumeErr(err error) *MockMsbClient {
 type MockSandboxHandle struct {
 	Name_        string
 	ID_          string
-	Status_      msbSdk.SandboxStatus
+	Status_      SandboxStatus
 	UpdatedAt_   time.Time
 	CreatedAt_   time.Time
-	BackendKind_ msbSdk.BackendKind
+	BackendKind_ BackendKind
 	Image_       string
 	ConnectSb    Sandbox
 	// ConnectOrStartFn overrides ConnectOrStart's status-driven behaviour.
@@ -415,19 +415,19 @@ type MockSandboxHandle struct {
 	CompactResult    *msbSdk.DiskCompactionResult
 	CompactErr       error
 	CompactedOptions []CompactionRequest
-	MetricsResult    *msbSdk.Metrics
+	MetricsResult    *Metrics
 	MetricsErr       error
-	LogsResult       []msbSdk.LogEntry
+	LogsResult       []LogEntry
 	LogsErr          error
 	LogsOptions      []LogQuery
 }
 
-func (m *MockSandboxHandle) Name() string                    { return m.Name_ }
-func (m *MockSandboxHandle) ID() string                      { return m.ID_ }
-func (m *MockSandboxHandle) Status() msbSdk.SandboxStatus    { return m.Status_ }
-func (m *MockSandboxHandle) UpdatedAt() time.Time            { return m.UpdatedAt_ }
-func (m *MockSandboxHandle) CreatedAt() time.Time            { return m.CreatedAt_ }
-func (m *MockSandboxHandle) BackendKind() msbSdk.BackendKind { return m.BackendKind_ }
+func (m *MockSandboxHandle) Name() string             { return m.Name_ }
+func (m *MockSandboxHandle) ID() string               { return m.ID_ }
+func (m *MockSandboxHandle) Status() SandboxStatus    { return m.Status_ }
+func (m *MockSandboxHandle) UpdatedAt() time.Time     { return m.UpdatedAt_ }
+func (m *MockSandboxHandle) CreatedAt() time.Time     { return m.CreatedAt_ }
+func (m *MockSandboxHandle) BackendKind() BackendKind { return m.BackendKind_ }
 func (m *MockSandboxHandle) Image() string {
 	if m.Image_ != "" {
 		return m.Image_
@@ -457,10 +457,10 @@ func (m *MockSandboxHandle) ConnectOrStart(ctx context.Context) (Sandbox, bool, 
 		return m.ConnectOrStartFn(ctx)
 	}
 	switch m.Status_ {
-	case msbSdk.SandboxStatusRunning, msbSdk.SandboxStatusStarting:
+	case SandboxStatusRunning, SandboxStatusStarting:
 		sb, err := m.Connect(ctx)
 		return sb, false, err
-	case msbSdk.SandboxStatusCreated, msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
+	case SandboxStatusCreated, SandboxStatusStopped, SandboxStatusCrashed:
 		if m.StartErr != nil {
 			return nil, false, m.StartErr
 		}
@@ -468,7 +468,7 @@ func (m *MockSandboxHandle) ConnectOrStart(ctx context.Context) (Sandbox, bool, 
 			return m.StartSb, true, nil
 		}
 		return &MockSandbox{Name_: m.Name_}, true, nil
-	case msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
+	case SandboxStatusDraining, SandboxStatusPaused:
 		return nil, false, fmt.Errorf("sandbox %q is %q and cannot take a new client", m.Name_, m.Status_)
 	}
 	return nil, false, fmt.Errorf("sandbox %q has unexpected status %q", m.Name_, m.Status_)
@@ -546,11 +546,11 @@ func (m *MockSandboxHandle) Compact(
 	return m.CompactResult, m.CompactErr
 }
 
-func (m *MockSandboxHandle) Metrics(_ context.Context) (*msbSdk.Metrics, error) {
+func (m *MockSandboxHandle) Metrics(_ context.Context) (*Metrics, error) {
 	return m.MetricsResult, m.MetricsErr
 }
 
-func (m *MockSandboxHandle) Logs(_ context.Context, query LogQuery) ([]msbSdk.LogEntry, error) {
+func (m *MockSandboxHandle) Logs(_ context.Context, query LogQuery) ([]LogEntry, error) {
 	m.LogsOptions = append(m.LogsOptions, query)
 	return m.LogsResult, m.LogsErr
 }
@@ -590,8 +590,8 @@ type MockSandbox struct {
 	ExecDetachedCalls *[]MockDetachedCall
 	Job_              Job
 	GetJobFn          func(ctx context.Context, id string) (Job, error)
-	ListJobsFn        func(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error)
-	Jobs              []msbSdk.JobInfo
+	ListJobsFn        func(ctx context.Context, query JobQuery) ([]JobInfo, error)
+	Jobs              []JobInfo
 
 	// StreamHandle_ is returned by ShellStream when ShellStreamFn is nil. When
 	// both are nil, a no-op handle is returned that immediately reports
@@ -604,9 +604,9 @@ type MockSandbox struct {
 	ShellStreamCmds *[]string
 
 	// Metrics and Logs back the seam's resource-pressure reads.
-	MetricsResult *msbSdk.Metrics
+	MetricsResult *Metrics
 	MetricsErr    error
-	LogsResult    []msbSdk.LogEntry
+	LogsResult    []LogEntry
 	LogsErr       error
 	// LogsOptions records every LogQuery passed to Logs.
 	LogsOptions []LogQuery
@@ -681,7 +681,7 @@ func (m *MockSandbox) GetJob(ctx context.Context, id string) (Job, error) {
 	return &MockJob{}, nil
 }
 
-func (m *MockSandbox) ListJobs(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error) {
+func (m *MockSandbox) ListJobs(ctx context.Context, query JobQuery) ([]JobInfo, error) {
 	if m.ListJobsFn != nil {
 		return m.ListJobsFn(ctx, query)
 	}
@@ -726,11 +726,11 @@ func (m *MockSandbox) Destroy(_ context.Context, _ LifecycleOptions) error {
 func (m *MockSandbox) DidDestroy() bool { return m.Destroyed }
 func (m *MockSandbox) Close() error     { return m.CloseErr }
 
-func (m *MockSandbox) Metrics(_ context.Context) (*msbSdk.Metrics, error) {
+func (m *MockSandbox) Metrics(_ context.Context) (*Metrics, error) {
 	return m.MetricsResult, m.MetricsErr
 }
 
-func (m *MockSandbox) Logs(_ context.Context, query LogQuery) ([]msbSdk.LogEntry, error) {
+func (m *MockSandbox) Logs(_ context.Context, query LogQuery) ([]LogEntry, error) {
 	m.LogsOptions = append(m.LogsOptions, query)
 	return m.LogsResult, m.LogsErr
 }
@@ -786,8 +786,8 @@ type SandboxOpts struct {
 	ExecDetachedCalls *[]MockDetachedCall
 	Job_              Job
 	GetJobFn          func(ctx context.Context, id string) (Job, error)
-	ListJobsFn        func(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error)
-	Jobs              []msbSdk.JobInfo
+	ListJobsFn        func(ctx context.Context, query JobQuery) ([]JobInfo, error)
+	Jobs              []JobInfo
 }
 
 // NewMockSandbox returns a Sandbox configured by opts. Zero/unset values produce
@@ -911,7 +911,7 @@ func (t *TestResult) StdoutBytes() []byte {
 type MockVolumeHandle struct {
 	Name_          string
 	Path_          string
-	Kind_          msbSdk.VolumeKind
+	Kind_          VolumeKind
 	CreatedAt_     time.Time
 	QuotaMiB_      *uint32
 	UsedBytes_     uint64
@@ -923,9 +923,9 @@ type MockVolumeHandle struct {
 
 func (m MockVolumeHandle) Name() string { return m.Name_ }
 func (m MockVolumeHandle) Path() string { return m.Path_ }
-func (m MockVolumeHandle) Kind() msbSdk.VolumeKind {
+func (m MockVolumeHandle) Kind() VolumeKind {
 	if m.Kind_ == "" {
-		return msbSdk.VolumeKindDir
+		return VolumeKindDir
 	}
 	return m.Kind_
 }
@@ -1048,15 +1048,15 @@ func (f *failFastMsbClient) ImageList(_ context.Context) ([]ImageHandle, error) 
 	return nil, nil
 }
 
-func (f *failFastMsbClient) ImagePrune(_ context.Context) (*msbSdk.ImagePruneReport, error) {
+func (f *failFastMsbClient) ImagePrune(_ context.Context) (*ImagePruneReport, error) {
 	f.mustMock()
 	return nil, nil
 }
 
 func (f *failFastMsbClient) PruneStorage(
 	_ context.Context,
-	_ msbSdk.StoragePruneOptions,
-) (*msbSdk.StoragePruneReport, error) {
+	_ PruneRequest,
+) (*PruneReport, error) {
 	f.mustMock()
 	return nil, nil
 }
@@ -1071,7 +1071,7 @@ func (f *failFastMsbClient) ImageLoad(_ context.Context, _ string, _ io.Reader) 
 	return nil
 }
 
-func (f *failFastMsbClient) ImageInspect(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+func (f *failFastMsbClient) ImageInspect(_ context.Context, _ string) (*ImageConfig, error) {
 	f.mustMock()
 	return nil, nil
 }
@@ -1081,7 +1081,7 @@ func (f *failFastMsbClient) ImageInspectDetail(_ context.Context, _ string) (*Im
 	return nil, nil
 }
 
-func (f *failFastMsbClient) StorageUsage(_ context.Context) (*msbSdk.StorageUsageReport, error) {
+func (f *failFastMsbClient) StorageUsage(_ context.Context) (*StorageReport, error) {
 	f.mustMock()
 	return nil, nil
 }

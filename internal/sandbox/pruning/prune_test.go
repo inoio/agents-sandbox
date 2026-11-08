@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	cp "github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -21,18 +19,18 @@ import (
 func TestIsStoppedStatus(t *testing.T) {
 	tests := []struct {
 		name   string
-		status msbSdk.SandboxStatus
+		status msb.SandboxStatus
 		want   bool
 	}{
-		{"stopped", msbSdk.SandboxStatusStopped, true},
-		{"crashed", msbSdk.SandboxStatusCrashed, true},
-		{"running", msbSdk.SandboxStatusRunning, false},
-		{"draining", msbSdk.SandboxStatusDraining, false},
-		{"paused", msbSdk.SandboxStatusPaused, false},
-		{"created", msbSdk.SandboxStatusCreated, true},
-		{"starting", msbSdk.SandboxStatusStarting, false},
+		{"stopped", msb.SandboxStatusStopped, true},
+		{"crashed", msb.SandboxStatusCrashed, true},
+		{"running", msb.SandboxStatusRunning, false},
+		{"draining", msb.SandboxStatusDraining, false},
+		{"paused", msb.SandboxStatusPaused, false},
+		{"created", msb.SandboxStatusCreated, true},
+		{"starting", msb.SandboxStatusStarting, false},
 		// Unknown: inactive checks fail closed, so it is not stopped.
-		{"empty string", msbSdk.SandboxStatus(""), false},
+		{"empty string", msb.SandboxStatus(""), false},
 	}
 
 	for _, tt := range tests {
@@ -189,12 +187,12 @@ func TestBuildPruneStateKeysByAgent(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0-opencode",
-				Status_:    msbSdk.SandboxStatusRunning,
+				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: time.Now(),
 			},
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0-pi",
-				Status_:    msbSdk.SandboxStatusStopped,
+				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: old,
 			},
 		},
@@ -220,7 +218,7 @@ func TestPruneAggregateParity(t *testing.T) {
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	staleHandle := &msb.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
-		Status_:    msbSdk.SandboxStatusStopped,
+		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: old,
 	}
 	client := &msb.MockMsbClient{
@@ -228,7 +226,7 @@ func TestPruneAggregateParity(t *testing.T) {
 			staleHandle,
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-live-1mjusbm3wikhb0",
-				Status_:    msbSdk.SandboxStatusRunning,
+				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: old,
 				Image_:     "agents-sandbox/runner-live-1mjusbm3wikhb0:opencode-latest",
 			},
@@ -286,7 +284,7 @@ func TestPruneNeverRemovesVolumes(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-" + slug,
-				Status_:    msbSdk.SandboxStatusStopped,
+				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: old,
 			},
 		},
@@ -316,8 +314,8 @@ func TestPruneNeverRemovesVolumes(t *testing.T) {
 func TestPruneRunsStoragePhase(t *testing.T) {
 	physical := uint64(4096)
 	client := &msb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error) {
-			return &msbSdk.StoragePruneReport{
+		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
+			return &msb.PruneReport{
 				FilesRemoved:           3,
 				LogicalBytesRemoved:    12288,
 				PhysicalBytesReclaimed: &physical,
@@ -350,7 +348,7 @@ func TestPruneRunsStoragePhase(t *testing.T) {
 // joined into the aggregate error instead of aborting the run.
 func TestPruneJoinsStorageError(t *testing.T) {
 	client := &msb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error) {
+		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
 			return nil, errors.New("storage boom")
 		},
 	}
@@ -527,7 +525,7 @@ func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-" + slug + "-opencode",
-				Status_:    msbSdk.SandboxStatusStopped,
+				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-48 * time.Hour),
 				Image_:     ref,
 			},
@@ -535,9 +533,9 @@ func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
 		Images: []msb.ImageHandle{
 			&msb.MockImageHandle{Reference_: ref, CreatedAt_: time.Now().Add(-48 * time.Hour)},
 		},
-		ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 			nativePruned = true
-			return &msbSdk.ImagePruneReport{}, nil
+			return &msb.ImagePruneReport{}, nil
 		},
 	}
 	msb.WithMsbMock(t, client)
@@ -609,7 +607,7 @@ func TestInvokePruneFunc(t *testing.T) {
 			Sandboxes: []msb.SandboxHandle{
 				&msb.MockSandboxHandle{
 					Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
-					Status_:    msbSdk.SandboxStatusStopped,
+					Status_:    msb.SandboxStatusStopped,
 					UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 				},
 			},

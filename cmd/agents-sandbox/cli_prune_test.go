@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
@@ -213,7 +212,7 @@ func oldArtifactTime() time.Time {
 func mkStaleVM(staleTime time.Time) sandboxmsb.SandboxHandle {
 	return &sandboxmsb.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-projectname-1mjusbm3wikhb0",
-		Status_:    msb.SandboxStatusStopped,
+		Status_:    sandboxmsb.SandboxStatusStopped,
 		UpdatedAt_: staleTime,
 	}
 }
@@ -221,7 +220,7 @@ func mkStaleVM(staleTime time.Time) sandboxmsb.SandboxHandle {
 func mkStoppedVM(slug string) sandboxmsb.SandboxHandle {
 	return &sandboxmsb.MockSandboxHandle{
 		Name_:      fmt.Sprintf("agents-sandbox-vm-%s", slug),
-		Status_:    msb.SandboxStatusStopped,
+		Status_:    sandboxmsb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-3 * 24 * time.Hour),
 		Image_:     fmt.Sprintf("agents-sandbox/runner-%s:xyz789", slug),
 	}
@@ -230,7 +229,7 @@ func mkStoppedVM(slug string) sandboxmsb.SandboxHandle {
 func mkActiveVM(slug string) sandboxmsb.SandboxHandle {
 	return &sandboxmsb.MockSandboxHandle{
 		Name_:      fmt.Sprintf("agents-sandbox-vm-%s", slug),
-		Status_:    msb.SandboxStatusRunning,
+		Status_:    sandboxmsb.SandboxStatusRunning,
 		UpdatedAt_: time.Now().Add(-3 * 24 * time.Hour),
 		Image_:     fmt.Sprintf("agents-sandbox/runner-%s:xyz789", slug),
 	}
@@ -239,7 +238,7 @@ func mkActiveVM(slug string) sandboxmsb.SandboxHandle {
 func mkStaleTask(staleTime time.Time) sandboxmsb.SandboxHandle {
 	return &sandboxmsb.MockSandboxHandle{
 		Name_:      "agents-sandbox-task-fill",
-		Status_:    msb.SandboxStatusStopped,
+		Status_:    sandboxmsb.SandboxStatusStopped,
 		UpdatedAt_: staleTime,
 	}
 }
@@ -299,12 +298,12 @@ func TestPrune(t *testing.T) {
 					m := &sandboxmsb.MockMsbClient{}
 					m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
 						Name_:      "agents-sandbox-vm-first-1mjusbm3wikhb0",
-						Status_:    msb.SandboxStatusStopped,
+						Status_:    sandboxmsb.SandboxStatusStopped,
 						UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 					})
 					m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
 						Name_:      "agents-sandbox-vm-second-1mjusbm3wikhb0",
-						Status_:    msb.SandboxStatusStopped,
+						Status_:    sandboxmsb.SandboxStatusStopped,
 						UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 					})
 					m.Volumes = append(m.Volumes,
@@ -321,7 +320,7 @@ func TestPrune(t *testing.T) {
 		runPruneTestWithAge(t, "2w", func(m *sandboxmsb.MockMsbClient) {
 			m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-staleproject-1mjusbm3wikhb0",
-				Status_:    msb.SandboxStatusStopped,
+				Status_:    sandboxmsb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 			})
 		}, staleSummary("Pruned", 1, 0))
@@ -540,15 +539,15 @@ func TestPruneFormatJSON(t *testing.T) {
 func TestPruneFormatJSONIncludesStorageAndImageFields(t *testing.T) {
 	physical := uint64(4096)
 	m := &sandboxmsb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msb.StoragePruneOptions) (*msb.StoragePruneReport, error) {
-			return &msb.StoragePruneReport{
+		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
+			return &sandboxmsb.PruneReport{
 				FilesRemoved:           3,
 				LogicalBytesRemoved:    12288,
 				PhysicalBytesReclaimed: &physical,
 			}, nil
 		},
-		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
-			return &msb.ImagePruneReport{SkippedInUse: 4, BytesReclaimed: &physical}, nil
+		ImagePruneFn: func(context.Context) (*sandboxmsb.ImagePruneReport, error) {
+			return &sandboxmsb.ImagePruneReport{SkippedInUse: 4, BytesReclaimed: &physical}, nil
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "prune", "--format", "json", "--yes")
@@ -571,8 +570,8 @@ func TestPruneFormatJSONIncludesStorageAndImageFields(t *testing.T) {
 // JSON projection.
 func TestPruneJSONUnknownBytesMarshalNull(t *testing.T) {
 	m := &sandboxmsb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msb.StoragePruneOptions) (*msb.StoragePruneReport, error) {
-			return &msb.StoragePruneReport{FilesRemoved: 1, LogicalBytesRemoved: 100}, nil
+		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
+			return &sandboxmsb.PruneReport{FilesRemoved: 1, LogicalBytesRemoved: 100}, nil
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "prune", "--format", "json", "--yes")
@@ -617,11 +616,11 @@ func TestPruneDryRunPassesDryRunToStorage(t *testing.T) {
 // rendering across both the storage and image lines.
 func TestPruneHumanOutputUnknownBytesRenderDash(t *testing.T) {
 	m := &sandboxmsb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msb.StoragePruneOptions) (*msb.StoragePruneReport, error) {
-			return &msb.StoragePruneReport{FilesRemoved: 1, LogicalBytesRemoved: 100}, nil
+		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
+			return &sandboxmsb.PruneReport{FilesRemoved: 1, LogicalBytesRemoved: 100}, nil
 		},
-		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
-			return &msb.ImagePruneReport{SkippedInUse: 2}, nil
+		ImagePruneFn: func(context.Context) (*sandboxmsb.ImagePruneReport, error) {
+			return &sandboxmsb.ImagePruneReport{SkippedInUse: 2}, nil
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "prune", "--yes")
@@ -640,7 +639,7 @@ func TestPruneHumanOutputUnknownBytesRenderDash(t *testing.T) {
 func TestPruneStorageFailureJoinsError(t *testing.T) {
 	storageErr := errors.New("storage boom")
 	m := &sandboxmsb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msb.StoragePruneOptions) (*msb.StoragePruneReport, error) {
+		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
 			return nil, storageErr
 		},
 	}
@@ -757,7 +756,7 @@ func TestPruneOlderThan(t *testing.T) {
 	runPruneTestWithFlags(t, []string{"--older-than", "2w"}, func(m *sandboxmsb.MockMsbClient) {
 		m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
 			Name_:      "agents-sandbox-vm-staleproject-1mjusbm3wikhb0",
-			Status_:    msb.SandboxStatusStopped,
+			Status_:    sandboxmsb.SandboxStatusStopped,
 			UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 		})
 	}, staleSummary("Pruned", 1, 0))
@@ -776,7 +775,7 @@ func TestPruneAgeDeprecated(t *testing.T) {
 	runPruneTestWithFlags(t, []string{"--age", "2w"}, func(m *sandboxmsb.MockMsbClient) {
 		m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
 			Name_:      "agents-sandbox-vm-staleproject-1mjusbm3wikhb0",
-			Status_:    msb.SandboxStatusStopped,
+			Status_:    sandboxmsb.SandboxStatusStopped,
 			UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 		})
 	}, staleSummary("Pruned", 1, 0))
@@ -1021,7 +1020,7 @@ func TestPruneBatchListsRetiredProjectsWithoutDeletingVolumes(t *testing.T) {
 	m := &sandboxmsb.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-" + retireSlug,
-		Status_:    msb.SandboxStatusStopped,
+		Status_:    sandboxmsb.SandboxStatusStopped,
 		UpdatedAt_: oldArtifactTime(),
 	})
 	m.Volumes = append(m.Volumes, homeVol(volumeName))

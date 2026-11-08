@@ -121,7 +121,7 @@ func TestRealClientSandboxLifecycle(t *testing.T) {
 		t.Fatalf("processes that booted the stopped sandbox = %d, want exactly 1", booted)
 	}
 	converged := handleNamed(ctx, t, client, name)
-	if converged.ID() != original.ID() || converged.Status() != msbSdk.SandboxStatusRunning {
+	if converged.ID() != original.ID() || converged.Status() != SandboxStatusRunning {
 		t.Fatalf("sandbox after the race = %s (%s), want %s running",
 			converged.ID(), converged.Status(), original.ID())
 	}

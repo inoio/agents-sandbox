@@ -100,8 +100,8 @@ func (host *journeyHost) installMsbImageCache(mock *sandboxmsb.MockMsbClient) {
 		}
 		return nil
 	}
-	mock.ImageInspectFn = func(context.Context, string) (*msbSdk.ImageConfig, error) {
-		return &msbSdk.ImageConfig{Digest: journeyImageID}, nil
+	mock.ImageInspectFn = func(context.Context, string) (*sandboxmsb.ImageConfig, error) {
+		return &sandboxmsb.ImageConfig{Digest: journeyImageID}, nil
 	}
 	mock.ImageLoadFn = func(_ context.Context, ref string, _ io.Reader) error {
 		host.mu.Lock()
@@ -194,7 +194,7 @@ func runRealStartupPrune(t *testing.T) {
 func staleProjectVM(k state.Key) sandboxmsb.SandboxHandle {
 	return &sandboxmsb.MockSandboxHandle{
 		Name_:      "stale-" + k.Slug,
-		Status_:    msbSdk.SandboxStatusStopped,
+		Status_:    sandboxmsb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-365 * 24 * time.Hour),
 		Cfg: &msbSdk.SandboxConfig{Labels: map[string]string{
 			naming.LabelSlug:  k.Slug,

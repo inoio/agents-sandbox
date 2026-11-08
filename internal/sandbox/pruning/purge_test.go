@@ -277,7 +277,7 @@ func TestPlanSandboxesPropagatesErrors(t *testing.T) {
 			Sandboxes: []msb.SandboxHandle{
 				&msb.MockSandboxHandle{
 					Name_:   naming.LegacyVMPrefix + "otherproject",
-					Status_: msbSdk.SandboxStatusStopped,
+					Status_: msb.SandboxStatusStopped,
 				},
 			},
 		}
@@ -448,8 +448,8 @@ func TestSweepStaleStatePropagatesErrors(t *testing.T) {
 // failure of the sandbox step.
 func TestRemoveSandboxesWarnsAndJoinsFailures(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	running := &msb.MockSandboxHandle{Name_: "run-vm", Status_: msbSdk.SandboxStatusRunning, StopErr: errBoom}
-	stopped := &msb.MockSandboxHandle{Name_: "stopped-vm", Status_: msbSdk.SandboxStatusStopped, RemoveErr: errBoom}
+	running := &msb.MockSandboxHandle{Name_: "run-vm", Status_: msb.SandboxStatusRunning, StopErr: errBoom}
+	stopped := &msb.MockSandboxHandle{Name_: "stopped-vm", Status_: msb.SandboxStatusStopped, RemoveErr: errBoom}
 
 	errs := removeSandboxes(context.Background(), []msb.SandboxHandle{running, stopped}, &ui)
 	if len(errs) != 2 {
@@ -888,9 +888,9 @@ func TestPlanRemovalContinuesPastForeignAndBlockedArtifacts(t *testing.T) {
 			&msb.MockImageHandle{Reference_: ownedImage, LastUsedAt_: time.Now()},
 		},
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{Name_: "builder-vm", Status_: msbSdk.SandboxStatusRunning, UpdatedAt_: time.Now()},
-			&msb.MockSandboxHandle{Name_: unownedSandbox, Status_: msbSdk.SandboxStatusStopped, UpdatedAt_: time.Now()},
-			&msb.MockSandboxHandle{Name_: ownedSandbox, Status_: msbSdk.SandboxStatusStopped, UpdatedAt_: time.Now()},
+			&msb.MockSandboxHandle{Name_: "builder-vm", Status_: msb.SandboxStatusRunning, UpdatedAt_: time.Now()},
+			&msb.MockSandboxHandle{Name_: unownedSandbox, Status_: msb.SandboxStatusStopped, UpdatedAt_: time.Now()},
+			&msb.MockSandboxHandle{Name_: ownedSandbox, Status_: msb.SandboxStatusStopped, UpdatedAt_: time.Now()},
 		},
 	})
 

@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -367,7 +365,7 @@ func TestStartDockerdIfPresentKillsStaleJobWithChangedArgs(t *testing.T) {
 	// The stale job was launched by a release whose dockerd arguments differ
 	// from this one's (no storage-driver flag), which is exactly the case the
 	// old binary+args matcher missed (#343).
-	sb.Jobs = []msbSdk.JobInfo{
+	sb.Jobs = []msb.JobInfo{
 		{ID: "stale-dockerd", Command: []string{dockerdBinary, "-H", "unix:///var/run/docker.sock"}},
 	}
 	sb.GetJobFn = func(context.Context, string) (msb.Job, error) { return stale, nil }
@@ -440,7 +438,7 @@ func TestTimeoutErrorIncludesJobLog(t *testing.T) {
 	const sentinel = "failed to start containerd: timeout waiting for containerd to start"
 	sb := newCountingSandbox(1 << 30)
 	sb.Job_ = &msb.MockJob{
-		Logs_: []msbSdk.JobLogEntry{{Data: []byte(sentinel)}},
+		Logs_: []msb.JobLogEntry{{Data: []byte(sentinel)}},
 	}
 	ui := termio.NewTestMock(t)
 

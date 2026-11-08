@@ -43,7 +43,7 @@ func TestListSandboxesPopulatesInfo(t *testing.T) {
 	mock.Sandboxes = []msb.SandboxHandle{
 		&msb.MockSandboxHandle{
 			Name_:      "agents-sandbox-vm-abc",
-			Status_:    msbSdk.SandboxStatusRunning,
+			Status_:    msb.SandboxStatusRunning,
 			CreatedAt_: now,
 			UpdatedAt_: now.Add(time.Hour),
 			Cfg: &msbSdk.SandboxConfig{
@@ -81,12 +81,12 @@ func TestListSandboxesPopulatesInfo(t *testing.T) {
 // slices past the result.
 func TestListSandboxesFiltersAndLimits(t *testing.T) {
 	sandboxes := []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "running", Status_: msbSdk.SandboxStatusRunning},
-		&msb.MockSandboxHandle{Name_: "stopped", Status_: msbSdk.SandboxStatusStopped},
-		&msb.MockSandboxHandle{Name_: "starting", Status_: msbSdk.SandboxStatusStarting},
-		&msb.MockSandboxHandle{Name_: "draining", Status_: msbSdk.SandboxStatusDraining},
-		&msb.MockSandboxHandle{Name_: "created", Status_: msbSdk.SandboxStatusCreated},
-		&msb.MockSandboxHandle{Name_: "crashed", Status_: msbSdk.SandboxStatusCrashed},
+		&msb.MockSandboxHandle{Name_: "running", Status_: msb.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "stopped", Status_: msb.SandboxStatusStopped},
+		&msb.MockSandboxHandle{Name_: "starting", Status_: msb.SandboxStatusStarting},
+		&msb.MockSandboxHandle{Name_: "draining", Status_: msb.SandboxStatusDraining},
+		&msb.MockSandboxHandle{Name_: "created", Status_: msb.SandboxStatusCreated},
+		&msb.MockSandboxHandle{Name_: "crashed", Status_: msb.SandboxStatusCrashed},
 	}
 	all := []string{"running", "stopped", "starting", "draining", "created", "crashed"}
 	cases := []struct {
@@ -146,15 +146,15 @@ func TestListSandboxesHidesTaskSandboxesBothSchemes(t *testing.T) {
 	mock.Sandboxes = []msb.SandboxHandle{
 		&msb.MockSandboxHandle{
 			Name_:   "myproj-1mjusbm3wikhb0-opencode-1729000000000000000",
-			Status_: msbSdk.SandboxStatusRunning,
+			Status_: msb.SandboxStatusRunning,
 		},
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-task-x-1729", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-task-x-1729", Status_: msb.SandboxStatusRunning},
 		&msb.MockSandboxHandle{
 			Name_:   "labelled-prefill",
-			Status_: msbSdk.SandboxStatusRunning,
+			Status_: msb.SandboxStatusRunning,
 			Cfg:     &msbSdk.SandboxConfig{Labels: map[string]string{naming.LabelTask: "1"}},
 		},
-		&msb.MockSandboxHandle{Name_: "myproj-1mjusbm3wikhb0-opencode", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "myproj-1mjusbm3wikhb0-opencode", Status_: msb.SandboxStatusRunning},
 	}
 	msb.WithMsbMock(t, mock)
 

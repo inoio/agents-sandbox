@@ -75,13 +75,13 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	}}
 	sh := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -161,13 +161,13 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 	}}
 	sh := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -291,13 +291,13 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	}}
 	sh := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -573,14 +573,14 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	}}
 	sh := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
-		Status_:   msbSdk.SandboxStatusStopped,
+		Status_:   msb.SandboxStatusStopped,
 		ConnectSb: connectSb,
 		StartSb:   connectSb,
 	}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -652,13 +652,13 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 	}}
 	sh := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -803,13 +803,13 @@ func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 	}}
 	sh := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -1060,7 +1060,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 	shellOut := map[string]msb.ShellResult{dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil)}
 	existing := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(k),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		Cfg:       &msbSdk.SandboxConfig{},
 		ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil), ShellOut: shellOut},
 		Mounts: map[string]msbSdk.MountConfig{
@@ -1342,7 +1342,7 @@ func TestPrepareSandboxMigratesOnFirstRun(t *testing.T) {
 
 	legacyHandle := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(legacyKey),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: msb.NewMockSandbox(msb.SandboxOpts{}),
 	}
 	inspectedTag := installPrepareSandboxDockerMock(t)
@@ -1447,8 +1447,8 @@ func TestPrepareSandboxDryRunVMSkipsTheVM(t *testing.T) {
 	slug := git.MustCheckoutSlug()
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -1518,8 +1518,8 @@ func TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome(t *testing.T) {
 
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -1559,8 +1559,8 @@ func TestPrepareSandboxDryRunVMServeOnlyPublishesPort(t *testing.T) {
 	k := state.Key{Slug: slug, Agent: "opencode"}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -1627,8 +1627,8 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 	slug := git.MustCheckoutSlug()
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -1952,7 +1952,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 				}
 				mock.SetGotSandbox(&msb.MockSandboxHandle{
 					Name_:     vm.ProjectVMName(k),
-					Status_:   msbSdk.SandboxStatusRunning,
+					Status_:   msb.SandboxStatusRunning,
 					ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil), ShellErr: cause},
 				})
 				msb.WithMsbMock(t, mock)
@@ -2138,7 +2138,7 @@ func stubPrepareSandboxImage(t *testing.T) {
 func existingProjectVMHandle(k state.Key) *msb.MockSandboxHandle {
 	return &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(k),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		Cfg:       &msbSdk.SandboxConfig{},
 		ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil)},
 	}
@@ -2250,8 +2250,8 @@ func TestPrepareSandboxServeOnlyPortExhausted(t *testing.T) {
 	k := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil

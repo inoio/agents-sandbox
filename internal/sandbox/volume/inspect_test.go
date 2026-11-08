@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -22,7 +20,7 @@ func TestInspectVolumePopulatesDetail(t *testing.T) {
 		&msb.MockVolumeHandle{
 			Name_:          "agents-sandbox-home-proj-opencode-20260817T104236",
 			Path_:          "/home/dev/.local/share/agents-sandbox/msb/volumes/agents-sandbox-home-proj",
-			Kind_:          msbSdk.VolumeKindDisk,
+			Kind_:          msb.VolumeKindDisk,
 			CreatedAt_:     time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
 			QuotaMiB_:      &quota,
 			UsedBytes_:     1024 * 1024 * 1024,
