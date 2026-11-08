@@ -31,6 +31,10 @@ type AttachRequest struct {
 // embeds ExecConfig (plus unexported input and rlimit fields the launcher never
 // sets), so a job spec is an exec request; the launcher only sets the user for
 // detached jobs today.
+//
+// StdinPipe is asymmetric with ExecRequest: ExecDetached defaults it to true
+// (retained pipes), so a zero JobSpec keeps stdin piped and only true is
+// expressible. See jobExecOptions.
 type JobSpec struct {
 	ExecRequest
 }
