@@ -289,6 +289,39 @@ func TestPinProjectCWDPanicsInsideABareCheckout(t *testing.T) {
 	assertPanics(t, func() { pinProjectCWD(root) })
 }
 
+// TestWithBareCheckoutLocatorRestoresPrevious pins the helper's cleanup: once
+// the installing subtest returns, the locator it displaced must be back in
+// effect, or a bare-checkout stub leaks into whichever test runs next. The
+// restore is asserted through the real resolver's output rather than a
+// func-pointer comparison, which cannot tell two closures apart: the installed
+// mock resolves an absolute bare-root base, while the restored default resolves
+// the relative project base.
+func TestWithBareCheckoutLocatorRestoresPrevious(t *testing.T) {
+	previous := configpaths.GetBareCheckoutLocator()
+	t.Cleanup(func() { configpaths.UseBareCheckoutLocator(previous) })
+	configpaths.UseBareCheckoutLocator(func(string) (string, string, bool) { return "", "", false })
+
+	t.Run("installs the locator", func(t *testing.T) {
+		bareRoot := filepath.Join(t.TempDir(), "bare")
+		WithBareCheckoutLocator(t, func(string) (string, string, bool) {
+			return bareRoot, filepath.Join(bareRoot, "worktree"), true
+		})
+
+		want := filepath.Join(bareRoot, configpaths.ProjectConfigDir)
+		if got := configpaths.ProjectConfigBase("/anywhere"); got != want {
+			t.Fatalf("ProjectConfigBase with the installed locator = %q, want %q", got, want)
+		}
+	})
+
+	if got := configpaths.ProjectConfigBase("/anywhere"); got != configpaths.ProjectConfigDir {
+		t.Errorf(
+			"ProjectConfigBase after the installing subtest = %q, want the relative %q restored",
+			got,
+			configpaths.ProjectConfigDir,
+		)
+	}
+}
+
 func assertPanics(t *testing.T, fn func()) {
 	t.Helper()
 	defer func() {

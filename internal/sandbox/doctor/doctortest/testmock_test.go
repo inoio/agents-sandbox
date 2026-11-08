@@ -43,10 +43,12 @@ func assertFactoryPanics(t *testing.T, name string, fn func()) {
 	fn()
 }
 
-// assertFailFastFactoriesPanic asserts the CheckAll and CheckDocker factories are
-// the fail-fast default installed by InstallFailFast. It deliberately stays off
-// the ensure-installed factory: ensureMsbInstalled is unexported, so its
-// fail-fast default is asserted from doctor's own internal tests instead.
+// assertFailFastFactoriesPanic asserts the CheckAll, CheckDocker, and
+// ensure-installed factories are the fail-fast default installed by
+// InstallFailFast. ensureMsbInstalled is unexported, so the ensure-installed
+// factory is probed through doctor.SetEnsureInstalled's previous-value contract:
+// displacing the installed seam with a no-op yields the factory that was in
+// effect, which must be the fail-fast default and so must panic.
 func assertFailFastFactoriesPanic(t *testing.T) {
 	t.Helper()
 	assertFactoryPanics(t, "CheckDocker", func() { _ = doctor.CheckDocker(context.Background(), docker.Get()) })
@@ -54,4 +56,7 @@ func assertFailFastFactoriesPanic(t *testing.T) {
 		testUI := termiotest.NewTestMock(t)
 		_ = doctor.CheckAll(context.Background(), docker.Get(), &testUI)
 	})
+	displacedEnsureInstalled := doctor.SetEnsureInstalled(func(context.Context) error { return nil })
+	t.Cleanup(func() { doctor.SetEnsureInstalled(displacedEnsureInstalled) })
+	assertFactoryPanics(t, "EnsureInstalled", func() { _ = displacedEnsureInstalled(context.Background()) })
 }

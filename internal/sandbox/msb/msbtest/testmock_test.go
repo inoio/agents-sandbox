@@ -82,6 +82,9 @@ func TestInstallFailFastGet(t *testing.T) {
 	t.Run("replaces a factory", func(t *testing.T) {
 		WithMsbMock(t, &MockMsbClient{})
 		InstallFailFastGet()
+		if _, ok := msb.Get().(*failFastMsbClient); !ok {
+			t.Fatalf("msb.Get() = %T after InstallFailFastGet, want *failFastMsbClient", msb.Get())
+		}
 		defer func() {
 			if recover() == nil {
 				t.Fatal("msb.Get did not panic after InstallFailFastGet")

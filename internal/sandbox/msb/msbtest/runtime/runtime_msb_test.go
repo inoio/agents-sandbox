@@ -3,7 +3,10 @@
 package runtime
 
 import (
+	"context"
+	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/hostlock"
@@ -12,8 +15,97 @@ import (
 // TestSweepWithNoSandboxes pins that a sweep in an isolated home with nothing
 // running is inert: it neither errors nor touches the SDK.
 func TestSweepWithNoSandboxes(t *testing.T) {
+	ready := isolatedRuntimeReady
+	t.Cleanup(func() { isolatedRuntimeReady = ready })
+	isolatedRuntimeReady = false
+
 	if err := SweepIsolatedSandboxes(); err != nil {
 		t.Fatalf("sweep: %v", err)
+	}
+}
+
+// fakeSweepSandbox is a sweepSandbox that records its destruction.
+type fakeSweepSandbox struct {
+	name       string
+	destroyErr error
+	destroyed  bool
+}
+
+func (f *fakeSweepSandbox) Name() string { return f.name }
+
+func (f *fakeSweepSandbox) Destroy(context.Context) error {
+	f.destroyed = true
+	return f.destroyErr
+}
+
+// TestSweepSandboxesDestroysEveryPage pins the sweep's page walk: every sandbox
+// on every page is destroyed, and each page is requested with the cursor the
+// previous page returned.
+func TestSweepSandboxesDestroysEveryPage(t *testing.T) {
+	first := &fakeSweepSandbox{name: "first"}
+	second := &fakeSweepSandbox{name: "second"}
+	nextCursor := "page-2"
+
+	pages := []struct {
+		sandboxes  []sweepSandbox
+		nextCursor *string
+	}{
+		{sandboxes: []sweepSandbox{first}, nextCursor: &nextCursor},
+		{sandboxes: []sweepSandbox{second}, nextCursor: nil},
+	}
+	var cursors []*string
+	pageIndex := 0
+	list := func(_ context.Context, cursor *string) ([]sweepSandbox, *string, error) {
+		cursors = append(cursors, cursor)
+		page := pages[pageIndex]
+		pageIndex++
+		return page.sandboxes, page.nextCursor, nil
+	}
+
+	if err := sweepSandboxes(list); err != nil {
+		t.Fatalf("sweepSandboxes() error = %v", err)
+	}
+	if !first.destroyed || !second.destroyed {
+		t.Errorf("destroyed = (%v, %v), want both sandboxes destroyed", first.destroyed, second.destroyed)
+	}
+	if len(cursors) != 2 || cursors[0] != nil || cursors[1] == nil || *cursors[1] != nextCursor {
+		t.Errorf("list cursors = %v, want [nil, %q]", cursors, nextCursor)
+	}
+}
+
+// TestSweepSandboxesReportsFailedDestroyAndKeepsSweeping pins the error
+// aggregation: a sandbox that cannot be destroyed is named in the joined error
+// and does not stop the sweep from destroying the sandboxes after it.
+func TestSweepSandboxesReportsFailedDestroyAndKeepsSweeping(t *testing.T) {
+	destroyErr := errors.New("destroy boom")
+	wedged := &fakeSweepSandbox{name: "wedged", destroyErr: destroyErr}
+	healthy := &fakeSweepSandbox{name: "healthy"}
+	list := func(context.Context, *string) ([]sweepSandbox, *string, error) {
+		return []sweepSandbox{wedged, healthy}, nil, nil
+	}
+
+	err := sweepSandboxes(list)
+	if !errors.Is(err, destroyErr) {
+		t.Fatalf("sweepSandboxes() error = %v, want it to wrap %v", err, destroyErr)
+	}
+	if !strings.Contains(err.Error(), "wedged") {
+		t.Errorf("error %q does not name the sandbox it could not destroy", err)
+	}
+	if !healthy.destroyed {
+		t.Error("a failed destroy stopped the sweep; later sandboxes must still be attempted")
+	}
+}
+
+// TestSweepSandboxesReportsListFailure pins that a list failure aborts the sweep
+// and is returned rather than swallowed.
+func TestSweepSandboxesReportsListFailure(t *testing.T) {
+	listErr := errors.New("list boom")
+	list := func(context.Context, *string) ([]sweepSandbox, *string, error) {
+		return nil, nil, listErr
+	}
+
+	if err := sweepSandboxes(list); !errors.Is(err, listErr) {
+		t.Fatalf("sweepSandboxes() error = %v, want it to wrap %v", err, listErr)
 	}
 }
 

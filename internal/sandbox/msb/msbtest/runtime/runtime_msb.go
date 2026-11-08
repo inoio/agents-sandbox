@@ -158,28 +158,69 @@ func SweepIsolatedSandboxes() error {
 	if !isolatedRuntimeReady {
 		return nil
 	}
+	return sweepSandboxes(listSandboxesForSweep)
+}
+
+// sweepSandbox is one sandbox the sweep can destroy. The SDK's *SandboxHandle
+// carries its Destroy options as variadics, so it does not satisfy the seam and
+// is wrapped by sdkSweepSandbox.
+type sweepSandbox interface {
+	Name() string
+	Destroy(ctx context.Context) error
+}
+
+// sweepPageLister returns one page of sandboxes and the cursor for the next
+// page, or a nil cursor for the last page. It is the seam that lets
+// sweepSandboxes be tested for multi-page walking and partial failures without a
+// real runtime; production passes listSandboxesForSweep.
+type sweepPageLister func(ctx context.Context, cursor *string) (sandboxes []sweepSandbox, nextCursor *string, err error)
+
+// listSandboxesForSweep lists one SDK page of sandboxes, adapting each handle to
+// the sweep's seam.
+func listSandboxesForSweep(ctx context.Context, cursor *string) ([]sweepSandbox, *string, error) {
+	var opts []msbSdk.SandboxListOption
+	if cursor != nil {
+		opts = append(opts, msbSdk.WithListCursor(*cursor))
+	}
+	page, err := msbSdk.ListSandboxesWith(ctx, opts...)
+	if err != nil {
+		return nil, nil, err
+	}
+	sandboxes := make([]sweepSandbox, len(page.Sandboxes))
+	for i, handle := range page.Sandboxes {
+		sandboxes[i] = sdkSweepSandbox{handle: handle}
+	}
+	return sandboxes, page.NextCursor, nil
+}
+
+// sdkSweepSandbox adapts a *msbSdk.SandboxHandle to sweepSandbox.
+type sdkSweepSandbox struct{ handle *msbSdk.SandboxHandle }
+
+func (s sdkSweepSandbox) Name() string { return s.handle.Name() }
+
+func (s sdkSweepSandbox) Destroy(ctx context.Context) error { return s.handle.Destroy(ctx) }
+
+// sweepSandboxes walks every page list yields, destroying each sandbox and
+// joining the destroy failures, so one wedged sandbox does not stop the sweep.
+func sweepSandboxes(list sweepPageLister) error {
 	ctx, cancel := context.WithTimeout(context.Background(), DestroyTimeout)
 	defer cancel()
 	var destroyErrors []error
 	var cursor *string
 	for {
-		var opts []msbSdk.SandboxListOption
-		if cursor != nil {
-			opts = append(opts, msbSdk.WithListCursor(*cursor))
-		}
-		page, err := msbSdk.ListSandboxesWith(ctx, opts...)
+		sandboxes, nextCursor, err := list(ctx, cursor)
 		if err != nil {
 			return fmt.Errorf("list sandboxes in isolated runtime home %s: %w", isolatedRuntimeHome, err)
 		}
-		for _, handle := range page.Sandboxes {
-			if err := handle.Destroy(ctx); err != nil {
+		for _, sandbox := range sandboxes {
+			if destroyErr := sandbox.Destroy(ctx); destroyErr != nil {
 				destroyErrors = append(destroyErrors, fmt.Errorf(
 					"destroy sandbox %s in isolated runtime home %s: %w",
-					handle.Name(), isolatedRuntimeHome, err,
+					sandbox.Name(), isolatedRuntimeHome, destroyErr,
 				))
 			}
 		}
-		cursor = page.NextCursor
+		cursor = nextCursor
 		if cursor == nil {
 			break
 		}
