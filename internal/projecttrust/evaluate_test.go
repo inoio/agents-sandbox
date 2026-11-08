@@ -93,6 +93,9 @@ func TestLineDiffKeepsOrderAndRepeats(t *testing.T) {
 		{"replaced middle", []string{"A", "B", "C"}, []string{"A", "X", "C"}, []string{"- B", "+ X"}},
 		{"appended", []string{"A"}, []string{"A", "B"}, []string{"+ B"}},
 		{"emptied", []string{"A", "B"}, nil, []string{"- A", "- B"}},
+		{"prepended over a greedy delete", []string{"A", "B"}, []string{"B", "A", "B"}, []string{"+ B"}},
+		{"longer common tail", []string{"X", "A", "B", "C"}, []string{"A", "B", "C", "X"}, []string{"- X", "+ X"}},
+		{"common line after inserts", []string{"A"}, []string{"B", "B", "A"}, []string{"+ B", "+ B"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := lineDiff(tc.before, tc.after); !slices.Equal(got, tc.want) {
@@ -103,23 +106,35 @@ func TestLineDiffKeepsOrderAndRepeats(t *testing.T) {
 }
 
 // TestLineDiffShowsLongInputsWhole pins the bound on the diff table: inputs
-// too long to diff are shown as their whole old and new content.
+// whose line counts multiply past it are shown as their whole old and new
+// content, inputs at it are diffed.
 func TestLineDiffShowsLongInputsWhole(t *testing.T) {
-	var before, after []string
-	for i := range 1001 {
-		before = append(before, fmt.Sprint("line ", i))
-		after = append(after, fmt.Sprint("line ", i))
+	lines := func(count int) []string {
+		var out []string
+		for i := range count {
+			out = append(out, fmt.Sprint("line ", i))
+		}
+		return out
 	}
+	over := lineDiff(lines(101), lines(9901))
+	if len(over) != 101+9901 || over[0] != "- line 0" || over[101] != "+ line 0" {
+		t.Errorf("lineDiff over the bound = %d lines, want the whole old then new content", len(over))
+	}
+	after := lines(1000)
 	after[500] = "changed"
-	got := lineDiff(before, after[:1000])
-	if len(got) != 2001 || got[0] != "- line 0" || got[1001] != "+ line 0" {
-		t.Errorf(
-			"lineDiff over the bound = %d lines starting %q, want the whole old then new content",
-			len(got),
-			got[:2],
-		)
-	}
-	if got := lineDiff(before[:1000], after[:1000]); !slices.Equal(got, []string{"- line 500", "+ changed"}) {
+	if got := lineDiff(lines(1000), after); !slices.Equal(got, []string{"- line 500", "+ changed"}) {
 		t.Errorf("lineDiff at the bound = %q, want the line diff", got)
+	}
+}
+
+// TestEvaluateNotesABytesOnlyChange pins that a file whose bytes changed while
+// its shown lines did not is still a change, with a note saying so.
+func TestEvaluateNotesABytesOnlyChange(t *testing.T) {
+	before := Input{Path: "/p/hook.sh", Kind: KindFile, Entries: []string{"echo"}, Digest: "sha256:1"}
+	after := before
+	after.Digest = "sha256:2"
+	got := Evaluate(projectionOf(after), approvalOf(projectionOf(before)))
+	if got.Approved || len(got.Changes) != 1 || !slices.Equal(got.Changes[0].Lines, []string{bytesChangedNote}) {
+		t.Errorf("Evaluate = %+v, want one change with the bytes note", got)
 	}
 }

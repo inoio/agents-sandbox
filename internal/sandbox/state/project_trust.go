@@ -11,14 +11,15 @@ type ApprovedProjectLayer struct {
 	Inputs []TrustedInput `yaml:"inputs,omitempty"`
 }
 
-// TrustedInput is one approved project input: its source path, its kind, and
-// its effect entries.
+// TrustedInput is one approved project input: its source path, its kind, its
+// effect entries, and, for a file, the digest of its bytes.
 //
 //exhaustruct:ignore
 type TrustedInput struct {
 	Path    string   `yaml:"path"`
 	Kind    string   `yaml:"kind"`
 	Entries []string `yaml:"entries,omitempty"`
+	Digest  string   `yaml:"digest,omitempty"`
 }
 
 // ApprovedProjectLayer returns the approval recorded for a checkout.

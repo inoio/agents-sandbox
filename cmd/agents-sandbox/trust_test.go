@@ -246,8 +246,8 @@ func TestGateDecidesAfreshForEachCommand(t *testing.T) {
 func TestGateReportsAnUnreadableProjectConfig(t *testing.T) {
 	f := newGateFixture(t)
 	writeProjectConfig(t, "memory: [unclosed\n")
-	if err := f.gate(t, cmdRun); err == nil {
-		t.Error("gate accepted an unparsable project config")
+	if err := f.gate(t, cmdRun); err == nil || !strings.Contains(err.Error(), "config.yaml") {
+		t.Errorf("gate = %v, want the project config's parse error", err)
 	}
 }
 

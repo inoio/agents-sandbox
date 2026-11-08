@@ -178,7 +178,7 @@ func PersistSetting(
 		return "", err
 	}
 	if dir == paths.ProjectConfigDir() {
-		return dir, writeApprovedProjectSetting(paths, dir, checkoutSlug, key, value)
+		return dir, writeApprovedProjectSetting(dir, checkoutSlug, key, value)
 	}
 	if err := viperconfig.WriteSetting(dir, key, value); err != nil {
 		return "", err
@@ -189,9 +189,8 @@ func PersistSetting(
 // writeApprovedProjectSetting extends the checkout's project config approval by
 // key and then writes it to the project config in dir, restoring the previous
 // approval when the write fails.
-func writeApprovedProjectSetting(paths configpaths.ConfigPaths, dir, checkoutSlug, key, value string) error {
-	configPath, _, _ := configpaths.FindConfigFile(paths.ProjectConfigDirAbs())
-	restoreApproval, err := projecttrust.ApproveSettingWrite(checkoutSlug, configPath, key, value)
+func writeApprovedProjectSetting(dir, checkoutSlug, key, value string) error {
+	restoreApproval, err := projecttrust.ApproveSettingWrite(checkoutSlug, key, value)
 	if err != nil {
 		return err
 	}

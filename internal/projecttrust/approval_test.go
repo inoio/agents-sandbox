@@ -131,13 +131,13 @@ func TestIgnoredWarningNamesTheChangedInputs(t *testing.T) {
 func TestApproveSettingWriteKeepsTheLaunchersOwnChangeApproved(t *testing.T) {
 	f := newProjectFixture(t)
 	f.write(t, "Dockerfile", "FROM base\n")
-	path := f.write(t, "config.yaml", "network:\n  profile: public\nmemory: 4G\n")
+	f.write(t, "config.yaml", "network:\n  profile: public\nmemory: 4G\n")
 	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
 		t.Fatal(err)
 	}
 
 	f.write(t, "config.yaml", "network:\n  profile: public\nmemory: 6144M\n")
-	if _, err := ApproveSettingWrite("checkout-a", path, "memory", "6144M"); err != nil {
+	if _, err := ApproveSettingWrite("checkout-a", "memory", "6144M"); err != nil {
 		t.Fatalf("ApproveSettingWrite: %v", err)
 	}
 	approval, found, err := LoadApproval("checkout-a")
@@ -149,7 +149,7 @@ func TestApproveSettingWriteKeepsTheLaunchersOwnChangeApproved(t *testing.T) {
 	}
 
 	f.write(t, "config.yaml", "network:\n  profile: public\nmemory: 8G\nmounts:\n  /host: /\n")
-	if _, err := ApproveSettingWrite("checkout-a", path, "memory", "8G"); err != nil {
+	if _, err := ApproveSettingWrite("checkout-a", "memory", "8G"); err != nil {
 		t.Fatalf("ApproveSettingWrite: %v", err)
 	}
 	approval, _, _ = LoadApproval("checkout-a")
@@ -162,7 +162,7 @@ func TestApproveSettingWriteKeepsTheLaunchersOwnChangeApproved(t *testing.T) {
 
 func TestApproveSettingWriteWithoutAnApprovalRecordsNothing(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	restore, err := ApproveSettingWrite("checkout-a", "/repo/.agents-sandbox/config.yaml", "memory", "8G")
+	restore, err := ApproveSettingWrite("checkout-a", "memory", "8G")
 	if err != nil {
 		t.Fatalf("ApproveSettingWrite: %v", err)
 	}
@@ -176,13 +176,13 @@ func TestApproveSettingWriteWithoutAnApprovalRecordsNothing(t *testing.T) {
 // that fails after its approval was recorded.
 func TestApproveSettingWriteRestoresThePreviousApproval(t *testing.T) {
 	f := newProjectFixture(t)
-	path := f.write(t, "config.yaml", "memory: 4G\n")
+	f.write(t, "config.yaml", "memory: 4G\n")
 	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
 		t.Fatal(err)
 	}
 	before, _, _ := LoadApproval("checkout-a")
 
-	restore, err := ApproveSettingWrite("checkout-a", path, "memory", "6144M")
+	restore, err := ApproveSettingWrite("checkout-a", "memory", "6144M")
 	if err != nil {
 		t.Fatalf("ApproveSettingWrite: %v", err)
 	}
@@ -212,7 +212,6 @@ func TestApprovalStateFailuresAreReported(t *testing.T) {
 	}
 	if _, err := ApproveSettingWrite(
 		"checkout-a",
-		"/p/config.yaml",
 		"memory",
 		"8G",
 	); !errors.Is(

@@ -58,12 +58,12 @@ func Evaluate(current Projection, approved state.ApprovedProjectLayer) Decision 
 			changes = append(changes, Change{
 				Path: input.Path, Kind: input.Kind, Status: StatusAdded, Lines: prefixed("+ ", input.Entries),
 			})
-		case !slices.Equal(before.Entries, input.Entries):
+		case !slices.Equal(before.Entries, input.Entries) || before.Digest != input.Digest:
 			changes = append(changes, Change{
 				Path:   input.Path,
 				Kind:   input.Kind,
 				Status: StatusModified,
-				Lines:  lineDiff(before.Entries, input.Entries),
+				Lines:  changedLines(before, input),
 			})
 		}
 	}
@@ -76,6 +76,17 @@ func Evaluate(current Projection, approved state.ApprovedProjectLayer) Decision 
 		return strings.Compare(a.Path+"\x00"+string(a.Kind), b.Path+"\x00"+string(b.Kind))
 	})
 	return Decision{Approved: false, Changes: changes, Current: current}
+}
+
+// bytesChangedNote is shown for a file whose bytes changed in a way its lines
+// do not show.
+const bytesChangedNote = "(the file's bytes changed outside the lines shown)"
+
+func changedLines(before, after Input) []string {
+	if lines := lineDiff(before.Entries, after.Entries); len(lines) > 0 {
+		return lines
+	}
+	return []string{bytesChangedNote}
 }
 
 // lineDiff lists the removed entries as "- entry" and the added ones as
@@ -94,6 +105,7 @@ func lineDiff(before, after []string) []string {
 	for i, beforeLine := range slices.Backward(before) {
 		for j, afterLine := range slices.Backward(after) {
 			if beforeLine == afterLine {
+				// gomutants:disable-next-line INTEGER_INCREMENT reason="any positive step scales every table value alike, so each comparison the walk makes, and the diff, stays the same"
 				common[i][j] = common[i+1][j+1] + 1
 			} else {
 				common[i][j] = max(common[i+1][j], common[i][j+1])
@@ -131,7 +143,9 @@ func prefixed(prefix string, entries []string) []string {
 func fromApproval(approval state.ApprovedProjectLayer) Projection {
 	var inputs []Input
 	for _, input := range approval.Inputs {
-		inputs = append(inputs, Input{Path: input.Path, Kind: InputKind(input.Kind), Entries: input.Entries})
+		inputs = append(inputs, Input{
+			Path: input.Path, Kind: InputKind(input.Kind), Entries: input.Entries, Digest: input.Digest,
+		})
 	}
 	return Projection{Inputs: inputs}
 }
@@ -140,7 +154,9 @@ func fromApproval(approval state.ApprovedProjectLayer) Projection {
 func toApproval(projection Projection) state.ApprovedProjectLayer {
 	var inputs []state.TrustedInput
 	for _, input := range projection.Inputs {
-		inputs = append(inputs, state.TrustedInput{Path: input.Path, Kind: string(input.Kind), Entries: input.Entries})
+		inputs = append(inputs, state.TrustedInput{
+			Path: input.Path, Kind: string(input.Kind), Entries: input.Entries, Digest: input.Digest,
+		})
 	}
 	return state.ApprovedProjectLayer{Digest: projection.Digest(), Inputs: inputs}
 }

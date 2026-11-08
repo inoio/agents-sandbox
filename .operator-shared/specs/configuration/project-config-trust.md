@@ -221,9 +221,11 @@ still reaches the host run:
   approval shows every input in full.
 - Each snippet file is its own input with its content, not the merged output, so a snippet edit shows as an
   edit to that file.
-- File content keeps every byte that matters: a missing final newline is its own line, and an empty file
-  differs from a lone newline. A file over 64 KiB or not UTF-8 text is one `sha256:` entry; there is no read
-  bound below which a file is skipped, so no input escapes the gate by size.
+- A file input carries the digest of every byte next to its display lines, so any byte change — a final
+  newline, a line that reads like a marker — changes the projection; a change the lines do not show is noted
+  as such. A missing final newline is shown as its own line. A file over 64 KiB or not UTF-8 text is shown
+  as its `sha256:` entry alone. Files are hashed as a stream with the display buffer bounded at 64 KiB, so
+  no input escapes the gate by size and none exhausts memory.
 
 ## Projection rules
 
@@ -233,4 +235,6 @@ still reaches the host run:
 - The `home:` entries are projected as home provisioning parses them, case-sensitive (`homeconfig`), in
   addition to the lowercased launcher config keys: a case-only edit (`Root:` → `root:`) that changes what
   runs changes the projection.
-- A project input the gate cannot read is an error, never an absent input.
+- A project input the gate cannot read, or one that is no regular file (a symlink to a device), is an
+  error, never an absent input. A `home:` source provisioning cannot copy (missing, a directory, unreadable,
+  not regular) is skipped, as provisioning skips it.

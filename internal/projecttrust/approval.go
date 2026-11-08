@@ -104,8 +104,8 @@ func RecordApproval(checkoutSlug string, projection Projection) error {
 }
 
 // ApproveSettingWrite extends the checkout's approval by a setting the launcher
-// is about to write to the project launcher config file at configPath, so the
-// next run does not ask about the launcher's own change. Only that key's entry
+// is about to write to the project launcher config file, so the next run does
+// not ask about the launcher's own change. Only that key's entry
 // is updated: anything else that differs in the file still needs approval.
 // Without an approval there is nothing to extend, and nothing is recorded.
 //
@@ -114,7 +114,7 @@ func RecordApproval(checkoutSlug string, projection Projection) error {
 // restores the previous approval for a write that then fails; should that
 // restore fail too, the approval is ahead of the file, which only makes the next
 // run ask again.
-func ApproveSettingWrite(checkoutSlug, configPath, key, value string) (func(), error) {
+func ApproveSettingWrite(checkoutSlug, key, value string) (func(), error) {
 	var previous state.ApprovedProjectLayer
 	var found bool
 	_, err := state.WithRootState(true, func(txn *state.RootTxn) error {
@@ -123,7 +123,7 @@ func ApproveSettingWrite(checkoutSlug, configPath, key, value string) (func(), e
 			return nil
 		}
 		projection := fromApproval(previous)
-		projection.Inputs = withSetting(projection.Inputs, configPath, key, value)
+		setSetting(projection.Inputs, key, value)
 		txn.State().ApproveProjectLayer(checkoutSlug, toApproval(projection))
 		return txn.Commit()
 	})
@@ -141,14 +141,13 @@ func ApproveSettingWrite(checkoutSlug, configPath, key, value string) (func(), e
 	}, nil
 }
 
-// withSetting returns inputs with key set to value in the launcher config input
-// at configPath. The launcher writes only a key its project config already
-// sets, so that input exists; without it the approval stays as it is, and the
-// next run asks.
-func withSetting(inputs []Input, configPath, key, value string) []Input {
+// setSetting sets key to value in the launcher config input. The launcher
+// writes only a key its project config already sets, so that input exists;
+// without it the approval stays as it is, and the next run asks.
+func setSetting(inputs []Input, key, value string) {
 	encoded, _ := json.Marshal(value)
 	for i, input := range inputs {
-		if input.Path != configPath || input.Kind != KindLauncherConfig {
+		if input.Kind != KindLauncherConfig {
 			continue
 		}
 		entries := slices.DeleteFunc(slices.Clone(input.Entries), func(existing string) bool {
@@ -158,5 +157,4 @@ func withSetting(inputs []Input, configPath, key, value string) []Input {
 		slices.Sort(entries)
 		inputs[i].Entries = entries
 	}
-	return inputs
 }

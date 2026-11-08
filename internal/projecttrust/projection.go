@@ -20,7 +20,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/filewalk"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -45,9 +44,16 @@ const (
 	KindFile InputKind = "file"
 )
 
-// maxContentBytes bounds a file input shown line by line; a larger file is
-// represented by its digest.
+// maxContentBytes bounds a file input shown line by line and the memory read
+// for it; a larger file is represented by its digest alone.
 const maxContentBytes = 64 * 1024
+
+// errNotRegularFile rejects a project input that is no regular file (a device
+// or FIFO a symlink points at), which could not be read to its end.
+var errNotRegularFile = errors.New("not a regular file")
+
+// openInput opens a project input file for reading.
+var openInput = func(path string) (fs.File, error) { return os.Open(path) }
 
 // noFinalNewline marks a file whose last line has no newline, so a content
 // change in the final byte is not lost.
@@ -55,10 +61,16 @@ const noFinalNewline = `\ No newline at end of file`
 
 // Input is one consumed project input: its source path, its kind, and its
 // canonical effect as display entries.
+//
+//exhaustruct:ignore
 type Input struct {
 	Path    string    `json:"path"    yaml:"path"`
 	Kind    InputKind `json:"kind"    yaml:"kind"`
 	Entries []string  `json:"entries" yaml:"entries"`
+	// Digest is a file input's digest of every byte, so content its display
+	// entries do not tell apart (a final newline, a line equal to a marker)
+	// still changes the projection. Empty for parsed inputs.
+	Digest string `json:"digest,omitempty" yaml:"digest,omitempty"`
 }
 
 // key identifies an input: one path can be read in two ways (an env file that
@@ -141,7 +153,9 @@ func Compute(sources Sources) (Projection, error) {
 		return Projection{}, err
 	}
 	for _, name := range sources.AgentConfigDirNames {
-		collector.addTree(scope.AgentConfigDir(name))
+		if err := collector.addTree(scope.AgentConfigDir(name)); err != nil {
+			return Projection{}, err
+		}
 	}
 	for _, target := range slices.Sorted(maps.Keys(manifest)) {
 		source := homeconfig.ResolveManifestSource(target, manifest[target].Source, projectDir)
@@ -205,47 +219,94 @@ func (c inputCollector) addSecretFile(
 }
 
 // addFile adds a file's content. A missing file adds nothing; any other read
-// failure is an error.
+// failure, a file that is not regular included, is an error.
 func (c inputCollector) addFile(path string) error {
-	data, err := os.ReadFile(path)
+	input, err := readFileInput(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("read project input %s: %w", path, err)
+		return err
 	}
-	c.add(Input{Path: path, Kind: KindFile, Entries: contentEntries(data)})
+	c.add(input)
 	return nil
 }
 
-// addTree adds every file under root that provisioning copies: the same
-// best-effort walk, so a file the walk skips is not provisioned either.
-func (c inputCollector) addTree(root string) {
-	_ = filewalk.Walk(root, func(string, bool) bool { return true }, func(entry filewalk.Entry) error {
-		c.add(Input{Path: entry.Path, Kind: KindFile, Entries: contentEntries(entry.Data)})
-		return nil
+// addTree adds every file under root; a missing root adds nothing.
+func (c inputCollector) addTree(root string) error {
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() {
+			return walkErr
+		}
+		return c.addFile(path)
 	})
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 // addHomeSource adds a guest-writable home: source by content, or by digest
-// for a secret file, so its values stay out of the projection. Like home
+// alone for a secret file, so its values stay out of the projection. Like home
 // provisioning, which copies single files and skips a source it cannot read, it
 // adds nothing for a source that is missing, a directory, or unreadable.
 func (c inputCollector) addHomeSource(source string, secret bool) {
-	data, err := os.ReadFile(source)
+	input, err := readFileInput(source)
 	if err != nil {
 		return
 	}
-	entries := contentEntries(data)
 	if secret {
-		entries = []string{digestEntry(data)}
+		input.Entries = []string{input.Digest}
 	}
-	c.add(Input{Path: source, Kind: KindFile, Entries: entries})
+	c.add(input)
 }
 
-func digestEntry(data []byte) string {
-	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:])
+// readFileInput reads a regular file with bounded memory: the digest of every
+// byte, and its lines when it is UTF-8 text no larger than maxContentBytes.
+func readFileInput(path string) (Input, error) {
+	file, err := openInput(path)
+	if err != nil {
+		return Input{}, fmt.Errorf("read project input %s: %w", path, err)
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return Input{}, fmt.Errorf("read project input %s: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return Input{}, fmt.Errorf("read project input %s: %w", path, errNotRegularFile)
+	}
+	hash := sha256.New()
+	head := &boundedBuffer{data: nil, limit: maxContentBytes, overflowed: false}
+	if _, err := io.Copy(io.MultiWriter(hash, head), file); err != nil {
+		return Input{}, fmt.Errorf("read project input %s: %w", path, err)
+	}
+	digest := "sha256:" + hex.EncodeToString(hash.Sum(nil))
+	entries := []string{digest}
+	if !head.overflowed && utf8.Valid(head.data) {
+		entries = contentLines(head.data)
+	}
+	return Input{Path: path, Kind: KindFile, Entries: entries, Digest: digest}, nil
+}
+
+// boundedBuffer keeps the first limit bytes written to it and notes whether
+// more followed.
+type boundedBuffer struct {
+	data       []byte
+	limit      int
+	overflowed bool
+}
+
+// Write keeps what fits and reports every byte written, so the hash beside it
+// in an io.MultiWriter sees the whole file.
+func (b *boundedBuffer) Write(p []byte) (int, error) {
+	kept := p
+	if room := b.limit - len(b.data); len(p) > room {
+		b.overflowed = true
+		kept = p[:room]
+	}
+	b.data = append(b.data, kept...)
+	return len(p), nil
 }
 
 // guestWritable reports whether path lies inside one of the guest-writable
@@ -282,15 +343,8 @@ func isRegularFile(path string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
-// contentEntries returns a file's lines, marking a missing final newline, or a
-// single digest entry for a file too large or not UTF-8 text to show.
-func contentEntries(data []byte) []string {
-	if len(data) > maxContentBytes || !utf8.Valid(data) {
-		return []string{digestEntry(data)}
-	}
-	if len(data) == 0 {
-		return []string{}
-	}
+// contentLines returns a file's lines, marking a missing final newline.
+func contentLines(data []byte) []string {
 	text := string(data)
 	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 	if !strings.HasSuffix(text, "\n") {

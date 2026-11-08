@@ -1,10 +1,13 @@
 package projecttrust
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -167,7 +170,7 @@ func TestComputeSecretFilesAreStructureOnly(t *testing.T) {
 		"env.secret.yaml",
 		"API_KEY:\n  value: sk_yamlvalue\n  hosts: [b.example.com, a.example.com]\n  header_fields: [x-key, authorization]\n"+
 			"ANY:\n  value: anyvalue\n  allow_any_host_dangerous: true\n"+
-			"ONE:\n  value: onevalue\n  host: one.example.com\n"+
+			"ONE:\n  value: onevalue\n  host: one.example.com\n  header_fields: [authorization]\n"+
 			"PLAIN:\n  value: plainvalue\n",
 	)
 	projection := f.compute(t)
@@ -186,7 +189,7 @@ func TestComputeSecretFilesAreStructureOnly(t *testing.T) {
 	want := []string{
 		"ANY: any host (dangerous)",
 		"API_KEY: hosts a.example.com, b.example.com; header fields authorization, x-key",
-		"ONE: hosts one.example.com",
+		"ONE: hosts one.example.com; header fields authorization",
 		"PLAIN",
 	}
 	if got := inputAt(t, projection, yamlFile, KindSecrets); !slices.Equal(got.Entries, want) {
@@ -248,11 +251,13 @@ func TestComputeFileContentKeepsEveryByte(t *testing.T) {
 	f := newProjectFixture(t)
 	path := filepath.Join(f.projectDir, "Dockerfile")
 	digests := map[string]string{}
-	for _, content := range []string{"FROM base", "FROM base\n", "", "\n"} {
+	for _, content := range []string{
+		"FROM base", "FROM base\n", "", "\n", "FROM base\n" + noFinalNewline + "\n", "sha256:" + strings.Repeat("0", 64),
+	} {
 		writeFile(t, path, content)
 		digests[f.compute(t).Digest()] = content
 	}
-	if len(digests) != 4 {
+	if len(digests) != 6 {
 		t.Errorf("distinct contents shared a digest: %q", digests)
 	}
 	writeFile(t, path, "FROM base")
@@ -274,10 +279,10 @@ func TestComputeFileContentKeepsEveryByte(t *testing.T) {
 // beyond any read bound is still gated rather than skipped.
 func TestComputeLargeOrBinaryFilesAreADigest(t *testing.T) {
 	f := newProjectFixture(t)
-	atBound := f.write(t, "opencode/at.txt", strings.Repeat("x", maxContentBytes))
-	large := f.write(t, "opencode/big.txt", strings.Repeat("x", maxContentBytes+1))
+	atBound := f.write(t, "opencode/at.txt", strings.Repeat("x", 65536))
+	large := f.write(t, "opencode/big.txt", strings.Repeat("x", 65537))
 	binary := f.write(t, "opencode/bin.dat", "\xff\xfe\x00")
-	dockerfile := f.write(t, "Dockerfile", strings.Repeat("RUN true\n", 3*maxContentBytes))
+	dockerfile := f.write(t, "Dockerfile", strings.Repeat("RUN true\n", 3*65536))
 	projection := f.compute(t)
 
 	if got := inputAt(t, projection, atBound, KindFile); strings.HasPrefix(got.Entries[0], "sha256:") {
@@ -425,8 +430,80 @@ func TestComputeReportsAnInvalidHomeSection(t *testing.T) {
 func TestComputeReportsAnUnreadableInput(t *testing.T) {
 	f := newProjectFixture(t)
 	writeFile(t, f.projectDir, "not a directory\n")
-	if _, err := Compute(f.sources()); err == nil {
-		t.Error("Compute skipped a project input it could not read")
+	if _, err := Compute(f.sources()); !errors.Is(err, syscall.ENOTDIR) {
+		t.Errorf("Compute = %v, want the read error", err)
+	}
+}
+
+// TestComputeRejectsAnInputThatIsNoRegularFile pins that a project input
+// pointing at a device is refused before it is read, so it can neither hang
+// the gate nor exhaust memory.
+func TestComputeRejectsAnInputThatIsNoRegularFile(t *testing.T) {
+	for _, rel := range []string{"Dockerfile", "opencode/plugin.ts"} {
+		t.Run(rel, func(t *testing.T) {
+			f := newProjectFixture(t)
+			link := filepath.Join(f.projectDir, rel)
+			if err := os.MkdirAll(filepath.Dir(link), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("/dev/zero", link); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Compute(f.sources()); !errors.Is(err, errNotRegularFile) {
+				t.Errorf("Compute = %v, want errNotRegularFile", err)
+			}
+		})
+	}
+}
+
+// TestComputeSkipsAHomeSourceThatIsNoRegularFile pins that a device home:
+// source, which provisioning cannot copy, is skipped without being read.
+func TestComputeSkipsAHomeSourceThatIsNoRegularFile(t *testing.T) {
+	f := newProjectFixture(t)
+	link := filepath.Join(f.checkout, "zero")
+	if err := os.Symlink("/dev/zero", link); err != nil {
+		t.Fatal(err)
+	}
+	f.write(t, "config.yaml", "home:\n  zero: "+link+"\n")
+	if got := f.compute(t); hasInput(got, link) {
+		t.Errorf("a device home: source became an input: %+v", got.Inputs)
+	}
+}
+
+// failingFile is an fs.File whose Stat or Read fails.
+type failingFile struct {
+	statErr, readErr error
+}
+
+func (f failingFile) Stat() (fs.FileInfo, error) {
+	if f.statErr != nil {
+		return nil, f.statErr
+	}
+	return regularFileInfo{}, nil
+}
+func (f failingFile) Read([]byte) (int, error) { return 0, f.readErr }
+func (failingFile) Close() error               { return nil }
+
+type regularFileInfo struct{ fs.FileInfo }
+
+func (regularFileInfo) Mode() fs.FileMode { return 0 }
+
+// TestReadFileInputReportsAFailedStatOrRead pins that a failure after the open
+// is an error, never a partial input.
+func TestReadFileInputReportsAFailedStatOrRead(t *testing.T) {
+	failure := errors.New("disk gone")
+	for name, file := range map[string]failingFile{
+		"stat": {statErr: failure},
+		"read": {readErr: failure},
+	} {
+		t.Run(name, func(t *testing.T) {
+			original := openInput
+			openInput = func(string) (fs.File, error) { return file, nil }
+			t.Cleanup(func() { openInput = original })
+			if _, err := readFileInput("/p/Dockerfile"); !errors.Is(err, failure) {
+				t.Errorf("readFileInput = %v, want the %s failure", err, name)
+			}
+		})
 	}
 }
 
