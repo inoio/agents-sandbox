@@ -28,7 +28,7 @@ const defaultSandboxUser = "dev"
 // created directory to the runtime user so the files are readable by the agent
 // and startup hooks. The SDK's file writes create root-owned files and
 // directories.
-func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr error) {
+func Provision(ctx context.Context, sb msb.SandboxExecutor, cf *ConfigFiles) (retErr error) {
 	fs := sb.FS()
 	paths := make([]string, 0)
 	// Chown runs as a finalizer (try/finally): it executes whether the writes
@@ -83,7 +83,7 @@ func Provision(ctx context.Context, sb msb.Sandbox, cf *ConfigFiles) (retErr err
 // file for the caller's final chown.
 func writeFileGroup(
 	ctx context.Context,
-	sb msb.Sandbox,
+	sb msb.SandboxExecutor,
 	fs msb.SandboxFS,
 	files map[string][]byte,
 	modes map[string]os.FileMode,
@@ -112,7 +112,7 @@ func writeFileGroup(
 // chmodFile applies ordinary host permission bits after the SDK writes a file.
 // The mode and path are separate exec arguments so a host filename cannot alter
 // the command being run in the VM.
-func chmodFile(ctx context.Context, sb msb.Sandbox, path string, mode os.FileMode) error {
+func chmodFile(ctx context.Context, sb msb.SandboxExecutor, path string, mode os.FileMode) error {
 	out, err := sb.Exec(
 		ctx,
 		"chmod",
@@ -140,7 +140,7 @@ func removeStalePaths(ctx context.Context, fs msb.SandboxFS, remove []string) {
 
 // chownPaths runs a single chown -R over the given paths so all provisioned
 // files and created directories are owned by the runtime user.
-func chownPaths(ctx context.Context, sb msb.Sandbox, paths []string) error {
+func chownPaths(ctx context.Context, sb msb.SandboxExecutor, paths []string) error {
 	// Deduplicate: mkdirAllFS may create the same ancestor for several writes.
 	unique := make([]string, 0, len(paths))
 	sort.Strings(paths)

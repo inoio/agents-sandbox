@@ -99,7 +99,7 @@ var notifyWatch = notify.Watch
 // watcher's error (the drop summary) for the caller to log.
 func startNotifyWatcher(
 	ctx context.Context,
-	sb msb.Sandbox,
+	sb msb.SandboxStreamer,
 	cfg notify.Config,
 	ui termio.Logger,
 	spec *agent.EventStreamSpec,
@@ -166,7 +166,7 @@ func serveOnlyMessage(a agent.Resolved, host, port string) string {
 // runServeOnly keeps the VM alive and blocks until ctx is done (CTRL-D or
 // SIGINT), without attaching an in-VM TUI. It holds the VM via a keeper exec so
 // the msb idle timeout does not stop it while serving.
-func runServeOnly(ctx context.Context, a agent.Resolved, sb msb.Sandbox, ui termio.Logger, hostPort int) error {
+func runServeOnly(ctx context.Context, a agent.Resolved, sb msb.SandboxExecutor, ui termio.Logger, hostPort int) error {
 	host := ports.ServeOnlyBindAddr
 	port := strconv.Itoa(hostPort)
 	ui.Infof("%s", serveOnlyMessage(a, host, port))
@@ -240,7 +240,7 @@ func Run(ctx context.Context, opts options.RunOptions, mode options.Mode, ui ter
 func withClientSession(
 	ctx context.Context,
 	k state.Key,
-	sb msb.Sandbox,
+	sb msb.SandboxExecutor,
 	policy options.ReapPolicy,
 	ui termio.UI,
 	shouldReap func(sessionErr error) bool,
@@ -297,7 +297,7 @@ func runServeOnlySession(
 	ctx context.Context,
 	a agent.Resolved,
 	k state.Key,
-	sb msb.Sandbox,
+	sb msb.SandboxExecutor,
 	policy options.ReapPolicy,
 	ui termio.UI,
 	hostPort int,
@@ -431,7 +431,7 @@ func runAttach(
 // alongside it.
 func attachUntilSignal(
 	ctx context.Context,
-	sb msb.Sandbox,
+	sb msb.SandboxAttacher,
 	bashArgs []string,
 	attachOpts []msbSdk.AttachOption,
 ) (int, bool, error) {

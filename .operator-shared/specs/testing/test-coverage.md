@@ -31,7 +31,9 @@ tests never execute is the failure mode this catches.
   `TestDownloadAssetNetworkError` covers a transport failure. New code of the same shape carries the same tests.
 - **Tests that mutate a package-level seam restore it with `t.Cleanup` and do not call `t.Parallel`,** matching the
   existing `serveReleases`/`serveLatest` helpers.
-- **Test doubles (`testmock.go`) are not product code and are excluded from coverage** (`.codecov.yml` `ignore`).
+- **Test doubles (`testmock.go` and the role-split `testmock_*.go`) are not product code and are excluded from
+  coverage** (`.codecov.yml` `ignore` matches `**/testmock*.go`, so a new double file is covered by policy without a
+  config change).
   Their own tests pin only what would otherwise fail open: fail-fast clients panic, the `With*Mock`/`Install*` helpers
   install and restore the seam, and mock paths and `$HOME` stay inside the test's temp tree. Defaults, `Fn`
   delegation, accessors and call recording are not tested on the double: the consuming tests break when they are

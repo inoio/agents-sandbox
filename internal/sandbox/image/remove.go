@@ -68,7 +68,7 @@ func refuseNonRunnerRefs(refs []string) error {
 // Slice 1 seam. Ownership is positional: every sandbox in the private runtime
 // home is ours, so a live VM or task worker holding an image protects it from
 // removal.
-func inUseImageReferences(ctx context.Context, client msb.Client) (map[string][]state.Key, error) {
+func inUseImageReferences(ctx context.Context, client msb.SandboxStore) (map[string][]state.Key, error) {
 	handles, err := client.ListSandboxes(ctx, nil)
 	if err != nil {
 		return nil, err

@@ -50,7 +50,7 @@ func reapOnLastClient(
 	ctx context.Context,
 	a agent.Resolved,
 	k state.Key,
-	sb msb.Sandbox,
+	sb msb.SandboxExecutor,
 	policy options.ReapPolicy,
 	ui termio.UI,
 ) error {
@@ -100,7 +100,7 @@ const containerProbeTimeout = 5 * time.Second
 // reaper runs, and the SDK aborts Shell on a canceled context, which would
 // silently suppress the warning. WithoutCancel keeps ctx's values but drops its
 // cancellation, and the timeout bounds the probe.
-func warnRunningContainers(ctx context.Context, sb msb.Sandbox, ui termio.Logger) {
+func warnRunningContainers(ctx context.Context, sb msb.SandboxExecutor, ui termio.Logger) {
 	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), containerProbeTimeout)
 	defer cancel()
 	out, err := sb.Shell(probeCtx, runningContainersProbeCmd)
@@ -128,7 +128,7 @@ func warnRunningContainers(ctx context.Context, sb msb.Sandbox, ui termio.Logger
 func waitQuiescent(
 	ctx context.Context,
 	k state.Key,
-	sb msb.Sandbox,
+	sb msb.SandboxExecutor,
 	provider agent.SessionStatusProvider,
 	maxRetry int,
 	ui termio.UI,
@@ -216,7 +216,7 @@ type sessionPoll struct {
 // cap: none, below the cap, or at or over it.
 func pollQuiescence(
 	ctx context.Context,
-	sb msb.Sandbox,
+	sb msb.SandboxExecutor,
 	provider agent.SessionStatusProvider,
 	maxRetry int,
 	ui termio.Logger,
@@ -245,7 +245,7 @@ func pollQuiescence(
 
 // sessionStates reads the provider's session-status endpoint once via an in-VM
 // curl and decodes the sessionID->status map.
-func sessionStates(ctx context.Context, sb msb.Sandbox, cmd string) (map[string]SessionStatus, error) {
+func sessionStates(ctx context.Context, sb msb.SandboxExecutor, cmd string) (map[string]SessionStatus, error) {
 	res, err := sb.Shell(ctx, cmd)
 	if err != nil {
 		return nil, err
@@ -260,7 +260,7 @@ func sessionStates(ctx context.Context, sb msb.Sandbox, cmd string) (map[string]
 // in-VM curl and returns the set of sessionIDs that have at least one pending,
 // unanswered question. On any failure it returns an error and a nil set; the
 // caller keeps those sessions busy (never risks cutting off real work).
-func pendingQuestionSessionIDs(ctx context.Context, sb msb.Sandbox, cmd string) (map[string]bool, error) {
+func pendingQuestionSessionIDs(ctx context.Context, sb msb.SandboxExecutor, cmd string) (map[string]bool, error) {
 	res, err := sb.Shell(ctx, cmd)
 	if err != nil {
 		return nil, err
@@ -341,7 +341,7 @@ func quiescenceOf(states map[string]SessionStatus, pending map[string]bool, maxR
 // keepVMAlive starts a benign long-running in-VM exec so active_exec_sessions > 0,
 // suppressing the msb idle timer while we wait. Returns a func() error that
 // cancels/stops the keeper exec.
-func keepVMAlive(ctx context.Context, sb msb.Sandbox) func() error {
+func keepVMAlive(ctx context.Context, sb msb.SandboxExecutor) func() error {
 	done := make(chan struct{})
 	keeper, keeperCancel := context.WithCancel(ctx)
 

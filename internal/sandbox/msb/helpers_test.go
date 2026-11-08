@@ -4,6 +4,11 @@ import (
 	"errors"
 )
 
-type errReader struct{}
+type errReader struct{ err error }
 
-func (errReader) Read([]byte) (int, error) { return 0, errors.New("boom") }
+func (r errReader) Read([]byte) (int, error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	return 0, errors.New("boom")
+}

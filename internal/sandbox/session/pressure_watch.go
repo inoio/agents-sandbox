@@ -28,7 +28,7 @@ type pressureSummary struct {
 // returns a no-op that yields a zero summary.
 func startPressureWatcher(
 	ctx context.Context,
-	sb msb.Sandbox,
+	sb msb.SandboxObserver,
 	t pressure.Threshold,
 ) func() pressureSummary {
 	if sb == nil {
@@ -63,7 +63,7 @@ func startPressureWatcher(
 // kept as summary.ReadErr; an unusable one leaves summary unchanged.
 func samplePressure(
 	ctx context.Context,
-	sb msb.Sandbox,
+	sb msb.SandboxObserver,
 	t pressure.Threshold,
 	summary *pressureSummary,
 ) {

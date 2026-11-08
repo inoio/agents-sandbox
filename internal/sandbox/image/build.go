@@ -327,7 +327,7 @@ func EnsureImage(
 func Build(
 	ctx context.Context,
 	dclient docker.Client,
-	client msb.Client,
+	client msb.ImageStore,
 	paths configpaths.ConfigPaths,
 	a agent.Agent,
 	projectSlug string,
