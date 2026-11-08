@@ -52,8 +52,10 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `msb/` — Microsandbox SDK client
 
-- `msb.go`, `stream.go` — msb client and stream handling; also storage observation (`StorageUsage`) and the `IsUnsupportedOperation` classifier
+- The launcher's port over the microsandbox SDK (`specs/architecture/msb-seam.md`, #196): provider-owned role interfaces (`RuntimeInstaller`, `SandboxStore`, `VolumeStore`, `ImageStore`, `StorageStore`, `SandboxIdentity`, `SandboxLifecycleHandle`, `SandboxConfigReader`, `SandboxResourceControl`, `SandboxExecutor`, `SandboxStreamer`, `SandboxAttacher`, `SandboxJobs`, `SandboxObserver`, `SandboxLifecycle`) composed into the `Client`/`SandboxHandle`/`Sandbox` composites; consumers narrow to the role they use. `roles_boundary_test.go` pins `composite method set == union of roles`.
+- `msb.go` (package doc, `Get` factory, runtime seams), `client.go` (`Client` + `realMsbClient` + option seams), `sandbox.go` (`Sandbox`/`SandboxHandle` + reals), `job.go` (`Job`/`ShellResult`/`Stream*`), `volume.go`, `image.go` (`ImageHandle`/`ImageDetail`), `fs.go`, `errors.go` (the `Is*` classifiers), `status.go` (`VMStatusKind`, `GetVMStatus`) — the split introduced by #196 Phase 1.
 - `configmounts.go` — `ParseConfigMounts` / `SandboxHandle.ConfigMounts()`: the live-mount read-back the Go SDK drops (`specs/vm/live-mount-readback.md`)
+- `testmock.go` — `MockMsbClient` (the wide composite double; fields stay on the outer struct), `testmock_roles.go` — standalone role doubles (`MockImageStore`, `MockSandboxStore`, …) for narrower tests; `*_msb_test.go` — `//go:build msb` real-runtime tests
 
 ### `naming/` — Naming, labels, artifacts
 
