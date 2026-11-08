@@ -1,8 +1,12 @@
 FROM debian:forky-slim
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends bsdmainutils ca-certificates curl dnsutils git iptables ripgrep fd-find file gawk iproute2 iputils-ping jq less lz4 man-db moreutils net-tools netcat-openbsd parallel procps psmisc python3 recode rsync socat tar tree unzip uuid wget xz-utils yq zip zstd \
+    apt-get install -y --no-install-recommends bsdmainutils ca-certificates curl dnsutils git iptables ripgrep fd-find file gawk iproute2 iputils-ping jq less lz4 man-db moreutils net-tools netcat-openbsd parallel procps psmisc python3 recode rsync socat sqlite3 tar tree unzip uuid wget xz-utils yq zip zstd \
     && rm -rf /var/lib/apt/lists/*
+
+# fd-find ships the binary as `fdfind`; expose it as `fd` too, so an agent that
+# reaches for the common name finds it. AGENTS.md/guides name `fdfind`.
+RUN ln -s "$(command -v fdfind)" /usr/local/bin/fd
 
 # default versions, keep in sync with versions in Makefile
 ARG GO_VERSION=1.27.3

@@ -172,5 +172,40 @@ d="$(new_fixture)"
 expect_presence "code, fragment only deleted" 1 "no changelog.d" "$d" "internal/foo/foo.go" "changelog.d/432.added.md"
 rm -rf "$d"
 
+# expect_pr <name> <want-status> <want-substring> <fixture-dir> <pr> <changed path...>
+# Like expect_presence but also passes --pr, so an added fragment's slug must
+# equal the pull-request number.
+expect_pr() {
+  local name="$1" want_status="$2" want_msg="$3" dir="$4" pr="$5"
+  shift 5
+  local changed out status
+  changed="$(mktemp)"
+  printf '%s\n' "$@" >"$changed"
+  out="$(bash "$CHECK" "$dir" --changed "$changed" --pr "$pr" 2>&1)" && status=0 || status=$?
+  rm -f "$changed"
+  if [[ "$status" != "$want_status" || ( -n "$want_msg" && "$out" != *"$want_msg"* ) ]]; then
+    printf 'FAIL %s: exit %s (want %s)\n%s\n' "$name" "$status" "$want_status" "$out"
+    fail=$((fail + 1))
+    return
+  fi
+  printf 'ok   %s\n' "$name"
+  pass=$((pass + 1))
+}
+
+# An added fragment whose slug is the PR number passes.
+d="$(new_fixture 432.added.md)"
+expect_pr "slug matches the PR number" 0 "" "$d" 432 "internal/foo/foo.go" "changelog.d/432.added.md"
+rm -rf "$d"
+
+# A pre-PR guess that does not match the real PR number is rejected.
+d="$(new_fixture 431.added.md)"
+expect_pr "slug is not the PR number" 1 "not the pull-request number" "$d" 432 "internal/foo/foo.go" "changelog.d/431.added.md"
+rm -rf "$d"
+
+# A test-only changeset adds no fragment, so --pr has nothing to reject.
+d="$(new_fixture)"
+expect_pr "no fragment, nothing to check" 0 "" "$d" 432 "internal/foo/foo_test.go"
+rm -rf "$d"
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

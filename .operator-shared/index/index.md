@@ -21,7 +21,7 @@ read_if: Navigating the codebase.
 - `GLOSSARY.md` — Project terminology.
 - `CHANGELOG.md`, `CHANGELOG` fragments in `changelog.d/`, `ROADMAP.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `LICENSE.md`, `SECURITY.md` — Project metadata and policy.
 - `Makefile` — fmt/lint/test/build targets.
-- `scripts/` — Repo-maintenance shell scripts; `cleanup-merged-branches.sh` prunes merged worktrees and branches (`make cleanup-branches`).
+- `scripts/` — Repo-maintenance shell scripts; `cleanup-merged-branches.sh` prunes merged worktrees and branches (`make cleanup-branches`); `upstream-drift.sh` and `rebase-status.sh` report upstream drift and rebase state (see the `upstream-drift`/`rebase-status` skills); each has a `test-*.sh` harness.
 - `go.mod`, `go.sum`, `.go-version` — Module deps (cobra, viper, go-git, msb SDK, docker/moby, testify) and the pinned Go toolchain.
 - `opencode.jsonc` — opencode config for this repo.
 - `.golangci.yml`, `.gitignore` — Lint config and ignore rules.
@@ -82,3 +82,4 @@ read_if: Navigating the codebase.
 - `release/` — the release runbook (`SKILL.md`, `RELEASE-NOTES.md`, `NON-GO-DEPS.md`); `bare-worktrees/` — the bare-checkout layout this repo uses.
 - `handle-pr-feedback/`, `maintain/`, `pr/` — repo-adapted skills: the PR-mergeability loop, the GitHub maintainer flow, and the PR-body template.
 - `compacting-context/` — the `session.compact` recipe so an agent told to compact its own context loads the skill instead of scanning for a nonexistent tool; `opencode2-self-management/`, `opencode2-probe/`, `terminal-reset/` — runbooks retired from the shared brain (the `session.compact` API, driving the opencode2 daemon's event stream, and verifying the post-attach terminal reset).
+- `upstream-drift/`, `rebase-status/` — the two reporter scripts (`scripts/upstream-drift.sh`, `scripts/rebase-status.sh`) for checking how far `origin/main` moved before a rebase, and the state of an in-progress rebase.

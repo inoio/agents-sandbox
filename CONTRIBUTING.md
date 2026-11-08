@@ -177,7 +177,10 @@ without running — so a docs-only change runs them too. The `integration` suite
 - Add a changelog **fragment**, don't edit `CHANGELOG.md`. For any user-visible change, create
   `changelog.d/<slug>.<type>.md`: `<slug>` is the PR number and `<type>` one of `added`, `changed`,
   `deprecated`, `docs`, `fixed`. The file holds one bullet's text, without the leading `- `, wrapped
-  like the rest of the changelog; keep the `(#issue)` reference in that text. A change spanning two
+  like the rest of the changelog; keep the `(#issue)` reference in that text. If you add the fragment
+  before opening the PR, guess the slug as the next number after the highest existing PR and rename
+  the file to the real PR number after opening it — the `changelog` check fails a PR whose fragment
+  slug is not its own number. A change spanning two
   sections uses two files; several entries of the same type are numbered (`103.changed-1.md`,
   `103.changed-2.md`). The required `changelog` check enforces a fragment for production-code changes;
   a docs-only or test-only change needs none. `CHANGELOG.md` is assembled from the fragments at release

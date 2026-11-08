@@ -98,7 +98,15 @@ jobs:
           # required check: a transient fetch failure must not eject a PR.
           git diff --name-only "$base" '${{ github.sha }}' > /tmp/changed.txt 2>/dev/null || true
       - name: Check fragments
-        run: ci/check-changelog.sh . --changed /tmp/changed.txt
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PR_NUMBER:-}" ]; then
+            ci/check-changelog.sh . --changed /tmp/changed.txt --pr "$PR_NUMBER"
+          else
+            ci/check-changelog.sh . --changed /tmp/changed.txt
+          fi
       - name: Test the fragment checker
         run: make changelog-check-test
 
@@ -126,6 +134,8 @@ jobs:
       - run: make docs-linkcheck-test
       - run: make cleanup-branches-test
       - run: make envelope-test
+      - run: make upstream-drift-test
+      - run: make rebase-status-test
 
   test:
     name: test

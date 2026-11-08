@@ -43,24 +43,11 @@ Some sessions run on the host instead: there is no `/workspace`, and `/dev/kvm` 
 run `make test-msb` yourself, so runtime behavior (network policy, DNS, harness startup) can be verified against real
 VMs instead of being handed to the user. Issues labelled `ready-for-human` for that reason are workable on the host.
 
-## System tools
+## Development environment
 
-Prefer these installed CLI tools over other tools or custom solutions:
-
-| When you need to...                        | Use                                             |
-|--------------------------------------------|-------------------------------------------------|
-| Search file contents                       | `rg` (recursive by default)                     |
-| Find files by name/pattern                 | `fdfind`                                        |
-| Parse/transform JSON or YAML               | `jq` / `yq` (never brittle text parsing)        |
-| Transform text streams, perform mass edits | `awk` / `sed` / `recode`                        |
-| Run independent commands in parallel       | `parallel`                                      |
-| Hit HTTP endpoints / download              | `curl` / `wget`                                 |
-| Inspect network/ports/sockets              | `ip` / `ss` / `nc`                              |
-| Resolve DNS / check connectivity           | `dig` / `nslookup` / `ping`                     |
-| Inspect a file or tree                     | `file` / `tree`                                 |
-| Sync directories/files                     | `rsync`                                         |
-| Read docs / manuals                        | `man`                                           |
-| Create/extract archives                    | `tar` / `zip` / `unzip` / `xz` / `lz4` / `zstd` |
+Installed CLI tools, and the VM's standing limitations (remote git over SSH, CI trigger behavior on
+a conflicted PR, TLS interception during image builds): see
+`.operator-shared/guides/dev-environment.md`.
 
 Don't install additional tools yourself without permission.
 
@@ -75,7 +62,9 @@ Don't install additional tools yourself without permission.
 
 Common development commands (run from the Go module root):
 
-- `make check` — run fmt, lint, test targets. Execute this when finalizing work.
+- `make check` — run `validate-fmt`, lint, and test targets, read-only (the same formatting gate CI
+  runs). Execute this when finalizing work; if it reports unformatted files, run `make fmt` to fix
+  them. `make verify` adds `test-race` and `vulncheck`.
 - `go run ./cmd/agents-sandbox --dry-run` — build and run locally without producing a binary or starting interactively
   (skips launching the agent)
 - `make test`/`go test ./...` — run all tests. `make test` passes `-tags microsandbox_ffi_path`, which keeps the
@@ -119,7 +108,7 @@ Always use your superpowers for appropriate tasks, never skip user approval.
 
 - User-facing docs follow [`STYLEGUIDE.md`](STYLEGUIDE.md).
 - When changing or adding behavior, keep `README.md` and `docs` directory (except `docs/superpowers`) in sync and
-  current, and add a `changelog.d/<slug>.<type>.md` fragment (see `CONTRIBUTING.md`).
+  current, and add a `changelog.d/<PR-number>.<type>.md` fragment (see `CONTRIBUTING.md`).
 - Linking style: root-level docs (README.md, SECURITY.md, ...) link into `docs/` with rendered HTML links
   (`https://inoio.github.io/agents-sandbox/<page>.html`, or `.../<dir>/` for an `index.md` page); non-docs relative links
   must resolve to a repo file. Pages under `docs/` link to each other with Jekyll `{% link %}` tags. `make check` runs
@@ -129,31 +118,6 @@ Always use your superpowers for appropriate tasks, never skip user approval.
   `<script>` in `docs/_includes/` that starts with a `//` line comment silently disables the whole script (the comment
   swallows the rest of the line). Use `/* ... */` or no comment inside inline scripts in the docs. If inline docs JS
   "doesn't work in the browser", check the minified output for this before touching logic.
-
-## Current limitations
-
-- No SSH keys in the VM, git cmds against remotes won't work. Use github-cli (gh).
-- GitHub only runs `pull_request` workflows when the PR is mergeable. While a PR has merge conflicts, the `ci`
-  workflows (`lint`, `test`, codecov) silently do **not** run — they are absent, not failed. Rebase to resolve the
-  conflict and they trigger on the next push.
-- microsandbox injects a tls cert into the VM for egress inspection. This can cause docker image builds to fail with
-  self-signed cert errors. Workaround (example base image):
-
-  ```
-  # 1. Build a CA-trusting replacement for debian:trixie-slim.
-  mkdir -p /tmp/cabase && cd /tmp/cabase
-  cp /usr/local/share/ca-certificates/microsandbox-ca.crt ./
-  cat > Dockerfile <<'EOF'
-  FROM debian:trixie-slim
-  COPY microsandbox-ca.crt /usr/local/share/ca-certificates/microsandbox-ca.crt
-  RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
-  update-ca-certificates && rm -rf /var/lib/apt/lists/*
-  EOF
-  docker build -t debian:trixie-slim .
-  
-  # 2. Build the runner image as usual.
-  go run ./cmd/agents-sandbox build -r
-  ```
 
 # Your personality
 
