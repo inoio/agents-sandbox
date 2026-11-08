@@ -13,6 +13,13 @@ import (
 // deterministically; production leaves it nil.
 var claimOpened func(f *os.File, path string)
 
+// mkdirClaimDir and openClaimFile are seams so a test can pin the claims dir
+// and file modes without depending on the process umask.
+var (
+	mkdirClaimDir = os.MkdirAll
+	openClaimFile = os.OpenFile
+)
+
 // AcquireClaim atomically claims a named token under the slug's state dir,
 // returning claimed=true and a release func only when this caller won the
 // claim. If another live holder owns it, claimed is false and release is nil.
@@ -28,12 +35,12 @@ func AcquireClaim(slug, key string) (func(), bool, error) {
 	if err := requireAbsoluteStatePath(dir); err != nil {
 		return nil, false, err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := mkdirClaimDir(dir, 0o700); err != nil {
 		return nil, false, fmt.Errorf("create claim dir: %w", err)
 	}
 	path := filepath.Join(dir, key+".claim")
 	for range 5 {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+		f, err := openClaimFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
 			return nil, false, fmt.Errorf("open claim %s: %w", path, err)
 		}

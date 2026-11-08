@@ -2,6 +2,7 @@ package state
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -159,6 +160,10 @@ func TestReadRootState_NonNotFoundReadError(t *testing.T) {
 
 	if _, err := ReadRootState(); err == nil {
 		t.Fatal("ReadRootState() error = nil, want a non-not-exist read error")
+	} else {
+		if _, ok := errors.AsType[*fs.PathError](err); !ok {
+			t.Fatalf("ReadRootState() error = %v, want a wrapped *fs.PathError", err)
+		}
 	}
 }
 
@@ -214,6 +219,10 @@ func TestWriteRootState_RenameErrorCleansTemp(t *testing.T) {
 		RootState{Migrations: map[string]Migration{"runtime_home": {Status: MigrationDismissed}}},
 	); err == nil {
 		t.Fatal("writeRootState() error = nil, want rename failure")
+	} else {
+		if _, ok := errors.AsType[*os.LinkError](err); !ok {
+			t.Fatalf("writeRootState() error = %v, want a wrapped *os.LinkError", err)
+		}
 	}
 	assertNoRootStateTempFiles(t)
 }
@@ -516,8 +525,81 @@ func TestParseRootStateFoldsLegacyAgentsKey(t *testing.T) {
 // A malformed top-level agents: key cannot be folded, so the document is
 // unparsable rather than read as if the key were absent.
 func TestParseRootStateMalformedLegacyAgentsKeyIsUnparsable(t *testing.T) {
-	if _, err := parseRootState([]byte("agents: [1, 2]\n")); !errors.Is(err, ErrStateUnparsable) {
+	_, err := parseRootState([]byte("agents: [1, 2]\n"))
+	if !errors.Is(err, ErrStateUnparsable) {
 		t.Fatalf("parseRootState() error = %v, want ErrStateUnparsable", err)
+	}
+	if _, ok := errors.AsType[*yaml.LoadErrors](err); !ok {
+		t.Fatalf("parseRootState() error = %v, want the underlying *yaml.LoadErrors wrapped", err)
+	}
+}
+
+// TestParseRootStateTypeErrorIsUnparsable pins the typed-unmarshal failure: a
+// document that passes the schema header but whose field has the wrong shape is
+// refused with an ErrStateUnparsable error that still wraps the yaml type error,
+// never accepted with a partial state and a nil error.
+func TestParseRootStateTypeErrorIsUnparsable(t *testing.T) {
+	_, err := parseRootState([]byte("migrations: 5\n"))
+	if !errors.Is(err, ErrStateUnparsable) {
+		t.Fatalf("parseRootState() error = %v, want ErrStateUnparsable", err)
+	}
+	if _, ok := errors.AsType[*yaml.LoadErrors](err); !ok {
+		t.Fatalf("parseRootState() error = %v, want the underlying *yaml.LoadErrors wrapped", err)
+	}
+}
+
+// TestUpdatesIsZeroKeepsLauncherState pins that a launcher check time alone keeps
+// the updates: namespace non-zero, so yaml's omitempty does not drop it (and the
+// stored check time and dismissals with it).
+func TestUpdatesIsZeroKeepsLauncherState(t *testing.T) {
+	lastChecked := time.Unix(100, 0).UTC()
+	if (LauncherUpdateState{LastChecked: lastChecked}).IsZero() {
+		t.Fatal("a set LastChecked must make LauncherUpdateState non-zero")
+	}
+	if (Updates{Launcher: LauncherUpdateState{LastChecked: lastChecked}}).IsZero() {
+		t.Fatal("a set launcher check time must make Updates non-zero")
+	}
+
+	data, err := marshalRootState(RootState{Updates: Updates{Launcher: LauncherUpdateState{LastChecked: lastChecked}}})
+	if err != nil {
+		t.Fatalf("marshalRootState: %v", err)
+	}
+	if !strings.Contains(string(data), "updates:") {
+		t.Fatalf("updates: section dropped from a launcher-only root state:\n%s", data)
+	}
+}
+
+// TestClearAdoptedHomeVolumeEmptyVolumeSkipsLock pins that the empty-volume
+// no-op returns before taking (and reading under) the root lock, so an unrelated
+// corrupt root document does not turn the documented no-op into an error.
+func TestClearAdoptedHomeVolumeEmptyVolumeSkipsLock(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rootStateFile(), []byte("{ corrupt: [\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ClearAdoptedHomeVolume("checkout-a", ""); err != nil {
+		t.Fatalf("ClearAdoptedHomeVolume with an empty volume = %v, want nil (no-op)", err)
+	}
+}
+
+// TestAgentCheckIntervalIsPinned pins the interval to a literal, so a test that
+// compares against the constant cannot hide a changed value.
+func TestAgentCheckIntervalIsPinned(t *testing.T) {
+	if AgentCheckInterval != 24*time.Hour {
+		t.Fatalf("AgentCheckInterval = %v, want 24h", AgentCheckInterval)
+	}
+}
+
+// TestDueForCheckZeroLastCheckedNearZeroTime pins the "never checked" clause: a
+// zero LastChecked is due even when evaluated close to the zero time, where the
+// elapsed-interval comparison alone would not yet be satisfied.
+func TestDueForCheckZeroLastCheckedNearZeroTime(t *testing.T) {
+	if !(AgentCheckState{}).DueForCheck(time.Time{}.Add(time.Hour)) {
+		t.Fatal("a never-checked agent must be due regardless of the evaluation time")
 	}
 }
 

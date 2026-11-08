@@ -2,9 +2,11 @@ package state
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"testing"
 	"time"
 
@@ -105,6 +107,84 @@ func TestRemoveUnheldClaimRemovesFreeFile(t *testing.T) {
 	if _, err := os.Stat(claimPath); !os.IsNotExist(err) {
 		t.Fatalf("claim file should be gone, stat err = %v", err)
 	}
+}
+
+// TestRemoveUnheldClaimUsesPrivateModes pins the claims dir and file modes at
+// the seam, so the assertion does not depend on the test process's umask.
+func TestRemoveUnheldClaimUsesPrivateModes(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	var dirMode, fileMode os.FileMode
+	origMkdir, origOpen := mkdirSweepClaimDir, openSweepClaimFile
+	mkdirSweepClaimDir = func(dir string, mode os.FileMode) error {
+		dirMode = mode
+		return os.MkdirAll(dir, mode)
+	}
+	openSweepClaimFile = func(path string, flag int, mode os.FileMode) (*os.File, error) {
+		fileMode = mode
+		return os.OpenFile(path, flag, mode)
+	}
+	t.Cleanup(func() { mkdirSweepClaimDir, openSweepClaimFile = origMkdir, origOpen })
+
+	if _, err := RemoveUnheldClaim("sweep-claim-modes", "token"); err != nil {
+		t.Fatalf("RemoveUnheldClaim: %v", err)
+	}
+	if dirMode != 0o700 {
+		t.Errorf("claims dir mode = %o, want 700", dirMode)
+	}
+	if fileMode != 0o600 {
+		t.Errorf("claim file mode = %o, want 600", fileMode)
+	}
+}
+
+// TestRemoveUnheldClaimErrorPathsReportNotRemovedAndWrap pins the tuple and the
+// wrap on every failure before the unlink: a failed mkdir, open, or flock must
+// report removed=false and wrap the underlying error.
+func TestRemoveUnheldClaimErrorPathsReportNotRemovedAndWrap(t *testing.T) {
+	t.Run("mkdir", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		wantErr := errors.New("mkdir boom")
+		orig := mkdirSweepClaimDir
+		mkdirSweepClaimDir = func(string, os.FileMode) error { return wantErr }
+		t.Cleanup(func() { mkdirSweepClaimDir = orig })
+
+		removed, err := RemoveUnheldClaim("sweep-wrap-mkdir", "token")
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("error = %v, want %v wrapped", err, wantErr)
+		}
+		if removed {
+			t.Error("a failed mkdir must report removed=false")
+		}
+	})
+
+	t.Run("open", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		wantErr := errors.New("open boom")
+		orig := openSweepClaimFile
+		openSweepClaimFile = func(string, int, os.FileMode) (*os.File, error) { return nil, wantErr }
+		t.Cleanup(func() { openSweepClaimFile = orig })
+
+		removed, err := RemoveUnheldClaim("sweep-wrap-open", "token")
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("error = %v, want %v wrapped", err, wantErr)
+		}
+		if removed {
+			t.Error("a failed open must report removed=false")
+		}
+	})
+
+	t.Run("flock", func(t *testing.T) {
+		configpaths.WithMockConfigPaths(t)
+		claimOpened = func(f *os.File, _ string) { _ = f.Close() }
+		t.Cleanup(func() { claimOpened = nil })
+
+		removed, err := RemoveUnheldClaim("sweep-wrap-flock", "token")
+		if !errors.Is(err, syscall.EBADF) {
+			t.Fatalf("error = %v, want the underlying EBADF wrapped", err)
+		}
+		if removed {
+			t.Error("a failed flock must report removed=false")
+		}
+	})
 }
 
 func TestRemoveUnheldClaimKeepsHeldFile(t *testing.T) {
@@ -345,6 +425,10 @@ func TestProjectSlugsReadError(t *testing.T) {
 
 	if _, err := ProjectSlugs(); err == nil {
 		t.Fatal("ProjectSlugs on a file root should fail closed")
+	} else {
+		if _, ok := errors.AsType[*fs.PathError](err); !ok {
+			t.Fatalf("ProjectSlugs error = %v, want a wrapped *fs.PathError", err)
+		}
 	}
 }
 
@@ -359,6 +443,10 @@ func TestStateFileModTimeStatError(t *testing.T) {
 
 	if _, err := StateFileModTime(Key{Slug: "sweep-modtime-file", Agent: "opencode"}); err == nil {
 		t.Fatal("StateFileModTime with a non-directory slug should surface the stat error")
+	} else {
+		if _, ok := errors.AsType[*fs.PathError](err); !ok {
+			t.Fatalf("StateFileModTime error = %v, want a wrapped *fs.PathError", err)
+		}
 	}
 }
 
@@ -374,6 +462,10 @@ func TestClaimTokensReadError(t *testing.T) {
 
 	if _, err := ClaimTokens(slug); err == nil {
 		t.Fatal("ClaimTokens on a file claims path should surface the read error")
+	} else {
+		if _, ok := errors.AsType[*fs.PathError](err); !ok {
+			t.Fatalf("ClaimTokens error = %v, want a wrapped *fs.PathError", err)
+		}
 	}
 }
 
@@ -422,6 +514,7 @@ func TestRemoveUnheldClaimFlockError(t *testing.T) {
 // TestRemoveUnheldClaimRemoveError pins the unlink failure: a claim file in a
 // read-only claims dir is locked but cannot be removed, and the error surfaces.
 func TestRemoveUnheldClaimRemoveError(t *testing.T) {
+	requireNonRoot(t)
 	configpaths.WithMockConfigPaths(t)
 	const slug = "sweep-claim-remove"
 	claimsDir := filepath.Join(SlugDir(slug), "claims")
@@ -434,8 +527,15 @@ func TestRemoveUnheldClaimRemoveError(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(claimsDir, 0o700) })
 
-	if _, err := RemoveUnheldClaim(slug, "token"); err == nil {
+	removed, err := RemoveUnheldClaim(slug, "token")
+	if err == nil {
 		t.Fatal("RemoveUnheldClaim should surface a failed unlink")
+	}
+	if removed {
+		t.Error("a failed unlink must report removed=false")
+	}
+	if _, ok := errors.AsType[*fs.PathError](err); !ok {
+		t.Fatalf("error = %v, want a wrapped *fs.PathError", err)
 	}
 }
 
@@ -471,5 +571,108 @@ func TestRemoveSlugDirIfEmptyRemoveError(t *testing.T) {
 
 	if err := RemoveSlugDirIfEmpty(slug); err == nil {
 		t.Fatal("RemoveSlugDirIfEmpty should surface a failed child removal")
+	}
+}
+
+// TestRemoveEmptyTreeMissingReportsNotRemoved pins the missing-path case: a
+// non-existent path is a no-op that reports removed=false.
+func TestRemoveEmptyTreeMissingReportsNotRemoved(t *testing.T) {
+	removed, err := removeEmptyTree(filepath.Join(t.TempDir(), "absent"))
+	if err != nil {
+		t.Fatalf("removeEmptyTree: %v", err)
+	}
+	if removed {
+		t.Fatal("a missing path must report removed=false")
+	}
+}
+
+// TestRemoveEmptyTreeKeepsScanningPastAFileEntry pins the walk control flow: a
+// non-directory entry sorts before an empty child directory, and the walk must
+// keep going (not abandon the directory) so the empty child is still reclaimed.
+func TestRemoveEmptyTreeKeepsScanningPastAFileEntry(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "a-file"), "x")
+	emptyChild := filepath.Join(root, "z-empty")
+	if err := os.MkdirAll(emptyChild, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := removeEmptyTree(root)
+	if err != nil {
+		t.Fatalf("removeEmptyTree: %v", err)
+	}
+	if removed {
+		t.Fatal("a directory holding a file must not be removed")
+	}
+	if _, err := os.Stat(emptyChild); !os.IsNotExist(err) {
+		t.Fatalf("the empty child should be reclaimed, stat err = %v", err)
+	}
+}
+
+// TestRemoveEmptyTreeReadErrorReportsNotRemoved pins the read failure: a path
+// that is not a readable directory reports removed=false and wraps the error.
+func TestRemoveEmptyTreeReadErrorReportsNotRemoved(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "file")
+	testutil.WritePath(t, file, "x")
+
+	removed, err := removeEmptyTree(file)
+	if err == nil {
+		t.Fatal("removeEmptyTree on a file should surface the read error")
+	}
+	if removed {
+		t.Error("a read error must report removed=false")
+	}
+	if _, ok := errors.AsType[*fs.PathError](err); !ok {
+		t.Fatalf("error = %v, want a wrapped *fs.PathError", err)
+	}
+}
+
+// TestRemoveEmptyTreeChildReadErrorReportsNotRemoved pins the recursive error
+// return: an unreadable child stops the walk and reports removed=false.
+func TestRemoveEmptyTreeChildReadErrorReportsNotRemoved(t *testing.T) {
+	requireNonRoot(t)
+	parent := t.TempDir()
+	child := filepath.Join(parent, "child")
+	if err := os.MkdirAll(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(child, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(child, 0o700) })
+
+	removed, err := removeEmptyTree(parent)
+	if err == nil {
+		t.Fatal("removeEmptyTree should surface the child read error")
+	}
+	if removed {
+		t.Error("a child error must report removed=false")
+	}
+}
+
+// TestRemoveEmptyTreeRemoveErrorReportsNotRemoved pins the unlink failure: an
+// empty directory whose parent denies removal reports removed=false and wraps
+// the error.
+func TestRemoveEmptyTreeRemoveErrorReportsNotRemoved(t *testing.T) {
+	requireNonRoot(t)
+	parent := t.TempDir()
+	child := filepath.Join(parent, "child")
+	if err := os.MkdirAll(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(parent, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o700) })
+
+	removed, err := removeEmptyTree(child)
+	if err == nil {
+		t.Fatal("removeEmptyTree should surface the failed unlink")
+	}
+	if removed {
+		t.Error("a failed unlink must report removed=false")
+	}
+	if _, ok := errors.AsType[*fs.PathError](err); !ok {
+		t.Fatalf("error = %v, want a wrapped *fs.PathError", err)
 	}
 }

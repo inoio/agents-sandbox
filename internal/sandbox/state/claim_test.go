@@ -1,8 +1,10 @@
 package state
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -99,8 +101,18 @@ func TestAcquireClaimFlockErrorSurfaces(t *testing.T) {
 	claimOpened = func(f *os.File, _ string) { _ = f.Close() }
 	t.Cleanup(func() { claimOpened = nil })
 
-	if _, _, err := AcquireClaim("claimflockproj", "key"); err == nil {
+	release, claimed, err := AcquireClaim("claimflockproj", "key")
+	if err == nil {
 		t.Fatal("expected a non-contention flock error to surface")
+	}
+	if !errors.Is(err, syscall.EBADF) {
+		t.Fatalf("flock error = %v, want the underlying EBADF wrapped", err)
+	}
+	if claimed {
+		t.Error("a failed acquire must report claimed=false")
+	}
+	if release != nil {
+		t.Error("a failed acquire must return a nil release")
 	}
 }
 
@@ -153,6 +165,107 @@ func TestSameFile(t *testing.T) {
 	_ = again.Close()
 	if sameFile(f, path) {
 		t.Fatal("a closed file descriptor should not match")
+	}
+}
+
+// TestSameFileDifferentInode pins the identity comparison at the heart of the
+// claim-removal race guard: when the path resolves to a different inode than the
+// open file (another holder removed and recreated it), sameFile must report
+// false. Both stat calls succeed here, so only os.SameFile can distinguish them.
+func TestSameFileDifferentInode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f")
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = replacement.Close()
+
+	if sameFile(f, path) {
+		t.Fatal("a path naming a different inode than the open file must not match")
+	}
+}
+
+// TestAcquireClaimUsesPrivateModes pins the claims dir and file modes at the
+// seam, so the assertion does not depend on the test process's umask.
+func TestAcquireClaimUsesPrivateModes(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	var dirMode, fileMode os.FileMode
+	origMkdir, origOpen := mkdirClaimDir, openClaimFile
+	mkdirClaimDir = func(dir string, mode os.FileMode) error {
+		dirMode = mode
+		return os.MkdirAll(dir, mode)
+	}
+	openClaimFile = func(path string, flag int, mode os.FileMode) (*os.File, error) {
+		fileMode = mode
+		return os.OpenFile(path, flag, mode)
+	}
+	t.Cleanup(func() { mkdirClaimDir, openClaimFile = origMkdir, origOpen })
+
+	release, claimed, err := AcquireClaim("claimmodeproj", "key")
+	if err != nil || !claimed {
+		t.Fatalf("AcquireClaim: claimed=%v err=%v", claimed, err)
+	}
+	release()
+
+	if dirMode != 0o700 {
+		t.Errorf("claims dir mode = %o, want 700", dirMode)
+	}
+	if fileMode != 0o600 {
+		t.Errorf("claim file mode = %o, want 600", fileMode)
+	}
+}
+
+// TestAcquireClaimMkdirErrorWrapsAndReportsUnclaimed pins the claims-dir
+// creation failure: it must wrap the underlying error (not flatten it) and
+// report claimed=false.
+func TestAcquireClaimMkdirErrorWrapsAndReportsUnclaimed(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("mkdir boom")
+	orig := mkdirClaimDir
+	mkdirClaimDir = func(string, os.FileMode) error { return wantErr }
+	t.Cleanup(func() { mkdirClaimDir = orig })
+
+	release, claimed, err := AcquireClaim("claimmkdiresc", "key")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("AcquireClaim() error = %v, want %v wrapped", err, wantErr)
+	}
+	if claimed {
+		t.Error("a failed acquire must report claimed=false")
+	}
+	if release != nil {
+		t.Error("a failed acquire must return a nil release")
+	}
+}
+
+// TestAcquireClaimOpenErrorWrapsAndReportsUnclaimed pins the claim-file open
+// failure: the wrap is preserved and the tuple reports unclaimed.
+func TestAcquireClaimOpenErrorWrapsAndReportsUnclaimed(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("open boom")
+	orig := openClaimFile
+	openClaimFile = func(string, int, os.FileMode) (*os.File, error) { return nil, wantErr }
+	t.Cleanup(func() { openClaimFile = orig })
+
+	release, claimed, err := AcquireClaim("claimopeneresc", "key")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("AcquireClaim() error = %v, want %v wrapped", err, wantErr)
+	}
+	if claimed {
+		t.Error("a failed acquire must report claimed=false")
+	}
+	if release != nil {
+		t.Error("a failed acquire must return a nil release")
 	}
 }
 

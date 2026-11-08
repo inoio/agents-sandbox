@@ -1,6 +1,8 @@
 package state
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,6 +18,83 @@ func TestFormatKeys(t *testing.T) {
 	})
 	if got != "legacy-aBc1234D, proj-aBc1234D/opencode" {
 		t.Fatalf("FormatKeys = %q, want %q", got, "legacy-aBc1234D, proj-aBc1234D/opencode")
+	}
+}
+
+// TestFormatKeysSortsUnorderedInput pins the sort: the labels must come out
+// ordered regardless of the order the reference map accumulated them.
+func TestFormatKeysSortsUnorderedInput(t *testing.T) {
+	got := FormatKeys([]Key{
+		{Slug: "zeta-aBc1234D", Agent: "opencode"},
+		{Slug: "alpha-aBc1234D"},
+	})
+	if got != "alpha-aBc1234D, zeta-aBc1234D/opencode" {
+		t.Fatalf("FormatKeys = %q, want sorted %q", got, "alpha-aBc1234D, zeta-aBc1234D/opencode")
+	}
+}
+
+// TestHomeVolumeReferencesSkipsNonStateEntries pins the state-file filter: a
+// stray file that is not state.yaml, and a directory named state.yaml, are not
+// project state. Reading either as state would fail the whole removal scan
+// closed.
+func TestHomeVolumeReferencesSkipsNonStateEntries(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	stray := Key{Slug: "stray-aBc1234D", Agent: "opencode"}
+	if err := os.MkdirAll(KeyDir(stray), 0o700); err != nil {
+		t.Fatalf("mkdir key dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(KeyDir(stray), "notes.txt"), []byte("not state"), 0o600); err != nil {
+		t.Fatalf("write stray file: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(stateRoot(), "dirlike-aBc1234D", "state.yaml"), 0o700); err != nil {
+		t.Fatalf("mkdir dir named state.yaml: %v", err)
+	}
+
+	references, err := HomeVolumeReferences()
+	if err != nil {
+		t.Fatalf("HomeVolumeReferences: %v", err)
+	}
+	if len(references) != 0 {
+		t.Fatalf("references = %v, want empty (no real project state)", references)
+	}
+}
+
+// TestHomeVolumeReferencesSkipsTooDeepStateFile pins the layout guard: a
+// state.yaml deeper than the two known layouts is not a project state. Reading
+// it as the zero key would read the launcher-global root document instead.
+func TestHomeVolumeReferencesSkipsTooDeepStateFile(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	deep := filepath.Join(stateRoot(), "deep-aBc1234D", "opencode", "nested")
+	if err := os.MkdirAll(deep, 0o700); err != nil {
+		t.Fatalf("mkdir deep tree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(deep, "state.yaml"), []byte("home_volume: vol\n"), 0o600); err != nil {
+		t.Fatalf("write deep state: %v", err)
+	}
+
+	references, err := HomeVolumeReferences()
+	if err != nil {
+		t.Fatalf("HomeVolumeReferences: %v", err)
+	}
+	if len(references) != 0 {
+		t.Fatalf("references = %v, want empty (state.yaml too deep is not a project state)", references)
+	}
+}
+
+// TestHomeVolumeReferencesErrorsOnUnreadableRoot pins the fail-closed walk: an
+// unreadable state root surfaces as an error rather than being mistaken for the
+// "no state root" no-op, which would let a destructive removal proceed.
+func TestHomeVolumeReferencesErrorsOnUnreadableRoot(t *testing.T) {
+	requireNonRoot(t)
+	configpaths.WithMockConfigPaths(t)
+	if err := os.Chmod(stateRoot(), 0o000); err != nil {
+		t.Fatalf("chmod state root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(stateRoot(), 0o750) })
+
+	if _, err := HomeVolumeReferences(); err == nil {
+		t.Fatal("HomeVolumeReferences() error = nil, want a walk error for an unreadable root")
 	}
 }
 
@@ -135,6 +214,10 @@ func TestHomeVolumeReferencesErrorsOnUnreadableDir(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(blocked, 0o750) })
 	if _, err := HomeVolumeReferences(); err == nil {
 		t.Fatal("HomeVolumeReferences() error = nil, want a walk error")
+	} else {
+		if _, ok := errors.AsType[*fs.PathError](err); !ok {
+			t.Fatalf("HomeVolumeReferences() error = %v, want a wrapped *fs.PathError", err)
+		}
 	}
 }
 

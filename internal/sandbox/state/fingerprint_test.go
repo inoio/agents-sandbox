@@ -199,6 +199,9 @@ func TestSecretsChanged(t *testing.T) {
 	if SecretsChanged(SecretState{}, nil) {
 		t.Error("SecretsChanged with empty applied and nil desired should be false")
 	}
+	if SecretsChanged(SecretState{}, []msbSdk.SecretEntry{}) {
+		t.Error("SecretsChanged with empty applied and an empty non-nil desired should be false")
+	}
 }
 
 func TestBuildEnvState(t *testing.T) {
@@ -265,6 +268,23 @@ func TestBuildNetworkState(t *testing.T) {
 	}
 	if len(st.Names) != 1 || st.Names[0] != string(network.ProfileNone) {
 		t.Errorf("BuildNetworkState.Names = %v, want [none]", st.Names)
+	}
+}
+
+// TestBuildNetworkStateAppliesEffectiveDefault pins that a zero policy records
+// its effective default profile name, not an empty list, so the persisted state
+// matches the policy the VM is created with.
+func TestBuildNetworkStateAppliesEffectiveDefault(t *testing.T) {
+	st := BuildNetworkState(network.Policy{})
+	if len(st.Names) != 1 || st.Names[0] != string(network.DefaultProfile) {
+		t.Fatalf("BuildNetworkState(zero).Names = %v, want [%s]", st.Names, network.DefaultProfile)
+	}
+	if st.Hash != (network.Policy{}).Fingerprint() {
+		t.Errorf(
+			"BuildNetworkState(zero).Hash = %q, want the effective fingerprint %q",
+			st.Hash,
+			(network.Policy{}).Fingerprint(),
+		)
 	}
 }
 
