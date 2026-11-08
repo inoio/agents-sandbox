@@ -220,3 +220,59 @@ func TestReadFileLeavesTheRootsParentUnguarded(t *testing.T) {
 		}
 	}
 }
+
+// TestMissingRefusesAnApprovedFileThatIsGone pins that a reader reporting an
+// approved file absent records a refusal, while an unapproved or approved-absent
+// path may be missing.
+func TestMissingRefusesAnApprovedFileThatIsGone(t *testing.T) {
+	root := fixture(t, map[string]Approval{
+		"config.yaml": {Digest: digest("network: none\n")},
+		"skipped.sh":  {Absent: true},
+	})
+	if err := Missing(
+		filepath.Join(root, "config.yml"),
+		filepath.Join(root, "skipped.sh"),
+	); err != nil ||
+		Violation() != nil {
+		t.Fatalf("Missing(unapproved, absent) = %v, violation %v; want none", err, Violation())
+	}
+	if err := Missing(
+		filepath.Join(root, "config.yml"),
+		filepath.Join(root, "config.yaml"),
+	); !errors.Is(
+		err,
+		ErrNotApproved,
+	) {
+		t.Errorf("Missing(approved) = %v, want ErrNotApproved", err)
+	}
+	if !errors.Is(Violation(), ErrNotApproved) {
+		t.Errorf("Violation() = %v, want the gone file recorded", Violation())
+	}
+}
+
+// TestCheckListingRefusesAnApprovedFileTheListingLacks pins the listing check:
+// only an approved file under the root that the reader would have taken and did
+// not find is refused.
+func TestCheckListingRefusesAnApprovedFileTheListingLacks(t *testing.T) {
+	root := fixture(t, map[string]Approval{
+		"opencode/opencode-a.json": {Digest: digest("{}")},
+		"opencode/notes.md":        {Digest: digest("x")},
+		"opencode/gone.sh":         {Absent: true},
+		"env":                      {Digest: digest("A=1\n")},
+	})
+	dir := filepath.Join(root, "opencode")
+	snippets := func(rel string) bool { return filepath.Ext(rel) == ".json" }
+	listed := []string{filepath.Join(dir, "opencode-a.json")}
+	if err := CheckListing(dir, listed, snippets); err != nil {
+		t.Fatalf("CheckListing(complete) = %v", err)
+	}
+	if err := CheckListing(dir, nil, func(string) bool { return false }); err != nil {
+		t.Fatalf("CheckListing(nothing relevant) = %v", err)
+	}
+	if Violation() != nil {
+		t.Fatalf("a complete listing recorded %v", Violation())
+	}
+	if err := CheckListing(dir, nil, snippets); !errors.Is(err, ErrNotApproved) {
+		t.Errorf("CheckListing(lacking) = %v, want ErrNotApproved", err)
+	}
+}

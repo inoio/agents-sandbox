@@ -247,9 +247,9 @@ func ParseLayerSettings(path string, data []byte) (map[string]any, error) {
 }
 
 func mergeDir(v *viper.Viper, dir string) error {
-	path, _, ok := configpaths.FindConfigFile(dir)
+	path, _, ok, err := configdecode.FindFile(dir)
 	if !ok {
-		return nil
+		return err
 	}
 	values, err := configdecode.DecodeFile(path, "launcher config")
 	if err != nil {

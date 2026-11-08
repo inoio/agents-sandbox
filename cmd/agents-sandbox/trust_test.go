@@ -289,8 +289,8 @@ func TestAllAgentConfigDirNamesCoversEveryAgent(t *testing.T) {
 }
 
 // TestGateGuardsTheReadsOfAnApprovedLayer pins that an approved layer, whether
-// recorded before or approved now, is read only as approved: a change after the
-// gate is refused by the command's own config read.
+// recorded before or approved now, is read only as approved: a change or a
+// deletion after the gate is refused by the command's own config read.
 func TestGateGuardsTheReadsOfAnApprovedLayer(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -320,6 +320,13 @@ func TestGateGuardsTheReadsOfAnApprovedLayer(t *testing.T) {
 				projectguard.ErrNotApproved,
 			) {
 				t.Errorf("NewResolver after a change = %v, want ErrNotApproved", err)
+			}
+			if err := os.Remove(filepath.Join(configpaths.Get().ProjectConfigDir(), "config.yaml")); err != nil {
+				t.Fatal(err)
+			}
+			_, err := launcherconfig.NewResolver(nil, configpaths.Get(), "")
+			if !errors.Is(err, projectguard.ErrNotApproved) {
+				t.Errorf("NewResolver after a deletion = %v, want ErrNotApproved", err)
 			}
 		})
 	}

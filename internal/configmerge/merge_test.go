@@ -885,3 +885,29 @@ func TestBuildMergedReadsYAMLSnippet(t *testing.T) {
 		t.Errorf("model = %v, want y", parsed["model"])
 	}
 }
+
+// TestScanSnippetsRefusesAnApprovedSnippetThatIsGone pins that deleting an
+// approved snippet, or its whole directory, is recorded for the run to stop on
+// rather than silently dropping its settings.
+func TestScanSnippetsRefusesAnApprovedSnippetThatIsGone(t *testing.T) {
+	for name, gone := range map[string]func(dir string) error{
+		"snippet":   func(dir string) error { return os.Remove(filepath.Join(dir, "opencode-a.json")) },
+		"directory": os.RemoveAll,
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "opencode")
+			writeSnippet(t, dir, "opencode-a.json", `{"a": 1}`)
+			restore := projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+				filepath.Join(dir, "opencode-a.json"): projectguard.ApprovalOf([]byte(`{"a": 1}`)),
+			})
+			defer restore()
+			if err := gone(dir); err != nil {
+				t.Fatal(err)
+			}
+			scanSnippets([]string{dir}, "opencode*.json*")
+			if !errors.Is(projectguard.Violation(), projectguard.ErrNotApproved) {
+				t.Errorf("Violation() = %v, want the gone snippet recorded", projectguard.Violation())
+			}
+		})
+	}
+}

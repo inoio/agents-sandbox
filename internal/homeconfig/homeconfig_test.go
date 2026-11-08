@@ -1404,7 +1404,38 @@ func TestParseHomeConfigReadsTheManifestFromBytes(t *testing.T) {
 	if err != nil || !present || manifest[".bashrc"].Source != "bashrc" {
 		t.Errorf("ParseHomeConfig = %+v, %v, %v; want the .bashrc entry", manifest, present, err)
 	}
-	if _, _, err := ParseHomeConfig("config.yaml", []byte("home: [unclosed\n")); err == nil {
-		t.Error("ParseHomeConfig accepted an unparsable config")
+	if _, present, err := ParseHomeConfig("config.yaml", []byte("home: [unclosed\n")); err == nil || present {
+		t.Errorf("ParseHomeConfig(unparsable) = present %v, %v; want an error", present, err)
+	}
+}
+
+// TestHomeDiscoveryRefusesApprovedFilesThatAreGone pins that deleting an
+// approved config file or home: source stops the run instead of dropping it.
+func TestHomeDiscoveryRefusesApprovedFilesThatAreGone(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	dir := t.TempDir()
+	config := filepath.Join(dir, "config.yaml")
+	source := filepath.Join(dir, "hook.sh")
+	manifest := "home:\n  hook.sh: {source: hook.sh, hook: startup}\n"
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		config: projectguard.ApprovalOf([]byte(manifest)),
+		source: projectguard.ApprovalOf([]byte("echo approved\n")),
+	}))
+	testutil.WritePath(t, config, manifest)
+	if _, _, _, err := BuildHomeFilesWithModes(
+		[]string{dir},
+		"/home/dev",
+		nil,
+	); !errors.Is(
+		err,
+		projectguard.ErrNotApproved,
+	) {
+		t.Errorf("BuildHomeFilesWithModes with the hook gone = %v, want ErrNotApproved", err)
+	}
+	if err := os.Remove(config); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadHomeFromConfigDir(dir); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("ReadHomeFromConfigDir with the config gone = %v, want ErrNotApproved", err)
 	}
 }

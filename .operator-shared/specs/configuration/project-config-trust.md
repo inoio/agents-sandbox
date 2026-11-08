@@ -173,6 +173,11 @@ The contract is **verify on read**:
   `home:` source spelled with `..` is verified like any other.
 - Under the project config dir, a file the approval does not hold may only be missing; an added file is
   refused. A `home:` source the gate skipped stays absent and is never read.
+- Deleting an approved file is refused where it would be discovered, not only where it would be read: the
+  config file lookup (`configdecode.FindFile`, every candidate extension), the `home:` source check, the
+  snippet listing, and the mirror walk report what they did not find (`projectguard.Missing`,
+  `projectguard.CheckListing`), so a reader never silently falls back to the lower layers or drops approved
+  content — e.g. an approved `network: none` deleted to let the default `public` apply.
 - A refused read is recorded as the command's violation. A reader that tolerates a read failure (a walk
   that skips, an env loader that warns) cannot carry it on: the image build and the VM stage stop on a
   recorded violation. The Dockerfile is read before the image build, so no image is built from a changed one;

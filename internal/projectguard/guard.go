@@ -11,8 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -124,7 +126,7 @@ func (g *guard) guarded(path string) bool {
 	for _, root := range g.roots {
 		// Both paths are absolute, so Rel cannot fail.
 		rel, _ := filepath.Rel(root, path)
-		if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if rel == "." || inside(rel) {
 			return true
 		}
 	}
@@ -146,4 +148,44 @@ func digestOf(data []byte) string {
 // ApprovalOf approves exactly data.
 func ApprovalOf(data []byte) Approval {
 	return Approval{Digest: digestOf(data), Absent: false}
+}
+
+// Missing reports that a reader found paths absent. An approved file among
+// them is gone since the approval: that is recorded and returned as a refusal,
+// so deleting an approved file cannot make a reader silently fall back.
+func Missing(paths ...string) error {
+	mutex.Lock()
+	defer mutex.Unlock()
+	for _, path := range paths {
+		if approval, approved := current.reads[absolute(path)]; approved && !approval.Absent {
+			return current.record(fmt.Errorf("%w: %s is gone", ErrNotApproved, path))
+		}
+	}
+	return nil
+}
+
+// CheckListing reports what a reader found under root, as paths, and refuses
+// an approved file under root it did not find although relevant, given the
+// file's path relative to root, says the reader would have taken it.
+func CheckListing(root string, listed []string, relevant func(rel string) bool) error {
+	found := map[string]bool{}
+	for _, path := range listed {
+		found[absolute(path)] = true
+	}
+	absoluteRoot := absolute(root)
+	mutex.Lock()
+	defer mutex.Unlock()
+	for _, path := range slices.Sorted(maps.Keys(current.reads)) {
+		rel, _ := filepath.Rel(absoluteRoot, path)
+		if current.reads[path].Absent || found[path] || !inside(rel) || !relevant(rel) {
+			continue
+		}
+		return current.record(fmt.Errorf("%w: %s is gone", ErrNotApproved, path))
+	}
+	return nil
+}
+
+// inside reports whether a path relative to a root lies below it.
+func inside(rel string) bool {
+	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

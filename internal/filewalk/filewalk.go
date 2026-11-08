@@ -24,7 +24,8 @@ type Entry struct {
 // files whose metadata or contents cannot be read are skipped, so a single bad
 // file never aborts the walk. An error returned by visit aborts the walk.
 func Walk(root string, filter func(rel string, isDir bool) bool, visit func(Entry) error) error {
-	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	var reached []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil //nolint:nilerr // best-effort: skip entries the walk cannot read
 		}
@@ -41,12 +42,30 @@ func Walk(root string, filter func(rel string, isDir bool) bool, visit func(Entr
 		if d.IsDir() { // gomutants:disable BRANCH_IF reason="filter runs before the directory check and the directory branch above returns SkipDir, and WalkDir's root callback always yields isDir true, so the only directory reaching here is the pruned root"
 			return nil
 		}
+		reached = append(reached, path)
 		data, mode, ok := readFile(path)
 		if !ok {
 			return nil
 		}
 		return visit(Entry{Path: path, Rel: rel, Data: data, Mode: mode})
 	})
+	if err != nil {
+		return err
+	}
+	// An approved project file the walk would have taken but did not reach was
+	// deleted since the approval: that stops the run rather than going missing.
+	return projectguard.CheckListing(root, reached, func(rel string) bool { return selected(filter, rel) })
+}
+
+// selected reports whether filter takes the file at rel: every directory
+// above it and the file itself pass.
+func selected(filter func(rel string, isDir bool) bool, rel string) bool {
+	for dir := filepath.Dir(rel); dir != "."; dir = filepath.Dir(dir) {
+		if !filter(dir, true) {
+			return false
+		}
+	}
+	return filter(rel, false)
 }
 
 // readFile returns the contents and permission bits of path. ok is false when

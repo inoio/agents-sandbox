@@ -55,7 +55,7 @@ func LayerSettingOwner(paths configpaths.ConfigPaths, slug, key string) (string,
 // format that file uses. An absent, unreadable, or unparseable file reports
 // false.
 func layerSetsKey(dir, key string) bool {
-	path, _, ok := configpaths.FindConfigFile(dir)
+	path, _, ok, _ := configdecode.FindFile(dir)
 	// gomutants:disable-next-line BRANCH_IF reason="without a config file the empty path fails configread's open and the next guard returns false, so the body is redundant"
 	if !ok {
 		return false
@@ -115,10 +115,13 @@ func WriteSetting(dir, key string, value any) error {
 	if dir == "" {
 		return fmt.Errorf("config dir is empty; the config path did not resolve")
 	}
-	path, ext, found := configpaths.FindConfigFile(dir)
+	path, ext, found, err := configdecode.FindFile(dir)
+	if err != nil {
+		return err
+	}
 	if !found {
 		path = filepath.Join(dir, "config.yaml")
-		_, err := writeYAMLSetting(path, nil, 0o600, key, value)
+		_, err = writeYAMLSetting(path, nil, 0o600, key, value)
 		return err
 	}
 	if ext != extYAML && ext != extYML {

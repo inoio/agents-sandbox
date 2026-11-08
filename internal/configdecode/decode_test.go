@@ -187,7 +187,23 @@ func TestDecodeFileReadsOnlyTheApprovedBytes(t *testing.T) {
 // TestDecodeDataRejectsAnUnknownExtension pins that bytes read elsewhere are
 // held to the same extension rule as DecodeFile.
 func TestDecodeDataRejectsAnUnknownExtension(t *testing.T) {
-	if _, err := configdecode.DecodeData("config.ini", "launcher config", []byte("x")); err == nil {
+	if _, err := configdecode.DecodeData("config.ini", "launcher config", []byte("memory: 8G\n")); err == nil {
 		t.Error("DecodeData accepted an unknown extension")
+	}
+}
+
+// TestFindFileRefusesAnApprovedConfigFileThatIsGone pins that a deleted
+// approved config file is a refusal, not a missing layer.
+func TestFindFileRefusesAnApprovedConfigFileThatIsGone(t *testing.T) {
+	dir := t.TempDir()
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		filepath.Join(dir, "config.yaml"): projectguard.ApprovalOf([]byte("network: none\n")),
+	}))
+	if _, _, found, err := configdecode.FindFile(dir); found || !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("FindFile = found %v, %v; want ErrNotApproved", found, err)
+	}
+	testutil.WritePath(t, filepath.Join(dir, "config.yaml"), "network: none\n")
+	if path, _, found, err := configdecode.FindFile(dir); !found || err != nil || filepath.Base(path) != "config.yaml" {
+		t.Errorf("FindFile = %q, %v, %v; want the config file", path, found, err)
 	}
 }

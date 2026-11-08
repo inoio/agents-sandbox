@@ -1283,3 +1283,19 @@ func TestWriteSettingKeepsTheApprovalInStep(t *testing.T) {
 		t.Errorf("config.yaml = %q, want the changed file left untouched", data)
 	}
 }
+
+// TestWriteSettingRefusesWhenTheApprovedConfigIsGone pins that a raise never
+// starts a new project config in place of a deleted approved one.
+func TestWriteSettingRefusesWhenTheApprovedConfigIsGone(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte("memory: 4G\nnetwork:\n  profile: none\n")),
+	}))
+	if err := WriteSetting(dir, "memory", "8G"); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("WriteSetting = %v, want ErrNotApproved", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("WriteSetting created %s in place of the deleted approved config", path)
+	}
+}

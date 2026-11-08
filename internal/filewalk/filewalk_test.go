@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/projectguard"
@@ -234,5 +235,39 @@ func TestWalkSkipsAFileChangedSinceItsApproval(t *testing.T) {
 	}
 	if !errors.Is(projectguard.Violation(), projectguard.ErrNotApproved) {
 		t.Errorf("Violation() = %v, want the changed file recorded", projectguard.Violation())
+	}
+}
+
+// TestWalkRefusesAnApprovedFileThatIsGone pins that the walk reports an
+// approved file it would have taken but did not reach, while one its filter
+// leaves out may be gone.
+func TestWalkRefusesAnApprovedFileThatIsGone(t *testing.T) {
+	root := t.TempDir()
+	t.Cleanup(projectguard.Install([]string{root}, map[string]projectguard.Approval{
+		filepath.Join(root, "plugins", "a.ts"):       projectguard.ApprovalOf([]byte("a")),
+		filepath.Join(root, "node_modules", "x.js"):  projectguard.ApprovalOf([]byte("x")),
+		filepath.Join(root, "plugins", "skip.local"): projectguard.ApprovalOf([]byte("s")),
+	}))
+	filter := func(rel string, isDir bool) bool {
+		if isDir {
+			return rel != "node_modules"
+		}
+		return filepath.Ext(rel) != ".local"
+	}
+	if err := os.MkdirAll(filepath.Join(root, "plugins"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	err := Walk(root, filter, func(Entry) error { return nil })
+	if !errors.Is(err, projectguard.ErrNotApproved) || !strings.Contains(err.Error(), "a.ts") {
+		t.Errorf("Walk = %v, want the gone plugins/a.ts refused", err)
+	}
+	writeFile(t, filepath.Join(root, "plugins", "a.ts"), "a")
+	t.Cleanup(projectguard.Install([]string{root}, map[string]projectguard.Approval{
+		filepath.Join(root, "plugins", "a.ts"):       projectguard.ApprovalOf([]byte("a")),
+		filepath.Join(root, "node_modules", "x.js"):  projectguard.ApprovalOf([]byte("x")),
+		filepath.Join(root, "plugins", "skip.local"): projectguard.ApprovalOf([]byte("s")),
+	}))
+	if err := Walk(root, filter, func(Entry) error { return nil }); err != nil {
+		t.Errorf("Walk with only filtered-out files gone = %v, want nil", err)
 	}
 }

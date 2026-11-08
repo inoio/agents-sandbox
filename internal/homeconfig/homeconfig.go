@@ -82,9 +82,9 @@ func parseManifestValue(raw any, path string) (Manifest, error) {
 // ReadHomeFromConfigDir reads the config file in dir and returns its home
 // manifest. The boolean reports whether a home key was present.
 func ReadHomeFromConfigDir(dir string) (Manifest, bool, error) {
-	path, _, ok := configpaths.FindConfigFile(dir)
+	path, _, ok, err := configdecode.FindFile(dir)
 	if !ok {
-		return Manifest{}, false, nil
+		return Manifest{}, false, err
 	}
 	root, err := configdecode.DecodeFile(path, "config")
 	if err != nil {
@@ -303,10 +303,11 @@ func BuildHomeFilesWithModes(
 			return nil, nil, false, vErr
 		}
 		info, infoErr := os.Stat(e.Source)
-		// A source that Stat cannot stat also fails ReadFile below, which reports
-		// it missing the same way, so skipping this guard is unobservable.
-		// gomutants:disable-next-line BRANCH_IF reason="when Stat fails ReadFile on the same path also fails, so the fall-through appends the same missing source and continues"
 		if infoErr != nil {
+			// An approved source that is gone must stop the run, not go missing.
+			if goneErr := projectguard.Missing(e.Source); goneErr != nil {
+				return nil, nil, false, goneErr
+			}
 			missing = append(missing, e.Source)
 			continue
 		}
