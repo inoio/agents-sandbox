@@ -230,6 +230,31 @@ func TestIsReplaced(t *testing.T) {
 	}
 }
 
+// TestIsJobNotRunning covers the detached-job classifier: only a JobError
+// carrying the job_not_running code (optionally wrapped) counts, because that
+// code alone means the desired end state — the job not running — already holds.
+func TestIsJobNotRunning(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"plain error", errors.New("some other failure"), false},
+		{"sdk error, not a job error", &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound}, false},
+		{"other job error code", &msbSdk.JobError{Code: "input_busy"}, false},
+		{"job_not_running", &msbSdk.JobError{Code: "job_not_running"}, true},
+		{"wrapped job_not_running", fmt.Errorf("kill: %w", &msbSdk.JobError{Code: "job_not_running"}), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsJobNotRunning(tt.err); got != tt.want {
+				t.Errorf("IsJobNotRunning(%v) = %v, want %v", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsSandboxAlreadyExists(t *testing.T) {
 	exists := &msbSdk.Error{Kind: msbSdk.ErrSandboxAlreadyExists, Message: "sandbox already exists"}
 	volumeExists := &msbSdk.Error{Kind: msbSdk.ErrVolumeAlreadyExists, Message: "volume already exists"}

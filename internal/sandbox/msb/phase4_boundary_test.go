@@ -18,6 +18,10 @@ var sdkBoundaryResidue = map[string]string{
 		"RuntimeConfig, EnsureRuntime/InstallRuntime) has no launcher-owned equivalent yet",
 }
 
+// sdkImportPath is the microsandbox SDK import no non-`msb` production package
+// may use.
+const sdkImportPath = "github.com/superradcompany/microsandbox/sdk/go"
+
 // TestNoProductionPackageImportsSDK pins the phase-4 end state: with the
 // launcher owning the whole config model, the microsandbox SDK is an
 // implementation detail of internal/sandbox/msb alone. Every other package's
@@ -28,7 +32,7 @@ var sdkBoundaryResidue = map[string]string{
 // Package.Imports covers non-test files only, with TestImports/XTestImports
 // kept separate.
 func TestNoProductionPackageImportsSDK(t *testing.T) {
-	const sdkPath = "github.com/superradcompany/microsandbox/sdk/go"
+	sdkPath := sdkImportPath
 	moduleRoot := filepath.Join("..", "..", "..")
 	adapterDir := filepath.Join(moduleRoot, "internal", "sandbox", "msb")
 
@@ -72,17 +76,24 @@ func TestNoProductionPackageImportsSDK(t *testing.T) {
 }
 
 // TestSDKBoundaryResiduePackagesExist guards against a stale residue entry: a
-// package named there must exist, so deleting it removes the exemption rather
-// than leaving a silent hole.
+// package named there must exist and must actually import the SDK, so the list
+// is a live exemption rather than a silent hole. The import assertion is also the
+// positive control for TestNoProductionPackageImportsSDK: it proves the scan
+// detects a real production importer.
 func TestSDKBoundaryResiduePackagesExist(t *testing.T) {
 	for relative := range sdkBoundaryResidue {
-		info, err := os.Stat(filepath.Join("..", "..", "..", relative))
+		dir := filepath.Join("..", "..", "..", relative)
+		info, err := os.Stat(dir)
 		if err != nil {
 			t.Errorf("residue package %s does not exist: %v", relative, err)
 			continue
 		}
 		if !info.IsDir() {
 			t.Errorf("residue path %s is not a directory", relative)
+			continue
+		}
+		if !productionImportsSDK(dir, sdkImportPath) {
+			t.Errorf("residue package %s does not import the SDK; drop it from sdkBoundaryResidue", relative)
 		}
 	}
 }
