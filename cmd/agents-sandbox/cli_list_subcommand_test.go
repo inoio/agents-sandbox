@@ -10,7 +10,7 @@ import (
 
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 var errBoom = errors.New("boom")
@@ -815,7 +815,7 @@ func TestParseLabelFlagsRejectsEmptyKey(t *testing.T) {
 // TestBuildSandboxCmdHasListAndRun pins that the sandbox group still registers
 // the list and run subcommands.
 func TestBuildSandboxCmdHasListAndRun(t *testing.T) {
-	cmd := buildSandboxCmd(&termio.Mock{})
+	cmd := buildSandboxCmd(&termiotest.Mock{})
 	names := map[string]bool{}
 	for _, sub := range cmd.Commands() {
 		names[sub.Name()] = true
@@ -827,7 +827,7 @@ func TestBuildSandboxCmdHasListAndRun(t *testing.T) {
 
 // TestBuildListLimitDefault pins the --limit default of 0.
 func TestBuildListLimitDefault(t *testing.T) {
-	cmd := buildListCmd(&termio.Mock{})
+	cmd := buildListCmd(&termiotest.Mock{})
 	if got := cmd.Flags().Lookup(flagLimit).DefValue; got != "0" {
 		t.Errorf("--%s default = %q, want %q", flagLimit, got, "0")
 	}

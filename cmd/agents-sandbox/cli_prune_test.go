@@ -18,12 +18,13 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
 // TestResolvePruneAgeDefault pins the 7-day default as a literal.
 func TestResolvePruneAgeDefault(t *testing.T) {
-	cmd := buildPruneCmd(&termio.Mock{})
+	cmd := buildPruneCmd(&termiotest.Mock{})
 	got, err := resolvePruneAge(cmd)
 	if err != nil {
 		t.Fatalf("resolvePruneAge: %v", err)
@@ -36,7 +37,7 @@ func TestResolvePruneAgeDefault(t *testing.T) {
 // TestResolvePruneAgeNonPositiveResolverFallsBack pins that a resolver's
 // non-positive manual-prune-age falls back to the default.
 func TestResolvePruneAgeNonPositiveResolverFallsBack(t *testing.T) {
-	cmd := buildPruneCmd(&termio.Mock{})
+	cmd := buildPruneCmd(&termiotest.Mock{})
 	cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil),
 		launcherconfig.NewResolverWithConfig(launcherconfig.Config{ManualPruneAge: 0})))
 
@@ -52,7 +53,7 @@ func TestResolvePruneAgeNonPositiveResolverFallsBack(t *testing.T) {
 // TestResolvePruneAgeSmallPositiveResolverValue pins that any positive
 // resolver age is used, including one nanosecond (the > 0 guard, not > 1).
 func TestResolvePruneAgeSmallPositiveResolverValue(t *testing.T) {
-	cmd := buildPruneCmd(&termio.Mock{})
+	cmd := buildPruneCmd(&termiotest.Mock{})
 	cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil),
 		launcherconfig.NewResolverWithConfig(launcherconfig.Config{ManualPruneAge: time.Nanosecond})))
 
@@ -68,7 +69,7 @@ func TestResolvePruneAgeSmallPositiveResolverValue(t *testing.T) {
 // TestResolvePruneAgeErrorReturnsZero pins the zero duration on both error paths.
 func TestResolvePruneAgeErrorReturnsZero(t *testing.T) {
 	t.Run("conflicting flags", func(t *testing.T) {
-		cmd := buildPruneCmd(&termio.Mock{})
+		cmd := buildPruneCmd(&termiotest.Mock{})
 		_ = cmd.Flags().Set(flagOlderThan, "7d")
 		_ = cmd.Flags().Set(flagAge, "7d")
 		got, err := resolvePruneAge(cmd)
@@ -80,7 +81,7 @@ func TestResolvePruneAgeErrorReturnsZero(t *testing.T) {
 		}
 	})
 	t.Run("invalid age", func(t *testing.T) {
-		cmd := buildPruneCmd(&termio.Mock{})
+		cmd := buildPruneCmd(&termiotest.Mock{})
 		_ = cmd.Flags().Set(flagOlderThan, "bogus")
 		got, err := resolvePruneAge(cmd)
 		if err == nil {
@@ -97,7 +98,7 @@ func TestResolvePruneAgeErrorReturnsZero(t *testing.T) {
 // duration is zero.
 func TestResolvePruneAgeRejectsZero(t *testing.T) {
 	for _, age := range []string{"0", "0d", "0w", "0s", "0h", "0m", "0ns"} {
-		cmd := buildPruneCmd(&termio.Mock{})
+		cmd := buildPruneCmd(&termiotest.Mock{})
 		_ = cmd.Flags().Set(flagOlderThan, age)
 		got, err := resolvePruneAge(cmd)
 		if err == nil {
@@ -120,7 +121,7 @@ func TestResolvePruneAgeRejectsZero(t *testing.T) {
 // leaves alive; TestResolvePruneAgeSmallPositiveResolverValue covers only the
 // resolver path, not this guard.
 func TestResolvePruneAgeAcceptsOneNanosecond(t *testing.T) {
-	cmd := buildPruneCmd(&termio.Mock{})
+	cmd := buildPruneCmd(&termiotest.Mock{})
 	_ = cmd.Flags().Set(flagOlderThan, "1ns")
 	got, err := resolvePruneAge(cmd)
 	if err != nil {
@@ -134,7 +135,7 @@ func TestResolvePruneAgeAcceptsOneNanosecond(t *testing.T) {
 // TestResolvePruneFlagsErrorReturnsZero pins the error return's zero age and
 // false dry-run.
 func TestResolvePruneFlagsErrorReturnsZero(t *testing.T) {
-	cmd := buildPruneCmd(&termio.Mock{})
+	cmd := buildPruneCmd(&termiotest.Mock{})
 	_ = cmd.Flags().Set(flagOlderThan, "bogus")
 
 	age, dryRun, err := resolvePruneFlags(cmd)
@@ -153,7 +154,7 @@ func TestResolvePruneFlagsErrorReturnsZero(t *testing.T) {
 // rather than swallowed.
 func TestRunGroupPrunePropagatesError(t *testing.T) {
 	_, _ = setupCommandFixtures(t)
-	ui := &termio.Mock{IsInteractiveResult: true, ConfirmResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true, ConfirmResult: true}
 	cmd := buildImagePruneCmd(ui)
 	errBoom := errors.New("boom")
 
@@ -1131,7 +1132,7 @@ func TestPrunePurgeForceStopsRunningSandbox(t *testing.T) {
 }
 
 func TestResolvePruneAgeFromResolver(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	cmd := buildPruneCmd(ui)
 	ctx := context.WithValue(context.Background(), (*launcherConfigKey)(nil),
 		launcherconfig.NewResolverWithConfig(launcherconfig.Config{ManualPruneAge: 5 * time.Hour}))
@@ -1172,7 +1173,7 @@ func TestPrunePurgePlanRemovalError(t *testing.T) {
 // returns the empty cwd-implicit target, and a bare --purge with one positional
 // argument returns that argument.
 func TestPrunePurgeTargetBarePurgeReturnsCwdTarget(t *testing.T) {
-	cmd := buildPruneCmd(&termio.Mock{})
+	cmd := buildPruneCmd(&termiotest.Mock{})
 	if err := cmd.Flags().Set(flagPurge, purgeCwdTarget); err != nil {
 		t.Fatal(err)
 	}

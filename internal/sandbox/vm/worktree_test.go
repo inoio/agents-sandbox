@@ -13,7 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestValidateWorktreeBase pins that a base must resolve to a commit in the
@@ -178,7 +178,7 @@ func TestResolveTargetStopsAtTheFailingStep(t *testing.T) {
 			}
 
 			_, err := ResolveTarget(context.Background(), agent.Resolve(a), sb,
-				options.WorktreeSpec{Name: "feat-x", Base: tc.base}, mounts.WorkspaceMountPath, &termio.Mock{})
+				options.WorktreeSpec{Name: "feat-x", Base: tc.base}, mounts.WorkspaceMountPath, &termiotest.Mock{})
 
 			if err == nil {
 				t.Fatal("ResolveTarget succeeded, want the step's failure")
@@ -201,7 +201,7 @@ func TestResolveTargetStopsAtTheFailingStep(t *testing.T) {
 }
 
 func TestResolveTargetResolvesThenPassesProjectToProvider(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	a := &recordingWorktreeAgent{}
 	sb := &msb.MockSandbox{ShellOut: map[string]msb.ShellResult{
 		"resolve": msb.NewTestResult(true, 0, `{}`, "", nil),
@@ -240,7 +240,7 @@ func TestResolveTargetResolvesThenPassesProjectToProvider(t *testing.T) {
 // TestResolveTargetV1SkipsResolveStep pins that an agent without a resolve
 // command (v1) shells out only for the list and create.
 func TestResolveTargetV1SkipsResolveStep(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
@@ -267,7 +267,7 @@ func TestResolveTargetV1SkipsResolveStep(t *testing.T) {
 }
 
 func TestResolveTargetEmptySpecReturnsWorkspace(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := &msb.MockSandbox{ShellCalls: &[]string{}}
 	dir, err := ResolveTarget(
 		context.Background(),
@@ -289,7 +289,7 @@ func TestResolveTargetEmptySpecReturnsWorkspace(t *testing.T) {
 }
 
 func TestResolveTargetNoDaemonProvider(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := &msb.MockSandbox{ShellCalls: &[]string{}}
 	dir, err := ResolveTarget(
 		context.Background(),
@@ -311,7 +311,7 @@ func TestResolveTargetNoDaemonProvider(t *testing.T) {
 }
 
 func TestResolveTargetReusesExistingWorktree(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
@@ -342,7 +342,7 @@ func TestResolveTargetReusesExistingWorktree(t *testing.T) {
 }
 
 func TestResolveTargetReuseWarnsIgnoredBase(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
@@ -384,7 +384,7 @@ func TestResolveTargetReuseWarnsIgnoredBase(t *testing.T) {
 // ExecOut entry is never consulted under the correct ordering, so the call
 // succeeds; if validation were moved ahead of the reuse check it would fail.
 func TestResolveTargetReuseIgnoresUnresolvableBase(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	existing := "/home/dev/.local/share/opencode/worktree/abc/foo"
 	sb := &msb.MockSandbox{
@@ -439,7 +439,7 @@ func TestResolveTargetReuseIgnoresUnresolvableBase(t *testing.T) {
 }
 
 func TestResolveTargetCreatesWithoutBase(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
@@ -471,7 +471,7 @@ func TestResolveTargetCreatesWithoutBase(t *testing.T) {
 }
 
 func TestResolveTargetCreatesWithBaseValidatesAndSendsStartCommand(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x", Base: "main"}, agent.WorktreeProject{})
 	sb := &msb.MockSandbox{
@@ -527,7 +527,7 @@ func TestResolveTargetCreatesWithBaseValidatesAndSendsStartCommand(t *testing.T)
 }
 
 func TestResolveTargetCreateFailsOnUnresolvableBase(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x", Base: "nope"}, agent.WorktreeProject{})
 	sb := &msb.MockSandbox{
@@ -572,7 +572,7 @@ func TestResolveTargetCreateFailsOnUnresolvableBase(t *testing.T) {
 // TestResolveTargetCreateReportsWorktree pins that a fresh create is announced
 // at the default-visible level, naming the worktree and its directory.
 func TestResolveTargetCreateReportsWorktree(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
@@ -606,7 +606,7 @@ func TestResolveTargetCreateReportsWorktree(t *testing.T) {
 // TestResolveTargetReuseReportsWorktree pins that reuse is announced at the
 // default-visible level, naming the reused directory.
 func TestResolveTargetReuseReportsWorktree(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	dir := "/home/dev/.local/share/opencode/worktree/abc/feat-x"
 	sb := &msb.MockSandbox{
@@ -633,7 +633,7 @@ func TestResolveTargetReuseReportsWorktree(t *testing.T) {
 // TestResolveTargetOpencode2ReportsDetachedHead pins that opencode2's detached
 // HEAD (v2 never leaves a worktree on a branch) is surfaced with the recovery.
 func TestResolveTargetOpencode2ReportsDetachedHead(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	a := opencode2Agent(t)
 	provider, ok := agent.AsWorktreeProvider(a)
 	if !ok {
@@ -669,7 +669,7 @@ func TestResolveTargetOpencode2ReportsDetachedHead(t *testing.T) {
 // state is unknown — the user may already have run `git switch -c <branch>`
 // after the create-time note — so reuse must not restate the claim.
 func TestResolveTargetOpencode2ReuseDoesNotClaimDetachedHead(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	a := opencode2Agent(t)
 	provider, ok := agent.AsWorktreeProvider(a)
 	if !ok {
@@ -713,7 +713,7 @@ func TestResolveTargetOpencode2ReuseDoesNotClaimDetachedHead(t *testing.T) {
 // TestResolveTargetOpencodeDoesNotReportDetachedHead pins that v1 (which keeps a
 // branch) never claims a detached HEAD.
 func TestResolveTargetOpencodeDoesNotReportDetachedHead(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
@@ -748,7 +748,7 @@ func TestResolveTargetOpencodeDoesNotReportDetachedHead(t *testing.T) {
 // whose base name differs from the requested name (the -2 auto-suffix) is
 // surfaced, naming the directory actually used.
 func TestResolveTargetWarnsOnRenamedWorktree(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{

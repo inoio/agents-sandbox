@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	"github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -73,7 +74,7 @@ func TestSuggestRaiseUnknownBootMaxNoClamp(t *testing.T) {
 // a non-interactive UI returns ok=false and neither Select nor Input is called.
 func TestAskNonInteractiveDeclinesWithoutPrompting(t *testing.T) {
 	var selectCalled, inputCalled bool
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: false,
 		SelectFn: func(string, []termio.Choice, string) (string, error) {
 			selectCalled = true
@@ -108,7 +109,7 @@ func TestAskInteractiveAcceptsInput(t *testing.T) {
 	var selectKeys []string
 	var selectDefault string
 	var inputPrompt, inputDefault string
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(prompt string, choices []termio.Choice, defaultKey string) (string, error) {
 			selectPrompt = prompt
@@ -157,7 +158,7 @@ func TestAskInteractiveAcceptsInput(t *testing.T) {
 // and no value prompt.
 func TestAskDeclineReturnsNotOk(t *testing.T) {
 	var inputCalled bool
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(string, []termio.Choice, string) (string, error) {
 			return "keep", nil
@@ -202,7 +203,7 @@ func TestAskRepromptsUntilAValidRaise(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var prompts []string
 			answers := []string{tc.rejected, "12G"}
-			ui := &termio.Mock{
+			ui := &termiotest.Mock{
 				IsInteractiveResult: true,
 				SelectFn: func(string, []termio.Choice, string) (string, error) {
 					return "raise", nil
@@ -244,7 +245,7 @@ func TestRaiseProblemHonoursEveryKnownBootMaximum(t *testing.T) {
 // re-prompting (stdin closed) ends the offer with the error instead of looping.
 func TestAskRepromptInputErrorIsReturned(t *testing.T) {
 	calls := 0
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(string, []termio.Choice, string) (string, error) {
 			return "raise", nil
@@ -271,7 +272,7 @@ func TestAskRepromptInputErrorIsReturned(t *testing.T) {
 // suggestion that is not a whole GiB is shown in MiB.
 func TestAskInputDefaultUsesMiBForNonGiBValue(t *testing.T) {
 	var inputDefault string
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(string, []termio.Choice, string) (string, error) {
 			return "raise", nil
@@ -295,7 +296,7 @@ func TestAskInputDefaultUsesMiBForNonGiBValue(t *testing.T) {
 
 // TestAskSelectErrorPropagates pins that a prompt failure is surfaced.
 func TestAskSelectErrorPropagates(t *testing.T) {
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(string, []termio.Choice, string) (string, error) {
 			return "", errBoom
@@ -312,7 +313,7 @@ func TestAskSelectErrorPropagates(t *testing.T) {
 
 // TestAskInputErrorPropagates pins that an input failure is surfaced.
 func TestAskInputErrorPropagates(t *testing.T) {
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(string, []termio.Choice, string) (string, error) {
 			return "raise", nil

@@ -22,7 +22,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestHomeVolumeNameIsPrefixFree(t *testing.T) {
@@ -102,7 +102,7 @@ func TestPrefillVolume_LoadImageFails(t *testing.T) {
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"vol",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag"},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "load runner image") || errors.Unwrap(err) == nil {
 		t.Fatalf("expected load runner image error, got: %v", err)
@@ -117,7 +117,7 @@ func TestCopyVolume_DestroyFailureWarns(t *testing.T) {
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		return &msb.MockSandbox{DestroyErr: errors.New("destroy failed")}, nil
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 
 	err := vm.CopyVolume(
@@ -156,7 +156,7 @@ func TestCopyVolume_LoadImageFails(t *testing.T) {
 		"old-vol",
 		"new-vol",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag"},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "load runner image") || errors.Unwrap(err) == nil {
 		t.Fatalf("expected load runner image error, got: %v", err)
@@ -173,7 +173,7 @@ func TestApplyHomeAction_KeepRecordImageFails_Warns(t *testing.T) {
 	}
 
 	mock := &msb.MockMsbClient{}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 
 	vol, err := vm.ApplyHomeAction(
@@ -220,7 +220,7 @@ func TestApplyHomeAction_CreateVolumeFails(t *testing.T) {
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		ActionReset,
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "create volume") || errors.Unwrap(err) == nil {
 		t.Fatalf("expected create volume error, got: %v", err)
@@ -257,7 +257,7 @@ func TestApplyHomeAction_WriteStateFails_ReturnsError(t *testing.T) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	_, err := vm.ApplyHomeAction(
 		context.Background(),
@@ -291,7 +291,7 @@ func TestApplyHomeAction_WriteStateFails_ReturnsError(t *testing.T) {
 // without one.
 func TestPrefillSandboxNameIsPrefixFreeAndLabelled(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	client := &msb.MockMsbClient{CreatedSandbox: &msb.MockSandbox{Name_: "prefill"}}
 	vm := NewManager(docker.Get())
 
@@ -318,7 +318,7 @@ func TestPrefillSandboxNameIsPrefixFreeAndLabelled(t *testing.T) {
 // TestCopySandboxNameIsPrefixFreeAndLabelled pins the second creation site.
 func TestCopySandboxNameIsPrefixFreeAndLabelled(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	client := &msb.MockMsbClient{CreatedSandbox: &msb.MockSandbox{Name_: "copy"}}
 	vm := NewManager(docker.Get())
 
@@ -345,7 +345,7 @@ func TestCopySandboxNameIsPrefixFreeAndLabelled(t *testing.T) {
 
 func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	ui := &testUI
 	prefillSandbox := &msb.MockSandbox{Name_: "prefill"}
 	client := &msb.MockMsbClient{CreatedSandbox: prefillSandbox}
@@ -372,7 +372,7 @@ func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 
 func TestPrefillVolume_DestroyToleratesReplaced(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	prefillSandbox := &msb.MockSandbox{
 		Name_:      "prefill",
 		DestroyErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"},
@@ -398,7 +398,7 @@ func TestPrefillVolume_DestroyToleratesReplaced(t *testing.T) {
 
 func TestPrefillVolume_DestroyFailureWarns(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	prefillSandbox := &msb.MockSandbox{Name_: "prefill", DestroyErr: errors.New("destroy failed")}
 	client := &msb.MockMsbClient{CreatedSandbox: prefillSandbox}
 	vm := NewManager(docker.Get())
@@ -450,7 +450,7 @@ func TestApplyHomeActionAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		ActionReset,
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected a concurrent-change error, got nil")
@@ -488,7 +488,7 @@ func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		ActionKeep,
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -537,7 +537,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 				image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 				tt.action,
 				false,
-				&termio.Mock{},
+				&termiotest.Mock{},
 			)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -600,7 +600,7 @@ func TestApplyHomeAction_Reset_SkipVM_NoWrites(t *testing.T) {
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		ActionReset,
 		true,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -648,7 +648,7 @@ func TestApplyHomeAction_Migrate_SkipVM_NoStateWrite(t *testing.T) {
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		ActionMigrate,
 		true,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -707,7 +707,7 @@ func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		ActionMigrate,
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -730,7 +730,7 @@ func TestCleanupVolume_Success(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	vm := NewManager(docker.Get())
 
-	vm.cleanupVolume(context.Background(), mock, "orphan-vol", &termio.Mock{})
+	vm.cleanupVolume(context.Background(), mock, "orphan-vol", &termiotest.Mock{})
 
 	if len(mock.RemovedVolumes) != 1 {
 		t.Fatalf("expected volume to be removed, got %v", mock.RemovedVolumes)
@@ -742,7 +742,7 @@ func TestCleanupVolume_Failure(t *testing.T) {
 	mock.RemoveVolumeFn = func(_ context.Context, _ string) error {
 		return errors.New("volume busy")
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 
 	vm.cleanupVolume(context.Background(), mock, "orphan-vol", ui)
@@ -781,7 +781,7 @@ func TestCleanupUncommittedVolume(t *testing.T) {
 			mock := &msb.MockMsbClient{}
 			vm := NewManager(docker.Get())
 
-			vm.cleanupUncommittedVolume(context.Background(), mock, "new-vol", tt.commitErr, &termio.Mock{})
+			vm.cleanupUncommittedVolume(context.Background(), mock, "new-vol", tt.commitErr, &termiotest.Mock{})
 
 			removed := len(mock.RemovedVolumes) == 1
 			if removed != tt.wantRemove {
@@ -803,7 +803,7 @@ func TestPrefillVolume_CreateSandboxFails(t *testing.T) {
 		state.Key{Slug: "myproject", Agent: "opencode"},
 		"test-home-vol",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag"},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -821,7 +821,7 @@ func TestPrefillVolume_ExecFails(t *testing.T) {
 			ExecErr: errors.New("exec failed"),
 		}), nil
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 
 	err := vm.PrefillVolume(
@@ -856,7 +856,7 @@ func TestPrefillVolume_ExecExitFailure(t *testing.T) {
 			},
 		}), nil
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 
 	err := vm.PrefillVolume(
@@ -888,7 +888,7 @@ func TestCopyVolume_CreateSandboxFails(t *testing.T) {
 		"old-vol",
 		"new-vol",
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag"},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -906,7 +906,7 @@ func TestCopyVolume_ExecFails(t *testing.T) {
 			ExecErr: errors.New("exec failed during copy"),
 		}), nil
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 
 	err := vm.CopyVolume(
@@ -942,7 +942,7 @@ func TestCopyVolume_ExecExitFailure(t *testing.T) {
 			},
 		}), nil
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 
 	err := vm.CopyVolume(
@@ -984,7 +984,7 @@ func TestApplyHomeAction_Reset_Success(t *testing.T) {
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		ActionReset,
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1043,7 +1043,7 @@ func TestApplyHomeAction_PreservesFingerprints(t *testing.T) {
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		ActionReset,
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1088,7 +1088,7 @@ func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
 		image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:new"},
 		ActionReset,
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected error, got nil")

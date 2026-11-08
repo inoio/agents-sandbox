@@ -12,7 +12,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestJobExited(t *testing.T) {
@@ -283,7 +283,7 @@ func TestKillJobsDoesNotRequestAllJobs(t *testing.T) {
 			return nil, nil
 		},
 	}
-	killJobs(context.Background(), sb, dockerdHelper(), &termio.Mock{})
+	killJobs(context.Background(), sb, dockerdHelper(), &termiotest.Mock{})
 	if gotQuery != (msb.JobQuery{}) {
 		t.Errorf(
 			"ListJobs query = %+v, want the zero query (discovery must stay scoped to the current runtime generation)",
@@ -296,7 +296,7 @@ func TestKillJobsDoesNotRequestAllJobs(t *testing.T) {
 // not running (for example one left behind by an earlier runtime generation)
 // reaches the desired end state without being logged as a failure.
 func TestKillJobsTreatsAlreadyStoppedAsSuccess(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	stopped := &msb.MockJob{
 		KillErr: &msbSdk.JobError{Code: "job_not_running", Message: "job belongs to an earlier runtime generation"},
 	}
@@ -327,7 +327,7 @@ func TestKillJobsTreatsAlreadyStoppedAsSuccess(t *testing.T) {
 // it, so it keeps the socket/port the fresh helper then races for and the launch
 // fails with "exited before becoming ready".
 func TestKillJobsTargetsStaleHelperWithChangedArgs(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	legacy := &msb.MockJob{}
 	marked := &msb.MockJob{}
 	otherHelper := &msb.MockJob{}
@@ -368,7 +368,7 @@ func TestKillJobsTargetsStaleHelperWithChangedArgs(t *testing.T) {
 }
 
 func TestKillJobsKillsMatches(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	stale := &msb.MockJob{}
 	other := &msb.MockJob{}
 	// The non-matching job comes first: a matcher that stopped at the first
@@ -405,7 +405,7 @@ func TestKillJobsKillsMatches(t *testing.T) {
 // cannot be resolved or killed is a verbose diagnostic and the remaining
 // matching jobs are still killed; a job whose kill failed is still closed.
 func TestKillJobsContinuesPastAJobItCannotKill(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	killFails := &msb.MockJob{KillErr: errors.New("kill boom")}
 	healthy := &msb.MockJob{}
 	sb := &msb.MockSandbox{
@@ -441,7 +441,7 @@ func TestKillJobsContinuesPastAJobItCannotKill(t *testing.T) {
 // TestKillJobsReportsAListFailure pins that jobs that cannot be listed are a
 // verbose diagnostic, not a failure: there is nothing to kill.
 func TestKillJobsReportsAListFailure(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := &msb.MockSandbox{
 		ListJobsFn: func(context.Context, msb.JobQuery) ([]msb.JobInfo, error) {
 			return nil, errors.New("list boom")
@@ -454,7 +454,7 @@ func TestKillJobsReportsAListFailure(t *testing.T) {
 }
 
 func TestKillJobsReportsCloseFailure(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	closing := &msb.MockJob{CloseErr: errors.New("close boom")}
 	sb := &msb.MockSandbox{
 		Jobs: []msb.JobInfo{{ID: "closing", Command: []string{"dockerd"}}},

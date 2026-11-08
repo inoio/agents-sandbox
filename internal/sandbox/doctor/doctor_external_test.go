@@ -7,7 +7,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestCheckAllUsesMockedCheckAll pins that an external test package can replace
@@ -22,7 +22,7 @@ func TestCheckAllUsesMockedCheckAll(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			testUI := termio.NewTestMock(t)
+			testUI := termiotest.NewTestMock(t)
 			doctortest.MockedCheckAll(t, tc.success)
 
 			if got := doctor.CheckAll(context.Background(), docker.Get(), &testUI); got != tc.success {

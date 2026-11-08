@@ -16,7 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // withMockAgentVersion pins the agent release the command boundary resolves for
@@ -69,7 +69,7 @@ var pruneAgeFlags = []FlagSet{
 	{"--older-than", "7d"},
 }
 
-func setupCommandFixtures(t *testing.T, args ...string) (*cobra.Command, *termio.Mock) {
+func setupCommandFixtures(t *testing.T, args ...string) (*cobra.Command, *termiotest.Mock) {
 	t.Helper()
 	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "0.0.0-test")
@@ -77,7 +77,7 @@ func setupCommandFixtures(t *testing.T, args ...string) (*cobra.Command, *termio
 	dockertest.WithNoopDockerMock(t)
 	doctortest.MockedCheckAll(t, true)
 	doctortest.MockedCheckDocker(t, true)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	cmd := buildRootCmd(ui)
 	cmd.SetArgs(args)
 	return cmd, ui

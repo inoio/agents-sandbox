@@ -18,6 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -156,7 +157,7 @@ func TestStopOrKillProjectVM(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 			client := &msb.MockMsbClient{}
 			switch {
 			case tc.lookupErr != nil:
@@ -217,7 +218,7 @@ func TestStopOrKillProjectVM(t *testing.T) {
 func TestStopOrKillProjectVMInactiveWithoutRemoveLeavesState(t *testing.T) {
 	for _, status := range inactiveStatuses {
 		t.Run(string(status), func(t *testing.T) {
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 			handle := inactiveHandle(status)
 			client := &msb.MockMsbClient{}
 			client.SetGotSandbox(handle)
@@ -242,7 +243,7 @@ func TestStopOrKillProjectVMInactiveWithoutRemoveLeavesState(t *testing.T) {
 func TestStopOrKillProjectVMInactiveRemoveRemovesState(t *testing.T) {
 	for _, status := range inactiveStatuses {
 		t.Run(string(status), func(t *testing.T) {
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 			handle := inactiveHandle(status)
 			client := &msb.MockMsbClient{}
 			client.SetGotSandbox(handle)
@@ -289,7 +290,7 @@ func TestStopAndKillProjectVMRunTheirAction(t *testing.T) {
 			client := &msb.MockMsbClient{}
 			client.SetGotSandbox(handle)
 			resolutions := msb.WithCountingMsbMock(t, client)
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 
 			err := command.run(context.Background(), configpaths.Get(), client, false, false, &ui, "opencode")
 			if !errors.Is(err, errVMSentinel) {
@@ -310,7 +311,7 @@ func TestStopAndKillProjectVMRunTheirAction(t *testing.T) {
 func TestStopAndKillProjectVMRejectAnUnknownAgent(t *testing.T) {
 	for _, command := range stopAndKillCommands {
 		t.Run(command.name, func(t *testing.T) {
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 			err := command.run(
 				context.Background(),
 				configpaths.Get(),
@@ -335,7 +336,7 @@ func TestStopKillProjectVMErrorsWhenIdentityUnresolvable(t *testing.T) {
 
 	for _, action := range stopAndKillCommands {
 		t.Run(action.name, func(t *testing.T) {
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 			if err := action.run(
 				context.Background(), configpaths.Get(), &msb.MockMsbClient{}, false, false, &ui, "opencode",
 			); err == nil {
@@ -366,7 +367,7 @@ func TestStopKillProjectVMAdoptionFailureFailsClosed(t *testing.T) {
 
 	for _, action := range stopAndKillCommands {
 		t.Run(action.name, func(t *testing.T) {
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 			err := action.run(
 				context.Background(), configpaths.Get(), msb.Get(), false, false, &ui, "opencode",
 			)
@@ -401,7 +402,7 @@ func TestStopKillProjectVMDryRunLeavesLegacyState(t *testing.T) {
 
 	for _, action := range stopAndKillCommands {
 		t.Run(action.name, func(t *testing.T) {
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 			if err := action.run(
 				context.Background(), configpaths.Get(), client, false, true, &ui, "opencode",
 			); err != nil {

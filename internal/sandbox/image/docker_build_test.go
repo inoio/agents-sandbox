@@ -22,7 +22,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestBuildDockerImageReturnsBuildFailure(t *testing.T) {
@@ -35,7 +35,7 @@ func TestBuildDockerImageReturnsBuildFailure(t *testing.T) {
 	err := buildDockerImage(
 		context.Background(), docker.Get(), a,
 		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
-		"tag", "label", false, &termio.Mock{},
+		"tag", "label", false, &termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected buildDockerImage to return an error when the build fails")
@@ -44,7 +44,7 @@ func TestBuildDockerImageReturnsBuildFailure(t *testing.T) {
 
 func TestBuildDockerImageForwardsBuildOutputToVerbose(t *testing.T) {
 	a := agentOpencode(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{
@@ -269,7 +269,7 @@ func TestBuildImagePassesAgentVersionBuildArg(t *testing.T) {
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: true, AgentVersion: "1.2.3"},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -617,7 +617,7 @@ func TestBuildDockerImageRefusesAfterAnUnapprovedRead(t *testing.T) {
 	err := buildDockerImage(
 		context.Background(), docker.Get(), a,
 		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
-		"tag", "label", false, &termio.Mock{},
+		"tag", "label", false, &termiotest.Mock{},
 	)
 	if !errors.Is(err, projectguard.ErrNotApproved) {
 		t.Errorf("buildDockerImage = %v, want ErrNotApproved", err)

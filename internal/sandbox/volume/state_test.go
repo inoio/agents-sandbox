@@ -25,7 +25,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestEnsureNewHome_NameCollisionRetries pins the same-second case of #431:
@@ -48,7 +48,7 @@ func TestEnsureNewHome_NameCollisionRetries(t *testing.T) {
 			return msb.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	volName, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "", ui,
@@ -73,7 +73,7 @@ func TestEnsureNewHome_SkipVM_CreatesNothing(t *testing.T) {
 		},
 	}
 	k := state.Key{Slug: "testproj", Agent: "opencode"}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	volName, hs, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(),
@@ -116,7 +116,7 @@ func TestEnsureNewHome_CreateVolumeFails(t *testing.T) {
 		false,
 		state.Fingerprints{},
 		"",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "create volume") || errors.Unwrap(err) == nil {
 		t.Fatalf("expected create volume error, got: %v", err)
@@ -133,7 +133,7 @@ func TestRecordHomeImage_ReadStateError(t *testing.T) {
 	}
 
 	vm := NewManager(docker.Get())
-	err := vm.RecordHomeImage(state.Key{Slug: slug, Agent: "opencode"}, "sha256:new", &termio.Mock{})
+	err := vm.RecordHomeImage(state.Key{Slug: slug, Agent: "opencode"}, "sha256:new", &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("expected error for unreadable state, got nil")
 	}
@@ -158,7 +158,7 @@ func TestRecordHomeImage_WriteStateFails(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	err := vm.RecordHomeImage(state.Key{Slug: slug, Agent: "opencode"}, "sha256:new", ui)
 	if err == nil {
@@ -204,7 +204,7 @@ func TestEnsureNewHome_ConcurrentCommitAdoptsWinner(t *testing.T) {
 					return msb.MockVolumeHandle{Name_: name}, nil
 				},
 			}
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 
 			volName, hs, err := NewManager(docker.Get()).EnsureNewHome(
 				context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, tt.priorRecorded, ui,
@@ -236,7 +236,7 @@ func TestEnsureNewHome_ReplacesStaleRecordedVolume(t *testing.T) {
 			return msb.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	volName, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "gone-vol", ui,
@@ -264,7 +264,7 @@ func TestEnsureNewHome_ReplacesConcurrentEmptyHomeVolume(t *testing.T) {
 			return msb.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	volName, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "gone-vol", ui,
@@ -300,7 +300,7 @@ func TestResolveHomeVolume_WinnerCommitsBeforeCreation(t *testing.T) {
 			return msb.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	volName, _, err := NewManager(docker.Get()).ResolveHomeVolume(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "", ui,
@@ -327,7 +327,7 @@ func TestEnsureNewHome_NameCollisionGivesUp(t *testing.T) {
 			return nil, errVolumeExists
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	_, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "", ui,
@@ -350,7 +350,7 @@ func TestEnsureNewHome_CreateErrorDoesNotRetry(t *testing.T) {
 			return nil, createErr
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	_, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, state.Key{Slug: "failproj", Agent: "opencode"},
@@ -375,7 +375,7 @@ func TestEnsureNewHomeSeedsFingerprints(t *testing.T) {
 			return msb.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	k := state.Key{Slug: "seedproj", Agent: "opencode"}
 	desired := state.Fingerprints{
 		Network: state.BuildNetworkState(network.Policy{Profiles: []network.Profile{network.ProfileNone}}),
@@ -420,7 +420,7 @@ func TestResolveHomeVolumeRepairsCorruptState(t *testing.T) {
 			return msb.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	k := state.Key{Slug: "corruptproj", Agent: "opencode"}
 	if err := os.MkdirAll(state.KeyDir(k), 0o700); err != nil {
 		t.Fatal(err)
@@ -468,7 +468,7 @@ func TestResolveHomeVolumeRepairCorruptSeedsFingerprintsAndClearsUpgradeFields(t
 			return msb.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	k := state.Key{Slug: "corruptseed", Agent: "opencode"}
 	if err := os.MkdirAll(state.KeyDir(k), 0o700); err != nil {
 		t.Fatal(err)
@@ -521,7 +521,7 @@ func TestResolveHomeVolumeExistingStateKeepsFingerprints(t *testing.T) {
 			return msb.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	k := state.Key{Slug: "existingproj", Agent: "opencode"}
 	stored := state.BuildNetworkState(
 		network.Policy{Profiles: []network.Profile{network.ProfilePublic}, EgressAllow: []string{"example.com"}},
@@ -572,7 +572,7 @@ func TestResolveHomeVolumeSeedsFingerprints(t *testing.T) {
 			return msb.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	k := state.Key{Slug: "seedproj", Agent: "opencode"}
 	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}}
 	extraMounts := mounts.Mounts{
@@ -626,7 +626,7 @@ func TestResolveHomeVolume_ReuseWarnsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	_, hs, err := NewManager(docker.Get()).ResolveHomeVolume(
 		context.Background(), lookupMock([]string{"vol-keep"}, false), key,
 		image.ImageInfo{Digest: "sha256:def"}, false, state.Fingerprints{}, "", ui,
@@ -649,7 +649,7 @@ func TestResolveHomeVolume_AbsentStateWarnsNothing(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "absentquiet", Agent: "opencode"}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	_, _, err := NewManager(docker.Get()).ResolveHomeVolume(
 		context.Background(), lookupMock([]string{"live-quiet"}, false), key,
 		image.ImageInfo{Digest: "sha256:def"}, false, state.Fingerprints{}, "live-quiet", ui,
@@ -681,7 +681,7 @@ func TestResolveHomeVolume_RecordedLookupErrorWrapsCause(t *testing.T) {
 
 	_, _, err := NewManager(docker.Get()).ResolveHomeVolume(
 		context.Background(), mock, key,
-		image.ImageInfo{Digest: "sha256:def"}, false, state.Fingerprints{}, "", &termio.Mock{},
+		image.ImageInfo{Digest: "sha256:def"}, false, state.Fingerprints{}, "", &termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected a fail-closed error for the transient recorded-volume lookup")
@@ -720,7 +720,7 @@ func TestResolveHomeVolume_RecoveryCandidateErrorSurfaces(t *testing.T) {
 
 	_, _, err := NewManager(docker.Get()).ResolveHomeVolume(
 		context.Background(), mock, key,
-		image.ImageInfo{Digest: "sha256:def"}, false, state.Fingerprints{}, "live-x", &termio.Mock{},
+		image.ImageInfo{Digest: "sha256:def"}, false, state.Fingerprints{}, "live-x", &termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected a fail-closed error for the transient candidate lookup")
@@ -752,7 +752,7 @@ func TestResolveHomeVolume_ClearsAdoptionClaimWhenMarkerVolumeGone(t *testing.T)
 
 	if _, _, err := NewManager(docker.Get()).ResolveHomeVolume(
 		context.Background(), mock, key,
-		image.ImageInfo{Digest: "sha256:new"}, false, state.Fingerprints{}, "", &termio.Mock{},
+		image.ImageInfo{Digest: "sha256:new"}, false, state.Fingerprints{}, "", &termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("ResolveHomeVolume: %v", err)
 	}
@@ -785,7 +785,7 @@ func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	mockUI := &termio.Mock{}
+	mockUI := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	_, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -832,7 +832,7 @@ func TestResolveHomeVolume_MissingRecordedVolumeStartsFresh(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, st, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -881,7 +881,7 @@ func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
 	if err := vm.RecordHomeImage(
 		state.Key{Slug: "myproj", Agent: "opencode"},
 		"sha256:new",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("RecordHomeImage: %v", err)
 	}
@@ -903,7 +903,7 @@ func TestRecordHomeImage_MissingStateIsNoop(t *testing.T) {
 
 	vm := NewManager(docker.Get())
 	k := state.Key{Slug: "nosuchproj", Agent: "opencode"}
-	if err := vm.RecordHomeImage(k, "sha256:new", &termio.Mock{}); err != nil {
+	if err := vm.RecordHomeImage(k, "sha256:new", &termiotest.Mock{}); err != nil {
 		t.Fatalf("RecordHomeImage should not error on missing state, got: %v", err)
 	}
 	if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
@@ -933,7 +933,7 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 		false,
 		state.Fingerprints{},
 		"",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -964,7 +964,7 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 		false,
 		state.Fingerprints{},
 		"",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -999,7 +999,7 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	_, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1049,7 +1049,7 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 		false,
 		state.Fingerprints{},
 		"",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1085,7 +1085,7 @@ func TestResolveHomeVolume_TransientRecordedErrorFailsClosed(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	_, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1128,7 +1128,7 @@ func TestResolveHomeVolume_TransientRecoveryErrorFailsClosed(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	_, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1166,7 +1166,7 @@ func TestResolveHomeVolume_RecoversLiveVMVolumeOnMissingState(t *testing.T) {
 	}
 
 	key := state.Key{Slug: "recoverproj", Agent: "opencode"}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, st, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1223,7 +1223,7 @@ func TestResolveHomeVolume_RecoversPersistedAdoptionVolume(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, hs, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1275,7 +1275,7 @@ func TestResolveHomeVolume_RecoveredVolumeMissingStartsFresh(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1325,7 +1325,7 @@ func TestResolveHomeVolume_RecoversWhenRecordedVolumeGone(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1371,7 +1371,7 @@ func TestResolveHomeVolume_RecoveryStateFails(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, hs, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1420,7 +1420,7 @@ func TestResolveHomeVolume_StateWinsOverRecoveredVolume(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1476,7 +1476,7 @@ func TestResolveHomeVolume_RecoveryPreservesFingerprints(t *testing.T) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, hs, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1535,7 +1535,7 @@ func TestEnsureNewHome_PrefillFails_RemovesVolume(t *testing.T) {
 		false,
 		state.Fingerprints{},
 		"",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -1589,7 +1589,7 @@ func TestEnsureNewHome_StateWriteFails(t *testing.T) {
 					return &msb.MockVolumeHandle{Name_: name}, nil
 				},
 			}
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 
 			_, _, err := NewManager(docker.Get()).EnsureNewHome(
 				context.Background(),
@@ -1647,7 +1647,7 @@ func TestEnsureNewHome_PrefillCancelled_RemovesVolumeWithLiveContext(t *testing.
 		false,
 		state.Fingerprints{},
 		"",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -1677,7 +1677,7 @@ func TestEnsureNewHome_SkipVM_NoSandbox(t *testing.T) {
 		true, // skipVM
 		state.Fingerprints{},
 		"",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1707,7 +1707,7 @@ func TestResolveHomeVolume_SkipVMThenRealRun_Prefills(t *testing.T) {
 	}
 	k := state.Key{Slug: "testproj", Agent: "opencode"}
 	info := image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 
 	if _, _, err := vm.ResolveHomeVolume(
@@ -1762,7 +1762,7 @@ func TestResolveHomeVolume_ClearsAdoptionClaim(t *testing.T) {
 		return vh, volumeNotFoundError(name)
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	if _, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1813,7 +1813,7 @@ func TestResolveHomeVolume_AdoptionClaimClearErrorWarns(t *testing.T) {
 		return vh, volumeNotFoundError(name)
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	if _, _, err := vm.ResolveHomeVolume(
 		context.Background(),

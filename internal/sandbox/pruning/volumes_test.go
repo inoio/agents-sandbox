@@ -12,7 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestPruneVolumes(t *testing.T) {
@@ -36,7 +36,7 @@ func TestPruneVolumes(t *testing.T) {
 				{Slug: "stale-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
 			},
 		}
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		r, err := PruneVolumes(context.Background(), stateMap, false, ui)
 		if err != nil {
 			t.Fatalf("PruneVolumes: %v", err)
@@ -69,7 +69,7 @@ func TestPruneVolumes(t *testing.T) {
 		stateMap := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msb.MockSandboxHandle{}},
 		}
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		if _, err := PruneVolumes(context.Background(), stateMap, false, ui); err != nil {
 			t.Fatalf("PruneVolumes: %v", err)
 		}
@@ -103,7 +103,7 @@ func TestPruneVolumes(t *testing.T) {
 		stateMap := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msb.MockSandboxHandle{}},
 		}
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		if _, err := PruneVolumes(context.Background(), stateMap, false, ui); err != nil {
 			t.Fatalf("PruneVolumes: %v", err)
 		}
@@ -123,7 +123,7 @@ func TestPruneVolumes(t *testing.T) {
 				{Slug: "stale-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
 			},
 		}
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		r, err := PruneVolumes(context.Background(), stateMap, true, ui)
 		if err != nil {
 			t.Fatalf("PruneVolumes: %v", err)
@@ -142,7 +142,7 @@ func TestPruneVolumes(t *testing.T) {
 			Volumes: []msb.VolumeHandle{home("agents-sandbox-home-kept-1mjusbm3wikhb0-20260806T143022")},
 		}
 		msb.WithMsbMock(t, client)
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		r, err := PruneVolumes(context.Background(), PruneState{}, false, ui)
 		if err != nil {
 			t.Fatalf("PruneVolumes: %v", err)
@@ -159,7 +159,7 @@ func TestPruneVolumes(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		_, err := PruneVolumes(context.Background(), PruneState{}, false, ui)
 		if err == nil || !strings.Contains(err.Error(), "list boom") {
 			t.Errorf("expected ListVolumes error, got %v", err)
@@ -175,7 +175,7 @@ func TestPruneVolumes(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		r, err := PruneVolumes(
 			context.Background(),
 			PruneState{ToPrune: map[state.Key]msb.SandboxHandle{{Slug: "", Agent: ""}: &msb.MockSandboxHandle{}}},
@@ -209,7 +209,7 @@ func TestPruneVolumesSkipsReferencedVolume(t *testing.T) {
 		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volume, CreatedAt_: old}},
 	}
 	msb.WithMsbMock(t, client)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r, err := PruneVolumes(context.Background(), PruneState{
 		ToPrune: map[state.Key]msb.SandboxHandle{key: &msb.MockSandboxHandle{}},
 	}, false, ui)
@@ -254,7 +254,7 @@ func TestPruneVolumesStillRemovesUnreferencedVolume(t *testing.T) {
 		},
 	}
 	resolutions := msb.WithCountingMsbMock(t, client)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r, err := PruneVolumes(context.Background(), PruneState{
 		ToPrune: map[state.Key]msb.SandboxHandle{
 			referencedKey:               &msb.MockSandboxHandle{},
@@ -307,7 +307,7 @@ func TestPruneVolumesKeepsLiveProjectVolumeWithLeftoverTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildPruneState: %v", err)
 	}
-	r, err := PruneVolumes(context.Background(), pruneState, false, &termio.Mock{})
+	r, err := PruneVolumes(context.Background(), pruneState, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("PruneVolumes: %v", err)
 	}
@@ -343,7 +343,7 @@ func TestPruneVolumesKeepsVolumeReferencedFromEitherSlug(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r, err := PruneVolumes(context.Background(), PruneState{
 		ToPrune: map[state.Key]msb.SandboxHandle{
 			{Slug: legacySlug, Agent: ""}: &msb.MockSandboxHandle{},
@@ -387,7 +387,7 @@ func TestPruneVolumesFailsClosedOnUnreadableState(t *testing.T) {
 	msb.WithMsbMock(t, client)
 	_, err := PruneVolumes(context.Background(), PruneState{
 		ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msb.MockSandboxHandle{}},
-	}, false, &termio.Mock{})
+	}, false, &termiotest.Mock{})
 	if err == nil || !strings.Contains(err.Error(), "scan project state references") {
 		t.Fatalf("PruneVolumes() error = %v, want a fail-closed reference scan error", err)
 	}
@@ -424,7 +424,7 @@ func TestPruneVolumesKeepsStateWhenReferencedVolumeSiblingRemoved(t *testing.T) 
 		Volumes: []msb.VolumeHandle{staleHomeHandle(referenced), staleHomeHandle(sibling)},
 	}
 	msb.WithMsbMock(t, client)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r, err := PruneVolumes(context.Background(), PruneState{
 		ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msb.MockSandboxHandle{}},
 	}, false, ui)
@@ -464,7 +464,7 @@ func TestPruneVolumesDryRunWarnsOnReferencedVolume(t *testing.T) {
 		Volumes: []msb.VolumeHandle{staleHomeHandle(referenced), staleHomeHandle(sibling)},
 	}
 	msb.WithMsbMock(t, client)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r, err := PruneVolumes(context.Background(), PruneState{
 		ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msb.MockSandboxHandle{}},
 	}, true, ui)
@@ -509,7 +509,7 @@ func TestCompareStateKey(t *testing.T) {
 }
 
 func TestRenderVolumeReport(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	RenderVolumeReport(ui, VolumeReport{
 		VolumesPruned: 1,
 		Details: []StaleEntry{
@@ -527,7 +527,7 @@ func TestRenderVolumeReport(t *testing.T) {
 		t.Errorf("VerboseCalls = %v, want the detail line", ui.VerboseCalls)
 	}
 
-	empty := &termio.Mock{}
+	empty := &termiotest.Mock{}
 	RenderVolumeReport(empty, VolumeReport{}, true)
 	if len(empty.OutCalls) != 1 || empty.OutCalls[0] != "dry-run: Would prune 0 home volume(s)" {
 		t.Errorf("OutCalls = %v, want the dry-run summary", empty.OutCalls)
@@ -572,7 +572,7 @@ func TestPruneVolumesKeepsStateCommittedAfterTheSnapshot(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r, err := PruneVolumes(context.Background(), PruneState{
 		ToPrune: map[state.Key]msb.SandboxHandle{key: &msb.MockSandboxHandle{}},
 	}, false, ui)
@@ -600,7 +600,7 @@ func TestRemoveStateForGoneKeysProcessesKeysAfterASkippedOne(t *testing.T) {
 			t.Fatalf("seedHomeState(%v): %v", k, err)
 		}
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	removeStateForGoneKeys(
 		ui,
 		map[state.Key]int{kept: 1, gone: 1},
@@ -627,7 +627,7 @@ func TestRemoveStateForGoneKeysWarnsOnRemoveError(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(stateYAML, "keep"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	removeStateForGoneKeys(ui, map[state.Key]int{k: 1}, nil)
 	if len(ui.WarnCalls) == 0 {
 		t.Error("expected a warning when state removal fails")
@@ -679,7 +679,7 @@ func TestPruneHomeVolumesSkipsAndContinues(t *testing.T) {
 		{Slug: "ok-1mjusbm3wikhb0"}:   &msb.MockSandboxHandle{},
 	}}
 	references := map[string][]state.Key{ref: {{Slug: "still-active"}}}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	report := &VolumeReport{}
 
 	removed := pruneHomeVolumes(
@@ -721,7 +721,7 @@ func TestPruneHomeVolumesSkipsForeignEvenWithEmptyKey(t *testing.T) {
 	}}
 	report := &VolumeReport{}
 
-	pruneHomeVolumes(context.Background(), client, handles, pruneState, nil, false, &termio.Mock{}, report)
+	pruneHomeVolumes(context.Background(), client, handles, pruneState, nil, false, &termiotest.Mock{}, report)
 
 	if report.VolumesPruned != 0 || len(client.RemovedVolumes) != 0 {
 		t.Errorf("a foreign volume must be skipped: report=%+v removed=%v", report, client.RemovedVolumes)
@@ -747,7 +747,7 @@ func TestRemoveStateForGoneKeysRemovesEveryKey(t *testing.T) {
 		removed[k] = 1
 	}
 
-	removeStateForGoneKeys(&termio.Mock{}, removed, map[state.Key]int{})
+	removeStateForGoneKeys(&termiotest.Mock{}, removed, map[state.Key]int{})
 
 	for _, k := range keys {
 		if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
@@ -767,7 +767,7 @@ func TestRemoveStateForGoneKeysKeepsStateNamingAVolume(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	removeStateForGoneKeys(&termio.Mock{}, map[state.Key]int{kept: 1}, map[state.Key]int{kept: 1})
+	removeStateForGoneKeys(&termiotest.Mock{}, map[state.Key]int{kept: 1}, map[state.Key]int{kept: 1})
 
 	if _, err := state.ReadState(kept); err != nil {
 		t.Errorf("state naming a home volume must survive, got err=%v", err)
@@ -785,7 +785,7 @@ func TestRemoveStateForGoneKeysKeepsStateNamingARecoveredVolume(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	removeStateForGoneKeys(&termio.Mock{}, map[state.Key]int{kept: 1}, map[state.Key]int{kept: 1})
+	removeStateForGoneKeys(&termiotest.Mock{}, map[state.Key]int{kept: 1}, map[state.Key]int{kept: 1})
 
 	if _, err := state.ReadState(kept); err != nil {
 		t.Errorf("state naming a pending recovered volume must survive, got err=%v", err)

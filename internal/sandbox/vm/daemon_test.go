@@ -11,7 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestDaemonHealthSeamResolution pins the seam contract: a nil
@@ -70,14 +70,14 @@ func TestEnsureDaemonContextCancelled(t *testing.T) {
 	t.Cleanup(func() { daemonPollInterval = origPoll })
 	daemonPollInterval = time.Millisecond
 
-	err := ensureDaemon(ctx, opencodeResolved(t), false, false, &msb.MockSandbox{}, &termio.Mock{}, seams)
+	err := ensureDaemon(ctx, opencodeResolved(t), false, false, &msb.MockSandbox{}, &termiotest.Mock{}, seams)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }
 
 func TestEnsureDaemonNoDaemonProvider(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	calls := &[]msb.MockDetachedCall{}
 	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
 	if err := ensureDaemon(
@@ -91,7 +91,7 @@ func TestEnsureDaemonNoDaemonProvider(t *testing.T) {
 }
 
 func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	fastDaemonPoll(t)
 	seams := healthQueue(unhealthy(), unhealthy(), healthy())
 
@@ -121,7 +121,7 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 // port forwarder dials the guest's external interface address, so a loopback-only
 // (127.0.0.1) binding would make host clients get an empty reply.
 func TestEnsureDaemonStartsServeOnlyOnExternalInterface(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	fastDaemonPoll(t)
 	seams := healthQueue(unhealthy(), healthy())
 
@@ -145,7 +145,7 @@ func TestEnsureDaemonStartsServeOnlyOnExternalInterface(t *testing.T) {
 // interval; a long interval must not delay discovering an already-healthy
 // daemon.
 func TestEnsureDaemonProbesBeforeWaiting(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	seams := healthQueue(unhealthy(), healthy())
 
 	origTimeout, origInterval := daemonReadyTimeout, daemonPollInterval
@@ -172,7 +172,7 @@ func TestEnsureDaemonProbesBeforeWaiting(t *testing.T) {
 // already healthy is left running (no restart) and reported as such, rather
 // than paying for a kill-and-relaunch.
 func TestEnsureDaemonSkipsHealthyDaemon(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	fastDaemonPoll(t)
 	seams := healthQueue(healthy())
 
@@ -193,7 +193,7 @@ func TestEnsureDaemonSkipsHealthyDaemon(t *testing.T) {
 // TestEnsureDaemonLogsUnhealthyProbeDetail verifies an unhealthy pre-check
 // reports the probe's detail, so a restart is diagnosable rather than silent.
 func TestEnsureDaemonLogsUnhealthyProbeDetail(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	fastDaemonPoll(t)
 	seams := healthQueue(unhealthy(), healthy())
 
@@ -210,7 +210,7 @@ func TestEnsureDaemonLogsUnhealthyProbeDetail(t *testing.T) {
 }
 
 func TestEnsureDaemonForceRestartsHealthy(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	fastDaemonPoll(t)
 	// force skips the pre-check; the first health probe is the post-launch one.
 	seams := healthQueue(healthy())
@@ -227,7 +227,7 @@ func TestEnsureDaemonForceRestartsHealthy(t *testing.T) {
 }
 
 func TestEnsureDaemonKillsStaleJobByChangedArgs(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	fastDaemonPoll(t)
 	seams := healthQueue(unhealthy(), healthy())
 
@@ -250,7 +250,7 @@ func TestEnsureDaemonKillsStaleJobByChangedArgs(t *testing.T) {
 }
 
 func TestEnsureDaemonReportsCloseFailure(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	fastDaemonPoll(t)
 	seams := healthQueue(unhealthy(), healthy())
 
@@ -264,7 +264,7 @@ func TestEnsureDaemonReportsCloseFailure(t *testing.T) {
 }
 
 func TestEnsureDaemonCrashSurfacesExitAndLogs(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	fastDaemonPoll(t)
 	seams := healthQueue(unhealthy())
 
@@ -283,7 +283,7 @@ func TestEnsureDaemonCrashSurfacesExitAndLogs(t *testing.T) {
 }
 
 func TestEnsureDaemonExecError(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	fastDaemonPoll(t)
 	seams := healthQueue(unhealthy())
 
@@ -306,7 +306,7 @@ func TestEnsureDaemonExecError(t *testing.T) {
 }
 
 func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	origTimeout, origInterval := daemonReadyTimeout, daemonPollInterval
 	t.Cleanup(func() {
@@ -334,7 +334,7 @@ func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
 // carries the health probe's outcome (exit code / body), so a daemon that never
 // becomes healthy is diagnosable without guessing.
 func TestEnsureDaemonPollingReportsProbeDetail(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	provider := opencodeProvider(t)
 	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == provider.DaemonHealthCmd() {
@@ -370,7 +370,7 @@ func TestEnsureDaemonPollingReportsProbeDetail(t *testing.T) {
 // the daemon job's retained logs so the reason the daemon stayed down (a bind
 // failure, a crash) is surfaced; a job is no longer a log file.
 func TestEnsureDaemonTimeoutIncludesJobLogs(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	provider := opencodeProvider(t)
 	seams := options.Seams{DaemonHealth: func(_ context.Context, _ msb.Sandbox, command string) (string, int, error) {
 		if command == provider.DaemonHealthCmd() {

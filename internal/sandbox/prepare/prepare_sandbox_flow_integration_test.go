@@ -18,7 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sandbox/vm"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -70,7 +70,7 @@ func TestPrepareSandboxRecomputesConfigSlugAfterAdoption(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(
 		context.Background(),
 		sandboxRunOptions(t, options.RunOptions{Agent: "opencode", ConfigSlug: legacySlug}),
@@ -122,7 +122,7 @@ func TestPrepareSandboxOutsideWorktreeUsesItsOwnKey(t *testing.T) {
 	}
 
 	inspectedTag := installPrepareSandboxDockerMock(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	t.Chdir(outside)
 	key := state.Key{Slug: identity.CheckoutSlug, Agent: "opencode"}

@@ -20,7 +20,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -40,7 +40,7 @@ func TestAdoptLegacyIdentityFailsWhenALaterLegacySlugIsUnreadable(t *testing.T) 
 	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client, identity, adoptAgentName, true, &ui)
 	if err == nil {
@@ -81,7 +81,7 @@ func TestAdoptLegacyIdentityHoldsKeyLocksAcrossTheMove(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
@@ -108,7 +108,7 @@ func TestAdoptLegacyIdentityReleasesKeyLocksOnDestroyFailure(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
@@ -144,7 +144,7 @@ func TestAdoptLegacyIdentityPersistRecoveredVolumeFailureFailsClosed(t *testing.
 	t.Cleanup(func() { _ = os.Chmod(keyDir, 0o700) })
 
 	handle := legacyVMWithHome()
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
@@ -199,7 +199,7 @@ func TestAdoptLegacyIdentityClaimCommitFailureFailsClosed(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
 
 	handle := legacyVMWithHome()
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
@@ -237,7 +237,7 @@ func TestAdoptLegacyIdentityClaimVolumeMismatchFailsClosed(t *testing.T) {
 	}
 
 	handle := legacyVMWithHome()
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
@@ -271,7 +271,7 @@ func TestAdoptLegacyIdentityRestoresOtherOwnersMarkerBeforeDestroy(t *testing.T)
 	}
 
 	handle := legacyVMWithHome()
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
@@ -314,7 +314,7 @@ func TestAdoptLegacyIdentityOtherOwnerClaimVolumeMismatchFailsClosed(t *testing.
 	}
 
 	handle := legacyVMWithHome()
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
@@ -354,7 +354,7 @@ func TestAdoptLegacyIdentityOtherOwnerMarkerRestoreFailureFailsClosed(t *testing
 	}
 
 	handle := legacyVMWithHome()
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
@@ -386,7 +386,7 @@ func TestAdoptLegacyIdentityRecheckErrorPropagates(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -415,7 +415,7 @@ func TestAdoptLegacyIdentityLiveLegacyVMWithoutHomeMountSkipsTheClaim(t *testing
 	configpathstest.WithMockConfigPaths(t)
 
 	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName()}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
@@ -457,7 +457,7 @@ func TestAdoptLegacyIdentityMovesStateAndDestroysVM(t *testing.T) {
 		requested = name
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -510,7 +510,7 @@ func TestAdoptLegacyIdentityNoticeNamesEveryPath(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
@@ -551,7 +551,7 @@ func TestAdoptLegacyIdentityNoticeWithoutHomeVolume(t *testing.T) {
 		t.Errorf("GetSandbox(%q) called during a dry run", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -592,7 +592,7 @@ func TestAdoptLegacyIdentityNoLegacyState(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no legacy VM"}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -633,7 +633,7 @@ func TestAdoptLegacyIdentityAlreadyAtCheckoutSlug(t *testing.T) {
 		t.Errorf("GetSandbox(%q) called for an already-adopted project", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -674,7 +674,7 @@ func TestAdoptLegacyIdentityUnparsableLegacyState(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
@@ -709,7 +709,7 @@ func TestAdoptLegacyIdentityApplyFalseIsReadOnly(t *testing.T) {
 		t.Errorf("GetSandbox(%q) called during a dry run", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -755,7 +755,7 @@ func TestAdoptLegacyIdentityLegacyVMAlreadyGone(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -801,7 +801,7 @@ func TestAdoptLegacyIdentityLegacyVMReplacedFailsClosed(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -857,7 +857,7 @@ func TestAdoptLegacyIdentityStrandedStateFileFailsLoudly(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -917,7 +917,7 @@ func TestAdoptLegacyIdentityUnparsableCheckoutStateSkipsMigration(t *testing.T) 
 		t.Errorf("GetSandbox(%q) called despite an unreadable checkout state", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	adoption, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -957,7 +957,7 @@ func TestAdoptLegacyIdentityNonRepoCorruptStateDoesNotBlock(t *testing.T) {
 		t.Errorf("GetSandbox(%q) called with no legacy identity", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	adoption, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -994,7 +994,7 @@ func TestAdoptLegacyIdentityStateMoveFailureFailsLoudly(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1029,7 +1029,7 @@ func TestAdoptLegacyIdentityGetSandboxErrorAborts(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, errLegacyVMBoom
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1068,7 +1068,7 @@ func TestAdoptLegacyIdentityLegacyVMAlreadyGoneOnDestroy(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1117,7 +1117,7 @@ func TestAdoptLegacyIdentityDestroysEveryMovedAgentsVM(t *testing.T) {
 		handles[name] = handle
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1169,7 +1169,7 @@ func TestAdoptLegacyIdentityLosingTheLockRaceContinues(t *testing.T) {
 		t.Errorf("GetSandbox(%q) called although another adopter won the lock", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1210,7 +1210,7 @@ func TestAdoptLegacyIdentityAdoptsBareRootLegacySlug(t *testing.T) {
 		handles[name] = handle
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1258,7 +1258,7 @@ func TestAdoptLegacyIdentityRecheckCorruptStateSkips(t *testing.T) {
 		t.Errorf("GetSandbox(%q) called despite an unreadable re-check", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	adoption, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1307,7 +1307,7 @@ func TestAdoptLegacyIdentityConfigMoveFailurePropagates(t *testing.T) {
 	}}
 	identity := adoptIdentity()
 	identity.LegacyRepoSlugs = []string{"workspace-aaa"}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client, identity, adoptAgentName, true, &ui)
 	if err == nil {
@@ -1340,7 +1340,7 @@ func TestAdoptLegacyIdentityDryRunReturnsFoundLegacySlug(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no VM for " + name}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1397,7 +1397,7 @@ func TestAdoptLegacyIdentityDestroyFailureLeavesStateForRetry(t *testing.T) {
 		}
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), failingClient,
 		identity,
@@ -1418,7 +1418,7 @@ func TestAdoptLegacyIdentityDestroyFailureLeavesStateForRetry(t *testing.T) {
 	okClient := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	retryUI := termio.NewTestMock(t)
+	retryUI := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1462,7 +1462,7 @@ func TestAdoptLegacyIdentityAdoptsLiveLegacyVMWithoutState(t *testing.T) {
 		}
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1515,7 +1515,7 @@ func TestAdoptLegacyIdentityPersistsVolumeBeforeDestroyFails(t *testing.T) {
 		}
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
@@ -1533,7 +1533,7 @@ func TestAdoptLegacyIdentityPersistsVolumeBeforeDestroyFails(t *testing.T) {
 	// Retry with a working destroy: the marker keeps the trigger live, so the
 	// leftover legacy VM is torn down and the marker survives for recovery.
 	handle.DestroyErr = nil
-	retryUI := termio.NewTestMock(t)
+	retryUI := termiotest.NewTestMock(t)
 	retry, err := AdoptLegacyIdentity(
 		context.Background(),
 		configpaths.Get(),
@@ -1574,7 +1574,7 @@ func TestAdoptLegacyIdentityDryRunLiveLegacyVMIsReadOnly(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1614,7 +1614,7 @@ func TestAdoptLegacyIdentityLiveLegacyVMMountsErrorFailsClosed(t *testing.T) {
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
@@ -1658,7 +1658,7 @@ func TestAdoptLegacyIdentityClaimsSharedVolumeOnce(t *testing.T) {
 		}
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	uiA := termio.NewTestMock(t)
+	uiA := termiotest.NewTestMock(t)
 	if _, err := AdoptLegacyIdentity(
 		context.Background(),
 		configpaths.Get(),
@@ -1683,7 +1683,7 @@ func TestAdoptLegacyIdentityClaimsSharedVolumeOnce(t *testing.T) {
 		}
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	uiB := termio.NewTestMock(t)
+	uiB := termiotest.NewTestMock(t)
 	if _, err := AdoptLegacyIdentity(
 		context.Background(),
 		configpaths.Get(),
@@ -1929,7 +1929,7 @@ func TestDestroyLegacyVMsErrorsOnUnreadableSlug(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	testutil.WritePath(t, state.SlugDir(adoptRepoSlug), "not a directory")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	err := destroyLegacyVMs(context.Background(), &msb.MockMsbClient{}, adoptRepoSlug, adoptAgentName, &ui)
 	if err == nil {
 		t.Fatal("expected an unreadable slug to fail the teardown")
@@ -1994,7 +1994,7 @@ func TestMigrateLegacyConfigDirsMovesBareRootConfig(t *testing.T) {
 	}
 	testutil.WriteFile(t, from, "config.yaml", "x: 1\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	identity := git.Identity{RepoSlug: "agents-sandbox-bbb", LegacyRepoSlugs: []string{"workspace-aaa"}}
 
 	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
@@ -2038,7 +2038,7 @@ func TestMigrateLegacyConfigDirsKeepsExistingTarget(t *testing.T) {
 	testutil.WriteFile(t, from, "config.yaml", "legacy\n")
 	testutil.WriteFile(t, to, "config.yaml", "existing\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	identity := git.Identity{RepoSlug: "agents-sandbox-bbb", LegacyRepoSlugs: []string{"workspace-aaa"}}
 
 	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
@@ -2089,7 +2089,7 @@ func TestMigrateLegacyConfigDirsKeepsTargetWithoutConfig(t *testing.T) {
 	}
 	testutil.WriteFile(t, from, "env.secret.yaml", "TOKEN: legacy\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	identity := git.Identity{RepoSlug: "agents-sandbox-bbb", LegacyRepoSlugs: []string{"workspace-aaa"}}
 
 	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
@@ -2129,7 +2129,7 @@ func TestMigrateLegacyConfigDirsSkipsRepoSlugAndMissingSource(t *testing.T) {
 		t.Fatalf("mkdir repo-slug config dir: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	identity := git.Identity{
 		RepoSlug:        "agents-sandbox-bbb",
 		LegacyRepoSlugs: []string{"agents-sandbox-bbb", "workspace-absent"},
@@ -2157,7 +2157,7 @@ func TestMigrateLegacyConfigDirsContinuesPastSkippedEntries(t *testing.T) {
 	}
 	testutil.WriteFile(t, from, "config.yaml", "x: 1\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	identity := git.Identity{
 		RepoSlug:        "agents-sandbox-bbb",
 		LegacyRepoSlugs: []string{"agents-sandbox-bbb", "workspace-absent", "workspace-aaa"},
@@ -2191,7 +2191,7 @@ func TestMigrateLegacyConfigDirsReportsEveryKeptTarget(t *testing.T) {
 		testutil.WriteFile(t, from, "config.yaml", "x: 1\n")
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	identity := git.Identity{
 		RepoSlug:        "agents-sandbox-bbb",
 		LegacyRepoSlugs: []string{"workspace-aaa", "workspace-ccc"},
@@ -2235,7 +2235,7 @@ func TestMigrateLegacyConfigDirsReportsRenameFailure(t *testing.T) {
 	renameConfigDir = func(_, _ string) error { return errRenameBoom }
 	t.Cleanup(func() { renameConfigDir = os.Rename })
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	identity := git.Identity{RepoSlug: "agents-sandbox-bbb", LegacyRepoSlugs: []string{"workspace-aaa"}}
 	err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui)
 	if err == nil {

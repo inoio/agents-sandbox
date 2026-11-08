@@ -13,7 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestRecordImageProvenanceWarnsOnUnreadableState pins that a project state
@@ -29,7 +29,7 @@ func TestRecordImageProvenanceWarnsOnUnreadableState(t *testing.T) {
 	fs := msb.NewTestFS(map[string][]byte{
 		"/etc/agents-sandbox/agent-source": []byte("tool\n"),
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := &msb.MockSandbox{FSValue_: fs}
 	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, ui)
 	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "read state for transaction") {
@@ -57,7 +57,7 @@ func TestRecordImageProvenanceWarnsWhenStateCannotBeWritten(t *testing.T) {
 	fs := msb.NewTestFS(map[string][]byte{
 		"/etc/agents-sandbox/agent-source": []byte("user\n"),
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := &msb.MockSandbox{FSValue_: fs}
 	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, ui)
 	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "could not persist project state") {
@@ -91,7 +91,7 @@ func TestRecordImageProvenancePreservesUnrelatedFields(t *testing.T) {
 		dockerSourcePath: []byte(state.AgentSourceUser + "\n"),
 	})}
 
-	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termio.Mock{})
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termiotest.Mock{})
 
 	got, err := state.ReadState(k)
 	if err != nil {
@@ -123,7 +123,7 @@ func TestRecordImageProvenanceDetectsToolAgentVersion(t *testing.T) {
 	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
-	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termio.Mock{})
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termiotest.Mock{})
 
 	hs, err := state.ReadState(k)
 	if err != nil {
@@ -147,7 +147,7 @@ func TestRecordImageProvenanceSkipsMissingState(t *testing.T) {
 	})
 	sb := &msb.MockSandbox{FSValue_: fs}
 
-	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termio.Mock{})
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termiotest.Mock{})
 
 	if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
 		t.Fatalf("ReadState error = %v, want ErrStateNotFound (no state created)", err)
@@ -169,7 +169,7 @@ func TestRecordImageProvenanceSkipsVersionForUserAgent(t *testing.T) {
 	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
-	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termio.Mock{})
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termiotest.Mock{})
 
 	hs, err := state.ReadState(k)
 	if err != nil {
@@ -193,7 +193,7 @@ func TestRecordImageProvenanceReadErrorLeavesStateUntouched(t *testing.T) {
 		t.Fatal(err)
 	}
 	fs := msb.NewTestFS(nil) // every ReadString fails: no provenance files
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	recordImageProvenance(context.Background(), k, opencodeResolved(t), &msb.MockSandbox{FSValue_: fs}, &ui)
 
 	hs, err := state.ReadState(k)
@@ -237,7 +237,7 @@ func TestDetectToolAgentVersion(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			version, ok := detectToolAgentVersion(context.Background(), tc.agent, tc.sb, ui)
 			if ok || version != "" {
 				t.Errorf("detectToolAgentVersion = (%q, %v), want no version", version, ok)

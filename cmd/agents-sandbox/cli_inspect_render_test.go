@@ -8,13 +8,13 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/storage"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestPrintStorageVerboseBlankLineLayout pins the leading blank line and the
 // blank line before each category: removing either loses the paragraph break.
 func TestPrintStorageVerboseBlankLineLayout(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	count := uint64(1)
 	report := &storage.Report{Categories: []storage.Category{
 		{Name: "images", Totals: storage.Totals{Count: &count}},
@@ -51,7 +51,7 @@ func valueAfterPrefix(lines []string, prefix string) string {
 // must grow across all rows (a range break would stop at the first), and the
 // width is taken from the row key.
 func TestPrintKeyValuesAlignsToWidestKey(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	printKeyValues(ui, [][2]string{
 		{"a", "1"},
 		{"longer", "2"},
@@ -109,7 +109,7 @@ func TestNonNilStringsReturnsInput(t *testing.T) {
 // for a non-empty layer list and are absent for an empty one.
 func TestPrintImageInspectLayerSection(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		printImageInspect(ui, image.ImageDetail{Reference: "img"})
 		for _, line := range ui.OutCalls {
 			if strings.HasPrefix(line, "layers (") {
@@ -118,7 +118,7 @@ func TestPrintImageInspectLayerSection(t *testing.T) {
 		}
 	})
 	t.Run("one layer", func(t *testing.T) {
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		printImageInspect(ui, image.ImageDetail{Reference: "img", Layers: []image.LayerInfo{{
 			Position:       1,
 			DiffID:         "sha256:diff",
@@ -142,7 +142,7 @@ func TestPrintImageInspectLayerSection(t *testing.T) {
 // the read-only marker, and the decimal CPU rendering.
 func TestPrintSandboxInspectMountsAndCPUs(t *testing.T) {
 	t.Run("no mounts", func(t *testing.T) {
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		printSandboxInspect(ui, sandbox.SandboxDetail{Name: "sb", CPUs: 10, MaxCPUs: 11})
 		joined := strings.Join(ui.OutCalls, "\n")
 		for _, line := range ui.OutCalls {
@@ -158,7 +158,7 @@ func TestPrintSandboxInspectMountsAndCPUs(t *testing.T) {
 		}
 	})
 	t.Run("one read-only mount", func(t *testing.T) {
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		printSandboxInspect(ui, sandbox.SandboxDetail{
 			Name:   "sb",
 			Mounts: []sandbox.MountDetail{{GuestPath: "/workspace", Kind: "bind", Source: "/host", Readonly: true}},

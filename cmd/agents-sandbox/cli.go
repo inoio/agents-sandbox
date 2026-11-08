@@ -26,7 +26,7 @@ var version = devVersion
 //	func TestListSandboxCommand(t *testing.T) {
 //	    msb.WithMsbMock(t, mock)
 //
-//	    ui := &termio.Mock{}
+//	    ui := &termiotest.Mock{}
 //	    err := Execute([]string{"list"}, ui)
 //	    // ...assert...
 //	}

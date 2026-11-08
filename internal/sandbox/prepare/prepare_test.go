@@ -28,6 +28,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -41,7 +42,7 @@ func TestRuntimeHomeMigrationOfferSeamResolution(t *testing.T) {
 	defaultErr := errors.New("production default offer")
 	offerRuntimeHomeMigration = func(context.Context, msb.Client, termio.UI) error { return defaultErr }
 	if err := runtimeHomeMigrationOffer(options.Seams{})(
-		context.Background(), nil, &termio.Mock{},
+		context.Background(), nil, &termiotest.Mock{},
 	); !errors.Is(err, defaultErr) {
 		t.Errorf("nil seam offer error = %v, want the production default %v", err, defaultErr)
 	}
@@ -49,7 +50,7 @@ func TestRuntimeHomeMigrationOfferSeamResolution(t *testing.T) {
 	seamErr := errors.New("injected offer")
 	seam := func(context.Context, msb.Client, termio.UI) error { return seamErr }
 	if err := runtimeHomeMigrationOffer(options.Seams{RuntimeHomeMigrationOffer: seam})(
-		context.Background(), nil, &termio.Mock{},
+		context.Background(), nil, &termiotest.Mock{},
 	); !errors.Is(err, seamErr) {
 		t.Errorf("set seam offer error = %v, want %v", err, seamErr)
 	}
@@ -72,7 +73,7 @@ func TestPlanReconfigStageWarnsAboutUnprovisionedConfigDirDependencies(t *testin
 	if err := os.WriteFile(manifest, []byte(`{"dependencies": {"zod": "4.1.8"}}`), 0o600); err != nil {
 		t.Fatalf("write %s: %v", manifest, err)
 	}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
@@ -105,7 +106,7 @@ func TestPlanReconfigStageWarnsAboutUnprovisionedConfigDirDependencies(t *testin
 // stage: a lookup error aborts plan-reconfig instead of planning against "no VM".
 func TestPlanReconfigStageLiveVMReadError(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	lookupErr := errors.New("msb unreachable")
 	client := (&msb.MockMsbClient{}).SetGetSandboxErr(lookupErr)
 	msb.WithMsbMock(t, client)
@@ -133,7 +134,7 @@ func TestPlanReconfigStageLiveVMReadError(t *testing.T) {
 // handle plan-reconfig read the decision from is the one ensure-vm attaches to.
 func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	connected := &msb.MockSandbox{}
 	handle := &msb.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning, ConnectSb: connected}
 	lookups := 0
@@ -182,7 +183,7 @@ func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {
 // run's configured memory.
 func TestEnsureVMStageAppliesThePlannedMemory(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	handle := &msb.MockSandboxHandle{
 		Name_:         "vm",
 		Status_:       msb.SandboxStatusRunning,
@@ -236,7 +237,7 @@ func TestEnsureVMStageFailureSkipsFingerprints(t *testing.T) {
 	lockErr := errors.New("flock boom")
 	seams := options.Seams{ProjectVMLock: func(options.ProjectVMKey) (func(), error) { return nil, lockErr }}
 	k := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	sb, _, err := ensureVMStage(
 		context.Background(),
@@ -262,7 +263,7 @@ func TestEnsureVMStageFailureSkipsFingerprints(t *testing.T) {
 // TestResolveSessionIdentityErrorsWhenIdentityUnresolvable pins #354 on the run
 // path: a cwd whose git dir cannot be resolved aborts before any VM work.
 func TestResolveSessionIdentityErrorsWhenIdentityUnresolvable(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	_, _, _, err := resolveSessionIdentity(
 		context.Background(),
 		&msb.MockMsbClient{},
@@ -298,7 +299,7 @@ func TestDetermineAgentVersionRunsLegacyUpdaterMigration(t *testing.T) {
 		&dockertest.MockDockerClient{},
 		testVMKey(),
 		opencodeResolved(t),
-		&termio.Mock{},
+		&termiotest.Mock{},
 		options.RunOptions{AgentVersion: "1.2.3"},
 	); err != nil {
 		t.Fatalf("determineAgentVersion: %v", err)
@@ -464,7 +465,7 @@ func TestReportActivePorts(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			reportActivePorts(tc.opts, tc.plan, ui)
 			if len(ui.InfoCalls) != tc.wantLines {
 				t.Errorf("InfoCalls = %v, want %d published-port lines", ui.InfoCalls, tc.wantLines)
@@ -498,7 +499,7 @@ func TestPrepareHomeVolumeAlwaysOffersRuntimeHomeMigration(t *testing.T) {
 	}
 	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if _, _, _, err := prepareHomeVolume(
 		context.Background(), client, docker.Get(), k, image.ImageInfo{},
 		true, /* skipVM */
@@ -526,7 +527,7 @@ func TestPrepareHomeVolumeOfferErrorPropagates(t *testing.T) {
 	}
 	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	_, _, _, err := prepareHomeVolume(
 		context.Background(),
 		&msb.MockMsbClient{},
@@ -579,7 +580,7 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 	offerRuntimeHomeMigration = func(_ context.Context, _ msb.Client, _ termio.UI) error { return nil }
 	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	volumes, homeVol, homeState, err := prepareHomeVolume(
 		context.Background(),
 		mock,
@@ -645,7 +646,7 @@ func TestPrepareHomeVolumeRecoversPersistedAdoptionVolume(t *testing.T) {
 	offerRuntimeHomeMigration = func(_ context.Context, _ msb.Client, _ termio.UI) error { return nil }
 	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	_, homeVol, _, err := prepareHomeVolume(
 		context.Background(),
 		mock,
@@ -674,7 +675,7 @@ func TestPersistAgentVersionWarnsOnError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	persistAgentVersion(k, "2.0.0", ui)
 
 	if !contains(joinStrings(ui.WarnCalls), "could not persist the agent version") {
@@ -689,7 +690,7 @@ func TestPersistOfferedVersionMarksExistingState(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	persistOfferedVersion(k, "2.0.0", &termio.Mock{})
+	persistOfferedVersion(k, "2.0.0", &termiotest.Mock{})
 
 	hs, err := state.ReadState(k)
 	if err != nil {
@@ -704,7 +705,7 @@ func TestPersistOfferedVersionSkipsMissingState(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 
-	persistOfferedVersion(k, "2.0.0", &termio.Mock{})
+	persistOfferedVersion(k, "2.0.0", &termiotest.Mock{})
 
 	if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
 		t.Fatalf("ReadState error = %v, want ErrStateNotFound (no state created)", err)
@@ -718,7 +719,7 @@ func TestPersistOfferedVersionNoVersionIsNoop(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	persistOfferedVersion(k, "", &termio.Mock{})
+	persistOfferedVersion(k, "", &termiotest.Mock{})
 
 	hs, err := state.ReadState(k)
 	if err != nil {
@@ -736,7 +737,7 @@ func TestPersistOfferedVersionWarnsOnError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	persistOfferedVersion(k, "2.0.0", ui)
 
 	if !contains(joinStrings(ui.WarnCalls), "could not persist project state") {
@@ -797,7 +798,7 @@ func TestHomeWritersPreserveUnrelatedFields(t *testing.T) {
 			name: "persistOfferedVersion",
 			run: func(t *testing.T, k state.Key) {
 				t.Helper()
-				persistOfferedVersion(k, "2.0.0", &termio.Mock{})
+				persistOfferedVersion(k, "2.0.0", &termiotest.Mock{})
 			},
 			want: func() state.HomeState {
 				w := seed()
@@ -818,7 +819,7 @@ func TestHomeWritersPreserveUnrelatedFields(t *testing.T) {
 					docker.Get(),
 					k,
 					"0.0.0",
-					&termio.Mock{},
+					&termiotest.Mock{},
 				); got != "1.2.3" {
 					t.Fatalf("recoverAgentVersion = %q, want 1.2.3", got)
 				}
@@ -833,7 +834,7 @@ func TestHomeWritersPreserveUnrelatedFields(t *testing.T) {
 			name: "persistAgentVersion",
 			run: func(t *testing.T, k state.Key) {
 				t.Helper()
-				persistAgentVersion(k, "2.0.0", &termio.Mock{})
+				persistAgentVersion(k, "2.0.0", &termiotest.Mock{})
 			},
 			want: func() state.HomeState {
 				w := seed()
@@ -877,7 +878,7 @@ func TestLiveHomeVolumeReturnsMountedVolume(t *testing.T) {
 		},
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if got := liveHomeVolume(context.Background(), mock, k, &ui); got != "home-vol" {
 		t.Errorf("liveHomeVolume() = %q, want %q", got, "home-vol")
 	}
@@ -887,7 +888,7 @@ func TestLiveHomeVolumeNoVM(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if got := liveHomeVolume(context.Background(), &msb.MockMsbClient{}, k, &ui); got != "" {
 		t.Errorf("liveHomeVolume() = %q, want empty when no VM exists", got)
 	}
@@ -908,7 +909,7 @@ func TestLiveHomeVolumeMountsError(t *testing.T) {
 		},
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if got := liveHomeVolume(context.Background(), mock, k, &ui); got != "" {
 		t.Errorf("liveHomeVolume() = %q, want empty on mounts error", got)
 	}
@@ -930,7 +931,7 @@ func TestLiveHomeVolumeLookupErrorLogs(t *testing.T) {
 		},
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if got := liveHomeVolume(context.Background(), mock, k, &ui); got != "" {
 		t.Errorf("liveHomeVolume() = %q, want empty on lookup error", got)
 	}
@@ -951,7 +952,7 @@ func TestLiveHomeVolumeNilHandle(t *testing.T) {
 		},
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if got := liveHomeVolume(context.Background(), mock, k, &ui); got != "" {
 		t.Errorf("liveHomeVolume() = %q, want empty for a nil handle", got)
 	}
@@ -961,7 +962,7 @@ func TestLiveHomeVolumeNilHandle(t *testing.T) {
 // are persisted after a fresh VM creation.
 func TestPersistConfigHashesRecordsFingerprints(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	slug := "hashproj"
 	k := state.Key{Slug: slug, Agent: "opencode"}
@@ -995,7 +996,7 @@ func TestPersistConfigHashesRecordsFingerprints(t *testing.T) {
 // fingerprints (a corrupt state file) is a warning, not a run failure.
 func TestPersistConfigHashesWarnsOnError(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	slug := "corrupthashproj"
 	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode")
@@ -1131,7 +1132,7 @@ func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
 				Agent: "opencode", Memory: "4G", TmpSize: "2G", ProvisionHostConfig: &provisionHostConfig,
 			}
 			session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
-			ui := &termio.Mock{
+			ui := &termiotest.Mock{
 				IsInteractiveResult: true,
 				SelectFn:            func(string, []termio.Choice, string) (string, error) { return tc.answer, nil },
 				InputFn: func(prompt, _ string) (string, error) {
@@ -1188,7 +1189,7 @@ func TestPlanReconfigStageSkipVMSuppressesMemoryRaise(t *testing.T) {
 	opts := options.RunOptions{Agent: "opencode", ProvisionHostConfig: &provisionHostConfig}
 	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(string, []termio.Choice, string) (string, error) {
 			selects++

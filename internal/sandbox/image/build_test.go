@@ -20,7 +20,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestEnsureImageWithClientSetsContentRef pins that the built image's content id
@@ -42,7 +42,7 @@ func TestEnsureImageWithClientSetsContentRef(t *testing.T) {
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"myproj-1abc1234defg5",
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureImageWithClient: %v", err)
@@ -77,7 +77,7 @@ func TestEnsureImageWithClientFallsBackToNameRefWhenContentIDEmpty(t *testing.T)
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"myproj-1abc1234defg5",
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureImageWithClient: %v", err)
@@ -244,7 +244,7 @@ func TestPlanRunnerImageNoRebuildStillBuildsMissingImage(t *testing.T) {
 }
 
 func TestLogBuildDecisionNamesSkippedRebuildReasons(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	logBuildDecision(ui, "runner:tag", false, []string{"project Dockerfile changed", "agent version changed"},
 		"opencode", "1.2.3", "")
@@ -257,7 +257,7 @@ func TestLogBuildDecisionNamesSkippedRebuildReasons(t *testing.T) {
 }
 
 func TestLogBuildDecisionReuseWithoutChangesStaysVerbose(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	logBuildDecision(ui, "runner:tag", false, nil, "opencode", "1.2.3", "")
 
@@ -272,7 +272,7 @@ func TestLogBuildDecisionReuseWithoutChangesStaysVerbose(t *testing.T) {
 }
 
 func TestLogBuildDecisionNamesSingleSkippedRebuildReason(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	logBuildDecision(ui, "runner:tag", false, []string{"base image updated"}, "opencode", "1.2.3", "")
 
@@ -314,7 +314,7 @@ func TestEnsureImageReportsBakedAgentVersion(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
@@ -356,7 +356,7 @@ func TestEnsureImageReportsEmptyForSentinelLabel(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
@@ -400,7 +400,7 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
@@ -428,7 +428,7 @@ func TestEnsureImageReportsRenderError(t *testing.T) {
 		project,
 		"proj",
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "render Dockerfile") {
 		t.Fatalf("EnsureImageWithClient error = %v, want a render Dockerfile error", err)
@@ -467,7 +467,7 @@ func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -500,7 +500,7 @@ func TestEnsureImageBuildArgsIncludeBaseAndAgentVersion(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
@@ -543,7 +543,7 @@ func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -592,7 +592,7 @@ func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) 
 		"proj",
 		nil,
 		BuildOptions{UserProvided: true},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -639,7 +639,7 @@ func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{UserProvided: true},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -672,7 +672,7 @@ func TestEnsureImageDockerAddsDockerVersionArg(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{Docker: dockerOn},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -705,7 +705,7 @@ func TestEnsureImageVerboseNamesChangedInputs(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if _, err := EnsureImage(
 		context.Background(),
 		docker.Get(),
@@ -750,7 +750,7 @@ func TestEnsureImageVerboseReportsReuse(t *testing.T) {
 			}, nil
 		},
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if _, err := EnsureImage(
 		context.Background(),
 		docker.Get(),
@@ -782,7 +782,7 @@ func TestEnsureImageVerboseReportsForcedRebuild(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if _, err := EnsureImage(
 		context.Background(),
 		docker.Get(),
@@ -908,7 +908,7 @@ func TestEnsureImageFailsWhenAStepFails(t *testing.T) {
 			configpathstest.WithMockConfigPaths(t)
 			tc.setup(t)
 			_, err := EnsureImageWithClient(context.Background(), docker.Get(), agentOpencode(t),
-				[]byte("FROM debian:trixie-slim\n"), "proj", tc.opts, &termio.Mock{},
+				[]byte("FROM debian:trixie-slim\n"), "proj", tc.opts, &termiotest.Mock{},
 			)
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Errorf("EnsureImageWithClient error = %v, want it to contain %q", err, tc.wantErr)
@@ -946,7 +946,7 @@ func TestEnsureImageWarnsOnLegacyDockerfileForms(t *testing.T) {
 	})
 
 	project := []byte("FROM agents-sandbox/runner-base-dind\n# agents-sandbox:dind\nRUN echo hi\n")
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if _, err := EnsureImageWithClient(
 		context.Background(),
 		docker.Get(),
@@ -993,7 +993,7 @@ func TestEnsureImageWarnsOnEveryEnsure(t *testing.T) {
 	})
 
 	project := []byte("FROM agents-sandbox/runner-base-dind\n# agents-sandbox:dind\nRUN echo hi\n")
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	for range 2 {
 		if _, err := EnsureImageWithClient(
 			context.Background(),
@@ -1045,7 +1045,7 @@ func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 		dockerfile,
 		"test-project",
 		BuildOptions{Force: false},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1116,7 +1116,7 @@ func TestEnsureImageResolvesBaseDigestByRenderedRef(t *testing.T) {
 				tc.project,
 				"test-project",
 				BuildOptions{Force: true, AgentVersion: "1.2.3"},
-				&termio.Mock{},
+				&termiotest.Mock{},
 			); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -1166,7 +1166,7 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1197,7 +1197,7 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1232,7 +1232,7 @@ func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1270,7 +1270,7 @@ func TestEnsureImageNoRebuildReusesUnlabeledImageOffline(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{NoRebuild: true},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
@@ -1286,7 +1286,7 @@ func TestEnsureImageNoRebuildReusesUnlabeledImageOffline(t *testing.T) {
 func TestEnsureImageWarnsIgnoredWorktreeConfig(t *testing.T) {
 	synthesizeBareWorktree(t, true)
 	dockertest.WithDefaultErrorDockerMock(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	_, _ = EnsureImage(
 		context.Background(),
@@ -1356,7 +1356,7 @@ func TestBuildLoadsTheEnsuredImageIntoMicrosandbox(t *testing.T) {
 		"test-project",
 		nil,
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1401,7 +1401,7 @@ func TestBuildFailsWhenEnsureOrLoadFails(t *testing.T) {
 				ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 			}
 			if _, err := Build(context.Background(), docker.Get(), msbClient, configpaths.Get(),
-				agentOpencode(t), "test-project", nil, tc.opts, &termio.Mock{},
+				agentOpencode(t), "test-project", nil, tc.opts, &termiotest.Mock{},
 			); err == nil {
 				t.Error("Build error = nil, want a failure")
 			}
@@ -1413,7 +1413,7 @@ func TestBuildFailsWhenEnsureOrLoadFails(t *testing.T) {
 func TestBuildWarnsIgnoredWorktreeConfig(t *testing.T) {
 	synthesizeBareWorktree(t, true)
 	dockertest.WithDefaultErrorDockerMock(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	_, _ = Build(
 		context.Background(),

@@ -14,7 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -439,7 +439,7 @@ func TestResolveConfigAgentName(t *testing.T) {
 		{name: "no agent configured", want: defaultAgentName},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cmd := buildConfigAgentCmd(&termio.Mock{})
+			cmd := buildConfigAgentCmd(&termiotest.Mock{})
 			cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil),
 				launcherconfig.NewResolverWithConfig(tc.config)))
 

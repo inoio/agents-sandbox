@@ -21,6 +21,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // upgradeCheckerAgent implements both the core Agent interface and the
@@ -220,7 +221,7 @@ func readAndResolveReconfigDecision(
 type reconfigFixture struct {
 	client  *msb.MockMsbClient
 	volumes *volume.Manager
-	ui      *termio.Mock
+	ui      *termiotest.Mock
 	cfs     *reprovision.ConfigFiles
 	homeVol string
 }

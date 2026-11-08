@@ -12,6 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 )
 
@@ -141,7 +142,7 @@ func TestRunFuncServeOnlyReportsAFailedPreflight(t *testing.T) {
 	initTestProjectDir(t)
 	configpathstest.WithMockConfigPaths(t)
 	doctortest.MockedCheckAll(t, false)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	cmd := buildRunCmd(ui)
 	cmd.SetContext(context.Background())

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestWarnIgnoredProjectConfigWarnsForBareWorktreeConfig asserts the warning
@@ -17,7 +17,7 @@ func TestWarnIgnoredProjectConfigWarnsForBareWorktreeConfig(t *testing.T) {
 	ignored := physicalPath(t, filepath.Join(worktree, ".agents-sandbox"))
 	bareBase := filepath.Join(physicalPath(t, filepath.Dir(worktree)), ".agents-sandbox")
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	WarnIgnoredProjectConfig(configpaths.Get(), ui)
 
 	if len(ui.WarnCalls) != 1 {
@@ -40,7 +40,7 @@ func TestWarnIgnoredProjectConfigWarnsForBareWorktreeConfig(t *testing.T) {
 func TestWarnIgnoredProjectConfigSilentWithoutWorktreeConfig(t *testing.T) {
 	synthesizeBareWorktree(t, false)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	WarnIgnoredProjectConfig(configpaths.Get(), ui)
 
 	if len(ui.WarnCalls) != 0 {
@@ -58,7 +58,7 @@ func TestWarnIgnoredProjectConfigWarnsFromWorktreeSubdirectory(t *testing.T) {
 	}
 	t.Chdir(sub)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	WarnIgnoredProjectConfig(configpaths.Get(), ui)
 
 	ignored := physicalPath(t, filepath.Join(worktree, ".agents-sandbox"))

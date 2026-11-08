@@ -8,7 +8,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // This file is the #202 regression check for the deprecation register in
@@ -116,7 +116,7 @@ func TestDeprecatedConfigAliasesWarnExactlyOnce(t *testing.T) {
 				approveProjectConfig(t)
 			}
 
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			cmd := buildRootCmd(ui)
 			cmd.SetArgs([]string{cmdVersion})
 			if err := cmd.Execute(); err != nil {

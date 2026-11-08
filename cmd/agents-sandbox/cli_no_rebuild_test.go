@@ -7,14 +7,14 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // resolveNoRebuild parses args on the named command (run or shell) with a real
 // resolver and returns the resolved NoRebuild option.
 func resolveNoRebuild(t *testing.T, commandName string, args ...string) bool {
 	t.Helper()
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	root := buildRootCmd(ui)
 	command, _, err := root.Find([]string{commandName})
 	if err != nil {

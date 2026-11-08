@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestVersion(t *testing.T) {
@@ -56,9 +56,9 @@ func TestVersion(t *testing.T) {
 // setupVersionTestFixtures builds the root command with a fresh mock UI and
 // returns the version subcommand plus the UI. The UI is returned by pointer so
 // that OutCalls is observed against the exact instance the command writes to.
-func setupVersionTestFixtures(t *testing.T) (*cobra.Command, *termio.Mock) {
+func setupVersionTestFixtures(t *testing.T) (*cobra.Command, *termiotest.Mock) {
 	t.Helper()
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	versionCmd, _, _ := root.Find([]string{"version"})
 	return versionCmd, &testUI

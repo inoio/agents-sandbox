@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // renderUsage runs runUsageFunc for cmd into a buffer and returns the output.
@@ -26,7 +26,7 @@ func renderUsage(t *testing.T, cmd *cobra.Command) string {
 // output is compared in full so every WriteString, the alignment arithmetic
 // (maxLen-len(name)+2) and the trailing-newline guard are load-bearing.
 func TestRunUsageFuncExactOutput(t *testing.T) {
-	cmd := buildRunCmd(&termio.Mock{})
+	cmd := buildRunCmd(&termiotest.Mock{})
 	cmd.Annotations[annotationArgs] = `[{"name":"[-- AGENT_ARG...]","help":"Arguments forwarded to agent"}]`
 
 	out := renderUsage(t, cmd)
@@ -136,7 +136,7 @@ func TestExtendRunCmdAcceptsArbitraryArgs(t *testing.T) {
 // renderer: the command's usage (not cobra's default) must be produced.
 func TestExtendRunCmdInstallsUsageFunc(t *testing.T) {
 	cmd := &cobra.Command{Use: "widget"}
-	extendRunCmd(&termio.Mock{}, cmd)
+	extendRunCmd(&termiotest.Mock{}, cmd)
 
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
@@ -165,7 +165,7 @@ func TestRootImpliedRunAcceptsArbitraryArgs(t *testing.T) {
 // key must be registered and carry "on" as its no-option default so `--notify`
 // with no value is accepted.
 func TestRunNotifyFlagBareValueIsOn(t *testing.T) {
-	cmd := buildRunCmd(&termio.Mock{})
+	cmd := buildRunCmd(&termiotest.Mock{})
 	notify := cmd.Flags().Lookup(flagNotify)
 	if notify == nil {
 		t.Fatalf("--%s flag not registered", flagNotify)
@@ -178,7 +178,7 @@ func TestRunNotifyFlagBareValueIsOn(t *testing.T) {
 // TestRunFlagDefaults pins the defaults of shared run/shell flags whose values
 // are contract: --cpus defaults to 0 ("all") and --workspace-quota to 16G.
 func TestRunFlagDefaults(t *testing.T) {
-	cmd := buildRunCmd(&termio.Mock{})
+	cmd := buildRunCmd(&termiotest.Mock{})
 	cpus := cmd.Flags().Lookup(flagCpus)
 	if cpus == nil || cpus.DefValue != "0" {
 		t.Errorf("--%s default = %v, want 0", flagCpus, cpus)

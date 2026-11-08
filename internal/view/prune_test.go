@@ -8,7 +8,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestNewPruneReportJSONMapsCountsAndDetails(t *testing.T) {
@@ -247,7 +247,7 @@ func TestNewRemovalPlanJSONEmptyArtifactsMarshalAsArrays(t *testing.T) {
 // artifact the purge will delete, so the confirmation covers exactly what is
 // removed.
 func TestRemovalPlanRenderNamesVolumes(t *testing.T) {
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	plan := &pruning.RemovalPlan{
 		Slugs:          []string{"myproj-1mjusbm3wikhb0"},
 		Sandboxes:      []string{"myproj-1mjusbm3wikhb0-opencode"},
@@ -284,7 +284,7 @@ func TestRemovalPlanRenderNamesVolumes(t *testing.T) {
 // TestRemovalPlanRenderDryRunPhrasesWouldRemove pins the dry-run wording, so a
 // preview never reads as a committed deletion.
 func TestRemovalPlanRenderDryRunPhrasesWouldRemove(t *testing.T) {
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	RenderRemovalPlan(&pruning.RemovalPlan{
 		Slugs:   []string{"myproj-1mjusbm3wikhb0"},
 		Volumes: []string{"myproj-1mjusbm3wikhb0-opencode-20260812T123456"},
@@ -298,7 +298,7 @@ func TestRemovalPlanRenderDryRunPhrasesWouldRemove(t *testing.T) {
 // TestRemovalPlanRenderListsEverySlug pins the multi-project form, which a
 // cwd-implicit purge produces when the checkout has legacy repo slugs.
 func TestRemovalPlanRenderListsEverySlug(t *testing.T) {
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	RenderRemovalPlan(&pruning.RemovalPlan{
 		Slugs:   []string{"myproj-1mjusbm3wikhb0", "legacy-1mjusbm3wikhb0"},
 		Volumes: []string{"myproj-1mjusbm3wikhb0-opencode-20260812T123456"},
@@ -315,7 +315,7 @@ func TestRemovalPlanRenderListsEverySlug(t *testing.T) {
 // artifacts (a degenerate plan never produced by PlanRemoval) renders only the
 // header and no artifact lines.
 func TestRemovalPlanRenderEmptyPlanPrintsOnlyHeader(t *testing.T) {
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	RenderRemovalPlan(&pruning.RemovalPlan{}, &ui, false)
 	rendered := strings.Join(ui.PrintCalls, "\n")
 	if !strings.Contains(rendered, "Purge will remove:") || strings.Contains(rendered, "- ") {
@@ -327,7 +327,7 @@ func TestRemovalPlanRenderEmptyPlanPrintsOnlyHeader(t *testing.T) {
 // every slug is named and pointed at the purge command, and an empty list prints
 // nothing (so an ordinary prune keeps its previous output).
 func TestRenderRetiredProjectsNamesEachWithAHint(t *testing.T) {
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	RenderRetiredProjects(&ui, []string{"one-1mjusbm3wikhb0", "two-1mjusbm3wikhb0"})
 	rendered := strings.Join(ui.OutCalls, "\n")
 	for _, want := range []string{
@@ -339,7 +339,7 @@ func TestRenderRetiredProjectsNamesEachWithAHint(t *testing.T) {
 		}
 	}
 
-	empty := termio.Mock{}
+	empty := termiotest.Mock{}
 	RenderRetiredProjects(&empty, nil)
 	if len(empty.OutCalls) != 0 {
 		t.Errorf("no retired project should print nothing, got %v", empty.OutCalls)

@@ -20,7 +20,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -32,7 +32,7 @@ import (
 // reports the sandbox healthy.
 func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,
 	args ...string,
-) (*cobra.Command, *termio.Mock) {
+) (*cobra.Command, *termiotest.Mock) {
 	t.Helper()
 	mock.CreatedSandbox = sandboxToReturn
 
@@ -60,7 +60,7 @@ func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn
 // Worktree scenarios need the mock sandbox to return valid JSON for the worktree curl commands.
 func setupShellRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,
 	args ...string,
-) (*cobra.Command, *termio.Mock) {
+) (*cobra.Command, *termiotest.Mock) {
 	t.Helper()
 
 	// Ensure shell responses include a JSON worktree response for curl commands.
@@ -477,7 +477,7 @@ func setupAbsentImagePreviewMocks(t *testing.T, mock *sandboxmsb.MockMsbClient) 
 // assertPreviewInfoLines pins the four rendered preview lines for a fresh
 // project with an absent image: version, build decision, home volume, session.
 // The runner tag embeds the temp project's slug, so it is asserted by shape.
-func assertPreviewInfoLines(t *testing.T, ui *termio.Mock, shell bool) {
+func assertPreviewInfoLines(t *testing.T, ui *termiotest.Mock, shell bool) {
 	t.Helper()
 	calls := ui.InfoCalls
 	if len(calls) != 4 {

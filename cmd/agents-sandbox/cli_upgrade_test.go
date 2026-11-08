@@ -11,7 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -106,9 +106,9 @@ func TestUpgrade(t *testing.T) {
 	})
 }
 
-func setupUpgradeTestFixtures(t *testing.T) (*cobra.Command, *termio.Mock) {
+func setupUpgradeTestFixtures(t *testing.T) (*cobra.Command, *termiotest.Mock) {
 	t.Helper()
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	upgradeCmd, _, _ := root.Find([]string{"upgrade"})
 	return upgradeCmd, &testUI
@@ -253,7 +253,7 @@ func TestCheckForUpgrade(t *testing.T) {
 	})
 
 	t.Run("nil resolver no-ops", func(t *testing.T) {
-		exit, err := checkForUpgrade(context.Background(), nil, &termio.Mock{})
+		exit, err := checkForUpgrade(context.Background(), nil, &termiotest.Mock{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -266,7 +266,7 @@ func TestCheckForUpgrade(t *testing.T) {
 		t.Setenv(upgradeAnyVersionEnv, "")
 		version = devVersion
 		r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{})
-		exit, err := checkForUpgrade(context.Background(), r, &termio.Mock{})
+		exit, err := checkForUpgrade(context.Background(), r, &termiotest.Mock{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -280,7 +280,7 @@ func TestCheckForUpgrade(t *testing.T) {
 			return upgrade.Result{}, errors.New("boom")
 		}
 		r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{})
-		if _, err := checkForUpgrade(context.Background(), r, &termio.Mock{}); err == nil {
+		if _, err := checkForUpgrade(context.Background(), r, &termiotest.Mock{}); err == nil {
 			t.Fatal("expected the upgrade-check error to propagate")
 		}
 	})
@@ -290,7 +290,7 @@ func TestCheckForUpgrade(t *testing.T) {
 			return upgrade.Result{Exit: true}, nil
 		}
 		r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{})
-		exit, err := checkForUpgrade(context.Background(), r, &termio.Mock{})
+		exit, err := checkForUpgrade(context.Background(), r, &termiotest.Mock{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -308,7 +308,7 @@ func TestCheckForUpgrade(t *testing.T) {
 		r := launcherconfig.NewResolverWithConfig(launcherconfig.Config{
 			Upgrade: launcherconfig.UpgradeConfig{Channel: "canary"},
 		})
-		if _, err := checkForUpgrade(context.Background(), r, &termio.Mock{}); err != nil {
+		if _, err := checkForUpgrade(context.Background(), r, &termiotest.Mock{}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if got != upgrade.ChannelCanary {
@@ -390,7 +390,7 @@ func TestRunStartupStagesExitContract(t *testing.T) {
 			newCmd(t, nil),
 			options.ModeRun,
 			options.RunOptions{Agent: defaultAgentName},
-			&termio.Mock{},
+			&termiotest.Mock{},
 		)
 		if err == nil {
 			t.Fatal("expected the preflight error to propagate")
@@ -411,7 +411,7 @@ func TestRunStartupStagesExitContract(t *testing.T) {
 			newCmd(t, r),
 			options.ModeRun,
 			options.RunOptions{Agent: defaultAgentName},
-			&termio.Mock{},
+			&termiotest.Mock{},
 		)
 		if err == nil {
 			t.Fatal("expected the upgrade-check error to propagate")
@@ -432,7 +432,7 @@ func TestRunStartupStagesExitContract(t *testing.T) {
 			newCmd(t, r),
 			options.ModeRun,
 			options.RunOptions{Agent: defaultAgentName},
-			&termio.Mock{},
+			&termiotest.Mock{},
 		)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

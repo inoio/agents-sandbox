@@ -13,7 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestComputeImageIdentityNormalizesAbsentInputs(t *testing.T) {
@@ -290,7 +290,7 @@ func TestEmitProjectDockerfileDiagnostics(t *testing.T) {
 	configpaths.Get = func() configpaths.ConfigPaths { return &projectDockerfilePaths{dir: dir} }
 	t.Cleanup(func() { configpaths.Get = orig })
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	EmitProjectDockerfileDiagnostics(ui, ReadProjectDockerfile(configpaths.Get()), dockerOff)
 
 	joined := strings.Join(ui.WarnCalls, "\n")

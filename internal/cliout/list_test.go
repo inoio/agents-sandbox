@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 type stringPrinter struct {
@@ -20,7 +20,7 @@ func (p stringPrinter) JSON(items []string) any { return p.jsonValue(items) }
 func identityJSON(items []string) any { return append(make([]string, 0, len(items)), items...) }
 
 func TestPrintListIdentifiersPrintsFirstCell(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if err := PrintList(ui, ModeIdentifiers, []string{"a", "bb"}, "none", stringPrinter{identityJSON}); err != nil {
 		t.Fatalf("PrintList: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestPrintListIdentifiersPrintsFirstCell(t *testing.T) {
 }
 
 func TestPrintListTableEmptyShowsMessage(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if err := PrintList(ui, ModeTable, []string{}, "none found", stringPrinter{identityJSON}); err != nil {
 		t.Fatalf("PrintList: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestPrintListTableEmptyShowsMessage(t *testing.T) {
 }
 
 func TestPrintListTableRendersHeadersAndCells(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if err := PrintList(ui, ModeTable, []string{"abc"}, "none", stringPrinter{identityJSON}); err != nil {
 		t.Fatalf("PrintList: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestPrintListTableRendersHeadersAndCells(t *testing.T) {
 }
 
 func TestPrintListJSONMarshalError(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	printer := stringPrinter{func([]string) any { return func() {} }}
 	if err := PrintList(ui, ModeJSON, []string{"x"}, "none", printer); err == nil {
 		t.Fatal("expected a marshal error for a non-marshalable JSON value")
@@ -64,7 +64,7 @@ func TestPrintListJSONMarshalError(t *testing.T) {
 }
 
 func TestPrintListJSONEmpty(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if err := PrintList(ui, ModeJSON, []string{}, "none", stringPrinter{identityJSON}); err != nil {
 		t.Fatalf("PrintList: %v", err)
 	}

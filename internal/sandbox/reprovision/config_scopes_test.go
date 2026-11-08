@@ -9,7 +9,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -30,7 +30,7 @@ func TestHomeFilesFromPerSlugConfig(t *testing.T) {
 
 	writeHomeTarget(t, cp.UserSlugConfigDir("widget-bbb"), "per-slug\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	cf, err := LoadConfigFilesForHost(
 		agent.Resolve(opencodeTestAgent()), "widget-bbb", t.TempDir(), VMHomeDir, &ui, true,
 	)
@@ -57,7 +57,7 @@ func TestHomeFilesPerSlugOverridesGeneric(t *testing.T) {
 	writeHomeTarget(t, cp.UserConfigDir(), "generic\n")
 	writeHomeTarget(t, cp.UserSlugConfigDir("widget-bbb"), "per-slug\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	load := func() map[string][]byte {
 		t.Helper()
 		cf, err := LoadConfigFilesForHost(
@@ -92,7 +92,7 @@ func TestDescribeUsesConfigSlug(t *testing.T) {
 	)
 	testutil.WriteFile(t, perSlugDir, "opencode-model.json", `{"model":"per-slug"}`)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	merged, sources, _, _, source, err := Describe(
 		opencodeTestAgent(), "widget-bbb", t.TempDir(), VMHomeDir, &ui, true,
 	)

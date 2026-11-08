@@ -15,7 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
@@ -26,7 +26,7 @@ func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
 	t.Cleanup(func() { waitQuiescentPollInterval = origInterval })
 
 	slug := "reattachproj"
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := &msb.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
@@ -83,7 +83,7 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 	release, _ := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
 	defer release()
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	var shellCalls, execCalls []string
 	sb := &msb.MockSandbox{Name_: "test-vm", ShellCalls: &shellCalls, ExecCalls: &execCalls}
 
@@ -124,7 +124,7 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 	defer release()
 
 	// CountActiveClients >= 1 because current process holds the lease.
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 
 	err = reapOnLastClient(
@@ -145,7 +145,7 @@ func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing
 
 	slug := "nopollproj"
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 
 	err := reapOnLastClient(
@@ -183,7 +183,7 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 
 	slug := "idleproj"
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := &msb.MockSandbox{Name_: "test-vm"}
 	sb.ShellOut = map[string]msb.ShellResult{
 		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
@@ -216,7 +216,7 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 
 	slug := "emptyproj"
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := &msb.MockSandbox{Name_: "test-vm"}
 	sb.ShellOut = map[string]msb.ShellResult{
 		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(true, 0, `{}`, "", nil),
@@ -249,7 +249,7 @@ func TestReapOnLastClient_WaitMode_RetryBelowCapKeepsWaiting(t *testing.T) {
 	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer shortCancel()
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := &msb.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
@@ -300,7 +300,7 @@ func TestReapOnLastClient_WaitMode_RetryAtOrOverCapReaps(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			sb := &msb.MockSandbox{
 				Name_: "test-vm",
 				ShellOut: map[string]msb.ShellResult{
@@ -334,7 +334,7 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer shortCancel()
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := &msb.MockSandbox{Name_: "test-vm"}
 	sb.ShellOut = map[string]msb.ShellResult{
 		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
@@ -365,7 +365,7 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	slug := "qproj"
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := &msb.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
@@ -398,7 +398,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.
 	slug := "qerrproj"
 	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer shortCancel()
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := &msb.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
@@ -443,7 +443,7 @@ func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			err := reapOnLastClient(
 				context.Background(),
 				opencodeResolved(t),
@@ -463,7 +463,7 @@ func TestReapOnLastClient_NoSessionStatusProvider_SkipsWait(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
 	slug := "nosessionproj"
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 
 	err := reapOnLastClient(
@@ -493,7 +493,7 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 		t.Fatalf("state.AcquireClientLease: %v", err)
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := &msb.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
@@ -533,7 +533,7 @@ func TestReapOnLastClientSkipsNonDaemonAgent(t *testing.T) {
 	if _, isStatus := agent.AsSessionStatusProvider(a); isStatus {
 		t.Skip("pi unexpectedly has a session-status provider")
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := msb.NewMockSandbox(msb.SandboxOpts{})
 	if err := reapOnLastClient(
 		context.Background(),
@@ -561,7 +561,7 @@ func TestReapOnLastClient_CanceledContextStillWarns(t *testing.T) {
 			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
 		},
 	})}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -593,7 +593,7 @@ func TestReapOnLastClient_WarnsWhenContainersRunning(t *testing.T) {
 			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
 		},
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	err := reapOnLastClient(
 		context.Background(),
@@ -622,7 +622,7 @@ func TestReapOnLastClient_WarnsWhenContainersRunningWithoutAutoStop(t *testing.T
 			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
 		},
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	// noSessionStatusAgent returns before the quiescence wait, so the test does
 	// not need a session-status stub; the warning runs before that branch.
@@ -652,7 +652,7 @@ func TestReapOnLastClient_ProbesRegardlessOfDockerSetting(t *testing.T) {
 
 	var shellCalls []string
 	sb := &msb.MockSandbox{Name_: "test-vm", ShellCalls: &shellCalls}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	err := reapOnLastClient(
 		context.Background(),
@@ -678,7 +678,7 @@ func TestReapOnLastClient_ProbesRegardlessOfDockerSetting(t *testing.T) {
 func TestReapOnLastClient_NoContainerProbeWhenSandboxNil(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	err := reapOnLastClient(
 		context.Background(),
@@ -712,7 +712,7 @@ func TestReapOnLastClient_SandboxReplacedOrGoneStopsWaiting(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			sb := &msb.MockSandbox{Name_: "test-vm", ShellErr: tc.err}
 
 			err := reapOnLastClient(
@@ -760,7 +760,7 @@ func TestWarnRunningContainers(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			sb := msb.NewMockSandbox(msb.SandboxOpts{
 				ShellOut: map[string]msb.ShellResult{runningContainersProbeCmd: tt.out},
 				ShellErr: tt.shellErr,
@@ -780,7 +780,7 @@ func TestWarnRunningContainers(t *testing.T) {
 // guard: an error from Shell must short-circuit before any output is counted,
 // even when a result is also returned.
 func TestWarnRunningContainersShellErrorWithPartialResultDoesNotWarn(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := errWithResultSandbox{
 		MockSandbox: &msb.MockSandbox{},
 		out:         msb.NewTestResult(true, 0, "id1\n", "", nil),
@@ -797,7 +797,7 @@ func TestWarnRunningContainersShellErrorWithPartialResultDoesNotWarn(t *testing.
 // probe that used it directly (as the SDK aborts on cancellation) would silently
 // drop the warning. The probe must run on its own non-canceled context.
 func TestWarnRunningContainers_CanceledContextStillWarns(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := canceledContextSandbox{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{
 		ShellOut: map[string]msb.ShellResult{
 			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
@@ -1205,7 +1205,7 @@ func TestReapOnLastClient_IdleSessionsSkipTheQuestionPoll(t *testing.T) {
 		},
 	}
 	err := reapOnLastClient(context.Background(), opencodeResolved(t), state.Key{Slug: "idleq", Agent: "opencode"}, sb,
-		options.ReapPolicy{}, &termio.Mock{})
+		options.ReapPolicy{}, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("reapOnLastClient: %v", err)
 	}

@@ -14,7 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -25,7 +25,7 @@ import (
 // adoption claims.
 func TestPlanRemovalListsEveryArtifactForSlug(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	const slug = "purge-plan-1mjusbm3wikhb0"
 	volumeName := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
 	imageRef := naming.RunnerImageRef(slug, "opencode")
@@ -129,7 +129,7 @@ func TestExecuteRemovesVolumeThenState(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, mock)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	plan, err := PlanRemoval(context.Background(), []string{slug}, "", &testUI)
 	if err != nil {
@@ -175,7 +175,7 @@ func TestExecuteFailsClosedOnCorruptState(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{vm},
 	}
 	msb.WithMsbMock(t, mock)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	plan, err := PlanRemoval(context.Background(), []string{slug}, "", &testUI)
 	if err != nil {
@@ -214,7 +214,7 @@ func TestExecuteRefusesRunningSandboxWithoutForce(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{vm},
 	}
 	msb.WithMsbMock(t, mock)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	plan, err := PlanRemoval(context.Background(), []string{slug}, "", &testUI)
 	if err != nil {
@@ -273,7 +273,7 @@ func TestExecuteDryRunDeletesNothing(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{vm},
 	}
 	msb.WithMsbMock(t, mock)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	plan, err := PlanRemoval(context.Background(), []string{slug}, "", &testUI)
 	if err != nil {
@@ -325,7 +325,7 @@ func TestExecuteKeepsStateWhenVolumeRemovalFails(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, mock)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	plan, err := PlanRemoval(context.Background(), []string{slug}, "", &testUI)
 	if err != nil {
@@ -347,7 +347,7 @@ func TestExecuteKeepsStateWhenVolumeRemovalFails(t *testing.T) {
 // one slug, only the targeted agent's artifacts are planned.
 func TestPlanRemovalScopesToAgent(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	const slug = "purge-agent-1mjusbm3wikhb0"
 	opencodeVolume := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
 	piVolume := naming.HomeVolumeName(slug, "pi", "20260101T000000")
@@ -408,7 +408,7 @@ func TestExecuteKeepsStateForUnplannedVolume(t *testing.T) {
 	}
 	stateFile := filepath.Join(state.KeyDir(agentKey), "state.yaml")
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	plan, err := PlanRemoval(context.Background(), []string{slug}, "", &testUI)
 	if err != nil {
@@ -435,7 +435,7 @@ func TestExecuteRemovesPlannedImage(t *testing.T) {
 		Images: []msb.ImageHandle{&msb.MockImageHandle{Reference_: ref}},
 	}
 	msb.WithMsbMock(t, mock)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	plan, err := PlanRemoval(context.Background(), []string{slug}, "", &testUI)
 	if err != nil {
@@ -466,7 +466,7 @@ func TestExecuteImageRemovalFailureWarnsAndContinues(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, mock)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	plan, err := PlanRemoval(context.Background(), []string{slug}, "", &testUI)
 	if err != nil {
@@ -495,7 +495,7 @@ func TestExecuteRemovesAdoptionClaim(t *testing.T) {
 		t.Fatalf("seed adoption claim: %v", err)
 	}
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	plan, err := PlanRemoval(context.Background(), []string{slug}, "", &testUI)
 	if err != nil {
@@ -546,7 +546,7 @@ func TestExecuteSweepsClaimsAndLeases(t *testing.T) {
 	}
 
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	plan, err := PlanRemoval(context.Background(), []string{slug}, "", &testUI)
 	if err != nil {
@@ -572,7 +572,7 @@ func TestExecuteSweepsClaimsAndLeases(t *testing.T) {
 // alone would plan it; the checkout's state reference makes it foreign.
 func TestPlanRemovalKeepsVolumeOwnedByAnotherCheckout(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	const (
 		legacy   = "purge-legacy-1mjusbm3wikhb0"
 		checkout = "purge-ownercheckout-2nkvtdn4xjlic1"
@@ -610,7 +610,7 @@ func TestPlanRemovalKeepsVolumeOwnedByAnotherCheckout(t *testing.T) {
 // points at, and drops the state in the same run (the pointer never dangles).
 func TestPlanRemovalReclaimsVolumeReferencedByScopedCheckout(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	const (
 		legacy   = "purge-legacyref-1mjusbm3wikhb0"
 		checkout = "purge-scopedcheckout-2nkvtdn4xjlic1"
@@ -646,7 +646,7 @@ func TestPlanRemovalReclaimsVolumeReferencedByScopedCheckout(t *testing.T) {
 // checkout's recovery marker, not the legacy identity's to remove.
 func TestPlanRemovalKeepsAdoptionClaimOwnedByAnotherCheckout(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	const legacy = "purge-claimkeep-1mjusbm3wikhb0"
 	seedAdoptionClaim(t, legacy, "opencode", "other-checkout-slug", "legacy-volume")
 	msb.WithMsbMock(t, &msb.MockMsbClient{})

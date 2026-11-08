@@ -1,37 +1,9 @@
 package termio
 
 import (
-	"errors"
 	"strings"
 	"testing"
 )
-
-func TestConfirmActionHonoursAssumeYesInteractivityAndTheAnswer(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		ui         *Mock
-		wantErr    error
-		wantPrompt bool
-	}{
-		{name: "assume yes skips the prompt", ui: func() *Mock { m := &Mock{}; m.SetAssumeYes(true); return m }()},
-		{name: "non-interactive requires confirmation", ui: &Mock{}, wantErr: ErrConfirmationRequired},
-		{
-			name: "declined cancels", ui: &Mock{IsInteractiveResult: true, ConfirmResult: false},
-			wantErr: ErrCancelled, wantPrompt: true,
-		},
-		{name: "accepted proceeds", ui: &Mock{IsInteractiveResult: true, ConfirmResult: true}, wantPrompt: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			err := ConfirmAction(tc.ui, "Remove it?")
-			if !errors.Is(err, tc.wantErr) {
-				t.Fatalf("ConfirmAction = %v, want %v", err, tc.wantErr)
-			}
-			if prompted := len(tc.ui.ConfirmCalls) > 0; prompted != tc.wantPrompt {
-				t.Errorf("prompted = %v (%v), want %v", prompted, tc.ui.ConfirmCalls, tc.wantPrompt)
-			}
-		})
-	}
-}
 
 // prompterOnly implements Prompter alone: ConfirmAction must accept it.
 type prompterOnly struct{ confirmed bool }

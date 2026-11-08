@@ -16,7 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestImageRefCandidates(t *testing.T) {
@@ -76,7 +76,7 @@ func TestEnsureLoadedVerboseReportsUpToDate(t *testing.T) {
 			return client.ImageInspectResult{ID: "sha256:same", Config: dockerConfigWith("", nil)}, nil
 		},
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
@@ -104,7 +104,7 @@ func TestEnsureLoadedVerboseReportsNotPresent(t *testing.T) {
 			return io.NopCloser(strings.NewReader("tar-data")), nil
 		},
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
@@ -132,7 +132,7 @@ func TestEnsureLoadedVerboseReportsStaleCache(t *testing.T) {
 			return io.NopCloser(strings.NewReader("tar-data")), nil
 		},
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
@@ -182,7 +182,7 @@ func TestEnsureLoadedFailsWhenTheImageTransferFails(t *testing.T) {
 				},
 			}
 			info := ImageInfo{DockerTag: rTag, Ref: rTag, Digest: "sha256:new"}
-			_, err := EnsureLoaded(context.Background(), docker.Get(), msbClient, info, &termio.Mock{})
+			_, err := EnsureLoaded(context.Background(), docker.Get(), msbClient, info, &termiotest.Mock{})
 			if want := cmp.Or(tc.saveErr, tc.loadErr); !errors.Is(err, want) {
 				t.Errorf("EnsureLoaded error = %v, want it to wrap %v", err, want)
 			}
@@ -282,7 +282,7 @@ func TestEnsureLoadedDecision(t *testing.T) {
 				docker.Get(),
 				msbClient,
 				tc.info,
-				&termio.Mock{},
+				&termiotest.Mock{},
 			); err != nil {
 				t.Fatalf("EnsureLoaded: %v", err)
 			}
@@ -322,7 +322,7 @@ func TestEnsureLoadedReloadsStaleContentUnderSameRef(t *testing.T) {
 			return errors.New("database error: FOREIGN KEY constraint failed")
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	info := ImageInfo{DockerTag: rTag, Ref: rTag, Digest: "sha256:docker-new", DockerfileID: "abc"}
 	if _, err := EnsureLoaded(context.Background(), docker.Get(), msbClient, info, ui); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
@@ -346,7 +346,7 @@ func TestEnsureLoadedSkipsWhenCachedContentMatches(t *testing.T) {
 		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error { removed = true; return nil },
 	}
 	info := ImageInfo{DockerTag: "ref", Ref: "ref", Digest: "sha256:same"}
-	if _, err := EnsureLoaded(context.Background(), docker.Get(), msbClient, info, &termio.Mock{}); err != nil {
+	if _, err := EnsureLoaded(context.Background(), docker.Get(), msbClient, info, &termiotest.Mock{}); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
 	if removed {
@@ -377,7 +377,7 @@ func TestEnsureLoadedReloadsLegacyImageWithoutDigest(t *testing.T) {
 		},
 	}
 	info := ImageInfo{DockerTag: "ref", Ref: "ref", Digest: "sha256:new", DockerfileID: "abc123"}
-	if _, err := EnsureLoaded(context.Background(), docker.Get(), msbClient, info, &termio.Mock{}); err != nil {
+	if _, err := EnsureLoaded(context.Background(), docker.Get(), msbClient, info, &termiotest.Mock{}); err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
 	}
 	if len(msbClient.LoadedImages) != 1 {
@@ -405,7 +405,7 @@ func TestEnsureLoadedLoadsWhenNotCached(t *testing.T) {
 			Ref:       "agents-sandbox/runner-test-project:abc",
 			Digest:    "sha256:new",
 		},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -442,7 +442,7 @@ func TestEnsureLoadedReusesContentRef(t *testing.T) {
 
 	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: dockerTag, Ref: contentRef, Identity: testContentIdentity(), Digest: "sha256:same"},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
@@ -479,7 +479,7 @@ func TestEnsureLoadedReusesNameRefForMigration(t *testing.T) {
 
 	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: dockerTag, Ref: contentRef, Identity: testContentIdentity(), Digest: "sha256:same"},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
@@ -515,7 +515,7 @@ func TestEnsureLoadedReusesNameRefFromIdentity(t *testing.T) {
 
 	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{Ref: contentRef, Identity: testContentIdentity(), Digest: "sha256:same"},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
@@ -550,7 +550,7 @@ func TestEnsureLoadedReusesLegacyPrefixedRefForMigration(t *testing.T) {
 
 	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: dockerTag, Ref: contentRef, Identity: testContentIdentity(), Digest: "sha256:same"},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
@@ -580,7 +580,7 @@ func TestEnsureLoadedLoadsUnderContentRefWhenNoCandidateMatches(t *testing.T) {
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: dockerTag, Ref: contentRef, Identity: testContentIdentity(), Digest: "sha256:new"},
@@ -623,7 +623,7 @@ func TestEnsureLoadedLoadsUnderContentRefWhenContentDiffers(t *testing.T) {
 			return &msb.ImageConfig{Digest: "sha256:old"}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: dockerTag, Ref: contentRef, Identity: testContentIdentity(), Digest: "sha256:new"},
@@ -659,7 +659,7 @@ func TestEnsureLoadedFallsBackToDockerTagWhenRefEmpty(t *testing.T) {
 
 	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: legacyRef, Ref: "", Digest: "sha256:new"},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
@@ -695,7 +695,7 @@ func TestEnsureLoadedReusesLegacyRefWhenContentMatches(t *testing.T) {
 
 	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: legacyRef, Ref: newRef, Digest: "sha256:same"},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
@@ -727,7 +727,7 @@ func TestEnsureLoadedLoadsUnderNewRefWhenLegacyAbsent(t *testing.T) {
 
 	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: legacyRef, Ref: newRef, Digest: "sha256:new"},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)
@@ -768,7 +768,7 @@ func TestEnsureLoadedLoadsUnderNewRefWhenLegacyContentDiffers(t *testing.T) {
 
 	info, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
 		ImageInfo{DockerTag: legacyRef, Ref: newRef, Digest: "sha256:new"},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureLoaded: %v", err)

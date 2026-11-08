@@ -17,6 +17,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -40,13 +41,13 @@ func writeProjectConfig(t *testing.T, content string) {
 // gateFixture runs the gate for the named command of a real root command.
 type gateFixture struct {
 	root *cobra.Command
-	ui   *termio.Mock
+	ui   *termiotest.Mock
 }
 
 func newGateFixture(t *testing.T) gateFixture {
 	t.Helper()
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	return gateFixture{root: buildRootCmd(ui), ui: ui}
 }
 
@@ -101,7 +102,7 @@ func TestCommandAppliesProjectConfigNamesTheRunAndBuildCommands(t *testing.T) {
 			walk(child)
 		}
 	}
-	walk(buildRootCmd(&termio.Mock{}))
+	walk(buildRootCmd(&termiotest.Mock{}))
 	slices.Sort(got)
 	if !slices.Equal(got, want) {
 		t.Errorf("commands asking for approval = %q, want %q", got, want)
@@ -258,7 +259,7 @@ func TestGateReportsAnUnreadableProjectConfig(t *testing.T) {
 func TestExecuteRestoresThePathFactory(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	writeProjectConfig(t, "memory: 8G\n")
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if err := execute([]string{cmdConfig, cmdPaths}, ui); err != nil {
 		t.Fatalf("execute: %v", err)
 	}

@@ -11,7 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -20,7 +20,7 @@ func TestWarnUnprovisionedDependenciesWarnsForTheOpencodeConfigDir(t *testing.T)
 	hostHome, _ := configpaths.Get().UserHomeDir()
 	manifest := writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
 	opencode, _ := agent.Lookup("opencode")
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	WarnUnprovisionedDependencies(agent.Resolve(opencode), &ConfigFiles{}, nil, true, &ui)
 
@@ -40,7 +40,7 @@ func TestWarnUnprovisionedDependenciesSilentWhenHostProvisioningIsDisabled(t *te
 	hostHome, _ := configpaths.Get().UserHomeDir()
 	writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
 	opencode, _ := agent.Lookup("opencode")
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	WarnUnprovisionedDependencies(agent.Resolve(opencode), &ConfigFiles{}, nil, false, &ui)
 
@@ -61,7 +61,7 @@ func TestWarnUnprovisionedDependenciesSilentWhenHomeOrMirrorSuppliesTheManifest(
 			hostHome, _ := configpaths.Get().UserHomeDir()
 			writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
 			opencode, _ := agent.Lookup("opencode")
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 
 			WarnUnprovisionedDependencies(agent.Resolve(opencode), files, nil, true, &ui)
 
@@ -77,7 +77,7 @@ func TestWarnUnprovisionedDependenciesSilentForAgentsNotProvisioningTheOpencodeD
 	hostHome, _ := configpaths.Get().UserHomeDir()
 	writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
 	claude, _ := agent.Lookup("claude-code")
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	WarnUnprovisionedDependencies(agent.Resolve(claude), &ConfigFiles{}, nil, true, &ui)
 
@@ -90,7 +90,7 @@ func TestWarnUnprovisionedDependenciesSilentForAgentsWithoutProvisionRules(t *te
 	configpathstest.WithMockConfigPaths(t)
 	hostHome, _ := configpaths.Get().UserHomeDir()
 	writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	WarnUnprovisionedDependencies(agent.Resolve(plainAgent{}), &ConfigFiles{}, nil, true, &ui)
 
@@ -108,7 +108,7 @@ func TestWarnUnprovisionedDependenciesNeverResolvesAgainstTheWorkingDirectory(t 
 	writeHostManifest(t, workingDir, `{"dependencies": {"zod": "4.1.8"}}`)
 	t.Chdir(workingDir)
 	opencode, _ := agent.Lookup("opencode")
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	WarnUnprovisionedDependencies(agent.Resolve(opencode), &ConfigFiles{}, nil, true, &ui)
 

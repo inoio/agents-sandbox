@@ -1,9 +1,12 @@
-package termio
+package termiotest
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestMockRecordsOutputCalls(t *testing.T) {
@@ -85,9 +88,9 @@ func TestMockSpinnerfRecordsFormattedMessage(t *testing.T) {
 
 func TestNewTestMockReportsConfiguredSettings(t *testing.T) {
 	m := NewTestMock(t)
-	m.SetLevel(LevelVerbose)
+	m.SetLevel(termio.LevelVerbose)
 	m.SetQuiet(true)
-	if m.Level() != LevelVerbose {
+	if m.Level() != termio.LevelVerbose {
 		t.Errorf("Level() = %v, want verbose", m.Level())
 	}
 	if !m.Quiet() {
@@ -121,7 +124,7 @@ func TestMockSpinnerWithNilOwnerIsNoOp(t *testing.T) {
 func TestMockPromptDefaults(t *testing.T) {
 	m := &Mock{}
 
-	got, err := m.Select("prompt", []Choice{{Key: "a"}}, "a")
+	got, err := m.Select("prompt", []termio.Choice{{Key: "a"}}, "a")
 	if err != nil || got != "a" {
 		t.Errorf("expected default select, got %q, %v", got, err)
 	}
@@ -159,8 +162,8 @@ func TestMockConfirmRecordsPromptAndReturnsConfigured(t *testing.T) {
 func TestMockConfirmNonInteractiveRequiresConfirmation(t *testing.T) {
 	m := &Mock{ConfirmResult: true}
 	got, err := m.Confirm("Remove it?", false)
-	if !errors.Is(err, ErrConfirmationRequired) {
-		t.Fatalf("expected ErrConfirmationRequired, got %v", err)
+	if !errors.Is(err, termio.ErrConfirmationRequired) {
+		t.Fatalf("expected termio.ErrConfirmationRequired, got %v", err)
 	}
 	if got {
 		t.Error("expected false when confirmation is required")
@@ -223,9 +226,28 @@ func TestMockAcknowledgeRecordsAndReturnsError(t *testing.T) {
 	}
 }
 
+func TestMockNewTableRecordsThroughIt(t *testing.T) {
+	m := &Mock{}
+	table := m.NewTable("NAME")
+	if table == nil {
+		t.Fatal("NewTable() = nil")
+	}
+	table.AddRow("alpha")
+	table.Print()
+	if len(m.OutCalls) != 2 {
+		t.Fatalf("OutCalls = %v, want a header and one row", m.OutCalls)
+	}
+	if !strings.Contains(m.OutCalls[0], "NAME") {
+		t.Errorf("header call = %q, want NAME", m.OutCalls[0])
+	}
+	if !strings.Contains(m.OutCalls[1], "alpha") {
+		t.Errorf("row call = %q, want alpha", m.OutCalls[1])
+	}
+}
+
 func TestMockPromptFnsOverrideDefaults(t *testing.T) {
 	m := &Mock{
-		SelectFn: func(string, []Choice, string) (string, error) { return "x", nil },
+		SelectFn: func(string, []termio.Choice, string) (string, error) { return "x", nil },
 		InputFn:  func(string, string) (string, error) { return "y", nil },
 	}
 

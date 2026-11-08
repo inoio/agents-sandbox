@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestIsProjectVMName pins which names RemoveSandbox treats as project VMs: a
@@ -106,26 +107,26 @@ func TestRemoveSandboxRemovesNothingWithoutConfirmation(t *testing.T) {
 		name    string
 		status  msb.SandboxStatus
 		force   bool
-		ui      *termio.Mock
+		ui      *termiotest.Mock
 		wantErr error
 	}{
 		{
 			name:    "non-interactive",
 			status:  msb.SandboxStatusStopped,
-			ui:      &termio.Mock{},
+			ui:      &termiotest.Mock{},
 			wantErr: termio.ErrConfirmationRequired,
 		},
 		{
 			name:    "declined",
 			status:  msb.SandboxStatusStopped,
-			ui:      &termio.Mock{IsInteractiveResult: true, ConfirmResult: false},
+			ui:      &termiotest.Mock{IsInteractiveResult: true, ConfirmResult: false},
 			wantErr: termio.ErrCancelled,
 		},
 		{
 			name:    "declined with force on a running VM",
 			status:  msb.SandboxStatusRunning,
 			force:   true,
-			ui:      &termio.Mock{IsInteractiveResult: true, ConfirmResult: false},
+			ui:      &termiotest.Mock{IsInteractiveResult: true, ConfirmResult: false},
 			wantErr: termio.ErrCancelled,
 		},
 	}
@@ -280,8 +281,8 @@ func TestRemoveSandboxBarePrefixRemoves(t *testing.T) {
 }
 
 // assumeYesUI returns a non-interactive UI that authorizes any confirmation.
-func assumeYesUI() *termio.Mock {
-	ui := &termio.Mock{}
+func assumeYesUI() *termiotest.Mock {
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	return ui
 }

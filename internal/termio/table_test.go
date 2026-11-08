@@ -6,7 +6,7 @@ import (
 )
 
 func TestRenderAlignsColumns(t *testing.T) {
-	tbl := (&Mock{}).NewTable("NAME", "STATUS", "CREATED")
+	tbl := NewTableFor(&minimalTableWriter{}, []string{"NAME", "STATUS", "CREATED"})
 	tbl.AddRow("alpha", "running", "2026-08-17 09:00:00")
 	tbl.AddRow("agents-sandbox-vm-beta", "stopped", "2026-08-16 12:00:00")
 
@@ -32,7 +32,7 @@ func TestRenderAlignsColumns(t *testing.T) {
 }
 
 func TestRenderUsesWidestCellPerColumn(t *testing.T) {
-	tbl := (&Mock{}).NewTable("A", "B")
+	tbl := NewTableFor(&minimalTableWriter{}, []string{"A", "B"})
 	tbl.AddRow("short", "1")
 	tbl.AddRow("a-very-long-name", "2")
 
@@ -47,14 +47,14 @@ func TestRenderUsesWidestCellPerColumn(t *testing.T) {
 }
 
 func TestRenderEmptyWhenNoRows(t *testing.T) {
-	tbl := (&Mock{}).NewTable("NAME")
+	tbl := NewTableFor(&minimalTableWriter{}, []string{"NAME"})
 	if got := tbl.render(); got != "" {
 		t.Errorf("render() with no rows = %q, want empty", got)
 	}
 }
 
 func TestRenderLastColumnUnpadded(t *testing.T) {
-	tbl := (&Mock{}).NewTable("A", "B")
+	tbl := NewTableFor(&minimalTableWriter{}, []string{"A", "B"})
 	tbl.AddRow("x", "y")
 	if got := tbl.render(); !strings.HasSuffix(got, "y") {
 		t.Errorf("last column should be unpadded, got %q", got)
@@ -62,7 +62,7 @@ func TestRenderLastColumnUnpadded(t *testing.T) {
 }
 
 func TestRenderTruncatesWideRowsAndPadsShortRows(t *testing.T) {
-	tbl := (&Mock{}).NewTable("A", "B")
+	tbl := NewTableFor(&minimalTableWriter{}, []string{"A", "B"})
 	tbl.AddRow("one", "two", "three") // extra column ignored
 	tbl.AddRow("only-a")              // missing column padded
 
@@ -78,22 +78,25 @@ func TestRenderTruncatesWideRowsAndPadsShortRows(t *testing.T) {
 }
 
 func TestPrintWritesHeaderAndRows(t *testing.T) {
-	m := &Mock{}
-	tbl := m.NewTable("NAME", "STATUS")
+	w := &minimalTableWriter{}
+	tbl := NewTableFor(w, []string{"NAME", "STATUS"})
 	tbl.AddRow("alpha", "running")
 	tbl.AddRow("beta", "stopped")
 
 	tbl.Print()
 
-	// Header is the first OutCall; rows follow.
-	if len(m.OutCalls) != 3 {
-		t.Fatalf("Print() recorded %d OutCalls, want 3: %v", len(m.OutCalls), m.OutCalls)
+	// The header goes through Header; each row goes through Out.
+	if len(w.headers) != 1 {
+		t.Fatalf("Print() recorded %d header calls, want 1: %v", len(w.headers), w.headers)
 	}
-	if !strings.Contains(m.OutCalls[0], "NAME") || !strings.Contains(m.OutCalls[0], "STATUS") {
-		t.Errorf("first call should be header: %q", m.OutCalls[0])
+	if len(w.rows) != 2 {
+		t.Fatalf("Print() recorded %d row calls, want 2: %v", len(w.rows), w.rows)
 	}
-	if !strings.Contains(m.OutCalls[1], "alpha") {
-		t.Errorf("second call should be first row: %q", m.OutCalls[1])
+	if !strings.Contains(w.headers[0], "NAME") || !strings.Contains(w.headers[0], "STATUS") {
+		t.Errorf("header call should contain the headers: %q", w.headers[0])
+	}
+	if !strings.Contains(w.rows[0], "alpha") {
+		t.Errorf("first row call should be the first row: %q", w.rows[0])
 	}
 }
 
@@ -106,16 +109,16 @@ func TestPrintNoopWithoutUI(t *testing.T) {
 }
 
 func TestPrintNoopWhenNoRows(t *testing.T) {
-	m := &Mock{}
-	tbl := m.NewTable("NAME")
+	w := &minimalTableWriter{}
+	tbl := NewTableFor(w, []string{"NAME"})
 	tbl.Print()
-	if len(m.OutCalls) != 0 {
-		t.Errorf("Print() with no rows should write nothing, got %v", m.OutCalls)
+	if len(w.headers) != 0 || len(w.rows) != 0 {
+		t.Errorf("Print() with no rows should write nothing, got headers %v rows %v", w.headers, w.rows)
 	}
 }
 
 func TestRenderAlignsStyledCellsWithPlainCells(t *testing.T) {
-	tbl := (&Mock{}).NewTable("NAME", "STATUS", "CREATED")
+	tbl := NewTableFor(&minimalTableWriter{}, []string{"NAME", "STATUS", "CREATED"})
 	tbl.AddRow("alpha", StyleStatus("running"), "2026-08-17 09:00:00")
 	tbl.AddRow("beta", "unknown", "2026-08-17 10:00:00")
 
@@ -123,8 +126,8 @@ func TestRenderAlignsStyledCellsWithPlainCells(t *testing.T) {
 	lines := strings.Split(rendered, "\n")
 	// Compare visible columns, so ANSI bytes in the styled cell don't skew the
 	// byte offset of the CREATED column.
-	idx1 := strings.Index(stripANSICodes(lines[1]), "09:00:00")
-	idx2 := strings.Index(stripANSICodes(lines[2]), "10:00:00")
+	idx1 := strings.Index(StripANSICodes(lines[1]), "09:00:00")
+	idx2 := strings.Index(StripANSICodes(lines[2]), "10:00:00")
 	if idx1 != idx2 {
 		t.Errorf("CREATED column not aligned with styled status: row1=%d row2=%d", idx1, idx2)
 	}
@@ -143,6 +146,26 @@ func (w *minimalTableWriter) Out(msg string)    { w.rows = append(w.rows, msg) }
 func TestTablePrintsThroughMinimalWriter(t *testing.T) {
 	w := &minimalTableWriter{}
 	table := &Table{ui: w, headers: []string{"NAME"}}
+	table.AddRow("alpha")
+	table.Print()
+
+	if len(w.headers) != 1 || w.headers[0] != "NAME" {
+		t.Fatalf("header calls = %q, want [NAME]", w.headers)
+	}
+	if len(w.rows) != 1 || w.rows[0] != "alpha" {
+		t.Fatalf("row calls = %q, want [alpha]", w.rows)
+	}
+}
+
+// TestNewTableForRecordsThroughUI pins the exported constructor a test double
+// (or any writer implementing TableWriter) uses to build a Table that renders
+// through it, without reaching into the Table's unexported fields.
+func TestNewTableForRecordsThroughUI(t *testing.T) {
+	w := &minimalTableWriter{}
+	table := NewTableFor(w, []string{"NAME"})
+	if table == nil {
+		t.Fatal("nil table")
+	}
 	table.AddRow("alpha")
 	table.Print()
 

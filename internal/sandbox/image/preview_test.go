@@ -16,7 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestPreviewImageNoRebuildReportsReuseWithSkippedReasons pins that the dry run
@@ -25,7 +25,7 @@ func TestPreviewImageNoRebuildReportsReuseWithSkippedReasons(t *testing.T) {
 	runnerAndBaseMock(t, seededRunnerLabels(t, "debian:trixie-slim@sha256:old"), "sha256:new")
 
 	preview, err := previewRunnerImage(context.Background(), docker.Get(), agentOpencode(t), nil, "proj",
-		BuildOptions{AgentVersion: "1.2.3", Docker: dockerOff, NoRebuild: true}, &termio.Mock{},
+		BuildOptions{AgentVersion: "1.2.3", Docker: dockerOff, NoRebuild: true}, &termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("previewRunnerImage: %v", err)
@@ -50,7 +50,7 @@ func TestPreviewImageNeverResolvesVersion(t *testing.T) {
 	a := agentOpencode(t)
 
 	p, err := previewRunnerImage(context.Background(), docker.Get(), a, nil, "slug",
-		BuildOptions{AgentVersion: testAgentVersion}, &termio.Mock{},
+		BuildOptions{AgentVersion: testAgentVersion}, &termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("previewRunnerImage: %v", err)
@@ -90,7 +90,7 @@ func TestPreviewImageReportsReuseWhenDockerfileIDMatches(t *testing.T) {
 	})
 
 	p, err := previewRunnerImage(context.Background(), docker.Get(), a, nil, "slug",
-		BuildOptions{AgentVersion: testAgentVersion}, &termio.Mock{},
+		BuildOptions{AgentVersion: testAgentVersion}, &termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("previewRunnerImage: %v", err)
@@ -110,7 +110,7 @@ func TestPreviewImageForcedBuild(t *testing.T) {
 	a := agentOpencode(t)
 
 	p, err := previewRunnerImage(context.Background(), docker.Get(), a, nil, "slug",
-		BuildOptions{AgentVersion: testAgentVersion, Force: true}, &termio.Mock{},
+		BuildOptions{AgentVersion: testAgentVersion, Force: true}, &termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("previewRunnerImage: %v", err)
@@ -133,7 +133,7 @@ func TestPreviewImageEmptyVersionReportsResolveAtBuild(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
 	a := agentOpencode(t)
 
-	p, err := previewRunnerImage(context.Background(), docker.Get(), a, nil, "slug", BuildOptions{}, &termio.Mock{})
+	p, err := previewRunnerImage(context.Background(), docker.Get(), a, nil, "slug", BuildOptions{}, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("previewRunnerImage: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestPreviewImageDelegatesToReadOnlyPlan(t *testing.T) {
 		"slug",
 		nil,
 		BuildOptions{AgentVersion: testAgentVersion},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("PreviewImage: %v", err)
@@ -183,7 +183,7 @@ func TestPreviewImageSurfacesRenderError(t *testing.T) {
 	project := []byte("FROM ubuntu:24.04 AS " + baseStageAlias + "\nRUN echo hi\n")
 
 	_, err := previewRunnerImage(context.Background(), docker.Get(), a, project, "slug",
-		BuildOptions{AgentVersion: testAgentVersion}, &termio.Mock{},
+		BuildOptions{AgentVersion: testAgentVersion}, &termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected a render error for a reserved stage alias")
@@ -196,7 +196,7 @@ func TestPreviewImageWarnsOnLegacyDockerfile(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
 	a := agentOpencode(t)
 	project := []byte("FROM agents-sandbox/runner-base-dind\n# agents-sandbox:dind\nRUN echo hi\n")
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	if _, err := previewRunnerImage(context.Background(), docker.Get(), a, project, "slug",
 		BuildOptions{AgentVersion: testAgentVersion}, ui,
@@ -217,7 +217,7 @@ func TestPreviewImageWarnsOnLegacyDockerfile(t *testing.T) {
 func TestPreviewImageWarnsIgnoredWorktreeConfig(t *testing.T) {
 	synthesizeBareWorktree(t, true)
 	dockertest.WithDefaultErrorDockerMock(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	_, _ = PreviewImage(
 		context.Background(),

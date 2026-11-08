@@ -23,6 +23,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestParseMode(t *testing.T) {
@@ -94,7 +95,7 @@ func TestCheckThrottled(t *testing.T) {
 	// A failing server proves no network request happens when throttled.
 	serveLatest(t, "9.9.9", nil)
 	latestURL = "http://127.0.0.1:1/releases/latest" // force failure if hit
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	opts := mockOptions(t, "1.0.0", ModeNotify)
 	opts.UI = &ui
 	opts.Store = &fakeStore{state: LauncherState{LastChecked: time.Now()}}
@@ -132,7 +133,7 @@ func TestCheckStoreLoadErrorDefers(t *testing.T) {
 	// A contended store means the state is unreachable; the check defers
 	// silently instead of failing startup or clobbering state.
 	serveLatest(t, "2.0.0", nil)
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	opts := mockOptions(t, "1.0.0", ModeNotify)
 	opts.UI = &ui
 	opts.Store = &fakeStore{err: errors.New("state locked")}
@@ -154,7 +155,7 @@ func TestCheckStoreLoadErrorDefers(t *testing.T) {
 
 func TestCheckStoreWriteErrorIsWarnedNotReturned(t *testing.T) {
 	serveLatest(t, "2.0.0", nil)
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	opts := mockOptions(t, "1.0.0", ModeNotify)
 	opts.UI = &ui
 	store := &fakeStore{}
@@ -191,7 +192,7 @@ func TestCheckNetworkErrorIsIgnored(t *testing.T) {
 
 func TestCheckNotify(t *testing.T) {
 	serveLatest(t, "2.0.0", nil)
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	opts := mockOptions(t, "1.0.0", ModeNotify)
 	opts.UI = &ui
 	res, err := Check(context.Background(), opts)
@@ -235,7 +236,7 @@ func TestCheckStableNeverOffersPrerelease(t *testing.T) {
 
 func TestCheckAutoUpgrade(t *testing.T) {
 	serveLatest(t, "2.0.0", nil)
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	opts := mockOptions(t, "1.0.0", ModeAuto)
 	opts.UI = &ui
 	var updated string
@@ -267,7 +268,7 @@ func TestCheckAutoUpgradeExit(t *testing.T) {
 
 func TestCheckPromptNonInteractiveFallsBackToNotify(t *testing.T) {
 	serveLatest(t, "2.0.0", nil)
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	opts := mockOptions(t, "1.0.0", ModePrompt)
 	opts.UI = &ui
 	res, err := Check(context.Background(), opts)
@@ -297,7 +298,7 @@ func TestCheckPromptSelection(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			serveLatest(t, "2.0.0", nil)
-			ui := termio.Mock{IsInteractiveResult: true}
+			ui := termiotest.Mock{IsInteractiveResult: true}
 			ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
 				return tc.key, nil
 			}
@@ -317,7 +318,7 @@ func TestCheckPromptSelection(t *testing.T) {
 
 func TestCheckDismissedVersion(t *testing.T) {
 	serveLatest(t, "2.0.0", nil)
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	opts := mockOptions(t, "1.0.0", ModeNotify)
 	opts.UI = &ui
 	opts.Store = &fakeStore{state: LauncherState{DismissedVersions: []string{"2.0.0"}}}
@@ -347,7 +348,7 @@ func TestCheckSubMinIntervalFails(t *testing.T) {
 // legacy file still dismisses. The check resumes once the fold succeeds.
 func TestCheckFoldFailureIsDeferred(t *testing.T) {
 	serveLatest(t, "2.0.0", nil)
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	opts := mockOptions(t, "1.0.0", ModeNotify)
 	opts.UI = &ui
 
@@ -373,7 +374,7 @@ func TestCheckFoldFailureIsDeferred(t *testing.T) {
 
 func TestCheckUnparsableVersionIgnored(t *testing.T) {
 	serveLatest(t, "2.0.0", nil)
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	opts := mockOptions(t, "not-a-version", ModeNotify)
 	opts.UI = &ui
 	res, err := Check(context.Background(), opts)
@@ -390,7 +391,7 @@ func TestCheckUnparsableVersionIgnored(t *testing.T) {
 
 func TestCheckAutoInstallFailureNotifies(t *testing.T) {
 	serveLatest(t, "2.0.0", nil)
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	opts := mockOptions(t, "1.0.0", ModeAuto)
 	opts.UI = &ui
 	opts.UpdateFunc = func(context.Context, string) error { return errors.New("boom") }
@@ -408,7 +409,7 @@ func TestCheckAutoInstallFailureNotifies(t *testing.T) {
 
 func TestCheckPromptInstallFailure(t *testing.T) {
 	serveLatest(t, "2.0.0", nil)
-	ui := termio.Mock{IsInteractiveResult: true}
+	ui := termiotest.Mock{IsInteractiveResult: true}
 	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) { return "u", nil }
 	opts := mockOptions(t, "1.0.0", ModePrompt)
 	opts.UI = &ui
@@ -472,7 +473,7 @@ func TestCheckDefaultsIntervalAndStore(t *testing.T) {
 	// against the in-memory store, writing no host state.
 	configpathstest.WithMockConfigPaths(t)
 	serveLatest(t, "2.0.0", nil)
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	opts := Options{CurrentVersion: "1.0.0", Mode: ModeNotify, UI: &ui}
 	res, err := Check(context.Background(), opts)
 	if err != nil {
@@ -491,7 +492,7 @@ func TestCheckNilStoreLeavesLegacyFileInPlace(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	writeLegacy(t, `{"dismissed_versions":["1.5.2"]}`)
 	serveLatest(t, "2.0.0", nil)
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	opts := Options{
 		CurrentVersion: "1.0.0",
 		Mode:           ModeNotify,
@@ -512,7 +513,7 @@ func TestCheckNilStoreLeavesLegacyFileInPlace(t *testing.T) {
 // documents that a nil resolver folds nothing rather than crashing. The recent
 // LastChecked throttles the check, so no network is touched.
 func TestCheckNilPathsSkipsLegacyFold(t *testing.T) {
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 	opts := Options{
 		CurrentVersion: "1.0.0",
 		Mode:           ModeNotify,
@@ -533,7 +534,7 @@ func TestPersistBestEffortUnionsConcurrentDismissals(t *testing.T) {
 	persistBestEffort(store, LauncherState{
 		LastChecked:       time.Now(),
 		DismissedVersions: []string{"1.0.0"},
-	}, &termio.Mock{})
+	}, &termiotest.Mock{})
 	if !slices.Contains(store.state.DismissedVersions, "9.9.9") {
 		t.Fatalf("persist dropped a concurrent dismissal: %+v", store.state.DismissedVersions)
 	}
@@ -609,7 +610,7 @@ func TestNewerThan(t *testing.T) {
 }
 
 func TestPromptSelectErrorContinues(t *testing.T) {
-	ui := termio.Mock{IsInteractiveResult: true}
+	ui := termiotest.Mock{IsInteractiveResult: true}
 	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
 		return "", errors.New("boom")
 	}
@@ -620,7 +621,7 @@ func TestPromptSelectErrorContinues(t *testing.T) {
 
 func TestUpgradeSwitchesFromCanaryToStable(t *testing.T) {
 	installed := stubRelease(t, "0.5.3")
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 
 	err := Upgrade(context.Background(), &ui, UpgradeOptions{
 		CurrentVersion:     "0.6.0-canary.1",
@@ -641,7 +642,7 @@ func TestUpgradeSwitchesFromCanaryToStable(t *testing.T) {
 func TestUpgradeSwitchTreatsZeroChannelAsStable(t *testing.T) {
 	installed := stubRelease(t, "0.5.3")
 
-	err := Upgrade(context.Background(), &termio.Mock{}, UpgradeOptions{
+	err := Upgrade(context.Background(), &termiotest.Mock{}, UpgradeOptions{
 		CurrentVersion:     "0.6.0-canary.1",
 		AllowChannelSwitch: true,
 	})
@@ -655,7 +656,7 @@ func TestUpgradeSwitchTreatsZeroChannelAsStable(t *testing.T) {
 
 func TestUpgradeWithoutChannelSwitchKeepsCanaryAndHints(t *testing.T) {
 	installed := stubRelease(t, "0.5.3")
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 
 	err := Upgrade(context.Background(), &ui, UpgradeOptions{
 		CurrentVersion: "0.6.0-canary.1",
@@ -678,7 +679,7 @@ func TestUpgradeWithoutChannelSwitchKeepsCanaryAndHints(t *testing.T) {
 
 func TestUpgradeCanaryChannelNeverSwitches(t *testing.T) {
 	installed := stubRelease(t, "0.6.0-canary.1")
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 
 	err := Upgrade(context.Background(), &ui, UpgradeOptions{
 		CurrentVersion:     "0.6.0-canary.1",
@@ -698,7 +699,7 @@ func TestUpgradeCanaryChannelNeverSwitches(t *testing.T) {
 
 func TestUpgradeStableReleaseIsNotSwitched(t *testing.T) {
 	installed := stubRelease(t, "0.5.3")
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 
 	err := Upgrade(context.Background(), &ui, UpgradeOptions{
 		CurrentVersion:     "0.5.3",
@@ -719,7 +720,7 @@ func TestUpgradeStableReleaseIsNotSwitched(t *testing.T) {
 func TestUpgradeNeverDowngradesAStableRelease(t *testing.T) {
 	installed := stubRelease(t, "0.5.3")
 
-	err := Upgrade(context.Background(), &termio.Mock{}, UpgradeOptions{
+	err := Upgrade(context.Background(), &termiotest.Mock{}, UpgradeOptions{
 		CurrentVersion:     "0.6.0",
 		Channel:            ChannelStable,
 		AllowChannelSwitch: true,
@@ -736,7 +737,7 @@ func TestUpgradeChannelSwitchReportsInstallFailure(t *testing.T) {
 	stubRelease(t, "0.5.3")
 	Update = func(context.Context, string) error { return errBoom }
 
-	err := Upgrade(context.Background(), &termio.Mock{}, UpgradeOptions{
+	err := Upgrade(context.Background(), &termiotest.Mock{}, UpgradeOptions{
 		CurrentVersion:     "0.6.0-canary.1",
 		Channel:            ChannelStable,
 		AllowChannelSwitch: true,
@@ -748,7 +749,7 @@ func TestUpgradeChannelSwitchReportsInstallFailure(t *testing.T) {
 
 func TestUpgradeAnnouncesANewerRelease(t *testing.T) {
 	stubRelease(t, "0.6.0")
-	ui := termio.Mock{}
+	ui := termiotest.Mock{}
 
 	if err := Upgrade(context.Background(), &ui, UpgradeOptions{CurrentVersion: "0.5.3"}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -760,7 +761,7 @@ func TestUpgradeAnnouncesANewerRelease(t *testing.T) {
 
 func TestUpgrade(t *testing.T) {
 	t.Run("dev build rejected", func(t *testing.T) {
-		if err := Upgrade(context.Background(), &termio.Mock{}, UpgradeOptions{CurrentVersion: "dev"}); err == nil {
+		if err := Upgrade(context.Background(), &termiotest.Mock{}, UpgradeOptions{CurrentVersion: "dev"}); err == nil {
 			t.Fatal("expected error for dev build")
 		}
 	})
@@ -769,7 +770,7 @@ func TestUpgrade(t *testing.T) {
 		orig := LatestVersion
 		LatestVersion = func(context.Context, Channel) (string, error) { return "1.0.0", nil }
 		t.Cleanup(func() { LatestVersion = orig })
-		ui := termio.Mock{}
+		ui := termiotest.Mock{}
 		if err := Upgrade(context.Background(), &ui, UpgradeOptions{CurrentVersion: "1.0.0"}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -784,7 +785,7 @@ func TestUpgrade(t *testing.T) {
 		var installed string
 		Update = func(_ context.Context, latest string) error { installed = latest; return nil }
 		t.Cleanup(func() { LatestVersion, Update = origLatest, origUpdate })
-		ui := termio.Mock{}
+		ui := termiotest.Mock{}
 		if err := Upgrade(context.Background(), &ui, UpgradeOptions{CurrentVersion: "1.0.0"}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -808,7 +809,7 @@ func TestUpgrade(t *testing.T) {
 		}
 		t.Cleanup(func() { LatestVersion, Update = origLatest, origUpdate })
 
-		ui := termio.Mock{}
+		ui := termiotest.Mock{}
 		if err := Upgrade(context.Background(), &ui, UpgradeOptions{CurrentVersion: "1.0.0"}); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -821,7 +822,11 @@ func TestUpgrade(t *testing.T) {
 		orig := LatestVersion
 		LatestVersion = func(context.Context, Channel) (string, error) { return "", errors.New("boom") }
 		t.Cleanup(func() { LatestVersion = orig })
-		if err := Upgrade(context.Background(), &termio.Mock{}, UpgradeOptions{CurrentVersion: "1.0.0"}); err == nil {
+		if err := Upgrade(
+			context.Background(),
+			&termiotest.Mock{},
+			UpgradeOptions{CurrentVersion: "1.0.0"},
+		); err == nil {
 			t.Fatal("expected error on lookup failure")
 		}
 	})
@@ -836,7 +841,7 @@ func TestUpgradeDevLeverAllowed(t *testing.T) {
 
 	if err := Upgrade(
 		context.Background(),
-		&termio.Mock{},
+		&termiotest.Mock{},
 		UpgradeOptions{CurrentVersion: "dev", AllowAnyVersion: true},
 	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -850,7 +855,7 @@ func TestUpgradeIsNewerError(t *testing.T) {
 	orig := LatestVersion
 	LatestVersion = func(context.Context, Channel) (string, error) { return "not-a-version", nil }
 	t.Cleanup(func() { LatestVersion = orig })
-	if err := Upgrade(context.Background(), &termio.Mock{}, UpgradeOptions{CurrentVersion: "1.0.0"}); err == nil {
+	if err := Upgrade(context.Background(), &termiotest.Mock{}, UpgradeOptions{CurrentVersion: "1.0.0"}); err == nil {
 		t.Fatal("expected error when the latest version is unparsable")
 	}
 }
@@ -860,7 +865,7 @@ func TestUpgradeUpdateError(t *testing.T) {
 	LatestVersion = func(context.Context, Channel) (string, error) { return "2.0.0", nil }
 	Update = func(context.Context, string) error { return errors.New("boom") }
 	t.Cleanup(func() { LatestVersion, Update = origLatest, origUpdate })
-	if err := Upgrade(context.Background(), &termio.Mock{}, UpgradeOptions{CurrentVersion: "1.0.0"}); err == nil {
+	if err := Upgrade(context.Background(), &termiotest.Mock{}, UpgradeOptions{CurrentVersion: "1.0.0"}); err == nil {
 		t.Fatal("expected error when the install fails")
 	}
 }
@@ -1384,6 +1389,6 @@ func mockOptions(t *testing.T, version string, mode Mode) Options {
 		Interval:       time.Hour,
 		Store:          &fakeStore{},
 		Paths:          configpaths.Get(),
-		UI:             &termio.Mock{},
+		UI:             &termiotest.Mock{},
 	}
 }

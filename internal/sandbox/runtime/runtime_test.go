@@ -14,7 +14,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -205,7 +205,7 @@ func TestPrepareRuntimeApplyHomeError(t *testing.T) {
 	setenv = func(string, string) error { return wantErr }
 	t.Cleanup(func() { setenv = orig })
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want ApplyHome error")
 	}
 }
@@ -298,7 +298,7 @@ func TestPrepareRuntimePublicGateSkipsMockClient(t *testing.T) {
 	runtimeClientIsReal = func() bool { return false }
 	t.Cleanup(func() { runtimeClientIsReal = oldReal })
 
-	if err := PrepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := PrepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("PrepareRuntime() error = %v", err)
 	}
 }
@@ -308,7 +308,7 @@ func TestPrepareRuntimeReturnsExistingPreparedState(t *testing.T) {
 	runtimeState.prepared = true
 	t.Cleanup(func() { resetRuntimeState(t) })
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("prepareRuntime() error = %v", err)
 	}
 }
@@ -326,7 +326,7 @@ func TestPrepareRuntimePublicGateUsesRealClient(t *testing.T) {
 	validateRuntime = func(context.Context) error { return nil }
 	t.Cleanup(func() { validateRuntime = oldValidate })
 
-	if err := PrepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := PrepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("PrepareRuntime() error = %v", err)
 	}
 }
@@ -400,7 +400,7 @@ func TestPrepareRuntimeMissingInstallsAndValidates(t *testing.T) {
 		validateRuntime = oldValidate
 	})
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("prepareRuntime() error = %v", err)
 	}
 	if ensureCalls != 1 || validateCalls != 1 {
@@ -420,7 +420,7 @@ func TestPrepareRuntimeMissingManagedRuntimeInstallFails(t *testing.T) {
 	oldEnsure := ensureRuntime
 	ensureRuntime = func(context.Context) error { return errors.New("install failed") }
 	t.Cleanup(func() { ensureRuntime = oldEnsure })
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want install error")
 	}
 }
@@ -441,7 +441,7 @@ func TestPrepareRuntimeMissingManagedRuntimeValidationFails(t *testing.T) {
 		ensureRuntime = oldEnsure
 		validateRuntime = oldValidate
 	})
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want post-install validation error")
 	}
 }
@@ -452,7 +452,7 @@ func TestPrepareRuntimeInspectionFailure(t *testing.T) {
 	oldInspect := inspectRuntimeFunc
 	inspectRuntimeFunc = func(string) (Inspection, error) { return Inspection{}, errors.New("inspect failed") }
 	t.Cleanup(func() { inspectRuntimeFunc = oldInspect })
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want inspection error")
 	}
 }
@@ -465,7 +465,7 @@ func TestPrepareRuntimeRejectsUnknownFutureRelation(t *testing.T) {
 		return Inspection{Relation: Relation("future")}, nil
 	}
 	t.Cleanup(func() { inspectRuntimeFunc = oldInspect })
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want unknown relation error")
 	}
 }
@@ -502,7 +502,7 @@ func TestPrepareRuntimeMismatchRepairsByForceInstalling(t *testing.T) {
 				validateRuntime = oldValidate
 			})
 
-			if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+			if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 				t.Fatalf("prepareRuntime() error = %v", err)
 			}
 			if installCalls != 1 || validateCalls != 1 {
@@ -537,7 +537,7 @@ func TestPrepareRuntimeIncompleteRepairsAfterRemovingStrayFile(t *testing.T) {
 		validateRuntime = oldValidate
 	})
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("prepareRuntime() error = %v", err)
 	}
 }
@@ -551,7 +551,7 @@ func TestPrepareRuntimeRepairLockFails(t *testing.T) {
 
 	blockRuntimeLock(t)
 
-	err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0")
+	err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0")
 	if err == nil || !strings.Contains(err.Error(), "acquire runtime lock") {
 		t.Fatalf("prepareRuntime() error = %v, want a runtime lock failure", err)
 	}
@@ -575,7 +575,7 @@ func TestPrepareRuntimeRepairReinspectFails(t *testing.T) {
 	}
 	t.Cleanup(func() { inspectRuntimeFunc = oldInspect })
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want re-inspection error")
 	}
 }
@@ -601,7 +601,7 @@ func TestPrepareRuntimeIncompleteRemovalFails(t *testing.T) {
 	}
 	t.Cleanup(func() { installRuntime = oldInstall })
 
-	err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0")
+	err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0")
 	if err == nil {
 		t.Fatal("prepareRuntime() error = nil, want incomplete runtime removal error")
 	}
@@ -641,7 +641,7 @@ func TestPrepareRuntimeRepairSeesConcurrentRepair(t *testing.T) {
 		validateRuntime = oldValidate
 	})
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("prepareRuntime() error = %v", err)
 	}
 	if !validated {
@@ -667,7 +667,7 @@ func TestPrepareRuntimeRepairValidationFails(t *testing.T) {
 		validateRuntime = oldValidate
 	})
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want post-repair validation error")
 	}
 }
@@ -683,7 +683,7 @@ func TestPrepareRuntimeRepairInstallFails(t *testing.T) {
 	installRuntime = func(context.Context) error { return errors.New("install failed") }
 	t.Cleanup(func() { installRuntime = oldInstall })
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want repair install error")
 	}
 }
@@ -707,7 +707,7 @@ func TestPrepareRuntimeEqualValidates(t *testing.T) {
 		validateRuntime = oldValidate
 	})
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("prepareRuntime() error = %v", err)
 	}
 	if !validated {
@@ -724,7 +724,7 @@ func TestPrepareRuntimePreparedStateShortCircuits(t *testing.T) {
 		runtimeClientIsReal = oldReal
 		resetRuntimeState(t)
 	})
-	if err := PrepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := PrepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("PrepareRuntime() error = %v", err)
 	}
 }
@@ -738,7 +738,7 @@ func TestPrepareRuntimeValidationErrorOnEqualRuntime(t *testing.T) {
 	oldValidate := validateRuntime
 	validateRuntime = func(context.Context) error { return errors.New("validation failed") }
 	t.Cleanup(func() { validateRuntime = oldValidate })
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("equal runtime validation returned nil error")
 	}
 }

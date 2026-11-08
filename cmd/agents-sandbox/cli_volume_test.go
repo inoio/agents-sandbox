@@ -23,6 +23,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // volumeOpScenario describes how to run a volume command and what to expect.
@@ -49,7 +50,7 @@ func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 	t.Helper()
 	initTestProjectDir(t)
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	mock := &msb.MockMsbClient{}
 
 	doctortest.MockedCheckAll(t, !tc.preflightFail)
@@ -170,7 +171,7 @@ func TestVolumeOpsDryRunDoesNotEnsureImage(t *testing.T) {
 		t.Run(command, func(t *testing.T) {
 			initTestProjectDir(t)
 			configpathstest.WithMockConfigPaths(t)
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 
 			dockerMock := &dockertest.MockDockerClient{
 				ImageInspectFn: func(context.Context, string, ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -492,7 +493,7 @@ func TestVolumeMigrateUnknownAgent(t *testing.T) {
 func TestVolumeMigrateWithPositionalArg(t *testing.T) {
 	initTestProjectDir(t)
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	mock := &msb.MockMsbClient{}
 	doctortest.MockedCheckAll(t, true)
 	withMockAgentVersion(t, "0.0.0-test")
@@ -513,7 +514,7 @@ func TestVolumeMigrateWithPositionalArg(t *testing.T) {
 // TestBuildVolumeOpsRejectsTwoArgs pins the volume-op arity bound: at most one
 // positional volume name.
 func TestBuildVolumeOpsRejectsTwoArgs(t *testing.T) {
-	cmd := buildVolumeOpsCmd(&termio.Mock{}, volumeOps[0])
+	cmd := buildVolumeOpsCmd(&termiotest.Mock{}, volumeOps[0])
 	if err := cmd.Args(cmd, []string{"a", "b"}); err == nil {
 		t.Error("expected an error for two positional args")
 	}
@@ -555,7 +556,7 @@ func TestBuildVolumeOpsForwardsPositionalNameAndInfo(t *testing.T) {
 			return nil
 		},
 	}
-	cmd := buildVolumeOpsCmd(&termio.Mock{}, op)
+	cmd := buildVolumeOpsCmd(&termiotest.Mock{}, op)
 	cmd.SetArgs([]string{"explicit-vol-name"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
@@ -581,7 +582,7 @@ func TestVolumeOpsEnsureImageErrorWrapsCause(t *testing.T) {
 	dockertest.WithDefaultErrorDockerMock(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 
-	cmd := buildVolumeOpsCmd(&termio.Mock{}, volumeOps[0])
+	cmd := buildVolumeOpsCmd(&termiotest.Mock{}, volumeOps[0])
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected an ensure-image error")

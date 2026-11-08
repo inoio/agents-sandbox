@@ -14,7 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestHomeVolumeResolution_PreviewMatchesRealDecision drives PreviewHomeVolume
@@ -131,7 +131,7 @@ func TestHomeVolumeResolution_PreviewMatchesRealDecision(t *testing.T) {
 			realName, _, realErr := NewManager(docker.Get()).ResolveHomeVolume(
 				context.Background(), realMock, k,
 				image.ImageInfo{Digest: "sha256:def"},
-				false, state.Fingerprints{}, tt.liveCandidate, &termio.Mock{},
+				false, state.Fingerprints{}, tt.liveCandidate, &termiotest.Mock{},
 			)
 			if (realErr != nil) != (tt.want == wantError) {
 				t.Fatalf("ResolveHomeVolume err = %v, want error=%v", realErr, tt.want == wantError)

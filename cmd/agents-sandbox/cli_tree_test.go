@@ -6,12 +6,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestTree(t *testing.T) {
 	t.Run("root name printed as first line", func(t *testing.T) {
-		testUI := termio.NewTestMock(t)
+		testUI := termiotest.NewTestMock(t)
 		root := buildRootCmd(&testUI)
 		printTree(root, &testUI)
 		if len(testUI.InfoCalls) == 0 {
@@ -23,7 +23,7 @@ func TestTree(t *testing.T) {
 	})
 
 	t.Run("lists all subcommands", func(t *testing.T) {
-		testUI := termio.NewTestMock(t)
+		testUI := termiotest.NewTestMock(t)
 		root := buildRootCmd(&testUI)
 		printTree(root, &testUI)
 		out := strings.Join(testUI.InfoCalls, "\n")
@@ -36,7 +36,7 @@ func TestTree(t *testing.T) {
 	})
 
 	t.Run("shows flag descriptions from persistent and local flags", func(t *testing.T) {
-		testUI := termio.NewTestMock(t)
+		testUI := termiotest.NewTestMock(t)
 		root := buildRootCmd(&testUI)
 		printTree(root, &testUI)
 		out := strings.Join(testUI.InfoCalls, "\n")
@@ -61,9 +61,9 @@ func TestTree(t *testing.T) {
 
 // buildTree sets up a test UI, builds the root command, renders the tree,
 // and returns the UI for use in test assertions.
-func buildTree(t *testing.T) *termio.Mock {
+func buildTree(t *testing.T) *termiotest.Mock {
 	t.Helper()
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	root := buildRootCmd(&ui)
 	printTree(root, &ui)
 	return &ui
@@ -319,7 +319,7 @@ func TestPrintTreeConnectorLayout(t *testing.T) {
 	beta.AddCommand(&cobra.Command{Use: "inner2", Short: "nested2"})
 	root.AddCommand(alpha, beta)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	printTree(root, ui)
 
 	want := []string{

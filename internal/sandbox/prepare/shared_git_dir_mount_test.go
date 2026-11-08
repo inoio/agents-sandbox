@@ -7,11 +7,11 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestWithSharedGitDirMountLeavesNonOutsideIdentityAlone(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	configured := mounts.Mounts{"/data": {Source: "/host/data", Readonly: true}}
 	identity := outsideWorktreeIdentity("/srv/repo/.git")
 	identity.OutsideWorktree = false
@@ -26,7 +26,7 @@ func TestWithSharedGitDirMountLeavesNonOutsideIdentityAlone(t *testing.T) {
 // git dir is bound read-write at the path the worktree's .git file records, so
 // git inside the VM resolves the repository through /workspace/.git.
 func TestWithSharedGitDirMountMountsAtRecordedPath(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	configured := mounts.Mounts{"/data": {Source: "/host/data", Readonly: true}}
 
 	got := withSharedGitDirMount(configured, outsideWorktreeIdentity("/srv/link/.git"), &ui)
@@ -40,7 +40,7 @@ func TestWithSharedGitDirMountMountsAtRecordedPath(t *testing.T) {
 }
 
 func TestWithSharedGitDirMountWarnsOnRelativeGitdir(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	configured := mounts.Mounts{"/data": {Source: "/host/data", Readonly: true}}
 
 	got := withSharedGitDirMount(configured, outsideWorktreeIdentity("../repo/.git"), &ui)
@@ -52,7 +52,7 @@ func TestWithSharedGitDirMountWarnsOnRelativeGitdir(t *testing.T) {
 }
 
 func TestWithSharedGitDirMountWarnsOnManagedTargetConflict(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	configured := mounts.Mounts{"/data": {Source: "/host/data", Readonly: true}}
 
@@ -65,7 +65,7 @@ func TestWithSharedGitDirMountWarnsOnManagedTargetConflict(t *testing.T) {
 }
 
 func TestWithSharedGitDirMountKeepsConfiguredMountAtSameTarget(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	configured := mounts.Mounts{"/srv/repo/.git": {Source: "/elsewhere", Readonly: true}}
 
 	got := withSharedGitDirMount(configured, outsideWorktreeIdentity("/srv/repo/.git"), &ui)
@@ -77,7 +77,7 @@ func TestWithSharedGitDirMountKeepsConfiguredMountAtSameTarget(t *testing.T) {
 // TestWithSharedGitDirMountWithoutConfiguredMounts pins that a run without
 // configured mounts still gets the shared git dir mount.
 func TestWithSharedGitDirMountWithoutConfiguredMounts(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got := withSharedGitDirMount(nil, outsideWorktreeIdentity("/srv/repo/.git"), &ui)
 

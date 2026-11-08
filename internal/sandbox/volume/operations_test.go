@@ -17,7 +17,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestCheckForActiveVMs pins which sandboxes block a volume migrate or reset:
@@ -172,12 +172,12 @@ func TestVolumeOpWarnsWhenTheNewVolumeCannotBeCleanedUp(t *testing.T) {
 func TestVolumeOps_DryRun(t *testing.T) {
 	tests := []struct {
 		name string
-		run  func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termio.Mock) error
+		run  func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termiotest.Mock) error
 		want []string
 	}{
 		{
 			name: "migrate",
-			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termio.Mock) error {
+			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termiotest.Mock) error {
 				return CmdMigrate(ctx, docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 					"",
 					image.ImageInfo{DockerTag: imageTag, Ref: imageTag, Digest: "sha256:abc"},
@@ -190,7 +190,7 @@ func TestVolumeOps_DryRun(t *testing.T) {
 		},
 		{
 			name: "reset",
-			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termio.Mock) error {
+			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termiotest.Mock) error {
 				return CmdReset(ctx, docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 					"",
 					image.ImageInfo{DockerTag: imageTag, Ref: imageTag, Digest: "sha256:abc"},
@@ -203,7 +203,7 @@ func TestVolumeOps_DryRun(t *testing.T) {
 		},
 		{
 			name: "edit",
-			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termio.Mock) error {
+			run: func(ctx context.Context, slug, imageTag string, rmOld, dryRun bool, ui *termiotest.Mock) error {
 				return CmdEdit(ctx, docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 					"",
 					image.ImageInfo{DockerTag: imageTag, Ref: imageTag, Digest: "sha256:abc"},
@@ -1202,13 +1202,13 @@ func TestVolumeOpAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 // mock needed by the volume operations tests and returns the mock handles.
 // Tests that need a pre-existing home state or a customized msb mock declare
 // it after the call.
-func setupVolumeOpsFixtures(t *testing.T) (*msb.MockMsbClient, *termio.Mock) {
+func setupVolumeOpsFixtures(t *testing.T) (*msb.MockMsbClient, *termiotest.Mock) {
 	t.Helper()
 	configpathstest.WithMockConfigPaths(t)
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
 	dockertest.WithNoopDockerMock(t)
-	return mock, &termio.Mock{}
+	return mock, &termiotest.Mock{}
 }
 
 // TestVolumeOpReportsAFailedVolumeCreate pins that a new home volume that

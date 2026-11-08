@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestPersistentPreRunFailsWhenIdentityUnresolvable pins #354 on the CLI entry:
@@ -31,7 +31,7 @@ func TestPersistentPreRunFailsWhenIdentityUnresolvable(t *testing.T) {
 func TestConfigPathsErrorsWhenIdentityUnresolvable(t *testing.T) {
 	t.Chdir(unresolvableIdentityDir(t))
 
-	cmd := buildConfigPathsCmd(&termio.Mock{})
+	cmd := buildConfigPathsCmd(&termiotest.Mock{})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("config paths succeeded with an unresolvable identity, want an error")
 	}
@@ -42,7 +42,7 @@ func TestConfigPathsErrorsWhenIdentityUnresolvable(t *testing.T) {
 func TestBuildErrorsWhenIdentityUnresolvable(t *testing.T) {
 	t.Chdir(unresolvableIdentityDir(t))
 
-	cmd := buildBuildCmd(&termio.Mock{})
+	cmd := buildBuildCmd(&termiotest.Mock{})
 	cmd.SetArgs([]string{"--dry-run"})
 	if err := cmd.Execute(); err == nil {
 		t.Fatal("build succeeded with an unresolvable identity, want an error")
@@ -56,7 +56,7 @@ func TestPrepareVolumeOpErrorsWhenIdentityUnresolvable(t *testing.T) {
 
 	cmd := &cobra.Command{}
 	cmd.Flags().String(flagAgent, defaultAgentName, "")
-	if _, _, err := prepareVolumeOp(cmd, &termio.Mock{}, true); err == nil {
+	if _, _, err := prepareVolumeOp(cmd, &termiotest.Mock{}, true); err == nil {
 		t.Fatal("prepareVolumeOp succeeded with an unresolvable identity, want an error")
 	}
 }

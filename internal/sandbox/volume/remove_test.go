@@ -12,6 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestRemoveVolumesRefusesReferenced(t *testing.T) {
@@ -26,7 +27,7 @@ func TestRemoveVolumesRefusesReferenced(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 
-	err := RemoveVolumes(context.Background(), []string{name}, false, &termio.Mock{})
+	err := RemoveVolumes(context.Background(), []string{name}, false, &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("RemoveVolumes() error = nil, want a refusal for a referenced volume")
 	}
@@ -50,7 +51,7 @@ func TestRemoveVolumesForceBypassesReference(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	if err := RemoveVolumes(context.Background(), []string{name}, true, ui); err != nil {
 		t.Fatalf("RemoveVolumes(force): %v", err)
@@ -66,7 +67,7 @@ func TestRemoveVolumesRemovesSeveral(t *testing.T) {
 	msb.WithMsbMock(t, client)
 
 	names := []string{"agents-sandbox-home-a-20260812T123456", "agents-sandbox-home-b-20260812T123457"}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	if err := RemoveVolumes(context.Background(), names, false, ui); err != nil {
 		t.Fatalf("RemoveVolumes: %v", err)
@@ -84,7 +85,7 @@ func TestRemoveVolumesPropagatesRemoveError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	if err := RemoveVolumes(
 		context.Background(),
@@ -111,7 +112,7 @@ func TestRemoveVolumesFailsClosedOnReferenceScanError(t *testing.T) {
 	msb.WithMsbMock(t, client)
 
 	// The removal is confirmed, so only the failed scan can stop it.
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	err := RemoveVolumes(context.Background(), []string{"agents-sandbox-home-a-20260812T123456"}, false, ui)
 	if err == nil || !strings.Contains(err.Error(), "check volume references") || errors.Unwrap(err) == nil {
@@ -131,7 +132,7 @@ func TestRemoveVolumesNonInteractiveRequiresConfirmation(t *testing.T) {
 		context.Background(),
 		[]string{"agents-sandbox-home-a-20260812T123456"},
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if !errors.Is(err, termio.ErrConfirmationRequired) {
 		t.Fatalf("RemoveVolumes(non-interactive) = %v, want ErrConfirmationRequired", err)

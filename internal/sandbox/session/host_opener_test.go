@@ -8,7 +8,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestGuestFetcherReplaysCallbackWithCurl(t *testing.T) {
@@ -98,7 +98,7 @@ func TestStartHostOpenerWatchesHomeVolumeAndReportsAfterStop(t *testing.T) {
 		Omitted:  2,
 	}
 	watched := stubHostOpener(t, "/host/volumes/home-vol", report, errors.New("boom"))
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ses := &fakePrepared{sb: &msb.MockSandbox{}, homeVolume: "home-vol"}
 
 	stop := startHostOpener(context.Background(), ses, true, ui)
@@ -131,7 +131,7 @@ func TestStartHostOpenerSkipsWhenDisabledOrWithoutVM(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			watched := stubHostOpener(t, "/host/volumes/home-vol", opener.Report{}, nil)
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			startHostOpener(context.Background(), testCase.ses, testCase.enabled, ui)()
 			if len(*watched) != 0 {
 				t.Fatalf("watcher started: %v", *watched)
@@ -155,7 +155,7 @@ func TestStartHostOpenerSkipsWhenVolumePathLookupFails(t *testing.T) {
 		context.Background(),
 		&fakePrepared{sb: &msb.MockSandbox{}, homeVolume: "home-vol"},
 		true,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)()
 	if len(*watched) != 0 {
 		t.Fatalf("watcher started despite a lookup error: %v", *watched)
@@ -164,7 +164,7 @@ func TestStartHostOpenerSkipsWhenVolumePathLookupFails(t *testing.T) {
 
 func TestStartHostOpenerSkipsWhenVolumePathUnavailable(t *testing.T) {
 	watched := stubHostOpener(t, "", opener.Report{}, nil)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	startHostOpener(context.Background(), &fakePrepared{sb: &msb.MockSandbox{}, homeVolume: "home-vol"}, true, ui)()
 	if len(*watched) != 0 {
 		t.Fatalf("watcher started: %v", *watched)
@@ -177,12 +177,12 @@ func TestStartHostOpenerSkipsWhenVolumePathUnavailable(t *testing.T) {
 // TestReportHostOpenerOmittedBoundaries pins the omission report: a zero count
 // says nothing, a positive one counts.
 func TestReportHostOpenerOmittedBoundaries(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	reportHostOpener(opener.Report{Omitted: 1}, nil, ui)
 	if !strings.Contains(strings.Join(ui.InfoCalls, "\n"), "1 more") {
 		t.Fatalf("info calls = %v, want the one omitted target", ui.InfoCalls)
 	}
-	ui = &termio.Mock{}
+	ui = &termiotest.Mock{}
 	reportHostOpener(opener.Report{Omitted: 0}, nil, ui)
 	if strings.Contains(strings.Join(ui.InfoCalls, "\n"), "more") {
 		t.Fatalf("info calls = %v, want nothing for zero omissions", ui.InfoCalls)

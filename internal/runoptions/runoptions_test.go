@@ -16,7 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	"github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -86,7 +86,7 @@ func TestBuildCarriesConfigSlug(t *testing.T) {
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{ConfigSlug: "widget-bbb"})
 	cmd := newRunCommand()
 
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestBuildCarriesConfigSlug(t *testing.T) {
 
 // A zero-value Config produces the expected defaults.
 func TestBuildDefaults(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{}) // zero value
 	cmd := newRunCommand()
 
@@ -121,7 +121,7 @@ func TestBuildDefaults(t *testing.T) {
 
 // AutoStopOnActiveSessions: true propagates to ReapPolicy.
 func TestBuildAutoStopOnActiveSessions(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{AutoStopOnActiveSessions: true})
 	cmd := newRunCommand()
 
@@ -137,7 +137,7 @@ func TestBuildAutoStopOnActiveSessions(t *testing.T) {
 
 // Custom AutoStopMaxSessionRetries propagates to ReapPolicy.
 func TestBuildCustomMaxSessionRetries(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{AutoStopMaxSessionRetries: 5})
 	cmd := newRunCommand()
 
@@ -152,7 +152,7 @@ func TestBuildCustomMaxSessionRetries(t *testing.T) {
 }
 
 func TestBuildAutoStopTimeout(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{AutoStopTimeout: 30 * time.Second})
 	cmd := newRunCommand()
 
@@ -170,7 +170,7 @@ func TestBuildAutoStopTimeout(t *testing.T) {
 // resolver, open-links comes from the launcher config.
 func TestBuildOpenLinksFromConfig(t *testing.T) {
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{OpenLinks: true})
-	opts, err := Build(r.Config(), newRunCommand(), &termio.Mock{})
+	opts, err := Build(r.Config(), newRunCommand(), &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestBuildOpenLinksFromFlagWithoutConfig(t *testing.T) {
 	cmd := newRunCommand()
 	cmd.Flags().Bool(FlagOpenLinks, true, "open-links")
 	var r *viperconfig.Resolver
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestBuildAllowPlaceholderForFromConfig(t *testing.T) {
 			Common: viperconfig.SecretCommon{AllowPlaceholderFor: []string{"model.example"}},
 		},
 	})
-	opts, err := Build(r.Config(), newRunCommand(), &termio.Mock{})
+	opts, err := Build(r.Config(), newRunCommand(), &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestBuildRecordsExplicitLimitFlags(t *testing.T) {
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
 
 	unset := newRunCommand()
-	opts, err := Build(r.Config(), unset, &termio.Mock{})
+	opts, err := Build(r.Config(), unset, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestBuildRecordsExplicitLimitFlags(t *testing.T) {
 			t.Fatalf("set --%s: %v", flag, err)
 		}
 	}
-	opts, err = Build(r.Config(), changed, &termio.Mock{})
+	opts, err = Build(r.Config(), changed, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestBuildRecordsExplicitLimitFlags(t *testing.T) {
 // none of the limit flags records none rather than panicking.
 func TestBuildLimitFlagsAbsent(t *testing.T) {
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
-	opts, err := Build(r.Config(), &cobra.Command{Use: "bare"}, &termio.Mock{})
+	opts, err := Build(r.Config(), &cobra.Command{Use: "bare"}, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestBuildLimitFlagsAbsent(t *testing.T) {
 }
 
 func TestBuildNilResolver(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	cmd := newRunCommand()
 
 	var r *viperconfig.Resolver
@@ -279,7 +279,7 @@ func TestBuildNilResolver(t *testing.T) {
 }
 
 func TestBuildShellCommand(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{
 		AutoStopOnActiveSessions:  true,
 		AutoStopMaxSessionRetries: 7,
@@ -310,7 +310,7 @@ func TestBuildServeOnly(t *testing.T) {
 		t.Fatalf("set serve-only: %v", err)
 	}
 	var r *viperconfig.Resolver
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestBuildServeOnly(t *testing.T) {
 	}
 
 	cmd2 := newRunCommand()
-	opts2, err := Build(r.Config(), cmd2, &termio.Mock{})
+	opts2, err := Build(r.Config(), cmd2, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestBuildRootFlag(t *testing.T) {
 		t.Fatalf("set root: %v", err)
 	}
 	var r *viperconfig.Resolver
-	opts, err := Build(r.Config(), shellCmd, &termio.Mock{})
+	opts, err := Build(r.Config(), shellCmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestBuildRootFlag(t *testing.T) {
 func TestBuildRootFlagNotSet(t *testing.T) {
 	runCmd := newRunCommand()
 	var r *viperconfig.Resolver
-	opts, err := Build(r.Config(), runCmd, &termio.Mock{})
+	opts, err := Build(r.Config(), runCmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -362,7 +362,7 @@ func TestBuildInvalidTmpSize(t *testing.T) {
 		t.Fatalf("set tmp-size: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	_, err := Build(r.Config(), cmd, &termio.Mock{})
+	_, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("expected error for invalid --tmp-size")
 	}
@@ -378,7 +378,7 @@ func TestBuildInvalidMemory(t *testing.T) {
 		t.Fatalf("set memory: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	_, err := Build(r.Config(), cmd, &termio.Mock{})
+	_, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("expected error for invalid --memory")
 	}
@@ -394,7 +394,7 @@ func TestBuildMemoryBelowFloor(t *testing.T) {
 		t.Fatalf("set memory: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	_, err := Build(r.Config(), cmd, &termio.Mock{})
+	_, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("expected error for a memory below the floor")
 	}
@@ -413,7 +413,7 @@ func TestBuildTmpSizeNotBelowMemory(t *testing.T) {
 		t.Fatalf("set tmp-size: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	_, err := Build(r.Config(), cmd, &termio.Mock{})
+	_, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("expected error for a tmp-size at the memory limit")
 	}
@@ -431,7 +431,7 @@ func TestBuildZeroSizesRejected(t *testing.T) {
 				t.Fatalf("set %s: %v", flag, err)
 			}
 			r := mustResolver(t, cmd)
-			_, err := Build(r.Config(), cmd, &termio.Mock{})
+			_, err := Build(r.Config(), cmd, &termiotest.Mock{})
 			if err == nil {
 				t.Fatalf("expected error for a zero --%s", flag)
 			}
@@ -449,7 +449,7 @@ func TestBuildInvalidDiskSize(t *testing.T) {
 		t.Fatalf("set disk-size: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	_, err := Build(r.Config(), cmd, &termio.Mock{})
+	_, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("expected error for invalid --disk-size")
 	}
@@ -465,7 +465,7 @@ func TestBuildOutOfRangeTmpSize(t *testing.T) {
 		t.Fatalf("set tmp-size: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	_, err := Build(r.Config(), cmd, &termio.Mock{})
+	_, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("expected error for a tmp-size above the uint32 MiB range")
 	}
@@ -487,7 +487,7 @@ func TestBuildValidSizeFlags(t *testing.T) {
 		t.Fatalf("set disk-size: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("expected no error for valid flags, got: %v", err)
 	}
@@ -506,7 +506,7 @@ func TestBuildInvalidWorkspaceQuota(t *testing.T) {
 		t.Fatalf("set workspace-quota: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	_, err := Build(r.Config(), cmd, &termio.Mock{})
+	_, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("expected error for invalid --workspace-quota")
 	}
@@ -522,7 +522,7 @@ func TestBuildWorkspaceQuota(t *testing.T) {
 		t.Fatalf("set workspace-quota: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("expected no error for valid workspace-quota, got: %v", err)
 	}
@@ -535,7 +535,7 @@ func TestBuildWorkspaceQuotaDefault(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("expected no error for default workspace-quota, got: %v", err)
 	}
@@ -547,7 +547,7 @@ func TestBuildWorkspaceQuotaDefault(t *testing.T) {
 func TestBuildPropagatesDocker(t *testing.T) {
 	cmd := newRunCommand()
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{Docker: true})
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -564,7 +564,7 @@ func TestResolveDockerSettingFromConfigExplicitOff(t *testing.T) {
 
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -578,7 +578,7 @@ func TestBuildDeprecatedDindFlag(t *testing.T) {
 	if err := cmd.Flags().Set("dind", "true"); err != nil {
 		t.Fatalf("set dind: %v", err)
 	}
-	opts, err := Build(viperconfig.NewResolverWithConfig(viperconfig.Config{}).Config(), cmd, &termio.Mock{})
+	opts, err := Build(viperconfig.NewResolverWithConfig(viperconfig.Config{}).Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -595,7 +595,7 @@ func TestBuildDockerFlagWinsOverDind(t *testing.T) {
 	if err := cmd.Flags().Set("docker", "false"); err != nil {
 		t.Fatalf("set docker: %v", err)
 	}
-	opts, err := Build(viperconfig.NewResolverWithConfig(viperconfig.Config{}).Config(), cmd, &termio.Mock{})
+	opts, err := Build(viperconfig.NewResolverWithConfig(viperconfig.Config{}).Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -616,7 +616,7 @@ func TestBuildDindFlagLosesToDockerConfig(t *testing.T) {
 		t.Fatalf("set dind: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestBuildDindFlagLosesToDockerEnv(t *testing.T) {
 		t.Fatalf("set dind: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -652,7 +652,7 @@ func TestBuildAgentVersionFlag(t *testing.T) {
 		t.Fatalf("set agent-version: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -668,7 +668,7 @@ func TestBuildNetworkFlag(t *testing.T) {
 		t.Fatalf("set network: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -682,7 +682,7 @@ func TestBuildNetworkFlagCombinesProfiles(t *testing.T) {
 		t.Fatalf("set network: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -694,7 +694,7 @@ func TestBuildNetworkFromResolver(t *testing.T) {
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "private")
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -706,7 +706,7 @@ func TestBuildNetworkSpacedFromResolver(t *testing.T) {
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "public, host")
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -720,7 +720,7 @@ func TestBuildNetworkInvalid(t *testing.T) {
 		t.Fatalf("set network: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	if _, err := Build(r.Config(), cmd, &termio.Mock{}); err == nil {
+	if _, err := Build(r.Config(), cmd, &termiotest.Mock{}); err == nil {
 		t.Fatal("expected error for invalid --network profile")
 	}
 }
@@ -738,7 +738,7 @@ func TestBuildDNSServersFlag(t *testing.T) {
 				t.Fatalf("set dns: %v", err)
 			}
 			var r *viperconfig.Resolver
-			opts, err := Build(r.Config(), cmd, &termio.Mock{})
+			opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 			if err != nil {
 				t.Fatalf("Build: %v", err)
 			}
@@ -760,7 +760,7 @@ func TestBuildDNSCombinedWithNetworkNone(t *testing.T) {
 		t.Fatalf("set dns: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -778,7 +778,7 @@ func TestBuildDNSFlagOverridesConfig(t *testing.T) {
 		t.Fatalf("set dns: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -792,7 +792,7 @@ func TestBuildDNSFromResolver(t *testing.T) {
 	t.Setenv("AGENTS_SANDBOX_NETWORK_DNS_SERVERS", "1.1.1.1,8.8.8.8")
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -803,7 +803,7 @@ func TestBuildDNSFromResolver(t *testing.T) {
 
 func TestBuildPortsDefaultEmpty(t *testing.T) {
 	cmd := newRunCommand()
-	opts, err := Build(nil, cmd, &termio.Mock{})
+	opts, err := Build(nil, cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -814,7 +814,7 @@ func TestBuildPortsDefaultEmpty(t *testing.T) {
 
 func TestBuildPortsFromConfig(t *testing.T) {
 	cmd := newRunCommand()
-	opts, err := Build(&viperconfig.Config{Ports: []string{"3000", "8080:5173"}}, cmd, &termio.Mock{})
+	opts, err := Build(&viperconfig.Config{Ports: []string{"3000", "8080:5173"}}, cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -832,7 +832,7 @@ func TestBuildPortsFlag(t *testing.T) {
 	if err := cmd.Flags().Set(FlagPort, "3000,8080:5173"); err != nil {
 		t.Fatalf("set port: %v", err)
 	}
-	opts, err := Build(nil, cmd, &termio.Mock{})
+	opts, err := Build(nil, cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -853,7 +853,7 @@ func TestBuildPortsFlagOverridesEnv(t *testing.T) {
 		t.Fatalf("set port: %v", err)
 	}
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -868,7 +868,7 @@ func TestBuildPortsFromEnv(t *testing.T) {
 	t.Setenv("AGENTS_SANDBOX_PORTS", "3000,8080:5173")
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -886,14 +886,14 @@ func TestBuildPortsInvalidFlag(t *testing.T) {
 	if err := cmd.Flags().Set(FlagPort, "8080:3000:5"); err != nil {
 		t.Fatalf("set port: %v", err)
 	}
-	if _, err := Build(nil, cmd, &termio.Mock{}); err == nil {
+	if _, err := Build(nil, cmd, &termiotest.Mock{}); err == nil {
 		t.Fatal("expected error for invalid --port value")
 	}
 }
 
 // Configured mounts are resolved into RunOptions, keyed by guest path.
 func TestBuildResolvesMounts(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	source := t.TempDir()
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{Mounts: mounts.Mounts{
 		"/home/dev/.m2": {Source: source},
@@ -926,7 +926,7 @@ func TestBuildRejectsInvalidMount(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			r := viperconfig.NewResolverWithConfig(viperconfig.Config{Mounts: tc.mount})
 			cmd := newRunCommand()
 
@@ -940,7 +940,7 @@ func TestBuildRejectsInvalidMount(t *testing.T) {
 func TestBuildAgentDefault(t *testing.T) {
 	cmd := newRunCommand()
 	var r *viperconfig.Resolver
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -955,7 +955,7 @@ func TestBuildUnknownAgent(t *testing.T) {
 		t.Fatalf("set agent: %v", err)
 	}
 	var r *viperconfig.Resolver
-	_, err := Build(r.Config(), cmd, &termio.Mock{})
+	_, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("expected error for unknown --agent")
 	}
@@ -970,7 +970,7 @@ func TestBuildUnknownAgent(t *testing.T) {
 func TestBuildResolvesAgent(t *testing.T) {
 	cmd := newRunCommand()
 	var r *viperconfig.Resolver
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -991,7 +991,7 @@ func TestBuildAgentFromEnv(t *testing.T) {
 	t.Setenv("AGENTS_SANDBOX_AGENT", defaultAgentName)
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -1006,7 +1006,7 @@ func TestBuildAgentPI(t *testing.T) {
 		t.Fatalf("set agent: %v", err)
 	}
 	var r *viperconfig.Resolver
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -1021,7 +1021,7 @@ func TestBuildAgentClaudeCode(t *testing.T) {
 		t.Fatalf("set agent: %v", err)
 	}
 	var r *viperconfig.Resolver
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -1036,7 +1036,7 @@ func TestBuildAgentOpencode2(t *testing.T) {
 		t.Fatalf("set agent: %v", err)
 	}
 	var r *viperconfig.Resolver
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -1064,7 +1064,7 @@ func TestBuildNoticesExperimentalAgents(t *testing.T) {
 			if err := cmd.Flags().Set(FlagAgent, tc.agent); err != nil {
 				t.Fatalf("set agent: %v", err)
 			}
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			var r *viperconfig.Resolver
 			if _, err := Build(r.Config(), cmd, ui); err != nil {
 				t.Fatalf("Build: %v", err)
@@ -1085,7 +1085,7 @@ func TestBuildNoticesExperimentalAgents(t *testing.T) {
 
 // experimentalNoticePrinted reports whether ui received the experimental-agent
 // info notice.
-func experimentalNoticePrinted(ui *termio.Mock) bool {
+func experimentalNoticePrinted(ui *termiotest.Mock) bool {
 	return slices.ContainsFunc(ui.InfoCalls, func(m string) bool {
 		return strings.Contains(m, "experimental")
 	})
@@ -1098,7 +1098,7 @@ func TestBuildEmptyAgentResolvesToDefaultWithoutNotice(t *testing.T) {
 	if err := cmd.Flags().Set(FlagAgent, ""); err != nil {
 		t.Fatalf("set agent: %v", err)
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	var r *viperconfig.Resolver
 	opts, err := Build(r.Config(), cmd, ui)
 	if err != nil {
@@ -1155,7 +1155,7 @@ func TestBuildInvalidInvocationPrintsNoExperimentalNotice(t *testing.T) {
 			if tc.configure != nil {
 				tc.configure(t, cmd)
 			}
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			var r *viperconfig.Resolver
 			if _, err := Build(r.Config(), cmd, ui); err == nil {
 				t.Fatal("expected an error")
@@ -1179,7 +1179,7 @@ func TestBuildAcceptsWorktreeAndServeOnlyForOpencode2(t *testing.T) {
 		t.Fatalf("set serve-only: %v", err)
 	}
 	var r *viperconfig.Resolver
-	if _, err := Build(r.Config(), cmd, &termio.Mock{}); err != nil {
+	if _, err := Build(r.Config(), cmd, &termiotest.Mock{}); err != nil {
 		t.Errorf("expected opencode2 to support --worktree and --serve-only, got %v", err)
 	}
 }
@@ -1193,7 +1193,7 @@ func TestBuildRejectsWorktreeForPI(t *testing.T) {
 		t.Fatalf("set worktree: %v", err)
 	}
 	var r *viperconfig.Resolver
-	_, err := Build(r.Config(), cmd, &termio.Mock{})
+	_, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("expected error for pi with --worktree")
 	}
@@ -1211,7 +1211,7 @@ func TestBuildRejectsServeOnlyForClaudeCode(t *testing.T) {
 		t.Fatalf("set serve-only: %v", err)
 	}
 	var r *viperconfig.Resolver
-	_, err := Build(r.Config(), cmd, &termio.Mock{})
+	_, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("expected error for claude-code with --serve-only")
 	}
@@ -1229,7 +1229,7 @@ func TestBuildRejectsNonDaemonWorktree(t *testing.T) {
 		t.Fatalf("set worktree: %v", err)
 	}
 	var r *viperconfig.Resolver
-	if _, err := Build(r.Config(), cmd, &termio.Mock{}); err == nil {
+	if _, err := Build(r.Config(), cmd, &termiotest.Mock{}); err == nil {
 		t.Fatal("expected error for non-daemon agent with --worktree")
 	}
 }
@@ -1243,7 +1243,7 @@ func TestBuildRejectsNonDaemonServeOnly(t *testing.T) {
 		t.Fatalf("set serve-only: %v", err)
 	}
 	var r *viperconfig.Resolver
-	if _, err := Build(r.Config(), cmd, &termio.Mock{}); err == nil {
+	if _, err := Build(r.Config(), cmd, &termiotest.Mock{}); err == nil {
 		t.Fatal("expected error for non-daemon agent with --serve-only")
 	}
 }
@@ -1254,7 +1254,7 @@ func TestBuildAllowsNonDaemonPlainRun(t *testing.T) {
 		t.Fatalf("set agent: %v", err)
 	}
 	var r *viperconfig.Resolver
-	if _, err := Build(r.Config(), cmd, &termio.Mock{}); err != nil {
+	if _, err := Build(r.Config(), cmd, &termiotest.Mock{}); err != nil {
 		t.Fatalf("unexpected error for non-daemon agent plain run: %v", err)
 	}
 }
@@ -1271,7 +1271,7 @@ func TestBuildAllowsOpencodeWithDaemonFlags(t *testing.T) {
 		t.Fatalf("set serve-only: %v", err)
 	}
 	var r *viperconfig.Resolver
-	if _, err := Build(r.Config(), cmd, &termio.Mock{}); err != nil {
+	if _, err := Build(r.Config(), cmd, &termiotest.Mock{}); err != nil {
 		t.Fatalf("unexpected error for opencode with --worktree/--serve-only: %v", err)
 	}
 }
@@ -1292,7 +1292,7 @@ func TestNotifyFlagBareMeansOn(t *testing.T) {
 }
 
 func TestBuildNotifyDefaultOff(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
 	cmd := newRunCommand()
 	opts, err := Build(r.Config(), cmd, ui)
@@ -1305,7 +1305,7 @@ func TestBuildNotifyDefaultOff(t *testing.T) {
 }
 
 func TestBuildNotifyFromConfig(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{Notify: viperconfig.NotifyConfig{
 		Desktop: true,
 		Audio:   notify.AudioSystem,
@@ -1323,7 +1323,7 @@ func TestBuildNotifyFromConfig(t *testing.T) {
 
 func TestBuildNotifyEnvOverridesConfig(t *testing.T) {
 	t.Setenv(notifyEnvVar, "audio")
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{Notify: viperconfig.NotifyConfig{
 		Desktop: true,
 		Audio:   notify.AudioSystem,
@@ -1341,7 +1341,7 @@ func TestBuildNotifyEnvOverridesConfig(t *testing.T) {
 
 func TestBuildNotifyFlagOverridesEnv(t *testing.T) {
 	t.Setenv(notifyEnvVar, "audio")
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set(FlagNotify, "desktop"); err != nil {
 		t.Fatalf("set notify: %v", err)
@@ -1358,7 +1358,7 @@ func TestBuildNotifyFlagOverridesEnv(t *testing.T) {
 
 func TestBuildNotifyInvalidValue(t *testing.T) {
 	t.Setenv(notifyEnvVar, "loud")
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
 	cmd := newRunCommand()
 	if _, err := Build(r.Config(), cmd, ui); err == nil {
@@ -1368,7 +1368,7 @@ func TestBuildNotifyInvalidValue(t *testing.T) {
 
 func TestBuildNotifyLegacyEnvOverridesConfig(t *testing.T) {
 	t.Setenv(legacyNotifyEnvVar, "audio")
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{Notify: viperconfig.NotifyConfig{
 		Desktop: true,
 		Audio:   notify.AudioSystem,
@@ -1387,7 +1387,7 @@ func TestBuildNotifyLegacyEnvOverridesConfig(t *testing.T) {
 func TestBuildNotifyAgentsEnvTakesPrecedenceOverLegacy(t *testing.T) {
 	t.Setenv(notifyEnvVar, "audio")
 	t.Setenv(legacyNotifyEnvVar, "desktop")
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
 	cmd := newRunCommand()
 	opts, err := Build(r.Config(), cmd, ui)
@@ -1400,7 +1400,7 @@ func TestBuildNotifyAgentsEnvTakesPrecedenceOverLegacy(t *testing.T) {
 }
 
 func TestBuildNotifyRejectedForInteractiveAgent(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set(FlagAgent, "pi"); err != nil {
 		t.Fatalf("set agent: %v", err)
@@ -1415,7 +1415,7 @@ func TestBuildNotifyRejectedForInteractiveAgent(t *testing.T) {
 }
 
 func TestBuildNotifyConfigOnlyWarnsForInteractiveAgent(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{Notify: viperconfig.NotifyConfig{
 		Desktop: true,
 		Audio:   notify.AudioOff,
@@ -1450,7 +1450,7 @@ func TestBuildLeavesDryRunToTheMode(t *testing.T) {
 	cmd.Flags().Bool(FlagDryRun, false, "")
 	cmd.Flags().Bool(FlagDryRunVM, false, "")
 	_ = cmd.Flags().Set(FlagDryRun, "true")
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	opts, err := Build(nil, cmd, &ui)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
@@ -1468,7 +1468,7 @@ func TestBuildRejectsInvalidWorktreeSpec(t *testing.T) {
 		t.Fatalf("set worktree: %v", err)
 	}
 	var r *viperconfig.Resolver
-	if _, err := Build(r.Config(), cmd, &termio.Mock{}); err == nil {
+	if _, err := Build(r.Config(), cmd, &termiotest.Mock{}); err == nil {
 		t.Fatal("expected error for a non-slug --worktree value")
 	} else if !strings.Contains(err.Error(), "not a valid slug") {
 		t.Errorf("error = %q; want to mention not a valid slug", err)
@@ -1482,7 +1482,7 @@ func TestBuildNotifyFlagInvalidValue(t *testing.T) {
 		t.Fatalf("set notify: %v", err)
 	}
 	var r *viperconfig.Resolver
-	if _, err := Build(r.Config(), cmd, &termio.Mock{}); err == nil {
+	if _, err := Build(r.Config(), cmd, &termiotest.Mock{}); err == nil {
 		t.Fatal("expected error for invalid --notify value")
 	} else if !strings.Contains(err.Error(), "invalid --notify value") {
 		t.Errorf("error = %q; want to mention invalid --notify value", err)
@@ -1507,7 +1507,7 @@ func TestBuildPropagatesConfigResourceLimits(t *testing.T) {
 		ProvisionHostConfig: true,
 	})
 
-	opts, err := Build(r.Config(), newRunCommand(), &termio.Mock{})
+	opts, err := Build(r.Config(), newRunCommand(), &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -1552,7 +1552,7 @@ func TestBuildDockerSettingFromFlagsWithoutConfig(t *testing.T) {
 	if err := cmd.Flags().Set("docker", "true"); err != nil {
 		t.Fatal(err)
 	}
-	opts, err := Build(nil, cmd, &termio.Mock{})
+	opts, err := Build(nil, cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -1565,7 +1565,7 @@ func TestBuildDockerSettingFromFlagsWithoutConfig(t *testing.T) {
 func TestBuildAgentFromConfig(t *testing.T) {
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{Agent: "pi"})
 
-	opts, err := Build(r.Config(), newRunCommand(), &termio.Mock{})
+	opts, err := Build(r.Config(), newRunCommand(), &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -1583,7 +1583,7 @@ func TestBuildEmptyAgentFlagIgnored(t *testing.T) {
 	}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{Agent: "pi"})
 
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -1601,7 +1601,7 @@ func TestBuildNotifyEnvRejectedForInteractiveAgent(t *testing.T) {
 	}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
 
-	if _, err := Build(r.Config(), cmd, &termio.Mock{}); err == nil {
+	if _, err := Build(r.Config(), cmd, &termiotest.Mock{}); err == nil {
 		t.Fatal("expected error for the notify env override on an interactive agent")
 	}
 }
@@ -1612,7 +1612,7 @@ func TestBuildNotifyConfigEmptyAudioDefaultsOff(t *testing.T) {
 		Desktop: true,
 	}})
 
-	opts, err := Build(r.Config(), newRunCommand(), &termio.Mock{})
+	opts, err := Build(r.Config(), newRunCommand(), &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -1627,7 +1627,7 @@ func TestBuildNotifyEnvErrorWrapsCause(t *testing.T) {
 	t.Setenv(notifyEnvVar, "loud")
 	var r *viperconfig.Resolver
 
-	_, err := Build(r.Config(), newRunCommand(), &termio.Mock{})
+	_, err := Build(r.Config(), newRunCommand(), &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("expected error for invalid AGENTS_SANDBOX_NOTIFY value")
 	}
@@ -1646,7 +1646,7 @@ func TestBuildNotifyEmptyFlagIgnored(t *testing.T) {
 	}
 	r := viperconfig.NewResolverWithConfig(viperconfig.Config{})
 
-	opts, err := Build(r.Config(), cmd, &termio.Mock{})
+	opts, err := Build(r.Config(), cmd, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}

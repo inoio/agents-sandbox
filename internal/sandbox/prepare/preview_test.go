@@ -23,7 +23,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -32,7 +32,7 @@ func TestPreviewSandboxReportsBuildAndCreate(t *testing.T) {
 	absentImageDockerMock(t)
 	resolutions := noVolumeCreateMock(t)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
@@ -87,7 +87,7 @@ func TestPreviewSandboxReportsReuse(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
@@ -151,7 +151,7 @@ func TestPreviewSandboxReconcilesStaleRecordedVersionWithImageLabel(t *testing.T
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
@@ -184,7 +184,7 @@ func TestPreviewSandboxRecoversVersionFromImageLabelReadOnly(t *testing.T) {
 	})
 	noVolumeCreateMock(t)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
@@ -213,7 +213,7 @@ func TestPreviewSandboxPinnedVersionWinsAndNeverChecksNetwork(t *testing.T) {
 		return "", nil
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{
@@ -246,7 +246,7 @@ func TestPreviewSandboxCorruptStateReportsCreate(t *testing.T) {
 	corrupt := []byte("{ corrupted: yaml: [")
 	testutil.WriteFile(t, state.KeyDir(k), "state.yaml", string(corrupt))
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v, want a tolerated corrupt state", err)
@@ -295,7 +295,7 @@ func TestPreviewSandboxUserProvidedAgentIgnoresPin(t *testing.T) {
 		return "", nil
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{
@@ -334,7 +334,7 @@ func TestPreviewSandboxUserProvidedAgentNeverRecoversVersion(t *testing.T) {
 	}
 	t.Cleanup(func() { existingAgentVersion = orig })
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
@@ -352,7 +352,7 @@ func TestPreviewSandboxForcedRebuildReportsBuild(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
 	noVolumeCreateMock(t)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Rebuild: true}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
@@ -368,7 +368,7 @@ func TestPreviewSandboxForcedRebuildReportsBuild(t *testing.T) {
 func TestPreviewSandboxUnknownAgentErrors(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if _, err := PreviewSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{Agent: "nope"}),
@@ -389,7 +389,7 @@ func TestPreviewSandboxWorkspaceDirError(t *testing.T) {
 		t.Skipf("cannot remove cwd: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if _, err := PreviewSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -404,7 +404,7 @@ func TestPreviewSandboxWorkspaceDirError(t *testing.T) {
 func TestPreviewSandboxErrorsWhenIdentityUnresolvable(t *testing.T) {
 	t.Chdir(unresolvableIdentityDir(t))
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	_, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err == nil {
 		t.Fatal("PreviewSandbox succeeded with an unresolvable identity, want an error")
@@ -422,7 +422,7 @@ func TestPreviewSandboxSurfacesRenderError(t *testing.T) {
 	}
 	testutil.WritePath(t, dockerfilePath, "FROM ubuntu:24.04 AS agents-sandbox-base\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if _, err := PreviewSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -446,7 +446,7 @@ func TestPreviewSandboxSurfacesAdoptionError(t *testing.T) {
 	}
 	testutil.WriteFile(t, state.KeyDir(legacyKey), "state.yaml", `": [`)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if _, err := PreviewSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -471,7 +471,7 @@ func TestPreviewSandboxSurfacesHomeVolumeLookupError(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if _, err := PreviewSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),

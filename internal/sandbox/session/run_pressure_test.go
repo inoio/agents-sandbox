@@ -15,6 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // seedPressureMarker writes a pressure marker as the key's HomeState.
@@ -42,7 +43,7 @@ func TestOfferMemoryRaiseAfterAttachUsesMarker(t *testing.T) {
 		MetricsResult: &msb.Metrics{MemoryBytes: 1 << 20, MemoryLimitBytes: 4096 << 20},
 	}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -65,7 +66,7 @@ func TestOfferMemoryRaiseAfterAttachUsesMetricsLimit(t *testing.T) {
 		MetricsResult: &msb.Metrics{MemoryBytes: 7800 << 20, MemoryLimitBytes: 8192 << 20},
 	}
 	var inputDefault string
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 		InputFn: func(_ string, defaultValue string) (string, error) {
@@ -112,7 +113,7 @@ func TestOfferMemoryRaiseAfterAttachDeclinedSaysNothingAboutTheNextRun(t *testin
 	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "declinedoffer", Agent: "opencode"}
 	seedSessionHomeState(t, k)
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "keep", nil },
 	}
@@ -137,7 +138,7 @@ func TestOfferMemoryRaiseAfterAttachSaysTheRaiseAppliesNextRun(t *testing.T) {
 	t.Setenv("OPENCODE_SANDBOX_MEMORY", "")
 	k := state.Key{Slug: "nextrunoffer", Agent: "opencode"}
 	seedSessionHomeState(t, k)
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 		InputFn:             func(_, defaultValue string) (string, error) { return defaultValue, nil },
@@ -163,7 +164,7 @@ func TestOfferMemoryRaiseAfterAttachClampsToTheBootMaximum(t *testing.T) {
 	k := state.Key{Slug: "clampedoffer", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	var suggested string
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 		InputFn: func(_, defaultValue string) (string, error) {
@@ -194,7 +195,7 @@ func TestOfferMemoryRaiseAfterAttachWitnessedTrip(t *testing.T) {
 		k := state.Key{Slug: "witnessedtrip", Agent: "opencode"}
 		seedSessionHomeState(t, k)
 		var selects int
-		ui := &termio.Mock{
+		ui := &termiotest.Mock{
 			IsInteractiveResult: true,
 			SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 		}
@@ -213,7 +214,7 @@ func TestOfferMemoryRaiseAfterAttachWitnessedTrip(t *testing.T) {
 		k := state.Key{Slug: "untrippedsummary", Agent: "opencode"}
 		seedSessionHomeState(t, k)
 		var selects int
-		ui := &termio.Mock{
+		ui := &termiotest.Mock{
 			IsInteractiveResult: true,
 			SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 		}
@@ -252,7 +253,7 @@ func TestOfferDiskRaiseAfterAttachOffersAFullTmp(t *testing.T) {
 	k := state.Key{Slug: "diskoffer", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	var suggested string
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 		InputFn: func(_, defaultValue string) (string, error) {
@@ -280,7 +281,7 @@ func TestOfferDiskRaiseAfterAttachProbeFailureIsSilent(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "diskprobefail", Agent: "opencode"}
 	seedSessionHomeState(t, k)
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	sb := &msb.MockSandbox{ExecErr: errors.New("exec refused")}
 
 	offerDiskRaiseAfterAttach(context.Background(), k, sb, options.RunOptions{}, ui)
@@ -324,7 +325,7 @@ func TestOfferDiskRaiseAfterAttachBoundsTheProbe(t *testing.T) {
 	sb := &deadlineRecordingSandbox{MockSandbox: &msb.MockSandbox{ExecErr: errors.New("exec refused")}}
 	started := time.Now()
 
-	offerDiskRaiseAfterAttach(context.Background(), k, sb, options.RunOptions{}, &termio.Mock{})
+	offerDiskRaiseAfterAttach(context.Background(), k, sb, options.RunOptions{}, &termiotest.Mock{})
 
 	const wantTimeout = 10 * time.Second
 	if !sb.hasDeadline || sb.deadline.Before(started.Add(wantTimeout)) ||
@@ -355,7 +356,7 @@ func TestOfferDiskRaiseAfterAttachHonoursTheRecordedState(t *testing.T) {
 			t.Fatalf("seed state: %v", err)
 		}
 		prompted := false
-		ui := &termio.Mock{
+		ui := &termiotest.Mock{
 			IsInteractiveResult: true,
 			SelectFn: func(string, []termio.Choice, string) (string, error) {
 				prompted = true
@@ -371,7 +372,7 @@ func TestOfferDiskRaiseAfterAttachHonoursTheRecordedState(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
 		k := state.Key{Slug: "diskdeclined", Agent: "opencode"}
 		seedSessionHomeState(t, k)
-		ui := &termio.Mock{
+		ui := &termiotest.Mock{
 			IsInteractiveResult: true,
 			SelectFn:            func(string, []termio.Choice, string) (string, error) { return "keep", nil },
 		}
@@ -382,7 +383,7 @@ func TestOfferDiskRaiseAfterAttachHonoursTheRecordedState(t *testing.T) {
 	})
 	t.Run("missing state", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		offerDiskRaiseAfterAttach(
 			context.Background(),
 			state.Key{Slug: "disknostate", Agent: "opencode"},
@@ -426,7 +427,7 @@ func TestOfferDiskRaiseAfterAttachOffersARecordedHitInTheBand(t *testing.T) {
 		"workspace_x 16777216 1048576 15728640 7% /workspace\n" +
 		"tmpfs 2097152 1697152 400000 81% /tmp\n"
 	prompted := false
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(string, []termio.Choice, string) (string, error) {
 			prompted = true

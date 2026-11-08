@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func expectDoctorFailure(t *testing.T, err error) {
@@ -22,7 +22,7 @@ func expectDoctorFailure(t *testing.T, err error) {
 	}
 }
 
-func expectDoctorSuccess(t *testing.T, ui *termio.Mock, err error) {
+func expectDoctorSuccess(t *testing.T, ui *termiotest.Mock, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatalf("expected doctor to pass; got error: %v", err)

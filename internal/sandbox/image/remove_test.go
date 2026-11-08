@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestRemoveImagesRefusesReferenced(t *testing.T) {
@@ -25,7 +26,7 @@ func TestRemoveImagesRefusesReferenced(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 
-	err := RemoveImages(context.Background(), []string{ref}, false, &termio.Mock{})
+	err := RemoveImages(context.Background(), []string{ref}, false, &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("RemoveImages() error = nil, want a refusal for a referenced image")
 	}
@@ -48,7 +49,7 @@ func TestRemoveImagesRefusesImageHeldByLiveSandbox(t *testing.T) {
 	msb.WithMsbMock(t, client)
 
 	ref := naming.RunnerImageRef(key.Slug, key.Agent)
-	err := RemoveImages(context.Background(), []string{ref}, false, &termio.Mock{})
+	err := RemoveImages(context.Background(), []string{ref}, false, &termiotest.Mock{})
 	if err == nil || !strings.Contains(err.Error(), "proj-1mjusbm3wikhb0/opencode") {
 		t.Fatalf("RemoveImages() error = %v, want a refusal naming the live sandbox project", err)
 	}
@@ -71,7 +72,7 @@ func TestRemoveImagesForceSkipsGuard(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	if err := RemoveImages(context.Background(), []string{ref}, true, ui); err != nil {
 		t.Fatalf("RemoveImages(force): %v", err)
@@ -97,7 +98,7 @@ func TestRemoveImagesFailsClosedOnCorruptState(t *testing.T) {
 		context.Background(),
 		[]string{naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")},
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err == nil {
 		t.Fatal("RemoveImages() error = nil, want a fail-closed reference scan error")
 	}
@@ -111,7 +112,7 @@ func TestRemoveImagesRefusesNonRunnerRef(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	err := RemoveImages(context.Background(), []string{"docker.io/library/alpine:latest"}, false, ui)
 	if err == nil || !strings.Contains(err.Error(), "not managed by agents-sandbox") {
@@ -127,7 +128,7 @@ func TestRemoveImagesForceDoesNotBypassOwnershipGuard(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	err := RemoveImages(context.Background(), []string{"docker.io/library/alpine:latest"}, true, ui)
 	if err == nil || !strings.Contains(err.Error(), "not managed by agents-sandbox") {
@@ -150,7 +151,7 @@ func TestRemoveImagesRefusesSingleSegmentRefWithoutHash(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	err := RemoveImages(context.Background(), []string{"manualimage:opencode-latest"}, false, ui)
 	if err == nil || !strings.Contains(err.Error(), "not managed by agents-sandbox") {
@@ -168,7 +169,7 @@ func TestRemoveImagesForceDoesNotBypassHashOwnershipGuard(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	err := RemoveImages(context.Background(), []string{"manualimage:opencode-latest"}, true, ui)
 	if err == nil || !strings.Contains(err.Error(), "not managed by agents-sandbox") {
@@ -186,7 +187,7 @@ func TestRemoveImagesAcceptsHashBearingRefsEitherScheme(t *testing.T) {
 	client := &msb.MockMsbClient{}
 	resolutions := msb.WithCountingMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	refs := []string{
 		naming.RunnerImageRef("myproj-1mjusbm3wikhb0", "opencode"),
@@ -216,7 +217,7 @@ func TestRemoveImagesGuardSurfacesScanError(t *testing.T) {
 		context.Background(),
 		[]string{naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")},
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "check image references") {
 		t.Fatalf("RemoveImages(scan error) = %v, want a wrapped scan error", err)
@@ -232,7 +233,7 @@ func TestRemoveImagesNonInteractiveRequiresConfirmation(t *testing.T) {
 		context.Background(),
 		[]string{naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")},
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if !errors.Is(err, termio.ErrConfirmationRequired) {
 		t.Fatalf("RemoveImages(non-interactive) = %v, want ErrConfirmationRequired", err)
@@ -250,7 +251,7 @@ func TestRemoveImagesSurfacesRemoveError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	err := RemoveImages(
 		context.Background(),

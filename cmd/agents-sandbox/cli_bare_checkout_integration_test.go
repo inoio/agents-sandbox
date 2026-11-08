@@ -14,7 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -24,7 +24,7 @@ import (
 // needs the real path resolver, so HOME and every XDG directory are pinned to
 // temp dirs to keep host state out of reach. Not parallel: t.Setenv/t.Chdir
 // forbid it.
-func setupBareCheckoutFixtures(t *testing.T, args ...string) (*cobra.Command, *termio.Mock, string) {
+func setupBareCheckoutFixtures(t *testing.T, args ...string) (*cobra.Command, *termiotest.Mock, string) {
 	t.Helper()
 	origin := testutil.InitRepo(t)
 	root := t.TempDir()
@@ -144,7 +144,7 @@ func physicalPath(t *testing.T, path string) string {
 // setupBareCheckoutCommandFixtures is setupBareCheckoutFixtures for the config
 // commands: the standard command fixtures plus the real path resolver, so config
 // resolution reads the temp config tree. Not parallel: t.Setenv/t.Chdir forbid it.
-func setupBareCheckoutCommandFixtures(t *testing.T, args ...string) (*cobra.Command, *termio.Mock) {
+func setupBareCheckoutCommandFixtures(t *testing.T, args ...string) (*cobra.Command, *termiotest.Mock) {
 	t.Helper()
 	origin := testutil.InitRepo(t)
 	root := t.TempDir()

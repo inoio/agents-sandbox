@@ -12,7 +12,7 @@ import (
 
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -35,7 +35,7 @@ func setupStopKillConfig(
 	t *testing.T,
 	args []string,
 	mockSetup func(*sandboxmsb.MockMsbClient),
-) (*cobra.Command, *termio.Mock) {
+) (*cobra.Command, *termiotest.Mock) {
 	t.Helper()
 	cmd, ui := setupCommandFixtures(t, args...)
 	mock := &sandboxmsb.MockMsbClient{}
@@ -48,7 +48,7 @@ func setupStopKillConfig(
 
 // runStopKill executes a stop/kill command and fails the test on any
 // unexpected error, returning the UI for assertions.
-func runStopKill(t *testing.T, args []string, mockSetup func(*sandboxmsb.MockMsbClient)) *termio.Mock {
+func runStopKill(t *testing.T, args []string, mockSetup func(*sandboxmsb.MockMsbClient)) *termiotest.Mock {
 	t.Helper()
 	cmd, ui := setupStopKillConfig(t, args, mockSetup)
 	if err := cmd.Execute(); err != nil {
@@ -59,7 +59,7 @@ func runStopKill(t *testing.T, args []string, mockSetup func(*sandboxmsb.MockMsb
 
 // assertInfoHasPrefix checks that ui.InfoCalls contains at least one entry
 // containing prefix. Calls t.Errorf and returns false on failure.
-func assertInfoHasPrefix(t *testing.T, ui *termio.Mock, prefix string) {
+func assertInfoHasPrefix(t *testing.T, ui *termiotest.Mock, prefix string) {
 	t.Helper()
 	for _, call := range ui.InfoCalls {
 		if strings.Contains(call, prefix) {
@@ -71,7 +71,7 @@ func assertInfoHasPrefix(t *testing.T, ui *termio.Mock, prefix string) {
 
 // assertVerboseHasPrefix checks that ui.VerboseCalls contains at least
 // one entry starting with prefix.
-func assertVerboseHasPrefix(t *testing.T, ui *termio.Mock, prefix string) {
+func assertVerboseHasPrefix(t *testing.T, ui *termiotest.Mock, prefix string) {
 	t.Helper()
 	for _, call := range ui.VerboseCalls {
 		if strings.HasPrefix(call, prefix) {
@@ -83,7 +83,7 @@ func assertVerboseHasPrefix(t *testing.T, ui *termio.Mock, prefix string) {
 
 // assertWarnContains checks that ui.WarnCalls contains at least one entry
 // containing needle.
-func assertWarnContains(t *testing.T, ui *termio.Mock, needle string) {
+func assertWarnContains(t *testing.T, ui *termiotest.Mock, needle string) {
 	t.Helper()
 	for _, call := range ui.WarnCalls {
 		if strings.Contains(call, needle) {
@@ -94,7 +94,7 @@ func assertWarnContains(t *testing.T, ui *termio.Mock, needle string) {
 }
 
 // assertNoWarn calls t.Errorf if ui.WarnCalls is non-empty.
-func assertNoWarn(t *testing.T, ui *termio.Mock) {
+func assertNoWarn(t *testing.T, ui *termiotest.Mock) {
 	t.Helper()
 	if len(ui.WarnCalls) > 0 {
 		t.Errorf("expected no WarnCalls; got: %v", ui.WarnCalls)
@@ -102,7 +102,7 @@ func assertNoWarn(t *testing.T, ui *termio.Mock) {
 }
 
 // assertSpinnerHas calls t.Errorf if ui.SpinnerCalls does not contain msg.
-func assertSpinnerHas(t *testing.T, ui *termio.Mock, msg string) {
+func assertSpinnerHas(t *testing.T, ui *termiotest.Mock, msg string) {
 	t.Helper()
 	if slices.Contains(ui.SpinnerCalls, msg) {
 		return
@@ -334,7 +334,7 @@ func TestStopKillGetSandboxError(t *testing.T) {
 // TestStopCommandHasAgentFlag asserts the stop command exposes the --agent flag
 // defaulting to defaultAgentName.
 func TestStopCommandHasAgentFlag(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	root := buildRootCmd(ui)
 	cmd, _, err := root.Find([]string{cmdStop})
 	if err != nil {
@@ -352,7 +352,7 @@ func TestStopCommandHasAgentFlag(t *testing.T) {
 // TestKillCommandHasAgentFlag asserts the kill command exposes the --agent flag
 // defaulting to defaultAgentName.
 func TestKillCommandHasAgentFlag(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	root := buildRootCmd(ui)
 	cmd, _, err := root.Find([]string{cmdKill})
 	if err != nil {

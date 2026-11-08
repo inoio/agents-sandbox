@@ -14,13 +14,13 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestPruneStateArtifactsRemovesUnheldClaimsAndStaleLeases(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	const slug = "sweep-claims-and-leases"
 	claimsDir := filepath.Join(state.SlugDir(slug), "claims")
@@ -82,7 +82,7 @@ func TestPruneStateArtifactsRemovesUnheldClaimsAndStaleLeases(t *testing.T) {
 
 func TestPruneStateArtifactsRemovesStateWithNoVolume(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	const slug = "sweep-no-volume"
 	agentKey := state.Key{Slug: slug, Agent: "opencode"}
@@ -118,7 +118,7 @@ func TestPruneStateArtifactsRemovesStateWithNoVolume(t *testing.T) {
 
 func TestPruneStateArtifactsKeepsStateRecordingALiveVolume(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	const slug = "sweep-live-volume"
 	agentKey := state.Key{Slug: slug, Agent: "opencode"}
@@ -159,7 +159,7 @@ func TestPruneStateArtifactsKeepsStateRecordingALiveVolume(t *testing.T) {
 
 func TestPruneStateArtifactsLeavesLocksTree(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	// The locks tree is never touched by the sweep.
 	locksDir := filepath.Join(configpaths.Get().UserStateDir(), "locks")
@@ -198,7 +198,7 @@ func TestPruneDryRunSkipsStateReclamation(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	dockertest.WithNoopDockerMock(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	const slug = "sweep-dry-run"
 	agentKey := state.Key{Slug: slug, Agent: "opencode"}
@@ -227,7 +227,7 @@ func TestPruneDryRunSkipsStateReclamation(t *testing.T) {
 // the slug is rediscovered by project discovery on every sweep.
 func TestPruneStateArtifactsReclaimsEmptyAgentAndClientDirs(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	const slug = "sweep-empty-shells"
 	agentKey := state.Key{Slug: slug, Agent: "opencode"}
@@ -262,7 +262,7 @@ func TestPruneStateArtifactsReclaimsEmptyAgentAndClientDirs(t *testing.T) {
 func TestPruneStateArtifactsPropagatesRootReadError(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	breakStateRoot(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	if _, err := PruneStateArtifacts(context.Background(), &testUI); err == nil {
 		t.Fatal("PruneStateArtifacts should fail closed on an unreadable state root")
@@ -273,7 +273,7 @@ func TestPruneStateArtifactsPropagatesRootReadError(t *testing.T) {
 // aborts the sweep before it touches the next slug.
 func TestPruneStateArtifactsStopsOnCancelledContext(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	if err := os.MkdirAll(state.SlugDir("sweep-cancelled"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +289,7 @@ func TestPruneStateArtifactsStopsOnCancelledContext(t *testing.T) {
 // propagates instead of being swallowed as a partial report.
 func TestPruneStateArtifactsPropagatesSweepError(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	dir := state.SlugDir("sweep-slugerr")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -493,7 +493,7 @@ func TestRemoveEmptyClaimsDirPropagatesError(t *testing.T) {
 // report two, not the last agent's one.
 func TestPruneStateArtifactsCountsLeasesAcrossAgents(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	const slug = "sweep-leases-two-agents"
 	aged := time.Now().Add(-time.Hour)
 	for _, agent := range []string{"opencode", "pi"} {

@@ -18,6 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -31,7 +32,7 @@ func TestSetUpSandboxUsesTheThreadedResolvedAgent(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
 	configpathstest.WithMockConfigPaths(t)
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil)}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := SetUpSandbox(
 		context.Background(),
@@ -62,7 +63,7 @@ func TestSetUpSandboxContinuesWhenProvisioningFails(t *testing.T) {
 
 	configpathstest.WithMockConfigPaths(t)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	fs := msb.NewTestFS(nil)
 	fs.WriteErr = errors.New("write denied")
 	sb := &msb.MockSandbox{
@@ -103,7 +104,7 @@ func TestSetUpSandboxReportsADaemonThatCannotStart(t *testing.T) {
 		return "", 0, errors.New("daemon shell failed")
 	}}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := &msb.MockSandbox{
 		Name_:    "vm",
 		FSValue_: msb.NewTestFS(nil),
@@ -170,7 +171,7 @@ func TestSetUpSandboxProvisionsEachConfigKind(t *testing.T) {
 			configpathstest.WithMockConfigPaths(t)
 			fs := msb.NewTestFS(map[string][]byte{path: []byte("old")})
 			sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 
 			if err := setUpOpencodeSandbox(t, sb, tc.cfs, &ui, VMBootConnected, seams); err != nil {
 				t.Fatalf("SetUpSandbox: %v", err)
@@ -202,7 +203,7 @@ func TestSetUpSandboxRecordsProvenanceOnlyOnBoot(t *testing.T) {
 			}
 			fs := msb.NewTestFS(map[string][]byte{agentSourcePath: []byte(state.AgentSourceUser + "\n")})
 			sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 
 			if err := setUpOpencodeSandbox(t, sb, &reprovision.ConfigFiles{}, &ui, tc.boot, seams); err != nil {
 				t.Fatalf("SetUpSandbox: %v", err)
@@ -230,7 +231,7 @@ func TestSetUpSandboxStopsWhenDockerdCannotStart(t *testing.T) {
 		ShellErr:          shellErr,
 		ExecDetachedCalls: calls,
 	}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	// An unhealthy daemon would be probed and launched if the setup went on.
 	probes := 0
 	seams := options.Seams{DaemonHealth: func(context.Context, msb.Sandbox, string) (string, int, error) {
@@ -254,7 +255,7 @@ func TestSetUpSandboxReportsWhatItDoes(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
 	configpathstest.WithMockConfigPaths(t)
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil)}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	cfs := &reprovision.ConfigFiles{
 		Keys:  []string{"/home/dev/.config/example"},
 		Hooks: []homeconfig.HookSpec{{Target: "/home/dev/.hello.sh", Source: "x", HasShebang: true}},
@@ -308,7 +309,7 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 	calls := &[]msb.MockDetachedCall{}
 	fs := msb.NewTestFS(nil)
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs, ExecDetachedCalls: calls}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	configpathstest.WithMockConfigPaths(t)
 
@@ -358,7 +359,7 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 
 	configpathstest.WithMockConfigPaths(t)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	fs := msb.NewTestFS(nil)
 	fs.WriteErr = errors.New("write denied")
 	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
@@ -417,7 +418,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 	}
 	testutil.WritePath(t, snippet, `{"model":"new"}`)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	cfs, err := reprovision.LoadConfigFilesForHost(
 		opencodeResolved(t),
 		"",
@@ -461,7 +462,7 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 	fs := msb.NewTestFS(nil)
 	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	cfs := &reprovision.ConfigFiles{
 		Hooks: []homeconfig.HookSpec{
 			{Target: "/home/dev/.hello.sh", Source: "x", HasShebang: true},
@@ -517,7 +518,7 @@ func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 	)
 	testutil.WritePath(t, snippet, `{"model":"x"}`)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	cfs, err := reprovision.LoadConfigFilesForHost(
 		opencodeResolved(t),
 		"",
@@ -608,7 +609,7 @@ func setUpSandboxProvisionsConfig(t *testing.T) {
 	}
 	testutil.WritePath(t, snippet, `{"model":"x"}`)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	cfs, err := reprovision.LoadConfigFilesForHost(
 		opencodeResolved(t),
 		"",

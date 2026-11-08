@@ -16,12 +16,13 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // interactiveUI returns an interactive mock UI whose Select returns key and
 // records that a prompt happened.
-func interactiveUI(key string, prompt *bool) *termio.Mock {
-	return &termio.Mock{
+func interactiveUI(key string, prompt *bool) *termiotest.Mock {
+	return &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
 			*prompt = true
@@ -32,8 +33,8 @@ func interactiveUI(key string, prompt *bool) *termio.Mock {
 
 // noticeUI returns an interactive mock whose Select returns key and which
 // records the notice acknowledgment.
-func noticeUI(key string) *termio.Mock {
-	return &termio.Mock{
+func noticeUI(key string) *termiotest.Mock {
+	return &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(_ string, _ []termio.Choice, _ string) (string, error) { return key, nil },
 	}
@@ -57,7 +58,7 @@ func TestOfferStateReadErrorWarnsAndSkips(t *testing.T) {
 	writeCorruptRootState(t)
 
 	selectCalls := 0
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
 			selectCalls++
@@ -162,7 +163,7 @@ func TestOfferFinalizesOpenCampaignWithNothingLeft(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer: %v", err)
 	}
@@ -266,7 +267,7 @@ func TestOfferNonInteractiveBlocksBeforeFreshHome(t *testing.T) {
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 
-	ui := &termio.Mock{IsInteractiveResult: false}
+	ui := &termiotest.Mock{IsInteractiveResult: false}
 	client := &msb.MockMsbClient{}
 
 	err := Offer(context.Background(), client, ui)
@@ -290,7 +291,7 @@ func TestOfferAssumeYesBehavesLikeNonInteractive(t *testing.T) {
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 
 	var selectCalls int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: false,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
 			selectCalls++
@@ -411,7 +412,7 @@ func TestOfferSelectErrorAborts(t *testing.T) {
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
 			return "", context.Canceled
@@ -955,7 +956,7 @@ func TestOfferShowsNoticeOnLaterTerminalSession(t *testing.T) {
 		t.Fatalf("seed completed migration: %v", err)
 	}
 
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer() error = %v", err)
 	}
@@ -968,7 +969,7 @@ func TestOfferShowsNoticePendingNothingToCopy(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addSandboxDir(t, legacy, naming.LegacyVMPrefix+"proj") // artifacts present, no volumes to copy
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer() error = %v", err)
 	}
@@ -988,7 +989,7 @@ func TestOfferNoticeOnceEver(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed acknowledged notice: %v", err)
 	}
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer() error = %v", err)
 	}
@@ -1007,7 +1008,7 @@ func TestOfferNonInteractiveNoticeDoesNotMark(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed completed migration: %v", err)
 	}
-	ui := &termio.Mock{IsInteractiveResult: false}
+	ui := &termiotest.Mock{IsInteractiveResult: false}
 	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer() error = %v", err)
 	}
@@ -1143,7 +1144,7 @@ func TestOfferTerminalSessionSuppressesCommandsForUncopiedVolumes(t *testing.T) 
 		t.Fatalf("seed: %v", err)
 	}
 
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer: %v", err)
 	}
@@ -1169,7 +1170,7 @@ func TestOfferFinalizeErrorPropagates(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	blockRootState(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if err := Offer(context.Background(), &msb.MockMsbClient{}, &ui); err == nil {
 		t.Fatal("Offer() error = nil, want the finalize write failure")
 	}

@@ -7,7 +7,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -15,7 +15,7 @@ import (
 // resolver and returns the resolved OpenLinks option.
 func resolveOpenLinks(t *testing.T, commandName string, args ...string) bool {
 	t.Helper()
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	root := buildRootCmd(ui)
 	command, _, err := root.Find([]string{commandName})
 	if err != nil {

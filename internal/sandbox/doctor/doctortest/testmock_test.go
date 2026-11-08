@@ -6,7 +6,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestInstallFailFastFactoriesPanic(t *testing.T) {
@@ -51,7 +51,7 @@ func assertFailFastFactoriesPanic(t *testing.T) {
 	t.Helper()
 	assertFactoryPanics(t, "CheckDocker", func() { _ = doctor.CheckDocker(context.Background(), docker.Get()) })
 	assertFactoryPanics(t, "CheckAll", func() {
-		testUI := termio.NewTestMock(t)
+		testUI := termiotest.NewTestMock(t)
 		_ = doctor.CheckAll(context.Background(), docker.Get(), &testUI)
 	})
 }

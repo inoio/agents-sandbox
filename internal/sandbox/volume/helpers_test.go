@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // lookupMock returns an msb mock whose GetVolume honours present (everything
@@ -60,9 +61,9 @@ func (l *eventLog) add(event string) { l.events = append(l.events, event) }
 // the runner image; it is not part of the throwaway lifecycle under test.
 const imageLoadSpinnerLabel = "Loading image into microsandbox"
 
-// recordingUI is a termio.Mock whose spinners log their lifecycle.
+// recordingUI is a termiotest.Mock whose spinners log their lifecycle.
 type recordingUI struct {
-	termio.Mock
+	termiotest.Mock
 
 	log *eventLog
 }

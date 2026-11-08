@@ -11,7 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestVolumeOpsKeepDeprecatedRebuildFlag verifies the three volume ops keep
@@ -41,7 +41,7 @@ func TestVolumeOpsKeepDeprecatedRebuildFlag(t *testing.T) {
 func TestVolumeMigrateRebuildIsDeprecatedNoOp(t *testing.T) {
 	initTestProjectDir(t)
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	mock := &msb.MockMsbClient{}
 	doctortest.MockedCheckAll(t, true)
 	withMockAgentVersion(t, "0.0.0-test")
@@ -77,7 +77,7 @@ func TestVolumeOpsRebuildDeprecatedAcrossOps(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			initTestProjectDir(t)
 			configpathstest.WithMockConfigPaths(t)
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			mock := &msb.MockMsbClient{}
 			doctortest.MockedCheckAll(t, true)
 			withMockAgentVersion(t, "0.0.0-test")

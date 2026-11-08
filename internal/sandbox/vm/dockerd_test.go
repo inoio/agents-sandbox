@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestDockerdArgsSelectsTheStorageDriver pins the storage driver dockerd is
@@ -161,7 +161,7 @@ func TestStartDockerdTreatsAMissingProbeResultAsNotReady(t *testing.T) {
 	dockerdReadyTimeout = 50 * time.Millisecond
 	dockerdPollInterval = time.Millisecond
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := &nilResultDockerd{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{})}
 
 	err := startDockerdIfPresent(context.Background(), sb, &ui)
@@ -171,7 +171,7 @@ func TestStartDockerdTreatsAMissingProbeResultAsNotReady(t *testing.T) {
 }
 
 func TestStartDockerdUsesConfigDrivenArgsWhenDaemonJSONSetsVFS(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb, detached := newDockerdStartSandbox(`{"storage-driver":"vfs"}`)
 
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
@@ -188,7 +188,7 @@ func TestStartDockerdUsesConfigDrivenArgsWhenDaemonJSONSetsVFS(t *testing.T) {
 }
 
 func TestStartDockerdFailsOnOtherStorageDriver(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb, detached := newDockerdStartSandbox(`{"storage-driver":"overlay2"}`)
 
 	err := startDockerdIfPresent(context.Background(), sb, &ui)
@@ -206,7 +206,7 @@ func TestStartDockerdFailsOnOtherStorageDriver(t *testing.T) {
 // TestStartDockerdStopsWhenCancelled pins that a cancelled context ends the
 // dockerd readiness wait with the cancellation.
 func TestStartDockerdStopsWhenCancelled(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := &msb.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
 			dockerdBinaryCheckCmd: msb.NewTestResult(true, 0, "", "", nil),
@@ -226,7 +226,7 @@ func TestStartDockerdStopsWhenCancelled(t *testing.T) {
 // failure: a Shell error checking for dockerd aborts with its cause preserved,
 // rather than being read as "not present".
 func TestStartDockerdIfPresentBinaryCheckErrorWrapsCause(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sentinel := errors.New("shell boom")
 	sb := msb.NewMockSandbox(msb.SandboxOpts{ShellErr: sentinel})
 
@@ -240,7 +240,7 @@ func TestStartDockerdIfPresentBinaryCheckErrorWrapsCause(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentNoDockerdBinary(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := msb.NewMockSandbox(msb.SandboxOpts{
 		ShellOut: map[string]msb.ShellResult{
 			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
@@ -256,7 +256,7 @@ func TestStartDockerdIfPresentNoDockerdBinary(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentAlreadyRunning(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := newCountingSandbox(0)
 
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
@@ -271,7 +271,7 @@ func TestStartDockerdIfPresentAlreadyRunning(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentStartsAndBecomesReady(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := newCountingSandbox(1)
 
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
@@ -293,7 +293,7 @@ func TestStartDockerdIfPresentStartsAndBecomesReady(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentExecError(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := newCountingSandbox(1 << 30)
 	wantErr := errors.New("connection lost")
 	sb.execErr = wantErr
@@ -311,7 +311,7 @@ func TestStartDockerdIfPresentExecError(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentNeverReady(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	// A huge threshold means the ready check can never become healthy within
 	// the (shortened) poll window, forcing the timeout path.
 	sb := newCountingSandbox(1 << 30)
@@ -334,7 +334,7 @@ func TestStartDockerdIfPresentNeverReady(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentProbesBeforeWaiting(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	// The pre-detach check fails once; the first post-detach probe is healthy.
 	// A long poll interval proves that probe happens immediately, not after the
 	// interval.
@@ -358,7 +358,7 @@ func TestStartDockerdIfPresentProbesBeforeWaiting(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentKillsStaleJobWithChangedArgs(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	stale := &msb.MockJob{}
 	running := &msb.MockJob{}
 	sb := newCountingSandbox(1)
@@ -383,7 +383,7 @@ func TestStartDockerdIfPresentKillsStaleJobWithChangedArgs(t *testing.T) {
 // started under dockerd's identity marker, so a later release can target it
 // whatever arguments it uses.
 func TestStartDockerdIfPresentLaunchesMarkedJob(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := newCountingSandbox(1)
 	calls := &[]msb.MockDetachedCall{}
 	sb.ExecDetachedCalls = calls
@@ -401,7 +401,7 @@ func TestStartDockerdIfPresentLaunchesMarkedJob(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentContinuesAfterCleanupError(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := newCountingSandbox(1)
 	sb.cleanupErr = errors.New("residue boom")
 
@@ -414,7 +414,7 @@ func TestStartDockerdIfPresentContinuesAfterCleanupError(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentReportsCloseFailure(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := newCountingSandbox(1)
 	sb.Job_ = &msb.MockJob{CloseErr: errors.New("close boom")}
 
@@ -440,7 +440,7 @@ func TestTimeoutErrorIncludesJobLog(t *testing.T) {
 	sb.Job_ = &msb.MockJob{
 		Logs_: []msb.JobLogEntry{{Data: []byte(sentinel)}},
 	}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	err := startDockerdIfPresent(context.Background(), sb, &ui)
 	if err == nil {

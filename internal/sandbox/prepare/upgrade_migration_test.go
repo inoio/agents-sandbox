@@ -13,7 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestMigrateLegacyUpdaterStateFoldsLastCheckedAndDeletes(t *testing.T) {
@@ -25,7 +25,7 @@ func TestMigrateLegacyUpdaterStateFoldsLastCheckedAndDeletes(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	migrateLegacyUpdaterState(configpaths.Get(), &termio.Mock{})
+	migrateLegacyUpdaterState(configpaths.Get(), &termiotest.Mock{})
 	if _, err := os.Stat(legacyUpdaterStatePath(configpaths.Get())); !os.IsNotExist(err) {
 		t.Fatal("updater.yaml must be deleted")
 	}
@@ -49,7 +49,7 @@ func TestMigrateLegacyUpdaterStatePresentValueWins(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	migrateLegacyUpdaterState(configpaths.Get(), &termio.Mock{})
+	migrateLegacyUpdaterState(configpaths.Get(), &termiotest.Mock{})
 	root, _ := state.ReadRootState()
 	if root.AgentCheck("opencode").LastChecked.Unix() != 5000 {
 		t.Fatal("present last_checked must win over the legacy value")
@@ -65,7 +65,7 @@ func TestMigrateLegacyUpdaterStateCorruptIsDeleted(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	migrateLegacyUpdaterState(configpaths.Get(), &termio.Mock{})
+	migrateLegacyUpdaterState(configpaths.Get(), &termiotest.Mock{})
 	if _, err := os.Stat(legacyUpdaterStatePath(configpaths.Get())); !os.IsNotExist(err) {
 		t.Fatal("corrupt updater.yaml must be deleted")
 	}
@@ -81,7 +81,7 @@ func TestMigrateLegacyUpdaterStateSkippedWhenLockHeld(t *testing.T) {
 		t.Fatal(err)
 	}
 	ok, err := state.WithRootState(true, func(*state.RootTxn) error {
-		migrateLegacyUpdaterState(configpaths.Get(), &termio.Mock{})
+		migrateLegacyUpdaterState(configpaths.Get(), &termiotest.Mock{})
 		return nil
 	})
 	if err != nil || !ok {
@@ -101,7 +101,7 @@ func TestMigrateLegacyUpdaterStateFoldsFlatFieldIntoOpencode(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	migrateLegacyUpdaterState(configpaths.Get(), &termio.Mock{})
+	migrateLegacyUpdaterState(configpaths.Get(), &termiotest.Mock{})
 	root, _ := state.ReadRootState()
 	if got := root.AgentCheck("opencode").LastChecked.UTC().Year(); got != 2021 {
 		t.Fatalf("flat last_checked not folded into opencode: year=%d", got)
@@ -120,7 +120,7 @@ func TestMigrateLegacyUpdaterStateSkipsZeroLastChecked(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	migrateLegacyUpdaterState(configpaths.Get(), &termio.Mock{})
+	migrateLegacyUpdaterState(configpaths.Get(), &termiotest.Mock{})
 	root, _ := state.ReadRootState()
 	if !root.AgentCheck("opencode").LastChecked.IsZero() {
 		t.Fatal("a zero last_checked must not seed a check state")
@@ -152,7 +152,7 @@ func TestMigrateLegacyUpdaterStateNoOpPreservesRootDocument(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	migrateLegacyUpdaterState(configpaths.Get(), &termio.Mock{})
+	migrateLegacyUpdaterState(configpaths.Get(), &termiotest.Mock{})
 	after, err := state.ReadRootState()
 	if err != nil {
 		t.Fatal(err)
@@ -170,7 +170,7 @@ func TestMigrateLegacyUpdaterStateReadErrorIsNonFatal(t *testing.T) {
 	if err := os.MkdirAll(legacyUpdaterStatePath(configpaths.Get()), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	migrateLegacyUpdaterState(configpaths.Get(), &ui)
 	if _, err := os.Stat(legacyUpdaterStatePath(configpaths.Get())); err != nil {
 		t.Fatal("an unreadable updater.yaml must survive a read failure")
@@ -193,7 +193,7 @@ func TestMigrateLegacyUpdaterStateRootStateReadErrorIsNonFatal(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	migrateLegacyUpdaterState(configpaths.Get(), &ui)
 	if _, err := os.Stat(legacyUpdaterStatePath(configpaths.Get())); err != nil {
 		t.Fatal("updater.yaml must survive a root-state read failure")
@@ -215,7 +215,7 @@ func TestMigrateLegacyUpdaterStateLockErrorIsNonFatal(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	migrateLegacyUpdaterState(configpaths.Get(), &termio.Mock{})
+	migrateLegacyUpdaterState(configpaths.Get(), &termiotest.Mock{})
 	if _, err := os.Stat(legacyUpdaterStatePath(configpaths.Get())); err != nil {
 		t.Fatal("updater.yaml must survive a lock failure")
 	}
@@ -244,7 +244,7 @@ func TestMigrateLegacyUpdaterStateWriteErrorIsNonFatal(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(stateDir, 0o700) })
-	migrateLegacyUpdaterState(configpaths.Get(), &termio.Mock{})
+	migrateLegacyUpdaterState(configpaths.Get(), &termiotest.Mock{})
 	if _, err := os.Stat(legacyUpdaterStatePath(configpaths.Get())); err != nil {
 		t.Fatal("updater.yaml must survive a root-state write failure")
 	}
@@ -264,7 +264,7 @@ func TestMigrateLegacyUpdaterStateFoldsPastAZeroAgent(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	migrateLegacyUpdaterState(configpaths.Get(), &termio.Mock{})
+	migrateLegacyUpdaterState(configpaths.Get(), &termiotest.Mock{})
 	root, _ := state.ReadRootState()
 	if got := root.AgentCheck("opencode").LastChecked.UTC().Year(); got != 2021 {
 		t.Fatalf("opencode was not folded past a zero agent: year=%d", got)
@@ -284,7 +284,7 @@ func TestMigrateLegacyUpdaterStateTypeErrorFoldsNothing(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	migrateLegacyUpdaterState(configpaths.Get(), &termio.Mock{})
+	migrateLegacyUpdaterState(configpaths.Get(), &termiotest.Mock{})
 	if _, err := os.Stat(rootStatePath); !os.IsNotExist(err) {
 		t.Fatal("a parse failure must fold nothing, leaving no root document")
 	}

@@ -11,7 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestRunStartupHooksAttachesEachHook pins how a hook is run: as the default
@@ -58,7 +58,7 @@ func TestRunStartupHooksAttachesEachHook(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			sb := &msb.MockSandbox{Name_: "vm"}
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 
 			runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{tc.hook}, &ui)
 
@@ -77,7 +77,7 @@ func TestRunStartupHooksAttachesEachHook(t *testing.T) {
 // warning and the remaining hooks still run.
 func TestRunStartupHooksContinuesPastAFailingHook(t *testing.T) {
 	sb := &msb.MockSandbox{Name_: "vm", AttachErr: errors.New("attach failed")}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	runStartupHooks(context.Background(), sb, []homeconfig.HookSpec{
 		{Target: "/home/dev/.first.sh", Source: "x", HasShebang: true},
@@ -99,7 +99,7 @@ func TestRestartDaemonsRestartsPastAFailedKill(t *testing.T) {
 		return `{"healthy":true,"version":"test"}`, 0, nil
 	}}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	stale := &msb.MockJob{KillErr: errors.New("kill failed")}
 	command := opencodeProvider(t).DaemonCommand(false)
 	sb := &msb.MockSandbox{
@@ -122,7 +122,7 @@ func TestRestartDaemonsRestartsPastAFailedKill(t *testing.T) {
 // TestRestartDaemonsWithoutADaemonDoesNothing pins that an agent without a
 // serve daemon has nothing to restart.
 func TestRestartDaemonsWithoutADaemonDoesNothing(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := &msb.MockSandbox{Name_: "vm", ShellCalls: &[]string{}, ExecDetachedCalls: &[]msb.MockDetachedCall{}}
 
 	restartDaemons(context.Background(), agent.Resolve(&fakeAgent{}), sb, false, &ui, options.Seams{})
@@ -142,7 +142,7 @@ func TestRestartDaemonsWarnsWhenTheDaemonCannotStart(t *testing.T) {
 		return "", 0, errors.New("command failed")
 	}}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := &msb.MockSandbox{
 		Name_: "vm",
 		ExecDetachedFn: func(context.Context, string, []string, msb.JobSpec) (msb.Job, error) {
@@ -166,7 +166,7 @@ func TestRestartDaemonsRestartsServe(t *testing.T) {
 
 	calls := &[]msb.MockDetachedCall{}
 	sb := &msb.MockSandbox{Name_: "vm", ExecDetachedCalls: calls}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	restartDaemons(
 		context.Background(),
 		opencodeResolved(t),

@@ -24,7 +24,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -546,7 +546,7 @@ func TestResolveBuildDockerSetting(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			configpathstest.WithMockConfigPaths(t)
-			cmd := buildDockerfileCmd(&termio.Mock{})
+			cmd := buildDockerfileCmd(&termiotest.Mock{})
 			for name, value := range tc.flags {
 				if err := cmd.Flags().Set(name, value); err != nil {
 					t.Fatalf("set %s: %v", name, err)
@@ -709,7 +709,7 @@ func TestResolveBuildAgentVersion(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cmd := buildBuildCmd(&termio.Mock{})
+			cmd := buildBuildCmd(&termiotest.Mock{})
 			if err := cmd.Flags().Parse(tc.args); err != nil {
 				t.Fatalf("parse %v: %v", tc.args, err)
 			}
@@ -788,9 +788,9 @@ type errWriter struct{ err error }
 
 func (w errWriter) Write(_ []byte) (int, error) { return 0, w.err }
 
-// errStdOutUI embeds termio.Mock but returns an erroring StdOut writer.
+// errStdOutUI embeds termiotest.Mock but returns an erroring StdOut writer.
 type errStdOutUI struct {
-	termio.Mock
+	termiotest.Mock
 
 	err error
 }

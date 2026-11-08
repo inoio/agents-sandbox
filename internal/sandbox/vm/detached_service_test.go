@@ -9,11 +9,11 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestEnsureDetachedServiceLeavesHealthyServiceRunning(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	calls := &[]msb.MockDetachedCall{}
 	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
 	service := testDetachedService()
@@ -34,7 +34,7 @@ func TestEnsureDetachedServiceLeavesHealthyServiceRunning(t *testing.T) {
 }
 
 func TestEnsureDetachedServiceKillsStaleThenLaunchesAndAwaits(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	calls := &[]msb.MockDetachedCall{}
 	var sequence []string
 	stale := &msb.MockJob{}
@@ -95,7 +95,7 @@ func TestEnsureDetachedServiceKillsStaleThenLaunchesAndAwaits(t *testing.T) {
 // path: with the pre-check skipped, an already-healthy probe must not stop the
 // restart.
 func TestEnsureDetachedServiceSkipPreCheckForcesLaunch(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	calls := &[]msb.MockDetachedCall{}
 	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
 	service := testDetachedService()
@@ -110,7 +110,7 @@ func TestEnsureDetachedServiceSkipPreCheckForcesLaunch(t *testing.T) {
 }
 
 func TestEnsureDetachedServiceCleanupFailureIsNonFatal(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := &msb.MockSandbox{}
 	service := testDetachedService()
 	service.probe = scriptedProbe(
@@ -131,7 +131,7 @@ func TestEnsureDetachedServiceCleanupFailureIsNonFatal(t *testing.T) {
 // prepare the launch aborts before the stale service is killed or a fresh one is
 // launched.
 func TestEnsureDetachedServiceLaunchArgsErrorAborts(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	wantErr := errors.New("args boom")
 	calls := &[]msb.MockDetachedCall{}
 	stale := &msb.MockJob{}
@@ -157,7 +157,7 @@ func TestEnsureDetachedServiceLaunchArgsErrorAborts(t *testing.T) {
 }
 
 func TestEnsureDetachedServiceWrapsLaunchError(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	wantErr := errors.New("connection lost")
 	sb := &msb.MockSandbox{
 		ExecDetachedFn: func(
@@ -179,7 +179,7 @@ func TestEnsureDetachedServiceWrapsLaunchError(t *testing.T) {
 }
 
 func TestEnsureDetachedServiceReportsCloseFailure(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := &msb.MockSandbox{
 		Job_: &msb.MockJob{CloseErr: errors.New("close boom")},
 	}
@@ -198,7 +198,7 @@ func TestEnsureDetachedServiceReportsCloseFailure(t *testing.T) {
 // an unhealthy-note template does not leak the probe's detail (dockerd's
 // pre-check is silent about why it is not up).
 func TestEnsureDetachedServiceSkipsEmptyPreCheckDetail(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := &msb.MockSandbox{}
 	service := testDetachedService()
 	service.probe = scriptedProbe(
@@ -220,7 +220,7 @@ func TestEnsureDetachedServiceSkipsEmptyPreCheckDetail(t *testing.T) {
 // pre-check that reports no diagnostic detail does not log a blank note line
 // (the note template is rendered only when there is a detail to render).
 func TestEnsureDetachedServiceSkipsBlankPreCheckDetail(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := &msb.MockSandbox{}
 	service := testDetachedService()
 	service.preCheckUnhealthyNote = "pre-check: %s"

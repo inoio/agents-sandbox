@@ -10,6 +10,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestImageRemove(t *testing.T) {
@@ -172,7 +173,7 @@ func TestImageRemoveOwnershipAndShorthand(t *testing.T) {
 // TestRemoveCommandsRequireAnArgument pins the at-least-one-argument bound of
 // the image and volume remove commands.
 func TestRemoveCommandsRequireAnArgument(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	imageCmd := buildImageRemoveCmd(ui)
 	if err := imageCmd.Args(imageCmd, nil); err == nil {
 		t.Error("image remove should require at least one argument")

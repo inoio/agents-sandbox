@@ -11,7 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestRenderNoticeShowsPresentTiersOnly(t *testing.T) {
@@ -104,7 +104,7 @@ func TestRenderNoticeUnreadableVolumesSuppressesWholesaleCommand(t *testing.T) {
 
 func TestShowNoticeSilentWithoutArtifacts(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := showNotice(ui); err != nil {
 		t.Fatalf("showNotice() error = %v", err)
 	}
@@ -122,7 +122,7 @@ func TestShowNoticeSilentWhenAcknowledged(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("seed acknowledged notice: %v", err)
 	}
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := showNotice(ui); err != nil {
 		t.Fatalf("showNotice() error = %v", err)
 	}
@@ -136,7 +136,7 @@ func TestShowNoticeNamesUncopiedVolumes(t *testing.T) {
 	legacy := installLegacyHome(t)
 	uncopied := naming.LegacyHomePrefix + "uncopied"
 	addVolumeDir(t, legacy, uncopied)
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := showNotice(ui); err != nil {
 		t.Fatalf("showNotice() error = %v", err)
 	}
@@ -162,7 +162,7 @@ func TestShowNoticeTreatsCopiedVolumeAsSafe(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := showNotice(ui); err != nil {
 		t.Fatalf("showNotice() error = %v", err)
 	}
@@ -182,7 +182,7 @@ func TestShowNoticeInteractiveMarksAcknowledged(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := showNotice(ui); err != nil {
 		t.Fatalf("showNotice() error = %v", err)
 	}
@@ -200,7 +200,7 @@ func TestShowNoticeNonInteractivePrintsBoundedLineButDoesNotMark(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
-	ui := &termio.Mock{IsInteractiveResult: false}
+	ui := &termiotest.Mock{IsInteractiveResult: false}
 	if err := showNotice(ui); err != nil {
 		t.Fatalf("showNotice() error = %v", err)
 	}
@@ -224,7 +224,7 @@ func TestShowNoticeAcknowledgeErrorWarnsAndContinues(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
-	ui := &termio.Mock{IsInteractiveResult: true, AcknowledgeErr: errors.New("stdin closed")}
+	ui := &termiotest.Mock{IsInteractiveResult: true, AcknowledgeErr: errors.New("stdin closed")}
 	if err := showNotice(ui); err != nil {
 		t.Fatalf("showNotice() error = %v, want nil (best-effort)", err)
 	}
@@ -246,7 +246,7 @@ func TestShowNoticeRecordErrorWarnsAndContinues(t *testing.T) {
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
 	blockRootState(t)
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := showNotice(ui); err != nil {
 		t.Fatalf("showNotice() error = %v, want nil (best-effort)", err)
 	}
@@ -257,7 +257,7 @@ func TestShowNoticeRecordErrorWarnsAndContinues(t *testing.T) {
 
 func TestShowNoticeDetectionErrorWarnsAndContinues(t *testing.T) {
 	configpathstest.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := showNotice(ui); err != nil {
 		t.Fatalf("showNotice() error = %v, want nil (best-effort)", err)
 	}
@@ -272,7 +272,7 @@ func TestShowNoticeDetectionErrorWarnsAndContinues(t *testing.T) {
 func TestShowNoticeStateReadErrorWarnsAndContinues(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	writeCorruptRootState(t)
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := showNotice(ui); err != nil {
 		t.Fatalf("showNotice() error = %v, want nil (best-effort)", err)
 	}
@@ -299,7 +299,7 @@ func TestShowNoticePrivateListingErrorSuppressesCommands(t *testing.T) {
 		t.Fatalf("symlink private volumes: %v", err)
 	}
 
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := showNotice(ui); err != nil {
 		t.Fatalf("showNotice() error = %v, want nil (best-effort)", err)
 	}
@@ -322,7 +322,7 @@ func TestShowNoticeUnreadableVolumesSuppressesWholesaleCommand(t *testing.T) {
 	makeVolumeDirUnreadable(t, legacy)
 	addSandboxDir(t, legacy, naming.LegacyVMPrefix+"proj")
 
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	if err := showNotice(ui); err != nil {
 		t.Fatalf("showNotice() error = %v, want nil (best-effort)", err)
 	}

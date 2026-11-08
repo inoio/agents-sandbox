@@ -11,7 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // captureLifecycleTrace makes the next run or shell record into a trace the
@@ -80,7 +80,7 @@ func TestRunStartupStagesPreflightFailure(t *testing.T) {
 	cmd.SetContext(context.Background())
 
 	exit, err := runStartupStages(
-		context.Background(), cmd, options.ModeRun, options.RunOptions{Trace: trace}, &termio.Mock{},
+		context.Background(), cmd, options.ModeRun, options.RunOptions{Trace: trace}, &termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected the preflight error to propagate")

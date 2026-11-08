@@ -18,6 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -109,7 +110,7 @@ func TestDetectAndOfferMemoryRaiseOffersAndPersists(t *testing.T) {
 	kill := time.Now()
 	r := &msb.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(kill)}}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "raise", nil },
 		InputFn:             func(string, string) (string, error) { return "8G", nil },
@@ -140,7 +141,7 @@ func TestDetectAndOfferMemoryRaiseConfirmsTheWrittenConfig(t *testing.T) {
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
 	r := &msb.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(time.Now())}}
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 		InputFn:             func(string, string) (string, error) { return "8G", nil },
@@ -180,7 +181,7 @@ func TestDetectAndOfferMemoryRaiseShadowedExplainsInsteadOfPrompting(t *testing.
 			seedDetectState(t, k, state.HomeState{})
 			r := &msb.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(time.Now())}}
 			prompted := false
-			ui := &termio.Mock{
+			ui := &termiotest.Mock{
 				IsInteractiveResult: true,
 				SelectFn: func(string, []termio.Choice, string) (string, error) {
 					prompted = true
@@ -235,7 +236,7 @@ func TestDetectAndOfferMemoryRaiseAtTheBootMaximumExplains(t *testing.T) {
 	seedDetectState(t, k, state.HomeState{})
 	r := &msb.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(time.Now())}}
 	prompted := false
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(string, []termio.Choice, string) (string, error) {
 			prompted = true
@@ -284,7 +285,7 @@ func TestDetectAndOfferMemoryRaiseAnsweredKillStaysAnsweredAfterStop(t *testing.
 		}
 	}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -308,7 +309,7 @@ func TestDetectAndOfferMemoryRaiseReadsBackToTheBootStart(t *testing.T) {
 	seedDetectState(t, k, state.HomeState{})
 	kill := time.Now()
 	r := &msb.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(kill)}}
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "keep", nil },
 	}
@@ -333,7 +334,7 @@ func TestDetectAndOfferMemoryRaiseBootStartReadErrorIsBestEffort(t *testing.T) {
 	seedDetectState(t, k, state.HomeState{})
 	r := &failingBackReadSandbox{LogsResult: []msb.LogEntry{oomLogLine(time.Now())}}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -373,7 +374,7 @@ func TestDetectAndOfferMemoryRaiseFindsTheBootStartBeyondTheTail(t *testing.T) {
 		}},
 	}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -393,7 +394,7 @@ func TestDetectAndOfferMemoryRaiseReadsBackOnlyForAnOOMLine(t *testing.T) {
 	seedDetectState(t, k, state.HomeState{})
 	r := &msb.MockSandbox{}
 
-	detectRun(t, r, nil, 4096, 8192, false, &termio.Mock{})
+	detectRun(t, r, nil, 4096, 8192, false, &termiotest.Mock{})
 
 	if len(r.LogsOptions) != 1 {
 		t.Errorf("Logs read %d times, want only the tail read", len(r.LogsOptions))
@@ -458,7 +459,7 @@ func TestDetectAndOfferMemoryRaiseWarnsWhenTheHostLacksTheMemory(t *testing.T) {
 			k := detectKey()
 			seedDetectState(t, k, state.HomeState{})
 			r := &msb.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(time.Now())}}
-			ui := &termio.Mock{
+			ui := &termiotest.Mock{
 				IsInteractiveResult: true,
 				SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 				InputFn:             func(string, string) (string, error) { return "8G", nil },
@@ -495,7 +496,7 @@ func TestDetectAndOfferMemoryRaiseDeclineAdvancesMarker(t *testing.T) {
 	kill := time.Now()
 	r := &msb.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(kill)}}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -530,7 +531,7 @@ func TestDetectAndOfferMemoryRaiseNonInteractiveRecordsWithoutAnswer(t *testing.
 	seedDetectState(t, k, state.HomeState{})
 	kill := time.Now()
 	r := &msb.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(kill)}}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	if raised := detectRun(t, r, nil, 4096, 8192, false, ui); raised != "" {
 		t.Errorf("raised = %q, want none", raised)
@@ -562,7 +563,7 @@ func TestDetectAndOfferMemoryRaiseUnansweredOOMWithoutLogOffers(t *testing.T) {
 	}})
 	r := &msb.MockSandbox{} // no log line at all
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -595,7 +596,7 @@ func TestDetectAndOfferMemoryRaiseNoKnownLimitRecordsWithoutOffering(t *testing.
 		MetricsErr: errors.New("metrics boom"),
 	}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "raise", nil },
 	}
@@ -625,7 +626,7 @@ func TestDetectAndOfferMemoryRaiseWitnessedHeadroomTripOffersWhenMetricsRecovere
 	seedDetectState(t, k, state.HomeState{})
 	r := &msb.MockSandbox{MetricsResult: detectRecoveredMetrics()}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -650,7 +651,7 @@ func TestDetectAndOfferMemoryRaiseWitnessedTripStillTrippedUsesMetricsSignal(t *
 	seedDetectState(t, k, state.HomeState{})
 	r := &msb.MockSandbox{MetricsResult: detectTrippedMetrics()}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -675,7 +676,7 @@ func TestDetectAndOfferMemoryRaiseFreshHeadroomAloneDoesNotOffer(t *testing.T) {
 	seedDetectState(t, k, state.HomeState{})
 	r := &msb.MockSandbox{MetricsResult: detectTrippedMetrics()}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -701,7 +702,7 @@ func TestDetectAndOfferMemoryRaiseHeadroomTripOffers(t *testing.T) {
 	seedDetectState(t, k, state.HomeState{})
 	r := &msb.MockSandbox{MetricsResult: detectTrippedMetrics()}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -729,7 +730,7 @@ func TestDetectAndOfferMemoryRaiseAnsweredHeadroomNotReOffered(t *testing.T) {
 	}})
 	r := &msb.MockSandbox{MetricsResult: detectTrippedMetrics()}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -753,7 +754,7 @@ func TestDetectAndOfferMemoryRaiseReArmsAnsweredHeadroomOnRecovery(t *testing.T)
 	}})
 	r := &msb.MockSandbox{MetricsResult: detectRecoveredMetrics()}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -784,7 +785,7 @@ func TestDetectAndOfferMemoryRaiseUnansweredHeadroomRecoveredStillOffers(t *test
 	}})
 	r := &msb.MockSandbox{MetricsResult: detectRecoveredMetrics()}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -818,7 +819,7 @@ func TestDetectAndOfferMemoryRaiseHeadroomSeenAtPreserved(t *testing.T) {
 			}})
 			r := &msb.MockSandbox{MetricsResult: detectTrippedMetrics()}
 			var selects int
-			ui := &termio.Mock{
+			ui := &termiotest.Mock{
 				IsInteractiveResult: true,
 				SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 			}
@@ -862,7 +863,7 @@ func TestDetectAndOfferMemoryRaiseNewerOOMOffers(t *testing.T) {
 	newKill := oldKill.Add(time.Hour)
 	r := &msb.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(newKill)}}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -890,7 +891,7 @@ func TestDetectAndOfferMemoryRaiseSameTimestampUnansweredReOffers(t *testing.T) 
 	}})
 	r := &msb.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(kill)}}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -914,7 +915,7 @@ func TestDetectAndOfferMemoryRaiseSameTimestampAnsweredNoOffer(t *testing.T) {
 	}})
 	r := &msb.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(kill)}}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -939,7 +940,7 @@ func TestDetectAndOfferMemoryRaiseOlderOOMThanMarkerNotOffered(t *testing.T) {
 	}})
 	r := &msb.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(olderLog)}}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -962,7 +963,7 @@ func TestDetectAndOfferMemoryRaiseAnsweredOOMWithoutLogNotOffered(t *testing.T) 
 	}})
 	r := &msb.MockSandbox{}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -986,7 +987,7 @@ func TestDetectAndOfferMemoryRaiseAnsweredHeadroomUnknownMetricsNotOffered(t *te
 	}})
 	r := &msb.MockSandbox{}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -1011,7 +1012,7 @@ func TestDetectAndOfferMemoryRaiseHeadroomOverAnsweredOOMMarker(t *testing.T) {
 	}})
 	r := &msb.MockSandbox{MetricsResult: detectTrippedMetrics()}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -1038,7 +1039,7 @@ func TestDetectAndOfferMemoryRaiseHeadroomZeroFingerprintGetsNow(t *testing.T) {
 	}})
 	r := &msb.MockSandbox{MetricsResult: detectTrippedMetrics()}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -1066,7 +1067,7 @@ func TestDetectAndOfferMemoryRaiseOOMEvidenceNotReArmed(t *testing.T) {
 	}})
 	r := &msb.MockSandbox{MetricsResult: detectRecoveredMetrics()}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -1094,7 +1095,7 @@ func TestDetectAndOfferMemoryRaiseReArmThenWitnessedTripOffers(t *testing.T) {
 	}})
 	r := &msb.MockSandbox{MetricsResult: detectRecoveredMetrics()}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -1121,7 +1122,7 @@ func TestDetectAndOfferMemoryRaiseLogReadErrorIsBestEffort(t *testing.T) {
 	seedDetectState(t, k, state.HomeState{})
 	r := &msb.MockSandbox{LogsErr: errors.New("logs boom")}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "raise", nil },
 	}
@@ -1144,7 +1145,7 @@ func TestDetectAndOfferMemoryRaiseMetricsReadErrorIsBestEffort(t *testing.T) {
 	seedDetectState(t, k, state.HomeState{})
 	r := &msb.MockSandbox{MetricsErr: errors.New("metrics boom")}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "raise", nil },
 	}
@@ -1172,7 +1173,7 @@ func TestDetectAndOfferMemoryRaiseCurrentMemoryFallsBackToMetricsLimit(t *testin
 		MetricsResult: detectTrippedMetrics(),
 	}
 	var inputDefault string
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 		InputFn: func(_ string, defaultValue string) (string, error) {
@@ -1195,7 +1196,7 @@ func TestDetectAndOfferMemoryRaisePromptErrorIsBestEffort(t *testing.T) {
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
 	r := &msb.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(time.Now())}}
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "", errors.New("prompt boom") },
 	}
@@ -1220,7 +1221,7 @@ func TestDetectAndOfferMemoryRaisePersistErrorWarns(t *testing.T) {
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
 	r := &msb.MockSandbox{LogsResult: []msb.LogEntry{oomLogLine(time.Now())}}
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 		InputFn:             func(string, string) (string, error) { return "8G", nil },
@@ -1251,7 +1252,7 @@ func TestDetectAndOfferMemoryRaisePersistErrorWarns(t *testing.T) {
 // marker-write failure path: it logs at verbose level instead of failing.
 func TestDetectAndOfferMemoryRaiseRecordWriteErrorIsBestEffort(t *testing.T) {
 	withFailingDetectStateDir(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	recordResourcePressure(detectKey(), state.ResourcePressureState{}, &ui)
 	if !verboseContains(&ui, "recording the VM memory-limit hit failed") {
 		t.Errorf("verbose calls %v do not report the marker-write failure", ui.VerboseCalls)
@@ -1262,7 +1263,7 @@ func TestDetectAndOfferMemoryRaiseRecordWriteErrorIsBestEffort(t *testing.T) {
 // failure path: it logs at verbose level instead of failing.
 func TestMarkResourcePressureOfferedErrorIsBestEffort(t *testing.T) {
 	withFailingDetectStateDir(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	markResourcePressureOffered(detectKey(), time.Now(), &ui)
 	if !verboseContains(&ui, "recording the memory raise answer failed") {
 		t.Errorf("verbose calls %v do not report the answer-write failure", ui.VerboseCalls)
@@ -1270,7 +1271,7 @@ func TestMarkResourcePressureOfferedErrorIsBestEffort(t *testing.T) {
 }
 
 // verboseContains reports whether any verbose call contains want.
-func verboseContains(ui *termio.Mock, want string) bool {
+func verboseContains(ui *termiotest.Mock, want string) bool {
 	for _, call := range ui.VerboseCalls {
 		if strings.Contains(call, want) {
 			return true
@@ -1280,7 +1281,7 @@ func verboseContains(ui *termio.Mock, want string) bool {
 }
 
 // warnContains reports whether any warning contains want.
-func warnContains(ui *termio.Mock, want string) bool {
+func warnContains(ui *termiotest.Mock, want string) bool {
 	for _, call := range ui.WarnCalls {
 		if strings.Contains(call, want) {
 			return true

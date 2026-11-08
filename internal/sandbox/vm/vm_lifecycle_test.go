@@ -30,7 +30,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sysinfo"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestLifecycleSpinnerIsFinishedOnPreLockResolution pins that resolving a VM
@@ -81,7 +81,7 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			configpathstest.WithMockConfigPaths(t)
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 			client := &msb.MockMsbClient{}
 			client.SetGotSandbox(tc.handle())
 			msb.WithMsbMock(t, client)
@@ -184,7 +184,7 @@ func (l *lockRecorder) acquire(options.ProjectVMKey) (func(), error) {
 
 // missingVMCreation is a request for a project VM that does not exist yet:
 // every lookup misses and creating it succeeds.
-func missingVMCreation(t *testing.T, client *msb.MockMsbClient, ui *termio.Mock) ProjectVMCreation {
+func missingVMCreation(t *testing.T, client *msb.MockMsbClient, ui *termiotest.Mock) ProjectVMCreation {
 	t.Helper()
 	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
@@ -211,7 +211,7 @@ func missingVMCreation(t *testing.T, client *msb.MockMsbClient, ui *termio.Mock)
 // does not exist is created under the project VM name, labelled with its
 // project and image, and reported as created.
 func TestEnsureProjectVMCreatesAMissingVM(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	client := &msb.MockMsbClient{}
 	creation := missingVMCreation(t, client, &ui)
 	// The production creation lock, on the mocked state dir.
@@ -242,7 +242,7 @@ func TestEnsureProjectVMCreatesAMissingVM(t *testing.T) {
 // under the project VM name after the re-check under the creation lock is
 // neither replaced nor attached to: the create fails and names the sandbox.
 func TestEnsureProjectVMFailsClosedOnATakenName(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	taken := &msbSdk.Error{Kind: msbSdk.ErrSandboxAlreadyExists, Message: "sandbox already exists"}
 	client := &msb.MockMsbClient{
 		CreateSandboxFn: func(context.Context, string, msb.SandboxSpec) (msb.Sandbox, error) {
@@ -297,7 +297,7 @@ func TestEnsureProjectVMRecreatesTheHeldVM(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 			lock := &lockRecorder{}
 			destroyAttempted := false
 			// The held VM carries the legacy name, which the recreate retires.
@@ -422,7 +422,7 @@ func TestEnsureProjectVMFailsBeforeCreatingAVM(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 			msbClient := &msb.MockMsbClient{}
 			creation := missingVMCreation(t, msbClient, &ui)
 			cause := errors.New("step failed")
@@ -442,7 +442,7 @@ func TestEnsureProjectVMFailsBeforeCreatingAVM(t *testing.T) {
 // TestEnsureProjectVMSkipsTheLifecycleWithoutAVM pins that a run without a VM
 // (--dry-run-vm) touches no VM and reports a connected boot.
 func TestEnsureProjectVMSkipsTheLifecycleWithoutAVM(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	client := &msb.MockMsbClient{}
 	sb, boot, err := lookUpAndEnsureProjectVM(context.Background(), ProjectVMCreation{
 		Client:     client,
@@ -603,7 +603,7 @@ func TestEnsureProjectVMResolvesAnExistingVM(t *testing.T) {
 	for _, path := range paths {
 		for _, tc := range cases {
 			t.Run(path.name+"/"+tc.name, func(t *testing.T) {
-				ui := termio.NewTestMock(t)
+				ui := termiotest.NewTestMock(t)
 				client := &msb.MockMsbClient{}
 				creation := ProjectVMCreation{
 					Client:       client,
@@ -674,7 +674,7 @@ func TestEnsureProjectVMResolvesAnExistingVM(t *testing.T) {
 func newVMCreation(
 	t *testing.T,
 	client *msb.MockMsbClient,
-	ui *termio.Mock,
+	ui *termiotest.Mock,
 	opts options.RunOptions,
 ) ProjectVMCreation {
 	t.Helper()
@@ -806,7 +806,7 @@ func TestCreateProjectVMConfiguresTheVM(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			client := &msb.MockMsbClient{}
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 			name := ProjectVMName(testVMKey())
 
 			sb, err := createProjectVM(context.Background(), newVMCreation(t, client, &ui, tc.opts), name)
@@ -857,7 +857,7 @@ func TestCreateProjectVMReportsFailures(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 
 			sb, err := createProjectVM(
 				context.Background(),
@@ -896,7 +896,7 @@ func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
 			return &msb.ImageConfig{Digest: "sha256:same"}, nil
 		},
 	}
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	ui := &testUI
 
 	_, err := createProjectVM(context.Background(), ProjectVMCreation{
@@ -945,7 +945,7 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 	client := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	ui := &testUI
 
 	sb, err := createProjectVM(context.Background(), ProjectVMCreation{
@@ -981,7 +981,7 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 // resolved tmp is capped at the effective memory with a warning, so a host-RAM
 // clamp cannot leave a RAM-backed tmpfs larger than the VM's memory.
 func TestEffectiveTmpSizeMiBClampsToMemory(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if got := effectiveTmpSizeMiB("48G", 32*1024, ui); got != 32*1024 {
 		t.Errorf("effectiveTmpSizeMiB = %d, want 32768 (clamped to memory)", got)
 	}
@@ -989,7 +989,7 @@ func TestEffectiveTmpSizeMiBClampsToMemory(t *testing.T) {
 		t.Error("expected a warning when the tmp is clamped to memory")
 	}
 
-	ui = &termio.Mock{}
+	ui = &termiotest.Mock{}
 	if got := effectiveTmpSizeMiB("2G", 32*1024, ui); got != 2048 {
 		t.Errorf("effectiveTmpSizeMiB = %d, want 2048 (already below memory)", got)
 	}
@@ -1001,7 +1001,7 @@ func TestEffectiveTmpSizeMiBClampsToMemory(t *testing.T) {
 // TestEffectiveTmpSizeMiBAtMemoryDoesNotWarn pins that a tmp equal to the
 // effective memory is not clamped (nothing to clamp) and does not warn.
 func TestEffectiveTmpSizeMiBAtMemoryDoesNotWarn(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if got := effectiveTmpSizeMiB("2048M", 2048, ui); got != 2048 {
 		t.Errorf("effectiveTmpSizeMiB = %d, want 2048", got)
 	}
@@ -1014,7 +1014,7 @@ func TestEffectiveTmpSizeMiBAtMemoryDoesNotWarn(t *testing.T) {
 // derives from the effective memory, so a host-RAM clamp also lowers the tmp
 // default.
 func TestEffectiveTmpSizeMiBDerivesFromEffectiveMemory(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if got := effectiveTmpSizeMiB("", 2048, ui); got != 1024 {
 		t.Errorf("effectiveTmpSizeMiB(\"\", 2048) = %d, want 1024", got)
 	}
@@ -1216,7 +1216,7 @@ func createdProjectVMConfig(t *testing.T, mock *msb.MockMsbClient, name string) 
 	return msb.SandboxSpec{}
 }
 
-func assertInfoCall(t *testing.T, ui *termio.Mock, wantSubstr string) {
+func assertInfoCall(t *testing.T, ui *termiotest.Mock, wantSubstr string) {
 	t.Helper()
 	for _, call := range ui.InfoCalls {
 		if strings.Contains(call, wantSubstr) {
@@ -1252,7 +1252,7 @@ func TestBootMemoryMiB(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			if got := bootMemoryMiB(tc.memory, ui); got != tc.want {
 				t.Errorf("bootMemoryMiB(%q) = %d, want %d", tc.memory, got, tc.want)
 			}

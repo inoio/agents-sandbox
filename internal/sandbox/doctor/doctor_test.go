@@ -15,7 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // errMockedEnsureInstalledDoctor is the cause mockEnsureInstalled returns when
@@ -133,7 +133,7 @@ func collectChecksMockFunc(warnings []string, errs []error) func(context.Context
 }
 
 func TestCheckAllAggregatesAllFailures(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	mockedCollectChecks(t, nil, []error{
 		errors.New("docker broken"),
 		errors.New("git broken"),
@@ -153,7 +153,7 @@ func TestCheckAllAggregatesAllFailures(t *testing.T) {
 }
 
 func TestCheckAllRendersWarningsWhenAllPass(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	mockedCollectChecks(t, []string{"msb not in PATH"}, nil)
 
 	if !realCheckAll(context.Background(), docker.Get(), &testUI) {
@@ -283,7 +283,7 @@ func TestCheckPlatform(t *testing.T) {
 }
 
 func TestCheckAllDelegates(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	mockedCollectChecks(t, nil, []error{errors.New("broken")})
 
 	orig := checkAllFunc
@@ -315,7 +315,7 @@ func TestCheckAllReportsMsbRuntimeFailureWithDocsLink(t *testing.T) {
 	checkDockerFunc = realCheckDocker
 	t.Cleanup(func() { checkDockerFunc = origCheckDocker })
 
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	if CheckAll(context.Background(), docker.Get(), &testUI) {
 		t.Fatal("expected CheckAll to fail when the msb runtime cannot be ensured")
 	}

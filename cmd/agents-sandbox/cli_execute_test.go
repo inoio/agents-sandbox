@@ -15,11 +15,12 @@ import (
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestExecuteVersion(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	if err := execute([]string{"version"}, ui); err != nil {
 		t.Fatalf("execute version: %v", err)
@@ -34,7 +35,7 @@ func TestExecuteVersion(t *testing.T) {
 
 func TestExecuteTree(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	if err := execute([]string{"tree"}, ui); err != nil {
 		t.Fatalf("execute tree: %v", err)
@@ -53,7 +54,7 @@ func TestExecuteTree(t *testing.T) {
 func TestExecuteRootPreRunResolverError(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_CPUS", "999")
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	if err := execute([]string{"version"}, ui); err == nil {
 		t.Fatal("expected an error from an invalid resolver config")
@@ -65,7 +66,7 @@ func TestExecuteRootPreRunResolverError(t *testing.T) {
 func TestExecuteWarnsOnLegacyEnvPrefix(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("OPENCODE_SANDBOX_CPUS", "4")
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	if err := execute([]string{"version"}, ui); err != nil {
 		t.Fatalf("execute version: %v", err)
@@ -83,7 +84,7 @@ func TestExecuteWarnsOnLegacyEnvPrefix(t *testing.T) {
 func TestExecuteWarnsOnDockerDindAlias(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_DIND", "true")
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	if err := execute([]string{"version"}, ui); err != nil {
 		t.Fatalf("execute version: %v", err)
@@ -100,7 +101,7 @@ func TestExecuteWarnsOnDockerDindAlias(t *testing.T) {
 // usage and error printing so main() is the sole reporter.
 func TestExecuteSilencesUsageAndErrors(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	if err := execute([]string{"config", "agent", "bogus"}, ui); err == nil {
 		t.Fatal("expected an unknown-agent error")
@@ -117,7 +118,7 @@ func TestExecuteSilencesUsageAndErrors(t *testing.T) {
 // stream to the UI (execute no longer re-sets it).
 func TestBuildRootCmdRoutesErrorToUIStderr(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"config", "agent", "bogus"})
 
@@ -137,7 +138,7 @@ func TestExecutePreviewHomeErrorPropagates(t *testing.T) {
 	applyPreviewHome = func() error { return errors.New("preview home failed") }
 	t.Cleanup(func() { applyPreviewHome = orig })
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	err := execute([]string{"run", "--dry-run"}, ui)
 	if err == nil || !strings.Contains(err.Error(), "preview home failed") {
 		t.Fatalf("execute run --dry-run: error = %v, want the preview-home failure", err)
@@ -145,7 +146,7 @@ func TestExecutePreviewHomeErrorPropagates(t *testing.T) {
 }
 
 func TestAutoPruneOutToVerboseRedirect(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	redirect := &autoPruneOutToVerboseRedirect{UI: ui}
 
 	redirect.Out("plain message")

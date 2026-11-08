@@ -18,7 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // keepImageFor asks keepImage about a handle's reference the way PruneImages
@@ -61,7 +61,7 @@ func TestPruneImages(t *testing.T) {
 		ps.ToPrune = map[state.Key]msb.SandboxHandle{
 			{Slug: "orphan-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
 		}
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		r, err := PruneImages(context.Background(), docker.Get(), ps, false, ui)
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
@@ -88,7 +88,7 @@ func TestPruneImages(t *testing.T) {
 				{Slug: "orphan-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
 			},
 		}
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		r, err := PruneImages(context.Background(), docker.Get(), ps, true, ui)
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
@@ -112,7 +112,7 @@ func TestPruneImages(t *testing.T) {
 		}
 		msb.WithMsbMock(t, client)
 		dockertest.WithNoopDockerMock(t)
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		ps := PruneState{Age: 30 * 24 * time.Hour, ToKeep: map[state.Key]msb.SandboxHandle{
 			{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
 			{Slug: "active-1mjusbm3wikhb0", Agent: "pi"}:       &msb.MockSandboxHandle{},
@@ -140,7 +140,7 @@ func TestPruneImages(t *testing.T) {
 		}
 		msb.WithMsbMock(t, client)
 		dockertest.WithNoopDockerMock(t)
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui)
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
@@ -157,7 +157,7 @@ func TestPruneImages(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		_, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui)
 		if err == nil || !strings.Contains(err.Error(), "list boom") {
 			t.Errorf("expected ImageList error, got %v", err)
@@ -182,7 +182,7 @@ func TestPruneImages(t *testing.T) {
 		}
 		msb.WithMsbMock(t, client)
 		dockertest.WithNoopDockerMock(t)
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		r, err := PruneImages(context.Background(), docker.Get(), PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
 			{Slug: "fail-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
 			{Slug: "ok-1mjusbm3wikhb0", Agent: ""}:   &msb.MockSandboxHandle{},
@@ -207,7 +207,7 @@ func TestPruneImages(t *testing.T) {
 		}
 		msb.WithMsbMock(t, client)
 		dockertest.WithDefaultErrorDockerMock(t)
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 		r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui)
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
@@ -231,7 +231,7 @@ func TestPruneImagesSkipsNonRunnerReferences(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui)
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
@@ -265,7 +265,13 @@ func TestPruneImagesSkipsHashlessSingleSegmentImage(t *testing.T) {
 			}
 			msb.WithMsbMock(t, client)
 			dockertest.WithNoopDockerMock(t)
-			r, err := PruneImages(context.Background(), docker.Get(), PruneState{Age: time.Hour}, false, &termio.Mock{})
+			r, err := PruneImages(
+				context.Background(),
+				docker.Get(),
+				PruneState{Age: time.Hour},
+				false,
+				&termiotest.Mock{},
+			)
 			if err != nil {
 				t.Fatalf("PruneImages: %v", err)
 			}
@@ -332,7 +338,7 @@ func TestPruneImagesKeepsLiveProjectImageWithLeftoverTask(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildPruneState: %v", err)
 	}
-	r, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termio.Mock{})
+	r, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
 	}
@@ -367,7 +373,7 @@ func TestPruneImagesKeepsRecentImageOfVmLessProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildPruneState: %v", err)
 	}
-	r, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termio.Mock{})
+	r, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
 	}
@@ -380,7 +386,7 @@ func TestPruneImagesKeepsRecentImageOfVmLessProject(t *testing.T) {
 }
 
 func TestRenderImageReport(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	RenderImageReport(ui, ImageReport{
 		MSBImagesPruned:    2,
 		DockerImagesPruned: 1,
@@ -408,7 +414,7 @@ func TestRenderImageReport(t *testing.T) {
 		t.Errorf("verbose detail missing image name: %q", ui.VerboseCalls[0])
 	}
 
-	empty := &termio.Mock{}
+	empty := &termiotest.Mock{}
 	RenderImageReport(empty, ImageReport{}, false)
 	if len(empty.OutCalls) != 1 || empty.OutCalls[0] != "Pruned 0 runner image(s), 0 dangling docker image(s)" {
 		t.Errorf("OutCalls = %v, want the empty summary", empty.OutCalls)
@@ -437,7 +443,13 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 		resolutions := msb.WithCountingMsbMock(t, client)
 		dockertest.WithNoopDockerMock(t)
 
-		if _, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{}); err != nil {
+		if _, err := PruneImages(
+			context.Background(),
+			docker.Get(),
+			PruneState{},
+			false,
+			&termiotest.Mock{},
+		); err != nil {
 			t.Fatalf("PruneImages: %v", err)
 		}
 		if *resolutions != 1 {
@@ -459,7 +471,13 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 		msb.WithMsbMock(t, client)
 		dockertest.WithNoopDockerMock(t)
 
-		if _, err := PruneImages(context.Background(), docker.Get(), PruneState{}, true, &termio.Mock{}); err != nil {
+		if _, err := PruneImages(
+			context.Background(),
+			docker.Get(),
+			PruneState{},
+			true,
+			&termiotest.Mock{},
+		); err != nil {
 			t.Fatalf("PruneImages dry run: %v", err)
 		}
 		if called {
@@ -475,7 +493,7 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 		}
 		msb.WithMsbMock(t, client)
 		dockertest.WithNoopDockerMock(t)
-		ui := &termio.Mock{}
+		ui := &termiotest.Mock{}
 
 		if _, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui); err != nil {
 			t.Fatalf("PruneImages: %v", err)
@@ -498,7 +516,7 @@ func TestPruneImagesCapturesNativeReport(t *testing.T) {
 	msb.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 
-	report, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
+	report, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
 	}
@@ -521,7 +539,7 @@ func TestPruneImagesUnknownNativeBytesStayNil(t *testing.T) {
 	msb.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 
-	report, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
+	report, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
 	}
@@ -532,7 +550,7 @@ func TestPruneImagesUnknownNativeBytesStayNil(t *testing.T) {
 
 func TestRenderImageReportSurfacesNativePruneReport(t *testing.T) {
 	physical := uint64(2048)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	RenderImageReport(ui, ImageReport{MSBImagesPruned: 1, SkippedInUse: 4, BytesReclaimed: &physical}, false)
 	joined := strings.Join(ui.OutCalls, "\n")
 	if !strings.Contains(joined, "4") || !strings.Contains(joined, "2 KiB") {
@@ -556,7 +574,7 @@ func TestRenderImageReportDataLineBoundaries(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			RenderImageReport(ui, tc.report, false)
 			got := slices.ContainsFunc(ui.OutCalls, func(s string) bool { return strings.Contains(s, "image data:") })
 			if got != tc.wantLine {
@@ -569,7 +587,7 @@ func TestRenderImageReportDataLineBoundaries(t *testing.T) {
 // TestRenderImageReportUnknownBytesRenderDash pins that an unknown physical
 // reclamation renders as "-", not "0".
 func TestRenderImageReportUnknownBytesRenderDash(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	RenderImageReport(ui, ImageReport{MSBImagesPruned: 1, SkippedInUse: 2}, false)
 	joined := strings.Join(ui.OutCalls, "\n")
 	if !strings.Contains(joined, "-") || strings.Contains(joined, "0 B") {
@@ -829,7 +847,7 @@ func TestPruneImagesKeepsPerAgentTagsOfLiveSlug(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ps := PruneState{Age: 30 * 24 * time.Hour, ToKeep: map[state.Key]msb.SandboxHandle{
 		{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
 		{Slug: "active-1mjusbm3wikhb0", Agent: "pi"}:       &msb.MockSandboxHandle{},
@@ -879,7 +897,7 @@ func TestPruneImagesPreservesFreshSurplus(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ps := PruneState{Age: 30 * 24 * time.Hour, ToKeep: map[state.Key]msb.SandboxHandle{
 		{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
 		{Slug: "active-1mjusbm3wikhb0", Agent: "pi"}:       &msb.MockSandboxHandle{},
@@ -921,7 +939,7 @@ func TestPruneImagesDryRunReportsAgedVariants(t *testing.T) {
 			{Slug: slug, Agent: "opencode"}: &msb.MockSandboxHandle{Image_: heldRef},
 		},
 	}
-	r, err := PruneImages(context.Background(), docker.Get(), pruneState, true, &termio.Mock{})
+	r, err := PruneImages(context.Background(), docker.Get(), pruneState, true, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
 	}
@@ -957,7 +975,7 @@ func TestPruneImagesReclaimsKilledProjectImages(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui)
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
@@ -987,7 +1005,7 @@ func TestPruneImagesKeepsImageReferencedByKeptVM(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ps := PruneState{
 		ToKeep: map[state.Key]msb.SandboxHandle{
 			{Slug: "proj-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{
@@ -1038,7 +1056,7 @@ func TestPruneImagesSkipsNativePruneWhenRetaining(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
 
 	pruneState := PruneState{RetainKeys: map[state.Key]struct{}{key: {}}}
-	if _, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termio.Mock{}); err != nil {
+	if _, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termiotest.Mock{}); err != nil {
 		t.Fatalf("PruneImages: %v", err)
 	}
 	if removed {
@@ -1061,7 +1079,7 @@ func TestPruneImagesSkipsForeignAndReports(t *testing.T) {
 		{Slug: "orphan-1mjusbm3wikhb0"}: &msb.MockSandboxHandle{},
 	}}
 
-	r, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termio.Mock{})
+	r, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
 	}
@@ -1082,7 +1100,7 @@ func TestPruneImagesErrorReturnsZeroReport(t *testing.T) {
 	}}
 	msb.WithMsbMock(t, client)
 
-	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
+	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("expected an ImageList error")
 	}
@@ -1098,7 +1116,7 @@ func TestPruneImagesDockerCounts(t *testing.T) {
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	dockertest.WithDockerMock(t, deletedImagesDockerMock(3))
 
-	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
+	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
 	}
@@ -1120,7 +1138,7 @@ func TestPruneImagesEmptyAgentLatestTagIsSurplus(t *testing.T) {
 		{Slug: "active-1mjusbm3wikhb0"}: &msb.MockSandboxHandle{},
 	}}
 
-	r, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termio.Mock{})
+	r, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
 	}
@@ -1149,7 +1167,7 @@ func TestPruneImagesPopulatesStaleFor(t *testing.T) {
 	}}
 	msb.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
-	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
+	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
 	}
@@ -1194,7 +1212,7 @@ func TestPruneDockerImagesDryRunListsCandidatesWithoutDeleting(t *testing.T) {
 			return mobyclient.ImagePruneResult{}, nil
 		},
 	}
-	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, true, &termio.Mock{})
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, true, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("pruneDockerImages: %v", err)
 	}
@@ -1231,7 +1249,7 @@ func TestPruneDockerImagesHonorsAge(t *testing.T) {
 			}, nil
 		},
 	}
-	count, details, err := pruneDockerImages(context.Background(), mock, age, false, &termio.Mock{})
+	count, details, err := pruneDockerImages(context.Background(), mock, age, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("pruneDockerImages: %v", err)
 	}
@@ -1270,7 +1288,7 @@ func TestPruneDockerImagesReportsDetails(t *testing.T) {
 			}, nil
 		},
 	}
-	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, false, &termio.Mock{})
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("pruneDockerImages: %v", err)
 	}
@@ -1315,7 +1333,7 @@ func TestPruneDockerImagesReportsOnlyDeletedCandidates(t *testing.T) {
 			}, nil
 		},
 	}
-	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, false, &termio.Mock{})
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("pruneDockerImages: %v", err)
 	}
@@ -1341,7 +1359,7 @@ func TestPruneDockerImagesErrorReturnsNoDetails(t *testing.T) {
 			return mobyclient.ImagePruneResult{}, errBoom
 		},
 	}
-	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, false, &termio.Mock{})
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, false, &termiotest.Mock{})
 	if !errors.Is(err, errBoom) {
 		t.Fatalf("expected the prune error, got %v", err)
 	}
@@ -1372,7 +1390,7 @@ func TestPruneDockerImagesSkipsForeignAndTagged(t *testing.T) {
 			}}, nil
 		},
 	}
-	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, true, &termio.Mock{})
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, true, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("pruneDockerImages: %v", err)
 	}
@@ -1414,7 +1432,7 @@ func TestPruneImagesIncludesDockerDetailsInReport(t *testing.T) {
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	dockertest.WithDockerMock(t, deletedImagesDockerMock(2))
 
-	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
+	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
 	}
@@ -1440,7 +1458,7 @@ func TestPruneDockerImagesExcludesFreshManagedImages(t *testing.T) {
 			}}, nil
 		},
 	}
-	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, true, &termio.Mock{})
+	count, details, err := pruneDockerImages(context.Background(), mock, 24*time.Hour, true, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("pruneDockerImages: %v", err)
 	}

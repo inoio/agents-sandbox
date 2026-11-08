@@ -12,6 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	"github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -109,7 +110,7 @@ func TestDetectAndOfferDiskRaiseOffersAndPersists(t *testing.T) {
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
 	var question, suggested string
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(prompt string, _ []termio.Choice, _ string) (string, error) {
 			question = prompt
@@ -156,7 +157,7 @@ func TestDetectAndOfferDiskRaiseRootAppliesLive(t *testing.T) {
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
 	var question string
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(prompt string, _ []termio.Choice, _ string) (string, error) {
 			question = prompt
@@ -185,7 +186,7 @@ func TestDetectAndOfferDiskRaiseNonInteractiveThenNextLaunch(t *testing.T) {
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
 
-	quiet := &termio.Mock{}
+	quiet := &termiotest.Mock{}
 	if raised := diskRun(t, fullTmp(), quiet); len(raised) != 0 {
 		t.Fatalf("non-interactive raised = %v, want none", raised)
 	}
@@ -197,7 +198,7 @@ func TestDetectAndOfferDiskRaiseNonInteractiveThenNextLaunch(t *testing.T) {
 	}
 
 	var question string
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(prompt string, _ []termio.Choice, _ string) (string, error) {
 			question = prompt
@@ -228,7 +229,7 @@ func TestDetectAndOfferDiskRaiseAnsweredHitStaysClosed(t *testing.T) {
 		"tmp": {SeenAt: seen, SizeKiB: 2 << 20, AvailKiB: 98 << 10, OfferedAt: seen},
 	}})
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
@@ -258,7 +259,7 @@ func TestDetectAndOfferDiskRaiseOffersEachTrippedLimit(t *testing.T) {
 	unsetDiskEnv(t)
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 		InputFn:             func(_, defaultValue string) (string, error) { return defaultValue, nil },
@@ -314,7 +315,7 @@ func TestDetectAndOfferDiskRaiseExplainsWhatItCannotOffer(t *testing.T) {
 			k := detectKey()
 			seedDetectState(t, k, state.HomeState{})
 			prompted := false
-			ui := &termio.Mock{
+			ui := &termiotest.Mock{
 				IsInteractiveResult: true,
 				SelectFn: func(string, []termio.Choice, string) (string, error) {
 					prompted = true
@@ -349,7 +350,7 @@ func TestDetectAndOfferDiskRaiseCapsTmpBelowMemory(t *testing.T) {
 	var suggested string
 	var prompts []string
 	answers := []string{"8192M", "6144M"}
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 		InputFn: func(prompt, defaultValue string) (string, error) {
@@ -404,7 +405,7 @@ func TestDetectAndOfferDiskRaiseFailuresAreBestEffort(t *testing.T) {
 		unsetDiskEnv(t)
 		k := detectKey()
 		seedDetectState(t, k, state.HomeState{})
-		ui := &termio.Mock{
+		ui := &termiotest.Mock{
 			IsInteractiveResult: true,
 			SelectFn:            func(string, []termio.Choice, string) (string, error) { return "", errors.New("stdin closed") },
 		}
@@ -424,7 +425,7 @@ func TestDetectAndOfferDiskRaiseFailuresAreBestEffort(t *testing.T) {
 		k := detectKey()
 		seedDetectState(t, k, state.HomeState{})
 		testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(k.Slug), "config.json", "{}")
-		ui := &termio.Mock{
+		ui := &termiotest.Mock{
 			IsInteractiveResult: true,
 			SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 			InputFn:             func(_, defaultValue string) (string, error) { return defaultValue, nil },
@@ -444,7 +445,7 @@ func TestDetectAndOfferDiskRaiseFailuresAreBestEffort(t *testing.T) {
 func TestDetectAndOfferDiskRaiseStateWriteFailuresAreBestEffort(t *testing.T) {
 	withFailingDetectStateDir(t)
 	unsetDiskEnv(t)
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "keep", nil },
 	}
@@ -504,7 +505,7 @@ func TestDetectAndOfferDiskRaiseWarnsWhenTheHostLacksTheSpace(t *testing.T) {
 			unsetDiskEnv(t)
 			k := detectKey()
 			seedDetectState(t, k, state.HomeState{})
-			ui := &termio.Mock{
+			ui := &termiotest.Mock{
 				IsInteractiveResult: true,
 				SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 				InputFn:             func(_, defaultValue string) (string, error) { return defaultValue, nil },
@@ -547,7 +548,7 @@ func TestDetectAndOfferDiskRaiseWarnsForTheWorkspaceQuota(t *testing.T) {
 			unsetDiskEnv(t)
 			k := detectKey()
 			seedDetectState(t, k, state.HomeState{})
-			ui := &termio.Mock{
+			ui := &termiotest.Mock{
 				IsInteractiveResult: true,
 				SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 				InputFn:             func(_, defaultValue string) (string, error) { return defaultValue, nil },
@@ -590,7 +591,7 @@ func TestDetectAndOfferDiskRaiseStartsFromTheMeasuredSize(t *testing.T) {
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
 	var proposed string
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 		InputFn: func(_, defaultValue string) (string, error) {
@@ -624,7 +625,7 @@ func TestDetectAndOfferDiskRaiseUsesTheStoredHit(t *testing.T) {
 		string(pressure.KindWorkspaceQuota): newer,
 	}})
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(string, []termio.Choice, string) (string, error) {
 			selects++
@@ -683,7 +684,7 @@ func TestDetectAndOfferDiskRaiseJudgesTheWorkspaceByItsQuota(t *testing.T) {
 			k := detectKey()
 			seedDetectState(t, k, state.HomeState{})
 			var proposed string
-			ui := &termio.Mock{
+			ui := &termiotest.Mock{
 				IsInteractiveResult: true,
 				SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 				InputFn: func(_, defaultValue string) (string, error) {
@@ -738,7 +739,7 @@ func TestDetectAndOfferDiskRaiseStartsFromTheLargerSize(t *testing.T) {
 			k := detectKey()
 			seedDetectState(t, k, state.HomeState{})
 			var proposed string
-			ui := &termio.Mock{
+			ui := &termiotest.Mock{
 				IsInteractiveResult: true,
 				SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 				InputFn: func(_, defaultValue string) (string, error) {
@@ -772,7 +773,7 @@ func TestDetectAndOfferDiskRaiseRefreshesAStaleMarker(t *testing.T) {
 		string(pressure.KindTmp): answered,
 	}})
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}

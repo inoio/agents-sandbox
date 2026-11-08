@@ -10,7 +10,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestReconcileResourceConfig pins how a reused VM's resources follow the run's
@@ -162,7 +162,7 @@ func TestReconcileResourceConfig(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 
 			err := reconcileResourceConfig(context.Background(), tc.handle, tc.opts, &ui)
 
@@ -316,7 +316,7 @@ func TestWaitForMemoryLimitMemoryConvergeReadErrorTerminal(t *testing.T) {
 func TestReconcileResourceConfigMemoryConverges(t *testing.T) {
 	handle := reconcileHandle(8, 8192)
 	handle.MetricsResult = &msb.Metrics{MemoryLimitBytes: 4096 << 20}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{Memory: "4G"}, &ui); err != nil {
 		t.Fatalf("reconcileResourceConfig() error = %v, want nil", err)
@@ -328,7 +328,7 @@ func TestReconcileResourceConfigMemoryConverges(t *testing.T) {
 func TestReconcileResourceConfigCPUOnlyMemoryConvergeNotWaited(t *testing.T) {
 	handle := reconcileHandle(8, 8192)
 	handle.MetricsErr = errors.New("metrics must not be read")
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{CPUs: 4}, &ui); err != nil {
 		t.Fatalf("reconcileResourceConfig() error = %v, want nil", err)
@@ -362,7 +362,7 @@ func TestReconcileResourceConfigMemoryConvergeFailure(t *testing.T) {
 	setMemoryConvergeSeams(t, 5*time.Millisecond)
 	handle := reconcileHandle(8, 8192)
 	handle.MetricsResult = &msb.Metrics{MemoryLimitBytes: 1 << 20}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	err := reconcileResourceConfig(context.Background(), handle, options.RunOptions{Memory: "4G"}, &ui)
 	if err == nil {

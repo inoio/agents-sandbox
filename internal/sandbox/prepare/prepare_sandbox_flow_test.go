@@ -33,6 +33,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -102,7 +103,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 		},
 	)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(
 		context.Background(),
 		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -133,7 +134,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
 	// The upgrade prompt accepts the rebuild, so shallUpgrade is true.
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
 			return "r", nil
@@ -219,7 +220,7 @@ func TestPrepareSandboxRecordsTheOfferedUpgradeOnAFreshProject(t *testing.T) {
 	withExistingAgentVersionValue(t, "1.0.0")
 	withMockAgentLatestVersion(t, "2.0.0")
 	k := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	sess, err := PrepareSandbox(
 		context.Background(),
@@ -322,7 +323,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 
 	// The opencode daemon is healthy inside the VM, so ensureDaemon returns
 	// immediately instead of starting and polling.
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(
 		context.Background(),
 		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -405,7 +406,7 @@ func TestPrepareSandboxLoadsEnvSecretsOnce(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(
 		context.Background(),
 		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -491,7 +492,7 @@ func TestPrepareSandboxBakesAndFingerprintsTheLoadedEnv(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(
 		context.Background(),
 		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -600,7 +601,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 		},
 	)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(
 		context.Background(),
 		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -686,7 +687,7 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 	}
 	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(
 		context.Background(),
 		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -753,7 +754,7 @@ func TestPrepareSandboxBlocksOnPendingRuntimeHomeMigration(t *testing.T) {
 	}
 	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if _, err := PrepareSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -839,7 +840,7 @@ func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 	t.Cleanup(func() { offerRuntimeHomeMigration = origOffer })
 
 	selectCalls := 0
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	ui.SelectFn = func(_ string, _ []termio.Choice, _ string) (string, error) {
 		selectCalls++
 		return "", nil
@@ -925,7 +926,7 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	mnts := mounts.Mounts{
 		"/home/dev/.m2": {Source: filepath.Join(t.TempDir(), "m2")},
 	}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(
 		context.Background(),
 		sandboxRunOptions(t, options.RunOptions{Agent: "opencode", Mounts: mnts}),
@@ -1005,7 +1006,7 @@ func TestPrepareSandboxRecordsBakedAgentVersion(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(
 		context.Background(),
 		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -1089,7 +1090,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 
 	opts := options.RunOptions{Agent: "opencode", TmpSize: "2G"}
-	seedUI := termio.NewTestMock(t)
+	seedUI := termiotest.NewTestMock(t)
 	_, fingerprints := loadEnvFingerprints(opts, &seedUI)
 	if err := seedHomeState(k, state.HomeState{
 		HomeVolume:   "home-vol",
@@ -1104,7 +1105,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(context.Background(), sandboxRunOptions(t, opts), false, &ui)
 	if err != nil {
 		t.Fatalf("PrepareSandbox: %v", err)
@@ -1172,7 +1173,7 @@ func TestPrepareSandboxRunsDefaultAgentDaemon(t *testing.T) {
 		return "", 0, nil
 	}}}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, opts), false, &ui)
 	if err != nil {
 		t.Fatalf("PrepareSandbox(default %q): %v", agent.DefaultAgentName, err)
@@ -1207,7 +1208,7 @@ func TestPrepareSandboxUsesCheckoutSlugForStateAndRepoSlugForLabel(t *testing.T)
 	}
 
 	inspectedTag := installPrepareSandboxDockerMock(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	t.Chdir(firstClone)
 	firstKey := state.Key{Slug: firstIdentity.CheckoutSlug, Agent: "opencode"}
@@ -1290,7 +1291,7 @@ func TestPrepareSandboxSkipVMKeepsLegacySlugWhileMigrationPending(t *testing.T) 
 	seedMatchingHomeState(t, legacyKey)
 
 	inspectedTag := installPrepareSandboxDockerMock(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	t.Chdir(clone)
 	installPrepareSandboxMSBMock(t)
 
@@ -1346,7 +1347,7 @@ func TestPrepareSandboxMigratesOnFirstRun(t *testing.T) {
 		ConnectSb: msb.NewMockSandbox(msb.SandboxOpts{}),
 	}
 	inspectedTag := installPrepareSandboxDockerMock(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	mock := installPrepareSandboxMSBMock(t)
 	mock.GetSandboxFn = func(_ context.Context, name string) (msb.SandboxHandle, error) {
@@ -1402,7 +1403,7 @@ func TestPrepareSandboxAdoptionFailureReturnsError(t *testing.T) {
 	}
 	testutil.WriteFile(t, legacyDir, "state.yaml", `": [`)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if _, err := PrepareSandbox(
 		context.Background(),
 		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -1466,7 +1467,7 @@ func TestPrepareSandboxDryRunVMSkipsTheVM(t *testing.T) {
 			AgentSource:  state.AgentSourceTool,
 		},
 	)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{Seams: daemonHealthSeams(t)}),
@@ -1531,7 +1532,7 @@ func TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome(t *testing.T) {
 	}
 	msb.WithMsbMock(t, mock)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{}), true, &ui)
 	if err != nil {
 		t.Fatalf("PrepareSandbox (dry-run-vm): %v", err)
@@ -1578,7 +1579,7 @@ func TestPrepareSandboxDryRunVMServeOnlyPublishesPort(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	opts := options.RunOptions{Agent: "opencode", ServeOnly: true}
 	sess, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, opts), true, &ui)
 	if err != nil {
@@ -1646,7 +1647,7 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 			AgentSource:  state.AgentSourceTool,
 		},
 	)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{Seams: daemonHealthSeams(t)}),
@@ -1672,7 +1673,7 @@ func TestPrepareSandboxSkipVMRecordsStagesInOrder(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	clone := newOriginClone(t)
 	installPrepareSandboxDockerMock(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	t.Chdir(clone)
 	installPrepareSandboxMSBMock(t)
 
@@ -1705,13 +1706,13 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 		ui     termio.UI
 	}
 	interactiveUI := func(t *testing.T, choose func(prompt string) (string, error)) termio.UI {
-		ui := termio.NewTestMock(t)
+		ui := termiotest.NewTestMock(t)
 		ui.IsInteractiveResult = true
 		ui.SelectFn = func(prompt string, _ []termio.Choice, _ string) (string, error) { return choose(prompt) }
 		return &ui
 	}
 	nonInteractiveUI := func(t *testing.T) termio.UI {
-		ui := termio.NewTestMock(t)
+		ui := termiotest.NewTestMock(t)
 		return &ui
 	}
 	// seedReusableHome records a home volume and image digest that match the
@@ -2257,7 +2258,7 @@ func TestPrepareSandboxServeOnlyPortExhausted(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	opts := options.RunOptions{Agent: "opencode", ServeOnly: true, Ports: exhaustedPortMappings()}
 	if _, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, opts), true, &ui); err == nil {
 		t.Fatal("expected PrepareSandbox to fail when no free serve host port remains")
@@ -2277,7 +2278,7 @@ func TestDesiredFingerprintsUnchangedWithoutPerSlugFiles(t *testing.T) {
 	testutil.WriteFile(t, scopes[0].Dir, configpaths.EnvSecretFileName, "TOKEN=value@user.example\n")
 	testutil.WriteFile(t, scopes[1].Dir, configpaths.EnvSecretFileName, "OTHER=value@project.example\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	_, generic := loadEnvFingerprints(options.RunOptions{}, &ui)
 	_, withSlug := loadEnvFingerprints(options.RunOptions{ConfigSlug: "widget-bbb"}, &ui)
 
@@ -2341,7 +2342,7 @@ func TestPrepareSandboxStopsBeforeTheVMOnAnUnapprovedRead(t *testing.T) {
 			})
 			defer restore()
 
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 			_, err := PrepareSandbox(
 				context.Background(),
 				sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),

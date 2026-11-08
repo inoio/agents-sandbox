@@ -11,6 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func compactableHandle(name string, result *msb.DiskCompactionResult) *msb.MockSandboxHandle {
@@ -57,7 +58,7 @@ func TestCompactSandboxesSkipsNonProjectSandboxes(t *testing.T) {
 
 	layers := uint32(3)
 	options := msb.CompactionRequest{DryRun: true, Layers: &layers, RootDiskOnly: true}
-	report, err := CompactSandboxes(context.Background(), "", options, &termio.Mock{})
+	report, err := CompactSandboxes(context.Background(), "", options, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("CompactSandboxes: %v", err)
 	}
@@ -84,7 +85,7 @@ func TestCompactSandboxesFiltersByName(t *testing.T) {
 		context.Background(),
 		"second-abc12345",
 		msb.CompactionRequest{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("CompactSandboxes: %v", err)
@@ -99,7 +100,7 @@ func TestCompactSandboxesUnknownNameFails(t *testing.T) {
 		compactableHandle("first-abc12345", rootDiskResult(2, 1, 1)),
 	}})
 
-	_, err := CompactSandboxes(context.Background(), "missing", msb.CompactionRequest{}, &termio.Mock{})
+	_, err := CompactSandboxes(context.Background(), "missing", msb.CompactionRequest{}, &termiotest.Mock{})
 	if err == nil || !strings.Contains(err.Error(), `"missing"`) {
 		t.Fatalf("err = %v, want unknown-sandbox error", err)
 	}
@@ -108,7 +109,7 @@ func TestCompactSandboxesUnknownNameFails(t *testing.T) {
 func TestCompactSandboxesWithoutSandboxesIsEmpty(t *testing.T) {
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 
-	report, err := CompactSandboxes(context.Background(), "", msb.CompactionRequest{}, &termio.Mock{})
+	report, err := CompactSandboxes(context.Background(), "", msb.CompactionRequest{}, &termiotest.Mock{})
 	if err != nil || len(report.Entries) != 0 {
 		t.Fatalf("report = %+v, err = %v; want empty report", report, err)
 	}
@@ -121,7 +122,7 @@ func TestCompactSandboxesListError(t *testing.T) {
 		context.Background(),
 		"",
 		msb.CompactionRequest{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err == nil {
 		t.Fatal("expected list error")
 	}
@@ -139,7 +140,7 @@ func TestCompactSandboxesSkipsFailures(t *testing.T) {
 	ok := compactableHandle("ok-abc12345", rootDiskResult(2, 1, 1))
 	msb.WithMsbMock(t, &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{failing, gone, replaced, remote, ok}})
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	report, err := CompactSandboxes(context.Background(), "", msb.CompactionRequest{}, ui)
 	if err != nil {
 		t.Fatalf("CompactSandboxes: %v", err)
@@ -169,7 +170,7 @@ func TestRenderCompactReport(t *testing.T) {
 			{Name: "c-abc12345", Slug: "c", Result: msb.DiskCompactionResult{PauseUs: 1}},
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	RenderCompactReport(ui, report)
 
 	if len(ui.OutCalls) != 1 || ui.OutCalls[0] != "Compacted 3 sandbox(es): 8 -> 3 layers, 3 KiB materialized" {
@@ -189,7 +190,7 @@ func TestRenderCompactReport(t *testing.T) {
 }
 
 func TestRenderCompactReportDryRun(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	RenderCompactReport(ui, CompactReport{DryRun: true})
 
 	if len(ui.OutCalls) != 1 ||

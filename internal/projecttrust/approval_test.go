@@ -10,6 +10,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -27,7 +28,7 @@ func changedDecision() Decision {
 // the next evaluation is approved.
 func TestApproveRecordsTheProjectionOnApproval(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	var prompt string
 	ui.SelectFn = func(message string, _ []termio.Choice, defaultKey string) (string, error) {
 		prompt = message
@@ -57,7 +58,7 @@ func TestApproveRecordsTheProjectionOnApproval(t *testing.T) {
 
 func TestApproveDeclinedRecordsNothing(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return declineKey, nil }
 
 	if err := Approve(
@@ -75,7 +76,7 @@ func TestApproveDeclinedRecordsNothing(t *testing.T) {
 
 func TestApprovePropagatesAPromptFailure(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termio.Mock{IsInteractiveResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true}
 	promptErr := errors.New("stdin closed")
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return approveKey, promptErr }
 
@@ -92,7 +93,7 @@ func TestApprovePropagatesAPromptFailure(t *testing.T) {
 // error naming each changed input and the remedy, and no prompt.
 func TestApproveRefusesWithoutATerminal(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
 		t.Fatal("prompted without a terminal")
@@ -111,7 +112,7 @@ func TestApproveRefusesWithoutATerminal(t *testing.T) {
 }
 
 func TestApproveAcceptsAnApprovedDecisionSilently(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if err := Approve(ui, "checkout-a", Decision{Approved: true}); err != nil {
 		t.Fatalf("Approve(approved) = %v", err)
 	}

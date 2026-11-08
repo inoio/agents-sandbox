@@ -17,10 +17,10 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
-func verboseContains(ui *termio.Mock, substr string) bool {
+func verboseContains(ui *termiotest.Mock, substr string) bool {
 	for _, call := range ui.VerboseCalls {
 		if strings.Contains(call, substr) {
 			return true
@@ -244,7 +244,7 @@ func writeFileAt(t *testing.T, path, content string) {
 // assertWarnsIgnoredWorktreeConfig fails unless ui recorded the bare-checkout
 // warning, pinning that an exported entry point still runs the warning after the
 // path resolver moved from a package global onto an injected argument.
-func assertWarnsIgnoredWorktreeConfig(t *testing.T, ui *termio.Mock) {
+func assertWarnsIgnoredWorktreeConfig(t *testing.T, ui *termiotest.Mock) {
 	t.Helper()
 	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "read from the bare root, not the worktree") {
 		t.Errorf("WarnCalls = %v, want the ignored-worktree-config warning", ui.WarnCalls)

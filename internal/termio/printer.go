@@ -39,7 +39,7 @@ func (p *printer) write(w io.Writer, color, msg string) {
 	}
 	// With color disabled, strip any ANSI codes embedded in msg so styled cell
 	// values (e.g., colored statuses) render as plain text on non-TTY output.
-	fmt.Fprintln(w, stripANSICodes(msg))
+	fmt.Fprintln(w, StripANSICodes(msg))
 }
 
 func (p *printer) format(format string, args ...any) string {
@@ -120,7 +120,7 @@ func (p *printer) Header(msg string) {
 
 // NewTable returns an empty aligned Table that prints through p.
 func (p *printer) NewTable(headers ...string) *Table {
-	return &Table{ui: p, headers: headers}
+	return NewTableFor(p, headers)
 }
 
 func (p *printer) Outf(format string, args ...any) {
