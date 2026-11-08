@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -70,7 +68,7 @@ type errWithResultSandbox struct {
 func (s errWithResultSandbox) Shell(
 	context.Context,
 	string,
-	...msbSdk.ExecOption,
+	msb.ExecRequest,
 ) (msb.ShellResult, error) {
 	return s.out, s.err
 }
@@ -86,12 +84,12 @@ type canceledContextSandbox struct {
 func (s canceledContextSandbox) Shell(
 	ctx context.Context,
 	command string,
-	opts ...msbSdk.ExecOption,
+	req msb.ExecRequest,
 ) (msb.ShellResult, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return s.Sandbox.Shell(ctx, command, opts...)
+	return s.Sandbox.Shell(ctx, command, req)
 }
 
 // nonAttachAgent implements agent.Agent but not agent.AttachRunner, so

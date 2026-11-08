@@ -65,7 +65,7 @@ func curlCallbackArguments(url string) []string {
 }
 
 func fetchInGuest(ctx context.Context, sb msb.SandboxExecutor, url string) (msb.ShellResult, error) {
-	return sb.Exec(ctx, "curl", curlCallbackArguments(url))
+	return sb.Exec(ctx, "curl", curlCallbackArguments(url), msb.ExecRequest{})
 }
 
 // startHostOpener runs the host side of the in-VM xdg-open shim for the

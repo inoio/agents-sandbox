@@ -160,7 +160,7 @@ func sweepIsolatedSandboxes() error {
 	}
 	var destroyErrors []error
 	for _, handle := range handles {
-		if err := handle.Destroy(ctx); err != nil {
+		if err := handle.Destroy(ctx, LifecycleOptions{}); err != nil {
 			destroyErrors = append(destroyErrors, fmt.Errorf(
 				"destroy sandbox %s in isolated runtime home %s: %w",
 				handle.Name(), isolatedRuntimeHome, err,

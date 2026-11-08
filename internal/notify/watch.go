@@ -155,12 +155,12 @@ type SandboxStreamOpener struct {
 
 // ShellStream delegates to the sandbox.
 func (s SandboxStreamOpener) ShellStream(ctx context.Context, command string) (msb.StreamHandle, error) {
-	return s.Sandbox.ShellStream(ctx, command)
+	return s.Sandbox.ShellStream(ctx, command, msb.ExecRequest{})
 }
 
 // Shell delegates to the sandbox.
 func (s SandboxStreamOpener) Shell(ctx context.Context, command string) (msb.ShellResult, error) {
-	return s.Sandbox.Shell(ctx, command)
+	return s.Sandbox.Shell(ctx, command, msb.ExecRequest{})
 }
 
 // Watch relays the in-VM SSE stream to the tracker and backend until ctx is

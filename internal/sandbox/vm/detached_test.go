@@ -276,18 +276,18 @@ func TestJobAlreadyStopped(t *testing.T) {
 // already finished, including ones an earlier boot left behind — which cannot be
 // killed and only produce spurious failures on every restart.
 func TestKillJobsDoesNotRequestAllJobs(t *testing.T) {
-	var gotOpts []msbSdk.JobListOption
+	var gotQuery msb.JobQuery
 	sb := &msb.MockSandbox{
-		ListJobsFn: func(_ context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error) {
-			gotOpts = opts
+		ListJobsFn: func(_ context.Context, query msb.JobQuery) ([]msbSdk.JobInfo, error) {
+			gotQuery = query
 			return nil, nil
 		},
 	}
 	killJobs(context.Background(), sb, dockerdHelper(), &termio.Mock{})
-	if len(gotOpts) != 0 {
+	if gotQuery != (msb.JobQuery{}) {
 		t.Errorf(
-			"ListJobs opts = %d, want 0 (discovery must stay scoped to the current runtime generation)",
-			len(gotOpts),
+			"ListJobs query = %+v, want the zero query (discovery must stay scoped to the current runtime generation)",
+			gotQuery,
 		)
 	}
 }
@@ -443,7 +443,7 @@ func TestKillJobsContinuesPastAJobItCannotKill(t *testing.T) {
 func TestKillJobsReportsAListFailure(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	sb := &msb.MockSandbox{
-		ListJobsFn: func(context.Context, ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error) {
+		ListJobsFn: func(context.Context, msb.JobQuery) ([]msbSdk.JobInfo, error) {
 			return nil, errors.New("list boom")
 		},
 	}

@@ -42,7 +42,7 @@ func TestEnsureDetachedServiceKillsStaleThenLaunchesAndAwaits(t *testing.T) {
 	stale := &msb.MockJob{}
 	sb := &msb.MockSandbox{
 		ExecDetachedCalls: calls,
-		ExecDetachedFn: func(context.Context, string, []string, ...msbSdk.JobExecOption) (msb.Job, error) {
+		ExecDetachedFn: func(context.Context, string, []string, msb.JobSpec) (msb.Job, error) {
 			sequence = append(sequence, "launch")
 			return &msb.MockJob{}, nil
 		},
@@ -163,7 +163,7 @@ func TestEnsureDetachedServiceWrapsLaunchError(t *testing.T) {
 	wantErr := errors.New("connection lost")
 	sb := &msb.MockSandbox{
 		ExecDetachedFn: func(
-			context.Context, string, []string, ...msbSdk.JobExecOption,
+			context.Context, string, []string, msb.JobSpec,
 		) (msb.Job, error) {
 			return nil, wantErr
 		},

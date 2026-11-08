@@ -120,7 +120,7 @@ func killJobs(ctx context.Context, sb msb.Sandbox, helper detachedHelper, ui ter
 	// records — jobs that already finished, including ones an earlier boot left
 	// behind — whose runner is gone, so a kill can never succeed and every restart
 	// is flooded with spurious failures.
-	infos, err := sb.ListJobs(ctx)
+	infos, err := sb.ListJobs(ctx, msb.JobQuery{})
 	if err != nil {
 		ui.Verbosef("listing jobs to stop %s failed: %v", helper.marker, err)
 		return
@@ -213,7 +213,7 @@ func inspectJob(ctx context.Context, job msb.Job) *msbSdk.JobInfo {
 // (the shell error, exit code, or output) so a readiness timeout is
 // diagnosable instead of opaque.
 func probeHealthy(ctx context.Context, sb msb.Sandbox, command string) (bool, string) {
-	out, err := sb.Shell(ctx, command, msbSdk.WithExecUser(DefaultSandboxUser))
+	out, err := sb.Shell(ctx, command, msb.ExecRequest{User: DefaultSandboxUser})
 	if err != nil {
 		return false, fmt.Sprintf("probe failed: %v", err)
 	}

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -114,7 +112,7 @@ func defaultGuestStorageDriver(ctx context.Context, sb msb.Sandbox) string {
 // a usable /dev/fuse. A probe failure is treated as unsupported so a transport
 // hiccup falls back to vfs rather than failing the VM start.
 func guestSupportsFuseOverlayfs(ctx context.Context, sb msb.Sandbox) bool {
-	out, err := sb.Shell(ctx, fuseOverlayfsProbeCmd, msbSdk.WithExecUser(RootUser))
+	out, err := sb.Shell(ctx, fuseOverlayfsProbeCmd, msb.ExecRequest{User: RootUser})
 	if err != nil {
 		return false
 	}
@@ -164,7 +162,7 @@ func guestStorageDriver(ctx context.Context, sb msb.Sandbox) (string, error) {
 // and handles the case where dockerd is already running. The launch/readiness
 // sequence is the shared ensureDetachedService recipe.
 func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.Logger) error {
-	out, checkErr := sb.Shell(ctx, dockerdBinaryCheckCmd, msbSdk.WithExecUser(RootUser))
+	out, checkErr := sb.Shell(ctx, dockerdBinaryCheckCmd, msb.ExecRequest{User: RootUser})
 	if checkErr != nil {
 		return fmt.Errorf("while checking dockerd binary: %w", checkErr)
 	}
@@ -196,7 +194,7 @@ func startDockerdIfPresent(ctx context.Context, sb msb.Sandbox, ui termio.Logger
 		// the fresh launch. Best-effort: a failure is reported and the
 		// readiness probe decides.
 		cleanup: func(cleanupCtx context.Context) error {
-			_, cleanupErr := sb.Shell(cleanupCtx, dockerdCleanupCmd, msbSdk.WithExecUser(RootUser))
+			_, cleanupErr := sb.Shell(cleanupCtx, dockerdCleanupCmd, msb.ExecRequest{User: RootUser})
 			return cleanupErr
 		},
 		timeout:            dockerdReadyTimeout,

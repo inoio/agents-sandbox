@@ -215,8 +215,8 @@ func (m *MockStorageStore) PruneStorage(
 // MockSandboxExecutor is a test double for SandboxExecutor. A nil callback
 // means return the zero value with no error.
 type MockSandboxExecutor struct {
-	ShellFn func(ctx context.Context, command string, opts ...msbSdk.ExecOption) (ShellResult, error)
-	ExecFn  func(ctx context.Context, command string, args []string, opts ...msbSdk.ExecOption) (ShellResult, error)
+	ShellFn func(ctx context.Context, command string, req ExecRequest) (ShellResult, error)
+	ExecFn  func(ctx context.Context, command string, args []string, req ExecRequest) (ShellResult, error)
 	FSFn    func() SandboxFS
 }
 
@@ -227,10 +227,10 @@ var _ SandboxExecutor = (*MockSandboxExecutor)(nil)
 func (m *MockSandboxExecutor) Shell(
 	ctx context.Context,
 	command string,
-	opts ...msbSdk.ExecOption,
+	req ExecRequest,
 ) (ShellResult, error) {
 	if m.ShellFn != nil {
-		return m.ShellFn(ctx, command, opts...)
+		return m.ShellFn(ctx, command, req)
 	}
 	return nil, nil
 }
@@ -240,10 +240,10 @@ func (m *MockSandboxExecutor) Exec(
 	ctx context.Context,
 	command string,
 	args []string,
-	opts ...msbSdk.ExecOption,
+	req ExecRequest,
 ) (ShellResult, error) {
 	if m.ExecFn != nil {
-		return m.ExecFn(ctx, command, args, opts...)
+		return m.ExecFn(ctx, command, args, req)
 	}
 	return nil, nil
 }
@@ -259,8 +259,8 @@ func (m *MockSandboxExecutor) FS() SandboxFS {
 // MockSandboxStreamer is a test double for SandboxStreamer. A nil callback
 // means return the zero value with no error.
 type MockSandboxStreamer struct {
-	ShellFn       func(ctx context.Context, command string, opts ...msbSdk.ExecOption) (ShellResult, error)
-	ShellStreamFn func(ctx context.Context, command string, opts ...msbSdk.ExecOption) (StreamHandle, error)
+	ShellFn       func(ctx context.Context, command string, req ExecRequest) (ShellResult, error)
+	ShellStreamFn func(ctx context.Context, command string, req ExecRequest) (StreamHandle, error)
 }
 
 // Compile-time check.
@@ -270,10 +270,10 @@ var _ SandboxStreamer = (*MockSandboxStreamer)(nil)
 func (m *MockSandboxStreamer) Shell(
 	ctx context.Context,
 	command string,
-	opts ...msbSdk.ExecOption,
+	req ExecRequest,
 ) (ShellResult, error) {
 	if m.ShellFn != nil {
-		return m.ShellFn(ctx, command, opts...)
+		return m.ShellFn(ctx, command, req)
 	}
 	return nil, nil
 }
@@ -282,10 +282,10 @@ func (m *MockSandboxStreamer) Shell(
 func (m *MockSandboxStreamer) ShellStream(
 	ctx context.Context,
 	command string,
-	opts ...msbSdk.ExecOption,
+	req ExecRequest,
 ) (StreamHandle, error) {
 	if m.ShellStreamFn != nil {
-		return m.ShellStreamFn(ctx, command, opts...)
+		return m.ShellStreamFn(ctx, command, req)
 	}
 	return nil, nil
 }
@@ -293,7 +293,7 @@ func (m *MockSandboxStreamer) ShellStream(
 // MockSandboxAttacher is a test double for SandboxAttacher. A nil callback
 // means return the zero value with no error.
 type MockSandboxAttacher struct {
-	AttachWithFn func(ctx context.Context, command string, args []string, opts ...msbSdk.AttachOption) (int, error)
+	AttachWithFn func(ctx context.Context, command string, args []string, req AttachRequest) (int, error)
 	AttachFn     func(ctx context.Context, command string, args ...string) (int, error)
 	DetachFn     func(ctx context.Context) error
 }
@@ -306,10 +306,10 @@ func (m *MockSandboxAttacher) AttachWith(
 	ctx context.Context,
 	command string,
 	args []string,
-	opts ...msbSdk.AttachOption,
+	req AttachRequest,
 ) (int, error) {
 	if m.AttachWithFn != nil {
-		return m.AttachWithFn(ctx, command, args, opts...)
+		return m.AttachWithFn(ctx, command, args, req)
 	}
 	return 0, nil
 }
@@ -333,9 +333,9 @@ func (m *MockSandboxAttacher) Detach(ctx context.Context) error {
 // MockSandboxJobs is a test double for SandboxJobs. A nil callback means return
 // the zero value with no error.
 type MockSandboxJobs struct {
-	ExecDetachedFn func(ctx context.Context, cmd string, args []string, opts ...msbSdk.JobExecOption) (Job, error)
+	ExecDetachedFn func(ctx context.Context, cmd string, args []string, spec JobSpec) (Job, error)
 	GetJobFn       func(ctx context.Context, id string) (Job, error)
-	ListJobsFn     func(ctx context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error)
+	ListJobsFn     func(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error)
 }
 
 // Compile-time check.
@@ -346,10 +346,10 @@ func (m *MockSandboxJobs) ExecDetached(
 	ctx context.Context,
 	cmd string,
 	args []string,
-	opts ...msbSdk.JobExecOption,
+	spec JobSpec,
 ) (Job, error) {
 	if m.ExecDetachedFn != nil {
-		return m.ExecDetachedFn(ctx, cmd, args, opts...)
+		return m.ExecDetachedFn(ctx, cmd, args, spec)
 	}
 	return nil, nil
 }
@@ -363,9 +363,9 @@ func (m *MockSandboxJobs) GetJob(ctx context.Context, id string) (Job, error) {
 }
 
 // ListJobs implements SandboxJobs.
-func (m *MockSandboxJobs) ListJobs(ctx context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error) {
+func (m *MockSandboxJobs) ListJobs(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error) {
 	if m.ListJobsFn != nil {
-		return m.ListJobsFn(ctx, opts...)
+		return m.ListJobsFn(ctx, query)
 	}
 	return nil, nil
 }
@@ -374,7 +374,7 @@ func (m *MockSandboxJobs) ListJobs(ctx context.Context, opts ...msbSdk.JobListOp
 // means return the zero value with no error.
 type MockSandboxObserver struct {
 	MetricsFn func(ctx context.Context) (*msbSdk.Metrics, error)
-	LogsFn    func(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error)
+	LogsFn    func(ctx context.Context, query LogQuery) ([]msbSdk.LogEntry, error)
 }
 
 // Compile-time check.
@@ -389,9 +389,9 @@ func (m *MockSandboxObserver) Metrics(ctx context.Context) (*msbSdk.Metrics, err
 }
 
 // Logs implements SandboxObserver.
-func (m *MockSandboxObserver) Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error) {
+func (m *MockSandboxObserver) Logs(ctx context.Context, query LogQuery) ([]msbSdk.LogEntry, error) {
 	if m.LogsFn != nil {
-		return m.LogsFn(ctx, opts)
+		return m.LogsFn(ctx, query)
 	}
 	return nil, nil
 }

@@ -14,9 +14,10 @@ the SDK: the interface method set is exactly what callers use, and SDK types mus
 currency.
 
 Issue #196 narrows the adapter to that contract. Phase 0 (dead surface + the `realVolumeHandle`
-silent-zero fix) and Phase 1 (role interfaces) have landed; Phases 2–4 (launcher-owned option types,
-then value types and enums, then the config model) remain. The sections below are the durable
-contract, stated as the end state; the "Status" note at the end records what is already true.
+silent-zero fix), Phase 1 (role interfaces) and Phase 2 (launcher-owned option types) have landed;
+Phases 3–4 (launcher-owned value types/enums, then the config model) remain. The sections below are
+the durable contract, stated as the end state; the "Status" note at the end records what is already
+true.
 
 ## Roles and composites
 
@@ -105,7 +106,15 @@ files.
   composite == role-union; the standalone role doubles; `notify`, `image`, `reprovision` and the
   narrowing-capable `session` helpers accept roles (`storage` needed none — its only contact was an
   internal seam; `resourceproposal.MemoryReads` was already narrow).
-- **Pending:** Phases 2–4 — launcher-owned option types (exec/attach/job/lifecycle/log/compaction),
-  then value types (storage → jobs/logs/metrics → image → enums), then the config model
-  (`SandboxSpec`/`VolumeSpec`, mounts/secrets/network; moving `vm.buildMounts` behind the adapter).
-  Until they land, the interfaces still take `...msbSdk.*Option` and return SDK value types.
+- **Landed (#196 Phase 2):** the dependency-free option families flow as launcher-owned request
+  types — `Shell`/`Exec`/`ShellStream` take `ExecRequest`, `AttachWith` takes `AttachRequest`,
+  `ExecDetached` takes `JobSpec`, `ListJobs` takes `JobQuery`, `Stop`/`Kill`/`Destroy` take
+  `LifecycleOptions`, `Logs` takes `LogQuery`, `Compact` takes `CompactionRequest` — with the
+  adapter translating each through `translate.go` (defaults omitted, so a zero request emits no
+  option). `resourceproposal.MemoryReads` follows the `SandboxObserver.Logs` shape. Return types
+  (`[]msbSdk.LogEntry`, `*msbSdk.DiskCompactionResult`, `[]msbSdk.JobInfo`, `*msbSdk.Metrics`) and
+  `Modify`/`msbSdk.ModifyOptions` (Phase 4) and `Job.Logs`/`msbSdk.JobLogOptions` (Phase 3) stay SDK
+  types.
+- **Pending:** Phases 3–4 — launcher-owned value types (storage → jobs/logs/metrics → image → enums),
+  then the config model (`SandboxSpec`/`VolumeSpec`, mounts/secrets/network; moving `vm.buildMounts`
+  behind the adapter). Until they land, the interfaces still return SDK value types.

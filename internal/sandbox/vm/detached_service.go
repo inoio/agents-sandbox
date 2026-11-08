@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -109,7 +107,12 @@ func ensureDetachedService(
 	}
 
 	binary, commandArgs := service.helper.markedCommand(args)
-	job, startErr := sb.ExecDetached(ctx, binary, commandArgs, execUserOptions(service.execUser)...)
+	job, startErr := sb.ExecDetached(
+		ctx,
+		binary,
+		commandArgs,
+		msb.JobSpec{User: service.execUser},
+	)
 	if startErr != nil {
 		return fmt.Errorf("start %s: %w", service.startLabel, startErr)
 	}
@@ -132,13 +135,4 @@ func ensureDetachedService(
 	}
 	ui.Verbose(service.readyNote)
 	return nil
-}
-
-// execUserOptions returns the exec-user option for a detached launch, or nothing
-// when user is empty so the sandbox default applies.
-func execUserOptions(user string) []msbSdk.JobExecOption {
-	if user == "" {
-		return nil
-	}
-	return []msbSdk.JobExecOption{msbSdk.WithExecUser(user)}
 }

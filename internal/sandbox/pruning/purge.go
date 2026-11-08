@@ -555,7 +555,7 @@ func removeSandboxes(ctx context.Context, handles []msb.SandboxHandle, ui termio
 	var errs []error
 	for _, handle := range handles {
 		if msb.IsSandboxActive(handle.Status()) {
-			if err := handle.Stop(ctx); err != nil {
+			if err := handle.Stop(ctx, msb.LifecycleOptions{}); err != nil {
 				ui.Warnf("failed to stop sandbox %s: %v", handle.Name(), err)
 				errs = append(errs, err)
 				continue

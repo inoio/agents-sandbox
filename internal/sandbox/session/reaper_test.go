@@ -1149,7 +1149,7 @@ func (s *blockingExecSandbox) Exec(
 	ctx context.Context,
 	_ string,
 	_ []string,
-	_ ...msbSdk.ExecOption,
+	_ msb.ExecRequest,
 ) (msb.ShellResult, error) {
 	<-ctx.Done()
 	close(s.cancelled)

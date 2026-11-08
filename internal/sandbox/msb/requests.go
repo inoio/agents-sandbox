@@ -8,6 +8,8 @@ import (
 // Env), the configuration of a single exec or shell call. The launcher sets
 // only User on most call sites today, but the projection carries the full set
 // so the seam never leaks the SDK exec type.
+//
+//exhaustruct:ignore
 type ExecRequest struct {
 	User      string
 	Cwd       string
@@ -20,6 +22,8 @@ type ExecRequest struct {
 // AttachRequest projects msbSdk.AttachConfig (Cwd, User, Env, DetachKeys), the
 // configuration of an interactive attach session. The launcher sets Cwd, User
 // and Env; DetachKeys is projected for completeness with the SDK field set.
+//
+//exhaustruct:ignore
 type AttachRequest struct {
 	Cwd        string
 	User       string
@@ -35,6 +39,8 @@ type AttachRequest struct {
 // StdinPipe is asymmetric with ExecRequest: ExecDetached defaults it to true
 // (retained pipes), so a zero JobSpec keeps stdin piped and only true is
 // expressible. See jobExecOptions.
+//
+//exhaustruct:ignore
 type JobSpec struct {
 	ExecRequest
 }
@@ -42,6 +48,8 @@ type JobSpec struct {
 // JobQuery projects the SDK's unexported jobListConfig (all, limit, cursor),
 // one page of a detached job listing. A zero JobQuery requests the default
 // page of running jobs.
+//
+//exhaustruct:ignore
 type JobQuery struct {
 	All    bool
 	Limit  uint
@@ -52,6 +60,8 @@ type JobQuery struct {
 // (Stop, Kill: timeout) and destroyOptions (Destroy: force, timeout). The SDK
 // additionally tracks whether the timeout was explicitly set; the projection
 // treats a non-zero Timeout as set and leaves the default otherwise.
+//
+//exhaustruct:ignore
 type LifecycleOptions struct {
 	Force   bool
 	Timeout time.Duration
@@ -72,6 +82,8 @@ const (
 // LogQuery projects msbSdk.LogOptions (Tail, Since, Until, Sources), the
 // filter for persisted sandbox logs. Zero values read the default stdout and
 // stderr sources.
+//
+//exhaustruct:ignore
 type LogQuery struct {
 	Tail    uint64
 	Since   time.Time
@@ -82,6 +94,8 @@ type LogQuery struct {
 // CompactionRequest projects msbSdk.DiskCompactionOptions (Layers, DryRun,
 // Disk, RootDiskOnly), the selection for an explicit disk-compaction
 // maintenance run.
+//
+//exhaustruct:ignore
 type CompactionRequest struct {
 	Layers       *uint32
 	DryRun       bool

@@ -126,7 +126,7 @@ func StopProjectVM(
 	}
 	k := state.Key{Slug: adoption.Slug, Agent: a.Name()}
 	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "stop", "Stopping", mclient,
-		func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c) })
+		func(h msb.SandboxHandle, c context.Context) error { return h.Stop(c, msb.LifecycleOptions{}) })
 }
 
 // KillProjectVM force-kills the project VM for the current directory and agent.
@@ -155,5 +155,5 @@ func KillProjectVM(
 	}
 	k := state.Key{Slug: adoption.Slug, Agent: a.Name()}
 	return stopOrKillProjectVM(ctx, remove, dryRun, ui, k, "kill", "Force-killing", mclient,
-		func(h msb.SandboxHandle, c context.Context) error { return h.Kill(c) })
+		func(h msb.SandboxHandle, c context.Context) error { return h.Kill(c, msb.LifecycleOptions{}) })
 }

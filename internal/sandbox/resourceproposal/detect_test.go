@@ -321,7 +321,7 @@ func TestDetectAndOfferMemoryRaiseReadsBackToTheBootStart(t *testing.T) {
 	}
 	backRead := r.LogsOptions[1]
 	if !backRead.Until.Equal(kill) || backRead.Tail != 0 ||
-		!slices.Equal(backRead.Sources, []msbSdk.LogSource{msbSdk.LogSourceSystem}) {
+		!slices.Equal(backRead.Sources, []msb.LogSource{msb.LogSourceSystem}) {
 		t.Errorf("boot-start read = %+v, want the system log until %v without a tail limit", backRead, kill)
 	}
 }
@@ -410,8 +410,8 @@ type splitLogSandbox struct {
 	earlier []msbSdk.LogEntry
 }
 
-func (s *splitLogSandbox) Logs(_ context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error) {
-	if opts.Until.IsZero() {
+func (s *splitLogSandbox) Logs(_ context.Context, query msb.LogQuery) ([]msbSdk.LogEntry, error) {
+	if query.Until.IsZero() {
 		return s.tail, nil
 	}
 	return s.earlier, nil
@@ -422,11 +422,11 @@ type failingBackReadSandbox struct {
 	msb.MockSandbox
 }
 
-func (s *failingBackReadSandbox) Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error) {
-	if !opts.Until.IsZero() {
+func (s *failingBackReadSandbox) Logs(ctx context.Context, query msb.LogQuery) ([]msbSdk.LogEntry, error) {
+	if !query.Until.IsZero() {
 		return nil, errors.New("log read failed")
 	}
-	return s.MockSandbox.Logs(ctx, opts)
+	return s.MockSandbox.Logs(ctx, query)
 }
 
 // TestDetectAndOfferMemoryRaiseWarnsWhenTheHostLacksTheMemory pins the

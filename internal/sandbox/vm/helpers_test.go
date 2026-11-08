@@ -5,8 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -39,7 +37,7 @@ type nilResultDockerd struct {
 func (s *nilResultDockerd) Shell(
 	ctx context.Context,
 	command string,
-	opts ...msbSdk.ExecOption,
+	req msb.ExecRequest,
 ) (msb.ShellResult, error) {
 	switch command {
 	case dockerdBinaryCheckCmd:
@@ -51,7 +49,7 @@ func (s *nilResultDockerd) Shell(
 		}
 		return msb.NewTestResult(false, 1, "", "", nil), nil
 	}
-	return s.Sandbox.Shell(ctx, command, opts...)
+	return s.Sandbox.Shell(ctx, command, req)
 }
 
 // fakeAgent implements only the core Agent interface with no capabilities, so
@@ -141,7 +139,7 @@ type dockerdStartSandbox struct {
 func (s *dockerdStartSandbox) Shell(
 	_ context.Context,
 	command string,
-	_ ...msbSdk.ExecOption,
+	_ msb.ExecRequest,
 ) (msb.ShellResult, error) {
 	s.calls = append(s.calls, command)
 	switch command {
@@ -181,7 +179,7 @@ type countingSandbox struct {
 	execArgs                *[]string
 }
 
-func (s *countingSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecOption) (msb.ShellResult, error) {
+func (s *countingSandbox) Shell(_ context.Context, command string, _ msb.ExecRequest) (msb.ShellResult, error) {
 	switch command {
 	case dockerdBinaryCheckCmd:
 		return msb.NewTestResult(true, 0, "", "", nil), nil
@@ -203,7 +201,7 @@ func (s *countingSandbox) ExecDetached(
 	ctx context.Context,
 	cmd string,
 	args []string,
-	opts ...msbSdk.JobExecOption,
+	spec msb.JobSpec,
 ) (msb.Job, error) {
 	s.execCalls++
 	if s.execErr != nil {
@@ -214,7 +212,7 @@ func (s *countingSandbox) ExecDetached(
 	} else {
 		*s.execArgs = args
 	}
-	return s.MockSandbox.ExecDetached(ctx, cmd, args, opts...)
+	return s.MockSandbox.ExecDetached(ctx, cmd, args, spec)
 }
 
 // seedHomeState writes hs as the key's HomeState through the recovery
@@ -244,12 +242,12 @@ type failingCommandSandbox struct {
 }
 
 func (s failingCommandSandbox) Shell(
-	ctx context.Context, command string, opts ...msbSdk.ExecOption,
+	ctx context.Context, command string, req msb.ExecRequest,
 ) (msb.ShellResult, error) {
 	if command == s.command {
 		return nil, s.err
 	}
-	return s.MockSandbox.Shell(ctx, command, opts...)
+	return s.MockSandbox.Shell(ctx, command, req)
 }
 
 var _ agent.Agent = branchWorktreeAgent{}

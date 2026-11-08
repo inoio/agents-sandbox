@@ -7,6 +7,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -17,7 +18,7 @@ import (
 // msb.Sandbox and msb.SandboxHandle satisfy it.
 type MemoryReads interface {
 	Metrics(ctx context.Context) (*msbSdk.Metrics, error)
-	Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error)
+	Logs(ctx context.Context, query msb.LogQuery) ([]msbSdk.LogEntry, error)
 }
 
 // MemoryLimits are the figures a memory offer is bounded by; a zero CurrentMiB
@@ -68,11 +69,11 @@ func DetectAndOfferMemoryRaise(
 ) string {
 	threshold := pressure.DefaultThreshold()
 
-	logEntries, logsErr := r.Logs(ctx, msbSdk.LogOptions{
+	logEntries, logsErr := r.Logs(ctx, msb.LogQuery{
 		Tail:    oomLogTail,
 		Since:   time.Time{},
 		Until:   time.Time{},
-		Sources: []msbSdk.LogSource{msbSdk.LogSourceSystem},
+		Sources: []msb.LogSource{msb.LogSourceSystem},
 	})
 	if logsErr != nil {
 		ui.Verbosef("reading VM system log failed: %v (continuing)", logsErr)
@@ -184,11 +185,11 @@ func withBootStart(ctx context.Context, r MemoryReads, tail []msbSdk.LogEntry, u
 		// gomutants:disable-next-line RETURN_ZERO reason="a tail without an OOM line yields no kill whether it is returned or dropped"
 		return tail
 	}
-	earlier, err := r.Logs(ctx, msbSdk.LogOptions{
+	earlier, err := r.Logs(ctx, msb.LogQuery{
 		Tail:    0,
 		Since:   time.Time{},
 		Until:   loggedAt,
-		Sources: []msbSdk.LogSource{msbSdk.LogSourceSystem},
+		Sources: []msb.LogSource{msb.LogSourceSystem},
 	})
 	if err != nil {
 		ui.Verbosef("reading the VM system log back to the boot start failed: %v (continuing)", err)

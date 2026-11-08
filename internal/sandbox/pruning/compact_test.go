@@ -56,7 +56,7 @@ func TestCompactSandboxesSkipsNonProjectSandboxes(t *testing.T) {
 	msb.WithMsbMock(t, &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{task, unidentified, project}})
 
 	layers := uint32(3)
-	options := msbSdk.DiskCompactionOptions{DryRun: true, Layers: &layers, RootDiskOnly: true}
+	options := msb.CompactionRequest{DryRun: true, Layers: &layers, RootDiskOnly: true}
 	report, err := CompactSandboxes(context.Background(), "", options, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("CompactSandboxes: %v", err)
@@ -83,7 +83,7 @@ func TestCompactSandboxesFiltersByName(t *testing.T) {
 	report, err := CompactSandboxes(
 		context.Background(),
 		"second-abc12345",
-		msbSdk.DiskCompactionOptions{},
+		msb.CompactionRequest{},
 		&termio.Mock{},
 	)
 	if err != nil {
@@ -99,7 +99,7 @@ func TestCompactSandboxesUnknownNameFails(t *testing.T) {
 		compactableHandle("first-abc12345", rootDiskResult(2, 1, 1)),
 	}})
 
-	_, err := CompactSandboxes(context.Background(), "missing", msbSdk.DiskCompactionOptions{}, &termio.Mock{})
+	_, err := CompactSandboxes(context.Background(), "missing", msb.CompactionRequest{}, &termio.Mock{})
 	if err == nil || !strings.Contains(err.Error(), `"missing"`) {
 		t.Fatalf("err = %v, want unknown-sandbox error", err)
 	}
@@ -108,7 +108,7 @@ func TestCompactSandboxesUnknownNameFails(t *testing.T) {
 func TestCompactSandboxesWithoutSandboxesIsEmpty(t *testing.T) {
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 
-	report, err := CompactSandboxes(context.Background(), "", msbSdk.DiskCompactionOptions{}, &termio.Mock{})
+	report, err := CompactSandboxes(context.Background(), "", msb.CompactionRequest{}, &termio.Mock{})
 	if err != nil || len(report.Entries) != 0 {
 		t.Fatalf("report = %+v, err = %v; want empty report", report, err)
 	}
@@ -120,7 +120,7 @@ func TestCompactSandboxesListError(t *testing.T) {
 	if _, err := CompactSandboxes(
 		context.Background(),
 		"",
-		msbSdk.DiskCompactionOptions{},
+		msb.CompactionRequest{},
 		&termio.Mock{},
 	); err == nil {
 		t.Fatal("expected list error")
@@ -140,7 +140,7 @@ func TestCompactSandboxesSkipsFailures(t *testing.T) {
 	msb.WithMsbMock(t, &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{failing, gone, replaced, remote, ok}})
 
 	ui := &termio.Mock{}
-	report, err := CompactSandboxes(context.Background(), "", msbSdk.DiskCompactionOptions{}, ui)
+	report, err := CompactSandboxes(context.Background(), "", msb.CompactionRequest{}, ui)
 	if err != nil {
 		t.Fatalf("CompactSandboxes: %v", err)
 	}
@@ -205,7 +205,7 @@ func assertAssignable[T any](_ T) {}
 // TestCompactSandboxesAcceptsLogger pins CompactSandboxes to the narrow Logger
 // role it uses; it fails to compile if the parameter widens to termio.UI.
 func TestCompactSandboxesAcceptsLogger(_ *testing.T) {
-	assertAssignable[func(context.Context, string, msbSdk.DiskCompactionOptions, termio.Logger) (CompactReport, error)](
+	assertAssignable[func(context.Context, string, msb.CompactionRequest, termio.Logger) (CompactReport, error)](
 		CompactSandboxes,
 	)
 }
