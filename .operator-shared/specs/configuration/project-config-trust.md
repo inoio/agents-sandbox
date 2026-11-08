@@ -1,6 +1,6 @@
 ---
 description: Contract for the project config trust guard (#229): the project config layer is untrusted in its entirety, whatever the launcher consumes from it requires approval-on-change recorded per checkout, an unapproved change refuses to start non-interactively, and the prompt shows the resolved old → new effect and its source.
-read_if: Working on project config trust (#229), the approve-on-change gate, project-layer provenance, or `config harden`; or diagnosing a run that refuses to start because `.agents-sandbox` changed.
+read_if: Working on project config trust (#229), the approve-on-change gate, config resolution in the root command's `PersistentPreRunE`, project-layer provenance, or `config harden`; or diagnosing a run that refuses to start, or a command that ignores the project config, because `.agents-sandbox` changed.
 ---
 
 # Project config trust
@@ -52,6 +52,10 @@ The **whole project config layer** is gated — every input the launcher consume
 - the project agent config directories (`<project-config>/<agent-config-dir>/`) — the snippets that merge
   into the agent's VM config and the files mirrored verbatim (plugins, sub-configs, …).
 - the project Dockerfile.
+- the files the project layer's `home:` entries copy out of the project config directory — a relative
+  source, startup hook scripts included. Their content is gated, not only the entry: a hook script runs in
+  the VM, so changing it is as consequential as changing the entry. An absolute or `~/…` source is a host
+  path the entry value already names; that value is gated as launcher config.
 
 Rationale: the directory sits in the guest-writable checkout, so the agent can rewrite any of it; config
 keys reach host state, and agent snippets configure the agent and its plugins, which run in the VM but can
@@ -72,7 +76,8 @@ are.
   - **secret files** → the substitution structure (env-var names, hosts, header fields, flags, the
     `secrets.common.allow-placeholder-for` passthrough), **not** the values. A value rotation does not
     re-prompt, and the prompt never prints a value from the secret files.
-  - **file inputs** (the Dockerfile, agent snippets and mirrored files) → the file's content.
+  - **file inputs** (the Dockerfile, agent snippets and mirrored files, project files copied by `home:`) →
+    the file's content.
 - The projection is the project layer's **own declared contribution**, not composed with the higher
   layers: a change to the user layer or a flag must not invalidate an approval, and a project value
   currently shadowed by a flag is still gated (approval is about what the project layer could impose, not
@@ -119,22 +124,35 @@ are.
 
 ## Where the gate runs
 
-- In `prepare` (`prepare.PrepareSandbox`), before any build, volume, state, VM, or network side effect — in
-  particular **before the image build** (`EnsureImage`), so a project `docker` or Dockerfile cannot be
-  baked before approval.
-- The gate is the project layer's only reader. It reads each consumed project input once — every launcher
-  config key including `mounts` and `home` (resolved per-layer; see Provenance), the project env and secret
-  files, the agent snippets and mirrored files, the Dockerfile, `provision-host-config`, and `docker` — and
-  the values it approves are the ones later stages use: the single host env/secret load
-  (`envsecret.LoadEnvAndSecrets`, the same call `specs/vm/reconfig-decision.md` names), the provisioned files, the
-  build, and the VM config all take their values from the gated resolution. No stage re-reads
-  `<project-config>` after the gate, so a guest edit during approval or the image build cannot slip
-  unreviewed content into the VM.
-- The image-build entry points (`build`, `image build`) never call `PrepareSandbox` and would otherwise
-  bypass the gate: they must run the same check before building, since they read the project Dockerfile and
-  the project `docker` setting.
+- At **config resolution**: the root command's `PersistentPreRunE`, after the checkout identity is resolved
+  and before `viperconfig.NewResolver` merges the layers and `applyCLISettings` applies them. The gate decides
+  whether the project layer is part of this run at all; it is not a stage of `prepare.PrepareSandbox`.
+  Several project keys act before `PrepareSandbox` runs — `yes` sets assume-yes for the whole process,
+  `upgrade.*` drives the self-upgrade, `auto-prune-age` the startup prune, and `quiet`/`log-level` could hide
+  the very prompt and warnings this contract relies on — so a gate inside `prepare` would come too late.
+- **An unapproved project layer is not loaded.** Every consumer derives its project inputs from
+  `configpaths.ConfigScopes` (`specs/configuration/config-scopes.md`), so leaving out the project scope removes the
+  launcher config file, the env and secret files, the agent config directories, and the `home:` sources at
+  once; the project Dockerfile, read outside the scopes, follows the same decision.
+- **Who asks.** The commands that turn project input into VM or image state — `run`/`shell` (including the
+  default command) and the image-build entry points (`build`, `image build`) — ask for approval when
+  interactive and refuse when not (Non-interactive behavior). Every other command runs without the project
+  layer and warns once that the project config changed, is not approved, and is ignored, naming how to
+  approve it.
+- The approval prompt ignores assume-yes (`--yes`, a `yes:` key) and never takes a non-interactive default:
+  `termio`'s `Confirm` returns true under assume-yes and `Select` returns its default without a TTY, so the
+  gate checks interactivity itself and neither path can approve.
 - `--dry-run` is a read-only preview (`specs/architecture/dry-run-preview.md`): it reports that approval would be required and
-  what would change, and never prompts or writes.
+  what would change, previews without the project layer, and never prompts or writes.
+
+## Consistency between approval and use
+
+What reaches the image and the VM must be what was approved. The consumers still read their project inputs
+at different stages — viper at config resolution, the env and secret files in ensure-home, the agent config
+in plan-reconfig, the Dockerfile in ensure-image — so a guest edit after the approval could slip unreviewed
+content in. The contract is enforced by recomputing the projection from the inputs actually consumed,
+before the image build and before the VM is created or started, and aborting the run on a mismatch with the
+approved digest. This replaces a single snapshot reader, which would mean rerouting every consumer.
 
 ## Provenance
 
@@ -155,6 +173,17 @@ are persisted (State), nothing else.
   projection and its digest; the projection is retained so a later change can be shown as resolved
   old → new, and it holds no value from the project secret files. Losing `RootState` loses the approval, so
   the next run re-approves — the safe direction.
+
+## Decisions
+
+Recorded on #229 (2026-11-08):
+
+- The gate runs at config resolution and an unapproved project layer is not loaded, rather than a gate in
+  `prepare` (Where the gate runs).
+- Project files copied by `home:`, startup hook scripts included, are gated by content (What is gated).
+- Consistency between approval and use is enforced by a recompute-and-compare check, delivered after the gate
+  itself; until it lands, an edit between approval and consumption is a known gap (Consistency between
+  approval and use).
 
 ## Defense in depth (related, not this contract)
 

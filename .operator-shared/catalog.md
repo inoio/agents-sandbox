@@ -110,8 +110,8 @@
   - Description: Contract for where a bare checkout's project config (`.agents-sandbox`) is read from: the bare root next to `.git`, selected by `core.bare`, with every project accessor routed through one base-dir resolver; a bare checkout's worktree-level `.agents-sandbox` is ignored with a warning.
   - Read If: Changing the bare-layout project-config root fix, the `core.bare` discriminator, the project config base-dir resolver, or the bare-worktrees recipe/Beta marking.
 - `specs/configuration/project-config-trust.md`
-  - Description: Contract for the project config trust guard: the project config layer is untrusted in its entirety, everything the launcher consumes from it requires approval-on-change recorded per checkout, an unapproved change refuses to start non-interactively, and the prompt shows the resolved old → new effect and its source.
-  - Read If: Working on the project config trust gate, the approve-on-change gate, project-layer provenance, or `config harden`; or diagnosing a run that refuses to start because `.agents-sandbox` changed.
+  - Description: Contract for the project config trust guard: the project config layer is untrusted in its entirety, everything the launcher consumes from it (`home:`-copied project files included) requires approval-on-change recorded per checkout, the gate runs at config resolution and an unapproved layer is not loaded, an unapproved change refuses to start non-interactively, the prompt shows the resolved old → new effect and its source, and a recompute-and-compare check keeps use consistent with approval.
+  - Read If: Working on the project config trust gate, the approve-on-change gate, config resolution in the root command's `PersistentPreRunE`, project-layer provenance, or `config harden`; or diagnosing a run that refuses to start, or a command that ignores the project config, because `.agents-sandbox` changed.
 
 #### `specs/conventions/` - Repo-wide conventions
 
