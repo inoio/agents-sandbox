@@ -15,6 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
@@ -28,8 +29,8 @@ import (
 func TestCheckForActiveVMs(t *testing.T) {
 	const slug = "someproj-1mjusbm3wikhb0"
 	running := msb.SandboxStatusRunning
-	project := func(status msb.SandboxStatus) *msb.MockSandboxHandle {
-		return &msb.MockSandboxHandle{Name_: slug + "-opencode", Status_: status}
+	project := func(status msb.SandboxStatus) *msbtest.MockSandboxHandle {
+		return &msbtest.MockSandboxHandle{Name_: slug + "-opencode", Status_: status}
 	}
 	listFailed := errors.New("boom")
 	cases := []struct {
@@ -56,7 +57,7 @@ func TestCheckForActiveVMs(t *testing.T) {
 		{
 			name: "legacy-named project VM",
 			sandboxes: []msb.SandboxHandle{
-				&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-" + slug, Status_: running},
+				&msbtest.MockSandboxHandle{Name_: "agents-sandbox-vm-" + slug, Status_: running},
 			},
 			wantText: "VM still running for slug",
 		},
@@ -64,13 +65,13 @@ func TestCheckForActiveVMs(t *testing.T) {
 		{
 			name: "task sandboxes by name",
 			sandboxes: []msb.SandboxHandle{
-				&msb.MockSandboxHandle{Name_: "agents-sandbox-task-someproj", Status_: running},
-				&msb.MockSandboxHandle{Name_: slug + "-opencode-1729000000000000000", Status_: running},
+				&msbtest.MockSandboxHandle{Name_: "agents-sandbox-task-someproj", Status_: running},
+				&msbtest.MockSandboxHandle{Name_: slug + "-opencode-1729000000000000000", Status_: running},
 			},
 		},
 		{
 			name: "task sandbox by label",
-			sandboxes: []msb.SandboxHandle{&msb.MockSandboxHandle{
+			sandboxes: []msb.SandboxHandle{&msbtest.MockSandboxHandle{
 				Name_:   slug + "-opencode",
 				Status_: running,
 				Cfg:     &msb.SandboxConfig{Labels: map[string]string{naming.LabelType: naming.SandboxTypeTask}},
@@ -78,18 +79,18 @@ func TestCheckForActiveVMs(t *testing.T) {
 		},
 		{
 			name:      "another agent's VM of the same slug",
-			sandboxes: []msb.SandboxHandle{&msb.MockSandboxHandle{Name_: slug + "-pi", Status_: running}},
+			sandboxes: []msb.SandboxHandle{&msbtest.MockSandboxHandle{Name_: slug + "-pi", Status_: running}},
 		},
 		{
 			name: "another slug's VM",
 			sandboxes: []msb.SandboxHandle{
-				&msb.MockSandboxHandle{Name_: "otherproj-1mjusbm3wikhb1-opencode", Status_: running},
+				&msbtest.MockSandboxHandle{Name_: "otherproj-1mjusbm3wikhb1-opencode", Status_: running},
 			},
 		},
 		{
 			name: "blocking VM after ignored sandboxes",
 			sandboxes: []msb.SandboxHandle{
-				&msb.MockSandboxHandle{Name_: "agents-sandbox-task-someproj", Status_: running},
+				&msbtest.MockSandboxHandle{Name_: "agents-sandbox-task-someproj", Status_: running},
 				project(msb.SandboxStatusStopped),
 				project(running),
 			},
@@ -139,10 +140,10 @@ func TestVolumeOpWarnsWhenTheNewVolumeCannotBeCleanedUp(t *testing.T) {
 		if sandboxCount == 2 {
 			return nil, copyFailed
 		}
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{}), nil
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 	mock.RemoveVolumeFn = func(_ context.Context, _ string) error {
 		return errors.New("volume busy")
@@ -275,11 +276,11 @@ func TestVolumeOp_MainFails_RemovesNewVolume(t *testing.T) {
 		if sandboxCount == 2 {
 			return nil, errors.New("create copy sandbox failed")
 		}
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{}), nil
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdVol = name
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 	err := CmdMigrate(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
@@ -310,7 +311,7 @@ func TestVolumeOp_MainFails_RemovesNewVolume(t *testing.T) {
 
 func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
-	resolutions := msb.WithCountingMsbMock(t, mock)
+	resolutions := msbtest.WithCountingMsbMock(t, mock)
 
 	slug := "testproj-aBc1234D"
 	seedHomeState(
@@ -319,16 +320,16 @@ func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
 	)
 
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{
 			ExecOut: map[string]msb.ShellResult{
-				"sh -c cp -a /home/dev/. /mnt/home/ && chown -R dev:dev /mnt/home": msb.NewTestResult(
+				"sh -c cp -a /home/dev/. /mnt/home/ && chown -R dev:dev /mnt/home": msbtest.NewTestResult(
 					true,
 					0,
 					"",
 					"",
 					nil,
 				),
-				"sh -c cp -a /src/. /dst/ && chown -R dev:dev /dst": msb.NewTestResult(
+				"sh -c cp -a /src/. /dst/ && chown -R dev:dev /dst": msbtest.NewTestResult(
 					true,
 					0,
 					"",
@@ -339,7 +340,7 @@ func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
 		}), nil
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
 	err := CmdMigrate(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
@@ -459,10 +460,10 @@ func TestVolumeOpKeepsTheOldVolumeWhenStateCannotBeWritten(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{}), nil
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
 	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
@@ -499,10 +500,10 @@ func TestVolumeOpWarnsWhenTheOldVolumeCannotBeRemoved(t *testing.T) {
 	)
 
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{}), nil
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 	mock.RemoveVolumeFn = func(_ context.Context, name string) error {
 		if name == oldVol {
@@ -717,7 +718,7 @@ func TestVolumeOp_ActiveVM_ReturnsError(t *testing.T) {
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-testproj-aBc1234D", Status_: msb.SandboxStatusRunning},
+		&msbtest.MockSandboxHandle{Name_: "agents-sandbox-vm-testproj-aBc1234D", Status_: msb.SandboxStatusRunning},
 	}
 	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",
@@ -745,10 +746,10 @@ func TestCmdReset_RemOldVolume(t *testing.T) {
 	)
 
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{}), nil
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
 	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
@@ -783,10 +784,10 @@ func TestVolumeOp_ExplicitOldVolume(t *testing.T) {
 	)
 
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{}), nil
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
 	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
@@ -921,9 +922,9 @@ func TestCmdEdit_DestroyFailureWarns(t *testing.T) {
 	mock.CreateSandboxFn = func(_ context.Context, name string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		callCount++
 		if callCount == 2 {
-			return &msb.MockSandbox{Name_: name, DestroyErr: errors.New("destroy failed")}, nil
+			return &msbtest.MockSandbox{Name_: name, DestroyErr: errors.New("destroy failed")}, nil
 		}
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{}), nil
 	}
 
 	err := CmdEdit(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
@@ -1009,7 +1010,7 @@ func TestCmdEdit_DryRun(t *testing.T) {
 
 func TestCmdEdit_MainPath(t *testing.T) {
 	mock, ui := setupVolumeOpsFixtures(t)
-	resolutions := msb.WithCountingMsbMock(t, mock)
+	resolutions := msbtest.WithCountingMsbMock(t, mock)
 
 	slug := "testproj-aBc1234D"
 	seedHomeState(
@@ -1018,10 +1019,10 @@ func TestCmdEdit_MainPath(t *testing.T) {
 	)
 
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{}), nil
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
 	err := CmdEdit(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
@@ -1059,14 +1060,14 @@ func TestCmdEdit_MainFails_RemovesVolume(t *testing.T) {
 		sandboxCount++
 		if sandboxCount == 1 {
 			// First call is from PrefillVolume — succeed
-			return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+			return msbtest.NewMockSandbox(msbtest.SandboxOpts{}), nil
 		}
 		// Second call is from CmdEdit main — fail
 		return nil, errors.New("create edit sandbox failed")
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdVol = name
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
 	err := CmdEdit(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
@@ -1106,12 +1107,12 @@ func TestCmdEdit_AttachError_Warns(t *testing.T) {
 	)
 
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{
 			AttachErr: errors.New("attach failed"),
 		}), nil
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
 	err := CmdEdit(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
@@ -1150,7 +1151,7 @@ func TestVolumeOpAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 	var createdVol string
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdVol = name
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
 	err := volumeOp(context.Background(), docker.Get(), key, "",
@@ -1202,11 +1203,11 @@ func TestVolumeOpAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 // mock needed by the volume operations tests and returns the mock handles.
 // Tests that need a pre-existing home state or a customized msb mock declare
 // it after the call.
-func setupVolumeOpsFixtures(t *testing.T) (*msb.MockMsbClient, *termiotest.Mock) {
+func setupVolumeOpsFixtures(t *testing.T) (*msbtest.MockMsbClient, *termiotest.Mock) {
 	t.Helper()
 	configpathstest.WithMockConfigPaths(t)
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
+	mock := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mock)
 	dockertest.WithNoopDockerMock(t)
 	return mock, &termiotest.Mock{}
 }

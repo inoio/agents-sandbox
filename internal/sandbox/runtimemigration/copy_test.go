@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -174,10 +175,10 @@ func TestCopyVolumesCopiesIntoCreatedVolume(t *testing.T) {
 
 	target := t.TempDir()
 	var created []string
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, volumeName string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			created = append(created, volumeName)
-			return &msb.MockVolumeHandle{Name_: volumeName, Path_: target}, nil
+			return &msbtest.MockVolumeHandle{Name_: volumeName, Path_: target}, nil
 		},
 	}
 
@@ -204,13 +205,13 @@ func TestCopyVolumesAbortsWhenFailedCopyLeavesDestination(t *testing.T) {
 	addVolumeDir(t, legacy, name)
 
 	removeErr := errors.New("remove boom")
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		GetVolumeFn: func(_ context.Context, volumeName string) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: volumeName}, nil
+			return &msbtest.MockVolumeHandle{Name_: volumeName}, nil
 		},
 		RemoveVolumeFn: func(_ context.Context, _ string) error { return removeErr },
 		CreateVolumeFn: func(_ context.Context, volumeName string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: volumeName}, nil
+			return &msbtest.MockVolumeHandle{Name_: volumeName}, nil
 		},
 	}
 
@@ -232,7 +233,7 @@ func TestCopyVolumesStartListingErrorAborts(t *testing.T) {
 	makeLegacyVolumesUnlistable(t, installLegacyHome(t))
 
 	ui := termiotest.NewTestMock(t)
-	if err := CopyVolumes(context.Background(), &msb.MockMsbClient{}, &ui); err == nil {
+	if err := CopyVolumes(context.Background(), &msbtest.MockMsbClient{}, &ui); err == nil {
 		t.Fatal("CopyVolumes() error = nil, want the listing failure to abort the campaign")
 	}
 	root, _ := state.ReadRootState()
@@ -260,10 +261,10 @@ func TestCopyVolumesPreservesAlreadyPresentTarget(t *testing.T) {
 
 	target := t.TempDir()
 	var created []string
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			created = append(created, n)
-			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
+			return &msbtest.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
 	}
 	ui := termiotest.NewTestMock(t)
@@ -292,9 +293,9 @@ func TestCopyVolumesRecordsProgressAndCompletes(t *testing.T) {
 	addVolumeDir(t, legacy, name)
 	writeFileWithMode(t, filepath.Join(legacy, "volumes", name, "f.txt"), "x", 0o600)
 	target := t.TempDir()
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
+			return &msbtest.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
 	}
 	ui := termiotest.NewTestMock(t)
@@ -329,14 +330,14 @@ func TestCopyVolumesExcludesVolumeScopedFailureAndCompletes(t *testing.T) {
 	writeFileWithMode(t, filepath.Join(legacy, "volumes", good, "f.txt"), "x", 0o600)
 	target := t.TempDir()
 	var midCampaign state.Migration
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			if n == bad {
 				return nil, errors.New("volume boom")
 			}
 			root, _ := state.ReadRootState()
 			midCampaign, _ = root.Migration(MigrationName)
-			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
+			return &msbtest.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
 	}
 	ui := termiotest.NewTestMock(t)
@@ -383,13 +384,13 @@ func TestCopyVolumesResumesFromCopying(t *testing.T) {
 	}
 	target := t.TempDir()
 	var created []string
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		GetVolumeFn: func(_ context.Context, n string) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: n}, nil
+			return &msbtest.MockVolumeHandle{Name_: n}, nil
 		},
 		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			created = append(created, n)
-			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
+			return &msbtest.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
 	}
 	ui := termiotest.NewTestMock(t)
@@ -425,9 +426,9 @@ func TestCopyVolumesDoesNotFollowCopiedSymlink(t *testing.T) {
 		t.Fatalf("symlink: %v", err)
 	}
 	target := t.TempDir()
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
+			return &msbtest.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
 	}
 	ui := termiotest.NewTestMock(t)
@@ -453,9 +454,9 @@ func TestCopyVolumesExcludesCopyTreeFailureAndCompletes(t *testing.T) {
 	// A regular file at the destination path makes the tree copy fail.
 	dst := filepath.Join(t.TempDir(), "not-a-dir")
 	writeFileWithMode(t, dst, "x", 0o600)
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: n, Path_: dst}, nil
+			return &msbtest.MockVolumeHandle{Name_: n, Path_: dst}, nil
 		},
 	}
 	ui := termiotest.NewTestMock(t)
@@ -480,7 +481,7 @@ func TestCopyVolumesLockFailureAborts(t *testing.T) {
 	blockRootLock(t)
 
 	ui := termiotest.NewTestMock(t)
-	if err := CopyVolumes(context.Background(), &msb.MockMsbClient{}, &ui); err == nil {
+	if err := CopyVolumes(context.Background(), &msbtest.MockMsbClient{}, &ui); err == nil {
 		t.Fatal("CopyVolumes() error = nil, want a lock-acquisition failure")
 	}
 }
@@ -489,7 +490,7 @@ func TestCopyVolumesStateReadErrorAborts(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	writeCorruptRootState(t)
 	ui := termiotest.NewTestMock(t)
-	if err := CopyVolumes(context.Background(), &msb.MockMsbClient{}, &ui); err == nil {
+	if err := CopyVolumes(context.Background(), &msbtest.MockMsbClient{}, &ui); err == nil {
 		t.Fatal("CopyVolumes() error = nil, want a state read error")
 	}
 }
@@ -508,7 +509,7 @@ func TestCopyVolumesTerminalIsNoOp(t *testing.T) {
 		}}); err != nil {
 			t.Fatalf("seed %q: %v", status, err)
 		}
-		client := &msb.MockMsbClient{}
+		client := &msbtest.MockMsbClient{}
 		ui := termiotest.NewTestMock(t)
 		if err := CopyVolumes(context.Background(), client, &ui); err != nil {
 			t.Fatalf("status %q: CopyVolumes: %v", status, err)
@@ -539,7 +540,7 @@ func TestCopyVolumesResumeListingErrorAborts(t *testing.T) {
 	}
 
 	ui := termiotest.NewTestMock(t)
-	if err := CopyVolumes(context.Background(), &msb.MockMsbClient{}, &ui); err == nil {
+	if err := CopyVolumes(context.Background(), &msbtest.MockMsbClient{}, &ui); err == nil {
 		t.Fatal("CopyVolumes() error = nil, want a resume listing failure to abort")
 	}
 }
@@ -560,9 +561,9 @@ func TestCopyVolumesCopiedSaveErrorAborts(t *testing.T) {
 	blockRootState(t)
 
 	target := t.TempDir()
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
+			return &msbtest.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
 	}
 	ui := termiotest.NewTestMock(t)
@@ -584,7 +585,7 @@ func TestCopyVolumesExclusionSaveErrorAborts(t *testing.T) {
 	}
 	blockRootState(t)
 
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return nil, errors.New("volume boom")
 		},
@@ -606,7 +607,7 @@ func TestCopyVolumesStateWriteFailureAborts(t *testing.T) {
 	blockRootState(t)
 
 	ui := termiotest.NewTestMock(t)
-	if err := CopyVolumes(context.Background(), &msb.MockMsbClient{}, &ui); err == nil {
+	if err := CopyVolumes(context.Background(), &msbtest.MockMsbClient{}, &ui); err == nil {
 		t.Fatal("CopyVolumes() error = nil, want the state write failure to abort the campaign")
 	}
 }
@@ -663,7 +664,7 @@ func TestCopyVolumesLegacyHomeError(t *testing.T) {
 	configpathstest.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
 
 	ui := termiotest.NewTestMock(t)
-	if err := CopyVolumes(context.Background(), &msb.MockMsbClient{}, &ui); err == nil {
+	if err := CopyVolumes(context.Background(), &msbtest.MockMsbClient{}, &ui); err == nil {
 		t.Fatal("CopyVolumes() error = nil, want legacy-home resolution error")
 	}
 }

@@ -18,7 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
@@ -1035,7 +1035,7 @@ func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 			}, nil
 		},
 	})
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error {
 			return errors.New("image not in cache")
 		},
@@ -1158,7 +1158,7 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 		},
 	})
 
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 
@@ -1226,7 +1226,7 @@ func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 		},
 	})
 
-	msbClient := &msb.MockMsbClient{}
+	msbClient := &msbtest.MockMsbClient{}
 
 	info, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
@@ -1344,7 +1344,7 @@ func TestBuildLoadsTheEnsuredImageIntoMicrosandbox(t *testing.T) {
 			return io.NopCloser(io.LimitReader(nil, 0)), nil
 		},
 	})
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 	if _, err := Build(
@@ -1397,7 +1397,7 @@ func TestBuildFailsWhenEnsureOrLoadFails(t *testing.T) {
 			configpathstest.WithMockConfigPaths(t)
 			withMockAgentVersion(t, "1.2.3")
 			tc.setup(t)
-			msbClient := &msb.MockMsbClient{
+			msbClient := &msbtest.MockMsbClient{
 				ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 			}
 			if _, err := Build(context.Background(), docker.Get(), msbClient, configpaths.Get(),
@@ -1418,7 +1418,7 @@ func TestBuildWarnsIgnoredWorktreeConfig(t *testing.T) {
 	_, _ = Build(
 		context.Background(),
 		docker.Get(),
-		&msb.MockMsbClient{},
+		&msbtest.MockMsbClient{},
 		configpaths.Get(),
 		agentOpencode(t),
 		"slug",

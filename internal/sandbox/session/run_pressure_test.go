@@ -11,6 +11,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -39,7 +40,7 @@ func TestOfferMemoryRaiseAfterAttachUsesMarker(t *testing.T) {
 		Kind: "memory", Evidence: string(pressure.EvidenceOOMLog), Victim: "opencode",
 		OOMSeenAt: time.Now().Add(-time.Hour),
 	})
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		MetricsResult: &msb.Metrics{MemoryBytes: 1 << 20, MemoryLimitBytes: 4096 << 20},
 	}
 	var selects int
@@ -62,7 +63,7 @@ func TestOfferMemoryRaiseAfterAttachUsesMetricsLimit(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "runpressurelimit", Agent: "opencode"}
 	seedPressureMarker(t, k, state.ResourcePressureState{})
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		MetricsResult: &msb.Metrics{MemoryBytes: 7800 << 20, MemoryLimitBytes: 8192 << 20},
 	}
 	var inputDefault string
@@ -117,7 +118,7 @@ func TestOfferMemoryRaiseAfterAttachDeclinedSaysNothingAboutTheNextRun(t *testin
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "keep", nil },
 	}
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
 		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 	}
@@ -143,7 +144,7 @@ func TestOfferMemoryRaiseAfterAttachSaysTheRaiseAppliesNextRun(t *testing.T) {
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
 		InputFn:             func(_, defaultValue string) (string, error) { return defaultValue, nil },
 	}
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
 		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 	}
@@ -173,7 +174,7 @@ func TestOfferMemoryRaiseAfterAttachClampsToTheBootMaximum(t *testing.T) {
 		},
 	}
 	nearMax := uint64(bootMaxMiB-512) << 20
-	sb := &msb.MockSandbox{MetricsResult: &msb.Metrics{MemoryBytes: nearMax, MemoryLimitBytes: nearMax}}
+	sb := &msbtest.MockSandbox{MetricsResult: &msb.Metrics{MemoryBytes: nearMax, MemoryLimitBytes: nearMax}}
 
 	offerMemoryRaiseAfterAttach(
 		context.Background(), k, sb, pressureSummary{Tripped: true}, options.RunOptions{}, ui,
@@ -199,7 +200,7 @@ func TestOfferMemoryRaiseAfterAttachWitnessedTrip(t *testing.T) {
 			IsInteractiveResult: true,
 			SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 		}
-		sb := &msb.MockSandbox{MetricsResult: recovered}
+		sb := &msbtest.MockSandbox{MetricsResult: recovered}
 
 		offerMemoryRaiseAfterAttach(
 			context.Background(), k, sb, pressureSummary{Tripped: true}, options.RunOptions{}, ui,
@@ -218,7 +219,7 @@ func TestOfferMemoryRaiseAfterAttachWitnessedTrip(t *testing.T) {
 			IsInteractiveResult: true,
 			SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 		}
-		sb := &msb.MockSandbox{MetricsResult: recovered}
+		sb := &msbtest.MockSandbox{MetricsResult: recovered}
 
 		offerMemoryRaiseAfterAttach(
 			context.Background(), k, sb, pressureSummary{Tripped: false}, options.RunOptions{}, ui,
@@ -261,8 +262,8 @@ func TestOfferDiskRaiseAfterAttachOffersAFullTmp(t *testing.T) {
 			return defaultValue, nil
 		},
 	}
-	sb := &msb.MockSandbox{
-		ExecOut: map[string]msb.ShellResult{diskProbeKey(): msb.NewTestResult(true, 0, dfFullTmp, "", nil)},
+	sb := &msbtest.MockSandbox{
+		ExecOut: map[string]msb.ShellResult{diskProbeKey(): msbtest.NewTestResult(true, 0, dfFullTmp, "", nil)},
 	}
 
 	offerDiskRaiseAfterAttach(context.Background(), k, sb, options.RunOptions{TmpSize: "2G", Memory: "4G"}, ui)
@@ -282,7 +283,7 @@ func TestOfferDiskRaiseAfterAttachProbeFailureIsSilent(t *testing.T) {
 	k := state.Key{Slug: "diskprobefail", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	ui := &termiotest.Mock{IsInteractiveResult: true}
-	sb := &msb.MockSandbox{ExecErr: errors.New("exec refused")}
+	sb := &msbtest.MockSandbox{ExecErr: errors.New("exec refused")}
 
 	offerDiskRaiseAfterAttach(context.Background(), k, sb, options.RunOptions{}, ui)
 
@@ -300,7 +301,7 @@ func TestOfferDiskRaiseAfterAttachProbeFailureIsSilent(t *testing.T) {
 // deadlineRecordingSandbox records the deadline of the context its Exec runs
 // under, so a test can check the probe is bounded.
 type deadlineRecordingSandbox struct {
-	*msb.MockSandbox
+	*msbtest.MockSandbox
 
 	deadline    time.Time
 	hasDeadline bool
@@ -322,7 +323,7 @@ func TestOfferDiskRaiseAfterAttachBoundsTheProbe(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "diskprobetimeout", Agent: "opencode"}
 	seedSessionHomeState(t, k)
-	sb := &deadlineRecordingSandbox{MockSandbox: &msb.MockSandbox{ExecErr: errors.New("exec refused")}}
+	sb := &deadlineRecordingSandbox{MockSandbox: &msbtest.MockSandbox{ExecErr: errors.New("exec refused")}}
 	started := time.Now()
 
 	offerDiskRaiseAfterAttach(context.Background(), k, sb, options.RunOptions{}, &termiotest.Mock{})
@@ -339,9 +340,9 @@ func TestOfferDiskRaiseAfterAttachBoundsTheProbe(t *testing.T) {
 // again, a declined offer says nothing about the next run, and a missing state
 // file is logged at verbose.
 func TestOfferDiskRaiseAfterAttachHonoursTheRecordedState(t *testing.T) {
-	probe := func() *msb.MockSandbox {
-		return &msb.MockSandbox{
-			ExecOut: map[string]msb.ShellResult{diskProbeKey(): msb.NewTestResult(true, 0, dfFullTmp, "", nil)},
+	probe := func() *msbtest.MockSandbox {
+		return &msbtest.MockSandbox{
+			ExecOut: map[string]msb.ShellResult{diskProbeKey(): msbtest.NewTestResult(true, 0, dfFullTmp, "", nil)},
 		}
 	}
 	t.Run("answered hit", func(t *testing.T) {
@@ -434,8 +435,8 @@ func TestOfferDiskRaiseAfterAttachOffersARecordedHitInTheBand(t *testing.T) {
 			return "keep", nil
 		},
 	}
-	sb := &msb.MockSandbox{
-		ExecOut: map[string]msb.ShellResult{diskProbeKey(): msb.NewTestResult(true, 0, dfBandTmp, "", nil)},
+	sb := &msbtest.MockSandbox{
+		ExecOut: map[string]msb.ShellResult{diskProbeKey(): msbtest.NewTestResult(true, 0, dfBandTmp, "", nil)},
 	}
 
 	offerDiskRaiseAfterAttach(context.Background(), k, sb, options.RunOptions{TmpSize: "2G", Memory: "4G"}, ui)

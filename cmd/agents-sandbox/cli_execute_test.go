@@ -12,7 +12,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
-	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
@@ -183,8 +183,8 @@ func TestRunShellInvokeStartupAutoPrune(t *testing.T) {
 			}
 			t.Cleanup(func() { autoPrune = original })
 
-			mock := &sandboxmsb.MockMsbClient{}
-			root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, command, "--dry-run")
+			mock := &msbtest.MockMsbClient{}
+			root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{}, command, "--dry-run")
 			if err := root.Execute(); err != nil {
 				t.Fatalf("%s --dry-run: %v", command, err)
 			}
@@ -293,8 +293,8 @@ func TestMainHelperProcessExitError(t *testing.T) {
 		t.Skip("helper process only")
 	}
 	initTestProjectDir(t)
-	mock := &sandboxmsb.MockMsbClient{}
-	setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachCode: 5}, "run")
+	mock := &msbtest.MockMsbClient{}
+	setupRunMocks(t, mock, &msbtest.MockSandbox{AttachCode: 5}, "run")
 	os.Args = []string{"agents-sandbox", "run"}
 	main()
 	os.Exit(0)

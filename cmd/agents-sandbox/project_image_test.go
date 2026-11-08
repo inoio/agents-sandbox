@@ -13,7 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
@@ -46,7 +46,7 @@ func TestAdoptAndPrepareImageRunsTheOperationForTheAdoptedKeyAndRecordsItsVersio
 	operation, calls := recordingImageOperation(image.ImageInfo{AgentVersion: "4.5.6"}, nil)
 
 	key, info, err := adoptAndPrepareImage(
-		context.Background(), paths, &msb.MockMsbClient{}, defaultAgentName, false, &termiotest.Mock{}, operation,
+		context.Background(), paths, &msbtest.MockMsbClient{}, defaultAgentName, false, &termiotest.Mock{}, operation,
 	)
 
 	require.NoError(t, err)
@@ -63,7 +63,7 @@ func TestAdoptAndPrepareImageDryRunSkipsTheOperation(t *testing.T) {
 	operation, calls := recordingImageOperation(image.ImageInfo{AgentVersion: "4.5.6"}, nil)
 
 	key, info, err := adoptAndPrepareImage(
-		context.Background(), paths, &msb.MockMsbClient{}, defaultAgentName, true, &termiotest.Mock{}, operation,
+		context.Background(), paths, &msbtest.MockMsbClient{}, defaultAgentName, true, &termiotest.Mock{}, operation,
 	)
 
 	require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestAdoptAndPrepareImageReturnsTheOperationErrorWithoutRecording(t *testing
 	operation, _ := recordingImageOperation(image.ImageInfo{AgentVersion: "4.5.6"}, operationErr)
 
 	_, _, err := adoptAndPrepareImage(
-		context.Background(), paths, &msb.MockMsbClient{}, defaultAgentName, false, &termiotest.Mock{}, operation,
+		context.Background(), paths, &msbtest.MockMsbClient{}, defaultAgentName, false, &termiotest.Mock{}, operation,
 	)
 
 	require.ErrorIs(t, err, operationErr)
@@ -100,7 +100,7 @@ func TestAdoptAndPrepareImageWarnsWhenRecordingTheVersionFails(t *testing.T) {
 	ui := &termiotest.Mock{}
 
 	_, info, err := adoptAndPrepareImage(
-		context.Background(), configpaths.Get(), &msb.MockMsbClient{}, defaultAgentName, false, ui, operation,
+		context.Background(), configpaths.Get(), &msbtest.MockMsbClient{}, defaultAgentName, false, ui, operation,
 	)
 
 	require.NoError(t, err)
@@ -117,7 +117,7 @@ func TestAdoptAndPrepareImageFailsClosedOnAnAdoptionError(t *testing.T) {
 	operation, calls := recordingImageOperation(image.ImageInfo{}, nil)
 
 	_, _, err := adoptAndPrepareImage(
-		context.Background(), configpaths.Get(), &msb.MockMsbClient{}, defaultAgentName, false, &termiotest.Mock{},
+		context.Background(), configpaths.Get(), &msbtest.MockMsbClient{}, defaultAgentName, false, &termiotest.Mock{},
 		operation,
 	)
 
@@ -132,7 +132,7 @@ func TestAdoptAndPrepareImageFailsOnAnUnresolvableIdentity(t *testing.T) {
 	operation, calls := recordingImageOperation(image.ImageInfo{}, nil)
 
 	_, _, err := adoptAndPrepareImage(
-		context.Background(), configpaths.Get(), &msb.MockMsbClient{}, defaultAgentName, false, &termiotest.Mock{},
+		context.Background(), configpaths.Get(), &msbtest.MockMsbClient{}, defaultAgentName, false, &termiotest.Mock{},
 		operation,
 	)
 

@@ -20,6 +20,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
@@ -94,7 +95,7 @@ func TestPrefillVolume_LoadImageFails(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithDefaultErrorDockerMock(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	vm := NewManager(docker.Get())
 	err := vm.PrefillVolume(
 		context.Background(),
@@ -113,9 +114,9 @@ func TestCopyVolume_DestroyFailureWarns(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
-		return &msb.MockSandbox{DestroyErr: errors.New("destroy failed")}, nil
+		return &msbtest.MockSandbox{DestroyErr: errors.New("destroy failed")}, nil
 	}
 	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
@@ -147,7 +148,7 @@ func TestCopyVolume_LoadImageFails(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithDefaultErrorDockerMock(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	vm := NewManager(docker.Get())
 	err := vm.CopyVolume(
 		context.Background(),
@@ -172,7 +173,7 @@ func TestApplyHomeAction_KeepRecordImageFails_Warns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 
@@ -206,7 +207,7 @@ func TestApplyHomeAction_KeepRecordImageFails_Warns(t *testing.T) {
 func TestApplyHomeAction_CreateVolumeFails(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return nil, errors.New("create failed")
 	}
@@ -247,14 +248,14 @@ func TestApplyHomeAction_WriteStateFails_ReturnsError(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	var createdVol string
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{}), nil
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdVol = name
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
 	ui := &termiotest.Mock{}
@@ -292,7 +293,7 @@ func TestApplyHomeAction_WriteStateFails_ReturnsError(t *testing.T) {
 func TestPrefillSandboxNameIsPrefixFreeAndLabelled(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
 	ui := termiotest.NewTestMock(t)
-	client := &msb.MockMsbClient{CreatedSandbox: &msb.MockSandbox{Name_: "prefill"}}
+	client := &msbtest.MockMsbClient{CreatedSandbox: &msbtest.MockSandbox{Name_: "prefill"}}
 	vm := NewManager(docker.Get())
 
 	err := vm.PrefillVolume(
@@ -319,7 +320,7 @@ func TestPrefillSandboxNameIsPrefixFreeAndLabelled(t *testing.T) {
 func TestCopySandboxNameIsPrefixFreeAndLabelled(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
 	ui := termiotest.NewTestMock(t)
-	client := &msb.MockMsbClient{CreatedSandbox: &msb.MockSandbox{Name_: "copy"}}
+	client := &msbtest.MockMsbClient{CreatedSandbox: &msbtest.MockSandbox{Name_: "copy"}}
 	vm := NewManager(docker.Get())
 
 	err := vm.CopyVolume(
@@ -347,8 +348,8 @@ func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
 	testUI := termiotest.NewTestMock(t)
 	ui := &testUI
-	prefillSandbox := &msb.MockSandbox{Name_: "prefill"}
-	client := &msb.MockMsbClient{CreatedSandbox: prefillSandbox}
+	prefillSandbox := &msbtest.MockSandbox{Name_: "prefill"}
+	client := &msbtest.MockMsbClient{CreatedSandbox: prefillSandbox}
 	vm := NewManager(docker.Get())
 
 	err := vm.PrefillVolume(
@@ -373,11 +374,11 @@ func TestPrefillVolumeRunsCopyCommand(t *testing.T) {
 func TestPrefillVolume_DestroyToleratesReplaced(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
 	ui := &termiotest.Mock{}
-	prefillSandbox := &msb.MockSandbox{
+	prefillSandbox := &msbtest.MockSandbox{
 		Name_:      "prefill",
 		DestroyErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"},
 	}
-	client := &msb.MockMsbClient{CreatedSandbox: prefillSandbox}
+	client := &msbtest.MockMsbClient{CreatedSandbox: prefillSandbox}
 	vm := NewManager(docker.Get())
 
 	err := vm.PrefillVolume(
@@ -399,8 +400,8 @@ func TestPrefillVolume_DestroyToleratesReplaced(t *testing.T) {
 func TestPrefillVolume_DestroyFailureWarns(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
 	ui := &termiotest.Mock{}
-	prefillSandbox := &msb.MockSandbox{Name_: "prefill", DestroyErr: errors.New("destroy failed")}
-	client := &msb.MockMsbClient{CreatedSandbox: prefillSandbox}
+	prefillSandbox := &msbtest.MockSandbox{Name_: "prefill", DestroyErr: errors.New("destroy failed")}
+	client := &msbtest.MockMsbClient{CreatedSandbox: prefillSandbox}
 	vm := NewManager(docker.Get())
 
 	err := vm.PrefillVolume(
@@ -430,7 +431,7 @@ func TestApplyHomeActionAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 	oldVol := "agents-sandbox-home-myproj-old"
 	seedHomeState(key, state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"})
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		if err := state.WithHomeState(key, func(cur *state.HomeState, _ bool) (bool, error) {
 			cur.HomeVolume = "agents-sandbox-home-myproj-other"
@@ -438,7 +439,7 @@ func TestApplyHomeActionAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("concurrent write: %v", err)
 		}
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{}), nil
 	}
 	vm := NewManager(docker.Get())
 
@@ -471,13 +472,13 @@ func TestApplyHomeActionAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	vm := NewManager(docker.Get())
 
 	var createdVols int
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdVols++
-		return &msb.MockVolumeHandle{}, nil
+		return &msbtest.MockVolumeHandle{}, nil
 	}
 
 	vol, err := vm.ApplyHomeAction(
@@ -526,7 +527,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 				state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 			)
 
-			mock := &msb.MockMsbClient{}
+			mock := &msbtest.MockMsbClient{}
 			vm := NewManager(docker.Get())
 
 			newVol, err := vm.ApplyHomeAction(
@@ -583,13 +584,13 @@ func TestApplyHomeAction_Reset_SkipVM_NoWrites(t *testing.T) {
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	vm := NewManager(docker.Get())
 
 	var createdVols int
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdVols++
-		return &msb.MockVolumeHandle{}, nil
+		return &msbtest.MockVolumeHandle{}, nil
 	}
 
 	newVol, err := vm.ApplyHomeAction(
@@ -637,7 +638,7 @@ func TestApplyHomeAction_Migrate_SkipVM_NoStateWrite(t *testing.T) {
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	vm := NewManager(docker.Get())
 
 	newVol, err := vm.ApplyHomeAction(
@@ -683,7 +684,7 @@ func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	var createdVol string
 	sandboxCount := 0
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
@@ -691,11 +692,11 @@ func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 		if sandboxCount == 2 {
 			return nil, errors.New("create copy sandbox failed")
 		}
-		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{}), nil
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdVol = name
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 	vm := NewManager(docker.Get())
 
@@ -727,7 +728,7 @@ func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
 }
 
 func TestCleanupVolume_Success(t *testing.T) {
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	vm := NewManager(docker.Get())
 
 	vm.cleanupVolume(context.Background(), mock, "orphan-vol", &termiotest.Mock{})
@@ -738,7 +739,7 @@ func TestCleanupVolume_Success(t *testing.T) {
 }
 
 func TestCleanupVolume_Failure(t *testing.T) {
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.RemoveVolumeFn = func(_ context.Context, _ string) error {
 		return errors.New("volume busy")
 	}
@@ -778,7 +779,7 @@ func TestCleanupUncommittedVolume(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mock := &msb.MockMsbClient{}
+			mock := &msbtest.MockMsbClient{}
 			vm := NewManager(docker.Get())
 
 			vm.cleanupUncommittedVolume(context.Background(), mock, "new-vol", tt.commitErr, &termiotest.Mock{})
@@ -793,7 +794,7 @@ func TestCleanupUncommittedVolume(t *testing.T) {
 
 func TestPrefillVolume_CreateSandboxFails(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("sandbox creation failed")
 	vm := NewManager(docker.Get())
 
@@ -815,9 +816,9 @@ func TestPrefillVolume_CreateSandboxFails(t *testing.T) {
 
 func TestPrefillVolume_ExecFails(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{
 			ExecErr: errors.New("exec failed"),
 		}), nil
 	}
@@ -842,11 +843,11 @@ func TestPrefillVolume_ExecFails(t *testing.T) {
 
 func TestPrefillVolume_ExecExitFailure(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{
 			ExecOut: map[string]msb.ShellResult{
-				"sh -c cp -a /home/dev/. /mnt/home/ && chown -R dev:dev /mnt/home": msb.NewTestResult(
+				"sh -c cp -a /home/dev/. /mnt/home/ && chown -R dev:dev /mnt/home": msbtest.NewTestResult(
 					false,
 					1,
 					"",
@@ -877,7 +878,7 @@ func TestPrefillVolume_ExecExitFailure(t *testing.T) {
 
 func TestCopyVolume_CreateSandboxFails(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("sandbox creation failed")
 	vm := NewManager(docker.Get())
 
@@ -900,9 +901,9 @@ func TestCopyVolume_CreateSandboxFails(t *testing.T) {
 
 func TestCopyVolume_ExecFails(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{
 			ExecErr: errors.New("exec failed during copy"),
 		}), nil
 	}
@@ -928,11 +929,11 @@ func TestCopyVolume_ExecFails(t *testing.T) {
 
 func TestCopyVolume_ExecExitFailure(t *testing.T) {
 	dockertest.WithNoopDockerMock(t)
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
-		return msb.NewMockSandbox(msb.SandboxOpts{
+		return msbtest.NewMockSandbox(msbtest.SandboxOpts{
 			ExecOut: map[string]msb.ShellResult{
-				"sh -c cp -a /src/. /dst/ && chown -R dev:dev /dst": msb.NewTestResult(
+				"sh -c cp -a /src/. /dst/ && chown -R dev:dev /dst": msbtest.NewTestResult(
 					false,
 					1,
 					"",
@@ -973,7 +974,7 @@ func TestApplyHomeAction_Reset_Success(t *testing.T) {
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	vm := NewManager(docker.Get())
 
 	newVol, err := vm.ApplyHomeAction(
@@ -1032,7 +1033,7 @@ func TestApplyHomeAction_PreservesFingerprints(t *testing.T) {
 		},
 	)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	vm := NewManager(docker.Get())
 
 	if _, err := vm.ApplyHomeAction(
@@ -1076,7 +1077,7 @@ func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("prefill sandbox creation failed")
 	vm := NewManager(docker.Get())
 

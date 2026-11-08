@@ -1,4 +1,4 @@
-package msb
+package msb_test
 
 import (
 	"fmt"
@@ -6,26 +6,27 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/notify/notifytest"
 	"github.com/inoio/agents-sandbox/internal/opener/openertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest/runtime"
 )
 
-// realGetFactory captures the package's default Client factory before TestMain
-// installs the fail-fast mock, so tests can exercise the real closure body.
-var realGetFactory = Get
-
 func TestMain(m *testing.M) {
-	// can't call testutil.InitFailFastMocks(m) because of cyclic dependency. Keep in sync with
-	// testutil.InitFailFastMocks' body
+	// Can't call testutil.InitFailFastMocks(m): it calls m.Run() itself, and the
+	// msb suite wraps the run in an isolated microsandbox home. Keep in sync with
+	// testutil.InitFailFastMocks' body.
 	configpathstest.InstallFailFastConfigPaths()
 	dockertest.InstallFailFastGet()
-	// cyclic dependency on msb
-	// doctor.InstallFailFast()
-	InstallFailFastGet()
+	doctortest.InstallFailFast()
+	msbtest.InstallFailFastGet()
+	notifytest.InstallFailFast()
 	openertest.InstallFailFast()
 	// Point the msb-tagged tests at an isolated microsandbox home; a no-op in
-	// the untagged build (see runtime_isolation_msb_test.go).
-	removeIsolatedRuntimeHome := installIsolatedRuntimeHome()
+	// the untagged build (see the leaf's runtime.go).
+	removeIsolatedRuntimeHome := runtime.InstallIsolatedRuntimeHome()
 	m.Run()
 	// A test that failed or panicked without reaching its own cleanup would
 	// otherwise leave a detached VM in the home removeIsolatedRuntimeHome
@@ -33,7 +34,7 @@ func TestMain(m *testing.M) {
 	// — a -timeout expiry, SIGINT, or SIGKILL — exits without returning from
 	// m.Run(), so the sweep cannot run and the sandbox's idle timeout is the
 	// backstop instead.
-	if sweepErr := sweepIsolatedSandboxes(); sweepErr != nil {
+	if sweepErr := runtime.SweepIsolatedSandboxes(); sweepErr != nil {
 		// Keep the home so the surviving sandbox stays reachable for manual
 		// cleanup; the error names the home and each sandbox it could not
 		// destroy.

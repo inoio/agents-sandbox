@@ -10,7 +10,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
@@ -93,7 +93,7 @@ func TestRunServeOnlyWrapsContextForCancellation(t *testing.T) {
 	serveOnlyStdinReader = func() io.Reader { return strings.NewReader("") }
 	t.Cleanup(func() { serveOnlyStdinReader = restoreReader })
 
-	root, _ := setupRunMocks(t, &msb.MockMsbClient{}, &msb.MockSandbox{}, "run", "--serve-only")
+	root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, "run", "--serve-only")
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

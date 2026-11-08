@@ -85,25 +85,6 @@ func TestRealSandboxHandleConfigPorts(t *testing.T) {
 	}
 }
 
-func TestMockSandboxHandleConfigPorts(t *testing.T) {
-	want := []PortBinding{
-		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: PortProtocolTCP},
-	}
-	m := &MockSandboxHandle{PortBindings: want}
-	got, err := m.ConfigPorts()
-	if err != nil {
-		t.Fatalf("ConfigPorts() error = %v", err)
-	}
-	if !slices.Equal(got, want) {
-		t.Errorf("ConfigPorts() = %+v, want the seeded bindings", got)
-	}
-
-	failing := &MockSandboxHandle{PortsErr: errors.New("ports boom")}
-	if _, err := failing.ConfigPorts(); err == nil {
-		t.Error("ConfigPorts() error = nil, want the configured PortsErr")
-	}
-}
-
 // persistedConfigWithPorts mirrors the real persisted shape: SandboxConfig
 // flattens SandboxSpec, whose NetworkSpec carries published ports as
 // PublishedPortSpec values (microsandbox-types domain.rs) — snake_case fields,

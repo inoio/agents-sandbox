@@ -9,7 +9,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
-	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
@@ -48,7 +48,7 @@ func TestRunShellRecordTheLifecycleTrace(t *testing.T) {
 				initTestProjectDir(t)
 				trace := captureLifecycleTrace(t)
 				args := append([]string{command}, tc.flag...)
-				root, _ := setupRunMocks(t, &sandboxmsb.MockMsbClient{}, &sandboxmsb.MockSandbox{}, args...)
+				root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
 				if err := root.Execute(); err != nil {
 					t.Fatalf("%v: %v", args, err)
 				}

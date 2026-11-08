@@ -18,6 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
@@ -37,7 +38,7 @@ func TestAdoptLegacyIdentityFailsWhenALaterLegacySlugIsUnreadable(t *testing.T) 
 	identity := adoptIdentity()
 	identity.LegacyRepoSlugs = []string{adoptRepoSlug, badSlug}
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -78,7 +79,7 @@ func TestAdoptLegacyIdentityHoldsKeyLocksAcrossTheMove(t *testing.T) {
 	}
 	t.Cleanup(func() { adoptKeysLockedHook = nil })
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -104,8 +105,8 @@ func TestAdoptLegacyIdentityReleasesKeyLocksOnDestroyFailure(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName(), DestroyErr: errors.New("destroy boom")}
-	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName(), DestroyErr: errors.New("destroy boom")}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -383,7 +384,7 @@ func TestAdoptLegacyIdentityRecheckErrorPropagates(t *testing.T) {
 	}
 	t.Cleanup(func() { adoptLockHook = nil })
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -414,7 +415,7 @@ func TestAdoptLegacyIdentityRecheckErrorPropagates(t *testing.T) {
 func TestAdoptLegacyIdentityLiveLegacyVMWithoutHomeMountSkipsTheClaim(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName()}
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName()}
 	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
@@ -451,9 +452,9 @@ func TestAdoptLegacyIdentityMovesStateAndDestroysVM(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName()}
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName()}
 	var requested string
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		requested = name
 		return handle, nil
 	}}
@@ -506,8 +507,8 @@ func TestAdoptLegacyIdentityNoticeNamesEveryPath(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName()}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName()}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -547,7 +548,7 @@ func TestAdoptLegacyIdentityNoticeWithoutHomeVolume(t *testing.T) {
 		t.Fatalf("seed legacy state: %v", err)
 	}
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		t.Errorf("GetSandbox(%q) called during a dry run", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
@@ -589,7 +590,7 @@ func TestAdoptLegacyIdentityNoLegacyState(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	failIfAdoptionLocks(t)
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no legacy VM"}
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -629,7 +630,7 @@ func TestAdoptLegacyIdentityAlreadyAtCheckoutSlug(t *testing.T) {
 		t.Fatalf("seed checkout state: %v", err)
 	}
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		t.Errorf("GetSandbox(%q) called for an already-adopted project", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
@@ -670,8 +671,8 @@ func TestAdoptLegacyIdentityUnparsableLegacyState(t *testing.T) {
 	}
 	testutil.WriteFile(t, legacyDir, "state.yaml", `": [`)
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName()}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName()}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -705,7 +706,7 @@ func TestAdoptLegacyIdentityApplyFalseIsReadOnly(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	legacyStateFile := seedLegacyState(t)
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		t.Errorf("GetSandbox(%q) called during a dry run", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
@@ -752,7 +753,7 @@ func TestAdoptLegacyIdentityLegacyVMAlreadyGone(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -794,11 +795,11 @@ func TestAdoptLegacyIdentityLegacyVMReplacedFailsClosed(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_:      "widget-aaa--renamed-sandbox",
 		DestroyErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"},
 	}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -853,8 +854,8 @@ func TestAdoptLegacyIdentityStrandedStateFileFailsLoudly(t *testing.T) {
 		t.Fatalf("create blocking symlink: %v", err)
 	}
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName()}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName()}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -913,7 +914,7 @@ func TestAdoptLegacyIdentityUnparsableCheckoutStateSkipsMigration(t *testing.T) 
 	}
 	testutil.WriteFile(t, checkoutDir, "state.yaml", `": [`)
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		t.Errorf("GetSandbox(%q) called despite an unreadable checkout state", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
@@ -953,7 +954,7 @@ func TestAdoptLegacyIdentityNonRepoCorruptStateDoesNotBlock(t *testing.T) {
 	}
 	testutil.WriteFile(t, state.KeyDir(key), "state.yaml", `": [`)
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		t.Errorf("GetSandbox(%q) called with no legacy identity", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
@@ -990,8 +991,8 @@ func TestAdoptLegacyIdentityStateMoveFailureFailsLoudly(t *testing.T) {
 		t.Fatalf("create dangling destination symlink: %v", err)
 	}
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName()}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName()}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -1026,7 +1027,7 @@ func TestAdoptLegacyIdentityGetSandboxErrorAborts(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, errLegacyVMBoom
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -1061,11 +1062,11 @@ func TestAdoptLegacyIdentityLegacyVMAlreadyGoneOnDestroy(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_:      adoptLegacyVMName(),
 		DestroyErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"},
 	}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -1111,9 +1112,9 @@ func TestAdoptLegacyIdentityDestroysEveryMovedAgentsVM(t *testing.T) {
 		t.Fatalf("seed pi state: %v", err)
 	}
 
-	handles := map[string]*msb.MockSandboxHandle{}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		handle := &msb.MockSandboxHandle{Name_: name}
+	handles := map[string]*msbtest.MockSandboxHandle{}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+		handle := &msbtest.MockSandboxHandle{Name_: name}
 		handles[name] = handle
 		return handle, nil
 	}}
@@ -1165,7 +1166,7 @@ func TestAdoptLegacyIdentityLosingTheLockRaceContinues(t *testing.T) {
 	}
 	t.Cleanup(func() { adoptLockHook = nil })
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		t.Errorf("GetSandbox(%q) called although another adopter won the lock", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
@@ -1204,9 +1205,9 @@ func TestAdoptLegacyIdentityAdoptsBareRootLegacySlug(t *testing.T) {
 		t.Fatalf("seed bare-root legacy state: %v", err)
 	}
 
-	handles := map[string]*msb.MockSandboxHandle{}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		handle := &msb.MockSandboxHandle{Name_: name}
+	handles := map[string]*msbtest.MockSandboxHandle{}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+		handle := &msbtest.MockSandboxHandle{Name_: name}
 		handles[name] = handle
 		return handle, nil
 	}}
@@ -1254,7 +1255,7 @@ func TestAdoptLegacyIdentityRecheckCorruptStateSkips(t *testing.T) {
 	}
 	t.Cleanup(func() { adoptLockHook = nil })
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		t.Errorf("GetSandbox(%q) called despite an unreadable re-check", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
@@ -1302,7 +1303,7 @@ func TestAdoptLegacyIdentityConfigMoveFailurePropagates(t *testing.T) {
 	renameConfigDir = func(_, _ string) error { return errRenameBoom }
 	t.Cleanup(func() { renameConfigDir = os.Rename })
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
 	identity := adoptIdentity()
@@ -1337,7 +1338,7 @@ func TestAdoptLegacyIdentityDryRunReturnsFoundLegacySlug(t *testing.T) {
 		t.Fatalf("seed bare-root legacy state: %v", err)
 	}
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no VM for " + name}
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -1391,12 +1392,14 @@ func TestAdoptLegacyIdentityDestroyFailureLeavesStateForRetry(t *testing.T) {
 		t.Fatalf("seed bare-root legacy state: %v", err)
 	}
 
-	failingClient := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		if strings.Contains(name, legacySlug) {
-			return nil, errors.New("teardown boom")
-		}
-		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
-	}}
+	failingClient := &msbtest.MockMsbClient{
+		GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+			if strings.Contains(name, legacySlug) {
+				return nil, errors.New("teardown boom")
+			}
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
+		},
+	}
 	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), failingClient,
@@ -1415,7 +1418,7 @@ func TestAdoptLegacyIdentityDestroyFailureLeavesStateForRetry(t *testing.T) {
 	}
 
 	// Retry with every VM gone: both sources are adopted now.
-	okClient := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	okClient := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
 	retryUI := termiotest.NewTestMock(t)
@@ -1450,13 +1453,13 @@ func TestAdoptLegacyIdentityAdoptsLiveLegacyVMWithoutState(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
 	const legacyVolume = "agents-sandbox-home-widget-aaa-opencode-9"
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_: adoptLegacyVMName(),
 		Mounts: map[string]msb.MountConfig{
 			mounts.VMHomeDir: msb.Mount.Named(legacyVolume, msb.MountOptions{}),
 		},
 	}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		if name == adoptLegacyVMName() {
 			return handle, nil
 		}
@@ -1502,14 +1505,14 @@ func TestAdoptLegacyIdentityPersistsVolumeBeforeDestroyFails(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
 	const legacyVolume = "agents-sandbox-home-widget-aaa-opencode-9"
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_:      adoptLegacyVMName(),
 		DestroyErr: errors.New("destroy boom"),
 		Mounts: map[string]msb.MountConfig{
 			mounts.VMHomeDir: msb.Mount.Named(legacyVolume, msb.MountOptions{}),
 		},
 	}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		if name == adoptLegacyVMName() {
 			return handle, nil
 		}
@@ -1565,13 +1568,13 @@ func TestAdoptLegacyIdentityDryRunLiveLegacyVMIsReadOnly(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
 	const legacyVolume = "agents-sandbox-home-widget-aaa-opencode-9"
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_: adoptLegacyVMName(),
 		Mounts: map[string]msb.MountConfig{
 			mounts.VMHomeDir: msb.Mount.Named(legacyVolume, msb.MountOptions{}),
 		},
 	}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -1610,8 +1613,8 @@ func TestAdoptLegacyIdentityDryRunLiveLegacyVMIsReadOnly(t *testing.T) {
 func TestAdoptLegacyIdentityLiveLegacyVMMountsErrorFailsClosed(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName(), MountsErr: errors.New("mounts boom")}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName(), MountsErr: errors.New("mounts boom")}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
 	ui := termiotest.NewTestMock(t)
@@ -1647,12 +1650,12 @@ func TestAdoptLegacyIdentityClaimsSharedVolumeOnce(t *testing.T) {
 		mounts.VMHomeDir: msb.Mount.Named(legacyVolume, msb.MountOptions{}),
 	}
 	// Clone A claims the volume and records the marker, then its destroy fails.
-	failing := &msb.MockSandboxHandle{
+	failing := &msbtest.MockSandboxHandle{
 		Name_:      adoptLegacyVMName(),
 		DestroyErr: errors.New("destroy boom"),
 		Mounts:     legacyMount,
 	}
-	clientA := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	clientA := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		if name == adoptLegacyVMName() {
 			return failing, nil
 		}
@@ -1676,8 +1679,8 @@ func TestAdoptLegacyIdentityClaimsSharedVolumeOnce(t *testing.T) {
 
 	// Clone B adopts the surviving legacy VM successfully; it must not record the
 	// same volume, which clone A owns.
-	succeeding := &msb.MockSandboxHandle{Name_: adoptLegacyVMName(), Mounts: legacyMount}
-	clientB := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	succeeding := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName(), Mounts: legacyMount}
+	clientB := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		if name == adoptLegacyVMName() {
 			return succeeding, nil
 		}
@@ -1892,7 +1895,7 @@ func TestLegacyAdoptionPendingUnreadableStateReportsNotPending(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(state.KeyDir(legacyKey), "state.yaml"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	pending, err := legacyPendingWithError(t, &msb.MockMsbClient{})
+	pending, err := legacyPendingWithError(t, &msbtest.MockMsbClient{})
 	if err == nil {
 		t.Fatal("expected an unreadable legacy state to fail")
 	}
@@ -1906,8 +1909,8 @@ func TestLegacyAdoptionPendingUnreadableStateReportsNotPending(t *testing.T) {
 func TestLegacyAdoptionPendingUnreadableMountWrapsCause(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName(), MountsErr: errLegacyVMBoom}
-	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName(), MountsErr: errLegacyVMBoom}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
 	pending, err := legacyPendingWithError(t, client)
@@ -1930,7 +1933,7 @@ func TestDestroyLegacyVMsErrorsOnUnreadableSlug(t *testing.T) {
 	testutil.WritePath(t, state.SlugDir(adoptRepoSlug), "not a directory")
 
 	ui := termiotest.NewTestMock(t)
-	err := destroyLegacyVMs(context.Background(), &msb.MockMsbClient{}, adoptRepoSlug, adoptAgentName, &ui)
+	err := destroyLegacyVMs(context.Background(), &msbtest.MockMsbClient{}, adoptRepoSlug, adoptAgentName, &ui)
 	if err == nil {
 		t.Fatal("expected an unreadable slug to fail the teardown")
 	}
@@ -2297,8 +2300,8 @@ func assertProjectVMLockHeld(t *testing.T, k state.Key) {
 // legacyVMNotFound returns a client that serves one live legacy VM (the handle)
 // for the legacy project VM name and "sandbox not found" for everything else, the
 // shape a lost-state adoption starts from.
-func legacyVMNotFound(handle msb.SandboxHandle) *msb.MockMsbClient {
-	return &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+func legacyVMNotFound(handle msb.SandboxHandle) *msbtest.MockMsbClient {
+	return &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		if name == adoptLegacyVMName() {
 			return handle, nil
 		}
@@ -2306,8 +2309,8 @@ func legacyVMNotFound(handle msb.SandboxHandle) *msb.MockMsbClient {
 	}}
 }
 
-func legacyVMWithHome() *msb.MockSandboxHandle {
-	return &msb.MockSandboxHandle{
+func legacyVMWithHome() *msbtest.MockSandboxHandle {
+	return &msbtest.MockSandboxHandle{
 		Name_: adoptLegacyVMName(),
 		Mounts: map[string]msb.MountConfig{
 			mounts.VMHomeDir: msb.Mount.Named(adoptLegacyVolume, msb.MountOptions{}),

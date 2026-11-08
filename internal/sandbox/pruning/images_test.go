@@ -16,6 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
@@ -37,29 +38,29 @@ func TestPruneImages(t *testing.T) {
 	older := time.Now().Add(-30 * 24 * time.Hour)
 
 	img := func(ref string, createdAt time.Time) msb.ImageHandle {
-		return &msb.MockImageHandle{Reference_: ref, CreatedAt_: createdAt}
+		return &msbtest.MockImageHandle{Reference_: ref, CreatedAt_: createdAt}
 	}
 	live := func(slug string) PruneState {
 		return PruneState{
 			Age:    30 * 24 * time.Hour,
-			ToKeep: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: "opencode"}: &msb.MockSandboxHandle{}},
+			ToKeep: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: "opencode"}: &msbtest.MockSandboxHandle{}},
 		}
 	}
 
 	t.Run("prunes VM-less slug and older surplus of a kept slug", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Images: []msb.ImageHandle{
 				img("agents-sandbox/runner-orphan-1mjusbm3wikhb0:digest1", old),
 				img("agents-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest", old),
 				img("agents-sandbox/runner-active-1mjusbm3wikhb0:digestOld", older),
 			},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		dockertest.WithNoopDockerMock(t)
 		ps := live("active-1mjusbm3wikhb0")
 		ps.ToPrune = map[state.Key]msb.SandboxHandle{
-			{Slug: "orphan-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
+			{Slug: "orphan-1mjusbm3wikhb0", Agent: ""}: &msbtest.MockSandboxHandle{},
 		}
 		ui := &termiotest.Mock{}
 		r, err := PruneImages(context.Background(), docker.Get(), ps, false, ui)
@@ -76,16 +77,16 @@ func TestPruneImages(t *testing.T) {
 
 	t.Run("reclaims all images of a VM-less slug", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Images: []msb.ImageHandle{
 				img("agents-sandbox/runner-orphan-1mjusbm3wikhb0:digest1", old),
 			},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		dockertest.WithNoopDockerMock(t)
 		ps := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{
-				{Slug: "orphan-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
+				{Slug: "orphan-1mjusbm3wikhb0", Agent: ""}: &msbtest.MockSandboxHandle{},
 			},
 		}
 		ui := &termiotest.Mock{}
@@ -103,19 +104,19 @@ func TestPruneImages(t *testing.T) {
 
 	t.Run("keeps per-agent latest tags of a live slug, prunes surplus", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Images: []msb.ImageHandle{
 				img("agents-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest", old),
 				img("agents-sandbox/runner-active-1mjusbm3wikhb0:pi-latest", now),
 				img("agents-sandbox/runner-active-1mjusbm3wikhb0:digestOld", older),
 			},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		dockertest.WithNoopDockerMock(t)
 		ui := &termiotest.Mock{}
 		ps := PruneState{Age: 30 * 24 * time.Hour, ToKeep: map[state.Key]msb.SandboxHandle{
-			{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
-			{Slug: "active-1mjusbm3wikhb0", Agent: "pi"}:       &msb.MockSandboxHandle{},
+			{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msbtest.MockSandboxHandle{},
+			{Slug: "active-1mjusbm3wikhb0", Agent: "pi"}:       &msbtest.MockSandboxHandle{},
 		}}
 		r, err := PruneImages(context.Background(), docker.Get(), ps, false, ui)
 		if err != nil {
@@ -132,13 +133,13 @@ func TestPruneImages(t *testing.T) {
 
 	t.Run("reclaims images of a slug that has neither VM nor state", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Images: []msb.ImageHandle{
 				img("agents-sandbox/runner-unknown-1mjusbm3wikhb0:digest1", old),
 				img("agents-sandbox/runner-unknown-1mjusbm3wikhb0:digest2", old),
 			},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		dockertest.WithNoopDockerMock(t)
 		ui := &termiotest.Mock{}
 		r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui)
@@ -151,12 +152,12 @@ func TestPruneImages(t *testing.T) {
 	})
 
 	t.Run("returns ImageList error", func(t *testing.T) {
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			ImageListFn: func(context.Context) ([]msb.ImageHandle, error) {
 				return nil, errors.New("list boom")
 			},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		ui := &termiotest.Mock{}
 		_, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui)
 		if err == nil || !strings.Contains(err.Error(), "list boom") {
@@ -167,7 +168,7 @@ func TestPruneImages(t *testing.T) {
 	t.Run("continues past an ImageRemove error", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
 		removed := make(map[string]bool)
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Images: []msb.ImageHandle{
 				img("agents-sandbox/runner-fail-1mjusbm3wikhb0:digest1", old),
 				img("agents-sandbox/runner-ok-1mjusbm3wikhb0:digest2", old),
@@ -180,12 +181,12 @@ func TestPruneImages(t *testing.T) {
 				return nil
 			},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		dockertest.WithNoopDockerMock(t)
 		ui := &termiotest.Mock{}
 		r, err := PruneImages(context.Background(), docker.Get(), PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
-			{Slug: "fail-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
-			{Slug: "ok-1mjusbm3wikhb0", Agent: ""}:   &msb.MockSandboxHandle{},
+			{Slug: "fail-1mjusbm3wikhb0", Agent: ""}: &msbtest.MockSandboxHandle{},
+			{Slug: "ok-1mjusbm3wikhb0", Agent: ""}:   &msbtest.MockSandboxHandle{},
 		}}, false, ui)
 		if err != nil {
 			t.Fatalf("PruneImages: %v", err)
@@ -202,10 +203,10 @@ func TestPruneImages(t *testing.T) {
 	})
 
 	t.Run("docker prune error is warned but not fatal", func(t *testing.T) {
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Images: []msb.ImageHandle{img("agents-sandbox/runner-dockererr-1mjusbm3wikhb0:digest1", old)},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		dockertest.WithDefaultErrorDockerMock(t)
 		ui := &termiotest.Mock{}
 		r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui)
@@ -223,13 +224,13 @@ func TestPruneImages(t *testing.T) {
 
 func TestPruneImagesSkipsNonRunnerReferences(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: "other/namespace:latest"},
-			&msb.MockImageHandle{Reference_: ""},
+			&msbtest.MockImageHandle{Reference_: "other/namespace:latest"},
+			&msbtest.MockImageHandle{Reference_: ""},
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 	ui := &termiotest.Mock{}
 	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui)
@@ -254,16 +255,16 @@ func TestPruneImagesSkipsHashlessSingleSegmentImage(t *testing.T) {
 	for _, ref := range []string{"manually-loaded:latest", "agents-sandbox/runner-manual:latest"} {
 		t.Run(ref, func(t *testing.T) {
 			configpathstest.WithMockConfigPaths(t)
-			client := &msb.MockMsbClient{
+			client := &msbtest.MockMsbClient{
 				Images: []msb.ImageHandle{
-					&msb.MockImageHandle{
+					&msbtest.MockImageHandle{
 						Reference_:  ref,
 						CreatedAt_:  time.Now().Add(-30 * 24 * time.Hour),
 						LastUsedAt_: time.Now().Add(-30 * 24 * time.Hour),
 					},
 				},
 			}
-			msb.WithMsbMock(t, client)
+			msbtest.WithMsbMock(t, client)
 			dockertest.WithNoopDockerMock(t)
 			r, err := PruneImages(
 				context.Background(),
@@ -288,10 +289,10 @@ func TestPruneImagesSkipsHashlessSingleSegmentImage(t *testing.T) {
 func TestKeepImageNotReferencedWhenKeyAlsoPruned(t *testing.T) {
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	pruneState := PruneState{
-		ToKeep:  map[state.Key]msb.SandboxHandle{key: &msb.MockSandboxHandle{}},
-		ToPrune: map[state.Key]msb.SandboxHandle{key: &msb.MockSandboxHandle{}},
+		ToKeep:  map[state.Key]msb.SandboxHandle{key: &msbtest.MockSandboxHandle{}},
+		ToPrune: map[state.Key]msb.SandboxHandle{key: &msbtest.MockSandboxHandle{}},
 	}
-	handle := &msb.MockImageHandle{Reference_: "agents-sandbox/runner-proj-1mjusbm3wikhb0:opencode-latest"}
+	handle := &msbtest.MockImageHandle{Reference_: "agents-sandbox/runner-proj-1mjusbm3wikhb0:opencode-latest"}
 	if keepImageFor(handle, pruneState, nil) {
 		t.Error("expected a key present in both ToKeep and ToPrune to be treated as not referenced")
 	}
@@ -303,9 +304,9 @@ func TestKeepImageNotReferencedWhenKeyAlsoPruned(t *testing.T) {
 func TestKeepImageDropsLatestSuffixWithoutAgent(t *testing.T) {
 	const ref = "proj-1mjusbm3wikhb0-latest"
 	pruneState := PruneState{ToKeep: map[state.Key]msb.SandboxHandle{
-		{Slug: ref, Agent: ""}: &msb.MockSandboxHandle{},
+		{Slug: ref, Agent: ""}: &msbtest.MockSandboxHandle{},
 	}}
-	if keepImageFor(&msb.MockImageHandle{Reference_: ref}, pruneState, nil) {
+	if keepImageFor(&msbtest.MockImageHandle{Reference_: ref}, pruneState, nil) {
 		t.Error("a -latest ref with no parsed agent must not be kept")
 	}
 }
@@ -316,22 +317,22 @@ func TestKeepImageDropsLatestSuffixWithoutAgent(t *testing.T) {
 func TestPruneImagesKeepsLiveProjectImageWithLeftoverTask(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	const slug = "proj-1mjusbm3wikhb0"
-	live := &msb.MockSandboxHandle{
+	live := &msbtest.MockSandboxHandle{
 		Name_:      slug + "-opencode",
 		Status_:    msb.SandboxStatusRunning,
 		UpdatedAt_: time.Now(),
 		Image_:     slug + ":opencode-latest",
 	}
-	task := &msb.MockSandboxHandle{
+	task := &msbtest.MockSandboxHandle{
 		Name_:      slug + "-opencode-1729000000000000000",
 		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now(),
 	}
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{live, task},
-		Images:    []msb.ImageHandle{&msb.MockImageHandle{Reference_: slug + ":opencode-latest"}},
+		Images:    []msb.ImageHandle{&msbtest.MockImageHandle{Reference_: slug + ":opencode-latest"}},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 
 	pruneState, err := buildPruneState(context.Background(), 7*24*time.Hour)
@@ -358,16 +359,16 @@ func TestPruneImagesKeepsLiveProjectImageWithLeftoverTask(t *testing.T) {
 func TestPruneImagesKeepsRecentImageOfVmLessProject(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	const slug = "built-1mjusbm3wikhb0"
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{
+			&msbtest.MockImageHandle{
 				Reference_: "agents-sandbox/runner-" + slug + ":opencode-latest",
 				CreatedAt_: time.Now(),
 			},
-			&msb.MockImageHandle{Reference_: slug + ":opencode.9f2c1a7b4d6e0f31", CreatedAt_: time.Now()},
+			&msbtest.MockImageHandle{Reference_: slug + ":opencode.9f2c1a7b4d6e0f31", CreatedAt_: time.Now()},
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 	pruneState, err := buildPruneState(context.Background(), 30*24*time.Hour)
 	if err != nil {
@@ -427,9 +428,9 @@ func TestRenderImageReport(t *testing.T) {
 func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 	t.Run("normal prune", func(t *testing.T) {
 		events := make([]string, 0, 2)
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Images: []msb.ImageHandle{
-				&msb.MockImageHandle{Reference_: "agents-sandbox/runner-project-1mjusbm3wikhb0:old"},
+				&msbtest.MockImageHandle{Reference_: "agents-sandbox/runner-project-1mjusbm3wikhb0:old"},
 			},
 			ImageRemoveFn: func(_ context.Context, _ string, _ bool) error {
 				events = append(events, "remove")
@@ -440,7 +441,7 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 				return &msb.ImagePruneReport{ManifestsRemoved: 1}, nil
 			},
 		}
-		resolutions := msb.WithCountingMsbMock(t, client)
+		resolutions := msbtest.WithCountingMsbMock(t, client)
 		dockertest.WithNoopDockerMock(t)
 
 		if _, err := PruneImages(
@@ -462,13 +463,13 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 
 	t.Run("dry run", func(t *testing.T) {
 		called := false
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 				called = true
 				return &msb.ImagePruneReport{}, nil
 			},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		dockertest.WithNoopDockerMock(t)
 
 		if _, err := PruneImages(
@@ -486,12 +487,12 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 	})
 
 	t.Run("native prune error", func(t *testing.T) {
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 				return nil, errors.New("native prune failed")
 			},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		dockertest.WithNoopDockerMock(t)
 		ui := &termiotest.Mock{}
 
@@ -508,12 +509,12 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 // is captured rather than discarded.
 func TestPruneImagesCapturesNativeReport(t *testing.T) {
 	physical := uint64(2048)
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 			return &msb.ImagePruneReport{SkippedInUse: 4, BytesReclaimed: &physical}, nil
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 
 	report, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termiotest.Mock{})
@@ -531,12 +532,12 @@ func TestPruneImagesCapturesNativeReport(t *testing.T) {
 // TestPruneImagesUnknownNativeBytesStayNil pins the nil-not-zero convention for
 // the native report's byte count.
 func TestPruneImagesUnknownNativeBytesStayNil(t *testing.T) {
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 			return &msb.ImagePruneReport{SkippedInUse: 1}, nil
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 
 	report, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termiotest.Mock{})
@@ -602,23 +603,23 @@ func TestKeepImagePerAgent(t *testing.T) {
 	pruneState := PruneState{
 		Age: time.Hour,
 		ToKeep: map[state.Key]msb.SandboxHandle{
-			{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{Name_: "v"},
+			{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}: &msbtest.MockSandboxHandle{Name_: "v"},
 		},
 		ToPrune: map[state.Key]msb.SandboxHandle{},
 	}
-	oc := &msb.MockImageHandle{
+	oc := &msbtest.MockImageHandle{
 		Reference_:  "agents-sandbox/runner-proj-1mjusbm3wikhb0:opencode-latest",
 		LastUsedAt_: time.Now(),
 	}
 	if !keepImageFor(oc, pruneState, nil) {
 		t.Error("expected opencode-latest to be kept")
 	}
-	pi := &msb.MockImageHandle{Reference_: "agents-sandbox/runner-proj-1mjusbm3wikhb0:pi-latest"}
+	pi := &msbtest.MockImageHandle{Reference_: "agents-sandbox/runner-proj-1mjusbm3wikhb0:pi-latest"}
 	if keepImageFor(pi, pruneState, nil) {
 		t.Error("expected pi-latest to be pruned (no kept pi VM)")
 	}
 	// A prefix-free ref of the live (slug, agent) is kept the same way.
-	prefixFree := &msb.MockImageHandle{
+	prefixFree := &msbtest.MockImageHandle{
 		Reference_:  "proj-1mjusbm3wikhb0:opencode-latest",
 		LastUsedAt_: time.Now(),
 	}
@@ -635,10 +636,10 @@ func TestKeepImageKeepsRefHeldByKeptSandboxRegardlessOfAge(t *testing.T) {
 	pruneState := PruneState{
 		Age: time.Hour,
 		ToKeep: map[state.Key]msb.SandboxHandle{
-			{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{Image_: ref},
+			{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}: &msbtest.MockSandboxHandle{Image_: ref},
 		},
 	}
-	handle := &msb.MockImageHandle{Reference_: ref, LastUsedAt_: time.Now().Add(-48 * time.Hour)}
+	handle := &msbtest.MockImageHandle{Reference_: ref, LastUsedAt_: time.Now().Add(-48 * time.Hour)}
 	if !keepImageFor(handle, pruneState, map[string]struct{}{ref: {}}) {
 		t.Error("expected a ref held by a kept sandbox to be kept regardless of age")
 	}
@@ -651,10 +652,10 @@ func TestKeepImageKeepsRecentVariantOfLiveKey(t *testing.T) {
 	pruneState := PruneState{
 		Age: time.Hour,
 		ToKeep: map[state.Key]msb.SandboxHandle{
-			{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
+			{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}: &msbtest.MockSandboxHandle{},
 		},
 	}
-	handle := &msb.MockImageHandle{
+	handle := &msbtest.MockImageHandle{
 		Reference_:  "proj-1mjusbm3wikhb0:opencode.9f2c1a7b4d6e0f31",
 		LastUsedAt_: time.Now().Add(-time.Minute),
 	}
@@ -669,10 +670,10 @@ func TestKeepImageDropsAgedVariantOfLiveKey(t *testing.T) {
 	pruneState := PruneState{
 		Age: 24 * time.Hour,
 		ToKeep: map[state.Key]msb.SandboxHandle{
-			{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
+			{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}: &msbtest.MockSandboxHandle{},
 		},
 	}
-	handle := &msb.MockImageHandle{
+	handle := &msbtest.MockImageHandle{
 		Reference_:  "proj-1mjusbm3wikhb0:opencode.9f2c1a7b4d6e0f31",
 		LastUsedAt_: time.Now().Add(-48 * time.Hour),
 	}
@@ -687,7 +688,7 @@ func TestKeepImageDropsAgedVariantOfLiveKey(t *testing.T) {
 // prune instead of being reclaimed and reimported.
 func TestKeepImageKeepsRecentRefOfVmLessKey(t *testing.T) {
 	pruneState := PruneState{Age: time.Hour}
-	handle := &msb.MockImageHandle{
+	handle := &msbtest.MockImageHandle{
 		Reference_:  "built-1mjusbm3wikhb0:opencode.9f2c1a7b4d6e0f31",
 		LastUsedAt_: time.Now(),
 	}
@@ -701,7 +702,7 @@ func TestKeepImageKeepsRecentRefOfVmLessKey(t *testing.T) {
 // linger past the prune window.
 func TestKeepImageDropsAgedRefOfVmLessKey(t *testing.T) {
 	pruneState := PruneState{Age: time.Hour}
-	handle := &msb.MockImageHandle{
+	handle := &msbtest.MockImageHandle{
 		Reference_:  "gone-1mjusbm3wikhb0:opencode.9f2c1a7b4d6e0f31",
 		LastUsedAt_: time.Now().Add(-48 * time.Hour),
 	}
@@ -718,10 +719,10 @@ func TestKeepImageRetainsCurrentRunKey(t *testing.T) {
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	pruneState := PruneState{
 		Age:        time.Hour,
-		ToPrune:    map[state.Key]msb.SandboxHandle{key: &msb.MockSandboxHandle{}},
+		ToPrune:    map[state.Key]msb.SandboxHandle{key: &msbtest.MockSandboxHandle{}},
 		RetainKeys: map[state.Key]struct{}{key: {}},
 	}
-	handle := &msb.MockImageHandle{
+	handle := &msbtest.MockImageHandle{
 		Reference_:  "agents-sandbox/runner-proj-1mjusbm3wikhb0:opencode-latest",
 		LastUsedAt_: time.Now().Add(-48 * time.Hour),
 	}
@@ -736,10 +737,10 @@ func TestKeepImageRetainsCurrentRunKey(t *testing.T) {
 func TestKeepImageHasNoRecencyProtectionWhenAgeZero(t *testing.T) {
 	pruneState := PruneState{
 		ToKeep: map[state.Key]msb.SandboxHandle{
-			{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
+			{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}: &msbtest.MockSandboxHandle{},
 		},
 	}
-	handle := &msb.MockImageHandle{
+	handle := &msbtest.MockImageHandle{
 		Reference_:  "proj-1mjusbm3wikhb0:opencode.9f2c1a7b4d6e0f31",
 		LastUsedAt_: time.Now(),
 	}
@@ -753,35 +754,35 @@ func TestImageWithinAge(t *testing.T) {
 	ref := "proj-1mjusbm3wikhb0:opencode.9f2c1a7b4d6e0f31"
 
 	t.Run("zero age never protects", func(t *testing.T) {
-		handle := &msb.MockImageHandle{Reference_: ref, LastUsedAt_: now}
+		handle := &msbtest.MockImageHandle{Reference_: ref, LastUsedAt_: now}
 		if imageWithinAge(handle, 0) {
 			t.Error("age 0 must not count an image as within age")
 		}
 	})
 
 	t.Run("last used within age", func(t *testing.T) {
-		handle := &msb.MockImageHandle{Reference_: ref, LastUsedAt_: now.Add(-time.Minute)}
+		handle := &msbtest.MockImageHandle{Reference_: ref, LastUsedAt_: now.Add(-time.Minute)}
 		if !imageWithinAge(handle, time.Hour) {
 			t.Error("expected an image used a minute ago to be within a one-hour age")
 		}
 	})
 
 	t.Run("falls back to created at when last used is zero", func(t *testing.T) {
-		handle := &msb.MockImageHandle{Reference_: ref, CreatedAt_: now.Add(-time.Minute)}
+		handle := &msbtest.MockImageHandle{Reference_: ref, CreatedAt_: now.Add(-time.Minute)}
 		if !imageWithinAge(handle, time.Hour) {
 			t.Error("expected CreatedAt to stand in for a zero LastUsedAt")
 		}
 	})
 
 	t.Run("aged image is outside the window", func(t *testing.T) {
-		handle := &msb.MockImageHandle{Reference_: ref, LastUsedAt_: now.Add(-48 * time.Hour)}
+		handle := &msbtest.MockImageHandle{Reference_: ref, LastUsedAt_: now.Add(-48 * time.Hour)}
 		if imageWithinAge(handle, 24*time.Hour) {
 			t.Error("expected an image last used 48h ago to be outside a 24h age")
 		}
 	})
 
 	t.Run("zero timestamps are not within age", func(t *testing.T) {
-		handle := &msb.MockImageHandle{Reference_: ref}
+		handle := &msbtest.MockImageHandle{Reference_: ref}
 		if imageWithinAge(handle, 24*time.Hour) {
 			t.Error("an image with no timestamps must not count as within age")
 		}
@@ -790,7 +791,7 @@ func TestImageWithinAge(t *testing.T) {
 	t.Run("a future timestamp is within any positive age", func(t *testing.T) {
 		// A future LastUsedAt makes time.Since negative, so it is within even the
 		// smallest positive age and pins the strict comparison downstream.
-		handle := &msb.MockImageHandle{Reference_: ref, LastUsedAt_: now.Add(time.Hour)}
+		handle := &msbtest.MockImageHandle{Reference_: ref, LastUsedAt_: now.Add(time.Hour)}
 		if !imageWithinAge(handle, time.Nanosecond) {
 			t.Error("a future-dated image must count as within a positive age")
 		}
@@ -798,7 +799,7 @@ func TestImageWithinAge(t *testing.T) {
 
 	t.Run("a non-positive age short-circuits before any timestamp", func(t *testing.T) {
 		// Even a future-dated image is unprotected when the age disables the rule.
-		handle := &msb.MockImageHandle{Reference_: ref, LastUsedAt_: now.Add(time.Hour)}
+		handle := &msbtest.MockImageHandle{Reference_: ref, LastUsedAt_: now.Add(time.Hour)}
 		if imageWithinAge(handle, 0) {
 			t.Error("a zero age must not keep even a future-dated image")
 		}
@@ -813,10 +814,10 @@ func TestKeepImageDropsAgentlessRefOfLiveKey(t *testing.T) {
 	pruneState := PruneState{
 		Age: time.Hour,
 		ToKeep: map[state.Key]msb.SandboxHandle{
-			{Slug: ref, Agent: ""}: &msb.MockSandboxHandle{},
+			{Slug: ref, Agent: ""}: &msbtest.MockSandboxHandle{},
 		},
 	}
-	handle := &msb.MockImageHandle{Reference_: ref, LastUsedAt_: time.Now()}
+	handle := &msbtest.MockImageHandle{Reference_: ref, LastUsedAt_: time.Now()}
 	if keepImageFor(handle, pruneState, nil) {
 		t.Error("an agent-less ref of a live key must not be kept even when fresh")
 	}
@@ -829,28 +830,28 @@ func TestPruneImagesKeepsPerAgentTagsOfLiveSlug(t *testing.T) {
 	now := time.Now()
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	older := time.Now().Add(-30 * 24 * time.Hour)
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{
+			&msbtest.MockImageHandle{
 				Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest",
 				CreatedAt_: old,
 			},
-			&msb.MockImageHandle{
+			&msbtest.MockImageHandle{
 				Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:pi-latest",
 				CreatedAt_: now,
 			},
-			&msb.MockImageHandle{
+			&msbtest.MockImageHandle{
 				Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:olddigest",
 				CreatedAt_: older,
 			},
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 	ui := &termiotest.Mock{}
 	ps := PruneState{Age: 30 * 24 * time.Hour, ToKeep: map[state.Key]msb.SandboxHandle{
-		{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
-		{Slug: "active-1mjusbm3wikhb0", Agent: "pi"}:       &msb.MockSandboxHandle{},
+		{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msbtest.MockSandboxHandle{},
+		{Slug: "active-1mjusbm3wikhb0", Agent: "pi"}:       &msbtest.MockSandboxHandle{},
 	}}
 	r, err := PruneImages(context.Background(), docker.Get(), ps, false, ui)
 	if err != nil {
@@ -876,31 +877,31 @@ func TestPruneImagesPreservesFreshSurplus(t *testing.T) {
 	now := time.Now()
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	older := time.Now().Add(-30 * 24 * time.Hour)
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Images: []msb.ImageHandle{
 			// A per-agent latest tag for the live slug.
-			&msb.MockImageHandle{
+			&msbtest.MockImageHandle{
 				Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest",
 				CreatedAt_: old,
 			},
 			// A freshly imported replacement for another agent.
-			&msb.MockImageHandle{
+			&msbtest.MockImageHandle{
 				Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:pi-latest",
 				CreatedAt_: now,
 			},
 			// A genuinely old surplus digest: reclaimed.
-			&msb.MockImageHandle{
+			&msbtest.MockImageHandle{
 				Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:digestOld",
 				CreatedAt_: older,
 			},
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 	ui := &termiotest.Mock{}
 	ps := PruneState{Age: 30 * 24 * time.Hour, ToKeep: map[state.Key]msb.SandboxHandle{
-		{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
-		{Slug: "active-1mjusbm3wikhb0", Agent: "pi"}:       &msb.MockSandboxHandle{},
+		{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msbtest.MockSandboxHandle{},
+		{Slug: "active-1mjusbm3wikhb0", Agent: "pi"}:       &msbtest.MockSandboxHandle{},
 	}}
 	r, err := PruneImages(context.Background(), docker.Get(), ps, false, ui)
 	if err != nil {
@@ -924,19 +925,19 @@ func TestPruneImagesDryRunReportsAgedVariants(t *testing.T) {
 	heldRef := slug + ":opencode.9f2c1a7b4d6e0f31"
 	recentRef := slug + ":opencode.1122334455667788"
 	agedRef := slug + ":opencode.0011223344556677"
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: heldRef, LastUsedAt_: time.Now().Add(-72 * time.Hour)},
-			&msb.MockImageHandle{Reference_: recentRef, LastUsedAt_: time.Now().Add(-time.Minute)},
-			&msb.MockImageHandle{Reference_: agedRef, LastUsedAt_: time.Now().Add(-48 * time.Hour)},
+			&msbtest.MockImageHandle{Reference_: heldRef, LastUsedAt_: time.Now().Add(-72 * time.Hour)},
+			&msbtest.MockImageHandle{Reference_: recentRef, LastUsedAt_: time.Now().Add(-time.Minute)},
+			&msbtest.MockImageHandle{Reference_: agedRef, LastUsedAt_: time.Now().Add(-48 * time.Hour)},
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 	pruneState := PruneState{
 		Age: 24 * time.Hour,
 		ToKeep: map[state.Key]msb.SandboxHandle{
-			{Slug: slug, Agent: "opencode"}: &msb.MockSandboxHandle{Image_: heldRef},
+			{Slug: slug, Agent: "opencode"}: &msbtest.MockSandboxHandle{Image_: heldRef},
 		},
 	}
 	r, err := PruneImages(context.Background(), docker.Get(), pruneState, true, &termiotest.Mock{})
@@ -964,16 +965,16 @@ func TestPruneImagesDryRunReportsAgedVariants(t *testing.T) {
 func TestPruneImagesReclaimsKilledProjectImages(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	old := time.Now().Add(-15 * 24 * time.Hour)
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{
+			&msbtest.MockImageHandle{
 				Reference_: "agents-sandbox/runner-gone-1mjusbm3wikhb0:opencode-latest",
 				CreatedAt_: old,
 			},
-			&msb.MockImageHandle{Reference_: "agents-sandbox/runner-gone-1mjusbm3wikhb0:old", CreatedAt_: old},
+			&msbtest.MockImageHandle{Reference_: "agents-sandbox/runner-gone-1mjusbm3wikhb0:old", CreatedAt_: old},
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 	ui := &termiotest.Mock{}
 	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui)
@@ -995,20 +996,20 @@ func TestPruneImagesReclaimsKilledProjectImages(t *testing.T) {
 // image is still in use by the sandbox and must not be pruned.
 func TestPruneImagesKeepsImageReferencedByKeptVM(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{
+			&msbtest.MockImageHandle{
 				Reference_: "agents-sandbox/runner-proj-1mjusbm3wikhb0:4e8oeqohbmalok",
 				CreatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 			},
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 	ui := &termiotest.Mock{}
 	ps := PruneState{
 		ToKeep: map[state.Key]msb.SandboxHandle{
-			{Slug: "proj-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{
+			{Slug: "proj-1mjusbm3wikhb0", Agent: ""}: &msbtest.MockSandboxHandle{
 				Name_:   "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 				Status_: msb.SandboxStatusStopped,
 				Image_:  "agents-sandbox/runner-proj-1mjusbm3wikhb0:4e8oeqohbmalok",
@@ -1039,9 +1040,9 @@ func TestPruneImagesSkipsNativePruneWhenRetaining(t *testing.T) {
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	removed := false
 	pruned := false
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: "proj-1mjusbm3wikhb0:opencode.9f2c1a7b4d6e0f31"},
+			&msbtest.MockImageHandle{Reference_: "proj-1mjusbm3wikhb0:opencode.9f2c1a7b4d6e0f31"},
 		},
 		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error {
 			removed = true
@@ -1052,7 +1053,7 @@ func TestPruneImagesSkipsNativePruneWhenRetaining(t *testing.T) {
 			return &msb.ImagePruneReport{ManifestsRemoved: 1}, nil
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 
 	pruneState := PruneState{RetainKeys: map[state.Key]struct{}{key: {}}}
@@ -1069,14 +1070,14 @@ func TestPruneImagesSkipsNativePruneWhenRetaining(t *testing.T) {
 
 func TestPruneImagesSkipsForeignAndReports(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{Images: []msb.ImageHandle{
-		&msb.MockImageHandle{Reference_: "docker.io/library/foreign:1"},
-		&msb.MockImageHandle{Reference_: "agents-sandbox/runner-orphan-1mjusbm3wikhb0:digest1"},
+	client := &msbtest.MockMsbClient{Images: []msb.ImageHandle{
+		&msbtest.MockImageHandle{Reference_: "docker.io/library/foreign:1"},
+		&msbtest.MockImageHandle{Reference_: "agents-sandbox/runner-orphan-1mjusbm3wikhb0:digest1"},
 	}}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 	pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
-		{Slug: "orphan-1mjusbm3wikhb0"}: &msb.MockSandboxHandle{},
+		{Slug: "orphan-1mjusbm3wikhb0"}: &msbtest.MockSandboxHandle{},
 	}}
 
 	r, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termiotest.Mock{})
@@ -1095,10 +1096,10 @@ func TestPruneImagesSkipsForeignAndReports(t *testing.T) {
 }
 
 func TestPruneImagesErrorReturnsZeroReport(t *testing.T) {
-	client := &msb.MockMsbClient{ImageListFn: func(context.Context) ([]msb.ImageHandle, error) {
+	client := &msbtest.MockMsbClient{ImageListFn: func(context.Context) ([]msb.ImageHandle, error) {
 		return nil, errors.New("list boom")
 	}}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
 	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termiotest.Mock{})
 	if err == nil {
@@ -1113,7 +1114,7 @@ func TestPruneImagesErrorReturnsZeroReport(t *testing.T) {
 // pruneDockerImages is written back into the report.
 func TestPruneImagesDockerCounts(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 	dockertest.WithDockerMock(t, deletedImagesDockerMock(3))
 
 	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termiotest.Mock{})
@@ -1129,13 +1130,13 @@ func TestPruneImagesDockerCounts(t *testing.T) {
 // with no agent (tag exactly "-latest") is not kept for a live key.
 func TestPruneImagesEmptyAgentLatestTagIsSurplus(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{Images: []msb.ImageHandle{
-		&msb.MockImageHandle{Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:-latest"},
+	client := &msbtest.MockMsbClient{Images: []msb.ImageHandle{
+		&msbtest.MockImageHandle{Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:-latest"},
 	}}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 	pruneState := PruneState{ToKeep: map[state.Key]msb.SandboxHandle{
-		{Slug: "active-1mjusbm3wikhb0"}: &msb.MockSandboxHandle{},
+		{Slug: "active-1mjusbm3wikhb0"}: &msbtest.MockSandboxHandle{},
 	}}
 
 	r, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termiotest.Mock{})
@@ -1153,19 +1154,19 @@ func TestPruneImagesEmptyAgentLatestTagIsSurplus(t *testing.T) {
 func TestPruneImagesPopulatesStaleFor(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	now := time.Now()
-	client := &msb.MockMsbClient{Images: []msb.ImageHandle{
-		&msb.MockImageHandle{
+	client := &msbtest.MockMsbClient{Images: []msb.ImageHandle{
+		&msbtest.MockImageHandle{
 			Reference_:  "agents-sandbox/runner-used-1mjusbm3wikhb0:digest1",
 			LastUsedAt_: now.Add(-3 * 24 * time.Hour),
 			CreatedAt_:  now.Add(-10 * 24 * time.Hour),
 		},
-		&msb.MockImageHandle{
+		&msbtest.MockImageHandle{
 			Reference_: "agents-sandbox/runner-created-1mjusbm3wikhb0:digest2",
 			CreatedAt_: now.Add(-10 * 24 * time.Hour),
 		},
-		&msb.MockImageHandle{Reference_: "agents-sandbox/runner-dateless-1mjusbm3wikhb0:digest3"},
+		&msbtest.MockImageHandle{Reference_: "agents-sandbox/runner-dateless-1mjusbm3wikhb0:digest3"},
 	}}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termiotest.Mock{})
 	if err != nil {
@@ -1429,7 +1430,7 @@ func deletedImagesDockerMock(n int) *dockertest.MockDockerClient {
 // entries, so the rendered report names every reclaimed image.
 func TestPruneImagesIncludesDockerDetailsInReport(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 	dockertest.WithDockerMock(t, deletedImagesDockerMock(2))
 
 	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termiotest.Mock{})

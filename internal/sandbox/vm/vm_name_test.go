@@ -11,6 +11,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -123,7 +124,7 @@ func TestFindProjectVM(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+			client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 				lookupErr, exists := tc.sandboxes[name]
 				switch {
 				case !exists:
@@ -131,7 +132,7 @@ func TestFindProjectVM(t *testing.T) {
 				case lookupErr != nil:
 					return nil, lookupErr
 				}
-				return &msb.MockSandboxHandle{Name_: name}, nil
+				return &msbtest.MockSandboxHandle{Name_: name}, nil
 			}}
 
 			handle, found, err := FindProjectVM(context.Background(), client, k)
@@ -192,7 +193,7 @@ func TestProjectVMHomeVolume(t *testing.T) {
 		{
 			name: "mounts unreadable",
 			getSandbox: func(context.Context, string) (msb.SandboxHandle, error) {
-				return &msb.MockSandboxHandle{Name_: "vm", MountsErr: mountsErr}, nil
+				return &msbtest.MockSandboxHandle{Name_: "vm", MountsErr: mountsErr}, nil
 			},
 			wantExists: true,
 			wantErr:    mountsErr,
@@ -200,7 +201,7 @@ func TestProjectVMHomeVolume(t *testing.T) {
 		{
 			name: "mounted home volume",
 			getSandbox: func(context.Context, string) (msb.SandboxHandle, error) {
-				return &msb.MockSandboxHandle{Name_: "vm", Mounts: map[string]msb.MountConfig{
+				return &msbtest.MockSandboxHandle{Name_: "vm", Mounts: map[string]msb.MountConfig{
 					mounts.VMHomeDir: msb.Mount.Named("home-vol", msb.MountOptions{}),
 				}}, nil
 			},
@@ -209,7 +210,7 @@ func TestProjectVMHomeVolume(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			client := &msb.MockMsbClient{GetSandboxFn: tc.getSandbox}
+			client := &msbtest.MockMsbClient{GetSandboxFn: tc.getSandbox}
 
 			volume, exists, err := ProjectVMHomeVolume(context.Background(), client, testVMKey())
 

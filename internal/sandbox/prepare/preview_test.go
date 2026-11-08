@@ -21,6 +21,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
@@ -80,8 +81,8 @@ func TestPreviewSandboxReportsReuse(t *testing.T) {
 		},
 	})
 	k := previewKey()
-	msb.WithMsbMock(t, &msb.MockMsbClient{
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "vol-1"}},
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "vol-1"}},
 	})
 	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol-1", AgentVersion: "1.0.0"}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
@@ -144,8 +145,8 @@ func TestPreviewSandboxReconcilesStaleRecordedVersionWithImageLabel(t *testing.T
 		},
 	})
 	k := previewKey()
-	msb.WithMsbMock(t, &msb.MockMsbClient{
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "vol-1"}},
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "vol-1"}},
 	})
 	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol-1", AgentVersion: "1.0.0"}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
@@ -462,7 +463,7 @@ func TestPreviewSandboxSurfacesAdoptionError(t *testing.T) {
 func TestPreviewSandboxSurfacesHomeVolumeLookupError(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		GetVolumeFn: func(context.Context, string) (msb.VolumeHandle, error) {
 			return nil, errors.New("daemon unavailable")
 		},
@@ -505,7 +506,7 @@ func absentImageDockerMock(t *testing.T) {
 // noVolumeCreateMock fails the test if the preview ever creates a volume.
 func noVolumeCreateMock(t *testing.T) *int {
 	t.Helper()
-	return msb.WithCountingMsbMock(t, &msb.MockMsbClient{
+	return msbtest.WithCountingMsbMock(t, &msbtest.MockMsbClient{
 		CreateVolumeFn: func(
 			context.Context, string, msb.VolumeSpec,
 		) (msb.VolumeHandle, error) {

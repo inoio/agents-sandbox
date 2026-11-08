@@ -7,6 +7,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
@@ -41,13 +42,13 @@ func (s *nilResultDockerd) Shell(
 ) (msb.ShellResult, error) {
 	switch command {
 	case dockerdBinaryCheckCmd:
-		return msb.NewTestResult(true, 0, "", "", nil), nil
+		return msbtest.NewTestResult(true, 0, "", "", nil), nil
 	case dockerdReadyCmd:
 		s.readyCalls++
 		if s.readyCalls >= 2 {
 			return nil, nil //nolint:nilnil // models an SDK nil-result probe
 		}
-		return msb.NewTestResult(false, 1, "", "", nil), nil
+		return msbtest.NewTestResult(false, 1, "", "", nil), nil
 	}
 	return s.Sandbox.Shell(ctx, command, req)
 }
@@ -74,7 +75,7 @@ func healthy() mockShellResp { return mockShellResp{stdout: `{"healthy":true}`, 
 // are exactly one launch of binary under the helper marker; the marker shape is
 // what the kill path matches on, so the callers (dockerd, the daemon) are pinned
 // to it.
-func assertDetachedHelperLaunch(t *testing.T, calls []msb.MockDetachedCall, marker, binary string) {
+func assertDetachedHelperLaunch(t *testing.T, calls []msbtest.MockDetachedCall, marker, binary string) {
 	t.Helper()
 	if len(calls) != 1 {
 		t.Fatalf("detached calls = %+v, want one", calls)
@@ -115,7 +116,7 @@ func (fakeDaemonProvider) DaemonAuthHint() string { return "" }
 // call-order log, so a test can place the stale kill in the restart sequence
 // rather than only observing that it happened.
 type orderRecordingJob struct {
-	*msb.MockJob
+	*msbtest.MockJob
 
 	onKill func()
 }
@@ -144,19 +145,19 @@ func (s *dockerdStartSandbox) Shell(
 	s.calls = append(s.calls, command)
 	switch command {
 	case dockerdBinaryCheckCmd:
-		return msb.NewTestResult(true, 0, "", "", nil), nil
+		return msbtest.NewTestResult(true, 0, "", "", nil), nil
 	case dockerdReadyCmd:
 		s.readyCalls++
-		return msb.NewTestResult(s.readyCalls > 1, 0, "", "", nil), nil
+		return msbtest.NewTestResult(s.readyCalls > 1, 0, "", "", nil), nil
 	}
-	return msb.NewTestResult(true, 0, "", "", nil), nil
+	return msbtest.NewTestResult(true, 0, "", "", nil), nil
 }
 
 // existsErrorFS is a SandboxFS whose Exists fails while every other operation is
 // delegated to the embedded test FS, so a test can exercise guestStorageDriver's
 // inspect-failure branch independently of Read.
 type existsErrorFS struct {
-	*msb.TestFS
+	*msbtest.TestFS
 
 	err error
 }
@@ -165,11 +166,11 @@ func (f existsErrorFS) Exists(context.Context, string) (bool, error) {
 	return false, f.err
 }
 
-// countingSandbox is an msb.MockSandbox that records how many detached jobs it
+// countingSandbox is an msbtest.MockSandbox that records how many detached jobs it
 // launched and models dockerd becoming ready after a number of readiness
 // probes, so tests can assert which branches startDockerdIfPresent took.
 type countingSandbox struct {
-	*msb.MockSandbox
+	*msbtest.MockSandbox
 
 	execCalls               int
 	execErr                 error
@@ -182,19 +183,19 @@ type countingSandbox struct {
 func (s *countingSandbox) Shell(_ context.Context, command string, _ msb.ExecRequest) (msb.ShellResult, error) {
 	switch command {
 	case dockerdBinaryCheckCmd:
-		return msb.NewTestResult(true, 0, "", "", nil), nil
+		return msbtest.NewTestResult(true, 0, "", "", nil), nil
 	case dockerdReadyCmd:
 		s.readyCalls++
 		if s.readyCalls > s.readyCallsBeforeHealthy {
-			return msb.NewTestResult(true, 0, "", "", nil), nil
+			return msbtest.NewTestResult(true, 0, "", "", nil), nil
 		}
-		return msb.NewTestResult(false, 1, "", "", nil), nil
+		return msbtest.NewTestResult(false, 1, "", "", nil), nil
 	case dockerdCleanupCmd:
 		if s.cleanupErr != nil {
-			return msb.NewTestResult(false, 1, "", "", nil), s.cleanupErr
+			return msbtest.NewTestResult(false, 1, "", "", nil), s.cleanupErr
 		}
 	}
-	return msb.NewTestResult(true, 0, "", "", nil), nil
+	return msbtest.NewTestResult(true, 0, "", "", nil), nil
 }
 
 func (s *countingSandbox) ExecDetached(
@@ -235,7 +236,7 @@ func (branchWorktreeAgent) WorktreeCreatesDetachedHead() bool { return false }
 // command through to the embedded mock, so a test can fail one step of a
 // multi-command flow.
 type failingCommandSandbox struct {
-	*msb.MockSandbox
+	*msbtest.MockSandbox
 
 	command string
 	err     error

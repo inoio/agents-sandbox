@@ -9,13 +9,14 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 func TestInspectImagePopulatesDetail(t *testing.T) {
 	size := int64(2 * 1024 * 1024 * 1024)
 	layerSize := int64(1024)
 	erofsSize := int64(2048)
-	mock := &msb.MockMsbClient{ImageInspectDetailFn: func(_ context.Context, _ string) (*msb.ImageDetail, error) {
+	mock := &msbtest.MockMsbClient{ImageInspectDetailFn: func(_ context.Context, _ string) (*msb.ImageDetail, error) {
 		return &msb.ImageDetail{
 			Reference:      "agents-sandbox/runner-proj:latest",
 			ManifestDigest: "sha256:abc123",
@@ -44,7 +45,7 @@ func TestInspectImagePopulatesDetail(t *testing.T) {
 			},
 		}, nil
 	}}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	got, err := InspectImage(context.Background(), "agents-sandbox/runner-proj:latest")
 	if err != nil {
@@ -71,13 +72,13 @@ func TestInspectImagePopulatesDetail(t *testing.T) {
 }
 
 func TestInspectImageUnknownLayerSize(t *testing.T) {
-	mock := &msb.MockMsbClient{ImageInspectDetailFn: func(_ context.Context, _ string) (*msb.ImageDetail, error) {
+	mock := &msbtest.MockMsbClient{ImageInspectDetailFn: func(_ context.Context, _ string) (*msb.ImageDetail, error) {
 		return &msb.ImageDetail{
 			Reference: "agents-sandbox/runner-x",
 			Layers:    []msb.ImageLayer{{Position: 0, DiffID: "sha256:l"}},
 		}, nil
 	}}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	got, err := InspectImage(context.Background(), "agents-sandbox/runner-x")
 	if err != nil {
@@ -90,9 +91,9 @@ func TestInspectImageUnknownLayerSize(t *testing.T) {
 }
 
 func TestInspectImageMissing(t *testing.T) {
-	msb.WithMsbMock(
+	msbtest.WithMsbMock(
 		t,
-		&msb.MockMsbClient{ImageInspectDetailFn: func(_ context.Context, _ string) (*msb.ImageDetail, error) {
+		&msbtest.MockMsbClient{ImageInspectDetailFn: func(_ context.Context, _ string) (*msb.ImageDetail, error) {
 			return nil, &msbSdk.Error{Kind: msbSdk.ErrImageNotFound, Message: "missing"}
 		}},
 	)

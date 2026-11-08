@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest/runtime"
 )
 
 // The msb-tagged tests drive the real SDK and host runtime through
@@ -23,7 +25,7 @@ import (
 
 // TestRealClientVolumeLifecycle round-trips a volume against the real runtime.
 func TestRealClientVolumeLifecycle(t *testing.T) {
-	ensureIsolatedRuntime(t)
+	runtime.EnsureIsolatedRuntime(t)
 	client := &realMsbClient{}
 	ctx := context.Background()
 	name := "agents-sandbox-msb-test-" + strconv.FormatInt(time.Now().UnixNano(), 10)
@@ -55,7 +57,7 @@ func TestRealClientVolumeLifecycle(t *testing.T) {
 // TestRealClientListsSandboxesAndImages drives the real list adapters against
 // the host runtime.
 func TestRealClientListsSandboxesAndImages(t *testing.T) {
-	ensureIsolatedRuntime(t)
+	runtime.EnsureIsolatedRuntime(t)
 	client := &realMsbClient{}
 	ctx := context.Background()
 
@@ -86,7 +88,7 @@ const (
 //     exactly one reports the boot and all converge on the same sandbox;
 //   - a handle whose name was destroyed and recreated is rejected as replaced.
 func TestRealClientSandboxLifecycle(t *testing.T) {
-	ensureIsolatedRuntime(t)
+	runtime.EnsureIsolatedRuntime(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	client := realMsbClient{}
@@ -94,10 +96,10 @@ func TestRealClientSandboxLifecycle(t *testing.T) {
 	createSpec := SandboxSpec{
 		Image:       "alpine:3.20",
 		Detached:    true,
-		IdleTimeout: testIdleTimeout,
+		IdleTimeout: runtime.TestIdleTimeout,
 	}
 	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), destroyTimeout)
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), runtime.DestroyTimeout)
 		defer cleanupCancel()
 		if handle, err := client.GetSandbox(cleanupCtx, name); err == nil {
 			_ = handle.Destroy(cleanupCtx, LifecycleOptions{})
@@ -188,7 +190,7 @@ type connectOrStartChild struct {
 func startConnectOrStartChild(t *testing.T, name string) *connectOrStartChild {
 	t.Helper()
 	command := exec.Command(os.Args[0], "-test.run=^TestRealClientConnectOrStartChild$", "-test.v")
-	command.Env = append(os.Environ(), childHomeEnv+"="+isolatedRuntimeHome, childNameEnv+"="+name)
+	command.Env = append(os.Environ(), childHomeEnv+"="+runtime.IsolatedRuntimeHome(), childNameEnv+"="+name)
 	child := &connectOrStartChild{command: command}
 	command.Stderr = &child.output
 	stdin, err := command.StdinPipe()

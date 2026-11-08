@@ -10,6 +10,8 @@ import (
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest/runtime"
 )
 
 // TestJobsRoundTrip exercises the detached-jobs seam against a real
@@ -21,7 +23,7 @@ import (
 // a working KVM host plus network access to pull the base image — the same
 // host-only tier as the other real-client tests in this package.
 func TestJobsRoundTrip(t *testing.T) {
-	ensureIsolatedRuntime(t)
+	runtime.EnsureIsolatedRuntime(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
@@ -38,7 +40,7 @@ func TestJobsRoundTrip(t *testing.T) {
 		msbSdk.WithDetached(),
 		// Out-of-process backstop: reap the VM if this test process is
 		// killed before its cleanup or the TestMain sweep can run.
-		msbSdk.WithIdleTimeout(testIdleTimeout),
+		msbSdk.WithIdleTimeout(runtime.TestIdleTimeout),
 	)
 	if err != nil {
 		t.Fatalf("CreateSandbox: %v", err)
@@ -48,7 +50,7 @@ func TestJobsRoundTrip(t *testing.T) {
 	// The sandbox must be stopped"), so a running detached sandbox survives
 	// a bare Remove and leaks its VM.
 	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), destroyTimeout)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), runtime.DestroyTimeout)
 		defer cancel()
 		if handle, handleErr := msbSdk.GetSandbox(cleanupCtx, sandboxName); handleErr == nil {
 			_ = handle.Destroy(cleanupCtx)

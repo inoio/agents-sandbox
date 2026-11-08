@@ -7,7 +7,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/opener/openertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 // TestMain installs the fail-fast mocks projectguard's tests can import without
@@ -17,7 +17,7 @@ func TestMain(m *testing.M) {
 	configpathstest.InstallFailFastConfigPaths()
 	dockertest.InstallFailFastGet()
 	doctortest.InstallFailFast()
-	msb.InstallFailFastGet()
+	msbtest.InstallFailFastGet()
 	openertest.InstallFailFast()
 	m.Run()
 }

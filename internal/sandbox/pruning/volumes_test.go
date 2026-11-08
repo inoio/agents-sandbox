@@ -11,6 +11,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
@@ -19,21 +20,21 @@ func TestPruneVolumes(t *testing.T) {
 	old := time.Now().Add(-15 * 24 * time.Hour)
 
 	home := func(name string) msb.VolumeHandle {
-		return &msb.MockVolumeHandle{Name_: name, CreatedAt_: old}
+		return &msbtest.MockVolumeHandle{Name_: name, CreatedAt_: old}
 	}
 
 	t.Run("prunes stale slug volumes and keeps others", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Volumes: []msb.VolumeHandle{
 				home("agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"),
 				home("agents-sandbox-home-kept-1mjusbm3wikhb0-20260806T143022"),
 			},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		stateMap := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{
-				{Slug: "stale-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
+				{Slug: "stale-1mjusbm3wikhb0", Agent: ""}: &msbtest.MockSandboxHandle{},
 			},
 		}
 		ui := &termiotest.Mock{}
@@ -62,12 +63,12 @@ func TestPruneVolumes(t *testing.T) {
 		); err != nil {
 			t.Fatalf("seedHomeState: %v", err)
 		}
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Volumes: []msb.VolumeHandle{home("agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022")},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		stateMap := PruneState{
-			ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msb.MockSandboxHandle{}},
+			ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msbtest.MockSandboxHandle{}},
 		}
 		ui := &termiotest.Mock{}
 		if _, err := PruneVolumes(context.Background(), stateMap, false, ui); err != nil {
@@ -87,7 +88,7 @@ func TestPruneVolumes(t *testing.T) {
 		); err != nil {
 			t.Fatalf("seedHomeState: %v", err)
 		}
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Volumes: []msb.VolumeHandle{
 				home("agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"),
 				home("agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143023"),
@@ -99,9 +100,9 @@ func TestPruneVolumes(t *testing.T) {
 				return nil
 			},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		stateMap := PruneState{
-			ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msb.MockSandboxHandle{}},
+			ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msbtest.MockSandboxHandle{}},
 		}
 		ui := &termiotest.Mock{}
 		if _, err := PruneVolumes(context.Background(), stateMap, false, ui); err != nil {
@@ -114,13 +115,13 @@ func TestPruneVolumes(t *testing.T) {
 
 	t.Run("dry run counts but does not delete", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Volumes: []msb.VolumeHandle{home("agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022")},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		stateMap := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{
-				{Slug: "stale-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
+				{Slug: "stale-1mjusbm3wikhb0", Agent: ""}: &msbtest.MockSandboxHandle{},
 			},
 		}
 		ui := &termiotest.Mock{}
@@ -138,10 +139,10 @@ func TestPruneVolumes(t *testing.T) {
 
 	t.Run("empty state prunes nothing", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Volumes: []msb.VolumeHandle{home("agents-sandbox-home-kept-1mjusbm3wikhb0-20260806T143022")},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		ui := &termiotest.Mock{}
 		r, err := PruneVolumes(context.Background(), PruneState{}, false, ui)
 		if err != nil {
@@ -153,12 +154,12 @@ func TestPruneVolumes(t *testing.T) {
 	})
 
 	t.Run("returns ListVolumes error", func(t *testing.T) {
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			ListVolumesFn: func(context.Context) ([]msb.VolumeHandle, error) {
 				return nil, errors.New("list boom")
 			},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		ui := &termiotest.Mock{}
 		_, err := PruneVolumes(context.Background(), PruneState{}, false, ui)
 		if err == nil || !strings.Contains(err.Error(), "list boom") {
@@ -168,17 +169,17 @@ func TestPruneVolumes(t *testing.T) {
 
 	t.Run("skips unparseable and non-home volumes", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Volumes: []msb.VolumeHandle{
 				home("agents-sandbox-home-"),
-				&msb.MockVolumeHandle{Name_: "some-other-volume", CreatedAt_: old},
+				&msbtest.MockVolumeHandle{Name_: "some-other-volume", CreatedAt_: old},
 			},
 		}
-		msb.WithMsbMock(t, client)
+		msbtest.WithMsbMock(t, client)
 		ui := &termiotest.Mock{}
 		r, err := PruneVolumes(
 			context.Background(),
-			PruneState{ToPrune: map[state.Key]msb.SandboxHandle{{Slug: "", Agent: ""}: &msb.MockSandboxHandle{}}},
+			PruneState{ToPrune: map[state.Key]msb.SandboxHandle{{Slug: "", Agent: ""}: &msbtest.MockSandboxHandle{}}},
 			false,
 			ui,
 		)
@@ -205,13 +206,13 @@ func TestPruneVolumesSkipsReferencedVolume(t *testing.T) {
 	if err := seedHomeState(key, state.HomeState{HomeVolume: volume}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
-	client := &msb.MockMsbClient{
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volume, CreatedAt_: old}},
+	client := &msbtest.MockMsbClient{
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: volume, CreatedAt_: old}},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	ui := &termiotest.Mock{}
 	r, err := PruneVolumes(context.Background(), PruneState{
-		ToPrune: map[state.Key]msb.SandboxHandle{key: &msb.MockSandboxHandle{}},
+		ToPrune: map[state.Key]msb.SandboxHandle{key: &msbtest.MockSandboxHandle{}},
 	}, false, ui)
 	if err != nil {
 		t.Fatalf("PruneVolumes: %v", err)
@@ -247,18 +248,18 @@ func TestPruneVolumesStillRemovesUnreferencedVolume(t *testing.T) {
 	if err := seedHomeState(referencedKey, state.HomeState{HomeVolume: referencedVolume}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: referencedVolume, CreatedAt_: old},
-			&msb.MockVolumeHandle{Name_: goneVolume, CreatedAt_: old},
+			&msbtest.MockVolumeHandle{Name_: referencedVolume, CreatedAt_: old},
+			&msbtest.MockVolumeHandle{Name_: goneVolume, CreatedAt_: old},
 		},
 	}
-	resolutions := msb.WithCountingMsbMock(t, client)
+	resolutions := msbtest.WithCountingMsbMock(t, client)
 	ui := &termiotest.Mock{}
 	r, err := PruneVolumes(context.Background(), PruneState{
 		ToPrune: map[state.Key]msb.SandboxHandle{
-			referencedKey:               &msb.MockSandboxHandle{},
-			{Slug: goneSlug, Agent: ""}: &msb.MockSandboxHandle{},
+			referencedKey:               &msbtest.MockSandboxHandle{},
+			{Slug: goneSlug, Agent: ""}: &msbtest.MockSandboxHandle{},
 		},
 	}, false, ui)
 	if err != nil {
@@ -287,21 +288,21 @@ func TestPruneVolumesStillRemovesUnreferencedVolume(t *testing.T) {
 func TestPruneVolumesKeepsLiveProjectVolumeWithLeftoverTask(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	const slug = "proj-1mjusbm3wikhb0"
-	live := &msb.MockSandboxHandle{
+	live := &msbtest.MockSandboxHandle{
 		Name_:      slug + "-opencode",
 		Status_:    msb.SandboxStatusRunning,
 		UpdatedAt_: time.Now(),
 	}
-	task := &msb.MockSandboxHandle{
+	task := &msbtest.MockSandboxHandle{
 		Name_:      slug + "-opencode-1729000000000000000",
 		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now(),
 	}
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{live, task},
-		Volumes:   []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: slug + "-opencode-20260806T143022"}},
+		Volumes:   []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: slug + "-opencode-20260806T143022"}},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
 	pruneState, err := buildPruneState(context.Background(), 7*24*time.Hour)
 	if err != nil {
@@ -337,16 +338,16 @@ func TestPruneVolumesKeepsVolumeReferencedFromEitherSlug(t *testing.T) {
 			t.Fatalf("seedHomeState(%s): %v", slug, err)
 		}
 	}
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: volume, CreatedAt_: time.Now().Add(-15 * 24 * time.Hour)},
+			&msbtest.MockVolumeHandle{Name_: volume, CreatedAt_: time.Now().Add(-15 * 24 * time.Hour)},
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	ui := &termiotest.Mock{}
 	r, err := PruneVolumes(context.Background(), PruneState{
 		ToPrune: map[state.Key]msb.SandboxHandle{
-			{Slug: legacySlug, Agent: ""}: &msb.MockSandboxHandle{},
+			{Slug: legacySlug, Agent: ""}: &msbtest.MockSandboxHandle{},
 		},
 	}, false, ui)
 	if err != nil {
@@ -379,14 +380,14 @@ func TestPruneVolumesFailsClosedOnUnreadableState(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state.yaml"), []byte("home_volume: ["), 0o600); err != nil {
 		t.Fatalf("write corrupt state: %v", err)
 	}
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: volume, CreatedAt_: time.Now().Add(-15 * 24 * time.Hour)},
+			&msbtest.MockVolumeHandle{Name_: volume, CreatedAt_: time.Now().Add(-15 * 24 * time.Hour)},
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	_, err := PruneVolumes(context.Background(), PruneState{
-		ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msb.MockSandboxHandle{}},
+		ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msbtest.MockSandboxHandle{}},
 	}, false, &termiotest.Mock{})
 	if err == nil || !strings.Contains(err.Error(), "scan project state references") {
 		t.Fatalf("PruneVolumes() error = %v, want a fail-closed reference scan error", err)
@@ -399,7 +400,7 @@ func TestPruneVolumesFailsClosedOnUnreadableState(t *testing.T) {
 // staleHomeHandle returns a home volume handle old enough for prune to treat as
 // stale. Tests only.
 func staleHomeHandle(name string) msb.VolumeHandle {
-	return &msb.MockVolumeHandle{Name_: name, CreatedAt_: time.Now().Add(-15 * 24 * time.Hour)}
+	return &msbtest.MockVolumeHandle{Name_: name, CreatedAt_: time.Now().Add(-15 * 24 * time.Hour)}
 }
 
 func TestPruneVolumesKeepsStateWhenReferencedVolumeSiblingRemoved(t *testing.T) {
@@ -420,13 +421,13 @@ func TestPruneVolumesKeepsStateWhenReferencedVolumeSiblingRemoved(t *testing.T) 
 	); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{staleHomeHandle(referenced), staleHomeHandle(sibling)},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	ui := &termiotest.Mock{}
 	r, err := PruneVolumes(context.Background(), PruneState{
-		ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msb.MockSandboxHandle{}},
+		ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msbtest.MockSandboxHandle{}},
 	}, false, ui)
 	if err != nil {
 		t.Fatalf("PruneVolumes: %v", err)
@@ -460,13 +461,13 @@ func TestPruneVolumesDryRunWarnsOnReferencedVolume(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{staleHomeHandle(referenced), staleHomeHandle(sibling)},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	ui := &termiotest.Mock{}
 	r, err := PruneVolumes(context.Background(), PruneState{
-		ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msb.MockSandboxHandle{}},
+		ToPrune: map[state.Key]msb.SandboxHandle{{Slug: slug, Agent: ""}: &msbtest.MockSandboxHandle{}},
 	}, true, ui)
 	if err != nil {
 		t.Fatalf("PruneVolumes: %v", err)
@@ -560,7 +561,7 @@ func TestPruneVolumesKeepsStateCommittedAfterTheSnapshot(t *testing.T) {
 	if err := seedHomeState(key, state.HomeState{}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{staleHomeHandle(staleVolume)},
 		RemoveVolumeFn: func(_ context.Context, name string) error {
 			if name != staleVolume {
@@ -571,10 +572,10 @@ func TestPruneVolumesKeepsStateCommittedAfterTheSnapshot(t *testing.T) {
 			return seedHomeState(key, state.HomeState{HomeVolume: concurrentVol})
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	ui := &termiotest.Mock{}
 	r, err := PruneVolumes(context.Background(), PruneState{
-		ToPrune: map[state.Key]msb.SandboxHandle{key: &msb.MockSandboxHandle{}},
+		ToPrune: map[state.Key]msb.SandboxHandle{key: &msbtest.MockSandboxHandle{}},
 	}, false, ui)
 	if err != nil {
 		t.Fatalf("PruneVolumes: %v", err)
@@ -636,8 +637,8 @@ func TestRemoveStateForGoneKeysWarnsOnRemoveError(t *testing.T) {
 
 func TestCountVolumesByKeySkipsForeign(t *testing.T) {
 	handles := []msb.VolumeHandle{
-		&msb.MockVolumeHandle{Name_: "foreign-volume"},
-		&msb.MockVolumeHandle{Name_: "agents-sandbox-home-proj-1mjusbm3wikhb0-20260812T123456"},
+		&msbtest.MockVolumeHandle{Name_: "foreign-volume"},
+		&msbtest.MockVolumeHandle{Name_: "agents-sandbox-home-proj-1mjusbm3wikhb0-20260812T123456"},
 	}
 	exists := countVolumesByKey(handles)
 	if len(exists) != 1 {
@@ -655,7 +656,7 @@ func TestPruneHomeVolumesSkipsAndContinues(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	vol := func(name string) msb.VolumeHandle {
-		return &msb.MockVolumeHandle{Name_: name, CreatedAt_: old}
+		return &msbtest.MockVolumeHandle{Name_: name, CreatedAt_: old}
 	}
 	const (
 		foreign = "foreign-volume"
@@ -666,7 +667,7 @@ func TestPruneHomeVolumesSkipsAndContinues(t *testing.T) {
 	)
 	handles := []msb.VolumeHandle{vol(foreign), vol(kept), vol(ref), vol(fail), vol(ok)}
 
-	client := &msb.MockMsbClient{RemoveVolumeFn: func(_ context.Context, name string) error {
+	client := &msbtest.MockMsbClient{RemoveVolumeFn: func(_ context.Context, name string) error {
 		if name == fail {
 			return errors.New("boom")
 		}
@@ -674,9 +675,9 @@ func TestPruneHomeVolumesSkipsAndContinues(t *testing.T) {
 	}}
 
 	pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
-		{Slug: "ref-1mjusbm3wikhb0"}:  &msb.MockSandboxHandle{},
-		{Slug: "fail-1mjusbm3wikhb0"}: &msb.MockSandboxHandle{},
-		{Slug: "ok-1mjusbm3wikhb0"}:   &msb.MockSandboxHandle{},
+		{Slug: "ref-1mjusbm3wikhb0"}:  &msbtest.MockSandboxHandle{},
+		{Slug: "fail-1mjusbm3wikhb0"}: &msbtest.MockSandboxHandle{},
+		{Slug: "ok-1mjusbm3wikhb0"}:   &msbtest.MockSandboxHandle{},
 	}}
 	references := map[string][]state.Key{ref: {{Slug: "still-active"}}}
 	ui := &termiotest.Mock{}
@@ -712,12 +713,12 @@ func TestPruneHomeVolumesSkipsAndContinues(t *testing.T) {
 // turn it into a prune candidate.
 func TestPruneHomeVolumesSkipsForeignEvenWithEmptyKey(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
+	client := &msbtest.MockMsbClient{}
 	handles := []msb.VolumeHandle{
-		&msb.MockVolumeHandle{Name_: "foreign-volume", CreatedAt_: time.Now()},
+		&msbtest.MockVolumeHandle{Name_: "foreign-volume", CreatedAt_: time.Now()},
 	}
 	pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
-		{}: &msb.MockSandboxHandle{},
+		{}: &msbtest.MockSandboxHandle{},
 	}}
 	report := &VolumeReport{}
 
@@ -805,9 +806,9 @@ func warnContains(warnings []string, substr string) bool {
 // prefix-free volume are both classified, and a foreign name is not.
 func TestCountVolumesByKeyBothSchemes(t *testing.T) {
 	handles := []msb.VolumeHandle{
-		&msb.MockVolumeHandle{Name_: "agents-sandbox-home-myproj-1mjusbm3wikhb0-opencode-20260812T123456"},
-		&msb.MockVolumeHandle{Name_: "myproj-1mjusbm3wikhb0-opencode-20260812T123457"},
-		&msb.MockVolumeHandle{Name_: "some-other-volume"},
+		&msbtest.MockVolumeHandle{Name_: "agents-sandbox-home-myproj-1mjusbm3wikhb0-opencode-20260812T123456"},
+		&msbtest.MockVolumeHandle{Name_: "myproj-1mjusbm3wikhb0-opencode-20260812T123457"},
+		&msbtest.MockVolumeHandle{Name_: "some-other-volume"},
 	}
 
 	exists := countVolumesByKey(handles)

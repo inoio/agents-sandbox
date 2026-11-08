@@ -16,6 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
@@ -32,7 +33,7 @@ func TestStopOrKillProjectVM(t *testing.T) {
 	actionFailed := errors.New("action failed")
 	cases := []struct {
 		name      string
-		handle    *msb.MockSandboxHandle // nil: no project VM
+		handle    *msbtest.MockSandboxHandle // nil: no project VM
 		lookupErr error
 		action    string
 		remove    bool
@@ -56,21 +57,21 @@ func TestStopOrKillProjectVM(t *testing.T) {
 		},
 		{
 			name:      "running VM is stopped under its resolved name",
-			handle:    &msb.MockSandboxHandle{Name_: "resolved-name", Status_: msb.SandboxStatusRunning},
+			handle:    &msbtest.MockSandboxHandle{Name_: "resolved-name", Status_: msb.SandboxStatusRunning},
 			action:    "stop",
 			wantActed: true,
 			wantInfo:  "stopped project VM: resolved-name",
 		},
 		{
 			name:      "running VM is killed",
-			handle:    &msb.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning},
+			handle:    &msbtest.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning},
 			action:    "kill",
 			wantActed: true,
 			wantInfo:  "killed project VM: vm",
 		},
 		{
 			name:        "running VM is stopped and removed",
-			handle:      &msb.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning},
+			handle:      &msbtest.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning},
 			action:      "stop",
 			remove:      true,
 			wantActed:   true,
@@ -79,7 +80,7 @@ func TestStopOrKillProjectVM(t *testing.T) {
 		},
 		{
 			name: "failed removal after a stop warns",
-			handle: &msb.MockSandboxHandle{
+			handle: &msbtest.MockSandboxHandle{
 				Name_: "vm", Status_: msb.SandboxStatusRunning, RemoveErr: errors.New("remove failed"),
 			},
 			action:    "stop",
@@ -89,7 +90,7 @@ func TestStopOrKillProjectVM(t *testing.T) {
 		},
 		{
 			name:      "failed stop keeps its cause and removes nothing",
-			handle:    &msb.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning},
+			handle:    &msbtest.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning},
 			action:    "stop",
 			remove:    true,
 			actionErr: actionFailed,
@@ -106,7 +107,7 @@ func TestStopOrKillProjectVM(t *testing.T) {
 		},
 		{
 			name: "failed removal of an inactive VM warns",
-			handle: &msb.MockSandboxHandle{
+			handle: &msbtest.MockSandboxHandle{
 				Name_:     "vm",
 				Status_:   msb.SandboxStatusStopped,
 				RemoveErr: errors.New("remove failed"),
@@ -126,7 +127,7 @@ func TestStopOrKillProjectVM(t *testing.T) {
 		},
 		{
 			name:       "dry run stop",
-			handle:     &msb.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning},
+			handle:     &msbtest.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning},
 			action:     "stop",
 			dryRun:     true,
 			wantInfo:   "dry-run: Would stop project VM: vm",
@@ -134,7 +135,7 @@ func TestStopOrKillProjectVM(t *testing.T) {
 		},
 		{
 			name:     "dry run kill with removal",
-			handle:   &msb.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning},
+			handle:   &msbtest.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning},
 			action:   "kill",
 			remove:   true,
 			dryRun:   true,
@@ -142,13 +143,13 @@ func TestStopOrKillProjectVM(t *testing.T) {
 		},
 		{
 			name:    "paused VM is refused",
-			handle:  &msb.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusPaused},
+			handle:  &msbtest.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusPaused},
 			action:  "stop",
 			wantErr: func(err error) bool { return strings.Contains(err.Error(), `cannot stop paused sandbox "vm"`) },
 		},
 		{
 			name:   "unknown status is refused",
-			handle: &msb.MockSandboxHandle{Name_: "vm", Status_: "future-status"},
+			handle: &msbtest.MockSandboxHandle{Name_: "vm", Status_: "future-status"},
 			action: "kill",
 			wantErr: func(err error) bool {
 				return strings.Contains(err.Error(), `cannot kill sandbox "vm" with unexpected status "future-status"`)
@@ -158,7 +159,7 @@ func TestStopOrKillProjectVM(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ui := termiotest.NewTestMock(t)
-			client := &msb.MockMsbClient{}
+			client := &msbtest.MockMsbClient{}
 			switch {
 			case tc.lookupErr != nil:
 				client.SetGetSandboxErr(tc.lookupErr)
@@ -220,7 +221,7 @@ func TestStopOrKillProjectVMInactiveWithoutRemoveLeavesState(t *testing.T) {
 		t.Run(string(status), func(t *testing.T) {
 			ui := termiotest.NewTestMock(t)
 			handle := inactiveHandle(status)
-			client := &msb.MockMsbClient{}
+			client := &msbtest.MockMsbClient{}
 			client.SetGotSandbox(handle)
 
 			err := stopOrKillProjectVM(context.Background(), false, false, &ui, testVMKey(), "stop", "Stopping",
@@ -245,7 +246,7 @@ func TestStopOrKillProjectVMInactiveRemoveRemovesState(t *testing.T) {
 		t.Run(string(status), func(t *testing.T) {
 			ui := termiotest.NewTestMock(t)
 			handle := inactiveHandle(status)
-			client := &msb.MockMsbClient{}
+			client := &msbtest.MockMsbClient{}
 			client.SetGotSandbox(handle)
 
 			err := stopOrKillProjectVM(context.Background(), true, false, &ui, testVMKey(), "stop", "Stopping",
@@ -281,15 +282,15 @@ func TestStopAndKillProjectVMRunTheirAction(t *testing.T) {
 		t.Run(command.name, func(t *testing.T) {
 			configpathstest.WithMockConfigPaths(t)
 			t.Chdir(testutil.InitRepo(t))
-			handle := &msb.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning}
+			handle := &msbtest.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning}
 			if command.name == "stop" {
 				handle.StopErr = errVMSentinel
 			} else {
 				handle.KillErr = errVMSentinel
 			}
-			client := &msb.MockMsbClient{}
+			client := &msbtest.MockMsbClient{}
 			client.SetGotSandbox(handle)
-			resolutions := msb.WithCountingMsbMock(t, client)
+			resolutions := msbtest.WithCountingMsbMock(t, client)
 			ui := termiotest.NewTestMock(t)
 
 			err := command.run(context.Background(), configpaths.Get(), client, false, false, &ui, "opencode")
@@ -315,7 +316,7 @@ func TestStopAndKillProjectVMRejectAnUnknownAgent(t *testing.T) {
 			err := command.run(
 				context.Background(),
 				configpaths.Get(),
-				&msb.MockMsbClient{},
+				&msbtest.MockMsbClient{},
 				false,
 				false,
 				&ui,
@@ -338,7 +339,7 @@ func TestStopKillProjectVMErrorsWhenIdentityUnresolvable(t *testing.T) {
 		t.Run(action.name, func(t *testing.T) {
 			ui := termiotest.NewTestMock(t)
 			if err := action.run(
-				context.Background(), configpaths.Get(), &msb.MockMsbClient{}, false, false, &ui, "opencode",
+				context.Background(), configpaths.Get(), &msbtest.MockMsbClient{}, false, false, &ui, "opencode",
 			); err == nil {
 				t.Fatal("succeeded with an unresolvable identity, want an error")
 			}
@@ -363,7 +364,7 @@ func TestStopKillProjectVMAdoptionFailureFailsClosed(t *testing.T) {
 	}
 	testutil.WriteFile(t, legacyDir, "state.yaml", `": [`)
 
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 
 	for _, action := range stopAndKillCommands {
 		t.Run(action.name, func(t *testing.T) {
@@ -394,11 +395,11 @@ func TestStopKillProjectVMDryRunLeavesLegacyState(t *testing.T) {
 		t.Fatalf("seed legacy state: %v", err)
 	}
 
-	client := &msb.MockMsbClient{}
+	client := &msbtest.MockMsbClient{}
 	client.GetSandboxFn = func(context.Context, string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
 	for _, action := range stopAndKillCommands {
 		t.Run(action.name, func(t *testing.T) {
@@ -481,8 +482,8 @@ func failingStopFn(t *testing.T) func(msb.SandboxHandle, context.Context) error 
 }
 
 // inactiveHandle builds a mock handle in the given inactive status.
-func inactiveHandle(status msb.SandboxStatus) *msb.MockSandboxHandle {
-	return &msb.MockSandboxHandle{Name_: "vm", Status_: status}
+func inactiveHandle(status msb.SandboxStatus) *msbtest.MockSandboxHandle {
+	return &msbtest.MockSandboxHandle{Name_: "vm", Status_: status}
 }
 
 // errVMSentinel is the cause a failing stop/kill function returns, so a test can

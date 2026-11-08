@@ -12,6 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
@@ -21,7 +22,7 @@ import (
 func withAutoPruneMocks(t *testing.T) {
 	t.Helper()
 	configpathstest.WithMockConfigPaths(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 	dockertest.WithNoopDockerMock(t)
 }
 
@@ -45,7 +46,7 @@ func TestAutoPruneWarnsOnPruneError(t *testing.T) {
 	// autoPruneOnce has no production reset hook, so reset it directly to drive
 	// the single-shot body through the failure branch.
 	autoPruneOnce = sync.Once{}
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
 			return nil, errors.New("boom")
 		},
@@ -80,13 +81,13 @@ func TestAutoPruneDefaultThresholdLiteral(t *testing.T) {
 func TestAutoPruneZeroThresholdKeepsFreshStoppedVM(t *testing.T) {
 	autoPruneOnce = sync.Once{}
 	configpathstest.WithMockConfigPaths(t)
-	fresh := &msb.MockSandboxHandle{
+	fresh := &msbtest.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now(),
 	}
-	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{fresh}}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{Sandboxes: []msb.SandboxHandle{fresh}}
+	msbtest.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
 	testUI := termiotest.NewTestMock(t)
 

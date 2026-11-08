@@ -9,7 +9,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
@@ -42,7 +42,7 @@ func TestVolumeMigrateRebuildIsDeprecatedNoOp(t *testing.T) {
 	initTestProjectDir(t)
 	configpathstest.WithMockConfigPaths(t)
 	ui := &termiotest.Mock{}
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	doctortest.MockedCheckAll(t, true)
 	withMockAgentVersion(t, "0.0.0-test")
 	dockertest.WithNoopDockerMock(t)
@@ -52,7 +52,7 @@ func TestVolumeMigrateRebuildIsDeprecatedNoOp(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed state: %v", err)
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	root := buildRootCmd(ui)
 	root.SetOut(ui.StdOut())
@@ -78,7 +78,7 @@ func TestVolumeOpsRebuildDeprecatedAcrossOps(t *testing.T) {
 			initTestProjectDir(t)
 			configpathstest.WithMockConfigPaths(t)
 			ui := &termiotest.Mock{}
-			mock := &msb.MockMsbClient{}
+			mock := &msbtest.MockMsbClient{}
 			doctortest.MockedCheckAll(t, true)
 			withMockAgentVersion(t, "0.0.0-test")
 			dockertest.WithNoopDockerMock(t)
@@ -88,7 +88,7 @@ func TestVolumeOpsRebuildDeprecatedAcrossOps(t *testing.T) {
 			}); err != nil {
 				t.Fatalf("seed state: %v", err)
 			}
-			msb.WithMsbMock(t, mock)
+			msbtest.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
 			root.SetOut(ui.StdOut())

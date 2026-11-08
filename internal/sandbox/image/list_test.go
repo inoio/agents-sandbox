@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 func TestImageSize(t *testing.T) {
@@ -34,25 +35,25 @@ func TestImageSize(t *testing.T) {
 }
 
 func TestListImagesIncludesBothSchemes(t *testing.T) {
-	mockClient := &msb.MockMsbClient{
+	mockClient := &msbtest.MockMsbClient{
 		Images: []msb.ImageHandle{
-			msb.MockImageHandle{
+			msbtest.MockImageHandle{
 				Reference_:      "agents-sandbox/runner-proj-1mjusbm3wikhb0:opencode-latest",
 				ManifestDigest_: "sha256:abc123",
 				SizeBytes_:      int64Ptr(1024 * 1024 * 1024),
 				CreatedAt_:      time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
 			},
-			msb.MockImageHandle{
+			msbtest.MockImageHandle{
 				Reference_:      "otherproj-1mjusbm3wikhb0:opencode-latest",
 				ManifestDigest_: "sha256:def789",
 			},
-			msb.MockImageHandle{
+			msbtest.MockImageHandle{
 				Reference_:      "docker.io/library/foo:1",
 				ManifestDigest_: "sha256:foreign",
 			},
 		},
 	}
-	msb.WithMsbMock(t, mockClient)
+	msbtest.WithMsbMock(t, mockClient)
 
 	result, err := ListImages(context.Background())
 	if err != nil {
@@ -82,13 +83,13 @@ func TestListImagesIncludesBothSchemes(t *testing.T) {
 }
 
 func TestListImagesExcludesRepositoryRefs(t *testing.T) {
-	mockClient := &msb.MockMsbClient{
+	mockClient := &msbtest.MockMsbClient{
 		Images: []msb.ImageHandle{
-			msb.MockImageHandle{Reference_: "docker.io/library/foo:1", ManifestDigest_: "sha256:foo"},
-			msb.MockImageHandle{Reference_: "ghcr.io/acme/app:v2", ManifestDigest_: "sha256:app"},
+			msbtest.MockImageHandle{Reference_: "docker.io/library/foo:1", ManifestDigest_: "sha256:foo"},
+			msbtest.MockImageHandle{Reference_: "ghcr.io/acme/app:v2", ManifestDigest_: "sha256:app"},
 		},
 	}
-	msb.WithMsbMock(t, mockClient)
+	msbtest.WithMsbMock(t, mockClient)
 
 	result, err := ListImages(context.Background())
 	if err != nil {
@@ -103,17 +104,17 @@ func TestListImagesExcludesRepositoryRefs(t *testing.T) {
 // filter: a single-segment reference without the launcher's slug hash (a
 // manually loaded image) is not reported, while a hash-bearing runner image is.
 func TestListImagesOmitsSingleSegmentRefsWithoutHash(t *testing.T) {
-	mockClient := &msb.MockMsbClient{
+	mockClient := &msbtest.MockMsbClient{
 		Images: []msb.ImageHandle{
-			msb.MockImageHandle{Reference_: "manualimage:opencode-latest", ManifestDigest_: "sha256:manual"},
-			msb.MockImageHandle{
+			msbtest.MockImageHandle{Reference_: "manualimage:opencode-latest", ManifestDigest_: "sha256:manual"},
+			msbtest.MockImageHandle{
 				Reference_:      "agents-sandbox/runner-manualimage:latest",
 				ManifestDigest_: "sha256:legacy-manual",
 			},
-			msb.MockImageHandle{Reference_: "proj-1mjusbm3wikhb0:opencode-latest", ManifestDigest_: "sha256:owned"},
+			msbtest.MockImageHandle{Reference_: "proj-1mjusbm3wikhb0:opencode-latest", ManifestDigest_: "sha256:owned"},
 		},
 	}
-	msb.WithMsbMock(t, mockClient)
+	msbtest.WithMsbMock(t, mockClient)
 
 	result, err := ListImages(context.Background())
 	if err != nil {
@@ -132,10 +133,10 @@ func TestListImagesOmitsSingleSegmentRefsWithoutHash(t *testing.T) {
 
 func TestListImagesReturnsErrorFromMsB(t *testing.T) {
 	wantMsg := "connection refused"
-	mockClient := &msb.MockMsbClient{
+	mockClient := &msbtest.MockMsbClient{
 		ListImagesErr: errors.New(wantMsg),
 	}
-	msb.WithMsbMock(t, mockClient)
+	msbtest.WithMsbMock(t, mockClient)
 
 	_, err := ListImages(context.Background())
 	if err == nil {
@@ -150,8 +151,8 @@ func TestListImagesReturnsErrorFromMsB(t *testing.T) {
 }
 
 func TestListImagesEmptyReturnsNil(t *testing.T) {
-	mockClient := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mockClient)
+	mockClient := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mockClient)
 
 	result, err := ListImages(context.Background())
 	if err != nil {

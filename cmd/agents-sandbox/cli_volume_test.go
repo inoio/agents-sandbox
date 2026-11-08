@@ -20,6 +20,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -51,7 +52,7 @@ func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 	initTestProjectDir(t)
 	configpathstest.WithMockConfigPaths(t)
 	ui := &termiotest.Mock{}
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 
 	doctortest.MockedCheckAll(t, !tc.preflightFail)
 	withMockAgentVersion(t, "0.0.0-test")
@@ -76,11 +77,11 @@ func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 			case tc.prefillErr:
 				return nil, errBoom
 			case tc.copyErr && calls == 2:
-				return msb.NewMockSandbox(msb.SandboxOpts{ExecErr: errBoom}), nil
+				return msbtest.NewMockSandbox(msbtest.SandboxOpts{ExecErr: errBoom}), nil
 			case tc.editCreateErr && calls == 2:
 				return nil, errBoom
 			default:
-				return &msb.MockSandbox{}, nil
+				return &msbtest.MockSandbox{}, nil
 			}
 		}
 	}
@@ -92,7 +93,7 @@ func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 	if tc.withActive {
 		mock.Sandboxes = append(mock.Sandboxes, mkActiveVM(slug))
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	if tc.writeState {
 		homeVolume := fmt.Sprintf("agents-sandbox-home-%s-20260814T132349", slug)
@@ -194,7 +195,7 @@ func TestVolumeOpsDryRunDoesNotEnsureImage(t *testing.T) {
 			}
 
 			createVolumeCalls := 0
-			msb.WithMsbMock(t, &msb.MockMsbClient{
+			msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 				CreateVolumeFn: func(context.Context, string, msb.VolumeSpec) (msb.VolumeHandle, error) {
 					createVolumeCalls++
 					return nil, errors.New("CreateVolume must not be called during --dry-run")
@@ -251,8 +252,8 @@ func TestVolumeOpsUseCheckoutSlug(t *testing.T) {
 
 	t.Chdir(secondClone)
 	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdReset, "--dry-run")
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
+	mock := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mock)
 
 	key := state.Key{Slug: secondIdentity.CheckoutSlug, Agent: defaultAgentName}
 	if err := seedHomeState(key, state.HomeState{
@@ -285,8 +286,8 @@ func TestVolumeOpsKeepLegacySlugWhileMigrationPending(t *testing.T) {
 	t.Chdir(clone)
 
 	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdReset, "--dry-run")
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
+	mock := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mock)
 
 	// A dry run must not ensure (inspect or build) the runner image: the
 	// would-do message needs only the state-derived old volume.
@@ -342,8 +343,8 @@ func TestVolumeOpAppliesLegacyIdentity(t *testing.T) {
 	t.Chdir(clone)
 
 	cmd, _ := setupCommandFixtures(t, cmdVolume, cmdReset)
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
+	mock := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mock)
 
 	// Capture the runner image the op ensured, to observe the key the op worked
 	// under.
@@ -387,8 +388,8 @@ func TestVolumeOpAdoptionFailureFailsClosed(t *testing.T) {
 	t.Chdir(clone)
 
 	cmd, _ := setupCommandFixtures(t, cmdVolume, cmdReset)
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
+	mock := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mock)
 
 	writeUnparsableLegacyState(t, state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName})
 
@@ -494,7 +495,7 @@ func TestVolumeMigrateWithPositionalArg(t *testing.T) {
 	initTestProjectDir(t)
 	configpathstest.WithMockConfigPaths(t)
 	ui := &termiotest.Mock{}
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	doctortest.MockedCheckAll(t, true)
 	withMockAgentVersion(t, "0.0.0-test")
 	dockertest.WithNoopDockerMock(t)
@@ -502,7 +503,7 @@ func TestVolumeMigrateWithPositionalArg(t *testing.T) {
 	seedHomeState(state.Key{Slug: slug, Agent: defaultAgentName}, state.HomeState{
 		HomeVolume: fmt.Sprintf("agents-sandbox-home-%s-20260101T000000", slug),
 	})
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"volume", "migrate", "explicit-vol-name"})
@@ -543,7 +544,7 @@ func TestBuildVolumeOpsForwardsPositionalNameAndInfo(t *testing.T) {
 			}, nil
 		},
 	})
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 
 	var gotName string
 	var gotInfo image.ImageInfo
@@ -580,7 +581,7 @@ func TestVolumeOpsEnsureImageErrorWrapsCause(t *testing.T) {
 	doctortest.MockedCheckAll(t, true)
 	withMockAgentVersion(t, "0.0.0-test")
 	dockertest.WithDefaultErrorDockerMock(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 
 	cmd := buildVolumeOpsCmd(&termiotest.Mock{}, volumeOps[0])
 	err := cmd.Execute()

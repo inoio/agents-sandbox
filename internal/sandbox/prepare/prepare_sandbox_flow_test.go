@@ -27,6 +27,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtimemigration"
@@ -71,16 +72,16 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil)
-	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
-		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+	vmFS := msbtest.NewTestFS(nil)
+	connectSb := &msbtest.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
+		dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 	}}
-	sh := &msb.MockSandboxHandle{
+	sh := &msbtest.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{
@@ -88,10 +89,10 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
 	mock.SetGotSandbox(sh)
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
@@ -157,16 +158,16 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil)
-	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
-		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+	vmFS := msbtest.NewTestFS(nil)
+	connectSb := &msbtest.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
+		dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 	}}
-	sh := &msb.MockSandboxHandle{
+	sh := &msbtest.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{
@@ -174,10 +175,10 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
 	mock.SetGotSandbox(sh)
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
@@ -287,16 +288,16 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	// The msb image cache already holds the digest image (ImageGet succeeds),
 	// so EnsureImage short-circuits before exporting/loading anything. The
 	// image carries the pinned opencode version label.
-	vmFS := msb.NewTestFS(nil)
-	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
-		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+	vmFS := msbtest.NewTestFS(nil)
+	connectSb := &msbtest.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
+		dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 	}}
-	sh := &msb.MockSandboxHandle{
+	sh := &msbtest.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{
@@ -304,10 +305,10 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
 	mock.SetGotSandbox(sh)
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	// Seed home state so ResolveHomeVolume reuses the existing volume and
 	// digest matches (no image-change home-volume prompt).
@@ -379,23 +380,23 @@ func TestPrepareSandboxLoadsEnvSecretsOnce(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil)
-	createdSb := &msb.MockSandbox{
+	vmFS := msbtest.NewTestFS(nil)
+	createdSb := &msbtest.MockSandbox{
 		Name_:    vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		FSValue_: vmFS,
 		ShellOut: map[string]msb.ShellResult{
-			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+			dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 		},
 	}
 	// No sandbox handle is registered, so GetSandbox reports "not found" and
 	// PrepareSandbox takes the create path, which is what used to read the env
 	// and secret files a third time.
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn:     func(_ context.Context, _ string) error { return nil },
 		CreatedSandbox: createdSb,
-		Volumes:        []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes:        []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	if err := seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
 		HomeVolume:   "home-vol",
@@ -467,21 +468,21 @@ func TestPrepareSandboxBakesAndFingerprintsTheLoadedEnv(t *testing.T) {
 	})
 
 	key := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
-	createdSb := &msb.MockSandbox{
+	createdSb := &msbtest.MockSandbox{
 		Name_:    vm.ProjectVMName(key),
-		FSValue_: msb.NewTestFS(nil),
+		FSValue_: msbtest.NewTestFS(nil),
 		ShellOut: map[string]msb.ShellResult{
-			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+			dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 		},
 	}
 	// No sandbox handle is registered, so GetSandbox reports "not found" and
 	// PrepareSandbox creates the VM this run.
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn:     func(_ context.Context, _ string) error { return nil },
 		CreatedSandbox: createdSb,
-		Volumes:        []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes:        []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	if err := seedHomeState(key, state.HomeState{
 		HomeVolume:   "home-vol",
@@ -568,17 +569,17 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil)
-	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
-		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+	vmFS := msbtest.NewTestFS(nil)
+	connectSb := &msbtest.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
+		dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 	}}
-	sh := &msb.MockSandboxHandle{
+	sh := &msbtest.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msb.SandboxStatusStopped,
 		ConnectSb: connectSb,
 		StartSb:   connectSb,
 	}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{
@@ -586,10 +587,10 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
 	mock.SetGotSandbox(sh)
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
@@ -647,16 +648,16 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil)
-	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
-		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+	vmFS := msbtest.NewTestFS(nil)
+	connectSb := &msbtest.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
+		dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 	}}
-	sh := &msb.MockSandboxHandle{
+	sh := &msbtest.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{
@@ -664,10 +665,10 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
 	mock.SetGotSandbox(sh)
-	resolutions := msb.WithCountingMsbMock(t, mock)
+	resolutions := msbtest.WithCountingMsbMock(t, mock)
 
 	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
@@ -735,13 +736,13 @@ func TestPrepareSandboxBlocksOnPendingRuntimeHomeMigration(t *testing.T) {
 	})
 
 	var createdVolumes int
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			createdVolumes++
-			return &msb.MockVolumeHandle{Name_: name}, nil
+			return &msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	seedHomeState(
 		state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"},
@@ -798,16 +799,16 @@ func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil)
-	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
-		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+	vmFS := msbtest.NewTestFS(nil)
+	connectSb := &msbtest.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
+		dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 	}}
-	sh := &msb.MockSandboxHandle{
+	sh := &msbtest.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{
@@ -815,10 +816,10 @@ func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
 	mock.SetGotSandbox(sh)
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
@@ -897,22 +898,22 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil)
-	createdSb := &msb.MockSandbox{
+	vmFS := msbtest.NewTestFS(nil)
+	createdSb := &msbtest.MockSandbox{
 		Name_:    vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		FSValue_: vmFS,
 		ShellOut: map[string]msb.ShellResult{
-			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+			dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 		},
 	}
 	// No sandbox handle is registered, so GetSandbox reports "not found" and
 	// PrepareSandbox takes the create path (boot == vm.VMBootCreated).
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn:     func(_ context.Context, _ string) error { return nil },
 		CreatedSandbox: createdSb,
-		Volumes:        []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes:        []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	if err := seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, state.HomeState{
 		HomeVolume:   "home-vol",
@@ -985,20 +986,20 @@ func TestPrepareSandboxRecordsBakedAgentVersion(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil)
-	createdSb := &msb.MockSandbox{
+	vmFS := msbtest.NewTestFS(nil)
+	createdSb := &msbtest.MockSandbox{
 		Name_:    vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		FSValue_: vmFS,
 		ShellOut: map[string]msb.ShellResult{
-			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+			dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 		},
 	}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn:     func(_ context.Context, _ string) error { return nil },
 		CreatedSandbox: createdSb,
-		Volumes:        []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes:        []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	k := state.Key{Slug: slug, Agent: "opencode"}
 	// No agent_version recorded: recording must fill it from the baked image.
@@ -1058,12 +1059,12 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 	// The existing VM's persisted mounts carry the previous tmp size. Its image
 	// and the seeded env/secret/network/mount fingerprints match the run, so the
 	// mount read-back is the only thing that can drive the recreate.
-	shellOut := map[string]msb.ShellResult{dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil)}
-	existing := &msb.MockSandboxHandle{
+	shellOut := map[string]msb.ShellResult{dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil)}
+	existing := &msbtest.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(k),
 		Status_:   msb.SandboxStatusRunning,
 		Cfg:       &msb.SandboxConfig{},
-		ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil), ShellOut: shellOut},
+		ConnectSb: &msbtest.MockSandbox{Name_: "vm", FSValue_: msbtest.NewTestFS(nil), ShellOut: shellOut},
 		Mounts: map[string]msb.MountConfig{
 			mounts.TmpMountPath: msb.Mount.Tmpfs(msb.TmpfsOptions{SizeMiB: 1024}),
 			mounts.WorkspaceMountPath: msb.Mount.Bind(
@@ -1073,11 +1074,11 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 			mounts.VMHomeDir: msb.Mount.Named("home-vol", msb.MountOptions{}),
 		},
 	}
-	createdSb := &msb.MockSandbox{Name_: vm.ProjectVMName(k), FSValue_: msb.NewTestFS(nil), ShellOut: shellOut}
-	mock := &msb.MockMsbClient{
+	createdSb := &msbtest.MockSandbox{Name_: vm.ProjectVMName(k), FSValue_: msbtest.NewTestFS(nil), ShellOut: shellOut}
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn:     func(_ context.Context, _ string) error { return nil },
 		CreatedSandbox: createdSb,
-		Volumes:        []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes:        []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
 	// After the VM is destroyed, GetSandbox must report it gone so the create path
 	// runs; a static handle would leave the mock attaching to the old VM.
@@ -1087,7 +1088,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 		}
 		return existing, nil
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	opts := options.RunOptions{Agent: "opencode", TmpSize: "2G"}
 	seedUI := termiotest.NewTestMock(t)
@@ -1145,11 +1146,11 @@ func TestPrepareSandboxRunsDefaultAgentDaemon(t *testing.T) {
 
 	installPrepareSandboxDockerMock(t)
 	mock := installPrepareSandboxMSBMock(t)
-	created, ok := mock.CreatedSandbox.(*msb.MockSandbox)
+	created, ok := mock.CreatedSandbox.(*msbtest.MockSandbox)
 	if !ok {
-		t.Fatalf("created sandbox is %T, want *msb.MockSandbox", mock.CreatedSandbox)
+		t.Fatalf("created sandbox is %T, want *msbtest.MockSandbox", mock.CreatedSandbox)
 	}
-	detached := &[]msb.MockDetachedCall{}
+	detached := &[]msbtest.MockDetachedCall{}
 	created.ExecDetachedCalls = detached
 	seedMatchingHomeState(t, state.Key{Slug: git.MustCheckoutSlug(), Agent: agent.DefaultAgentName})
 
@@ -1341,10 +1342,10 @@ func TestPrepareSandboxMigratesOnFirstRun(t *testing.T) {
 	checkoutKey := state.Key{Slug: identity.CheckoutSlug, Agent: "opencode"}
 	seedMatchingHomeState(t, legacyKey)
 
-	legacyHandle := &msb.MockSandboxHandle{
+	legacyHandle := &msbtest.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(legacyKey),
 		Status_:   msb.SandboxStatusRunning,
-		ConnectSb: msb.NewMockSandbox(msb.SandboxOpts{}),
+		ConnectSb: msbtest.NewMockSandbox(msbtest.SandboxOpts{}),
 	}
 	inspectedTag := installPrepareSandboxDockerMock(t)
 	ui := termiotest.NewTestMock(t)
@@ -1446,7 +1447,7 @@ func TestPrepareSandboxDryRunVMSkipsTheVM(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{
@@ -1454,9 +1455,9 @@ func TestPrepareSandboxDryRunVMSkipsTheVM(t *testing.T) {
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
@@ -1517,7 +1518,7 @@ func TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome(t *testing.T) {
 		},
 	})
 
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{
@@ -1527,10 +1528,10 @@ func TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome(t *testing.T) {
 		},
 		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			t.Errorf("dry-run-vm created home volume %q", name)
-			return &msb.MockVolumeHandle{Name_: name}, nil
+			return &msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{}), true, &ui)
@@ -1558,7 +1559,7 @@ func TestPrepareSandboxDryRunVMServeOnlyPublishesPort(t *testing.T) {
 
 	slug := git.MustCheckoutSlug()
 	k := state.Key{Slug: slug, Agent: "opencode"}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{
@@ -1566,9 +1567,9 @@ func TestPrepareSandboxDryRunVMServeOnlyPublishesPort(t *testing.T) {
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	if err := seedHomeState(k, state.HomeState{
 		HomeVolume:   "home-vol",
@@ -1626,7 +1627,7 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{
@@ -1634,9 +1635,9 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	seedHomeState(
 		state.Key{Slug: slug, Agent: "opencode"},
@@ -1790,7 +1791,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 			cause: errors.New("cannot resolve opencode version"),
 			arrange: func(t *testing.T, cause error) arrangement {
 				t.Chdir(testutil.InitRepo(t))
-				msb.WithMsbMock(t, &msb.MockMsbClient{})
+				msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 				withMockBuildVersionResolver(
 					t,
 					func(context.Context, agent.Agent, string) (string, error) { return "", cause },
@@ -1808,7 +1809,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 			arrange: func(t *testing.T, cause error) arrangement {
 				t.Chdir(testutil.InitRepo(t))
 				stubPrepareSandboxImage(t)
-				msb.WithMsbMock(t, &msb.MockMsbClient{
+				msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 					ImageGetFn: func(context.Context, string) error { return nil },
 					CreateVolumeFn: func(context.Context, string, msb.VolumeSpec) (msb.VolumeHandle, error) {
 						return nil, cause
@@ -1836,9 +1837,9 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 				testutil.WriteFile(t, configpaths.Get().ProjectConfigDir(), "config.yaml",
 					"home:\n  .tool/x:\n    source: 123\n")
 				stubPrepareSandboxImage(t)
-				msb.WithMsbMock(t, &msb.MockMsbClient{
+				msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 					ImageGetFn: func(context.Context, string) error { return nil },
-					Volumes:    []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+					Volumes:    []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 				})
 				seedReusableHome(t, projectKey(), "sha256:abc123")
 				return arrangement{
@@ -1855,9 +1856,9 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 				stubPrepareSandboxImage(t)
 				k := projectKey()
 				existing := existingProjectVMHandle(k)
-				msb.WithMsbMock(t, &msb.MockMsbClient{
+				msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 					ImageGetFn:   func(context.Context, string) error { return nil },
-					Volumes:      []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+					Volumes:      []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 					GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) { return existing, nil },
 				})
 				// An empty NetworkState counts as changed against the live VM, so
@@ -1883,9 +1884,9 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 				stubPrepareSandboxImage(t)
 				k := projectKey()
 				existing := existingProjectVMHandle(k)
-				msb.WithMsbMock(t, &msb.MockMsbClient{
+				msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 					ImageGetFn:   func(context.Context, string) error { return nil },
-					Volumes:      []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+					Volumes:      []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 					GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) { return existing, nil },
 					CreateVolumeFn: func(context.Context, string, msb.VolumeSpec) (msb.VolumeHandle, error) {
 						return nil, cause
@@ -1912,9 +1913,9 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 			arrange: func(t *testing.T, cause error) arrangement {
 				t.Chdir(testutil.InitRepo(t))
 				stubPrepareSandboxImage(t)
-				msb.WithMsbMock(t, &msb.MockMsbClient{
+				msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 					ImageGetFn:   func(context.Context, string) error { return nil },
-					Volumes:      []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+					Volumes:      []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 					GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) { return nil, cause },
 				})
 				seedReusableHome(t, projectKey(), "sha256:abc123")
@@ -1947,16 +1948,16 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 				t.Chdir(testutil.InitRepo(t))
 				stubPrepareSandboxImage(t)
 				k := projectKey()
-				mock := &msb.MockMsbClient{
+				mock := &msbtest.MockMsbClient{
 					ImageGetFn: func(context.Context, string) error { return nil },
-					Volumes:    []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+					Volumes:    []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 				}
-				mock.SetGotSandbox(&msb.MockSandboxHandle{
+				mock.SetGotSandbox(&msbtest.MockSandboxHandle{
 					Name_:     vm.ProjectVMName(k),
 					Status_:   msb.SandboxStatusRunning,
-					ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil), ShellErr: cause},
+					ConnectSb: &msbtest.MockSandbox{Name_: "vm", FSValue_: msbtest.NewTestFS(nil), ShellErr: cause},
 				})
-				msb.WithMsbMock(t, mock)
+				msbtest.WithMsbMock(t, mock)
 				seedReusableHome(t, k, "sha256:abc123")
 				return arrangement{
 					opts: sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -2045,21 +2046,21 @@ func installPrepareSandboxDockerMock(t *testing.T) *string {
 // installPrepareSandboxMSBMock installs an msb mock whose project VM does not
 // exist yet (so PrepareSandbox takes the create path) and whose created sandbox
 // is usable by the daemon step.
-func installPrepareSandboxMSBMock(t *testing.T) *msb.MockMsbClient {
+func installPrepareSandboxMSBMock(t *testing.T) *msbtest.MockMsbClient {
 	t.Helper()
-	createdSb := &msb.MockSandbox{
+	createdSb := &msbtest.MockSandbox{
 		Name_:    "created-vm",
-		FSValue_: msb.NewTestFS(nil),
+		FSValue_: msbtest.NewTestFS(nil),
 		ShellOut: map[string]msb.ShellResult{
-			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+			dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 		},
 	}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn:     func(_ context.Context, _ string) error { return nil },
 		CreatedSandbox: createdSb,
-		Volumes:        []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes:        []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	return mock
 }
 
@@ -2079,7 +2080,7 @@ func seedMatchingHomeState(t *testing.T, k state.Key) {
 
 // createdProjectVMConfig returns the spec the named project VM was created
 // with. Other CreateSandbox calls (a home-volume prefill) are ignored.
-func createdProjectVMConfig(t *testing.T, mock *msb.MockMsbClient, name string) msb.SandboxSpec {
+func createdProjectVMConfig(t *testing.T, mock *msbtest.MockMsbClient, name string) msb.SandboxSpec {
 	t.Helper()
 	for _, call := range mock.CreatedSandboxCalls {
 		if call.Name == name {
@@ -2092,7 +2093,7 @@ func createdProjectVMConfig(t *testing.T, mock *msb.MockMsbClient, name string) 
 
 // createdProjectVMNames returns the names of the project-VM-shaped CreateSandbox
 // calls, filtering out the home-volume prefill task sandbox.
-func createdProjectVMNames(mock *msb.MockMsbClient) []string {
+func createdProjectVMNames(mock *msbtest.MockMsbClient) []string {
 	var names []string
 	for _, name := range mock.CreatedSandboxes {
 		info := naming.ParseVMName(name)
@@ -2130,12 +2131,12 @@ func stubPrepareSandboxImage(t *testing.T) {
 
 // existingProjectVMHandle is a running project VM handle backed by an empty
 // sandbox, so the reconfig decision reads a live VM without any Docker or KVM.
-func existingProjectVMHandle(k state.Key) *msb.MockSandboxHandle {
-	return &msb.MockSandboxHandle{
+func existingProjectVMHandle(k state.Key) *msbtest.MockSandboxHandle {
+	return &msbtest.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(k),
 		Status_:   msb.SandboxStatusRunning,
 		Cfg:       &msb.SandboxConfig{},
-		ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil)},
+		ConnectSb: &msbtest.MockSandbox{Name_: "vm", FSValue_: msbtest.NewTestFS(nil)},
 	}
 }
 
@@ -2176,7 +2177,7 @@ func mustIdentity(t testing.TB, cwd string) git.Identity {
 // are exactly one launch of binary under the helper marker; the marker shape is
 // what the kill path matches on, so the callers (dockerd, the daemon) are pinned
 // to it.
-func assertDetachedHelperLaunch(t *testing.T, calls []msb.MockDetachedCall, marker, binary string) {
+func assertDetachedHelperLaunch(t *testing.T, calls []msbtest.MockDetachedCall, marker, binary string) {
 	t.Helper()
 	if len(calls) != 1 {
 		t.Fatalf("detached calls = %+v, want one", calls)
@@ -2237,7 +2238,7 @@ func TestPrepareSandboxServeOnlyPortExhausted(t *testing.T) {
 	stubPrepareSandboxImage(t)
 
 	k := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{
@@ -2245,9 +2246,9 @@ func TestPrepareSandboxServeOnlyPortExhausted(t *testing.T) {
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	if err := seedHomeState(k, state.HomeState{
 		HomeVolume:   "home-vol",
@@ -2314,12 +2315,12 @@ func TestPrepareSandboxStopsBeforeTheVMOnAnUnapprovedRead(t *testing.T) {
 			return client.ImageInspectResult{ID: "sha256:abc123", Config: &dockerspec.DockerOCIImageConfig{}}, nil
 		},
 	})
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageGetFn:     func(_ context.Context, _ string) error { return nil },
-		CreatedSandbox: &msb.MockSandbox{FSValue_: msb.NewTestFS(nil)},
-		Volumes:        []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+		CreatedSandbox: &msbtest.MockSandbox{FSValue_: msbtest.NewTestFS(nil)},
+		Volumes:        []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "home-vol"}},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	projectDir := configpaths.Get().ProjectConfigDirAbs()
 	envFile := filepath.Join(projectDir, "env")

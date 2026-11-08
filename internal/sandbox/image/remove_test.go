@@ -10,6 +10,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -23,8 +24,8 @@ func TestRemoveImagesRefusesReferenced(t *testing.T) {
 		t.Fatalf("seed state: %v", err)
 	}
 	ref := naming.RunnerImageRef(key.Slug, key.Agent)
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 
 	err := RemoveImages(context.Background(), []string{ref}, false, &termiotest.Mock{})
 	if err == nil {
@@ -41,12 +42,12 @@ func TestRemoveImagesRefusesReferenced(t *testing.T) {
 func TestRemoveImagesRefusesImageHeldByLiveSandbox(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_: naming.LegacyVMPrefix + key.Slug + "-" + key.Agent,
 		Cfg:   &msb.SandboxConfig{Image: naming.RunnerImageRef(key.Slug, key.Agent)},
 	}
-	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{handle}}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{Sandboxes: []msb.SandboxHandle{handle}}
+	msbtest.WithMsbMock(t, client)
 
 	ref := naming.RunnerImageRef(key.Slug, key.Agent)
 	err := RemoveImages(context.Background(), []string{ref}, false, &termiotest.Mock{})
@@ -65,12 +66,12 @@ func TestRemoveImagesForceSkipsGuard(t *testing.T) {
 		t.Fatalf("seed state: %v", err)
 	}
 	ref := naming.RunnerImageRef(key.Slug, key.Agent)
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
 			return nil, errors.New("guard must not run under --force")
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
 	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
@@ -91,8 +92,8 @@ func TestRemoveImagesFailsClosedOnCorruptState(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state.yaml"), []byte("image_digest: ["), 0o600); err != nil {
 		t.Fatalf("write corrupt state: %v", err)
 	}
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 
 	if err := RemoveImages(
 		context.Background(),
@@ -109,8 +110,8 @@ func TestRemoveImagesFailsClosedOnCorruptState(t *testing.T) {
 
 func TestRemoveImagesRefusesNonRunnerRef(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 
 	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
@@ -125,8 +126,8 @@ func TestRemoveImagesRefusesNonRunnerRef(t *testing.T) {
 
 func TestRemoveImagesForceDoesNotBypassOwnershipGuard(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 
 	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
@@ -144,12 +145,12 @@ func TestRemoveImagesForceDoesNotBypassOwnershipGuard(t *testing.T) {
 // 14-character hash is a manually loaded image, not a runner image.
 func TestRemoveImagesRefusesSingleSegmentRefWithoutHash(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
 			return nil, errors.New("the ownership guard must run before the reference scan")
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
 	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
@@ -166,8 +167,8 @@ func TestRemoveImagesRefusesSingleSegmentRefWithoutHash(t *testing.T) {
 // guard, like the repository-reference guard, is not overridable by --force.
 func TestRemoveImagesForceDoesNotBypassHashOwnershipGuard(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 
 	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
@@ -184,8 +185,8 @@ func TestRemoveImagesForceDoesNotBypassHashOwnershipGuard(t *testing.T) {
 // the launcher hash keeps both reference shapes removable.
 func TestRemoveImagesAcceptsHashBearingRefsEitherScheme(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	resolutions := msb.WithCountingMsbMock(t, client)
+	client := &msbtest.MockMsbClient{}
+	resolutions := msbtest.WithCountingMsbMock(t, client)
 
 	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
@@ -206,12 +207,12 @@ func TestRemoveImagesAcceptsHashBearingRefsEitherScheme(t *testing.T) {
 
 func TestRemoveImagesGuardSurfacesScanError(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
 			return nil, errors.New("list boom")
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
 	err := RemoveImages(
 		context.Background(),
@@ -226,8 +227,8 @@ func TestRemoveImagesGuardSurfacesScanError(t *testing.T) {
 
 func TestRemoveImagesNonInteractiveRequiresConfirmation(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 
 	err := RemoveImages(
 		context.Background(),
@@ -246,10 +247,10 @@ func TestRemoveImagesNonInteractiveRequiresConfirmation(t *testing.T) {
 func TestRemoveImagesSurfacesRemoveError(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("remove boom")
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		ImageRemoveFn: func(context.Context, string, bool) error { return wantErr },
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
 	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)

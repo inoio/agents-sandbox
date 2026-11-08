@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
@@ -125,7 +126,7 @@ func TestHomeVolumeResolution_PreviewMatchesRealDecision(t *testing.T) {
 			realMock := lookupMock(tt.present, tt.transient)
 			realMock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 				created = true
-				return msb.MockVolumeHandle{Name_: name}, nil
+				return msbtest.MockVolumeHandle{Name_: name}, nil
 			}
 			dockertest.WithNoopDockerMock(t)
 			realName, _, realErr := NewManager(docker.Get()).ResolveHomeVolume(
@@ -297,7 +298,7 @@ func TestPreviewHomeVolumeTransientErrorFailsClosed(t *testing.T) {
 		if err := seedHomeState(k, state.HomeState{HomeVolume: "vol-transient"}); err != nil {
 			t.Fatal(err)
 		}
-		mock := &msb.MockMsbClient{GetVolumeFn: transient}
+		mock := &msbtest.MockMsbClient{GetVolumeFn: transient}
 
 		if _, _, err := PreviewHomeVolume(context.Background(), mock, k, "live-1"); err == nil {
 			t.Fatal("PreviewHomeVolume returned no error for a transient recorded-volume lookup, want fail-closed")
@@ -307,7 +308,7 @@ func TestPreviewHomeVolumeTransientErrorFailsClosed(t *testing.T) {
 	t.Run("recovered candidate", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
 		k := state.Key{Slug: "previewtransient", Agent: "opencode"}
-		mock := &msb.MockMsbClient{GetVolumeFn: transient}
+		mock := &msbtest.MockMsbClient{GetVolumeFn: transient}
 
 		if _, _, err := PreviewHomeVolume(context.Background(), mock, k, "live-1"); err == nil {
 			t.Fatal("PreviewHomeVolume returned no error for a transient recovery lookup, want fail-closed")
@@ -349,12 +350,12 @@ func TestPreviewHomeVolumeCorruptStateReportsCreate(t *testing.T) {
 
 // noCreateVolumeMock returns an msb mock whose GetVolume honours names, and
 // whose CreateVolume fails the test: a preview must never create a volume.
-func noCreateVolumeMock(t *testing.T, present ...string) *msb.MockMsbClient {
+func noCreateVolumeMock(t *testing.T, present ...string) *msbtest.MockMsbClient {
 	t.Helper()
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		if slices.Contains(present, name) {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		}
 		return nil, volumeNotFoundError(name)
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -40,7 +41,7 @@ import (
 func TestReadLiveProjectVMWithoutVM(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 
-	live, err := readLiveProjectVM(context.Background(), &msb.MockMsbClient{}, testVMKey(), nil, &ui)
+	live, err := readLiveProjectVM(context.Background(), &msbtest.MockMsbClient{}, testVMKey(), nil, &ui)
 	if err != nil {
 		t.Fatalf("readLiveProjectVM: %v", err)
 	}
@@ -54,7 +55,7 @@ func TestReadLiveProjectVMWithoutVM(t *testing.T) {
 func TestReadLiveProjectVMLookupError(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	lookupErr := errors.New("msb unreachable")
-	client := (&msb.MockMsbClient{}).SetGetSandboxErr(lookupErr)
+	client := (&msbtest.MockMsbClient{}).SetGetSandboxErr(lookupErr)
 
 	_, err := readLiveProjectVM(context.Background(), client, testVMKey(), nil, &ui)
 	if !errors.Is(err, lookupErr) {
@@ -73,16 +74,16 @@ func TestReadLiveProjectVMReadsAgentConfigAndDetaches(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	const configPath = "/home/dev/.config/opencode/opencode.json"
 	var detachContexts []context.Context
-	connected := &msb.MockSandbox{
-		FSValue_: msb.NewTestFS(map[string][]byte{configPath: []byte(`{"model":"m"}`)}),
+	connected := &msbtest.MockSandbox{
+		FSValue_: msbtest.NewTestFS(map[string][]byte{configPath: []byte(`{"model":"m"}`)}),
 		DetachFn: func(ctx context.Context) error {
 			detachContexts = append(detachContexts, ctx)
 			return nil
 		},
 	}
 	vmConfig := &msb.SandboxConfig{Image: "img:tag"}
-	handle := &msb.MockSandboxHandle{Cfg: vmConfig, ConnectSb: connected}
-	client := (&msb.MockMsbClient{}).SetGotSandbox(handle)
+	handle := &msbtest.MockSandboxHandle{Cfg: vmConfig, ConnectSb: connected}
+	client := (&msbtest.MockMsbClient{}).SetGotSandbox(handle)
 	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), callerContextKey{}, "caller"))
 	defer cancel()
 
@@ -116,8 +117,8 @@ func TestReadLiveProjectVMReadsAgentConfigAndDetaches(t *testing.T) {
 // only the agent config comparison is skipped.
 func TestReadLiveProjectVMConnectFailureKeepsHandle(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
-	handle := &msb.MockSandboxHandle{Cfg: &msb.SandboxConfig{}, ConnectErr: errors.New("not running")}
-	client := (&msb.MockMsbClient{}).SetGotSandbox(handle)
+	handle := &msbtest.MockSandboxHandle{Cfg: &msb.SandboxConfig{}, ConnectErr: errors.New("not running")}
+	client := (&msbtest.MockMsbClient{}).SetGotSandbox(handle)
 
 	live, err := readLiveProjectVM(context.Background(), client, testVMKey(), []string{"/x"}, &ui)
 	if err != nil {
@@ -138,11 +139,11 @@ func TestReadLiveProjectVMConnectFailureKeepsHandle(t *testing.T) {
 func TestResolveReconfigDecisionNoVMSkipsRecreate(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no VM"}
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	ui := termiotest.NewTestMock(t)
 	volumes := volume.NewManager(docker.Get())
@@ -187,9 +188,9 @@ func TestResolveReconfigDecisionNoVMSkipsRecreate(t *testing.T) {
 func TestResolveReconfigDecisionFailsWhenVMLookupFails(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.SetGetSandboxErr(errors.New("msb unreachable"))
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	ui := termiotest.NewTestMock(t)
 	volumes := volume.NewManager(docker.Get())
@@ -229,7 +230,7 @@ func TestResolveReconfigDecisionFailsWhenVMLookupFails(t *testing.T) {
 // works from the facts read up front, so it runs without an msb client at all.
 func TestResolveReconfigDecisionNeedsNoVMAccess(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 			t.Fatal("resolveReconfigDecision looked up the VM; it must plan from the facts it is given")
 			return nil, errors.New("unexpected VM lookup")
@@ -238,7 +239,7 @@ func TestResolveReconfigDecisionNeedsNoVMAccess(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	cfs := loadOpencodeConfigFiles(t, &ui)
 	live := liveProjectVM{
-		handle:           &msb.MockSandboxHandle{},
+		handle:           &msbtest.MockSandboxHandle{},
 		configUnreadable: true,
 	}
 
@@ -267,16 +268,16 @@ func TestResolveReconfigDecisionNeedsNoVMAccess(t *testing.T) {
 // the live VM is verbose-logged and does not fail the decision.
 func TestResolveReconfigDecisionLogsDetachFailure(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	sh := &msb.MockSandboxHandle{
+	sh := &msbtest.MockSandboxHandle{
 		Cfg: &msb.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
 	}
-	liveSb := &msb.MockSandbox{DetachErr: errors.New("detach failed")}
+	liveSb := &msbtest.MockSandbox{DetachErr: errors.New("detach failed")}
 	sh.ConnectSb = liveSb
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return sh, nil
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	volumes := volume.NewManager(docker.Get())
 	persisted := state.HomeState{HomeVolume: "vol", ImageDigest: "sha256:same"}
@@ -320,15 +321,15 @@ func TestResolveReconfigDecisionLogsDetachFailure(t *testing.T) {
 func TestResolveReconfigDecisionRecreatesWhenVMConfigIsUnreadable(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		ConfigErr: errors.New("config read failed"),
-		ConnectSb: &msb.MockSandbox{},
+		ConnectSb: &msbtest.MockSandbox{},
 	}
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	ui := termiotest.NewTestMock(t)
 	volumes := volume.NewManager(docker.Get())
@@ -387,15 +388,15 @@ func TestResolveReconfigDecisionOffersUnreadableVMConfigToAttachedClients(t *tes
 	}
 	defer release()
 
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		ConfigErr: errors.New("config read failed"),
-		ConnectSb: &msb.MockSandbox{},
+		ConnectSb: &msbtest.MockSandbox{},
 	}
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	var prompt string
 	ui := &termiotest.Mock{
@@ -550,7 +551,7 @@ func TestResolveReconfigDecisionQuitAtRecreatePrompt(t *testing.T) {
 	defer release()
 
 	mock := reconfigMockClient()
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
@@ -673,7 +674,7 @@ func TestResolveReconfigDecisionRecreatesWhenARecordedFingerprintDiffers(t *test
 		t.Run(tc.name, func(t *testing.T) {
 			configpathstest.WithMockConfigPaths(t)
 			mock := reconfigMockClient()
-			msb.WithMsbMock(t, mock)
+			msbtest.WithMsbMock(t, mock)
 			ui := termiotest.NewTestMock(t)
 			configFiles := loadOpencodeConfigFiles(t, &ui)
 			k := state.Key{Slug: "testproj", Agent: "opencode"}
@@ -868,7 +869,7 @@ func TestResolveReconfigDecisionAgentConfigDrivesRestart(t *testing.T) {
 			}
 			persisted := matchingHomeState(network.Policy{})
 			live := liveProjectVM{
-				handle: &msb.MockSandboxHandle{},
+				handle: &msbtest.MockSandboxHandle{},
 				config: &msb.SandboxConfig{
 					Image:     "img:tag",
 					CPUs:      4,
@@ -918,15 +919,15 @@ func TestResolveReconfigDecisionAgentConfigChangeOnStoppedVM(t *testing.T) {
 	// resolveReconfigDecision cannot read live config, so it must neither
 	// recreate nor spuriously flag a daemon restart. Provisioning + fresh daemon
 	// pickup happen downstream in vm.SetUpSandbox once the VM is started.
-	sh := &msb.MockSandboxHandle{
+	sh := &msbtest.MockSandboxHandle{
 		Cfg: &msb.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
 	}
 	sh.ConnectErr = errors.New("vm not running")
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return sh, nil
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	volumes := volume.NewManager(docker.Get())
 	persisted := state.HomeState{
@@ -1008,7 +1009,7 @@ func TestResolveReconfigDecisionHomePromptDeferredWhenRebuildDeferred(t *testing
 	configpathstest.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	configpathstest.WithMockConfigPaths(t)
 
 	key := state.Key{Slug: "testproj", Agent: "opencode"}
@@ -1103,7 +1104,7 @@ func TestResolveReconfigDecisionHomePromptAskedWhenRebuildConfirmed(t *testing.T
 	configpathstest.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	configpathstest.WithMockConfigPaths(t)
 
 	prompted := false
@@ -1197,7 +1198,7 @@ func TestApplyReconfigHomeActionError(t *testing.T) {
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return nil, createErr
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
@@ -1279,7 +1280,7 @@ func TestApplyReconfigHomeActionReturnsNewVolume(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	newVolume, err := applyReconfigHomeAction(
 		context.Background(),
-		&msb.MockMsbClient{},
+		&msbtest.MockMsbClient{},
 		volume.NewManager(docker.Get()),
 		key,
 		oldVolume,
@@ -1302,15 +1303,15 @@ func TestApplyReconfigHomeActionReturnsNewVolume(t *testing.T) {
 func TestApplyReconfigHomeActionQuit(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	sh := &msb.MockSandboxHandle{
+	sh := &msbtest.MockSandboxHandle{
 		Cfg: &msb.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
 	}
-	sh.ConnectSb = &msb.MockSandbox{}
-	mock := &msb.MockMsbClient{}
+	sh.ConnectSb = &msbtest.MockSandbox{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return sh, nil
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
@@ -1422,17 +1423,17 @@ func newReconfigFixtureForImage(
 ) reconfigFixture {
 	t.Helper()
 
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Cfg:       &msb.SandboxConfig{Image: cfgImage, CPUs: 4, MemoryMiB: 4096},
 		Mounts:    liveMounts,
 		MountsErr: mountsErr,
 	}
-	handle.ConnectSb = &msb.MockSandbox{}
-	client := &msb.MockMsbClient{}
+	handle.ConnectSb = &msbtest.MockSandbox{}
+	client := &msbtest.MockMsbClient{}
 	client.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
 	ui := termiotest.NewTestMock(t)
 	cfs, err := reprovision.LoadConfigFilesForHost(
@@ -1500,12 +1501,12 @@ func assertVerbose(t *testing.T, ui *termiotest.Mock, want string) {
 	t.Errorf("verbose calls %v do not contain %q", ui.VerboseCalls, want)
 }
 
-func reconfigMockClient() *msb.MockMsbClient {
-	mock := &msb.MockMsbClient{}
-	sh := &msb.MockSandboxHandle{Cfg: &msb.SandboxConfig{
+func reconfigMockClient() *msbtest.MockMsbClient {
+	mock := &msbtest.MockMsbClient{}
+	sh := &msbtest.MockSandboxHandle{Cfg: &msb.SandboxConfig{
 		Image: "img:tag", CPUs: 4, MemoryMiB: 4096,
 	}}
-	sh.ConnectSb = &msb.MockSandbox{}
+	sh.ConnectSb = &msbtest.MockSandbox{}
 	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return sh, nil
 	}
@@ -1529,7 +1530,7 @@ func TestResolveReconfigDecisionDeferredPortsKeepsServePort(t *testing.T) {
 	}
 	defer release()
 
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Cfg: &msb.SandboxConfig{
 			Image:     "img:tag",
 			CPUs:      4,
@@ -1543,13 +1544,13 @@ func TestResolveReconfigDecisionDeferredPortsKeepsServePort(t *testing.T) {
 				Protocol:  msb.PortProtocolTCP,
 			},
 		},
-		ConnectSb: &msb.MockSandbox{},
+		ConnectSb: &msbtest.MockSandbox{},
 	}
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
@@ -1614,7 +1615,7 @@ func TestResolveReconfigDecisionRecreateAdoptsProbedServePort(t *testing.T) {
 	t.Chdir(tmpRepo)
 	slug := git.MustCheckoutSlug()
 
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Cfg: &msb.SandboxConfig{
 			Image:     "img:tag",
 			CPUs:      4,
@@ -1628,13 +1629,13 @@ func TestResolveReconfigDecisionRecreateAdoptsProbedServePort(t *testing.T) {
 				Protocol:  msb.PortProtocolTCP,
 			},
 		},
-		ConnectSb: &msb.MockSandbox{},
+		ConnectSb: &msbtest.MockSandbox{},
 	}
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	ui := termiotest.NewTestMock(t)
 	volumes := volume.NewManager(docker.Get())
@@ -1688,20 +1689,20 @@ func TestResolveReconfigDecisionDroppedPortsRecreate(t *testing.T) {
 	t.Chdir(tmpRepo)
 	slug := git.MustCheckoutSlug()
 
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Cfg: &msb.SandboxConfig{
 			Image:     "img:tag",
 			CPUs:      4,
 			MemoryMiB: 4096,
 		},
 		PortBindings: ports.UserPortBindings([]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}),
-		ConnectSb:    &msb.MockSandbox{},
+		ConnectSb:    &msbtest.MockSandbox{},
 	}
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	ui := termiotest.NewTestMock(t)
 	volumes := volume.NewManager(docker.Get())
@@ -1747,7 +1748,7 @@ func TestResolveReconfigDecisionUnchangedPortsNoRecreate(t *testing.T) {
 	t.Chdir(tmpRepo)
 	slug := git.MustCheckoutSlug()
 
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Cfg: &msb.SandboxConfig{
 			Image:     "img:tag",
 			CPUs:      4,
@@ -1757,13 +1758,13 @@ func TestResolveReconfigDecisionUnchangedPortsNoRecreate(t *testing.T) {
 			ports.ServeOnlyBindings(ports.ServeOnlyBasePort),
 			ports.UserPortBindings([]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}})...,
 		),
-		ConnectSb: &msb.MockSandbox{},
+		ConnectSb: &msbtest.MockSandbox{},
 	}
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	ui := termiotest.NewTestMock(t)
 	volumes := volume.NewManager(docker.Get())
@@ -1822,7 +1823,7 @@ func TestResolveReconfigDecisionUnchangedPortsNoRecreate(t *testing.T) {
 // untouched and the failure is reported at verbose level instead of aborting.
 func TestApplyLivePortsReadFailureDegrades(t *testing.T) {
 	cfg := &msb.SandboxConfig{}
-	failing := &msb.MockSandboxHandle{PortsErr: errors.New("ports boom")}
+	failing := &msbtest.MockSandboxHandle{PortsErr: errors.New("ports boom")}
 	ui := termiotest.NewTestMock(t)
 
 	applyLivePorts(cfg, failing, &ui)
@@ -1969,7 +1970,7 @@ func TestDetectAndOfferMemoryRaiseNewerOOMOffersAndPersists(t *testing.T) {
 	}
 	newKill := oldKill.Add(time.Hour)
 	cfg := &msb.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Cfg:        cfg,
 		LogsResult: []msb.LogEntry{memoryRaiseLogEntry(newKill)},
 	}
@@ -2008,7 +2009,7 @@ func TestDetectAndOfferMemoryRaiseDeclineDoesNotReOfferSameOOM(t *testing.T) {
 	seedEmptyHomeState(t, k)
 	kill := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	cfg := &msb.SandboxConfig{MemoryMiB: 4096}
-	handle := &msb.MockSandboxHandle{Cfg: cfg, LogsResult: []msb.LogEntry{memoryRaiseLogEntry(kill)}}
+	handle := &msbtest.MockSandboxHandle{Cfg: cfg, LogsResult: []msb.LogEntry{memoryRaiseLogEntry(kill)}}
 	var selects int
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
@@ -2051,10 +2052,10 @@ func TestDetectAndOfferMemoryRaiseDeclineDoesNotReOfferSameOOM(t *testing.T) {
 func TestDetectAndOfferMemoryRaiseLogOrMetricsErrorIsBestEffort(t *testing.T) {
 	cases := []struct {
 		name   string
-		handle *msb.MockSandboxHandle
+		handle *msbtest.MockSandboxHandle
 	}{
-		{"system log read fails", &msb.MockSandboxHandle{LogsErr: errors.New("logs boom")}},
-		{"metrics read fails", &msb.MockSandboxHandle{MetricsErr: errors.New("metrics boom")}},
+		{"system log read fails", &msbtest.MockSandboxHandle{LogsErr: errors.New("logs boom")}},
+		{"metrics read fails", &msbtest.MockSandboxHandle{MetricsErr: errors.New("metrics boom")}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2094,7 +2095,7 @@ func TestDetectAndOfferMemoryRaiseNonInteractiveRecordsAndLaterOffers(t *testing
 	seedEmptyHomeState(t, k)
 	kill := time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC)
 	cfg := &msb.SandboxConfig{MemoryMiB: 4096}
-	handle := &msb.MockSandboxHandle{Cfg: cfg, LogsResult: []msb.LogEntry{memoryRaiseLogEntry(kill)}}
+	handle := &msbtest.MockSandboxHandle{Cfg: cfg, LogsResult: []msb.LogEntry{memoryRaiseLogEntry(kill)}}
 	live := liveProjectVM{handle: handle, config: cfg}
 
 	detectAndOfferMemoryRaise(
@@ -2143,7 +2144,7 @@ func TestDetectAndOfferMemoryRaiseFreshHeadroomAtLaunchDoesNotOffer(t *testing.T
 	k := testVMKey()
 	seedEmptyHomeState(t, k)
 	cfg := &msb.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}
-	handle := &msb.MockSandboxHandle{Cfg: cfg, MetricsResult: floorTrippedMetrics()}
+	handle := &msbtest.MockSandboxHandle{Cfg: cfg, MetricsResult: floorTrippedMetrics()}
 	var selects int
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
@@ -2176,7 +2177,7 @@ func TestDetectAndOfferMemoryRaisePreservesHeadroomSeenTime(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 	cfg := &msb.SandboxConfig{MemoryMiB: 4096}
-	handle := &msb.MockSandboxHandle{Cfg: cfg, MetricsResult: trippedMetrics()}
+	handle := &msbtest.MockSandboxHandle{Cfg: cfg, MetricsResult: trippedMetrics()}
 	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "keep", nil },
@@ -2202,7 +2203,7 @@ func TestDetectAndOfferMemoryRaiseCurrentMemoryFallbacks(t *testing.T) {
 		withoutMemoryEnv(t)
 		k := testVMKey()
 		seedEmptyHomeState(t, k)
-		handle := &msb.MockSandboxHandle{
+		handle := &msbtest.MockSandboxHandle{
 			LogsResult:    []msb.LogEntry{memoryRaiseLogEntry(time.Now())},
 			MetricsResult: trippedMetrics(),
 		}
@@ -2222,7 +2223,7 @@ func TestDetectAndOfferMemoryRaiseCurrentMemoryFallbacks(t *testing.T) {
 		k := testVMKey()
 		seedEmptyHomeState(t, k)
 		kill := time.Now()
-		handle := &msb.MockSandboxHandle{
+		handle := &msbtest.MockSandboxHandle{
 			LogsResult: []msb.LogEntry{memoryRaiseLogEntry(kill)},
 		}
 		var selects int
@@ -2270,7 +2271,7 @@ func TestDetectAndOfferMemoryRaisePromptErrorIsBestEffort(t *testing.T) {
 	k := testVMKey()
 	seedEmptyHomeState(t, k)
 	cfg := &msb.SandboxConfig{MemoryMiB: 4096}
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Cfg:        cfg,
 		LogsResult: []msb.LogEntry{memoryRaiseLogEntry(time.Now())},
 	}
@@ -2298,7 +2299,7 @@ func TestDetectAndOfferMemoryRaisePersistErrorWarns(t *testing.T) {
 	k := testVMKey()
 	seedEmptyHomeState(t, k)
 	cfg := &msb.SandboxConfig{MemoryMiB: 4096}
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Cfg:        cfg,
 		LogsResult: []msb.LogEntry{memoryRaiseLogEntry(time.Now())},
 	}

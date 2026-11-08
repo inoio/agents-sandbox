@@ -9,17 +9,18 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
-func compactableHandle(name string, result *msb.DiskCompactionResult) *msb.MockSandboxHandle {
+func compactableHandle(name string, result *msb.DiskCompactionResult) *msbtest.MockSandboxHandle {
 	return labelledHandle(name, map[string]string{naming.LabelSlug: strings.SplitN(name, "-", 2)[0]}, result)
 }
 
-func labelledHandle(name string, labels map[string]string, result *msb.DiskCompactionResult) *msb.MockSandboxHandle {
-	return &msb.MockSandboxHandle{
+func labelledHandle(name string, labels map[string]string, result *msb.DiskCompactionResult) *msbtest.MockSandboxHandle {
+	return &msbtest.MockSandboxHandle{
 		Name_:         name,
 		Status_:       msb.SandboxStatusStopped,
 		Cfg:           &msb.SandboxConfig{Labels: labels},
@@ -54,7 +55,7 @@ func TestCompactSandboxesSkipsNonProjectSandboxes(t *testing.T) {
 		rootDiskResult(3, 1, 1),
 	)
 	unidentified := labelledHandle(naming.LegacyHomePrefix+"x", nil, rootDiskResult(3, 1, 1))
-	msb.WithMsbMock(t, &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{task, unidentified, project}})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{Sandboxes: []msb.SandboxHandle{task, unidentified, project}})
 
 	layers := uint32(3)
 	options := msb.CompactionRequest{DryRun: true, Layers: &layers, RootDiskOnly: true}
@@ -79,7 +80,7 @@ func TestCompactSandboxesSkipsNonProjectSandboxes(t *testing.T) {
 func TestCompactSandboxesFiltersByName(t *testing.T) {
 	first := compactableHandle("first-abc12345", rootDiskResult(2, 1, 1))
 	second := compactableHandle("second-abc12345", rootDiskResult(2, 1, 1))
-	msb.WithMsbMock(t, &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{first, second}})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{Sandboxes: []msb.SandboxHandle{first, second}})
 
 	report, err := CompactSandboxes(
 		context.Background(),
@@ -96,7 +97,7 @@ func TestCompactSandboxesFiltersByName(t *testing.T) {
 }
 
 func TestCompactSandboxesUnknownNameFails(t *testing.T) {
-	msb.WithMsbMock(t, &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{Sandboxes: []msb.SandboxHandle{
 		compactableHandle("first-abc12345", rootDiskResult(2, 1, 1)),
 	}})
 
@@ -107,7 +108,7 @@ func TestCompactSandboxesUnknownNameFails(t *testing.T) {
 }
 
 func TestCompactSandboxesWithoutSandboxesIsEmpty(t *testing.T) {
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 
 	report, err := CompactSandboxes(context.Background(), "", msb.CompactionRequest{}, &termiotest.Mock{})
 	if err != nil || len(report.Entries) != 0 {
@@ -116,7 +117,7 @@ func TestCompactSandboxesWithoutSandboxesIsEmpty(t *testing.T) {
 }
 
 func TestCompactSandboxesListError(t *testing.T) {
-	msb.WithMsbMock(t, &msb.MockMsbClient{ListSandboxesErr: errors.New("boom")})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{ListSandboxesErr: errors.New("boom")})
 
 	if _, err := CompactSandboxes(
 		context.Background(),
@@ -138,7 +139,7 @@ func TestCompactSandboxesSkipsFailures(t *testing.T) {
 	remote := compactableHandle("remote-abc12345", nil)
 	remote.CompactErr = &msbSdk.Error{Kind: msbSdk.ErrUnsupportedOperation, Message: "remote"}
 	ok := compactableHandle("ok-abc12345", rootDiskResult(2, 1, 1))
-	msb.WithMsbMock(t, &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{failing, gone, replaced, remote, ok}})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{Sandboxes: []msb.SandboxHandle{failing, gone, replaced, remote, ok}})
 
 	ui := &termiotest.Mock{}
 	report, err := CompactSandboxes(context.Background(), "", msb.CompactionRequest{}, ui)

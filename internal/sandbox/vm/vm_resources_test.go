@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
@@ -23,7 +24,7 @@ func TestReconcileResourceConfig(t *testing.T) {
 	modifyFailed := errors.New("modify boom")
 	cases := []struct {
 		name       string
-		handle     *msb.MockSandboxHandle // boot config: 2 CPUs, 2048 MiB
+		handle     *msbtest.MockSandboxHandle // boot config: 2 CPUs, 2048 MiB
 		opts       options.RunOptions
 		wantModify *msb.ModifyOptions
 		wantWarn   []string
@@ -82,7 +83,7 @@ func TestReconcileResourceConfig(t *testing.T) {
 		},
 		{
 			name: "clamped cpus with unchanged memory",
-			handle: &msb.MockSandboxHandle{
+			handle: &msbtest.MockSandboxHandle{
 				Cfg:  &msb.SandboxConfig{CPUs: 2, MaxCPUs: 8, MemoryMiB: 4096, MaxMemoryMiB: 8192},
 				Plan: &msb.SandboxModificationPlan{},
 			},
@@ -126,7 +127,7 @@ func TestReconcileResourceConfig(t *testing.T) {
 		},
 		{
 			name: "unreadable config",
-			handle: func() *msb.MockSandboxHandle {
+			handle: func() *msbtest.MockSandboxHandle {
 				h := reconcileHandle(8, 8192)
 				h.ConfigErr = errors.New("config boom")
 				return h
@@ -135,7 +136,7 @@ func TestReconcileResourceConfig(t *testing.T) {
 		},
 		{
 			name: "modify fails",
-			handle: func() *msb.MockSandboxHandle {
+			handle: func() *msbtest.MockSandboxHandle {
 				h := reconcileHandle(8, 8192)
 				h.ModifyErr = modifyFailed
 				return h
@@ -146,7 +147,7 @@ func TestReconcileResourceConfig(t *testing.T) {
 		},
 		{
 			name: "modification conflicts",
-			handle: func() *msb.MockSandboxHandle {
+			handle: func() *msbtest.MockSandboxHandle {
 				h := reconcileHandle(8, 8192)
 				h.Plan = &msb.SandboxModificationPlan{
 					Conflicts: []msb.ModificationConflict{{Field: "cpus", Message: "conflict"}},
@@ -214,15 +215,15 @@ func TestSummarizeConflicts(t *testing.T) {
 // unless a test intends none.
 // reconcileHandleWithRootDisk is reconcileHandle's VM with the runtime's
 // default 4 GiB managed root disk.
-func reconcileHandleWithRootDisk() *msb.MockSandboxHandle {
+func reconcileHandleWithRootDisk() *msbtest.MockSandboxHandle {
 	handle := reconcileHandle(8, 8192)
 	rootDisk := msb.RootDiskConfig{SizeMiB: options.DefaultRootDiskMiB}
 	handle.Cfg.RootDisk = &rootDisk
 	return handle
 }
 
-func reconcileHandle(maxCPUs uint8, maxMemoryMiB uint32) *msb.MockSandboxHandle {
-	return &msb.MockSandboxHandle{
+func reconcileHandle(maxCPUs uint8, maxMemoryMiB uint32) *msbtest.MockSandboxHandle {
+	return &msbtest.MockSandboxHandle{
 		Cfg: &msb.SandboxConfig{
 			CPUs:         2,
 			MaxCPUs:      maxCPUs,

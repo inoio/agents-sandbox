@@ -8,15 +8,16 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestGuestFetcherReplaysCallbackWithCurl(t *testing.T) {
 	var calls []string
-	sb := &msb.MockSandbox{ExecCalls: &calls}
+	sb := &msbtest.MockSandbox{ExecCalls: &calls}
 	url := "http://127.0.0.1:43117/callback?code=secret"
 	key := "curl --silent --include --raw --noproxy * --max-time 110 -- " + url
-	sb.ExecOut = map[string]msb.ShellResult{key: msb.NewTestResult(true, 0, "HTTP/1.1 200 OK\r\n\r\n", "", nil)}
+	sb.ExecOut = map[string]msb.ShellResult{key: msbtest.NewTestResult(true, 0, "HTTP/1.1 200 OK\r\n\r\n", "", nil)}
 
 	raw, err := guestFetcher(sb)(context.Background(), url)
 
@@ -30,11 +31,11 @@ func TestGuestFetcherReplaysCallbackWithCurl(t *testing.T) {
 
 func TestGuestFetcherRetriesOnIPv6WhenIPv4IsRefused(t *testing.T) {
 	var calls []string
-	sb := &msb.MockSandbox{ExecCalls: &calls}
+	sb := &msbtest.MockSandbox{ExecCalls: &calls}
 	prefix := "curl --silent --include --raw --noproxy * --max-time 110 -- "
 	sb.ExecOut = map[string]msb.ShellResult{
-		prefix + "http://127.0.0.1:1455/auth/callback?code=c": msb.NewTestResult(false, 7, "", "", nil),
-		prefix + "http://[::1]:1455/auth/callback?code=c": msb.NewTestResult(
+		prefix + "http://127.0.0.1:1455/auth/callback?code=c": msbtest.NewTestResult(false, 7, "", "", nil),
+		prefix + "http://[::1]:1455/auth/callback?code=c": msbtest.NewTestResult(
 			true,
 			0,
 			"HTTP/1.1 200 OK\r\n\r\n",
@@ -55,13 +56,13 @@ func TestGuestFetcherRetriesOnIPv6WhenIPv4IsRefused(t *testing.T) {
 // just the first 127.0.0.1, not a later occurrence in the query.
 func TestGuestFetcherRetriesOnlyTheCallbackHost(t *testing.T) {
 	var calls []string
-	sb := &msb.MockSandbox{ExecCalls: &calls}
+	sb := &msbtest.MockSandbox{ExecCalls: &calls}
 	prefix := "curl --silent --include --raw --noproxy * --max-time 110 -- "
 	url := "http://127.0.0.1:1455/auth/callback?u=http://127.0.0.1:9999/x"
 	retried := "http://[::1]:1455/auth/callback?u=http://127.0.0.1:9999/x"
 	sb.ExecOut = map[string]msb.ShellResult{
-		prefix + url:     msb.NewTestResult(false, 7, "", "", nil),
-		prefix + retried: msb.NewTestResult(true, 0, "HTTP/1.1 200 OK\r\n\r\n", "", nil),
+		prefix + url:     msbtest.NewTestResult(false, 7, "", "", nil),
+		prefix + retried: msbtest.NewTestResult(true, 0, "HTTP/1.1 200 OK\r\n\r\n", "", nil),
 	}
 
 	if _, err := guestFetcher(sb)(context.Background(), url); err != nil {
@@ -74,8 +75,8 @@ func TestGuestFetcherRetriesOnlyTheCallbackHost(t *testing.T) {
 
 func TestGuestFetcherErrorsNeverContainTheCallbackURL(t *testing.T) {
 	url := "http://127.0.0.1:1455/cb?code=secret"
-	failing := &msb.MockSandbox{ExecOut: map[string]msb.ShellResult{
-		"curl --silent --include --raw --noproxy * --max-time 110 -- " + url: msb.NewTestResult(
+	failing := &msbtest.MockSandbox{ExecOut: map[string]msb.ShellResult{
+		"curl --silent --include --raw --noproxy * --max-time 110 -- " + url: msbtest.NewTestResult(
 			false,
 			28,
 			"",
@@ -83,8 +84,8 @@ func TestGuestFetcherErrorsNeverContainTheCallbackURL(t *testing.T) {
 			nil,
 		),
 	}}
-	broken := &msb.MockSandbox{ExecErr: errors.New("exec failed for " + url)}
-	for _, sb := range []*msb.MockSandbox{failing, broken} {
+	broken := &msbtest.MockSandbox{ExecErr: errors.New("exec failed for " + url)}
+	for _, sb := range []*msbtest.MockSandbox{failing, broken} {
 		_, err := guestFetcher(sb)(context.Background(), url)
 		if err == nil || strings.Contains(err.Error(), "secret") {
 			t.Fatalf("err = %v", err)
@@ -99,7 +100,7 @@ func TestStartHostOpenerWatchesHomeVolumeAndReportsAfterStop(t *testing.T) {
 	}
 	watched := stubHostOpener(t, "/host/volumes/home-vol", report, errors.New("boom"))
 	ui := &termiotest.Mock{}
-	ses := &fakePrepared{sb: &msb.MockSandbox{}, homeVolume: "home-vol"}
+	ses := &fakePrepared{sb: &msbtest.MockSandbox{}, homeVolume: "home-vol"}
 
 	stop := startHostOpener(context.Background(), ses, true, ui)
 	if len(ui.InfoCalls) != 0 {
@@ -125,9 +126,9 @@ func TestStartHostOpenerSkipsWhenDisabledOrWithoutVM(t *testing.T) {
 		enabled bool
 		ses     *fakePrepared
 	}{
-		{"disabled", false, &fakePrepared{sb: &msb.MockSandbox{}, homeVolume: "home-vol"}},
+		{"disabled", false, &fakePrepared{sb: &msbtest.MockSandbox{}, homeVolume: "home-vol"}},
 		{"no sandbox", true, &fakePrepared{homeVolume: "home-vol"}},
-		{"no home volume", true, &fakePrepared{sb: &msb.MockSandbox{}}},
+		{"no home volume", true, &fakePrepared{sb: &msbtest.MockSandbox{}}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			watched := stubHostOpener(t, "/host/volumes/home-vol", opener.Report{}, nil)
@@ -153,7 +154,7 @@ func TestStartHostOpenerSkipsWhenVolumePathLookupFails(t *testing.T) {
 	}
 	startHostOpener(
 		context.Background(),
-		&fakePrepared{sb: &msb.MockSandbox{}, homeVolume: "home-vol"},
+		&fakePrepared{sb: &msbtest.MockSandbox{}, homeVolume: "home-vol"},
 		true,
 		&termiotest.Mock{},
 	)()
@@ -165,7 +166,7 @@ func TestStartHostOpenerSkipsWhenVolumePathLookupFails(t *testing.T) {
 func TestStartHostOpenerSkipsWhenVolumePathUnavailable(t *testing.T) {
 	watched := stubHostOpener(t, "", opener.Report{}, nil)
 	ui := &termiotest.Mock{}
-	startHostOpener(context.Background(), &fakePrepared{sb: &msb.MockSandbox{}, homeVolume: "home-vol"}, true, ui)()
+	startHostOpener(context.Background(), &fakePrepared{sb: &msbtest.MockSandbox{}, homeVolume: "home-vol"}, true, ui)()
 	if len(*watched) != 0 {
 		t.Fatalf("watcher started: %v", *watched)
 	}
@@ -190,11 +191,11 @@ func TestReportHostOpenerOmittedBoundaries(t *testing.T) {
 }
 
 func TestResolveHomeVolumePathUsesVolumeHandle(t *testing.T) {
-	client := &msb.MockMsbClient{}
+	client := &msbtest.MockMsbClient{}
 	client.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
-		return &msb.MockVolumeHandle{Name_: name, Path_: "/host/" + name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name, Path_: "/host/" + name}, nil
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	got, err := resolveHomeVolumePath(context.Background(), "home-vol")
 	if err != nil || got != "/host/home-vol" {
 		t.Fatalf("got %q, %v", got, err)
@@ -203,9 +204,9 @@ func TestResolveHomeVolumePathUsesVolumeHandle(t *testing.T) {
 
 func TestResolveHomeVolumePathReportsLookupFailure(t *testing.T) {
 	sentinel := errors.New("no such volume")
-	client := &msb.MockMsbClient{}
+	client := &msbtest.MockMsbClient{}
 	client.SetGetVolumeErr(sentinel)
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	_, err := resolveHomeVolumePath(
 		context.Background(),
 		"home-vol",
@@ -223,7 +224,7 @@ func TestResolveHomeVolumePathReportsLookupFailure(t *testing.T) {
 func TestWatchHostOpenerServesUntilCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	report, err := watchHostOpener(ctx, t.TempDir(), &msb.MockSandbox{})
+	report, err := watchHostOpener(ctx, t.TempDir(), &msbtest.MockSandbox{})
 	if err != nil || len(report.Refusals) != 0 {
 		t.Fatalf("report %+v, err %v", report, err)
 	}

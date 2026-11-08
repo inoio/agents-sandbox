@@ -62,8 +62,8 @@ var seamFamilies = []seamFamily{
 		name:                 "msb",
 		dir:                  "internal/sandbox/msb",
 		packageName:          "msb",
-		installerDir:         "internal/sandbox/msb",
-		installerPackageName: "msb",
+		installerDir:         "internal/sandbox/msb/msbtest",
+		installerPackageName: "msbtest",
 		installer:            "InstallFailFastGet",
 	},
 	{

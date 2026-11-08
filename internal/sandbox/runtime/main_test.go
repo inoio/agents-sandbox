@@ -7,7 +7,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/notify/notifytest"
 	"github.com/inoio/agents-sandbox/internal/opener/openertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
-	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 // TestMain installs the fail-fast defaults for the seam factories so no runtime
@@ -18,7 +18,7 @@ import (
 func TestMain(m *testing.M) {
 	configpathstest.InstallFailFastConfigPaths()
 	dockertest.InstallFailFastGet()
-	sandboxmsb.InstallFailFastGet()
+	msbtest.InstallFailFastGet()
 	notifytest.InstallFailFast()
 	openertest.InstallFailFast()
 	m.Run()

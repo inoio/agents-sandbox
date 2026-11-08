@@ -12,6 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
@@ -26,11 +27,11 @@ func TestRecordImageProvenanceWarnsOnUnreadableState(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(state.KeyDir(k), "state.yaml"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	fs := msb.NewTestFS(map[string][]byte{
+	fs := msbtest.NewTestFS(map[string][]byte{
 		"/etc/agents-sandbox/agent-source": []byte("tool\n"),
 	})
 	ui := &termiotest.Mock{}
-	sb := &msb.MockSandbox{FSValue_: fs}
+	sb := &msbtest.MockSandbox{FSValue_: fs}
 	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, ui)
 	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "read state for transaction") {
 		t.Errorf("expected a warning about the unreadable project state, got %v", ui.WarnCalls)
@@ -54,11 +55,11 @@ func TestRecordImageProvenanceWarnsWhenStateCannotBeWritten(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 
-	fs := msb.NewTestFS(map[string][]byte{
+	fs := msbtest.NewTestFS(map[string][]byte{
 		"/etc/agents-sandbox/agent-source": []byte("user\n"),
 	})
 	ui := &termiotest.Mock{}
-	sb := &msb.MockSandbox{FSValue_: fs}
+	sb := &msbtest.MockSandbox{FSValue_: fs}
 	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, ui)
 	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "could not persist project state") {
 		t.Errorf("expected a warning about the failed persist, got %v", ui.WarnCalls)
@@ -86,7 +87,7 @@ func TestRecordImageProvenancePreservesUnrelatedFields(t *testing.T) {
 	if err := seedHomeState(k, seed); err != nil {
 		t.Fatalf("seed home state: %v", err)
 	}
-	sb := &msb.MockSandbox{FSValue_: msb.NewTestFS(map[string][]byte{
+	sb := &msbtest.MockSandbox{FSValue_: msbtest.NewTestFS(map[string][]byte{
 		agentSourcePath:  []byte(state.AgentSourceUser + "\n"),
 		dockerSourcePath: []byte(state.AgentSourceUser + "\n"),
 	})}
@@ -109,14 +110,14 @@ func TestRecordImageProvenancePreservesUnrelatedFields(t *testing.T) {
 // agent's version is detected and recorded with both sources.
 func TestRecordImageProvenanceDetectsToolAgentVersion(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	fs := msb.NewTestFS(map[string][]byte{
+	fs := msbtest.NewTestFS(map[string][]byte{
 		"/etc/agents-sandbox/agent-source":  []byte("tool\n"),
 		"/etc/agents-sandbox/docker-source": []byte("user\n"),
 	})
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		FSValue_: fs,
 		ShellOut: map[string]msb.ShellResult{
-			"opencode --version": msb.NewTestResult(true, 0, "0.5.0\n", "", nil),
+			"opencode --version": msbtest.NewTestResult(true, 0, "0.5.0\n", "", nil),
 		},
 	}
 	k := state.Key{Slug: "proj", Agent: "opencode"}
@@ -141,11 +142,11 @@ func TestRecordImageProvenanceDetectsToolAgentVersion(t *testing.T) {
 func TestRecordImageProvenanceSkipsMissingState(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "freshproj", Agent: "opencode"}
-	fs := msb.NewTestFS(map[string][]byte{
+	fs := msbtest.NewTestFS(map[string][]byte{
 		agentSourcePath:  []byte(state.AgentSourceUser + "\n"),
 		dockerSourcePath: []byte(state.AgentSourceUser + "\n"),
 	})
-	sb := &msb.MockSandbox{FSValue_: fs}
+	sb := &msbtest.MockSandbox{FSValue_: fs}
 
 	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termiotest.Mock{})
 
@@ -161,10 +162,10 @@ func TestRecordImageProvenanceSkipsMissingState(t *testing.T) {
 // agent's version is not recorded: the tool does not own it.
 func TestRecordImageProvenanceSkipsVersionForUserAgent(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	fs := msb.NewTestFS(map[string][]byte{
+	fs := msbtest.NewTestFS(map[string][]byte{
 		"/etc/agents-sandbox/agent-source": []byte("user\n"),
 	})
-	sb := &msb.MockSandbox{FSValue_: fs}
+	sb := &msbtest.MockSandbox{FSValue_: fs}
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
@@ -192,9 +193,9 @@ func TestRecordImageProvenanceReadErrorLeavesStateUntouched(t *testing.T) {
 	if err := seedHomeState(k, state.HomeState{AgentSource: state.AgentSourceUser}); err != nil {
 		t.Fatal(err)
 	}
-	fs := msb.NewTestFS(nil) // every ReadString fails: no provenance files
+	fs := msbtest.NewTestFS(nil) // every ReadString fails: no provenance files
 	ui := termiotest.NewTestMock(t)
-	recordImageProvenance(context.Background(), k, opencodeResolved(t), &msb.MockSandbox{FSValue_: fs}, &ui)
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), &msbtest.MockSandbox{FSValue_: fs}, &ui)
 
 	hs, err := state.ReadState(k)
 	if err != nil {
@@ -216,21 +217,21 @@ func TestDetectToolAgentVersion(t *testing.T) {
 	cases := []struct {
 		name     string
 		agent    agent.Resolved
-		sb       *msb.MockSandbox
+		sb       *msbtest.MockSandbox
 		wantWarn string
 	}{
-		{name: "agent without a version command", agent: agent.Resolve(&fakeAgent{}), sb: &msb.MockSandbox{}},
+		{name: "agent without a version command", agent: agent.Resolve(&fakeAgent{}), sb: &msbtest.MockSandbox{}},
 		{
 			name:     "version command fails",
 			agent:    opencodeResolved(t),
-			sb:       &msb.MockSandbox{ShellErr: errors.New("shell failed")},
+			sb:       &msbtest.MockSandbox{ShellErr: errors.New("shell failed")},
 			wantWarn: "could not detect agent version",
 		},
 		{
 			name:  "unparsable version output",
 			agent: opencodeResolved(t),
-			sb: &msb.MockSandbox{ShellOut: map[string]msb.ShellResult{
-				"opencode --version": msb.NewTestResult(true, 0, "not a version string", "", nil),
+			sb: &msbtest.MockSandbox{ShellOut: map[string]msb.ShellResult{
+				"opencode --version": msbtest.NewTestResult(true, 0, "not a version string", "", nil),
 			}},
 			wantWarn: "could not parse agent version",
 		},

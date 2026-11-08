@@ -9,13 +9,14 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestEnsureDetachedServiceLeavesHealthyServiceRunning(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
-	calls := &[]msb.MockDetachedCall{}
-	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
+	calls := &[]msbtest.MockDetachedCall{}
+	sb := &msbtest.MockSandbox{ExecDetachedCalls: calls}
 	service := testDetachedService()
 	service.launchArgs = func(context.Context) ([]string, string, error) {
 		t.Fatal("a healthy service must not be re-launched")
@@ -35,14 +36,14 @@ func TestEnsureDetachedServiceLeavesHealthyServiceRunning(t *testing.T) {
 
 func TestEnsureDetachedServiceKillsStaleThenLaunchesAndAwaits(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
-	calls := &[]msb.MockDetachedCall{}
+	calls := &[]msbtest.MockDetachedCall{}
 	var sequence []string
-	stale := &msb.MockJob{}
-	sb := &msb.MockSandbox{
+	stale := &msbtest.MockJob{}
+	sb := &msbtest.MockSandbox{
 		ExecDetachedCalls: calls,
 		ExecDetachedFn: func(context.Context, string, []string, msb.JobSpec) (msb.Job, error) {
 			sequence = append(sequence, "launch")
-			return &msb.MockJob{}, nil
+			return &msbtest.MockJob{}, nil
 		},
 		Jobs: []msb.JobInfo{
 			{ID: "stale", Command: []string{"env", "AGENTS_SANDBOX_DETACHED_JOB=dockerd", "dockerd"}},
@@ -96,8 +97,8 @@ func TestEnsureDetachedServiceKillsStaleThenLaunchesAndAwaits(t *testing.T) {
 // restart.
 func TestEnsureDetachedServiceSkipPreCheckForcesLaunch(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
-	calls := &[]msb.MockDetachedCall{}
-	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
+	calls := &[]msbtest.MockDetachedCall{}
+	sb := &msbtest.MockSandbox{ExecDetachedCalls: calls}
 	service := testDetachedService()
 	service.skipPreCheck = true
 
@@ -111,7 +112,7 @@ func TestEnsureDetachedServiceSkipPreCheckForcesLaunch(t *testing.T) {
 
 func TestEnsureDetachedServiceCleanupFailureIsNonFatal(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
-	sb := &msb.MockSandbox{}
+	sb := &msbtest.MockSandbox{}
 	service := testDetachedService()
 	service.probe = scriptedProbe(
 		detachedProbeOutcome{healthy: false},
@@ -133,9 +134,9 @@ func TestEnsureDetachedServiceCleanupFailureIsNonFatal(t *testing.T) {
 func TestEnsureDetachedServiceLaunchArgsErrorAborts(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	wantErr := errors.New("args boom")
-	calls := &[]msb.MockDetachedCall{}
-	stale := &msb.MockJob{}
-	sb := &msb.MockSandbox{
+	calls := &[]msbtest.MockDetachedCall{}
+	stale := &msbtest.MockJob{}
+	sb := &msbtest.MockSandbox{
 		ExecDetachedCalls: calls,
 		Jobs:              []msb.JobInfo{{ID: "stale", Command: []string{"dockerd"}}},
 		GetJobFn:          func(context.Context, string) (msb.Job, error) { return stale, nil },
@@ -159,7 +160,7 @@ func TestEnsureDetachedServiceLaunchArgsErrorAborts(t *testing.T) {
 func TestEnsureDetachedServiceWrapsLaunchError(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	wantErr := errors.New("connection lost")
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ExecDetachedFn: func(
 			context.Context, string, []string, msb.JobSpec,
 		) (msb.Job, error) {
@@ -180,8 +181,8 @@ func TestEnsureDetachedServiceWrapsLaunchError(t *testing.T) {
 
 func TestEnsureDetachedServiceReportsCloseFailure(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
-	sb := &msb.MockSandbox{
-		Job_: &msb.MockJob{CloseErr: errors.New("close boom")},
+	sb := &msbtest.MockSandbox{
+		Job_: &msbtest.MockJob{CloseErr: errors.New("close boom")},
 	}
 	service := testDetachedService()
 	service.probe = scriptedProbe(detachedProbeOutcome{healthy: false})
@@ -199,7 +200,7 @@ func TestEnsureDetachedServiceReportsCloseFailure(t *testing.T) {
 // pre-check is silent about why it is not up).
 func TestEnsureDetachedServiceSkipsEmptyPreCheckDetail(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
-	sb := &msb.MockSandbox{}
+	sb := &msbtest.MockSandbox{}
 	service := testDetachedService()
 	service.probe = scriptedProbe(
 		detachedProbeOutcome{healthy: false, detail: "secret why"},
@@ -221,7 +222,7 @@ func TestEnsureDetachedServiceSkipsEmptyPreCheckDetail(t *testing.T) {
 // (the note template is rendered only when there is a detail to render).
 func TestEnsureDetachedServiceSkipsBlankPreCheckDetail(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
-	sb := &msb.MockSandbox{}
+	sb := &msbtest.MockSandbox{}
 	service := testDetachedService()
 	service.preCheckUnhealthyNote = "pre-check: %s"
 	service.probe = scriptedProbe(

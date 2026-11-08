@@ -21,6 +21,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -581,8 +582,8 @@ func TestBuildUsesCheckoutSlug(t *testing.T) {
 
 	t.Chdir(secondClone)
 	cmd, _ := setupCommandFixtures(t, cmdBuild)
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
+	mock := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mock)
 	// The default noop Docker mock reports no image ID, which would fall back to
 	// the name ref. Return a real ID so the build exercises the content ref.
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
@@ -618,8 +619,8 @@ func TestBuildDryRunPrintsMigrationNoticeAndMovesNothing(t *testing.T) {
 	t.Chdir(clone)
 
 	cmd, ui := setupCommandFixtures(t, cmdBuild, "--dry-run")
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
+	mock := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mock)
 
 	repoKey := state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName}
 	checkoutKey := state.Key{Slug: identity.CheckoutSlug, Agent: defaultAgentName}
@@ -659,16 +660,16 @@ func TestBuildChecksDockerBeforeAdoption(t *testing.T) {
 	doctortest.MockedCheckDocker(t, false)
 
 	// A running legacy VM that adoption would destroy if it ran first.
-	legacyVM := &msb.MockSandboxHandle{
+	legacyVM := &msbtest.MockSandboxHandle{
 		Name_:   naming.LegacyVMPrefix + identity.RepoSlug + "-" + defaultAgentName,
 		Status_: msb.SandboxStatusRunning,
 	}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 			return legacyVM, nil
 		},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	repoKey := state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName}
 	checkoutKey := state.Key{Slug: identity.CheckoutSlug, Agent: defaultAgentName}
@@ -745,7 +746,7 @@ func TestBuildAdoptionFailureFailsClosed(t *testing.T) {
 	t.Chdir(clone)
 
 	cmd, _ := setupCommandFixtures(t, cmdBuild)
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 	writeUnparsableLegacyState(t, state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName})
 
 	err := cmd.Execute()

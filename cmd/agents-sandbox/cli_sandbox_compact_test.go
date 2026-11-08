@@ -7,12 +7,13 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 const compactTestVMName = "agents-sandbox-vm-proj-1mjusbm3wikhb0"
 
-func compactTestHandle() *msb.MockSandboxHandle {
-	return &msb.MockSandboxHandle{
+func compactTestHandle() *msbtest.MockSandboxHandle {
+	return &msbtest.MockSandboxHandle{
 		Name_:   compactTestVMName,
 		Status_: msb.SandboxStatusStopped,
 		CompactResult: &msb.DiskCompactionResult{
@@ -21,11 +22,11 @@ func compactTestHandle() *msb.MockSandboxHandle {
 	}
 }
 
-func runCompactCommand(t *testing.T, args ...string) (*msb.MockSandboxHandle, []string, error) {
+func runCompactCommand(t *testing.T, args ...string) (*msbtest.MockSandboxHandle, []string, error) {
 	t.Helper()
 	vm := compactTestHandle()
 	cmd, ui := setupCommandFixtures(t, append([]string{"sandbox", "compact"}, args...)...)
-	msb.WithMsbMock(t, &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{vm}})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{Sandboxes: []msb.SandboxHandle{vm}})
 	err := cmd.Execute()
 	return vm, ui.OutCalls, err
 }

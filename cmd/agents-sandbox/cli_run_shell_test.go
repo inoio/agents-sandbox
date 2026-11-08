@@ -19,6 +19,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -30,7 +31,7 @@ import (
 // mocks come from the command fixture. It always registers the given mock so
 // callers can inspect its call history, and installs a daemon shell stub that
 // reports the sandbox healthy.
-func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,
+func setupRunMocks(t *testing.T, mock *msbtest.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,
 	args ...string,
 ) (*cobra.Command, *termiotest.Mock) {
 	t.Helper()
@@ -40,7 +41,7 @@ func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn
 
 	// The default GetSandbox error must be an msb.Error with ErrSandboxNotFound
 	// so EnsureProjectVM treats it as "not found → create" rather than a real error.
-	sandboxmsb.WithMsbMock(t, mock.SetGetSandboxErr(&msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}))
+	msbtest.WithMsbMock(t, mock.SetGetSandboxErr(&msb.Error{Kind: msb.ErrSandboxNotFound, Message: "not found"}))
 
 	origSeams := runSeams
 	runSeams.DaemonHealth = func(ctx context.Context, sb sandboxmsb.Sandbox, command string) (string, int, error) {
@@ -58,38 +59,38 @@ func setupRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn
 
 // setupShellRunMocks is like setupRunMocks but adds shell output for worktree creation.
 // Worktree scenarios need the mock sandbox to return valid JSON for the worktree curl commands.
-func setupShellRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,
+func setupShellRunMocks(t *testing.T, mock *msbtest.MockMsbClient, sandboxToReturn sandboxmsb.Sandbox,
 	args ...string,
 ) (*cobra.Command, *termiotest.Mock) {
 	t.Helper()
 
 	// Ensure shell responses include a JSON worktree response for curl commands.
-	if sb, ok := sandboxToReturn.(*sandboxmsb.MockSandbox); ok {
+	if sb, ok := sandboxToReturn.(*msbtest.MockSandbox); ok {
 		if sb.ShellOut == nil {
 			sb.ShellOut = make(map[string]sandboxmsb.ShellResult)
 		}
-		sb.ShellOut["curl -sf http://127.0.0.1:4096/experimental/worktree"] = sandboxmsb.NewTestResult(
+		sb.ShellOut["curl -sf http://127.0.0.1:4096/experimental/worktree"] = msbtest.NewTestResult(
 			true,
 			0,
 			`[]`,
 			"",
 			nil,
 		)
-		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"x\"}'"] = sandboxmsb.NewTestResult(
+		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"x\"}'"] = msbtest.NewTestResult(
 			true,
 			0,
 			`{"directory":"/workspace/worktrees/x"}`,
 			"",
 			nil,
 		)
-		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"main\"}'"] = sandboxmsb.NewTestResult(
+		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"main\"}'"] = msbtest.NewTestResult(
 			true,
 			0,
 			`{"directory":"/workspace/worktrees/main"}`,
 			"",
 			nil,
 		)
-		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"foo\"}'"] = sandboxmsb.NewTestResult(
+		sb.ShellOut["curl -sf -X POST http://127.0.0.1:4096/experimental/worktree -H 'Content-Type: application/json' -d '{\"name\":\"foo\"}'"] = msbtest.NewTestResult(
 			true,
 			0,
 			`{"directory":"/workspace/worktrees/foo"}`,
@@ -104,8 +105,8 @@ func setupShellRunMocks(t *testing.T, mock *sandboxmsb.MockMsbClient, sandboxToR
 func TestRunShellDryRunRun(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run-vm")
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run-vm")
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -126,8 +127,8 @@ func TestRunShellDryRunRun(t *testing.T) {
 func TestRunShellDryRunShell(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "shell", "--dry-run-vm")
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "shell", "--dry-run-vm")
 
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -148,8 +149,8 @@ func TestRunShellDryRunShell(t *testing.T) {
 func TestRunShellRunAttachError(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("connection refused")}, "run")
+	mock := &msbtest.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{AttachErr: errors.New("connection refused")}, "run")
 
 	err := root.Execute()
 	if err == nil {
@@ -163,8 +164,8 @@ func TestRunShellRunAttachError(t *testing.T) {
 func TestRunShellShellAttachError(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("shell error")}, "shell")
+	mock := &msbtest.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{AttachErr: errors.New("shell error")}, "shell")
 
 	err := root.Execute()
 	if err == nil {
@@ -178,8 +179,8 @@ func TestRunShellShellAttachError(t *testing.T) {
 func TestRunShellRunWithAllFlags(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, _ := setupShellRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")},
+	mock := &msbtest.MockMsbClient{}
+	root, _ := setupShellRunMocks(t, mock, &msbtest.MockSandbox{AttachErr: errors.New("fail")},
 		"run", "--worktree", "x", "--cpus", "2", "--memory", "8G")
 
 	_ = root.Execute()
@@ -192,8 +193,8 @@ func TestRunShellRunWithAllFlags(t *testing.T) {
 func TestRunShellRunWithShortFlags(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, _ := setupShellRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")},
+	mock := &msbtest.MockMsbClient{}
+	root, _ := setupShellRunMocks(t, mock, &msbtest.MockSandbox{AttachErr: errors.New("fail")},
 		"run", "--worktree", "main", "-c", "4", "-m", "16G")
 
 	_ = root.Execute()
@@ -206,8 +207,8 @@ func TestRunShellRunWithShortFlags(t *testing.T) {
 func TestRunShellCleanExitNoError(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachCode: 0, AttachErr: nil}, "run")
+	mock := &msbtest.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{AttachCode: 0, AttachErr: nil}, "run")
 
 	err := root.Execute()
 	if err != nil {
@@ -218,13 +219,13 @@ func TestRunShellCleanExitNoError(t *testing.T) {
 func TestRunShellWorktreeReusesExisting(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
-	sb := &sandboxmsb.MockSandbox{
+	mock := &msbtest.MockMsbClient{}
+	sb := &msbtest.MockSandbox{
 		AttachErr:  errors.New("fail"),
 		ShellOut:   map[string]sandboxmsb.ShellResult{},
 		ShellCalls: &[]string{},
 	}
-	sb.ShellOut["curl -sf http://127.0.0.1:4096/experimental/worktree"] = sandboxmsb.NewTestResult(
+	sb.ShellOut["curl -sf http://127.0.0.1:4096/experimental/worktree"] = msbtest.NewTestResult(
 		true,
 		0,
 		`["/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"]`,
@@ -254,11 +255,11 @@ func TestRunShellWorktreeReusesExisting(t *testing.T) {
 func TestRunShellWithCpus(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	root, _ := setupShellRunMocks(
 		t,
 		mock,
-		&sandboxmsb.MockSandbox{AttachErr: errors.New("fail")},
+		&msbtest.MockSandbox{AttachErr: errors.New("fail")},
 		"shell",
 		"--cpus",
 		"2",
@@ -288,21 +289,21 @@ func TestRunShellWorktreeOpencode2ReusesExisting(t *testing.T) {
 		t.Fatal("opencode2 does not implement WorktreeProvider")
 	}
 
-	mock := &sandboxmsb.MockMsbClient{}
-	sb := &sandboxmsb.MockSandbox{
+	mock := &msbtest.MockMsbClient{}
+	sb := &msbtest.MockSandbox{
 		AttachErr:  errors.New("fail"),
 		ShellOut:   map[string]sandboxmsb.ShellResult{},
 		ShellCalls: &[]string{},
 	}
 	project := agent.WorktreeProject{ID: "abc", Canonical: "/repo"}
-	sb.ShellOut[provider.WorktreeResolveCmd(mounts.WorkspaceMountPath)] = sandboxmsb.NewTestResult(
+	sb.ShellOut[provider.WorktreeResolveCmd(mounts.WorkspaceMountPath)] = msbtest.NewTestResult(
 		true,
 		0,
 		`{"project":{"id":"abc","canonical":"/repo"}}`,
 		"",
 		nil,
 	)
-	sb.ShellOut[provider.WorktreeListCmd(project)] = sandboxmsb.NewTestResult(
+	sb.ShellOut[provider.WorktreeListCmd(project)] = msbtest.NewTestResult(
 		true,
 		0,
 		`[{"directory":"/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"}]`,
@@ -331,8 +332,8 @@ func TestRunShellWorktreeOpencode2ReusesExisting(t *testing.T) {
 
 func TestRunShellWorktreeRejectsNonSlug(t *testing.T) {
 	initTestProjectDir(t)
-	mock := &sandboxmsb.MockMsbClient{}
-	sb := &sandboxmsb.MockSandbox{AttachErr: errors.New("fail")}
+	mock := &msbtest.MockMsbClient{}
+	sb := &msbtest.MockSandbox{AttachErr: errors.New("fail")}
 	root, _ := setupRunMocks(t, mock, sb, "run", "--worktree", "feature/foo")
 	err := root.Execute()
 	if err == nil {
@@ -346,16 +347,16 @@ type runShellScenario struct {
 	name        string
 	args        []string
 	doctorPass  bool
-	sandbox     *sandboxmsb.MockSandbox
+	sandbox     *msbtest.MockSandbox
 	wantErrPart string
 }
 
 func runRunShellErrorScenario(t *testing.T, tc runShellScenario) {
 	t.Helper()
 	initTestProjectDir(t)
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	if tc.sandbox == nil {
-		tc.sandbox = &sandboxmsb.MockSandbox{}
+		tc.sandbox = &msbtest.MockSandbox{}
 	}
 	root, _ := setupRunMocks(t, mock, tc.sandbox, tc.args...)
 
@@ -389,8 +390,8 @@ func TestRunShellPreviewSkipsPreflight(t *testing.T) {
 	for _, command := range []string{cmdRun, cmdShell} {
 		t.Run(command, func(t *testing.T) {
 			initTestProjectDir(t)
-			mock := &sandboxmsb.MockMsbClient{}
-			root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, command, "--dry-run")
+			mock := &msbtest.MockMsbClient{}
+			root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{}, command, "--dry-run")
 			doctortest.MockedCheckAll(t, false)
 
 			if err := root.Execute(); err != nil {
@@ -402,8 +403,8 @@ func TestRunShellPreviewSkipsPreflight(t *testing.T) {
 
 func TestRunShellRunNonZeroExit(t *testing.T) {
 	initTestProjectDir(t)
-	mock := &sandboxmsb.MockMsbClient{}
-	root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{AttachCode: 5}, "run")
+	mock := &msbtest.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{AttachCode: 5}, "run")
 	err := root.Execute()
 	if err == nil {
 		t.Fatal("expected an error for a non-zero exit code")
@@ -431,8 +432,8 @@ func TestRunShellInvalidSizeFlags(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			initTestProjectDir(t)
-			mock := &sandboxmsb.MockMsbClient{}
-			root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, tc.args...)
+			mock := &msbtest.MockMsbClient{}
+			root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{}, tc.args...)
 
 			err := root.Execute()
 			if err == nil {
@@ -453,7 +454,7 @@ func TestRunShellInvalidSizeFlags(t *testing.T) {
 // t.Cleanup-based overrides (agent-version resolver, docker) are scoped to the
 // calling test by cleanup ordering, while the CreateVolumeFn assignment is a
 // direct per-test field change on the caller's mock.
-func setupAbsentImagePreviewMocks(t *testing.T, mock *sandboxmsb.MockMsbClient) {
+func setupAbsentImagePreviewMocks(t *testing.T, mock *msbtest.MockMsbClient) {
 	t.Helper()
 	withMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
 		t.Fatal("the --dry-run preview must not resolve an agent version")
@@ -511,8 +512,8 @@ func assertPreviewInfoLines(t *testing.T, ui *termiotest.Mock, shell bool) {
 func TestRunDryRunPreviewCLI(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run")
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run")
 	setupAbsentImagePreviewMocks(t, mock)
 
 	if err := root.Execute(); err != nil {
@@ -530,8 +531,8 @@ func TestRunDryRunPreviewCLI(t *testing.T) {
 func TestShellDryRunPreviewCLI(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "shell", "--dry-run")
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "shell", "--dry-run")
 	setupAbsentImagePreviewMocks(t, mock)
 
 	if err := root.Execute(); err != nil {
@@ -556,8 +557,8 @@ func TestRunDryRunWithPinnedVersionReportsPin(t *testing.T) {
 	}
 	t.Cleanup(func() { runSeams = origSeams })
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run", "--agent-version", "9.9.9")
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run", "--agent-version", "9.9.9")
 	setupAbsentImagePreviewMocks(t, mock)
 
 	if err := root.Execute(); err != nil {
@@ -575,8 +576,8 @@ func TestRunDryRunWithPinnedVersionReportsPin(t *testing.T) {
 func TestRunDryRunServeOnlyIsPurePreview(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run", "--serve-only")
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run", "--serve-only")
 	setupAbsentImagePreviewMocks(t, mock)
 
 	if err := root.Execute(); err != nil {
@@ -591,8 +592,8 @@ func TestRunDryRunServeOnlyIsPurePreview(t *testing.T) {
 func TestRunDryRunAgentCodex(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{},
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
 		"run", "--dry-run", "--agent", "codex", "--agent-version", "0.164.0")
 	setupAbsentImagePreviewMocks(t, mock)
 
@@ -625,8 +626,8 @@ func TestRunDryRunAgentCodex(t *testing.T) {
 func TestRunForwardsAgentArgs(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
-	sb := &sandboxmsb.MockSandbox{}
+	mock := &msbtest.MockMsbClient{}
+	sb := &msbtest.MockSandbox{}
 	root, _ := setupRunMocks(t, mock, sb, "run", "--", "--model", "sonnet")
 
 	if err := root.Execute(); err != nil {
@@ -645,7 +646,7 @@ func TestRunAgentCodexRejectsDaemonOnlyFlags(t *testing.T) {
 		t.Run(flagArgs[0], func(t *testing.T) {
 			initTestProjectDir(t)
 			args := append([]string{"run", "--dry-run", "--agent", "codex"}, flagArgs...)
-			root, _ := setupRunMocks(t, &sandboxmsb.MockMsbClient{}, &sandboxmsb.MockSandbox{}, args...)
+			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
 			err := root.Execute()
 			if err == nil || !strings.Contains(err.Error(), `not supported by agent "codex"`) {
 				t.Errorf("err = %v, want 'not supported by agent \"codex\"'", err)
@@ -660,8 +661,8 @@ func TestRunAgentCodexRejectsDaemonOnlyFlags(t *testing.T) {
 func TestRunDryRunAgentOhMyPi(t *testing.T) {
 	initTestProjectDir(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{},
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{},
 		"run", "--dry-run", "--agent", "oh-my-pi", "--agent-version", "18.14.0")
 	setupAbsentImagePreviewMocks(t, mock)
 
@@ -696,7 +697,7 @@ func TestRunAgentOhMyPiRejectsDaemonOnlyFlags(t *testing.T) {
 		t.Run(flagArgs[0], func(t *testing.T) {
 			initTestProjectDir(t)
 			args := append([]string{"run", "--dry-run", "--agent", "oh-my-pi"}, flagArgs...)
-			root, _ := setupRunMocks(t, &sandboxmsb.MockMsbClient{}, &sandboxmsb.MockSandbox{}, args...)
+			root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
 			err := root.Execute()
 			if err == nil || !strings.Contains(err.Error(), `not supported by agent "oh-my-pi"`) {
 				t.Errorf("err = %v, want 'not supported by agent \"oh-my-pi\"'", err)
@@ -734,8 +735,8 @@ func countWarningsMentioning(warnings []string, substr string) int {
 
 func TestRunWarnsAboutUnprovisionedConfigDirDependencies(t *testing.T) {
 	initTestProjectDir(t)
-	mock := &sandboxmsb.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run-vm")
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run-vm")
 	manifest := writeHostOpencodeManifest(t)
 
 	if err := root.Execute(); err != nil {
@@ -749,8 +750,8 @@ func TestRunWarnsAboutUnprovisionedConfigDirDependencies(t *testing.T) {
 
 func TestRunSkipsDependencyWarningWhenAMountSuppliesNodeModules(t *testing.T) {
 	initTestProjectDir(t)
-	mock := &sandboxmsb.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run-vm")
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run-vm")
 	manifest := writeHostOpencodeManifest(t)
 	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml",
 		"mounts:\n  /home/dev/node_modules:\n    source: "+t.TempDir()+"\n    readonly: true\n")
@@ -766,8 +767,8 @@ func TestRunSkipsDependencyWarningWhenAMountSuppliesNodeModules(t *testing.T) {
 
 func TestRunSkipsDependencyWarningWhenHostProvisioningIsDisabled(t *testing.T) {
 	initTestProjectDir(t)
-	mock := &sandboxmsb.MockMsbClient{}
-	root, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, "run", "--dry-run-vm")
+	mock := &msbtest.MockMsbClient{}
+	root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run-vm")
 	manifest := writeHostOpencodeManifest(t)
 	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.yaml", "provision-host-config: false\n")
 

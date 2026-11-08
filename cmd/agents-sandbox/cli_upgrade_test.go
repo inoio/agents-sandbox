@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
-	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
@@ -327,8 +327,8 @@ func TestRunShellUpgradeExit(t *testing.T) {
 				return upgrade.Result{Exit: true}, nil
 			}
 
-			mock := &sandboxmsb.MockMsbClient{}
-			root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, cmdName)
+			mock := &msbtest.MockMsbClient{}
+			root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{}, cmdName)
 
 			// The upgrade-and-exit path must terminate before starting a session,
 			// so the command succeeds without ever creating a sandbox.
@@ -352,8 +352,8 @@ func TestRunShellUpgradeError(t *testing.T) {
 				return upgrade.Result{}, errors.New("upgrade failed")
 			}
 
-			mock := &sandboxmsb.MockMsbClient{}
-			root, _ := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{}, cmdName)
+			mock := &msbtest.MockMsbClient{}
+			root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{}, cmdName)
 
 			err := root.Execute()
 			if err == nil {

@@ -15,7 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -92,8 +92,8 @@ func TestDryRunPreviewsSkipPreflightRuntimeInstall(t *testing.T) {
 
 	t.Run("run", func(t *testing.T) {
 		initTestProjectDir(t)
-		mock := &msb.MockMsbClient{}
-		root, ui := setupRunMocks(t, mock, &msb.MockSandbox{}, "run", "--dry-run")
+		mock := &msbtest.MockMsbClient{}
+		root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run")
 		setupAbsentImagePreviewMocks(t, mock)
 		skipRuntimeInstall(t)
 
@@ -137,7 +137,7 @@ func TestRootCommandReturnsInvalidCLISettingsError(t *testing.T) {
 // aborting the command with a raw preflight error.
 func TestDoctorRunsItsOwnChecksWithoutPreflightRuntimeInstall(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 	dockertest.WithNoopDockerMock(t)
 	doctortest.MockedCheckAll(t, false)
 
@@ -231,8 +231,8 @@ func TestCLILogLevelFlagSetsLevel(t *testing.T) {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			configpathstest.WithMockConfigPaths(t)
 			ui := &termiotest.Mock{}
-			mock := &msb.MockMsbClient{}
-			msb.WithMsbMock(t, mock)
+			mock := &msbtest.MockMsbClient{}
+			msbtest.WithMsbMock(t, mock)
 			dockertest.WithNoopDockerMock(t)
 
 			root := buildRootCmd(ui)
@@ -251,8 +251,8 @@ func TestCLILogLevelFlagSetsLevel(t *testing.T) {
 func TestCLIPersistentYesAffectsUIAfterSubcommand(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	ui := &termiotest.Mock{}
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
+	mock := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mock)
 	dockertest.WithNoopDockerMock(t)
 
 	root := buildRootCmd(ui)
@@ -274,8 +274,8 @@ func TestCLIQuietFlagSetsQuiet(t *testing.T) {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			configpathstest.WithMockConfigPaths(t)
 			ui := &termiotest.Mock{}
-			mock := &msb.MockMsbClient{}
-			msb.WithMsbMock(t, mock)
+			mock := &msbtest.MockMsbClient{}
+			msbtest.WithMsbMock(t, mock)
 			dockertest.WithNoopDockerMock(t)
 
 			root := buildRootCmd(ui)
@@ -294,8 +294,8 @@ func TestCLIQuietFlagSetsQuiet(t *testing.T) {
 func TestCLIQuietFlagFalseByDefault(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	ui := &termiotest.Mock{}
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
+	mock := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mock)
 	dockertest.WithNoopDockerMock(t)
 
 	root := buildRootCmd(ui)

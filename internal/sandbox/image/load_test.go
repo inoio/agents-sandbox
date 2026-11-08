@@ -15,6 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
@@ -77,7 +78,7 @@ func TestEnsureLoadedVerboseReportsUpToDate(t *testing.T) {
 		},
 	})
 	ui := &termiotest.Mock{}
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{Digest: "sha256:same"}, nil
@@ -105,7 +106,7 @@ func TestEnsureLoadedVerboseReportsNotPresent(t *testing.T) {
 		},
 	})
 	ui := &termiotest.Mock{}
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 	if _, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
@@ -133,7 +134,7 @@ func TestEnsureLoadedVerboseReportsStaleCache(t *testing.T) {
 		},
 	})
 	ui := &termiotest.Mock{}
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{Digest: "sha256:msb-old"}, nil
@@ -175,7 +176,7 @@ func TestEnsureLoadedFailsWhenTheImageTransferFails(t *testing.T) {
 					return io.NopCloser(strings.NewReader("tar")), nil
 				},
 			})
-			msbClient := &msb.MockMsbClient{
+			msbClient := &msbtest.MockMsbClient{
 				ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 				ImageLoadFn: func(_ context.Context, _ string, _ io.Reader) error {
 					return tc.loadErr
@@ -266,7 +267,7 @@ func TestEnsureLoadedDecision(t *testing.T) {
 					return io.NopCloser(strings.NewReader("tar-data")), nil
 				},
 			})
-			msbClient := &msb.MockMsbClient{
+			msbClient := &msbtest.MockMsbClient{
 				ImageGetFn: func(_ context.Context, _ string) error {
 					if tc.cached {
 						return nil
@@ -312,7 +313,7 @@ func TestEnsureLoadedReloadsStaleContentUnderSameRef(t *testing.T) {
 		},
 	})
 	removeCalled := false
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{Digest: "sha256:msb-old"}, nil
@@ -338,7 +339,7 @@ func TestEnsureLoadedReloadsStaleContentUnderSameRef(t *testing.T) {
 func TestEnsureLoadedSkipsWhenCachedContentMatches(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	removed := false
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{Digest: "sha256:same"}, nil
@@ -370,7 +371,7 @@ func TestEnsureLoadedReloadsLegacyImageWithoutDigest(t *testing.T) {
 		},
 	})
 	labels := map[string]string{dockerfileIDLabelKey: "abc123"}
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
 		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 			return &msb.ImageConfig{Digest: "", Labels: labels}, nil
@@ -396,7 +397,7 @@ func TestEnsureLoadedLoadsWhenNotCached(t *testing.T) {
 		},
 	})
 
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 	if _, err := EnsureLoaded(context.Background(), docker.Get(), msbClient,
@@ -428,7 +429,7 @@ func TestEnsureLoadedReusesContentRef(t *testing.T) {
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	dockerTag := naming.DockerImageRef("test-project", "opencode")
 	dockertest.WithNoopDockerMock(t)
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, ref string) error {
 			if ref == contentRef {
 				return nil
@@ -465,7 +466,7 @@ func TestEnsureLoadedReusesNameRefForMigration(t *testing.T) {
 	nameRef := naming.RunnerImageRef("test-project", "opencode")
 	dockerTag := naming.DockerImageRef("test-project", "opencode")
 	dockertest.WithNoopDockerMock(t)
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, ref string) error {
 			if ref == nameRef {
 				return nil
@@ -501,7 +502,7 @@ func TestEnsureLoadedReusesNameRefFromIdentity(t *testing.T) {
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	nameRef := naming.RunnerImageRef("test-project", "opencode")
 	dockertest.WithNoopDockerMock(t)
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, ref string) error {
 			if ref == nameRef {
 				return nil
@@ -536,7 +537,7 @@ func TestEnsureLoadedReusesLegacyPrefixedRefForMigration(t *testing.T) {
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	dockerTag := naming.DockerImageRef("test-project", "opencode")
 	dockertest.WithNoopDockerMock(t)
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, ref string) error {
 			if ref == dockerTag {
 				return nil
@@ -577,7 +578,7 @@ func TestEnsureLoadedLoadsUnderContentRefWhenNoCandidateMatches(t *testing.T) {
 			return io.NopCloser(strings.NewReader("tar")), nil
 		},
 	})
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 	ui := &termiotest.Mock{}
@@ -612,7 +613,7 @@ func TestEnsureLoadedLoadsUnderContentRefWhenContentDiffers(t *testing.T) {
 			return io.NopCloser(strings.NewReader("tar")), nil
 		},
 	})
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, ref string) error {
 			if ref == dockerTag {
 				return nil
@@ -653,7 +654,7 @@ func TestEnsureLoadedFallsBackToDockerTagWhenRefEmpty(t *testing.T) {
 			return io.NopCloser(strings.NewReader("tar")), nil
 		},
 	})
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 
@@ -681,7 +682,7 @@ func TestEnsureLoadedReusesLegacyRefWhenContentMatches(t *testing.T) {
 	newRef := naming.RunnerImageRef("test-project", "opencode")
 	legacyRef := naming.DockerImageRef("test-project", "opencode")
 	dockertest.WithNoopDockerMock(t)
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, ref string) error {
 			if ref == legacyRef {
 				return nil
@@ -721,7 +722,7 @@ func TestEnsureLoadedLoadsUnderNewRefWhenLegacyAbsent(t *testing.T) {
 			return io.NopCloser(strings.NewReader("tar")), nil
 		},
 	})
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 
@@ -754,7 +755,7 @@ func TestEnsureLoadedLoadsUnderNewRefWhenLegacyContentDiffers(t *testing.T) {
 			return io.NopCloser(strings.NewReader("tar")), nil
 		},
 	})
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, ref string) error {
 			if ref == legacyRef {
 				return nil
@@ -847,7 +848,7 @@ func TestCachedImageMatchesOnlyAnEqualDigest(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			msbClient := &msb.MockMsbClient{
+			msbClient := &msbtest.MockMsbClient{
 				ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 					if tc.msbErr != nil {
 						return nil, tc.msbErr

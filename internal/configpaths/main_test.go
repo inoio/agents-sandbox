@@ -8,14 +8,14 @@ import (
 	"github.com/inoio/agents-sandbox/internal/opener/openertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 func TestMain(m *testing.M) {
 	configpathstest.InstallFailFastConfigPaths()
 	dockertest.InstallFailFastGet()
 	doctortest.InstallFailFast()
-	msb.InstallFailFastGet()
+	msbtest.InstallFailFastGet()
 	notifytest.InstallFailFast()
 	openertest.InstallFailFast()
 	m.Run()

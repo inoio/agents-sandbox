@@ -15,6 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
@@ -48,7 +49,7 @@ func TestPlanRemovalPropagatesErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		testutil.WritePath(t, dir, "")
-		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 
 		if _, err := PlanRemoval(ctx, []string{slug}, "", &ui); err == nil {
 			t.Fatal("expected the state-key planning error")
@@ -62,7 +63,7 @@ func TestPlanRemovalPropagatesErrors(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "state.yaml"), []byte("schema: [not-valid"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 
 		if _, err := PlanRemoval(ctx, nil, "", &ui); err == nil {
 			t.Fatal("expected the root-state read error")
@@ -72,7 +73,7 @@ func TestPlanRemovalPropagatesErrors(t *testing.T) {
 	t.Run("volumes", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
 		ui := termiotest.NewTestMock(t)
-		msb.WithMsbMock(t, &msb.MockMsbClient{ListVolumesErr: errBoom})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{ListVolumesErr: errBoom})
 
 		if _, err := PlanRemoval(ctx, nil, "", &ui); !errors.Is(err, errBoom) {
 			t.Fatalf("err = %v, want %v", err, errBoom)
@@ -82,7 +83,7 @@ func TestPlanRemovalPropagatesErrors(t *testing.T) {
 	t.Run("images", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
 		ui := termiotest.NewTestMock(t)
-		msb.WithMsbMock(t, &msb.MockMsbClient{ListImagesErr: errBoom})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{ListImagesErr: errBoom})
 
 		if _, err := PlanRemoval(ctx, nil, "", &ui); !errors.Is(err, errBoom) {
 			t.Fatalf("err = %v, want %v", err, errBoom)
@@ -92,7 +93,7 @@ func TestPlanRemovalPropagatesErrors(t *testing.T) {
 	t.Run("sandboxes", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
 		ui := termiotest.NewTestMock(t)
-		msb.WithMsbMock(t, &msb.MockMsbClient{ListSandboxesErr: errBoom})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{ListSandboxesErr: errBoom})
 
 		if _, err := PlanRemoval(ctx, nil, "", &ui); !errors.Is(err, errBoom) {
 			t.Fatalf("err = %v, want %v", err, errBoom)
@@ -111,8 +112,8 @@ func TestPlanRemovalPropagatesErrors(t *testing.T) {
 		// The agent path is a regular file, so the key (added from the volume
 		// name) has no statable state file.
 		testutil.WritePath(t, filepath.Join(dir, "opencode"), "")
-		msb.WithMsbMock(t, &msb.MockMsbClient{
-			Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volumeName}},
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
+			Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: volumeName}},
 		})
 
 		if _, err := PlanRemoval(ctx, []string{slug}, "", &ui); err == nil {
@@ -129,7 +130,7 @@ func TestPlanRemovalPropagatesErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		testutil.WritePath(t, filepath.Join(dir, "claims"), "")
-		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 
 		if _, err := PlanRemoval(ctx, []string{slug}, "", &ui); err == nil {
 			t.Fatal("expected the claim planning error")
@@ -180,7 +181,7 @@ func TestPlanVolumesPropagatesErrors(t *testing.T) {
 	t.Run("list error", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
 		ui := termiotest.NewTestMock(t)
-		client := &msb.MockMsbClient{ListVolumesErr: errBoom}
+		client := &msbtest.MockMsbClient{ListVolumesErr: errBoom}
 		if _, err := planVolumes(
 			ctx,
 			client,
@@ -204,7 +205,7 @@ func TestPlanVolumesPropagatesErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		testutil.WritePath(t, filepath.Join(state.KeyDir(key), "state.yaml"), "schema: [not-valid")
-		client := &msb.MockMsbClient{}
+		client := &msbtest.MockMsbClient{}
 		if _, err := planVolumes(ctx, client, scope, &state.RootState{}, func(state.Key) {}, &ui); err == nil {
 			t.Fatal("expected the state-reference scan error")
 		}
@@ -232,16 +233,16 @@ func TestPlanImagesPropagatesErrors(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("list error", func(t *testing.T) {
-		client := &msb.MockMsbClient{ListImagesErr: errBoom}
+		client := &msbtest.MockMsbClient{ListImagesErr: errBoom}
 		if _, err := planImages(ctx, client, nil, "", func(state.Key) {}); !errors.Is(err, errBoom) {
 			t.Fatalf("err = %v, want %v", err, errBoom)
 		}
 	})
 
 	t.Run("foreign slug skipped", func(t *testing.T) {
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Images: []msb.ImageHandle{
-				&msb.MockImageHandle{Reference_: naming.RunnerImageRef("other-1mjusbm3wikhb0", "opencode")},
+				&msbtest.MockImageHandle{Reference_: naming.RunnerImageRef("other-1mjusbm3wikhb0", "opencode")},
 			},
 		}
 		var keys []state.Key
@@ -267,16 +268,16 @@ func TestPlanSandboxesPropagatesErrors(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("list error", func(t *testing.T) {
-		client := &msb.MockMsbClient{ListSandboxesErr: errBoom}
+		client := &msbtest.MockMsbClient{ListSandboxesErr: errBoom}
 		if _, _, err := planSandboxes(ctx, client, nil, "", func(state.Key) {}); !errors.Is(err, errBoom) {
 			t.Fatalf("err = %v, want %v", err, errBoom)
 		}
 	})
 
 	t.Run("foreign slug skipped", func(t *testing.T) {
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Sandboxes: []msb.SandboxHandle{
-				&msb.MockSandboxHandle{
+				&msbtest.MockSandboxHandle{
 					Name_:   naming.LegacyVMPrefix + "otherproject",
 					Status_: msb.SandboxStatusStopped,
 				},
@@ -350,7 +351,7 @@ func TestResolveSandboxesSkipsMissingAndPropagatesOtherErrors(t *testing.T) {
 
 	t.Run("missing sandbox skipped", func(t *testing.T) {
 		p := &RemovalPlan{Sandboxes: []string{"missing-vm"}}
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 				return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
 			},
@@ -366,7 +367,7 @@ func TestResolveSandboxesSkipsMissingAndPropagatesOtherErrors(t *testing.T) {
 
 	t.Run("other error propagates", func(t *testing.T) {
 		p := &RemovalPlan{Sandboxes: []string{"broken-vm"}}
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 				return nil, errBoom
 			},
@@ -397,7 +398,7 @@ func TestExecuteNilAndCancelled(t *testing.T) {
 func TestExecutePropagatesSandboxResolutionError(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	ui := termiotest.NewTestMock(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 			return nil, errBoom
 		},
@@ -449,8 +450,8 @@ func TestSweepStaleStatePropagatesErrors(t *testing.T) {
 // failure of the sandbox step.
 func TestRemoveSandboxesWarnsAndJoinsFailures(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
-	running := &msb.MockSandboxHandle{Name_: "run-vm", Status_: msb.SandboxStatusRunning, StopErr: errBoom}
-	stopped := &msb.MockSandboxHandle{Name_: "stopped-vm", Status_: msb.SandboxStatusStopped, RemoveErr: errBoom}
+	running := &msbtest.MockSandboxHandle{Name_: "run-vm", Status_: msb.SandboxStatusRunning, StopErr: errBoom}
+	stopped := &msbtest.MockSandboxHandle{Name_: "stopped-vm", Status_: msb.SandboxStatusStopped, RemoveErr: errBoom}
 
 	errs := removeSandboxes(context.Background(), []msb.SandboxHandle{running, stopped}, &ui)
 	if len(errs) != 2 {
@@ -528,7 +529,7 @@ func TestExecuteJoinsOwnershipUpdateFailure(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	const slug = "purge-claimfail-1mjusbm3wikhb0"
 	seedAdoptionClaim(t, slug, "opencode", slug, "legacy-volume")
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 
 	plan, err := PlanRemoval(context.Background(), []string{slug}, "", &ui)
 	if err != nil {
@@ -568,8 +569,8 @@ func TestExecuteJoinsStateAndDirRemovalFailures(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(state.SlugDir(slug), "claims"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	msb.WithMsbMock(t, &msb.MockMsbClient{
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volumeName}},
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: volumeName}},
 	})
 
 	plan, err := PlanRemoval(context.Background(), []string{slug}, "", &ui)
@@ -640,13 +641,13 @@ func TestPlanRemovalScopesAdoptionClaimsToAgent(t *testing.T) {
 	ocVolume := naming.HomeVolumeName(legacyOpencode, "opencode", "20260101T000000")
 	seedAdoptionClaim(t, legacyPi, "pi", checkout, piVolume)
 	seedAdoptionClaim(t, legacyOpencode, "opencode", checkout, ocVolume)
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: piVolume},
-			&msb.MockVolumeHandle{Name_: ocVolume},
+			&msbtest.MockVolumeHandle{Name_: piVolume},
+			&msbtest.MockVolumeHandle{Name_: ocVolume},
 		},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	plan, err := PlanRemoval(context.Background(), []string{checkout}, "pi", &testUI)
 	if err != nil {
@@ -695,10 +696,10 @@ func TestExecuteRefusesVolumeAdoptedAfterPlanning(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed legacy state: %v", err)
 	}
-	mock := &msb.MockMsbClient{
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volumeName}},
+	mock := &msbtest.MockMsbClient{
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: volumeName}},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	plan, err := PlanRemoval(context.Background(), []string{legacy}, "", &ui)
 	if err != nil {
@@ -750,10 +751,10 @@ func TestExecuteFailsClosedWhenReferencesGoCorrupt(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed target state: %v", err)
 	}
-	mock := &msb.MockMsbClient{
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volumeName}},
+	mock := &msbtest.MockMsbClient{
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: volumeName}},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	plan, err := PlanRemoval(context.Background(), []string{target}, "", &ui)
 	if err != nil {
@@ -805,10 +806,10 @@ func TestPlanRemovalScopesVolumesByAgent(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed foreign state: %v", err)
 	}
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: ownedVolume, CreatedAt_: time.Now()},
-			&msb.MockVolumeHandle{Name_: foreignVolume, CreatedAt_: time.Now()},
+			&msbtest.MockVolumeHandle{Name_: ownedVolume, CreatedAt_: time.Now()},
+			&msbtest.MockVolumeHandle{Name_: foreignVolume, CreatedAt_: time.Now()},
 		},
 	})
 
@@ -877,21 +878,25 @@ func TestPlanRemovalContinuesPastForeignAndBlockedArtifacts(t *testing.T) {
 			t.Fatalf("seed blocked state: %v", err)
 		}
 	}
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: "user-data", CreatedAt_: time.Now()},
-			&msb.MockVolumeHandle{Name_: blockedVolume, CreatedAt_: time.Now()},
-			&msb.MockVolumeHandle{Name_: ownedVolume, CreatedAt_: time.Now()},
+			&msbtest.MockVolumeHandle{Name_: "user-data", CreatedAt_: time.Now()},
+			&msbtest.MockVolumeHandle{Name_: blockedVolume, CreatedAt_: time.Now()},
+			&msbtest.MockVolumeHandle{Name_: ownedVolume, CreatedAt_: time.Now()},
 		},
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: "docker.io/library/alpine:latest", LastUsedAt_: time.Now()},
-			&msb.MockImageHandle{Reference_: unownedImage, LastUsedAt_: time.Now()},
-			&msb.MockImageHandle{Reference_: ownedImage, LastUsedAt_: time.Now()},
+			&msbtest.MockImageHandle{Reference_: "docker.io/library/alpine:latest", LastUsedAt_: time.Now()},
+			&msbtest.MockImageHandle{Reference_: unownedImage, LastUsedAt_: time.Now()},
+			&msbtest.MockImageHandle{Reference_: ownedImage, LastUsedAt_: time.Now()},
 		},
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{Name_: "builder-vm", Status_: msb.SandboxStatusRunning, UpdatedAt_: time.Now()},
-			&msb.MockSandboxHandle{Name_: unownedSandbox, Status_: msb.SandboxStatusStopped, UpdatedAt_: time.Now()},
-			&msb.MockSandboxHandle{Name_: ownedSandbox, Status_: msb.SandboxStatusStopped, UpdatedAt_: time.Now()},
+			&msbtest.MockSandboxHandle{Name_: "builder-vm", Status_: msb.SandboxStatusRunning, UpdatedAt_: time.Now()},
+			&msbtest.MockSandboxHandle{
+				Name_:      unownedSandbox,
+				Status_:    msb.SandboxStatusStopped,
+				UpdatedAt_: time.Now(),
+			},
+			&msbtest.MockSandboxHandle{Name_: ownedSandbox, Status_: msb.SandboxStatusStopped, UpdatedAt_: time.Now()},
 		},
 	})
 

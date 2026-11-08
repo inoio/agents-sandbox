@@ -19,6 +19,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -91,7 +92,7 @@ func (host *journeyHost) dockerClient() *dockertest.MockDockerClient {
 
 // installMsbImageCache makes mock's image calls read and write the host's
 // microsandbox image cache. Every cached image counts as recently used.
-func (host *journeyHost) installMsbImageCache(mock *sandboxmsb.MockMsbClient) {
+func (host *journeyHost) installMsbImageCache(mock *msbtest.MockMsbClient) {
 	mock.ImageGetFn = func(_ context.Context, ref string) error {
 		host.mu.Lock()
 		defer host.mu.Unlock()
@@ -120,7 +121,7 @@ func (host *journeyHost) installMsbImageCache(mock *sandboxmsb.MockMsbClient) {
 		defer host.mu.Unlock()
 		handles := make([]sandboxmsb.ImageHandle, 0, len(host.msbImages))
 		for _, ref := range slices.Sorted(maps.Keys(host.msbImages)) {
-			handles = append(handles, sandboxmsb.MockImageHandle{Reference_: ref, LastUsedAt_: time.Now()})
+			handles = append(handles, msbtest.MockImageHandle{Reference_: ref, LastUsedAt_: time.Now()})
 		}
 		return handles, nil
 	}
@@ -147,7 +148,7 @@ func startJourney(
 	t *testing.T,
 	host *journeyHost,
 	latestRelease string,
-) (*sandboxmsb.MockMsbClient, state.Key, func(args ...string)) {
+) (*msbtest.MockMsbClient, state.Key, func(args ...string)) {
 	t.Helper()
 	initTestProjectDir(t)
 	keys := currentRunImageKeys(defaultAgentName)
@@ -155,9 +156,9 @@ func startJourney(
 		t.Fatal("the project directory resolves no identity")
 	}
 	host.runnerTag = naming.DockerImageRef(keys[0].Slug, keys[0].Agent)
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	host.installMsbImageCache(mock)
-	_, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{})
+	_, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{})
 	dockertest.WithDockerMock(t, host.dockerClient())
 	withLatestAgentRelease(t, latestRelease)
 	execute := func(args ...string) {
@@ -192,7 +193,7 @@ func runRealStartupPrune(t *testing.T) {
 // staleProjectVM is the project's stopped VM, idle far beyond the prune age, so
 // the startup prune retires its key in this pass.
 func staleProjectVM(k state.Key) sandboxmsb.SandboxHandle {
-	return &sandboxmsb.MockSandboxHandle{
+	return &msbtest.MockSandboxHandle{
 		Name_:      "stale-" + k.Slug,
 		Status_:    sandboxmsb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-365 * 24 * time.Hour),

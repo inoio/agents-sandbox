@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 func TestFormatVolumeTime(t *testing.T) {
@@ -23,12 +24,12 @@ func TestFormatVolumeTime(t *testing.T) {
 
 func TestListVolumesShowsBothSchemes(t *testing.T) {
 	// A non-home volume comes first, so a filter that stopped the scan is caught.
-	mock := &msb.MockMsbClient{Volumes: []msb.VolumeHandle{
-		&msb.MockVolumeHandle{Name_: "some-other-volume"},
-		&msb.MockVolumeHandle{Name_: "agents-sandbox-home-myproj-1mjusbm3wikhb0-opencode-20260812T123456"},
-		&msb.MockVolumeHandle{Name_: "myproj-1mjusbm3wikhb0-opencode-20260812T123457"},
+	mock := &msbtest.MockMsbClient{Volumes: []msb.VolumeHandle{
+		&msbtest.MockVolumeHandle{Name_: "some-other-volume"},
+		&msbtest.MockVolumeHandle{Name_: "agents-sandbox-home-myproj-1mjusbm3wikhb0-opencode-20260812T123456"},
+		&msbtest.MockVolumeHandle{Name_: "myproj-1mjusbm3wikhb0-opencode-20260812T123457"},
 	}}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	got, err := ListVolumes(context.Background())
 	require.NoError(t, err)
@@ -37,22 +38,22 @@ func TestListVolumesShowsBothSchemes(t *testing.T) {
 }
 
 func TestListVolumes_ReturnsOnlyHomeVolumes(t *testing.T) {
-	mockClient := &msb.MockMsbClient{
+	mockClient := &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{
+			&msbtest.MockVolumeHandle{
 				Name_: "agents-sandbox-home-proj-aBc1234D",
 				Path_: "/mnt/volumes/agents-sandbox-home-proj-aBc1234D",
 				Kind_: "project-home",
 			},
-			&msb.MockVolumeHandle{
+			&msbtest.MockVolumeHandle{
 				Name_: "agents-sandbox-clone-proj-aBc1234D-1719432000",
 				Path_: "/mnt/volumes/agents-sandbox-clone-proj-aBc1234D-1719432000",
 				Kind_: "project-clone",
 			},
-			&msb.MockVolumeHandle{Name_: "other-volume", Path_: "/mnt/volumes/other-volume", Kind_: "project-data"},
+			&msbtest.MockVolumeHandle{Name_: "other-volume", Path_: "/mnt/volumes/other-volume", Kind_: "project-data"},
 		},
 	}
-	msb.WithMsbMock(t, mockClient)
+	msbtest.WithMsbMock(t, mockClient)
 
 	result, err := ListVolumes(context.Background())
 	if err != nil {
@@ -71,10 +72,10 @@ func TestListVolumes_ReturnsOnlyHomeVolumes(t *testing.T) {
 }
 
 func TestListVolumes_ErrorFromMsb(t *testing.T) {
-	mockClient := &msb.MockMsbClient{
+	mockClient := &msbtest.MockMsbClient{
 		ListVolumesErr: context.Canceled,
 	}
-	msb.WithMsbMock(t, mockClient)
+	msbtest.WithMsbMock(t, mockClient)
 
 	_, err := ListVolumes(context.Background())
 	if !errors.Is(err, context.Canceled) {
@@ -83,8 +84,8 @@ func TestListVolumes_ErrorFromMsb(t *testing.T) {
 }
 
 func TestListVolumes_EmptyReturnsNil(t *testing.T) {
-	mockClient := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mockClient)
+	mockClient := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mockClient)
 
 	result, err := ListVolumes(context.Background())
 	if err != nil {
@@ -99,9 +100,9 @@ func TestListVolumes_PopulatesMetadata(t *testing.T) {
 	quota := uint32(1024)
 	var capacity uint64 = 2 * 1024 * 1024 * 1024
 	created := time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC)
-	mockClient := &msb.MockMsbClient{
+	mockClient := &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{
+			&msbtest.MockVolumeHandle{
 				Name_:          "agents-sandbox-home-proj",
 				Kind_:          "disk",
 				QuotaMiB_:      &quota,
@@ -110,7 +111,7 @@ func TestListVolumes_PopulatesMetadata(t *testing.T) {
 			},
 		},
 	}
-	msb.WithMsbMock(t, mockClient)
+	msbtest.WithMsbMock(t, mockClient)
 
 	result, err := ListVolumes(context.Background())
 	if err != nil {

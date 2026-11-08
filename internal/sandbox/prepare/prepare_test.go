@@ -21,6 +21,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
@@ -74,8 +75,8 @@ func TestPlanReconfigStageWarnsAboutUnprovisionedConfigDirDependencies(t *testin
 		t.Fatalf("write %s: %v", manifest, err)
 	}
 	ui := termiotest.NewTestMock(t)
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
 	home := preparedHome{
 		client:     client,
@@ -108,8 +109,8 @@ func TestPlanReconfigStageLiveVMReadError(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	ui := termiotest.NewTestMock(t)
 	lookupErr := errors.New("msb unreachable")
-	client := (&msb.MockMsbClient{}).SetGetSandboxErr(lookupErr)
-	msb.WithMsbMock(t, client)
+	client := (&msbtest.MockMsbClient{}).SetGetSandboxErr(lookupErr)
+	msbtest.WithMsbMock(t, client)
 	provisionHostConfig := false
 	opts := options.RunOptions{Agent: "opencode", ProvisionHostConfig: &provisionHostConfig}
 	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
@@ -135,14 +136,14 @@ func TestPlanReconfigStageLiveVMReadError(t *testing.T) {
 func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	ui := termiotest.NewTestMock(t)
-	connected := &msb.MockSandbox{}
-	handle := &msb.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning, ConnectSb: connected}
+	connected := &msbtest.MockSandbox{}
+	handle := &msbtest.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning, ConnectSb: connected}
 	lookups := 0
-	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		lookups++
 		return handle, nil
 	}}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	provisionHostConfig := false
 	opts := options.RunOptions{Agent: "opencode", ProvisionHostConfig: &provisionHostConfig}
 	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}
@@ -184,18 +185,18 @@ func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {
 func TestEnsureVMStageAppliesThePlannedMemory(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	ui := termiotest.NewTestMock(t)
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_:         "vm",
 		Status_:       msb.SandboxStatusRunning,
-		ConnectSb:     &msb.MockSandbox{},
+		ConnectSb:     &msbtest.MockSandbox{},
 		Cfg:           &msb.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 16384},
 		MetricsResult: &msb.Metrics{MemoryLimitBytes: 8192 << 20},
 		Plan:          &msb.SandboxModificationPlan{},
 	}
-	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
 	_, _, err := ensureVMStage(
 		context.Background(),
@@ -243,7 +244,7 @@ func TestEnsureVMStageFailureSkipsFingerprints(t *testing.T) {
 		context.Background(),
 		sessionIdentity{key: k},
 		image.ImageInfo{},
-		preparedHome{client: &msb.MockMsbClient{}},
+		preparedHome{client: &msbtest.MockMsbClient{}},
 		reconfigPlan{homeVolume: "home-vol"},
 		false,
 		options.RunOptions{Seams: seams},
@@ -266,7 +267,7 @@ func TestResolveSessionIdentityErrorsWhenIdentityUnresolvable(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	_, _, _, err := resolveSessionIdentity(
 		context.Background(),
-		&msb.MockMsbClient{},
+		&msbtest.MockMsbClient{},
 		configpaths.Get(),
 		unresolvableIdentityDir(t),
 		opencodeResolved(t),
@@ -453,13 +454,13 @@ func TestReportActivePorts(t *testing.T) {
 		{
 			name:      "kept with unchanged ports",
 			opts:      requested,
-			plan:      reconfigPlan{existingVM: &msb.MockSandboxHandle{}},
+			plan:      reconfigPlan{existingVM: &msbtest.MockSandboxHandle{}},
 			wantLines: 1,
 		},
 		{
 			name: "kept with deferred ports",
 			opts: requested,
-			plan: reconfigPlan{existingVM: &msb.MockSandboxHandle{}, decision: reconfigDecision{PortsChanged: true}},
+			plan: reconfigPlan{existingVM: &msbtest.MockSandboxHandle{}, decision: reconfigDecision{PortsChanged: true}},
 		},
 		{name: "nothing requested"},
 	}
@@ -480,9 +481,9 @@ func TestReportActivePorts(t *testing.T) {
 func TestPrepareHomeVolumeAlwaysOffersRuntimeHomeMigration(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: name}, nil
+			return &msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
 
@@ -530,7 +531,7 @@ func TestPrepareHomeVolumeOfferErrorPropagates(t *testing.T) {
 	ui := termiotest.NewTestMock(t)
 	_, _, _, err := prepareHomeVolume(
 		context.Background(),
-		&msb.MockMsbClient{},
+		&msbtest.MockMsbClient{},
 		docker.Get(),
 		k,
 		image.ImageInfo{},
@@ -554,9 +555,9 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 	const recovered = "agents-sandbox-home-slug-20260101T000000"
 	k := state.Key{Slug: "slug", Agent: "opencode"}
 
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-			return &msb.MockSandboxHandle{
+			return &msbtest.MockSandboxHandle{
 				Cfg: &msb.SandboxConfig{Image: "img:tag"},
 				Mounts: map[string]msb.MountConfig{
 					mounts.VMHomeDir: msb.Mount.Named(recovered, msb.MountOptions{}),
@@ -565,7 +566,7 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 		},
 		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
 			if name == recovered {
-				return &msb.MockVolumeHandle{Name_: name}, nil
+				return &msbtest.MockVolumeHandle{Name_: name}, nil
 			}
 			return nil, fmt.Errorf("volume %s not found", name)
 		},
@@ -574,7 +575,7 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 			return nil, errors.New("unexpected CreateVolume")
 		},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	origOffer := offerRuntimeHomeMigration
 	offerRuntimeHomeMigration = func(_ context.Context, _ msb.Client, _ termio.UI) error { return nil }
@@ -625,13 +626,13 @@ func TestPrepareHomeVolumeRecoversPersistedAdoptionVolume(t *testing.T) {
 		t.Fatalf("seed adoption-recovered state: %v", err)
 	}
 
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "legacy VM already destroyed"}
 		},
 		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
 			if name == recovered {
-				return &msb.MockVolumeHandle{Name_: name}, nil
+				return &msbtest.MockVolumeHandle{Name_: name}, nil
 			}
 			return nil, fmt.Errorf("volume %s not found", name)
 		},
@@ -640,7 +641,7 @@ func TestPrepareHomeVolumeRecoversPersistedAdoptionVolume(t *testing.T) {
 			return nil, errors.New("unexpected CreateVolume")
 		},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	origOffer := offerRuntimeHomeMigration
 	offerRuntimeHomeMigration = func(_ context.Context, _ msb.Client, _ termio.UI) error { return nil }
@@ -867,9 +868,9 @@ func TestLiveHomeVolumeReturnsMountedVolume(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-			return &msb.MockSandboxHandle{
+			return &msbtest.MockSandboxHandle{
 				Cfg: &msb.SandboxConfig{Image: "img:tag"},
 				Mounts: map[string]msb.MountConfig{
 					mounts.VMHomeDir: msb.Mount.Named("home-vol", msb.MountOptions{}),
@@ -889,7 +890,7 @@ func TestLiveHomeVolumeNoVM(t *testing.T) {
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
 	ui := termiotest.NewTestMock(t)
-	if got := liveHomeVolume(context.Background(), &msb.MockMsbClient{}, k, &ui); got != "" {
+	if got := liveHomeVolume(context.Background(), &msbtest.MockMsbClient{}, k, &ui); got != "" {
 		t.Errorf("liveHomeVolume() = %q, want empty when no VM exists", got)
 	}
 }
@@ -900,9 +901,9 @@ func TestLiveHomeVolumeMountsError(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
-			return &msb.MockSandboxHandle{
+			return &msbtest.MockSandboxHandle{
 				Cfg:       &msb.SandboxConfig{Image: "img:tag"},
 				MountsErr: errors.New("mounts boom"),
 			}, nil
@@ -925,7 +926,7 @@ func TestLiveHomeVolumeLookupErrorLogs(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 			return nil, errors.New("lookup boom")
 		},
@@ -946,7 +947,7 @@ func TestLiveHomeVolumeNilHandle(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 			return nil, nil //nolint:nilnil // exercises the defensive nil-handle branch
 		},
@@ -1050,7 +1051,7 @@ func TestSessionServeHostPort(t *testing.T) {
 // the sandbox handle, and is a no-op on a session without one.
 func TestSessionAccessors(t *testing.T) {
 	detached := false
-	sb := &msb.MockSandbox{DetachFn: func(context.Context) error {
+	sb := &msbtest.MockSandbox{DetachFn: func(context.Context) error {
 		detached = true
 		return nil
 	}}
@@ -1116,17 +1117,17 @@ func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
 			withoutMemoryEnv(t)
 			t.Setenv("AGENTS_SANDBOX_TMP_SIZE", "")
 			t.Setenv("OPENCODE_SANDBOX_TMP_SIZE", "")
-			handle := &msb.MockSandboxHandle{
+			handle := &msbtest.MockSandboxHandle{
 				Name_:      "vm",
 				Status_:    msb.SandboxStatusRunning,
-				ConnectSb:  &msb.MockSandbox{},
+				ConnectSb:  &msbtest.MockSandbox{},
 				Cfg:        &msb.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 16384},
 				LogsResult: []msb.LogEntry{memoryRaiseLogEntry(time.Now().Add(-time.Hour))},
 			}
-			client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+			client := &msbtest.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 				return handle, nil
 			}}
-			msb.WithMsbMock(t, client)
+			msbtest.WithMsbMock(t, client)
 			provisionHostConfig := false
 			opts := options.RunOptions{
 				Agent: "opencode", Memory: "4G", TmpSize: "2G", ProvisionHostConfig: &provisionHostConfig,
@@ -1174,17 +1175,17 @@ func TestPlanReconfigStageSkipVMSuppressesMemoryRaise(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	withoutMemoryEnv(t)
 	kill := time.Now().Add(-time.Hour)
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_:      "vm",
 		Status_:    msb.SandboxStatusRunning,
-		ConnectSb:  &msb.MockSandbox{},
+		ConnectSb:  &msbtest.MockSandbox{},
 		Cfg:        &msb.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192},
 		LogsResult: []msb.LogEntry{memoryRaiseLogEntry(kill)},
 	}
-	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	provisionHostConfig := false
 	opts := options.RunOptions{Agent: "opencode", ProvisionHostConfig: &provisionHostConfig}
 	session := sessionIdentity{key: testVMKey(), agent: opencodeResolved(t)}

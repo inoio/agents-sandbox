@@ -18,7 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -1670,9 +1670,9 @@ func TestHostPathForDstRoot(t *testing.T) {
 
 func TestReadVMConfigReadsPaths(t *testing.T) {
 	data := []byte("{}")
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		Name_: "test-vm",
-		FSValue_: msb.NewTestFS(
+		FSValue_: msbtest.NewTestFS(
 			map[string][]byte{
 				opencodeMergedPath:     data,
 				"/home/dev/.gitconfig": []byte("x=y\n"),

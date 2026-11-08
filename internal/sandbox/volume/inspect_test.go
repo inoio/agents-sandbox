@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 func TestInspectVolumePopulatesDetail(t *testing.T) {
@@ -15,9 +16,9 @@ func TestInspectVolumePopulatesDetail(t *testing.T) {
 	capacity := uint64(20 * 1024 * 1024 * 1024)
 	format := "raw"
 	fstype := "ext4"
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Volumes = []msb.VolumeHandle{
-		&msb.MockVolumeHandle{
+		&msbtest.MockVolumeHandle{
 			Name_:          "agents-sandbox-home-proj-opencode-20260817T104236",
 			Path_:          "/home/dev/.local/share/agents-sandbox/msb/volumes/agents-sandbox-home-proj",
 			Kind_:          msb.VolumeKindDisk,
@@ -30,7 +31,7 @@ func TestInspectVolumePopulatesDetail(t *testing.T) {
 			Labels_:        map[string]string{"project": "proj"},
 		},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	got, err := InspectVolume(context.Background(), "agents-sandbox-home-proj-opencode-20260817T104236")
 	if err != nil {
@@ -52,7 +53,7 @@ func TestInspectVolumePopulatesDetail(t *testing.T) {
 }
 
 func TestInspectVolumeMissing(t *testing.T) {
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 	_, err := InspectVolume(context.Background(), "agents-sandbox-home-missing")
 	if err == nil || !strings.Contains(err.Error(), "inspect volume") || errors.Unwrap(err) == nil {
 		t.Fatalf("InspectVolume() error = %v, want inspect volume error", err)

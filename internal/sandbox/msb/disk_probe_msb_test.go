@@ -14,15 +14,8 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest/runtime"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
-)
-
-// diskProbeDestroyTimeout and diskProbeIdleTimeout mirror the msb package's
-// test isolation constants; this external test cannot see them.
-const (
-	diskProbeDestroyTimeout = 30 * time.Second
-	diskProbeIdleTimeout    = 5 * time.Minute
 )
 
 // probeDiskUsage runs the launcher's in-guest disk probe against sb and parses
@@ -58,7 +51,7 @@ func assertConfiguredDiskLimits(t *testing.T, usages map[pressure.Kind]pressure.
 // trips the threshold, and a larger RootDiskSizeMiB applies live and persists
 // (specs/resources/resource-limit-proposal.md §1e, §5).
 func TestRealDiskProbeAndRootGrow(t *testing.T) {
-	msb.EnsureIsolatedRuntime(t)
+	runtime.EnsureIsolatedRuntime(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	name := "agents-sandbox-msb-test-disk-" + strconv.FormatInt(time.Now().UnixNano(), 10)
@@ -66,7 +59,7 @@ func TestRealDiskProbeAndRootGrow(t *testing.T) {
 		msbSdk.WithImage("alpine:3.20"),
 		msbSdk.WithReplace(),
 		msbSdk.WithDetached(),
-		msbSdk.WithIdleTimeout(diskProbeIdleTimeout),
+		msbSdk.WithIdleTimeout(runtime.TestIdleTimeout),
 		msbSdk.WithRootDisk(msbSdk.RootDisk.Managed(1024)),
 		msbSdk.WithMounts(map[string]msbSdk.MountConfig{
 			"/workspace": msbSdk.Mount.Bind(t.TempDir(), msbSdk.MountOptions{QuotaMiB: 64}),
@@ -77,7 +70,7 @@ func TestRealDiskProbeAndRootGrow(t *testing.T) {
 		t.Fatalf("CreateSandbox: %v", err)
 	}
 	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), diskProbeDestroyTimeout)
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), runtime.DestroyTimeout)
 		defer cleanupCancel()
 		if handle, handleErr := msbSdk.GetSandbox(cleanupCtx, name); handleErr == nil {
 			_ = handle.Destroy(cleanupCtx)

@@ -12,6 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
@@ -23,9 +24,9 @@ func TestValidateWorktreeBase(t *testing.T) {
 	const check = "git -C /w/feat rev-parse --verify %s^{commit}"
 	execFailed := errors.New("exec failed")
 
-	sb := &msb.MockSandbox{ExecOut: map[string]msb.ShellResult{
-		fmt.Sprintf(check, "main"): msb.NewTestResult(true, 0, "abc123", "", nil),
-		fmt.Sprintf(check, "nope"): msb.NewTestResult(false, 128, "", "unknown revision", nil),
+	sb := &msbtest.MockSandbox{ExecOut: map[string]msb.ShellResult{
+		fmt.Sprintf(check, "main"): msbtest.NewTestResult(true, 0, "abc123", "", nil),
+		fmt.Sprintf(check, "nope"): msbtest.NewTestResult(false, 128, "", "unknown revision", nil),
 	}}
 	if err := validateWorktreeBase(context.Background(), sb, "/w/feat", "main"); err != nil {
 		t.Errorf("resolvable base: %v", err)
@@ -34,7 +35,7 @@ func TestValidateWorktreeBase(t *testing.T) {
 		!strings.Contains(err.Error(), `base "nope" does not resolve locally`) {
 		t.Errorf("unresolvable base error = %v, want it refused", err)
 	}
-	err := validateWorktreeBase(context.Background(), &msb.MockSandbox{ExecErr: execFailed}, "/w/feat", "main")
+	err := validateWorktreeBase(context.Background(), &msbtest.MockSandbox{ExecErr: execFailed}, "/w/feat", "main")
 	if !errors.Is(err, execFailed) {
 		t.Errorf("failed check error = %v, want it to wrap %v", err, execFailed)
 	}
@@ -92,7 +93,7 @@ func TestWorktreeDetachedNoteEmptyForBranchReporter(t *testing.T) {
 // server-suffixed one and hide a daemon route or field rename.
 func TestResolveTargetStopsAtTheFailingStep(t *testing.T) {
 	cause := errors.New("step failed")
-	ok := func(stdout string) msb.ShellResult { return msb.NewTestResult(true, 0, stdout, "", nil) }
+	ok := func(stdout string) msb.ShellResult { return msbtest.NewTestResult(true, 0, stdout, "", nil) }
 	cases := []struct {
 		name     string
 		agent    *recordingWorktreeAgent
@@ -111,7 +112,7 @@ func TestResolveTargetStopsAtTheFailingStep(t *testing.T) {
 		},
 		{
 			name:     "resolve exits non-zero",
-			outputs:  map[string]msb.ShellResult{"resolve": msb.NewTestResult(false, 1, "", "boom", nil)},
+			outputs:  map[string]msb.ShellResult{"resolve": msbtest.NewTestResult(false, 1, "", "boom", nil)},
 			wantText: []string{`resolve project for "/workspace" failed (exit 1): boom`},
 			wantNot:  []string{"list", "create"},
 		},
@@ -129,7 +130,7 @@ func TestResolveTargetStopsAtTheFailingStep(t *testing.T) {
 		},
 		{
 			name:     "list exits non-zero",
-			outputs:  map[string]msb.ShellResult{"list": msb.NewTestResult(false, 3, "", "boom", nil)},
+			outputs:  map[string]msb.ShellResult{"list": msbtest.NewTestResult(false, 3, "", "boom", nil)},
 			wantText: []string{`list worktrees for "feat-x" failed (exit 3): boom`},
 			wantNot:  []string{"create"},
 		},
@@ -153,7 +154,7 @@ func TestResolveTargetStopsAtTheFailingStep(t *testing.T) {
 		},
 		{
 			name:     "create exits non-zero",
-			outputs:  map[string]msb.ShellResult{"create": msb.NewTestResult(false, 4, "", "boom", nil)},
+			outputs:  map[string]msb.ShellResult{"create": msbtest.NewTestResult(false, 4, "", "boom", nil)},
 			wantText: []string{`create worktree "feat-x" failed (exit 4): boom`, "may still have created it"},
 		},
 		{
@@ -167,7 +168,7 @@ func TestResolveTargetStopsAtTheFailingStep(t *testing.T) {
 			outputs := map[string]msb.ShellResult{"resolve": ok(`{}`), "list": ok(`[]`), "create": ok(`{}`)}
 			maps.Copy(outputs, tc.outputs)
 			calls := &[]string{}
-			mock := &msb.MockSandbox{ShellOut: outputs, ShellCalls: calls, ExecErr: tc.execErr}
+			mock := &msbtest.MockSandbox{ShellOut: outputs, ShellCalls: calls, ExecErr: tc.execErr}
 			var sb msb.Sandbox = mock
 			if tc.failing != "" {
 				sb = failingCommandSandbox{MockSandbox: mock, command: tc.failing, err: cause}
@@ -203,10 +204,10 @@ func TestResolveTargetStopsAtTheFailingStep(t *testing.T) {
 func TestResolveTargetResolvesThenPassesProjectToProvider(t *testing.T) {
 	ui := &termiotest.Mock{}
 	a := &recordingWorktreeAgent{}
-	sb := &msb.MockSandbox{ShellOut: map[string]msb.ShellResult{
-		"resolve": msb.NewTestResult(true, 0, `{}`, "", nil),
-		"list":    msb.NewTestResult(true, 0, `[]`, "", nil),
-		"create":  msb.NewTestResult(true, 0, `{"directory":"/workspace/wt/feat-x"}`, "", nil),
+	sb := &msbtest.MockSandbox{ShellOut: map[string]msb.ShellResult{
+		"resolve": msbtest.NewTestResult(true, 0, `{}`, "", nil),
+		"list":    msbtest.NewTestResult(true, 0, `[]`, "", nil),
+		"create":  msbtest.NewTestResult(true, 0, `{"directory":"/workspace/wt/feat-x"}`, "", nil),
 	}}
 	dir, err := ResolveTarget(
 		context.Background(),
@@ -242,12 +243,12 @@ func TestResolveTargetResolvesThenPassesProjectToProvider(t *testing.T) {
 func TestResolveTargetV1SkipsResolveStep(t *testing.T) {
 	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0, `[]`, "", nil),
+			provider.WorktreeListCmd(agent.WorktreeProject{}): msbtest.NewTestResult(true, 0, `[]`, "", nil),
 			provider.WorktreeCreateCmd(
 				agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{},
-			): msb.NewTestResult(true, 0, `{"directory":"/workspace/wt/feat-x"}`, "", nil),
+			): msbtest.NewTestResult(true, 0, `{"directory":"/workspace/wt/feat-x"}`, "", nil),
 		},
 		ShellCalls: &[]string{},
 	}
@@ -268,7 +269,7 @@ func TestResolveTargetV1SkipsResolveStep(t *testing.T) {
 
 func TestResolveTargetEmptySpecReturnsWorkspace(t *testing.T) {
 	ui := &termiotest.Mock{}
-	sb := &msb.MockSandbox{ShellCalls: &[]string{}}
+	sb := &msbtest.MockSandbox{ShellCalls: &[]string{}}
 	dir, err := ResolveTarget(
 		context.Background(),
 		opencodeResolved(t),
@@ -290,7 +291,7 @@ func TestResolveTargetEmptySpecReturnsWorkspace(t *testing.T) {
 
 func TestResolveTargetNoDaemonProvider(t *testing.T) {
 	ui := &termiotest.Mock{}
-	sb := &msb.MockSandbox{ShellCalls: &[]string{}}
+	sb := &msbtest.MockSandbox{ShellCalls: &[]string{}}
 	dir, err := ResolveTarget(
 		context.Background(),
 		agent.Resolve(&fakeAgent{}),
@@ -313,9 +314,9 @@ func TestResolveTargetNoDaemonProvider(t *testing.T) {
 func TestResolveTargetReusesExistingWorktree(t *testing.T) {
 	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0,
+			provider.WorktreeListCmd(agent.WorktreeProject{}): msbtest.NewTestResult(true, 0,
 				`["/home/dev/.local/share/opencode/worktree/abc/bugfix-exit-zero"]`, "", nil),
 		},
 		ShellCalls: &[]string{},
@@ -344,9 +345,9 @@ func TestResolveTargetReusesExistingWorktree(t *testing.T) {
 func TestResolveTargetReuseWarnsIgnoredBase(t *testing.T) {
 	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0,
+			provider.WorktreeListCmd(agent.WorktreeProject{}): msbtest.NewTestResult(true, 0,
 				`["/home/dev/.local/share/opencode/worktree/abc/foo"]`, "", nil),
 		},
 		ShellCalls: &[]string{},
@@ -387,13 +388,13 @@ func TestResolveTargetReuseIgnoresUnresolvableBase(t *testing.T) {
 	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	existing := "/home/dev/.local/share/opencode/worktree/abc/foo"
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0,
+			provider.WorktreeListCmd(agent.WorktreeProject{}): msbtest.NewTestResult(true, 0,
 				`["`+existing+`"]`, "", nil),
 		},
 		ExecOut: map[string]msb.ShellResult{
-			"git -C /workspace rev-parse --verify main^{commit}": msb.NewTestResult(
+			"git -C /workspace rev-parse --verify main^{commit}": msbtest.NewTestResult(
 				false,
 				128,
 				"",
@@ -441,10 +442,10 @@ func TestResolveTargetReuseIgnoresUnresolvableBase(t *testing.T) {
 func TestResolveTargetCreatesWithoutBase(t *testing.T) {
 	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0, `[]`, "", nil),
-			provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{}): msb.NewTestResult(
+			provider.WorktreeListCmd(agent.WorktreeProject{}): msbtest.NewTestResult(true, 0, `[]`, "", nil),
+			provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{}): msbtest.NewTestResult(
 				true,
 				0,
 				`{"directory":"/workspace/worktrees/feat-x"}`,
@@ -474,10 +475,10 @@ func TestResolveTargetCreatesWithBaseValidatesAndSendsStartCommand(t *testing.T)
 	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x", Base: "main"}, agent.WorktreeProject{})
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0, `[]`, "", nil),
-			createCmd: msb.NewTestResult(
+			provider.WorktreeListCmd(agent.WorktreeProject{}): msbtest.NewTestResult(true, 0, `[]`, "", nil),
+			createCmd: msbtest.NewTestResult(
 				true,
 				0,
 				`{"directory":"/workspace/worktrees/feat-x"}`,
@@ -486,7 +487,7 @@ func TestResolveTargetCreatesWithBaseValidatesAndSendsStartCommand(t *testing.T)
 			),
 		},
 		ExecOut: map[string]msb.ShellResult{
-			"git -C /workspace rev-parse --verify main^{commit}": msb.NewTestResult(
+			"git -C /workspace rev-parse --verify main^{commit}": msbtest.NewTestResult(
 				true,
 				0,
 				"abc123",
@@ -530,10 +531,10 @@ func TestResolveTargetCreateFailsOnUnresolvableBase(t *testing.T) {
 	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	createCmd := provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x", Base: "nope"}, agent.WorktreeProject{})
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0, `[]`, "", nil),
-			createCmd: msb.NewTestResult(
+			provider.WorktreeListCmd(agent.WorktreeProject{}): msbtest.NewTestResult(true, 0, `[]`, "", nil),
+			createCmd: msbtest.NewTestResult(
 				true,
 				0,
 				`{"directory":"/workspace/worktrees/feat-x"}`,
@@ -542,7 +543,7 @@ func TestResolveTargetCreateFailsOnUnresolvableBase(t *testing.T) {
 			),
 		},
 		ExecOut: map[string]msb.ShellResult{
-			"git -C /workspace rev-parse --verify nope^{commit}": msb.NewTestResult(
+			"git -C /workspace rev-parse --verify nope^{commit}": msbtest.NewTestResult(
 				false,
 				128,
 				"",
@@ -574,10 +575,10 @@ func TestResolveTargetCreateFailsOnUnresolvableBase(t *testing.T) {
 func TestResolveTargetCreateReportsWorktree(t *testing.T) {
 	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0, `[]`, "", nil),
-			provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{}): msb.NewTestResult(
+			provider.WorktreeListCmd(agent.WorktreeProject{}): msbtest.NewTestResult(true, 0, `[]`, "", nil),
+			provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{}): msbtest.NewTestResult(
 				true,
 				0,
 				`{"directory":"/workspace/worktrees/feat-x"}`,
@@ -609,9 +610,9 @@ func TestResolveTargetReuseReportsWorktree(t *testing.T) {
 	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
 	dir := "/home/dev/.local/share/opencode/worktree/abc/feat-x"
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0,
+			provider.WorktreeListCmd(agent.WorktreeProject{}): msbtest.NewTestResult(true, 0,
 				`["`+dir+`"]`, "", nil),
 		},
 	}
@@ -640,12 +641,12 @@ func TestResolveTargetOpencode2ReportsDetachedHead(t *testing.T) {
 		t.Fatal("opencode2 does not implement WorktreeProvider")
 	}
 	project := agent.WorktreeProject{ID: "abc", Canonical: "/repo"}
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeResolveCmd(mounts.WorkspaceMountPath): msb.NewTestResult(
+			provider.WorktreeResolveCmd(mounts.WorkspaceMountPath): msbtest.NewTestResult(
 				true, 0, `{"project":{"id":"abc","canonical":"/repo"}}`, "", nil),
-			provider.WorktreeListCmd(project): msb.NewTestResult(true, 0, `[]`, "", nil),
-			provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, project): msb.NewTestResult(true, 0,
+			provider.WorktreeListCmd(project): msbtest.NewTestResult(true, 0, `[]`, "", nil),
+			provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, project): msbtest.NewTestResult(true, 0,
 				`{"directory":"/home/dev/.local/share/opencode/worktree/abc/feat-x"}`, "", nil),
 		},
 	}
@@ -677,11 +678,11 @@ func TestResolveTargetOpencode2ReuseDoesNotClaimDetachedHead(t *testing.T) {
 	}
 	dir := "/home/dev/.local/share/opencode/worktree/abc/feat-x"
 	project := agent.WorktreeProject{ID: "abc", Canonical: "/repo"}
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeResolveCmd(mounts.WorkspaceMountPath): msb.NewTestResult(
+			provider.WorktreeResolveCmd(mounts.WorkspaceMountPath): msbtest.NewTestResult(
 				true, 0, `{"project":{"id":"abc","canonical":"/repo"}}`, "", nil),
-			provider.WorktreeListCmd(project): msb.NewTestResult(true, 0,
+			provider.WorktreeListCmd(project): msbtest.NewTestResult(true, 0,
 				`[{"directory":"`+dir+`"}]`, "", nil),
 		},
 		ShellCalls: &[]string{},
@@ -715,10 +716,10 @@ func TestResolveTargetOpencode2ReuseDoesNotClaimDetachedHead(t *testing.T) {
 func TestResolveTargetOpencodeDoesNotReportDetachedHead(t *testing.T) {
 	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0, `[]`, "", nil),
-			provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{}): msb.NewTestResult(
+			provider.WorktreeListCmd(agent.WorktreeProject{}): msbtest.NewTestResult(true, 0, `[]`, "", nil),
+			provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{}): msbtest.NewTestResult(
 				true,
 				0,
 				`{"directory":"/workspace/worktrees/feat-x"}`,
@@ -750,10 +751,10 @@ func TestResolveTargetOpencodeDoesNotReportDetachedHead(t *testing.T) {
 func TestResolveTargetWarnsOnRenamedWorktree(t *testing.T) {
 	ui := &termiotest.Mock{}
 	provider := mustWorktreeProvider(t)
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			provider.WorktreeListCmd(agent.WorktreeProject{}): msb.NewTestResult(true, 0, `[]`, "", nil),
-			provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{}): msb.NewTestResult(
+			provider.WorktreeListCmd(agent.WorktreeProject{}): msbtest.NewTestResult(true, 0, `[]`, "", nil),
+			provider.WorktreeCreateCmd(agent.WorktreeSpec{Name: "feat-x"}, agent.WorktreeProject{}): msbtest.NewTestResult(
 				true,
 				0,
 				`{"directory":"/workspace/worktrees/feat-x-2"}`,

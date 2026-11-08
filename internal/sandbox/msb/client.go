@@ -52,7 +52,7 @@ type StorageStore interface {
 // of volumes and images, plus runtime setup. Sandboxes are removed through the
 // identity-aware handle/live operations (SandboxHandle.Remove, Sandbox.Destroy)
 // rather than by bare name, so this interface has no RemoveSandbox. Production
-// code uses realMsbClient; tests construct MockMsbClient directly.
+// code uses realMsbClient; tests construct msbtest.MockMsbClient directly.
 type Client interface {
 	RuntimeInstaller
 	SandboxStore

@@ -10,12 +10,13 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
-func stoppedHandle(name string) *msb.MockSandboxHandle {
-	return &msb.MockSandboxHandle{
+func stoppedHandle(name string) *msbtest.MockSandboxHandle {
+	return &msbtest.MockSandboxHandle{
 		Name_:      name,
 		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
@@ -50,15 +51,15 @@ func TestRenderSandboxReport(t *testing.T) {
 func TestPruneSandboxes(t *testing.T) {
 	t.Run("removes inactive sandboxes by identity and skips running", func(t *testing.T) {
 		stopped := stoppedHandle("agents-sandbox-vm-proj1-1mjusbm3wikhb0")
-		running := &msb.MockSandboxHandle{
+		running := &msbtest.MockSandboxHandle{
 			Name_:      "agents-sandbox-vm-proj2-1mjusbm3wikhb0",
 			Status_:    msb.SandboxStatusRunning,
 			UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 		}
 		task := stoppedHandle("agents-sandbox-task-fill-proj")
 
-		client := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, client)
+		client := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, client)
 		ui := &termiotest.Mock{}
 		pruneState := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{
@@ -88,8 +89,8 @@ func TestPruneSandboxes(t *testing.T) {
 
 	t.Run("dry run counts but does not delete", func(t *testing.T) {
 		stopped := stoppedHandle("agents-sandbox-vm-proj1-1mjusbm3wikhb0")
-		client := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, client)
+		client := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, client)
 		ui := &termiotest.Mock{}
 		r, err := PruneSandboxes(
 			context.Background(),
@@ -109,16 +110,16 @@ func TestPruneSandboxes(t *testing.T) {
 	})
 
 	t.Run("skips active, transitional, and unknown statuses", func(t *testing.T) {
-		starting := &msb.MockSandboxHandle{
+		starting := &msbtest.MockSandboxHandle{
 			Name_:   "agents-sandbox-vm-starting",
 			Status_: msb.SandboxStatusStarting,
 		}
-		unknown := &msb.MockSandboxHandle{
+		unknown := &msbtest.MockSandboxHandle{
 			Name_:   "agents-sandbox-vm-unknown",
 			Status_: msb.SandboxStatus("future-status"),
 		}
-		client := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, client)
+		client := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, client)
 		ui := &termiotest.Mock{}
 		pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
 			{Slug: "starting", Agent: ""}: starting,
@@ -134,8 +135,8 @@ func TestPruneSandboxes(t *testing.T) {
 	})
 
 	t.Run("empty state prunes nothing", func(t *testing.T) {
-		client := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, client)
+		client := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, client)
 		ui := &termiotest.Mock{}
 		r, err := PruneSandboxes(context.Background(), PruneState{}, false, ui)
 		if err != nil {
@@ -151,8 +152,8 @@ func TestPruneSandboxes(t *testing.T) {
 		failing.RemoveErr = errors.New("boom")
 		ok := stoppedHandle("agents-sandbox-vm-proj2-1mjusbm3wikhb0")
 
-		client := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, client)
+		client := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, client)
 		ui := &termiotest.Mock{}
 		pruneState := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{
@@ -182,8 +183,8 @@ func TestPruneSandboxes(t *testing.T) {
 		gone.RemoveErr = &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 		ok := stoppedHandle("agents-sandbox-vm-proj3-1mjusbm3wikhb0")
 
-		client := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, client)
+		client := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, client)
 		ui := &termiotest.Mock{}
 		pruneState := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{
@@ -209,8 +210,8 @@ func TestPruneSandboxes(t *testing.T) {
 
 	t.Run("prunes stopped task sandboxes carried in Tasks", func(t *testing.T) {
 		task := stoppedHandle("agents-sandbox-task-fill-1mjusbm3wikhb0-opencode-1729")
-		client := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, client)
+		client := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, client)
 		ui := &termiotest.Mock{}
 		r, err := PruneSandboxes(
 			context.Background(),
@@ -232,8 +233,8 @@ func TestPruneSandboxesVerboseAndDetails(t *testing.T) {
 	replaced.RemoveErr = &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"}
 	ok := stoppedHandle("agents-sandbox-vm-proj2-1mjusbm3wikhb0")
 
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 	ui := &termiotest.Mock{}
 	pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
 		{Slug: "proj1-1mjusbm3wikhb0"}: replaced,

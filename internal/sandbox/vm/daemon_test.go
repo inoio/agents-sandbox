@@ -10,6 +10,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
@@ -70,7 +71,7 @@ func TestEnsureDaemonContextCancelled(t *testing.T) {
 	t.Cleanup(func() { daemonPollInterval = origPoll })
 	daemonPollInterval = time.Millisecond
 
-	err := ensureDaemon(ctx, opencodeResolved(t), false, false, &msb.MockSandbox{}, &termiotest.Mock{}, seams)
+	err := ensureDaemon(ctx, opencodeResolved(t), false, false, &msbtest.MockSandbox{}, &termiotest.Mock{}, seams)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
@@ -78,8 +79,8 @@ func TestEnsureDaemonContextCancelled(t *testing.T) {
 
 func TestEnsureDaemonNoDaemonProvider(t *testing.T) {
 	ui := &termiotest.Mock{}
-	calls := &[]msb.MockDetachedCall{}
-	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
+	calls := &[]msbtest.MockDetachedCall{}
+	sb := &msbtest.MockSandbox{ExecDetachedCalls: calls}
 	if err := ensureDaemon(
 		context.Background(), agent.Resolve(&fakeAgent{}), false, false, sb, ui, options.Seams{},
 	); err != nil {
@@ -95,8 +96,8 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 	fastDaemonPoll(t)
 	seams := healthQueue(unhealthy(), unhealthy(), healthy())
 
-	calls := &[]msb.MockDetachedCall{}
-	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
+	calls := &[]msbtest.MockDetachedCall{}
+	sb := &msbtest.MockSandbox{ExecDetachedCalls: calls}
 
 	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
@@ -125,8 +126,8 @@ func TestEnsureDaemonStartsServeOnlyOnExternalInterface(t *testing.T) {
 	fastDaemonPoll(t)
 	seams := healthQueue(unhealthy(), healthy())
 
-	calls := &[]msb.MockDetachedCall{}
-	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
+	calls := &[]msbtest.MockDetachedCall{}
+	sb := &msbtest.MockSandbox{ExecDetachedCalls: calls}
 
 	if err := ensureDaemon(context.Background(), opencodeResolved(t), true, false, sb, &testUI, seams); err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
@@ -158,7 +159,7 @@ func TestEnsureDaemonProbesBeforeWaiting(t *testing.T) {
 	daemonReadyTimeout = time.Second
 	daemonPollInterval = time.Second
 
-	sb := &msb.MockSandbox{}
+	sb := &msbtest.MockSandbox{}
 	start := time.Now()
 	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
 		t.Fatalf("ensureDaemon: %v", err)
@@ -176,8 +177,8 @@ func TestEnsureDaemonSkipsHealthyDaemon(t *testing.T) {
 	fastDaemonPoll(t)
 	seams := healthQueue(healthy())
 
-	calls := &[]msb.MockDetachedCall{}
-	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
+	calls := &[]msbtest.MockDetachedCall{}
+	sb := &msbtest.MockSandbox{ExecDetachedCalls: calls}
 
 	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
 		t.Fatalf("ensureDaemon: %v", err)
@@ -197,8 +198,8 @@ func TestEnsureDaemonLogsUnhealthyProbeDetail(t *testing.T) {
 	fastDaemonPoll(t)
 	seams := healthQueue(unhealthy(), healthy())
 
-	calls := &[]msb.MockDetachedCall{}
-	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
+	calls := &[]msbtest.MockDetachedCall{}
+	sb := &msbtest.MockSandbox{ExecDetachedCalls: calls}
 
 	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
 		t.Fatalf("ensureDaemon: %v", err)
@@ -215,8 +216,8 @@ func TestEnsureDaemonForceRestartsHealthy(t *testing.T) {
 	// force skips the pre-check; the first health probe is the post-launch one.
 	seams := healthQueue(healthy())
 
-	calls := &[]msb.MockDetachedCall{}
-	sb := &msb.MockSandbox{ExecDetachedCalls: calls}
+	calls := &[]msbtest.MockDetachedCall{}
+	sb := &msbtest.MockSandbox{ExecDetachedCalls: calls}
 
 	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, true, sb, &testUI, seams); err != nil {
 		t.Fatalf("EnsureDaemon failed: %v", err)
@@ -231,10 +232,10 @@ func TestEnsureDaemonKillsStaleJobByChangedArgs(t *testing.T) {
 	fastDaemonPoll(t)
 	seams := healthQueue(unhealthy(), healthy())
 
-	stale := &msb.MockJob{}
+	stale := &msbtest.MockJob{}
 	// The stale daemon was launched by a release that bound the previous
 	// serve hostname, so matching the current command missed it (#343).
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		Jobs: []msb.JobInfo{
 			{ID: "stale-daemon", Command: []string{"opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"}},
 		},
@@ -254,7 +255,7 @@ func TestEnsureDaemonReportsCloseFailure(t *testing.T) {
 	fastDaemonPoll(t)
 	seams := healthQueue(unhealthy(), healthy())
 
-	sb := &msb.MockSandbox{Job_: &msb.MockJob{CloseErr: errors.New("close boom")}}
+	sb := &msbtest.MockSandbox{Job_: &msbtest.MockJob{CloseErr: errors.New("close boom")}}
 	if err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, sb, &testUI, seams); err != nil {
 		t.Fatalf("ensureDaemon failed: %v", err)
 	}
@@ -269,8 +270,8 @@ func TestEnsureDaemonCrashSurfacesExitAndLogs(t *testing.T) {
 	seams := healthQueue(unhealthy())
 
 	code := 2
-	sb := &msb.MockSandbox{
-		Job_: &msb.MockJob{
+	sb := &msbtest.MockSandbox{
+		Job_: &msbtest.MockJob{
 			Info:  &msb.JobInfo{ExitCode: &code},
 			Logs_: []msb.JobLogEntry{{Data: []byte("serve exploded")}},
 		},
@@ -288,7 +289,7 @@ func TestEnsureDaemonExecError(t *testing.T) {
 	seams := healthQueue(unhealthy())
 
 	wantErr := errors.New("connection lost")
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ExecDetachedFn: func(
 			context.Context, string, []string, msb.JobSpec,
 		) (msb.Job, error) {
@@ -321,7 +322,7 @@ func TestEnsureDaemonFailsAfterTimeout(t *testing.T) {
 		return "", 1, nil
 	}}
 
-	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, &msb.MockSandbox{}, &testUI, seams)
+	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, &msbtest.MockSandbox{}, &testUI, seams)
 	if err == nil {
 		t.Fatal("expected error after timeout")
 	}
@@ -348,7 +349,7 @@ func TestEnsureDaemonPollingReportsProbeDetail(t *testing.T) {
 	daemonReadyTimeout = 5 * time.Millisecond
 	daemonPollInterval = time.Millisecond
 
-	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, &msb.MockSandbox{}, &testUI, seams)
+	err := ensureDaemon(context.Background(), opencodeResolved(t), false, false, &msbtest.MockSandbox{}, &testUI, seams)
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
@@ -384,8 +385,8 @@ func TestEnsureDaemonTimeoutIncludesJobLogs(t *testing.T) {
 	daemonReadyTimeout = 5 * time.Millisecond
 	daemonPollInterval = time.Millisecond
 
-	sb := &msb.MockSandbox{
-		Job_: &msb.MockJob{
+	sb := &msbtest.MockSandbox{
+		Job_: &msbtest.MockJob{
 			Logs_: []msb.JobLogEntry{{Data: []byte("error: cannot bind to 127.0.0.1:4096")}},
 		},
 	}
@@ -463,14 +464,16 @@ func TestProbeDaemonHealth(t *testing.T) {
 // in the sandbox and forwards stdout and the exit code, and a command that
 // cannot run reports exit code -1 with its cause.
 func TestDaemonHealthFunc(t *testing.T) {
-	sb := &msb.MockSandbox{ShellOut: map[string]msb.ShellResult{"cmd": msb.NewTestResult(true, 7, "hello", "", nil)}}
+	sb := &msbtest.MockSandbox{
+		ShellOut: map[string]msb.ShellResult{"cmd": msbtest.NewTestResult(true, 7, "hello", "", nil)},
+	}
 	stdout, code, err := daemonHealthFunc(context.Background(), sb, "cmd")
 	if err != nil || stdout != "hello" || code != 7 {
 		t.Errorf("daemonHealthFunc = (%q, %d, %v), want (hello, 7, nil)", stdout, code, err)
 	}
 
 	shellErr := errors.New("shell failed")
-	stdout, code, err = daemonHealthFunc(context.Background(), &msb.MockSandbox{ShellErr: shellErr}, "cmd")
+	stdout, code, err = daemonHealthFunc(context.Background(), &msbtest.MockSandbox{ShellErr: shellErr}, "cmd")
 	if !errors.Is(err, shellErr) || stdout != "" || code != -1 {
 		t.Errorf("daemonHealthFunc on a failed shell = (%q, %d, %v), want (\"\", -1, %v)", stdout, code, err, shellErr)
 	}

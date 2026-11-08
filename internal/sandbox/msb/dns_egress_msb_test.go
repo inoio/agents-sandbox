@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest/runtime"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
@@ -22,7 +23,7 @@ import (
 // proves in the same run. A refusal therefore has to come from microsandbox's
 // proxy: a leaked query would be answered, not rejected.
 func TestNetworkPolicyDNSResolution(t *testing.T) {
-	ensureIsolatedRuntime(t)
+	runtime.EnsureIsolatedRuntime(t)
 	cases := []struct {
 		name        string
 		spec        NetworkSpec

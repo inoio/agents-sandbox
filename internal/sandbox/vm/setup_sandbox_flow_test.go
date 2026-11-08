@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -31,7 +32,7 @@ import (
 func TestSetUpSandboxUsesTheThreadedResolvedAgent(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
 	configpathstest.WithMockConfigPaths(t)
-	sb := &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil)}
+	sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: msbtest.NewTestFS(nil)}
 	ui := termiotest.NewTestMock(t)
 
 	if _, err := SetUpSandbox(
@@ -64,13 +65,13 @@ func TestSetUpSandboxContinuesWhenProvisioningFails(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
 	ui := termiotest.NewTestMock(t)
-	fs := msb.NewTestFS(nil)
+	fs := msbtest.NewTestFS(nil)
 	fs.WriteErr = errors.New("write denied")
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		Name_:    "vm",
 		FSValue_: fs,
 		ShellOut: map[string]msb.ShellResult{
-			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+			dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 		},
 	}
 
@@ -105,11 +106,11 @@ func TestSetUpSandboxReportsADaemonThatCannotStart(t *testing.T) {
 	}}
 
 	ui := termiotest.NewTestMock(t)
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		Name_:    "vm",
-		FSValue_: msb.NewTestFS(nil),
+		FSValue_: msbtest.NewTestFS(nil),
 		ShellOut: map[string]msb.ShellResult{
-			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+			dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 		},
 		ExecDetachedFn: func(context.Context, string, []string, msb.JobSpec) (msb.Job, error) {
 			return nil, startFailed
@@ -143,34 +144,34 @@ func TestSetUpSandboxProvisionsEachConfigKind(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		cfs         *reprovision.ConfigFiles
-		provisioned func(fs *msb.TestFS) bool
+		provisioned func(fs *msbtest.TestFS) bool
 	}{
 		{
 			name:        "home files",
 			cfs:         &reprovision.ConfigFiles{HomeFiles: map[string][]byte{path: []byte("x")}},
-			provisioned: func(fs *msb.TestFS) bool { return fs.Writes[path] != nil },
+			provisioned: func(fs *msbtest.TestFS) bool { return fs.Writes[path] != nil },
 		},
 		{
 			name:        "drop-in files",
 			cfs:         &reprovision.ConfigFiles{Provisioned: map[string][]byte{path: []byte("x")}},
-			provisioned: func(fs *msb.TestFS) bool { return fs.Writes[path] != nil },
+			provisioned: func(fs *msbtest.TestFS) bool { return fs.Writes[path] != nil },
 		},
 		{
 			name:        "mirror files",
 			cfs:         &reprovision.ConfigFiles{Mirror: map[string][]byte{path: []byte("x")}},
-			provisioned: func(fs *msb.TestFS) bool { return fs.Writes[path] != nil },
+			provisioned: func(fs *msbtest.TestFS) bool { return fs.Writes[path] != nil },
 		},
 		{
 			name:        "stale files to remove",
 			cfs:         &reprovision.ConfigFiles{Remove: []string{path}},
-			provisioned: func(fs *msb.TestFS) bool { return slices.Contains(fs.Removed, path) },
+			provisioned: func(fs *msbtest.TestFS) bool { return slices.Contains(fs.Removed, path) },
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			seams := healthyOpencodeDaemon(t)
 			configpathstest.WithMockConfigPaths(t)
-			fs := msb.NewTestFS(map[string][]byte{path: []byte("old")})
-			sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
+			fs := msbtest.NewTestFS(map[string][]byte{path: []byte("old")})
+			sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: fs}
 			ui := termiotest.NewTestMock(t)
 
 			if err := setUpOpencodeSandbox(t, sb, tc.cfs, &ui, VMBootConnected, seams); err != nil {
@@ -201,8 +202,8 @@ func TestSetUpSandboxRecordsProvenanceOnlyOnBoot(t *testing.T) {
 			if err := seedHomeState(testVMKey(), state.HomeState{AgentSource: state.AgentSourceTool}); err != nil {
 				t.Fatalf("seed home state: %v", err)
 			}
-			fs := msb.NewTestFS(map[string][]byte{agentSourcePath: []byte(state.AgentSourceUser + "\n")})
-			sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
+			fs := msbtest.NewTestFS(map[string][]byte{agentSourcePath: []byte(state.AgentSourceUser + "\n")})
+			sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: fs}
 			ui := termiotest.NewTestMock(t)
 
 			if err := setUpOpencodeSandbox(t, sb, &reprovision.ConfigFiles{}, &ui, tc.boot, seams); err != nil {
@@ -224,10 +225,10 @@ func TestSetUpSandboxRecordsProvenanceOnlyOnBoot(t *testing.T) {
 func TestSetUpSandboxStopsWhenDockerdCannotStart(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	shellErr := errors.New("dockerd binary check failed")
-	calls := &[]msb.MockDetachedCall{}
-	sb := &msb.MockSandbox{
+	calls := &[]msbtest.MockDetachedCall{}
+	sb := &msbtest.MockSandbox{
 		Name_:             "vm",
-		FSValue_:          msb.NewTestFS(nil),
+		FSValue_:          msbtest.NewTestFS(nil),
 		ShellErr:          shellErr,
 		ExecDetachedCalls: calls,
 	}
@@ -254,7 +255,7 @@ func TestSetUpSandboxStopsWhenDockerdCannotStart(t *testing.T) {
 func TestSetUpSandboxReportsWhatItDoes(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
 	configpathstest.WithMockConfigPaths(t)
-	sb := &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil)}
+	sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: msbtest.NewTestFS(nil)}
 	ui := termiotest.NewTestMock(t)
 	cfs := &reprovision.ConfigFiles{
 		Keys:  []string{"/home/dev/.config/example"},
@@ -306,9 +307,9 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 		return `{"healthy":true,"version":"x"}`, 0, nil
 	}}
 
-	calls := &[]msb.MockDetachedCall{}
-	fs := msb.NewTestFS(nil)
-	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs, ExecDetachedCalls: calls}
+	calls := &[]msbtest.MockDetachedCall{}
+	fs := msbtest.NewTestFS(nil)
+	sb := &msbtest.MockSandbox{Name_: "test-vm", FSValue_: fs, ExecDetachedCalls: calls}
 	ui := termiotest.NewTestMock(t)
 
 	configpathstest.WithMockConfigPaths(t)
@@ -360,9 +361,9 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
 	ui := termiotest.NewTestMock(t)
-	fs := msb.NewTestFS(nil)
+	fs := msbtest.NewTestFS(nil)
 	fs.WriteErr = errors.New("write denied")
-	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
+	sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: fs}
 
 	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte("{}")}
 	target, err := SetUpSandbox(
@@ -402,10 +403,10 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 	// restart, but the updated config must still be provisioned so the next
 	// daemon start picks it up.
 	ocPath := opencodeMergedConfigPath
-	fs := msb.NewTestFS(map[string][]byte{
+	fs := msbtest.NewTestFS(map[string][]byte{
 		ocPath: []byte(`{"model":"old"}`),
 	})
-	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
+	sb := &msbtest.MockSandbox{Name_: "test-vm", FSValue_: fs}
 
 	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
@@ -459,8 +460,8 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
 
-	fs := msb.NewTestFS(nil)
-	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
+	fs := msbtest.NewTestFS(nil)
+	sb := &msbtest.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	configpathstest.WithMockConfigPaths(t)
 	ui := &termiotest.Mock{}
 	cfs := &reprovision.ConfigFiles{
@@ -508,8 +509,8 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
 
-	fs := msb.NewTestFS(nil)
-	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
+	fs := msbtest.NewTestFS(nil)
+	sb := &msbtest.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	snippet := filepath.Join(
@@ -565,7 +566,7 @@ func healthyOpencodeDaemon(t *testing.T) options.Seams {
 
 func setUpOpencodeSandbox(
 	t *testing.T,
-	sb *msb.MockSandbox,
+	sb *msbtest.MockSandbox,
 	cfs *reprovision.ConfigFiles,
 	ui termio.UI,
 	boot VMBoot,
@@ -596,8 +597,8 @@ func setUpSandboxProvisionsConfig(t *testing.T) {
 	t.Helper()
 	seams := healthyOpencodeDaemon(t)
 
-	fs := msb.NewTestFS(nil) // empty FS simulates a VM with empty config dir
-	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
+	fs := msbtest.NewTestFS(nil) // empty FS simulates a VM with empty config dir
+	sb := &msbtest.MockSandbox{Name_: "test-vm", FSValue_: fs}
 	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	snippet := filepath.Join(

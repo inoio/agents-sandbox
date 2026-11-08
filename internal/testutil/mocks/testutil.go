@@ -9,7 +9,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/opener/openertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 // InitFailFastMocks initializes every fail-fast mock for tests, so tests that forget to define a mock fail fast instead
@@ -19,7 +19,7 @@ func InitFailFastMocks(m *testing.M) {
 	configpathstest.InstallFailFastConfigPaths()
 	dockertest.InstallFailFastGet()
 	doctortest.InstallFailFast()
-	msb.InstallFailFastGet()
+	msbtest.InstallFailFastGet()
 	notifytest.InstallFailFast()
 	// gomutants:disable-next-line STATEMENT_REMOVE reason="reachable only through another package's TestMain: InitFailFastMocks calls m.Run() after this, so no test inside this package can invoke it; the installed seam (openertest.InstallFailFast) is itself covered by the openertest tests"
 	openertest.InstallFailFast()

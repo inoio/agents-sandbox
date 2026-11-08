@@ -12,6 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
@@ -22,9 +23,9 @@ import (
 func TestEnumerateCandidatesFindsSlugWithNoStateDir(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	const slug = "leftover-1mjusbm3wikhb0"
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{
+			&msbtest.MockVolumeHandle{
 				Name_:      naming.HomeVolumeName(slug, "opencode", "20260101T000000"),
 				CreatedAt_: time.Now().Add(-48 * time.Hour),
 			},
@@ -61,27 +62,27 @@ func TestEnumerateCandidatesNewestActivityFromVolumeAndImage(t *testing.T) {
 	vmTime := time.Now().Add(-100 * time.Hour)
 	fallbackTime := time.Now().Add(-120 * time.Hour)
 
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{
+			&msbtest.MockVolumeHandle{
 				Name_:      naming.HomeVolumeName(slug, "opencode", "20260101T000000"),
 				CreatedAt_: volumeTime,
 			},
 		},
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{
+			&msbtest.MockImageHandle{
 				Reference_:  naming.RunnerImageRef(slug, "opencode"),
 				LastUsedAt_: imageTime,
 			},
 			// Never used: its CreatedAt is the fallback signal, older than the
 			// used image, so it must not dominate.
-			&msb.MockImageHandle{
+			&msbtest.MockImageHandle{
 				Reference_: naming.RunnerImageRef(slug, "codex"),
 				CreatedAt_: fallbackTime,
 			},
 		},
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      slug + "-opencode",
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: vmTime,
@@ -155,16 +156,16 @@ func TestCandidateNotRetiredWithRunningTask(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	const slug = "task-1mjusbm3wikhb0"
 
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      naming.TaskSandboxName(slug, "opencode", 1729000000000000000),
 				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: time.Now().Add(-100 * time.Hour),
 			},
 		},
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{
+			&msbtest.MockVolumeHandle{
 				Name_:      naming.HomeVolumeName(slug, "opencode", "20260101T000000"),
 				CreatedAt_: time.Now().Add(-100 * time.Hour),
 			},
@@ -197,18 +198,18 @@ func TestCandidateNotRetiredWithRunningTask(t *testing.T) {
 func TestEnumerateCandidatesIgnoresForeignArtifacts(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: "user-data", CreatedAt_: time.Now()},
+			&msbtest.MockVolumeHandle{Name_: "user-data", CreatedAt_: time.Now()},
 		},
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: "docker.io/library/alpine:latest", LastUsedAt_: time.Now()},
-			&msb.MockImageHandle{Reference_: "not-a-slug-hash:latest", LastUsedAt_: time.Now()},
+			&msbtest.MockImageHandle{Reference_: "docker.io/library/alpine:latest", LastUsedAt_: time.Now()},
+			&msbtest.MockImageHandle{Reference_: "not-a-slug-hash:latest", LastUsedAt_: time.Now()},
 		},
 		Sandboxes: []msb.SandboxHandle{
 			// A sandbox the user created directly with msb: no launcher labels,
 			// no legacy prefix, no slug hash, so it is not ours.
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "builder-vm",
 				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: time.Now(),
@@ -231,14 +232,14 @@ func TestEnumerateCandidatesIgnoresForeignArtifacts(t *testing.T) {
 func TestEnumerateCandidatesAdmitsLauncherOwnedSandboxes(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "myproject-1mjusbm3wikhb0-opencode",
 				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: time.Now(),
 			},
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      naming.LegacyVMPrefix + "legacyproject",
 				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: time.Now(),
@@ -267,10 +268,10 @@ func TestEnumerateCandidatesAdmitsLauncherOwnedSandboxes(t *testing.T) {
 func TestEnumerateCandidatesSkipsMalformedLegacySandbox(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{Name_: naming.LegacyVMPrefix, Status_: msb.SandboxStatusStopped},
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{Name_: naming.LegacyVMPrefix, Status_: msb.SandboxStatusStopped},
+			&msbtest.MockSandboxHandle{
 				Name_:      "myproject-1mjusbm3wikhb0-opencode",
 				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: time.Now(),
@@ -302,7 +303,7 @@ func TestEnumerateCandidatesIncludesStateKeysAndModTime(t *testing.T) {
 	if err := os.Chtimes(statePath, mod, mod); err != nil {
 		t.Fatalf("chtimes state: %v", err)
 	}
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 
 	candidates, err := EnumerateCandidates(context.Background(), 7*24*time.Hour)
 	if err != nil {
@@ -331,7 +332,7 @@ func TestEnumerateCandidatesIncludesAdoptionClaims(t *testing.T) {
 		checkout = "adopting-checkout-2nkvtdn4xjlic1"
 	)
 	seedAdoptionClaim(t, legacy, "opencode", checkout, "legacy-volume")
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 
 	candidates, err := EnumerateCandidates(context.Background(), 7*24*time.Hour)
 	if err != nil {
@@ -372,7 +373,7 @@ func TestEnumerateCandidatesPropagatesSourceErrors(t *testing.T) {
 	t.Run("state enumeration", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
 		breakStateRoot(t)
-		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 		if _, err := EnumerateCandidates(context.Background(), time.Hour); err == nil {
 			t.Fatal("expected the state enumeration error to propagate")
 		}
@@ -380,7 +381,7 @@ func TestEnumerateCandidatesPropagatesSourceErrors(t *testing.T) {
 
 	t.Run("volume enumeration", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
-		msb.WithMsbMock(t, &msb.MockMsbClient{ListVolumesErr: errBoom})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{ListVolumesErr: errBoom})
 		if _, err := EnumerateCandidates(context.Background(), time.Hour); !errors.Is(err, errBoom) {
 			t.Fatalf("err = %v, want %v", err, errBoom)
 		}
@@ -397,7 +398,7 @@ func TestEnumerateCandidatesPropagatesSourceErrors(t *testing.T) {
 		); err != nil {
 			t.Fatal(err)
 		}
-		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 		if _, err := EnumerateCandidates(context.Background(), time.Hour); err == nil {
 			t.Fatal("expected the volume-reference read error to propagate")
 		}
@@ -405,7 +406,7 @@ func TestEnumerateCandidatesPropagatesSourceErrors(t *testing.T) {
 
 	t.Run("image enumeration", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
-		msb.WithMsbMock(t, &msb.MockMsbClient{ListImagesErr: errBoom})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{ListImagesErr: errBoom})
 		if _, err := EnumerateCandidates(context.Background(), time.Hour); !errors.Is(err, errBoom) {
 			t.Fatalf("err = %v, want %v", err, errBoom)
 		}
@@ -413,7 +414,7 @@ func TestEnumerateCandidatesPropagatesSourceErrors(t *testing.T) {
 
 	t.Run("sandbox enumeration", func(t *testing.T) {
 		configpathstest.WithMockConfigPaths(t)
-		msb.WithMsbMock(t, &msb.MockMsbClient{ListSandboxesErr: errBoom})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{ListSandboxesErr: errBoom})
 		if _, err := EnumerateCandidates(context.Background(), time.Hour); !errors.Is(err, errBoom) {
 			t.Fatalf("err = %v, want %v", err, errBoom)
 		}
@@ -425,7 +426,7 @@ func TestEnumerateCandidatesPropagatesSourceErrors(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(root, "state.yaml"), []byte("schema: [not-valid"), 0o600); err != nil {
 			t.Fatalf("corrupt root state: %v", err)
 		}
-		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 		if _, err := EnumerateCandidates(context.Background(), time.Hour); err == nil {
 			t.Fatal("expected the adoption-claim read error to propagate")
 		}
@@ -505,21 +506,21 @@ func TestEnumerateSourceListErrors(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("volumes", func(t *testing.T) {
-		msb.WithMsbMock(t, &msb.MockMsbClient{ListVolumesErr: errBoom})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{ListVolumesErr: errBoom})
 		if err := enumerateVolumeCandidates(ctx, nil, nil, emptyBuilderFor); !errors.Is(err, errBoom) {
 			t.Fatalf("err = %v, want %v", err, errBoom)
 		}
 	})
 
 	t.Run("images", func(t *testing.T) {
-		msb.WithMsbMock(t, &msb.MockMsbClient{ListImagesErr: errBoom})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{ListImagesErr: errBoom})
 		if err := enumerateImageCandidates(ctx, emptyBuilderFor); !errors.Is(err, errBoom) {
 			t.Fatalf("err = %v, want %v", err, errBoom)
 		}
 	})
 
 	t.Run("sandboxes", func(t *testing.T) {
-		msb.WithMsbMock(t, &msb.MockMsbClient{ListSandboxesErr: errBoom})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{ListSandboxesErr: errBoom})
 		if err := enumerateSandboxCandidates(ctx, time.Hour, emptyBuilderFor); !errors.Is(err, errBoom) {
 			t.Fatalf("err = %v, want %v", err, errBoom)
 		}
@@ -562,10 +563,10 @@ func TestEnumerateCandidatesAttributesAdoptedVolumeToItsCheckout(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed checkout state: %v", err)
 	}
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: adopted, CreatedAt_: time.Now()},
-			&msb.MockVolumeHandle{Name_: orphanVolume, CreatedAt_: time.Now()},
+			&msbtest.MockVolumeHandle{Name_: adopted, CreatedAt_: time.Now()},
+			&msbtest.MockVolumeHandle{Name_: orphanVolume, CreatedAt_: time.Now()},
 		},
 	})
 
@@ -595,7 +596,7 @@ func TestEnumerateCandidatesAdoptionClaimWithoutCheckout(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	const legacy = "adopted-nocheckout-1mjusbm3wikhb0"
 	seedAdoptionClaim(t, legacy, "opencode", "", "legacy-volume")
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 
 	candidates, err := EnumerateCandidates(context.Background(), 7*24*time.Hour)
 	if err != nil {
@@ -622,8 +623,8 @@ func TestEnumerateCandidatesAttributesClaimOnlyVolumeToItsCheckout(t *testing.T)
 	volumeName := naming.HomeVolumeName(legacy, "opencode", "20260101T000000")
 	seedAdoptionClaim(t, legacy, "opencode", checkout, volumeName)
 	createdAt := time.Now().Add(-2 * time.Hour)
-	msb.WithMsbMock(t, &msb.MockMsbClient{
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volumeName, CreatedAt_: createdAt}},
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: volumeName, CreatedAt_: createdAt}},
 	})
 
 	candidates, err := EnumerateCandidates(context.Background(), 24*time.Hour)
@@ -695,26 +696,26 @@ func TestEnumerateCandidatesContinuesPastNonMatchingArtifacts(t *testing.T) {
 		imgSlug = "skipimg-1mjusbm3wikhb0"
 		sbSlug  = "skipsb-1mjusbm3wikhb0"
 	)
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: "user-data", CreatedAt_: time.Now()},
-			&msb.MockVolumeHandle{
+			&msbtest.MockVolumeHandle{Name_: "user-data", CreatedAt_: time.Now()},
+			&msbtest.MockVolumeHandle{
 				Name_:      naming.HomeVolumeName(volSlug, "opencode", "20260101T000000"),
 				CreatedAt_: time.Now(),
 			},
 		},
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: "docker.io/library/alpine:latest", LastUsedAt_: time.Now()},
-			&msb.MockImageHandle{Reference_: naming.RunnerImageRef(imgSlug, "opencode"), LastUsedAt_: time.Now()},
+			&msbtest.MockImageHandle{Reference_: "docker.io/library/alpine:latest", LastUsedAt_: time.Now()},
+			&msbtest.MockImageHandle{Reference_: naming.RunnerImageRef(imgSlug, "opencode"), LastUsedAt_: time.Now()},
 		},
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      naming.TaskSandboxName("skiptask-1mjusbm3wikhb0", "opencode", 1729000000000000000),
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now(),
 			},
-			&msb.MockSandboxHandle{Name_: "builder-vm", Status_: msb.SandboxStatusRunning, UpdatedAt_: time.Now()},
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{Name_: "builder-vm", Status_: msb.SandboxStatusRunning, UpdatedAt_: time.Now()},
+			&msbtest.MockSandboxHandle{
 				Name_:      sbSlug + "-opencode",
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now(),
@@ -745,9 +746,9 @@ func TestEnumerateImageOnlyCandidateRecordsKeyAndCreatedActivity(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	const slug = "imgonly-1mjusbm3wikhb0"
 	created := time.Now().Add(-48 * time.Hour)
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: naming.RunnerImageRef(slug, "opencode"), CreatedAt_: created},
+			&msbtest.MockImageHandle{Reference_: naming.RunnerImageRef(slug, "opencode"), CreatedAt_: created},
 		},
 	})
 
@@ -775,9 +776,9 @@ func TestEnumerateSandboxOnlyCandidateRecordsKeyActivityAndKept(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	const slug = "sbonly-1mjusbm3wikhb0"
 	updated := time.Now().Add(-48 * time.Hour)
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      slug + "-opencode",
 				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: updated,

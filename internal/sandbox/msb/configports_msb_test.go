@@ -10,6 +10,8 @@ import (
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest/runtime"
 )
 
 // TestRealHandleConfigPortsRoundTrip proves the read-back contract against the
@@ -18,7 +20,7 @@ import (
 // specs/vm/live-mount-readback.md records), and ConfigPorts() decodes them back.
 // The mock-based decision tests rely on this shape matching the real one.
 func TestRealHandleConfigPortsRoundTrip(t *testing.T) {
-	ensureIsolatedRuntime(t)
+	runtime.EnsureIsolatedRuntime(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	name := "agents-sandbox-msb-test-" + strconv.FormatInt(time.Now().UnixNano(), 10)

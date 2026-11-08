@@ -10,6 +10,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 func uint64Ptr(v uint64) *uint64 { return new(v) }
@@ -39,7 +40,7 @@ func reportWithAllCategories() *msb.StorageReport {
 }
 
 func TestObserveMapsMSBCategoriesInOrder(t *testing.T) {
-	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
 		return reportWithAllCategories(), nil
 	}})
 	stubPrivateHome(t, t.TempDir())
@@ -97,7 +98,7 @@ func TestObserveMapsMSBCategoriesInOrder(t *testing.T) {
 }
 
 func TestObservePropagatesNotes(t *testing.T) {
-	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
 		return &msb.StorageReport{
 			Images: msb.StorageCategory{Notes: []string{"image note"}},
 			Notes:  []string{"report note"},
@@ -118,7 +119,7 @@ func TestObservePropagatesNotes(t *testing.T) {
 }
 
 func TestObserveKeepsNilCountersUnknown(t *testing.T) {
-	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
 		return &msb.StorageReport{}, nil
 	}})
 	stubPrivateHome(t, t.TempDir())
@@ -136,7 +137,7 @@ func TestObserveKeepsNilCountersUnknown(t *testing.T) {
 }
 
 func TestObserveUnsupportedDegradesToUnknown(t *testing.T) {
-	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrUnsupportedOperation, Message: "remote backend"}
 	}})
 	stubPrivateHome(t, t.TempDir())
@@ -163,7 +164,7 @@ func TestObserveUnsupportedDegradesToUnknown(t *testing.T) {
 
 func TestObserveMSBErrorPropagates(t *testing.T) {
 	sentinel := errors.New("disk exploded")
-	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
 		return nil, sentinel
 	}})
 	stubPrivateHome(t, t.TempDir())
@@ -176,7 +177,7 @@ func TestObserveMSBErrorPropagates(t *testing.T) {
 func TestObserveIncludeObjects(t *testing.T) {
 	inUse := true
 	reclaimable := false
-	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
 		return &msb.StorageReport{
 			Images: msb.StorageCategory{
 				Items: []msb.StorageItem{{
@@ -221,7 +222,7 @@ func TestObserveIncludeObjects(t *testing.T) {
 }
 
 func TestObserveOmitsObjectsByDefault(t *testing.T) {
-	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
 		return &msb.StorageReport{Images: msb.StorageCategory{
 			Items: []msb.StorageItem{{Name: "x"}},
 		}}, nil
