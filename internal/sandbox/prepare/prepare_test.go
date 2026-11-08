@@ -232,7 +232,7 @@ func TestPlannedLimitsApplyToTheRun(t *testing.T) {
 func TestEnsureVMStageFailureSkipsFingerprints(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	lockErr := errors.New("flock boom")
-	seams := options.Seams{ProjectVMLock: func(state.Key) (func(), error) { return nil, lockErr }}
+	seams := options.Seams{ProjectVMLock: func(options.ProjectVMKey) (func(), error) { return nil, lockErr }}
 	k := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	ui := termio.NewTestMock(t)
 

@@ -1930,7 +1930,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 				t.Chdir(newOriginClone(t))
 				installPrepareSandboxDockerMock(t)
 				installPrepareSandboxMSBMock(t)
-				seams := options.Seams{ProjectVMLock: func(state.Key) (func(), error) { return nil, cause }}
+				seams := options.Seams{ProjectVMLock: func(options.ProjectVMKey) (func(), error) { return nil, cause }}
 				return arrangement{
 					opts: sandboxRunOptions(t, options.RunOptions{Agent: "opencode", Seams: seams}),
 					ui:   nonInteractiveUI(t),
