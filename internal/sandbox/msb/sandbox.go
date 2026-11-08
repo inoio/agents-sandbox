@@ -130,7 +130,7 @@ func (w realSandboxHandle) ID() string {
 }
 
 func (w realSandboxHandle) Status() SandboxStatus {
-	return sandboxStatusFrom(w.handle.Status())
+	return sandboxStatusFrom(realSandboxHandleStatus(w.handle))
 }
 
 func (w realSandboxHandle) UpdatedAt() time.Time {
@@ -142,7 +142,7 @@ func (w realSandboxHandle) CreatedAt() time.Time {
 }
 
 func (w realSandboxHandle) BackendKind() BackendKind {
-	return backendKindFrom(w.handle.BackendKind())
+	return backendKindFrom(realSandboxHandleBackendKind(w.handle))
 }
 
 func (w realSandboxHandle) Image() string {
@@ -167,6 +167,13 @@ var (
 	realSandboxHandleConfig     = (*msbSdk.SandboxHandle).Config
 	realSandboxHandleConfigJSON = (*msbSdk.SandboxHandle).ConfigJSON
 	realSandboxHandleConnect    = (*msbSdk.SandboxHandle).Connect
+)
+
+// The handle identity accessors delegate through package-level seams (method
+// expressions) so their enum translation is unit-testable without a live VM.
+var (
+	realSandboxHandleStatus      = (*msbSdk.SandboxHandle).Status
+	realSandboxHandleBackendKind = (*msbSdk.SandboxHandle).BackendKind
 )
 
 // The connect-or-start delegation targets are package-level seams (method
