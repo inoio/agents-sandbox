@@ -76,9 +76,9 @@ func TestTaskSandboxNameStaysWithinNameLimit(t *testing.T) {
 
 func TestWithThrowawaySandbox_CreatesLabelledTaskSandbox(t *testing.T) {
 	fixture := newThrowawayFixture(t)
-	mounts := map[string]msbSdk.MountConfig{
-		srcMount: msbSdk.Mount.Named("old-vol", msbSdk.MountOptions{}),
-		dstMount: msbSdk.Mount.Named("new-vol", msbSdk.MountOptions{}),
+	mounts := map[string]msb.MountConfig{
+		srcMount: msb.Mount.Named("old-vol", msb.MountOptions{}),
+		dstMount: msb.Mount.Named("new-vol", msb.MountOptions{}),
 	}
 
 	var payloadSandbox msb.Sandbox
@@ -93,11 +93,10 @@ func TestWithThrowawaySandbox_CreatesLabelledTaskSandbox(t *testing.T) {
 	require.True(t, strings.HasPrefix(name, "myproject-opencode-"), "name = %q", name)
 	cfg := fixture.createdConfig(t)
 	require.Equal(t, throwawayImage.Ref, cfg.Image)
-	require.False(t, cfg.Replace, "a throwaway sandbox never replaces a same-name sandbox")
 	require.Equal(t, naming.SandboxTypeTask, cfg.Labels[naming.LabelType])
 	require.Equal(t, "myproject", cfg.Labels[naming.LabelSlug])
 	require.Equal(t, "opencode", cfg.Labels[naming.LabelAgent])
-	require.Equal(t, mounts, cfg.Volumes)
+	require.Equal(t, mounts, cfg.Mounts)
 }
 
 func TestWithThrowawaySandbox_DestroysAndClosesAfterPayload(t *testing.T) {
@@ -178,7 +177,7 @@ func TestWithThrowawaySandbox_LoadImageFailureSkipsEverything(t *testing.T) {
 
 func TestWithThrowawaySandbox_CreateFailureStopsSpinnerAndSkipsPayload(t *testing.T) {
 	fixture := newThrowawayFixture(t)
-	fixture.client.CreateSandboxFn = func(context.Context, string, ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+	fixture.client.CreateSandboxFn = func(context.Context, string, msb.SandboxSpec) (msb.Sandbox, error) {
 		fixture.log.add("create")
 		return nil, errors.New("boom")
 	}
@@ -240,7 +239,7 @@ func newThrowawayFixture(t *testing.T) *throwawayFixture {
 		sandbox: sandbox,
 	}
 	fixture.client = &msb.MockMsbClient{
-		CreateSandboxFn: func(context.Context, string, ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		CreateSandboxFn: func(context.Context, string, msb.SandboxSpec) (msb.Sandbox, error) {
 			log.add("create")
 			return sandbox, nil
 		},

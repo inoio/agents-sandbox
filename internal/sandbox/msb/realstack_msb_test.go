@@ -13,8 +13,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // The msb-tagged tests drive the real SDK and host runtime through
@@ -30,7 +28,7 @@ func TestRealClientVolumeLifecycle(t *testing.T) {
 	ctx := context.Background()
 	name := "agents-sandbox-msb-test-" + strconv.FormatInt(time.Now().UnixNano(), 10)
 
-	created, err := client.CreateVolume(ctx, name)
+	created, err := client.CreateVolume(ctx, name, VolumeSpec{Kind: VolumeKindDir})
 	if err != nil {
 		t.Fatalf("CreateVolume(%q) error = %v", name, err)
 	}
@@ -93,10 +91,10 @@ func TestRealClientSandboxLifecycle(t *testing.T) {
 	defer cancel()
 	client := realMsbClient{}
 	name := "agents-sandbox-msb-lifecycle-" + strconv.FormatInt(time.Now().UnixNano(), 10)
-	createOptions := []msbSdk.SandboxOption{
-		msbSdk.WithImage("alpine:3.20"),
-		msbSdk.WithDetached(),
-		msbSdk.WithIdleTimeout(testIdleTimeout),
+	createSpec := SandboxSpec{
+		Image:       "alpine:3.20",
+		Detached:    true,
+		IdleTimeout: testIdleTimeout,
 	}
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), destroyTimeout)
@@ -106,10 +104,10 @@ func TestRealClientSandboxLifecycle(t *testing.T) {
 		}
 	})
 
-	if _, err := client.CreateSandbox(ctx, name, createOptions...); err != nil {
+	if _, err := client.CreateSandbox(ctx, name, createSpec); err != nil {
 		t.Fatalf("CreateSandbox: %v", err)
 	}
-	if _, err := client.CreateSandbox(ctx, name, createOptions...); !IsSandboxAlreadyExists(err) {
+	if _, err := client.CreateSandbox(ctx, name, createSpec); !IsSandboxAlreadyExists(err) {
 		t.Fatalf("CreateSandbox on a taken name = %v, want an already-exists error", err)
 	}
 
@@ -129,7 +127,7 @@ func TestRealClientSandboxLifecycle(t *testing.T) {
 	if err := original.Destroy(ctx, LifecycleOptions{}); err != nil {
 		t.Fatalf("Destroy: %v", err)
 	}
-	if _, err := client.CreateSandbox(ctx, name, createOptions...); err != nil {
+	if _, err := client.CreateSandbox(ctx, name, createSpec); err != nil {
 		t.Fatalf("CreateSandbox after destroy: %v", err)
 	}
 	if sb, _, err := original.ConnectOrStart(ctx); !IsReplaced(err) || sb != nil {

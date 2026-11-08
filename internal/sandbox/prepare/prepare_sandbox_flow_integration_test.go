@@ -9,11 +9,10 @@ import (
 	"slices"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -157,10 +156,10 @@ func TestPrepareSandboxOutsideWorktreeUsesItsOwnKey(t *testing.T) {
 		t.Fatalf("EvalSymlinks(%q): %v", outside, err)
 	}
 	mountConfig := createdProjectVMConfig(t, mock, vm.ProjectVMName(key))
-	if got := mountConfig.Volumes[mounts.WorkspaceMountPath].Bind; got != worktreeRoot {
+	if got := mountConfig.Mounts[mounts.WorkspaceMountPath].Bind; got != worktreeRoot {
 		t.Errorf("%s mount source = %q, want the worktree root %q", mounts.WorkspaceMountPath, got, worktreeRoot)
 	}
-	assertSharedGitDirMountWired(t, identity, mountConfig.Volumes)
+	assertSharedGitDirMountWired(t, identity, mountConfig.Mounts)
 }
 
 // recordSharedGitDirOutsideManagedMounts rewrites the worktree's .git file to
@@ -187,7 +186,7 @@ func recordSharedGitDirOutsideManagedMounts(t *testing.T, repo, worktree string)
 
 // assertSharedGitDirMountWired checks that PrepareSandbox binds an outside
 // worktree's shared git dir at the path its .git file records (#426).
-func assertSharedGitDirMountWired(t *testing.T, identity git.Identity, volumes map[string]msbSdk.MountConfig) {
+func assertSharedGitDirMountWired(t *testing.T, identity git.Identity, volumes map[string]msb.MountConfig) {
 	t.Helper()
 	if got := volumes[identity.RecordedSharedGitDir].Bind; got != identity.SharedGitDir {
 		t.Errorf("%s mount source = %q, want the shared git dir %q",

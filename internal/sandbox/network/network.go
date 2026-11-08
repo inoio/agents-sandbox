@@ -10,7 +10,7 @@ import (
 	"sort"
 	"strings"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 // Profile is a launcher network egress profile.
@@ -227,80 +227,48 @@ func NormalizeDNSServers(in []string) ([]string, error) {
 	return out, nil
 }
 
-// Config converts the policy into a microsandbox NetworkConfig.
+// Spec converts the policy into a launcher network spec.
 //
-// `public`, `private`, and `host` compose: the SDK unions their allow rules
-// (deduplicated, canonical order) and adds one narrow gateway-DNS rule. The
-// `none` profile is launcher-only and selects no profile rules — deny-by-default
-// egress, allow ingress — and no gateway-DNS rule, so only names matched by
-// egress-allow resolve. It is an allowlist-only policy, not an airgap, and
-// cannot be combined with another profile. A policy with no profile, including
-// one with only DNSServers set, defaults to public.
-func (p Policy) Config() (*msbSdk.NetworkConfig, error) {
+// `public`, `private`, and `host` compose: the launcher-owned adapter unions
+// their allow rules (deduplicated, canonical order) and adds one narrow
+// gateway-DNS rule. The `none` profile is launcher-only and selects no profile
+// rules — deny-by-default egress, allow ingress — and no gateway-DNS rule, so
+// only names matched by egress-allow resolve. It is an allowlist-only policy,
+// not an airgap, and cannot be combined with another profile. A policy with no
+// profile, including one with only DNSServers set, defaults to public.
+//
+// The egress lists are deduplicated and the DNS servers normalized here, so the
+// spec is the single validated input the adapter composes rules from.
+func (p Policy) Spec() (msb.NetworkSpec, error) {
 	profiles := dedupeProfiles(p.Effective().Profiles)
 	if err := checkProfileCombination(profiles); err != nil {
-		return nil, err
+		return msb.NetworkSpec{}, err
 	}
-	msbProfiles := make([]msbSdk.NetworkProfile, 0, len(profiles))
+	msbProfiles := make([]msb.NetworkProfile, 0, len(profiles))
 	for _, prof := range profiles {
-		if prof == ProfileNone {
+		switch prof {
+		case ProfileNone:
 			continue
+		case ProfilePublic:
+			msbProfiles = append(msbProfiles, msb.NetworkProfilePublic)
+		case ProfilePrivate:
+			msbProfiles = append(msbProfiles, msb.NetworkProfilePrivate)
+		case ProfileHost:
+			msbProfiles = append(msbProfiles, msb.NetworkProfileHost)
+		default:
+			return msb.NetworkSpec{}, fmt.Errorf("unknown network profile %q", prof)
 		}
-		msbProfiles = append(msbProfiles, msbSdk.NetworkProfile(prof))
 	}
-	cfg, err := msbSdk.NetworkPolicy.FromProfilesChecked(msbProfiles...)
+	nameservers, err := NormalizeDNSServers(p.DNSServers)
 	if err != nil {
-		return nil, err
+		return msb.NetworkSpec{}, err
 	}
-	// FromProfilesChecked returns the gateway-DNS rule first, then the profile
-	// allow rules. Drop that DNS rule and re-emit it at the front so the deny
-	// carve-outs can sit between them; `none` selects no profile, so the SDK
-	// contributes no rules at all.
-	profileRules := cfg.Rules
-	if len(msbProfiles) > 0 {
-		profileRules = cfg.Rules[1:]
-	}
-	if len(p.DNSServers) > 0 {
-		nameservers, err := NormalizeDNSServers(p.DNSServers)
-		if err != nil {
-			return nil, err
-		}
-		cfg.DNS = &msbSdk.DNSConfig{
-			Nameservers: nameservers,
-		}
-	}
-	// microsandbox evaluates rules first-match-wins in list order, so the
-	// user's egress-deny carve-outs must come before the profile allow rules;
-	// otherwise a profile's broad allow shadows the carve-out and the deny
-	// never fires. The order is: gateway DNS (not under `none`), deny, profile
-	// allows, explicit allows.
-	denyRules := make([]msbSdk.PolicyRule, 0, len(p.EgressDeny))
-	for _, d := range dedupe(p.EgressDeny) {
-		denyRules = append(denyRules, egressRule(msbSdk.PolicyActionDeny, d))
-	}
-	allowRules := make([]msbSdk.PolicyRule, 0, len(p.EgressAllow))
-	for _, d := range dedupe(p.EgressAllow) {
-		allowRules = append(allowRules, egressRule(msbSdk.PolicyActionAllow, d))
-	}
-	var gatewayDNSRules []msbSdk.PolicyRule
-	if p.allowsGatewayDNS() {
-		gatewayDNSRules = []msbSdk.PolicyRule{msbSdk.Rule.AllowDNS()}
-	}
-	cfg.Rules = slices.Concat(
-		gatewayDNSRules,
-		denyRules,
-		profileRules,
-		allowRules,
-	)
-	return cfg, nil
-}
-
-func egressRule(action msbSdk.PolicyAction, destination string) msbSdk.PolicyRule {
-	var r msbSdk.PolicyRule
-	r.Action = action
-	r.Direction = msbSdk.PolicyDirectionEgress
-	r.Destination = destination
-	return r
+	return msb.NetworkSpec{
+		Profiles:    msbProfiles,
+		EgressAllow: dedupe(p.EgressAllow),
+		EgressDeny:  dedupe(p.EgressDeny),
+		DNSServers:  nameservers,
+	}, nil
 }
 
 func dedupe(in []string) []string {

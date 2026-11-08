@@ -38,7 +38,7 @@ func TestEnsureNewHome_NameCollisionRetries(t *testing.T) {
 	var attemptedNames []string
 	client := &msb.MockMsbClient{
 		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			attemptedNames = append(attemptedNames, name)
 			if name == takenName {
 				return nil, errVolumeExists
@@ -65,7 +65,7 @@ func TestEnsureNewHome_SkipVM_CreatesNothing(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	mock := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			t.Errorf("skip-VM run created volume %q", name)
 			return &msb.MockVolumeHandle{Name_: name}, nil
 		},
@@ -102,7 +102,7 @@ func TestEnsureNewHome_CreateVolumeFails(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	mock := &msb.MockMsbClient{}
-	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return nil, errors.New("create failed")
 	}
 	vm := NewManager(docker.Get())
@@ -196,7 +196,7 @@ func TestEnsureNewHome_ConcurrentCommitAdoptsWinner(t *testing.T) {
 			var createdVolume string
 			client := &msb.MockMsbClient{
 				CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
-				CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+				CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 					createdVolume = name
 					commitConcurrentHome(t, k, "winner-vol")
 					return msb.MockVolumeHandle{Name_: name}, nil
@@ -230,7 +230,7 @@ func TestEnsureNewHome_ReplacesStaleRecordedVolume(t *testing.T) {
 	require.NoError(t, seedHomeState(k, state.NewHomeState("gone-vol", "sha256:old")))
 	client := &msb.MockMsbClient{
 		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return msb.MockVolumeHandle{Name_: name}, nil
 		},
 	}
@@ -257,7 +257,7 @@ func TestEnsureNewHome_ReplacesConcurrentEmptyHomeVolume(t *testing.T) {
 	k := state.Key{Slug: "markerproj", Agent: "opencode"}
 	client := &msb.MockMsbClient{
 		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			require.NoError(t, seedHomeState(k, state.HomeState{RecoveredHomeVolume: "legacy-vol"}))
 			return msb.MockVolumeHandle{Name_: name}, nil
 		},
@@ -293,7 +293,7 @@ func TestResolveHomeVolume_WinnerCommitsBeforeCreation(t *testing.T) {
 			}
 			return nil, &msbSdk.Error{Kind: msbSdk.ErrVolumeNotFound, Message: "no such volume"}
 		},
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			createdVolume = name
 			return msb.MockVolumeHandle{Name_: name}, nil
 		},
@@ -320,7 +320,7 @@ func TestEnsureNewHome_NameCollisionGivesUp(t *testing.T) {
 	attempts := 0
 	client := &msb.MockMsbClient{
 		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
-		CreateVolumeFn: func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			attempts++
 			return nil, errVolumeExists
 		},
@@ -344,7 +344,7 @@ func TestEnsureNewHome_CreateErrorDoesNotRetry(t *testing.T) {
 	createErr := errors.New("disk full")
 	client := &msb.MockMsbClient{
 		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
-		CreateVolumeFn: func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return nil, createErr
 		},
 	}
@@ -369,7 +369,7 @@ func TestEnsureNewHomeSeedsFingerprints(t *testing.T) {
 
 	client := &msb.MockMsbClient{
 		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return msb.MockVolumeHandle{Name_: name}, nil
 		},
 	}
@@ -566,7 +566,7 @@ func TestResolveHomeVolumeSeedsFingerprints(t *testing.T) {
 
 	client := &msb.MockMsbClient{
 		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return msb.MockVolumeHandle{Name_: name}, nil
 		},
 	}
@@ -711,7 +711,7 @@ func TestResolveHomeVolume_RecoveryCandidateErrorSurfaces(t *testing.T) {
 		var vh msb.VolumeHandle
 		return vh, fmt.Errorf("lookup: %w", cause)
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called for a transient candidate lookup (got %q)", name)
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -779,7 +779,7 @@ func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
@@ -825,7 +825,7 @@ func TestResolveHomeVolume_MissingRecordedVolumeStartsFresh(t *testing.T) {
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdName = name
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -949,7 +949,7 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 	docker.WithNoopDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
@@ -993,7 +993,7 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 	}
 
 	mock := &msb.MockMsbClient{}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
@@ -1029,7 +1029,7 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
 
@@ -1078,7 +1078,7 @@ func TestResolveHomeVolume_TransientRecordedErrorFailsClosed(t *testing.T) {
 		var vh msb.VolumeHandle
 		return vh, fmt.Errorf("daemon unavailable looking up %s", name)
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called on a transient lookup error (got %q)", name)
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -1121,7 +1121,7 @@ func TestResolveHomeVolume_TransientRecoveryErrorFailsClosed(t *testing.T) {
 		var vh msb.VolumeHandle
 		return vh, fmt.Errorf("daemon unavailable looking up %s", name)
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called on a transient lookup error (got %q)", name)
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -1158,7 +1158,7 @@ func TestResolveHomeVolume_RecoversLiveVMVolumeOnMissingState(t *testing.T) {
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called when a live home volume can be recovered (got %q)", name)
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -1216,7 +1216,7 @@ func TestResolveHomeVolume_RecoversPersistedAdoptionVolume(t *testing.T) {
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called during recovery (got %q)", name)
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -1268,7 +1268,7 @@ func TestResolveHomeVolume_RecoveredVolumeMissingStartsFresh(t *testing.T) {
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdName = name
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -1318,7 +1318,7 @@ func TestResolveHomeVolume_RecoversWhenRecordedVolumeGone(t *testing.T) {
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called when the live volume can be recovered (got %q)", name)
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -1364,7 +1364,7 @@ func TestResolveHomeVolume_RecoveryStateFails(t *testing.T) {
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called during recovery (got %q)", name)
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -1413,7 +1413,7 @@ func TestResolveHomeVolume_StateWinsOverRecoveredVolume(t *testing.T) {
 		}
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called (got %q)", name)
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -1469,7 +1469,7 @@ func TestResolveHomeVolume_RecoveryPreservesFingerprints(t *testing.T) {
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called during recovery (got %q)", name)
 		return msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -1519,7 +1519,7 @@ func TestEnsureNewHome_PrefillFails_RemovesVolume(t *testing.T) {
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("prefill sandbox creation failed")
 	var createdVolume string
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdVolume = name
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -1582,7 +1582,7 @@ func TestEnsureNewHome_StateWriteFails(t *testing.T) {
 			var createdVolume string
 			mock := &msb.MockMsbClient{
 				CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
-				CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+				CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 					createdVolume = name
 					return &msb.MockVolumeHandle{Name_: name}, nil
 				},
@@ -1623,10 +1623,10 @@ func TestEnsureNewHome_PrefillCancelled_RemovesVolumeWithLiveContext(t *testing.
 	ctx, cancel := context.WithCancel(context.Background())
 
 	mock := &msb.MockMsbClient{}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		cancel()
 		return nil, errors.New("prefill sandbox creation failed")
 	}
@@ -1698,7 +1698,7 @@ func TestResolveHomeVolume_SkipVMThenRealRun_Prefills(t *testing.T) {
 	var createdVolumes []string
 	mock := &msb.MockMsbClient{
 		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			createdVolumes = append(createdVolumes, name)
 			return &msb.MockVolumeHandle{Name_: name}, nil
 		},

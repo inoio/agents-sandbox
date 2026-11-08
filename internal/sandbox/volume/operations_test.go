@@ -134,14 +134,14 @@ func TestVolumeOpWarnsWhenTheNewVolumeCannotBeCleanedUp(t *testing.T) {
 	)
 
 	var sandboxCount int
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		sandboxCount++
 		if sandboxCount == 2 {
 			return nil, copyFailed
 		}
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 	mock.RemoveVolumeFn = func(_ context.Context, _ string) error {
@@ -270,14 +270,14 @@ func TestVolumeOp_MainFails_RemovesNewVolume(t *testing.T) {
 
 	var createdVol string
 	var sandboxCount int
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		sandboxCount++
 		if sandboxCount == 2 {
 			return nil, errors.New("create copy sandbox failed")
 		}
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdVol = name
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -318,7 +318,7 @@ func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:old"},
 	)
 
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{
 			ExecOut: map[string]msb.ShellResult{
 				"sh -c cp -a /home/dev/. /mnt/home/ && chown -R dev:dev /mnt/home": msb.NewTestResult(
@@ -338,7 +338,7 @@ func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
 			},
 		}), nil
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
@@ -458,10 +458,10 @@ func TestVolumeOpKeepsTheOldVolumeWhenStateCannotBeWritten(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
@@ -498,10 +498,10 @@ func TestVolumeOpWarnsWhenTheOldVolumeCannotBeRemoved(t *testing.T) {
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
 
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 	mock.RemoveVolumeFn = func(_ context.Context, name string) error {
@@ -661,7 +661,7 @@ func TestVolumeOp_CreateVolumeFails(t *testing.T) {
 		state.Key{Slug: slug, Agent: "opencode"},
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
-	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return nil, errors.New("create failed")
 	}
 	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
@@ -744,10 +744,10 @@ func TestCmdReset_RemOldVolume(t *testing.T) {
 		state.HomeState{HomeVolume: oldVol, ImageDigest: "sha256:old"},
 	)
 
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
@@ -782,10 +782,10 @@ func TestVolumeOp_ExplicitOldVolume(t *testing.T) {
 		state.HomeState{HomeVolume: "state-vol", ImageDigest: "sha256:abc"},
 	)
 
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
@@ -918,7 +918,7 @@ func TestCmdEdit_DestroyFailureWarns(t *testing.T) {
 	)
 
 	callCount := 0
-	mock.CreateSandboxFn = func(_ context.Context, name string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+	mock.CreateSandboxFn = func(_ context.Context, name string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		callCount++
 		if callCount == 2 {
 			return &msb.MockSandbox{Name_: name, DestroyErr: errors.New("destroy failed")}, nil
@@ -1017,10 +1017,10 @@ func TestCmdEdit_MainPath(t *testing.T) {
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
 
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{}), nil
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
@@ -1055,7 +1055,7 @@ func TestCmdEdit_MainFails_RemovesVolume(t *testing.T) {
 
 	var createdVol string
 	var sandboxCount int
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		sandboxCount++
 		if sandboxCount == 1 {
 			// First call is from PrefillVolume — succeed
@@ -1064,7 +1064,7 @@ func TestCmdEdit_MainFails_RemovesVolume(t *testing.T) {
 		// Second call is from CmdEdit main — fail
 		return nil, errors.New("create edit sandbox failed")
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdVol = name
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -1105,12 +1105,12 @@ func TestCmdEdit_AttachError_Warns(t *testing.T) {
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
 
-	mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		return msb.NewMockSandbox(msb.SandboxOpts{
 			AttachErr: errors.New("attach failed"),
 		}), nil
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
 
@@ -1148,7 +1148,7 @@ func TestVolumeOpAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 	seedHomeState(key, state.HomeState{HomeVolume: "vol-1", ImageDigest: "sha256:old"})
 
 	var createdVol string
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdVol = name
 		return &msb.MockVolumeHandle{Name_: name}, nil
 	}
@@ -1218,7 +1218,7 @@ func TestVolumeOpReportsAFailedVolumeCreate(t *testing.T) {
 	k := state.Key{Slug: "testproj-aBc1234D", Agent: "opencode"}
 	seedHomeState(k, state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"})
 	createFailed := errors.New("disk full")
-	mock.CreateVolumeFn = func(context.Context, string, ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(context.Context, string, msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return nil, createFailed
 	}
 

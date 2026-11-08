@@ -8,10 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -172,7 +171,7 @@ func TestLoadEnvAndSecretsMergesUserAndProject(t *testing.T) {
 	if len(secrets) != 4 {
 		t.Fatalf("expected 4 secrets, got %d: %#v", len(secrets), secrets)
 	}
-	byVar := make(map[string]msbSdk.SecretEntry, len(secrets))
+	byVar := make(map[string]msb.SecretEntry, len(secrets))
 	for _, s := range secrets {
 		byVar[s.EnvVar] = s
 	}
@@ -274,7 +273,7 @@ func TestLoadEnvAndSecretsPerSlugSecretFormats(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	loaded := LoadEnvAndSecrets(&ui, scopes, nil)
 
-	byVar := make(map[string]msbSdk.SecretEntry, len(loaded.Secrets))
+	byVar := make(map[string]msb.SecretEntry, len(loaded.Secrets))
 	for _, secret := range loaded.Secrets {
 		byVar[secret.EnvVar] = secret
 	}

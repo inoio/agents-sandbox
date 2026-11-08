@@ -18,14 +18,14 @@ type RuntimeInstaller interface {
 // SandboxStore discovers and creates sandboxes.
 type SandboxStore interface {
 	GetSandbox(ctx context.Context, name string) (SandboxHandle, error)
-	CreateSandbox(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)
+	CreateSandbox(ctx context.Context, name string, spec SandboxSpec) (Sandbox, error)
 	ListSandboxes(ctx context.Context, labels map[string]string) ([]SandboxHandle, error)
 }
 
 // VolumeStore discovers, creates and removes volumes.
 type VolumeStore interface {
 	GetVolume(ctx context.Context, name string) (VolumeHandle, error)
-	CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error)
+	CreateVolume(ctx context.Context, name string, spec VolumeSpec) (VolumeHandle, error)
 	ListVolumes(ctx context.Context) ([]VolumeHandle, error)
 	RemoveVolume(ctx context.Context, name string) error
 }
@@ -102,7 +102,11 @@ func (realMsbClient) GetSandbox(ctx context.Context, name string) (SandboxHandle
 	return &realSandboxHandle{handle: h}, nil
 }
 
-func (realMsbClient) CreateSandbox(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error) {
+func (realMsbClient) CreateSandbox(ctx context.Context, name string, spec SandboxSpec) (Sandbox, error) {
+	opts, err := sandboxOptions(spec)
+	if err != nil {
+		return nil, err
+	}
 	sb, err := createSandbox(ctx, name, opts...)
 	if err != nil {
 		return nil, err
@@ -146,8 +150,8 @@ func (realMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandle, 
 	return realVolumeHandle{handle: v}, nil
 }
 
-func (realMsbClient) CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error) {
-	if _, err := createVolume(ctx, name, opts...); err != nil {
+func (realMsbClient) CreateVolume(ctx context.Context, name string, spec VolumeSpec) (VolumeHandle, error) {
+	if _, err := createVolume(ctx, name, volumeOptions(spec)...); err != nil {
 		return nil, err
 	}
 	handle, err := getVolume(ctx, name)

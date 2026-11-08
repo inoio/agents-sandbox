@@ -5,10 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -28,12 +27,12 @@ func TestEnvContentHashOrderIndependent(t *testing.T) {
 }
 
 func TestSecretsContentHashStable(t *testing.T) {
-	a := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}, {EnvVar: "B", Value: "2"}})
-	b := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "B", Value: "2"}, {EnvVar: "A", Value: "1"}})
+	a := SecretsContentHash([]msb.SecretEntry{{EnvVar: "A", Value: "1"}, {EnvVar: "B", Value: "2"}})
+	b := SecretsContentHash([]msb.SecretEntry{{EnvVar: "B", Value: "2"}, {EnvVar: "A", Value: "1"}})
 	if a != b {
 		t.Errorf("SecretsContentHash not order-independent: %q vs %q", a, b)
 	}
-	if SecretsContentHash(nil) != SecretsContentHash([]msbSdk.SecretEntry{}) {
+	if SecretsContentHash(nil) != SecretsContentHash([]msb.SecretEntry{}) {
 		t.Error("SecretsContentHash(nil) should equal SecretsContentHash(empty)")
 	}
 }
@@ -57,10 +56,10 @@ func TestEnvChanged(t *testing.T) {
 func TestSecretsContentHashIncludesHosts(t *testing.T) {
 	// A change to a secret's allowed hosts (with the same value) must produce
 	// a different hash so the launcher recreates the VM. See SecretsContentHash.
-	a := SecretsContentHash([]msbSdk.SecretEntry{
+	a := SecretsContentHash([]msb.SecretEntry{
 		{EnvVar: "GITHUB_TOKEN", Value: "t", Allow: []string{"github.com"}},
 	})
-	b := SecretsContentHash([]msbSdk.SecretEntry{
+	b := SecretsContentHash([]msb.SecretEntry{
 		{EnvVar: "GITHUB_TOKEN", Value: "t", Allow: []string{"api.github.com", "github.com"}},
 	})
 	if a == b {
@@ -69,36 +68,36 @@ func TestSecretsContentHashIncludesHosts(t *testing.T) {
 }
 
 func TestSecretsContentHashIncludesOtherFields(t *testing.T) {
-	base := msbSdk.SecretEntry{EnvVar: "A", Value: "1"}
-	baseHash := SecretsContentHash([]msbSdk.SecretEntry{base})
+	base := msb.SecretEntry{EnvVar: "A", Value: "1"}
+	baseHash := SecretsContentHash([]msb.SecretEntry{base})
 
 	boolPtr := func(v bool) *bool { return &v }
 	tests := []struct {
 		name   string
-		mutate func(e *msbSdk.SecretEntry)
+		mutate func(e *msb.SecretEntry)
 	}{
-		{"Value", func(e *msbSdk.SecretEntry) { e.Value = "2" }},
-		{"Allow", func(e *msbSdk.SecretEntry) { e.Allow = []string{"github.com"} }},
-		{"Passthrough", func(e *msbSdk.SecretEntry) { e.Passthrough = []string{"*.github.com"} }},
-		{"Placeholder", func(e *msbSdk.SecretEntry) { e.Placeholder = "$GITHUB_TOKEN" }},
-		{"RequireTLSIdentity true", func(e *msbSdk.SecretEntry) { e.RequireTLSIdentity = boolPtr(true) }},
-		{"RequireTLSIdentity false", func(e *msbSdk.SecretEntry) { e.RequireTLSIdentity = boolPtr(false) }},
-		{"Substitution headers true", func(e *msbSdk.SecretEntry) { e.Substitution.Headers = boolPtr(true) }},
-		{"Substitution headers false", func(e *msbSdk.SecretEntry) { e.Substitution.Headers = boolPtr(false) }},
-		{"Substitution query", func(e *msbSdk.SecretEntry) { e.Substitution.Query = true }},
-		{"Substitution body", func(e *msbSdk.SecretEntry) { e.Substitution.Body = true }},
+		{"Value", func(e *msb.SecretEntry) { e.Value = "2" }},
+		{"Allow", func(e *msb.SecretEntry) { e.Allow = []string{"github.com"} }},
+		{"Passthrough", func(e *msb.SecretEntry) { e.Passthrough = []string{"*.github.com"} }},
+		{"Placeholder", func(e *msb.SecretEntry) { e.Placeholder = "$GITHUB_TOKEN" }},
+		{"RequireTLSIdentity true", func(e *msb.SecretEntry) { e.RequireTLSIdentity = boolPtr(true) }},
+		{"RequireTLSIdentity false", func(e *msb.SecretEntry) { e.RequireTLSIdentity = boolPtr(false) }},
+		{"Substitution headers true", func(e *msb.SecretEntry) { e.Substitution.Headers = boolPtr(true) }},
+		{"Substitution headers false", func(e *msb.SecretEntry) { e.Substitution.Headers = boolPtr(false) }},
+		{"Substitution query", func(e *msb.SecretEntry) { e.Substitution.Query = true }},
+		{"Substitution body", func(e *msb.SecretEntry) { e.Substitution.Body = true }},
 		{
 			"Substitution header fields",
-			func(e *msbSdk.SecretEntry) { e.Substitution.HeaderFields = []string{"authorization"} },
+			func(e *msb.SecretEntry) { e.Substitution.HeaderFields = []string{"authorization"} },
 		},
-		{"ViolationAction", func(e *msbSdk.SecretEntry) { e.ViolationAction = msbSdk.ViolationActionBlock }},
+		{"ViolationAction", func(e *msb.SecretEntry) { e.ViolationAction = msb.ViolationActionBlock }},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := base
 			tt.mutate(&e)
-			if got := SecretsContentHash([]msbSdk.SecretEntry{e}); got == baseHash {
+			if got := SecretsContentHash([]msb.SecretEntry{e}); got == baseHash {
 				t.Errorf("SecretsContentHash should differ when %s changes", tt.name)
 			}
 		})
@@ -114,7 +113,7 @@ func TestSecretsContentHashIncludesOtherFields(t *testing.T) {
 // no-scope case.
 func TestSecretsContentHashAllHeadersStable(t *testing.T) {
 	const golden = "26f56b74321a6352bfaa9ef9c5434c1929f5e9b2c6416b9cf1f4803437ce3ce4"
-	got := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}})
+	got := SecretsContentHash([]msb.SecretEntry{{EnvVar: "A", Value: "1"}})
 	if got != golden {
 		t.Errorf("all-headers secret hash = %q, want the pre-scoping value %q", got, golden)
 	}
@@ -146,15 +145,15 @@ func TestSecretsContentHashIncludesHeaderFieldsScope(t *testing.T) {
 	// A change to a secret's header scope (same value, same hosts) must
 	// produce a different hash so the launcher recreates the VM. See
 	// SecretsContentHash.
-	allHeaders := SecretsContentHash([]msbSdk.SecretEntry{
+	allHeaders := SecretsContentHash([]msb.SecretEntry{
 		{EnvVar: "K", Value: "v", Allow: []string{"h.example"}},
 	})
-	scoped := SecretsContentHash([]msbSdk.SecretEntry{
+	scoped := SecretsContentHash([]msb.SecretEntry{
 		{
 			EnvVar:       "K",
 			Value:        "v",
 			Allow:        []string{"h.example"},
-			Substitution: msbSdk.SecretSubstitution{HeaderFields: []string{"authorization"}},
+			Substitution: msb.SecretSubstitution{HeaderFields: []string{"authorization"}},
 		},
 	})
 	if allHeaders == scoped {
@@ -172,11 +171,11 @@ func TestSecretsContentHashIncludesHeaderFieldsScope(t *testing.T) {
 func TestSecretsContentHashScopedStable(t *testing.T) {
 	const golden = "af3da3e12c4d20cac8cce978b21986bca531ef43c6f5294b5590096d08d4cd22"
 	scoped := func(fields ...string) string {
-		return SecretsContentHash([]msbSdk.SecretEntry{{
+		return SecretsContentHash([]msb.SecretEntry{{
 			EnvVar:       "K",
 			Value:        "v",
 			Allow:        []string{"h.example"},
-			Substitution: msbSdk.SecretSubstitution{HeaderFields: fields},
+			Substitution: msb.SecretSubstitution{HeaderFields: fields},
 		}})
 	}
 	if got := scoped("authorization"); got != golden {
@@ -188,20 +187,20 @@ func TestSecretsContentHashScopedStable(t *testing.T) {
 }
 
 func TestSecretsChanged(t *testing.T) {
-	hash := SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}})
-	if SecretsChanged(SecretState{Hash: hash}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}}) {
+	hash := SecretsContentHash([]msb.SecretEntry{{EnvVar: "A", Value: "1"}})
+	if SecretsChanged(SecretState{Hash: hash}, []msb.SecretEntry{{EnvVar: "A", Value: "1"}}) {
 		t.Error("SecretsChanged should be false when hashes match")
 	}
-	if !SecretsChanged(SecretState{Hash: hash}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "2"}}) {
+	if !SecretsChanged(SecretState{Hash: hash}, []msb.SecretEntry{{EnvVar: "A", Value: "2"}}) {
 		t.Error("SecretsChanged should be true when a value changes")
 	}
-	if !SecretsChanged(SecretState{}, []msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}}) {
+	if !SecretsChanged(SecretState{}, []msb.SecretEntry{{EnvVar: "A", Value: "1"}}) {
 		t.Error("SecretsChanged with empty applied and non-empty desired should be true")
 	}
 	if SecretsChanged(SecretState{}, nil) {
 		t.Error("SecretsChanged with empty applied and nil desired should be false")
 	}
-	if SecretsChanged(SecretState{}, []msbSdk.SecretEntry{}) {
+	if SecretsChanged(SecretState{}, []msb.SecretEntry{}) {
 		t.Error("SecretsChanged with empty applied and an empty non-nil desired should be false")
 	}
 }
@@ -217,8 +216,8 @@ func TestBuildEnvState(t *testing.T) {
 }
 
 func TestBuildSecretState(t *testing.T) {
-	st := BuildSecretState([]msbSdk.SecretEntry{{EnvVar: "B", Value: "2"}, {EnvVar: "A", Value: "1"}})
-	if st.Hash != SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}, {EnvVar: "B", Value: "2"}}) {
+	st := BuildSecretState([]msb.SecretEntry{{EnvVar: "B", Value: "2"}, {EnvVar: "A", Value: "1"}})
+	if st.Hash != SecretsContentHash([]msb.SecretEntry{{EnvVar: "A", Value: "1"}, {EnvVar: "B", Value: "2"}}) {
 		t.Errorf("BuildSecretState.Hash mismatch")
 	}
 	if !slices.Equal(st.Entries, []string{"A", "B"}) {
@@ -228,12 +227,12 @@ func TestBuildSecretState(t *testing.T) {
 
 func TestBuildSecretStateDescribesTheStructureButNeverTheValue(t *testing.T) {
 	headers := true
-	st := BuildSecretState([]msbSdk.SecretEntry{{
+	st := BuildSecretState([]msb.SecretEntry{{
 		EnvVar:       "GH_TOKEN",
 		Value:        "ghp_supersecret",
 		Allow:        []string{"github.com", "api.github.com"},
 		Passthrough:  []string{"proxy.example.com"},
-		Substitution: msbSdk.SecretSubstitution{Headers: &headers, HeaderFields: []string{"authorization"}},
+		Substitution: msb.SecretSubstitution{Headers: &headers, HeaderFields: []string{"authorization"}},
 	}})
 	want := []string{
 		"GH_TOKEN: hosts api.github.com, github.com; passthrough proxy.example.com; header fields authorization",

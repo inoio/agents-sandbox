@@ -11,8 +11,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -176,7 +174,7 @@ func TestCopyVolumesCopiesIntoCreatedVolume(t *testing.T) {
 	target := t.TempDir()
 	var created []string
 	client := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, volumeName string, opts ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, volumeName string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			created = append(created, volumeName)
 			return &msb.MockVolumeHandle{Name_: volumeName, Path_: target}, nil
 		},
@@ -210,7 +208,7 @@ func TestCopyVolumesAbortsWhenFailedCopyLeavesDestination(t *testing.T) {
 			return &msb.MockVolumeHandle{Name_: volumeName}, nil
 		},
 		RemoveVolumeFn: func(_ context.Context, _ string) error { return removeErr },
-		CreateVolumeFn: func(_ context.Context, volumeName string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, volumeName string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return &msb.MockVolumeHandle{Name_: volumeName}, nil
 		},
 	}
@@ -262,7 +260,7 @@ func TestCopyVolumesPreservesAlreadyPresentTarget(t *testing.T) {
 	target := t.TempDir()
 	var created []string
 	client := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, n string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			created = append(created, n)
 			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
@@ -294,7 +292,7 @@ func TestCopyVolumesRecordsProgressAndCompletes(t *testing.T) {
 	writeFileWithMode(t, filepath.Join(legacy, "volumes", name, "f.txt"), "x", 0o600)
 	target := t.TempDir()
 	client := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, n string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
 	}
@@ -331,7 +329,7 @@ func TestCopyVolumesExcludesVolumeScopedFailureAndCompletes(t *testing.T) {
 	target := t.TempDir()
 	var midCampaign state.Migration
 	client := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, n string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			if n == bad {
 				return nil, errors.New("volume boom")
 			}
@@ -388,7 +386,7 @@ func TestCopyVolumesResumesFromCopying(t *testing.T) {
 		GetVolumeFn: func(_ context.Context, n string) (msb.VolumeHandle, error) {
 			return &msb.MockVolumeHandle{Name_: n}, nil
 		},
-		CreateVolumeFn: func(_ context.Context, n string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			created = append(created, n)
 			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
@@ -427,7 +425,7 @@ func TestCopyVolumesDoesNotFollowCopiedSymlink(t *testing.T) {
 	}
 	target := t.TempDir()
 	client := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, n string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
 	}
@@ -455,7 +453,7 @@ func TestCopyVolumesExcludesCopyTreeFailureAndCompletes(t *testing.T) {
 	dst := filepath.Join(t.TempDir(), "not-a-dir")
 	writeFileWithMode(t, dst, "x", 0o600)
 	client := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, n string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return &msb.MockVolumeHandle{Name_: n, Path_: dst}, nil
 		},
 	}
@@ -562,7 +560,7 @@ func TestCopyVolumesCopiedSaveErrorAborts(t *testing.T) {
 
 	target := t.TempDir()
 	client := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, n string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
 	}
@@ -586,7 +584,7 @@ func TestCopyVolumesExclusionSaveErrorAborts(t *testing.T) {
 	blockRootState(t)
 
 	client := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return nil, errors.New("volume boom")
 		},
 	}

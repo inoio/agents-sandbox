@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -59,8 +57,8 @@ func (vm *Manager) PrefillVolume(
 ) error {
 	return withThrowawaySandbox(ctx, vm.dclient, client, k, info, throwawaySandbox{
 		purpose: "prefill",
-		mounts: map[string]msbSdk.MountConfig{
-			homeMount: msbSdk.Mount.Named(volumeName, msbSdk.MountOptions{}),
+		mounts: map[string]msb.MountConfig{
+			homeMount: msb.Mount.Named(volumeName, msb.MountOptions{}),
 		},
 		spinnerLabel: "Preparing home volume",
 	}, ui, func(sb msb.Sandbox, spin termio.Spinner) error {
@@ -102,9 +100,7 @@ func (vm *Manager) ApplyHomeAction(
 		return oldVolume, nil
 	}
 
-	newVol, err := client.CreateVolume(ctx, HomeVolumeName(k),
-		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
-	)
+	newVol, err := client.CreateVolume(ctx, HomeVolumeName(k), msb.VolumeSpec{Kind: msb.VolumeKindDir})
 	if err != nil {
 		return "", fmt.Errorf("create volume: %w", err)
 	}
@@ -164,9 +160,9 @@ func (vm *Manager) CopyVolume(
 ) error {
 	return withThrowawaySandbox(ctx, vm.dclient, client, k, info, throwawaySandbox{
 		purpose: "copy",
-		mounts: map[string]msbSdk.MountConfig{
-			srcMount: msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{}),
-			dstMount: msbSdk.Mount.Named(newVolume, msbSdk.MountOptions{}),
+		mounts: map[string]msb.MountConfig{
+			srcMount: msb.Mount.Named(oldVolume, msb.MountOptions{}),
+			dstMount: msb.Mount.Named(newVolume, msb.MountOptions{}),
 		},
 		// The copy spinner starts only once the sandbox is up.
 		spinnerLabel: "",

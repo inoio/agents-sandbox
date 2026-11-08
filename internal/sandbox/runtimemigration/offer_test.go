@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -319,7 +317,7 @@ func TestOfferChooseCopyCopiesVolumes(t *testing.T) {
 
 	target := t.TempDir()
 	client := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, volumeName string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, volumeName string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return &msb.MockVolumeHandle{Name_: volumeName, Path_: target}, nil
 		},
 	}
@@ -809,7 +807,7 @@ func TestOfferAmbiguousStateCopyKeepsExisting(t *testing.T) {
 	target := t.TempDir()
 	var created []string
 	client := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, n string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			created = append(created, n)
 			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
@@ -849,7 +847,7 @@ func TestOfferCopyingResumeRecopiesPartial(t *testing.T) {
 		GetVolumeFn: func(_ context.Context, volumeName string) (msb.VolumeHandle, error) {
 			return &msb.MockVolumeHandle{Name_: volumeName}, nil
 		},
-		CreateVolumeFn: func(_ context.Context, n string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			created = append(created, n)
 			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
@@ -911,7 +909,7 @@ func TestOfferShowsNoticeAfterCopy(t *testing.T) {
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
 	target := t.TempDir()
 	client := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return &msb.MockVolumeHandle{Name_: name, Path_: target}, nil
 		},
 	}
@@ -1036,7 +1034,7 @@ func TestOfferNoticeNamesUncopiedVolumes(t *testing.T) {
 
 	target := t.TempDir()
 	client := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			if name == bad {
 				return nil, errors.New("no space")
 			}
@@ -1078,7 +1076,7 @@ func TestOfferAmbiguousCopyNoticeKeepsUnverifiedVolume(t *testing.T) {
 
 	target := t.TempDir()
 	client := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			createPrivateVolume(t, name)
 			return &msb.MockVolumeHandle{Name_: name, Path_: target}, nil
 		},

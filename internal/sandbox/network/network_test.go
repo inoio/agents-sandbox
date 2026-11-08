@@ -5,419 +5,107 @@ import (
 	"strings"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
-func TestConfigNoneAllowlistBase(t *testing.T) {
-	cfg, err := (Policy{Profiles: []Profile{ProfileNone}}).Config()
+func TestSpecNoneAllowlistBase(t *testing.T) {
+	spec, err := (Policy{Profiles: []Profile{ProfileNone}}).Spec()
 	if err != nil {
-		t.Fatalf("Config: %v", err)
+		t.Fatalf("Spec: %v", err)
 	}
-	// none is allowlist-only: deny egress by default, allow ingress.
-	if cfg.DefaultEgress != msbSdk.PolicyActionDeny {
-		t.Fatalf("none must deny egress by default, got %v", cfg.DefaultEgress)
+	// none is launcher-only: it selects no composable profile and carries no
+	// rules, so the adapter emits no gateway-DNS rule.
+	if len(spec.Profiles) != 0 {
+		t.Fatalf("none must select no composable profile, got %v", spec.Profiles)
 	}
-	if cfg.DefaultIngress != msbSdk.PolicyActionAllow {
-		t.Fatalf("none must allow ingress, got %v", cfg.DefaultIngress)
-	}
-	// No rules at all when no lists are given: not even the gateway-DNS rule,
-	// so no name resolves (#233).
-	if len(cfg.Rules) != 0 {
-		t.Fatalf("none with no lists should have no rules, got %+v", cfg.Rules)
+	if len(spec.EgressAllow) != 0 || len(spec.EgressDeny) != 0 || len(spec.DNSServers) != 0 {
+		t.Fatalf("none with no lists must carry no lists, got %+v", spec)
 	}
 }
 
-// TestConfigNoneOmitsGatewayDNS pins the #233 fix: under `none`, the gateway-DNS
-// rule would let the DNS proxy forward any name upstream, a data channel that
-// needs no allow entry. Without it, microsandbox resolves only names an
-// egress-allow rule matches, so hostname and suffix allow-lists keep working.
-func TestConfigNoneOmitsGatewayDNS(t *testing.T) {
-	cases := map[string]Policy{
-		"no lists":  {Profiles: []Profile{ProfileNone}},
-		"ip only":   {Profiles: []Profile{ProfileNone}, EgressAllow: []string{"1.1.1.1", "10.0.0.0/8"}},
-		"hostname":  {Profiles: []Profile{ProfileNone}, EgressAllow: []string{"api.example.com"}},
-		"suffix":    {Profiles: []Profile{ProfileNone}, EgressAllow: []string{".example.com"}},
-		"deny only": {Profiles: []Profile{ProfileNone}, EgressDeny: []string{"10.0.0.0/8"}},
-		"dns-servers": {
-			Profiles:    []Profile{ProfileNone},
-			EgressAllow: []string{"api.example.com"},
-			DNSServers:  []string{"1.1.1.1"},
-		},
-	}
-	for name, policy := range cases {
-		t.Run(name, func(t *testing.T) {
-			cfg, err := policy.Config()
-			if err != nil {
-				t.Fatalf("Config: %v", err)
-			}
-			if slices.ContainsFunc(cfg.Rules, isGatewayDNSRule) {
-				t.Fatalf("none must not emit the gateway-DNS rule, got %+v", cfg.Rules)
-			}
-		})
-	}
-}
-
-// TestConfigComposableProfilesKeepGatewayDNS verifies the composable profiles
-// still lead with the gateway-DNS rule: they allow broad egress, so names must
-// resolve.
-func TestConfigComposableProfilesKeepGatewayDNS(t *testing.T) {
-	for _, profile := range []Profile{ProfilePublic, ProfilePrivate, ProfileHost} {
-		t.Run(profile.String(), func(t *testing.T) {
-			cfg, err := (Policy{Profiles: []Profile{profile}}).Config()
-			if err != nil {
-				t.Fatalf("Config: %v", err)
-			}
-			if len(cfg.Rules) == 0 || !isGatewayDNSRule(cfg.Rules[0]) {
-				t.Fatalf("%s must lead with the gateway-DNS rule, got %+v", profile, cfg.Rules)
-			}
-		})
-	}
-}
-
-func TestConfigUnsetDefaultsToPublic(t *testing.T) {
-	cfg, err := (Policy{}).Config()
+func TestSpecUnsetDefaultsToPublic(t *testing.T) {
+	spec, err := (Policy{}).Spec()
 	if err != nil {
-		t.Fatalf("Config: %v", err)
+		t.Fatalf("Spec: %v", err)
 	}
-	// The public profile keeps the deny default action and adds an allow rule
-	// for the public destination group.
-	if cfg.DefaultEgress != msbSdk.PolicyActionDeny {
-		t.Fatalf("unset policy must keep a deny default action, got %v", cfg.DefaultEgress)
-	}
-	if cfg.DefaultIngress != msbSdk.PolicyActionAllow {
-		t.Fatalf("unset policy must allow ingress, got %v", cfg.DefaultIngress)
-	}
-	if !allowsPublic(cfg) {
-		t.Fatalf("unset policy should allow the public group, got %+v", cfg.Rules)
+	if len(spec.Profiles) != 1 || spec.Profiles[0] != msb.NetworkProfilePublic {
+		t.Fatalf("unset policy must default to the public profile, got %v", spec.Profiles)
 	}
 }
 
-// allowsPublic reports whether the config carries an allow rule for the public
-// destination group.
-func allowsPublic(cfg *msbSdk.NetworkConfig) bool {
-	return allowsProfile(cfg, "public")
-}
-
-// allowsProfile reports whether the config carries an egress allow rule for the
-// named destination group.
-func allowsProfile(cfg *msbSdk.NetworkConfig, group string) bool {
-	for _, r := range cfg.Rules {
-		if r.Direction == msbSdk.PolicyDirectionEgress &&
-			r.Action == msbSdk.PolicyActionAllow &&
-			r.Destination == group {
-			return true
-		}
-	}
-	return false
-}
-
-func TestConfigCombinesProfiles(t *testing.T) {
-	cfg, err := (Policy{Profiles: []Profile{ProfilePublic, ProfileHost}}).Config()
+func TestSpecComposableProfiles(t *testing.T) {
+	spec, err := (Policy{Profiles: []Profile{ProfilePublic, ProfileHost, ProfilePublic}}).Spec()
 	if err != nil {
-		t.Fatalf("Config: %v", err)
+		t.Fatalf("Spec: %v", err)
 	}
-	for _, group := range []string{"public", "host"} {
-		if !allowsProfile(cfg, group) {
-			t.Errorf("combined policy should allow the %s group, got %+v", group, cfg.Rules)
-		}
-	}
-}
-
-func TestConfigRejectsNoneCombinedWithOther(t *testing.T) {
-	if _, err := (Policy{Profiles: []Profile{ProfileNone, ProfilePublic}}).Config(); err == nil {
-		t.Fatal("Config must reject none combined with another profile")
+	want := []msb.NetworkProfile{msb.NetworkProfilePublic, msb.NetworkProfileHost}
+	if !slices.Equal(spec.Profiles, want) {
+		t.Fatalf("Spec.Profiles = %v, want deduped %v", spec.Profiles, want)
 	}
 }
 
-func TestParseProfiles(t *testing.T) {
-	got, err := ParseProfiles([]string{"public", "host"})
-	if err != nil {
-		t.Fatalf("ParseProfiles: %v", err)
-	}
-	if len(got) != 2 || got[0] != ProfilePublic || got[1] != ProfileHost {
-		t.Fatalf("ParseProfiles = %v, want [public host]", got)
-	}
-
-	if _, err := ParseProfiles([]string{"bogus"}); err == nil {
-		t.Fatal("ParseProfiles(bogus) should error")
-	}
-	if _, err := ParseProfiles([]string{"none", "public"}); err == nil {
-		t.Fatal("ParseProfiles(none, public) should error")
-	}
-}
-
-func TestParseProfilesRepeatedNone(t *testing.T) {
-	got, err := ParseProfiles([]string{"none", "none"})
-	if err != nil {
-		t.Fatalf("ParseProfiles(none, none): %v", err)
-	}
-	if len(got) != 1 || got[0] != ProfileNone {
-		t.Fatalf("ParseProfiles(none, none) = %v, want [none]", got)
-	}
-
-	if _, err := ParseProfiles([]string{"none", "none", "public"}); err == nil {
-		t.Fatal("ParseProfiles(none, none, public) should error")
-	}
-}
-
-func TestConfigNoneSingleHostAllowlist(t *testing.T) {
-	cfg, err := (Policy{
-		Profiles:    []Profile{ProfileNone},
-		EgressAllow: []string{"api.example.com"},
-	}).Config()
-	if err != nil {
-		t.Fatalf("Config: %v", err)
-	}
-	if cfg.DefaultEgress != msbSdk.PolicyActionDeny {
-		t.Fatalf("none must stay deny-by-default, got %v", cfg.DefaultEgress)
-	}
-	var allowed int
-	for _, r := range cfg.Rules {
-		if r.Direction == msbSdk.PolicyDirectionEgress && r.Action == msbSdk.PolicyActionAllow {
-			allowed++
-		}
-	}
-	// Only the single explicit allow; no gateway-DNS rule (#233).
-	if allowed != 1 {
-		t.Fatalf("expected exactly 1 explicit allow rule, got %d allow rules", allowed)
-	}
-}
-
-func TestConfigPublicProfileRules(t *testing.T) {
-	cfg, err := (Policy{Profiles: []Profile{ProfilePublic}}).Config()
-	if err != nil {
-		t.Fatalf("Config: %v", err)
-	}
-	if cfg.DefaultEgress != msbSdk.PolicyActionDeny {
-		t.Fatalf("FromProfilesChecked defaults egress to deny, got %v", cfg.DefaultEgress)
-	}
-	if len(cfg.Rules) == 0 {
-		t.Fatal("public profile should produce gateway DNS + public allow rules")
-	}
-}
-
-func TestConfigDenyBeforeAllow(t *testing.T) {
-	cfg, err := (Policy{
+func TestSpecDeduplicatesListsAndDropsEmpty(t *testing.T) {
+	spec, err := (Policy{
 		Profiles:    []Profile{ProfilePublic},
-		EgressAllow: []string{"123.123.0.0/16"},
-		EgressDeny:  []string{"123.123.123.0/24"},
-	}).Config()
+		EgressAllow: []string{"", "a.example.com", "a.example.com", ""},
+		EgressDeny:  []string{"b.example.com", "b.example.com"},
+	}).Spec()
 	if err != nil {
-		t.Fatalf("Config: %v", err)
+		t.Fatalf("Spec: %v", err)
 	}
-	var denyIdx, explicitAllowIdx, profileAllowIdx int
-	foundDeny, foundExplicitAllow, foundProfileAllow := false, false, false
-	for i, r := range cfg.Rules {
-		if r.Direction != msbSdk.PolicyDirectionEgress {
-			continue
-		}
-		switch {
-		case r.Destination == "123.123.123.0/24" && r.Action == msbSdk.PolicyActionDeny:
-			denyIdx, foundDeny = i, true
-		case r.Destination == "123.123.0.0/16" && r.Action == msbSdk.PolicyActionAllow:
-			explicitAllowIdx, foundExplicitAllow = i, true
-		case r.Destination == "public" && r.Action == msbSdk.PolicyActionAllow:
-			profileAllowIdx, foundProfileAllow = i, true
-		}
+	if !slices.Equal(spec.EgressAllow, []string{"a.example.com"}) {
+		t.Errorf("EgressAllow = %v, want [a.example.com]", spec.EgressAllow)
 	}
-	if !foundDeny || !foundExplicitAllow || !foundProfileAllow {
-		t.Fatalf("expected deny, explicit allow, and profile allow rules; found deny=%v explicit=%v profile=%v",
-			foundDeny, foundExplicitAllow, foundProfileAllow)
-	}
-	if denyIdx >= explicitAllowIdx {
-		t.Fatalf("deny rule (idx %d) must precede explicit allow rule (idx %d)", denyIdx, explicitAllowIdx)
-	}
-	// First-match-wins: the profile's broad allow must not shadow the carve-out.
-	if denyIdx >= profileAllowIdx {
-		t.Fatalf("deny rule (idx %d) must precede profile allow rule (idx %d)", denyIdx, profileAllowIdx)
+	if !slices.Equal(spec.EgressDeny, []string{"b.example.com"}) {
+		t.Errorf("EgressDeny = %v, want [b.example.com]", spec.EgressDeny)
 	}
 }
 
-func TestConfigDenyPrecedesProfileAllow(t *testing.T) {
-	const denyDestination = "10.0.0.0/8"
-	cases := []struct {
-		name     string
-		profiles []Profile
-	}{
-		{name: "public", profiles: []Profile{ProfilePublic}},
-		{name: "private", profiles: []Profile{ProfilePrivate}},
-		{name: "host", profiles: []Profile{ProfileHost}},
-		{name: "unset defaults to public"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg, err := (Policy{Profiles: tc.profiles, EgressDeny: []string{denyDestination}}).Config()
-			if err != nil {
-				t.Fatalf("Config: %v", err)
-			}
-			denyIdx := -1
-			var profileAllowIdxs []int
-			for i, r := range cfg.Rules {
-				if r.Direction != msbSdk.PolicyDirectionEgress {
-					continue
-				}
-				if r.Action == msbSdk.PolicyActionDeny && r.Destination == denyDestination {
-					denyIdx = i
-				}
-				// Profile allow rules carry a destination group name as the
-				// whole destination; the gateway-DNS allow rule is the one
-				// with a port.
-				if r.Action == msbSdk.PolicyActionAllow && r.Port == "" && isProfileDestination(r.Destination) {
-					profileAllowIdxs = append(profileAllowIdxs, i)
-				}
-			}
-			if denyIdx < 0 {
-				t.Fatalf("egress-deny rule not found in %+v", cfg.Rules)
-			}
-			if len(profileAllowIdxs) == 0 {
-				t.Fatalf("expected at least one profile allow rule, got %+v", cfg.Rules)
-			}
-			for _, idx := range profileAllowIdxs {
-				if denyIdx >= idx {
-					t.Fatalf(
-						"deny rule (idx %d) must precede profile allow rule (idx %d): %+v",
-						denyIdx,
-						idx,
-						cfg.Rules,
-					)
-				}
-			}
-		})
+func TestSpecRejectsNoneCombinedWithOther(t *testing.T) {
+	if _, err := (Policy{Profiles: []Profile{ProfileNone, ProfilePublic}}).Spec(); err == nil {
+		t.Fatal("Spec must reject none combined with another profile")
 	}
 }
 
-func TestConfigRuleOrder(t *testing.T) {
-	type rule struct {
-		action      msbSdk.PolicyAction
-		destination string
-		port        string
-	}
-	// The exact list order is the contract: microsandbox matches the first
-	// applicable rule, so the gateway-DNS rule leads, then the user deny
-	// carve-outs, then the profile allow rules, then the explicit allows (#231).
-	// `none` emits no gateway-DNS rule (#233).
-	cases := []struct {
-		name   string
-		policy Policy
-		want   []rule
-	}{
-		{
-			name: "profile with deny and allow",
-			policy: Policy{
-				Profiles:    []Profile{ProfilePublic},
-				EgressDeny:  []string{"10.0.0.0/8"},
-				EgressAllow: []string{"api.example.com"},
-			},
-			want: []rule{
-				{msbSdk.PolicyActionAllow, "host", "53"},
-				{msbSdk.PolicyActionDeny, "10.0.0.0/8", ""},
-				{msbSdk.PolicyActionAllow, "public", ""},
-				{msbSdk.PolicyActionAllow, "api.example.com", ""},
-			},
-		},
-		{
-			name: "none with deny and allow",
-			policy: Policy{
-				Profiles:    []Profile{ProfileNone},
-				EgressDeny:  []string{"10.0.0.0/8"},
-				EgressAllow: []string{"api.example.com"},
-			},
-			want: []rule{
-				{msbSdk.PolicyActionDeny, "10.0.0.0/8", ""},
-				{msbSdk.PolicyActionAllow, "api.example.com", ""},
-			},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			cfg, err := tc.policy.Config()
-			if err != nil {
-				t.Fatalf("Config: %v", err)
-			}
-			got := make([]rule, 0, len(cfg.Rules))
-			for _, r := range cfg.Rules {
-				got = append(got, rule{r.Action, r.Destination, r.Port})
-			}
-			if !slices.Equal(got, tc.want) {
-				t.Fatalf("rule order = %+v, want %+v", got, tc.want)
-			}
-		})
+func TestSpecUnknownProfileErrors(t *testing.T) {
+	if _, err := (Policy{Profiles: []Profile{Profile("bogus")}}).Spec(); err == nil {
+		t.Fatal("Spec with unknown profile should error")
 	}
 }
 
-func TestConfigNoneAppliesLists(t *testing.T) {
-	cfg, err := (Policy{
-		Profiles:    []Profile{ProfileNone},
-		EgressAllow: []string{"1.1.1.1"},
-	}).Config()
+func TestSpecDNSServersNormalized(t *testing.T) {
+	spec, err := (Policy{
+		Profiles:   []Profile{ProfilePublic},
+		DNSServers: []string{"1.1.1.1", "8.8.8.8:5353"},
+	}).Spec()
 	if err != nil {
-		t.Fatalf("Config: %v", err)
+		t.Fatalf("Spec: %v", err)
 	}
-	found := false
-	for _, r := range cfg.Rules {
-		if r.Direction == msbSdk.PolicyDirectionEgress && r.Destination == "1.1.1.1" &&
-			r.Action == msbSdk.PolicyActionAllow {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("none must apply the explicit allow list, got %+v", cfg.Rules)
+	want := []string{"1.1.1.1:53", "8.8.8.8:5353"}
+	if !slices.Equal(spec.DNSServers, want) {
+		t.Fatalf("DNSServers = %v, want %v", spec.DNSServers, want)
 	}
 }
 
-func TestConfigDeDuplicatesEntries(t *testing.T) {
-	cfg, err := (Policy{
-		Profiles:    []Profile{ProfilePublic},
-		EgressAllow: []string{"api.github.com", "api.github.com"},
-	}).Config()
+func TestSpecDNSOnlyDefaultsToPublic(t *testing.T) {
+	spec, err := (Policy{DNSServers: []string{"1.1.1.1"}}).Spec()
 	if err != nil {
-		t.Fatalf("Config: %v", err)
+		t.Fatalf("Spec: %v", err)
 	}
-	count := 0
-	for _, r := range cfg.Rules {
-		if r.Destination == "api.github.com" {
-			count++
-		}
+	if len(spec.Profiles) != 1 || spec.Profiles[0] != msb.NetworkProfilePublic {
+		t.Fatalf("dns-only policy must use the default public profile, got %v", spec.Profiles)
 	}
-	if count != 1 {
-		t.Fatalf("expected de-duplicated allow entry, got %d", count)
+	if !slices.Equal(spec.DNSServers, []string{"1.1.1.1:53"}) {
+		t.Errorf("DNSServers = %v, want 1.1.1.1:53", spec.DNSServers)
 	}
 }
 
-func TestParseProfile(t *testing.T) {
-	if p, err := ParseProfile("none"); err != nil || p != ProfileNone {
-		t.Fatalf("ParseProfile(none) = %v, %v", p, err)
-	}
-	if _, err := ParseProfile("bogus"); err == nil {
-		t.Fatal("ParseProfile(bogus) should error")
-	}
-}
-
-func TestConfigDeDuplicatesEmptyEntries(t *testing.T) {
-	cfg, err := (Policy{
-		Profiles:    []Profile{ProfilePublic},
-		EgressAllow: []string{"", "api.github.com", ""},
-	}).Config()
-	if err != nil {
-		t.Fatalf("Config: %v", err)
-	}
-	count := 0
-	for _, r := range cfg.Rules {
-		if r.Destination == "api.github.com" {
-			count++
-		}
-		if r.Destination == "" {
-			t.Fatalf("Config must drop empty destinations, got rule with empty destination")
-		}
-	}
-	if count != 1 {
-		t.Fatalf("expected exactly one rule for api.github.com, got %d", count)
-	}
-}
-
-func TestConfigUnknownProfileErrors(t *testing.T) {
-	if _, err := (Policy{Profiles: []Profile{Profile("bogus")}}).Config(); err == nil {
-		t.Fatal("Config with unknown profile should error")
+func TestSpecDNSInvalidErrors(t *testing.T) {
+	if _, err := (Policy{
+		Profiles:   []Profile{ProfilePublic},
+		DNSServers: []string{"garbage"},
+	}).Spec(); err == nil {
+		t.Fatal("Spec with invalid DNS server should error")
 	}
 }
 
@@ -584,83 +272,6 @@ func TestNormalizeDNSServers(t *testing.T) {
 	}
 }
 
-func TestConfigDNSServersNormalized(t *testing.T) {
-	cfg, err := (Policy{
-		Profiles:   []Profile{ProfilePublic},
-		DNSServers: []string{"1.1.1.1", "8.8.8.8:5353"},
-	}).Config()
-	if err != nil {
-		t.Fatalf("Config: %v", err)
-	}
-	if cfg.DNS == nil {
-		t.Fatal("Config must set DNS when DNSServers configured")
-	}
-	want := []string{"1.1.1.1:53", "8.8.8.8:5353"}
-	if len(cfg.DNS.Nameservers) != len(want) {
-		t.Fatalf("Nameservers = %v, want %v", cfg.DNS.Nameservers, want)
-	}
-	for i := range want {
-		if cfg.DNS.Nameservers[i] != want[i] {
-			t.Fatalf("Nameservers = %v, want %v", cfg.DNS.Nameservers, want)
-		}
-	}
-}
-
-func TestConfigDNSNilWhenAbsent(t *testing.T) {
-	cfg, err := (Policy{Profiles: []Profile{ProfilePublic}}).Config()
-	if err != nil {
-		t.Fatalf("Config: %v", err)
-	}
-	if cfg.DNS != nil {
-		t.Fatalf("Config must leave DNS nil without DNSServers, got %+v", cfg.DNS)
-	}
-}
-
-func TestConfigDNSWithNoneProfile(t *testing.T) {
-	cfg, err := (Policy{
-		Profiles:   []Profile{ProfileNone},
-		DNSServers: []string{"1.1.1.1"},
-	}).Config()
-	if err != nil {
-		t.Fatalf("Config: %v", err)
-	}
-	if cfg.DefaultEgress != msbSdk.PolicyActionDeny {
-		t.Fatalf("none must stay deny-by-default, got %v", cfg.DefaultEgress)
-	}
-	if cfg.DNS == nil {
-		t.Fatal("none + DNSServers must set DNS")
-	}
-	if got := cfg.DNS.Nameservers[0]; got != "1.1.1.1:53" {
-		t.Fatalf("Nameservers[0] = %q, want 1.1.1.1:53", got)
-	}
-}
-
-func TestConfigDNSOnlyDefaultsToPublic(t *testing.T) {
-	cfg, err := (Policy{DNSServers: []string{"1.1.1.1"}}).Config()
-	if err != nil {
-		t.Fatalf("Config: %v", err)
-	}
-	// A dns-only policy without a profile uses the default public profile.
-	if cfg.DefaultEgress != msbSdk.PolicyActionDeny {
-		t.Fatalf("dns-only default egress = %v, want deny", cfg.DefaultEgress)
-	}
-	if cfg.DNS == nil {
-		t.Fatal("dns-only policy must set DNS")
-	}
-	if !allowsPublic(cfg) {
-		t.Fatalf("dns-only policy should use the default public profile, got %+v", cfg.Rules)
-	}
-}
-
-func TestConfigDNSInvalidErrors(t *testing.T) {
-	if _, err := (Policy{
-		Profiles:   []Profile{ProfilePublic},
-		DNSServers: []string{"garbage"},
-	}).Config(); err == nil {
-		t.Fatal("Config with invalid DNS server should error")
-	}
-}
-
 func TestPolicyEmpty(t *testing.T) {
 	if !(Policy{}).Empty() {
 		t.Error("zero Policy should be empty")
@@ -779,26 +390,6 @@ func TestFingerprintDistinguishesDNSServers(t *testing.T) {
 	different := Policy{Profiles: []Profile{ProfilePublic}, DNSServers: []string{"8.8.8.8"}}
 	if different.Fingerprint() == withDNS.Fingerprint() {
 		t.Fatal("different dns-servers must change the fingerprint")
-	}
-}
-
-// isGatewayDNSRule reports whether rule is microsandbox's gateway-DNS allow
-// rule (gateway UDP/TCP port 53).
-func isGatewayDNSRule(rule msbSdk.PolicyRule) bool {
-	gatewayDNS := msbSdk.Rule.AllowDNS()
-	return rule.Action == gatewayDNS.Action && rule.Destination == gatewayDNS.Destination &&
-		rule.Port == gatewayDNS.Port
-}
-
-// isProfileDestination reports whether a rule destination names one of the
-// composable profile groups (as opposed to a user allow/deny destination or
-// the gateway-DNS rule, which shares the "host" destination but carries a port).
-func isProfileDestination(destination string) bool {
-	switch destination {
-	case "public", "private", "host":
-		return true
-	default:
-		return false
 	}
 }
 

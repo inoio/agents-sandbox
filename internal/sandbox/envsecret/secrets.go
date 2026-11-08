@@ -7,11 +7,11 @@ import (
 	"sort"
 	"strings"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 	"go.yaml.in/yaml/v4"
 
 	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -30,13 +30,13 @@ func BuildSecretsFromSpecs(
 	specs map[string]SecretSpec,
 	allowPlaceholderFor []string,
 	ui termio.Logger,
-) []msbSdk.SecretEntry {
+) []msb.SecretEntry {
 	envVars := make([]string, 0, len(specs))
 	for envVar := range specs {
 		envVars = append(envVars, envVar)
 	}
 	sort.Strings(envVars)
-	var secrets []msbSdk.SecretEntry
+	var secrets []msb.SecretEntry
 	for _, envVar := range envVars {
 		spec := specs[envVar]
 		if spec.Host == "" && len(spec.Hosts) == 0 && !spec.AllowAnyHostDangerous {
@@ -50,13 +50,13 @@ func BuildSecretsFromSpecs(
 		if len(hosts) == 0 {
 			hosts = []string{"*"}
 		}
-		secrets = append(secrets, msbSdk.Secret.Env(
+		secrets = append(secrets, msb.Secret.Env(
 			envVar,
 			spec.Value,
-			msbSdk.SecretEnvOptions{
+			msb.SecretEnvOptions{
 				Allow:               hosts,
 				AllowPlaceholderFor: placeholderHostsFor(hosts, allowPlaceholderFor),
-				Substitution: msbSdk.SecretSubstitution{
+				Substitution: msb.SecretSubstitution{
 					HeaderFields: normalizeHeaderFields(spec.HeaderFields),
 				},
 			},

@@ -12,7 +12,6 @@ import (
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/client"
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -506,7 +505,7 @@ func noVolumeCreateMock(t *testing.T) *int {
 	t.Helper()
 	return msb.WithCountingMsbMock(t, &msb.MockMsbClient{
 		CreateVolumeFn: func(
-			context.Context, string, ...msbSdk.VolumeOption,
+			context.Context, string, msb.VolumeSpec,
 		) (msb.VolumeHandle, error) {
 			t.Fatal("PreviewSandbox must not create a volume")
 			return nil, errors.New("unexpected CreateVolume")

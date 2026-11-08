@@ -9,9 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 )
 
@@ -32,8 +31,8 @@ func EnvContentHash(env map[string]string) string {
 // Every field that microsandbox bakes into
 // the VM at creation is included so a change to any of them (not just the
 // value) triggers the VM recreate that applies it.
-func SecretsContentHash(entries []msbSdk.SecretEntry) string {
-	byEnv := make(map[string]msbSdk.SecretEntry, len(entries))
+func SecretsContentHash(entries []msb.SecretEntry) string {
+	byEnv := make(map[string]msb.SecretEntry, len(entries))
 	for _, e := range entries {
 		byEnv[e.EnvVar] = e
 	}
@@ -93,7 +92,7 @@ func EnvChanged(applied EnvState, desired map[string]string) bool {
 // desired secret entries, comparing content hashes.
 // A zero-value appliedSecrets indicates "no persisted state yet" (first run),
 // which is only considered "changed" when the desired slice is non-empty.
-func SecretsChanged(applied SecretState, desired []msbSdk.SecretEntry) bool {
+func SecretsChanged(applied SecretState, desired []msb.SecretEntry) bool {
 	if applied.Hash == "" {
 		return len(desired) > 0
 	}
@@ -117,8 +116,8 @@ func BuildEnvState(desired map[string]string) EnvState {
 // BuildSecretState computes the content hash and one entry per secret
 // describing where it may be sent, sorted by variable name. The secret value is
 // never part of an entry.
-func BuildSecretState(desired []msbSdk.SecretEntry) SecretState {
-	byEnv := make(map[string]msbSdk.SecretEntry, len(desired))
+func BuildSecretState(desired []msb.SecretEntry) SecretState {
+	byEnv := make(map[string]msb.SecretEntry, len(desired))
 	for _, e := range desired {
 		byEnv[e.EnvVar] = e
 	}
@@ -140,7 +139,7 @@ func BuildSecretState(desired []msbSdk.SecretEntry) SecretState {
 // describeSecret renders a secret's substitution scope: the hosts that receive
 // the value, the hosts that may receive the placeholder, and the header fields
 // substitution is limited to.
-func describeSecret(e msbSdk.SecretEntry) string {
+func describeSecret(e msb.SecretEntry) string {
 	parts := []string{}
 	if hosts := sortedList(e.Allow); hosts != "" {
 		parts = append(parts, "hosts "+hosts)

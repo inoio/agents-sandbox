@@ -7,8 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -302,7 +301,7 @@ func TestBuildSecretsPipelinePrecedence(t *testing.T) {
 	)
 	secrets := BuildSecretsFromSpecs(specs, nil, &testUI)
 
-	byVar := map[string]msbSdk.SecretEntry{}
+	byVar := map[string]msb.SecretEntry{}
 	for _, s := range secrets {
 		byVar[s.EnvVar] = s
 	}
@@ -358,7 +357,7 @@ func TestMergePrecedence4Layers(t *testing.T) {
 	)
 	secrets := BuildSecretsFromSpecs(specs, nil, &testUI)
 
-	byVar := map[string]msbSdk.SecretEntry{}
+	byVar := map[string]msb.SecretEntry{}
 	for _, s := range secrets {
 		byVar[s.EnvVar] = s
 	}
@@ -450,7 +449,7 @@ func TestMergeSecretSpecsYAMLOnlyKeyWins(t *testing.T) {
 	)
 	secrets := BuildSecretsFromSpecs(specs, nil, &testUI)
 
-	byVar := map[string]msbSdk.SecretEntry{}
+	byVar := map[string]msb.SecretEntry{}
 	for _, s := range secrets {
 		byVar[s.EnvVar] = s
 	}

@@ -7,11 +7,10 @@ import (
 	"maps"
 	"strings"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	cp "github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -88,7 +87,7 @@ func MergeEnvMaps(mapsToMerge ...map[string]string) map[string]string {
 //exhaustruct:ignore
 type EnvSecrets struct {
 	Vars    map[string]string
-	Secrets []msbSdk.SecretEntry
+	Secrets []msb.SecretEntry
 }
 
 // LoadEnvAndSecrets reads every config scope's env and secret-spec files and

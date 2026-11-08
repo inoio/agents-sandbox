@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -140,7 +138,7 @@ func copyVolume(ctx context.Context, client msb.Client, legacyHome, name string)
 		return err
 	}
 
-	volume, err := client.CreateVolume(ctx, name, msbSdk.WithVolumeKind(msbSdk.VolumeKindDir))
+	volume, err := client.CreateVolume(ctx, name, msb.VolumeSpec{Kind: msb.VolumeKindDir})
 	if err != nil {
 		return fmt.Errorf("create volume %q: %w", name, err)
 	}

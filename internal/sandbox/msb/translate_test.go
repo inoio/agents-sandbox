@@ -81,6 +81,18 @@ func TestSDKStructFieldsAreClassified(t *testing.T) {
 			imagePruneReportNotModeled,
 		},
 		{"ImageLayer", reflect.TypeFor[msbSdk.ImageLayer](), imageLayerProjected, imageLayerNotModeled},
+		{
+			"SandboxConfig",
+			reflect.TypeFor[msbSdk.SandboxConfig](),
+			sandboxConfigProjected,
+			sandboxConfigNotModeled,
+		},
+		{
+			"VolumeConfig",
+			reflect.TypeFor[msbSdk.VolumeConfig](),
+			volumeConfigProjected,
+			volumeConfigNotModeled,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -734,5 +746,283 @@ func TestMetricsFromProjectsFieldsAndNil(t *testing.T) {
 		metrics.DiskReadBytes != 1 || metrics.DiskWriteBytes != 2 ||
 		metrics.NetRxBytes != 3 || metrics.NetTxBytes != 4 || metrics.Uptime != 5*time.Second {
 		t.Errorf("metricsFrom() = %+v, want every field projected", metrics)
+	}
+}
+
+func TestSandboxOptionsProjectSpec(t *testing.T) {
+	spec := SandboxSpec{
+		Image:        "img:1",
+		CPUs:         2,
+		MaxCPUs:      4,
+		MemoryMiB:    1024,
+		MaxMemoryMiB: 4096,
+		RootDiskMiB:  16 * 1024,
+		Workdir:      "/workspace",
+		Detached:     true,
+		IdleTimeout:  5 * time.Minute,
+		Env:          map[string]string{"A": "1"},
+		Labels:       map[string]string{"k": "v"},
+		Mounts: map[string]MountConfig{
+			"/data": Mount.Bind("/host", MountOptions{Readonly: true}),
+		},
+		Ports: []PortBinding{{
+			Bind:      "127.0.0.1",
+			HostPort:  3000,
+			GuestPort: 8080,
+			Protocol:  PortProtocolTCP,
+		}},
+		Secrets: []SecretEntry{Secret.Env("TOKEN", "s", SecretEnvOptions{Allow: []string{"api"}})},
+		Network: NetworkSpec{Profiles: []NetworkProfile{NetworkProfilePublic}},
+	}
+	opts, err := sandboxOptions(spec)
+	if err != nil {
+		t.Fatalf("sandboxOptions: %v", err)
+	}
+	var cfg msbSdk.SandboxConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	if cfg.Image != "img:1" {
+		t.Errorf("Image = %q, want img:1", cfg.Image)
+	}
+	if cfg.CPUs != 2 || cfg.MaxCPUs != 4 || cfg.MemoryMiB != 1024 || cfg.MaxMemoryMiB != 4096 {
+		t.Errorf("resources = cpus %d/%d mem %d/%d, want 2/4 1024/4096",
+			cfg.CPUs, cfg.MaxCPUs, cfg.MemoryMiB, cfg.MaxMemoryMiB)
+	}
+	if cfg.Workdir != "/workspace" || !cfg.Detached || cfg.IdleTimeout != 5*time.Minute {
+		t.Errorf("workdir/detached/idle = %q/%v/%v, want /workspace/true/5m",
+			cfg.Workdir, cfg.Detached, cfg.IdleTimeout)
+	}
+	if cfg.Env["A"] != "1" {
+		t.Errorf("Env = %v, want A=1", cfg.Env)
+	}
+	if cfg.Labels["k"] != "v" {
+		t.Errorf("Labels = %v, want k=v", cfg.Labels)
+	}
+	mount, ok := cfg.Volumes["/data"]
+	if !ok || mount.Kind() != msbSdk.MountKindBind || mount.Bind != "/host" || !mount.Readonly {
+		t.Errorf("Volumes[/data] = %+v, want a readonly bind of /host", mount)
+	}
+	if len(cfg.PortBindings) != 1 || cfg.PortBindings[0].HostPort != 3000 ||
+		cfg.PortBindings[0].GuestPort != 8080 || cfg.PortBindings[0].Protocol != msbSdk.PortProtocolTCP {
+		t.Errorf("PortBindings = %+v, want 127.0.0.1:3000 → 8080/tcp", cfg.PortBindings)
+	}
+	if len(cfg.Secrets) != 1 || cfg.Secrets[0].EnvVar != "TOKEN" || cfg.Secrets[0].Value != "s" {
+		t.Errorf("Secrets = %+v, want the TOKEN secret", cfg.Secrets)
+	}
+	if cfg.Network == nil || cfg.Network.DefaultEgress != msbSdk.PolicyActionDeny {
+		t.Errorf("Network = %+v, want deny-by-default egress", cfg.Network)
+	}
+	if cfg.RootDisk == nil || cfg.RootDisk.Kind() != msbSdk.RootDiskKindManaged ||
+		cfg.RootDisk.SizeMiB != 16*1024 {
+		t.Errorf("RootDisk = %+v, want a managed 16 GiB disk", cfg.RootDisk)
+	}
+}
+
+func TestSandboxOptionsOmitRootDiskWhenUnset(t *testing.T) {
+	opts, err := sandboxOptions(SandboxSpec{})
+	if err != nil {
+		t.Fatalf("sandboxOptions: %v", err)
+	}
+	var cfg msbSdk.SandboxConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	if cfg.RootDisk != nil {
+		t.Errorf("RootDisk = %+v, want none without a root disk size", cfg.RootDisk)
+	}
+	if len(cfg.PortBindings) != 0 {
+		t.Errorf("PortBindings = %v, want none", cfg.PortBindings)
+	}
+}
+
+func TestSandboxOptionsOmitSDKDefaults(t *testing.T) {
+	// A throwaway task sandbox sets only image, labels and mounts; the adapter
+	// must not detach, bound, size, or publish it.
+	opts, err := sandboxOptions(SandboxSpec{
+		Image:  "img:1",
+		Labels: map[string]string{"k": "v"},
+		Mounts: map[string]MountConfig{"/data": Mount.Named("vol", MountOptions{})},
+	})
+	if err != nil {
+		t.Fatalf("sandboxOptions: %v", err)
+	}
+	var cfg msbSdk.SandboxConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	if cfg.Detached {
+		t.Error("Detached = true for a default-valued spec, want false")
+	}
+	if cfg.CPUs != 0 || cfg.MaxCPUs != 0 || cfg.MemoryMiB != 0 || cfg.MaxMemoryMiB != 0 ||
+		cfg.IdleTimeout != 0 || cfg.Workdir != "" || cfg.RootDisk != nil {
+		t.Errorf("default-valued spec set a resource: %+v", cfg)
+	}
+	if len(cfg.PortBindings) != 0 || len(cfg.Secrets) != 0 || len(cfg.Env) != 0 {
+		t.Errorf("default-valued spec set a collection: %+v", cfg)
+	}
+}
+
+func TestSandboxOptionsPropagateNetworkError(t *testing.T) {
+	_, err := sandboxOptions(SandboxSpec{
+		Network: NetworkSpec{Profiles: []NetworkProfile{NetworkProfile("bogus")}},
+	})
+	if err == nil {
+		t.Fatal("sandboxOptions() = nil error, want a rejected profile")
+	}
+}
+
+func TestNetworkConfigRuleOrder(t *testing.T) {
+	cfg, err := networkConfig(NetworkSpec{
+		Profiles:    []NetworkProfile{NetworkProfilePublic},
+		EgressDeny:  []string{"deny.example"},
+		EgressAllow: []string{"allow.example"},
+		DNSServers:  []string{"1.1.1.1:53"},
+	})
+	if err != nil {
+		t.Fatalf("networkConfig: %v", err)
+	}
+	if cfg.DefaultEgress != msbSdk.PolicyActionDeny || cfg.DefaultIngress != msbSdk.PolicyActionAllow {
+		t.Errorf("defaults = %q/%q, want deny/allow", cfg.DefaultEgress, cfg.DefaultIngress)
+	}
+	wantActions := []msbSdk.PolicyAction{
+		msbSdk.PolicyActionAllow, // gateway DNS
+		msbSdk.PolicyActionDeny,  // egress-deny carve-out
+		msbSdk.PolicyActionAllow, // profile allow
+		msbSdk.PolicyActionAllow, // explicit allow
+	}
+	if len(cfg.Rules) != len(wantActions) {
+		t.Fatalf("rules = %+v, want %d in gateway-DNS → deny → profile → allow order", cfg.Rules, len(wantActions))
+	}
+	for i, want := range wantActions {
+		if cfg.Rules[i].Action != want {
+			t.Errorf("rule[%d].Action = %q, want %q (%+v)", i, cfg.Rules[i].Action, want, cfg.Rules)
+		}
+	}
+	if cfg.Rules[0].Destination != "host" || cfg.Rules[0].Port != "53" {
+		t.Errorf("rule[0] = %+v, want the gateway-DNS rule first", cfg.Rules[0])
+	}
+	if cfg.Rules[1].Destination != "deny.example" || cfg.Rules[2].Destination != "public" ||
+		cfg.Rules[3].Destination != "allow.example" {
+		t.Errorf("rule destinations = %q/%q/%q, want deny.example/public/allow.example",
+			cfg.Rules[1].Destination, cfg.Rules[2].Destination, cfg.Rules[3].Destination)
+	}
+	if cfg.DNS == nil || len(cfg.DNS.Nameservers) != 1 || cfg.DNS.Nameservers[0] != "1.1.1.1:53" {
+		t.Errorf("DNS = %+v, want 1.1.1.1:53", cfg.DNS)
+	}
+}
+
+func TestNetworkConfigNoneOmitsGatewayDNS(t *testing.T) {
+	cfg, err := networkConfig(NetworkSpec{})
+	if err != nil {
+		t.Fatalf("networkConfig: %v", err)
+	}
+	if len(cfg.Rules) != 0 {
+		t.Errorf("rules = %+v, want none without a profile", cfg.Rules)
+	}
+	if cfg.DNS != nil {
+		t.Errorf("DNS = %+v, want nil without nameservers", cfg.DNS)
+	}
+}
+
+func TestMountConfigTranslatesEachKind(t *testing.T) {
+	owner := &MountOwner{UID: 1000, GID: 1000}
+	tests := []struct {
+		name  string
+		mount MountConfig
+		want  msbSdk.MountKind
+	}{
+		{
+			"bind",
+			Mount.Bind("/host", MountOptions{Readonly: true, QuotaMiB: 128, Owner: owner}),
+			msbSdk.MountKindBind,
+		},
+		{"named", Mount.Named("vol", MountOptions{}), msbSdk.MountKindNamed},
+		{"tmpfs", Mount.Tmpfs(TmpfsOptions{SizeMiB: 256}), msbSdk.MountKindTmpfs},
+		{"disk", Mount.Disk("/data.img", DiskOptions{Format: "raw", Fstype: "ext4"}), msbSdk.MountKindDisk},
+		{"owned", Mount.Owned(OwnedVolumeOptions{Kind: VolumeKindDir}), msbSdk.MountKindOwned},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := mountConfig(tt.mount)
+			if got.Kind() != tt.want {
+				t.Errorf("mountConfig(%s).Kind() = %v, want %v", tt.name, got.Kind(), tt.want)
+			}
+		})
+	}
+
+	bind := mountConfig(Mount.Bind("/host", MountOptions{Readonly: true, QuotaMiB: 128, Owner: owner}))
+	if bind.Bind != "/host" || !bind.Readonly || bind.QuotaMiB != 128 ||
+		bind.Owner == nil || bind.Owner.UID != 1000 {
+		t.Errorf("bind = %+v, want every option projected", bind)
+	}
+	named := mountConfig(Mount.Named("vol", MountOptions{}))
+	if named.Named != "vol" {
+		t.Errorf("named.Named = %q, want vol", named.Named)
+	}
+	tmpfs := mountConfig(Mount.Tmpfs(TmpfsOptions{SizeMiB: 256}))
+	if !tmpfs.Tmpfs || tmpfs.SizeMiB != 256 {
+		t.Errorf("tmpfs = %+v, want tmpfs 256 MiB", tmpfs)
+	}
+	disk := mountConfig(Mount.Disk("/data.img", DiskOptions{Format: "raw", Fstype: "ext4"}))
+	if disk.Disk != "/data.img" || disk.Format != "raw" || disk.Fstype != "ext4" {
+		t.Errorf("disk = %+v, want /data.img raw ext4", disk)
+	}
+	owned := mountConfig(Mount.Owned(OwnedVolumeOptions{Kind: VolumeKindDisk, SizeMiB: 512}))
+	if owned.Owned != string(msbSdk.VolumeKindDisk) || owned.SizeMiB != 512 {
+		t.Errorf("owned = %+v, want a disk-owned mount of 512 MiB", owned)
+	}
+}
+
+func TestMountConfigsPreservesNil(t *testing.T) {
+	if got := mountConfigs(nil); got != nil {
+		t.Errorf("mountConfigs(nil) = %v, want nil", got)
+	}
+}
+
+func TestSecretEntryTranslatesFields(t *testing.T) {
+	if got := secretEntries(nil); got != nil {
+		t.Errorf("secretEntries(nil) = %v, want nil", got)
+	}
+	headers := true
+	requireTLS := false
+	entry := secretEntry(SecretEntry{
+		EnvVar:             "TOKEN",
+		Value:              "s",
+		Allow:              []string{"api"},
+		Passthrough:        []string{"proxy"},
+		Placeholder:        "ph",
+		RequireTLSIdentity: &requireTLS,
+		Substitution: SecretSubstitution{
+			Headers:      &headers,
+			HeaderFields: []string{"authorization"},
+			Query:        true,
+			Body:         true,
+		},
+		ViolationAction: ViolationActionBlock,
+	})
+	if entry.EnvVar != "TOKEN" || entry.Value != "s" ||
+		len(entry.Allow) != 1 || entry.Allow[0] != "api" ||
+		len(entry.Passthrough) != 1 || entry.Passthrough[0] != "proxy" ||
+		entry.Placeholder != "ph" ||
+		entry.RequireTLSIdentity == nil || *entry.RequireTLSIdentity != false ||
+		entry.ViolationAction != msbSdk.ViolationActionBlock {
+		t.Errorf("secretEntry = %+v, want every field projected", entry)
+	}
+	if entry.Substitution.Headers == nil || !*entry.Substitution.Headers ||
+		len(entry.Substitution.HeaderFields) != 1 || entry.Substitution.HeaderFields[0] != "authorization" ||
+		!entry.Substitution.Query || !entry.Substitution.Body {
+		t.Errorf("Substitution = %+v, want every field projected", entry.Substitution)
+	}
+}
+
+func TestVolumeOptionsProjectKind(t *testing.T) {
+	var cfg msbSdk.VolumeConfig
+	for _, opt := range volumeOptions(VolumeSpec{Kind: VolumeKindDir}) {
+		opt(&cfg)
+	}
+	if cfg.Kind != msbSdk.VolumeKindDir {
+		t.Errorf("Kind = %q, want dir", cfg.Kind)
 	}
 }
