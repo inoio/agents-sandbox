@@ -10,6 +10,7 @@ import (
 	"go.yaml.in/yaml/v4"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -1251,5 +1252,34 @@ func TestWriteSettingRejectsEmptyDir(t *testing.T) {
 	t.Chdir(t.TempDir())
 	if err := WriteSetting("", "memory", "1G"); err == nil {
 		t.Error("WriteSetting with an empty dir = nil error, want a rejection")
+	}
+}
+
+// TestWriteSettingKeepsTheApprovalInStep pins the writer's two duties toward an
+// approved project config: it never edits a file changed since the approval,
+// and what it writes itself becomes the approved bytes.
+func TestWriteSettingKeepsTheApprovalInStep(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	approved := "memory: 4G\n"
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte(approved)),
+	}))
+	testutil.WritePath(t, path, approved)
+
+	if err := WriteSetting(dir, "memory", "8G"); err != nil {
+		t.Fatalf("WriteSetting: %v", err)
+	}
+	if _, err := projectguard.ReadFile(path, os.ReadFile); err != nil {
+		t.Fatalf("the launcher's own write is not approved: %v", err)
+	}
+
+	changed := "memory: 8G\nmounts:\n  /host: /\n"
+	testutil.WritePath(t, path, changed)
+	if err := WriteSetting(dir, "memory", "16G"); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Fatalf("WriteSetting over a changed file = %v, want ErrNotApproved", err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != changed {
+		t.Errorf("config.yaml = %q, want the changed file left untouched", data)
 	}
 }

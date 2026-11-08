@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 )
 
 // Entry is a readable regular file visited during a walk.
@@ -54,7 +56,7 @@ func readFile(path string) ([]byte, fs.FileMode, bool) {
 	if err != nil { // gomutants:disable BRANCH_IF reason="err returning nil means the file was not read, so falling through to the read below, which must then fail too, yields the same return"
 		return nil, 0, false
 	}
-	data, err := os.ReadFile(path)
+	data, err := projectguard.ReadFile(path, os.ReadFile)
 	if err != nil {
 		return nil, 0, false
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
@@ -196,6 +197,11 @@ func PrepareSandbox(
 			return nil
 		}},
 		{ID: lifecycle.EnsureVM, Run: func() error {
+			// Every project input this run uses has been read by now; one that
+			// changed since its approval must not reach the VM.
+			if violation := projectguard.Violation(); violation != nil {
+				return violation
+			}
 			var err error
 			sb, boot, err = ensureVMStage(ctx, session, imageInfo, home, plan, skipVM, opts, ui)
 			return err

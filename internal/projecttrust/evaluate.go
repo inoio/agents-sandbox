@@ -150,7 +150,7 @@ func fromApproval(approval state.ApprovedProjectLayer) Projection {
 			Path: input.Path, Kind: InputKind(input.Kind), Entries: input.Entries, Digest: input.Digest,
 		})
 	}
-	return Projection{Inputs: inputs}
+	return Projection{Inputs: inputs, reads: nil}
 }
 
 // toApproval converts a projection into the record that approves it.

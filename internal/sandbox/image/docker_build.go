@@ -15,6 +15,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/docslink"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -79,6 +80,11 @@ func buildImage(
 	noCache bool,
 	line func(string),
 ) error {
+	// A project input that changed since its approval was read as unapproved;
+	// nothing built from this run's inputs may reach the image.
+	if err := projectguard.Violation(); err != nil {
+		return err
+	}
 	buildResp, err := dclient.ImageBuild(ctx, buildContextTar(req.plan.rendered), client.ImageBuildOptions{
 		Tags:      []string{tag},
 		Remove:    true,

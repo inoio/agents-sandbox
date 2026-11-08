@@ -20,6 +20,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configread"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
 
@@ -80,18 +81,26 @@ func ReadHomeFromConfigDir(dir string) (Manifest, bool, error) {
 	if !ok {
 		return Manifest{}, false, nil
 	}
-	data, err := configread.ReadFile(path)
+	data, err := projectguard.ReadFile(path, configread.ReadFile)
 	if err != nil {
 		return nil, false, fmt.Errorf("read config %s: %w", path, err)
 	}
+	return ParseHomeConfig(path, ext, data)
+}
+
+// ParseHomeConfig returns the home manifest of the config file data read from
+// path, with extension ext. The boolean reports whether a home key was present.
+func ParseHomeConfig(path, ext string, data []byte) (Manifest, bool, error) {
 	if ext == configpaths.ExtJSON5 || ext == configpaths.ExtJSONC {
 		var m map[string]any
 		if unmarshalErr := json5.Unmarshal(data, &m); unmarshalErr != nil {
 			return nil, false, fmt.Errorf("parse config %s: %w", path, unmarshalErr)
 		}
-		if data, err = json.Marshal(m); err != nil {
+		normalized, err := json.Marshal(m)
+		if err != nil {
 			return nil, false, fmt.Errorf("normalize config %s: %w", path, err)
 		}
+		data = normalized
 	}
 	return ParseHomeSection(data, path)
 }
@@ -303,7 +312,7 @@ func BuildHomeFilesWithModes(
 			missing = append(missing, e.Source)
 			continue
 		}
-		data, rErr := os.ReadFile(e.Source)
+		data, rErr := projectguard.ReadFile(e.Source, os.ReadFile)
 		if rErr != nil {
 			missing = append(missing, e.Source)
 			continue

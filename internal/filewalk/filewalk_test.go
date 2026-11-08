@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 )
 
 // chmod0000 grants the mode its test needs. Modes do not restrict root, so a
@@ -214,5 +216,23 @@ func TestWalkVisitErrorAborts(t *testing.T) {
 	err := Walk(root, func(string, bool) bool { return true }, func(Entry) error { return sentinel })
 	if !errors.Is(err, sentinel) {
 		t.Errorf("Walk() error = %v, want %v", err, sentinel)
+	}
+}
+
+// TestWalkSkipsAFileChangedSinceItsApproval pins that the walk reads project
+// files through the approval: a changed file is not visited and the change is
+// recorded for the run to stop on.
+func TestWalkSkipsAFileChangedSinceItsApproval(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "plugin.ts")
+	t.Cleanup(projectguard.Install([]string{root}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte("approved")),
+	}))
+	writeFile(t, path, "changed")
+	if got := collectRels(t, root, func(string, bool) bool { return true }); len(got) != 0 {
+		t.Errorf("visited %q, want the changed file skipped", got)
+	}
+	if !errors.Is(projectguard.Violation(), projectguard.ErrNotApproved) {
+		t.Errorf("Violation() = %v, want the changed file recorded", projectguard.Violation())
 	}
 }

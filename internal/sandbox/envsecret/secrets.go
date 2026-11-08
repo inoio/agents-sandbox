@@ -11,6 +11,7 @@ import (
 	"go.yaml.in/yaml/v4"
 
 	"github.com/inoio/agents-sandbox/internal/configread"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -110,13 +111,28 @@ func placeholderHostsFor(allowHosts, allowPlaceholderFor []string) []string {
 }
 
 func ParseSecretSpecLegacy(filename string, ui termio.Logger) map[string]SecretSpec {
-	data, err := configread.ReadFile(filename)
-	if err != nil {
-		if errors.Is(err, configread.ErrTooLarge) {
-			ui.Warnf("ignoring secret file '%s': %v", filename, err)
-		}
+	data, ok := readSecretFile(filename, ui)
+	if !ok {
 		return nil
 	}
+	return ParseSecretSpecLegacyData(data, ui)
+}
+
+// readSecretFile reads a secret file, warning about one that is too large or
+// changed since the project config was approved.
+func readSecretFile(filename string, ui termio.Logger) ([]byte, bool) {
+	data, err := projectguard.ReadFile(filename, configread.ReadFile)
+	if err != nil {
+		if errors.Is(err, configread.ErrTooLarge) || errors.Is(err, projectguard.ErrNotApproved) {
+			ui.Warnf("ignoring secret file '%s': %v", filename, err)
+		}
+		return nil, false
+	}
+	return data, true
+}
+
+// ParseSecretSpecLegacyData parses legacy "NAME=value@host" secret lines.
+func ParseSecretSpecLegacyData(data []byte, ui termio.Logger) map[string]SecretSpec {
 	specs := make(map[string]SecretSpec)
 	_ = parseKeyValueLines(string(data), func(key, value string) error {
 		key = strings.TrimSpace(key)
@@ -138,13 +154,15 @@ func ParseSecretSpecLegacy(filename string, ui termio.Logger) map[string]SecretS
 }
 
 func ParseSecretSpecYAML(filename string, ui termio.Logger) map[string]SecretSpec {
-	data, err := configread.ReadFile(filename)
-	if err != nil {
-		if errors.Is(err, configread.ErrTooLarge) {
-			ui.Warnf("ignoring secret file '%s': %v", filename, err)
-		}
+	data, ok := readSecretFile(filename, ui)
+	if !ok {
 		return nil
 	}
+	return ParseSecretSpecYAMLData(filename, data, ui)
+}
+
+// ParseSecretSpecYAMLData parses the YAML secret file data read from filename.
+func ParseSecretSpecYAMLData(filename string, data []byte, ui termio.Logger) map[string]SecretSpec {
 	specs := make(map[string]SecretSpec)
 	if err := yaml.Unmarshal(data, &specs); err != nil {
 		ui.Warnf("Parsing secret file '%s' as YAML: %v", filename, err)

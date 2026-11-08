@@ -110,7 +110,7 @@
   - Description: Contract for where a bare checkout's project config (`.agents-sandbox`) is read from: the bare root next to `.git`, selected by `core.bare`, with every project accessor routed through one base-dir resolver; a bare checkout's worktree-level `.agents-sandbox` is ignored with a warning.
   - Read If: Changing the bare-layout project-config root fix, the `core.bare` discriminator, the project config base-dir resolver, or the bare-worktrees recipe/Beta marking.
 - `specs/configuration/project-config-trust.md`
-  - Description: Contract for the project config trust guard: the project config layer is untrusted in its entirety, everything the launcher consumes from it (`home:`-copied project files included) requires approval-on-change recorded per checkout, the gate runs at config resolution and an unapproved layer is not loaded, an unapproved change refuses to start non-interactively, the prompt shows the resolved old → new effect and its source, and a recompute-and-compare check keeps use consistent with approval.
+  - Description: Contract for the project config trust guard: the project config layer is untrusted in its entirety, everything the launcher consumes from it (`home:`-copied project files included) requires approval-on-change recorded per checkout, the gate runs at config resolution and an unapproved layer is not loaded, an unapproved change refuses to start non-interactively, the prompt shows the resolved old → new effect and its source, and every later read of a project file is verified against the approved bytes (verify on read).
   - Read If: Working on the project config trust gate, the approve-on-change gate, config resolution in the root command's `PersistentPreRunE`, project-layer provenance, or `config harden`; or diagnosing a run that refuses to start, or a command that ignores the project config, because `.agents-sandbox` changed.
 
 #### `specs/conventions/` - Repo-wide conventions
@@ -247,9 +247,6 @@
 
 ### `plans/` - TDD implementation plans
 
-- `2026-11-08-project-config-trust-gate.md`
-  - Description: Plan for the #229 trust gate's first PR: the `projecttrust` projection and evaluation, the `RootState` approval record, the gate in `PersistentPreRunE` with project-layer exclusion through `configpaths`, the prompt/refusal, dry-run reporting, and the launcher-write approval; the consistency check is PR 2.
-  - Read If: Implementing or reviewing the project config trust gate (#229), or picking up its consistency-check follow-up.
 - `2026-11-07-hermetic-test-suite-design.md`
   - Description: Design for making the default `go test` suite hermetic: the acceptance envelope (module copy outside any checkout + scrubbed env + network namespace), the host-figure sentinel pass on injected seams, the wall-clock rule, and the release-to-default cadence.
   - Read If: Working on test decoupling from the execution environment, the hermetic envelope targets, the host-figure sentinel pass, or the hermetic suite's cadence.

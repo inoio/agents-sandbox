@@ -13,6 +13,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"go.yaml.in/yaml/v4"
 
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -806,5 +807,22 @@ func TestScanMirrorPerSlugOverridesGeneric(t *testing.T) {
 	}
 	if string(entries[0].Data) != `{"theme":"slug"}` {
 		t.Errorf("mirror data = %q, want the per-slug content", entries[0].Data)
+	}
+}
+
+// TestScanSnippetsSkipsASnippetChangedSinceItsApproval pins that a snippet is
+// read through the approval: a changed one is not merged and is recorded.
+func TestScanSnippetsSkipsASnippetChangedSinceItsApproval(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "opencode-a.json")
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte(`{"a": 1}`)),
+	}))
+	writeSnippet(t, dir, "opencode-a.json", `{"a": 2}`)
+	if merged, _ := scanSnippets([]string{dir}, "opencode*.json*"); len(merged) != 0 {
+		t.Errorf("merged = %v, want the changed snippet skipped", merged)
+	}
+	if !errors.Is(projectguard.Violation(), projectguard.ErrNotApproved) {
+		t.Errorf("Violation() = %v, want the changed snippet recorded", projectguard.Violation())
 	}
 }

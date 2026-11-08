@@ -11,6 +11,7 @@ import (
 
 	cp "github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configread"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -44,13 +45,19 @@ func parseKeyValueLines(data string, onLine func(key, value string) error) error
 // variable name is skipped with a warning, because the VM refuses to boot with
 // an empty env name.
 func BuildEnvMap(filename string, ui termio.Logger) map[string]string {
-	data, err := configread.ReadFile(filename)
+	data, err := projectguard.ReadFile(filename, configread.ReadFile)
 	if err != nil {
-		if errors.Is(err, configread.ErrTooLarge) {
+		if errors.Is(err, configread.ErrTooLarge) || errors.Is(err, projectguard.ErrNotApproved) {
 			ui.Warnf("ignoring env file %s: %v", filename, err)
 		}
 		return nil
 	}
+	return ParseEnv(filename, data, ui)
+}
+
+// ParseEnv parses the env file data read from filename. A line without a
+// variable name is skipped with a warning.
+func ParseEnv(filename string, data []byte, ui termio.Logger) map[string]string {
 	env := make(map[string]string)
 	_ = parseKeyValueLines(string(data), func(key, value string) error {
 		if key == "" {

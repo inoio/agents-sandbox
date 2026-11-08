@@ -330,6 +330,13 @@ A run without a terminal found a change in `.agents-sandbox/` that you have not 
 The warning "the project config changed and is not approved, so it is ignored for this command" has the same cause:
 that command ran without your project config.
 
+## "project config changed since it was approved"
+
+A file in `.agents-sandbox/` (or a file `home:` copies from the checkout) changed after you approved the project
+config and before the run used it, often because the agent in a running sandbox edited it. The run stopped before
+it built the image or started the sandbox, so nothing used the changed file. Run `agents-sandbox` again: it shows
+the change and asks for approval.
+
 ## Image build fails
 
 Docker build failures are usually due to:

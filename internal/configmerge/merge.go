@@ -22,6 +22,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/filewalk"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 )
 
 // snippetFileMatches reports whether name matches the agent's snippet pattern
@@ -119,7 +120,7 @@ func scanSnippets(dirs []string, pattern string) (map[string]any, []string) {
 				continue
 			}
 			snippetPath := filepath.Join(dir, entry.Name())
-			data, err := configread.ReadFile(snippetPath)
+			data, err := projectguard.ReadFile(snippetPath, configread.ReadFile)
 			if err != nil {
 				continue
 			}

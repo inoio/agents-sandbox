@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -587,4 +589,36 @@ func TestMustWriteBuildContextPanicsOnAWriteError(t *testing.T) {
 		}
 	}()
 	mustWriteBuildContext(errors.New("disk full"))
+}
+
+// TestBuildDockerImageRefusesAfterAnUnapprovedRead pins the build-side stop: a
+// project input read as changed since its approval keeps anything from being
+// built from this run's inputs.
+func TestBuildDockerImageRefusesAfterAnUnapprovedRead(t *testing.T) {
+	a := agentOpencode(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Dockerfile")
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte("FROM approved\n")),
+	}))
+	if err := os.WriteFile(path, []byte("FROM changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := projectguard.ReadFile(path, os.ReadFile); err == nil {
+		t.Fatal("the changed Dockerfile read as approved")
+	}
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(context.Context, io.Reader, client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			t.Fatal("built an image after an unapproved read")
+			return client.ImageBuildResult{}, nil
+		},
+	})
+	err := buildDockerImage(
+		context.Background(), docker.Get(), a,
+		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
+		"tag", "label", false, &termio.Mock{},
+	)
+	if !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("buildDockerImage = %v, want ErrNotApproved", err)
+	}
 }

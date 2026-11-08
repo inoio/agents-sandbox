@@ -15,6 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
@@ -237,19 +238,15 @@ func NewResolverWithConfig(cfg Config) *Resolver {
 	return &Resolver{cfg: cfg, slug: "", legacyEnv: nil, dockerLegacy: ""}
 }
 
-// LayerSettings reads the launcher config file in dir on its own, parsed like a
-// merged layer, and returns its path and the settings it sets (keys lowercased,
-// nested maps kept). A dir without a config file yields "" and nil settings.
-func LayerSettings(dir string) (string, map[string]any, error) {
-	path, _, ok := configpaths.FindConfigFile(dir)
-	if !ok {
-		return "", nil, nil
-	}
+// ParseLayerSettings parses the launcher config file data read from path,
+// with extension ext, like a merged layer, and returns the settings it sets
+// (keys lowercased, nested maps kept).
+func ParseLayerSettings(path, ext string, data []byte) (map[string]any, error) {
 	v := viper.New()
-	if err := mergeDir(v, dir); err != nil {
-		return "", nil, err
+	if err := mergeData(v, path, ext, data); err != nil {
+		return nil, err
 	}
-	return path, v.AllSettings(), nil
+	return v.AllSettings(), nil
 }
 
 func mergeDir(v *viper.Viper, dir string) error {
@@ -257,20 +254,26 @@ func mergeDir(v *viper.Viper, dir string) error {
 	if !ok {
 		return nil
 	}
-	data, err := configread.ReadFile(path)
+	data, err := projectguard.ReadFile(path, configread.ReadFile)
 	if err != nil {
 		return fmt.Errorf("read launcher config %s: %w", path, err)
 	}
+	return mergeData(v, path, ext, data)
+}
+
+// mergeData merges the launcher config file data read from path into v.
+func mergeData(v *viper.Viper, path, ext string, data []byte) error {
 	ct := configType(ext)
 	if ext == configpaths.ExtJSON5 || ext == configpaths.ExtJSONC {
 		var m map[string]any
 		if unmarshalErr := json5.Unmarshal(data, &m); unmarshalErr != nil {
 			return fmt.Errorf("parse launcher config %s: %w", path, unmarshalErr)
 		}
-		data, err = json.Marshal(m)
+		normalized, err := json.Marshal(m)
 		if err != nil {
 			return fmt.Errorf("normalize launcher config %s: %w", path, err)
 		}
+		data = normalized
 		// configType already reports both JSON5 and JSONC as JSON.
 	}
 	v.SetConfigType(ct)

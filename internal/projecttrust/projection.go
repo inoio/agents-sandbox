@@ -20,7 +20,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -83,6 +85,10 @@ func (i Input) key() string {
 // contributes.
 type Projection struct {
 	Inputs []Input
+	// reads holds the digest of every byte the projection was computed from,
+	// keyed by path, so the run's own reads can be verified against exactly what
+	// was approved (Guard). It is never persisted.
+	reads map[string]projectguard.Approval
 }
 
 // Empty reports whether the project layer contributes nothing the launcher
@@ -129,26 +135,23 @@ func Compute(sources Sources) (Projection, error) {
 	if projectDir == "" {
 		return Projection{}, nil
 	}
-	collector := inputCollector{byKey: map[string]Input{}}
+	collector := inputCollector{byKey: map[string]Input{}, reads: map[string]projectguard.Approval{}}
 
-	configPath, settings, err := viperconfig.LayerSettings(projectDir)
+	manifest, err := collector.addConfigFile(projectDir)
 	if err != nil {
 		return Projection{}, err
 	}
-	manifest, _, err := homeconfig.ReadHomeFromConfigDir(projectDir)
-	if err != nil {
-		return Projection{}, err
-	}
-	if configPath != "" {
-		collector.add(Input{Path: configPath, Kind: KindLauncherConfig, Entries: settingEntries(settings)})
-		collector.add(Input{Path: configPath, Kind: KindHomeManifest, Entries: manifestEntries(manifest)})
-	}
-
 	scope := configpaths.ConfigScope{Kind: configpaths.ScopeProject, Dir: projectDir}
 	secretFiles := []string{scope.EnvSecretFile(), scope.EnvSecretYAMLFile()}
-	collector.addEnvFile(scope.EnvFile())
-	collector.addSecretFile(scope.EnvSecretFile(), envsecret.ParseSecretSpecLegacy)
-	collector.addSecretFile(scope.EnvSecretYAMLFile(), envsecret.ParseSecretSpecYAML)
+	for path, add := range map[string]func(string, []byte){
+		scope.EnvFile():           collector.addEnv,
+		scope.EnvSecretFile():     collector.addSecrets(legacySecretSpecs),
+		scope.EnvSecretYAMLFile(): collector.addSecrets(yamlSecretSpecs),
+	} {
+		if err := collector.addParsedFile(path, add); err != nil {
+			return Projection{}, err
+		}
+	}
 	if err := collector.addFile(filepath.Join(projectDir, configpaths.DockerFileName)); err != nil {
 		return Projection{}, err
 	}
@@ -162,7 +165,9 @@ func Compute(sources Sources) (Projection, error) {
 		if !guestWritable(source, projectDir, sources.CheckoutRoot) {
 			continue
 		}
-		collector.addHomeSource(source, slices.Contains(secretFiles, source))
+		if err := collector.addHomeSource(source, slices.Contains(secretFiles, source)); err != nil {
+			return Projection{}, err
+		}
 	}
 	return collector.projection(), nil
 }
@@ -174,9 +179,11 @@ func quietLogger() termio.Logger {
 }
 
 // inputCollector gathers inputs by path and kind, so a file reached twice the
-// same way (an agent config file that is also a home: source) is one input.
+// same way (an agent config file that is also a home: source) is one input, and
+// the digest of every file it read.
 type inputCollector struct {
 	byKey map[string]Input
+	reads map[string]projectguard.Approval
 }
 
 func (c inputCollector) add(input Input) {
@@ -188,14 +195,74 @@ func (c inputCollector) projection() Projection {
 	for _, key := range slices.Sorted(maps.Keys(c.byKey)) {
 		inputs = append(inputs, c.byKey[key])
 	}
-	return Projection{Inputs: inputs}
+	return Projection{Inputs: inputs, reads: c.reads}
 }
 
-func (c inputCollector) addEnvFile(path string) {
+// readParsedFile reads a file the projection parses, once, and records the
+// digest of those bytes. A missing or non-regular path reads as absent.
+func (c inputCollector) readParsedFile(path string) ([]byte, bool, error) {
 	if !isRegularFile(path) {
-		return
+		return nil, false, nil
 	}
-	vars := envsecret.BuildEnvMap(path, quietLogger())
+	data, err := configread.ReadFile(path)
+	if err != nil {
+		return nil, false, fmt.Errorf("read project input %s: %w", path, err)
+	}
+	// The parsed files are the first reads of their paths.
+	c.reads[path] = projectguard.ApprovalOf(data)
+	return data, true, nil
+}
+
+// errChangedWhileReading reports a file read twice by the projection with
+// different bytes, so neither reading can be the one approved.
+var errChangedWhileReading = errors.New("changed while the project config was read")
+
+// recordRead records what the projection read from path. A path read twice
+// must have read the same bytes.
+func (c inputCollector) recordRead(path string, approval projectguard.Approval) error {
+	if previous, seen := c.reads[path]; seen && previous != approval {
+		return fmt.Errorf("read project input %s: %w", path, errChangedWhileReading)
+	}
+	c.reads[path] = approval
+	return nil
+}
+
+// addConfigFile adds the launcher config file's keys and its home: manifest,
+// both parsed from one read, and returns the manifest.
+func (c inputCollector) addConfigFile(projectDir string) (homeconfig.Manifest, error) {
+	path, ext, found := configpaths.FindConfigFile(projectDir)
+	if !found {
+		return homeconfig.Manifest{}, nil
+	}
+	data, _, err := c.readParsedFile(path)
+	if err != nil {
+		return nil, err
+	}
+	settings, err := viperconfig.ParseLayerSettings(path, ext, data)
+	if err != nil {
+		return nil, err
+	}
+	manifest, _, err := homeconfig.ParseHomeConfig(path, ext, data)
+	if err != nil {
+		return nil, err
+	}
+	c.add(Input{Path: path, Kind: KindLauncherConfig, Entries: settingEntries(settings)})
+	c.add(Input{Path: path, Kind: KindHomeManifest, Entries: manifestEntries(manifest)})
+	return manifest, nil
+}
+
+// addParsedFile reads a file the projection parses and adds its parsed form;
+// a missing file adds nothing.
+func (c inputCollector) addParsedFile(path string, add func(string, []byte)) error {
+	data, found, err := c.readParsedFile(path)
+	if found {
+		add(path, data)
+	}
+	return err
+}
+
+func (c inputCollector) addEnv(path string, data []byte) {
+	vars := envsecret.ParseEnv(path, data, quietLogger())
 	var entries []string
 	for _, name := range slices.Sorted(maps.Keys(vars)) {
 		entries = append(entries, name+"="+vars[name])
@@ -203,19 +270,25 @@ func (c inputCollector) addEnvFile(path string) {
 	c.add(Input{Path: path, Kind: KindEnv, Entries: entries})
 }
 
-func (c inputCollector) addSecretFile(
-	path string,
-	parse func(string, termio.Logger) map[string]envsecret.SecretSpec,
-) {
-	if !isRegularFile(path) {
-		return
+func legacySecretSpecs(_ string, data []byte) map[string]envsecret.SecretSpec {
+	return envsecret.ParseSecretSpecLegacyData(data, quietLogger())
+}
+
+func yamlSecretSpecs(path string, data []byte) map[string]envsecret.SecretSpec {
+	return envsecret.ParseSecretSpecYAMLData(path, data, quietLogger())
+}
+
+// addSecrets returns an adder of a secret file parsed by parse: one structure
+// entry per secret, never its value.
+func (c inputCollector) addSecrets(parse func(string, []byte) map[string]envsecret.SecretSpec) func(string, []byte) {
+	return func(path string, data []byte) {
+		specs := parse(path, data)
+		var entries []string
+		for _, name := range slices.Sorted(maps.Keys(specs)) {
+			entries = append(entries, describeSecretSpec(name, specs[name]))
+		}
+		c.add(Input{Path: path, Kind: KindSecrets, Entries: entries})
 	}
-	specs := parse(path, quietLogger())
-	var entries []string
-	for _, name := range slices.Sorted(maps.Keys(specs)) {
-		entries = append(entries, describeSecretSpec(name, specs[name]))
-	}
-	c.add(Input{Path: path, Kind: KindSecrets, Entries: entries})
 }
 
 // addFile adds a file's content. A missing file adds nothing; any other read
@@ -228,8 +301,16 @@ func (c inputCollector) addFile(path string) error {
 	if err != nil {
 		return err
 	}
+	return c.addRead(input)
+}
+
+// addRead adds a file input and records the digest of its bytes.
+func (c inputCollector) addRead(input Input) error {
 	c.add(input)
-	return nil
+	return c.recordRead(
+		input.Path,
+		projectguard.Approval{Digest: strings.TrimPrefix(input.Digest, "sha256:"), Absent: false},
+	)
 }
 
 // addTree adds every file under root. A missing root or an entry the walk
@@ -248,15 +329,16 @@ func (c inputCollector) addTree(root string) error {
 // alone for a secret file, so its values stay out of the projection. Like home
 // provisioning, which copies single files and skips a source it cannot read, it
 // adds nothing for a source that is missing, a directory, or unreadable.
-func (c inputCollector) addHomeSource(source string, secret bool) {
+func (c inputCollector) addHomeSource(source string, secret bool) error {
 	input, err := readFileInput(source)
 	if err != nil {
-		return
+		// Provisioning skips this source; it must stay skipped for this run.
+		return c.recordRead(source, projectguard.Approval{Digest: "", Absent: true})
 	}
 	if secret {
 		input.Entries = []string{input.Digest}
 	}
-	c.add(input)
+	return c.addRead(input)
 }
 
 // readFileInput reads a regular file with bounded memory: the digest of every
@@ -305,6 +387,13 @@ func (b *boundedBuffer) Write(p []byte) (int, error) {
 	}
 	b.data = append(b.data, kept...)
 	return len(p), nil
+}
+
+// Guard makes the run verify every later read of the project layer against
+// the bytes this projection was computed from, with the project config dir as
+// the root under which no other file may be read.
+func Guard(projection Projection, projectConfigDir string) func() {
+	return projectguard.Install(withResolved(projectConfigDir), projection.reads)
 }
 
 // guestWritable reports whether path lies inside one of the guest-writable
