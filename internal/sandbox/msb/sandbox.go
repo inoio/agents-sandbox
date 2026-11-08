@@ -12,10 +12,10 @@ import (
 type SandboxIdentity interface {
 	Name() string
 	ID() string
-	Status() msbSdk.SandboxStatus
+	Status() SandboxStatus
 	UpdatedAt() time.Time
 	CreatedAt() time.Time
-	BackendKind() msbSdk.BackendKind
+	BackendKind() BackendKind
 	Image() string
 }
 
@@ -129,8 +129,8 @@ func (w realSandboxHandle) ID() string {
 	return w.handle.ID()
 }
 
-func (w realSandboxHandle) Status() msbSdk.SandboxStatus {
-	return w.handle.Status()
+func (w realSandboxHandle) Status() SandboxStatus {
+	return sandboxStatusFrom(w.handle.Status())
 }
 
 func (w realSandboxHandle) UpdatedAt() time.Time {
@@ -141,8 +141,8 @@ func (w realSandboxHandle) CreatedAt() time.Time {
 	return w.handle.CreatedAt()
 }
 
-func (w realSandboxHandle) BackendKind() msbSdk.BackendKind {
-	return w.handle.BackendKind()
+func (w realSandboxHandle) BackendKind() BackendKind {
+	return backendKindFrom(w.handle.BackendKind())
 }
 
 func (w realSandboxHandle) Image() string {

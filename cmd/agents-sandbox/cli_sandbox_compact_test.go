@@ -16,7 +16,7 @@ const compactTestVMName = "agents-sandbox-vm-proj-1mjusbm3wikhb0"
 func compactTestHandle() *msb.MockSandboxHandle {
 	return &msb.MockSandboxHandle{
 		Name_:   compactTestVMName,
-		Status_: msbSdk.SandboxStatusStopped,
+		Status_: msb.SandboxStatusStopped,
 		CompactResult: &msbSdk.DiskCompactionResult{
 			InputLayers: 4, SelectedLayers: 4, OutputLayers: 1, MaterializedBytes: 2048,
 		},

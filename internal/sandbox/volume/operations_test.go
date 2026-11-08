@@ -27,8 +27,8 @@ import (
 // past them. A sandbox list that cannot be read fails with its cause.
 func TestCheckForActiveVMs(t *testing.T) {
 	const slug = "someproj-1mjusbm3wikhb0"
-	running := msbSdk.SandboxStatusRunning
-	project := func(status msbSdk.SandboxStatus) *msb.MockSandboxHandle {
+	running := msb.SandboxStatusRunning
+	project := func(status msb.SandboxStatus) *msb.MockSandboxHandle {
 		return &msb.MockSandboxHandle{Name_: slug + "-opencode", Status_: status}
 	}
 	listFailed := errors.New("boom")
@@ -45,7 +45,7 @@ func TestCheckForActiveVMs(t *testing.T) {
 		},
 		{
 			name:      "starting project VM",
-			sandboxes: []msb.SandboxHandle{project(msbSdk.SandboxStatusStarting)},
+			sandboxes: []msb.SandboxHandle{project(msb.SandboxStatusStarting)},
 			wantText:  "VM still running for slug",
 		},
 		{
@@ -60,7 +60,7 @@ func TestCheckForActiveVMs(t *testing.T) {
 			},
 			wantText: "VM still running for slug",
 		},
-		{name: "stopped project VM", sandboxes: []msb.SandboxHandle{project(msbSdk.SandboxStatusStopped)}},
+		{name: "stopped project VM", sandboxes: []msb.SandboxHandle{project(msb.SandboxStatusStopped)}},
 		{
 			name: "task sandboxes by name",
 			sandboxes: []msb.SandboxHandle{
@@ -90,7 +90,7 @@ func TestCheckForActiveVMs(t *testing.T) {
 			name: "blocking VM after ignored sandboxes",
 			sandboxes: []msb.SandboxHandle{
 				&msb.MockSandboxHandle{Name_: "agents-sandbox-task-someproj", Status_: running},
-				project(msbSdk.SandboxStatusStopped),
+				project(msb.SandboxStatusStopped),
 				project(running),
 			},
 			wantText: "VM still running for slug",
@@ -717,7 +717,7 @@ func TestVolumeOp_ActiveVM_ReturnsError(t *testing.T) {
 		state.HomeState{HomeVolume: "old-vol", ImageDigest: "sha256:abc"},
 	)
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-testproj-aBc1234D", Status_: msbSdk.SandboxStatusRunning},
+		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-testproj-aBc1234D", Status_: msb.SandboxStatusRunning},
 	}
 	err := CmdReset(context.Background(), docker.Get(), state.Key{Slug: slug, Agent: "opencode"},
 		"",

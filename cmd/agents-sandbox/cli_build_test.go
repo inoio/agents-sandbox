@@ -13,7 +13,6 @@ import (
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/client"
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -661,7 +660,7 @@ func TestBuildChecksDockerBeforeAdoption(t *testing.T) {
 	// A running legacy VM that adoption would destroy if it ran first.
 	legacyVM := &msb.MockSandboxHandle{
 		Name_:   naming.LegacyVMPrefix + identity.RepoSlug + "-" + defaultAgentName,
-		Status_: msbSdk.SandboxStatusRunning,
+		Status_: msb.SandboxStatusRunning,
 	}
 	mock := &msb.MockMsbClient{
 		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {

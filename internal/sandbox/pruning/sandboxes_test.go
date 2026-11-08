@@ -17,7 +17,7 @@ import (
 func stoppedHandle(name string) *msb.MockSandboxHandle {
 	return &msb.MockSandboxHandle{
 		Name_:      name,
-		Status_:    msbSdk.SandboxStatusStopped,
+		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 	}
 }
@@ -52,7 +52,7 @@ func TestPruneSandboxes(t *testing.T) {
 		stopped := stoppedHandle("agents-sandbox-vm-proj1-1mjusbm3wikhb0")
 		running := &msb.MockSandboxHandle{
 			Name_:      "agents-sandbox-vm-proj2-1mjusbm3wikhb0",
-			Status_:    msbSdk.SandboxStatusRunning,
+			Status_:    msb.SandboxStatusRunning,
 			UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 		}
 		task := stoppedHandle("agents-sandbox-task-fill-proj")
@@ -111,11 +111,11 @@ func TestPruneSandboxes(t *testing.T) {
 	t.Run("skips active, transitional, and unknown statuses", func(t *testing.T) {
 		starting := &msb.MockSandboxHandle{
 			Name_:   "agents-sandbox-vm-starting",
-			Status_: msbSdk.SandboxStatusStarting,
+			Status_: msb.SandboxStatusStarting,
 		}
 		unknown := &msb.MockSandboxHandle{
 			Name_:   "agents-sandbox-vm-unknown",
-			Status_: msbSdk.SandboxStatus("future-status"),
+			Status_: msb.SandboxStatus("future-status"),
 		}
 		client := &msb.MockMsbClient{}
 		msb.WithMsbMock(t, client)

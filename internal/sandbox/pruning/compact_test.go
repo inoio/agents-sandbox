@@ -20,7 +20,7 @@ func compactableHandle(name string, result *msbSdk.DiskCompactionResult) *msb.Mo
 func labelledHandle(name string, labels map[string]string, result *msbSdk.DiskCompactionResult) *msb.MockSandboxHandle {
 	return &msb.MockSandboxHandle{
 		Name_:         name,
-		Status_:       msbSdk.SandboxStatusStopped,
+		Status_:       msb.SandboxStatusStopped,
 		Cfg:           &msbSdk.SandboxConfig{Labels: labels},
 		CompactResult: result,
 	}

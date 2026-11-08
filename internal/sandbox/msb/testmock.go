@@ -383,10 +383,10 @@ func (m *MockMsbClient) SetGetVolumeErr(err error) *MockMsbClient {
 type MockSandboxHandle struct {
 	Name_        string
 	ID_          string
-	Status_      msbSdk.SandboxStatus
+	Status_      SandboxStatus
 	UpdatedAt_   time.Time
 	CreatedAt_   time.Time
-	BackendKind_ msbSdk.BackendKind
+	BackendKind_ BackendKind
 	Image_       string
 	ConnectSb    Sandbox
 	// ConnectOrStartFn overrides ConnectOrStart's status-driven behaviour.
@@ -422,12 +422,12 @@ type MockSandboxHandle struct {
 	LogsOptions      []LogQuery
 }
 
-func (m *MockSandboxHandle) Name() string                    { return m.Name_ }
-func (m *MockSandboxHandle) ID() string                      { return m.ID_ }
-func (m *MockSandboxHandle) Status() msbSdk.SandboxStatus    { return m.Status_ }
-func (m *MockSandboxHandle) UpdatedAt() time.Time            { return m.UpdatedAt_ }
-func (m *MockSandboxHandle) CreatedAt() time.Time            { return m.CreatedAt_ }
-func (m *MockSandboxHandle) BackendKind() msbSdk.BackendKind { return m.BackendKind_ }
+func (m *MockSandboxHandle) Name() string             { return m.Name_ }
+func (m *MockSandboxHandle) ID() string               { return m.ID_ }
+func (m *MockSandboxHandle) Status() SandboxStatus    { return m.Status_ }
+func (m *MockSandboxHandle) UpdatedAt() time.Time     { return m.UpdatedAt_ }
+func (m *MockSandboxHandle) CreatedAt() time.Time     { return m.CreatedAt_ }
+func (m *MockSandboxHandle) BackendKind() BackendKind { return m.BackendKind_ }
 func (m *MockSandboxHandle) Image() string {
 	if m.Image_ != "" {
 		return m.Image_
@@ -457,10 +457,10 @@ func (m *MockSandboxHandle) ConnectOrStart(ctx context.Context) (Sandbox, bool, 
 		return m.ConnectOrStartFn(ctx)
 	}
 	switch m.Status_ {
-	case msbSdk.SandboxStatusRunning, msbSdk.SandboxStatusStarting:
+	case SandboxStatusRunning, SandboxStatusStarting:
 		sb, err := m.Connect(ctx)
 		return sb, false, err
-	case msbSdk.SandboxStatusCreated, msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
+	case SandboxStatusCreated, SandboxStatusStopped, SandboxStatusCrashed:
 		if m.StartErr != nil {
 			return nil, false, m.StartErr
 		}
@@ -468,7 +468,7 @@ func (m *MockSandboxHandle) ConnectOrStart(ctx context.Context) (Sandbox, bool, 
 			return m.StartSb, true, nil
 		}
 		return &MockSandbox{Name_: m.Name_}, true, nil
-	case msbSdk.SandboxStatusDraining, msbSdk.SandboxStatusPaused:
+	case SandboxStatusDraining, SandboxStatusPaused:
 		return nil, false, fmt.Errorf("sandbox %q is %q and cannot take a new client", m.Name_, m.Status_)
 	}
 	return nil, false, fmt.Errorf("sandbox %q has unexpected status %q", m.Name_, m.Status_)
@@ -911,7 +911,7 @@ func (t *TestResult) StdoutBytes() []byte {
 type MockVolumeHandle struct {
 	Name_          string
 	Path_          string
-	Kind_          msbSdk.VolumeKind
+	Kind_          VolumeKind
 	CreatedAt_     time.Time
 	QuotaMiB_      *uint32
 	UsedBytes_     uint64
@@ -923,9 +923,9 @@ type MockVolumeHandle struct {
 
 func (m MockVolumeHandle) Name() string { return m.Name_ }
 func (m MockVolumeHandle) Path() string { return m.Path_ }
-func (m MockVolumeHandle) Kind() msbSdk.VolumeKind {
+func (m MockVolumeHandle) Kind() VolumeKind {
 	if m.Kind_ == "" {
-		return msbSdk.VolumeKindDir
+		return VolumeKindDir
 	}
 	return m.Kind_
 }

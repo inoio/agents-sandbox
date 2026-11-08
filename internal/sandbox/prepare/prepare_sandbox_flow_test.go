@@ -75,7 +75,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	}}
 	sh := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
 	mock := &msb.MockMsbClient{
@@ -161,7 +161,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 	}}
 	sh := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
 	mock := &msb.MockMsbClient{
@@ -291,7 +291,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	}}
 	sh := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
 	mock := &msb.MockMsbClient{
@@ -573,7 +573,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	}}
 	sh := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
-		Status_:   msbSdk.SandboxStatusStopped,
+		Status_:   msb.SandboxStatusStopped,
 		ConnectSb: connectSb,
 		StartSb:   connectSb,
 	}
@@ -652,7 +652,7 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 	}}
 	sh := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
 	mock := &msb.MockMsbClient{
@@ -803,7 +803,7 @@ func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 	}}
 	sh := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: connectSb,
 	}
 	mock := &msb.MockMsbClient{
@@ -1060,7 +1060,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 	shellOut := map[string]msb.ShellResult{dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil)}
 	existing := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(k),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		Cfg:       &msbSdk.SandboxConfig{},
 		ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil), ShellOut: shellOut},
 		Mounts: map[string]msbSdk.MountConfig{
@@ -1342,7 +1342,7 @@ func TestPrepareSandboxMigratesOnFirstRun(t *testing.T) {
 
 	legacyHandle := &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(legacyKey),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		ConnectSb: msb.NewMockSandbox(msb.SandboxOpts{}),
 	}
 	inspectedTag := installPrepareSandboxDockerMock(t)
@@ -1952,7 +1952,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 				}
 				mock.SetGotSandbox(&msb.MockSandboxHandle{
 					Name_:     vm.ProjectVMName(k),
-					Status_:   msbSdk.SandboxStatusRunning,
+					Status_:   msb.SandboxStatusRunning,
 					ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil), ShellErr: cause},
 				})
 				msb.WithMsbMock(t, mock)
@@ -2138,7 +2138,7 @@ func stubPrepareSandboxImage(t *testing.T) {
 func existingProjectVMHandle(k state.Key) *msb.MockSandboxHandle {
 	return &msb.MockSandboxHandle{
 		Name_:     vm.ProjectVMName(k),
-		Status_:   msbSdk.SandboxStatusRunning,
+		Status_:   msb.SandboxStatusRunning,
 		Cfg:       &msbSdk.SandboxConfig{},
 		ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil)},
 	}

@@ -57,18 +57,18 @@ func TestValidateInstalledPassesPrivateHome(t *testing.T) {
 func TestGetVMStatus(t *testing.T) {
 	tests := []struct {
 		name    string
-		status  msbSdk.SandboxStatus
+		status  SandboxStatus
 		want    VMStatusKind
 		wantErr bool
 	}{
-		{"running", msbSdk.SandboxStatusRunning, VMStatusActive, false},
-		{"draining", msbSdk.SandboxStatusDraining, VMStatusActive, false},
-		{"paused", msbSdk.SandboxStatusPaused, VMStatusActive, false},
-		{"starting", msbSdk.SandboxStatusStarting, VMStatusStarting, false},
-		{"created", msbSdk.SandboxStatusCreated, VMStatusCreated, false},
-		{"stopped", msbSdk.SandboxStatusStopped, VMStatusStopped, false},
-		{"crashed", msbSdk.SandboxStatusCrashed, VMStatusStopped, false},
-		{"unknown", msbSdk.SandboxStatus(""), VMStatusUnknown, true},
+		{"running", SandboxStatusRunning, VMStatusActive, false},
+		{"draining", SandboxStatusDraining, VMStatusActive, false},
+		{"paused", SandboxStatusPaused, VMStatusActive, false},
+		{"starting", SandboxStatusStarting, VMStatusStarting, false},
+		{"created", SandboxStatusCreated, VMStatusCreated, false},
+		{"stopped", SandboxStatusStopped, VMStatusStopped, false},
+		{"crashed", SandboxStatusCrashed, VMStatusStopped, false},
+		{"unknown", SandboxStatus(""), VMStatusUnknown, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -86,17 +86,17 @@ func TestGetVMStatus(t *testing.T) {
 func TestIsSandboxActive(t *testing.T) {
 	tests := []struct {
 		name   string
-		status msbSdk.SandboxStatus
+		status SandboxStatus
 		want   bool
 	}{
-		{"running", msbSdk.SandboxStatusRunning, true},
-		{"draining", msbSdk.SandboxStatusDraining, true},
-		{"paused", msbSdk.SandboxStatusPaused, true},
-		{"starting", msbSdk.SandboxStatusStarting, true},
-		{"created", msbSdk.SandboxStatusCreated, false},
-		{"stopped", msbSdk.SandboxStatusStopped, false},
-		{"crashed", msbSdk.SandboxStatusCrashed, false},
-		{"unknown", msbSdk.SandboxStatus(""), false},
+		{"running", SandboxStatusRunning, true},
+		{"draining", SandboxStatusDraining, true},
+		{"paused", SandboxStatusPaused, true},
+		{"starting", SandboxStatusStarting, true},
+		{"created", SandboxStatusCreated, false},
+		{"stopped", SandboxStatusStopped, false},
+		{"crashed", SandboxStatusCrashed, false},
+		{"unknown", SandboxStatus(""), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -110,17 +110,17 @@ func TestIsSandboxActive(t *testing.T) {
 func TestIsSandboxInactive(t *testing.T) {
 	tests := []struct {
 		name   string
-		status msbSdk.SandboxStatus
+		status SandboxStatus
 		want   bool
 	}{
-		{"created", msbSdk.SandboxStatusCreated, true},
-		{"stopped", msbSdk.SandboxStatusStopped, true},
-		{"crashed", msbSdk.SandboxStatusCrashed, true},
-		{"starting", msbSdk.SandboxStatusStarting, false},
-		{"running", msbSdk.SandboxStatusRunning, false},
-		{"draining", msbSdk.SandboxStatusDraining, false},
-		{"paused", msbSdk.SandboxStatusPaused, false},
-		{"unknown", msbSdk.SandboxStatus(""), false},
+		{"created", SandboxStatusCreated, true},
+		{"stopped", SandboxStatusStopped, true},
+		{"crashed", SandboxStatusCrashed, true},
+		{"starting", SandboxStatusStarting, false},
+		{"running", SandboxStatusRunning, false},
+		{"draining", SandboxStatusDraining, false},
+		{"paused", SandboxStatusPaused, false},
+		{"unknown", SandboxStatus(""), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -848,7 +848,7 @@ func TestRealSandboxHandleAccessors(t *testing.T) {
 	if got := h.ID(); got != "" {
 		t.Errorf("ID() = %q, want empty", got)
 	}
-	if got := h.Status(); got != msbSdk.SandboxStatus("") {
+	if got := h.Status(); got != SandboxStatus("") {
 		t.Errorf("Status() = %q, want empty", got)
 	}
 	if !h.UpdatedAt().Equal(time.Time{}) {
@@ -857,7 +857,7 @@ func TestRealSandboxHandleAccessors(t *testing.T) {
 	if !h.CreatedAt().Equal(time.Time{}) {
 		t.Errorf("CreatedAt() = %v, want zero time", h.CreatedAt())
 	}
-	if got := h.BackendKind(); got != msbSdk.BackendKind("") {
+	if got := h.BackendKind(); got != BackendKind("") {
 		t.Errorf("BackendKind() = %q, want empty", got)
 	}
 	if got := h.Image(); got != "" {
@@ -937,6 +937,44 @@ func TestRealSandboxHandleConfigMounts(t *testing.T) {
 	}
 	if workspace := mounts["/workspace"]; workspace.Bind != "/host/proj" {
 		t.Errorf("ConfigMounts()[/workspace] = %+v, want bind /host/proj", workspace)
+	}
+}
+
+// TestRealVolumeHandleDelegatesAndTranslatesKind pins that the volume wrapper
+// exposes the handle's metadata and translates the kind enum onto the launcher
+// type. The SDK handle's fields are unexported, so a zero handle exercises the
+// delegation with its zero values.
+func TestRealVolumeHandleDelegatesAndTranslatesKind(t *testing.T) {
+	w := realVolumeHandle{handle: &msbSdk.VolumeHandle{}}
+	if got := w.Name(); got != "" {
+		t.Errorf("Name() = %q, want empty", got)
+	}
+	if got := w.Path(); got != "" {
+		t.Errorf("Path() = %q, want empty", got)
+	}
+	if got := w.Kind(); got != VolumeKind("") {
+		t.Errorf("Kind() = %q, want empty", got)
+	}
+	if !w.CreatedAt().Equal(time.Time{}) {
+		t.Errorf("CreatedAt() = %v, want zero time", w.CreatedAt())
+	}
+	if got := w.QuotaMiB(); got != nil {
+		t.Errorf("QuotaMiB() = %v, want nil", got)
+	}
+	if got := w.UsedBytes(); got != 0 {
+		t.Errorf("UsedBytes() = %d, want 0", got)
+	}
+	if got := w.CapacityBytes(); got != nil {
+		t.Errorf("CapacityBytes() = %v, want nil", got)
+	}
+	if got := w.DiskFormat(); got != nil {
+		t.Errorf("DiskFormat() = %v, want nil", got)
+	}
+	if got := w.DiskFstype(); got != nil {
+		t.Errorf("DiskFstype() = %v, want nil", got)
+	}
+	if got := w.Labels(); got != nil {
+		t.Errorf("Labels() = %v, want nil", got)
 	}
 }
 
@@ -1167,8 +1205,8 @@ func TestCreateVolumeResolvesTheCreatedVolumeThroughGetVolume(t *testing.T) {
 	if resolvedName != "vol" {
 		t.Fatal("CreateVolume did not resolve the created volume through getVolume")
 	}
-	if got, ok := handle.(*msbSdk.VolumeHandle); !ok || got != resolved {
-		t.Errorf("CreateVolume() handle = %T, want the resolved *msbSdk.VolumeHandle", handle)
+	if got, ok := handle.(realVolumeHandle); !ok || got.handle != resolved {
+		t.Errorf("CreateVolume() handle = %T, want a wrapper around the resolved *msbSdk.VolumeHandle", handle)
 	}
 }
 

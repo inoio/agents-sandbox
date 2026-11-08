@@ -47,8 +47,8 @@ func TestInspectSandboxPopulatesDetail(t *testing.T) {
 		&msb.MockSandboxHandle{
 			Name_:        "agents-sandbox-vm-abc",
 			ID_:          "sbx-123",
-			Status_:      msbSdk.SandboxStatusRunning,
-			BackendKind_: msbSdk.BackendLocal,
+			Status_:      msb.SandboxStatusRunning,
+			BackendKind_: msb.BackendLocal,
 			CreatedAt_:   time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC),
 			UpdatedAt_:   time.Date(2026, 8, 17, 11, 0, 0, 0, time.UTC),
 			Cfg:          cfg,

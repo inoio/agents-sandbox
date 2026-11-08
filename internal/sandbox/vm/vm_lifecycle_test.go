@@ -47,7 +47,7 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 		{
 			name: "connect-or-start error",
 			handle: func() msb.SandboxHandle {
-				return &msb.MockSandboxHandle{Name_: "vm", Status_: msbSdk.SandboxStatusPaused}
+				return &msb.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusPaused}
 			},
 			wantErr:        true,
 			wantStopErrors: 1,
@@ -57,7 +57,7 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 			handle: func() msb.SandboxHandle {
 				return &msb.MockSandboxHandle{
 					Name_:   "vm",
-					Status_: msbSdk.SandboxStatusStopped,
+					Status_: msb.SandboxStatusStopped,
 					StartSb: &msb.MockSandbox{Name_: "vm"},
 				}
 			},
@@ -68,7 +68,7 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 			handle: func() msb.SandboxHandle {
 				return &msb.MockSandboxHandle{
 					Name_:     "vm",
-					Status_:   msbSdk.SandboxStatusRunning,
+					Status_:   msb.SandboxStatusRunning,
 					ConnectSb: &msb.MockSandbox{Name_: "vm"},
 				}
 			},
@@ -304,7 +304,7 @@ func TestEnsureProjectVMRecreatesTheHeldVM(t *testing.T) {
 			// The held VM carries the legacy name, which the recreate retires.
 			held := &msb.MockSandboxHandle{
 				Name_:   existingVMName,
-				Status_: msbSdk.SandboxStatusRunning,
+				Status_: msb.SandboxStatusRunning,
 				DestroyFn: func(context.Context) error {
 					if !lock.held {
 						t.Error("destroyed the VM outside the creation lock")
@@ -477,11 +477,11 @@ func TestEnsureProjectVMSkipsTheLifecycleWithoutAVM(t *testing.T) {
 const existingVMName = "agents-sandbox-vm-test"
 
 func runningVM(sb msb.Sandbox) *msb.MockSandboxHandle {
-	return &msb.MockSandboxHandle{Name_: existingVMName, Status_: msbSdk.SandboxStatusRunning, ConnectSb: sb}
+	return &msb.MockSandboxHandle{Name_: existingVMName, Status_: msb.SandboxStatusRunning, ConnectSb: sb}
 }
 
 func stoppedVM(sb msb.Sandbox) *msb.MockSandboxHandle {
-	return &msb.MockSandboxHandle{Name_: existingVMName, Status_: msbSdk.SandboxStatusStopped, StartSb: sb}
+	return &msb.MockSandboxHandle{Name_: existingVMName, Status_: msb.SandboxStatusStopped, StartSb: sb}
 }
 
 // withFailingReconcile makes reconciling the VM's resources fail.
@@ -535,7 +535,7 @@ func TestEnsureProjectVMResolvesAnExistingVM(t *testing.T) {
 			vm: func(sb msb.Sandbox, _ error) msb.SandboxHandle {
 				return &msb.MockSandboxHandle{
 					Name_:   existingVMName,
-					Status_: msbSdk.SandboxStatusStopped,
+					Status_: msb.SandboxStatusStopped,
 					ConnectOrStartFn: func(context.Context) (msb.Sandbox, bool, error) {
 						return sb, false, nil
 					},
@@ -563,7 +563,7 @@ func TestEnsureProjectVMResolvesAnExistingVM(t *testing.T) {
 			vm: func(_ msb.Sandbox, cause error) msb.SandboxHandle {
 				return &msb.MockSandboxHandle{
 					Name_:    existingVMName,
-					Status_:  msbSdk.SandboxStatusStopped,
+					Status_:  msb.SandboxStatusStopped,
 					StartErr: cause,
 				}
 			},
@@ -574,7 +574,7 @@ func TestEnsureProjectVMResolvesAnExistingVM(t *testing.T) {
 			vm: func(msb.Sandbox, error) msb.SandboxHandle {
 				return &msb.MockSandboxHandle{
 					Name_:   existingVMName,
-					Status_: msbSdk.SandboxStatusRunning,
+					Status_: msb.SandboxStatusRunning,
 					ConnectOrStartFn: func(context.Context) (msb.Sandbox, bool, error) {
 						return nil, false, replaced
 					},

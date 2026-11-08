@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -291,12 +289,12 @@ func TestPruneVolumesKeepsLiveProjectVolumeWithLeftoverTask(t *testing.T) {
 	const slug = "proj-1mjusbm3wikhb0"
 	live := &msb.MockSandboxHandle{
 		Name_:      slug + "-opencode",
-		Status_:    msbSdk.SandboxStatusRunning,
+		Status_:    msb.SandboxStatusRunning,
 		UpdatedAt_: time.Now(),
 	}
 	task := &msb.MockSandboxHandle{
 		Name_:      slug + "-opencode-1729000000000000000",
-		Status_:    msbSdk.SandboxStatusStopped,
+		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now(),
 	}
 	client := &msb.MockMsbClient{

@@ -24,43 +24,43 @@ func TestBuildPruneState(t *testing.T) {
 			// running -> never stale (kept)
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj1-1mjusbm3wikhb0",
-				Status_:    msbSdk.SandboxStatusRunning,
+				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: recent,
 			},
 			// stopped but fresh -> not yet stale (kept)
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj2-1mjusbm3wikhb0",
-				Status_:    msbSdk.SandboxStatusStopped,
+				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: recent,
 			},
 			// stale stopped -> prunable
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj3-1mjusbm3wikhb0",
-				Status_:    msbSdk.SandboxStatusStopped,
+				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: stale,
 			},
 			// task sandbox -> prunable regardless of age
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-task-fill-1mjusbm3wikhb0-opencode-1729",
-				Status_:    msbSdk.SandboxStatusStopped,
+				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: recent,
 			},
 			// running task -> never stale
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-task-fill2-1mjusbm3wikhb0-opencode-1729",
-				Status_:    msbSdk.SandboxStatusRunning,
+				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: stale,
 			},
 			// starting -> never stale while a runtime transition is in progress
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj4-1mjusbm3wikhb0",
-				Status_:    msbSdk.SandboxStatusStarting,
+				Status_:    msb.SandboxStatusStarting,
 				UpdatedAt_: stale,
 			},
 			// unknown -> never prunable; fail closed for future statuses
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj5-1mjusbm3wikhb0",
-				Status_:    msbSdk.SandboxStatus("future-status"),
+				Status_:    msb.SandboxStatus("future-status"),
 				UpdatedAt_: stale,
 			},
 		},
@@ -122,12 +122,12 @@ func TestPruneStateKeepsTaskOutOfProjectKey(t *testing.T) {
 	const slug = "myproj-1mjusbm3wikhb0"
 	task := &msb.MockSandboxHandle{
 		Name_:      slug + "-opencode-1729000000000000000",
-		Status_:    msbSdk.SandboxStatusStopped,
+		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now(),
 	}
 	project := &msb.MockSandboxHandle{
 		Name_:      slug + "-opencode",
-		Status_:    msbSdk.SandboxStatusRunning,
+		Status_:    msb.SandboxStatusRunning,
 		UpdatedAt_: time.Now(),
 	}
 	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{task, project}}
@@ -155,7 +155,7 @@ func TestPruneStateKeepsTaskOutOfProjectKey(t *testing.T) {
 func TestPruneStateLabelBeatsLegacyNamePrefix(t *testing.T) {
 	project := &msb.MockSandboxHandle{
 		Name_:      "agents-sandbox-task-1mjusbm3wikhb0-opencode",
-		Status_:    msbSdk.SandboxStatusRunning,
+		Status_:    msb.SandboxStatusRunning,
 		UpdatedAt_: time.Now(),
 		Cfg: &msbSdk.SandboxConfig{Labels: map[string]string{
 			naming.LabelType:  naming.SandboxTypeProject,
@@ -165,7 +165,7 @@ func TestPruneStateLabelBeatsLegacyNamePrefix(t *testing.T) {
 	}
 	task := &msb.MockSandboxHandle{
 		Name_:      "x-1mjusbm3wikhb0-opencode-1729000000000000000",
-		Status_:    msbSdk.SandboxStatusStopped,
+		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now(),
 		Cfg: &msbSdk.SandboxConfig{Labels: map[string]string{
 			naming.LabelType:  naming.SandboxTypeTask,
@@ -197,7 +197,7 @@ func TestBuildPruneState_AgeZero(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
-				Status_:    msbSdk.SandboxStatusStopped,
+				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now(),
 			},
 		},
@@ -312,7 +312,7 @@ func TestBuildPruneState_SkipsUnparseableName(t *testing.T) {
 			// Vm-prefixed but with no slug remainder -> must be skipped.
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-",
-				Status_:    msbSdk.SandboxStatusStopped,
+				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 			},
 		},
@@ -404,18 +404,18 @@ func TestKeySetReturnsNilForNoKeys(t *testing.T) {
 func TestBuildPruneStateContinuesPastSkippedEntries(t *testing.T) {
 	stale := &msb.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
-		Status_:    msbSdk.SandboxStatusStopped,
+		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 	}
 	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{
 		&msb.MockSandboxHandle{
 			Name_:      "agents-sandbox-vm-",
-			Status_:    msbSdk.SandboxStatusStopped,
+			Status_:    msb.SandboxStatusStopped,
 			UpdatedAt_: time.Now(),
 		},
 		&msb.MockSandboxHandle{
 			Name_:      "agents-sandbox-task-fill-1mjusbm3wikhb0-opencode-1729",
-			Status_:    msbSdk.SandboxStatusStopped,
+			Status_:    msb.SandboxStatusStopped,
 			UpdatedAt_: time.Now(),
 		},
 		stale,

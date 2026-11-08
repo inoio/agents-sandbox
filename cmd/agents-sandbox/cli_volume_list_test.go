@@ -4,8 +4,6 @@ import (
 	"testing"
 	"time"
 
-	msb "github.com/superradcompany/microsandbox/sdk/go"
-
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -32,7 +30,7 @@ func TestVolumeList(t *testing.T) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
 					&sandboxmsb.MockVolumeHandle{
 						Name_:      "agents-sandbox-home-proj",
-						Kind_:      msb.VolumeKindDir,
+						Kind_:      sandboxmsb.VolumeKindDir,
 						CreatedAt_: time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
 					},
 				}
@@ -48,7 +46,7 @@ func TestVolumeList(t *testing.T) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
 					&sandboxmsb.MockVolumeHandle{
 						Name_:          "agents-sandbox-home-proj",
-						Kind_:          msb.VolumeKindDisk,
+						Kind_:          sandboxmsb.VolumeKindDisk,
 						CapacityBytes_: &capacity,
 						CreatedAt_:     time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
 					},
@@ -64,7 +62,7 @@ func TestVolumeList(t *testing.T) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
 					&sandboxmsb.MockVolumeHandle{
 						Name_:      "agents-sandbox-home-proj",
-						Kind_:      msb.VolumeKindDisk,
+						Kind_:      sandboxmsb.VolumeKindDisk,
 						QuotaMiB_:  &quota,
 						CreatedAt_: time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
 					},
@@ -80,7 +78,7 @@ func TestVolumeList(t *testing.T) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
 					&sandboxmsb.MockVolumeHandle{
 						Name_:      "agents-sandbox-home-proj",
-						Kind_:      msb.VolumeKindDir,
+						Kind_:      sandboxmsb.VolumeKindDir,
 						QuotaMiB_:  &quota,
 						CreatedAt_: time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
 					},
@@ -94,7 +92,7 @@ func TestVolumeList(t *testing.T) {
 			name: "non-project volume filtered",
 			mockSetup: func(m *sandboxmsb.MockMsbClient) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
-					&sandboxmsb.MockVolumeHandle{Name_: "other-volume", Kind_: msb.VolumeKindDir},
+					&sandboxmsb.MockVolumeHandle{Name_: "other-volume", Kind_: sandboxmsb.VolumeKindDir},
 				}
 			},
 			wantOut: []string{},

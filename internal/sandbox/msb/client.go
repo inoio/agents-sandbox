@@ -143,7 +143,7 @@ func (realMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandle, 
 	if err != nil {
 		return nil, err
 	}
-	return v, nil
+	return realVolumeHandle{handle: v}, nil
 }
 
 func (realMsbClient) CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error) {
@@ -161,7 +161,7 @@ func (realMsbClient) CreateVolume(ctx context.Context, name string, opts ...msbS
 		}
 		return nil, err
 	}
-	return handle, nil
+	return realVolumeHandle{handle: handle}, nil
 }
 
 func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
@@ -171,7 +171,7 @@ func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
 	}
 	result := make([]VolumeHandle, len(handles))
 	for i, h := range handles {
-		result[i] = h
+		result[i] = realVolumeHandle{handle: h}
 	}
 	return result, nil
 }

@@ -470,3 +470,20 @@ func imagePruneReportFrom(report *msbSdk.ImagePruneReport) *ImagePruneReport {
 		BytesReclaimed:   report.BytesReclaimed,
 	}
 }
+
+// sandboxStatusFrom translates the SDK sandbox status onto the launcher enum.
+// The launcher mirrors every SDK value, so a raw conversion preserves an
+// unknown status rather than collapsing it to a known one.
+func sandboxStatusFrom(status msbSdk.SandboxStatus) SandboxStatus {
+	return SandboxStatus(status)
+}
+
+// backendKindFrom translates the SDK backend kind onto the launcher enum.
+func backendKindFrom(kind msbSdk.BackendKind) BackendKind {
+	return BackendKind(kind)
+}
+
+// volumeKindFrom translates the SDK volume kind onto the launcher enum.
+func volumeKindFrom(kind msbSdk.VolumeKind) VolumeKind {
+	return VolumeKind(kind)
+}

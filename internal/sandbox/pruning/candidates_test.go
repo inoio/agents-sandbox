@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -84,7 +82,7 @@ func TestEnumerateCandidatesNewestActivityFromVolumeAndImage(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
 				Name_:      slug + "-opencode",
-				Status_:    msbSdk.SandboxStatusStopped,
+				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: vmTime,
 			},
 		},
@@ -160,7 +158,7 @@ func TestCandidateNotRetiredWithRunningTask(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
 				Name_:      naming.TaskSandboxName(slug, "opencode", 1729000000000000000),
-				Status_:    msbSdk.SandboxStatusRunning,
+				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: time.Now().Add(-100 * time.Hour),
 			},
 		},
@@ -211,7 +209,7 @@ func TestEnumerateCandidatesIgnoresForeignArtifacts(t *testing.T) {
 			// no legacy prefix, no slug hash, so it is not ours.
 			&msb.MockSandboxHandle{
 				Name_:      "builder-vm",
-				Status_:    msbSdk.SandboxStatusRunning,
+				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: time.Now(),
 			},
 		},
@@ -236,12 +234,12 @@ func TestEnumerateCandidatesAdmitsLauncherOwnedSandboxes(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
 				Name_:      "myproject-1mjusbm3wikhb0-opencode",
-				Status_:    msbSdk.SandboxStatusRunning,
+				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: time.Now(),
 			},
 			&msb.MockSandboxHandle{
 				Name_:      naming.LegacyVMPrefix + "legacyproject",
-				Status_:    msbSdk.SandboxStatusRunning,
+				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: time.Now(),
 			},
 		},
@@ -270,10 +268,10 @@ func TestEnumerateCandidatesSkipsMalformedLegacySandbox(t *testing.T) {
 
 	msb.WithMsbMock(t, &msb.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{Name_: naming.LegacyVMPrefix, Status_: msbSdk.SandboxStatusStopped},
+			&msb.MockSandboxHandle{Name_: naming.LegacyVMPrefix, Status_: msb.SandboxStatusStopped},
 			&msb.MockSandboxHandle{
 				Name_:      "myproject-1mjusbm3wikhb0-opencode",
-				Status_:    msbSdk.SandboxStatusRunning,
+				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: time.Now(),
 			},
 		},
@@ -711,13 +709,13 @@ func TestEnumerateCandidatesContinuesPastNonMatchingArtifacts(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
 				Name_:      naming.TaskSandboxName("skiptask-1mjusbm3wikhb0", "opencode", 1729000000000000000),
-				Status_:    msbSdk.SandboxStatusStopped,
+				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now(),
 			},
-			&msb.MockSandboxHandle{Name_: "builder-vm", Status_: msbSdk.SandboxStatusRunning, UpdatedAt_: time.Now()},
+			&msb.MockSandboxHandle{Name_: "builder-vm", Status_: msb.SandboxStatusRunning, UpdatedAt_: time.Now()},
 			&msb.MockSandboxHandle{
 				Name_:      sbSlug + "-opencode",
-				Status_:    msbSdk.SandboxStatusStopped,
+				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now(),
 			},
 		},
@@ -780,7 +778,7 @@ func TestEnumerateSandboxOnlyCandidateRecordsKeyActivityAndKept(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
 				Name_:      slug + "-opencode",
-				Status_:    msbSdk.SandboxStatusRunning,
+				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: updated,
 			},
 		},

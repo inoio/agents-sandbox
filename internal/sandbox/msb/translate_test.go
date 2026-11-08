@@ -103,6 +103,61 @@ func checkProjection(
 	}
 }
 
+func TestSandboxStatusFromTranslatesValues(t *testing.T) {
+	tests := []struct {
+		in   msbSdk.SandboxStatus
+		want SandboxStatus
+	}{
+		{msbSdk.SandboxStatusCreated, SandboxStatusCreated},
+		{msbSdk.SandboxStatusStarting, SandboxStatusStarting},
+		{msbSdk.SandboxStatusRunning, SandboxStatusRunning},
+		{msbSdk.SandboxStatusDraining, SandboxStatusDraining},
+		{msbSdk.SandboxStatusPaused, SandboxStatusPaused},
+		{msbSdk.SandboxStatusStopped, SandboxStatusStopped},
+		{msbSdk.SandboxStatusCrashed, SandboxStatusCrashed},
+		{msbSdk.SandboxStatus("future-status"), SandboxStatus("future-status")},
+		{msbSdk.SandboxStatus(""), SandboxStatus("")},
+	}
+	for _, tt := range tests {
+		if got := sandboxStatusFrom(tt.in); got != tt.want {
+			t.Errorf("sandboxStatusFrom(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestBackendKindFromTranslatesValues(t *testing.T) {
+	tests := []struct {
+		in   msbSdk.BackendKind
+		want BackendKind
+	}{
+		{msbSdk.BackendLocal, BackendLocal},
+		{msbSdk.BackendCloud, BackendCloud},
+		{msbSdk.BackendUnknown, BackendUnknown},
+		{msbSdk.BackendKind(""), BackendKind("")},
+	}
+	for _, tt := range tests {
+		if got := backendKindFrom(tt.in); got != tt.want {
+			t.Errorf("backendKindFrom(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestVolumeKindFromTranslatesValues(t *testing.T) {
+	tests := []struct {
+		in   msbSdk.VolumeKind
+		want VolumeKind
+	}{
+		{msbSdk.VolumeKindDir, VolumeKindDir},
+		{msbSdk.VolumeKindDisk, VolumeKindDisk},
+		{msbSdk.VolumeKind(""), VolumeKind("")},
+	}
+	for _, tt := range tests {
+		if got := volumeKindFrom(tt.in); got != tt.want {
+			t.Errorf("volumeKindFrom(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestExecOptionsProjectRequest(t *testing.T) {
 	if opts := execOptions(ExecRequest{}); len(opts) != 0 {
 		t.Fatalf("zero request produced %d options, want 0", len(opts))

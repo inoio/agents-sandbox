@@ -11,7 +11,6 @@ import (
 
 	imagetypes "github.com/moby/moby/api/types/image"
 	mobyclient "github.com/moby/moby/client"
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
@@ -312,13 +311,13 @@ func TestPruneImagesKeepsLiveProjectImageWithLeftoverTask(t *testing.T) {
 	const slug = "proj-1mjusbm3wikhb0"
 	live := &msb.MockSandboxHandle{
 		Name_:      slug + "-opencode",
-		Status_:    msbSdk.SandboxStatusRunning,
+		Status_:    msb.SandboxStatusRunning,
 		UpdatedAt_: time.Now(),
 		Image_:     slug + ":opencode-latest",
 	}
 	task := &msb.MockSandboxHandle{
 		Name_:      slug + "-opencode-1729000000000000000",
-		Status_:    msbSdk.SandboxStatusStopped,
+		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now(),
 	}
 	client := &msb.MockMsbClient{
@@ -992,7 +991,7 @@ func TestPruneImagesKeepsImageReferencedByKeptVM(t *testing.T) {
 		ToKeep: map[state.Key]msb.SandboxHandle{
 			{Slug: "proj-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{
 				Name_:   "agents-sandbox-vm-proj-1mjusbm3wikhb0",
-				Status_: msbSdk.SandboxStatusStopped,
+				Status_: msb.SandboxStatusStopped,
 				Image_:  "agents-sandbox/runner-proj-1mjusbm3wikhb0:4e8oeqohbmalok",
 			},
 		},

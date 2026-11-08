@@ -194,7 +194,7 @@ func runRealStartupPrune(t *testing.T) {
 func staleProjectVM(k state.Key) sandboxmsb.SandboxHandle {
 	return &sandboxmsb.MockSandboxHandle{
 		Name_:      "stale-" + k.Slug,
-		Status_:    msbSdk.SandboxStatusStopped,
+		Status_:    sandboxmsb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-365 * 24 * time.Hour),
 		Cfg: &msbSdk.SandboxConfig{Labels: map[string]string{
 			naming.LabelSlug:  k.Slug,

@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -61,10 +59,10 @@ func TestPlanRemovalListsEveryArtifactForSlug(t *testing.T) {
 			&msb.MockImageHandle{Reference_: "docker.io/library/alpine:latest"},
 		},
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{Name_: projectVM, Status_: msbSdk.SandboxStatusStopped},
-			&msb.MockSandboxHandle{Name_: taskVM, Status_: msbSdk.SandboxStatusStopped},
+			&msb.MockSandboxHandle{Name_: projectVM, Status_: msb.SandboxStatusStopped},
+			&msb.MockSandboxHandle{Name_: taskVM, Status_: msb.SandboxStatusStopped},
 			// A foreign sandbox must never enter the plan.
-			&msb.MockSandboxHandle{Name_: "builder-vm", Status_: msbSdk.SandboxStatusRunning},
+			&msb.MockSandboxHandle{Name_: "builder-vm", Status_: msb.SandboxStatusRunning},
 		},
 	})
 
@@ -120,7 +118,7 @@ func TestExecuteRemovesVolumeThenState(t *testing.T) {
 	stateFile := filepath.Join(state.KeyDir(agentKey), "state.yaml")
 
 	var statePresentAtVolumeRemoval bool
-	vm := &msb.MockSandboxHandle{Name_: slug + "-opencode", Status_: msbSdk.SandboxStatusStopped}
+	vm := &msb.MockSandboxHandle{Name_: slug + "-opencode", Status_: msb.SandboxStatusStopped}
 	mock := &msb.MockMsbClient{
 		Volumes:   []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volumeName}},
 		Sandboxes: []msb.SandboxHandle{vm},
@@ -171,7 +169,7 @@ func TestExecuteFailsClosedOnCorruptState(t *testing.T) {
 	}
 	stateFile := filepath.Join(state.KeyDir(agentKey), "state.yaml")
 
-	vm := &msb.MockSandboxHandle{Name_: slug + "-opencode", Status_: msbSdk.SandboxStatusStopped}
+	vm := &msb.MockSandboxHandle{Name_: slug + "-opencode", Status_: msb.SandboxStatusStopped}
 	mock := &msb.MockMsbClient{
 		Volumes:   []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volumeName}},
 		Sandboxes: []msb.SandboxHandle{vm},
@@ -210,7 +208,7 @@ func TestExecuteRefusesRunningSandboxWithoutForce(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	const slug = "purge-running-1mjusbm3wikhb0"
 	volumeName := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
-	vm := &msb.MockSandboxHandle{Name_: slug + "-opencode", Status_: msbSdk.SandboxStatusRunning}
+	vm := &msb.MockSandboxHandle{Name_: slug + "-opencode", Status_: msb.SandboxStatusRunning}
 	mock := &msb.MockMsbClient{
 		Volumes:   []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volumeName}},
 		Sandboxes: []msb.SandboxHandle{vm},
@@ -268,7 +266,7 @@ func TestExecuteDryRunDeletesNothing(t *testing.T) {
 	stateFile := filepath.Join(state.KeyDir(agentKey), "state.yaml")
 	seedAdoptionClaim(t, slug, "opencode", "checkout-slug", "legacy-volume")
 
-	vm := &msb.MockSandboxHandle{Name_: slug + "-opencode", Status_: msbSdk.SandboxStatusStopped}
+	vm := &msb.MockSandboxHandle{Name_: slug + "-opencode", Status_: msb.SandboxStatusStopped}
 	mock := &msb.MockMsbClient{
 		Volumes:   []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: volumeName}},
 		Images:    []msb.ImageHandle{&msb.MockImageHandle{Reference_: imageRef}},
@@ -373,8 +371,8 @@ func TestPlanRemovalScopesToAgent(t *testing.T) {
 			&msb.MockImageHandle{Reference_: piImage},
 		},
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{Name_: opencodeVM, Status_: msbSdk.SandboxStatusStopped},
-			&msb.MockSandboxHandle{Name_: piVM, Status_: msbSdk.SandboxStatusStopped},
+			&msb.MockSandboxHandle{Name_: opencodeVM, Status_: msb.SandboxStatusStopped},
+			&msb.MockSandboxHandle{Name_: piVM, Status_: msb.SandboxStatusStopped},
 		},
 	})
 

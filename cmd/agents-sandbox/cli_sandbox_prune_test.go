@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -17,7 +15,7 @@ import (
 func TestSandboxPruneNonInteractiveRequiresYes(t *testing.T) {
 	vm := &msb.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
-		Status_:    msbSdk.SandboxStatusStopped,
+		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 	}
 	m := &msb.MockMsbClient{}
@@ -38,7 +36,7 @@ func TestSandboxPruneNonInteractiveRequiresYes(t *testing.T) {
 func TestSandboxPruneDryRunSkipsConfirmation(t *testing.T) {
 	vm := &msb.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
-		Status_:    msbSdk.SandboxStatusStopped,
+		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 	}
 	m := &msb.MockMsbClient{}
@@ -67,7 +65,7 @@ func TestSandboxPrune(t *testing.T) {
 			Sandboxes: []msb.SandboxHandle{
 				&msb.MockSandboxHandle{
 					Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
-					Status_:    msbSdk.SandboxStatusStopped,
+					Status_:    msb.SandboxStatusStopped,
 					UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 				},
 			},
@@ -88,7 +86,7 @@ func TestSandboxPruneFormatJSON(t *testing.T) {
 		Sandboxes: []msb.SandboxHandle{
 			&msb.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
-				Status_:    msbSdk.SandboxStatusStopped,
+				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 			},
 		},
