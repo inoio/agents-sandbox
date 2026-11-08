@@ -1,4 +1,4 @@
-memory: 8G
+memory: 10240M
 tmp-size: 6G
 workspace-quota: 100G
 disk-size: 50G
