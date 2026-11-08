@@ -17,10 +17,10 @@ currency.
 Issue #196 narrows the adapter to that contract. Phase 0 (dead surface + the `realVolumeHandle`
 silent-zero fix), Phase 1 (role interfaces), Phase 2 (launcher-owned option types), Phase 3
 (launcher-owned value types and lifecycle enums), Phase 4a (the launcher-owned creation model) and
-Phase 4b (the launcher-owned read-back config model) have all landed. The SDK is now an
-implementation detail of `internal/sandbox/msb` alone, with `internal/sandbox/runtime` the one
-documented residue. The sections below are the durable contract, stated as the end state; the
-"Status" note at the end records what is already true.
+Phase 4b (the launcher-owned read-back config model) have all landed, followed by the runtime-residue
+follow-up that re-homed the runtime install/version surface behind `msb`. The SDK is now an
+implementation detail of `internal/sandbox/msb` alone, with no exceptions. The sections below are the
+durable contract, stated as the end state; the "Status" note at the end records what is already true.
 
 ## Roles and composites
 
@@ -69,11 +69,12 @@ provider-owned split avoids an adapter per consumer.
   `msb.SandboxStatus` string-mirrors `msbSdk.SandboxStatus` so `string(x)` and `==` keep working), and
   the sync guards below cover them.
 - **Target.** No production file outside `internal/sandbox/msb` imports `msbSdk`, pinned by
-  `phase4_boundary_test.go`. The one accepted residue is `internal/sandbox/runtime`'s
-  `SDKVersion`/`RuntimeConfig`/`EnsureRuntime`/`InstallRuntime` install surface, which has no
-  launcher-owned equivalent. `storage`, `pressure`, `resourceproposal`, `image` and `session` were
-  the first to drop it (`phase3_boundary_test.go`); `reconfig`, `prepare`, `vm`, `volume` and
-  `pruning` dropped it with the Phase-4b read-back model.
+  `phase4_boundary_test.go` (no residue: the boundary has zero exemptions). `storage`, `pressure`,
+  `resourceproposal`, `image` and `session` were the first to drop it (`phase3_boundary_test.go`);
+  `reconfig`, `prepare`, `vm`, `volume` and `pruning` dropped it with the Phase-4b read-back model;
+  `runtime` dropped it with the runtime-residue follow-up, which moved its
+  `SDKVersion`/`RuntimeConfig`/`EnsureRuntime`/`InstallRuntime` use behind `msb`'s
+  `PinnedRuntimeVersion`/`EnsureRuntime`/`InstallRuntime` wrappers.
 
 ## Upstream sync guards
 
@@ -154,5 +155,10 @@ files.
   `reconfig/plan`, `prepare/reconfig`, `pruning/compact`, `vm/inspect`/`vm_resources`/`vm_name`,
   `volume/operations`, `image/references`, `ports.ResolveServeHostPort` (and the transitional
   `ports.BindingsFromSDK` was removed). `msb.IsJobNotRunning` re-homed `vm/detached`'s `JobError`
-  check, so `vm` is SDK-free. `phase4_boundary_test.go` pins the whole-module end state, with
-  `internal/sandbox/runtime` the documented residue.
+  check, so `vm` is SDK-free. `phase4_boundary_test.go` pins the whole-module end state.
+- **Landed (#196 runtime-residue follow-up):** the last exemption is gone. `msb` gained
+  `PinnedRuntimeVersion()`, `EnsureRuntime(ctx)` and `InstallRuntime(ctx)` (in `msb.go`, reusing the
+  private-home `runtimeConfig()` seam), and `realMsbClient.EnsureInstalled` delegates to
+  `EnsureRuntime`. `internal/sandbox/runtime` retargets its `ensureRuntime`/`installRuntime` seams at
+  those wrappers, drops its `msbSdk` import and `runtimeConfig()`, and `phase4_boundary_test.go` scans
+  with zero residue, with `TestSDKBoundaryDetectsAnImporter` as the positive control.
