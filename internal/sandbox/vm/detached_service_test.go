@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -46,7 +44,7 @@ func TestEnsureDetachedServiceKillsStaleThenLaunchesAndAwaits(t *testing.T) {
 			sequence = append(sequence, "launch")
 			return &msb.MockJob{}, nil
 		},
-		Jobs: []msbSdk.JobInfo{
+		Jobs: []msb.JobInfo{
 			{ID: "stale", Command: []string{"env", "AGENTS_SANDBOX_DETACHED_JOB=dockerd", "dockerd"}},
 		},
 		GetJobFn: func(context.Context, string) (msb.Job, error) {
@@ -139,7 +137,7 @@ func TestEnsureDetachedServiceLaunchArgsErrorAborts(t *testing.T) {
 	stale := &msb.MockJob{}
 	sb := &msb.MockSandbox{
 		ExecDetachedCalls: calls,
-		Jobs:              []msbSdk.JobInfo{{ID: "stale", Command: []string{"dockerd"}}},
+		Jobs:              []msb.JobInfo{{ID: "stale", Command: []string{"dockerd"}}},
 		GetJobFn:          func(context.Context, string) (msb.Job, error) { return stale, nil },
 	}
 	service := testDetachedService()

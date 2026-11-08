@@ -11,9 +11,9 @@ import (
 // detached processes (dockerd, the agent serve daemon). Closing a job detaches
 // the handle; it never terminates the process.
 type Job interface {
-	Inspect(ctx context.Context) (*msbSdk.JobInfo, error)
+	Inspect(ctx context.Context) (*JobInfo, error)
 	Kill(ctx context.Context) error
-	Logs(ctx context.Context, options msbSdk.JobLogOptions) ([]msbSdk.JobLogEntry, error)
+	Logs(ctx context.Context, query JobLogQuery) ([]JobLogEntry, error)
 	Close() error
 }
 
@@ -65,14 +65,22 @@ var (
 	realJobClose   = (*msbSdk.Job).Close
 )
 
-func (j realJob) Inspect(ctx context.Context) (*msbSdk.JobInfo, error) {
-	return realJobInspect(j.job, ctx)
+func (j realJob) Inspect(ctx context.Context) (*JobInfo, error) {
+	info, err := realJobInspect(j.job, ctx)
+	if err != nil {
+		return nil, err
+	}
+	return jobInfoFrom(info), nil
 }
 
 func (j realJob) Kill(ctx context.Context) error { return realJobKill(j.job, ctx) }
 
-func (j realJob) Logs(ctx context.Context, options msbSdk.JobLogOptions) ([]msbSdk.JobLogEntry, error) {
-	return realJobLogs(j.job, ctx, options)
+func (j realJob) Logs(ctx context.Context, query JobLogQuery) ([]JobLogEntry, error) {
+	entries, err := realJobLogs(j.job, ctx, jobLogOptions(query))
+	if err != nil {
+		return nil, err
+	}
+	return jobLogEntriesFrom(entries), nil
 }
 
 func (j realJob) Close() error { return realJobClose(j.job) }

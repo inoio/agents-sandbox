@@ -666,7 +666,7 @@ func TestRealJobDelegates(t *testing.T) {
 			return want, nil
 		}
 		got, err := (realJob{}).Inspect(ctx)
-		if err != nil || got != want {
+		if err != nil || got == nil || got.ID != want.ID {
 			t.Fatalf("Inspect() = (%v, %v), want (%v, nil)", got, err, want)
 		}
 	})
@@ -691,7 +691,7 @@ func TestRealJobDelegates(t *testing.T) {
 			called = true
 			return []msbSdk.JobLogEntry{{Data: []byte("x")}}, nil
 		}
-		got, err := (realJob{}).Logs(ctx, msbSdk.JobLogOptions{})
+		got, err := (realJob{}).Logs(ctx, JobLogQuery{})
 		if err != nil || !called || len(got) != 1 {
 			t.Fatalf("Logs() = (%v, %v), called=%v; want one entry", got, err, called)
 		}
@@ -1559,7 +1559,7 @@ func TestRealSandboxMetricsAndLogsDelegation(t *testing.T) {
 			return want, nil
 		}
 		got, err := (realSandbox{}).Metrics(ctx)
-		if err != nil || got != want || !called {
+		if err != nil || got == nil || got.MemoryBytes != want.MemoryBytes || !called {
 			t.Fatalf("Metrics() = (%v, %v), called=%v; want (want, nil, true)", got, err, called)
 		}
 	})
@@ -1576,7 +1576,7 @@ func TestRealSandboxMetricsAndLogsDelegation(t *testing.T) {
 			return want, nil
 		}
 		got, err := (realSandbox{}).Logs(ctx, LogQuery{Tail: 7})
-		if err != nil || len(got) != 1 || got[0].Source != msbSdk.LogSourceSystem || gotOpts.Tail != 7 {
+		if err != nil || len(got) != 1 || got[0].Source != LogSourceSystem || gotOpts.Tail != 7 {
 			t.Fatalf("Logs() = (%v, %v), opts=%+v; want one system entry, tail 7", got, err, gotOpts)
 		}
 	})
@@ -1594,7 +1594,7 @@ func TestRealSandboxHandleMetricsAndLogsDelegation(t *testing.T) {
 			return want, nil
 		}
 		got, err := h.Metrics(ctx)
-		if err != nil || got != want {
+		if err != nil || got == nil || got.MemoryLimitBytes != want.MemoryLimitBytes {
 			t.Fatalf("Metrics() = (%v, %v); want (want, nil)", got, err)
 		}
 	})
@@ -1618,7 +1618,7 @@ func TestRealSandboxHandleMetricsAndLogsDelegation(t *testing.T) {
 func TestMockSandboxMetricsAndLogs(t *testing.T) {
 	ctx := context.Background()
 
-	sb := &MockSandbox{MetricsResult: &msbSdk.Metrics{MemoryBytes: 1}}
+	sb := &MockSandbox{MetricsResult: &Metrics{MemoryBytes: 1}}
 	got, err := sb.Metrics(ctx)
 	if err != nil || got.MemoryBytes != 1 {
 		t.Fatalf("Metrics() = (%v, %v); want MemoryBytes 1", got, err)
@@ -1629,7 +1629,7 @@ func TestMockSandboxMetricsAndLogs(t *testing.T) {
 		t.Fatalf("Metrics() error = %v; want boom", err)
 	}
 
-	entries := []msbSdk.LogEntry{{Source: msbSdk.LogSourceSystem}}
+	entries := []LogEntry{{Source: LogSourceSystem}}
 	logSB := &MockSandbox{LogsResult: entries}
 	gotEntries, err := logSB.Logs(ctx, LogQuery{Tail: 3})
 	if err != nil || len(gotEntries) != 1 {
@@ -1646,7 +1646,7 @@ func TestMockSandboxMetricsAndLogs(t *testing.T) {
 func TestMockSandboxHandleMetricsAndLogs(t *testing.T) {
 	ctx := context.Background()
 
-	h := &MockSandboxHandle{MetricsResult: &msbSdk.Metrics{MemoryLimitBytes: 2}}
+	h := &MockSandboxHandle{MetricsResult: &Metrics{MemoryLimitBytes: 2}}
 	got, err := h.Metrics(ctx)
 	if err != nil || got.MemoryLimitBytes != 2 {
 		t.Fatalf("Metrics() = (%v, %v); want MemoryLimitBytes 2", got, err)
@@ -1657,7 +1657,7 @@ func TestMockSandboxHandleMetricsAndLogs(t *testing.T) {
 		t.Fatalf("Metrics() error = %v; want boom", err)
 	}
 
-	logHandle := &MockSandboxHandle{LogsResult: []msbSdk.LogEntry{{Source: msbSdk.LogSourceSystem}}}
+	logHandle := &MockSandboxHandle{LogsResult: []LogEntry{{Source: LogSourceSystem}}}
 	gotEntries, err := logHandle.Logs(ctx, LogQuery{Tail: 9})
 	if err != nil || len(gotEntries) != 1 {
 		t.Fatalf("Logs() = (%v, %v); want one entry, nil", gotEntries, err)

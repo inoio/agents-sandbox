@@ -35,14 +35,14 @@ type MockDetachedCall struct {
 
 // MockJob is a test double for Job. Nil callbacks return the configured fields.
 type MockJob struct {
-	Info      *msbSdk.JobInfo
+	Info      *JobInfo
 	InfoErr   error
-	Logs_     []msbSdk.JobLogEntry
+	Logs_     []JobLogEntry
 	LogsErr   error
 	KillErr   error
 	CloseErr  error
-	InspectFn func(ctx context.Context) (*msbSdk.JobInfo, error)
-	LogsFn    func(ctx context.Context, opts msbSdk.JobLogOptions) ([]msbSdk.JobLogEntry, error)
+	InspectFn func(ctx context.Context) (*JobInfo, error)
+	LogsFn    func(ctx context.Context, query JobLogQuery) ([]JobLogEntry, error)
 	DidKill   bool
 	DidClose  bool
 }
@@ -50,7 +50,7 @@ type MockJob struct {
 // Compile-time check.
 var _ Job = (*MockJob)(nil)
 
-func (m *MockJob) Inspect(ctx context.Context) (*msbSdk.JobInfo, error) {
+func (m *MockJob) Inspect(ctx context.Context) (*JobInfo, error) {
 	if m.InspectFn != nil {
 		return m.InspectFn(ctx)
 	}
@@ -62,9 +62,9 @@ func (m *MockJob) Kill(context.Context) error {
 	return m.KillErr
 }
 
-func (m *MockJob) Logs(ctx context.Context, opts msbSdk.JobLogOptions) ([]msbSdk.JobLogEntry, error) {
+func (m *MockJob) Logs(ctx context.Context, query JobLogQuery) ([]JobLogEntry, error) {
 	if m.LogsFn != nil {
-		return m.LogsFn(ctx, opts)
+		return m.LogsFn(ctx, query)
 	}
 	return m.Logs_, m.LogsErr
 }
@@ -415,9 +415,9 @@ type MockSandboxHandle struct {
 	CompactResult    *msbSdk.DiskCompactionResult
 	CompactErr       error
 	CompactedOptions []CompactionRequest
-	MetricsResult    *msbSdk.Metrics
+	MetricsResult    *Metrics
 	MetricsErr       error
-	LogsResult       []msbSdk.LogEntry
+	LogsResult       []LogEntry
 	LogsErr          error
 	LogsOptions      []LogQuery
 }
@@ -546,11 +546,11 @@ func (m *MockSandboxHandle) Compact(
 	return m.CompactResult, m.CompactErr
 }
 
-func (m *MockSandboxHandle) Metrics(_ context.Context) (*msbSdk.Metrics, error) {
+func (m *MockSandboxHandle) Metrics(_ context.Context) (*Metrics, error) {
 	return m.MetricsResult, m.MetricsErr
 }
 
-func (m *MockSandboxHandle) Logs(_ context.Context, query LogQuery) ([]msbSdk.LogEntry, error) {
+func (m *MockSandboxHandle) Logs(_ context.Context, query LogQuery) ([]LogEntry, error) {
 	m.LogsOptions = append(m.LogsOptions, query)
 	return m.LogsResult, m.LogsErr
 }
@@ -590,8 +590,8 @@ type MockSandbox struct {
 	ExecDetachedCalls *[]MockDetachedCall
 	Job_              Job
 	GetJobFn          func(ctx context.Context, id string) (Job, error)
-	ListJobsFn        func(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error)
-	Jobs              []msbSdk.JobInfo
+	ListJobsFn        func(ctx context.Context, query JobQuery) ([]JobInfo, error)
+	Jobs              []JobInfo
 
 	// StreamHandle_ is returned by ShellStream when ShellStreamFn is nil. When
 	// both are nil, a no-op handle is returned that immediately reports
@@ -604,9 +604,9 @@ type MockSandbox struct {
 	ShellStreamCmds *[]string
 
 	// Metrics and Logs back the seam's resource-pressure reads.
-	MetricsResult *msbSdk.Metrics
+	MetricsResult *Metrics
 	MetricsErr    error
-	LogsResult    []msbSdk.LogEntry
+	LogsResult    []LogEntry
 	LogsErr       error
 	// LogsOptions records every LogQuery passed to Logs.
 	LogsOptions []LogQuery
@@ -681,7 +681,7 @@ func (m *MockSandbox) GetJob(ctx context.Context, id string) (Job, error) {
 	return &MockJob{}, nil
 }
 
-func (m *MockSandbox) ListJobs(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error) {
+func (m *MockSandbox) ListJobs(ctx context.Context, query JobQuery) ([]JobInfo, error) {
 	if m.ListJobsFn != nil {
 		return m.ListJobsFn(ctx, query)
 	}
@@ -726,11 +726,11 @@ func (m *MockSandbox) Destroy(_ context.Context, _ LifecycleOptions) error {
 func (m *MockSandbox) DidDestroy() bool { return m.Destroyed }
 func (m *MockSandbox) Close() error     { return m.CloseErr }
 
-func (m *MockSandbox) Metrics(_ context.Context) (*msbSdk.Metrics, error) {
+func (m *MockSandbox) Metrics(_ context.Context) (*Metrics, error) {
 	return m.MetricsResult, m.MetricsErr
 }
 
-func (m *MockSandbox) Logs(_ context.Context, query LogQuery) ([]msbSdk.LogEntry, error) {
+func (m *MockSandbox) Logs(_ context.Context, query LogQuery) ([]LogEntry, error) {
 	m.LogsOptions = append(m.LogsOptions, query)
 	return m.LogsResult, m.LogsErr
 }
@@ -786,8 +786,8 @@ type SandboxOpts struct {
 	ExecDetachedCalls *[]MockDetachedCall
 	Job_              Job
 	GetJobFn          func(ctx context.Context, id string) (Job, error)
-	ListJobsFn        func(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error)
-	Jobs              []msbSdk.JobInfo
+	ListJobsFn        func(ctx context.Context, query JobQuery) ([]JobInfo, error)
+	Jobs              []JobInfo
 }
 
 // NewMockSandbox returns a Sandbox configured by opts. Zero/unset values produce

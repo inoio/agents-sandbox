@@ -4,8 +4,6 @@ import (
 	"context"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -17,8 +15,8 @@ import (
 // MemoryReads abstracts the live-VM reads a memory-hit detection performs. Both
 // msb.Sandbox and msb.SandboxHandle satisfy it.
 type MemoryReads interface {
-	Metrics(ctx context.Context) (*msbSdk.Metrics, error)
-	Logs(ctx context.Context, query msb.LogQuery) ([]msbSdk.LogEntry, error)
+	Metrics(ctx context.Context) (*msb.Metrics, error)
+	Logs(ctx context.Context, query msb.LogQuery) ([]msb.LogEntry, error)
 }
 
 // MemoryLimits are the figures a memory offer is bounded by; a zero CurrentMiB
@@ -179,7 +177,7 @@ func DetectAndOfferMemoryRaise(
 // withBootStart extends a tail read holding an OOM line with everything logged
 // before it, so the kill's boot start, which its fingerprint is anchored at, is
 // present even when it has left the tail. A failed read keeps the tail.
-func withBootStart(ctx context.Context, r MemoryReads, tail []msbSdk.LogEntry, ui termio.Logger) []msbSdk.LogEntry {
+func withBootStart(ctx context.Context, r MemoryReads, tail []msb.LogEntry, ui termio.Logger) []msb.LogEntry {
 	loggedAt, found := pressure.NewestOOMLoggedAt(tail)
 	if !found {
 		// gomutants:disable-next-line RETURN_ZERO reason="a tail without an OOM line yields no kill whether it is returned or dropped"
@@ -204,7 +202,7 @@ func withBootStart(ctx context.Context, r MemoryReads, tail []msbSdk.LogEntry, u
 func reArmAnsweredHeadroom(
 	k state.Key,
 	marker *state.ResourcePressureState,
-	metrics *msbSdk.Metrics,
+	metrics *msb.Metrics,
 	threshold pressure.Threshold,
 	ui termio.Logger,
 ) *state.ResourcePressureState {

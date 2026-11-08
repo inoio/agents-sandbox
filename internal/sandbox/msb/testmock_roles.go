@@ -335,7 +335,7 @@ func (m *MockSandboxAttacher) Detach(ctx context.Context) error {
 type MockSandboxJobs struct {
 	ExecDetachedFn func(ctx context.Context, cmd string, args []string, spec JobSpec) (Job, error)
 	GetJobFn       func(ctx context.Context, id string) (Job, error)
-	ListJobsFn     func(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error)
+	ListJobsFn     func(ctx context.Context, query JobQuery) ([]JobInfo, error)
 }
 
 // Compile-time check.
@@ -363,7 +363,7 @@ func (m *MockSandboxJobs) GetJob(ctx context.Context, id string) (Job, error) {
 }
 
 // ListJobs implements SandboxJobs.
-func (m *MockSandboxJobs) ListJobs(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error) {
+func (m *MockSandboxJobs) ListJobs(ctx context.Context, query JobQuery) ([]JobInfo, error) {
 	if m.ListJobsFn != nil {
 		return m.ListJobsFn(ctx, query)
 	}
@@ -373,15 +373,15 @@ func (m *MockSandboxJobs) ListJobs(ctx context.Context, query JobQuery) ([]msbSd
 // MockSandboxObserver is a test double for SandboxObserver. A nil callback
 // means return the zero value with no error.
 type MockSandboxObserver struct {
-	MetricsFn func(ctx context.Context) (*msbSdk.Metrics, error)
-	LogsFn    func(ctx context.Context, query LogQuery) ([]msbSdk.LogEntry, error)
+	MetricsFn func(ctx context.Context) (*Metrics, error)
+	LogsFn    func(ctx context.Context, query LogQuery) ([]LogEntry, error)
 }
 
 // Compile-time check.
 var _ SandboxObserver = (*MockSandboxObserver)(nil)
 
 // Metrics implements SandboxObserver.
-func (m *MockSandboxObserver) Metrics(ctx context.Context) (*msbSdk.Metrics, error) {
+func (m *MockSandboxObserver) Metrics(ctx context.Context) (*Metrics, error) {
 	if m.MetricsFn != nil {
 		return m.MetricsFn(ctx)
 	}
@@ -389,7 +389,7 @@ func (m *MockSandboxObserver) Metrics(ctx context.Context) (*msbSdk.Metrics, err
 }
 
 // Logs implements SandboxObserver.
-func (m *MockSandboxObserver) Logs(ctx context.Context, query LogQuery) ([]msbSdk.LogEntry, error) {
+func (m *MockSandboxObserver) Logs(ctx context.Context, query LogQuery) ([]LogEntry, error) {
 	if m.LogsFn != nil {
 		return m.LogsFn(ctx, query)
 	}

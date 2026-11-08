@@ -130,7 +130,7 @@ func TestJobsRoundTrip(t *testing.T) {
 	awaitExit(t, ctx, job)
 }
 
-func jobInfoByID(infos []msbSdk.JobInfo, id string) *msbSdk.JobInfo {
+func jobInfoByID(infos []JobInfo, id string) *JobInfo {
 	for i := range infos {
 		if infos[i].ID == id {
 			return &infos[i]
@@ -143,7 +143,7 @@ func awaitLogs(t *testing.T, ctx context.Context, job Job, sentinel string) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
 	for {
-		entries, err := job.Logs(ctx, msbSdk.JobLogOptions{})
+		entries, err := job.Logs(ctx, JobLogQuery{})
 		if err != nil {
 			t.Fatalf("Logs: %v", err)
 		}

@@ -36,6 +36,12 @@ func TestSDKConfigFieldsAreClassified(t *testing.T) {
 			storagePruneProjected,
 			storagePruneNotModeled,
 		},
+		{
+			"JobLogOptions",
+			reflect.TypeFor[msbSdk.JobLogOptions](),
+			jobLogProjected,
+			jobLogNotModeled,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -394,5 +400,153 @@ func TestPruneReportFromProjectsTotals(t *testing.T) {
 func TestPruneReportFromNilIsNil(t *testing.T) {
 	if got := pruneReportFrom(nil); got != nil {
 		t.Errorf("pruneReportFrom(nil) = %v, want nil", got)
+	}
+}
+
+func TestJobLogOptionsProjectQuery(t *testing.T) {
+	if got := jobLogOptions(JobLogQuery{}); !reflect.DeepEqual(got, msbSdk.JobLogOptions{}) {
+		t.Errorf("zero query = %+v, want zero JobLogOptions", got)
+	}
+
+	tail := uint(100)
+	since := int64(10)
+	until := int64(20)
+	query := JobLogQuery{
+		Tail:       &tail,
+		Since:      &since,
+		Until:      &until,
+		Sources:    []string{"stdout", "system"},
+		FromCursor: "abc",
+		Follow:     true,
+	}
+	want := msbSdk.JobLogOptions{
+		Tail:       &tail,
+		Since:      &since,
+		Until:      &until,
+		Sources:    []string{"stdout", "system"},
+		FromCursor: "abc",
+		Follow:     true,
+	}
+	if got := jobLogOptions(query); !reflect.DeepEqual(got, want) {
+		t.Errorf("jobLogOptions() = %+v, want %+v", got, want)
+	}
+}
+
+func TestJobInfoFromProjectsFields(t *testing.T) {
+	pid := uint32(42)
+	code := 7
+	startedAt := int64(1000)
+	finishedAt := int64(2000)
+	message := "boom"
+	info := jobInfoFrom(&msbSdk.JobInfo{
+		ID:            "job-1",
+		RuntimeBootID: "boot-1",
+		Command:       []string{"dockerd"},
+		State:         "exited",
+		TTY:           true,
+		StdinClosed:   true,
+		PID:           &pid,
+		CreatedAt:     500,
+		StartedAt:     &startedAt,
+		FinishedAt:    &finishedAt,
+		ExitCode:      &code,
+		TimedOut:      true,
+		Failure:       &msbSdk.ExecFailure{Kind: "spawn", Message: "no such file", Path: "/bin/x"},
+		Error:         &message,
+	})
+	if info == nil {
+		t.Fatal("jobInfoFrom() = nil, want info")
+	}
+	if info.ID != "job-1" || info.RuntimeBootID != "boot-1" || info.State != "exited" ||
+		!info.TTY || !info.StdinClosed || info.PID != &pid || info.CreatedAt != 500 ||
+		info.StartedAt != &startedAt || info.FinishedAt != &finishedAt ||
+		info.ExitCode != &code || !info.TimedOut || info.Error != &message {
+		t.Errorf("jobInfoFrom() = %+v, want every scalar field projected", info)
+	}
+	if len(info.Command) != 1 || info.Command[0] != "dockerd" {
+		t.Errorf("Command = %v, want [dockerd]", info.Command)
+	}
+	if info.Failure == nil || info.Failure.Kind != "spawn" || info.Failure.Message != "no such file" ||
+		info.Failure.Path != "/bin/x" {
+		t.Errorf("Failure = %+v, want the projected failure", info.Failure)
+	}
+}
+
+func TestJobInfoFromNilIsNil(t *testing.T) {
+	if got := jobInfoFrom(nil); got != nil {
+		t.Errorf("jobInfoFrom(nil) = %v, want nil", got)
+	}
+}
+
+func TestJobInfosFromPreservesNil(t *testing.T) {
+	if got := jobInfosFrom(nil); got != nil {
+		t.Errorf("jobInfosFrom(nil) = %v, want nil", got)
+	}
+	got := jobInfosFrom([]msbSdk.JobInfo{{ID: "a"}, {ID: "b"}})
+	if len(got) != 2 || got[0].ID != "a" || got[1].ID != "b" {
+		t.Errorf("jobInfosFrom() = %+v, want two entries", got)
+	}
+}
+
+func TestJobLogEntriesFromPreservesNilAndFields(t *testing.T) {
+	if got := jobLogEntriesFrom(nil); got != nil {
+		t.Errorf("jobLogEntriesFrom(nil) = %v, want nil", got)
+	}
+	got := jobLogEntriesFrom([]msbSdk.JobLogEntry{{
+		Timestamp: 5,
+		Source:    "stdout",
+		Data:      []byte("hi"),
+		Cursor:    "c1",
+	}})
+	if len(got) != 1 || got[0].Timestamp != 5 || got[0].Source != "stdout" ||
+		string(got[0].Data) != "hi" || got[0].Cursor != "c1" {
+		t.Errorf("jobLogEntriesFrom() = %+v, want every field projected", got)
+	}
+}
+
+func TestLogEntriesFromPreservesNilAndFields(t *testing.T) {
+	if got := logEntriesFrom(nil); got != nil {
+		t.Errorf("logEntriesFrom(nil) = %v, want nil", got)
+	}
+	session := uint64(9)
+	got := logEntriesFrom([]msbSdk.LogEntry{{
+		Source:    msbSdk.LogSourceSystem,
+		SessionID: &session,
+		Timestamp: time.Unix(3, 0),
+		Data:      []byte("oom"),
+		Cursor:    "c2",
+	}})
+	if len(got) != 1 || got[0].Source != LogSourceSystem || got[0].SessionID != &session ||
+		!got[0].Timestamp.Equal(time.Unix(3, 0)) || string(got[0].Data) != "oom" || got[0].Cursor != "c2" {
+		t.Errorf("logEntriesFrom() = %+v, want every field projected", got)
+	}
+}
+
+func TestMetricsFromProjectsFieldsAndNil(t *testing.T) {
+	if got := metricsFrom(nil); got != nil {
+		t.Errorf("metricsFrom(nil) = %v, want nil", got)
+	}
+	available := uint64(1)
+	limit := uint64(4096 << 20)
+	metrics := metricsFrom(&msbSdk.Metrics{
+		CPUPercent:           12.5,
+		VCPUTimeNs:           99,
+		MemoryBytes:          1024,
+		MemoryAvailableBytes: &available,
+		MemoryLimitBytes:     limit,
+		DiskReadBytes:        1,
+		DiskWriteBytes:       2,
+		NetRxBytes:           3,
+		NetTxBytes:           4,
+		Uptime:               5 * time.Second,
+	})
+	if metrics == nil {
+		t.Fatal("metricsFrom() = nil, want metrics")
+	}
+	if metrics.CPUPercent != 12.5 || metrics.VCPUTimeNs != 99 || metrics.MemoryBytes != 1024 ||
+		metrics.MemoryAvailableBytes != &available || metrics.MemoryLimitBytes != limit ||
+		metrics.DiskReadBytes != 1 || metrics.DiskWriteBytes != 2 ||
+		metrics.NetRxBytes != 3 || metrics.NetTxBytes != 4 || metrics.Uptime != 5*time.Second {
+		t.Errorf("metricsFrom() = %+v, want every field projected", metrics)
 	}
 }

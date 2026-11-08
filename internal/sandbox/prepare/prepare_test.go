@@ -186,7 +186,7 @@ func TestEnsureVMStageAppliesThePlannedMemory(t *testing.T) {
 		Status_:       msbSdk.SandboxStatusRunning,
 		ConnectSb:     &msb.MockSandbox{},
 		Cfg:           &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 16384},
-		MetricsResult: &msbSdk.Metrics{MemoryLimitBytes: 8192 << 20},
+		MetricsResult: &msb.Metrics{MemoryLimitBytes: 8192 << 20},
 		Plan:          &msbSdk.SandboxModificationPlan{},
 	}
 	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
@@ -1118,7 +1118,7 @@ func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
 				Status_:    msbSdk.SandboxStatusRunning,
 				ConnectSb:  &msb.MockSandbox{},
 				Cfg:        &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 16384},
-				LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(time.Now().Add(-time.Hour))},
+				LogsResult: []msb.LogEntry{memoryRaiseLogEntry(time.Now().Add(-time.Hour))},
 			}
 			client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 				return handle, nil
@@ -1176,7 +1176,7 @@ func TestPlanReconfigStageSkipVMSuppressesMemoryRaise(t *testing.T) {
 		Status_:    msbSdk.SandboxStatusRunning,
 		ConnectSb:  &msb.MockSandbox{},
 		Cfg:        &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192},
-		LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(kill)},
+		LogsResult: []msb.LogEntry{memoryRaiseLogEntry(kill)},
 	}
 	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return handle, nil

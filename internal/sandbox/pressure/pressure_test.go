@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 func TestFromSystemLogParsesOOMKill(t *testing.T) {
-	entries := []msbSdk.LogEntry{{
-		Source: msbSdk.LogSourceSystem,
+	entries := []msb.LogEntry{{
+		Source: msb.LogSourceSystem,
 		Data:   []byte("[    3.046430] Out of memory: Killed process 468 (cat) total-vm:1628kB, oom_score_adj:0"),
 	}}
 	got, _, ok := FromSystemLogAt(entries)
@@ -25,8 +25,8 @@ func TestFromSystemLogParsesOOMKill(t *testing.T) {
 }
 
 func TestFromSystemLogIgnoresNonOOM(t *testing.T) {
-	entries := []msbSdk.LogEntry{{
-		Source: msbSdk.LogSourceSystem,
+	entries := []msb.LogEntry{{
+		Source: msb.LogSourceSystem,
 		Data:   []byte("reboot: Power down"),
 	}}
 	if _, _, ok := FromSystemLogAt(entries); ok {
@@ -37,8 +37,8 @@ func TestFromSystemLogIgnoresNonOOM(t *testing.T) {
 // TestFromSystemLogAtUnterminatedVictim pins the parseVictim no-closing-paren
 // branch: a truncated kill line still reports the hit, with an empty victim.
 func TestFromSystemLogAtUnterminatedVictim(t *testing.T) {
-	entries := []msbSdk.LogEntry{{
-		Source: msbSdk.LogSourceSystem,
+	entries := []msb.LogEntry{{
+		Source: msb.LogSourceSystem,
 		Data:   []byte("Out of memory: Killed process 42 (opencode"),
 	}}
 	got, _, ok := FromSystemLogAt(entries)
@@ -50,8 +50,8 @@ func TestFromSystemLogAtUnterminatedVictim(t *testing.T) {
 // TestFromSystemLogAtNoVictimParen pins the parseVictim no-open-paren branch:
 // a kill line without a victim still reports the hit with an empty victim.
 func TestFromSystemLogAtNoVictimParen(t *testing.T) {
-	entries := []msbSdk.LogEntry{{
-		Source: msbSdk.LogSourceSystem,
+	entries := []msb.LogEntry{{
+		Source: msb.LogSourceSystem,
 		Data:   []byte("Out of memory: Killed process 42"),
 	}}
 	got, _, ok := FromSystemLogAt(entries)
@@ -71,14 +71,14 @@ func TestBytesToMiBSaturates(t *testing.T) {
 func TestFromSystemLogReturnsNewest(t *testing.T) {
 	early := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	late := early.Add(time.Minute)
-	entries := []msbSdk.LogEntry{
+	entries := []msb.LogEntry{
 		{
-			Source:    msbSdk.LogSourceSystem,
+			Source:    msb.LogSourceSystem,
 			Timestamp: early,
 			Data:      []byte("Out of memory: Killed process 1 (early-victim)"),
 		},
 		{
-			Source:    msbSdk.LogSourceSystem,
+			Source:    msb.LogSourceSystem,
 			Timestamp: late,
 			Data:      []byte("Out of memory: Killed process 2 (late-victim)"),
 		},
@@ -92,9 +92,9 @@ func TestFromSystemLogReturnsNewest(t *testing.T) {
 func TestFromSystemLogAtReturnsNewestTimestamp(t *testing.T) {
 	early := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	late := early.Add(time.Minute)
-	entries := []msbSdk.LogEntry{
-		{Source: msbSdk.LogSourceSystem, Timestamp: early, Data: []byte("Out of memory: Killed process 1 (early)")},
-		{Source: msbSdk.LogSourceSystem, Timestamp: late, Data: []byte("Out of memory: Killed process 2 (late)")},
+	entries := []msb.LogEntry{
+		{Source: msb.LogSourceSystem, Timestamp: early, Data: []byte("Out of memory: Killed process 1 (early)")},
+		{Source: msb.LogSourceSystem, Timestamp: late, Data: []byte("Out of memory: Killed process 2 (late)")},
 	}
 	got, at, ok := FromSystemLogAt(entries)
 	if !ok || got.Victim != "late" || !at.Equal(late) {
@@ -103,8 +103,8 @@ func TestFromSystemLogAtReturnsNewestTimestamp(t *testing.T) {
 }
 
 func TestFromSystemLogAtNoHit(t *testing.T) {
-	_, at, ok := FromSystemLogAt([]msbSdk.LogEntry{{
-		Source: msbSdk.LogSourceSystem,
+	_, at, ok := FromSystemLogAt([]msb.LogEntry{{
+		Source: msb.LogSourceSystem,
 		Data:   []byte("reboot: Power down"),
 	}})
 	if ok {
@@ -118,10 +118,10 @@ func TestFromSystemLogAtNoHit(t *testing.T) {
 func TestFromSystemLogAtSkipsOlderAndNonOOMEntries(t *testing.T) {
 	late := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 	early := late.Add(-time.Hour)
-	entries := []msbSdk.LogEntry{
-		{Source: msbSdk.LogSourceSystem, Timestamp: late, Data: []byte("Out of memory: Killed process 2 (late)")},
-		{Source: msbSdk.LogSourceSystem, Timestamp: early, Data: []byte("Out of memory: Killed process 1 (early)")},
-		{Source: msbSdk.LogSourceSystem, Timestamp: late, Data: []byte("reboot: Power down")},
+	entries := []msb.LogEntry{
+		{Source: msb.LogSourceSystem, Timestamp: late, Data: []byte("Out of memory: Killed process 2 (late)")},
+		{Source: msb.LogSourceSystem, Timestamp: early, Data: []byte("Out of memory: Killed process 1 (early)")},
+		{Source: msb.LogSourceSystem, Timestamp: late, Data: []byte("reboot: Power down")},
 	}
 	got, at, ok := FromSystemLogAt(entries)
 	if !ok || got.Victim != "late" || !at.Equal(late) {
@@ -130,8 +130,8 @@ func TestFromSystemLogAtSkipsOlderAndNonOOMEntries(t *testing.T) {
 }
 
 // systemEntry builds a system-log entry the runtime wrote at loggedAt.
-func systemEntry(loggedAt time.Time, data string) msbSdk.LogEntry {
-	return msbSdk.LogEntry{Source: msbSdk.LogSourceSystem, Timestamp: loggedAt, Data: []byte(data)}
+func systemEntry(loggedAt time.Time, data string) msb.LogEntry {
+	return msb.LogEntry{Source: msb.LogSourceSystem, Timestamp: loggedAt, Data: []byte(data)}
 }
 
 const (
@@ -147,11 +147,11 @@ const (
 // offered again after the VM idle-stops.
 func TestFromSystemLogAtFingerprintIsStableAcrossStop(t *testing.T) {
 	bootStart := time.Date(2026, 11, 5, 20, 30, 19, 677_000_000, time.UTC)
-	running := []msbSdk.LogEntry{
+	running := []msb.LogEntry{
 		systemEntry(bootStart, bootStartLine),
 		systemEntry(bootStart.Add(1900*time.Millisecond), oomKillLine),
 	}
-	stopped := []msbSdk.LogEntry{
+	stopped := []msb.LogEntry{
 		systemEntry(bootStart, bootStartLine),
 		systemEntry(bootStart.Add(4*time.Second), "INFO microsandbox_runtime::runner::vm: graceful shutdown requested"),
 		systemEntry(bootStart.Add(4*time.Second+9*time.Millisecond), oomKillLine),
@@ -173,7 +173,7 @@ func TestFromSystemLogAtFingerprintIsStableAcrossStop(t *testing.T) {
 func TestFromSystemLogAtOrdersKillsAcrossBoots(t *testing.T) {
 	firstBoot := time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
 	secondBoot := firstBoot.Add(time.Hour)
-	entries := []msbSdk.LogEntry{
+	entries := []msb.LogEntry{
 		systemEntry(firstBoot, bootStartLine),
 		systemEntry(firstBoot.Add(time.Minute), "[  900.000000] Out of memory: Killed process 9 (first) total-vm:1kB"),
 		systemEntry(secondBoot, bootStartLine),
@@ -185,7 +185,7 @@ func TestFromSystemLogAtOrdersKillsAcrossBoots(t *testing.T) {
 
 	// The read's order must not matter: each kill is anchored at the latest
 	// boot start logged before it.
-	for _, read := range [][]msbSdk.LogEntry{entries, {entries[2], entries[0], entries[1], entries[3]}} {
+	for _, read := range [][]msb.LogEntry{entries, {entries[2], entries[0], entries[1], entries[3]}} {
 		got, at, ok := FromSystemLogAt(read)
 
 		if !ok || got.Victim != "second" || !at.Equal(secondBoot.Add(500*time.Millisecond)) {
@@ -202,22 +202,22 @@ func TestFromSystemLogAtFallsBackToTheLoggedTime(t *testing.T) {
 	loggedAt := time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name    string
-		entries []msbSdk.LogEntry
+		entries []msb.LogEntry
 	}{
-		{name: "no boot start", entries: []msbSdk.LogEntry{systemEntry(loggedAt, oomKillLine)}},
-		{name: "boot start after the kill", entries: []msbSdk.LogEntry{
+		{name: "no boot start", entries: []msb.LogEntry{systemEntry(loggedAt, oomKillLine)}},
+		{name: "boot start after the kill", entries: []msb.LogEntry{
 			systemEntry(loggedAt, oomKillLine),
 			systemEntry(loggedAt.Add(time.Second), bootStartLine),
 		}},
-		{name: "no uptime prefix", entries: []msbSdk.LogEntry{
+		{name: "no uptime prefix", entries: []msb.LogEntry{
 			systemEntry(loggedAt.Add(-time.Minute), bootStartLine),
 			systemEntry(loggedAt, "Out of memory: Killed process 464 (opencode) total-vm:1kB"),
 		}},
-		{name: "malformed uptime", entries: []msbSdk.LogEntry{
+		{name: "malformed uptime", entries: []msb.LogEntry{
 			systemEntry(loggedAt.Add(-time.Minute), bootStartLine),
 			systemEntry(loggedAt, "[ uptime] Out of memory: Killed process 464 (opencode) total-vm:1kB"),
 		}},
-		{name: "unterminated uptime", entries: []msbSdk.LogEntry{
+		{name: "unterminated uptime", entries: []msb.LogEntry{
 			systemEntry(loggedAt.Add(-time.Minute), bootStartLine),
 			systemEntry(loggedAt, "[    1.5 Out of memory: Killed process 464 (opencode) total-vm:1kB"),
 		}},
@@ -235,7 +235,7 @@ func TestFromSystemLogAtFallsBackToTheLoggedTime(t *testing.T) {
 // newest time the runtime logged an OOM line.
 func TestNewestOOMLoggedAt(t *testing.T) {
 	first := time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
-	entries := []msbSdk.LogEntry{
+	entries := []msb.LogEntry{
 		systemEntry(first, oomKillLine),
 		systemEntry(first.Add(2*time.Minute), oomKillLine),
 		systemEntry(first.Add(time.Minute), oomKillLine),
@@ -266,7 +266,7 @@ func TestUnderPressurePercentOrFloor(t *testing.T) {
 }
 
 func TestFromMetricsHeadroom(t *testing.T) {
-	m := &msbSdk.Metrics{MemoryBytes: 950 << 20, MemoryLimitBytes: 1000 << 20}
+	m := &msb.Metrics{MemoryBytes: 950 << 20, MemoryLimitBytes: 1000 << 20}
 	got, ok := FromMetrics(m, DefaultThreshold())
 	if !ok || got.Kind != KindMemory || got.Evidence != EvidenceHeadroom {
 		t.Fatalf("%+v ok=%v", got, ok)
@@ -274,13 +274,13 @@ func TestFromMetricsHeadroom(t *testing.T) {
 }
 
 func TestFromMetricsZeroLimit(t *testing.T) {
-	if _, ok := FromMetrics(&msbSdk.Metrics{MemoryBytes: 1, MemoryLimitBytes: 0}, DefaultThreshold()); ok {
+	if _, ok := FromMetrics(&msb.Metrics{MemoryBytes: 1, MemoryLimitBytes: 0}, DefaultThreshold()); ok {
 		t.Fatal("zero limit must not trip")
 	}
 }
 
 func TestFromMetricsBelowThreshold(t *testing.T) {
-	m := &msbSdk.Metrics{MemoryBytes: 512 << 20, MemoryLimitBytes: 4096 << 20}
+	m := &msb.Metrics{MemoryBytes: 512 << 20, MemoryLimitBytes: 4096 << 20}
 	if _, ok := FromMetrics(m, DefaultThreshold()); ok {
 		t.Fatal("50% with 3.5 GiB free must not trip")
 	}
@@ -296,15 +296,15 @@ func TestDefaultThresholdValues(t *testing.T) {
 func TestRecoveredBelowReArmLevel(t *testing.T) {
 	threshold := DefaultThreshold()
 	// Plenty of free memory (> the floor) and usage below the re-arm fraction.
-	if !Recovered(&msbSdk.Metrics{MemoryBytes: 5000 << 20, MemoryLimitBytes: 8192 << 20}, threshold) {
+	if !Recovered(&msb.Metrics{MemoryBytes: 5000 << 20, MemoryLimitBytes: 8192 << 20}, threshold) {
 		t.Error("61% usage with 3 GiB free should be recovered")
 	}
 	// Below the trip level but above the re-arm fraction: the percent trigger
 	// has not cleared its hysteresis band.
-	if Recovered(&msbSdk.Metrics{MemoryBytes: 6800 << 20, MemoryLimitBytes: 8192 << 20}, threshold) {
+	if Recovered(&msb.Metrics{MemoryBytes: 6800 << 20, MemoryLimitBytes: 8192 << 20}, threshold) {
 		t.Error("83% usage is above the re-arm level and must not report recovered")
 	}
-	if Recovered(&msbSdk.Metrics{MemoryBytes: 7800 << 20, MemoryLimitBytes: 8192 << 20}, threshold) {
+	if Recovered(&msb.Metrics{MemoryBytes: 7800 << 20, MemoryLimitBytes: 8192 << 20}, threshold) {
 		t.Error("95% usage is not recovered")
 	}
 }
@@ -318,7 +318,7 @@ func TestRecoveredFloorTrippedButBelowReArm(t *testing.T) {
 	threshold := DefaultThreshold()
 	// 1000 MiB limit, 700 MiB used: 70% (< 80% re-arm) but only 300 MiB free
 	// (≤ 1024 floor), so still under pressure.
-	if Recovered(&msbSdk.Metrics{MemoryBytes: 700 << 20, MemoryLimitBytes: 1000 << 20}, threshold) {
+	if Recovered(&msb.Metrics{MemoryBytes: 700 << 20, MemoryLimitBytes: 1000 << 20}, threshold) {
 		t.Error("a floor-tripped snapshot below the re-arm level must not report recovered")
 	}
 }
@@ -328,10 +328,10 @@ func TestRecoveredUnknownLimit(t *testing.T) {
 	if Recovered(nil, threshold) {
 		t.Error("a nil snapshot must not report recovered")
 	}
-	if Recovered(&msbSdk.Metrics{MemoryLimitBytes: 0}, threshold) {
+	if Recovered(&msb.Metrics{MemoryLimitBytes: 0}, threshold) {
 		t.Error("an unknown limit must not report recovered")
 	}
-	if Recovered(&msbSdk.Metrics{MemoryLimitBytes: 1}, threshold) {
+	if Recovered(&msb.Metrics{MemoryLimitBytes: 1}, threshold) {
 		t.Error("a sub-MiB limit must not report recovered")
 	}
 }
@@ -340,7 +340,7 @@ func TestMemoryLimitMiB(t *testing.T) {
 	if got := MemoryLimitMiB(nil); got != 0 {
 		t.Errorf("MemoryLimitMiB(nil) = %d, want 0", got)
 	}
-	if got := MemoryLimitMiB(&msbSdk.Metrics{MemoryLimitBytes: 4096 << 20}); got != 4096 {
+	if got := MemoryLimitMiB(&msb.Metrics{MemoryLimitBytes: 4096 << 20}); got != 4096 {
 		t.Errorf("MemoryLimitMiB = %d, want 4096", got)
 	}
 }
@@ -360,11 +360,11 @@ func TestFromSystemLogAtScansPastNonOOMAndOlderEntries(t *testing.T) {
 	mid := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	early := mid.Add(-time.Hour)
 	late := mid.Add(time.Hour)
-	entries := []msbSdk.LogEntry{
-		{Source: msbSdk.LogSourceSystem, Timestamp: mid, Data: []byte("Out of memory: Killed process 1 (mid)")},
-		{Source: msbSdk.LogSourceSystem, Timestamp: mid, Data: []byte("reboot: Power down")},
-		{Source: msbSdk.LogSourceSystem, Timestamp: early, Data: []byte("Out of memory: Killed process 2 (early)")},
-		{Source: msbSdk.LogSourceSystem, Timestamp: late, Data: []byte("Out of memory: Killed process 3 (late)")},
+	entries := []msb.LogEntry{
+		{Source: msb.LogSourceSystem, Timestamp: mid, Data: []byte("Out of memory: Killed process 1 (mid)")},
+		{Source: msb.LogSourceSystem, Timestamp: mid, Data: []byte("reboot: Power down")},
+		{Source: msb.LogSourceSystem, Timestamp: early, Data: []byte("Out of memory: Killed process 2 (early)")},
+		{Source: msb.LogSourceSystem, Timestamp: late, Data: []byte("Out of memory: Killed process 3 (late)")},
 	}
 	got, at, ok := FromSystemLogAt(entries)
 	if !ok || got.Victim != "late" || !at.Equal(late) {
@@ -437,7 +437,7 @@ func TestFromMetricsNilSnapshot(t *testing.T) {
 func TestRecoveredAtExactReArmLevelIsNotRecovered(t *testing.T) {
 	// 80% usage, 2 GiB free: the floor does not fire, so only the re-arm
 	// comparison decides.
-	if Recovered(&msbSdk.Metrics{MemoryBytes: 8000 << 20, MemoryLimitBytes: 10000 << 20}, DefaultThreshold()) {
+	if Recovered(&msb.Metrics{MemoryBytes: 8000 << 20, MemoryLimitBytes: 10000 << 20}, DefaultThreshold()) {
 		t.Error("usage exactly at the re-arm level must not report recovered")
 	}
 }

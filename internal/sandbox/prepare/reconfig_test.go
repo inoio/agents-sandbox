@@ -1881,24 +1881,24 @@ func TestBootMaxMemoryGrew(t *testing.T) {
 
 // memoryRaiseLogEntry builds a system-log entry carrying a parseable OOM kill
 // naming the harness.
-func memoryRaiseLogEntry(at time.Time) msbSdk.LogEntry {
-	return msbSdk.LogEntry{
-		Source:    msbSdk.LogSourceSystem,
+func memoryRaiseLogEntry(at time.Time) msb.LogEntry {
+	return msb.LogEntry{
+		Source:    msb.LogSourceSystem,
 		Timestamp: at,
 		Data:      []byte("Out of memory: Killed process 42 (opencode) total-vm:1kB"),
 	}
 }
 
 // trippedMetrics is a snapshot at ~95% memory usage, above the 90% trip level.
-func trippedMetrics() *msbSdk.Metrics {
-	return &msbSdk.Metrics{MemoryBytes: 7800 << 20, MemoryLimitBytes: 8192 << 20}
+func trippedMetrics() *msb.Metrics {
+	return &msb.Metrics{MemoryBytes: 7800 << 20, MemoryLimitBytes: 8192 << 20}
 }
 
 // floorTrippedMetrics is a snapshot at ~79% memory usage: below the 80% re-arm
 // level but with only ~861 MiB free, so the absolute floor (1024 MiB) still
 // trips. It is the overlap that must not count as recovery.
-func floorTrippedMetrics() *msbSdk.Metrics {
-	return &msbSdk.Metrics{MemoryBytes: 3235 << 20, MemoryLimitBytes: 4096 << 20}
+func floorTrippedMetrics() *msb.Metrics {
+	return &msb.Metrics{MemoryBytes: 3235 << 20, MemoryLimitBytes: 4096 << 20}
 }
 
 // seedEmptyHomeState creates the key's state file with no recorded pressure, so
@@ -1967,7 +1967,7 @@ func TestDetectAndOfferMemoryRaiseNewerOOMOffersAndPersists(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}
 	handle := &msb.MockSandboxHandle{
 		Cfg:        cfg,
-		LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(newKill)},
+		LogsResult: []msb.LogEntry{memoryRaiseLogEntry(newKill)},
 	}
 	var selects int
 	ui := &termio.Mock{
@@ -2004,7 +2004,7 @@ func TestDetectAndOfferMemoryRaiseDeclineDoesNotReOfferSameOOM(t *testing.T) {
 	seedEmptyHomeState(t, k)
 	kill := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096}
-	handle := &msb.MockSandboxHandle{Cfg: cfg, LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(kill)}}
+	handle := &msb.MockSandboxHandle{Cfg: cfg, LogsResult: []msb.LogEntry{memoryRaiseLogEntry(kill)}}
 	var selects int
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
@@ -2090,7 +2090,7 @@ func TestDetectAndOfferMemoryRaiseNonInteractiveRecordsAndLaterOffers(t *testing
 	seedEmptyHomeState(t, k)
 	kill := time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC)
 	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096}
-	handle := &msb.MockSandboxHandle{Cfg: cfg, LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(kill)}}
+	handle := &msb.MockSandboxHandle{Cfg: cfg, LogsResult: []msb.LogEntry{memoryRaiseLogEntry(kill)}}
 	live := liveProjectVM{handle: handle, config: cfg}
 
 	detectAndOfferMemoryRaise(
@@ -2199,7 +2199,7 @@ func TestDetectAndOfferMemoryRaiseCurrentMemoryFallbacks(t *testing.T) {
 		k := testVMKey()
 		seedEmptyHomeState(t, k)
 		handle := &msb.MockSandboxHandle{
-			LogsResult:    []msbSdk.LogEntry{memoryRaiseLogEntry(time.Now())},
+			LogsResult:    []msb.LogEntry{memoryRaiseLogEntry(time.Now())},
 			MetricsResult: trippedMetrics(),
 		}
 		ui, inputDefault := raiseUI(t)
@@ -2219,7 +2219,7 @@ func TestDetectAndOfferMemoryRaiseCurrentMemoryFallbacks(t *testing.T) {
 		seedEmptyHomeState(t, k)
 		kill := time.Now()
 		handle := &msb.MockSandboxHandle{
-			LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(kill)},
+			LogsResult: []msb.LogEntry{memoryRaiseLogEntry(kill)},
 		}
 		var selects int
 		ui := &termio.Mock{
@@ -2268,7 +2268,7 @@ func TestDetectAndOfferMemoryRaisePromptErrorIsBestEffort(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096}
 	handle := &msb.MockSandboxHandle{
 		Cfg:        cfg,
-		LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(time.Now())},
+		LogsResult: []msb.LogEntry{memoryRaiseLogEntry(time.Now())},
 	}
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
@@ -2296,7 +2296,7 @@ func TestDetectAndOfferMemoryRaisePersistErrorWarns(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096}
 	handle := &msb.MockSandboxHandle{
 		Cfg:        cfg,
-		LogsResult: []msbSdk.LogEntry{memoryRaiseLogEntry(time.Now())},
+		LogsResult: []msb.LogEntry{memoryRaiseLogEntry(time.Now())},
 	}
 	ui := &termio.Mock{
 		IsInteractiveResult: true,

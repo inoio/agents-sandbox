@@ -64,6 +64,21 @@ var (
 	// storagePruneNotModeled names msbSdk.StoragePruneOptions fields the
 	// launcher deliberately drops. Empty today: every field is projected.
 	storagePruneNotModeled = map[string]string{}
+
+	// jobLogProjected names every field of msbSdk.JobLogOptions the launcher
+	// projects onto JobLogQuery.
+	jobLogProjected = map[string]struct{}{
+		"Tail":       {},
+		"Since":      {},
+		"Until":      {},
+		"Sources":    {},
+		"FromCursor": {},
+		"Follow":     {},
+	}
+
+	// jobLogNotModeled names msbSdk.JobLogOptions fields the launcher
+	// deliberately drops. Empty today: every field is projected.
+	jobLogNotModeled = map[string]string{}
 )
 
 // execOptions translates an ExecRequest into the SDK exec options. Options
@@ -274,5 +289,129 @@ func pruneReportFrom(report *msbSdk.StoragePruneReport) *PruneReport {
 		FilesRemoved:           report.FilesRemoved,
 		LogicalBytesRemoved:    report.LogicalBytesRemoved,
 		PhysicalBytesReclaimed: report.PhysicalBytesReclaimed,
+	}
+}
+
+// jobLogOptions translates a JobLogQuery into the SDK detached-job log filter.
+func jobLogOptions(q JobLogQuery) msbSdk.JobLogOptions {
+	return msbSdk.JobLogOptions{
+		Tail:       q.Tail,
+		Since:      q.Since,
+		Until:      q.Until,
+		Sources:    q.Sources,
+		FromCursor: q.FromCursor,
+		Follow:     q.Follow,
+	}
+}
+
+// jobInfoFrom translates the SDK job metadata field for field. A nil info
+// stays nil.
+func jobInfoFrom(info *msbSdk.JobInfo) *JobInfo {
+	if info == nil {
+		return nil
+	}
+	return &JobInfo{
+		ID:            info.ID,
+		RuntimeBootID: info.RuntimeBootID,
+		Command:       info.Command,
+		State:         info.State,
+		TTY:           info.TTY,
+		StdinClosed:   info.StdinClosed,
+		PID:           info.PID,
+		CreatedAt:     info.CreatedAt,
+		StartedAt:     info.StartedAt,
+		FinishedAt:    info.FinishedAt,
+		ExitCode:      info.ExitCode,
+		TimedOut:      info.TimedOut,
+		Failure:       execFailureFrom(info.Failure),
+		Error:         info.Error,
+	}
+}
+
+// jobInfosFrom translates a slice of SDK job metadata, preserving nil as nil.
+func jobInfosFrom(infos []msbSdk.JobInfo) []JobInfo {
+	if infos == nil {
+		return nil
+	}
+	out := make([]JobInfo, len(infos))
+	for i, info := range infos {
+		out[i] = *jobInfoFrom(&info)
+	}
+	return out
+}
+
+// execFailureFrom translates the SDK's structured launch failure field for
+// field. A nil failure stays nil.
+func execFailureFrom(failure *msbSdk.ExecFailure) *ExecFailure {
+	if failure == nil {
+		return nil
+	}
+	return &ExecFailure{
+		Kind:      failure.Kind,
+		Errno:     failure.Errno,
+		ErrnoName: failure.ErrnoName,
+		Message:   failure.Message,
+		Path:      failure.Path,
+	}
+}
+
+// jobLogEntriesFrom translates a slice of SDK job log entries, preserving nil
+// as nil.
+func jobLogEntriesFrom(entries []msbSdk.JobLogEntry) []JobLogEntry {
+	if entries == nil {
+		return nil
+	}
+	out := make([]JobLogEntry, len(entries))
+	for i, entry := range entries {
+		out[i] = JobLogEntry{
+			Timestamp: entry.Timestamp,
+			Source:    entry.Source,
+			Data:      entry.Data,
+			Cursor:    entry.Cursor,
+		}
+	}
+	return out
+}
+
+// logEntriesFrom translates a slice of SDK sandbox log entries, preserving nil
+// as nil.
+func logEntriesFrom(entries []msbSdk.LogEntry) []LogEntry {
+	if entries == nil {
+		return nil
+	}
+	out := make([]LogEntry, len(entries))
+	for i, entry := range entries {
+		out[i] = LogEntry{
+			Source:    LogSource(entry.Source),
+			SessionID: entry.SessionID,
+			Timestamp: entry.Timestamp,
+			Data:      entry.Data,
+			Cursor:    entry.Cursor,
+		}
+	}
+	return out
+}
+
+// metricsFrom translates the SDK metrics snapshot field for field. A nil
+// snapshot stays nil.
+func metricsFrom(metrics *msbSdk.Metrics) *Metrics {
+	if metrics == nil {
+		return nil
+	}
+	return &Metrics{
+		CPUPercent:              metrics.CPUPercent,
+		VCPUTimeNs:              metrics.VCPUTimeNs,
+		MemoryBytes:             metrics.MemoryBytes,
+		MemoryAvailableBytes:    metrics.MemoryAvailableBytes,
+		MemoryHostResidentBytes: metrics.MemoryHostResidentBytes,
+		MemoryLimitBytes:        metrics.MemoryLimitBytes,
+		DiskReadBytes:           metrics.DiskReadBytes,
+		DiskWriteBytes:          metrics.DiskWriteBytes,
+		NetRxBytes:              metrics.NetRxBytes,
+		NetTxBytes:              metrics.NetTxBytes,
+		UpperUsedBytes:          metrics.UpperUsedBytes,
+		UpperFreeBytes:          metrics.UpperFreeBytes,
+		UpperHostAllocatedBytes: metrics.UpperHostAllocatedBytes,
+		Uptime:                  metrics.Uptime,
 	}
 }

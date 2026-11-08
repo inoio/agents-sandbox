@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 )
@@ -26,7 +24,7 @@ type countingMetricsSandbox struct {
 	firstSample chan struct{}
 }
 
-func (c *countingMetricsSandbox) Metrics(ctx context.Context) (*msbSdk.Metrics, error) {
+func (c *countingMetricsSandbox) Metrics(ctx context.Context) (*msb.Metrics, error) {
 	c.mu.Lock()
 	c.calls++
 	first := c.calls == 1
@@ -71,7 +69,7 @@ type gatedMetricsSandbox struct {
 	enterOnce sync.Once
 }
 
-func (g *gatedMetricsSandbox) Metrics(ctx context.Context) (*msbSdk.Metrics, error) {
+func (g *gatedMetricsSandbox) Metrics(ctx context.Context) (*msb.Metrics, error) {
 	g.enterOnce.Do(func() { close(g.entered) })
 	<-g.release
 	return g.MockSandbox.Metrics(ctx)
@@ -84,7 +82,7 @@ func TestPressureWatcherStopWaitsForInFlightSample(t *testing.T) {
 	stubPressureWatchInterval(t)
 	sb := &gatedMetricsSandbox{
 		MockSandbox: &msb.MockSandbox{
-			MetricsResult: &msbSdk.Metrics{MemoryBytes: 950 << 20, MemoryLimitBytes: 1000 << 20},
+			MetricsResult: &msb.Metrics{MemoryBytes: 950 << 20, MemoryLimitBytes: 1000 << 20},
 		},
 		entered: make(chan struct{}),
 		release: make(chan struct{}),
@@ -115,7 +113,7 @@ func TestPressureWatcherTripsAndStoresHeadroom(t *testing.T) {
 	stubPressureWatchInterval(t)
 	sb := &countingMetricsSandbox{
 		MockSandbox: &msb.MockSandbox{
-			MetricsResult: &msbSdk.Metrics{MemoryBytes: 950 << 20, MemoryLimitBytes: 1000 << 20},
+			MetricsResult: &msb.Metrics{MemoryBytes: 950 << 20, MemoryLimitBytes: 1000 << 20},
 		},
 		firstSample: make(chan struct{}),
 	}
@@ -158,7 +156,7 @@ func TestPressureWatcherStopIsPromptAndStopsSampling(t *testing.T) {
 	stubPressureWatchInterval(t)
 	sb := &countingMetricsSandbox{
 		MockSandbox: &msb.MockSandbox{
-			MetricsResult: &msbSdk.Metrics{MemoryBytes: 1 << 20, MemoryLimitBytes: 1000 << 20},
+			MetricsResult: &msb.Metrics{MemoryBytes: 1 << 20, MemoryLimitBytes: 1000 << 20},
 		},
 		firstSample: make(chan struct{}),
 	}
@@ -186,7 +184,7 @@ func TestPressureWatcherStopIsPromptAndStopsSampling(t *testing.T) {
 
 func TestPressureWatcherIgnoresUnusableSnapshot(t *testing.T) {
 	stubPressureWatchInterval(t)
-	cases := map[string]*msbSdk.Metrics{
+	cases := map[string]*msb.Metrics{
 		"nil metrics": nil,
 		"zero limit":  {MemoryBytes: 1, MemoryLimitBytes: 0},
 	}
