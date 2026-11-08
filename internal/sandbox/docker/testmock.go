@@ -62,16 +62,16 @@ func newDefaultDockerClient() *MockDockerClient {
 }
 
 type mockErrors struct {
-	buildErr, inspectErr, saveErr, removeErr error
+	buildErr, inspectErr, saveErr error
 }
 
 func newDefaultErrorDockerClient() *MockDockerClient {
-	return newErrorDockerClient(mockErrors{nil, nil, nil, nil})
+	return newErrorDockerClient(mockErrors{nil, nil, nil})
 }
 
 func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 	defaultErr := errors.New("cannot connect to Docker daemon")
-	buildErr, inspectErr, saveErr, removeErr := defaultErr, defaultErr, defaultErr, defaultErr
+	buildErr, inspectErr, saveErr := defaultErr, defaultErr, defaultErr
 	if mockErrs.buildErr != nil {
 		buildErr = mockErrs.buildErr
 	}
@@ -80,9 +80,6 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 	}
 	if mockErrs.saveErr != nil {
 		saveErr = mockErrs.saveErr
-	}
-	if mockErrs.removeErr != nil {
-		removeErr = mockErrs.removeErr
 	}
 	return &MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, options client.ImageBuildOptions) (client.ImageBuildResult, error) {
@@ -100,10 +97,6 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 		ImagePullFn: func(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 			return nil, defaultErr
 		},
-		ImageRemoveFn: func(_ context.Context, _ string, options client.ImageRemoveOptions) (client.ImageRemoveResult, error) {
-			return client.ImageRemoveResult{}, removeErr
-		},
-		ImageTagFn: nil,
 		ImagePruneFn: func(_ context.Context, _ client.ImagePruneOptions) (client.ImagePruneResult, error) {
 			return client.ImagePruneResult{}, defaultErr
 		},
@@ -122,8 +115,6 @@ type MockDockerClient struct {
 	ImageListFn    func(ctx context.Context, opts client.ImageListOptions) (client.ImageListResult, error)
 	ImageSaveFn    func(ctx context.Context, refs []string, saveOpts ...client.ImageSaveOption) (client.ImageSaveResult, error)
 	ImagePullFn    func(ctx context.Context, ref string, opts client.ImagePullOptions) (client.ImagePullResponse, error)
-	ImageRemoveFn  func(ctx context.Context, ref string, options client.ImageRemoveOptions) (client.ImageRemoveResult, error)
-	ImageTagFn     func(ctx context.Context, opts client.ImageTagOptions) (client.ImageTagResult, error)
 	ImagePruneFn   func(ctx context.Context, opts client.ImagePruneOptions) (client.ImagePruneResult, error)
 	PingFn         func(ctx context.Context, opts client.PingOptions) (client.PingResult, error)
 }
@@ -177,17 +168,6 @@ func (m *MockDockerClient) ImageSave(
 	return io.NopCloser(nil), nil
 }
 
-func (m *MockDockerClient) ImageRemove(
-	ctx context.Context,
-	ref string,
-	opts client.ImageRemoveOptions,
-) (client.ImageRemoveResult, error) {
-	if m.ImageRemoveFn != nil {
-		return m.ImageRemoveFn(ctx, ref, opts)
-	}
-	return client.ImageRemoveResult{}, nil
-}
-
 func (m *MockDockerClient) ImagePull(
 	ctx context.Context,
 	ref string,
@@ -197,13 +177,6 @@ func (m *MockDockerClient) ImagePull(
 		return m.ImagePullFn(ctx, ref, opts)
 	}
 	return PullResponse{Body: strings.NewReader("")}, nil
-}
-
-func (m *MockDockerClient) ImageTag(ctx context.Context, opts client.ImageTagOptions) (client.ImageTagResult, error) {
-	if m.ImageTagFn != nil {
-		return m.ImageTagFn(ctx, opts)
-	}
-	return client.ImageTagResult{}, nil
 }
 
 func (m *MockDockerClient) ImagePrune(
@@ -281,20 +254,6 @@ func (f *failFastDockerClient) ImagePull(
 ) (client.ImagePullResponse, error) {
 	f.mustMock()
 	return nil, nil
-}
-
-func (f *failFastDockerClient) ImageRemove(
-	_ context.Context,
-	_ string,
-	_ client.ImageRemoveOptions,
-) (client.ImageRemoveResult, error) {
-	f.mustMock()
-	return client.ImageRemoveResult{}, nil
-}
-
-func (f *failFastDockerClient) ImageTag(_ context.Context, _ client.ImageTagOptions) (client.ImageTagResult, error) {
-	f.mustMock()
-	return client.ImageTagResult{}, nil
 }
 
 func (f *failFastDockerClient) ImagePrune(

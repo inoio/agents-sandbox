@@ -1021,37 +1021,6 @@ func TestEnsureImageWarnsOnEveryEnsure(t *testing.T) {
 	}
 }
 
-func TestEnsureImageDoesNotCreateDigestAliasTag(t *testing.T) {
-	a, _ := agent.Lookup("opencode")
-	configpaths.WithMockConfigPaths(t)
-	withMockAgentVersion(t, "1.2.3")
-	var tagged []string
-	m := &docker.MockDockerClient{
-		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
-			return client.ImageInspectResult{ID: "sha256:abc123"}, nil
-		},
-		ImageTagFn: func(_ context.Context, opts client.ImageTagOptions) (client.ImageTagResult, error) {
-			tagged = append(tagged, opts.Target)
-			return client.ImageTagResult{}, nil
-		},
-	}
-	docker.WithDockerMock(t, m)
-
-	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	_, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
-		dockerfile,
-		"test-project",
-		BuildOptions{},
-		&termio.Mock{},
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(tagged) != 0 {
-		t.Errorf("expected no digest alias tags, got: %v", tagged)
-	}
-}
-
 func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
 	configpaths.WithMockConfigPaths(t)

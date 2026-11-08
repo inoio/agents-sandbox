@@ -57,8 +57,6 @@ func TestFailFastDockerClientPanics(t *testing.T) {
 		{"ImageList", func() { _, _ = f.ImageList(ctx, client.ImageListOptions{}) }},
 		{"ImageSave", func() { _, _ = f.ImageSave(ctx, nil) }},
 		{"ImagePull", func() { _, _ = f.ImagePull(ctx, "ref", client.ImagePullOptions{}) }},
-		{"ImageRemove", func() { _, _ = f.ImageRemove(ctx, "ref", client.ImageRemoveOptions{}) }},
-		{"ImageTag", func() { _, _ = f.ImageTag(ctx, client.ImageTagOptions{}) }},
 		{"ImagePrune", func() { _, _ = f.ImagePrune(ctx, client.ImagePruneOptions{}) }},
 		{"Ping", func() { _, _ = f.Ping(ctx, client.PingOptions{}) }},
 	}
