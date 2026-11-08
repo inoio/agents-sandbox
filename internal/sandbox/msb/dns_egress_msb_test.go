@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest/runtime"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest/runtime"
 )
 
 // TestNetworkPolicyDNSResolution boots a VM per launcher network policy and
