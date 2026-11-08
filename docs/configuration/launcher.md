@@ -201,7 +201,27 @@ session. The change type determines the mechanism used to apply the new settings
 | `network`         | VM recreate    | Network policy is baked in at VM creation, so a change recreates the VM. Home volume is preserved.        |
 | `mounts`          | VM recreate    | Host bind mounts are baked in at VM creation.                                                           |
 
-When **no other client** is attached, config changes apply immediately.
+When **no other client** is attached, config changes apply immediately. The launcher prints a warning that lists each
+change with what changed, so a change you did not make is visible before the agent starts:
+
+```text
+Project VM config changed; rebuilding the project VM (no other client attached):
+  - host bind mounts:
+      - /home/dev/.m2 ← /home/you/.m2 (read-write)
+      + /host ← / (read-write)
+  - network policy:
+      - profile: none
+      + profile: public
+  - secrets:
+      + GH_TOKEN: hosts api.github.com
+```
+
+Lines starting with `-` were in effect before; lines starting with `+` take effect now. The list shows mount sources,
+network entries, published ports, the hosts a secret is sent to, environment variable names, and the agent config
+files that changed. It never shows an environment or secret value: a change to a value alone reads `values changed` (for secrets, `values
+or other secret settings changed`).
+A sandbox created by an earlier agents-sandbox version has no record of its previous settings, so its first change
+reads `(previous value not recorded)` and lists only the new entries.
 
 Agent/home config files are provisioned into the VM on every startup, so a change is picked up by the next daemon start
 even when the current daemon is kept running. Only the `agent config` change prompts for a daemon restart;

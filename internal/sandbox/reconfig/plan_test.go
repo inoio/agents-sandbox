@@ -3,6 +3,7 @@ package reconfig
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -55,12 +56,16 @@ func TestConfigChangeList(t *testing.T) {
 		{Label: "new-only", New: "b"},
 		{Label: "old-only", Old: "a"},
 		{Label: "label-only"},
+		{Label: "host bind mounts", Details: []string{"- /a ← /x (read-write)", "+ /host ← / (read-write)"}},
 	})
 	want := "Project VM config changed:\n" +
 		"  - image: a → b\n" +
 		"  - new-only\n" +
 		"  - old-only\n" +
-		"  - label-only"
+		"  - label-only\n" +
+		"  - host bind mounts:\n" +
+		"      - /a ← /x (read-write)\n" +
+		"      + /host ← / (read-write)"
 	if got != want {
 		t.Errorf("configChangeList() = %q, want %q", got, want)
 	}
@@ -453,10 +458,10 @@ func TestPlanReconfigChangeFlagsDecideRecreateOrRestart(t *testing.T) {
 		wantRestart  bool
 	}{
 		{name: "nothing changed"},
-		{name: "env", flags: ChangeFlags{Env: true}, wantRecreate: true},
-		{name: "secrets", flags: ChangeFlags{Secrets: true}, wantRecreate: true},
-		{name: "network", flags: ChangeFlags{Network: true}, wantRecreate: true},
-		{name: "agent config", flags: ChangeFlags{AgentConfig: true}, wantRestart: true},
+		{name: "env", flags: ChangeFlags{Env: changedSetting()}, wantRecreate: true},
+		{name: "secrets", flags: ChangeFlags{Secrets: changedSetting()}, wantRecreate: true},
+		{name: "network", flags: ChangeFlags{Network: changedSetting()}, wantRecreate: true},
+		{name: "agent config", flags: ChangeFlags{AgentConfig: []string{agentConfigPath}}, wantRestart: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &msbSdk.SandboxConfig{Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096}
@@ -517,7 +522,7 @@ func TestPlanReconfigNilCfgHomeVolumeSafe(t *testing.T) {
 
 func TestPlanReconfigMountsChangeTriggersRecreate(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{}
-	plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{Mounts: true}, "")
+	plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{Mounts: changedSetting()}, "")
 	if !plan.Recreate {
 		t.Fatal("expected Recreate when host bind mounts change")
 	}
@@ -551,7 +556,13 @@ func TestPlanReconfigAgentConfigSuppressedByRecreate(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
 		Image: naming.ContentImageRef(planSlug, "opencode", "4b8d0e6f2a1c3b57"), CPUs: 4, MemoryMiB: 4096,
 	}
-	plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{AgentConfig: true}, "")
+	plan := PlanReconfig(
+		cfg,
+		planImage(),
+		options.RunOptions{},
+		ChangeFlags{AgentConfig: []string{agentConfigPath}},
+		"",
+	)
 	if !plan.Recreate {
 		t.Fatal("expected a recreate on the image change")
 	}
@@ -572,7 +583,13 @@ func TestPlanReconfigRecreateSuppressesEnvChange(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
 		Image: naming.ContentImageRef(planSlug, "opencode", "4b8d0e6f2a1c3b57"), CPUs: 4, MemoryMiB: 4096,
 	}
-	plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{Env: true, Secrets: true}, "")
+	plan := PlanReconfig(
+		cfg,
+		planImage(),
+		options.RunOptions{},
+		ChangeFlags{Env: changedSetting(), Secrets: changedSetting()},
+		"",
+	)
 	if !plan.Recreate {
 		t.Fatal("expected a recreate on the image change")
 	}
@@ -587,7 +604,13 @@ func TestPlanReconfigAgentConfigAppendsChange(t *testing.T) {
 	cfg := &msbSdk.SandboxConfig{
 		Image: naming.RunnerImageRef(planSlug, "opencode"), CPUs: 4, MemoryMiB: 4096,
 	}
-	plan := PlanReconfig(cfg, planNameImage(), options.RunOptions{}, ChangeFlags{AgentConfig: true}, "")
+	plan := PlanReconfig(
+		cfg,
+		planNameImage(),
+		options.RunOptions{},
+		ChangeFlags{AgentConfig: []string{agentConfigPath}},
+		"",
+	)
 	if !plan.RestartDaemons {
 		t.Fatal("expected a daemon restart for an agent config change")
 	}
@@ -660,7 +683,7 @@ func TestPlanReconfigEnvWithRecreateNoRestartFlag(t *testing.T) {
 		},
 	}
 	// image mismatch triggers recreate, env change would add restartDaemons
-	d := PlanReconfig(cfg, planImage(), options.RunOptions{TmpSize: "4G"}, ChangeFlags{Env: true}, "")
+	d := PlanReconfig(cfg, planImage(), options.RunOptions{TmpSize: "4G"}, ChangeFlags{Env: changedSetting()}, "")
 	if !d.Recreate {
 		t.Error("expected recreate on image mismatch")
 	}
@@ -706,7 +729,7 @@ func TestPlanReconfigMemoryAboveBootMaxSuppressesAgentConfig(t *testing.T) {
 		cfg,
 		planImage(),
 		options.RunOptions{Memory: "16G"},
-		ChangeFlags{AgentConfig: true, BootMaxMemoryGrew: true},
+		ChangeFlags{AgentConfig: []string{agentConfigPath}, BootMaxMemoryGrew: true},
 		"",
 	)
 	if !d.Recreate {
@@ -933,11 +956,15 @@ func TestRootDiskChangeOldValue(t *testing.T) {
 }
 
 func TestPublishReconfigHostPort(t *testing.T) {
-	if hostPort, changed := publishReconfig(options.RunOptions{}, &msbSdk.SandboxConfig{}); hostPort != 0 || changed {
+	if hostPort, _, changed := publishReconfig(
+		options.RunOptions{},
+		&msbSdk.SandboxConfig{},
+	); hostPort != 0 ||
+		changed {
 		t.Errorf("not serve-only: hostPort=%d changed=%v, want 0 false", hostPort, changed)
 	}
 	cfg := &msbSdk.SandboxConfig{PortBindings: ports.ServeOnlyBindings(4097)}
-	if hostPort, changed := publishReconfig(options.RunOptions{ServeOnly: true}, cfg); hostPort != 4097 || changed {
+	if hostPort, _, changed := publishReconfig(options.RunOptions{ServeOnly: true}, cfg); hostPort != 4097 || changed {
 		t.Errorf("serve-only reuse: hostPort=%d changed=%v, want 4097 false", hostPort, changed)
 	}
 }
@@ -1012,8 +1039,8 @@ func TestMemoryAtOrBelowBootMaxStaysLive(t *testing.T) {
 }
 
 // TestResolveReconfigAppliesAloneAndAsksWithAttachedClients pins the apply
-// decision. Without other clients a recreate or restart applies with an
-// informational line. With attached clients the prompt decides: keep defers,
+// decision. Without other clients a recreate or restart applies with a
+// warning listing the changes. With attached clients the prompt decides: keep defers,
 // quit aborts with an error, restart applies a restart, and a failed prompt
 // defers even when it also reports the quit key.
 func TestResolveReconfigAppliesAloneAndAsksWithAttachedClients(t *testing.T) {
@@ -1070,42 +1097,193 @@ func TestResolveReconfigAppliesAloneAndAsksWithAttachedClients(t *testing.T) {
 				t.Errorf("prompted %q, want no prompt", prompt)
 			}
 			appliedAlone := tc.otherClients == 0 && (tc.want.Recreate || tc.want.Restart)
-			if appliedAlone && len(ui.InfoCalls) == 0 {
-				t.Error("expected an informational line when applying alone")
+			if appliedAlone && !strings.Contains(strings.Join(ui.WarnCalls, "\n"), tc.plan.Changes[0].Label) {
+				t.Errorf(
+					"warnings = %q, want one naming the change %q when applying alone",
+					ui.WarnCalls,
+					tc.plan.Changes[0].Label,
+				)
 			}
 		})
 	}
 }
 
-func TestResolveReconfigVerboseReportsRebuildReasons(t *testing.T) {
-	plan := &Plan{
-		Recreate: true,
-		Changes:  []Change{{Label: "image"}, {Label: "secrets"}},
-	}
-	ui := &termio.Mock{}
-	if _, err := ResolveReconfig(context.Background(), ui, plan, 0, plan.Changes); err != nil {
-		t.Fatalf("ResolveReconfig: %v", err)
-	}
-	joined := strings.Join(ui.VerboseCalls, "\n")
-	if !strings.Contains(joined, "rebuild reasons:") ||
-		!strings.Contains(joined, "image") || !strings.Contains(joined, "secrets") {
-		t.Errorf("verbose calls = %v, want the rebuild reasons", ui.VerboseCalls)
+// TestResolveReconfigWarnsWithTheResolvedChangesWhenAlone pins #230's
+// visibility rule: applying without other clients is announced as a warning
+// that carries every change with its resolved values, not as an info line with
+// the reasons hidden behind --verbose.
+func TestResolveReconfigWarnsWithTheResolvedChangesWhenAlone(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		plan *Plan
+		want string
+	}{
+		{
+			name: "rebuild",
+			plan: &Plan{Recreate: true, Changes: []Change{
+				{Label: changeLabelBindMounts, Details: []string{"+ /host ← / (read-write)"}},
+				{Label: "secrets"},
+			}},
+			want: "Project VM config changed; rebuilding the project VM (no other client attached):\n" +
+				"  - host bind mounts:\n" +
+				"      + /host ← / (read-write)\n" +
+				"  - secrets",
+		},
+		{
+			name: "restart",
+			plan: &Plan{RestartDaemons: true, Changes: []Change{
+				{Label: changeLabelAgentConfig, Details: []string{agentConfigPath}},
+			}},
+			want: "Project VM config changed; restarting the agent daemon (no other client attached):\n" +
+				"  - agent config:\n" +
+				"      " + agentConfigPath,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ui := &termio.Mock{}
+			if _, err := ResolveReconfig(context.Background(), ui, tc.plan, 0, tc.plan.Changes); err != nil {
+				t.Fatalf("ResolveReconfig: %v", err)
+			}
+			if len(ui.WarnCalls) != 1 || ui.WarnCalls[0] != tc.want {
+				t.Errorf("warnings = %q, want [%q]", ui.WarnCalls, tc.want)
+			}
+			if len(ui.InfoCalls) != 0 {
+				t.Errorf("info lines = %q, want none", ui.InfoCalls)
+			}
+		})
 	}
 }
 
-func TestResolveReconfigVerboseReportsRestartReasons(t *testing.T) {
-	plan := &Plan{
-		RestartDaemons: true,
-		Changes:        []Change{{Label: "agent config"}},
+// TestSettingChangeShowsTheEntriesThatChanged pins how a fingerprinted
+// setting's change is shown: removed and added entries when the applied ones
+// were recorded, the kind-specific note when only values outside the entries
+// changed, and every desired entry when the previous ones were never recorded.
+func TestSettingChangeShowsTheEntriesThatChanged(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		diff SettingDiff
+		want []string
+	}{
+		{
+			name: "entries added and removed",
+			diff: SettingDiff{Changed: true, AppliedRecorded: true, Applied: []string{"a", "b"}, Desired: []string{"b", "c"}},
+			want: []string{"- a", "+ c"},
+		},
+		{
+			name: "same entries",
+			diff: SettingDiff{Changed: true, AppliedRecorded: true, Applied: []string{"a"}, Desired: []string{"a"}},
+			want: []string{"values changed"},
+		},
+		{
+			name: "previous entries not recorded",
+			diff: SettingDiff{Changed: true, Desired: []string{"a", "b"}},
+			want: []string{"(previous value not recorded)", "+ a", "+ b"},
+		},
+		{
+			name: "everything removed",
+			diff: SettingDiff{Changed: true, AppliedRecorded: true, Applied: []string{"a"}},
+			want: []string{"- a"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := settingChange("label", "values changed", tc.diff)
+			if got.Label != "label" || !slices.Equal(got.Details, tc.want) {
+				t.Errorf("settingChange = %+v, want label with details %q", got, tc.want)
+			}
+		})
 	}
-	ui := &termio.Mock{}
-	if _, err := ResolveReconfig(context.Background(), ui, plan, 0, plan.Changes); err != nil {
-		t.Fatalf("ResolveReconfig: %v", err)
+}
+
+// TestPlanReconfigShowsResolvedValues pins that each change the plan reports
+// carries what changed, so a prompt or warning shows e.g. the host path a new
+// mount exposes rather than a bare label.
+func TestPlanReconfigShowsResolvedValues(t *testing.T) {
+	newMount := SettingDiff{
+		Changed: true, AppliedRecorded: true, Applied: []string{},
+		Desired: []string{"/host ← / (read-write)"},
 	}
-	joined := strings.Join(ui.VerboseCalls, "\n")
-	if !strings.Contains(joined, "restart reasons: agent config") {
-		t.Errorf("verbose calls = %v, want the restart reasons", ui.VerboseCalls)
+	t.Run("mounts", func(t *testing.T) {
+		plan := PlanReconfig(
+			&msbSdk.SandboxConfig{},
+			planImage(),
+			options.RunOptions{},
+			ChangeFlags{Mounts: newMount},
+			"",
+		)
+		assertChange(t, plan, Change{Label: changeLabelBindMounts, Details: []string{"+ /host ← / (read-write)"}})
+	})
+	t.Run("network", func(t *testing.T) {
+		widened := SettingDiff{
+			Changed: true, AppliedRecorded: true,
+			Applied: []string{"profile: none"}, Desired: []string{"profile: public"},
+		}
+		plan := PlanReconfig(
+			&msbSdk.SandboxConfig{},
+			planImage(),
+			options.RunOptions{},
+			ChangeFlags{Network: widened},
+			"",
+		)
+		assertChange(t, plan, Change{
+			Label: changeLabelNetworkPolicy, Details: []string{"- profile: none", "+ profile: public"},
+		})
+	})
+	t.Run("env and secrets", func(t *testing.T) {
+		rotated := SettingDiff{Changed: true, AppliedRecorded: true, Applied: []string{"A"}, Desired: []string{"A"}}
+		plan := PlanReconfig(&msbSdk.SandboxConfig{}, planImage(), options.RunOptions{},
+			ChangeFlags{Env: rotated, Secrets: rotated}, "")
+		assertChange(t, plan, Change{Label: changeLabelEnv, Details: []string{"values changed"}})
+		assertChange(
+			t,
+			plan,
+			Change{Label: changeLabelSecrets, Details: []string{"values or other secret settings changed"}},
+		)
+	})
+	t.Run("agent config", func(t *testing.T) {
+		plan := PlanReconfig(&msbSdk.SandboxConfig{}, planImage(), options.RunOptions{},
+			ChangeFlags{AgentConfig: []string{agentConfigPath}}, "")
+		assertChange(t, plan, Change{Label: changeLabelAgentConfig, Details: []string{agentConfigPath}})
+	})
+	t.Run("image", func(t *testing.T) {
+		cfg := &msbSdk.SandboxConfig{Image: "other-1mjusbm3wikhb0:opencode"}
+		plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{}, "")
+		assertChange(t, plan, Change{Label: changeLabelImage, Old: cfg.Image, New: planImage().Ref()})
+	})
+	t.Run("image digest only", func(t *testing.T) {
+		cfg := &msbSdk.SandboxConfig{Image: planImage().Ref()}
+		plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{Image: true}, "")
+		assertChange(t, plan, Change{Label: changeLabelImage})
+	})
+	t.Run("home volume", func(t *testing.T) {
+		cfg := &msbSdk.SandboxConfig{Volumes: map[string]msbSdk.MountConfig{
+			mounts.VMHomeDir: {Named: "old-home"},
+		}}
+		plan := PlanReconfig(cfg, planImage(), options.RunOptions{}, ChangeFlags{}, "new-home")
+		assertChange(t, plan, Change{Label: changeLabelHomeVolume, Old: "old-home", New: "new-home"})
+	})
+	t.Run("published ports", func(t *testing.T) {
+		cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
+			{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP},
+		}}
+		opts := options.RunOptions{Ports: []ports.PortMapping{{HostPort: 8080, GuestPort: 5173}}}
+		plan := PlanReconfig(cfg, planImage(), opts, ChangeFlags{}, "")
+		assertChange(t, plan, Change{Label: changeLabelPublishedPorts, Details: []string{
+			"- 127.0.0.1:3000 → 3000/tcp", "+ 127.0.0.1:8080 → 5173/tcp",
+		}})
+	})
+}
+
+func assertChange(t *testing.T, plan *Plan, want Change) {
+	t.Helper()
+	for _, change := range plan.Changes {
+		if change.Label == want.Label {
+			if change.Old != want.Old || change.New != want.New || !slices.Equal(change.Details, want.Details) {
+				t.Errorf("change %q = %+v, want %+v", want.Label, change, want)
+			}
+			return
+		}
 	}
+	t.Errorf("plan changes %+v carry no %q change", plan.Changes, want.Label)
 }
 
 func TestDesiredPublishBindingsDelegatesToOptions(t *testing.T) {
@@ -1147,6 +1325,15 @@ func TestDesiredPublishBindingsIncludeUserPorts(t *testing.T) {
 	if got[0].HostPort != 8080 || got[0].GuestPort != 5173 {
 		t.Errorf("binding = %+v, want host 8080 guest 5173", got[0])
 	}
+}
+
+// agentConfigPath is a guest agent config file the plan tests report as changed.
+const agentConfigPath = "/home/dev/.config/opencode/opencode.json"
+
+// changedSetting is a fingerprinted setting reported as changed, with nothing
+// recorded to show.
+func changedSetting() SettingDiff {
+	return SettingDiff{Changed: true}
 }
 
 // planSlug and planContentID identify the runner image the plan tests compare

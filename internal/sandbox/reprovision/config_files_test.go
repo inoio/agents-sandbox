@@ -902,8 +902,8 @@ func TestLoadConfigFilesCodexMergesTOMLSnippets(t *testing.T) {
 		t.Errorf("Merged = %q, want %q", cf.Merged, want)
 	}
 	reformatted := []byte("sandbox_workspace_write = { network_access = true }\nmodel = \"gpt-5\"\n")
-	if !AgentConfigEqual(cf, map[string][]byte{wantMerged: reformatted}) {
-		t.Error("AgentConfigEqual should compare the TOML config semantically")
+	if !agentConfigEqual(cf, map[string][]byte{wantMerged: reformatted}) {
+		t.Error("agentConfigEqual should compare the TOML config semantically")
 	}
 }
 
@@ -941,8 +941,8 @@ func TestLoadConfigFilesHermesMergedConfig(t *testing.T) {
 		t.Errorf("Merged = %q, want %q (YAML, not JSON)", got, "model: opus\n")
 	}
 	reformatted := []byte("model: \"opus\"\n")
-	if !AgentConfigEqual(cf, map[string][]byte{wantMerged: reformatted}) {
-		t.Error("AgentConfigEqual should compare the YAML config semantically")
+	if !agentConfigEqual(cf, map[string][]byte{wantMerged: reformatted}) {
+		t.Error("agentConfigEqual should compare the YAML config semantically")
 	}
 }
 
@@ -1702,7 +1702,7 @@ func TestAgentConfigEqualIgnoresHomeFiles(t *testing.T) {
 		opencodeMergedPath:     []byte(`{"model":"x"}`),
 		"/home/dev/.gitconfig": []byte("user.name=Y\n"),
 	}
-	if !AgentConfigEqual(cf, vmData) {
+	if !agentConfigEqual(cf, vmData) {
 		t.Error("expected opencode config equality despite differing home file content")
 	}
 }
@@ -1717,7 +1717,7 @@ func TestAgentConfigEqualDetectsConfigChange(t *testing.T) {
 	vmData := map[string][]byte{
 		opencodeMergedPath: []byte(`{"model":"y"}`),
 	}
-	if AgentConfigEqual(cf, vmData) {
+	if agentConfigEqual(cf, vmData) {
 		t.Error("expected mismatch when the opencode config differs")
 	}
 }
@@ -1736,12 +1736,12 @@ func TestAgentConfigEqualYAMLTargetComparesSemantically(t *testing.T) {
 	}
 
 	same := map[string][]byte{hermesPath: []byte("model: opus\ntools: {web: true}\n")}
-	if !AgentConfigEqual(cf, same) {
+	if !agentConfigEqual(cf, same) {
 		t.Error("expected YAML config equality for semantically identical documents")
 	}
 
 	changed := map[string][]byte{hermesPath: []byte("model: sonnet\ntools:\n    web: true\n")}
-	if AgentConfigEqual(cf, changed) {
+	if agentConfigEqual(cf, changed) {
 		t.Error("expected mismatch when the YAML config value differs")
 	}
 }
@@ -1752,7 +1752,7 @@ func TestAgentConfigEqualNoSnippets(t *testing.T) {
 		Merged:      nil,
 		HomeFiles:   map[string][]byte{},
 	}
-	if !AgentConfigEqual(cf, nil) {
+	if !agentConfigEqual(cf, nil) {
 		t.Error("expected equality when no snippets are configured")
 	}
 }
@@ -1770,7 +1770,7 @@ func TestAgentConfigEqualMirrorMatch(t *testing.T) {
 		opencodeMergedPath:                    []byte(`{"model":"x"}`),
 		"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`),
 	}
-	if !AgentConfigEqual(cf, vmData) {
+	if !agentConfigEqual(cf, vmData) {
 		t.Error("expected equality when merged config and mirror match")
 	}
 }
@@ -1788,7 +1788,7 @@ func TestAgentConfigEqualMirrorMismatch(t *testing.T) {
 		opencodeMergedPath:                    []byte(`{"model":"x"}`),
 		"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"light"}`),
 	}
-	if AgentConfigEqual(cf, vmData) {
+	if agentConfigEqual(cf, vmData) {
 		t.Error("expected mismatch when a mirror file differs")
 	}
 }
@@ -1800,10 +1800,10 @@ func TestAgentConfigEqualMirrorNoSnippets(t *testing.T) {
 		},
 	}
 	match := map[string][]byte{"/home/dev/.config/opencode/tui.json": []byte(`{"theme":"dark"}`)}
-	if !AgentConfigEqual(cf, match) {
+	if !agentConfigEqual(cf, match) {
 		t.Error("expected equality when mirror matches without snippets")
 	}
-	if AgentConfigEqual(cf, nil) {
+	if agentConfigEqual(cf, nil) {
 		t.Error("expected mismatch when the VM mirror is missing")
 	}
 }
@@ -1812,7 +1812,7 @@ func TestAgentConfigEqualMirrorNoSnippets(t *testing.T) {
 // config is reported as a mismatch.
 func TestAgentConfigEqualMissingVMConfig(t *testing.T) {
 	cf := &ConfigFiles{HasSnippets: true, Merged: []byte(`{"model":"x"}`)}
-	if AgentConfigEqual(cf, map[string][]byte{}) {
+	if agentConfigEqual(cf, map[string][]byte{}) {
 		t.Error("expected mismatch when the VM config is absent")
 	}
 }
@@ -2015,8 +2015,8 @@ func TestConfigKeys(t *testing.T) {
 // compared by presence too, so an empty one missing from the VM is a change.
 func TestAgentConfigEqualEmptyMirrorFileMustExist(t *testing.T) {
 	cf := &ConfigFiles{Mirror: map[string][]byte{"/home/dev/.config/opencode/empty.json": {}}}
-	if AgentConfigEqual(cf, map[string][]byte{}) {
-		t.Error("AgentConfigEqual = true, want false when an empty mirror file is missing in the VM")
+	if agentConfigEqual(cf, map[string][]byte{}) {
+		t.Error("agentConfigEqual = true, want false when an empty mirror file is missing in the VM")
 	}
 }
 
@@ -2120,5 +2120,42 @@ func TestResolveConfigSourceDegradesWhenCwdUnreadable(t *testing.T) {
 	}
 	if src.Fallback != "" {
 		t.Errorf("Fallback = %q, want empty (the primary user dir exists)", src.Fallback)
+	}
+}
+
+// agentConfigEqual reports whether no agent config file differs from the VM.
+func agentConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
+	return len(ChangedAgentConfigPaths(cf, vmData)) == 0
+}
+
+// TestChangedAgentConfigPathsNamesEveryDifferingFile pins that the change is
+// reported per guest file: the merged config first, then the differing or
+// missing mirror files sorted, leaving out the files that match.
+func TestChangedAgentConfigPathsNamesEveryDifferingFile(t *testing.T) {
+	cf := &ConfigFiles{
+		HasSnippets: true,
+		Merged:      []byte(`{"model":"x"}`),
+		MergedPath:  opencodeMergedPath,
+		Mirror: map[string][]byte{
+			"/home/dev/.config/opencode/tui.json":       []byte(`{"theme":"dark"}`),
+			"/home/dev/.config/opencode/plugin/b.ts":    []byte("b"),
+			"/home/dev/.config/opencode/plugin/a.ts":    []byte("a"),
+			"/home/dev/.config/opencode/plugin/same.ts": []byte("same"),
+		},
+	}
+	vmData := map[string][]byte{
+		opencodeMergedPath:                          []byte(`{"model":"y"}`),
+		"/home/dev/.config/opencode/tui.json":       []byte(`{"theme":"light"}`),
+		"/home/dev/.config/opencode/plugin/a.ts":    []byte("old"),
+		"/home/dev/.config/opencode/plugin/same.ts": []byte("same"),
+	}
+	want := []string{
+		opencodeMergedPath,
+		"/home/dev/.config/opencode/plugin/a.ts",
+		"/home/dev/.config/opencode/plugin/b.ts",
+		"/home/dev/.config/opencode/tui.json",
+	}
+	if got := ChangedAgentConfigPaths(cf, vmData); !slices.Equal(got, want) {
+		t.Errorf("ChangedAgentConfigPaths = %q, want %q", got, want)
 	}
 }

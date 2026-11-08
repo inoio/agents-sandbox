@@ -739,27 +739,28 @@ func ReadVMConfig(ctx context.Context, sb msb.Sandbox, paths []string, ui termio
 	return result
 }
 
-// AgentConfigEqual reports whether the merged agent config and the verbatim
-// mirror files match the VM state. The merged config is compared semantically
-// and mirror files byte-for-byte, so a change to either triggers a daemon
-// restart. Home and drop-in files are intentionally ignored: they are
-// provisioned on every startup and do not require a daemon restart.
-func AgentConfigEqual(cf *ConfigFiles, vmData map[string][]byte) bool {
+// ChangedAgentConfigPaths returns the guest paths whose agent config differs
+// from the VM state: the merged config first (compared semantically), then the
+// verbatim mirror files that differ or are missing (byte-for-byte), sorted. Any
+// returned path triggers a daemon restart. Home and drop-in files are
+// intentionally ignored: they are provisioned on every startup and do not
+// require a daemon restart.
+func ChangedAgentConfigPaths(cf *ConfigFiles, vmData map[string][]byte) []string {
+	var changed []string
 	if cf.HasSnippets {
 		vm, ok := vmData[cf.MergedPath]
 		// gomutants:disable-next-line BRANCH_IF reason="DocumentsEqual fails to parse a missing (nil) VM document against any non-empty merged one, so it already reports the difference"
-		if !ok {
-			return false
-		}
-		if !config.DocumentsEqual(cf.MergedPath, cf.Merged, vm) {
-			return false
+		if !ok || !config.DocumentsEqual(cf.MergedPath, cf.Merged, vm) {
+			changed = append(changed, cf.MergedPath)
 		}
 	}
+	var mirrorChanged []string
 	for path, want := range cf.Mirror {
 		got, ok := vmData[path]
 		if !ok || !bytes.Equal(want, got) {
-			return false
+			mirrorChanged = append(mirrorChanged, path)
 		}
 	}
-	return true
+	sort.Strings(mirrorChanged)
+	return append(changed, mirrorChanged...)
 }

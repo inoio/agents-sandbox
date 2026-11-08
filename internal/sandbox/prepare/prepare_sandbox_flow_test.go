@@ -947,8 +947,8 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	if st.MountState.Hash != mounts.Fingerprint(mnts) {
 		t.Errorf("MountState.Hash = %q, want %q", st.MountState.Hash, mounts.Fingerprint(mnts))
 	}
-	if len(st.MountState.Names) != 1 || st.MountState.Names[0] != "/home/dev/.m2" {
-		t.Errorf("MountState.Names = %v, want [/home/dev/.m2]", st.MountState.Names)
+	if !slices.Equal(st.MountState.Entries, mounts.Describe(mnts)) {
+		t.Errorf("MountState.Entries = %v, want %v", st.MountState.Entries, mounts.Describe(mnts))
 	}
 }
 
@@ -1116,8 +1116,8 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 	if len(mock.CreatedSandboxes) != 1 {
 		t.Fatalf("expected the VM to be recreated once, got %d creations", len(mock.CreatedSandboxes))
 	}
-	if !contains(joinStrings(ui.VerboseCalls), "/tmp tmpfs size") {
-		t.Errorf("expected a tmp-size rebuild reason, got %v", ui.VerboseCalls)
+	if !contains(joinStrings(ui.WarnCalls), "/tmp tmpfs size") {
+		t.Errorf("expected a tmp-size rebuild warning, got %v", ui.WarnCalls)
 	}
 	if !contains(joinStrings(ui.VerboseCalls), "recreate: true") {
 		t.Errorf("expected the recreate decision to be logged, got %v", ui.VerboseCalls)

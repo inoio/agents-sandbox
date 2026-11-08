@@ -117,6 +117,21 @@ func Fingerprint(mounts Mounts) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// Describe returns one display line per mount, "<target> ← <source> (<access>)",
+// sorted by target, so a change can be shown with the host path it exposes.
+func Describe(mounts Mounts) []string {
+	lines := make([]string, 0, len(mounts))
+	for _, target := range MountTargets(mounts) {
+		mount := mounts[target]
+		access := "read-write"
+		if mount.Readonly {
+			access = "read-only"
+		}
+		lines = append(lines, fmt.Sprintf("%s ← %s (%s)", target, mount.Source, access))
+	}
+	return lines
+}
+
 // MountTargets returns the configured guest paths in sorted order.
 func MountTargets(mounts Mounts) []string {
 	targets := make([]string, 0, len(mounts))

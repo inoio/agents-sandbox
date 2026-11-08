@@ -46,6 +46,34 @@ func TestNetworkFingerprintSurvivesStateRoundTrip(t *testing.T) {
 	}
 }
 
+// TestRecordedEmptyEntriesSurviveStateRoundTrip pins that a setting recorded
+// as empty (no mounts, no env) reads back as recorded-empty, not as absent:
+// absent entries mean the state predates them, which hides the previous value
+// when the setting later changes.
+func TestRecordedEmptyEntriesSurviveStateRoundTrip(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+
+	k := Key{Slug: "entriesproj-aBc1234D", Agent: "opencode"}
+	if err := writeState(k, HomeState{
+		HomeVolume: "vol",
+		EnvState:   BuildEnvState(nil),
+		MountState: BuildMountState(nil),
+	}); err != nil {
+		t.Fatalf("writeState: %v", err)
+	}
+
+	st, err := ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if st.EnvState.Entries == nil || st.MountState.Entries == nil {
+		t.Errorf("empty entries read back as absent: env %#v, mounts %#v", st.EnvState.Entries, st.MountState.Entries)
+	}
+	if st.SecretState.Entries != nil {
+		t.Errorf("an unrecorded fingerprint read back with entries %#v, want absent", st.SecretState.Entries)
+	}
+}
+
 func TestStateFile(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -145,10 +173,10 @@ func TestNewHomeState(t *testing.T) {
 	if st.ImageDigest != "sha256:digest" {
 		t.Errorf("ImageDigest = %q, want sha256:digest", st.ImageDigest)
 	}
-	if st.EnvState.Hash != "" || len(st.EnvState.Names) != 0 {
+	if st.EnvState.Hash != "" || len(st.EnvState.Entries) != 0 {
 		t.Errorf("EnvState should be zeroed, got %+v", st.EnvState)
 	}
-	if st.SecretState.Hash != "" || len(st.SecretState.Names) != 0 {
+	if st.SecretState.Hash != "" || len(st.SecretState.Entries) != 0 {
 		t.Errorf("SecretState should be zeroed, got %+v", st.SecretState)
 	}
 }
@@ -320,12 +348,12 @@ func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
 		HomeVolume:  "agents-sandbox-home-myproj",
 		ImageDigest: "sha256:feedface",
 		EnvState: EnvState{
-			Hash:  "sha256:envhash",
-			Names: []string{"DB_URL", "API_KEY"},
+			Hash:    "sha256:envhash",
+			Entries: []string{"DB_URL", "API_KEY"},
 		},
 		SecretState: SecretState{
-			Hash:  "sha256:secrethash",
-			Names: []string{"db_password", "api_secret"},
+			Hash:    "sha256:secrethash",
+			Entries: []string{"db_password", "api_secret"},
 		},
 	}
 
@@ -341,23 +369,27 @@ func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
 	if result.EnvState.Hash != input.EnvState.Hash {
 		t.Errorf("EnvState.Hash = %q, want %q", result.EnvState.Hash, input.EnvState.Hash)
 	}
-	if len(result.EnvState.Names) != len(input.EnvState.Names) {
-		t.Fatalf("EnvState.Names length = %d, want %d", len(result.EnvState.Names), len(input.EnvState.Names))
+	if len(result.EnvState.Entries) != len(input.EnvState.Entries) {
+		t.Fatalf("EnvState.Entries length = %d, want %d", len(result.EnvState.Entries), len(input.EnvState.Entries))
 	}
-	for i, want := range input.EnvState.Names {
-		if result.EnvState.Names[i] != want {
-			t.Errorf("EnvState.Names[%d] = %q, want %q", i, result.EnvState.Names[i], want)
+	for i, want := range input.EnvState.Entries {
+		if result.EnvState.Entries[i] != want {
+			t.Errorf("EnvState.Entries[%d] = %q, want %q", i, result.EnvState.Entries[i], want)
 		}
 	}
 	if result.SecretState.Hash != input.SecretState.Hash {
 		t.Errorf("SecretState.Hash = %q, want %q", result.SecretState.Hash, input.SecretState.Hash)
 	}
-	if len(result.SecretState.Names) != len(input.SecretState.Names) {
-		t.Fatalf("SecretState.Names length = %d, want %d", len(result.SecretState.Names), len(input.SecretState.Names))
+	if len(result.SecretState.Entries) != len(input.SecretState.Entries) {
+		t.Fatalf(
+			"SecretState.Entries length = %d, want %d",
+			len(result.SecretState.Entries),
+			len(input.SecretState.Entries),
+		)
 	}
-	for i, want := range input.SecretState.Names {
-		if result.SecretState.Names[i] != want {
-			t.Errorf("SecretState.Names[%d] = %q, want %q", i, result.SecretState.Names[i], want)
+	for i, want := range input.SecretState.Entries {
+		if result.SecretState.Entries[i] != want {
+			t.Errorf("SecretState.Entries[%d] = %q, want %q", i, result.SecretState.Entries[i], want)
 		}
 	}
 }
@@ -396,8 +428,8 @@ func TestWriteAndReadState_MountRoundTrip(t *testing.T) {
 		HomeVolume:  "agents-sandbox-home-mountproj",
 		ImageDigest: "sha256:feedface",
 		MountState: MountState{
-			Hash:  "sha256:mounthash",
-			Names: []string{"/home/dev/.m2"},
+			Hash:    "sha256:mounthash",
+			Entries: []string{"/home/dev/.m2"},
 		},
 	}
 	if err := writeState(k, input); err != nil {
@@ -411,8 +443,8 @@ func TestWriteAndReadState_MountRoundTrip(t *testing.T) {
 	if result.MountState.Hash != input.MountState.Hash {
 		t.Errorf("MountState.Hash = %q, want %q", result.MountState.Hash, input.MountState.Hash)
 	}
-	if len(result.MountState.Names) != 1 || result.MountState.Names[0] != "/home/dev/.m2" {
-		t.Errorf("MountState.Names = %v, want [/home/dev/.m2]", result.MountState.Names)
+	if len(result.MountState.Entries) != 1 || result.MountState.Entries[0] != "/home/dev/.m2" {
+		t.Errorf("MountState.Entries = %v, want [/home/dev/.m2]", result.MountState.Entries)
 	}
 }
 

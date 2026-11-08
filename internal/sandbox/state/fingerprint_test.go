@@ -1,6 +1,8 @@
 package state
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
@@ -209,8 +211,8 @@ func TestBuildEnvState(t *testing.T) {
 	if st.Hash != EnvContentHash(map[string]string{"A": "1", "B": "2"}) {
 		t.Errorf("BuildEnvState.Hash mismatch")
 	}
-	if len(st.Names) != 2 || st.Names[0] != "A" || st.Names[1] != "B" {
-		t.Errorf("BuildEnvState.Names = %v, want sorted [A B]", st.Names)
+	if !slices.Equal(st.Entries, []string{"A", "B"}) {
+		t.Errorf("BuildEnvState.Entries = %v, want the sorted names [A B] without values", st.Entries)
 	}
 }
 
@@ -219,8 +221,30 @@ func TestBuildSecretState(t *testing.T) {
 	if st.Hash != SecretsContentHash([]msbSdk.SecretEntry{{EnvVar: "A", Value: "1"}, {EnvVar: "B", Value: "2"}}) {
 		t.Errorf("BuildSecretState.Hash mismatch")
 	}
-	if len(st.Names) != 2 || st.Names[0] != "A" || st.Names[1] != "B" {
-		t.Errorf("BuildSecretState.Names = %v, want sorted [A B]", st.Names)
+	if !slices.Equal(st.Entries, []string{"A", "B"}) {
+		t.Errorf("BuildSecretState.Entries = %v, want sorted [A B]", st.Entries)
+	}
+}
+
+func TestBuildSecretStateDescribesTheStructureButNeverTheValue(t *testing.T) {
+	headers := true
+	st := BuildSecretState([]msbSdk.SecretEntry{{
+		EnvVar:       "GH_TOKEN",
+		Value:        "ghp_supersecret",
+		Allow:        []string{"github.com", "api.github.com"},
+		Passthrough:  []string{"proxy.example.com"},
+		Substitution: msbSdk.SecretSubstitution{Headers: &headers, HeaderFields: []string{"authorization"}},
+	}})
+	want := []string{
+		"GH_TOKEN: hosts api.github.com, github.com; passthrough proxy.example.com; header fields authorization",
+	}
+	if !slices.Equal(st.Entries, want) {
+		t.Errorf("BuildSecretState.Entries = %q, want %q", st.Entries, want)
+	}
+	for _, entry := range st.Entries {
+		if strings.Contains(entry, "ghp_supersecret") {
+			t.Fatalf("entry %q leaks the secret value", entry)
+		}
 	}
 }
 
@@ -266,8 +290,8 @@ func TestBuildNetworkState(t *testing.T) {
 	if st.Hash != policy.Fingerprint() {
 		t.Errorf("BuildNetworkState.Hash = %q, want fingerprint %q", st.Hash, policy.Fingerprint())
 	}
-	if len(st.Names) != 1 || st.Names[0] != string(network.ProfileNone) {
-		t.Errorf("BuildNetworkState.Names = %v, want [none]", st.Names)
+	if !slices.Equal(st.Entries, policy.Describe()) {
+		t.Errorf("BuildNetworkState.Entries = %v, want %v", st.Entries, policy.Describe())
 	}
 }
 
@@ -276,8 +300,8 @@ func TestBuildNetworkState(t *testing.T) {
 // matches the policy the VM is created with.
 func TestBuildNetworkStateAppliesEffectiveDefault(t *testing.T) {
 	st := BuildNetworkState(network.Policy{})
-	if len(st.Names) != 1 || st.Names[0] != string(network.DefaultProfile) {
-		t.Fatalf("BuildNetworkState(zero).Names = %v, want [%s]", st.Names, network.DefaultProfile)
+	if !slices.Equal(st.Entries, []string{"profile: " + network.DefaultProfile.String()}) {
+		t.Fatalf("BuildNetworkState(zero).Entries = %v, want the %s profile", st.Entries, network.DefaultProfile)
 	}
 	if st.Hash != (network.Policy{}).Fingerprint() {
 		t.Errorf(
@@ -329,7 +353,7 @@ func TestBuildMountState(t *testing.T) {
 	if st.Hash != mounts.Fingerprint(desired) {
 		t.Errorf("BuildMountState.Hash = %q, want %q", st.Hash, mounts.Fingerprint(desired))
 	}
-	if len(st.Names) != 2 || st.Names[0] != "/home/dev/a" || st.Names[1] != "/home/dev/z" {
-		t.Errorf("BuildMountState.Names = %v, want sorted targets", st.Names)
+	if !slices.Equal(st.Entries, mounts.Describe(desired)) {
+		t.Errorf("BuildMountState.Entries = %v, want %v", st.Entries, mounts.Describe(desired))
 	}
 }

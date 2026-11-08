@@ -619,8 +619,8 @@ func TestVolumeOp_PreservesEnvSecretFingerprints(t *testing.T) {
 		AgentSource:     "tool",
 		DockerSource:    "user",
 		OfferedVersions: []string{"2.0.0"},
-		EnvState:        state.EnvState{Hash: "envhash", Names: []string{"FOO"}},
-		SecretState:     state.SecretState{Hash: "sechash", Names: []string{"TOKEN"}},
+		EnvState:        state.EnvState{Hash: "envhash", Entries: []string{"FOO"}},
+		SecretState:     state.SecretState{Hash: "sechash", Entries: []string{"TOKEN"}},
 	}
 	if err := seedHomeState(state.Key{Slug: slug, Agent: "opencode"}, oldState); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
@@ -641,10 +641,10 @@ func TestVolumeOp_PreservesEnvSecretFingerprints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
-	if st.EnvState.Hash != "envhash" || len(st.EnvState.Names) != 1 || st.EnvState.Names[0] != "FOO" {
+	if st.EnvState.Hash != "envhash" || len(st.EnvState.Entries) != 1 || st.EnvState.Entries[0] != "FOO" {
 		t.Errorf("EnvState not preserved after volume op: %+v", st.EnvState)
 	}
-	if st.SecretState.Hash != "sechash" || len(st.SecretState.Names) != 1 || st.SecretState.Names[0] != "TOKEN" {
+	if st.SecretState.Hash != "sechash" || len(st.SecretState.Entries) != 1 || st.SecretState.Entries[0] != "TOKEN" {
 		t.Errorf("SecretState not preserved after volume op: %+v", st.SecretState)
 	}
 	if st.AgentVersion != "1.2.3" || st.AgentSource != "tool" || st.DockerSource != "user" ||

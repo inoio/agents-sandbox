@@ -86,10 +86,10 @@ func TestPrepareSandboxRecomputesConfigSlugAfterAdoption(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadState: %v", err)
 	}
-	if !slices.Contains(hs.EnvState.Names, "FOO") {
+	if !slices.Contains(hs.EnvState.Entries, "FOO") {
 		t.Errorf(
-			"env fingerprint names = %v, want FOO read from the adopted repo-slug config dir",
-			hs.EnvState.Names,
+			"env fingerprint entries = %v, want FOO read from the adopted repo-slug config dir",
+			hs.EnvState.Entries,
 		)
 	}
 }

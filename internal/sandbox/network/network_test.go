@@ -801,3 +801,30 @@ func isProfileDestination(destination string) bool {
 		return false
 	}
 }
+
+func TestDescribeListsTheEffectivePolicyEntries(t *testing.T) {
+	got := (Policy{
+		Profiles:    []Profile{ProfilePublic, ProfilePrivate, ProfilePublic},
+		EgressAllow: []string{"b.example.com", "a.example.com"},
+		EgressDeny:  []string{"10.0.0.0/8"},
+		DNSServers:  []string{"1.1.1.1:53"},
+	}).Describe()
+	want := []string{
+		"profile: private",
+		"profile: public",
+		"egress-allow: a.example.com",
+		"egress-allow: b.example.com",
+		"egress-deny: 10.0.0.0/8",
+		"dns-server: 1.1.1.1:53",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("Describe = %q, want %q", got, want)
+	}
+}
+
+func TestDescribeUnsetPolicyNamesTheDefaultProfile(t *testing.T) {
+	got := (Policy{}).Describe()
+	if !slices.Equal(got, []string{"profile: " + DefaultProfile.String()}) {
+		t.Errorf("Describe(zero) = %q, want the default profile", got)
+	}
+}
