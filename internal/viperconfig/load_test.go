@@ -479,3 +479,38 @@ func TestNewResolverWithAnApprovedConfigInTheWorkingDirectory(t *testing.T) {
 		t.Errorf("NewResolver = %v, want startup to succeed", err)
 	}
 }
+
+// TestNewResolverRefusesWhenTheApprovedProjectConfigIsGone pins that the merge
+// does not fall back to the lower layers when the approved project config was
+// removed or swapped for a link to nothing.
+func TestNewResolverRefusesWhenTheApprovedProjectConfigIsGone(t *testing.T) {
+	for name, remove := range map[string]func(path string) error{
+		"deleted": os.Remove,
+		"dangling link": func(path string) error {
+			if err := os.Remove(path); err != nil {
+				return err
+			}
+			return os.Symlink(path+".gone", path)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			cp := configpaths.Get()
+			path := filepath.Join(cp.ProjectConfigDirAbs(), "config.yaml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			testutil.WritePath(t, path, "network:\n  profile: none\n")
+			restore := projectguard.Install([]string{cp.ProjectConfigDirAbs()}, map[string]projectguard.Approval{
+				path: projectguard.ApprovalOf([]byte("network:\n  profile: none\n")),
+			})
+			defer restore()
+			if err := remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := NewResolver(nil, cp, ""); !errors.Is(err, projectguard.ErrNotApproved) {
+				t.Errorf("NewResolver = %v, want ErrNotApproved", err)
+			}
+		})
+	}
+}

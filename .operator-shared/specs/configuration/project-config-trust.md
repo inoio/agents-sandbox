@@ -177,7 +177,9 @@ The contract is **verify on read**:
   config file lookup (`configdecode.FindFile`, every candidate extension), the `home:` source check, the
   snippet listing, and the mirror walk report what they did not find (`projectguard.Missing`,
   `projectguard.CheckListing`), so a reader never silently falls back to the lower layers or drops approved
-  content — e.g. an approved `network: none` deleted to let the default `public` apply.
+  content — e.g. an approved `network: none` deleted to let the default `public` apply. "Gone" follows links
+  as discovery does: an approved file swapped for a link to nothing is gone, and a listed entry counts as
+  found only once it was read.
 - A refused read is recorded as the command's violation. A reader that tolerates a read failure (a walk
   that skips, an env loader that warns) cannot carry it on: the image build and the VM stage stop on a
   recorded violation. The Dockerfile is read before the image build, so no image is built from a changed one;

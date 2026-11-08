@@ -151,9 +151,10 @@ func ApprovalOf(data []byte) Approval {
 }
 
 // Missing reports that a reader found paths absent. An approved file among
-// them that is indeed gone since the approval is recorded and returned as a
-// refusal, so deleting an approved file cannot make a reader silently fall
-// back; one that still exists was looked for elsewhere and is not refused.
+// them that is indeed unusable now — gone, or a link to nothing — is recorded
+// and returned as a refusal, so removing an approved file cannot make a reader
+// silently fall back; one that still resolves was looked for elsewhere and is
+// not refused. Existence follows links, as the readers' discovery does.
 func Missing(paths ...string) error {
 	mutex.Lock()
 	defer mutex.Unlock()
@@ -163,7 +164,7 @@ func Missing(paths ...string) error {
 		if !approved || approval.Absent {
 			continue
 		}
-		if _, err := os.Lstat(absolutePath); err != nil {
+		if _, err := os.Stat(absolutePath); err != nil {
 			return current.record(fmt.Errorf("%w: %s is gone", ErrNotApproved, path))
 		}
 	}

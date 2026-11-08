@@ -300,3 +300,16 @@ func TestCheckListingIgnoresAbsencesAndPathsOutsideTheRoot(t *testing.T) {
 		t.Errorf("CheckListing = %v, want no refusal", err)
 	}
 }
+
+// TestMissingRefusesAnApprovedFileReplacedByADanglingLink pins that existence
+// follows links: an approved file swapped for a link to nothing is gone for
+// the readers, so it is refused.
+func TestMissingRefusesAnApprovedFileReplacedByADanglingLink(t *testing.T) {
+	root := fixture(t, map[string]Approval{"config.yaml": {Digest: digest("network: none\n")}})
+	if err := os.Symlink(filepath.Join(root, "nowhere"), filepath.Join(root, "config.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if err := Missing(filepath.Join(root, "config.yaml")); !errors.Is(err, ErrNotApproved) {
+		t.Errorf("Missing(dangling link) = %v, want ErrNotApproved", err)
+	}
+}

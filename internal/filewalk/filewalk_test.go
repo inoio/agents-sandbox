@@ -221,8 +221,8 @@ func TestWalkVisitErrorAborts(t *testing.T) {
 }
 
 // TestWalkSkipsAFileChangedSinceItsApproval pins that the walk reads project
-// files through the approval: a changed file is not visited and the change is
-// recorded for the run to stop on.
+// files through the approval: a changed file is not visited, and the walk
+// reports it.
 func TestWalkSkipsAFileChangedSinceItsApproval(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "plugin.ts")
@@ -230,11 +230,13 @@ func TestWalkSkipsAFileChangedSinceItsApproval(t *testing.T) {
 		path: projectguard.ApprovalOf([]byte("approved")),
 	}))
 	writeFile(t, path, "changed")
-	if got := collectRels(t, root, func(string, bool) bool { return true }); len(got) != 0 {
-		t.Errorf("visited %q, want the changed file skipped", got)
-	}
-	if !errors.Is(projectguard.Violation(), projectguard.ErrNotApproved) {
-		t.Errorf("Violation() = %v, want the changed file recorded", projectguard.Violation())
+	var visited []string
+	err := Walk(root, func(string, bool) bool { return true }, func(entry Entry) error {
+		visited = append(visited, entry.Rel)
+		return nil
+	})
+	if len(visited) != 0 || !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("Walk visited %q, returned %v; want the changed file refused", visited, err)
 	}
 }
 
@@ -269,5 +271,29 @@ func TestWalkRefusesAnApprovedFileThatIsGone(t *testing.T) {
 	}))
 	if err := Walk(root, filter, func(Entry) error { return nil }); err != nil {
 		t.Errorf("Walk with only filtered-out files gone = %v, want nil", err)
+	}
+}
+
+// TestWalkRefusesAnApprovedFileReplacedByADanglingLink pins that a listed
+// entry counts as reached only once read: an approved file swapped for a link
+// to nothing is refused, not skipped.
+func TestWalkRefusesAnApprovedFileReplacedByADanglingLink(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "plugin.ts")
+	t.Cleanup(projectguard.Install([]string{root}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte("approved")),
+	}))
+	if err := os.Symlink(filepath.Join(root, "nowhere"), path); err != nil {
+		t.Fatal(err)
+	}
+	if err := Walk(
+		root,
+		func(string, bool) bool { return true },
+		func(Entry) error { return nil },
+	); !errors.Is(
+		err,
+		projectguard.ErrNotApproved,
+	) {
+		t.Errorf("Walk = %v, want the dangling approved file refused", err)
 	}
 }

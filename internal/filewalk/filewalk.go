@@ -42,11 +42,11 @@ func Walk(root string, filter func(rel string, isDir bool) bool, visit func(Entr
 		if d.IsDir() { // gomutants:disable BRANCH_IF reason="filter runs before the directory check and the directory branch above returns SkipDir, and WalkDir's root callback always yields isDir true, so the only directory reaching here is the pruned root"
 			return nil
 		}
-		reached = append(reached, path)
 		data, mode, ok := readFile(path)
 		if !ok {
 			return nil
 		}
+		reached = append(reached, path)
 		return visit(Entry{Path: path, Rel: rel, Data: data, Mode: mode})
 	})
 	if err != nil {
