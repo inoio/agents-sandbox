@@ -245,9 +245,6 @@ func TestDefaultInstallRuntimeSeamFailsDeterministically(t *testing.T) {
 	}
 }
 
-// TestRuntimeSetupSeamsPassPrivateHome asserts both setup seams hand the SDK the
-// private home explicitly, so resolution cannot depend on MSB_HOME having been
-// applied first.
 func TestAcquireRuntimeLockBlocksSecondHolder(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	release, err := acquireRuntimeLock()
