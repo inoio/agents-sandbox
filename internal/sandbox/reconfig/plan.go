@@ -6,8 +6,12 @@ package reconfig
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -23,17 +27,77 @@ const (
 	changeLabelNetworkPolicy      = "network policy"
 	changeLabelBindMounts         = "host bind mounts"
 	changeLabelImage              = "image"
+	changeLabelHomeVolume         = "home volume"
+	changeLabelEnv                = "environment variables"
+	changeLabelSecrets            = "secrets"
+	changeLabelAgentConfig        = "agent config"
 	changeLabelMemoryAboveBootMax = "memory above boot maximum"
 )
 
-// Change describes one changed setting for prompt display. Values are
-// shown for simple sizes/counts; env/secrets/config carry labels only (Old/New empty).
+// Notes shown for a fingerprinted setting whose entries are unchanged although
+// its fingerprint differs: the change lies in what the entries leave out.
+const (
+	valuesChangedNote       = "values changed"
+	secretValuesChangedNote = "values or other secret settings changed"
+	networkRuleChangedNote  = "emitted rules changed (no configured entry differs)"
+)
+
+// Change describes one changed setting for display. A single value shows as
+// Old → New; a set of values (mounts, network entries, ports, changed files)
+// shows as Details lines. Env and secret values are never part of a Change.
 //
 //exhaustruct:ignore
 type Change struct {
-	Label string
-	Old   string
-	New   string
+	Label   string
+	Old     string
+	New     string
+	Details []string
+}
+
+// SettingDiff is a fingerprinted setting's change detection with the display
+// entries recorded when the VM was created (Applied) and those of this run
+// (Desired). AppliedRecorded is false when the VM's state predates recorded
+// entries, so the previous value cannot be shown.
+type SettingDiff struct {
+	Changed         bool
+	AppliedRecorded bool
+	Applied         []string
+	Desired         []string
+}
+
+// settingChange renders a changed setting: the removed and added entries, the
+// note when the entries match, or every desired entry when the applied ones
+// were never recorded.
+func settingChange(label, sameEntriesNote string, diff SettingDiff) Change {
+	if !diff.AppliedRecorded {
+		details := []string{"(previous value not recorded)"}
+		for _, entry := range diff.Desired {
+			details = append(details, "+ "+entry)
+		}
+		return Change{Label: label, Details: details}
+	}
+	details := entryDiff(diff.Applied, diff.Desired)
+	if len(details) == 0 {
+		details = []string{sameEntriesNote}
+	}
+	return Change{Label: label, Details: details}
+}
+
+// entryDiff lists the entries only in applied as "- entry", then the entries
+// only in desired as "+ entry", each in its input order.
+func entryDiff(applied, desired []string) []string {
+	var lines []string
+	for _, entry := range applied {
+		if !slices.Contains(desired, entry) {
+			lines = append(lines, "- "+entry)
+		}
+	}
+	for _, entry := range desired {
+		if !slices.Contains(applied, entry) {
+			lines = append(lines, "+ "+entry)
+		}
+	}
+	return lines
 }
 
 // FormatSizeSpec returns the raw user spec verbatim when it matches valueMiB,
@@ -70,34 +134,51 @@ type Plan struct {
 }
 
 func configChangeList(changes []Change) string {
-	lines := []string{"Project VM config changed:"}
+	return changeListUnder("Project VM config changed:", changes)
+}
+
+// changeListUnder renders the changes as an indented list below heading.
+func changeListUnder(heading string, changes []Change) string {
+	lines := []string{heading}
 	for _, c := range changes {
 		switch {
 		case c.Old != "" && c.New != "":
-			lines = append(lines, "  - "+c.Label+": "+c.Old+" → "+c.New)
+			lines = append(lines, "  - "+displayValue(c.Label)+": "+displayValue(c.Old)+" → "+displayValue(c.New))
+		case len(c.Details) > 0:
+			lines = append(lines, "  - "+displayValue(c.Label)+":")
+			for _, detail := range c.Details {
+				lines = append(lines, "      "+displayValue(detail))
+			}
 		default:
-			lines = append(lines, "  - "+c.Label)
+			lines = append(lines, "  - "+displayValue(c.Label))
 		}
 	}
 	return strings.Join(lines, "\n")
 }
 
-// changeLabelList joins the change labels into a single comma-separated line.
-func changeLabelList(changes []Change) string {
-	labels := make([]string, 0, len(changes))
-	for _, c := range changes {
-		labels = append(labels, c.Label)
+// displayValue escapes control and format characters, so a configured value (a
+// mount path, a network entry) can neither send terminal escape sequences,
+// reorder the text, nor add lines to the change list it is shown in.
+func displayValue(value string) string {
+	var escaped strings.Builder
+	for _, character := range value {
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
+			quoted := strconv.QuoteRune(character)
+			escaped.WriteString(quoted[1 : len(quoted)-1])
+			continue
+		}
+		escaped.WriteRune(character)
 	}
-	return strings.Join(labels, ", ")
+	return escaped.String()
 }
 
-// reportAloneChange logs the informational apply decision made without other
-// attached clients and, at verbose level, the change labels that drove it.
-func reportAloneChange(ui termio.Logger, message, reasonLabel string, changes []Change) {
-	ui.Infof("VM/config changed; %s (no other client attached)", message)
-	if summary := changeLabelList(changes); summary != "" {
-		ui.Verbosef("%s reasons: %s", reasonLabel, summary)
-	}
+// warnAloneChange announces a change applied without asking because no other
+// client is attached. It is a warning that lists every change with its resolved
+// values, so a rebuild that e.g. adds a host mount is visible before the agent
+// attaches.
+func warnAloneChange(ui termio.Logger, action string, changes []Change) {
+	heading := "Project VM config changed; " + action + " (no other client attached):"
+	ui.Warn(changeListUnder(heading, changes))
 }
 
 // ChangeFlags carries the change detections that PlanReconfig cannot derive
@@ -105,12 +186,14 @@ func reportAloneChange(ui termio.Logger, message, reasonLabel string, changes []
 // these settings when reading an existing VM back. Each flag is computed by
 // comparing a persisted fingerprint against the desired state.
 type ChangeFlags struct {
-	Image       bool
-	Env         bool
-	Secrets     bool
-	Network     bool
-	Mounts      bool
-	AgentConfig bool
+	Image   bool
+	Env     SettingDiff
+	Secrets SettingDiff
+	Network SettingDiff
+	Mounts  SettingDiff
+	// AgentConfig lists the guest paths of agent config files that differ from
+	// the running VM; empty means unchanged.
+	AgentConfig []string
 	// BootMaxMemoryGrew reports that a freshly created VM would boot with a
 	// higher memory maximum than the live one (the host gained RAM), so a
 	// recreate can apply memory above the live maximum.
@@ -137,7 +220,7 @@ func PlanReconfig(
 
 	// Recreation triggers (cannot be changed live).
 	if imageRecreate(cfg, image, flags.Image) {
-		d.addRecreate(Change{Label: changeLabelImage})
+		d.addRecreate(imageChange(cfg, image))
 	}
 	if change, ok := tmpSizeChange(cfg, opts); ok {
 		d.addRecreate(change)
@@ -146,10 +229,10 @@ func PlanReconfig(
 		d.addRecreate(change)
 	}
 	if homeVolumeChange(cfg, homeVol) {
-		d.addRecreate(Change{Label: "home volume"})
+		d.addRecreate(Change{Label: changeLabelHomeVolume, Old: cfg.Volumes[mounts.VMHomeDir].Named, New: homeVol})
 	}
-	if flags.Mounts {
-		d.addRecreate(Change{Label: changeLabelBindMounts})
+	if flags.Mounts.Changed {
+		d.addRecreate(settingChange(changeLabelBindMounts, valuesChangedNote, flags.Mounts))
 	}
 	if change, ok := rootDiskChange(cfg, opts); ok {
 		d.addRecreate(change)
@@ -166,12 +249,13 @@ func PlanReconfig(
 	// since microsandbox applies a published-port change only with a restart.
 	// Network policy is creation-only too; its comparison is fingerprint-based
 	// (NetworkChanged) because the SDK does not round-trip network config.
-	d.ServeHostPort, d.PortsChanged = publishReconfig(opts, cfg)
+	var portsChange Change
+	d.ServeHostPort, portsChange, d.PortsChanged = publishReconfig(opts, cfg)
 	if d.PortsChanged {
-		d.addRecreate(Change{Label: changeLabelPublishedPorts})
+		d.addRecreate(portsChange)
 	}
-	if flags.Network {
-		d.addRecreate(Change{Label: changeLabelNetworkPolicy})
+	if flags.Network.Changed {
+		d.addRecreate(settingChange(changeLabelNetworkPolicy, networkRuleChangedNote, flags.Network))
 	}
 
 	// Env/secret changes are folded into the rebuild tier (baked into the VM at
@@ -179,9 +263,9 @@ func PlanReconfig(
 	if !d.Recreate {
 		d.applyEnvSecretRecreate(flags)
 	}
-	if !d.Recreate && flags.AgentConfig {
+	if !d.Recreate && len(flags.AgentConfig) > 0 {
 		d.RestartDaemons = true
-		d.Changes = append(d.Changes, Change{Label: "agent config"})
+		d.Changes = append(d.Changes, Change{Label: changeLabelAgentConfig, Details: flags.AgentConfig})
 	}
 
 	return d
@@ -195,12 +279,23 @@ func (d *Plan) addRecreate(change Change) {
 
 // applyEnvSecretRecreate adds env/secret changes as recreation triggers.
 func (d *Plan) applyEnvSecretRecreate(flags ChangeFlags) {
-	if flags.Env {
-		d.addRecreate(Change{Label: "environment variables"})
+	if flags.Env.Changed {
+		d.addRecreate(settingChange(changeLabelEnv, valuesChangedNote, flags.Env))
 	}
-	if flags.Secrets {
-		d.addRecreate(Change{Label: "secrets"})
+	if flags.Secrets.Changed {
+		d.addRecreate(settingChange(changeLabelSecrets, secretValuesChangedNote, flags.Secrets))
 	}
+}
+
+// imageChange describes an image recreate with the VM's persisted reference and
+// the one this run wants, when they differ; a recreate driven only by the image
+// digest keeps the bare label, as does a side that is empty when displayed.
+func imageChange(cfg *msbSdk.SandboxConfig, image naming.ImageIdentity) Change {
+	want := image.Ref()
+	if cfg.Image == want {
+		return Change{Label: changeLabelImage}
+	}
+	return Change{Label: changeLabelImage, Old: cfg.Image, New: want}
 }
 
 // imageRecreate reports whether the runner image differs from the configured one.
@@ -304,12 +399,30 @@ func rootDiskChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change,
 	return SizeChange("root disk size", diskMiBOr0(cfg), want, "", opts.DiskSize), true
 }
 
-// publishReconfig returns the resolved serve-only host port and whether the
-// desired published port bindings differ from the ones the VM carries.
-func publishReconfig(opts options.RunOptions, cfg *msbSdk.SandboxConfig) (int, bool) {
+// publishReconfig returns the resolved serve-only host port, the published
+// ports change, and whether the desired bindings differ from the VM's.
+func publishReconfig(opts options.RunOptions, cfg *msbSdk.SandboxConfig) (int, Change, bool) {
 	want := desiredPublishBindings(opts, cfg)
 	hostPort, _ := ports.ServeHostBinding(want)
-	return hostPort, !ports.BindingsEqual(want, cfg.PortBindings)
+	if ports.BindingsEqual(want, cfg.PortBindings) {
+		return hostPort, Change{}, false
+	}
+	change := Change{
+		Label:   changeLabelPublishedPorts,
+		Details: entryDiff(describeBindings(cfg.PortBindings), describeBindings(want)),
+	}
+	return hostPort, change, true
+}
+
+// describeBindings renders port bindings as sorted "<bind>:<host> → <guest>/<protocol>" lines.
+func describeBindings(bindings []msbSdk.PortBinding) []string {
+	lines := make([]string, 0, len(bindings))
+	for _, binding := range bindings {
+		lines = append(lines, fmt.Sprintf("%s:%d → %d/%s",
+			binding.Bind, binding.HostPort, binding.GuestPort, binding.Protocol))
+	}
+	sort.Strings(lines)
+	return lines
 }
 
 // memoryAboveBootMax reports whether the desired memory exceeds the VM's boot
@@ -338,7 +451,7 @@ func ResolveReconfig(
 	_ = ctx
 	if plan.Recreate {
 		if otherClientCount == 0 {
-			reportAloneChange(ui, "rebuilding project VM", "rebuild", changes)
+			warnAloneChange(ui, "rebuilding the project VM", changes)
 			return ApplyActions{Recreate: true, Restart: false}, nil
 		}
 		key, err := PromptA(ui, changes, otherClientCount)
@@ -352,7 +465,7 @@ func ResolveReconfig(
 	}
 	if plan.RestartDaemons {
 		if otherClientCount == 0 {
-			reportAloneChange(ui, "restarting daemons", "restart", changes)
+			warnAloneChange(ui, "restarting the agent daemon", changes)
 			return ApplyActions{Recreate: false, Restart: true}, nil
 		}
 		key, err := PromptB(ui, changes, otherClientCount)

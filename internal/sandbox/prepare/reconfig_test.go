@@ -626,7 +626,7 @@ func TestResolveReconfigDecisionRecreatesWhenARecordedFingerprintDiffers(t *test
 			name: "env differs",
 			recorded: func() state.HomeState {
 				recorded := matching()
-				recorded.EnvState = state.EnvState{Hash: "sha256:differenthash", Names: []string{"OLD_KEY"}}
+				recorded.EnvState = state.EnvState{Hash: "sha256:differenthash", Entries: []string{"OLD_KEY"}}
 				return recorded
 			},
 			desired:      desired,
@@ -636,7 +636,7 @@ func TestResolveReconfigDecisionRecreatesWhenARecordedFingerprintDiffers(t *test
 			name: "secrets differ",
 			recorded: func() state.HomeState {
 				recorded := matching()
-				recorded.SecretState = state.SecretState{Hash: "sha256:oldsecrethash", Names: []string{"DB_PASS"}}
+				recorded.SecretState = state.SecretState{Hash: "sha256:oldsecrethash", Entries: []string{"DB_PASS"}}
 				return recorded
 			},
 			desired:      desired,
@@ -696,10 +696,10 @@ func TestResolveReconfigDecisionRecreatesWhenARecordedFingerprintDiffers(t *test
 			}
 			if decision.Recreate != tc.wantRecreate {
 				t.Errorf(
-					"Recreate = %v, want %v (rebuild reasons: %v)",
+					"Recreate = %v, want %v (rebuild warnings: %v)",
 					decision.Recreate,
 					tc.wantRecreate,
-					ui.InfoCalls,
+					ui.WarnCalls,
 				)
 			}
 			if decision.Restart {
@@ -725,6 +725,50 @@ func TestResolveReconfigDecisionDetectsTmpSizeChangeFromLiveMounts(t *testing.T)
 	assertRebuildReason(t, f.ui, "/tmp tmpfs size")
 }
 
+// TestResolveReconfigDecisionWarnsWithTheMountsThatChanged pins #230 end to
+// end: a mount change applied alone is announced with the host path it adds and
+// the one it drops, read from the entries recorded for the running VM, and a
+// state that predates recorded entries says so instead of inventing a diff.
+func TestResolveReconfigDecisionWarnsWithTheMountsThatChanged(t *testing.T) {
+	previous := mounts.Mounts{"/home/dev/.m2": {Source: "/host/.m2"}}
+	desired := mounts.Mounts{"/host": {Source: "/"}}
+	for _, tc := range []struct {
+		name    string
+		applied state.MountState
+		want    []string
+	}{
+		{
+			name:    "entries recorded",
+			applied: state.BuildMountState(previous),
+			want:    []string{"- /home/dev/.m2 ← /host/.m2 (read-write)", "+ /host ← / (read-write)"},
+		},
+		{
+			name:    "state predates entries",
+			applied: state.MountState{Hash: mounts.Fingerprint(previous)},
+			want:    []string{"(previous value not recorded)", "+ /host ← / (read-write)"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			opts := options.RunOptions{Mounts: desired}
+			f := newReconfigFixture(t, launcherLiveMounts(0, 0, "vol"), nil)
+			hs := matchingHomeState(opts.Network)
+			hs.MountState = tc.applied
+
+			recreate, err := f.decide(t, opts, hs)
+			if err != nil {
+				t.Fatalf("resolveReconfigDecision: %v", err)
+			}
+			if !recreate {
+				t.Fatal("expected a recreate for the mount change")
+			}
+			for _, line := range tc.want {
+				assertRebuildReason(t, f.ui, line)
+			}
+		})
+	}
+}
+
 func TestResolveReconfigDecisionNoRecreateWhenLiveMountsMatch(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
@@ -738,9 +782,9 @@ func TestResolveReconfigDecisionNoRecreateWhenLiveMountsMatch(t *testing.T) {
 	if recreate {
 		t.Error("expected no recreate when the live mounts already match the options")
 	}
-	for _, line := range f.ui.VerboseCalls {
-		if strings.Contains(line, "rebuild reasons:") {
-			t.Errorf("expected no rebuild reason, got %q", line)
+	for _, line := range f.ui.WarnCalls {
+		if strings.Contains(line, "rebuilding the project VM") {
+			t.Errorf("expected no rebuild warning, got %q", line)
 		}
 	}
 }
@@ -1428,16 +1472,17 @@ func matchingHomeState(networkPolicy network.Policy) state.HomeState {
 	}
 }
 
-// assertRebuildReason fails unless the alone-rebuild log names want, proving the
-// expected mount detector drove the recreate rather than some unrelated change.
+// assertRebuildReason fails unless the alone-rebuild warning names want,
+// proving the expected detector drove the recreate rather than some unrelated
+// change.
 func assertRebuildReason(t *testing.T, ui *termio.Mock, want string) {
 	t.Helper()
-	for _, line := range ui.VerboseCalls {
-		if strings.Contains(line, "rebuild reasons:") && strings.Contains(line, want) {
+	for _, line := range ui.WarnCalls {
+		if strings.Contains(line, "rebuilding the project VM") && strings.Contains(line, want) {
 			return
 		}
 	}
-	t.Errorf("rebuild reasons %v do not name %q", ui.VerboseCalls, want)
+	t.Errorf("rebuild warnings %v do not name %q", ui.WarnCalls, want)
 }
 
 // assertVerbose fails unless one verbose line contains want.

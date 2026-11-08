@@ -1,6 +1,6 @@
 ---
-description: Contract for the per-startup project-VM reconfiguration decision: how changed settings are detected via persisted fingerprints, which changes recreate the VM vs restart the daemon, the fingerprint-preservation invariant, and the #183 seeding fix that closes the state-write race, plus the per-project creation lock that also covers the recreate destroy (#397).
-read_if: Changing readLiveProjectVM/resolveReconfigDecision/applyReconfigHomeAction/PlanReconfig, the env/secret/network/mount fingerprints, the reconfig prompt, the ensure-vm.lock scope, or diagnosing a spurious VM rebuild or "network policy changed" prompt.
+description: Contract for the per-startup project-VM reconfiguration decision: how changed settings are detected via persisted fingerprints, which changes recreate the VM vs restart the daemon, how a change is shown (the alone-apply warning and the value-free fingerprint entries, #230), the fingerprint-preservation invariant, and the #183 seeding fix that closes the state-write race, plus the per-project creation lock that also covers the recreate destroy (#397).
+read_if: Changing readLiveProjectVM/resolveReconfigDecision/applyReconfigHomeAction/PlanReconfig, the env/secret/network/mount fingerprints or their display entries, the reconfig prompt or alone-apply warning, the ensure-vm.lock scope, or diagnosing a spurious VM rebuild or "network policy changed" prompt.
 ---
 
 # Project-VM reconfiguration decision
@@ -9,8 +9,8 @@ read_if: Changing readLiveProjectVM/resolveReconfigDecision/applyReconfigHomeAct
 recreating the project VM, restarting the agent daemon, or doing nothing. It returns a named `reconfigDecision`
 (`Recreate`/`Restart`/`HomeAction`/`ServeHostPort`) instead of a positional tuple; the home-volume action it resolves
 is applied separately by `applyReconfigHomeAction`, keeping plan resolution free of home-volume side effects. The
-decision is computed by `reconfig.PlanReconfig` and resolved by `reconfig.ResolveReconfig` (silent when alone, a
-keep/quit[/restart] prompt when other clients are attached).
+decision is computed by `reconfig.PlanReconfig` and resolved by `reconfig.ResolveReconfig` (applied with a warning when alone, a
+keep/quit[/restart] prompt when other clients are attached; see Change visibility).
 
 Reading the live VM is a separate step that runs first (#341). `readLiveProjectVM` looks the project VM up once,
 reads its persisted config and live mounts, and reads the agent config files through one attach that it detaches
@@ -60,6 +60,28 @@ Fingerprints are written by `persistConfigHashes`, which runs only when the VM w
 VMBootCreated`). A fresh home volume's state is additionally seeded with the desired fingerprints at creation
 (`volume.Manager.EnsureNewHome`), so a `HomeState` is never fingerprint-less while a VM exists (see Resolution below).
 
+## Change visibility (#230)
+
+Every change the plan reports carries what changed, and the same list is shown whether it prompts (other clients
+attached) or applies alone. Applying alone is a **warning** listing every change — never an info line with the reasons
+behind `--verbose` — so a rebuild that adds a host mount or widens egress is visible before the agent attaches. It does
+not ask: a confirmation gate for project-sourced changes is the trust gate's job (`../configuration/project-config-trust.md`),
+and the user's own config, env, and flags stay unprompted.
+
+- Each fingerprint persists its setting's display `entries` next to its `hash` (`state.FingerprintState`), built by the
+  same `Build*State` call: env variable names, each secret's hosts/passthrough/header fields, the network policy's
+  configured entries (`network.Policy.Describe`, without the fingerprint's emission markers), and each mount as
+  `target ← source (access)`. **No env or secret value is ever an entry**, so a value-only change shows a note
+  (`values changed`), never the value.
+- The change shows the removed and added entries against the entries recorded for the running VM. `entries` absent
+  (`nil`) means *not recorded* — a state written before entries existed, `HomeStateSchema` 3 — and shows
+  `(previous value not recorded)` with the desired entries; a recorded empty setting persists as `entries: []`
+  (`FingerprintLines.IsZero`), so it is never mistaken for unrecorded.
+- Displayed values are configured input, partly project-sourced: the change list escapes control and format characters
+  in every value, so a mount path cannot inject terminal sequences, reorder text, or add fake change lines.
+- Values read from the live VM need no persistence: image and home volume show old → new, published ports their
+  binding diff, and an agent-config restart the guest paths that differ.
+
 ## Invariant: preserve fingerprints on every state rewrite
 
 Every path that rewrites a project's `HomeState` must carry the existing env/secret/network/mount fingerprints forward,
@@ -70,8 +92,8 @@ Dropping them makes the next run rebuild the VM and blame a setting (e.g. the ne
 ## Determinism
 
 Change detection is order-independent by design: `state.SecretsContentHash`, `state.EnvContentHash`, and
-`network.Policy.Fingerprint` all sort their inputs before hashing, and `reprovision.AgentConfigEqual` compares the merged
-and mirror files by map lookup. The helper outputs feeding them are also kept deterministic: `reprovision.ConfigFiles.Keys`
+`network.Policy.Fingerprint` all sort their inputs before hashing, and `reprovision.ChangedAgentConfigPaths` compares the merged
+and mirror files by map lookup and returns the differing paths sorted. The helper outputs feeding them are also kept deterministic: `reprovision.ConfigFiles.Keys`
 has a single ordering authority (the merged config leads when snippets exist, the remainder sorted; callers must not
 re-sort) and `envsecret.BuildSecretsFromSpecs` emits entries in sorted `EnvVar` order. Map iteration order therefore never
 reaches the decision — a periodic spurious rebuild was the state-write race resolved below, not input ordering.

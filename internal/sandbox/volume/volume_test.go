@@ -1029,10 +1029,10 @@ func TestApplyHomeAction_PreservesFingerprints(t *testing.T) {
 			AgentSource:     "tool",
 			DockerSource:    "user",
 			OfferedVersions: []string{"2.0.0"},
-			EnvState:        state.EnvState{Hash: "envhash", Names: []string{"FOO"}},
-			SecretState:     state.SecretState{Hash: "sechash", Names: []string{"TOKEN"}},
-			NetworkState:    state.NetworkState{Hash: "nethash", Names: []string{"none"}},
-			MountState:      state.MountState{Hash: "mounthash", Names: []string{"/mnt/x"}},
+			EnvState:        state.EnvState{Hash: "envhash", Entries: []string{"FOO"}},
+			SecretState:     state.SecretState{Hash: "sechash", Entries: []string{"TOKEN"}},
+			NetworkState:    state.NetworkState{Hash: "nethash", Entries: []string{"none"}},
+			MountState:      state.MountState{Hash: "mounthash", Entries: []string{"/mnt/x"}},
 		},
 	)
 

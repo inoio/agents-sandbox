@@ -334,7 +334,8 @@ A host-side file lock (`~/.local/state/agents-sandbox/locks/<checkout-slug>/<age
 during first boot creation.
 
 When another client is attached, config changes that would restart the agent daemon or recreate the sandbox trigger a
-prompt asking whether to keep the running server/sandbox (defer), proceed, or quit (abort the apply). The default is
+prompt that lists what changed and asks whether to keep the running server/sandbox (defer), proceed, or quit (abort
+the apply). When no other client is attached, the change applies right away and the same list is printed as a warning. The default is
 always to defer — existing sessions are never cut off. Choosing to keep still provisions the updated config files into
 the sandbox, so the next daemon restart picks them up; only the restart itself is deferred. See
 [Configuration]({% link configuration/launcher.md %}#resource-config-application) for details on how resource changes

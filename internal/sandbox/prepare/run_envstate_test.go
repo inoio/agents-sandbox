@@ -24,15 +24,15 @@ func TestPersistFingerprintsRecordsEveryFingerprintOnExistingState(t *testing.T)
 	if err := seedHomeState(k, state.HomeState{
 		HomeVolume:  "existing-vol",
 		ImageDigest: "sha256:existing",
-		EnvState:    state.EnvState{Hash: "old-env", Names: []string{"OLD"}},
+		EnvState:    state.EnvState{Hash: "old-env", Entries: []string{"OLD"}},
 	}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}, EgressAllow: []string{"api.example.com"}}
 	configuredMounts := mounts.Mounts{"/home/dev/.m2": {Source: "/host/.m2"}}
 	fingerprints := state.Fingerprints{
-		Env:     state.EnvState{Hash: "new-env", Names: []string{"FOO"}},
-		Secret:  state.SecretState{Hash: "new-secret", Names: []string{"PASS"}},
+		Env:     state.EnvState{Hash: "new-env", Entries: []string{"FOO"}},
+		Secret:  state.SecretState{Hash: "new-secret", Entries: []string{"PASS"}},
 		Network: state.BuildNetworkState(policy),
 		Mount:   state.BuildMountState(configuredMounts),
 	}
@@ -71,7 +71,7 @@ func TestPersistFingerprintsReplacesWithZeroFingerprints(t *testing.T) {
 	if err := seedHomeState(k, state.HomeState{
 		HomeVolume:  "vol",
 		ImageDigest: "sha256:img",
-		EnvState:    state.EnvState{Hash: "old-env", Names: []string{"OLD"}},
+		EnvState:    state.EnvState{Hash: "old-env", Entries: []string{"OLD"}},
 	}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
@@ -101,8 +101,8 @@ func TestPersistFingerprintsSkipsMissingState(t *testing.T) {
 	k := state.Key{Slug: "newproj", Agent: "opencode"}
 
 	if err := persistFingerprints(k, state.Fingerprints{
-		Env:    state.EnvState{Hash: "h1", Names: []string{"X"}},
-		Secret: state.SecretState{Hash: "h2", Names: []string{"Y"}},
+		Env:    state.EnvState{Hash: "h1", Entries: []string{"X"}},
+		Secret: state.SecretState{Hash: "h2", Entries: []string{"Y"}},
 	}); err != nil {
 		t.Fatalf("persistFingerprints: %v", err)
 	}

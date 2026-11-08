@@ -46,10 +46,25 @@ func slugPath(k Key, parts ...string) string {
 	return filepath.Join(append([]string{KeyDir(k)}, parts...)...)
 }
 
-// FingerprintState is the shared shape of env/secret fingerprint data.
+// FingerprintState is the shared shape of the VM-config fingerprints. Hash
+// decides whether the setting changed; Entries are the setting's sorted display
+// lines, kept so a change can be shown as old → new. Entries never carry an env
+// or secret value.
 type FingerprintState struct {
-	Hash  string   `yaml:"hash,omitempty"`
-	Names []string `yaml:"names,omitempty"`
+	Hash    string           `yaml:"hash,omitempty"`
+	Entries FingerprintLines `yaml:"entries,omitempty"`
+}
+
+// FingerprintLines are a fingerprint's display entries. A nil value means none
+// were recorded (a state written before entries existed); an empty one is a
+// recorded empty setting, and it is persisted as such.
+type FingerprintLines []string
+
+// IsZero keeps a recorded empty list from being omitted: only nil is zero.
+//
+//deadcode:ignore reason="called by the yaml encoder through its IsZeroer interface for omitempty"
+func (l FingerprintLines) IsZero() bool {
+	return l == nil
 }
 
 // EnvState tracks environment-variable fingerprint data for a project.

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -99,7 +100,8 @@ func SecretsChanged(applied SecretState, desired []msbSdk.SecretEntry) bool {
 	return applied.Hash != SecretsContentHash(desired)
 }
 
-// BuildEnvState computes the content hash and sorted name list for the env map.
+// BuildEnvState computes the content hash and the sorted variable names; the
+// values are left out of the entries.
 func BuildEnvState(desired map[string]string) EnvState {
 	names := make([]string, 0, len(desired))
 	for k := range desired {
@@ -107,12 +109,14 @@ func BuildEnvState(desired map[string]string) EnvState {
 	}
 	sort.Strings(names)
 	return EnvState{
-		Hash:  EnvContentHash(desired),
-		Names: names,
+		Hash:    EnvContentHash(desired),
+		Entries: names,
 	}
 }
 
-// BuildSecretState computes the content hash and sorted name list for the secret entries.
+// BuildSecretState computes the content hash and one entry per secret
+// describing where it may be sent, sorted by variable name. The secret value is
+// never part of an entry.
 func BuildSecretState(desired []msbSdk.SecretEntry) SecretState {
 	byEnv := make(map[string]msbSdk.SecretEntry, len(desired))
 	for _, e := range desired {
@@ -123,10 +127,40 @@ func BuildSecretState(desired []msbSdk.SecretEntry) SecretState {
 		names = append(names, k)
 	}
 	sort.Strings(names)
-	return SecretState{
-		Hash:  SecretsContentHash(desired),
-		Names: names,
+	entries := make([]string, 0, len(names))
+	for _, name := range names {
+		entries = append(entries, describeSecret(byEnv[name]))
 	}
+	return SecretState{
+		Hash:    SecretsContentHash(desired),
+		Entries: entries,
+	}
+}
+
+// describeSecret renders a secret's substitution scope: the hosts that receive
+// the value, the hosts that may receive the placeholder, and the header fields
+// substitution is limited to.
+func describeSecret(e msbSdk.SecretEntry) string {
+	parts := []string{}
+	if hosts := sortedList(e.Allow); hosts != "" {
+		parts = append(parts, "hosts "+hosts)
+	}
+	if passthrough := sortedList(e.Passthrough); passthrough != "" {
+		parts = append(parts, "passthrough "+passthrough)
+	}
+	if fields := sortedList(e.Substitution.HeaderFields); fields != "" {
+		parts = append(parts, "header fields "+fields)
+	}
+	if len(parts) == 0 {
+		return e.EnvVar
+	}
+	return e.EnvVar + ": " + strings.Join(parts, "; ")
+}
+
+func sortedList(values []string) string {
+	sorted := slices.Clone(values)
+	sort.Strings(sorted)
+	return strings.Join(sorted, ", ")
 }
 
 // NetworkChanged reports whether the applied network state differs from the
@@ -143,14 +177,9 @@ func NetworkChanged(applied NetworkState, desired network.Policy) bool {
 
 // BuildNetworkState computes the fingerprint for the desired network policy.
 func BuildNetworkState(desired network.Policy) NetworkState {
-	desired = desired.Effective()
-	names := make([]string, 0, len(desired.Profiles))
-	for _, p := range desired.Profiles {
-		names = append(names, p.String())
-	}
 	return NetworkState{
-		Hash:  desired.Fingerprint(),
-		Names: names,
+		Hash:    desired.Fingerprint(),
+		Entries: desired.Describe(),
 	}
 }
 
@@ -171,7 +200,7 @@ func MountsChanged(applied MountState, desired mounts.Mounts) bool {
 // BuildMountState computes the fingerprint for the desired host bind mounts.
 func BuildMountState(desired mounts.Mounts) MountState {
 	return MountState{
-		Hash:  mounts.Fingerprint(desired),
-		Names: mounts.MountTargets(desired),
+		Hash:    mounts.Fingerprint(desired),
+		Entries: mounts.Describe(desired),
 	}
 }

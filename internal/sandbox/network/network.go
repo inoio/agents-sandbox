@@ -139,6 +139,37 @@ func (p Policy) Fingerprint() string {
 	return hex.EncodeToString(sum[:])
 }
 
+// Describe returns the effective policy as display lines named after the config
+// keys: the deduplicated profiles, then the egress-allow, egress-deny, and DNS
+// server entries, each group sorted. Unlike Fingerprint it carries no emission
+// markers, only what the user configured.
+func (p Policy) Describe() []string {
+	p = p.Effective()
+	var lines []string
+	lines = append(lines, prefixedSorted("profile: ", profileNames(dedupeProfiles(p.Profiles)))...)
+	lines = append(lines, prefixedSorted("egress-allow: ", p.EgressAllow)...)
+	lines = append(lines, prefixedSorted("egress-deny: ", p.EgressDeny)...)
+	lines = append(lines, prefixedSorted("dns-server: ", p.DNSServers)...)
+	return lines
+}
+
+func profileNames(profiles []Profile) []string {
+	names := make([]string, 0, len(profiles))
+	for _, profile := range profiles {
+		names = append(names, profile.String())
+	}
+	return names
+}
+
+func prefixedSorted(prefix string, values []string) []string {
+	lines := make([]string, 0, len(values))
+	for _, value := range values {
+		lines = append(lines, prefix+value)
+	}
+	sort.Strings(lines)
+	return lines
+}
+
 // denyPrecedesProfileAllow reports whether the policy emits egress-deny rules
 // ahead of the profile allow rules: it has at least one deny entry and at least
 // one profile that contributes allow rules. When either is absent the emitted

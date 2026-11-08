@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -358,5 +359,22 @@ func TestResolveBindMountsHomeDirUnresolvable(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "HOME") {
 		t.Errorf("error %q does not report the unresolvable home directory", err)
+	}
+}
+
+func TestDescribeNamesEachMountWithItsSourceAndAccess(t *testing.T) {
+	got := Describe(Mounts{
+		"/home/dev/z": {Source: "/host/z"},
+		"/host":       {Source: "/", Readonly: true},
+	})
+	want := []string{"/home/dev/z ← /host/z (read-write)", "/host ← / (read-only)"}
+	if !slices.Equal(got, want) {
+		t.Errorf("Describe = %q, want %q", got, want)
+	}
+}
+
+func TestDescribeEmptyMountsIsEmpty(t *testing.T) {
+	if got := Describe(nil); len(got) != 0 {
+		t.Errorf("Describe(nil) = %q, want empty", got)
 	}
 }

@@ -1455,10 +1455,10 @@ func TestResolveHomeVolume_RecoveryPreservesFingerprints(t *testing.T) {
 		AgentSource:     "tool",
 		DockerSource:    "user",
 		OfferedVersions: []string{"2.0.0"},
-		EnvState:        state.EnvState{Hash: "envhash", Names: []string{"A"}},
-		SecretState:     state.SecretState{Hash: "secrethash", Names: []string{"B"}},
-		NetworkState:    state.NetworkState{Hash: "nethash", Names: []string{"example.com"}},
-		MountState:      state.MountState{Hash: "mountHash", Names: []string{"/x"}},
+		EnvState:        state.EnvState{Hash: "envhash", Entries: []string{"A"}},
+		SecretState:     state.SecretState{Hash: "secrethash", Entries: []string{"B"}},
+		NetworkState:    state.NetworkState{Hash: "nethash", Entries: []string{"example.com"}},
+		MountState:      state.MountState{Hash: "mountHash", Entries: []string{"/x"}},
 	})
 
 	mock := &msb.MockMsbClient{}

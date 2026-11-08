@@ -155,24 +155,35 @@ func resolveReconfigDecision(
 		ui.Verbosef("image digest changed: %s -> %s", hs.ImageDigest, imageInfo.Digest)
 	}
 
-	agentCfgChanged := len(live.agentConfigFiles) > 0 && !reprovision.AgentConfigEqual(cfs, live.agentConfigFiles)
+	var changedAgentConfig []string
+	if len(live.agentConfigFiles) > 0 {
+		changedAgentConfig = reprovision.ChangedAgentConfigPaths(cfs, live.agentConfigFiles)
+	}
 
-	envHasChanged := state.EnvChanged(hs.EnvState, env.Vars)
-	secretsHasChanged := state.SecretsChanged(hs.SecretState, env.Secrets)
-	networkHasChanged := state.NetworkChanged(hs.NetworkState, opts.Network)
-	mountsHaveChanged := state.MountsChanged(hs.MountState, opts.Mounts)
-
+	desired := desiredFingerprints(opts, env)
 	plan := reconfig.PlanReconfig(
 		live.config,
 		imageInfo.Identity,
 		opts,
 		reconfig.ChangeFlags{
-			Image:             imageChanged,
-			Env:               envHasChanged,
-			Secrets:           secretsHasChanged,
-			Network:           networkHasChanged,
-			Mounts:            mountsHaveChanged,
-			AgentConfig:       agentCfgChanged,
+			Image: imageChanged,
+			Env:   settingDiff(state.EnvChanged(hs.EnvState, env.Vars), hs.EnvState, desired.Env),
+			Secrets: settingDiff(
+				state.SecretsChanged(hs.SecretState, env.Secrets),
+				hs.SecretState,
+				desired.Secret,
+			),
+			Network: settingDiff(
+				state.NetworkChanged(hs.NetworkState, opts.Network),
+				hs.NetworkState,
+				desired.Network,
+			),
+			Mounts: settingDiff(
+				state.MountsChanged(hs.MountState, opts.Mounts),
+				hs.MountState,
+				desired.Mount,
+			),
+			AgentConfig:       changedAgentConfig,
 			BootMaxMemoryGrew: bootMaxMemoryGrew(live),
 		},
 		homeVol,
@@ -220,6 +231,18 @@ func resolveReconfigDecision(
 	}
 
 	return decision, nil
+}
+
+// settingDiff pairs a fingerprinted setting's change detection with the entries
+// recorded for the running VM and those of this run. Absent (nil) entries are a
+// state written before entries were recorded.
+func settingDiff(changed bool, applied, desired state.FingerprintState) reconfig.SettingDiff {
+	return reconfig.SettingDiff{
+		Changed:         changed,
+		AppliedRecorded: applied.Entries != nil,
+		Applied:         applied.Entries,
+		Desired:         desired.Entries,
+	}
 }
 
 // detectAndOfferMemoryRaise detects a memory-limit hit from the live project
