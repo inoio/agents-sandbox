@@ -98,8 +98,11 @@
   - Description: Contract for the repo's quality gates - the golangci-lint standard (the formatter set and linter posture in `.golangci.yml`, and the `lint` build-tag set `integration msb microsandbox_ffi_path` that makes tagged files lintable), the dead-code gate (`make deadcode` over a pinned x/tools deadcode with the reason-bearing `//deadcode:ignore` marker and `ci/check-deadcode.sh`), and the documentation-fragment gate in `ci/check-docs.sh` (the kramdown slug mirror and `internal/docslink`).
   - Read If: Changing `.golangci.yml` (formatters or linters) or the `lint` target's `--build-tags` set, the dead-code gate (`make deadcode`, the `//deadcode:ignore` marker, `ci/check-deadcode.sh`, the `DEADCODE_VERSION` pin), or the doc-link gate (`ci/check-docs.sh`, `internal/docslink`, the doctor/build-error `Docs:` links); or diagnosing a lint/format disagreement or an unmarked dead-code finding.
 
-#### `specs/configuration/` - Config scopes, keys, project-config root and trust
+#### `specs/configuration/` - Config scopes, keys, decoding, project-config root and trust
 
+- `specs/configuration/config-file-decoding.md`
+  - Description: Contract for reading and decoding launcher/home/agent config files - one `configdecode` core (`FormatFor`/`Decode`/`DecodeFile`) layered over `configread`'s bounded read and `configpaths`' extension vocabulary, with each loader's accepted formats (no TOML in the launcher), error label, and parse-failure policy kept explicit.
+  - Read If: Changing config-file reading, classification, or JSON5/JSONC handling in `homeconfig`/`viperconfig`/`configmerge`; adding a config format; touching the launcher read path's YAML parser or the `MergeConfig` -> `MergeConfigMap` seam; or diagnosing a file one loader accepts and another rejects.
 - `specs/configuration/config-keys.md`
   - Description: Contract for the launcher config-key registry: the env-var and CLI-flag key sets are derived from the `Config` struct's mapstructure tags, `env:"-"` marks a config-file-only key, and a bound flag's default type comes from the owning field's Go kind.
   - Read If: Adding or changing a launcher config key, its env var, or its CLI flag; or reasoning about why an env var is silently ignored or where `flagTypedDefault`'s type comes from.
