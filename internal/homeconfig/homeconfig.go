@@ -5,7 +5,6 @@
 package homeconfig
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -15,11 +14,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/titanous/json5"
-	"go.yaml.in/yaml/v4"
-
+	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
 
@@ -27,10 +23,16 @@ import (
 // JSON; JSON5/JSONC must be normalized first). The boolean reports whether a
 // top-level "home" key was present. path is used only for error messages.
 func ParseHomeSection(data []byte, path string) (Manifest, bool, error) {
-	var root map[string]any
-	if err := yaml.Unmarshal(data, &root); err != nil {
+	root, err := configdecode.Decode(configdecode.FormatYAML, data)
+	if err != nil {
 		return nil, false, yamlfmt.WrapErr(path, err)
 	}
+	return homeSection(root, path)
+}
+
+// homeSection extracts the home manifest from a decoded config document. The
+// boolean reports whether a top-level "home" key was present.
+func homeSection(root map[string]any, path string) (Manifest, bool, error) {
 	homeRaw, ok := root["home"]
 	if !ok {
 		return Manifest{}, false, nil
@@ -76,24 +78,15 @@ func parseManifestValue(raw any, path string) (Manifest, error) {
 // ReadHomeFromConfigDir reads the config file in dir and returns its home
 // manifest. The boolean reports whether a home key was present.
 func ReadHomeFromConfigDir(dir string) (Manifest, bool, error) {
-	path, ext, ok := configpaths.FindConfigFile(dir)
+	path, _, ok := configpaths.FindConfigFile(dir)
 	if !ok {
 		return Manifest{}, false, nil
 	}
-	data, err := configread.ReadFile(path)
+	root, err := configdecode.DecodeFile(path, "config")
 	if err != nil {
-		return nil, false, fmt.Errorf("read config %s: %w", path, err)
+		return nil, false, err
 	}
-	if ext == configpaths.ExtJSON5 || ext == configpaths.ExtJSONC {
-		var m map[string]any
-		if unmarshalErr := json5.Unmarshal(data, &m); unmarshalErr != nil {
-			return nil, false, fmt.Errorf("parse config %s: %w", path, unmarshalErr)
-		}
-		if data, err = json.Marshal(m); err != nil {
-			return nil, false, fmt.Errorf("normalize config %s: %w", path, err)
-		}
-	}
-	return ParseHomeSection(data, path)
+	return homeSection(root, path)
 }
 
 // startupHook is the only supported startup-hook value.
