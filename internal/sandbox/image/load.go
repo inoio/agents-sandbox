@@ -42,7 +42,7 @@ func imageRefCandidates(info ImageInfo) []string {
 func EnsureLoaded(
 	ctx context.Context,
 	dclient docker.Client,
-	mclient msb.Client,
+	mclient msb.ImageStore,
 	info ImageInfo,
 	ui termio.UI,
 ) (ImageInfo, error) {
@@ -91,7 +91,7 @@ func EnsureLoaded(
 // differ (a floating base tag, or the dev user's uid/gid), so it must not stand
 // in for the digest. The cost is one reload — a load records a digest, so the
 // image matches next time.
-func cachedImageMatches(ctx context.Context, mclient msb.Client, ref string, info ImageInfo) bool {
+func cachedImageMatches(ctx context.Context, mclient msb.ImageStore, ref string, info ImageInfo) bool {
 	mInspect, err := mclient.ImageInspect(ctx, ref)
 	if err != nil {
 		return false
