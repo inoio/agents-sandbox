@@ -1,6 +1,6 @@
 ---
 description: Contract for termio's UI seam — the landed role-interface split (Logger/Output/Prompter/SpinnerFactory/TerminalState/Streams) composed into termio.UI — plus the deferred (not-on-main) design for a huh-backed prompt switch and the accessibility/non-TTY invariants.
-read_if: Changing a termio role interface, `termio.UI` or `New`, which UI surface a caller depends on, the termio mock, interactive prompts or spinners, swapping in or scoping a UI library (huh, bubbletea, ...), or reasoning about mockability and non-TTY/accessibility behavior.
+read_if: Changing a termio role interface, `termio.UI` or `New`, which UI surface a caller depends on, the termio test double (`internal/termio/termiotest`), interactive prompts or spinners, swapping in or scoping a UI library (huh, bubbletea, ...), or reasoning about mockability and non-TTY/accessibility behavior.
 ---
 
 # termio UI seam and backend contract
@@ -27,12 +27,15 @@ takes a `termio.Logger` in its signature, and so on.
 
 **Mockability is preserved as long as new UI work stays behind these interfaces** - a backend swap changes
 only how `Select`/`Input`/`Spinner` render internally; callers and tests keep driving a role interface. The
-test `Mock` (`internal/termio/mock.go`) stays **one struct that implements every role**: `NewTestMock`
-returns `Mock`, and a caller narrowed to `Logger` can still be handed the same `Mock` its test builds.
-Splitting `Mock` into per-role doubles is deliberately not part of this change.
+test double `Mock` lives outside the production import graph in `internal/termio/termiotest` (package
+`termiotest`) and stays **one struct that implements every role**: `NewTestMock` returns `Mock`, and a caller
+narrowed to `Logger` can still be handed the same `Mock` its test builds. Splitting `Mock` into per-role
+doubles is deliberately not part of this change.
 
 One consequence falls out of the split:
-- `Table` holds only the `Header`/`Out` methods it prints through, not a full `UI`.
+- `Table` holds only the `Header`/`Out` methods it prints through (`termio.TableWriter`), not a full `UI`.
+  `termio.NewTableFor(w TableWriter, headers []string)` is the constructor a UI or a test writer uses; the
+  production printer's `NewTable` and the `termiotest.Mock` both go through it.
 
 `autoPruneOutToVerboseRedirect` (`cmd/agents-sandbox/commands.go`) keeps its embedded `UI`: it is handed
 to the multi-role `pruning.AutoPrune` aggregate, so narrowing it would force that aggregate to a
