@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/Masterminds/semver/v3"
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/hostlock"
@@ -73,27 +72,12 @@ var (
 		}
 		return strings.TrimSpace(string(output)), nil
 	}
-	// Every setup call names the private home explicitly (see runtimeConfig)
-	// rather than relying on the process-global MSB_HOME.
-	msbEnsureRuntime  = msbSdk.EnsureRuntime
-	msbInstallRuntime = msbSdk.InstallRuntime
-	ensureRuntime     = func(ctx context.Context) error {
-		_, err := msbEnsureRuntime(ctx, runtimeConfig(), msbSdk.InstallOptions{})
-		return err
-	}
-	installRuntime = func(ctx context.Context) error {
-		_, err := msbInstallRuntime(ctx, runtimeConfig(), msbSdk.InstallOptions{Force: true})
-		return err
-	}
+	// Every setup call names the private home explicitly inside the msb
+	// adapter, rather than relying on the process-global MSB_HOME.
+	ensureRuntime   = sandboxmsb.EnsureRuntime
+	installRuntime  = sandboxmsb.InstallRuntime
 	validateRuntime = sandboxmsb.ValidateInstalled
 )
-
-// runtimeConfig names the private home explicitly so SDK runtime resolution and
-// installation are deterministic and order-independent, not dependent on whether
-// ApplyHome has set the process-global MSB_HOME yet.
-func runtimeConfig() msbSdk.RuntimeConfig {
-	return msbSdk.RuntimeConfig{Home: PrivateHome()}
-}
 
 // runtimeClientIsReal is a seam for testing the public preparation gate while
 // keeping normal command tests on their mocked msb client.
@@ -205,7 +189,7 @@ func prepareRuntime(ctx context.Context, ui termio.Logger, launcherVersion strin
 	if _, err := ApplyHome(); err != nil {
 		return fmt.Errorf("apply microsandbox home: %w", err)
 	}
-	inspection, err := inspectRuntimeFunc(msbSdk.SDKVersion())
+	inspection, err := inspectRuntimeFunc(sandboxmsb.PinnedRuntimeVersion())
 	if err != nil {
 		return err
 	}
@@ -267,7 +251,7 @@ func repairRuntime(ctx context.Context) error {
 	}
 	defer release()
 
-	current, err := inspectRuntimeFunc(msbSdk.SDKVersion())
+	current, err := inspectRuntimeFunc(sandboxmsb.PinnedRuntimeVersion())
 	if err != nil {
 		return err
 	}
@@ -323,7 +307,7 @@ func runtimeMismatchError(inspection Inspection, reason string) error {
 }
 
 func validatePreparedRuntime(ctx context.Context) error {
-	inspection, err := inspectRuntimeFunc(msbSdk.SDKVersion())
+	inspection, err := inspectRuntimeFunc(sandboxmsb.PinnedRuntimeVersion())
 	if err != nil {
 		return err
 	}

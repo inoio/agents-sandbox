@@ -11,14 +11,6 @@ import (
 	"testing"
 )
 
-// sdkBoundaryResidue names the production packages that may still import the
-// microsandbox SDK directly, with the reason. They are the deliberate exceptions
-// to the phase-4 end state; a new entry is a decision, not a default.
-var sdkBoundaryResidue = map[string]string{
-	"internal/sandbox/runtime": "the runtime install/version surface (SDKVersion, " +
-		"RuntimeConfig, EnsureRuntime/InstallRuntime) has no launcher-owned equivalent yet",
-}
-
 // sdkImportPath is the microsandbox SDK import no non-`msb` production package
 // may use.
 const sdkImportPath = "github.com/superradcompany/microsandbox/sdk/go"
@@ -26,12 +18,11 @@ const sdkImportPath = "github.com/superradcompany/microsandbox/sdk/go"
 // TestNoProductionPackageImportsSDK pins the phase-4 end state: with the
 // launcher owning the whole config model, the microsandbox SDK is an
 // implementation detail of internal/sandbox/msb alone. Every other package's
-// non-test sources must be SDK-free, modulo sdkBoundaryResidue; see
+// non-test sources must be SDK-free; see
 // .operator-shared/specs/architecture/msb-seam.md.
 //
-// The scan uses go/build so a _test.go import of the SDK is never counted:
-// Package.Imports covers non-test files only, with TestImports/XTestImports
-// kept separate.
+// The scan uses go/parser and skips _test.go files, so a test import of the SDK
+// never counts.
 func TestNoProductionPackageImportsSDK(t *testing.T) {
 	sdkPath := sdkImportPath
 	moduleRoot := filepath.Join("..", "..", "..")
@@ -62,12 +53,9 @@ func TestNoProductionPackageImportsSDK(t *testing.T) {
 			relative = path
 		}
 		relative = filepath.ToSlash(relative)
-		if _, documented := sdkBoundaryResidue[relative]; documented {
-			return nil
-		}
 		t.Errorf(
-			"%s imports the microsandbox SDK; only internal/sandbox/msb and the documented residue (%v) may",
-			relative, sdkBoundaryResidue,
+			"%s imports the microsandbox SDK; only internal/sandbox/msb may",
+			relative,
 		)
 		return nil
 	})
@@ -76,26 +64,13 @@ func TestNoProductionPackageImportsSDK(t *testing.T) {
 	}
 }
 
-// TestSDKBoundaryResiduePackagesExist guards against a stale residue entry: a
-// package named there must exist and must actually import the SDK, so the list
-// is a live exemption rather than a silent hole. The import assertion is also the
-// positive control for TestNoProductionPackageImportsSDK: it proves the scan
-// detects a real production importer.
-func TestSDKBoundaryResiduePackagesExist(t *testing.T) {
-	for relative := range sdkBoundaryResidue {
-		dir := filepath.Join("..", "..", "..", relative)
-		info, err := os.Stat(dir)
-		if err != nil {
-			t.Errorf("residue package %s does not exist: %v", relative, err)
-			continue
-		}
-		if !info.IsDir() {
-			t.Errorf("residue path %s is not a directory", relative)
-			continue
-		}
-		if !productionImportsSDK(dir, sdkImportPath) {
-			t.Errorf("residue package %s does not import the SDK; drop it from sdkBoundaryResidue", relative)
-		}
+// TestSDKBoundaryDetectsAnImporter is the positive control for the scan: the
+// adapter itself imports the SDK, so the scan must report at least it. Without
+// this, a broken scan could pass vacuously.
+func TestSDKBoundaryDetectsAnImporter(t *testing.T) {
+	adapterDir := filepath.Join("..", "..", "..", "internal", "sandbox", "msb")
+	if !productionImportsSDK(adapterDir, sdkImportPath) {
+		t.Fatal("boundary scan did not detect the adapter's own SDK import")
 	}
 }
 
