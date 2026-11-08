@@ -514,3 +514,15 @@ func TestNewResolverRefusesWhenTheApprovedProjectConfigIsGone(t *testing.T) {
 		})
 	}
 }
+
+// TestMergeDirRefusesAGoneApprovedConfig pins the merge's own refusal: a
+// project layer whose approved config file is gone is not merged as empty.
+func TestMergeDirRefusesAGoneApprovedConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		filepath.Join(dir, "config.yaml"): projectguard.ApprovalOf([]byte("network:\n  profile: none\n")),
+	}))
+	if err := mergeDir(viper.New(), dir); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("mergeDir = %v, want ErrNotApproved", err)
+	}
+}
