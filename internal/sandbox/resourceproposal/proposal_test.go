@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -16,6 +17,9 @@ import (
 )
 
 const testSlug = "widget-bbb"
+
+// testCheckoutSlug keys the project config approval of the test checkout.
+const testCheckoutSlug = "widget-bbb-checkout"
 
 // TestSuggestRaiseRoundsUpToNextGiB pins the suggested increment: 25% over the
 // current value, rounded up to the next whole GiB.
@@ -379,7 +383,7 @@ func TestPersistSettingRejectsEnvShadow(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
 			t.Setenv(name, "8G")
 
-			dir, err := PersistSetting(configpaths.Get(), testSlug, memoryKey, "6144M", false)
+			dir, err := PersistSetting(configpaths.Get(), testSlug, testCheckoutSlug, memoryKey, "6144M", false)
 			if err == nil {
 				t.Fatal("expected an error when the env supplies memory")
 			}
@@ -403,17 +407,17 @@ func TestPersistSettingShadowNamesTheKeysSource(t *testing.T) {
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	t.Setenv("AGENTS_SANDBOX_DISK_SIZE", "16G")
 
-	if _, err := PersistSetting(configpaths.Get(), testSlug, "disk-size", "20G", false); err == nil ||
+	if _, err := PersistSetting(configpaths.Get(), testSlug, testCheckoutSlug, "disk-size", "20G", false); err == nil ||
 		!strings.Contains(err.Error(), "AGENTS_SANDBOX_DISK_SIZE") {
 		t.Errorf("disk-size with its env set: err = %v, want a refusal naming AGENTS_SANDBOX_DISK_SIZE", err)
 	}
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_DISK_SIZE")
-	if _, err := PersistSetting(configpaths.Get(), testSlug, "disk-size", "20G", true); err == nil ||
+	if _, err := PersistSetting(configpaths.Get(), testSlug, testCheckoutSlug, "disk-size", "20G", true); err == nil ||
 		!strings.Contains(err.Error(), "--disk-size") {
 		t.Errorf("disk-size set by flag: err = %v, want a refusal naming --disk-size", err)
 	}
 	t.Setenv("AGENTS_SANDBOX_DISK_SIZE", "16G")
-	if _, err := PersistSetting(configpaths.Get(), testSlug, memoryKey, "6144M", false); err != nil {
+	if _, err := PersistSetting(configpaths.Get(), testSlug, testCheckoutSlug, memoryKey, "6144M", false); err != nil {
 		t.Errorf("memory with only disk-size's env set: err = %v, want the write", err)
 	}
 }
@@ -423,7 +427,7 @@ func TestPersistSettingShadowNamesTheKeysSource(t *testing.T) {
 func TestPersistSettingRejectsFlagShadow(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	dir, err := PersistSetting(configpaths.Get(), testSlug, memoryKey, "6144M", true)
+	dir, err := PersistSetting(configpaths.Get(), testSlug, testCheckoutSlug, memoryKey, "6144M", true)
 	if err == nil {
 		t.Fatal("expected an error when the --memory flag supplies memory")
 	}
@@ -446,7 +450,7 @@ func TestPersistSettingWritesToOwningLayer(t *testing.T) {
 	owner := cp.UserSlugConfigDir(testSlug)
 	writeMemoryConfig(t, owner, "2G")
 
-	dir, err := PersistSetting(cp, testSlug, memoryKey, "6144M", false)
+	dir, err := PersistSetting(cp, testSlug, testCheckoutSlug, memoryKey, "6144M", false)
 	if err != nil {
 		t.Fatalf("PersistSetting: %v", err)
 	}
@@ -469,7 +473,7 @@ func TestPersistSettingOverwritesDifferentlyCasedOwnerKey(t *testing.T) {
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "Memory: 4G\n")
 
-	dir, err := PersistSetting(cp, testSlug, memoryKey, "6144M", false)
+	dir, err := PersistSetting(cp, testSlug, testCheckoutSlug, memoryKey, "6144M", false)
 	if err != nil {
 		t.Fatalf("PersistSetting: %v", err)
 	}
@@ -489,7 +493,7 @@ func TestPersistSettingDefaultsToUserSlugLayer(t *testing.T) {
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	cp := configpaths.Get()
 
-	dir, err := PersistSetting(cp, testSlug, memoryKey, "8192M", false)
+	dir, err := PersistSetting(cp, testSlug, testCheckoutSlug, memoryKey, "8192M", false)
 	if err != nil {
 		t.Fatalf("PersistSetting: %v", err)
 	}
@@ -510,7 +514,7 @@ func TestPersistSettingWritesToProjectLayer(t *testing.T) {
 	cp := configpaths.Get()
 	writeMemoryConfig(t, cp.ProjectConfigDir(), "4G")
 
-	dir, err := PersistSetting(cp, testSlug, memoryKey, "6144M", false)
+	dir, err := PersistSetting(cp, testSlug, testCheckoutSlug, memoryKey, "6144M", false)
 	if err != nil {
 		t.Fatalf("PersistSetting: %v", err)
 	}
@@ -519,6 +523,98 @@ func TestPersistSettingWritesToProjectLayer(t *testing.T) {
 	}
 	if got := resolveMemory(t, testSlug); got != "6144M" {
 		t.Errorf("resolved memory = %q; want 6144M", got)
+	}
+}
+
+// approveProjectLayer records the project config layer as the user approved it.
+func approveProjectLayer(t *testing.T, cp configpaths.ConfigPaths) {
+	t.Helper()
+	projection, err := projecttrust.Compute(projecttrust.Sources{ProjectConfigDir: cp.ProjectConfigDirAbs()})
+	if err != nil {
+		t.Fatalf("compute projection: %v", err)
+	}
+	if err := projecttrust.RecordApproval(testCheckoutSlug, projection); err != nil {
+		t.Fatalf("record approval: %v", err)
+	}
+}
+
+// projectLayerApproved reports whether the current project config layer is the
+// approved one.
+func projectLayerApproved(t *testing.T, cp configpaths.ConfigPaths) bool {
+	t.Helper()
+	projection, err := projecttrust.Compute(projecttrust.Sources{ProjectConfigDir: cp.ProjectConfigDirAbs()})
+	if err != nil {
+		t.Fatalf("compute projection: %v", err)
+	}
+	approval, _, err := projecttrust.LoadApproval(testCheckoutSlug)
+	if err != nil {
+		t.Fatalf("load approval: %v", err)
+	}
+	return projecttrust.Evaluate(projection, approval).Approved
+}
+
+// TestPersistSettingKeepsAnApprovedProjectLayerApproved pins that the
+// launcher's own raise into the project config does not make the next run ask
+// for approval of it.
+func TestPersistSettingKeepsAnApprovedProjectLayerApproved(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+	cp := configpaths.Get()
+	writeMemoryConfig(t, cp.ProjectConfigDir(), "4G")
+	approveProjectLayer(t, cp)
+
+	if _, err := PersistSetting(cp, testSlug, testCheckoutSlug, memoryKey, "6144M", false); err != nil {
+		t.Fatalf("PersistSetting: %v", err)
+	}
+	if !projectLayerApproved(t, cp) {
+		t.Error("the launcher's own write left the project config needing approval")
+	}
+}
+
+// TestPersistSettingWritesNothingWhenTheApprovalFails pins that the write and
+// its approval are one operation: when the approval cannot be recorded, the
+// project config file is not touched.
+func TestPersistSettingWritesNothingWhenTheApprovalFails(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+	cp := configpaths.Get()
+	writeMemoryConfig(t, cp.ProjectConfigDir(), "4G")
+	configFile := filepath.Join(cp.ProjectConfigDir(), "config.yaml")
+	before, err := os.ReadFile(configFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testutil.WriteFile(t, cp.UserStateDir(), "state.yaml", "schema: [not-valid")
+
+	if _, err := PersistSetting(cp, testSlug, testCheckoutSlug, memoryKey, "6144M", false); err == nil {
+		t.Fatal("PersistSetting succeeded although the approval could not be recorded")
+	}
+	after, err := os.ReadFile(configFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("config.yaml = %q, want it unchanged %q", after, before)
+	}
+}
+
+// TestPersistSettingRestoresTheApprovalWhenTheWriteFails pins the other half:
+// a project config the writer refuses leaves the approval as it was.
+func TestPersistSettingRestoresTheApprovalWhenTheWriteFails(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+	cp := configpaths.Get()
+	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.json5", "{\n  // comment\n  memory: '2G',\n}\n")
+	approveProjectLayer(t, cp)
+
+	if _, err := PersistSetting(cp, testSlug, testCheckoutSlug, memoryKey, "8192M", false); err == nil {
+		t.Fatal("expected a write error for a non-YAML project config file")
+	}
+	if !projectLayerApproved(t, cp) {
+		t.Error("a failed write left the approval extended by a value the file does not hold")
 	}
 }
 
@@ -534,7 +630,7 @@ func TestPersistSettingSurfacesWriteFailure(t *testing.T) {
 	const json5 = "{\n  // comment\n  \"memory\": \"2G\",\n}\n"
 	testutil.WriteFile(t, dir, "config.json5", json5)
 
-	got, err := PersistSetting(cp, testSlug, memoryKey, "8192M", false)
+	got, err := PersistSetting(cp, testSlug, testCheckoutSlug, memoryKey, "8192M", false)
 	if err == nil {
 		t.Fatal("expected a write error for a non-YAML config file")
 	}
@@ -648,7 +744,7 @@ func TestPersistSettingRejectsAnUnresolvedConfigDir(t *testing.T) {
 			testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 
 			if _, err := PersistSetting(
-				unresolvableConfigPaths{slugDir: tc.slugDir}, testSlug, memoryKey, "8192M", false,
+				unresolvableConfigPaths{slugDir: tc.slugDir}, testSlug, testCheckoutSlug, memoryKey, "8192M", false,
 			); err == nil {
 				t.Fatal("PersistSetting with an unresolved config dir = nil error, want a rejection")
 			}

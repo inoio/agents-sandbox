@@ -229,12 +229,10 @@ pressure, and re-arming on the ratio alone would re-offer every launch.)
   effect. In that case, tell the user the value comes from a higher-precedence source instead of
   prompting, do not write a shadowed file value, and count the hit as answered. An accepted raise
   names the value and the config directory it was written to.
-- **Project config is untrusted** (`specs/configuration/project-config-trust.md`): writing the raise to a
-  project config must also update the approved projection/digest so the trust gate does not
-  reject the launcher's own change on the next run. If that proves too entangled, fall back to
-  the user config and warn that project config overrides it (surface, don't silently lose).
-  Until that machinery (#229) lands, the write goes to the owning layer as-is — there is no
-  projection to update yet, and the raise must stay effective.
+- **Project config is untrusted** (`specs/configuration/project-config-trust.md`): a raise written to the
+  project config also extends the checkout's approval by that key (`projecttrust.ApproveSettingWrite`), so
+  the next run does not ask about the launcher's own change; if the approval cannot be recorded, nothing
+  is written and the raise reports an error.
 - Formatting/writing: **there is no launcher-config writer on `main`** — config files are read-only
   (`configpaths.FindConfigFile`). Define one: preserve the target file's format and its unrelated
   keys and comments (a `.json5`/`.jsonc` file must not be rewritten as YAML), write atomically

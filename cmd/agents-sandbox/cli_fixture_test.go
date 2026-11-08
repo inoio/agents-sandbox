@@ -10,6 +10,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
@@ -103,4 +104,21 @@ func newOriginClone(t *testing.T) string {
 		t.Fatalf("write git config: %v", err)
 	}
 	return root
+}
+
+// approveProjectConfig records the current project config layer as approved for
+// the test checkout, as a user's earlier interactive approval would.
+func approveProjectConfig(t *testing.T) {
+	t.Helper()
+	identity, err := resolveIdentity(".")
+	if err != nil {
+		t.Fatalf("resolve identity: %v", err)
+	}
+	decision, err := evaluateProjectConfig(configpaths.WithProjectLayer(configpaths.Get()), identity)
+	if err != nil {
+		t.Fatalf("evaluate project config: %v", err)
+	}
+	if err := projecttrust.RecordApproval(identity.CheckoutSlug, decision.Current); err != nil {
+		t.Fatalf("record approval: %v", err)
+	}
 }

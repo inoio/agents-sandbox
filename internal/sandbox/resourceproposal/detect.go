@@ -279,7 +279,7 @@ func presentMemoryRaise(
 	}
 	warnIfTheHostLacksTheRaise(newMiB-currentMiB, limits, ui)
 	dir, persistErr := PersistSetting(
-		paths, configSlug(opts, k), memoryKey, memorySetting(newMiB), opts.SetByFlag(memoryKey),
+		paths, configSlug(opts, k), k.Slug, memoryKey, memorySetting(newMiB), opts.SetByFlag(memoryKey),
 	)
 	if persistErr != nil {
 		ui.Warnf("could not persist the raised memory limit: %v", persistErr)

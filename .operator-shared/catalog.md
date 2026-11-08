@@ -247,6 +247,9 @@
 
 ### `plans/` - TDD implementation plans
 
+- `2026-11-08-project-config-trust-gate.md`
+  - Description: Plan for the #229 trust gate's first PR: the `projecttrust` projection and evaluation, the `RootState` approval record, the gate in `PersistentPreRunE` with project-layer exclusion through `configpaths`, the prompt/refusal, dry-run reporting, and the launcher-write approval; the consistency check is PR 2.
+  - Read If: Implementing or reviewing the project config trust gate (#229), or picking up its consistency-check follow-up.
 - `2026-11-07-hermetic-test-suite-design.md`
   - Description: Design for making the default `go test` suite hermetic: the acceptance envelope (module copy outside any checkout + scrubbed env + network namespace), the host-figure sentinel pass on injected seams, the wall-clock rule, and the release-to-default cadence.
   - Read If: Working on test decoupling from the execution environment, the hermetic envelope targets, the host-figure sentinel pass, or the hermetic suite's cadence.

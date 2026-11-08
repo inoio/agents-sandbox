@@ -312,11 +312,23 @@ If your config files aren't being picked up:
 
 3. Check that CLI flags aren't overriding your config (flags always win).
 
-4. Use `--log-level verbose` to see which config files were loaded:
+4. Check that the project config is approved: a changed `.agents-sandbox/` is ignored until you approve it (see
+   ["project config change requires approval"](#project-config-change-requires-approval)).
+
+5. Use `--log-level verbose` to see which config files were loaded:
 
    ```console
    agents-sandbox run --log-level verbose
    ```
+
+## "project config change requires approval"
+
+A run without a terminal found a change in `.agents-sandbox/` that you have not approved, so it did not start. Run
+`agents-sandbox` once in a terminal in the same checkout, review the listed changes, and choose **Approve**. See
+[Approving project config changes]({% link configuration/launcher.md %}#approving-project-config-changes).
+
+The warning "the project config changed and is not approved, so it is ignored for this command" has the same cause:
+that command ran without your project config.
 
 ## Image build fails
 

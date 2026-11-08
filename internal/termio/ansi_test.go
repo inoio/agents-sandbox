@@ -77,3 +77,11 @@ func TestStyleStatusMarkers(t *testing.T) {
 		t.Errorf("stopped should use dim, got %q", dim)
 	}
 }
+
+func TestEscapeControlEscapesControlAndFormatCharacters(t *testing.T) {
+	got := EscapeControl("/a\x1b[2J\n\u202eb ← ok")
+	want := `/a\x1b[2J\n\u202eb ← ok`
+	if got != want {
+		t.Errorf("EscapeControl = %q, want %q", got, want)
+	}
+}

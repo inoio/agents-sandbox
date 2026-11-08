@@ -2,6 +2,7 @@ package viperconfig
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -342,4 +343,43 @@ func TestHomeKeyFromPerSlugConfig(t *testing.T) {
 		}
 	}
 	t.Errorf("expected the per-slug home entry .gitconfig in cfg.Home, got %+v", cfg.Home)
+}
+
+// TestLayerSettingsReadsOneLayerAlone pins that a single config dir is read on
+// its own, in any supported format, so a caller can tell what that layer sets
+// independently of the merged view.
+func TestLayerSettingsReadsOneLayerAlone(t *testing.T) {
+	yamlDir := t.TempDir()
+	testutil.WritePath(t, filepath.Join(yamlDir, "config.yaml"), "memory: 8G\nnetwork:\n  profile: public\n")
+	jsonDir := t.TempDir()
+	testutil.WritePath(t, filepath.Join(jsonDir, "config.json5"), "{memory: '8G', network: {profile: 'public'}}")
+
+	for name, dir := range map[string]string{"yaml": yamlDir, "json5": jsonDir} {
+		path, settings, err := LayerSettings(dir)
+		if err != nil {
+			t.Fatalf("%s: LayerSettings: %v", name, err)
+		}
+		if filepath.Dir(path) != dir {
+			t.Errorf("%s: path = %q, want a file in %q", name, path, dir)
+		}
+		want := map[string]any{"memory": "8G", "network": map[string]any{"profile": "public"}}
+		if !reflect.DeepEqual(settings, want) {
+			t.Errorf("%s: settings = %#v, want %#v", name, settings, want)
+		}
+	}
+}
+
+func TestLayerSettingsWithoutAConfigFileIsEmpty(t *testing.T) {
+	path, settings, err := LayerSettings(t.TempDir())
+	if err != nil || path != "" || settings != nil {
+		t.Errorf("LayerSettings(empty dir) = %q, %v, %v; want empty", path, settings, err)
+	}
+}
+
+func TestLayerSettingsReportsAnUnparsableFile(t *testing.T) {
+	dir := t.TempDir()
+	testutil.WritePath(t, filepath.Join(dir, "config.yaml"), "memory: [unclosed\n")
+	if _, _, err := LayerSettings(dir); err == nil {
+		t.Error("LayerSettings accepted an unparsable config file")
+	}
 }

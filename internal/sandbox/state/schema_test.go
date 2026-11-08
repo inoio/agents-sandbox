@@ -152,6 +152,26 @@ var (
 		"updates.launcher",
 		"updates.launcher.dismissed_versions",
 		"updates.launcher.last_checked",
+	}, 2: {
+		"adopted_home_volumes",
+		"adopted_home_volumes[].checkout_slug",
+		"adopted_home_volumes[].volume",
+		"migrations",
+		"migrations[].copied",
+		"migrations[].excluded",
+		"migrations[].kept",
+		"migrations[].status",
+		"project_trust",
+		"project_trust[].digest",
+		"project_trust[].inputs",
+		"schema",
+		"updates",
+		"updates.agents",
+		"updates.agents[].last_checked",
+		"updates.agents[].latest_version",
+		"updates.launcher",
+		"updates.launcher.dismissed_versions",
+		"updates.launcher.last_checked",
 	}}
 )
 

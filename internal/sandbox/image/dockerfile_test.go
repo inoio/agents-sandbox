@@ -1507,6 +1507,17 @@ func TestReadProjectDockerfileBareWorktree(t *testing.T) {
 	}
 }
 
+// TestReadProjectDockerfileWithoutProjectLayerReadsNothing pins that an
+// excluded project layer contributes no Dockerfile, even when one exists.
+func TestReadProjectDockerfileWithoutProjectLayerReadsNothing(t *testing.T) {
+	worktree := synthesizeBareWorktree(t, false)
+	writeFileAt(t, filepath.Join(filepath.Dir(worktree), ".agents-sandbox", "Dockerfile"), "FROM bare-root\n")
+
+	if got := ReadProjectDockerfile(configpaths.WithoutProjectLayer(configpaths.Get())); got != nil {
+		t.Errorf("ReadProjectDockerfile(without project layer) = %q, want nil", got)
+	}
+}
+
 // injectDockerBlockForTest is the body-level convenience the injection tests
 // use: it lexes the body with the same shared walk parseProjectDockerfile uses
 // and finds the first top-level marker, then injects.

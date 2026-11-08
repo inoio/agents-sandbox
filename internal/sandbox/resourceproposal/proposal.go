@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -157,8 +158,15 @@ func formatMiB(mib uint32) string {
 // PersistSetting writes value for the limit setting key to the config layer that
 // owns the key, defaulting to the per-project user config, and returns that
 // directory. It returns an error rather than writing a shadowed value when a
-// flag (setByFlag) or an environment variable supplies the key.
-func PersistSetting(paths configpaths.ConfigPaths, slug, key, value string, setByFlag bool) (string, error) {
+// flag (setByFlag) or an environment variable supplies the key. A write to the
+// project config also extends the checkout's project config approval by the
+// key, so the next run does not ask about the launcher's own change; when the
+// approval cannot be recorded, nothing is written.
+func PersistSetting(
+	paths configpaths.ConfigPaths,
+	slug, checkoutSlug, key, value string,
+	setByFlag bool,
+) (string, error) {
 	if source, shadowed := ShadowSource(key, setByFlag); shadowed {
 		return "", fmt.Errorf("%s is set by %s; not writing a config value it would override", key, source)
 	}
@@ -169,13 +177,28 @@ func PersistSetting(paths configpaths.ConfigPaths, slug, key, value string, setB
 	if err := requireWritableConfigDir(paths, dir); err != nil {
 		return "", err
 	}
-	// The owning layer may be the project config: the write goes there so the
-	// raise is not shadowed. A project-config trust gate must also record the
-	// launcher's own change there (specs/resources/resource-limit-proposal.md §4).
+	if dir == paths.ProjectConfigDir() {
+		return dir, writeApprovedProjectSetting(dir, checkoutSlug, key, value)
+	}
 	if err := viperconfig.WriteSetting(dir, key, value); err != nil {
 		return "", err
 	}
 	return dir, nil
+}
+
+// writeApprovedProjectSetting extends the checkout's project config approval by
+// key and then writes it to the project config in dir, restoring the previous
+// approval when the write fails.
+func writeApprovedProjectSetting(dir, checkoutSlug, key, value string) error {
+	restoreApproval, err := projecttrust.ApproveSettingWrite(checkoutSlug, key, value)
+	if err != nil {
+		return err
+	}
+	if err := viperconfig.WriteSetting(dir, key, value); err != nil {
+		restoreApproval()
+		return err
+	}
+	return nil
 }
 
 // requireWritableConfigDir rejects a resolved config directory that is not a

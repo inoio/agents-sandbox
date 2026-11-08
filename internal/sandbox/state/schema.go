@@ -17,7 +17,7 @@ import (
 // versioning; it is read as the current schema and stamped on the next write.
 const (
 	HomeStateSchema = 4
-	RootStateSchema = 1
+	RootStateSchema = 2
 )
 
 // ErrStateSchemaUnsupported classifies a state document written by a newer

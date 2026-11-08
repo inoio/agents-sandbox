@@ -112,6 +112,7 @@ func TestDeprecatedConfigAliasesWarnExactlyOnce(t *testing.T) {
 				); err != nil {
 					t.Fatal(err)
 				}
+				approveProjectConfig(t)
 			}
 
 			ui := &termio.Mock{}

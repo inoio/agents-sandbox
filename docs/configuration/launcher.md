@@ -57,6 +57,40 @@ subdirectories) and non-repo folders are unaffected.
 | `.agents-sandbox/config.(y[a]ml\|json[(c\|5)])` | Project-specific configuration file (incl. the `home:` key; see [Home provisioning & startup hooks]({% link configuration/home-provisioning.md %}))                                                               |            
 | `.agents-sandbox/<agent>/*`                    | Project-specific agent config snippets (see [Agent configuration]({% link configuration/agent.md %}))          |
 
+### Approving project config changes
+
+The agent can edit every file in your checkout, `.agents-sandbox/` included. A project config can mount host
+directories, copy host files into the sandbox, widen network access, or change the runner image, so agents-sandbox
+does not act on it until you have approved its content. Approval is per checkout and shared by all agents.
+
+The first run in a checkout, and every run after the project config changed, shows what changed and asks:
+
+```text
+The project config (.agents-sandbox) changed since you last approved it:
+  changed /home/you/repo/.agents-sandbox/config.yaml (launcher config):
+      - network.profile: "none"
+      + network.profile: "public"
+  new /home/you/repo/.agents-sandbox/hook.sh (file):
+      + git config --global credential.helper store
+The agent can edit these files. Approve them only if you expect these changes.
+  a) Approve - use this project config for this checkout
+  q) Quit (default) - do not use it; nothing is changed
+```
+
+Lines starting with `-` were approved before; lines starting with `+` are new. The check covers every file the launcher
+reads from `.agents-sandbox/`: the config file, `env`, the secret files, the agent config directories, and the
+`Dockerfile`. It also covers each file a `home:` entry copies from inside the checkout, however the entry spells its
+path. For the secret files it shows only where each secret may be sent, never its value, so changing a secret value
+does not ask again.
+
+- `run`, `shell`, and `build` ask before they start. Without a terminal (a script, `--serve-only` in the background)
+  they refuse to start instead; run them once in a terminal to approve. `--yes` and `yes: true` never approve.
+- `--dry-run` shows the change and previews the run without the project config.
+- Every other command prints a warning and runs without the project config.
+- When agents-sandbox itself raises `memory` or a disk limit in the project config, it keeps that change approved.
+
+Your user config (`~/.config/agents-sandbox/`), environment variables, and flags are never checked: you wrote them.
+
 ### Custom base images
 
 A `.agents-sandbox/Dockerfile` whose `FROM` is a specific image is treated as a **custom base** and the node, agent (and
