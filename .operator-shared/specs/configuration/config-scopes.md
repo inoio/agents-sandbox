@@ -31,7 +31,7 @@ Under tests `configpaths.Get()` defaults to a fail-fast implementation that pani
 
 Non-goals:
 
-- The project layer's trust gate (`specs/configuration/project-config-trust.md`) is unchanged. The per-slug user dir is in the trusted user layer and is never gated.
+- The project layer's trust gate (`specs/configuration/project-config-trust.md`) is unchanged. The per-slug user dir is in the trusted user layer and is never gated. An unapproved project layer is left out of the scope list itself: `ConfigScopes` omits the project scope when the paths carry no project config dir (`configpaths.WithoutProjectLayer`), so every reader loses it at once.
 - No user-level Dockerfile; the project Dockerfile stays project-only.
 - No new config-file formats or new file-based inputs beyond the existing four.
 - No change to the `config paths` displayed layer names or the relative project row.

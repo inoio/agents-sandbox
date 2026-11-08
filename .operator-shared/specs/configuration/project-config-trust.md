@@ -111,6 +111,11 @@ are.
   (`specs/resources/resource-limit-proposal.md` §4) — it must record the resulting projection and digest in the same act,
   or the next run gates the launcher's own change. The write and the projection update are one operation;
   a write whose projection update fails must not leave the file changed without the matching approval.
+  The update extends the recorded approval by **only the written key** (`projecttrust.ApproveSettingWrite`);
+  it does not re-read and approve the file, so anything else the agent changed in the same file meanwhile
+  still needs approval. Without a recorded approval there is nothing to extend and nothing is recorded.
+  The approval is recorded first and restored if the write then fails; a failed approval writes nothing,
+  and a failed restore leaves the approval ahead of the file, which only makes the next run ask again.
 
 ## Non-interactive behavior
 
@@ -157,20 +162,21 @@ approved digest. This replaces a single snapshot reader, which would mean rerout
 
 ## Provenance
 
-The projection must be computed from the project layer alone, not from viper's merged view, because the
-merge discards which file set a key. The project layer is read on its own — the files are named by
-`configpaths.ProjectConfigDir()`, the project secret-file accessors, and `reprovision.ResolveConfigSource`
-(which resolves the project agent config dir). `homeconfig.LoadLayers` already keeps one `Layer` per config
-dir and can attribute its entries; `mounts` is loaded through the merged `viper` view today and needs the
-same per-layer treatment. Provenance is used only to build the projection; the projection and its digest
-are persisted (State), nothing else.
+The projection is computed from the project layer alone, not from viper's merged view, because the merge
+discards which file set a key. `projecttrust.Compute` reads the project config dir on its own: the launcher
+config file through `viperconfig.LayerSettings` (one layer, parsed as a merged layer would be), the env and
+secret files through the project scope's file joins and the `envsecret` parsers, every agent config dir any
+registered agent reads (primary names and aliases, `agent.ConfigDirNames`), the Dockerfile, and the `home:`
+manifest through `homeconfig`, resolving each source and following symlinks before the guest-writable test.
+Provenance is used only to build the projection; the projection and its digest are persisted (State), nothing
+else.
 
 ## State
 
 - The approval is per **checkout**, not per agent: one checkout's config content is approved once and its
   agents share that approval. It is a section keyed by the checkout slug (`../identity/checkout-identity.md`) in the
   machine-global `RootState` — the per-`(slug, agent)` `HomeState` is the wrong scope, and a new file is
-  forbidden (`../state/state-model.md`). The section holds the approved
+  forbidden (`../state/state-model.md`). The section is `RootState.project_trust` (`RootStateSchema` 2). It holds the approved
   projection and its digest; the projection is retained so a later change can be shown as resolved
   old → new, and it holds no value from the project secret files. Losing `RootState` loses the approval, so
   the next run re-approves — the safe direction.
@@ -207,8 +213,11 @@ still reaches the host run:
 - The user layer is never gated, and no setting is gated for the user layer.
 - No `--yes` override and no non-interactive approval path in v1.
 
-## Open questions
+## Presentation
 
-- The prompt's exact shape, and whether it reuses `config harden`'s finding/remediation machinery.
-- How the projection represents the merge of several snippet files: each file's content, or the merged
-  output the launcher actually provisions.
+- The prompt lists one block per changed input — its status (`new`, `changed`, `removed`), source path, and
+  kind — with `- old` / `+ new` entry lines, every value escaped for the terminal (`termio.EscapeControl`).
+  It does not reuse `config harden` machinery. A first approval shows every input in full.
+- Each snippet file is its own input with its content, not the merged output, so a snippet edit shows as an
+  edit to that file.
+- A file over 64 KiB or not UTF-8 text is a single `sha256:` entry.

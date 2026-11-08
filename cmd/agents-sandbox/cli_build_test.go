@@ -494,6 +494,7 @@ func TestBuildDockerfileCommandReportsReservedAlias(t *testing.T) {
 	); err != nil {
 		t.Fatalf("write project dockerfile: %v", err)
 	}
+	approveProjectConfig(t)
 
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "reserved stage alias") {

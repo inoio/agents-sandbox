@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/spf13/cobra"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -29,6 +30,9 @@ var version = devVersion
 //	    // ...assert...
 //	}
 func execute(args []string, ui termio.UI) error {
+	// The project config gate swaps the process path factory for this command;
+	// restore it so the decision does not outlive the command.
+	defer configpaths.Use(configpaths.Get)()
 	rootCmd := buildRootCmd(ui)
 	rootCmd.SetArgs(args)
 	// buildRootCmd already routes cmd output to the UI; execute additionally

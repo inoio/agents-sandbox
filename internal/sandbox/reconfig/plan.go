@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -143,33 +142,20 @@ func changeListUnder(heading string, changes []Change) string {
 	for _, c := range changes {
 		switch {
 		case c.Old != "" && c.New != "":
-			lines = append(lines, "  - "+displayValue(c.Label)+": "+displayValue(c.Old)+" → "+displayValue(c.New))
+			lines = append(
+				lines,
+				"  - "+termio.EscapeControl(c.Label)+": "+termio.EscapeControl(c.Old)+" → "+termio.EscapeControl(c.New),
+			)
 		case len(c.Details) > 0:
-			lines = append(lines, "  - "+displayValue(c.Label)+":")
+			lines = append(lines, "  - "+termio.EscapeControl(c.Label)+":")
 			for _, detail := range c.Details {
-				lines = append(lines, "      "+displayValue(detail))
+				lines = append(lines, "      "+termio.EscapeControl(detail))
 			}
 		default:
-			lines = append(lines, "  - "+displayValue(c.Label))
+			lines = append(lines, "  - "+termio.EscapeControl(c.Label))
 		}
 	}
 	return strings.Join(lines, "\n")
-}
-
-// displayValue escapes control and format characters, so a configured value (a
-// mount path, a network entry) can neither send terminal escape sequences,
-// reorder the text, nor add lines to the change list it is shown in.
-func displayValue(value string) string {
-	var escaped strings.Builder
-	for _, character := range value {
-		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
-			quoted := strconv.QuoteRune(character)
-			escaped.WriteString(quoted[1 : len(quoted)-1])
-			continue
-		}
-		escaped.WriteRune(character)
-	}
-	return escaped.String()
 }
 
 // warnAloneChange announces a change applied without asking because no other

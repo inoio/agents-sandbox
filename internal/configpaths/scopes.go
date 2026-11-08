@@ -26,7 +26,8 @@ type ConfigScope struct {
 
 // ConfigScopes returns the ordered config-scope chain for slug: the generic
 // user scope, the per-slug user scope (omitted for an empty slug, whose merged
-// entries the caller must not place anywhere), then the project scope. The
+// entries the caller must not place anywhere), then the project scope (omitted
+// when paths has no project config dir, see WithoutProjectLayer). The
 // order is the merge precedence every config reader follows: later scopes
 // override earlier ones.
 func ConfigScopes(paths ConfigPaths, slug string) []ConfigScope {
@@ -34,7 +35,9 @@ func ConfigScopes(paths ConfigPaths, slug string) []ConfigScope {
 	if slug != "" {
 		scopes = append(scopes, ConfigScope{Kind: ScopePerSlugUser, Dir: paths.UserSlugConfigDir(slug)})
 	}
-	scopes = append(scopes, ConfigScope{Kind: ScopeProject, Dir: paths.ProjectConfigDir()})
+	if projectDir := paths.ProjectConfigDir(); projectDir != "" {
+		scopes = append(scopes, ConfigScope{Kind: ScopeProject, Dir: projectDir})
+	}
 	return scopes
 }
 

@@ -22,6 +22,9 @@ type RootState struct {
 	// AdoptedHomeVolumes records, per legacy project identity, the checkout that
 	// adopted its lost-state home volume. See AdoptedHomeVolume.
 	AdoptedHomeVolumes map[string]AdoptedHomeVolume `yaml:"adopted_home_volumes,omitempty"`
+	// ProjectTrust records, per checkout slug, the project config layer the
+	// user approved. See ApprovedProjectLayer.
+	ProjectTrust map[string]ApprovedProjectLayer `yaml:"project_trust,omitempty"`
 }
 
 // Updates groups the launcher-global update-check state: Launcher for

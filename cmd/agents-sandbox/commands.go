@@ -130,6 +130,7 @@ func (v *autoPruneOutToVerboseRedirect) Outf(format string, args ...any) {
 
 func buildRootCmd(ui termio.UI) *cobra.Command {
 	rootCmd := buildMinimalRootFlagsCmd()
+	projectPaths := configpaths.Get
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
 		// Config stays on the repo slug: the per-slug user config dir is shared by
@@ -139,6 +140,9 @@ func buildRootCmd(ui termio.UI) *cobra.Command {
 		identity, err := resolveIdentity(".")
 		if err != nil {
 			return fmt.Errorf("resolve project identity: %w", err)
+		}
+		if gateErr := gateProjectConfig(cmd, ui, identity, projectPaths); gateErr != nil {
+			return gateErr
 		}
 		r, err := launcherconfig.NewResolver(cmd, configpaths.Get(), effectiveConfigSlug(identity))
 		if err != nil {

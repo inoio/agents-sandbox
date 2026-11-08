@@ -1,6 +1,10 @@
 package termio
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+	"unicode"
+)
 
 // Sandbox status strings styled by StyleStatus. They mirror the lowercase
 // values reported by the msb sandbox SDK.
@@ -67,4 +71,20 @@ func stripANSICodes(s string) string {
 		// Two-byte escape: the ESC prefix consumes one more byte.
 	}
 	return b.String()
+}
+
+// EscapeControl escapes control and Unicode format characters, so a value from
+// configuration can neither send terminal escape sequences, reorder the text
+// (bidi overrides), nor add lines to the output it is shown in.
+func EscapeControl(value string) string {
+	var escaped strings.Builder
+	for _, character := range value {
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
+			quoted := strconv.QuoteRune(character)
+			escaped.WriteString(quoted[1 : len(quoted)-1])
+			continue
+		}
+		escaped.WriteRune(character)
+	}
+	return escaped.String()
 }

@@ -221,7 +221,7 @@ func offerDiskRaise(
 	}
 	warnIfTheHostLacksTheSpace(limit, newMiB-currentMiB, limits, ui)
 	setting := memorySetting(newMiB)
-	dir, persistErr := PersistSetting(paths, configSlug(opts, k), limit.key, setting, opts.SetByFlag(limit.key))
+	dir, persistErr := PersistSetting(paths, configSlug(opts, k), k.Slug, limit.key, setting, opts.SetByFlag(limit.key))
 	if persistErr != nil {
 		ui.Warnf("could not persist the raised %s: %v", limit.name, persistErr)
 		return ""

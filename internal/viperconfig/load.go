@@ -237,6 +237,21 @@ func NewResolverWithConfig(cfg Config) *Resolver {
 	return &Resolver{cfg: cfg, slug: "", legacyEnv: nil, dockerLegacy: ""}
 }
 
+// LayerSettings reads the launcher config file in dir on its own, parsed like a
+// merged layer, and returns its path and the settings it sets (keys lowercased,
+// nested maps kept). A dir without a config file yields "" and nil settings.
+func LayerSettings(dir string) (string, map[string]any, error) {
+	path, _, ok := configpaths.FindConfigFile(dir)
+	if !ok {
+		return "", nil, nil
+	}
+	v := viper.New()
+	if err := mergeDir(v, dir); err != nil {
+		return "", nil, err
+	}
+	return path, v.AllSettings(), nil
+}
+
 func mergeDir(v *viper.Viper, dir string) error {
 	path, ext, ok := configpaths.FindConfigFile(dir)
 	if !ok {
