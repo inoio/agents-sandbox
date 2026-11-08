@@ -396,15 +396,18 @@ func (realMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandle, 
 	if err != nil {
 		return nil, err
 	}
-	return &realVolumeHandle{val: v}, nil
+	return &realVolumeHandle{handle: v}, nil
 }
 
 func (realMsbClient) CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error) {
-	vol, err := createVolume(ctx, name, opts...)
+	if _, err := createVolume(ctx, name, opts...); err != nil {
+		return nil, err
+	}
+	handle, err := getVolume(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	return &realVolumeHandle{val: vol}, nil
+	return &realVolumeHandle{handle: handle}, nil
 }
 
 func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
@@ -414,7 +417,7 @@ func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
 	}
 	result := make([]VolumeHandle, len(handles))
 	for i, h := range handles {
-		result[i] = &realVolumeHandle{val: h}
+		result[i] = &realVolumeHandle{handle: h}
 	}
 	return result, nil
 }
@@ -512,85 +515,49 @@ func (realMsbClient) StorageUsage(ctx context.Context) (*msbSdk.StorageUsageRepo
 	return storageUsage(ctx)
 }
 
-// realVolumeHandle adapts *msbSdk.Volume or *msbSdk.VolumeHandle to VolumeHandle.
+// realVolumeHandle adapts *msbSdk.VolumeHandle to VolumeHandle.
 type realVolumeHandle struct {
-	val any
+	handle *msbSdk.VolumeHandle
 }
 
 func (v realVolumeHandle) Name() string {
-	switch t := v.val.(type) {
-	case *msbSdk.VolumeHandle:
-		return t.Name()
-	case *msbSdk.Volume:
-		return t.Name()
-	}
-	return ""
+	return v.handle.Name()
 }
 
 func (v realVolumeHandle) Path() string {
-	switch t := v.val.(type) {
-	case *msbSdk.VolumeHandle:
-		return t.Path()
-	case *msbSdk.Volume:
-		return t.Path()
-	}
-	return ""
+	return v.handle.Path()
 }
 
 func (v realVolumeHandle) Kind() msbSdk.VolumeKind {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.Kind()
-	}
-	return msbSdk.VolumeKindDir
+	return v.handle.Kind()
 }
 
 func (v realVolumeHandle) CreatedAt() time.Time {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.CreatedAt()
-	}
-	return time.Time{}
+	return v.handle.CreatedAt()
 }
 
 func (v realVolumeHandle) QuotaMiB() *uint32 {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.QuotaMiB()
-	}
-	return nil
+	return v.handle.QuotaMiB()
 }
 
 func (v realVolumeHandle) UsedBytes() uint64 {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.UsedBytes()
-	}
-	return 0
+	return v.handle.UsedBytes()
 }
 
 func (v realVolumeHandle) CapacityBytes() *uint64 {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.CapacityBytes()
-	}
-	return nil
+	return v.handle.CapacityBytes()
 }
 
 func (v realVolumeHandle) DiskFormat() *string {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.DiskFormat()
-	}
-	return nil
+	return v.handle.DiskFormat()
 }
 
 func (v realVolumeHandle) DiskFstype() *string {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.DiskFstype()
-	}
-	return nil
+	return v.handle.DiskFstype()
 }
 
 func (v realVolumeHandle) Labels() map[string]string {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.Labels()
-	}
-	return nil
+	return v.handle.Labels()
 }
 
 // realSandboxHandle adapts *msbSdk.SandboxHandle to SandboxHandle.

@@ -658,15 +658,6 @@ func TestGetFactory(t *testing.T) {
 	}
 }
 
-// TestRealVolumeHandlePathUnknownValue covers the default branch of
-// realVolumeHandle.Path when val holds a non-SDK type.
-func TestRealVolumeHandlePathUnknownValue(t *testing.T) {
-	v := &realVolumeHandle{val: "not a volume"}
-	if got := v.Path(); got != "" {
-		t.Errorf("Path() for unknown type = %q, want empty", got)
-	}
-}
-
 // TestRealMsbClientCreateVolumeError covers the error branch of
 // realMsbClient.CreateVolume (invalid empty name fails before touching a VM).
 func TestRealMsbClientCreateVolumeError(t *testing.T) {
@@ -707,14 +698,6 @@ func TestRealMsbClientImageInspectInjected(t *testing.T) {
 	cfg, err := (&realMsbClient{}).ImageInspect(context.Background(), "ref")
 	if err != nil || cfg == nil || cfg.Digest != "sha256:abc" {
 		t.Fatalf("ImageInspect = %v, %v", cfg, err)
-	}
-}
-
-// TestRealVolumeHandlePathNilVal guards against a nil val.
-func TestRealVolumeHandlePathNilVal(t *testing.T) {
-	v := &realVolumeHandle{}
-	if got := v.Path(); got != "" {
-		t.Errorf("Path() with nil val = %q, want empty", got)
 	}
 }
 
@@ -790,16 +773,6 @@ func TestRealMsbClientImageInspectDetailHandleAndError(t *testing.T) {
 	}
 }
 
-func TestRealVolumeHandle_Kind_UnknownValue(t *testing.T) {
-	vh := &realVolumeHandle{val: "not a volume"}
-	if got := vh.Kind(); got != msbSdk.VolumeKindDir {
-		t.Errorf("Kind() for unknown type = %v, want %v", got, msbSdk.VolumeKindDir)
-	}
-	if got := vh.Name(); got != "" {
-		t.Errorf("Name() for unknown type = %q, want %q", got, "")
-	}
-}
-
 func TestRealSandboxHandleConfigAndModify(t *testing.T) {
 	var h SandboxHandle = &realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
 	cfg, err := h.Config()
@@ -809,7 +782,7 @@ func TestRealSandboxHandleConfigAndModify(t *testing.T) {
 }
 
 func TestRealVolumeHandleFromHandle(t *testing.T) {
-	v := &realVolumeHandle{val: &msbSdk.VolumeHandle{}}
+	v := &realVolumeHandle{handle: &msbSdk.VolumeHandle{}}
 	if got := v.Name(); got != "" {
 		t.Errorf("Name() = %q, want empty", got)
 	}
@@ -839,44 +812,6 @@ func TestRealVolumeHandleFromHandle(t *testing.T) {
 	}
 	if v.Labels() != nil {
 		t.Errorf("Labels() = %v, want nil", v.Labels())
-	}
-}
-
-func TestRealVolumeHandleNameAndPathFromVolume(t *testing.T) {
-	v := &realVolumeHandle{val: &msbSdk.Volume{}}
-	if got := v.Name(); got != "" {
-		t.Errorf("Name() from *Volume = %q, want empty", got)
-	}
-	if got := v.Path(); got != "" {
-		t.Errorf("Path() from *Volume = %q, want empty", got)
-	}
-}
-
-func TestRealVolumeHandleFromVolumeKind(t *testing.T) {
-	v := &realVolumeHandle{val: &msbSdk.Volume{}}
-	if got := v.Kind(); got != msbSdk.VolumeKindDir {
-		t.Errorf("Kind() from *Volume = %v, want VolumeKindDir", got)
-	}
-	if got := v.CreatedAt(); !got.Equal(time.Time{}) {
-		t.Errorf("CreatedAt() from *Volume = %v, want zero time", got)
-	}
-	if v.QuotaMiB() != nil {
-		t.Errorf("QuotaMiB() from *Volume = %v, want nil", v.QuotaMiB())
-	}
-	if v.UsedBytes() != 0 {
-		t.Errorf("UsedBytes() from *Volume = %d, want 0", v.UsedBytes())
-	}
-	if v.CapacityBytes() != nil {
-		t.Errorf("CapacityBytes() from *Volume = %v, want nil", v.CapacityBytes())
-	}
-	if v.DiskFormat() != nil {
-		t.Errorf("DiskFormat() from *Volume = %v, want nil", v.DiskFormat())
-	}
-	if v.DiskFstype() != nil {
-		t.Errorf("DiskFstype() from *Volume = %v, want nil", v.DiskFstype())
-	}
-	if v.Labels() != nil {
-		t.Errorf("Labels() from *Volume = %v, want nil", v.Labels())
 	}
 }
 
@@ -1070,6 +1005,9 @@ func TestRealMsbClientCreateRemoveVolume(t *testing.T) {
 		createdName = name
 		return &msbSdk.Volume{}, nil
 	})
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
+		return &msbSdk.VolumeHandle{}, nil
+	})
 	swapSeam(t, &removeVolume, func(_ context.Context, name string) error {
 		removedName = name
 		return nil
@@ -1084,6 +1022,46 @@ func TestRealMsbClientCreateRemoveVolume(t *testing.T) {
 	}
 	if createdName != "vol" || removedName != "vol" {
 		t.Errorf("create=%q remove=%q, want both %q", createdName, removedName, "vol")
+	}
+}
+
+func TestCreateVolumeResolvesTheCreatedVolumeThroughGetVolume(t *testing.T) {
+	ctx := context.Background()
+	swapSeam(t, &createVolume, func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
+		return &msbSdk.Volume{}, nil
+	})
+	var resolvedName string
+	swapSeam(t, &getVolume, func(_ context.Context, name string) (*msbSdk.VolumeHandle, error) {
+		resolvedName = name
+		return &msbSdk.VolumeHandle{}, nil
+	})
+
+	handle, err := (&realMsbClient{}).CreateVolume(ctx, "vol")
+	if err != nil || handle == nil {
+		t.Fatalf("CreateVolume() = %v, %v; want a handle", handle, err)
+	}
+	if resolvedName != "vol" {
+		t.Fatal("CreateVolume did not resolve the created volume through getVolume")
+	}
+	// Pre-fix the adapter wrapped the *msbSdk.Volume, whose Kind falls through
+	// to VolumeKindDir; post-fix it reports the resolved *msbSdk.VolumeHandle's
+	// own Kind, so the two differ for the zero-valued seam handle.
+	want := (&msbSdk.VolumeHandle{}).Kind()
+	if got := handle.Kind(); got != want {
+		t.Errorf("Kind() = %v, want the resolved handle's %v", got, want)
+	}
+}
+
+func TestCreateVolumePropagatesGetVolumeError(t *testing.T) {
+	swapSeam(t, &createVolume, func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
+		return &msbSdk.Volume{}, nil
+	})
+	wantErr := errors.New("resolve boom")
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
+		return nil, wantErr
+	})
+	if _, err := (&realMsbClient{}).CreateVolume(context.Background(), "vol"); !errors.Is(err, wantErr) {
+		t.Errorf("CreateVolume() error = %v, want %v", err, wantErr)
 	}
 }
 
