@@ -36,6 +36,20 @@ func ProjectVMLockDir(k Key) string {
 	return filepath.Join(locksDir(), k.Slug, k.Agent)
 }
 
+// AcquireProjectVMLock takes the raw per-(slug, agent) project-VM creation flock
+// without the same-process lock registry, for vm.EnsureProjectVM, which shares
+// this lock file and deliberately bypasses the registry (see lockProjectVM). It
+// rejects a resolved lock dir that is not absolute, so an unresolved state root
+// fails here rather than creating the lock file under the process working
+// directory.
+func AcquireProjectVMLock(k Key) (func(), error) {
+	dir := ProjectVMLockDir(k)
+	if err := requireAbsoluteStatePath(dir); err != nil {
+		return nil, err
+	}
+	return hostlock.AcquireExclusive(dir, ProjectVMLockName)
+}
+
 // lockProjectVM takes the per-(slug, agent) advisory lock that serializes the
 // project VM's creation and destruction, so two launchers cannot build or tear
 // down the same VM at once. The flock auto-releases on process exit, so a

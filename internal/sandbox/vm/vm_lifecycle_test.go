@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strconv"
@@ -124,6 +125,46 @@ func TestProjectVMLockSeamResolution(t *testing.T) {
 	seam := func(state.Key) (func(), error) { return nil, seamErr }
 	if _, err := projectVMLock(options.Seams{ProjectVMLock: seam})(testVMKey()); !errors.Is(err, seamErr) {
 		t.Errorf("set seam lock error = %v, want %v", err, seamErr)
+	}
+}
+
+// relativeStatePaths is a ConfigPaths whose roots are relative, standing in for
+// an unresolved state root ($HOME unset, or a mutation-sweep helper returning
+// the zero value). The project-VM lock dir derives from UserStateDir, so it is
+// relative to the process working directory — exactly what the absolute-path
+// guard rejects.
+type relativeStatePaths struct{}
+
+func (relativeStatePaths) UserConfigDir() string                { return "cfg" }
+func (relativeStatePaths) UserSlugConfigDir(slug string) string { return filepath.Join("cfg", slug) }
+func (relativeStatePaths) UserCacheDir() string                 { return "cache" }
+func (relativeStatePaths) UserStateDir() string                 { return "state" }
+func (relativeStatePaths) UserDataDir() string                  { return "data" }
+func (relativeStatePaths) UserHomeDir() (string, error)         { return "home", nil }
+func (relativeStatePaths) ProjectConfigDir() string             { return ".agents-sandbox" }
+func (relativeStatePaths) ProjectConfigDirAbs() string          { return "" }
+func (relativeStatePaths) IgnoredWorktreeConfigDir() string     { return "" }
+
+func (relativeStatePaths) ProjectDockerfile() string {
+	return filepath.Join(".agents-sandbox", "Dockerfile")
+}
+
+// TestAcquireProjectVMLockRejectsARelativeStateRoot pins the VM caller: the
+// production creation lock vm.EnsureProjectVM reaches through this default must
+// reject a lock dir that did not resolve to an absolute path rather than creating
+// the lock file under the process working directory.
+func TestAcquireProjectVMLockRejectsARelativeStateRoot(t *testing.T) {
+	// Pin the CWD so a write made with the guard removed lands in a temp tree,
+	// not the package directory.
+	t.Chdir(t.TempDir())
+	orig := configpaths.Get
+	configpaths.Get = func() configpaths.ConfigPaths { return relativeStatePaths{} }
+	t.Cleanup(func() { configpaths.Get = orig })
+
+	release, err := acquireProjectVMLock(testVMKey())
+	if err == nil {
+		release()
+		t.Fatal("acquireProjectVMLock with a relative state root = nil error, want a rejection")
 	}
 }
 
