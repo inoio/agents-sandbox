@@ -513,7 +513,7 @@ linters:
       #- text: 'comment on exported \S+ \S+ should be of the form ".+"'
       #  source: "// ?(nolint|TODO)"
       #  linters: [revive, staticcheck]
-      - path: '(testmock|mock)\.go$'
+      - path: '(testmock|mock)(_roles)?\.go$'
         linters:
           - dupl
           - exhaustruct_v5
