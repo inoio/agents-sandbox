@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/moby/moby/client"
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
@@ -79,8 +78,8 @@ func TestEnsureLoadedVerboseReportsUpToDate(t *testing.T) {
 	ui := &termio.Mock{}
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "sha256:same"}, nil
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{Digest: "sha256:same"}, nil
 		},
 	}
 	if _, err := EnsureLoaded(
@@ -135,8 +134,8 @@ func TestEnsureLoadedVerboseReportsStaleCache(t *testing.T) {
 	ui := &termio.Mock{}
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "sha256:msb-old"}, nil
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{Digest: "sha256:msb-old"}, nil
 		},
 	}
 	if _, err := EnsureLoaded(
@@ -273,8 +272,8 @@ func TestEnsureLoadedDecision(t *testing.T) {
 					}
 					return errors.New("not cached")
 				},
-				ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-					return &msbSdk.ImageConfig{Digest: tc.msbDigest, Labels: tc.msbLabels}, nil
+				ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+					return &msb.ImageConfig{Digest: tc.msbDigest, Labels: tc.msbLabels}, nil
 				},
 			}
 			if _, err := EnsureLoaded(
@@ -314,8 +313,8 @@ func TestEnsureLoadedReloadsStaleContentUnderSameRef(t *testing.T) {
 	removeCalled := false
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "sha256:msb-old"}, nil
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{Digest: "sha256:msb-old"}, nil
 		},
 		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error {
 			removeCalled = true
@@ -340,8 +339,8 @@ func TestEnsureLoadedSkipsWhenCachedContentMatches(t *testing.T) {
 	removed := false
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "sha256:same"}, nil
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{Digest: "sha256:same"}, nil
 		},
 		ImageRemoveFn: func(_ context.Context, _ string, _ bool) error { removed = true; return nil },
 	}
@@ -372,8 +371,8 @@ func TestEnsureLoadedReloadsLegacyImageWithoutDigest(t *testing.T) {
 	labels := map[string]string{dockerfileIDLabelKey: "abc123"}
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "", Labels: labels}, nil
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{Digest: "", Labels: labels}, nil
 		},
 	}
 	info := ImageInfo{DockerTag: "ref", Ref: "ref", Digest: "sha256:new", DockerfileID: "abc123"}
@@ -435,8 +434,8 @@ func TestEnsureLoadedReusesContentRef(t *testing.T) {
 			}
 			return errors.New("not cached")
 		},
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "sha256:same"}, nil
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{Digest: "sha256:same"}, nil
 		},
 	}
 
@@ -472,8 +471,8 @@ func TestEnsureLoadedReusesNameRefForMigration(t *testing.T) {
 			}
 			return errors.New("not cached")
 		},
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "sha256:same"}, nil
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{Digest: "sha256:same"}, nil
 		},
 	}
 
@@ -508,8 +507,8 @@ func TestEnsureLoadedReusesNameRefFromIdentity(t *testing.T) {
 			}
 			return errors.New("not cached")
 		},
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "sha256:same"}, nil
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{Digest: "sha256:same"}, nil
 		},
 	}
 
@@ -543,8 +542,8 @@ func TestEnsureLoadedReusesLegacyPrefixedRefForMigration(t *testing.T) {
 			}
 			return errors.New("not cached")
 		},
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "sha256:same"}, nil
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{Digest: "sha256:same"}, nil
 		},
 	}
 
@@ -619,8 +618,8 @@ func TestEnsureLoadedLoadsUnderContentRefWhenContentDiffers(t *testing.T) {
 			}
 			return errors.New("not cached")
 		},
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "sha256:old"}, nil
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{Digest: "sha256:old"}, nil
 		},
 	}
 	ui := &termio.Mock{}
@@ -688,8 +687,8 @@ func TestEnsureLoadedReusesLegacyRefWhenContentMatches(t *testing.T) {
 			}
 			return errors.New("not cached")
 		},
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "sha256:same"}, nil
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{Digest: "sha256:same"}, nil
 		},
 	}
 
@@ -761,8 +760,8 @@ func TestEnsureLoadedLoadsUnderNewRefWhenLegacyContentDiffers(t *testing.T) {
 			}
 			return errors.New("not cached")
 		},
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "sha256:old"}, nil
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{Digest: "sha256:old"}, nil
 		},
 	}
 
@@ -848,14 +847,14 @@ func TestCachedImageMatchesOnlyAnEqualDigest(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			msbClient := &msb.MockMsbClient{
-				ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+				ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
 					if tc.msbErr != nil {
 						return nil, tc.msbErr
 					}
 					if tc.msbNil {
 						return nil, nil //nolint:nilnil // the seam can return a nil config with no error
 					}
-					return &msbSdk.ImageConfig{Digest: tc.msbDigest, Labels: tc.msbLabels}, nil
+					return &msb.ImageConfig{Digest: tc.msbDigest, Labels: tc.msbLabels}, nil
 				},
 			}
 			if got := cachedImageMatches(context.Background(), msbClient, tc.info.Ref, tc.info); got != tc.want {

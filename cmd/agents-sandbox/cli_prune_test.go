@@ -547,8 +547,8 @@ func TestPruneFormatJSONIncludesStorageAndImageFields(t *testing.T) {
 				PhysicalBytesReclaimed: &physical,
 			}, nil
 		},
-		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
-			return &msb.ImagePruneReport{SkippedInUse: 4, BytesReclaimed: &physical}, nil
+		ImagePruneFn: func(context.Context) (*sandboxmsb.ImagePruneReport, error) {
+			return &sandboxmsb.ImagePruneReport{SkippedInUse: 4, BytesReclaimed: &physical}, nil
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "prune", "--format", "json", "--yes")
@@ -620,8 +620,8 @@ func TestPruneHumanOutputUnknownBytesRenderDash(t *testing.T) {
 		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
 			return &sandboxmsb.PruneReport{FilesRemoved: 1, LogicalBytesRemoved: 100}, nil
 		},
-		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
-			return &msb.ImagePruneReport{SkippedInUse: 2}, nil
+		ImagePruneFn: func(context.Context) (*sandboxmsb.ImagePruneReport, error) {
+			return &sandboxmsb.ImagePruneReport{SkippedInUse: 2}, nil
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "prune", "--yes")

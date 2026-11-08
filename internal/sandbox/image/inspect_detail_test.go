@@ -23,7 +23,7 @@ func TestInspectImagePopulatesDetail(t *testing.T) {
 			OS:             "linux",
 			SizeBytes:      &size,
 			CreatedAt:      time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
-			Config: msbSdk.ImageConfig{
+			Config: msb.ImageConfig{
 				Env:        []string{"A=1", "B=2"},
 				Cmd:        []string{"/bin/bash"},
 				Entrypoint: []string{"/entry"},
@@ -32,7 +32,7 @@ func TestInspectImagePopulatesDetail(t *testing.T) {
 				Labels:     map[string]string{"k": "v"},
 				StopSignal: "SIGTERM",
 			},
-			Layers: []msbSdk.ImageLayer{
+			Layers: []msb.ImageLayer{
 				{
 					Position:            0,
 					DiffID:              "sha256:layer0",
@@ -74,7 +74,7 @@ func TestInspectImageUnknownLayerSize(t *testing.T) {
 	mock := &msb.MockMsbClient{ImageInspectDetailFn: func(_ context.Context, _ string) (*msb.ImageDetail, error) {
 		return &msb.ImageDetail{
 			Reference: "agents-sandbox/runner-x",
-			Layers:    []msbSdk.ImageLayer{{Position: 0, DiffID: "sha256:l"}},
+			Layers:    []msb.ImageLayer{{Position: 0, DiffID: "sha256:l"}},
 		}, nil
 	}}
 	msb.WithMsbMock(t, mock)

@@ -535,9 +535,9 @@ func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
 		Images: []msb.ImageHandle{
 			&msb.MockImageHandle{Reference_: ref, CreatedAt_: time.Now().Add(-48 * time.Hour)},
 		},
-		ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 			nativePruned = true
-			return &msbSdk.ImagePruneReport{}, nil
+			return &msb.ImagePruneReport{}, nil
 		},
 	}
 	msb.WithMsbMock(t, client)

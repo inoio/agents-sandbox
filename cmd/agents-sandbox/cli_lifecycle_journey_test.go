@@ -100,8 +100,8 @@ func (host *journeyHost) installMsbImageCache(mock *sandboxmsb.MockMsbClient) {
 		}
 		return nil
 	}
-	mock.ImageInspectFn = func(context.Context, string) (*msbSdk.ImageConfig, error) {
-		return &msbSdk.ImageConfig{Digest: journeyImageID}, nil
+	mock.ImageInspectFn = func(context.Context, string) (*sandboxmsb.ImageConfig, error) {
+		return &sandboxmsb.ImageConfig{Digest: journeyImageID}, nil
 	}
 	mock.ImageLoadFn = func(_ context.Context, ref string, _ io.Reader) error {
 		host.mu.Lock()

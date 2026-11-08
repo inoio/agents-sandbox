@@ -896,8 +896,8 @@ func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
 			}
 			return errors.New("not cached")
 		},
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{Digest: "sha256:same"}, nil
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{Digest: "sha256:same"}, nil
 		},
 	}
 	testUI := termio.NewTestMock(t)

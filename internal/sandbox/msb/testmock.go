@@ -91,10 +91,10 @@ type MockMsbClient struct {
 	RemoveVolumeFn       func(ctx context.Context, name string) error
 	ImageGetFn           func(ctx context.Context, ref string) error
 	ImageListFn          func(ctx context.Context) ([]ImageHandle, error)
-	ImagePruneFn         func(ctx context.Context) (*msbSdk.ImagePruneReport, error)
+	ImagePruneFn         func(ctx context.Context) (*ImagePruneReport, error)
 	ImageRemoveFn        func(ctx context.Context, ref string, force bool) error
 	ImageLoadFn          func(ctx context.Context, ref string, r io.Reader) error
-	ImageInspectFn       func(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
+	ImageInspectFn       func(ctx context.Context, ref string) (*ImageConfig, error)
 	ImageInspectDetailFn func(ctx context.Context, ref string) (*ImageDetail, error)
 	StorageUsageFn       func(ctx context.Context) (*StorageReport, error)
 	StoragePruneFn       func(ctx context.Context, req PruneRequest) (*PruneReport, error)
@@ -266,11 +266,11 @@ func (m *MockMsbClient) ImageList(ctx context.Context) ([]ImageHandle, error) {
 }
 
 // ImagePrune implements Client.
-func (m *MockMsbClient) ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, error) {
+func (m *MockMsbClient) ImagePrune(ctx context.Context) (*ImagePruneReport, error) {
 	if m.ImagePruneFn != nil {
 		return m.ImagePruneFn(ctx)
 	}
-	return &msbSdk.ImagePruneReport{}, nil
+	return &ImagePruneReport{}, nil
 }
 
 // PruneStorage implements Client, recording every call's request.
@@ -310,11 +310,11 @@ func (m *MockMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) 
 	return nil
 }
 
-func (m *MockMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error) {
+func (m *MockMsbClient) ImageInspect(ctx context.Context, ref string) (*ImageConfig, error) {
 	if m.ImageInspectFn != nil {
 		return m.ImageInspectFn(ctx, ref)
 	}
-	return &msbSdk.ImageConfig{}, nil
+	return &ImageConfig{}, nil
 }
 
 func (m *MockMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*ImageDetail, error) {
@@ -1048,7 +1048,7 @@ func (f *failFastMsbClient) ImageList(_ context.Context) ([]ImageHandle, error) 
 	return nil, nil
 }
 
-func (f *failFastMsbClient) ImagePrune(_ context.Context) (*msbSdk.ImagePruneReport, error) {
+func (f *failFastMsbClient) ImagePrune(_ context.Context) (*ImagePruneReport, error) {
 	f.mustMock()
 	return nil, nil
 }
@@ -1071,7 +1071,7 @@ func (f *failFastMsbClient) ImageLoad(_ context.Context, _ string, _ io.Reader) 
 	return nil
 }
 
-func (f *failFastMsbClient) ImageInspect(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
+func (f *failFastMsbClient) ImageInspect(_ context.Context, _ string) (*ImageConfig, error) {
 	f.mustMock()
 	return nil, nil
 }

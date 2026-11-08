@@ -145,8 +145,8 @@ func TestImagePruneFormatJSON(t *testing.T) {
 func TestImagePruneFormatJSONIncludesNativeReport(t *testing.T) {
 	physical := uint64(2048)
 	m := &sandboxmsb.MockMsbClient{
-		ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
-			return &msbSdk.ImagePruneReport{SkippedInUse: 4, BytesReclaimed: &physical}, nil
+		ImagePruneFn: func(context.Context) (*sandboxmsb.ImagePruneReport, error) {
+			return &sandboxmsb.ImagePruneReport{SkippedInUse: 4, BytesReclaimed: &physical}, nil
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "image", "prune", "--format", "json", "--yes")

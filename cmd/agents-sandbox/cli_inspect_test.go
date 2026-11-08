@@ -157,7 +157,7 @@ func TestImageInspect(t *testing.T) {
 				OS:             "linux",
 				SizeBytes:      &size,
 				CreatedAt:      time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
-				Config: msbSdk.ImageConfig{
+				Config: sandboxmsb.ImageConfig{
 					Env:        []string{"A=1", "B=2"},
 					Entrypoint: []string{"/entry"},
 					WorkingDir: "/workspace",
@@ -165,7 +165,7 @@ func TestImageInspect(t *testing.T) {
 					StopSignal: "SIGTERM",
 					Labels:     map[string]string{"k": "v"},
 				},
-				Layers: []msbSdk.ImageLayer{
+				Layers: []sandboxmsb.ImageLayer{
 					{
 						Position:            0,
 						DiffID:              "sha256:layer0",
@@ -211,8 +211,8 @@ func TestImageInspectFormatJSON(t *testing.T) {
 				ManifestDigest: "sha256:abc123",
 				Architecture:   "amd64",
 				OS:             "linux",
-				Config:         msbSdk.ImageConfig{Labels: map[string]string{"k": "v"}},
-				Layers:         []msbSdk.ImageLayer{{Position: 2, DiffID: "sha256:l"}},
+				Config:         sandboxmsb.ImageConfig{Labels: map[string]string{"k": "v"}},
+				Layers:         []sandboxmsb.ImageLayer{{Position: 2, DiffID: "sha256:l"}},
 			}, nil
 		},
 	}

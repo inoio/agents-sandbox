@@ -429,9 +429,9 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 				events = append(events, "remove")
 				return nil
 			},
-			ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+			ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 				events = append(events, "prune")
-				return &msbSdk.ImagePruneReport{ManifestsRemoved: 1}, nil
+				return &msb.ImagePruneReport{ManifestsRemoved: 1}, nil
 			},
 		}
 		resolutions := msb.WithCountingMsbMock(t, client)
@@ -451,9 +451,9 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 	t.Run("dry run", func(t *testing.T) {
 		called := false
 		client := &msb.MockMsbClient{
-			ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+			ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 				called = true
-				return &msbSdk.ImagePruneReport{}, nil
+				return &msb.ImagePruneReport{}, nil
 			},
 		}
 		msb.WithMsbMock(t, client)
@@ -469,7 +469,7 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 
 	t.Run("native prune error", func(t *testing.T) {
 		client := &msb.MockMsbClient{
-			ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+			ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 				return nil, errors.New("native prune failed")
 			},
 		}
@@ -491,8 +491,8 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 func TestPruneImagesCapturesNativeReport(t *testing.T) {
 	physical := uint64(2048)
 	client := &msb.MockMsbClient{
-		ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
-			return &msbSdk.ImagePruneReport{SkippedInUse: 4, BytesReclaimed: &physical}, nil
+		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
+			return &msb.ImagePruneReport{SkippedInUse: 4, BytesReclaimed: &physical}, nil
 		},
 	}
 	msb.WithMsbMock(t, client)
@@ -514,8 +514,8 @@ func TestPruneImagesCapturesNativeReport(t *testing.T) {
 // the native report's byte count.
 func TestPruneImagesUnknownNativeBytesStayNil(t *testing.T) {
 	client := &msb.MockMsbClient{
-		ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
-			return &msbSdk.ImagePruneReport{SkippedInUse: 1}, nil
+		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
+			return &msb.ImagePruneReport{SkippedInUse: 1}, nil
 		},
 	}
 	msb.WithMsbMock(t, client)
@@ -1029,9 +1029,9 @@ func TestPruneImagesSkipsNativePruneWhenRetaining(t *testing.T) {
 			removed = true
 			return nil
 		},
-		ImagePruneFn: func(context.Context) (*msbSdk.ImagePruneReport, error) {
+		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 			pruned = true
-			return &msbSdk.ImagePruneReport{ManifestsRemoved: 1}, nil
+			return &msb.ImagePruneReport{ManifestsRemoved: 1}, nil
 		},
 	}
 	msb.WithMsbMock(t, client)

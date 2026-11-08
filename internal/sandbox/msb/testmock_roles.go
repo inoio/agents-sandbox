@@ -117,10 +117,10 @@ func (m *MockVolumeStore) RemoveVolume(ctx context.Context, name string) error {
 type MockImageStore struct {
 	ImageGetFn           func(ctx context.Context, ref string) error
 	ImageListFn          func(ctx context.Context) ([]ImageHandle, error)
-	ImagePruneFn         func(ctx context.Context) (*msbSdk.ImagePruneReport, error)
+	ImagePruneFn         func(ctx context.Context) (*ImagePruneReport, error)
 	ImageRemoveFn        func(ctx context.Context, ref string, force bool) error
 	ImageLoadFn          func(ctx context.Context, ref string, r io.Reader) error
-	ImageInspectFn       func(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
+	ImageInspectFn       func(ctx context.Context, ref string) (*ImageConfig, error)
 	ImageInspectDetailFn func(ctx context.Context, ref string) (*ImageDetail, error)
 }
 
@@ -144,7 +144,7 @@ func (m *MockImageStore) ImageList(ctx context.Context) ([]ImageHandle, error) {
 }
 
 // ImagePrune implements ImageStore.
-func (m *MockImageStore) ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, error) {
+func (m *MockImageStore) ImagePrune(ctx context.Context) (*ImagePruneReport, error) {
 	if m.ImagePruneFn != nil {
 		return m.ImagePruneFn(ctx)
 	}
@@ -168,7 +168,7 @@ func (m *MockImageStore) ImageLoad(ctx context.Context, ref string, r io.Reader)
 }
 
 // ImageInspect implements ImageStore.
-func (m *MockImageStore) ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error) {
+func (m *MockImageStore) ImageInspect(ctx context.Context, ref string) (*ImageConfig, error) {
 	if m.ImageInspectFn != nil {
 		return m.ImageInspectFn(ctx, ref)
 	}

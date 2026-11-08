@@ -80,8 +80,8 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -166,8 +166,8 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 	}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -296,8 +296,8 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -579,8 +579,8 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -657,8 +657,8 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 	}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -808,8 +808,8 @@ func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 	}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -1447,8 +1447,8 @@ func TestPrepareSandboxDryRunVMSkipsTheVM(t *testing.T) {
 	slug := git.MustCheckoutSlug()
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -1518,8 +1518,8 @@ func TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome(t *testing.T) {
 
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -1559,8 +1559,8 @@ func TestPrepareSandboxDryRunVMServeOnlyPublishesPort(t *testing.T) {
 	k := state.Key{Slug: slug, Agent: "opencode"}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -1627,8 +1627,8 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 	slug := git.MustCheckoutSlug()
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
@@ -2250,8 +2250,8 @@ func TestPrepareSandboxServeOnlyPortExhausted(t *testing.T) {
 	k := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
 	mock := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
-		ImageInspectFn: func(_ context.Context, _ string) (*msbSdk.ImageConfig, error) {
-			return &msbSdk.ImageConfig{
+		ImageInspectFn: func(_ context.Context, _ string) (*msb.ImageConfig, error) {
+			return &msb.ImageConfig{
 				Env:    []string{"PATH=/usr/bin"},
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil

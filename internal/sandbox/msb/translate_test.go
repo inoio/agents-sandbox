@@ -522,6 +522,98 @@ func TestLogEntriesFromPreservesNilAndFields(t *testing.T) {
 	}
 }
 
+func TestImageConfigFromProjectsFields(t *testing.T) {
+	config := imageConfigFrom(&msbSdk.ImageConfig{
+		Digest:     "sha256:abc",
+		Env:        []string{"A=1"},
+		Cmd:        []string{"/bin/bash"},
+		Entrypoint: []string{"/entry"},
+		WorkingDir: "/workspace",
+		User:       "dev",
+		Labels:     map[string]string{"k": "v"},
+		StopSignal: "SIGTERM",
+	})
+	if config == nil {
+		t.Fatal("imageConfigFrom() = nil, want config")
+	}
+	if config.Digest != "sha256:abc" || config.WorkingDir != "/workspace" ||
+		config.User != "dev" || config.StopSignal != "SIGTERM" {
+		t.Errorf("imageConfigFrom() = %+v, want every scalar field projected", config)
+	}
+	if len(config.Env) != 1 || config.Env[0] != "A=1" {
+		t.Errorf("Env = %v, want [A=1]", config.Env)
+	}
+	if len(config.Cmd) != 1 || config.Cmd[0] != "/bin/bash" {
+		t.Errorf("Cmd = %v, want [/bin/bash]", config.Cmd)
+	}
+	if len(config.Entrypoint) != 1 || config.Entrypoint[0] != "/entry" {
+		t.Errorf("Entrypoint = %v, want [/entry]", config.Entrypoint)
+	}
+	if config.Labels["k"] != "v" {
+		t.Errorf("Labels = %v, want k=v", config.Labels)
+	}
+}
+
+func TestImageConfigFromNilIsNil(t *testing.T) {
+	if got := imageConfigFrom(nil); got != nil {
+		t.Errorf("imageConfigFrom(nil) = %v, want nil", got)
+	}
+}
+
+func TestImageLayersFromPreservesNilAndFields(t *testing.T) {
+	if got := imageLayersFrom(nil); got != nil {
+		t.Errorf("imageLayersFrom(nil) = %v, want nil", got)
+	}
+	compressed := int64(1024)
+	erofs := int64(2048)
+	got := imageLayersFrom([]msbSdk.ImageLayer{{
+		DiffID:              "sha256:layer0",
+		BlobDigest:          "sha256:blob0",
+		MediaType:           "application/vnd.oci.image.layer.v1.tar+gzip",
+		CompressedSizeBytes: &compressed,
+		ErofsSizeBytes:      &erofs,
+		Position:            2,
+	}})
+	if len(got) != 1 {
+		t.Fatalf("imageLayersFrom() = %v, want one layer", got)
+	}
+	layer := got[0]
+	if layer.DiffID != "sha256:layer0" || layer.BlobDigest != "sha256:blob0" ||
+		layer.MediaType != "application/vnd.oci.image.layer.v1.tar+gzip" ||
+		layer.CompressedSizeBytes != &compressed || layer.ErofsSizeBytes != &erofs ||
+		layer.Position != 2 {
+		t.Errorf("imageLayersFrom() = %+v, want every field projected", layer)
+	}
+}
+
+func TestImagePruneReportFromProjectsFields(t *testing.T) {
+	reclaimed := uint64(2048)
+	report := imagePruneReportFrom(&msbSdk.ImagePruneReport{
+		SkippedInUse:     4,
+		ImageRefsRemoved: 1,
+		ManifestsRemoved: 2,
+		LayersRemoved:    3,
+		FsmetaRemoved:    1,
+		VMDKRemoved:      1,
+		BytesReclaimed:   &reclaimed,
+	})
+	if report == nil {
+		t.Fatal("imagePruneReportFrom() = nil, want report")
+	}
+	if report.SkippedInUse != 4 || report.ImageRefsRemoved != 1 ||
+		report.ManifestsRemoved != 2 || report.LayersRemoved != 3 ||
+		report.FsmetaRemoved != 1 || report.VMDKRemoved != 1 ||
+		report.BytesReclaimed != &reclaimed {
+		t.Errorf("imagePruneReportFrom() = %+v, want every field projected", report)
+	}
+}
+
+func TestImagePruneReportFromNilIsNil(t *testing.T) {
+	if got := imagePruneReportFrom(nil); got != nil {
+		t.Errorf("imagePruneReportFrom(nil) = %v, want nil", got)
+	}
+}
+
 func TestMetricsFromProjectsFieldsAndNil(t *testing.T) {
 	if got := metricsFrom(nil); got != nil {
 		t.Errorf("metricsFrom(nil) = %v, want nil", got)

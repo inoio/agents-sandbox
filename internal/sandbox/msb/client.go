@@ -34,10 +34,10 @@ type VolumeStore interface {
 type ImageStore interface {
 	ImageGet(ctx context.Context, ref string) error
 	ImageList(ctx context.Context) ([]ImageHandle, error)
-	ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, error)
+	ImagePrune(ctx context.Context) (*ImagePruneReport, error)
 	ImageRemove(ctx context.Context, ref string, force bool) error
 	ImageLoad(ctx context.Context, ref string, r io.Reader) error
-	ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
+	ImageInspect(ctx context.Context, ref string) (*ImageConfig, error)
 	ImageInspectDetail(ctx context.Context, ref string) (*ImageDetail, error)
 }
 
@@ -197,8 +197,12 @@ func (realMsbClient) ImageList(ctx context.Context) ([]ImageHandle, error) {
 	return result, nil
 }
 
-func (realMsbClient) ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, error) {
-	return imagePrune(ctx)
+func (realMsbClient) ImagePrune(ctx context.Context) (*ImagePruneReport, error) {
+	report, err := imagePrune(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return imagePruneReportFrom(report), nil
 }
 
 func (realMsbClient) PruneStorage(
@@ -255,12 +259,12 @@ func (realMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) (er
 	return nil
 }
 
-func (realMsbClient) ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error) {
+func (realMsbClient) ImageInspect(ctx context.Context, ref string) (*ImageConfig, error) {
 	detail, err := realImageInspect(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	return detail.Config, nil
+	return imageConfigFrom(detail.Config), nil
 }
 
 func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*ImageDetail, error) {
@@ -268,7 +272,7 @@ func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*Image
 	if err != nil {
 		return nil, err
 	}
-	out := &ImageDetail{Layers: detail.Layers}
+	out := &ImageDetail{Layers: imageLayersFrom(detail.Layers)}
 	if detail.ImageHandle != nil {
 		out.Reference = detail.Reference()
 		out.ManifestDigest = detail.ManifestDigest()
@@ -277,8 +281,8 @@ func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*Image
 		out.SizeBytes = detail.SizeBytes()
 		out.CreatedAt = detail.CreatedAt()
 	}
-	if detail.Config != nil {
-		out.Config = *detail.Config
+	if config := imageConfigFrom(detail.Config); config != nil {
+		out.Config = *config
 	}
 	return out, nil
 }
