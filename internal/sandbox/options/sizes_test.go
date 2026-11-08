@@ -226,6 +226,7 @@ func TestValidateSizes(t *testing.T) {
 		{name: "memory unparseable", memory: "bogus", wantErrPart: "invalid --memory"},
 		{name: "tmp zero", memory: "4G", tmpSize: "0", wantErrPart: "--tmp-size"},
 		{name: "tmp at memory", memory: "4G", tmpSize: "4G", wantErrPart: "--tmp-size"},
+		{name: "tmp at default memory", tmpSize: "4096M", wantErrPart: "must be below memory 4096M"},
 		{name: "tmp above memory", memory: "4G", tmpSize: "8G", wantErrPart: "--tmp-size"},
 		{name: "tmp unparseable", memory: "4G", tmpSize: "bogus", wantErrPart: "invalid --tmp-size"},
 		{name: "disk zero", diskSize: "0", wantErrPart: "--disk-size"},

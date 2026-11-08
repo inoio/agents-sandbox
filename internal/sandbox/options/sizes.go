@@ -78,15 +78,11 @@ func ParseMemory(spec string) uint32 {
 
 // ResolveTmpSizeMiB returns the tmpfs size in MiB: the parsed spec when set,
 // otherwise min(DefaultTmpSizeCapMiB, memoryMiB/2). memoryMiB is the resolved
-// memory limit the RAM-backed tmpfs shares; a zero memory (invalid, rejected
-// before this runs) falls back to DefaultMemoryMiB so the tmpfs is never
-// zero-sized.
+// memory limit the RAM-backed tmpfs shares and is always > 0 (validation rejects
+// a zero memory).
 func ResolveTmpSizeMiB(spec string, memoryMiB uint32) uint32 {
 	if v, ok := ParseMemoryOK(spec); ok {
 		return v
-	}
-	if memoryMiB == 0 {
-		memoryMiB = DefaultMemoryMiB
 	}
 	if half := memoryMiB / 2; half < DefaultTmpSizeCapMiB {
 		return half
