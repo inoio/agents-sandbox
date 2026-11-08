@@ -15,17 +15,9 @@ import (
 // gomutants:disable-next-line INTEGER_DECREMENT,INTEGER_INCREMENT reason="a settle window, not a contract; tests override it, so the default's exact value is unobservable"
 var hostOpenSettleTime = 3 * time.Second
 
-// execCommand is a test seam; production uses exec.Command.
+// execCommand is a test seam; production uses exec.Command. Overridden through
+// SetExecCommand by the openertest package.
 var execCommand = exec.Command
-
-// InstallFailFast points execCommand at a panic so a test that reaches the real
-// host opener without overriding the seam fails loud instead of opening a
-// browser. Wired up by the package TestMain and testutil.InitFailFastMocks.
-var InstallFailFast = func() { execCommand = failFastExecCommand }
-
-func failFastExecCommand(name string, _ ...string) *exec.Cmd {
-	panic("opener: reached real execCommand(" + name + "); override execCommand in the test")
-}
 
 // hostOpenCommand returns the host's default-handler command for goos. The
 // target is passed as a single argv element and never through a shell.

@@ -38,17 +38,9 @@ type Backend interface {
 	Notify(n Notification)
 }
 
-// execCommand is a test seam; production uses exec.Command.
+// execCommand is a test seam; production uses exec.Command. Overridden through
+// SetExecCommand by the notifytest package.
 var execCommand = exec.Command
-
-// InstallFailFast points execCommand at a panic so a test that reaches a real
-// desktop/audio notification command without overriding the seam fails loud
-// instead of spawning a real player. Wired up by the package TestMain.
-var InstallFailFast = func() { execCommand = failFastExecCommand }
-
-func failFastExecCommand(name string, _ ...string) *exec.Cmd {
-	panic("notify: reached real execCommand(" + name + "); override execCommand in the test")
-}
 
 // NewBackend builds the effective backend for cfg, or nil when inactive.
 func NewBackend(cfg Config, ui termio.Logger) Backend {

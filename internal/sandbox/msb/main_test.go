@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
-	"github.com/inoio/agents-sandbox/internal/opener"
+	"github.com/inoio/agents-sandbox/internal/opener/openertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 )
 
@@ -22,7 +22,7 @@ func TestMain(m *testing.M) {
 	// cyclic dependency on msb
 	// doctor.InstallFailFast()
 	InstallFailFastGet()
-	opener.InstallFailFast()
+	openertest.InstallFailFast()
 	// Point the msb-tagged tests at an isolated microsandbox home; a no-op in
 	// the untagged build (see runtime_isolation_msb_test.go).
 	removeIsolatedRuntimeHome := installIsolatedRuntimeHome()

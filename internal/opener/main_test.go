@@ -1,23 +1,26 @@
-package opener
+package opener_test
 
 import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
-	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/notify/notifytest"
+	"github.com/inoio/agents-sandbox/internal/opener/openertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
+// TestMain installs the fail-fast defaults directly. It stays an external test
+// package because openertest imports opener (to call its exported setter), so an
+// internal TestMain could not import it without an import cycle. Keep in sync
+// with testutil.InitFailFastMocks' body.
 func TestMain(m *testing.M) {
-	// testutil.InitFailFastMocks installs this package's fail-fast seam, so
-	// calling it here would be an import cycle. Keep in sync with its body.
 	configpathstest.InstallFailFastConfigPaths()
 	dockertest.InstallFailFastGet()
 	doctortest.InstallFailFast()
 	msb.InstallFailFastGet()
-	notify.InstallFailFast()
-	InstallFailFast()
+	notifytest.InstallFailFast()
+	openertest.InstallFailFast()
 	m.Run()
 }
