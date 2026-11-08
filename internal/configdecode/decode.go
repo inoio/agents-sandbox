@@ -65,6 +65,10 @@ func Decode(format Format, data []byte) (map[string]any, error) {
 // config file that is gone is a refusal, so deleting it cannot make a reader
 // fall back to the lower layers.
 func FindFile(dir string) (string, string, bool, error) {
+	// A layer with no dir (env, flags) has no config file to look for.
+	if dir == "" {
+		return "", "", false, nil
+	}
 	if path, ext, found := configpaths.FindConfigFile(dir); found {
 		return path, ext, true, nil
 	}

@@ -911,3 +911,47 @@ func TestScanSnippetsRefusesAnApprovedSnippetThatIsGone(t *testing.T) {
 		})
 	}
 }
+
+// TestScanSnippetsAcceptsACompleteListing pins that only an approved snippet
+// the listing lacks is refused: present snippets, files in subdirectories, and
+// files that are no snippet are not.
+func TestScanSnippetsAcceptsACompleteListing(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "opencode")
+	writeSnippet(t, dir, "opencode-a.json", `{"a": 1}`)
+	writeSnippet(t, dir, "opencode-b.json", `{"b": 1}`)
+	restore := projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		filepath.Join(dir, "opencode-a.json"):         projectguard.ApprovalOf([]byte(`{"a": 1}`)),
+		filepath.Join(dir, "opencode-b.json"):         projectguard.ApprovalOf([]byte(`{"b": 1}`)),
+		filepath.Join(dir, "plugin", "opencode.json"): projectguard.ApprovalOf([]byte(`{}`)),
+		filepath.Join(dir, "notes.md"):                projectguard.ApprovalOf([]byte(`x`)),
+	})
+	defer restore()
+	if merged, _ := scanSnippets([]string{dir}, "opencode*.json*"); len(merged) != 2 {
+		t.Errorf("merged = %v, want both approved snippets", merged)
+	}
+	if projectguard.Violation() != nil {
+		t.Errorf("Violation() = %v, want none for a complete listing", projectguard.Violation())
+	}
+}
+
+// TestScanSnippetsRefusesAfterAFailedListing pins that a listing that failed
+// part way does not count its partial entries as present.
+func TestScanSnippetsRefusesAfterAFailedListing(t *testing.T) {
+	dir := t.TempDir()
+	writeSnippet(t, dir, "opencode-a.json", `{"a": 1}`)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := readDir
+	readDir = func(string) ([]os.DirEntry, error) { return entries, errors.New("partial read") }
+	t.Cleanup(func() { readDir = original })
+	restore := projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		filepath.Join(dir, "opencode-a.json"): projectguard.ApprovalOf([]byte(`{"a": 1}`)),
+	})
+	defer restore()
+	scanSnippets([]string{dir}, "opencode*.json*")
+	if !errors.Is(projectguard.Violation(), projectguard.ErrNotApproved) {
+		t.Errorf("Violation() = %v, want the unlisted snippet refused", projectguard.Violation())
+	}
+}

@@ -463,3 +463,19 @@ func legacyMergeConfig(t *testing.T, file, content string) *viper.Viper {
 	}
 	return v
 }
+
+// TestNewResolverWithAnApprovedConfigInTheWorkingDirectory pins Greptile's
+// regression: the layers without a dir (env, flags) look for no config file, so
+// an approved config file in the working directory never blocks startup.
+func TestNewResolverWithAnApprovedConfigInTheWorkingDirectory(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cwd := t.TempDir()
+	testutil.WritePath(t, filepath.Join(cwd, "config.yaml"), "memory: 8G\n")
+	t.Cleanup(projectguard.Install(nil, map[string]projectguard.Approval{
+		filepath.Join(cwd, "config.yaml"): projectguard.ApprovalOf([]byte("memory: 8G\n")),
+	}))
+	t.Chdir(cwd)
+	if _, err := NewResolver(nil, configpaths.Get(), ""); err != nil {
+		t.Errorf("NewResolver = %v, want startup to succeed", err)
+	}
+}

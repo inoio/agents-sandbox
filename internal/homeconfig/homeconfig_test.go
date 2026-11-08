@@ -1422,15 +1422,9 @@ func TestHomeDiscoveryRefusesApprovedFilesThatAreGone(t *testing.T) {
 		source: projectguard.ApprovalOf([]byte("echo approved\n")),
 	}))
 	testutil.WritePath(t, config, manifest)
-	if _, _, _, err := BuildHomeFilesWithModes(
-		[]string{dir},
-		"/home/dev",
-		nil,
-	); !errors.Is(
-		err,
-		projectguard.ErrNotApproved,
-	) {
-		t.Errorf("BuildHomeFilesWithModes with the hook gone = %v, want ErrNotApproved", err)
+	files, _, has, err := BuildHomeFilesWithModes([]string{dir}, "/home/dev", nil)
+	if !errors.Is(err, projectguard.ErrNotApproved) || has || files != nil {
+		t.Errorf("BuildHomeFilesWithModes with the hook gone = %v, %v, %v; want only ErrNotApproved", files, has, err)
 	}
 	if err := os.Remove(config); err != nil {
 		t.Fatal(err)

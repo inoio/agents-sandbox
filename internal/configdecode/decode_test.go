@@ -203,7 +203,24 @@ func TestFindFileRefusesAnApprovedConfigFileThatIsGone(t *testing.T) {
 		t.Errorf("FindFile = found %v, %v; want ErrNotApproved", found, err)
 	}
 	testutil.WritePath(t, filepath.Join(dir, "config.yaml"), "network: none\n")
-	if path, _, found, err := configdecode.FindFile(dir); !found || err != nil || filepath.Base(path) != "config.yaml" {
-		t.Errorf("FindFile = %q, %v, %v; want the config file", path, found, err)
+	if path, ext, found, err := configdecode.FindFile(
+		dir,
+	); !found || err != nil || filepath.Base(path) != "config.yaml" ||
+		ext != ".yaml" {
+		t.Errorf("FindFile = %q, %q, %v, %v; want the config file", path, ext, found, err)
+	}
+}
+
+// TestFindFileLooksForNothingWithoutADir pins that a layer with no dir (env,
+// flags) looks for no config file and is never refused, even when an approved
+// config file named like one relative to the working directory is gone.
+func TestFindFileLooksForNothingWithoutADir(t *testing.T) {
+	dir := t.TempDir()
+	t.Cleanup(projectguard.Install(nil, map[string]projectguard.Approval{
+		filepath.Join(dir, "config.yaml"): projectguard.ApprovalOf([]byte("memory: 8G\n")),
+	}))
+	t.Chdir(dir)
+	if path, _, found, err := configdecode.FindFile(""); found || err != nil || path != "" {
+		t.Errorf("FindFile(\"\") = %q, %v, %v; want nothing", path, found, err)
 	}
 }

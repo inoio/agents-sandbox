@@ -126,7 +126,7 @@ func (g *guard) guarded(path string) bool {
 	for _, root := range g.roots {
 		// Both paths are absolute, so Rel cannot fail.
 		rel, _ := filepath.Rel(root, path)
-		if rel == "." || inside(rel) {
+		if inside(rel) {
 			return true
 		}
 	}
@@ -151,13 +151,19 @@ func ApprovalOf(data []byte) Approval {
 }
 
 // Missing reports that a reader found paths absent. An approved file among
-// them is gone since the approval: that is recorded and returned as a refusal,
-// so deleting an approved file cannot make a reader silently fall back.
+// them that is indeed gone since the approval is recorded and returned as a
+// refusal, so deleting an approved file cannot make a reader silently fall
+// back; one that still exists was looked for elsewhere and is not refused.
 func Missing(paths ...string) error {
 	mutex.Lock()
 	defer mutex.Unlock()
 	for _, path := range paths {
-		if approval, approved := current.reads[absolute(path)]; approved && !approval.Absent {
+		absolutePath := absolute(path)
+		approval, approved := current.reads[absolutePath]
+		if !approved || approval.Absent {
+			continue
+		}
+		if _, err := os.Lstat(absolutePath); err != nil {
 			return current.record(fmt.Errorf("%w: %s is gone", ErrNotApproved, path))
 		}
 	}
@@ -185,7 +191,7 @@ func CheckListing(root string, listed []string, relevant func(rel string) bool) 
 	return nil
 }
 
-// inside reports whether a path relative to a root lies below it.
+// inside reports whether a path relative to a root lies at or below it.
 func inside(rel string) bool {
-	return rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

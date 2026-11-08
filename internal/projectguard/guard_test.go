@@ -276,3 +276,27 @@ func TestCheckListingRefusesAnApprovedFileTheListingLacks(t *testing.T) {
 		t.Errorf("CheckListing(lacking) = %v, want ErrNotApproved", err)
 	}
 }
+
+// TestMissingIgnoresAnApprovedFileThatStillExists pins that a reader reporting
+// a path absent is believed only when the file is indeed gone.
+func TestMissingIgnoresAnApprovedFileThatStillExists(t *testing.T) {
+	root := fixture(t, map[string]Approval{"config.yaml": {Digest: digest("x")}})
+	write(t, filepath.Join(root, "config.yaml"), "x")
+	if err := Missing(filepath.Join(root, "config.yaml")); err != nil || Violation() != nil {
+		t.Errorf("Missing(existing) = %v, violation %v; want none", err, Violation())
+	}
+}
+
+// TestCheckListingIgnoresAbsencesAndPathsOutsideTheRoot pins the listing
+// check's scope: an approved absence and an approved file outside the listed
+// root are not expected in the listing.
+func TestCheckListingIgnoresAbsencesAndPathsOutsideTheRoot(t *testing.T) {
+	root := fixture(t, map[string]Approval{
+		"opencode/skipped.json": {Absent: true},
+		"other.json":            {Digest: digest("{}")},
+	})
+	everything := func(string) bool { return true }
+	if err := CheckListing(filepath.Join(root, "opencode"), nil, everything); err != nil {
+		t.Errorf("CheckListing = %v, want no refusal", err)
+	}
+}
