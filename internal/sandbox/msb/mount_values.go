@@ -46,8 +46,9 @@ type MountOwner struct {
 }
 
 // MountConfig describes how a host path, named volume, tmpfs, or disk image is
-// mounted into the sandbox at a guest path. Construct via the Mount factory,
-// which enforces the mutually-exclusive kinds.
+// mounted into the sandbox at a guest path. Bind/named/tmpfs descriptors are
+// built via the Mount factory, which enforces the mutually-exclusive kinds; a
+// disk or owned descriptor is built by read-back.
 //
 //exhaustruct:ignore
 type MountConfig struct {
@@ -94,37 +95,12 @@ type TmpfsOptions struct {
 	Nodev    bool
 }
 
-// DiskOptions tunes the Disk factory.
-//
-//exhaustruct:ignore
-type DiskOptions struct {
-	Format   string
-	Fstype   string
-	Readonly bool
-	Noexec   bool
-	Nosuid   bool
-	Nodev    bool
-}
-
-// OwnedVolumeOptions configures storage allocated for one sandbox.
-//
-//exhaustruct:ignore
-type OwnedVolumeOptions struct {
-	Kind               VolumeKind
-	SizeMiB            uint32
-	QuotaMiB           uint32
-	Readonly           bool
-	Noexec             bool
-	Nosuid             bool
-	Nodev              bool
-	StatVirtualization StatVirtualization
-	HostPermissions    HostPermissions
-	Owner              *MountOwner
-}
-
-// Mount is the factory namespace for launcher mount descriptors. Each factory
-// copies exactly the fields the SDK's matching factory copies, so the adapter's
-// translation round-trips a descriptor unchanged.
+// Mount is the factory namespace for the launcher mount descriptors it creates
+// itself (bind, named, tmpfs). The disk and owned variants are only ever
+// produced by read-back, so they have no factory — a caller that needs one
+// builds the MountConfig literal. Each factory copies exactly the fields the
+// SDK's matching factory copies, so the adapter's translation round-trips a
+// descriptor unchanged.
 var Mount mountFactory
 
 type mountFactory struct{}
@@ -169,41 +145,5 @@ func (mountFactory) Tmpfs(opts TmpfsOptions) MountConfig {
 		Noexec:   opts.Noexec,
 		Nosuid:   opts.Nosuid,
 		Nodev:    opts.Nodev,
-	}
-}
-
-// Disk returns a MountConfig that mounts a host disk image.
-func (mountFactory) Disk(hostPath string, opts DiskOptions) MountConfig {
-	return MountConfig{
-		Kind:     MountKindDisk,
-		Disk:     hostPath,
-		Format:   opts.Format,
-		Fstype:   opts.Fstype,
-		Readonly: opts.Readonly,
-		Noexec:   opts.Noexec,
-		Nosuid:   opts.Nosuid,
-		Nodev:    opts.Nodev,
-	}
-}
-
-// Owned returns a MountConfig whose storage is removed with its sandbox. The
-// default kind is a directory.
-func (mountFactory) Owned(opts OwnedVolumeOptions) MountConfig {
-	kind := opts.Kind
-	if kind == "" {
-		kind = VolumeKindDir
-	}
-	return MountConfig{
-		Kind:               MountKindOwned,
-		Owned:              string(kind),
-		SizeMiB:            opts.SizeMiB,
-		QuotaMiB:           opts.QuotaMiB,
-		Readonly:           opts.Readonly,
-		Noexec:             opts.Noexec,
-		Nosuid:             opts.Nosuid,
-		Nodev:              opts.Nodev,
-		StatVirtualization: opts.StatVirtualization,
-		HostPermissions:    opts.HostPermissions,
-		Owner:              opts.Owner,
 	}
 }

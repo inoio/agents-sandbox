@@ -940,8 +940,16 @@ func TestMountConfigTranslatesEachKind(t *testing.T) {
 		},
 		{"named", Mount.Named("vol", MountOptions{}), msbSdk.MountKindNamed},
 		{"tmpfs", Mount.Tmpfs(TmpfsOptions{SizeMiB: 256}), msbSdk.MountKindTmpfs},
-		{"disk", Mount.Disk("/data.img", DiskOptions{Format: "raw", Fstype: "ext4"}), msbSdk.MountKindDisk},
-		{"owned", Mount.Owned(OwnedVolumeOptions{Kind: VolumeKindDir}), msbSdk.MountKindOwned},
+		{
+			"disk",
+			MountConfig{Kind: MountKindDisk, Disk: "/data.img", Format: "raw", Fstype: "ext4"},
+			msbSdk.MountKindDisk,
+		},
+		{
+			"owned",
+			MountConfig{Kind: MountKindOwned, Owned: string(VolumeKindDir)},
+			msbSdk.MountKindOwned,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -965,11 +973,11 @@ func TestMountConfigTranslatesEachKind(t *testing.T) {
 	if !tmpfs.Tmpfs || tmpfs.SizeMiB != 256 {
 		t.Errorf("tmpfs = %+v, want tmpfs 256 MiB", tmpfs)
 	}
-	disk := mountConfig(Mount.Disk("/data.img", DiskOptions{Format: "raw", Fstype: "ext4"}))
+	disk := mountConfig(MountConfig{Kind: MountKindDisk, Disk: "/data.img", Format: "raw", Fstype: "ext4"})
 	if disk.Disk != "/data.img" || disk.Format != "raw" || disk.Fstype != "ext4" {
 		t.Errorf("disk = %+v, want /data.img raw ext4", disk)
 	}
-	owned := mountConfig(Mount.Owned(OwnedVolumeOptions{Kind: VolumeKindDisk, SizeMiB: 512}))
+	owned := mountConfig(MountConfig{Kind: MountKindOwned, Owned: string(VolumeKindDisk), SizeMiB: 512})
 	if owned.Owned != string(msbSdk.VolumeKindDisk) || owned.SizeMiB != 512 {
 		t.Errorf("owned = %+v, want a disk-owned mount of 512 MiB", owned)
 	}
@@ -990,12 +998,6 @@ func TestPortBindingsPreservesNil(t *testing.T) {
 func TestMountConfigUnknownKindIsZero(t *testing.T) {
 	if got := mountConfig(MountConfig{}); got != (msbSdk.MountConfig{}) {
 		t.Errorf("mountConfig(unknown kind) = %+v, want the zero SDK mount", got)
-	}
-}
-
-func TestMountOwnedDefaultsToDir(t *testing.T) {
-	if got := Mount.Owned(OwnedVolumeOptions{}).Owned; got != string(VolumeKindDir) {
-		t.Errorf("Mount.Owned(zero).Owned = %q, want %q", got, VolumeKindDir)
 	}
 }
 
