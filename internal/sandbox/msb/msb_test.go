@@ -1427,7 +1427,8 @@ func TestCreateVolumeReportsOrphanRemovalFailure(t *testing.T) {
 }
 
 // TestRealMsbClientSandboxAdapters covers the GetSandbox and CreateSandbox
-// success paths, wrapping the seam's SDK handle in the adapter.
+// paths, wrapping the seam's SDK handle in the adapter and failing the creation
+// when the launcher spec cannot be translated.
 func TestRealMsbClientSandboxAdapters(t *testing.T) {
 	ctx := context.Background()
 	swapSeam(t, &getSandbox, func(context.Context, string) (*msbSdk.SandboxHandle, error) {
@@ -1443,6 +1444,11 @@ func TestRealMsbClientSandboxAdapters(t *testing.T) {
 	}
 	if sandbox, err := c.CreateSandbox(ctx, "s", SandboxSpec{}); err != nil || sandbox == nil {
 		t.Errorf("CreateSandbox() = %v, %v; want a sandbox, nil", sandbox, err)
+	}
+	if _, err := c.CreateSandbox(ctx, "s", SandboxSpec{
+		Network: NetworkSpec{Profiles: []NetworkProfile{"unknown"}},
+	}); err == nil {
+		t.Error("CreateSandbox() with an unknown network profile = nil error, want a translation error")
 	}
 }
 
