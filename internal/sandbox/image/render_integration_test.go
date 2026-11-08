@@ -727,13 +727,12 @@ func TestRenderDockerfileTrustHelperRunsInImage(t *testing.T) {
 }
 
 // removeTestImage removes a test image by tag while preserving the shared build
-// cache. PruneChildren must stay false: true selects Docker's "prune" default,
-// which also deletes the untagged parent images the classic builder uses as its
-// layer cache, forcing every later build (and every later run) to re-run the
-// node/agent/docker installs. The leftover image is dangling and harmless.
+// cache. --no-prune must stay: docker rmi without it deletes the untagged parent
+// images the classic builder uses as its layer cache, forcing every later build
+// (and every later run) to re-run the node/agent/docker installs. The leftover
+// image is dangling and harmless.
 func removeTestImage(tag string) {
-	_, _ = docker.Get().
-		ImageRemove(context.Background(), tag, client.ImageRemoveOptions{Force: true, PruneChildren: false})
+	_, _ = exec.Command("docker", "rmi", "--no-prune", "--force", tag).CombinedOutput()
 }
 
 // sanitizeTag renders a test name into a docker-tag-safe lowercase string.

@@ -599,15 +599,6 @@ func TestRealSandboxDetachedDelegates(t *testing.T) {
 func TestRealJobDelegates(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("ID", func(t *testing.T) {
-		original := realJobID
-		t.Cleanup(func() { realJobID = original })
-		realJobID = func(_ *msbSdk.Job) string { return "job-1" }
-		if got := (realJob{}).ID(); got != "job-1" {
-			t.Fatalf("ID() = %q, want job-1", got)
-		}
-	})
-
 	t.Run("Inspect", func(t *testing.T) {
 		original := realJobInspect
 		t.Cleanup(func() { realJobInspect = original })
@@ -667,15 +658,6 @@ func TestGetFactory(t *testing.T) {
 	}
 }
 
-// TestRealVolumeHandlePathUnknownValue covers the default branch of
-// realVolumeHandle.Path when val holds a non-SDK type.
-func TestRealVolumeHandlePathUnknownValue(t *testing.T) {
-	v := &realVolumeHandle{val: "not a volume"}
-	if got := v.Path(); got != "" {
-		t.Errorf("Path() for unknown type = %q, want empty", got)
-	}
-}
-
 // TestRealMsbClientCreateVolumeError covers the error branch of
 // realMsbClient.CreateVolume (invalid empty name fails before touching a VM).
 func TestRealMsbClientCreateVolumeError(t *testing.T) {
@@ -716,14 +698,6 @@ func TestRealMsbClientImageInspectInjected(t *testing.T) {
 	cfg, err := (&realMsbClient{}).ImageInspect(context.Background(), "ref")
 	if err != nil || cfg == nil || cfg.Digest != "sha256:abc" {
 		t.Fatalf("ImageInspect = %v, %v", cfg, err)
-	}
-}
-
-// TestRealVolumeHandlePathNilVal guards against a nil val.
-func TestRealVolumeHandlePathNilVal(t *testing.T) {
-	v := &realVolumeHandle{}
-	if got := v.Path(); got != "" {
-		t.Errorf("Path() with nil val = %q, want empty", got)
 	}
 }
 
@@ -799,99 +773,11 @@ func TestRealMsbClientImageInspectDetailHandleAndError(t *testing.T) {
 	}
 }
 
-func TestRealVolumeHandle_Kind_UnknownValue(t *testing.T) {
-	vh := &realVolumeHandle{val: "not a volume"}
-	if got := vh.Kind(); got != msbSdk.VolumeKindDir {
-		t.Errorf("Kind() for unknown type = %v, want %v", got, msbSdk.VolumeKindDir)
-	}
-	if got := vh.Name(); got != "" {
-		t.Errorf("Name() for unknown type = %q, want %q", got, "")
-	}
-}
-
 func TestRealSandboxHandleConfigAndModify(t *testing.T) {
 	var h SandboxHandle = &realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
 	cfg, err := h.Config()
 	if err == nil || cfg != nil {
 		t.Errorf("expected Config error on handle without config, got cfg=%v err=%v", cfg, err)
-	}
-}
-
-func TestRealVolumeHandleFromHandle(t *testing.T) {
-	v := &realVolumeHandle{val: &msbSdk.VolumeHandle{}}
-	if got := v.Name(); got != "" {
-		t.Errorf("Name() = %q, want empty", got)
-	}
-	if got := v.Path(); got != "" {
-		t.Errorf("Path() = %q, want empty", got)
-	}
-	if got := v.Kind(); got != msbSdk.VolumeKind("") {
-		t.Errorf("Kind() = %q, want empty", got)
-	}
-	if !v.CreatedAt().Equal(time.Time{}) {
-		t.Errorf("CreatedAt() = %v, want zero time", v.CreatedAt())
-	}
-	if v.IsDefault() {
-		t.Error("IsDefault() = true, want false")
-	}
-	if v.QuotaMiB() != nil {
-		t.Errorf("QuotaMiB() = %v, want nil", v.QuotaMiB())
-	}
-	if v.UsedBytes() != 0 {
-		t.Errorf("UsedBytes() = %d, want 0", v.UsedBytes())
-	}
-	if v.CapacityBytes() != nil {
-		t.Errorf("CapacityBytes() = %v, want nil", v.CapacityBytes())
-	}
-	if v.DiskFormat() != nil {
-		t.Errorf("DiskFormat() = %v, want nil", v.DiskFormat())
-	}
-	if v.DiskFstype() != nil {
-		t.Errorf("DiskFstype() = %v, want nil", v.DiskFstype())
-	}
-	if v.Labels() != nil {
-		t.Errorf("Labels() = %v, want nil", v.Labels())
-	}
-}
-
-func TestRealVolumeHandleNameAndPathFromVolume(t *testing.T) {
-	v := &realVolumeHandle{val: &msbSdk.Volume{}}
-	if got := v.Name(); got != "" {
-		t.Errorf("Name() from *Volume = %q, want empty", got)
-	}
-	if got := v.Path(); got != "" {
-		t.Errorf("Path() from *Volume = %q, want empty", got)
-	}
-}
-
-func TestRealVolumeHandleFromVolumeKind(t *testing.T) {
-	v := &realVolumeHandle{val: &msbSdk.Volume{}}
-	if got := v.Kind(); got != msbSdk.VolumeKindDir {
-		t.Errorf("Kind() from *Volume = %v, want VolumeKindDir", got)
-	}
-	if got := v.CreatedAt(); !got.Equal(time.Time{}) {
-		t.Errorf("CreatedAt() from *Volume = %v, want zero time", got)
-	}
-	if v.IsDefault() {
-		t.Error("IsDefault() from *Volume = true, want false")
-	}
-	if v.QuotaMiB() != nil {
-		t.Errorf("QuotaMiB() from *Volume = %v, want nil", v.QuotaMiB())
-	}
-	if v.UsedBytes() != 0 {
-		t.Errorf("UsedBytes() from *Volume = %d, want 0", v.UsedBytes())
-	}
-	if v.CapacityBytes() != nil {
-		t.Errorf("CapacityBytes() from *Volume = %v, want nil", v.CapacityBytes())
-	}
-	if v.DiskFormat() != nil {
-		t.Errorf("DiskFormat() from *Volume = %v, want nil", v.DiskFormat())
-	}
-	if v.DiskFstype() != nil {
-		t.Errorf("DiskFstype() from *Volume = %v, want nil", v.DiskFstype())
-	}
-	if v.Labels() != nil {
-		t.Errorf("Labels() from *Volume = %v, want nil", v.Labels())
 	}
 }
 
@@ -1085,6 +971,9 @@ func TestRealMsbClientCreateRemoveVolume(t *testing.T) {
 		createdName = name
 		return &msbSdk.Volume{}, nil
 	})
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
+		return &msbSdk.VolumeHandle{}, nil
+	})
 	swapSeam(t, &removeVolume, func(_ context.Context, name string) error {
 		removedName = name
 		return nil
@@ -1099,6 +988,107 @@ func TestRealMsbClientCreateRemoveVolume(t *testing.T) {
 	}
 	if createdName != "vol" || removedName != "vol" {
 		t.Errorf("create=%q remove=%q, want both %q", createdName, removedName, "vol")
+	}
+}
+
+// TestCreateVolumeResolvesTheCreatedVolumeThroughGetVolume pins that CreateVolume
+// returns the resolved lookup handle, not a wrapper or the raw create result.
+func TestCreateVolumeResolvesTheCreatedVolumeThroughGetVolume(t *testing.T) {
+	ctx := context.Background()
+	swapSeam(t, &createVolume, func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
+		return &msbSdk.Volume{}, nil
+	})
+	var resolvedName string
+	resolved := &msbSdk.VolumeHandle{}
+	swapSeam(t, &getVolume, func(_ context.Context, name string) (*msbSdk.VolumeHandle, error) {
+		resolvedName = name
+		return resolved, nil
+	})
+
+	handle, err := (&realMsbClient{}).CreateVolume(ctx, "vol")
+	if err != nil || handle == nil {
+		t.Fatalf("CreateVolume() = %v, %v; want a handle", handle, err)
+	}
+	if resolvedName != "vol" {
+		t.Fatal("CreateVolume did not resolve the created volume through getVolume")
+	}
+	if got, ok := handle.(*msbSdk.VolumeHandle); !ok || got != resolved {
+		t.Errorf("CreateVolume() handle = %T, want the resolved *msbSdk.VolumeHandle", handle)
+	}
+}
+
+// TestCreateVolumeRemovesTheOrphanWhenGetVolumeFails pins that a volume created
+// but not resolved is not orphaned: the lookup error still surfaces, the volume
+// is removed by name, and the removal runs detached from the caller's
+// cancellation so a cancelled ctx cannot skip it.
+func TestCreateVolumeRemovesTheOrphanWhenGetVolumeFails(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	swapSeam(t, &createVolume, func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
+		return &msbSdk.Volume{}, nil
+	})
+	wantErr := errors.New("resolve boom")
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
+		cancel() // the run is abandoned before the orphan can be cleaned up
+		return nil, wantErr
+	})
+	var removedName string
+	var removedCtxErr error
+	swapSeam(t, &removeVolume, func(cleanupCtx context.Context, name string) error {
+		removedName = name
+		removedCtxErr = cleanupCtx.Err()
+		return nil
+	})
+
+	if _, err := (&realMsbClient{}).CreateVolume(ctx, "vol"); !errors.Is(err, wantErr) {
+		t.Fatalf("CreateVolume() error = %v, want %v", err, wantErr)
+	}
+	if removedName != "vol" {
+		t.Errorf("removed volume = %q, want %q", removedName, "vol")
+	}
+	if removedCtxErr != nil {
+		t.Errorf("cleanup context err = %v, want a context detached from the caller", removedCtxErr)
+	}
+}
+
+// TestCreateVolumeSkipsLookupWhenCreateFails pins that a failed create returns
+// immediately: the lookup is never reached, so a create error cannot be masked
+// by a lookup that happens to succeed.
+func TestCreateVolumeSkipsLookupWhenCreateFails(t *testing.T) {
+	createErr := errors.New("create boom")
+	swapSeam(t, &createVolume, func(context.Context, string, ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
+		return nil, createErr
+	})
+	lookedUp := false
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
+		lookedUp = true
+		return &msbSdk.VolumeHandle{}, nil
+	})
+
+	if _, err := (&realMsbClient{}).CreateVolume(context.Background(), "vol"); !errors.Is(err, createErr) {
+		t.Fatalf("CreateVolume() error = %v, want %v", err, createErr)
+	}
+	if lookedUp {
+		t.Error("CreateVolume looked up the volume after the create failed")
+	}
+}
+
+// TestCreateVolumeReportsOrphanRemovalFailure pins that when the lookup and the
+// best-effort removal both fail, the error carries both, so the orphan is not
+// silently lost.
+func TestCreateVolumeReportsOrphanRemovalFailure(t *testing.T) {
+	swapSeam(t, &createVolume, func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
+		return &msbSdk.Volume{}, nil
+	})
+	lookupErr := errors.New("resolve boom")
+	removeErr := errors.New("remove boom")
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
+		return nil, lookupErr
+	})
+	swapSeam(t, &removeVolume, func(context.Context, string) error { return removeErr })
+
+	_, err := (&realMsbClient{}).CreateVolume(context.Background(), "vol")
+	if !errors.Is(err, lookupErr) || !errors.Is(err, removeErr) {
+		t.Errorf("CreateVolume() error = %v, want both the lookup and removal errors", err)
 	}
 }
 
@@ -1220,19 +1210,6 @@ func TestRealSandboxDelegatesToSDK(t *testing.T) {
 		}
 		if err := (realSandbox{}).Detach(ctx); err != nil || !called {
 			t.Fatalf("Detach() = %v, called=%v; want nil, true", err, called)
-		}
-	})
-
-	t.Run("Stop", func(t *testing.T) {
-		original := realSandboxStop
-		t.Cleanup(func() { realSandboxStop = original })
-		called := false
-		realSandboxStop = func(_ *msbSdk.Sandbox, _ context.Context, _ ...msbSdk.StopOption) error {
-			called = true
-			return nil
-		}
-		if err := (realSandbox{}).Stop(ctx); err != nil || !called {
-			t.Fatalf("Stop() = %v, called=%v; want nil, true", err, called)
 		}
 	})
 

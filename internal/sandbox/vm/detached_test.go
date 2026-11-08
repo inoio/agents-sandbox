@@ -298,7 +298,6 @@ func TestKillJobsDoesNotRequestAllJobs(t *testing.T) {
 func TestKillJobsTreatsAlreadyStoppedAsSuccess(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	stopped := &msb.MockJob{
-		ID_:     "stopped",
 		KillErr: &msbSdk.JobError{Code: "job_not_running", Message: "job belongs to an earlier runtime generation"},
 	}
 	sb := &msb.MockSandbox{
@@ -329,9 +328,9 @@ func TestKillJobsTreatsAlreadyStoppedAsSuccess(t *testing.T) {
 // fails with "exited before becoming ready".
 func TestKillJobsTargetsStaleHelperWithChangedArgs(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	legacy := &msb.MockJob{ID_: "legacy-dockerd"}
-	marked := &msb.MockJob{ID_: "marked-dockerd"}
-	otherHelper := &msb.MockJob{ID_: "daemon"}
+	legacy := &msb.MockJob{}
+	marked := &msb.MockJob{}
+	otherHelper := &msb.MockJob{}
 	sb := &msb.MockSandbox{
 		Jobs: []msbSdk.JobInfo{
 			{ID: "legacy-dockerd", Command: []string{"dockerd", "-H", "unix:///var/run/docker.sock"}},
@@ -370,8 +369,8 @@ func TestKillJobsTargetsStaleHelperWithChangedArgs(t *testing.T) {
 
 func TestKillJobsKillsMatches(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	stale := &msb.MockJob{ID_: "stale"}
-	other := &msb.MockJob{ID_: "other"}
+	stale := &msb.MockJob{}
+	other := &msb.MockJob{}
 	// The non-matching job comes first: a matcher that stopped at the first
 	// non-match (instead of continuing) would leave the matching job alive.
 	sb := &msb.MockSandbox{
@@ -407,8 +406,8 @@ func TestKillJobsKillsMatches(t *testing.T) {
 // matching jobs are still killed; a job whose kill failed is still closed.
 func TestKillJobsContinuesPastAJobItCannotKill(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	killFails := &msb.MockJob{ID_: "b", KillErr: errors.New("kill boom")}
-	healthy := &msb.MockJob{ID_: "c"}
+	killFails := &msb.MockJob{KillErr: errors.New("kill boom")}
+	healthy := &msb.MockJob{}
 	sb := &msb.MockSandbox{
 		Jobs: []msbSdk.JobInfo{
 			{ID: "a", Command: []string{"dockerd"}},
@@ -456,7 +455,7 @@ func TestKillJobsReportsAListFailure(t *testing.T) {
 
 func TestKillJobsReportsCloseFailure(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	closing := &msb.MockJob{ID_: "closing", CloseErr: errors.New("close boom")}
+	closing := &msb.MockJob{CloseErr: errors.New("close boom")}
 	sb := &msb.MockSandbox{
 		Jobs: []msbSdk.JobInfo{{ID: "closing", Command: []string{"dockerd"}}},
 		GetJobFn: func(context.Context, string) (msb.Job, error) {

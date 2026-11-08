@@ -39,12 +39,12 @@ func TestEnsureDetachedServiceKillsStaleThenLaunchesAndAwaits(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	calls := &[]msb.MockDetachedCall{}
 	var sequence []string
-	stale := &msb.MockJob{ID_: "stale"}
+	stale := &msb.MockJob{}
 	sb := &msb.MockSandbox{
 		ExecDetachedCalls: calls,
 		ExecDetachedFn: func(context.Context, string, []string, ...msbSdk.JobExecOption) (msb.Job, error) {
 			sequence = append(sequence, "launch")
-			return &msb.MockJob{ID_: "fresh"}, nil
+			return &msb.MockJob{}, nil
 		},
 		Jobs: []msbSdk.JobInfo{
 			{ID: "stale", Command: []string{"env", "AGENTS_SANDBOX_DETACHED_JOB=dockerd", "dockerd"}},
@@ -136,7 +136,7 @@ func TestEnsureDetachedServiceLaunchArgsErrorAborts(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	wantErr := errors.New("args boom")
 	calls := &[]msb.MockDetachedCall{}
-	stale := &msb.MockJob{ID_: "stale"}
+	stale := &msb.MockJob{}
 	sb := &msb.MockSandbox{
 		ExecDetachedCalls: calls,
 		Jobs:              []msbSdk.JobInfo{{ID: "stale", Command: []string{"dockerd"}}},
@@ -183,7 +183,7 @@ func TestEnsureDetachedServiceWrapsLaunchError(t *testing.T) {
 func TestEnsureDetachedServiceReportsCloseFailure(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	sb := &msb.MockSandbox{
-		Job_: &msb.MockJob{ID_: "svc", CloseErr: errors.New("close boom")},
+		Job_: &msb.MockJob{CloseErr: errors.New("close boom")},
 	}
 	service := testDetachedService()
 	service.probe = scriptedProbe(detachedProbeOutcome{healthy: false})

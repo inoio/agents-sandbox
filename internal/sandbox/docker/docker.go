@@ -36,15 +36,6 @@ type Client interface {
 		ref string,
 		opts client.ImagePullOptions,
 	) (client.ImagePullResponse, error)
-	ImageRemove(
-		ctx context.Context,
-		imageID string,
-		opts client.ImageRemoveOptions,
-	) (client.ImageRemoveResult, error)
-	ImageTag(
-		ctx context.Context,
-		opts client.ImageTagOptions,
-	) (client.ImageTagResult, error)
 	ImagePrune(
 		ctx context.Context,
 		opts client.ImagePruneOptions,
@@ -133,27 +124,6 @@ func (realDockerClient) ImagePull(
 		return nil, err
 	}
 	return mobyClient.ImagePull(ctx, ref, opts)
-}
-
-func (realDockerClient) ImageRemove(
-	ctx context.Context,
-	imageID string,
-	options client.ImageRemoveOptions,
-) (client.ImageRemoveResult, error) {
-	if err := ensureMobyClient(); err != nil {
-		return client.ImageRemoveResult{}, err
-	}
-	return mobyClient.ImageRemove(ctx, imageID, options)
-}
-
-func (realDockerClient) ImageTag(
-	ctx context.Context,
-	options client.ImageTagOptions,
-) (client.ImageTagResult, error) {
-	if err := ensureMobyClient(); err != nil {
-		return client.ImageTagResult{}, err
-	}
-	return mobyClient.ImageTag(ctx, options)
 }
 
 func (realDockerClient) ImagePrune(

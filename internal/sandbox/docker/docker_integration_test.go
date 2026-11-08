@@ -35,15 +35,6 @@ func TestRealDockerClientImageLookupErrors(t *testing.T) {
 	if _, err := c.ImageSave(ctx, []string{missing}); err == nil {
 		t.Error("ImageSave() = nil error, want error for missing image")
 	}
-	if _, err := c.ImageRemove(ctx, missing, client.ImageRemoveOptions{}); err == nil {
-		t.Error("ImageRemove() = nil error, want error for missing image")
-	}
-	if _, err := c.ImageTag(
-		ctx,
-		client.ImageTagOptions{Source: missing, Target: "agents-sandbox-tests:nope"},
-	); err == nil {
-		t.Error("ImageTag() = nil error, want error for missing source image")
-	}
 }
 
 func TestRealDockerClientImageBuildError(t *testing.T) {

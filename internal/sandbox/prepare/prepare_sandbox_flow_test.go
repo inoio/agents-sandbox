@@ -69,7 +69,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil, nil)
+	vmFS := msb.NewTestFS(nil)
 	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
@@ -155,7 +155,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil, nil)
+	vmFS := msb.NewTestFS(nil)
 	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
@@ -285,7 +285,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 	// The msb image cache already holds the digest image (ImageGet succeeds),
 	// so EnsureImage short-circuits before exporting/loading anything. The
 	// image carries the pinned opencode version label.
-	vmFS := msb.NewTestFS(nil, nil)
+	vmFS := msb.NewTestFS(nil)
 	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
@@ -377,7 +377,7 @@ func TestPrepareSandboxLoadsEnvSecretsOnce(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil, nil)
+	vmFS := msb.NewTestFS(nil)
 	createdSb := &msb.MockSandbox{
 		Name_:    vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		FSValue_: vmFS,
@@ -467,7 +467,7 @@ func TestPrepareSandboxBakesAndFingerprintsTheLoadedEnv(t *testing.T) {
 	key := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
 	createdSb := &msb.MockSandbox{
 		Name_:    vm.ProjectVMName(key),
-		FSValue_: msb.NewTestFS(nil, nil),
+		FSValue_: msb.NewTestFS(nil),
 		ShellOut: map[string]msb.ShellResult{
 			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 		},
@@ -567,7 +567,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil, nil)
+	vmFS := msb.NewTestFS(nil)
 	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
@@ -646,7 +646,7 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil, nil)
+	vmFS := msb.NewTestFS(nil)
 	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
@@ -797,7 +797,7 @@ func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil, nil)
+	vmFS := msb.NewTestFS(nil)
 	connectSb := &msb.MockSandbox{Name_: "vm", FSValue_: vmFS, ShellOut: map[string]msb.ShellResult{
 		dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 	}}
@@ -896,7 +896,7 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil, nil)
+	vmFS := msb.NewTestFS(nil)
 	createdSb := &msb.MockSandbox{
 		Name_:    vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		FSValue_: vmFS,
@@ -984,7 +984,7 @@ func TestPrepareSandboxRecordsBakedAgentVersion(t *testing.T) {
 	})
 
 	slug := git.MustCheckoutSlug()
-	vmFS := msb.NewTestFS(nil, nil)
+	vmFS := msb.NewTestFS(nil)
 	createdSb := &msb.MockSandbox{
 		Name_:    vm.ProjectVMName(state.Key{Slug: slug, Agent: "opencode"}),
 		FSValue_: vmFS,
@@ -1062,7 +1062,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 		Name_:     vm.ProjectVMName(k),
 		Status_:   msbSdk.SandboxStatusRunning,
 		Cfg:       &msbSdk.SandboxConfig{},
-		ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil, nil), ShellOut: shellOut},
+		ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil), ShellOut: shellOut},
 		Mounts: map[string]msbSdk.MountConfig{
 			mounts.TmpMountPath: msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{SizeMiB: 1024}),
 			mounts.WorkspaceMountPath: msbSdk.Mount.Bind(
@@ -1072,7 +1072,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 			mounts.VMHomeDir: msbSdk.Mount.Named("home-vol", msbSdk.MountOptions{}),
 		},
 	}
-	createdSb := &msb.MockSandbox{Name_: vm.ProjectVMName(k), FSValue_: msb.NewTestFS(nil, nil), ShellOut: shellOut}
+	createdSb := &msb.MockSandbox{Name_: vm.ProjectVMName(k), FSValue_: msb.NewTestFS(nil), ShellOut: shellOut}
 	mock := &msb.MockMsbClient{
 		ImageGetFn:     func(_ context.Context, _ string) error { return nil },
 		CreatedSandbox: createdSb,
@@ -1953,7 +1953,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 				mock.SetGotSandbox(&msb.MockSandboxHandle{
 					Name_:     vm.ProjectVMName(k),
 					Status_:   msbSdk.SandboxStatusRunning,
-					ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil, nil), ShellErr: cause},
+					ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil), ShellErr: cause},
 				})
 				msb.WithMsbMock(t, mock)
 				seedReusableHome(t, k, "sha256:abc123")
@@ -2048,7 +2048,7 @@ func installPrepareSandboxMSBMock(t *testing.T) *msb.MockMsbClient {
 	t.Helper()
 	createdSb := &msb.MockSandbox{
 		Name_:    "created-vm",
-		FSValue_: msb.NewTestFS(nil, nil),
+		FSValue_: msb.NewTestFS(nil),
 		ShellOut: map[string]msb.ShellResult{
 			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
 		},
@@ -2140,7 +2140,7 @@ func existingProjectVMHandle(k state.Key) *msb.MockSandboxHandle {
 		Name_:     vm.ProjectVMName(k),
 		Status_:   msbSdk.SandboxStatusRunning,
 		Cfg:       &msbSdk.SandboxConfig{},
-		ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil, nil)},
+		ConnectSb: &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil)},
 	}
 }
 
@@ -2327,7 +2327,7 @@ func TestPrepareSandboxStopsBeforeTheVMOnAnUnapprovedRead(t *testing.T) {
 	})
 	mock := &msb.MockMsbClient{
 		ImageGetFn:     func(_ context.Context, _ string) error { return nil },
-		CreatedSandbox: &msb.MockSandbox{FSValue_: msb.NewTestFS(nil, nil)},
+		CreatedSandbox: &msb.MockSandbox{FSValue_: msb.NewTestFS(nil)},
 		Volumes:        []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
 	}
 	msb.WithMsbMock(t, mock)

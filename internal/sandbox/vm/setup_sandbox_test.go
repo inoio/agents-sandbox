@@ -102,7 +102,7 @@ func TestRestartDaemonsRestartsPastAFailedKill(t *testing.T) {
 	}}
 
 	ui := termio.NewTestMock(t)
-	stale := &msb.MockJob{ID_: "stale", KillErr: errors.New("kill failed")}
+	stale := &msb.MockJob{KillErr: errors.New("kill failed")}
 	command := opencodeProvider(t).DaemonCommand(false)
 	sb := &msb.MockSandbox{
 		Name_: "vm",

@@ -75,22 +75,24 @@ func TestJobsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecDetached: %v", err)
 	}
-	if job.ID() == "" {
-		t.Fatal("ExecDetached returned an empty job id")
-	}
 	t.Cleanup(func() { _ = job.Close() })
 
-	if _, inspectErr := job.Inspect(ctx); inspectErr != nil {
+	jobInfo, inspectErr := job.Inspect(ctx)
+	if inspectErr != nil {
 		t.Fatalf("Inspect: %v", inspectErr)
+	}
+	jobID := jobInfo.ID
+	if jobID == "" {
+		t.Fatal("ExecDetached returned an empty job id")
 	}
 
 	infos, err := adapter.ListJobs(ctx, msbSdk.WithAllJobs())
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
-	info := jobInfoByID(infos, job.ID())
+	info := jobInfoByID(infos, jobID)
 	if info == nil {
-		t.Fatalf("ListJobs did not contain job %s: %+v", job.ID(), infos)
+		t.Fatalf("ListJobs did not contain job %s: %+v", jobID, infos)
 	}
 	// The marker has to survive into JobInfo.Command for a stale helper to be
 	// found: if the runtime rewrote the argv (resolved argv[0], joined string,
@@ -107,13 +109,17 @@ func TestJobsRoundTrip(t *testing.T) {
 		)
 	}
 
-	got, getErr := adapter.GetJob(ctx, job.ID())
+	got, getErr := adapter.GetJob(ctx, jobID)
 	if getErr != nil {
-		t.Fatalf("GetJob(%s): %v", job.ID(), getErr)
+		t.Fatalf("GetJob(%s): %v", jobID, getErr)
 	}
 	t.Cleanup(func() { _ = got.Close() })
-	if got.ID() != job.ID() {
-		t.Fatalf("GetJob(%s) = (%v, %v), want the same job", job.ID(), got, getErr)
+	gotInfo, gotInspectErr := got.Inspect(ctx)
+	if gotInspectErr != nil {
+		t.Fatalf("GetJob(%s) Inspect: %v", jobID, gotInspectErr)
+	}
+	if gotInfo.ID != jobID {
+		t.Fatalf("GetJob(%s) = %v, want the same job", jobID, gotInfo.ID)
 	}
 
 	awaitLogs(t, ctx, job, sentinel)

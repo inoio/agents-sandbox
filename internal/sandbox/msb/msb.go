@@ -2,6 +2,7 @@ package msb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -147,7 +148,6 @@ type Sandbox interface {
 	AttachWith(ctx context.Context, command string, args []string, opts ...msbSdk.AttachOption) (int, error)
 	Attach(ctx context.Context, command string, args ...string) (int, error)
 	Detach(ctx context.Context) error
-	Stop(ctx context.Context, opts ...msbSdk.StopOption) error
 	Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error
 	Close() error
 	Metrics(ctx context.Context) (*msbSdk.Metrics, error)
@@ -158,7 +158,6 @@ type Sandbox interface {
 // detached processes (dockerd, the agent serve daemon). Closing a job detaches
 // the handle; it never terminates the process.
 type Job interface {
-	ID() string
 	Inspect(ctx context.Context) (*msbSdk.JobInfo, error)
 	Kill(ctx context.Context) error
 	Logs(ctx context.Context, options msbSdk.JobLogOptions) ([]msbSdk.JobLogEntry, error)
@@ -205,7 +204,6 @@ type VolumeHandle interface {
 	Path() string
 	Kind() msbSdk.VolumeKind
 	CreatedAt() time.Time
-	IsDefault() bool
 	QuotaMiB() *uint32
 	UsedBytes() uint64
 	CapacityBytes() *uint64
@@ -242,10 +240,7 @@ type ImageDetail struct {
 // SandboxFS is the subset of the sandbox filesystem operations used by the launcher.
 type SandboxFS interface {
 	Exists(ctx context.Context, path string) (bool, error)
-	Stat(ctx context.Context, path string) (*msbSdk.FsStat, error)
-	List(ctx context.Context, path string) ([]msbSdk.FsEntry, error)
 	ReadString(ctx context.Context, path string) (string, error)
-	ReadStream(ctx context.Context, path string) (*msbSdk.FsReadStream, error)
 	Mkdir(ctx context.Context, path string) error
 	Write(ctx context.Context, path string, data []byte) error
 	Read(ctx context.Context, path string) ([]byte, error)
@@ -402,15 +397,25 @@ func (realMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandle, 
 	if err != nil {
 		return nil, err
 	}
-	return &realVolumeHandle{val: v}, nil
+	return v, nil
 }
 
 func (realMsbClient) CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error) {
-	vol, err := createVolume(ctx, name, opts...)
-	if err != nil {
+	if _, err := createVolume(ctx, name, opts...); err != nil {
 		return nil, err
 	}
-	return &realVolumeHandle{val: vol}, nil
+	handle, err := getVolume(ctx, name)
+	if err != nil {
+		// The volume exists now, and the caller never receives a handle to
+		// remove it, so a failed lookup would orphan it. Remove it best-effort,
+		// detached from the caller's cancellation so a cancelled or
+		// deadline-exceeded ctx cannot skip the cleanup.
+		if removeErr := removeVolume(context.WithoutCancel(ctx), name); removeErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("remove orphaned volume %q: %w", name, removeErr))
+		}
+		return nil, err
+	}
+	return handle, nil
 }
 
 func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
@@ -420,7 +425,7 @@ func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
 	}
 	result := make([]VolumeHandle, len(handles))
 	for i, h := range handles {
-		result[i] = &realVolumeHandle{val: h}
+		result[i] = h
 	}
 	return result, nil
 }
@@ -516,94 +521,6 @@ func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*Image
 
 func (realMsbClient) StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error) {
 	return storageUsage(ctx)
-}
-
-// realVolumeHandle adapts *msbSdk.Volume or *msbSdk.VolumeHandle to VolumeHandle.
-type realVolumeHandle struct {
-	val any
-}
-
-func (v realVolumeHandle) Name() string {
-	switch t := v.val.(type) {
-	case *msbSdk.VolumeHandle:
-		return t.Name()
-	case *msbSdk.Volume:
-		return t.Name()
-	}
-	return ""
-}
-
-func (v realVolumeHandle) Path() string {
-	switch t := v.val.(type) {
-	case *msbSdk.VolumeHandle:
-		return t.Path()
-	case *msbSdk.Volume:
-		return t.Path()
-	}
-	return ""
-}
-
-func (v realVolumeHandle) Kind() msbSdk.VolumeKind {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.Kind()
-	}
-	return msbSdk.VolumeKindDir
-}
-
-func (v realVolumeHandle) CreatedAt() time.Time {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.CreatedAt()
-	}
-	return time.Time{}
-}
-
-func (v realVolumeHandle) IsDefault() bool {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.IsDefault()
-	}
-	return false
-}
-
-func (v realVolumeHandle) QuotaMiB() *uint32 {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.QuotaMiB()
-	}
-	return nil
-}
-
-func (v realVolumeHandle) UsedBytes() uint64 {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.UsedBytes()
-	}
-	return 0
-}
-
-func (v realVolumeHandle) CapacityBytes() *uint64 {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.CapacityBytes()
-	}
-	return nil
-}
-
-func (v realVolumeHandle) DiskFormat() *string {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.DiskFormat()
-	}
-	return nil
-}
-
-func (v realVolumeHandle) DiskFstype() *string {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.DiskFstype()
-	}
-	return nil
-}
-
-func (v realVolumeHandle) Labels() map[string]string {
-	if h, ok := v.val.(*msbSdk.VolumeHandle); ok {
-		return h.Labels()
-	}
-	return nil
 }
 
 // realSandboxHandle adapts *msbSdk.SandboxHandle to SandboxHandle.
@@ -815,14 +732,11 @@ var (
 	realSandboxExecDetached = (*msbSdk.Sandbox).ExecDetached
 	realSandboxGetJob       = (*msbSdk.Sandbox).GetJob
 	realSandboxListJobs     = (*msbSdk.Sandbox).ListJobs
-	realJobID               = (*msbSdk.Job).ID
 	realJobInspect          = (*msbSdk.Job).Inspect
 	realJobKill             = (*msbSdk.Job).Kill
 	realJobLogs             = (*msbSdk.Job).Logs
 	realJobClose            = (*msbSdk.Job).Close
 )
-
-func (j realJob) ID() string { return realJobID(j.job) }
 
 func (j realJob) Inspect(ctx context.Context) (*msbSdk.JobInfo, error) {
 	return realJobInspect(j.job, ctx)
@@ -896,7 +810,6 @@ var (
 	realSandboxAttach     = (*msbSdk.Sandbox).Attach
 	realSandboxAttachWith = (*msbSdk.Sandbox).AttachWith
 	realSandboxDetach     = (*msbSdk.Sandbox).Detach
-	realSandboxStop       = (*msbSdk.Sandbox).Stop
 	realSandboxDestroy    = (*msbSdk.Sandbox).Destroy
 	realSandboxClose      = (*msbSdk.Sandbox).Close
 	realSandboxMetrics    = (*msbSdk.Sandbox).Metrics
@@ -921,10 +834,6 @@ func (s realSandbox) AttachWith(
 
 func (s realSandbox) Detach(ctx context.Context) error {
 	return realSandboxDetach(s.sandbox, ctx)
-}
-
-func (s realSandbox) Stop(ctx context.Context, opts ...msbSdk.StopOption) error {
-	return realSandboxStop(s.sandbox, ctx, opts...)
 }
 
 func (s realSandbox) Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error {
