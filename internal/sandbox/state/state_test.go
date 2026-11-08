@@ -3,10 +3,13 @@ package state
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v4"
 
 	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
@@ -495,6 +498,59 @@ func TestReadState_NonNotFoundReadError(t *testing.T) {
 
 	if _, err := ReadState(k); err == nil {
 		t.Fatal("expected error when state file path is a directory")
+	} else {
+		if _, ok := errors.AsType[*fs.PathError](err); !ok {
+			t.Fatalf("ReadState() error = %v, want a wrapped *fs.PathError", err)
+		}
+	}
+}
+
+// TestParseHomeStateTypeErrorIsUnparsable pins the typed-unmarshal failure: a
+// document that passes the schema header but whose field has the wrong shape is
+// refused with an ErrStateUnparsable error wrapping the yaml type error, not
+// accepted with a partial state and a nil error.
+func TestParseHomeStateTypeErrorIsUnparsable(t *testing.T) {
+	_, err := parseHomeState([]byte("home_volume: {a: b}\n"))
+	if !errors.Is(err, ErrStateUnparsable) {
+		t.Fatalf("parseHomeState() error = %v, want ErrStateUnparsable", err)
+	}
+	if _, ok := errors.AsType[*yaml.LoadErrors](err); !ok {
+		t.Fatalf("parseHomeState() error = %v, want the underlying *yaml.LoadErrors wrapped", err)
+	}
+}
+
+// TestReadStateTypeErrorWrapsTypeError pins that the typed-unmarshal failure
+// survives ReadState's wrapping as a retrievable *yaml.LoadErrors.
+func TestReadStateTypeErrorWrapsTypeError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := Key{Slug: "typecorrupt-a", Agent: "opencode"}
+	if err := os.MkdirAll(KeyDir(k), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stateFile(k), []byte("home_volume: {a: b}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := ReadState(k)
+	if !errors.Is(err, ErrStateUnparsable) {
+		t.Fatalf("ReadState() error = %v, want ErrStateUnparsable", err)
+	}
+	if _, ok := errors.AsType[*yaml.LoadErrors](err); !ok {
+		t.Fatalf("ReadState() error = %v, want the underlying *yaml.LoadErrors wrapped", err)
+	}
+}
+
+// TestWriteState_MarshalError covers the marshal failure via the seam: the
+// concrete HomeState shape cannot make yaml.Marshal fail.
+func TestWriteState_MarshalError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("marshal boom")
+	orig := marshalHomeState
+	marshalHomeState = func(any) ([]byte, error) { return nil, wantErr }
+	t.Cleanup(func() { marshalHomeState = orig })
+
+	if err := writeState(Key{Slug: "proj", Agent: "opencode"}, HomeState{HomeVolume: "vol"}); !errors.Is(err, wantErr) {
+		t.Fatalf("writeState() error = %v, want %v", err, wantErr)
 	}
 }
 
@@ -525,6 +581,8 @@ func TestWriteState_RenameErrorCleansTemp(t *testing.T) {
 
 	if err := writeState(k, HomeState{HomeVolume: "vol"}); err == nil {
 		t.Fatal("expected error when the state file cannot be renamed")
+	} else if _, ok := errors.AsType[*os.LinkError](err); !ok {
+		t.Fatalf("writeState() error = %v, want a wrapped *os.LinkError", err)
 	}
 
 	// The unique temp file should have been cleaned up after the failed rename.

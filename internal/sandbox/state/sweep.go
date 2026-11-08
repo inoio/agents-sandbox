@@ -13,6 +13,13 @@ import (
 // claimSuffix is the file-name suffix every claim token is stored under.
 const claimSuffix = ".claim"
 
+// mkdirSweepClaimDir and openSweepClaimFile are seams so a test can pin the
+// claim dir and file modes without depending on the process umask.
+var (
+	mkdirSweepClaimDir = os.MkdirAll
+	openSweepClaimFile = os.OpenFile
+)
+
 // ProjectSlugs returns the sorted directory names directly under the state
 // root, one per project slug, excluding the never-deleted locks directory and
 // any non-directory entry (the launcher-global root state file and its
@@ -85,12 +92,12 @@ func ClaimTokens(slug string) ([]string, error) {
 // possibly held, claim, and removing it would split that holder's flock.
 func RemoveUnheldClaim(slug, token string) (bool, error) {
 	dir := filepath.Join(slugDir(slug), "claims")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := mkdirSweepClaimDir(dir, 0o700); err != nil {
 		return false, fmt.Errorf("create claim dir: %w", err)
 	}
 	path := filepath.Join(dir, token+claimSuffix)
 	for range 5 {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+		f, err := openSweepClaimFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
 			return false, fmt.Errorf("open claim %s: %w", path, err)
 		}

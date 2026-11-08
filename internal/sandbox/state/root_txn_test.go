@@ -77,9 +77,12 @@ func TestWithRootStateCorruptReturnsErrorWithoutRunning(t *testing.T) {
 		t.Fatal(err)
 	}
 	ran := false
-	_, err := WithRootState(true, func(*RootTxn) error { ran = true; return nil })
+	ok, err := WithRootState(true, func(*RootTxn) error { ran = true; return nil })
 	if err == nil {
 		t.Fatal("err = nil, want a parse error")
+	}
+	if !ok {
+		t.Fatal("ok = false on a read error; a blocking acquire holds the lock, so ok must be true")
 	}
 	if ran {
 		t.Fatal("fn ran on a corrupt document")

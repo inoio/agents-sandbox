@@ -15,6 +15,10 @@ func SlugDir(slug string) string {
 	return slugDir(slug)
 }
 
+// mkdirMergeDir is a seam so a test can pin the destination directory mode the
+// recursive merge creates, without depending on the process umask.
+var mkdirMergeDir = os.MkdirAll
+
 // StatefulAgentNames returns the agent names that have a state file under slug,
 // i.e. the agents whose state a slug-directory move will carry. It is how the
 // identity adoption learns every agent it must tear down before moving the whole
@@ -106,7 +110,7 @@ func mergeDir(srcDir, dstDir, rel string) ([]string, error) {
 		case !os.IsNotExist(statErr):
 			return skipped, fmt.Errorf("stat %s: %w", dstPath, statErr)
 		default:
-			if err := os.MkdirAll(dstDir, 0o700); err != nil {
+			if err := mkdirMergeDir(dstDir, 0o700); err != nil {
 				return skipped, fmt.Errorf("create state dir %s: %w", dstDir, err)
 			}
 			if err := os.Rename(srcPath, dstPath); err != nil {

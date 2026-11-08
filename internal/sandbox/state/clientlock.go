@@ -30,6 +30,13 @@ var clientLeaseOpened func(f *os.File, path string)
 // a sweep reclaiming the empty dir in that window; production leaves it nil.
 var clientLeaseDirReady func(dir string)
 
+// mkdirClientLeaseDir and openClientLeaseFile are seams so a test can pin the
+// lease dir and file modes without depending on the process umask.
+var (
+	mkdirClientLeaseDir = os.MkdirAll
+	openClientLeaseFile = os.OpenFile
+)
+
 // AcquireClientLease creates a unique lock file for the current client under the
 // project/agent key's client state dir and holds an exclusive flock on it. It
 // returns a release function. The flock is auto-released if the process exits or
@@ -46,7 +53,7 @@ func AcquireClientLease(k Key) (func(), error) {
 	if err := requireAbsoluteStatePath(dir); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := mkdirClientLeaseDir(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create client lock dir: %w", err)
 	}
 	for range 5 {
@@ -54,14 +61,14 @@ func AcquireClientLease(k Key) (func(), error) {
 		if clientLeaseDirReady != nil {
 			clientLeaseDirReady(dir)
 		}
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+		f, err := openClientLeaseFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 		if err != nil {
 			// RemoveSlugDirIfEmpty can reclaim this empty clients dir between our
 			// MkdirAll and the open, so an ENOENT is retried after recreating it
 			// rather than failing the session's lease (which would leave it out of
 			// the active-client count).
 			if os.IsNotExist(err) {
-				if mkErr := os.MkdirAll(dir, 0o700); mkErr != nil {
+				if mkErr := mkdirClientLeaseDir(dir, 0o700); mkErr != nil {
 					return nil, fmt.Errorf("create client lock dir: %w", mkErr)
 				}
 				continue
@@ -121,7 +128,8 @@ func sweepClientLeases(k Key) (int, int) {
 	removed := 0
 	for _, e := range entries {
 		path := filepath.Join(dir, e.Name())
-		f, err := os.OpenFile(path, os.O_RDWR, 0o600)
+		// No O_CREATE: the file already exists, so the mode argument is ignored.
+		f, err := os.OpenFile(path, os.O_RDWR, 0)
 		if err != nil {
 			continue
 		}

@@ -1,8 +1,11 @@
 package state
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -263,14 +266,200 @@ func TestCountActiveClients_SkipsUnopenableEntry(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(clientsDir, "a-subdir"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	// A live lease sorting after the unopenable entry: the walk must skip only
+	// the bad entry and keep counting, not abandon the rest of the directory.
+	leasePath := filepath.Join(clientsDir, "z-fresh.lock")
+	lease, err := os.OpenFile(leasePath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lease.Close() })
 
 	// A directory entry cannot be flock'd and must be skipped, not counted
 	// and not removed.
-	if got := CountActiveClients(k); got != 0 {
-		t.Errorf("CountActiveClients = %d, want 0 for unopenable entry", got)
+	if got := CountActiveClients(k); got != 1 {
+		t.Errorf("CountActiveClients = %d, want 1 (the subdirectory skipped, the lease counted)", got)
 	}
 	if _, err := os.Stat(filepath.Join(clientsDir, "a-subdir")); err != nil {
 		t.Fatalf("subdirectory entry should not be removed, got %v", err)
+	}
+}
+
+// TestCountActiveClientsAgedHeldLeaseIsLive pins that a lease whose flock is
+// held is counted and kept even after it is older than the mid-create grace
+// window: only an *unlocked* aged lease is a crashed client's leftover. The
+// held branch must short-circuit before the freshness check, or the counter
+// would unlink a live client's lease and undercount.
+func TestCountActiveClientsAgedHeldLeaseIsLive(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := Key{Slug: "agedheldproj", Agent: "opencode"}
+
+	release, err := AcquireClientLease(k)
+	if err != nil {
+		t.Fatalf("AcquireClientLease: %v", err)
+	}
+	defer release()
+
+	clientsDir := filepath.Join(KeyDir(k), "clients")
+	entries, err := os.ReadDir(clientsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aged := time.Now().Add(-time.Hour)
+	for _, entry := range entries {
+		if err := os.Chtimes(filepath.Join(clientsDir, entry.Name()), aged, aged); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got := CountActiveClients(k); got != 1 {
+		t.Fatalf("CountActiveClients = %d, want 1 for an aged but held lease", got)
+	}
+	entries, err = os.ReadDir(clientsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("a held lease file must not be unlinked, found %d entries", len(entries))
+	}
+}
+
+// failingDirEntry is a DirEntry whose Info always fails, standing in for an
+// entry that disappears between ReadDir and the freshness stat.
+type failingDirEntry struct{}
+
+func (failingDirEntry) Name() string               { return "gone.lock" }
+func (failingDirEntry) IsDir() bool                { return false }
+func (failingDirEntry) Type() fs.FileMode          { return 0 }
+func (failingDirEntry) Info() (fs.FileInfo, error) { return nil, fs.ErrNotExist }
+
+// TestLeaseIsFreshTreatsStatFailureAsFresh pins the conservative default: an
+// entry whose mtime cannot be read is never unlinked on uncertainty, so it must
+// be treated as fresh.
+func TestLeaseIsFreshTreatsStatFailureAsFresh(t *testing.T) {
+	if !leaseIsFresh(failingDirEntry{}) {
+		t.Fatal("a lease whose Info() fails must be treated as fresh, never unlinked")
+	}
+}
+
+// TestAcquireClientLeaseUsesPrivateModes pins the client-lock dir and file modes
+// at the seam, including the dir re-created after a sweep race, so the assertion
+// does not depend on the test process's umask.
+func TestAcquireClientLeaseUsesPrivateModes(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := Key{Slug: "leasemodeproj", Agent: "opencode"}
+
+	var dirModes, fileModes []os.FileMode
+	origMkdir, origOpen := mkdirClientLeaseDir, openClientLeaseFile
+	mkdirClientLeaseDir = func(dir string, mode os.FileMode) error {
+		dirModes = append(dirModes, mode)
+		return os.MkdirAll(dir, mode)
+	}
+	openClientLeaseFile = func(path string, flag int, mode os.FileMode) (*os.File, error) {
+		fileModes = append(fileModes, mode)
+		return os.OpenFile(path, flag, mode)
+	}
+	swept := false
+	clientLeaseDirReady = func(dir string) {
+		if swept {
+			return
+		}
+		swept = true
+		if err := os.Remove(dir); err != nil {
+			t.Fatalf("simulate sweep: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		mkdirClientLeaseDir, openClientLeaseFile = origMkdir, origOpen
+		clientLeaseDirReady = nil
+	})
+
+	release, err := AcquireClientLease(k)
+	if err != nil {
+		t.Fatalf("AcquireClientLease: %v", err)
+	}
+	release()
+
+	if len(dirModes) < 2 {
+		t.Fatalf("expected the dir to be created then re-created, got modes %v", dirModes)
+	}
+	for i, mode := range dirModes {
+		if mode != 0o700 {
+			t.Errorf("clients dir mode #%d = %o, want 700", i, mode)
+		}
+	}
+	if len(fileModes) == 0 || fileModes[0] != 0o600 {
+		t.Errorf("client lease file mode = %v, want 600", fileModes)
+	}
+}
+
+// TestAcquireClientLeaseMkdirErrorWraps pins the create-dir failure: it must
+// surface immediately, not fall through to the per-attempt open/re-create path
+// that would mask the original failure.
+func TestAcquireClientLeaseMkdirErrorWraps(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("mkdir boom")
+	openErr := errors.New("open fallthrough")
+	origMkdir, origOpen := mkdirClientLeaseDir, openClientLeaseFile
+	mkdirClientLeaseDir = func(string, os.FileMode) error { return wantErr }
+	// A distinct, non-ENOENT open error keeps a fall-through past the create-dir
+	// failure from aliasing the mkdir error.
+	openClientLeaseFile = func(string, int, os.FileMode) (*os.File, error) { return nil, openErr }
+	t.Cleanup(func() { mkdirClientLeaseDir, openClientLeaseFile = origMkdir, origOpen })
+
+	_, err := AcquireClientLease(Key{Slug: "leasemkdiresc", Agent: "opencode"})
+	if !errors.Is(err, wantErr) || errors.Is(err, openErr) {
+		t.Fatalf("AcquireClientLease() error = %v, want the create-dir error %v", err, wantErr)
+	}
+}
+
+// TestAcquireClientLeaseOpenErrorWraps pins the lease-file open failure: a
+// non-ENOENT error surfaces wrapped rather than being retried.
+func TestAcquireClientLeaseOpenErrorWraps(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("open boom")
+	orig := openClientLeaseFile
+	openClientLeaseFile = func(string, int, os.FileMode) (*os.File, error) { return nil, wantErr }
+	t.Cleanup(func() { openClientLeaseFile = orig })
+
+	if _, err := AcquireClientLease(Key{Slug: "leaseopeneresc", Agent: "opencode"}); !errors.Is(err, wantErr) {
+		t.Fatalf("AcquireClientLease() error = %v, want %v wrapped", err, wantErr)
+	}
+}
+
+// TestAcquireClientLeaseSweptDirRecreateErrorWraps pins the re-create failure
+// after a sweep race: the second MkdirAll's error is wrapped, not swallowed.
+func TestAcquireClientLeaseSweptDirRecreateErrorWraps(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := Key{Slug: "leasesweeprecreateesc", Agent: "opencode"}
+	wantErr := errors.New("recreate boom")
+
+	orig := mkdirClientLeaseDir
+	calls := 0
+	mkdirClientLeaseDir = func(dir string, mode os.FileMode) error {
+		calls++
+		if calls == 1 {
+			return os.MkdirAll(dir, mode)
+		}
+		return wantErr
+	}
+	swept := false
+	clientLeaseDirReady = func(dir string) {
+		if swept {
+			return
+		}
+		swept = true
+		if err := os.Remove(dir); err != nil {
+			t.Fatalf("simulate sweep: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		mkdirClientLeaseDir = orig
+		clientLeaseDirReady = nil
+	})
+
+	if _, err := AcquireClientLease(k); !errors.Is(err, wantErr) {
+		t.Fatalf("AcquireClientLease() error = %v, want %v wrapped", err, wantErr)
 	}
 }
 
@@ -317,8 +506,12 @@ func TestAcquireClientLease_FlockErrorSurfaces(t *testing.T) {
 	clientLeaseOpened = func(f *os.File, _ string) { _ = f.Close() }
 	t.Cleanup(func() { clientLeaseOpened = nil })
 
-	if _, err := AcquireClientLease(Key{Slug: "leaseflockproj", Agent: "opencode"}); err == nil {
+	_, err := AcquireClientLease(Key{Slug: "leaseflockproj", Agent: "opencode"})
+	if err == nil {
 		t.Fatal("expected a flock error to surface")
+	}
+	if !errors.Is(err, syscall.EBADF) {
+		t.Fatalf("flock error = %v, want the underlying EBADF wrapped", err)
 	}
 }
 

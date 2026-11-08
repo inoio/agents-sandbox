@@ -36,8 +36,8 @@ func (t *RootTxn) Commit() error { return writeRootState(*t.state) }
 //nolint:nonamedreturns // the documented (ok, err) signature is the contract
 func WithRootState(blocking bool, fn func(*RootTxn) error) (ok bool, err error) {
 	release, ok, err := lockRootState(blocking)
-	if err != nil || !ok {
-		return ok, err
+	if !ok {
+		return false, err
 	}
 	defer release()
 

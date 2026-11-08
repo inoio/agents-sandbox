@@ -1,6 +1,8 @@
 package state
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -213,6 +215,8 @@ func TestMoveSlugDirErrorsWhenSourceIsNotADirectory(t *testing.T) {
 	_, err := MoveSlugDir("old-slug", "new-slug")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "read state dir")
+	var pathErr *fs.PathError
+	require.ErrorAs(t, err, &pathErr)
 }
 
 // TestMoveSlugDirErrorsWhenDestinationIsNotADirectory covers the Lstat failure:
@@ -226,6 +230,8 @@ func TestMoveSlugDirErrorsWhenDestinationIsNotADirectory(t *testing.T) {
 	_, err := MoveSlugDir("old-slug", "new-slug")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "stat ")
+	var pathErr *fs.PathError
+	require.ErrorAs(t, err, &pathErr)
 }
 
 // TestMoveSlugDirErrorsWhenDestinationCannotBeCreated covers the MkdirAll
@@ -240,6 +246,8 @@ func TestMoveSlugDirErrorsWhenDestinationCannotBeCreated(t *testing.T) {
 	_, err := MoveSlugDir("old-slug", "new-slug")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "create state dir")
+	var pathErr *fs.PathError
+	require.ErrorAs(t, err, &pathErr)
 }
 
 // TestMoveSlugDirErrorsWhenDestinationIsNotWritable covers the Rename failure:
@@ -254,6 +262,8 @@ func TestMoveSlugDirErrorsWhenDestinationIsNotWritable(t *testing.T) {
 	_, err := MoveSlugDir("old-slug", "new-slug")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "move ")
+	var linkErr *os.LinkError
+	require.ErrorAs(t, err, &linkErr)
 }
 
 // TestMoveSlugDirErrorsInsideANestedMerge covers the recursive-merge error
@@ -269,6 +279,8 @@ func TestMoveSlugDirErrorsInsideANestedMerge(t *testing.T) {
 	_, err := MoveSlugDir("old-slug", "new-slug")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "move ")
+	var linkErr *os.LinkError
+	require.ErrorAs(t, err, &linkErr)
 }
 
 // TestMoveSlugDirErrorsWhenEmptiedSourceCannotBeRemoved covers the final Remove
@@ -283,6 +295,8 @@ func TestMoveSlugDirErrorsWhenEmptiedSourceCannotBeRemoved(t *testing.T) {
 	_, err := MoveSlugDir("old-slug", "new-slug")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "remove state dir")
+	var pathErr *fs.PathError
+	require.ErrorAs(t, err, &pathErr)
 }
 
 // TestStatefulAgentNames covers the enumeration the identity adoption uses to
@@ -295,6 +309,17 @@ func TestStatefulAgentNames(t *testing.T) {
 	writeFile(t, filepath.Join(SlugDir("widget-abc"), "pi", "state.yaml"), "home_volume: v2\n")
 	writeFile(t, filepath.Join(SlugDir("widget-abc"), "claims", "notify.claim"), "x")
 	writeFile(t, filepath.Join(SlugDir("widget-abc"), "stray-file"), "x")
+	// A non-directory entry sorting before the agents: the walk must skip it and
+	// keep scanning, not abandon the enumeration.
+	writeFile(t, filepath.Join(SlugDir("widget-abc"), "aaa-stray"), "x")
+	// A symlink to an agent directory is not itself an agent: only real
+	// directories stat-installed as agents are enumerated.
+	if err := os.Symlink(
+		filepath.Join(SlugDir("widget-abc"), "opencode"),
+		filepath.Join(SlugDir("widget-abc"), "zlink"),
+	); err != nil {
+		t.Fatalf("create symlink: %v", err)
+	}
 
 	names, err := StatefulAgentNames("widget-abc")
 	require.NoError(t, err)
@@ -315,4 +340,102 @@ func TestStatefulAgentNamesErrorsOnUnreadableSlug(t *testing.T) {
 	_, err := StatefulAgentNames("widget-abc")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "read state dir")
+	var pathErr *fs.PathError
+	require.ErrorAs(t, err, &pathErr)
+}
+
+// TestMoveSlugDirReportsSkipsCollectedBeforeANestedError pins that the skip list
+// is not dropped when a later nested merge fails: the caller needs every entry
+// that stayed behind to warn about it.
+func TestMoveSlugDirReportsSkipsCollectedBeforeANestedError(t *testing.T) {
+	requireNonRoot(t)
+	configpaths.WithMockConfigPaths(t)
+	writeFile(t, filepath.Join(SlugDir("old-slug"), "aaa-collide"), "legacy")
+	writeFile(t, filepath.Join(SlugDir("new-slug"), "aaa-collide"), "present")
+	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
+	inner := filepath.Join(SlugDir("new-slug"), "opencode")
+	require.NoError(t, os.MkdirAll(inner, 0o700))
+	makeReadOnly(t, inner)
+
+	skipped, err := MoveSlugDir("old-slug", "new-slug")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "move ")
+	require.Contains(t, skipped, "aaa-collide")
+}
+
+// TestMoveSlugDirReportsSkipsCollectedBeforeAMoveError pins the same for a
+// direct move failure: an earlier collision must still be reported.
+func TestMoveSlugDirReportsSkipsCollectedBeforeAMoveError(t *testing.T) {
+	requireNonRoot(t)
+	configpaths.WithMockConfigPaths(t)
+	writeFile(t, filepath.Join(SlugDir("old-slug"), "aaa-collide"), "legacy")
+	writeFile(t, filepath.Join(SlugDir("new-slug"), "aaa-collide"), "present")
+	writeFile(t, filepath.Join(SlugDir("old-slug"), "zzz-file"), "legacy")
+	require.NoError(t, os.MkdirAll(SlugDir("new-slug"), 0o700))
+	makeReadOnly(t, SlugDir("new-slug"))
+
+	skipped, err := MoveSlugDir("old-slug", "new-slug")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "move ")
+	require.Contains(t, skipped, "aaa-collide")
+}
+
+// TestMoveSlugDirReportsSkipsCollectedBeforeARemoveError pins that a nested skip
+// is reported when the emptied source directory then cannot be removed.
+func TestMoveSlugDirReportsSkipsCollectedBeforeARemoveError(t *testing.T) {
+	requireNonRoot(t)
+	configpaths.WithMockConfigPaths(t)
+	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
+	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "ensure-vm.lock"), "legacy lock")
+	writeFile(t, filepath.Join(SlugDir("new-slug"), "opencode", "ensure-vm.lock"), "stray lock")
+	makeReadOnly(t, stateRoot())
+
+	skipped, err := MoveSlugDir("old-slug", "new-slug")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "remove state dir")
+	require.Contains(t, skipped, filepath.Join("opencode", "ensure-vm.lock"))
+}
+
+// TestMoveSlugDirReportsSkipsCollectedBeforeACreateDirError pins that an earlier
+// collision is still reported when a later destination-directory creation fails.
+func TestMoveSlugDirReportsSkipsCollectedBeforeACreateDirError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	writeFile(t, filepath.Join(SlugDir("old-slug"), "aaa-collide"), "legacy")
+	writeFile(t, filepath.Join(SlugDir("new-slug"), "aaa-collide"), "present")
+	writeFile(t, filepath.Join(SlugDir("old-slug"), "zzz-dir", "state.yaml"), "home_volume: v1\n")
+
+	wantErr := errors.New("mkdir boom")
+	orig := mkdirMergeDir
+	mkdirMergeDir = func(dir string, mode os.FileMode) error {
+		if dir == SlugDir("new-slug") {
+			return wantErr
+		}
+		return os.MkdirAll(dir, mode)
+	}
+	t.Cleanup(func() { mkdirMergeDir = orig })
+
+	skipped, err := MoveSlugDir("old-slug", "new-slug")
+	require.ErrorIs(t, err, wantErr)
+	require.Contains(t, skipped, "aaa-collide")
+}
+
+// TestMoveSlugDirCreatesDestinationWithPrivateMode pins the mode of a destination
+// directory the merge creates, at the seam, independent of the process umask.
+func TestMoveSlugDirCreatesDestinationWithPrivateMode(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	var dirMode os.FileMode
+	orig := mkdirMergeDir
+	mkdirMergeDir = func(dir string, mode os.FileMode) error {
+		dirMode = mode
+		return os.MkdirAll(dir, mode)
+	}
+	t.Cleanup(func() { mkdirMergeDir = orig })
+
+	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
+
+	_, err := MoveSlugDir("old-slug", "new-slug")
+	require.NoError(t, err)
+	if dirMode != 0o700 {
+		t.Errorf("destination dir mode = %o, want 700", dirMode)
+	}
 }

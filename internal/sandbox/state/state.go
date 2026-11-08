@@ -153,6 +153,10 @@ func stateFile(k Key) string {
 	return slugPath(k, "state.yaml")
 }
 
+// marshalHomeState is indirect because the concrete HomeState shape cannot make
+// yaml.Marshal fail, so only a substitute reaches the marshal failure path.
+var marshalHomeState = yaml.Marshal
+
 // requireAbsoluteStatePath rejects a resolved state path that is not absolute.
 // Every state path is joined onto configpaths.UserStateDir(), which is absolute;
 // a non-absolute path means the root failed to resolve (for example $HOME is
@@ -228,7 +232,7 @@ func writeState(k Key, state HomeState) error {
 	if err := requireAbsoluteStatePath(path); err != nil {
 		return err
 	}
-	data, err := yaml.Marshal(versionedDocument[HomeState]{Schema: HomeStateSchema, Document: state})
+	data, err := marshalHomeState(versionedDocument[HomeState]{Schema: HomeStateSchema, Document: state})
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}

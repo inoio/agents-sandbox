@@ -54,3 +54,27 @@ func TestRecordAgentVersionSkipsEmptyVersion(t *testing.T) {
 		t.Fatalf("ReadState error = %v, want ErrStateNotFound", err)
 	}
 }
+
+// TestRecordAgentVersionEmptyVersionPreservesBaseline pins the empty-version
+// guard against a state file that already records a release: the call must be a
+// no-op, not a fall-through that fails the equality check and erases the stored
+// baseline by writing "".
+func TestRecordAgentVersionEmptyVersionPreservesBaseline(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := Key{Slug: "proj", Agent: "opencode"}
+	if err := writeState(k, HomeState{HomeVolume: "vol", AgentVersion: "1.2.3"}); err != nil {
+		t.Fatalf("writeState: %v", err)
+	}
+
+	if err := RecordAgentVersion(k, ""); err != nil {
+		t.Fatalf("RecordAgentVersion: %v", err)
+	}
+
+	got, err := ReadState(k)
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if got.AgentVersion != "1.2.3" {
+		t.Fatalf("AgentVersion = %q, want the stored baseline 1.2.3 preserved", got.AgentVersion)
+	}
+}

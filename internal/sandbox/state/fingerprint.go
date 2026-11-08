@@ -17,9 +17,6 @@ import (
 // EnvContentHash returns a SHA-256 hex digest of the env map contents.
 // Keys are sorted and hashed as "K=V" lines for order-independence.
 func EnvContentHash(env map[string]string) string {
-	if env == nil {
-		env = map[string]string{}
-	}
 	lines := make([]string, 0, len(env))
 	for k, v := range env {
 		lines = append(lines, k+"="+v)
@@ -35,9 +32,6 @@ func EnvContentHash(env map[string]string) string {
 // the VM at creation is included so a change to any of them (not just the
 // value) triggers the VM recreate that applies it.
 func SecretsContentHash(entries []msbSdk.SecretEntry) string {
-	if entries == nil {
-		entries = []msbSdk.SecretEntry{}
-	}
 	byEnv := make(map[string]msbSdk.SecretEntry, len(entries))
 	for _, e := range entries {
 		byEnv[e.EnvVar] = e
@@ -100,9 +94,6 @@ func EnvChanged(applied EnvState, desired map[string]string) bool {
 // which is only considered "changed" when the desired slice is non-empty.
 func SecretsChanged(applied SecretState, desired []msbSdk.SecretEntry) bool {
 	if applied.Hash == "" {
-		if desired == nil {
-			return false
-		}
 		return len(desired) > 0
 	}
 	return applied.Hash != SecretsContentHash(desired)
