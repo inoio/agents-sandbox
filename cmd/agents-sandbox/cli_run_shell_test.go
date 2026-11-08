@@ -424,6 +424,10 @@ func TestRunShellInvalidSizeFlags(t *testing.T) {
 		{name: "disk-size", args: []string{"run", "--disk-size", "bogus"}, wantErrPart: "invalid --disk-size"},
 		{name: "tmp-size-out-of-range", args: []string{"run", "--tmp-size", "4294967296"}, wantErrPart: "invalid --tmp-size"},
 		{name: "disk-size-out-of-range", args: []string{"run", "--disk-size", "4294967296"}, wantErrPart: "invalid --disk-size"},
+		{name: "memory-below-floor", args: []string{"run", "--memory", "64M"}, wantErrPart: "--memory 64M"},
+		{name: "tmp-size-at-memory", args: []string{"run", "--memory", "4G", "--tmp-size", "4G"}, wantErrPart: "--tmp-size 4G must be below memory"},
+		{name: "disk-size-zero", args: []string{"run", "--disk-size", "0"}, wantErrPart: "--disk-size 0 must be greater than 0"},
+		{name: "workspace-quota-zero", args: []string{"run", "--workspace-quota", "0"}, wantErrPart: "--workspace-quota 0 must be greater than 0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			initTestProjectDir(t)

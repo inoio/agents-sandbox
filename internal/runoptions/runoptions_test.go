@@ -370,6 +370,77 @@ func TestBuildInvalidTmpSize(t *testing.T) {
 	}
 }
 
+func TestBuildInvalidMemory(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set("memory", "bogus"); err != nil {
+		t.Fatalf("set memory: %v", err)
+	}
+	r := mustResolver(t, cmd)
+	_, err := Build(r.Config(), cmd, &termio.Mock{})
+	if err == nil {
+		t.Fatal("expected error for invalid --memory")
+	}
+	if want := "invalid --memory"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q; want to contain %q", err, want)
+	}
+}
+
+func TestBuildMemoryBelowFloor(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set("memory", "64M"); err != nil {
+		t.Fatalf("set memory: %v", err)
+	}
+	r := mustResolver(t, cmd)
+	_, err := Build(r.Config(), cmd, &termio.Mock{})
+	if err == nil {
+		t.Fatal("expected error for a memory below the floor")
+	}
+	if want := "--memory 64M"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q; want to contain %q", err, want)
+	}
+}
+
+func TestBuildTmpSizeNotBelowMemory(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cmd := newRunCommand()
+	if err := cmd.Flags().Set("memory", "4G"); err != nil {
+		t.Fatalf("set memory: %v", err)
+	}
+	if err := cmd.Flags().Set("tmp-size", "4G"); err != nil {
+		t.Fatalf("set tmp-size: %v", err)
+	}
+	r := mustResolver(t, cmd)
+	_, err := Build(r.Config(), cmd, &termio.Mock{})
+	if err == nil {
+		t.Fatal("expected error for a tmp-size at the memory limit")
+	}
+	if want := "--tmp-size 4G must be below memory"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q; want to contain %q", err, want)
+	}
+}
+
+func TestBuildZeroSizesRejected(t *testing.T) {
+	for _, flag := range []string{"disk-size", "workspace-quota"} {
+		t.Run(flag, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			cmd := newRunCommand()
+			if err := cmd.Flags().Set(flag, "0"); err != nil {
+				t.Fatalf("set %s: %v", flag, err)
+			}
+			r := mustResolver(t, cmd)
+			_, err := Build(r.Config(), cmd, &termio.Mock{})
+			if err == nil {
+				t.Fatalf("expected error for a zero --%s", flag)
+			}
+			if want := "--" + flag + " 0 must be greater than 0"; !strings.Contains(err.Error(), want) {
+				t.Errorf("error = %q; want to contain %q", err, want)
+			}
+		})
+	}
+}
+
 func TestBuildInvalidDiskSize(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cmd := newRunCommand()
@@ -405,6 +476,9 @@ func TestBuildOutOfRangeTmpSize(t *testing.T) {
 func TestBuildValidSizeFlags(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	cmd := newRunCommand()
+	if err := cmd.Flags().Set("memory", "8G"); err != nil {
+		t.Fatalf("set memory: %v", err)
+	}
 	if err := cmd.Flags().Set("tmp-size", "4G"); err != nil {
 		t.Fatalf("set tmp-size: %v", err)
 	}

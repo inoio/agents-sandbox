@@ -873,6 +873,20 @@ func TestTmpSizeChangeInvalidSpec(t *testing.T) {
 	}
 }
 
+// TestTmpSizeChangeClampedAtBootMax pins that a tmp above the live VM's boot
+// maximum is compared capped, mirroring the creation-side clamp
+// (vm.effectiveTmpSizeMiB), so a host-RAM clamp cannot recreate the VM on every
+// run.
+func TestTmpSizeChangeClampedAtBootMax(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		MaxMemoryMiB: 32 * 1024,
+		Volumes:      map[string]msbSdk.MountConfig{mounts.TmpMountPath: {SizeMiB: 32 * 1024}},
+	}
+	if _, changed := tmpSizeChange(cfg, options.RunOptions{TmpSize: "48G"}); changed {
+		t.Error("a tmp above the boot maximum was created clamped to it; it must not be a change")
+	}
+}
+
 func TestWorkspaceQuotaChange(t *testing.T) {
 	vol := func(quotaMiB uint32) map[string]msbSdk.MountConfig {
 		return map[string]msbSdk.MountConfig{mounts.WorkspaceMountPath: {QuotaMiB: quotaMiB}}

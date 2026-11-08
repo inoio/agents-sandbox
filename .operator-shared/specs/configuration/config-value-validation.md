@@ -1,6 +1,6 @@
 ---
 description: Contract for validating the launcher's VM size and duration settings - memory has a 128 MiB floor and is clamped (not rejected) to the host's RAM at boot, tmp-size defaults to min(2 GiB, memory/2) and must stay below the effective memory (clamped at creation), disk-size and workspace-quota must be positive, and the duration/retry keys keep their existing bounds.
-read_if: Changing VM size validation, `options.ParseMemoryOK`/`ResolveTmpSizeMiB`/`ResolveDiskSizeMiB`/`ResolveWorkspaceQuotaMiB`, `runoptions.resolveSizes`, the `memory`/`tmp-size`/`disk-size`/`workspace-quota` bounds or the tmp-vs-memory relation, `vm.bootMemoryMiB` or the tmp mount; or diagnosing a rejected size, a zero-size setting, or a `/tmp` larger than the VM's memory.
+read_if: Changing VM size validation, `options.ParseMemoryOK`/`ResolveTmpSizeMiB`/`ValidateSizes`/`ResolveDiskSizeMiB`/`ResolveWorkspaceQuotaMiB`, `runoptions.resolveSizes`, the `memory`/`tmp-size`/`disk-size`/`workspace-quota` bounds or the tmp-vs-memory relation, `vm.bootMemoryMiB`/`vm.effectiveTmpSizeMiB`/`reconfig.tmpSizeChange` or the tmp mount; or diagnosing a rejected size, a zero-size setting, or a `/tmp` larger than the VM's memory.
 ---
 
 # Config value validation
@@ -15,12 +15,12 @@ settings a checked contract instead of syntax-only.
 
 Two layers, because the sizes are settable by flag and env as well as the config file:
 
-- **`options.ValidateSizes`** is a pure function over resolved MiB values. It is unit-testable with no
-  host dependency.
-- **`runoptions.resolveSizes`** widens to parse `memory` (not just the other three) and call
-  `ValidateSizes`. It runs after the flag > env > config merge, so a bad `--memory` is caught the same
-  as a bad config value. `viperconfig.validate` does **not** gain the size checks: it sees only the
-  config-file layer and would miss a flag.
+- **`options.ValidateSizes`** is a pure function of the raw specs (memory, tmp-size, disk-size,
+  workspace-quota) with no host dependency, so it is directly unit-testable. It owns both the syntax
+  checks ("invalid --tmp-size …") and the range/relation checks.
+- **`runoptions.resolveSizes`** delegates to `ValidateSizes` after the flag > env > config merge, so a
+  bad `--memory` is caught the same as a bad config value. `viperconfig.validate` does **not** gain the
+  size checks: it sees only the config-file layer and would miss a flag.
 
 The host-RAM comparison is deliberately **not** part of validation: `memory` above host RAM stays a
 boot-time clamp with a warning (`vm.bootMemoryMiB`), matching `docs/configuration/launcher.md`.
@@ -39,7 +39,7 @@ SDK only requires memory `> 0` (default `WithMemory(512)`), and no real run appr
 floor only catches typos and unit mistakes. It also makes the tmp default always usable — with
 `memory >= 128`, `memory/2 >= 64`, so the derived tmp needs no special floor.
 
-A rejected size names the key and the constraint (e.g. `tmp-size 8G must be below memory 4G`), not just
+A rejected size names the key and the constraint (e.g. `--tmp-size 8G must be below memory 4G`), not just
 "invalid size". The existing syntax errors ("expected a size like 4G, 512M, or 2048") stay.
 
 ## The tmp default and the tmp < memory invariant
@@ -69,10 +69,20 @@ creation**, next to the memory clamp, with a warning when it bites — mirroring
 keeps the physical invariant (tmpfs is RAM-backed) true regardless of the host, and keeps validation
 free of any `sysinfo` call.
 
-`bootMemoryMiB` (or a sibling) therefore exposes the effective memory the tmp clamp consumes;
-`buildMounts` receives the clamped tmp instead of the raw resolved value. `memory` stays the single
-authoritative knob — there is no floor derived from tmp, because a memory floor cannot survive the boot
-clamp and would silently inflate the VM's RAM.
+`bootMemoryMiB` already returns the effective memory; `createProjectVM` computes it once and feeds
+both `msbSdk.WithMemory` and `effectiveTmpSizeMiB`, which clamps the resolved tmp (with a warning) before
+`buildMounts` receives it instead of the raw resolved value. `memory` stays the single authoritative
+knob — there is no floor derived from tmp, because a memory floor cannot survive the boot clamp and
+would silently inflate the VM's RAM.
+
+### Reconfig comparison
+
+`reconfig.tmpSizeChange` compares only an **explicit** `tmp-size`. Comparing the memory-derived default
+would recreate every VM whose configured memory is below the default (the default changes with memory),
+breaking "no existing project recreates". Because the creation-side clamp can leave the live tmp at or
+below the boot maximum, the comparison caps the desired explicit value at the live VM's
+`cfg.MaxMemoryMiB` — otherwise a host-RAM-clamped tmp would differ from the raw configured value and
+recreate the VM on every run.
 
 ## Unchanged bounds
 
@@ -88,14 +98,14 @@ duration it is rejected.
 
 ## Call sites
 
-`ResolveTmpSizeMiB` gains its memory argument at each caller: `vm.buildMounts` (via
-`vm_lifecycle.go`, the creation path — pass the effective memory), `resourceproposal.RunDiskLimits`
-(the disk-limit offer's current tmp; pass the configured memory), and `reconfig.plan`'s explicit-value
-check. `ResolveDiskSizeMiB` and `ResolveWorkspaceQuotaMiB` are unchanged.
+`ResolveTmpSizeMiB` gains its memory argument at each caller: `vm.createProjectVM` (the creation path —
+pass the effective memory, then clamp through `effectiveTmpSizeMiB`), and
+`resourceproposal.RunDiskLimits` (the disk-limit offer's current tmp; pass the configured memory via
+`options.ParseMemory(opts.Memory)`). `ResolveDiskSizeMiB` and `ResolveWorkspaceQuotaMiB` are unchanged.
+`reconfig.tmpSizeChange` does not call `ResolveTmpSizeMiB` (see *Reconfig comparison*).
 
-`docs/configuration/launcher.md` already states `/tmp` "cannot exceed the `memory` limit"; this change
-makes that an enforced contract and documents the 128 MiB memory floor and the memory-relative tmp
-default.
+`docs/configuration/launcher.md` states `/tmp` must stay below `memory`; this change makes that an
+enforced contract and documents the 128 MiB memory floor and the memory-relative tmp default.
 
 ## Non-goals
 

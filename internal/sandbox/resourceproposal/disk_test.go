@@ -442,9 +442,18 @@ func TestDetectAndOfferDiskRaiseStateWriteFailuresAreBestEffort(t *testing.T) {
 // sizes or their defaults, and the memory limit /tmp shares.
 func TestRunDiskLimits(t *testing.T) {
 	got := RunDiskLimits(options.RunOptions{DiskSize: "8G", TmpSize: "", WorkspaceQuota: "32G", Memory: "6G"})
-	want := DiskLimits{RootMiB: 8192, WorkspaceQuotaMiB: 32768, TmpMiB: options.DefaultTmpSizeMiB, MemoryMiB: 6144}
+	want := DiskLimits{RootMiB: 8192, WorkspaceQuotaMiB: 32768, TmpMiB: options.DefaultTmpSizeCapMiB, MemoryMiB: 6144}
 	if got != want {
 		t.Errorf("RunDiskLimits = %+v, want %+v", got, want)
+	}
+}
+
+// TestRunDiskLimitsDerivesTmpFromMemory pins that the offer's current /tmp is
+// the memory-relative default when tmp-size is unset.
+func TestRunDiskLimitsDerivesTmpFromMemory(t *testing.T) {
+	got := RunDiskLimits(options.RunOptions{Memory: "2G"})
+	if got.TmpMiB != 1024 {
+		t.Errorf("TmpMiB = %d, want 1024 (memory/2)", got.TmpMiB)
 	}
 }
 

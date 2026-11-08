@@ -1,6 +1,9 @@
 package options
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseMemoryOK_ValidGiB(t *testing.T) {
 	got, ok := ParseMemoryOK("4G")
@@ -176,14 +179,78 @@ func TestParseMemoryOK_DefaultMemoryFallsThrough(t *testing.T) {
 }
 
 func TestResolveTmpSizeMiB_DelegatesToParseMemoryOK(t *testing.T) {
-	if got := ResolveTmpSizeMiB(""); got != DefaultTmpSizeMiB {
-		t.Errorf("expected default %d for empty, got %d", DefaultTmpSizeMiB, got)
+	if got := ResolveTmpSizeMiB("", DefaultMemoryMiB); got != DefaultTmpSizeCapMiB {
+		t.Errorf("expected cap %d for empty, got %d", DefaultTmpSizeCapMiB, got)
 	}
-	if got := ResolveTmpSizeMiB("bogus"); got != DefaultTmpSizeMiB {
-		t.Errorf("expected default %d for bogus, got %d", DefaultTmpSizeMiB, got)
+	if got := ResolveTmpSizeMiB("bogus", DefaultMemoryMiB); got != DefaultTmpSizeCapMiB {
+		t.Errorf("expected cap %d for bogus, got %d", DefaultTmpSizeCapMiB, got)
 	}
-	if got := ResolveTmpSizeMiB("4G"); got != 4096 {
+	if got := ResolveTmpSizeMiB("4G", DefaultMemoryMiB); got != 4096 {
 		t.Errorf("expected 4096 for 4G, got %d", got)
+	}
+}
+
+// TestResolveTmpSizeMiB_MemoryRelativeDefault pins the unset default:
+// min(DefaultTmpSizeCapMiB, memory/2). The default at the default memory is the
+// historical 2048 MiB, so an existing default project's tmp is unchanged.
+func TestResolveTmpSizeMiB_MemoryRelativeDefault(t *testing.T) {
+	cases := []struct{ memoryMiB, want uint32 }{
+		{DefaultMemoryMiB, DefaultTmpSizeCapMiB},
+		{8192, DefaultTmpSizeCapMiB},
+		{2048, 1024},
+		{128, 64},
+	}
+	for _, tc := range cases {
+		if got := ResolveTmpSizeMiB("", tc.memoryMiB); got != tc.want {
+			t.Errorf("ResolveTmpSizeMiB(\"\", %d) = %d, want %d", tc.memoryMiB, got, tc.want)
+		}
+	}
+}
+
+func TestValidateSizes(t *testing.T) {
+	cases := []struct {
+		name        string
+		memory      string
+		tmpSize     string
+		diskSize    string
+		quota       string
+		wantErrPart string
+	}{
+		{name: "all defaults"},
+		{name: "typical", memory: "8G", tmpSize: "2G", diskSize: "16G", quota: "16G"},
+		{name: "memory at floor", memory: "128M"},
+		{name: "tmp just below memory", memory: "4G", tmpSize: "3968M"},
+		{name: "tmp below floor memory is implicit", memory: "128M", tmpSize: "64M"},
+		{name: "memory below floor", memory: "64M", wantErrPart: "--memory"},
+		{name: "memory zero", memory: "0", wantErrPart: "--memory"},
+		{name: "memory unparseable", memory: "bogus", wantErrPart: "invalid --memory"},
+		{name: "tmp zero", memory: "4G", tmpSize: "0", wantErrPart: "--tmp-size"},
+		{name: "tmp at memory", memory: "4G", tmpSize: "4G", wantErrPart: "--tmp-size"},
+		{name: "tmp above memory", memory: "4G", tmpSize: "8G", wantErrPart: "--tmp-size"},
+		{name: "tmp unparseable", memory: "4G", tmpSize: "bogus", wantErrPart: "invalid --tmp-size"},
+		{name: "disk zero", diskSize: "0", wantErrPart: "--disk-size"},
+		{name: "disk unparseable", diskSize: "bogus", wantErrPart: "invalid --disk-size"},
+		{name: "quota zero", quota: "0", wantErrPart: "--workspace-quota"},
+		{name: "quota unparseable", quota: "bogus", wantErrPart: "invalid --workspace-quota"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateSizes(tc.memory, tc.tmpSize, tc.diskSize, tc.quota)
+			if tc.wantErrPart == "" {
+				if err != nil {
+					t.Fatalf("ValidateSizes(%q, %q, %q, %q) = %v, want nil",
+						tc.memory, tc.tmpSize, tc.diskSize, tc.quota, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ValidateSizes(%q, %q, %q, %q) = nil, want an error containing %q",
+					tc.memory, tc.tmpSize, tc.diskSize, tc.quota, tc.wantErrPart)
+			}
+			if !strings.Contains(err.Error(), tc.wantErrPart) {
+				t.Errorf("error = %q, want to contain %q", err, tc.wantErrPart)
+			}
+		})
 	}
 }
 
@@ -216,8 +283,11 @@ func TestDocumentedSizeDefaults(t *testing.T) {
 	if DefaultMemoryMiB != 4096 {
 		t.Errorf("DefaultMemoryMiB = %d, want 4096", DefaultMemoryMiB)
 	}
-	if DefaultTmpSizeMiB != 2048 {
-		t.Errorf("DefaultTmpSizeMiB = %d, want 2048", DefaultTmpSizeMiB)
+	if DefaultTmpSizeCapMiB != 2048 {
+		t.Errorf("DefaultTmpSizeCapMiB = %d, want 2048", DefaultTmpSizeCapMiB)
+	}
+	if MinMemoryMiB != 128 {
+		t.Errorf("MinMemoryMiB = %d, want 128", MinMemoryMiB)
 	}
 	if DefaultWorkspaceQuotaMiB != 16384 {
 		t.Errorf("DefaultWorkspaceQuotaMiB = %d, want 16384", DefaultWorkspaceQuotaMiB)

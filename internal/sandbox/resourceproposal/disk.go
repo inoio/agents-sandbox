@@ -35,7 +35,7 @@ func RunDiskLimits(opts options.RunOptions) DiskLimits {
 	return DiskLimits{
 		RootMiB:           options.ResolveDiskSizeMiB(opts.DiskSize),
 		WorkspaceQuotaMiB: options.ResolveWorkspaceQuotaMiB(opts.WorkspaceQuota),
-		TmpMiB:            options.ResolveTmpSizeMiB(opts.TmpSize),
+		TmpMiB:            options.ResolveTmpSizeMiB(opts.TmpSize, options.ParseMemory(opts.Memory)),
 		MemoryMiB:         options.ParseMemory(opts.Memory),
 
 		RootHostFreeMiB:        0,

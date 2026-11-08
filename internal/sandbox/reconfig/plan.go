@@ -326,11 +326,19 @@ func isNameImage(info naming.ArtifactInfo) bool {
 	return info.Slug != "" && info.Agent != "" && info.Digest == ""
 }
 
-// tmpSizeChange reports the /tmp tmpfs size change, if any.
+// tmpSizeChange reports the /tmp tmpfs size change, if any. It compares only an
+// explicit tmp-size: an unset spec is the memory-derived default, and comparing
+// that would recreate every existing VM whose memory is below the default.
 func tmpSizeChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change, bool) {
 	want, ok := options.ParseMemoryOK(opts.TmpSize)
 	if !ok {
 		return Change{}, false
+	}
+	// Mirror the creation-side clamp (vm.effectiveTmpSizeMiB): a tmp above the
+	// live VM's boot maximum was created clamped to it, so comparing the raw
+	// value would recreate the VM on every run.
+	if cfg.MaxMemoryMiB > 0 && want > cfg.MaxMemoryMiB {
+		want = cfg.MaxMemoryMiB
 	}
 	tmp, ok := cfg.Volumes[mounts.TmpMountPath]
 	if !ok || tmp.SizeMiB == want {
