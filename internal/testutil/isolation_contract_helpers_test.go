@@ -2,10 +2,36 @@ package testutil
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"testing"
 )
+
+// fixtureFamily builds a family for the isolation fixtures with its installer
+// located in the family's own package. The fixtures must not read the live
+// registry: relocating an installer changes the registry's installer fields, and
+// these fixtures pin the matching logic, not the current layout.
+func fixtureFamily(name, dir, installer string) seamFamily {
+	packageName := path.Base(dir)
+	return seamFamily{
+		name:                 name,
+		dir:                  dir,
+		packageName:          packageName,
+		installerDir:         dir,
+		installerPackageName: packageName,
+		installer:            installer,
+	}
+}
+
+var fixtureFamilies = []seamFamily{
+	fixtureFamily("configpaths", "internal/configpaths", "InstallFailFastConfigPaths"),
+	fixtureFamily("docker", "internal/sandbox/docker", "InstallFailFastGet"),
+	fixtureFamily("doctor", "internal/sandbox/doctor", "InstallFailFast"),
+	fixtureFamily("msb", "internal/sandbox/msb", "InstallFailFastGet"),
+	fixtureFamily("notify", "internal/notify", "InstallFailFast"),
+	fixtureFamily("opener", "internal/opener", "InstallFailFast"),
+}
 
 // writeFixtureFile writes content at root/rel, creating parent directories.
 func writeFixtureFile(t *testing.T, root, rel, content string) {
@@ -55,10 +81,11 @@ func TestInstalledSeamFamilies(t *testing.T) {
 	}
 
 	tests := []struct {
-		name    string
-		source  string
-		want    []string
-		wantErr bool
+		name         string
+		source       string
+		want         []string
+		wantExternal bool
+		wantErr      bool
 	}{
 		{
 			name: "full set via the testutil wrapper",
@@ -214,6 +241,24 @@ func TestMain(m *testing.M) {
 			want: []string{},
 		},
 		{
+			name: "an external test package installs a family via an imported package",
+			source: `package fixtures_test
+
+import (
+	"testing"
+
+	"example.com/mod/internal/sandbox/docker"
+)
+
+func TestMain(m *testing.M) {
+	docker.InstallFailFastGet()
+	m.Run()
+}
+`,
+			want:         []string{"docker"},
+			wantExternal: true,
+		},
+		{
 			name:    "missing main_test.go",
 			source:  "",
 			wantErr: true,
@@ -233,7 +278,7 @@ func TestSomething(t *testing.T) {}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			root := writeMainTest(t, tt.source)
-			got, err := installedSeamFamilies(root, pkgDir, modulePath)
+			got, externalTestMain, err := installedSeamFamilies(root, pkgDir, modulePath, fixtureFamilies)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("installedSeamFamilies() error = nil, want error; got %v", got)
@@ -245,6 +290,9 @@ func TestSomething(t *testing.T) {}
 			}
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("installedSeamFamilies() = %v, want %v", got, tt.want)
+			}
+			if externalTestMain != tt.wantExternal {
+				t.Errorf("installedSeamFamilies() external = %v, want %v", externalTestMain, tt.wantExternal)
 			}
 		})
 	}
@@ -317,7 +365,7 @@ func InitFailFastMocks(m *testing.M) {
 			root := t.TempDir()
 			writeFixtureFile(t, root, filepath.Join(fullSetInstallerPackage, "testutil.go"), tt.wrapper)
 
-			got := wrapperInstalledFamilies(t, root, fullSetInstallerPackage, modulePath)
+			got := wrapperInstalledFamilies(t, root, fullSetInstallerPackage, modulePath, fixtureFamilies)
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("wrapperInstalledFamilies() = %v, want %v", got, tt.want)
 			}
@@ -348,6 +396,23 @@ func TestDeclaredSeamInstallers(t *testing.T) {
 	}
 	if got := declaredSeamInstallers(t, root, modulePackages(t, root)); !slices.Equal(got, want) {
 		t.Errorf("declaredSeamInstallers() = %v, want %v", got, want)
+	}
+
+	// A family whose installer was relocated to a test-support package must be
+	// registered at the installer's location, not the seam's.
+	relocated := []seamFamily{{
+		name:                 "example",
+		dir:                  "internal/example",
+		packageName:          "example",
+		installerDir:         "internal/example/exampletest",
+		installerPackageName: "exampletest",
+		installer:            "InstallFailFastExample",
+	}}
+	wantRegistered := []registeredInstaller{
+		{dir: "internal/example/exampletest", packageName: "exampletest", installer: "InstallFailFastExample"},
+	}
+	if got := registeredInstallers(relocated); !slices.Equal(got, wantRegistered) {
+		t.Errorf("registeredInstallers() = %v, want %v", got, wantRegistered)
 	}
 }
 
@@ -387,46 +452,64 @@ func TestAcyclicSeamFamilies(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		pkgDir string
-		want   []string
+		name             string
+		pkgDir           string
+		externalTestMain bool
+		want             []string
 	}{
 		{
 			"a seam imported by others drops those importers",
 			"internal/configpaths",
+			false,
 			[]string{"configpaths", "docker", "opener"},
 		},
 		{
 			"a seam imported by doctor drops only doctor",
 			"internal/sandbox/docker",
+			false,
 			[]string{"configpaths", "docker", "msb", "notify", "opener"},
 		},
-		{"another seam imported by doctor", "internal/sandbox/msb", []string{"configpaths", "docker", "msb", "opener"}},
+		{
+			"another seam imported by doctor",
+			"internal/sandbox/msb",
+			false,
+			[]string{"configpaths", "docker", "msb", "opener"},
+		},
 		{
 			"the top of the graph may install every family",
 			"internal/sandbox/doctor",
+			false,
 			[]string{"configpaths", "docker", "doctor", "msb", "notify", "opener"},
 		},
 		{
 			"a package imported by doctor and notify drops both",
 			"internal/termio",
+			false,
 			[]string{"configpaths", "docker", "msb", "opener"},
 		},
 		{
 			"a package notify imports drops notify",
 			"internal/sandbox/state",
+			false,
 			[]string{"configpaths", "docker", "doctor", "msb", "opener"},
 		},
 		{
 			"an unrelated package may install every family",
 			"internal/sandbox/vm",
+			false,
+			[]string{"configpaths", "docker", "doctor", "msb", "notify", "opener"},
+		},
+		{
+			"an external TestMain may install every family",
+			"internal/configpaths",
+			true,
 			[]string{"configpaths", "docker", "doctor", "msb", "notify", "opener"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := acyclicSeamFamilies(tt.pkgDir, transitive)
+			got := acyclicSeamFamilies(tt.pkgDir, transitive, fixtureFamilies, tt.externalTestMain)
 			if !slices.Equal(got, tt.want) {
 				t.Errorf("acyclicSeamFamilies(%q) = %v, want %v", tt.pkgDir, got, tt.want)
 			}
