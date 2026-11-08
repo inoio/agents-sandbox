@@ -165,8 +165,9 @@ The contract is **verify on read**:
   it read (in memory only, never persisted — a secret file's digest never reaches state). A file read twice by
   the gate (an `env` file also copied by `home:`) must read the same bytes, or the gate fails.
 - After the approval, every reader of a project input reads through `projectguard.ReadFile` and verifies the
-  digest of **the bytes it got**, so no window remains between verifying and using: viper's config merge, the
-  `home:` manifest and `home:` source reads, the env and secret files, agent config snippets and the mirror
+  digest of **the bytes it got**, so no window remains between verifying and using: every config file
+  `configdecode.DecodeFile` reads (viper's config merge, the `home:` manifest, the setting writer's owner
+  lookup), the `home:` source reads, the env and secret files, agent config snippets and the mirror
   walk (`filewalk`), and the project Dockerfile. Different bytes are refused, and so is an approved file that
   no longer reads (deleted, grown past a reader's bound). Paths are compared absolute and cleaned, so a
   `home:` source spelled with `..` is verified like any other.
