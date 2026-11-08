@@ -27,6 +27,12 @@ Prefer these installed CLI tools over other tools or custom solutions:
 | Read docs / manuals                        | `man`                                           |
 | Create/extract archives                    | `tar` / `zip` / `unzip` / `xz` / `lz4` / `zstd` |
 | Inspect a SQLite database                  | `sqlite3`                                       |
+| Search or rewrite code by structure (AST)  | `ast-grep`                                      |
+| Go: navigate, find references, rename      | `gopls` (`definition`, `references`, `rename`)  |
+| Go: add/remove imports after a move        | `goimports`                                     |
+
+`~/go/bin` (GOBIN) is on `PATH`, so a `go install`ed tool is runnable in a later
+shell.
 
 ## Current limitations
 
