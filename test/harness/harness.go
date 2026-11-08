@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
 
 // daemonTimeoutMarker is what the launcher prints when its daemon health probe
@@ -158,30 +160,65 @@ func harnessHomeBase(root, name string) string {
 	return filepath.Join(root, runsDirName, name)
 }
 
-// resolveSuiteRoot returns the suite's shared root and whether it is a reused
-// directory. A set smokeRootReuseEnv reuses that directory — validated to fit
-// the sandbox socket path budget — so the microsandbox image cache under it
-// survives between runs; otherwise a fresh temp root is created for the caller
-// to remove.
-func resolveSuiteRoot() (string, bool, error) {
+// reuseLockSuffix names the lock file that serializes runs sharing a reused
+// suite root. The lock sits beside the root, not inside it, so it never lands
+// in the microsandbox home under it.
+const reuseLockSuffix = ".lock"
+
+// reuseLockPath is the lock file that serializes runs sharing the reused root
+// dir.
+func reuseLockPath(dir string) string {
+	return filepath.Join(filepath.Dir(dir), filepath.Base(dir)+reuseLockSuffix)
+}
+
+// acquireReuseLock blocks until this run holds the exclusive lock for the reused
+// root dir, waiting out any other run that shares it. Two runs that share a root
+// would otherwise race on the sandbox sweep: whichever finishes first removes
+// every sandbox in the home, including the other's live VMs. dir is absolute,
+// so the lock path is stable across working directories. It returns the release.
+func acquireReuseLock(dir string) (func(), error) {
+	return hostlock.AcquireExclusiveWaiting(filepath.Dir(dir), filepath.Base(dir)+reuseLockSuffix, func() {
+		fmt.Fprintf(os.Stderr, "harness smoke: reuse root %s is in use by another run; waiting for it to finish\n", dir)
+	})
+}
+
+// resolveSuiteRoot returns the suite's shared root, whether it is a reused
+// directory, and the release for the exclusive lock a reused directory is held
+// under (nil for a fresh root). A set smokeRootReuseEnv reuses that directory —
+// resolved to an absolute path and validated to fit the sandbox socket path
+// budget — so the microsandbox image cache under it survives between runs;
+// otherwise a fresh temp root is created for the caller to remove. The lock
+// serializes runs that share a root, so a finishing run's sandbox sweep cannot
+// destroy VMs another run is still using.
+func resolveSuiteRoot() (string, bool, func(), error) {
 	if dir := os.Getenv(smokeRootReuseEnv); dir != "" {
-		if !rootFitsSandboxSocket(dir) {
-			return "", false, fmt.Errorf(
+		reuseRoot, err := filepath.Abs(dir)
+		if err != nil {
+			return "", false, nil, fmt.Errorf("resolve reuse root %s: %w", dir, err)
+		}
+		if !rootFitsSandboxSocket(reuseRoot) {
+			return "", false, nil, fmt.Errorf(
 				"%s=%q derives a %d-byte sandbox control-socket path, at or above the %d-byte sun_path limit",
-				smokeRootReuseEnv, dir, len(msbHomeUnderRoot(dir))+sandboxSocketPathSuffix, sunPathLimit)
+				smokeRootReuseEnv, reuseRoot,
+				len(msbHomeUnderRoot(reuseRoot))+sandboxSocketPathSuffix, sunPathLimit)
 		}
-		// dir is an explicit operator opt-in (the reuse root), not request data.
-		//nolint:gosec // G703: dir is operator-provided, not tainted input
-		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return "", false, fmt.Errorf("create reuse root %s: %w", dir, err)
+		// reuseRoot is an explicit operator opt-in (the reuse root), not request
+		// data.
+		//nolint:gosec // G703: reuseRoot is operator-provided, not tainted input
+		if err = os.MkdirAll(reuseRoot, 0o750); err != nil {
+			return "", false, nil, fmt.Errorf("create reuse root %s: %w", reuseRoot, err)
 		}
-		return dir, true, nil
+		release, err := acquireReuseLock(reuseRoot)
+		if err != nil {
+			return "", false, nil, fmt.Errorf("lock reuse root %s: %w", reuseRoot, err)
+		}
+		return reuseRoot, true, release, nil
 	}
 	root, err := mkdtemp(smokeRootBase, smokeRootPrefix)
 	if err != nil {
-		return "", false, err
+		return "", false, nil, err
 	}
-	return root, false, nil
+	return root, false, nil, nil
 }
 
 // isolatedEnvKeep lists the inherited variables the child may keep: the

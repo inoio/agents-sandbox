@@ -61,9 +61,13 @@ var (
 	prebuildOnce    sync.Once
 	smokeRoot       string
 	smokeRootReused bool
-	smokeBinary     string
-	errSmokePrepare error
-	errPrebuild     error
+	// smokeRootLockRelease releases the exclusive lock a reused root is held
+	// under; nil for a fresh root. prepare registers its release so it runs after
+	// the sandbox sweep that shares the root.
+	smokeRootLockRelease func()
+	smokeBinary          string
+	errSmokePrepare      error
+	errPrebuild          error
 )
 
 // harnessConcurrency is the number of harness VMs to run at once: an explicit
@@ -258,6 +262,12 @@ func prepare(t *testing.T) (root, binary string) {
 	t.Helper()
 
 	prepareOnce.Do(createRootAndBuildBinary)
+	// Release the reuse lock last: cleanups run LIFO, and the sandbox sweep
+	// registered after prepare must run while the lock is still held.
+	if smokeRootLockRelease != nil {
+		releaseLock := smokeRootLockRelease
+		t.Cleanup(func() { releaseLock() })
+	}
 	if smokeRoot != "" && !smokeRootReused {
 		created := smokeRoot
 		t.Cleanup(func() { removeTempRoot(t, created) })
@@ -288,13 +298,14 @@ func projectDir(root, name string) string {
 // createRootAndBuildBinary resolves the suite root and compiles the launcher
 // into it.
 func createRootAndBuildBinary() {
-	root, reused, err := resolveSuiteRoot()
+	root, reused, release, err := resolveSuiteRoot()
 	if err != nil {
 		errSmokePrepare = err
 		return
 	}
 	smokeRoot = root
 	smokeRootReused = reused
+	smokeRootLockRelease = release
 	smokeBinary = filepath.Join(root, "agents-sandbox")
 	if err := os.MkdirAll(filepath.Join(root, "tmp"), 0o755); err != nil {
 		errSmokePrepare = fmt.Errorf("create temp dir: %w", err)

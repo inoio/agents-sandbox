@@ -199,7 +199,9 @@ test-msb:
 # Like test-msb, but reuses a stable microsandbox home so the multi-GB
 # `docker save | msb ImageLoad` each prebuild otherwise repays is paid once.
 # Local iteration only: the home outlives the run, so remove $(MSB_REUSE_ROOT)
-# to start fresh. Add -v to see the per-image prebuild timings.
+# to start fresh. A reused home is held under a lock, so a second concurrent
+# run waits instead of racing on it. Add -v to see the per-image prebuild
+# timings.
 test-msb-reuse:
 	AGENTS_SANDBOX_SMOKE_ROOT=$(MSB_REUSE_ROOT)/smoke \
 	AGENTS_SANDBOX_MSB_TEST_HOME=$(MSB_REUSE_ROOT)/msb \

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
 
 func TestHarnessSpecsCoverEveryRegisteredAgent(t *testing.T) {
@@ -377,28 +378,112 @@ func TestResolveSuiteRootReusesEnv(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(shortRoot) })
 
 	t.Setenv(smokeRootReuseEnv, shortRoot)
-	root, reused, err := resolveSuiteRoot()
+	root, reused, release, err := resolveSuiteRoot()
 	if err != nil {
 		t.Fatalf("resolveSuiteRoot: %v", err)
 	}
 	if !reused || root != shortRoot {
 		t.Errorf("resolveSuiteRoot = (%q, %v), want (%q, true)", root, reused, shortRoot)
 	}
+	if release == nil {
+		t.Error("resolveSuiteRoot returned no lock release for a reused root")
+	} else {
+		t.Cleanup(release)
+	}
 
 	t.Setenv(smokeRootReuseEnv, filepath.Join(t.TempDir(), strings.Repeat("x", sunPathLimit)))
-	if _, _, err := resolveSuiteRoot(); err == nil {
+	if _, _, _, err := resolveSuiteRoot(); err == nil {
 		t.Error("resolveSuiteRoot = nil error, want a too-long reuse path rejected")
 	}
 
 	t.Setenv(smokeRootReuseEnv, "")
-	root, reused, err = resolveSuiteRoot()
+	root, reused, release, err = resolveSuiteRoot()
 	if err != nil {
 		t.Fatalf("resolveSuiteRoot: %v", err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	if release != nil {
+		t.Error("resolveSuiteRoot returned a lock release for a fresh root, want nil")
+	}
 	if reused || root == "" {
 		t.Errorf("resolveSuiteRoot = (%q, %v), want a fresh, non-reused root", root, reused)
 	}
+}
+
+// TestResolveSuiteRootMakesTheReuseRootAbsolute pins that a relative reuse root
+// is resolved before use: the image prebuild runs the launcher with the project
+// directory as its working directory, so a relative smokeBinary path would look
+// for the binary beneath the project dir instead of where it was built.
+func TestResolveSuiteRootMakesTheReuseRootAbsolute(t *testing.T) {
+	workDir := filepath.Join(smokeRootBase, smokeRootPrefix+"abs")
+	if err := os.MkdirAll(workDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(workDir) })
+	t.Chdir(workDir)
+
+	t.Setenv(smokeRootReuseEnv, "r")
+	root, reused, release, err := resolveSuiteRoot()
+	if err != nil {
+		t.Fatalf("resolveSuiteRoot: %v", err)
+	}
+	t.Cleanup(release)
+	if !reused {
+		t.Fatal("resolveSuiteRoot did not reuse the configured root")
+	}
+	if !filepath.IsAbs(root) {
+		t.Errorf("resolveSuiteRoot root = %q, want an absolute path", root)
+	}
+	if want := filepath.Join(workDir, "r"); root != want {
+		t.Errorf("resolveSuiteRoot root = %q, want %q", root, want)
+	}
+}
+
+// TestResolveSuiteRootLocksTheReuseRoot pins that a reused root is held under an
+// exclusive lock for the run's lifetime: two runs sharing a root serialize there
+// instead of one run's sandbox sweep destroying the other's live VMs.
+func TestResolveSuiteRootLocksTheReuseRoot(t *testing.T) {
+	shortRoot := filepath.Join(smokeRootBase, smokeRootPrefix+"reuse-lock")
+	t.Cleanup(func() { _ = os.RemoveAll(shortRoot) })
+	t.Setenv(smokeRootReuseEnv, shortRoot)
+
+	_, reused, release, err := resolveSuiteRoot()
+	if err != nil {
+		t.Fatalf("resolveSuiteRoot: %v", err)
+	}
+	if !reused {
+		t.Fatal("resolveSuiteRoot did not reuse the configured root")
+	}
+	if release == nil {
+		t.Fatal("resolveSuiteRoot returned no lock release for a reused root")
+	}
+
+	if !lockContended(t, reuseLockPath(shortRoot)) {
+		t.Error("the reuse lock is free while the run holds it, want it held")
+	}
+	release()
+	if lockContended(t, reuseLockPath(shortRoot)) {
+		t.Error("the reuse lock is still held after release")
+	}
+}
+
+// lockContended reports whether another open file description holds the lock at
+// path.
+func lockContended(t *testing.T, path string) bool {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("open lock %s: %v", path, err)
+	}
+	defer f.Close()
+	err = hostlock.ExclusiveNonBlocking(f)
+	if err == nil {
+		return false
+	}
+	if !hostlock.IsContention(err) {
+		t.Fatalf("flock %s: %v", path, err)
+	}
+	return true
 }
 
 // TestResolveSuiteRootReportsCreateFailures pins both failure surfaces: a reuse
@@ -416,7 +501,7 @@ func TestResolveSuiteRootReportsCreateFailures(t *testing.T) {
 		t.Cleanup(func() { _ = os.Remove(blocker) })
 
 		t.Setenv(smokeRootReuseEnv, filepath.Join(blocker, "child"))
-		_, _, err := resolveSuiteRoot()
+		_, _, _, err := resolveSuiteRoot()
 		if err == nil {
 			t.Fatal("resolveSuiteRoot = nil error, want the create failure reported")
 		}
@@ -431,7 +516,7 @@ func TestResolveSuiteRootReportsCreateFailures(t *testing.T) {
 		mkdtemp = func(string, string) (string, error) { return "", syscall.ENOSPC }
 
 		t.Setenv(smokeRootReuseEnv, "")
-		_, _, err := resolveSuiteRoot()
+		_, _, _, err := resolveSuiteRoot()
 		if err == nil {
 			t.Fatal("resolveSuiteRoot = nil error, want the temp-root failure reported")
 		}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestAcquireExclusiveCreatesPrivateDirAndFile(t *testing.T) {
@@ -111,6 +112,54 @@ func TestIsContention(t *testing.T) {
 		if got := IsContention(test.err); got != test.want {
 			t.Errorf("IsContention(%v) = %v, want %v", test.err, got, test.want)
 		}
+	}
+}
+
+func TestAcquireExclusiveWaitingStaysQuietWhenUncontended(t *testing.T) {
+	dir := t.TempDir()
+
+	release, err := AcquireExclusiveWaiting(dir, "test.lock", func() {
+		t.Error("onWait called on an uncontended lock")
+	})
+	if err != nil {
+		t.Fatalf("AcquireExclusiveWaiting: %v", err)
+	}
+	release()
+}
+
+func TestAcquireExclusiveWaitingNotifiesAndBlocksWhileContended(t *testing.T) {
+	dir := t.TempDir()
+	holder, err := AcquireExclusive(dir, "test.lock")
+	if err != nil {
+		t.Fatalf("AcquireExclusive: %v", err)
+	}
+
+	waited := make(chan struct{})
+	acquired := make(chan func(), 1)
+	errs := make(chan error, 1)
+	go func() {
+		released, err := AcquireExclusiveWaiting(dir, "test.lock", func() { close(waited) })
+		if err != nil {
+			errs <- err
+			return
+		}
+		acquired <- released
+	}()
+
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("onWait was not called while the lock was held elsewhere")
+	}
+
+	holder()
+	select {
+	case release := <-acquired:
+		release()
+	case err := <-errs:
+		t.Fatalf("AcquireExclusiveWaiting: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("AcquireExclusiveWaiting did not acquire after the holder released")
 	}
 }
 

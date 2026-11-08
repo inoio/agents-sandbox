@@ -177,10 +177,12 @@ build behind a `sync.Once`, then the isolated-env docker preflight, then the per
 behind its own `sync.Once`, then the harnesses.
 
 **Reuse escape hatch.** A set `AGENTS_SANDBOX_SMOKE_ROOT` points the suite at an existing directory it keeps
-between runs (validated to fit the socket-path budget) instead of a fresh temp root, so the microsandbox image
-cache under `<root>/data` survives and the per-run image transfer is paid once. `make test-msb` uses a fresh
-root; `make test-msb-reuse` sets it. The default (unset) is a fresh root removed after the run; the reused
-directory is left in place.
+between runs (resolved to an absolute path, validated to fit the socket-path budget) instead of a fresh temp
+root, so the microsandbox image cache under `<root>/data` survives and the per-run image transfer is paid once.
+`make test-msb` uses a fresh root; `make test-msb-reuse` sets it. The default (unset) is a fresh root removed
+after the run; the reused directory is left in place. A reused root is held under an exclusive lock beside it for
+the run's lifetime, so a second run that shares the root waits rather than racing: the run that finishes first
+would otherwise sweep every sandbox in the shared home, destroying the other's live VMs.
 
 **Network.** A harness runs with `--network none` (the secure default) unless the table overrides it, and `claude-code`
 and `codex` do, with `public`: `claude-code` offline exits `1` (`ECONNREFUSED api.anthropic.com`), because it checks
@@ -199,7 +201,8 @@ home; it lists with `sandbox list -q` and removes each name with `sandbox remove
 required, or the non-interactive remove blocks on its confirmation). A freshly created temp root's removal is
 registered as soon as the root is created, so a skip (the docker preflight) or a failed launcher build removes
 it too; a reused root (`AGENTS_SANDBOX_SMOKE_ROOT`) is kept. The sandbox sweep stays separate because it needs
-the binary and a reachable docker daemon.
+the binary and a reachable docker daemon, and the reuse lock is released after it (cleanups run LIFO), so a
+waiting run only proceeds once the sweep sharing the root is done.
 
 ## Non-goals
 

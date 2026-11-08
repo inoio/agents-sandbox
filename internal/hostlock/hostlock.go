@@ -19,6 +19,13 @@ var flock = syscall.Flock
 // blocks until it holds an exclusive flock on it. The returned function
 // releases the lock.
 func AcquireExclusive(dir, name string) (func(), error) {
+	return AcquireExclusiveWaiting(dir, name, nil)
+}
+
+// AcquireExclusiveWaiting is AcquireExclusive, but calls onWait once before it
+// blocks when another open file description already holds the lock, so a caller
+// that may wait can say why instead of pausing silently. onWait may be nil.
+func AcquireExclusiveWaiting(dir, name string, onWait func()) (func(), error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create lock dir: %w", err)
 	}
@@ -27,11 +34,24 @@ func AcquireExclusive(dir, name string) (func(), error) {
 	if err != nil {
 		return nil, fmt.Errorf("open lock %s: %w", path, err)
 	}
-	if err := Exclusive(f); err != nil {
+	if err := acquireWaiting(f, onWait); err != nil {
 		_ = f.Close()
 		return nil, fmt.Errorf("flock %s: %w", path, err)
 	}
 	return func() { _ = f.Close() }, nil
+}
+
+// acquireWaiting takes the lock on f, calling onWait first when the lock is
+// already held elsewhere and onWait is non-nil.
+func acquireWaiting(f *os.File, onWait func()) error {
+	if onWait == nil {
+		return Exclusive(f)
+	}
+	if err := ExclusiveNonBlocking(f); err == nil || !IsContention(err) {
+		return err
+	}
+	onWait()
+	return Exclusive(f)
 }
 
 // Exclusive blocks until it holds an exclusive flock on f.
