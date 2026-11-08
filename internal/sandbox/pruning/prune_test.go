@@ -316,8 +316,8 @@ func TestPruneNeverRemovesVolumes(t *testing.T) {
 func TestPruneRunsStoragePhase(t *testing.T) {
 	physical := uint64(4096)
 	client := &msb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error) {
-			return &msbSdk.StoragePruneReport{
+		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
+			return &msb.PruneReport{
 				FilesRemoved:           3,
 				LogicalBytesRemoved:    12288,
 				PhysicalBytesReclaimed: &physical,
@@ -350,7 +350,7 @@ func TestPruneRunsStoragePhase(t *testing.T) {
 // joined into the aggregate error instead of aborting the run.
 func TestPruneJoinsStorageError(t *testing.T) {
 	client := &msb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error) {
+		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
 			return nil, errors.New("storage boom")
 		},
 	}

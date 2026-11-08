@@ -96,8 +96,8 @@ type MockMsbClient struct {
 	ImageLoadFn          func(ctx context.Context, ref string, r io.Reader) error
 	ImageInspectFn       func(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
 	ImageInspectDetailFn func(ctx context.Context, ref string) (*ImageDetail, error)
-	StorageUsageFn       func(ctx context.Context) (*msbSdk.StorageUsageReport, error)
-	StoragePruneFn       func(ctx context.Context, options msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error)
+	StorageUsageFn       func(ctx context.Context) (*StorageReport, error)
+	StoragePruneFn       func(ctx context.Context, req PruneRequest) (*PruneReport, error)
 
 	// Pre-populated collections — List* methods return these when the callback is nil.
 	// Tests can append to these fields freely.
@@ -118,8 +118,8 @@ type MockMsbClient struct {
 	RemovedImages []MockRemoveImageCall
 	// LoadedImages holds refs passed to ImageLoad calls.
 	LoadedImages []string
-	// StoragePruneCalls holds the options passed to PruneStorage calls.
-	StoragePruneCalls []msbSdk.StoragePruneOptions
+	// StoragePruneCalls holds the requests passed to PruneStorage calls.
+	StoragePruneCalls []PruneRequest
 
 	// Error fields.
 	CreateSandboxErr error
@@ -273,19 +273,19 @@ func (m *MockMsbClient) ImagePrune(ctx context.Context) (*msbSdk.ImagePruneRepor
 	return &msbSdk.ImagePruneReport{}, nil
 }
 
-// PruneStorage implements Client, recording every call's options.
+// PruneStorage implements Client, recording every call's request.
 func (m *MockMsbClient) PruneStorage(
 	ctx context.Context,
-	options msbSdk.StoragePruneOptions,
-) (*msbSdk.StoragePruneReport, error) {
+	req PruneRequest,
+) (*PruneReport, error) {
 	m.mu.Lock()
-	m.StoragePruneCalls = append(m.StoragePruneCalls, options)
+	m.StoragePruneCalls = append(m.StoragePruneCalls, req)
 	// gomutants:disable-next-line STATEMENT_REMOVE reason="a test double's mutex unlock is only observable under concurrency, where a missing unlock deadlocks rather than failing an assertion"
 	m.mu.Unlock()
 	if m.StoragePruneFn != nil {
-		return m.StoragePruneFn(ctx, options)
+		return m.StoragePruneFn(ctx, req)
 	}
-	return &msbSdk.StoragePruneReport{}, nil
+	return &PruneReport{}, nil
 }
 
 // ImageRemove implements Client.
@@ -325,14 +325,14 @@ func (m *MockMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*Im
 }
 
 // StorageUsage implements Client.
-func (m *MockMsbClient) StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error) {
+func (m *MockMsbClient) StorageUsage(ctx context.Context) (*StorageReport, error) {
 	if m.StorageUsageFn != nil {
 		return m.StorageUsageFn(ctx)
 	}
 	if m.storageUsageErr != nil {
 		return nil, m.storageUsageErr
 	}
-	return &msbSdk.StorageUsageReport{}, nil
+	return &StorageReport{}, nil
 }
 
 // SetStorageUsageErr sets the error returned by MockMsbClient.StorageUsage.
@@ -1055,8 +1055,8 @@ func (f *failFastMsbClient) ImagePrune(_ context.Context) (*msbSdk.ImagePruneRep
 
 func (f *failFastMsbClient) PruneStorage(
 	_ context.Context,
-	_ msbSdk.StoragePruneOptions,
-) (*msbSdk.StoragePruneReport, error) {
+	_ PruneRequest,
+) (*PruneReport, error) {
 	f.mustMock()
 	return nil, nil
 }
@@ -1081,7 +1081,7 @@ func (f *failFastMsbClient) ImageInspectDetail(_ context.Context, _ string) (*Im
 	return nil, nil
 }
 
-func (f *failFastMsbClient) StorageUsage(_ context.Context) (*msbSdk.StorageUsageReport, error) {
+func (f *failFastMsbClient) StorageUsage(_ context.Context) (*StorageReport, error) {
 	f.mustMock()
 	return nil, nil
 }

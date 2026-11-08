@@ -540,8 +540,8 @@ func TestPruneFormatJSON(t *testing.T) {
 func TestPruneFormatJSONIncludesStorageAndImageFields(t *testing.T) {
 	physical := uint64(4096)
 	m := &sandboxmsb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msb.StoragePruneOptions) (*msb.StoragePruneReport, error) {
-			return &msb.StoragePruneReport{
+		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
+			return &sandboxmsb.PruneReport{
 				FilesRemoved:           3,
 				LogicalBytesRemoved:    12288,
 				PhysicalBytesReclaimed: &physical,
@@ -571,8 +571,8 @@ func TestPruneFormatJSONIncludesStorageAndImageFields(t *testing.T) {
 // JSON projection.
 func TestPruneJSONUnknownBytesMarshalNull(t *testing.T) {
 	m := &sandboxmsb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msb.StoragePruneOptions) (*msb.StoragePruneReport, error) {
-			return &msb.StoragePruneReport{FilesRemoved: 1, LogicalBytesRemoved: 100}, nil
+		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
+			return &sandboxmsb.PruneReport{FilesRemoved: 1, LogicalBytesRemoved: 100}, nil
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "prune", "--format", "json", "--yes")
@@ -617,8 +617,8 @@ func TestPruneDryRunPassesDryRunToStorage(t *testing.T) {
 // rendering across both the storage and image lines.
 func TestPruneHumanOutputUnknownBytesRenderDash(t *testing.T) {
 	m := &sandboxmsb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msb.StoragePruneOptions) (*msb.StoragePruneReport, error) {
-			return &msb.StoragePruneReport{FilesRemoved: 1, LogicalBytesRemoved: 100}, nil
+		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
+			return &sandboxmsb.PruneReport{FilesRemoved: 1, LogicalBytesRemoved: 100}, nil
 		},
 		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 			return &msb.ImagePruneReport{SkippedInUse: 2}, nil
@@ -640,7 +640,7 @@ func TestPruneHumanOutputUnknownBytesRenderDash(t *testing.T) {
 func TestPruneStorageFailureJoinsError(t *testing.T) {
 	storageErr := errors.New("storage boom")
 	m := &sandboxmsb.MockMsbClient{
-		StoragePruneFn: func(context.Context, msb.StoragePruneOptions) (*msb.StoragePruneReport, error) {
+		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
 			return nil, storageErr
 		},
 	}

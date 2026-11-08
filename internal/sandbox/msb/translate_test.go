@@ -30,6 +30,12 @@ func TestSDKConfigFieldsAreClassified(t *testing.T) {
 			compactionProjected,
 			compactionNotModeled,
 		},
+		{
+			"StoragePruneOptions",
+			reflect.TypeFor[msbSdk.StoragePruneOptions](),
+			storagePruneProjected,
+			storagePruneNotModeled,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -272,5 +278,121 @@ func TestCompactionOptionsProjectRequest(t *testing.T) {
 	want := msbSdk.DiskCompactionOptions{Layers: &layers, DryRun: true, Disk: "/", RootDiskOnly: true}
 	if got := compactionOptions(request); !reflect.DeepEqual(got, want) {
 		t.Errorf("compactionOptions() = %+v, want %+v", got, want)
+	}
+}
+
+func TestStoragePruneOptionsProjectRequest(t *testing.T) {
+	if got := storagePruneOptions(PruneRequest{}); !reflect.DeepEqual(got, msbSdk.StoragePruneOptions{}) {
+		t.Errorf("zero request = %+v, want zero StoragePruneOptions", got)
+	}
+
+	request := PruneRequest{DryRun: true, OlderThanSeconds: 3600}
+	want := msbSdk.StoragePruneOptions{DryRun: true, OlderThanSeconds: 3600}
+	if got := storagePruneOptions(request); !reflect.DeepEqual(got, want) {
+		t.Errorf("storagePruneOptions() = %+v, want %+v", got, want)
+	}
+}
+
+func TestStorageReportFromProjectsFields(t *testing.T) {
+	count := uint64(2)
+	logical := uint64(100)
+	allocated := uint64(80)
+	inUse := true
+	reclaimable := false
+	report := storageReportFrom(&msbSdk.StorageUsageReport{
+		Images: msbSdk.StorageCategoryUsage{
+			Count:          &count,
+			LogicalBytes:   &logical,
+			AllocatedBytes: &allocated,
+			Items: []msbSdk.StorageItemUsage{{
+				Name:           "agents-sandbox/x:latest",
+				Path:           "/msb/images/x",
+				LogicalBytes:   &logical,
+				AllocatedBytes: &allocated,
+				InUse:          &inUse,
+				Reclaimable:    &reclaimable,
+				Reasons:        []string{"tagged"},
+			}},
+			Notes: []string{"pinned"},
+		},
+		Snapshots:      msbSdk.StorageCategoryUsage{Count: &count},
+		Sandboxes:      msbSdk.StorageCategoryUsage{Count: &count},
+		Volumes:        msbSdk.StorageCategoryUsage{Count: &count},
+		BranchMemory:   msbSdk.StorageCategoryUsage{Count: &count},
+		SnapshotMemory: msbSdk.StorageCategoryUsage{Count: &count},
+		Notes:          []string{"report note"},
+	})
+	if report == nil {
+		t.Fatal("storageReportFrom() = nil, want a report")
+	}
+	if report.Images.Count != &count || report.Images.LogicalBytes != &logical ||
+		report.Images.AllocatedBytes != &allocated {
+		t.Errorf("images totals = %+v, want the projected pointers", report.Images)
+	}
+	if report.Images.InUse != nil || report.Images.ReclaimableLogicalBytes != nil {
+		t.Errorf("images nil counters = %+v, want nil", report.Images)
+	}
+	if len(report.Images.Items) != 1 {
+		t.Fatalf("images items = %d, want 1", len(report.Images.Items))
+	}
+	item := report.Images.Items[0]
+	if item.Name != "agents-sandbox/x:latest" || item.Path != "/msb/images/x" ||
+		item.InUse != &inUse || item.Reclaimable != &reclaimable ||
+		len(item.Reasons) != 1 || item.Reasons[0] != "tagged" {
+		t.Errorf("item = %+v, want every field projected", item)
+	}
+	for name, category := range map[string]StorageCategory{
+		"Snapshots":      report.Snapshots,
+		"Sandboxes":      report.Sandboxes,
+		"Volumes":        report.Volumes,
+		"BranchMemory":   report.BranchMemory,
+		"SnapshotMemory": report.SnapshotMemory,
+	} {
+		if category.Count != &count {
+			t.Errorf("%s count = %v, want the projected pointer", name, category.Count)
+		}
+	}
+	if len(report.Notes) != 1 || report.Notes[0] != "report note" {
+		t.Errorf("notes = %v, want the report note", report.Notes)
+	}
+}
+
+func TestStorageReportFromNilIsNil(t *testing.T) {
+	if got := storageReportFrom(nil); got != nil {
+		t.Errorf("storageReportFrom(nil) = %v, want nil", got)
+	}
+}
+
+func TestStorageCategoryFromPreservesNilCollections(t *testing.T) {
+	category := storageCategoryFrom(msbSdk.StorageCategoryUsage{})
+	if category.Items != nil {
+		t.Errorf("Items = %v, want nil for a nil SDK collection", category.Items)
+	}
+	if category.Notes != nil {
+		t.Errorf("Notes = %v, want nil for a nil SDK collection", category.Notes)
+	}
+}
+
+func TestPruneReportFromProjectsTotals(t *testing.T) {
+	physical := uint64(4096)
+	report := pruneReportFrom(&msbSdk.StoragePruneReport{
+		DryRun:                 true,
+		FilesRemoved:           3,
+		LogicalBytesRemoved:    12288,
+		PhysicalBytesReclaimed: &physical,
+		Truncated:              true,
+	})
+	if report == nil {
+		t.Fatal("pruneReportFrom() = nil, want a report")
+	}
+	if report.FilesRemoved != 3 || report.LogicalBytesRemoved != 12288 ||
+		report.PhysicalBytesReclaimed != &physical {
+		t.Errorf("pruneReportFrom() = %+v, want files 3 logical 12288 physical %d", report, physical)
+	}
+}
+
+func TestPruneReportFromNilIsNil(t *testing.T) {
+	if got := pruneReportFrom(nil); got != nil {
+		t.Errorf("pruneReportFrom(nil) = %v, want nil", got)
 	}
 }

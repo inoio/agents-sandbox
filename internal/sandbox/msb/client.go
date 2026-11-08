@@ -43,8 +43,8 @@ type ImageStore interface {
 
 // StorageStore reports and prunes runtime storage.
 type StorageStore interface {
-	StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error)
-	PruneStorage(ctx context.Context, options msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error)
+	StorageUsage(ctx context.Context) (*StorageReport, error)
+	PruneStorage(ctx context.Context, req PruneRequest) (*PruneReport, error)
 }
 
 // Client is the public abstraction over the microsandbox SDK used by the
@@ -203,9 +203,13 @@ func (realMsbClient) ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, 
 
 func (realMsbClient) PruneStorage(
 	ctx context.Context,
-	options msbSdk.StoragePruneOptions,
-) (*msbSdk.StoragePruneReport, error) {
-	return storagePrune(ctx, options)
+	req PruneRequest,
+) (*PruneReport, error) {
+	report, err := storagePrune(ctx, storagePruneOptions(req))
+	if err != nil {
+		return nil, err
+	}
+	return pruneReportFrom(report), nil
 }
 
 func (realMsbClient) ImageRemove(ctx context.Context, ref string, force bool) error {
@@ -279,6 +283,10 @@ func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*Image
 	return out, nil
 }
 
-func (realMsbClient) StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error) {
-	return storageUsage(ctx)
+func (realMsbClient) StorageUsage(ctx context.Context) (*StorageReport, error) {
+	report, err := storageUsage(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return storageReportFrom(report), nil
 }

@@ -4,8 +4,6 @@ import (
 	"context"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -21,7 +19,7 @@ func PruneStorage(
 	dryRun bool,
 	ui termio.Logger,
 ) (StorageReport, error) {
-	report, err := msb.Get().PruneStorage(ctx, msbSdk.StoragePruneOptions{
+	report, err := msb.Get().PruneStorage(ctx, msb.PruneRequest{
 		DryRun:           dryRun,
 		OlderThanSeconds: pruneAgeSeconds(pruneState.Age),
 	})

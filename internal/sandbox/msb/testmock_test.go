@@ -4,8 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // TestWithMsbMock pins that WithMsbMock installs the mock as msb.Get for one
@@ -44,7 +42,7 @@ func TestFailFastClientPanics(t *testing.T) {
 		{"ImageGet", func() { _ = f.ImageGet(ctx, "x") }},
 		{"ImageList", func() { _, _ = f.ImageList(ctx) }},
 		{"ImagePrune", func() { _, _ = f.ImagePrune(ctx) }},
-		{"PruneStorage", func() { _, _ = f.PruneStorage(ctx, msbSdk.StoragePruneOptions{}) }},
+		{"PruneStorage", func() { _, _ = f.PruneStorage(ctx, PruneRequest{}) }},
 		{"ImageRemove", func() { _ = f.ImageRemove(ctx, "x", false) }},
 		{"ImageLoad", func() { _ = f.ImageLoad(ctx, "x", strings.NewReader("")) }},
 		{"ImageInspect", func() { _, _ = f.ImageInspect(ctx, "x") }},

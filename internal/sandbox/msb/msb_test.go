@@ -1007,7 +1007,7 @@ func TestRealMsbClientAdapterErrors(t *testing.T) {
 		{"ImageInspect", func() error { _, err := c.ImageInspect(ctx, "x"); return err }},
 		{"ImagePrune", func() error { _, err := c.ImagePrune(ctx); return err }},
 		{"StorageUsage", func() error { _, err := c.StorageUsage(ctx); return err }},
-		{"PruneStorage", func() error { _, err := c.PruneStorage(ctx, msbSdk.StoragePruneOptions{}); return err }},
+		{"PruneStorage", func() error { _, err := c.PruneStorage(ctx, PruneRequest{}); return err }},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

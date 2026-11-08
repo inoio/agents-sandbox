@@ -186,15 +186,15 @@ func (m *MockImageStore) ImageInspectDetail(ctx context.Context, ref string) (*I
 // MockStorageStore is a test double for StorageStore. A nil callback means
 // return the zero value with no error.
 type MockStorageStore struct {
-	StorageUsageFn func(ctx context.Context) (*msbSdk.StorageUsageReport, error)
-	PruneStorageFn func(ctx context.Context, options msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error)
+	StorageUsageFn func(ctx context.Context) (*StorageReport, error)
+	PruneStorageFn func(ctx context.Context, req PruneRequest) (*PruneReport, error)
 }
 
 // Compile-time check.
 var _ StorageStore = (*MockStorageStore)(nil)
 
 // StorageUsage implements StorageStore.
-func (m *MockStorageStore) StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error) {
+func (m *MockStorageStore) StorageUsage(ctx context.Context) (*StorageReport, error) {
 	if m.StorageUsageFn != nil {
 		return m.StorageUsageFn(ctx)
 	}
@@ -204,10 +204,10 @@ func (m *MockStorageStore) StorageUsage(ctx context.Context) (*msbSdk.StorageUsa
 // PruneStorage implements StorageStore.
 func (m *MockStorageStore) PruneStorage(
 	ctx context.Context,
-	options msbSdk.StoragePruneOptions,
-) (*msbSdk.StoragePruneReport, error) {
+	req PruneRequest,
+) (*PruneReport, error) {
 	if m.PruneStorageFn != nil {
-		return m.PruneStorageFn(ctx, options)
+		return m.PruneStorageFn(ctx, req)
 	}
 	return nil, nil
 }

@@ -9,8 +9,6 @@ import (
 	"syscall"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -97,8 +95,8 @@ func TestObserveRuntimeWalkErrorPropagates(t *testing.T) {
 }
 
 func TestObservePropagatesRuntimeWalkError(t *testing.T) {
-	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msbSdk.StorageUsageReport, error) {
-		return &msbSdk.StorageUsageReport{}, nil
+	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
+		return &msb.StorageReport{}, nil
 	}})
 	home := lockedRuntimeHome(t)
 	stubPrivateHome(t, home)

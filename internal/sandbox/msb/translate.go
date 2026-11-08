@@ -53,6 +53,17 @@ var (
 	// compactionNotModeled names msbSdk.DiskCompactionOptions fields the
 	// launcher deliberately drops. Empty today.
 	compactionNotModeled = map[string]string{}
+
+	// storagePruneProjected names every field of msbSdk.StoragePruneOptions
+	// the launcher projects onto PruneRequest.
+	storagePruneProjected = map[string]struct{}{
+		"DryRun":           {},
+		"OlderThanSeconds": {},
+	}
+
+	// storagePruneNotModeled names msbSdk.StoragePruneOptions fields the
+	// launcher deliberately drops. Empty today: every field is projected.
+	storagePruneNotModeled = map[string]string{}
 )
 
 // execOptions translates an ExecRequest into the SDK exec options. Options
@@ -186,5 +197,82 @@ func compactionOptions(r CompactionRequest) msbSdk.DiskCompactionOptions {
 		DryRun:       r.DryRun,
 		Disk:         r.Disk,
 		RootDiskOnly: r.RootDiskOnly,
+	}
+}
+
+// storagePruneOptions translates a PruneRequest into the SDK prune selection.
+func storagePruneOptions(req PruneRequest) msbSdk.StoragePruneOptions {
+	return msbSdk.StoragePruneOptions{
+		DryRun:           req.DryRun,
+		OlderThanSeconds: req.OlderThanSeconds,
+	}
+}
+
+// storageReportFrom translates the SDK storage observation, keeping optional
+// counters nil so unknown stays unknown. A nil report stays nil.
+func storageReportFrom(report *msbSdk.StorageUsageReport) *StorageReport {
+	if report == nil {
+		return nil
+	}
+	return &StorageReport{
+		Images:         storageCategoryFrom(report.Images),
+		Snapshots:      storageCategoryFrom(report.Snapshots),
+		Sandboxes:      storageCategoryFrom(report.Sandboxes),
+		Volumes:        storageCategoryFrom(report.Volumes),
+		BranchMemory:   storageCategoryFrom(report.BranchMemory),
+		SnapshotMemory: storageCategoryFrom(report.SnapshotMemory),
+		Notes:          report.Notes,
+	}
+}
+
+// storageCategoryFrom translates one category's totals and items, preserving
+// nil collections as nil.
+func storageCategoryFrom(category msbSdk.StorageCategoryUsage) StorageCategory {
+	return StorageCategory{
+		Count:                   category.Count,
+		InUse:                   category.InUse,
+		LogicalBytes:            category.LogicalBytes,
+		AllocatedBytes:          category.AllocatedBytes,
+		ReclaimableLogicalBytes: category.ReclaimableLogicalBytes,
+		Items:                   storageItemsFrom(category.Items),
+		Notes:                   category.Notes,
+	}
+}
+
+// storageItemsFrom translates items, preserving nil as nil.
+func storageItemsFrom(items []msbSdk.StorageItemUsage) []StorageItem {
+	if items == nil {
+		return nil
+	}
+	out := make([]StorageItem, len(items))
+	for i, item := range items {
+		out[i] = storageItemFrom(item)
+	}
+	return out
+}
+
+// storageItemFrom translates one storage item field for field.
+func storageItemFrom(item msbSdk.StorageItemUsage) StorageItem {
+	return StorageItem{
+		Name:           item.Name,
+		Path:           item.Path,
+		LogicalBytes:   item.LogicalBytes,
+		AllocatedBytes: item.AllocatedBytes,
+		InUse:          item.InUse,
+		Reclaimable:    item.Reclaimable,
+		Reasons:        item.Reasons,
+	}
+}
+
+// pruneReportFrom translates the SDK prune report, keeping only the reclaimed
+// totals the launcher surfaces. A nil report stays nil.
+func pruneReportFrom(report *msbSdk.StoragePruneReport) *PruneReport {
+	if report == nil {
+		return nil
+	}
+	return &PruneReport{
+		FilesRemoved:           report.FilesRemoved,
+		LogicalBytesRemoved:    report.LogicalBytesRemoved,
+		PhysicalBytesReclaimed: report.PhysicalBytesReclaimed,
 	}
 }
