@@ -6,7 +6,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/opener"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -17,7 +17,7 @@ import (
 // fail-fast is not installed here.
 func TestMain(m *testing.M) {
 	configpaths.InstallFailFastConfigPaths()
-	docker.InstallFailFastGet()
+	dockertest.InstallFailFastGet()
 	sandboxmsb.InstallFailFastGet()
 	notify.InstallFailFast()
 	opener.InstallFailFast()

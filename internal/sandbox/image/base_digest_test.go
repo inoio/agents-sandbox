@@ -9,6 +9,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -16,7 +17,7 @@ import (
 // base from its registry even when a copy is cached locally.
 func TestResolveBaseDigestRefreshPullsPresentBase(t *testing.T) {
 	pulled := false
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			if pulled {
 				return client.ImageInspectResult{ID: "sha256:fresh"}, nil
@@ -25,7 +26,7 @@ func TestResolveBaseDigestRefreshPullsPresentBase(t *testing.T) {
 		},
 		ImagePullFn: func(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 			pulled = true
-			return docker.PullResponse{Body: strings.NewReader("")}, nil
+			return dockertest.PullResponse{Body: strings.NewReader("")}, nil
 		},
 	})
 
@@ -46,7 +47,7 @@ func TestResolveBaseDigestRefreshPullsPresentBase(t *testing.T) {
 // TestResolveBaseDigestRefreshFallsBackToLocalBase pins that a failed refresh
 // (offline, registry down) keeps building from the cached base with a warning.
 func TestResolveBaseDigestRefreshFallsBackToLocalBase(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{ID: "sha256:cached"}, nil
 		},
@@ -69,7 +70,7 @@ func TestResolveBaseDigestRefreshFallsBackToLocalBase(t *testing.T) {
 }
 
 func TestResolveBaseDigestRefreshFailsWithoutLocalBase(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{}, errors.New("No such image")
 		},
@@ -85,7 +86,7 @@ func TestResolveBaseDigestRefreshFailsWithoutLocalBase(t *testing.T) {
 }
 
 func TestResolveBaseDigestUsesLocalBaseWithoutPulling(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{ID: "sha256:cached"}, nil
 		},
@@ -106,7 +107,7 @@ func TestResolveBaseDigestUsesLocalBaseWithoutPulling(t *testing.T) {
 
 func TestResolveBaseDigestLogsPullOfAbsentBase(t *testing.T) {
 	pulled := false
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			if !pulled {
 				return client.ImageInspectResult{}, errors.New("No such image")
@@ -115,7 +116,7 @@ func TestResolveBaseDigestLogsPullOfAbsentBase(t *testing.T) {
 		},
 		ImagePullFn: func(_ context.Context, _ string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 			pulled = true
-			return docker.PullResponse{Body: strings.NewReader("")}, nil
+			return dockertest.PullResponse{Body: strings.NewReader("")}, nil
 		},
 	})
 	ui := &termio.Mock{}
@@ -143,7 +144,7 @@ func TestResolveBaseDigestWrapsPullAndInspectFailures(t *testing.T) {
 		{"inspect after pull fails", nil, nil, "inspect pulled base image"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			docker.WithDockerMock(t, &docker.MockDockerClient{
+			dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 				ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 					return client.ImageInspectResult{}, cause
 				},
@@ -151,7 +152,7 @@ func TestResolveBaseDigestWrapsPullAndInspectFailures(t *testing.T) {
 					if tc.pullErr != nil {
 						return nil, tc.pullErr
 					}
-					return docker.PullResponse{Body: strings.NewReader(""), WaitErr: tc.waitErr}, nil
+					return dockertest.PullResponse{Body: strings.NewReader(""), WaitErr: tc.waitErr}, nil
 				},
 			})
 			_, err := resolveBaseDigest(context.Background(), docker.Get(), "debian:trixie-slim", false, &termio.Mock{})
@@ -171,7 +172,7 @@ func TestResolveBaseDigestWrapsPullAndInspectFailures(t *testing.T) {
 func TestResolveBaseDigestPullsAbsentBase(t *testing.T) {
 	var pulled string
 	inspects := 0
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			inspects++
 			if inspects == 1 {
@@ -181,7 +182,7 @@ func TestResolveBaseDigestPullsAbsentBase(t *testing.T) {
 		},
 		ImagePullFn: func(_ context.Context, ref string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 			pulled = ref
-			return docker.PullResponse{Body: strings.NewReader("")}, nil
+			return dockertest.PullResponse{Body: strings.NewReader("")}, nil
 		},
 	})
 	const qualified = "docker.io/library/debian:trixie-slim"
@@ -212,7 +213,7 @@ func TestResolveBaseDigestSurfacesPullFailure(t *testing.T) {
 		{
 			name: "failure delivered inside the stream",
 			pull: func() (client.ImagePullResponse, error) {
-				return docker.PullResponse{WaitErr: errors.New(pullFailure)}, nil
+				return dockertest.PullResponse{WaitErr: errors.New(pullFailure)}, nil
 			},
 		},
 		{
@@ -224,7 +225,7 @@ func TestResolveBaseDigestSurfacesPullFailure(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			inspects := 0
-			docker.WithDockerMock(t, &docker.MockDockerClient{
+			dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 				ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 					inspects++
 					return client.ImageInspectResult{}, errors.New("No such image")
@@ -257,7 +258,7 @@ func TestResolveBaseDigestSurfacesPullFailure(t *testing.T) {
 // is not a valid image reference: the recorded label carries it through
 // unchanged rather than dropping the base it could not parse.
 func TestResolveBaseDigestKeepsUnparseableRef(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{ID: "sha256:odd"}, nil
 		},
@@ -284,7 +285,7 @@ func TestLocalBaseImageTreatsUnknownImageAsAbsent(t *testing.T) {
 		{"empty image id", client.ImageInspectResult{}, nil, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			docker.WithDockerMock(t, &docker.MockDockerClient{
+			dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 				ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 					return tc.result, tc.err
 				},

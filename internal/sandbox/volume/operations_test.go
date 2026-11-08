@@ -11,6 +11,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -887,7 +888,7 @@ func TestVolumeOp_ClearsRecoveredHomeVolumeWithExplicitSource(t *testing.T) {
 
 func TestCmdEdit_LoadImageFails(t *testing.T) {
 	_, ui := setupVolumeOpsFixtures(t)
-	docker.WithDefaultErrorDockerMock(t)
+	dockertest.WithDefaultErrorDockerMock(t)
 
 	slug := "testproj-aBc1234D"
 	seedHomeState(
@@ -1205,7 +1206,7 @@ func setupVolumeOpsFixtures(t *testing.T) (*msb.MockMsbClient, *termio.Mock) {
 	configpaths.WithMockConfigPaths(t)
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	return mock, &termio.Mock{}
 }
 

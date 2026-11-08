@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -53,7 +53,7 @@ func TestImagePrune(t *testing.T) {
 		}
 		cmd, ui := setupCommandFixtures(t, "image", "prune", "--age", "1d", "--yes")
 		sandboxmsb.WithMsbMock(t, m)
-		docker.WithNoopDockerMock(t)
+		dockertest.WithNoopDockerMock(t)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -80,7 +80,7 @@ func TestImagePrune(t *testing.T) {
 		}
 		cmd, ui := setupCommandFixtures(t, "image", "prune", "--yes")
 		sandboxmsb.WithMsbMock(t, m)
-		docker.WithNoopDockerMock(t)
+		dockertest.WithNoopDockerMock(t)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -112,7 +112,7 @@ func TestImagePruneFormatJSON(t *testing.T) {
 	}
 	cmd, ui := setupCommandFixtures(t, "image", "prune", "--format", "json", "--yes")
 	sandboxmsb.WithMsbMock(t, m)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestImagePruneFormatJSONIncludesNativeReport(t *testing.T) {
 	}
 	cmd, ui := setupCommandFixtures(t, "image", "prune", "--format", "json", "--yes")
 	sandboxmsb.WithMsbMock(t, m)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

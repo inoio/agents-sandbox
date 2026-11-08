@@ -5,7 +5,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/opener"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -14,7 +14,7 @@ import (
 // families transitively import hostlock (via runtime and state).
 func TestMain(m *testing.M) {
 	configpaths.InstallFailFastConfigPaths()
-	docker.InstallFailFastGet()
+	dockertest.InstallFailFastGet()
 	msb.InstallFailFastGet()
 	opener.InstallFailFast()
 	m.Run()

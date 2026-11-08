@@ -13,6 +13,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -131,7 +132,7 @@ func TestCheckAllRendersWarningsWhenAllPass(t *testing.T) {
 }
 
 func TestRealCheckDockerPingUnreachable(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		PingFn: func(context.Context, client.PingOptions) (client.PingResult, error) {
 			return client.PingResult{}, errors.New("boom")
 		},
@@ -156,7 +157,7 @@ func TestRealCheckDockerPingUnreachable(t *testing.T) {
 }
 
 func TestRealCheckDockerPingOK(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{})
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{})
 
 	if err := realCheckDocker(context.Background(), docker.Get()); err != nil {
 		t.Errorf("expected realCheckDocker to succeed when the ping succeeds, got %v", err)
@@ -267,7 +268,7 @@ func TestCheckAllDelegates(t *testing.T) {
 // run and report (#423).
 func TestCheckAllReportsMsbRuntimeFailureWithDocsLink(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		PingFn: func(context.Context, client.PingOptions) (client.PingResult, error) {
 			return client.PingResult{}, errors.New("docker down")
 		},

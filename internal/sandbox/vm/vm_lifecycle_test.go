@@ -18,6 +18,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
@@ -185,7 +186,7 @@ func (l *lockRecorder) acquire(options.ProjectVMKey) (func(), error) {
 func missingVMCreation(t *testing.T, client *msb.MockMsbClient, ui *termio.Mock) ProjectVMCreation {
 	t.Helper()
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	if client.GetSandboxFn == nil {
 		client.GetSandboxFn = func(context.Context, string) (msb.SandboxHandle, error) {
 			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
@@ -402,7 +403,7 @@ func TestEnsureProjectVMFailsBeforeCreatingAVM(t *testing.T) {
 			name: "image cannot be loaded into microsandbox",
 			arrange: func(t *testing.T, msbClient *msb.MockMsbClient, creation *ProjectVMCreation, cause error) {
 				msbClient.ImageGetFn = func(context.Context, string) error { return errors.New("not cached") }
-				docker.WithDockerMock(t, &docker.MockDockerClient{
+				dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 					ImageSaveFn: func(context.Context, []string, ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 						return nil, cause
 					},
@@ -677,7 +678,7 @@ func newVMCreation(
 ) ProjectVMCreation {
 	t.Helper()
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	return ProjectVMCreation{
 		Client:       client,
 		DockerClient: docker.Get(),
@@ -880,7 +881,7 @@ func TestCreateProjectVMReportsFailures(t *testing.T) {
 // that the image label records the same ref.
 func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	key := testVMKey()
 	legacyRef := naming.DockerImageRef(key.Slug, key.Agent)
 	client := &msb.MockMsbClient{
@@ -934,7 +935,7 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	// The image is not yet in microsandbox (ImageGet fails), so EnsureLoaded
 	// must export it from Docker and load it before creating the VM.
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			return io.NopCloser(strings.NewReader("tar")), nil
 		},

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -156,7 +156,7 @@ func TestWithThrowawaySandbox_DestroyErrors(t *testing.T) {
 
 func TestWithThrowawaySandbox_LoadImageFailureSkipsEverything(t *testing.T) {
 	fixture := newThrowawayFixture(t)
-	docker.WithDefaultErrorDockerMock(t)
+	dockertest.WithDefaultErrorDockerMock(t)
 
 	payloadRan := false
 	err := fixture.run(
@@ -230,7 +230,7 @@ func TestWithThrowawaySandbox_NoSpinnerLabelStartsNoSpinner(t *testing.T) {
 
 func newThrowawayFixture(t *testing.T) *throwawayFixture {
 	t.Helper()
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	log := &eventLog{}
 	sandbox := &trackingSandbox{MockSandbox: &msb.MockSandbox{Name_: "throwaway"}, log: log}
 	fixture := &throwawayFixture{

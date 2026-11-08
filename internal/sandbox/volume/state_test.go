@@ -18,6 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -31,7 +32,7 @@ import (
 // the same name. The loser waits for the next name instead of failing.
 func TestEnsureNewHome_NameCollisionRetries(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	waits := withFakeHomeVolumeClock(t)
 	k := state.Key{Slug: "collideproj", Agent: "opencode"}
 	takenName := HomeVolumeName(k)
@@ -188,7 +189,7 @@ func TestEnsureNewHome_ConcurrentCommitAdoptsWinner(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
-			docker.WithNoopDockerMock(t)
+			dockertest.WithNoopDockerMock(t)
 			k := state.Key{Slug: "raceproj", Agent: "opencode"}
 			if tt.priorRecorded != "" {
 				require.NoError(t, seedHomeState(k, state.NewHomeState(tt.priorRecorded, "sha256:old")))
@@ -225,7 +226,7 @@ func TestEnsureNewHome_ConcurrentCommitAdoptsWinner(t *testing.T) {
 // recorded volume is gone, unchanged since the snapshot, is still replaced.
 func TestEnsureNewHome_ReplacesStaleRecordedVolume(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	k := state.Key{Slug: "staleproj", Agent: "opencode"}
 	require.NoError(t, seedHomeState(k, state.NewHomeState("gone-vol", "sha256:old")))
 	client := &msb.MockMsbClient{
@@ -253,7 +254,7 @@ func TestEnsureNewHome_ReplacesStaleRecordedVolume(t *testing.T) {
 // committed winner, so the fresh volume is still recorded.
 func TestEnsureNewHome_ReplacesConcurrentEmptyHomeVolume(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	k := state.Key{Slug: "markerproj", Agent: "opencode"}
 	client := &msb.MockMsbClient{
 		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
@@ -281,7 +282,7 @@ func TestEnsureNewHome_ReplacesConcurrentEmptyHomeVolume(t *testing.T) {
 // observed, not a later re-read that already names the winner.
 func TestResolveHomeVolume_WinnerCommitsBeforeCreation(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	k := state.Key{Slug: "earlyproj", Agent: "opencode"}
 	require.NoError(t, seedHomeState(k, state.NewHomeState("gone-vol", "sha256:old")))
 	var createdVolume string
@@ -314,7 +315,7 @@ func TestResolveHomeVolume_WinnerCommitsBeforeCreation(t *testing.T) {
 
 func TestEnsureNewHome_NameCollisionGivesUp(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	waits := withFakeHomeVolumeClock(t)
 	k := state.Key{Slug: "collideproj", Agent: "opencode"}
 	attempts := 0
@@ -339,7 +340,7 @@ func TestEnsureNewHome_NameCollisionGivesUp(t *testing.T) {
 
 func TestEnsureNewHome_CreateErrorDoesNotRetry(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	waits := withFakeHomeVolumeClock(t)
 	createErr := errors.New("disk full")
 	client := &msb.MockMsbClient{
@@ -365,7 +366,7 @@ func TestEnsureNewHome_CreateErrorDoesNotRetry(t *testing.T) {
 func TestEnsureNewHomeSeedsFingerprints(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	client := &msb.MockMsbClient{
 		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
@@ -562,7 +563,7 @@ func TestResolveHomeVolumeExistingStateKeepsFingerprints(t *testing.T) {
 func TestResolveHomeVolumeSeedsFingerprints(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	client := &msb.MockMsbClient{
 		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
@@ -733,7 +734,7 @@ func TestResolveHomeVolume_RecoveryCandidateErrorSurfaces(t *testing.T) {
 // a fresh volume is created and the spent claim is still cleared.
 func TestResolveHomeVolume_ClearsAdoptionClaimWhenMarkerVolumeGone(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	const marker = "agents-sandbox-home-widget-bbb-opencode-9"
 	key := state.Key{Slug: "adoptedwidget2", Agent: "opencode"}
@@ -766,7 +767,7 @@ func TestResolveHomeVolume_ClearsAdoptionClaimWhenMarkerVolumeGone(t *testing.T)
 
 func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	slug := "myproj"
 	seedHomeState(
@@ -810,7 +811,7 @@ func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
 // rather than failing the session.
 func TestResolveHomeVolume_MissingRecordedVolumeStartsFresh(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	key := state.Key{Slug: "stalehome", Agent: "opencode"}
 	const recordedVolume = "agents-sandbox-home-stalehome-legacy"
@@ -946,7 +947,7 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 
 func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
@@ -983,7 +984,7 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 // the uncommitted volume is removed.
 func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	// A directory in place of the state file makes os.ReadFile fail with a
 	// non-not-found error, unlike a genuinely absent file.
@@ -1022,7 +1023,7 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 
 func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
@@ -1259,7 +1260,7 @@ func TestResolveHomeVolume_RecoversPersistedAdoptionVolume(t *testing.T) {
 // resolution: it falls back to a fresh prefill.
 func TestResolveHomeVolume_RecoveredVolumeMissingStartsFresh(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	const recovered = "agents-sandbox-home-goneproj-20260101T000000"
 	var createdName string
@@ -1514,7 +1515,7 @@ func TestResolveHomeVolume_RecoveryPreservesFingerprints(t *testing.T) {
 
 func TestEnsureNewHome_PrefillFails_RemovesVolume(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("prefill sandbox creation failed")
@@ -1577,7 +1578,7 @@ func TestEnsureNewHome_StateWriteFails(t *testing.T) {
 			}
 			t.Cleanup(func() { recoverHomeState = restore })
 
-			docker.WithNoopDockerMock(t)
+			dockertest.WithNoopDockerMock(t)
 
 			var createdVolume string
 			mock := &msb.MockMsbClient{
@@ -1618,7 +1619,7 @@ func TestEnsureNewHome_StateWriteFails(t *testing.T) {
 
 func TestEnsureNewHome_PrefillCancelled_RemovesVolumeWithLiveContext(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -1693,7 +1694,7 @@ func TestEnsureNewHome_SkipVM_NoSandbox(t *testing.T) {
 // home volume on the real run and only then record it.
 func TestResolveHomeVolume_SkipVMThenRealRun_Prefills(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	var createdVolumes []string
 	mock := &msb.MockMsbClient{

@@ -10,6 +10,7 @@ import (
 
 	cp "github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -248,7 +249,7 @@ func TestPruneAggregateParity(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
 
 	testUI := termio.NewTestMock(t)
@@ -293,7 +294,7 @@ func TestPruneNeverRemovesVolumes(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
 
@@ -323,7 +324,7 @@ func TestPruneRunsStoragePhase(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
 
 	report, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &termio.Mock{})
@@ -353,7 +354,7 @@ func TestPruneJoinsStorageError(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
 
 	ui := &termio.Mock{}
@@ -383,7 +384,7 @@ func TestPrune_BuildStateError(t *testing.T) {
 func TestPruneSurfacesSubPrunerError(t *testing.T) {
 	client := &msb.MockMsbClient{ListImagesErr: errBoom}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	cp.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
 	_, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &testUI)
@@ -539,7 +540,7 @@ func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	testUI := termio.NewTestMock(t)
 
 	if _, err := Prune(context.Background(), docker.Get(), PruneOptions{
@@ -675,7 +676,7 @@ func TestInvokePruneFunc(t *testing.T) {
 func TestPruneNonDryRunSweepsState(t *testing.T) {
 	cp.WithMockConfigPaths(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	testUI := termio.NewTestMock(t)
 
 	const slug = "sweep-non-dry-run"

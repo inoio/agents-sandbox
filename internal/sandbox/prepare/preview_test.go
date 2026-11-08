@@ -17,6 +17,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -66,7 +67,7 @@ func TestPreviewSandboxReportsReuse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunnerDockerfileID: %v", err)
 	}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			context.Context, string, ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -127,7 +128,7 @@ func TestPreviewSandboxReconcilesStaleRecordedVersionWithImageLabel(t *testing.T
 	if err != nil {
 		t.Fatalf("RunnerDockerfileID: %v", err)
 	}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			context.Context, string, ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -169,7 +170,7 @@ func TestPreviewSandboxRecoversVersionFromImageLabelReadOnly(t *testing.T) {
 	orig := existingAgentVersion
 	existingAgentVersion = func(context.Context, docker.Client, string, string) (string, bool) { return "1.0.0", true }
 	t.Cleanup(func() { existingAgentVersion = orig })
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			context.Context, string, ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -274,7 +275,7 @@ func TestPreviewSandboxUserProvidedAgentIgnoresPin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunnerDockerfileID: %v", err)
 	}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			context.Context, string, ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -347,7 +348,7 @@ func TestPreviewSandboxUserProvidedAgentNeverRecoversVersion(t *testing.T) {
 
 func TestPreviewSandboxForcedRebuildReportsBuild(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	noVolumeCreateMock(t)
 
 	ui := termio.NewTestMock(t)
@@ -411,7 +412,7 @@ func TestPreviewSandboxErrorsWhenIdentityUnresolvable(t *testing.T) {
 
 func TestPreviewSandboxSurfacesRenderError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	noVolumeCreateMock(t)
 
 	dockerfilePath := configpaths.Get().ProjectDockerfile()
@@ -459,7 +460,7 @@ func TestPreviewSandboxSurfacesAdoptionError(t *testing.T) {
 // not as "would create", matching the real run's fail-closed check.
 func TestPreviewSandboxSurfacesHomeVolumeLookupError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{
 		GetVolumeFn: func(context.Context, string) (msb.VolumeHandle, error) {
 			return nil, errors.New("daemon unavailable")
@@ -491,7 +492,7 @@ const agentVersionLabel = "org.agents-sandbox.identity.agent-version"
 // the preview reports "would build" for the "not present locally" reason.
 func absentImageDockerMock(t *testing.T) {
 	t.Helper()
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			context.Context, string, ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {

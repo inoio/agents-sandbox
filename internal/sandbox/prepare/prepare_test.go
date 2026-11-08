@@ -16,6 +16,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -293,7 +294,7 @@ func TestDetermineAgentVersionRunsLegacyUpdaterMigration(t *testing.T) {
 	if _, _, _, err := determineAgentVersion(
 		context.Background(),
 		configpaths.Get(),
-		&docker.MockDockerClient{},
+		&dockertest.MockDockerClient{},
 		testVMKey(),
 		opencodeResolved(t),
 		&termio.Mock{},

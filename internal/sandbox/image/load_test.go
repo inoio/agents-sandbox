@@ -13,6 +13,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -68,7 +69,7 @@ func TestEnsureLoadedVerboseReportsUpToDate(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	rTag := runnerTag("test-project", a.Name())
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			_ context.Context, _ string, _ ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -98,7 +99,7 @@ func TestEnsureLoadedVerboseReportsUpToDate(t *testing.T) {
 
 func TestEnsureLoadedVerboseReportsNotPresent(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			return io.NopCloser(strings.NewReader("tar-data")), nil
 		},
@@ -121,7 +122,7 @@ func TestEnsureLoadedVerboseReportsStaleCache(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	rTag := runnerTag("test-project", a.Name())
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			_ context.Context, _ string, _ ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -166,7 +167,7 @@ func TestEnsureLoadedFailsWhenTheImageTransferFails(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
 			rTag := runnerTag("test-project", agentOpencode(t).Name())
-			docker.WithDockerMock(t, &docker.MockDockerClient{
+			dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 				ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 					if tc.saveErr != nil {
 						return nil, tc.saveErr
@@ -252,7 +253,7 @@ func TestEnsureLoadedDecision(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			configpaths.WithMockConfigPaths(t)
 			hostInspected := false
-			docker.WithDockerMock(t, &docker.MockDockerClient{
+			dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 				ImageInspectFn: func(
 					_ context.Context, _ string, _ ...client.ImageInspectOption,
 				) (client.ImageInspectResult, error) {
@@ -302,7 +303,7 @@ func TestEnsureLoadedReloadsStaleContentUnderSameRef(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	rTag := runnerTag("test-project", a.Name())
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageSaveFn: func(_ context.Context, refs []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			if len(refs) != 1 || refs[0] != rTag {
 				t.Errorf("ImageSave refs = %v, want %q", refs, rTag)
@@ -363,7 +364,7 @@ func TestEnsureLoadedSkipsWhenCachedContentMatches(t *testing.T) {
 // happens at most once.
 func TestEnsureLoadedReloadsLegacyImageWithoutDigest(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			return io.NopCloser(strings.NewReader("tar-data")), nil
 		},
@@ -386,7 +387,7 @@ func TestEnsureLoadedReloadsLegacyImageWithoutDigest(t *testing.T) {
 
 func TestEnsureLoadedLoadsWhenNotCached(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageSaveFn: func(_ context.Context, refs []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			if len(refs) != 1 || refs[0] != "agents-sandbox/runner-test-project:abc" {
 				t.Errorf("ImageSave refs = %v, want runner tag %q", refs, "agents-sandbox/runner-test-project:abc")
@@ -426,7 +427,7 @@ func TestEnsureLoadedReusesContentRef(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	dockerTag := naming.DockerImageRef("test-project", "opencode")
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, ref string) error {
 			if ref == contentRef {
@@ -463,7 +464,7 @@ func TestEnsureLoadedReusesNameRefForMigration(t *testing.T) {
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	nameRef := naming.RunnerImageRef("test-project", "opencode")
 	dockerTag := naming.DockerImageRef("test-project", "opencode")
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, ref string) error {
 			if ref == nameRef {
@@ -499,7 +500,7 @@ func TestEnsureLoadedReusesNameRefFromIdentity(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	nameRef := naming.RunnerImageRef("test-project", "opencode")
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, ref string) error {
 			if ref == nameRef {
@@ -534,7 +535,7 @@ func TestEnsureLoadedReusesLegacyPrefixedRefForMigration(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	dockerTag := naming.DockerImageRef("test-project", "opencode")
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, ref string) error {
 			if ref == dockerTag {
@@ -570,7 +571,7 @@ func TestEnsureLoadedLoadsUnderContentRefWhenNoCandidateMatches(t *testing.T) {
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	dockerTag := naming.DockerImageRef("test-project", "opencode")
 	var savedRefs []string
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageSaveFn: func(_ context.Context, refs []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			savedRefs = refs
 			return io.NopCloser(strings.NewReader("tar")), nil
@@ -606,7 +607,7 @@ func TestEnsureLoadedLoadsUnderContentRefWhenContentDiffers(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	dockerTag := naming.DockerImageRef("test-project", "opencode")
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			return io.NopCloser(strings.NewReader("tar")), nil
 		},
@@ -645,7 +646,7 @@ func TestEnsureLoadedLoadsUnderContentRefWhenContentDiffers(t *testing.T) {
 func TestEnsureLoadedFallsBackToDockerTagWhenRefEmpty(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	legacyRef := naming.DockerImageRef("test-project", "opencode")
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageSaveFn: func(
 			_ context.Context, _ []string, _ ...client.ImageSaveOption,
 		) (client.ImageSaveResult, error) {
@@ -679,7 +680,7 @@ func TestEnsureLoadedReusesLegacyRefWhenContentMatches(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	newRef := naming.RunnerImageRef("test-project", "opencode")
 	legacyRef := naming.DockerImageRef("test-project", "opencode")
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, ref string) error {
 			if ref == legacyRef {
@@ -713,7 +714,7 @@ func TestEnsureLoadedLoadsUnderNewRefWhenLegacyAbsent(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	newRef := naming.RunnerImageRef("test-project", "opencode")
 	legacyRef := naming.DockerImageRef("test-project", "opencode")
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageSaveFn: func(
 			_ context.Context, _ []string, _ ...client.ImageSaveOption,
 		) (client.ImageSaveResult, error) {
@@ -746,7 +747,7 @@ func TestEnsureLoadedLoadsUnderNewRefWhenLegacyContentDiffers(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	newRef := naming.RunnerImageRef("test-project", "opencode")
 	legacyRef := naming.DockerImageRef("test-project", "opencode")
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageSaveFn: func(
 			_ context.Context, _ []string, _ ...client.ImageSaveOption,
 		) (client.ImageSaveResult, error) {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -51,7 +51,7 @@ func TestVolumePrune(t *testing.T) {
 		}
 		cmd, ui := setupCommandFixtures(t, "volume", "prune", "--yes")
 		msb.WithMsbMock(t, m)
-		docker.WithNoopDockerMock(t)
+		dockertest.WithNoopDockerMock(t)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -91,7 +91,7 @@ func TestVolumePruneFormatJSON(t *testing.T) {
 	}
 	cmd, ui := setupCommandFixtures(t, "volume", "prune", "--format", "json", "--yes")
 	msb.WithMsbMock(t, m)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

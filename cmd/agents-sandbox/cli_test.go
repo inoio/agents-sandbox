@@ -12,7 +12,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -136,7 +136,7 @@ func TestRootCommandReturnsInvalidCLISettingsError(t *testing.T) {
 func TestDoctorRunsItsOwnChecksWithoutPreflightRuntimeInstall(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	doctor.MockedCheckAll(t, false)
 
 	oldPrepare := prepareMSBRuntime
@@ -231,7 +231,7 @@ func TestCLILogLevelFlagSetsLevel(t *testing.T) {
 			ui := &termio.Mock{}
 			mock := &msb.MockMsbClient{}
 			msb.WithMsbMock(t, mock)
-			docker.WithNoopDockerMock(t)
+			dockertest.WithNoopDockerMock(t)
 
 			root := buildRootCmd(ui)
 			root.SetArgs(args)
@@ -251,7 +251,7 @@ func TestCLIPersistentYesAffectsUIAfterSubcommand(t *testing.T) {
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"prune", "--age", "1m", "-n", "-y"})
@@ -274,7 +274,7 @@ func TestCLIQuietFlagSetsQuiet(t *testing.T) {
 			ui := &termio.Mock{}
 			mock := &msb.MockMsbClient{}
 			msb.WithMsbMock(t, mock)
-			docker.WithNoopDockerMock(t)
+			dockertest.WithNoopDockerMock(t)
 
 			root := buildRootCmd(ui)
 			root.SetArgs(args)
@@ -294,7 +294,7 @@ func TestCLIQuietFlagFalseByDefault(t *testing.T) {
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"prune", "--age", "1m", "--yes"})

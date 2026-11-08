@@ -14,7 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -46,7 +46,7 @@ func dockerConfigWith(version string, env []string) *dockerspec.DockerOCIImageCo
 // absent). Any pull fails the test: the build decision must stay local.
 func runnerAndBaseMock(t *testing.T, runnerLabels map[string]string, baseID string) {
 	t.Helper()
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			if ref == distroBaseRef {
 				if baseID == "" {

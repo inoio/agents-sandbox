@@ -10,6 +10,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -195,7 +196,7 @@ func TestPruneStateArtifactsLeavesLocksTree(t *testing.T) {
 func TestPruneDryRunSkipsStateReclamation(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	testUI := termio.NewTestMock(t)
 
 	const slug = "sweep-dry-run"

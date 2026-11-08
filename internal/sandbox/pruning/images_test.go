@@ -14,6 +14,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -55,7 +56,7 @@ func TestPruneImages(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
+		dockertest.WithNoopDockerMock(t)
 		ps := live("active-1mjusbm3wikhb0")
 		ps.ToPrune = map[state.Key]msb.SandboxHandle{
 			{Slug: "orphan-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
@@ -81,7 +82,7 @@ func TestPruneImages(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
+		dockertest.WithNoopDockerMock(t)
 		ps := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{
 				{Slug: "orphan-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
@@ -110,7 +111,7 @@ func TestPruneImages(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
+		dockertest.WithNoopDockerMock(t)
 		ui := &termio.Mock{}
 		ps := PruneState{Age: 30 * 24 * time.Hour, ToKeep: map[state.Key]msb.SandboxHandle{
 			{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
@@ -138,7 +139,7 @@ func TestPruneImages(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
+		dockertest.WithNoopDockerMock(t)
 		ui := &termio.Mock{}
 		r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui)
 		if err != nil {
@@ -180,7 +181,7 @@ func TestPruneImages(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
+		dockertest.WithNoopDockerMock(t)
 		ui := &termio.Mock{}
 		r, err := PruneImages(context.Background(), docker.Get(), PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
 			{Slug: "fail-1mjusbm3wikhb0", Agent: ""}: &msb.MockSandboxHandle{},
@@ -205,7 +206,7 @@ func TestPruneImages(t *testing.T) {
 			Images: []msb.ImageHandle{img("agents-sandbox/runner-dockererr-1mjusbm3wikhb0:digest1", old)},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithDefaultErrorDockerMock(t)
+		dockertest.WithDefaultErrorDockerMock(t)
 		ui := &termio.Mock{}
 		r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui)
 		if err != nil {
@@ -229,7 +230,7 @@ func TestPruneImagesSkipsNonRunnerReferences(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
 	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui)
 	if err != nil {
@@ -263,7 +264,7 @@ func TestPruneImagesSkipsHashlessSingleSegmentImage(t *testing.T) {
 				},
 			}
 			msb.WithMsbMock(t, client)
-			docker.WithNoopDockerMock(t)
+			dockertest.WithNoopDockerMock(t)
 			r, err := PruneImages(context.Background(), docker.Get(), PruneState{Age: time.Hour}, false, &termio.Mock{})
 			if err != nil {
 				t.Fatalf("PruneImages: %v", err)
@@ -325,7 +326,7 @@ func TestPruneImagesKeepsLiveProjectImageWithLeftoverTask(t *testing.T) {
 		Images:    []msb.ImageHandle{&msb.MockImageHandle{Reference_: slug + ":opencode-latest"}},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	pruneState, err := buildPruneState(context.Background(), 7*24*time.Hour)
 	if err != nil {
@@ -361,7 +362,7 @@ func TestPruneImagesKeepsRecentImageOfVmLessProject(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	pruneState, err := buildPruneState(context.Background(), 30*24*time.Hour)
 	if err != nil {
 		t.Fatalf("buildPruneState: %v", err)
@@ -434,7 +435,7 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 			},
 		}
 		resolutions := msb.WithCountingMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
+		dockertest.WithNoopDockerMock(t)
 
 		if _, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{}); err != nil {
 			t.Fatalf("PruneImages: %v", err)
@@ -456,7 +457,7 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
+		dockertest.WithNoopDockerMock(t)
 
 		if _, err := PruneImages(context.Background(), docker.Get(), PruneState{}, true, &termio.Mock{}); err != nil {
 			t.Fatalf("PruneImages dry run: %v", err)
@@ -473,7 +474,7 @@ func TestPruneImagesRunsNativePruneAfterReferenceCleanup(t *testing.T) {
 			},
 		}
 		msb.WithMsbMock(t, client)
-		docker.WithNoopDockerMock(t)
+		dockertest.WithNoopDockerMock(t)
 		ui := &termio.Mock{}
 
 		if _, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui); err != nil {
@@ -495,7 +496,7 @@ func TestPruneImagesCapturesNativeReport(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	report, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
 	if err != nil {
@@ -518,7 +519,7 @@ func TestPruneImagesUnknownNativeBytesStayNil(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	report, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
 	if err != nil {
@@ -827,7 +828,7 @@ func TestPruneImagesKeepsPerAgentTagsOfLiveSlug(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
 	ps := PruneState{Age: 30 * 24 * time.Hour, ToKeep: map[state.Key]msb.SandboxHandle{
 		{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
@@ -877,7 +878,7 @@ func TestPruneImagesPreservesFreshSurplus(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
 	ps := PruneState{Age: 30 * 24 * time.Hour, ToKeep: map[state.Key]msb.SandboxHandle{
 		{Slug: "active-1mjusbm3wikhb0", Agent: "opencode"}: &msb.MockSandboxHandle{},
@@ -913,7 +914,7 @@ func TestPruneImagesDryRunReportsAgedVariants(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	pruneState := PruneState{
 		Age: 24 * time.Hour,
 		ToKeep: map[state.Key]msb.SandboxHandle{
@@ -955,7 +956,7 @@ func TestPruneImagesReclaimsKilledProjectImages(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
 	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, ui)
 	if err != nil {
@@ -985,7 +986,7 @@ func TestPruneImagesKeepsImageReferencedByKeptVM(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	ui := &termio.Mock{}
 	ps := PruneState{
 		ToKeep: map[state.Key]msb.SandboxHandle{
@@ -1034,7 +1035,7 @@ func TestPruneImagesSkipsNativePruneWhenRetaining(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	pruneState := PruneState{RetainKeys: map[state.Key]struct{}{key: {}}}
 	if _, err := PruneImages(context.Background(), docker.Get(), pruneState, false, &termio.Mock{}); err != nil {
@@ -1055,7 +1056,7 @@ func TestPruneImagesSkipsForeignAndReports(t *testing.T) {
 		&msb.MockImageHandle{Reference_: "agents-sandbox/runner-orphan-1mjusbm3wikhb0:digest1"},
 	}}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
 		{Slug: "orphan-1mjusbm3wikhb0"}: &msb.MockSandboxHandle{},
 	}}
@@ -1095,7 +1096,7 @@ func TestPruneImagesErrorReturnsZeroReport(t *testing.T) {
 func TestPruneImagesDockerCounts(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
-	docker.WithDockerMock(t, deletedImagesDockerMock(3))
+	dockertest.WithDockerMock(t, deletedImagesDockerMock(3))
 
 	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
 	if err != nil {
@@ -1114,7 +1115,7 @@ func TestPruneImagesEmptyAgentLatestTagIsSurplus(t *testing.T) {
 		&msb.MockImageHandle{Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:-latest"},
 	}}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	pruneState := PruneState{ToKeep: map[state.Key]msb.SandboxHandle{
 		{Slug: "active-1mjusbm3wikhb0"}: &msb.MockSandboxHandle{},
 	}}
@@ -1147,7 +1148,7 @@ func TestPruneImagesPopulatesStaleFor(t *testing.T) {
 		&msb.MockImageHandle{Reference_: "agents-sandbox/runner-dateless-1mjusbm3wikhb0:digest3"},
 	}}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
 	if err != nil {
 		t.Fatalf("PruneImages: %v", err)
@@ -1181,7 +1182,7 @@ func managedDanglingImage(id string, createdAt time.Time) imagetypes.Summary {
 // image older than the age and never calls ImagePrune.
 func TestPruneDockerImagesDryRunListsCandidatesWithoutDeleting(t *testing.T) {
 	pruned := false
-	mock := &docker.MockDockerClient{
+	mock := &dockertest.MockDockerClient{
 		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
 			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
 				managedDanglingImage("sha256:old1", time.Now().Add(-48*time.Hour)),
@@ -1215,7 +1216,7 @@ func TestPruneDockerImagesHonorsAge(t *testing.T) {
 	age := 24 * time.Hour
 	var listOpts mobyclient.ImageListOptions
 	var pruneOpts mobyclient.ImagePruneOptions
-	mock := &docker.MockDockerClient{
+	mock := &dockertest.MockDockerClient{
 		ImageListFn: func(_ context.Context, opts mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
 			listOpts = opts
 			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
@@ -1255,7 +1256,7 @@ func TestPruneDockerImagesHonorsAge(t *testing.T) {
 // StaleFor measured from Created.
 func TestPruneDockerImagesReportsDetails(t *testing.T) {
 	created := time.Now().Add(-48 * time.Hour)
-	mock := &docker.MockDockerClient{
+	mock := &dockertest.MockDockerClient{
 		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
 			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
 				managedDanglingImage("sha256:reported", created),
@@ -1299,7 +1300,7 @@ func TestPruneDockerImagesReportsDetails(t *testing.T) {
 // and the details: the report agrees with what the daemon actually deleted.
 func TestPruneDockerImagesReportsOnlyDeletedCandidates(t *testing.T) {
 	old := time.Now().Add(-48 * time.Hour)
-	mock := &docker.MockDockerClient{
+	mock := &dockertest.MockDockerClient{
 		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
 			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
 				managedDanglingImage("sha256:gone", old),
@@ -1330,7 +1331,7 @@ func TestPruneDockerImagesReportsOnlyDeletedCandidates(t *testing.T) {
 // reports no candidate details: the images were not deleted, so naming them
 // would put phantom docker-image entries in the JSON report.
 func TestPruneDockerImagesErrorReturnsNoDetails(t *testing.T) {
-	mock := &docker.MockDockerClient{
+	mock := &dockertest.MockDockerClient{
 		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
 			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
 				managedDanglingImage("sha256:ghost", time.Now().Add(-48*time.Hour)),
@@ -1357,7 +1358,7 @@ func TestPruneDockerImagesErrorReturnsNoDetails(t *testing.T) {
 // managed, untagged image is.
 func TestPruneDockerImagesSkipsForeignAndTagged(t *testing.T) {
 	old := time.Now().Add(-48 * time.Hour)
-	mock := &docker.MockDockerClient{
+	mock := &dockertest.MockDockerClient{
 		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
 			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
 				managedDanglingImage("sha256:ours", old),
@@ -1385,7 +1386,7 @@ func TestPruneDockerImagesSkipsForeignAndTagged(t *testing.T) {
 
 // deletedImagesDockerMock returns a docker mock whose ImagePrune reports n
 // deleted images.
-func deletedImagesDockerMock(n int) *docker.MockDockerClient {
+func deletedImagesDockerMock(n int) *dockertest.MockDockerClient {
 	items := make([]imagetypes.Summary, n)
 	deleted := make([]imagetypes.DeleteResponse, n)
 	for i := range n {
@@ -1393,7 +1394,7 @@ func deletedImagesDockerMock(n int) *docker.MockDockerClient {
 		items[i] = managedDanglingImage(id, time.Now().Add(-48*time.Hour))
 		deleted[i] = imagetypes.DeleteResponse{Deleted: id}
 	}
-	return &docker.MockDockerClient{
+	return &dockertest.MockDockerClient{
 		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
 			return mobyclient.ImageListResult{Items: items}, nil
 		},
@@ -1411,7 +1412,7 @@ func deletedImagesDockerMock(n int) *docker.MockDockerClient {
 func TestPruneImagesIncludesDockerDetailsInReport(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
-	docker.WithDockerMock(t, deletedImagesDockerMock(2))
+	dockertest.WithDockerMock(t, deletedImagesDockerMock(2))
 
 	r, err := PruneImages(context.Background(), docker.Get(), PruneState{}, false, &termio.Mock{})
 	if err != nil {
@@ -1432,7 +1433,7 @@ func TestPruneImagesIncludesDockerDetailsInReport(t *testing.T) {
 // candidate predicate directly: a managed, dangling image newer than the age is
 // not a candidate, even on a dry-run that lists rather than prunes.
 func TestPruneDockerImagesExcludesFreshManagedImages(t *testing.T) {
-	mock := &docker.MockDockerClient{
+	mock := &dockertest.MockDockerClient{
 		ImageListFn: func(context.Context, mobyclient.ImageListOptions) (mobyclient.ImageListResult, error) {
 			return mobyclient.ImageListResult{Items: []imagetypes.Summary{
 				managedDanglingImage("sha256:fresh", time.Now()),

@@ -14,6 +14,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -44,7 +45,7 @@ func TestPreviewImageNeverResolvesVersion(t *testing.T) {
 		t.Fatal("previewRunnerImage must not resolve the agent version")
 		return "", nil
 	})
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	a := agentOpencode(t)
 
 	p, err := previewRunnerImage(context.Background(), docker.Get(), a, nil, "slug",
@@ -77,7 +78,7 @@ func TestPreviewImageReportsReuseWhenDockerfileIDMatches(t *testing.T) {
 		t.Fatalf("RenderDockerfile: %v", err)
 	}
 	id := computeDockerfileID(rendered, testAgentVersion)
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			_ context.Context, _ string, _ ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -104,7 +105,7 @@ func TestPreviewImageReportsReuseWhenDockerfileIDMatches(t *testing.T) {
 // TestPreviewImageForcedBuild pins that a forced rebuild is reported without
 // inspecting an image.
 func TestPreviewImageForcedBuild(t *testing.T) {
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	a := agentOpencode(t)
 
 	p, err := previewRunnerImage(context.Background(), docker.Get(), a, nil, "slug",
@@ -128,7 +129,7 @@ func TestPreviewImageEmptyVersionReportsResolveAtBuild(t *testing.T) {
 		t.Fatal("previewRunnerImage must not resolve the agent version")
 		return "", nil
 	})
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	a := agentOpencode(t)
 
 	p, err := previewRunnerImage(context.Background(), docker.Get(), a, nil, "slug", BuildOptions{}, &termio.Mock{})
@@ -152,7 +153,7 @@ func TestPreviewImageDelegatesToReadOnlyPlan(t *testing.T) {
 		t.Fatal("PreviewImage must not resolve the agent version")
 		return "", nil
 	})
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	a := agentOpencode(t)
 
 	p, err := PreviewImage(
@@ -176,7 +177,7 @@ func TestPreviewImageDelegatesToReadOnlyPlan(t *testing.T) {
 // TestPreviewImageSurfacesRenderError pins that a plan that cannot render (a
 // reserved stage alias) fails the preview instead of reporting a bogus plan.
 func TestPreviewImageSurfacesRenderError(t *testing.T) {
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	a := agentOpencode(t)
 	project := []byte("FROM ubuntu:24.04 AS " + baseStageAlias + "\nRUN echo hi\n")
 
@@ -191,7 +192,7 @@ func TestPreviewImageSurfacesRenderError(t *testing.T) {
 // TestPreviewImageWarnsOnLegacyDockerfile pins parity with EnsureImage: the
 // preview surfaces the same project-Dockerfile deprecation warnings.
 func TestPreviewImageWarnsOnLegacyDockerfile(t *testing.T) {
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	a := agentOpencode(t)
 	project := []byte("FROM agents-sandbox/runner-base-dind\n# agents-sandbox:dind\nRUN echo hi\n")
 	ui := &termio.Mock{}
@@ -214,7 +215,7 @@ func TestPreviewImageWarnsOnLegacyDockerfile(t *testing.T) {
 // PreviewImage entry.
 func TestPreviewImageWarnsIgnoredWorktreeConfig(t *testing.T) {
 	synthesizeBareWorktree(t, true)
-	docker.WithDefaultErrorDockerMock(t)
+	dockertest.WithDefaultErrorDockerMock(t)
 	ui := &termio.Mock{}
 
 	_, _ = PreviewImage(

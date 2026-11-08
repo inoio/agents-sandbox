@@ -46,8 +46,8 @@ var seamFamilies = []seamFamily{
 		name:                 "docker",
 		dir:                  "internal/sandbox/docker",
 		packageName:          "docker",
-		installerDir:         "internal/sandbox/docker",
-		installerPackageName: "docker",
+		installerDir:         "internal/sandbox/docker/dockertest",
+		installerPackageName: "dockertest",
 		installer:            "InstallFailFastGet",
 	},
 	{

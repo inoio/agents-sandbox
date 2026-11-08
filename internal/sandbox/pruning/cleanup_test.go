@@ -10,6 +10,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -21,7 +22,7 @@ func withAutoPruneMocks(t *testing.T) {
 	t.Helper()
 	configpaths.WithMockConfigPaths(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 }
 
 func TestAutoPruneDoesNotPanic(t *testing.T) {
@@ -49,7 +50,7 @@ func TestAutoPruneWarnsOnPruneError(t *testing.T) {
 			return nil, errors.New("boom")
 		},
 	})
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	testUI := termio.NewTestMock(t)
 	AutoPrune(context.Background(), docker.Get(), time.Hour, false, &testUI)
 	if len(testUI.WarnCalls) != 1 {
@@ -86,7 +87,7 @@ func TestAutoPruneZeroThresholdKeepsFreshStoppedVM(t *testing.T) {
 	}
 	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{fresh}}
 	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	testUI := termio.NewTestMock(t)
 
 	AutoPrune(context.Background(), docker.Get(), 0, false, &testUI)

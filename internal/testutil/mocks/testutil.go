@@ -7,7 +7,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/opener"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
@@ -17,7 +17,7 @@ import (
 // installs the same set minus notify directly, mirroring this body.
 func InitFailFastMocks(m *testing.M) {
 	configpaths.InstallFailFastConfigPaths()
-	docker.InstallFailFastGet()
+	dockertest.InstallFailFastGet()
 	doctor.InstallFailFast()
 	msb.InstallFailFastGet()
 	notify.InstallFailFast()

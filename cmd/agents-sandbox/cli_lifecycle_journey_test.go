@@ -16,6 +16,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -56,8 +57,8 @@ func newJourneyHost() *journeyHost {
 // dockerClient fakes the Docker daemon: any base image is present, an inspect
 // of the runner tag reports the last build (or no image before the first), and
 // a build records the version it baked.
-func (host *journeyHost) dockerClient() *docker.MockDockerClient {
-	return &docker.MockDockerClient{
+func (host *journeyHost) dockerClient() *dockertest.MockDockerClient {
+	return &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			host.mu.Lock()
 			defer host.mu.Unlock()
@@ -157,7 +158,7 @@ func startJourney(
 	mock := &sandboxmsb.MockMsbClient{}
 	host.installMsbImageCache(mock)
 	_, ui := setupRunMocks(t, mock, &sandboxmsb.MockSandbox{})
-	docker.WithDockerMock(t, host.dockerClient())
+	dockertest.WithDockerMock(t, host.dockerClient())
 	withLatestAgentRelease(t, latestRelease)
 	execute := func(args ...string) {
 		t.Helper()

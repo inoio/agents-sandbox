@@ -1,4 +1,4 @@
-package docker
+package dockertest
 
 import (
 	"context"
@@ -8,14 +8,16 @@ import (
 
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 )
 
 // TestWithDockerMockAndNoop verifies WithNoopDockerMock installs a mock and
 // restores Get after the test.
 func TestWithDockerMockAndNoop(t *testing.T) {
-	orig := Get
+	orig := docker.Get
 	WithNoopDockerMock(t)
-	if Get() == orig() {
+	if docker.Get() == orig() {
 		t.Error("Get should return the mock after WithNoopDockerMock")
 	}
 }
@@ -24,12 +26,12 @@ func TestWithDockerMockAndNoop(t *testing.T) {
 // that actually errors (not a nil client that would panic on use) and restores
 // Get after the test.
 func TestWithDefaultErrorDockerMockInstalls(t *testing.T) {
-	orig := Get
+	orig := docker.Get
 	WithDefaultErrorDockerMock(t)
-	if Get() == orig() {
+	if docker.Get() == orig() {
 		t.Fatal("Get should return the error mock after WithDefaultErrorDockerMock")
 	}
-	if _, err := Get().Ping(context.Background(), client.PingOptions{}); err == nil {
+	if _, err := docker.Get().Ping(context.Background(), client.PingOptions{}); err == nil {
 		t.Error("the default error mock should fail Ping")
 	}
 }
@@ -41,8 +43,8 @@ func TestWithDockerMockRestoresGet(t *testing.T) {
 		WithDockerMock(t, &MockDockerClient{})
 	})
 
-	if _, ok := Get().(*failFastDockerClient); !ok {
-		t.Errorf("Get() = %T after the installing test, want the restored *failFastDockerClient", Get())
+	if _, ok := docker.Get().(*failFastDockerClient); !ok {
+		t.Errorf("Get() = %T after the installing test, want the restored *failFastDockerClient", docker.Get())
 	}
 }
 
@@ -141,5 +143,5 @@ func TestInstallFailFastGetPanicsWithAPointerToWithDockerMock(t *testing.T) {
 		}
 	}()
 	InstallFailFastGet()
-	Get().Ping(context.Background(), client.PingOptions{})
+	docker.Get().Ping(context.Background(), client.PingOptions{})
 }

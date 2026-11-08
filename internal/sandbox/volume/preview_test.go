@@ -10,6 +10,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -126,7 +127,7 @@ func TestHomeVolumeResolution_PreviewMatchesRealDecision(t *testing.T) {
 				created = true
 				return msb.MockVolumeHandle{Name_: name}, nil
 			}
-			docker.WithNoopDockerMock(t)
+			dockertest.WithNoopDockerMock(t)
 			realName, _, realErr := NewManager(docker.Get()).ResolveHomeVolume(
 				context.Background(), realMock, k,
 				image.ImageInfo{Digest: "sha256:def"},

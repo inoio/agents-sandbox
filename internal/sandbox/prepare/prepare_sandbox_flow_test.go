@@ -21,7 +21,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
@@ -53,7 +53,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -139,7 +139,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 		},
 	}
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -265,7 +265,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 
 	// Docker build + inspect are mocked so EnsureImage can "build" the runner
 	// image and produce a deterministic digest.
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -362,7 +362,7 @@ func TestPrepareSandboxLoadsEnvSecretsOnce(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -450,7 +450,7 @@ func TestPrepareSandboxBakesAndFingerprintsTheLoadedEnv(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -550,7 +550,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.0.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -629,7 +629,7 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -717,7 +717,7 @@ func TestPrepareSandboxBlocksOnPendingRuntimeHomeMigration(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -780,7 +780,7 @@ func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -880,7 +880,7 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -968,7 +968,7 @@ func TestPrepareSandboxRecordsBakedAgentVersion(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -1036,7 +1036,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -1428,7 +1428,7 @@ func TestPrepareSandboxDryRunVMSkipsTheVM(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -1500,7 +1500,7 @@ func TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -1608,7 +1608,7 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 	}
 	t.Chdir(sub)
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -2022,7 +2022,7 @@ func installPrepareSandboxDockerMock(t *testing.T) *string {
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
 	inspectedTag := new(string)
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -2111,7 +2111,7 @@ func stubPrepareSandboxImage(t *testing.T) {
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -2304,7 +2304,7 @@ func TestPrepareSandboxStopsBeforeTheVMOnAnUnapprovedRead(t *testing.T) {
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "", nil }
 	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},

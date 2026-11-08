@@ -17,7 +17,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -82,7 +82,7 @@ func TestBuildCommand(t *testing.T) {
 			),
 			func(t *testing.T) {
 				cmd, ui := setupCommandFixtures(t, commands...)
-				docker.WithDefaultErrorDockerMock(t)
+				dockertest.WithDefaultErrorDockerMock(t)
 
 				err := cmd.Execute()
 
@@ -237,7 +237,7 @@ func TestBuildAgentVersionPrecedenceMatchesRun(t *testing.T) {
 			// whether a rebuild is needed. Recording that inspect lets the test
 			// tell a deferred resolution (which only runs once the decision
 			// needs a rebuild) from resolution that happens up front.
-			docker.WithDockerMock(t, &docker.MockDockerClient{
+			dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 				ImageInspectFn: func(
 					_ context.Context, _ string, _ ...client.ImageInspectOption,
 				) (client.ImageInspectResult, error) {
@@ -287,7 +287,7 @@ func TestBuildCommandRecordsPinnedAgentVersion(t *testing.T) {
 	// 9.9.9, so this test cannot distinguish which supplied the recorded value —
 	// only that it is not the fixture's freshly resolved 0.0.0-test. No label
 	// matches the dockerfile-id, so the build genuinely runs and inspects.
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -332,7 +332,7 @@ func TestBuildCommandWarnsWhenRecordingAgentVersionFails(t *testing.T) {
 		t.Fatalf("make state path unwritable: %v", err)
 	}
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				Config: &dockerspec.DockerOCIImageConfig{
@@ -584,7 +584,7 @@ func TestBuildUsesCheckoutSlug(t *testing.T) {
 	msb.WithMsbMock(t, mock)
 	// The default noop Docker mock reports no image ID, which would fall back to
 	// the name ref. Return a real ID so the build exercises the content ref.
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				ID:     "sha256:9f2c1a7b4d6e0f3199999999999999999999999999999999999999999999999999",

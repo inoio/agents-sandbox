@@ -19,7 +19,7 @@ var version = devVersion
 //
 // For integration testing, override the injection seams using:
 //   - msb:   msb.WithMsbMock (replaces the msb.Client factory for one test)
-//   - docker:  docker.WithNoopDockerMock / docker.WithDefaultErrorDockerMock / docker.WithDockerMock
+//   - docker:  dockertest.WithNoopDockerMock / dockertest.WithDefaultErrorDockerMock / dockertest.WithDockerMock
 //
 // Example:
 //

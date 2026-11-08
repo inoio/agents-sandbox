@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -340,7 +340,7 @@ func TestPrune(t *testing.T) {
 
 				cmd, ui := setupCommandFixtures(t, append([]string{"prune", "--yes"}, flags...)...)
 				sandboxmsb.WithMsbMock(t, mock)
-				docker.WithDefaultErrorDockerMock(t)
+				dockertest.WithDefaultErrorDockerMock(t)
 
 				err := cmd.Execute()
 				if err != nil {

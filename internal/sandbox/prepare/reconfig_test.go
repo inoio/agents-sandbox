@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
@@ -1262,7 +1263,7 @@ func TestApplyReconfigHomeActionError(t *testing.T) {
 // what the action produced.
 func TestApplyReconfigHomeActionReturnsNewVolume(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
 	const oldVolume = "home-applyproj-old"
 	key := state.Key{Slug: "applyproj", Agent: "opencode"}
