@@ -19,9 +19,12 @@ import (
 	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
 
-// ParseHomeSection parses the home manifest from raw config-file data (YAML or
-// JSON; JSON5/JSONC must be normalized first). The boolean reports whether a
-// top-level "home" key was present. path is used only for error messages.
+// ParseHomeSection parses the home manifest from raw YAML config-file data.
+// JSON is a subset of YAML and parses too; JSON5/JSONC must be normalized by the
+// caller. The boolean reports whether a top-level "home" key was present. path
+// is used only for error messages.
+//
+//deadcode:ignore reason="exported parse seam kept for tests and FuzzParseHomeSection; the home read path shares homeSection"
 func ParseHomeSection(data []byte, path string) (Manifest, bool, error) {
 	root, err := configdecode.Decode(configdecode.FormatYAML, data)
 	if err != nil {

@@ -84,11 +84,14 @@ A second decision was taken alongside the library choice: bound the untrusted re
   `WriteSetting`'s own read, `homeconfig.ReadHomeFromConfigDir`, `envsecret.ParseSecretSpecYAML` /
   `ParseSecretSpecLegacy` / `BuildEnvMap`, and `configmerge`'s snippet scan. The `envsecret` readers warn when a
   *present* file exceeds the cap, so a dropped scope is visible; a missing optional file stays quiet.
-- Rationale: the parsers bound *structure* (yaml.v3 depth 10000 and alias expansion; `encoding/json` and
-  TOML depth 10000) but none bounds total input size, so the file read is where that is capped.
-- **JSON5 is kept**: `titanous/json5` stays and is bounded only by this size cap. It remains unbounded in
+- Rationale: the parsers bound *structure* (YAML depth 10000 and alias expansion; TOML depth 10000) but
+  none bounds total input size, so the file read is where that is capped. The JSON family is parsed by
+  `json5`, whose nesting depth is unbounded — the residual recorded next.
+- **JSON5 is kept and now covers the whole JSON family**: `titanous/json5` parses `.json` as well as
+  `.jsonc`/`.json5` since #531, and is bounded only by this size cap. It remains unbounded in
   nesting depth (no maintained guarded full-JSON5 decoder exists), so a large enough nesting bomb could
-  still overflow the stack; the cap limits its size but does not eliminate it. This residual is accepted.
+  still overflow the stack; the cap limits its size but does not eliminate it. This residual is accepted,
+  and its scope now includes `.json`.
 - Rejected: narrowing the accepted grammar to JSONC (a documented-behaviour change), and migrating the
   reads to `oneyaml` (would change owner-resolution key semantics).
 
@@ -98,15 +101,16 @@ A second decision was taken alongside the library choice: bound the untrusted re
   scalar, and document counts are unbounded.
 - Adopting the library accepts its maturity as a known risk (at adoption: single author, weeks old, no
   visible adoption, unsigned release). Its licence is dual Apache-2.0 OR MIT.
-- `go.yaml.in/yaml/v3` (with `titanous/json5` and `encoding/json`) stays on the read path and the owner
-  scan, so two parsers coexist: `oneyaml` owns the write path only.
+- An untrusted read path now shares one decoder, `internal/configdecode` (`go.yaml.in/yaml/v4` +
+  `titanous/json5` + `go-toml/v2`), so `oneyaml` owns the write path and `configdecode` the read path.
+  `go.yaml.in/yaml/v3` survives only as viper's own dependency, whose codec we no longer call.
 - A future change to the write path must preserve the byte-and-comment contract or amend this ADR.
 - Every untrusted config, secret and snippet read must go through `configread.ReadFile`; a new read site
   that calls `os.ReadFile` directly re-opens the unbounded-size vector.
 
 ### Non-goals
 
-- **The owner scan (`LayerSettingOwner` → `readLayerValues`) and the editor stay separate parsers; migrating the
+- **The owner scan (`LayerSettingOwner` → `layerSetsKey`) and the editor stay separate parsers; migrating the
   scan to oneyaml is not planned.** The scan is a read path with no byte contract, it parses three formats (oneyaml is
   a YAML document API, so it would not even unify them), and it resolves keys case-insensitively through a
   `map[string]any` walk that oneyaml's case-sensitive pointers would have to rebuild. Migrating it would add code and

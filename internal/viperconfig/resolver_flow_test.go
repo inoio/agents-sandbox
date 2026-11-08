@@ -179,6 +179,23 @@ func TestNewResolverRejectsANonFiniteNumber(t *testing.T) {
 	}
 }
 
+// TestNewResolverDecodesANonFiniteMemory pins the non-finite policy for a
+// string-valued key: json5 accepts `memory: NaN`, the resolver does not reject
+// it, and the value decodes to "NaN" — which ParseMemory later treats like any
+// other unparseable memory string.
+func TestNewResolverDecodesANonFiniteMemory(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.json5", `{"memory": NaN}`)
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.cfg.Memory != "NaN" {
+		t.Errorf("Memory = %q, want the decoded NaN text", r.cfg.Memory)
+	}
+}
+
 // TestNewResolverReportsAnUnreadableConfig pins that a config path that cannot
 // be read (here a directory) names the read failure and keeps the path error.
 func TestNewResolverReportsAnUnreadableConfig(t *testing.T) {

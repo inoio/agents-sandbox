@@ -1,6 +1,6 @@
 ---
 description: Contract for reading and decoding launcher, home-manifest, and agent snippet config files - one `configdecode` core (`FormatFor`/`Decode`/`DecodeFile`) over `configread`'s bounded read and `configpaths`' extension vocabulary, with each loader's accepted-format set, error label, and parse-failure policy kept explicit rather than copied.
-read_if: Changing how a config file is read, classified, or JSON5/JSONC-normalized in `homeconfig`, `viperconfig` (`mergeDir`, `LayerSettings`, the owner scan `readLayerValues`), or `configmerge`; adding a config format; touching the launcher read path's YAML parser (viper's `yaml/v3` vs our `yaml/v4`), the `MergeConfig` -> `MergeConfigMap` seam, or the project-config trust projection's `AllSettings`; or diagnosing a file one loader accepts and another rejects.
+read_if: Changing how a config file is read, classified, or JSON5/JSONC-normalized in `homeconfig`, `viperconfig` (`mergeDir`, `LayerSettings`, the owner scan `layerSetsKey`), or `configmerge`; adding a config format; touching the launcher read path's YAML parser (viper's `yaml/v3` vs our `yaml/v4`), the `MergeConfig` -> `MergeConfigMap` seam, or the project-config trust projection's `AllSettings`; or diagnosing a file one loader accepts and another rejects.
 ---
 
 # Config-file reading and decoding
@@ -71,7 +71,7 @@ strict `encoding/json`, and the owner scan with `encoding/json`). `json5` also a
 |---|---|---|
 | `homeconfig.ReadHomeFromConfigDir` | host `config.<ext>` from `configpaths.FindConfigFile` | `DecodeFile(path, "config")`, then a shared `home` extractor |
 | `viperconfig.mergeDir` | host `config.<ext>` | `DecodeFile(path, "launcher config")`, then `v.MergeConfigMap` |
-| `viperconfig.readLayerValues` (owner scan) | host `config.<ext>` | `DecodeFile` |
+| `viperconfig.layerSetsKey` (owner scan) | host `config.<ext>` | `DecodeFile` |
 | `configmerge.scanSnippets` | host snippet matched by an agent glob | `FormatFor` + `configread.ReadFile` + `Decode` |
 | `configmerge.DocumentsEqual` | `cf.Merged` (built in memory) + guest bytes from `sb.FS().Read` | `FormatFor` + `Decode` |
 
@@ -118,10 +118,12 @@ decodes the bytes as `FormatYAML` and extracts `home` through the same helper
   commas, and non-finite numbers. Loosening only for syntax; the non-finite case is called out next.
 - **Non-finite numbers now decode.** `titanous/json5` accepts `NaN`/`Infinity`, so `Decode` returns
   them successfully. The previous rejection was a side effect of the removed normalize step
-  (`json.Marshal` on a `NaN`), not a designed guard. A `NaN` under a *known* numeric key is still rejected
-  downstream — `cpus: NaN` fails `validate`'s range check; under an unknown key it is now silently stored,
-  and `homeconfig` stops rejecting a `NaN` anywhere. This is the one substantive semantic change; the
-  alternative — a non-finite scan in `Decode` — is deliberately not taken.
+  (`json.Marshal` on a `NaN`), not a designed guard. The decode core no longer rejects them; how one is
+  handled is key-specific — `cpus: NaN` fails `validate`'s range check, while `memory: NaN` decodes to the
+  string `"NaN"` and later falls back to the default memory like any other unparseable `memory` value.
+  Under an unknown key it is silently stored, and `homeconfig` stops rejecting a `NaN` anywhere. This is
+  the one substantive semantic change; the alternative — a non-finite scan in `Decode` — is deliberately
+  not taken.
 - **The launcher's YAML read moves from viper's `go.yaml.in/yaml/v3` to our `go.yaml.in/yaml/v4`.**
   `viper.MergeConfig` is `unmarshalReader` (viper's codec) followed by `MergeConfigMap`; calling
   `MergeConfigMap` with a map we decoded skips viper's `unmarshalReader` entirely, so viper no longer
@@ -143,9 +145,10 @@ The change edits or removes these, beyond the two deleted error branches:
 - `internal/viperconfig/resolver_flow_test.go` `TestNewResolverReportsABrokenConfigLayer`: the
   "malformed json5" row keeps `parse launcher config`; the "malformed json" row changes from
   `load launcher config` to `parse launcher config`; the removed "json5 that cannot be normalized" (NaN)
-  row is replaced by `TestNewResolverRejectsANonFiniteNumber`, pinning the `validate` range rejection
-  (`launcher config cpus must be between 0 and 255`). The "malformed per-slug/project yaml" rows and
-  `TestResolverConfigSyntaxErrorIsFriendly` (`contains invalid YAML (line 2)`) stay green via `DecodeFile`.
+  row is replaced by `TestNewResolverRejectsANonFiniteNumber` (the `validate` range rejection for `cpus`)
+  and `TestNewResolverDecodesANonFiniteMemory` (`memory: NaN` decodes to `"NaN"`). The "malformed
+  per-slug/project yaml" rows and `TestResolverConfigSyntaxErrorIsFriendly` (`contains invalid YAML (line 2)`)
+  stay green via `DecodeFile`.
 - `internal/homeconfig/homeconfig_test.go`: `TestReadHomeFromConfigDirNormalizeErrorKeepsPresentFalse`
   is removed; the `ParseHomeSection` tests and `FuzzParseHomeSection` stay (adapted to the wrapper).
 - `internal/configmerge/merge.go`: `configFormatFor`/`configFormat` give way to `FormatFor`; the
