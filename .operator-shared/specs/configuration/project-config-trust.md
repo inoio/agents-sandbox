@@ -216,8 +216,21 @@ still reaches the host run:
 ## Presentation
 
 - The prompt lists one block per changed input — its status (`new`, `changed`, `removed`), source path, and
-  kind — with `- old` / `+ new` entry lines, every value escaped for the terminal (`termio.EscapeControl`).
-  It does not reuse `config harden` machinery. A first approval shows every input in full.
+  kind — with `- old` / `+ new` lines from an order-aware line diff (a moved or repeated line shows), every
+  value escaped for the terminal (`termio.EscapeControl`). It does not reuse `config harden` machinery. A first
+  approval shows every input in full.
 - Each snippet file is its own input with its content, not the merged output, so a snippet edit shows as an
   edit to that file.
-- A file over 64 KiB or not UTF-8 text is a single `sha256:` entry.
+- File content keeps every byte that matters: a missing final newline is its own line, and an empty file
+  differs from a lone newline. A file over 64 KiB or not UTF-8 text is one `sha256:` entry; there is no read
+  bound below which a file is skipped, so no input escapes the gate by size.
+
+## Projection rules
+
+- An input is identified by its path **and** kind: a file read two ways (an `env` file that `home:` also
+  copies) is two inputs, so a change to its raw content is gated even when its parsed form is unchanged. A
+  project secret file copied by `home:` is gated by digest only, so no secret value reaches the projection.
+- The `home:` entries are projected as home provisioning parses them, case-sensitive (`homeconfig`), in
+  addition to the lowercased launcher config keys: a case-only edit (`Root:` → `root:`) that changes what
+  runs changes the projection.
+- A project input the gate cannot read is an error, never an absent input.

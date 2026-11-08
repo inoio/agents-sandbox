@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -53,8 +51,7 @@ func gateProjectConfig(
 }
 
 // evaluateProjectConfig computes the project layer's projection and compares it
-// with the checkout's approval. An unreadable approval counts as none, so the
-// change is asked for again rather than blocking every command.
+// with the checkout's approval.
 func evaluateProjectConfig(paths configpaths.ConfigPaths, identity git.Identity) (projecttrust.Decision, error) {
 	projection, err := projecttrust.Compute(projecttrust.Sources{
 		ProjectConfigDir:    paths.ProjectConfigDirAbs(),
@@ -62,13 +59,11 @@ func evaluateProjectConfig(paths configpaths.ConfigPaths, identity git.Identity)
 		AgentConfigDirNames: allAgentConfigDirNames(),
 	})
 	if err != nil {
-		return projecttrust.Decision{}, fmt.Errorf("read project config: %w", err)
+		return projecttrust.Decision{}, err
 	}
-	approval, found, err := projecttrust.LoadApproval(identity.CheckoutSlug)
-	if err != nil {
-		found = false
-	}
-	return projecttrust.Evaluate(projection, approval, found), nil
+	// An unreadable approval reads as none, so the change is asked for again.
+	approval, _, _ := projecttrust.LoadApproval(identity.CheckoutSlug)
+	return projecttrust.Evaluate(projection, approval), nil
 }
 
 // allAgentConfigDirNames lists every config dir name a registered agent reads

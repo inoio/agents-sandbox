@@ -546,11 +546,11 @@ func projectLayerApproved(t *testing.T, cp configpaths.ConfigPaths) bool {
 	if err != nil {
 		t.Fatalf("compute projection: %v", err)
 	}
-	approval, found, err := projecttrust.LoadApproval(testCheckoutSlug)
+	approval, _, err := projecttrust.LoadApproval(testCheckoutSlug)
 	if err != nil {
 		t.Fatalf("load approval: %v", err)
 	}
-	return projecttrust.Evaluate(projection, approval, found).Approved
+	return projecttrust.Evaluate(projection, approval).Approved
 }
 
 // TestPersistSettingKeepsAnApprovedProjectLayerApproved pins that the

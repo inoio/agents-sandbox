@@ -73,7 +73,7 @@ func IgnoredWarning(decision Decision) string {
 }
 
 func changedPaths(changes []Change) string {
-	paths := make([]string, 0, len(changes))
+	var paths []string
 	for _, change := range changes {
 		paths = append(paths, termio.EscapeControl(change.Path))
 	}
@@ -123,7 +123,7 @@ func ApproveSettingWrite(checkoutSlug, configPath, key, value string) (func(), e
 			return nil
 		}
 		projection := fromApproval(previous)
-		projection.Inputs = withSetting(slices.Clone(projection.Inputs), configPath, key, value)
+		projection.Inputs = withSetting(projection.Inputs, configPath, key, value)
 		txn.State().ApproveProjectLayer(checkoutSlug, toApproval(projection))
 		return txn.Commit()
 	})
@@ -142,23 +142,21 @@ func ApproveSettingWrite(checkoutSlug, configPath, key, value string) (func(), e
 }
 
 // withSetting returns inputs with key set to value in the launcher config input
-// at configPath, adding that input when the write created the file.
+// at configPath. The launcher writes only a key its project config already
+// sets, so that input exists; without it the approval stays as it is, and the
+// next run asks.
 func withSetting(inputs []Input, configPath, key, value string) []Input {
 	encoded, _ := json.Marshal(value)
-	entry := key + ": " + string(encoded)
 	for i, input := range inputs {
-		if input.Path != configPath {
+		if input.Path != configPath || input.Kind != KindLauncherConfig {
 			continue
 		}
 		entries := slices.DeleteFunc(slices.Clone(input.Entries), func(existing string) bool {
 			return strings.HasPrefix(existing, key+": ")
 		})
-		entries = append(entries, entry)
+		entries = append(entries, key+": "+string(encoded))
 		slices.Sort(entries)
 		inputs[i].Entries = entries
-		return inputs
 	}
-	inputs = append(inputs, Input{Path: configPath, Kind: KindLauncherConfig, Entries: []string{entry}})
-	slices.SortFunc(inputs, func(a, b Input) int { return strings.Compare(a.Path, b.Path) })
 	return inputs
 }

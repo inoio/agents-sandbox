@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -17,7 +18,7 @@ func changedDecision() Decision {
 		Kind:    KindLauncherConfig,
 		Entries: []string{"mounts./host: \"/\x1b[2J\""},
 	})
-	return Evaluate(current, toApproval(Projection{}), false)
+	return Evaluate(current, toApproval(Projection{}))
 }
 
 // TestApproveRecordsTheProjectionOnApproval pins the interactive path: the
@@ -48,7 +49,7 @@ func TestApproveRecordsTheProjectionOnApproval(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("LoadApproval = %v, %v", found, err)
 	}
-	if !Evaluate(decision.Current, approval, found).Approved {
+	if !Evaluate(decision.Current, approval).Approved {
 		t.Error("the recorded approval does not approve the projection it was given for")
 	}
 }
@@ -58,8 +59,13 @@ func TestApproveDeclinedRecordsNothing(t *testing.T) {
 	ui := &termio.Mock{IsInteractiveResult: true}
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return declineKey, nil }
 
-	if err := Approve(ui, "checkout-a", changedDecision()); !errors.Is(err, ErrDeclined) {
-		t.Fatalf("Approve = %v, want ErrDeclined", err)
+	if err := Approve(
+		ui,
+		"checkout-a",
+		changedDecision(),
+	); !errors.Is(err, ErrDeclined) ||
+		!errors.Is(err, termio.ErrCancelled) {
+		t.Fatalf("Approve = %v, want ErrDeclined as a cancellation", err)
 	}
 	if _, found, _ := LoadApproval("checkout-a"); found {
 		t.Error("a declined approval was recorded")
@@ -124,12 +130,13 @@ func TestIgnoredWarningNamesTheChangedInputs(t *testing.T) {
 // the agent made to the same file meanwhile still needs approval.
 func TestApproveSettingWriteKeepsTheLaunchersOwnChangeApproved(t *testing.T) {
 	f := newProjectFixture(t)
-	path := f.write(t, "config.yaml", "memory: 4G\n")
+	f.write(t, "Dockerfile", "FROM base\n")
+	path := f.write(t, "config.yaml", "network:\n  profile: public\nmemory: 4G\n")
 	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
 		t.Fatal(err)
 	}
 
-	f.write(t, "config.yaml", "memory: 6144M\n")
+	f.write(t, "config.yaml", "network:\n  profile: public\nmemory: 6144M\n")
 	if _, err := ApproveSettingWrite("checkout-a", path, "memory", "6144M"); err != nil {
 		t.Fatalf("ApproveSettingWrite: %v", err)
 	}
@@ -137,16 +144,16 @@ func TestApproveSettingWriteKeepsTheLaunchersOwnChangeApproved(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("LoadApproval = %v, %v", found, err)
 	}
-	if got := Evaluate(f.compute(t), approval, found); !got.Approved {
+	if got := Evaluate(f.compute(t), approval); !got.Approved {
 		t.Fatalf("after the launcher's write: %+v, want approved", got)
 	}
 
-	f.write(t, "config.yaml", "memory: 8G\nmounts:\n  /host: /\n")
+	f.write(t, "config.yaml", "network:\n  profile: public\nmemory: 8G\nmounts:\n  /host: /\n")
 	if _, err := ApproveSettingWrite("checkout-a", path, "memory", "8G"); err != nil {
 		t.Fatalf("ApproveSettingWrite: %v", err)
 	}
-	approval, found, _ = LoadApproval("checkout-a")
-	got := Evaluate(f.compute(t), approval, found)
+	approval, _, _ = LoadApproval("checkout-a")
+	got := Evaluate(f.compute(t), approval)
 	want := []string{`+ mounts./host: "/"`}
 	if got.Approved || len(got.Changes) != 1 || !slices.Equal(got.Changes[0].Lines, want) {
 		t.Errorf("after an agent edit: %+v, want only the agent's mount to need approval", got)
@@ -162,24 +169,6 @@ func TestApproveSettingWriteWithoutAnApprovalRecordsNothing(t *testing.T) {
 	restore()
 	if _, found, _ := LoadApproval("checkout-a"); found {
 		t.Error("an approval was created for a layer the user never approved")
-	}
-}
-
-// TestApproveSettingWriteAddsAConfigFileTheWriteCreated covers a write into an
-// approved layer that had no launcher config file yet.
-func TestApproveSettingWriteAddsAConfigFileTheWriteCreated(t *testing.T) {
-	f := newProjectFixture(t)
-	f.write(t, "Dockerfile", "FROM base\n")
-	if err := RecordApproval("checkout-a", f.compute(t)); err != nil {
-		t.Fatal(err)
-	}
-	path := f.write(t, "config.yaml", "memory: 8G\n")
-	if _, err := ApproveSettingWrite("checkout-a", path, "memory", "8G"); err != nil {
-		t.Fatalf("ApproveSettingWrite: %v", err)
-	}
-	approval, found, _ := LoadApproval("checkout-a")
-	if got := Evaluate(f.compute(t), approval, found); !got.Approved {
-		t.Errorf("after creating the config file: %+v, want approved", got)
 	}
 }
 
@@ -209,13 +198,27 @@ func TestApprovalStateFailuresAreReported(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	testutil.WriteFile(t, configpaths.Get().UserStateDir(), "state.yaml", "schema: [not-valid")
 
-	if _, _, err := LoadApproval("checkout-a"); err == nil {
-		t.Error("LoadApproval read an unreadable root state")
+	if _, found, err := LoadApproval("checkout-a"); found || !errors.Is(err, state.ErrStateUnparsable) {
+		t.Errorf("LoadApproval = %v, %v; want no approval and the state error", found, err)
 	}
-	if err := RecordApproval("checkout-a", projectionOf(Input{Path: "/p", Kind: KindFile})); err == nil {
-		t.Error("RecordApproval wrote over an unreadable root state")
+	if err := RecordApproval(
+		"checkout-a",
+		projectionOf(Input{Path: "/p", Kind: KindFile}),
+	); !errors.Is(
+		err,
+		state.ErrStateUnparsable,
+	) {
+		t.Errorf("RecordApproval = %v, want the state error", err)
 	}
-	if _, err := ApproveSettingWrite("checkout-a", "/p/config.yaml", "memory", "8G"); err == nil {
-		t.Error("ApproveSettingWrite wrote over an unreadable root state")
+	if _, err := ApproveSettingWrite(
+		"checkout-a",
+		"/p/config.yaml",
+		"memory",
+		"8G",
+	); !errors.Is(
+		err,
+		state.ErrStateUnparsable,
+	) {
+		t.Errorf("ApproveSettingWrite = %v, want the state error", err)
 	}
 }

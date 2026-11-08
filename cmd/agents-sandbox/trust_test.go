@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -265,11 +266,23 @@ func TestExecuteRestoresThePathFactory(t *testing.T) {
 }
 
 // TestExecuteStopsOnAGateError pins that a command does not run when the gate
-// cannot read the project config.
+// refuses: a run without a terminal never reaches the runtime.
 func TestExecuteStopsOnAGateError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	writeProjectConfig(t, "memory: [unclosed\n")
-	if err := execute([]string{cmdConfig, cmdPaths}, &termio.Mock{}); err == nil {
-		t.Error("execute ran a command over an unreadable project config")
+	cmd, _ := setupCommandFixtures(t, cmdRun)
+	writeProjectConfig(t, "memory: 8G\n")
+	if err := cmd.Execute(); !errors.Is(err, projecttrust.ErrApprovalRequired) {
+		t.Errorf("run = %v, want the gate's ErrApprovalRequired", err)
+	}
+}
+
+// TestAllAgentConfigDirNamesCoversEveryAgent pins that the gate reads the
+// project config dirs of every registered agent, not only the selected one.
+func TestAllAgentConfigDirNamesCoversEveryAgent(t *testing.T) {
+	names := allAgentConfigDirNames()
+	for _, name := range agent.Names() {
+		profile, _ := agent.Lookup(name)
+		if !slices.Contains(names, profile.ConfigDirName()) {
+			t.Errorf("config dir names %q miss agent %s's %q", names, name, profile.ConfigDirName())
+		}
 	}
 }

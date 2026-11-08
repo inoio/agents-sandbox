@@ -8,7 +8,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -17,7 +20,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/filewalk"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
@@ -32,6 +34,9 @@ type InputKind string
 const (
 	// KindLauncherConfig entries are the keys the launcher config file sets.
 	KindLauncherConfig InputKind = "launcher config"
+	// KindHomeManifest entries are the launcher config file's home: entries as
+	// home provisioning parses them, keys case-sensitive.
+	KindHomeManifest InputKind = "home"
 	// KindEnv entries are the variables the env file sets.
 	KindEnv InputKind = "env"
 	// KindSecrets entries are each secret's substitution scope, never its value.
@@ -44,16 +49,26 @@ const (
 // represented by its digest.
 const maxContentBytes = 64 * 1024
 
+// noFinalNewline marks a file whose last line has no newline, so a content
+// change in the final byte is not lost.
+const noFinalNewline = `\ No newline at end of file`
+
 // Input is one consumed project input: its source path, its kind, and its
-// canonical effect as sorted or ordered display entries.
+// canonical effect as display entries.
 type Input struct {
 	Path    string    `json:"path"    yaml:"path"`
 	Kind    InputKind `json:"kind"    yaml:"kind"`
 	Entries []string  `json:"entries" yaml:"entries"`
 }
 
+// key identifies an input: one path can be read in two ways (an env file that
+// is also a home: source), and each way is its own input.
+func (i Input) key() string {
+	return i.Path + "\x00" + string(i.Kind)
+}
+
 // Projection is the project layer's own declared contribution: every input it
-// contributes, sorted by path.
+// contributes.
 type Projection struct {
 	Inputs []Input
 }
@@ -73,7 +88,7 @@ func (p Projection) Digest() string {
 			inputs[i].Entries = []string{}
 		}
 	}
-	slices.SortFunc(inputs, func(a, b Input) int { return strings.Compare(a.Path, b.Path) })
+	slices.SortFunc(inputs, func(a, b Input) int { return strings.Compare(a.key(), b.key()) })
 	// Marshalling strings, a string type, and string slices cannot fail.
 	data, _ := json.Marshal(inputs)
 	sum := sha256.Sum256(data)
@@ -95,33 +110,45 @@ type Sources struct {
 
 // Compute reads every input the launcher consumes from the project layer and
 // returns its projection. A missing or empty project config dir yields an empty
-// projection; an unparsable launcher config is an error.
+// projection. An unparsable launcher config or a project file that cannot be
+// read is an error, so an input the gate could not see is never approved.
 func Compute(sources Sources) (Projection, error) {
 	projectDir := sources.ProjectConfigDir
 	if projectDir == "" {
 		return Projection{}, nil
 	}
-	collector := inputCollector{byPath: map[string]Input{}}
+	collector := inputCollector{byKey: map[string]Input{}}
 
 	configPath, settings, err := viperconfig.LayerSettings(projectDir)
 	if err != nil {
 		return Projection{}, err
 	}
+	manifest, _, err := homeconfig.ReadHomeFromConfigDir(projectDir)
+	if err != nil {
+		return Projection{}, err
+	}
 	if configPath != "" {
 		collector.add(Input{Path: configPath, Kind: KindLauncherConfig, Entries: settingEntries(settings)})
+		collector.add(Input{Path: configPath, Kind: KindHomeManifest, Entries: manifestEntries(manifest)})
 	}
 
 	scope := configpaths.ConfigScope{Kind: configpaths.ScopeProject, Dir: projectDir}
+	secretFiles := []string{scope.EnvSecretFile(), scope.EnvSecretYAMLFile()}
 	collector.addEnvFile(scope.EnvFile())
 	collector.addSecretFile(scope.EnvSecretFile(), envsecret.ParseSecretSpecLegacy)
 	collector.addSecretFile(scope.EnvSecretYAMLFile(), envsecret.ParseSecretSpecYAML)
-	collector.addFile(filepath.Join(projectDir, configpaths.DockerFileName))
+	if err := collector.addFile(filepath.Join(projectDir, configpaths.DockerFileName)); err != nil {
+		return Projection{}, err
+	}
 	for _, name := range sources.AgentConfigDirNames {
 		collector.addTree(scope.AgentConfigDir(name))
 	}
-
-	if err := collector.addHomeSources(projectDir, sources.CheckoutRoot); err != nil {
-		return Projection{}, err
+	for _, target := range slices.Sorted(maps.Keys(manifest)) {
+		source := homeconfig.ResolveManifestSource(target, manifest[target].Source, projectDir)
+		if !guestWritable(source, projectDir, sources.CheckoutRoot) {
+			continue
+		}
+		collector.addHomeSource(source, slices.Contains(secretFiles, source))
 	}
 	return collector.projection(), nil
 }
@@ -132,23 +159,20 @@ func quietLogger() termio.Logger {
 	return termio.New(nil, io.Discard, io.Discard, false, termio.LevelError, true, false)
 }
 
-// inputCollector gathers inputs keyed by path, so a file reached twice (an agent
-// config file that is also a home: source) is one input.
+// inputCollector gathers inputs by path and kind, so a file reached twice the
+// same way (an agent config file that is also a home: source) is one input.
 type inputCollector struct {
-	byPath map[string]Input
+	byKey map[string]Input
 }
 
 func (c inputCollector) add(input Input) {
-	if _, seen := c.byPath[input.Path]; !seen {
-		c.byPath[input.Path] = input
-	}
+	c.byKey[input.key()] = input
 }
 
 func (c inputCollector) projection() Projection {
-	paths := slices.Sorted(maps.Keys(c.byPath))
-	inputs := make([]Input, 0, len(paths))
-	for _, path := range paths {
-		inputs = append(inputs, c.byPath[path])
+	var inputs []Input
+	for _, key := range slices.Sorted(maps.Keys(c.byKey)) {
+		inputs = append(inputs, c.byKey[key])
 	}
 	return Projection{Inputs: inputs}
 }
@@ -158,7 +182,7 @@ func (c inputCollector) addEnvFile(path string) {
 		return
 	}
 	vars := envsecret.BuildEnvMap(path, quietLogger())
-	entries := make([]string, 0, len(vars))
+	var entries []string
 	for _, name := range slices.Sorted(maps.Keys(vars)) {
 		entries = append(entries, name+"="+vars[name])
 	}
@@ -173,23 +197,29 @@ func (c inputCollector) addSecretFile(
 		return
 	}
 	specs := parse(path, quietLogger())
-	entries := make([]string, 0, len(specs))
+	var entries []string
 	for _, name := range slices.Sorted(maps.Keys(specs)) {
 		entries = append(entries, describeSecretSpec(name, specs[name]))
 	}
 	c.add(Input{Path: path, Kind: KindSecrets, Entries: entries})
 }
 
-// addFile adds a regular file's content; a missing file adds nothing.
-func (c inputCollector) addFile(path string) {
-	data, err := configread.ReadFile(path)
+// addFile adds a file's content. A missing file adds nothing; any other read
+// failure is an error.
+func (c inputCollector) addFile(path string) error {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
-		return
+		return fmt.Errorf("read project input %s: %w", path, err)
 	}
 	c.add(Input{Path: path, Kind: KindFile, Entries: contentEntries(data)})
+	return nil
 }
 
-// addTree adds every regular file under root.
+// addTree adds every file under root that provisioning copies: the same
+// best-effort walk, so a file the walk skips is not provisioned either.
 func (c inputCollector) addTree(root string) {
 	_ = filewalk.Walk(root, func(string, bool) bool { return true }, func(entry filewalk.Entry) error {
 		c.add(Input{Path: entry.Path, Kind: KindFile, Entries: contentEntries(entry.Data)})
@@ -197,54 +227,49 @@ func (c inputCollector) addTree(root string) {
 	})
 }
 
-// addHomeSources adds the content of every project home: source the guest can
-// write: one whose resolved path, or its symlink target, lies in the project
-// config dir or the checkout.
-func (c inputCollector) addHomeSources(projectDir, checkoutRoot string) error {
-	manifest, _, err := homeconfig.ReadHomeFromConfigDir(projectDir)
+// addHomeSource adds a guest-writable home: source by content, or by digest
+// for a secret file, so its values stay out of the projection. Like home
+// provisioning, which copies single files and skips a source it cannot read, it
+// adds nothing for a source that is missing, a directory, or unreadable.
+func (c inputCollector) addHomeSource(source string, secret bool) {
+	data, err := os.ReadFile(source)
 	if err != nil {
-		return err
+		return
 	}
-	for _, target := range slices.Sorted(maps.Keys(manifest)) {
-		source := homeconfig.ResolveManifestSource(target, manifest[target].Source, projectDir)
-		if !guestWritable(source, projectDir, checkoutRoot) {
-			continue
-		}
-		info, statErr := os.Stat(source)
-		switch {
-		case statErr != nil:
-			continue
-		case info.IsDir():
-			c.addTree(source)
-		default:
-			c.addFile(source)
-		}
+	entries := contentEntries(data)
+	if secret {
+		entries = []string{digestEntry(data)}
 	}
-	return nil
+	c.add(Input{Path: source, Kind: KindFile, Entries: entries})
 }
 
-// guestWritable reports whether path, as spelled or after resolving symlinks,
-// lies inside one of the guest-writable roots.
+func digestEntry(data []byte) string {
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// guestWritable reports whether path lies inside one of the guest-writable
+// roots, comparing each as spelled and with symlinks resolved.
 func guestWritable(path string, roots ...string) bool {
-	candidates := []string{path}
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		candidates = append(candidates, resolved)
-	}
 	for _, root := range roots {
-		if root == "" {
-			continue
-		}
-		resolvedRoot, err := filepath.EvalSymlinks(root)
-		if err != nil {
-			resolvedRoot = root
-		}
-		for _, candidate := range candidates {
-			if within(root, candidate) || within(resolvedRoot, candidate) {
-				return true
+		for _, rootForm := range withResolved(root) {
+			for _, pathForm := range withResolved(path) {
+				if within(rootForm, pathForm) {
+					return true
+				}
 			}
 		}
 	}
 	return false
+}
+
+// withResolved returns path and, when it resolves, its symlink-free form.
+func withResolved(path string) []string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return []string{path}
+	}
+	return []string{path, resolved}
 }
 
 func within(root, path string) bool {
@@ -257,14 +282,21 @@ func isRegularFile(path string) bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
-// contentEntries returns a file's lines, or a single digest entry for a file
-// too large or not UTF-8 text to show line by line.
+// contentEntries returns a file's lines, marking a missing final newline, or a
+// single digest entry for a file too large or not UTF-8 text to show.
 func contentEntries(data []byte) []string {
 	if len(data) > maxContentBytes || !utf8.Valid(data) {
-		sum := sha256.Sum256(data)
-		return []string{"sha256:" + hex.EncodeToString(sum[:])}
+		return []string{digestEntry(data)}
 	}
-	return strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+	if len(data) == 0 {
+		return []string{}
+	}
+	text := string(data)
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	if !strings.HasSuffix(text, "\n") {
+		lines = append(lines, noFinalNewline)
+	}
+	return lines
 }
 
 // settingEntries flattens the launcher config settings into sorted
@@ -277,7 +309,7 @@ func settingEntries(settings map[string]any) []string {
 }
 
 func appendSettingEntries(prefix string, value any, entries *[]string) {
-	if nested, ok := value.(map[string]any); ok && len(nested) > 0 {
+	if nested, ok := value.(map[string]any); ok {
 		for key, child := range nested {
 			appendSettingEntries(joinKey(prefix, key), child, entries)
 		}
@@ -294,6 +326,17 @@ func joinKey(prefix, key string) string {
 		return key
 	}
 	return prefix + "." + key
+}
+
+// manifestEntries renders the parsed home: manifest, one sorted entry per
+// target with the source, hook, and root flag provisioning acts on.
+func manifestEntries(manifest homeconfig.Manifest) []string {
+	var entries []string
+	for _, target := range slices.Sorted(maps.Keys(manifest)) {
+		entry := manifest[target]
+		entries = append(entries, fmt.Sprintf("%s ← %q hook=%q root=%t", target, entry.Source, entry.Hook, entry.Root))
+	}
+	return entries
 }
 
 // describeSecretSpec renders a secret's substitution scope without its value.

