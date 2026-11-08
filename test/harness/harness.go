@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
 
 // daemonTimeoutMarker is what the launcher prints when its daemon health probe
@@ -56,10 +58,165 @@ const (
 	// private microsandbox home is nested inside it.
 	dataDirName = "data"
 
-	// homeDirName is the isolated HOME directory under the root; the child's
-	// home files (including a seeded harness config) live beneath it.
+	// homeDirName is the isolated HOME directory under a run's home base; the
+	// child's home files (including a seeded harness config) live beneath it.
 	homeDirName = "home"
+
+	// The XDG dir names isolatedEnv roots under a run's home base, plus the
+	// child's TMPDIR. They share these names with prepareHome, which creates
+	// them before the child starts: a TMPDIR that does not exist fails sandbox
+	// creation.
+	configDirName = "config"
+	stateDirName  = "state"
+	cacheDirName  = "cache"
+	tmpDirName    = "tmp"
+
+	// runsDirName holds one directory per harness run, so concurrently running
+	// harnesses get separate HOME/XDG_CONFIG/XDG_STATE/XDG_CACHE trees. The
+	// microsandbox home stays shared under dataDirName so every harness reuses
+	// one image cache (see isolatedEnv/harnessHomeBase).
+	runsDirName = "runs"
 )
+
+// smokeRootReuseEnv, when set, points the suite at an existing directory it
+// keeps between runs instead of a fresh temp root. The microsandbox image cache
+// lives under the root's data dir, so a reused root skips the multi-GB
+// `docker save | msb ImageLoad` that each harness prebuild otherwise repays.
+// Local iteration only: unset (the default) creates and removes a fresh root.
+const smokeRootReuseEnv = "AGENTS_SANDBOX_SMOKE_ROOT"
+
+// A sandbox's control-socket path is microsandbox's private home (msbHomeUnderRoot)
+// plus a fixed suffix microsandbox appends; it must stay below a Unix socket's
+// sun_path limit (104 bytes on macOS, the tighter of the two targets) or every
+// harness fails before its TUI with "sandbox runtime socket path is too long".
+const (
+	sandboxSocketPathSuffix = 50
+	sunPathLimit            = 104
+)
+
+// smokeMemoryGiB is the memory each smoke harness VM boots with — the VM's
+// ceiling, passed to the launcher as --memory. A harness only has to reach its
+// TUI, and the launcher's default project-VM size (4 GiB) multiplies across the
+// parallel harnesses, so the smoke run boots each smaller.
+const smokeMemoryGiB = 2
+
+// smokeWorkingSetMiB is the host memory a smoke VM is assumed to occupy when
+// the parallel-harness count is sized. A guest allocates only the pages it
+// touches (virtio-mem), so the divisor is an expected working set, not
+// smokeMemoryGiB's ceiling. It tracks the heaviest harness, not the lightest:
+// measured peaks are under 0.5 GiB for pi and over 1 GiB for opencode2, so
+// sizing on pi would oversubscribe the host.
+const smokeWorkingSetMiB = 1536
+
+// harnessHostReserveMiB is held back from the host's free memory before the
+// parallel-harness count is sized: it covers the host OS, the docker daemon,
+// and the internal/sandbox/msb test binary, which runs one real VM at the same
+// time as this suite.
+const harnessHostReserveMiB = 2048
+
+// harnessConcurrencyOverrideEnv forces the parallel-harness count, for a host
+// the memory heuristic sizes badly or for debugging. Unset (or empty) uses the
+// memory-derived default.
+const harnessConcurrencyOverrideEnv = "AGENTS_SANDBOX_MSB_PARALLEL"
+
+// smokeMemorySpec is the launcher --memory value for a smoke VM.
+func smokeMemorySpec() string {
+	return fmt.Sprintf("%dG", smokeMemoryGiB)
+}
+
+// harnessConcurrencyFor returns how many harnesses may run at once given the
+// host's free memory in MiB: as many smoke VMs as fit after the host reserve,
+// never fewer than one. The msb-tagged suite wraps it with the host reading, so
+// the memory policy is testable without the host.
+func harnessConcurrencyFor(freeMiB int) int {
+	if usable := freeMiB - harnessHostReserveMiB; usable >= smokeWorkingSetMiB {
+		return usable / smokeWorkingSetMiB
+	}
+	return 1
+}
+
+// harnessRunArgs is the `run` invocation a harness smoke subtest drives: the
+// agent and network under test, and the smoke memory cap.
+func harnessRunArgs(name, network string) []string {
+	return []string{
+		"run", "--agent", name, "--network", network, "--memory", smokeMemorySpec(),
+	}
+}
+
+// msbHomeUnderRoot is the private microsandbox home a suite root derives.
+func msbHomeUnderRoot(root string) string {
+	return filepath.Join(root, dataDirName, "agents-sandbox", "msb")
+}
+
+// rootFitsSandboxSocket reports whether root's derived sandbox control-socket
+// path stays below the sun_path limit.
+func rootFitsSandboxSocket(root string) bool {
+	return len(msbHomeUnderRoot(root))+sandboxSocketPathSuffix < sunPathLimit
+}
+
+// harnessHomeBase is the per-harness directory holding HOME and the per-harness
+// XDG dirs, so concurrently running harnesses never share a home.
+func harnessHomeBase(root, name string) string {
+	return filepath.Join(root, runsDirName, name)
+}
+
+// reuseLockSuffix names the lock file that serializes runs sharing a reused
+// suite root. The lock sits beside the root, not inside it, so it never lands
+// in the microsandbox home under it.
+const reuseLockSuffix = ".lock"
+
+// reuseLockPath is the lock file that serializes runs sharing the reused root
+// dir.
+func reuseLockPath(dir string) string {
+	return filepath.Join(filepath.Dir(dir), filepath.Base(dir)+reuseLockSuffix)
+}
+
+// acquireReuseLock blocks until this run holds the exclusive lock for the reused
+// root dir, waiting out any other run that shares it. Two runs that share a root
+// would otherwise race on the sandbox sweep: whichever finishes first removes
+// every sandbox in the home, including the other's live VMs. dir is absolute,
+// so the lock path is stable across working directories. It returns the release.
+func acquireReuseLock(dir string) (func(), error) {
+	return hostlock.AcquireExclusive(filepath.Dir(dir), filepath.Base(dir)+reuseLockSuffix)
+}
+
+// resolveSuiteRoot returns the suite's shared root, whether it is a reused
+// directory, and the release for the exclusive lock a reused directory is held
+// under (nil for a fresh root). A set smokeRootReuseEnv reuses that directory —
+// resolved to an absolute path and validated to fit the sandbox socket path
+// budget — so the microsandbox image cache under it survives between runs;
+// otherwise a fresh temp root is created for the caller to remove. The lock
+// serializes runs that share a root, so a finishing run's sandbox sweep cannot
+// destroy VMs another run is still using.
+func resolveSuiteRoot() (string, bool, func(), error) {
+	if dir := os.Getenv(smokeRootReuseEnv); dir != "" {
+		reuseRoot, err := absPath(dir)
+		if err != nil {
+			return "", false, nil, fmt.Errorf("resolve reuse root %s: %w", dir, err)
+		}
+		if !rootFitsSandboxSocket(reuseRoot) {
+			return "", false, nil, fmt.Errorf(
+				"%s=%q derives a %d-byte sandbox control-socket path, at or above the %d-byte sun_path limit",
+				smokeRootReuseEnv, reuseRoot,
+				len(msbHomeUnderRoot(reuseRoot))+sandboxSocketPathSuffix, sunPathLimit)
+		}
+		// reuseRoot is an explicit operator opt-in (the reuse root), not request
+		// data.
+		if err = os.MkdirAll(reuseRoot, 0o750); err != nil {
+			return "", false, nil, fmt.Errorf("create reuse root %s: %w", reuseRoot, err)
+		}
+		release, err := acquireReuseLock(reuseRoot)
+		if err != nil {
+			return "", false, nil, fmt.Errorf("lock reuse root %s: %w", reuseRoot, err)
+		}
+		return reuseRoot, true, release, nil
+	}
+	root, err := mkdtemp(smokeRootBase, smokeRootPrefix)
+	if err != nil {
+		return "", false, nil, err
+	}
+	return root, false, nil, nil
+}
 
 // isolatedEnvKeep lists the inherited variables the child may keep: the
 // terminal and locale settings a TUI needs, the proxy settings any egress
@@ -122,13 +279,16 @@ var harnessSpecs = map[string]harnessSpec{
 	},
 	// oh-my-pi reaches its TUI without credentials, like pi, which it forks.
 	// Its renderer keeps the terminal's normal buffer (it borrows the alternate
-	// screen only while resizing or for fullscreen overlays), so readiness is
-	// the settle. The subtest seeds a home config that turns off the first-run
-	// setup wizard, a fullscreen overlay that would otherwise come up before the
-	// editor. It needs no egress, so it runs under the default `--network none`.
+	// screen only while resizing or for fullscreen overlays), so readiness is a
+	// marker rather than the alternate screen: with no model configured it prints
+	// its "No default model selected" warning above the editor's prompt bar. The
+	// subtest seeds a home config that turns off the first-run setup wizard, a
+	// fullscreen overlay that would otherwise come up before the editor. It needs
+	// no egress, so it runs under the default `--network none`.
 	"oh-my-pi": {
 		QuitKey:           []byte{ctrlD},
 		KeepsNormalBuffer: true,
+		ReadyMarker:       ohMyPiReadyMarker,
 		SeedHomeFiles:     map[string]string{ohMyPiConfigPath: ohMyPiSmokeConfig},
 	},
 	// opencode's editor owns Ctrl-C, so its TUI leaves on Ctrl-D.
@@ -169,6 +329,13 @@ type harnessSpec struct {
 	SeedHomeFiles map[string]string
 }
 
+// settledReadyTimeout bounds the readiness wait for a harness whose TUI keeps
+// the terminal's normal buffer, where no marker announces that its UI is up. It
+// covers the launcher's image load and VM start — about 14s on a cold host when
+// the image prebuild has already run — with margin. A harness whose runner image
+// loads far slower overrides it (see harnessSpec.ReadyTimeout).
+const settledReadyTimeout = 25 * time.Second
+
 // heavyweightReadyTimeout bounds the readiness wait for a KeepsNormalBuffer
 // harness whose startup is much slower than the lightweight agents the shared
 // budget was measured on: hermes carries a whole Python/Node tool store. It is a
@@ -186,6 +353,14 @@ const hermesReadyMarker = "Hermes Agent v"
 // alternate-screen sequence, so without a marker its subtest would wait out the
 // whole settle.
 const claudeCodeReadyMarker = "Claude Code"
+
+// ohMyPiReadyMarker is the warning oh-my-pi prints when it starts its editor
+// with no model configured, which is exactly the smoke run: the seeded config
+// turns off the setup wizard and sets no model, and the child's restricted
+// environment carries no API-key variables. It renders just above the editor's
+// prompt bar, so it marks the editor being up; like claude-code, oh-my-pi keeps
+// the normal buffer and emits no alternate-screen sequence.
+const ohMyPiReadyMarker = "No default model selected"
 
 // hermesConfigPath is hermes' config file, home-relative, provisioned into the
 // guest from the host's ~/.hermes/config.yaml.
@@ -222,19 +397,21 @@ const ohMyPiSmokeConfig = `startup:
 `
 
 // readyTimeout returns the readiness wait for this harness: its per-harness
-// override when set, otherwise fallback.
-func (s harnessSpec) readyTimeout(fallback time.Duration) time.Duration {
+// override when set, otherwise settledReadyTimeout.
+func (s harnessSpec) readyTimeout() time.Duration {
 	if s.ReadyTimeout > 0 {
 		return s.ReadyTimeout
 	}
-	return fallback
+	return settledReadyTimeout
 }
 
 // isolatedEnv builds the child environment from inherited: it keeps only the
 // allowlisted variables (defaulting TERM when it is absent, empty, or "dumb"),
-// then appends a private HOME/XDG_*/TMPDIR tree rooted at root, so the child
-// reads and writes no real agents-sandbox config or state.
-func isolatedEnv(root string, inherited []string) []string {
+// then appends a private HOME/XDG_*/TMPDIR tree rooted at homeBase, so the child
+// reads and writes no real agents-sandbox config or state. XDG_DATA_HOME stays
+// rooted at root so every harness shares one microsandbox home (the image cache)
+// while keeping its own HOME and config/state/cache dirs.
+func isolatedEnv(root, homeBase string, inherited []string) []string {
 	inheritedByName := make(map[string]string, len(inherited))
 	for _, entry := range inherited {
 		name, value, ok := strings.Cut(entry, "=")
@@ -254,24 +431,39 @@ func isolatedEnv(root string, inherited []string) []string {
 	}
 	env = append(env, envTerm+"="+usableTerm(inheritedByName[envTerm]))
 	return append(env,
-		"HOME="+filepath.Join(root, homeDirName),
-		"XDG_CONFIG_HOME="+filepath.Join(root, "config"),
+		"HOME="+filepath.Join(homeBase, homeDirName),
+		"XDG_CONFIG_HOME="+filepath.Join(homeBase, configDirName),
 		"XDG_DATA_HOME="+filepath.Join(root, dataDirName),
-		"XDG_STATE_HOME="+filepath.Join(root, "state"),
-		"XDG_CACHE_HOME="+filepath.Join(root, "cache"),
-		"TMPDIR="+filepath.Join(root, "tmp"),
+		"XDG_STATE_HOME="+filepath.Join(homeBase, stateDirName),
+		"XDG_CACHE_HOME="+filepath.Join(homeBase, cacheDirName),
+		"TMPDIR="+filepath.Join(homeBase, tmpDirName),
 	)
 }
 
-// seedHomeFiles writes each home-relative file under root's isolated HOME
-// (<root>/home/<rel>), creating parent directories, so the launcher provisions
-// it into the VM (see harnessSpec.SeedHomeFiles).
+// prepareHome creates the per-harness home tree isolatedEnv points the child at:
+// its HOME, TMPDIR, and the XDG config/state/cache dirs. TMPDIR must exist before
+// the child starts — the launcher and the microsandbox runtime create temporary
+// files through os.TempDir() while setting up a sandbox, so a TMPDIR that does
+// not exist fails the run with `create prefill sandbox: io error: no such file
+// or directory`.
+func prepareHome(homeBase string) error {
+	for _, dir := range []string{homeDirName, tmpDirName, configDirName, stateDirName, cacheDirName} {
+		if err := mkdirAll(filepath.Join(homeBase, dir), 0o750); err != nil {
+			return fmt.Errorf("create %s under %s: %w", dir, homeBase, err)
+		}
+	}
+	return nil
+}
+
+// seedHomeFiles writes each home-relative file under the run's isolated HOME
+// (<homeBase>/home/<rel>), creating parent directories, so the launcher
+// provisions it into the VM (see harnessSpec.SeedHomeFiles).
 //
 // It writes through mkdirAll and writeFile, seams a test can replace to assert
 // the seed's private modes without depending on the process umask.
-func seedHomeFiles(root string, files map[string]string) error {
+func seedHomeFiles(homeBase string, files map[string]string) error {
 	for rel, content := range files {
-		path := filepath.Join(root, homeDirName, rel)
+		path := filepath.Join(homeBase, homeDirName, rel)
 		if err := mkdirAll(filepath.Dir(path), 0o750); err != nil {
 			return fmt.Errorf("create parent for %s: %w", rel, err)
 		}
@@ -282,10 +474,15 @@ func seedHomeFiles(root string, files map[string]string) error {
 	return nil
 }
 
-// mkdirAll and writeFile are the filesystem seams seedHomeFiles writes through.
+// mkdirAll and writeFile are the filesystem seams seedHomeFiles writes through;
+// mkdtemp is the seam resolveSuiteRoot creates a fresh root through, and absPath
+// the seam it resolves the reuse root through. A test replaces one to assert its
+// failure branch.
 var (
 	mkdirAll  = os.MkdirAll
 	writeFile = os.WriteFile
+	mkdtemp   = os.MkdirTemp
+	absPath   = filepath.Abs
 )
 
 // usableTerm returns the TERM to run the child under: the inherited value

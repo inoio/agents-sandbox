@@ -114,7 +114,10 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15
-          args: ./...
+          # Include the integration, msb, and microsandbox_ffi_path build-tagged
+          # files, which the default build constraints otherwise omit. Keep in
+          # sync with the Makefile `lint` target.
+          args: --build-tags "integration msb microsandbox_ffi_path" ./...
       # Compile every package including build-tagged files (`integration`) so a
       # tagged-only compile regression fails on PRs, not just on main/releases.
       - run: make compile-all

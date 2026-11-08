@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -71,6 +72,8 @@ func recordCachedAgentVersion(t *testing.T, a agent.Agent, version string) {
 // the whole thing actually builds. The custom-base cases use Fedora (dnf) so
 // they exercise a non-Debian distro; the docker cases install the engine's
 // runtime prerequisites in the body, which the final-stage check must accept.
+//
+//nolint:tparallel // mutates the process-global docker.Get; sibling tests must not overlap
 func TestRenderDockerfileBuilds(t *testing.T) {
 	origGet := docker.Get
 	docker.Get = docker.RealClient
@@ -121,6 +124,7 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			rendered := renderBytesVersion(t, a, version, tc.projectDockerfile, tc.docker)
 			buildDockerfile(t, a, rendered, version, tc.docker.Enabled)
 		})
@@ -136,6 +140,8 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 // binary. A base that supports hermes must provide libatomic.so.1 (the runner's
 // runtime-library check enforces it), so the custom base installs it; the
 // managed base carries it too.
+//
+//nolint:tparallel // mutates the process-global docker.Get; sibling tests must not overlap
 func TestRenderDockerfileBuildsEveryAgent(t *testing.T) {
 	origGet := docker.Get
 	docker.Get = docker.RealClient
@@ -162,6 +168,7 @@ func TestRenderDockerfileBuildsEveryAgent(t *testing.T) {
 		version := integrationAgentVersion(t, a)
 		for _, base := range bases {
 			t.Run(name+"/"+base.name, func(t *testing.T) {
+				t.Parallel()
 				tag := "agents-sandbox/it-all-" + sanitizeTag(name) + "-" + base.name
 				t.Cleanup(func() { removeTestImage(tag) })
 
@@ -291,6 +298,8 @@ func (ownedPathsStubAgent) ImageSpec() agent.ImageSpec {
 // pre-creates the dev user in an earlier stage (the final-stage body runs after
 // devUserBlock), covering a base with a dev group, one without, and one where
 // the host's USER_GID is already taken (the macOS dialout/20 drift).
+//
+//nolint:tparallel // mutates the process-global docker.Get; sibling tests must not overlap
 func TestRenderDockerfileOwnsToolTreeOnPreProvidedDevBase(t *testing.T) {
 	origGet := docker.Get
 	docker.Get = docker.RealClient
@@ -317,7 +326,7 @@ func TestRenderDockerfileOwnsToolTreeOnPreProvidedDevBase(t *testing.T) {
 		{
 			"dev-with-group", []byte(fmt.Sprintf(basePrelude+
 				"RUN groupadd -g %[1]d dev && useradd -m -u 1001 -g dev dev\nFROM predev\n", devGroupGID)),
-			fmt.Sprintf("%d", devGroupGID),
+			strconv.Itoa(devGroupGID),
 		},
 		{"dev-without-group", []byte(basePrelude +
 			"RUN useradd -m -u 1001 -g nogroup dev\nFROM predev\n"), ""},
@@ -326,6 +335,7 @@ func TestRenderDockerfileOwnsToolTreeOnPreProvidedDevBase(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			tag := "agents-sandbox/it-owns-dev-" + tc.name
 			t.Cleanup(func() { removeTestImage(tag) })
 
@@ -379,6 +389,8 @@ func TestRenderDockerfileOwnsToolTreeOnPreProvidedDevBase(t *testing.T) {
 //
 // TestRenderDockerfileBuilds only builds opencode, a native Bun binary that does
 // not exercise node at all, which is why it did not catch #132.
+//
+//nolint:tparallel // mutates the process-global docker.Get; sibling tests must not overlap
 func TestRenderDockerfileNodeAgentNodeRuns(t *testing.T) {
 	origGet := docker.Get
 	docker.Get = docker.RealClient
@@ -403,6 +415,7 @@ func TestRenderDockerfileNodeAgentNodeRuns(t *testing.T) {
 	}
 	for _, base := range bases {
 		t.Run(base.name, func(t *testing.T) {
+			t.Parallel()
 			tag := "agents-sandbox/it-npm-agent-node-" + base.name
 			t.Cleanup(func() { removeTestImage(tag) })
 
@@ -508,10 +521,7 @@ func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 			"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n")
 
 	tag := "agents-sandbox/it-agent-version"
-	t.Cleanup(func() {
-		_, _ = docker.Get().
-			ImageRemove(context.Background(), tag, client.ImageRemoveOptions{Force: true, PruneChildren: true})
-	})
+	t.Cleanup(func() { removeTestImage(tag) })
 
 	// Prime the image with an older release, then rebuild with a newer one. Both
 	// are real published pi releases and differ, so the rebuild has a version

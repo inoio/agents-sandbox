@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
 
 // isolatedRuntimeHome is the microsandbox home the msb-tagged tests install the
@@ -36,26 +39,83 @@ const destroyTimeout = 30 * time.Second
 // sandbox, which is why Destroy and the sweep stay primary.
 const testIdleTimeout = 5 * time.Minute
 
-// installIsolatedRuntimeHome points the process at a fresh microsandbox home and
+// reuseRuntimeHomeEnv, when set, points the msb-tagged tests at an existing
+// microsandbox home they keep between runs instead of a fresh temp home. A kept
+// home skips reinstalling the SDK-pinned runtime and reloading cached images.
+// Local iteration only: unset (the default) creates and removes a fresh home.
+const reuseRuntimeHomeEnv = "AGENTS_SANDBOX_MSB_TEST_HOME"
+
+// reuseLockSuffix names the lock file that serializes runs sharing a reused
+// microsandbox home. The lock sits beside the home, not inside it, so it never
+// lands in the runtime home.
+const reuseLockSuffix = ".lock"
+
+// reuseLockPath is the lock file that serializes runs sharing the reused home
+// dir.
+func reuseLockPath(dir string) string {
+	return filepath.Join(filepath.Dir(dir), filepath.Base(dir)+reuseLockSuffix)
+}
+
+// acquireReuseLock blocks until this run holds the exclusive lock for the reused
+// home dir, waiting out any other run that shares it. Two runs that share a home
+// would otherwise race on the sandbox sweep: whichever finishes first destroys
+// every sandbox in the home, including the other's live VMs. It returns the
+// release.
+func acquireReuseLock(dir string) (func(), error) {
+	return hostlock.AcquireExclusive(filepath.Dir(dir), filepath.Base(dir)+reuseLockSuffix)
+}
+
+// installIsolatedRuntimeHome points the process at a microsandbox home and
 // returns a cleanup that removes it. It is cheap — the runtime installs lazily
 // in ensureIsolatedRuntime, so compile-all's -run=^$ stays a no-op.
 //
-// Without this the SDK resolves its default home (~/.microsandbox), so a stale
-// runtime left there by a pre-decoupling agents-sandbox install or a manual msb
-// would fail sandbox creation with "no tested sandbox launch contract for
-// runtime <v>" after an SDK bump (specs/volumes/runtime-home-decoupling.md). The launcher
-// repairs its own private home, not this one, so the tests must provision their
-// own.
+// A set reuseRuntimeHomeEnv reuses that directory and keeps it (the cleanup only
+// releases the home's exclusive lock, held for the run so two runs sharing the
+// home serialize their sandbox sweeps), so the runtime and image cache survive
+// between runs. Otherwise a fresh temp home is created and removed. Both paths
+// set MSB_HOME: the SDK resolves its FFI cache and all non-setup operations
+// through MSB_HOME, so a reuse that only named the home in RuntimeConfig would
+// leave sandbox creation pointed at the real ~/.microsandbox.
+//
+// Without an isolated home the SDK resolves its default home (~/.microsandbox),
+// so a stale runtime left there by a pre-decoupling agents-sandbox install or a
+// manual msb would fail sandbox creation with "no tested sandbox launch contract
+// for runtime <v>" after an SDK bump (specs/volumes/runtime-home-decoupling.md).
+// The launcher repairs its own private home, not this one, so the tests must
+// provision their own.
 func installIsolatedRuntimeHome() func() {
+	if dir := os.Getenv(reuseRuntimeHomeEnv); dir != "" {
+		reuseHome, err := filepath.Abs(dir)
+		if err != nil {
+			panic(fmt.Sprintf("resolve reused microsandbox home %s: %v", dir, err))
+		}
+		if err := os.MkdirAll(reuseHome, 0o755); err != nil {
+			panic(fmt.Sprintf("create reused microsandbox home %s: %v", reuseHome, err))
+		}
+		release, err := acquireReuseLock(reuseHome)
+		if err != nil {
+			panic(fmt.Sprintf("lock reused microsandbox home %s: %v", reuseHome, err))
+		}
+		setMSBHome(reuseHome)
+		isolatedRuntimeHome = reuseHome
+		return release
+	}
 	home, err := os.MkdirTemp("", "agents-sandbox-msb-test-")
 	if err != nil {
 		panic(fmt.Sprintf("create isolated microsandbox home: %v", err))
 	}
+	setMSBHome(home)
+	isolatedRuntimeHome = home
+	return func() { _ = os.RemoveAll(home) }
+}
+
+// setMSBHome points the SDK at home. The SDK resolves its FFI cache and all
+// non-setup operations through MSB_HOME; RuntimeConfig{Home: ...} alone only
+// governs runtime setup.
+func setMSBHome(home string) {
 	if err := os.Setenv("MSB_HOME", home); err != nil {
 		panic(fmt.Sprintf("set MSB_HOME: %v", err))
 	}
-	isolatedRuntimeHome = home
-	return func() { _ = os.RemoveAll(home) }
 }
 
 // ensureIsolatedRuntime resolves the SDK-pinned runtime in the isolated home,
@@ -108,4 +168,67 @@ func sweepIsolatedSandboxes() error {
 		}
 	}
 	return errors.Join(destroyErrors...)
+}
+
+// TestInstallIsolatedRuntimeHomeSetsMSBHomeOnReuse pins that the reuse path
+// points the SDK at the reused home. Setting only RuntimeConfig{Home: ...}
+// would leave MSB_HOME at the real ~/.microsandbox, and sandbox creation — which
+// resolves its storage root through MSB_HOME — would fail the "catalog ancestor
+// permits path substitution" check on a reused home.
+func TestInstallIsolatedRuntimeHomeSetsMSBHomeOnReuse(t *testing.T) {
+	reuseDir := t.TempDir()
+	t.Setenv(reuseRuntimeHomeEnv, reuseDir)
+	// Register MSB_HOME for restoration: it starts at the home TestMain
+	// installed, and installIsolatedRuntimeHome overwrites it through setMSBHome.
+	t.Setenv("MSB_HOME", os.Getenv("MSB_HOME"))
+
+	previousHome := isolatedRuntimeHome
+	t.Cleanup(func() { isolatedRuntimeHome = previousHome })
+	t.Cleanup(installIsolatedRuntimeHome())
+
+	if got := os.Getenv("MSB_HOME"); got != reuseDir {
+		t.Errorf("MSB_HOME = %q, want the reused home %q", got, reuseDir)
+	}
+	if isolatedRuntimeHome != reuseDir {
+		t.Errorf("isolatedRuntimeHome = %q, want %q", isolatedRuntimeHome, reuseDir)
+	}
+}
+
+// TestInstallIsolatedRuntimeHomeLocksReuseHome pins that a reused home is held
+// under an exclusive lock for the run: two runs sharing a home serialize there
+// instead of one run's sandbox sweep destroying the other's live VMs.
+func TestInstallIsolatedRuntimeHomeLocksReuseHome(t *testing.T) {
+	reuseDir := t.TempDir()
+	t.Setenv(reuseRuntimeHomeEnv, reuseDir)
+	t.Setenv("MSB_HOME", os.Getenv("MSB_HOME"))
+	previousHome := isolatedRuntimeHome
+	t.Cleanup(func() { isolatedRuntimeHome = previousHome })
+
+	release := installIsolatedRuntimeHome()
+	if !lockContended(t, reuseLockPath(reuseDir)) {
+		t.Error("the reuse lock is free while the run holds it, want it held")
+	}
+	release()
+	if lockContended(t, reuseLockPath(reuseDir)) {
+		t.Error("the reuse lock is still held after release")
+	}
+}
+
+// lockContended reports whether another open file description holds the lock at
+// path.
+func lockContended(t *testing.T, path string) bool {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("open lock %s: %v", path, err)
+	}
+	defer f.Close()
+	err = hostlock.ExclusiveNonBlocking(f)
+	if err == nil {
+		return false
+	}
+	if !hostlock.IsContention(err) {
+		t.Fatalf("flock %s: %v", path, err)
+	}
+	return true
 }

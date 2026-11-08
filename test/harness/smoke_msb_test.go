@@ -4,17 +4,20 @@ package harness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sysinfo"
 )
 
 const (
@@ -30,15 +33,13 @@ const (
 	// it accepts input simply ignores the taps made meanwhile.
 	quitPressInterval = 400 * time.Millisecond
 	quitTimeout       = 15 * time.Second
-	// settledReadyTimeout bounds the readiness wait for a harness whose TUI
-	// keeps the terminal's normal buffer, where no marker announces that its UI
-	// is up. It covers the launcher's image load and VM start — about 14s on a
-	// cold host when the image prebuild has already run — with margin. A harness
-	// whose runner image loads far slower overrides it (see harnessSpec.ReadyTimeout).
-	settledReadyTimeout = 25 * time.Second
 	// prepareTimeout bounds the one-off launcher build and the per-harness
 	// runner-image prebuild every subtest shares.
 	prepareTimeout = 30 * time.Minute
+	// prebuildConcurrency bounds how many harness images the suite builds and
+	// loads at once. Each prebuild is dominated by the microsandbox image
+	// transfer, which contends on disk, so the cap is intentionally small.
+	prebuildConcurrency = 2
 	// probeTimeout bounds a preflight or cleanup subprocess so a wedged docker
 	// socket cannot hang the suite.
 	probeTimeout = 30 * time.Second
@@ -59,30 +60,69 @@ var (
 	prepareOnce     sync.Once
 	prebuildOnce    sync.Once
 	smokeRoot       string
-	smokeBinary     string
-	errSmokePrepare error
-	errPrebuild     error
+	smokeRootReused bool
+	// smokeRootLockRelease releases the exclusive lock a reused root is held
+	// under; nil for a fresh root. prepare registers its release so it runs after
+	// the sandbox sweep that shares the root.
+	smokeRootLockRelease func()
+	smokeBinary          string
+	errSmokePrepare      error
+	errPrebuild          error
 )
+
+// harnessConcurrency is the number of harness VMs to run at once: an explicit
+// AGENTS_SANDBOX_MSB_PARALLEL override, else the count the host's free memory
+// fits, else one. It reads the host, so it lives in the msb-tagged file;
+// harnessConcurrencyFor holds the policy. It is enforced by a semaphore in
+// TestHarnessSmoke, not only by `-parallel`, so even a bare
+// `go test -tags msb ./...` cannot start a VM per harness.
+func harnessConcurrency() int {
+	if override := os.Getenv(harnessConcurrencyOverrideEnv); override != "" {
+		if n, err := strconv.Atoi(override); err == nil && n > 0 {
+			return n
+		}
+	}
+	if free, ok := sysinfo.AvailableMemoryMiB(); ok {
+		return harnessConcurrencyFor(int(free))
+	}
+	if total := sysinfo.TotalMemoryGiB(); total > 0 {
+		return harnessConcurrencyFor(total * 1024)
+	}
+	return 1
+}
 
 // TestHarnessSmoke starts every registered harness the way a user does
 // (`agents-sandbox run --agent <name>`) inside a real microsandbox VM and
 // asserts it reaches its full-screen TUI, exits 0 on its quit key, and never
-// reports a daemon timeout. It requires KVM, a docker daemon, and network; the
-// `msb` build tag keeps it out of the default test run.
+// reports a daemon timeout. A sibling subtest runs the docker-storage smoke
+// (runDockerStorageDriverSmoke) in the same suite. It requires KVM, a docker
+// daemon, and network; the `msb` build tag keeps it out of the default test run.
 //
 // The checks run in order so an environment that cannot run the suite skips
 // before paying for it: the platform/`/dev/kvm` preflight first (no build), then
 // the shared root and binary, then the isolated-env docker preflight, then the
 // image prebuild (the first docker-dependent step), then the harnesses.
+//
+// The per-harness subtests run in parallel, bounded by a semaphore sized to the
+// host's free memory (harnessConcurrency); each gets its own prepared HOME tree
+// (harnessHomeBase) while sharing the root's microsandbox home, so the image
+// cache stays common.
+//
+//nolint:tparallel // top-level tests share the suite root and docker/VM state and must not overlap
 func TestHarnessSmoke(t *testing.T) {
 	preflight(t)
 	root, binary := prepare(t)
 	preflightDocker(t, root)
-	// Register cleanup after the docker preflight so a skip touches nothing,
-	// but before the prebuild so a prebuild failure cannot leak the root.
-	defer cleanupSandboxes(t, root, binary)
+	// Register cleanup after the docker preflight so a skip touches nothing, but
+	// before the prebuild so a prebuild failure cannot leak the root. t.Cleanup,
+	// not defer: it must run after the parallel subtests, which resume only once
+	// this function returns.
+	t.Cleanup(func() { cleanupSandboxes(t, root, binary) })
 	prebuildImages(t, root)
+	prebuildDockerStorageImage(t, root)
 
+	slots := make(chan struct{}, harnessConcurrency())
+	t.Logf("running up to %d smoke subtests in parallel", cap(slots))
 	for _, name := range agent.Names() {
 		spec, ok := harnessSpecs[name]
 		if !ok {
@@ -93,13 +133,20 @@ func TestHarnessSmoke(t *testing.T) {
 			network = networkNone
 		}
 		t.Run(name, func(t *testing.T) {
-			if err := seedHomeFiles(root, spec.SeedHomeFiles); err != nil {
+			t.Parallel()
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			homeBase := harnessHomeBase(root, name)
+			if err := prepareHome(homeBase); err != nil {
+				t.Fatalf("prepare %s home: %v", name, err)
+			}
+			if err := seedHomeFiles(homeBase, spec.SeedHomeFiles); err != nil {
 				t.Fatalf("seed %s home files: %v", name, err)
 			}
 			ses := mustStartUnderPTY(
 				t, projectDir(root, name),
-				isolatedEnv(root, os.Environ()),
-				binary, "run", "--agent", name, "--network", network,
+				isolatedEnv(root, homeBase, os.Environ()),
+				append([]string{binary}, harnessRunArgs(name, network)...)...,
 			)
 			if err := waitReady(ses, spec); err != nil {
 				t.Fatalf("harness %s did not reach its TUI: %v\n--- output ---\n%s", name, err, stripANSI(ses.output()))
@@ -117,6 +164,17 @@ func TestHarnessSmoke(t *testing.T) {
 			}
 		})
 	}
+
+	// The docker-storage smoke is not a harness (the table's key set must equal
+	// agent.Names()), so it runs as a sibling subtest: it shares the suite root,
+	// home, prebuild, and cleanup, and overlaps the harnesses through the same
+	// slot pool.
+	t.Run("docker-storage-driver", func(t *testing.T) {
+		t.Parallel()
+		slots <- struct{}{}
+		defer func() { <-slots }()
+		runDockerStorageDriverSmoke(t, root, binary)
+	})
 }
 
 // quit taps the harness's key until the process exits and returns its exit
@@ -149,10 +207,10 @@ func quit(ses *ptySession, spec harnessSpec) (int, error) {
 // launcher's start-up time instead.
 func waitReady(ses *ptySession, spec harnessSpec) error {
 	if spec.ReadyMarker != "" {
-		return ses.waitForMarker(spec.ReadyMarker, spec.readyTimeout(settledReadyTimeout))
+		return ses.waitForMarker(spec.ReadyMarker, spec.readyTimeout())
 	}
 	if spec.KeepsNormalBuffer {
-		return ses.waitSettled(spec.readyTimeout(settledReadyTimeout))
+		return ses.waitSettled(spec.readyTimeout())
 	}
 	return ses.waitForTUI(tuiReadyTimeout)
 }
@@ -187,23 +245,30 @@ func preflightDocker(t *testing.T, root string) {
 	defer cancel()
 
 	info := exec.CommandContext(ctx, "docker", "info")
-	info.Env = isolatedEnv(root, os.Environ())
+	info.Env = isolatedEnv(root, root, os.Environ())
 	if out, err := info.CombinedOutput(); err != nil {
 		t.Skipf("harness smoke tests need a reachable docker daemon: %v\n%s", err, out)
 	}
 }
 
-// prepare creates the shared temp root and compiles the launcher into it once
-// for the whole suite, and returns both. The root is registered for removal as
-// soon as it exists, so a skip (the docker preflight) or a failed build cannot
-// leave the root and its compiled binary behind. Destroying the sandboxes
-// inside the root stays separate: that needs the binary and a reachable docker
-// daemon, so it runs only after the docker preflight.
+// prepare creates the shared root and compiles the launcher into it once for the
+// whole suite, and returns both. A freshly created root is registered for
+// removal as soon as it exists, so a skip (the docker preflight) or a failed
+// build cannot leave the root and its compiled binary behind; a reused root
+// (smokeRootReuseEnv) is kept. Destroying the sandboxes inside the root stays
+// separate: that needs the binary and a reachable docker daemon, so it runs only
+// after the docker preflight.
 func prepare(t *testing.T) (root, binary string) {
 	t.Helper()
 
 	prepareOnce.Do(createRootAndBuildBinary)
-	if smokeRoot != "" {
+	// Release the reuse lock last: cleanups run LIFO, and the sandbox sweep
+	// registered after prepare must run while the lock is still held.
+	if smokeRootLockRelease != nil {
+		releaseLock := smokeRootLockRelease
+		t.Cleanup(func() { releaseLock() })
+	}
+	if smokeRoot != "" && !smokeRootReused {
 		created := smokeRoot
 		t.Cleanup(func() { removeTempRoot(t, created) })
 	}
@@ -230,15 +295,17 @@ func projectDir(root, name string) string {
 	return filepath.Join(root, "projects", name)
 }
 
-// createRootAndBuildBinary creates the shared root and compiles the launcher
+// createRootAndBuildBinary resolves the suite root and compiles the launcher
 // into it.
 func createRootAndBuildBinary() {
-	root, err := os.MkdirTemp(smokeRootBase, smokeRootPrefix)
+	root, reused, release, err := resolveSuiteRoot()
 	if err != nil {
-		errSmokePrepare = fmt.Errorf("create temp root: %w", err)
+		errSmokePrepare = err
 		return
 	}
 	smokeRoot = root
+	smokeRootReused = reused
+	smokeRootLockRelease = release
 	smokeBinary = filepath.Join(root, "agents-sandbox")
 	if err := os.MkdirAll(filepath.Join(root, "tmp"), 0o755); err != nil {
 		errSmokePrepare = fmt.Errorf("create temp dir: %w", err)
@@ -261,7 +328,7 @@ func createRootAndBuildBinary() {
 func prebuildImages(t *testing.T, root string) {
 	t.Helper()
 
-	prebuildOnce.Do(func() { errPrebuild = buildHarnessImages(root) })
+	prebuildOnce.Do(func() { errPrebuild = buildHarnessImages(t, root) })
 	if errPrebuild != nil {
 		t.Fatalf("prebuild harness images: %v", errPrebuild)
 	}
@@ -269,26 +336,48 @@ func prebuildImages(t *testing.T, root string) {
 
 // buildHarnessImages builds each registered harness's runner image in the same
 // throwaway project directory its subtest will run from, so the project slug
-// and agent identity match. The isolated home pays for the microsandbox runtime
-// install here, outside any harness's TUI budget.
-func buildHarnessImages(root string) error {
+// and agent identity match. The builds run up to prebuildConcurrency at a time;
+// the isolated home pays for the microsandbox runtime install here, outside any
+// harness's TUI budget.
+func buildHarnessImages(t *testing.T, root string) error {
+	t.Helper()
+
 	ctx, cancel := context.WithTimeout(context.Background(), prepareTimeout)
 	defer cancel()
 
-	env := isolatedEnv(root, os.Environ())
-	for _, name := range agent.Names() {
-		dir := projectDir(root, name)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+	env := isolatedEnv(root, root, os.Environ())
+	names := agent.Names()
+	for _, name := range names {
+		if err := os.MkdirAll(projectDir(root, name), 0o755); err != nil {
 			return fmt.Errorf("create project dir for %s: %w", name, err)
 		}
-		build := exec.CommandContext(ctx, smokeBinary, "build", "--agent", name)
-		build.Dir = dir
-		build.Env = env
-		if out, err := build.CombinedOutput(); err != nil {
-			return fmt.Errorf("prebuild image for %s: %w\n%s", name, err, out)
-		}
 	}
-	return nil
+
+	buildErrors := make([]error, len(names))
+	semaphore := make(chan struct{}, prebuildConcurrency)
+	var builds sync.WaitGroup
+	for index, name := range names {
+		builds.Go(func() {
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			build := exec.CommandContext(ctx, smokeBinary, "build", "--agent", name)
+			build.Dir = projectDir(root, name)
+			build.Env = env
+			started := time.Now()
+			out, err := build.CombinedOutput()
+			// The prebuild is the suite's dominant one-off cost (a docker build
+			// plus an `EnsureLoaded` transfer of a multi-GB runner image into
+			// the microsandbox cache); the per-image duration separates build
+			// from transfer when -v is in use.
+			t.Logf("prebuilt %s image in %s", name, time.Since(started).Round(time.Millisecond))
+			if err != nil {
+				buildErrors[index] = fmt.Errorf("prebuild image for %s: %w\n%s", name, err, out)
+			}
+		})
+	}
+	builds.Wait()
+	return errors.Join(buildErrors...)
 }
 
 // cleanupSandboxes best-effort destroys any sandbox left in the isolated home,
@@ -326,6 +415,6 @@ func cleanupSandboxes(t *testing.T, root, binary string) {
 func boundedLauncher(root, binary string, args ...string) (*exec.Cmd, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	cmd := exec.CommandContext(ctx, binary, args...)
-	cmd.Env = isolatedEnv(root, os.Environ())
+	cmd.Env = isolatedEnv(root, root, os.Environ())
 	return cmd, cancel
 }

@@ -1,13 +1,13 @@
 ---
 description: Contract for the repo's quality gates - the golangci-lint standard (formatter set and linter posture in `.golangci.yml`), the dead-code gate (`make deadcode` over a pinned x/tools deadcode with the reason-bearing `//deadcode:ignore` marker and `ci/check-deadcode.sh`), and the documentation-fragment gate in `ci/check-docs.sh` (the kramdown slug mirror and `internal/docslink`).
-read_if: Changing `.golangci.yml` (formatters or linters), deciding whether to enable a linter or a stricter setting, `CONTRIBUTING.md`'s formatting/linting guidance; the dead-code gate (`make deadcode`, the `//deadcode:ignore` marker, `ci/check-deadcode.sh`, the `DEADCODE_VERSION` pin); or the doc-link gate (`ci/check-docs.sh`, the kramdown slug mirror, `internal/docslink`, the doctor/build-error `Docs:` links); or diagnosing a formatting/lint disagreement, an unmarked dead-code finding, or a failing `docs-linkcheck`.
+read_if: Changing `.golangci.yml` (formatters or linters) or the `lint` target's `--build-tags` set, deciding whether to enable a linter or a stricter setting, `CONTRIBUTING.md`'s formatting/linting guidance; the dead-code gate (`make deadcode`, the `//deadcode:ignore` marker, `ci/check-deadcode.sh`, the `DEADCODE_VERSION` pin); or the doc-link gate (`ci/check-docs.sh`, the kramdown slug mirror, `internal/docslink`, the doctor/build-error `Docs:` links); or diagnosing a formatting/lint disagreement, an unmarked dead-code finding, or a failing `docs-linkcheck`.
 ---
 
 # Quality gates
 
 ## golangci-lint standard
 
-The single config is `.golangci.yml` at the repo root. CI enforces both halves: the `lint` job runs `golangci-lint run`, and `make validate-fmt` (`golangci-lint fmt -d`) fails on any formatting drift. `make check`/`make verify` run the same targets locally.
+The single config is `.golangci.yml` at the repo root. CI enforces both halves: the `lint` job runs `golangci-lint run --build-tags 'integration msb microsandbox_ffi_path'` (the golangci-lint-action `args`, mirrored by `make lint`), and `make validate-fmt` (`golangci-lint fmt -d`) fails on any formatting drift. The build tags are required because golangci-lint's default constraints omit files guarded by a custom tag (`integration`, `msb`, `microsandbox_ffi_path`), so without them the `msb`/`integration` code would never be linted. `make check`/`make verify` run the same targets locally.
 
 **Formatter standard.** `formatters.enable` is exactly `gofumpt`, `gci`, `golines`:
 
