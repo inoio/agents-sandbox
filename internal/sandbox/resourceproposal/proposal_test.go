@@ -596,6 +596,41 @@ func (unresolvableConfigPaths) ProjectDockerfile() string {
 	return filepath.Join(".agents-sandbox", "Dockerfile")
 }
 
+// TestRequireWritableConfigDir pins the helper's contract directly: an absolute
+// dir and the legitimately relative project config base are writable, while an
+// empty dir and any other relative dir are rejected, each with its own message
+// so a caller can tell an unresolved root from a misresolved one.
+func TestRequireWritableConfigDir(t *testing.T) {
+	paths := unresolvableConfigPaths{slugDir: "widget-bbb"}
+	tests := []struct {
+		name    string
+		dir     string
+		wantErr string
+	}{
+		{"absolute", "/home/dev/.config/agents-sandbox/widget-bbb", ""},
+		{"project config dir", paths.ProjectConfigDir(), ""},
+		{"empty", "", "config dir is empty"},
+		{"other relative", "widget-bbb", "neither absolute nor the project config dir"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := requireWritableConfigDir(paths, tt.dir)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("requireWritableConfigDir(%q) = %v, want nil", tt.dir, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("requireWritableConfigDir(%q) = nil, want an error", tt.dir)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("requireWritableConfigDir(%q) = %v, want it to contain %q", tt.dir, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 // TestPersistSettingRejectsAnUnresolvedConfigDir pins that a config dir which
 // did not resolve — empty, or relative and not the project base — is refused
 // rather than written into the process working directory (the mutation-sweep

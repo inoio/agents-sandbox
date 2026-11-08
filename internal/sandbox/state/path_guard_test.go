@@ -51,55 +51,48 @@ func TestRequireAbsoluteStatePath(t *testing.T) {
 func TestStateWriteFunnelsRejectARelativeRoot(t *testing.T) {
 	k := Key{Slug: "proj", Agent: "opencode"}
 
+	// Each call returns the (release, ok, err) tuple its funnel returns. A
+	// rejection must set ok=false and a nil release as well as a non-nil error:
+	// a caller that reads the tuple (rather than checking err first) must not be
+	// handed a true or a release func on a failed acquire.
 	tests := []struct {
 		name string
-		call func() error
+		call func() (release func(), ok bool, err error)
 	}{
-		{"writeState", func() error {
-			return writeState(k, HomeState{HomeVolume: "vol"})
+		{"writeState", func() (func(), bool, error) {
+			return nil, false, writeState(k, HomeState{HomeVolume: "vol"})
 		}},
-		{"lockHomeState", func() error {
-			release, _, err := lockHomeState(k, true)
-			if err == nil {
-				release()
-			}
-			return err
+		{"lockHomeState", func() (func(), bool, error) {
+			return lockHomeState(k, true)
 		}},
-		{"lockProjectVM", func() error {
-			release, _, err := lockProjectVM(k, true)
-			if err == nil {
-				release()
-			}
-			return err
+		{"lockProjectVM", func() (func(), bool, error) {
+			return lockProjectVM(k, true)
 		}},
-		{"lockRootState", func() error {
-			release, _, err := lockRootState(true)
-			if err == nil {
-				release()
-			}
-			return err
+		{"lockRootState", func() (func(), bool, error) {
+			return lockRootState(true)
 		}},
-		{"AcquireClaim", func() error {
-			release, claimed, err := AcquireClaim(k.Slug, "token")
-			if err == nil && claimed {
-				release()
-			}
-			return err
+		{"AcquireClaim", func() (func(), bool, error) {
+			return AcquireClaim(k.Slug, "token")
 		}},
-		{"AcquireClientLease", func() error {
+		{"AcquireClientLease", func() (func(), bool, error) {
 			release, err := AcquireClientLease(k)
-			if err == nil {
-				release()
-			}
-			return err
+			return release, false, err
 		}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			withRelativeStateRoot(t)
-			if err := tt.call(); err == nil {
-				t.Errorf("%s with a relative state root = nil error, want a rejection", tt.name)
+			release, ok, err := tt.call()
+			if err == nil {
+				t.Fatalf("%s with a relative state root = nil error, want a rejection", tt.name)
+			}
+			if ok {
+				t.Errorf("%s with a relative state root = ok true, want false on a rejection", tt.name)
+			}
+			if release != nil {
+				release()
+				t.Errorf("%s with a relative state root = non-nil release, want nil on a rejection", tt.name)
 			}
 		})
 	}
