@@ -1010,6 +1010,18 @@ func TestEffectiveTmpSizeMiBClampsToMemory(t *testing.T) {
 	}
 }
 
+// TestEffectiveTmpSizeMiBAtMemoryDoesNotWarn pins that a tmp equal to the
+// effective memory is not clamped (nothing to clamp) and does not warn.
+func TestEffectiveTmpSizeMiBAtMemoryDoesNotWarn(t *testing.T) {
+	ui := &termio.Mock{}
+	if got := effectiveTmpSizeMiB("2048M", 2048, ui); got != 2048 {
+		t.Errorf("effectiveTmpSizeMiB = %d, want 2048", got)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none at the memory", ui.WarnCalls)
+	}
+}
+
 // TestEffectiveTmpSizeMiBDerivesFromEffectiveMemory pins that an unset tmp
 // derives from the effective memory, so a host-RAM clamp also lowers the tmp
 // default.

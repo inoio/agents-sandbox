@@ -84,10 +84,7 @@ func ResolveTmpSizeMiB(spec string, memoryMiB uint32) uint32 {
 	if v, ok := ParseMemoryOK(spec); ok {
 		return v
 	}
-	if half := memoryMiB / 2; half < DefaultTmpSizeCapMiB {
-		return half
-	}
-	return DefaultTmpSizeCapMiB
+	return min(memoryMiB/2, DefaultTmpSizeCapMiB)
 }
 
 // ValidateSizes checks the VM size settings against their contract: memory at
@@ -119,9 +116,11 @@ func validateMemorySize(spec string) (uint32, error) {
 	}
 	parsed, ok := ParseMemoryOK(spec)
 	if !ok {
+		// gomutants:disable-next-line INTEGER_INCREMENT reason="the value accompanies a non-nil error, which the caller returns before using it"
 		return 0, fmt.Errorf("invalid --memory %q: expected a size like 8G, 512M, or 4096", spec)
 	}
 	if parsed < MinMemoryMiB {
+		// gomutants:disable-next-line INTEGER_INCREMENT reason="the value accompanies a non-nil error, which the caller returns before using it"
 		return 0, fmt.Errorf("--memory %s is below the %dM minimum", spec, MinMemoryMiB)
 	}
 	return parsed, nil

@@ -284,7 +284,7 @@ The launcher also checks the VM's disks after every session: the root disk (`dis
 (`workspace-quota`) and `/tmp` (`tmp-size`). When one is short of space (less than 15 % of its size, at most 2 GiB, left
 free; for `/workspace`, of the quota, since the repository's own files do not count against it), it offers to raise that setting by about half, rounded up to a whole GiB. A non-interactive session records the
 hit and the next interactive launch offers it. The root disk grows live; a larger `/workspace` quota or `/tmp` rebuilds
-the VM, keeping the home volume. `/tmp` lives in the VM's memory, so its size must be less than the `memory` limit (and defaults to `min(2 GiB, memory/2)`); a value larger than the boot memory is clamped to it. A raise
+the VM, keeping the home volume. `/tmp` lives in the VM's memory, so its size must be less than the `memory` limit (and defaults to `min(2 GiB, memory/2)`); a value larger than the boot memory is clamped to it, and a `/tmp` raise is offered only up to the largest whole GiB that is less than the `memory` limit, so an accepted raise stays valid. A raise
 larger than the free space on the host filesystem it draws on is still saved, with a warning. The same rules as for
 `memory` apply to the config layer that is written and to a value set by a flag or environment variable.
 

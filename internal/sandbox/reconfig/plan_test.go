@@ -887,6 +887,19 @@ func TestTmpSizeChangeClampedAtBootMax(t *testing.T) {
 	}
 }
 
+// TestTmpSizeChangeBelowBootMaxIsNotClamped pins that an explicit tmp below the
+// live VM's boot maximum is compared as-is, so an unchanged value is not a change
+// and does not recreate the VM.
+func TestTmpSizeChangeBelowBootMaxIsNotClamped(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{
+		MaxMemoryMiB: 32 * 1024,
+		Volumes:      map[string]msbSdk.MountConfig{mounts.TmpMountPath: {SizeMiB: 8192}},
+	}
+	if _, changed := tmpSizeChange(cfg, options.RunOptions{TmpSize: "8G"}); changed {
+		t.Error("an explicit tmp below the boot maximum, equal to the mount, must not be a change")
+	}
+}
+
 func TestWorkspaceQuotaChange(t *testing.T) {
 	vol := func(quotaMiB uint32) map[string]msbSdk.MountConfig {
 		return map[string]msbSdk.MountConfig{mounts.WorkspaceMountPath: {QuotaMiB: quotaMiB}}

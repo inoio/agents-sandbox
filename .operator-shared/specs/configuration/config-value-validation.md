@@ -84,6 +84,12 @@ below the boot maximum, the comparison caps the desired explicit value at the li
 `cfg.MaxMemoryMiB` — otherwise a host-RAM-clamped tmp would differ from the raw configured value and
 recreate the VM on every run.
 
+### Raise offer
+
+The disk-limit offer (`resourceproposal`) caps a `/tmp` raise at the largest whole GiB strictly below `memory`
+(`tmpRaiseMaximumMiB`): an explicit `tmp-size` must stay below memory, and the suggestion rounds to a whole GiB,
+so the offer must stop at a GiB boundary. An accepted raise therefore stays valid and never blocks the next launch.
+
 ## Unchanged bounds
 
 These are already enforced by `viperconfig.validate` and stay:

@@ -337,6 +337,7 @@ func tmpSizeChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change, 
 	// Mirror the creation-side clamp (vm.effectiveTmpSizeMiB): a tmp above the
 	// live VM's boot maximum was created clamped to it, so comparing the raw
 	// value would recreate the VM on every run.
+	// gomutants:disable-next-line CONDITIONALS_BOUNDARY,INTEGER_INCREMENT reason="clamping a value already equal to the maximum leaves it unchanged, and MaxMemoryMiB is a VM memory in MiB (>= MinMemoryMiB), so >0 and >1 agree"
 	if cfg.MaxMemoryMiB > 0 && want > cfg.MaxMemoryMiB {
 		want = cfg.MaxMemoryMiB
 	}

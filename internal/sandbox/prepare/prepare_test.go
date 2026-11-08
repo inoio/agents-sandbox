@@ -1104,7 +1104,7 @@ func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
 		wantMemory string
 		wantTmp    string
 	}{
-		{answer: "raise", wantMemory: "8192M", wantTmp: "8192M"},
+		{answer: "raise", wantMemory: "8192M", wantTmp: "6144M"},
 		{answer: "keep", wantMemory: "4G", wantTmp: "2G"},
 	}
 	for _, tc := range tests {
@@ -1132,7 +1132,14 @@ func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
 			ui := &termio.Mock{
 				IsInteractiveResult: true,
 				SelectFn:            func(string, []termio.Choice, string) (string, error) { return tc.answer, nil },
-				InputFn:             func(string, string) (string, error) { return "8G", nil },
+				InputFn: func(prompt, _ string) (string, error) {
+					// A /tmp raise must stay below the memory limit, so it takes
+					// a value below the boot maximum; the memory raise is free.
+					if strings.Contains(prompt, "/tmp") {
+						return "6G", nil
+					}
+					return "8G", nil
+				},
 			}
 			home := preparedHome{
 				client:     client,

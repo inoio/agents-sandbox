@@ -97,13 +97,29 @@ var diskLimits = []diskLimit{
 	{
 		kind: pressure.KindTmp, key: "tmp-size", name: "/tmp size", appliesLive: false, mountSizeIsLimit: true,
 		current: func(l DiskLimits) uint32 { return l.TmpMiB },
-		maximum: func(l DiskLimits) (uint32, string) { return l.MemoryMiB, "the VM memory limit" },
+		maximum: func(l DiskLimits) (uint32, string) {
+			return tmpRaiseMaximumMiB(l.MemoryMiB), "the tmp ceiling below the VM memory limit"
+		},
 		// /tmp is RAM, bounded by the memory limit, not by a host filesystem.
 		hostFree: nil,
 	},
 }
 
 func noMaximum(DiskLimits) (uint32, string) { return 0, "" }
+
+// tmpRaiseMaximumMiB is the largest whole-GiB tmp size strictly below the memory
+// limit. An explicit tmp-size must stay below memory (options.ValidateSizes) and
+// a raise rounds to a whole GiB, so the offer must stop at a GiB boundary;
+// memoryMiB-1 is the floor when no whole GiB fits (memory below 1 GiB).
+func tmpRaiseMaximumMiB(memoryMiB uint32) uint32 {
+	if memoryMiB == 0 {
+		return 0
+	}
+	if wholeGiB := (memoryMiB - 1) / mibPerGiB * mibPerGiB; wholeGiB > 0 {
+		return wholeGiB
+	}
+	return memoryMiB - 1
+}
 
 // limitUsage is the probed usage measured against the limit: a mount whose size
 // is not the limit takes the configured limit as its size, its free space being

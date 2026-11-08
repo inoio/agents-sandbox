@@ -336,16 +336,18 @@ func TestDetectAndOfferDiskRaiseExplainsWhatItCannotOffer(t *testing.T) {
 	}
 }
 
-// TestDetectAndOfferDiskRaiseCapsTmpAtTheMemoryLimit pins the /tmp bound: the
-// suggestion and an accepted value never exceed the VM's memory limit.
-func TestDetectAndOfferDiskRaiseCapsTmpAtTheMemoryLimit(t *testing.T) {
+// TestDetectAndOfferDiskRaiseCapsTmpBelowMemory pins the /tmp bound: the
+// suggestion and an accepted value stay strictly below the VM's memory limit,
+// since an explicit tmp-size equal to memory is rejected by options.ValidateSizes
+// on the next launch.
+func TestDetectAndOfferDiskRaiseCapsTmpBelowMemory(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	unsetDiskEnv(t)
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
 	var suggested string
 	var prompts []string
-	answers := []string{"8G", "2560M"}
+	answers := []string{"8192M", "6144M"}
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { return "raise", nil },
@@ -357,15 +359,37 @@ func TestDetectAndOfferDiskRaiseCapsTmpAtTheMemoryLimit(t *testing.T) {
 			return answer, nil
 		},
 	}
-	limits := DiskLimits{RootMiB: 4096, WorkspaceQuotaMiB: 16384, TmpMiB: 2048, MemoryMiB: 2560}
+	limits := DiskLimits{RootMiB: 4096, WorkspaceQuotaMiB: 16384, TmpMiB: 4096, MemoryMiB: 8192}
 
 	raised := DetectAndOfferDiskRaise(k, fullTmp(), nil, limits, options.RunOptions{}, configpaths.Get(), ui)
 
-	if suggested != "2560M" || raised["tmp-size"] != "2560M" {
-		t.Errorf("suggested %q, raised %v; want both capped at the 2560M memory limit", suggested, raised)
+	if suggested != "6G" || raised["tmp-size"] != "6144M" {
+		t.Errorf("suggested %q, raised %v; want 6144M, the largest whole GiB below the 8192M memory", suggested, raised)
 	}
 	if len(prompts) != 2 || !strings.Contains(prompts[1], "VM memory limit") {
-		t.Errorf("prompts %q, want 8G rejected with the memory limit as reason", prompts)
+		t.Errorf("prompts %q, want the memory-equal 8192M rejected with the memory limit as reason", prompts)
+	}
+	if err := options.ValidateSizes("8G", raised["tmp-size"], "", ""); err != nil {
+		t.Errorf("the accepted raise does not survive ValidateSizes: %v", err)
+	}
+}
+
+// TestTmpRaiseMaximumMiB pins the tmp raise maximum: the largest whole GiB
+// strictly below the memory, falling back to memory-1 when no whole GiB fits.
+func TestTmpRaiseMaximumMiB(t *testing.T) {
+	tests := []struct{ memoryMiB, want uint32 }{
+		{0, 0},
+		{128, 127},
+		{1024, 1023},
+		{2048, 1024},
+		{2560, 2048},
+		{4096, 3072},
+		{8192, 7168},
+	}
+	for _, tc := range tests {
+		if got := tmpRaiseMaximumMiB(tc.memoryMiB); got != tc.want {
+			t.Errorf("tmpRaiseMaximumMiB(%d) = %d, want %d", tc.memoryMiB, got, tc.want)
+		}
 	}
 }
 
