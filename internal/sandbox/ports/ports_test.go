@@ -281,6 +281,20 @@ func TestResolveServeHostPortPicksAgentBindingAmongUserPorts(t *testing.T) {
 	}
 }
 
+// TestResolveServeHostPortKeepsServeBindingBeforeStaleUserBinding covers a live
+// VM that still carries a user binding this run no longer maps (the user dropped
+// the --port). The stable agent serve port must win over that earlier, unclaimed
+// binding.
+func TestResolveServeHostPortKeepsServeBindingBeforeStaleUserBinding(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{PortBindings: sdkBindings(append(
+		UserPortBindings([]PortMapping{{HostPort: 3000, GuestPort: 3000}}),
+		ServeOnlyBindings(4097)...,
+	))}
+	if got := ResolveServeHostPort(cfg, true, nil); got != 4097 {
+		t.Errorf("ResolveServeHostPort = %d, want 4097 (the serve binding, not the stale user port)", got)
+	}
+}
+
 func TestResolveServeHostPortProbesAroundUserPorts(t *testing.T) {
 	mappings := []PortMapping{{HostPort: ServeOnlyBasePort, GuestPort: 3000}}
 	if got := ResolveServeHostPort(nil, true, mappings); got == ServeOnlyBasePort {

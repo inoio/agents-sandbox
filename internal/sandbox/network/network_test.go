@@ -8,6 +8,51 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
+func TestParseProfile(t *testing.T) {
+	for _, name := range []string{"public", "private", "host", "none"} {
+		got, err := ParseProfile(name)
+		if err != nil || got != Profile(name) {
+			t.Errorf("ParseProfile(%q) = %q, %v; want %q, nil", name, got, err, name)
+		}
+	}
+	if _, err := ParseProfile("bogus"); err == nil {
+		t.Error("ParseProfile(bogus) = nil error, want an unknown-profile error")
+	}
+}
+
+func TestParseProfiles(t *testing.T) {
+	got, err := ParseProfiles([]string{" public ", "host"})
+	if err != nil {
+		t.Fatalf("ParseProfiles: %v", err)
+	}
+	if !slices.Equal(got, []Profile{ProfilePublic, ProfileHost}) {
+		t.Fatalf("ParseProfiles = %v, want [public host]", got)
+	}
+
+	if _, err := ParseProfiles([]string{"bogus"}); err == nil {
+		t.Fatal("ParseProfiles(bogus) should error")
+	}
+	if _, err := ParseProfiles([]string{"none", "public"}); err == nil {
+		t.Fatal("ParseProfiles(none, public) should error")
+	}
+}
+
+// TestParseProfilesRepeatedNone pins that dedupe runs before the combination
+// check, so repeating `none` is not mistaken for combining it with another.
+func TestParseProfilesRepeatedNone(t *testing.T) {
+	got, err := ParseProfiles([]string{"none", "none"})
+	if err != nil {
+		t.Fatalf("ParseProfiles(none, none): %v", err)
+	}
+	if len(got) != 1 || got[0] != ProfileNone {
+		t.Fatalf("ParseProfiles(none, none) = %v, want [none]", got)
+	}
+
+	if _, err := ParseProfiles([]string{"none", "none", "public"}); err == nil {
+		t.Fatal("ParseProfiles(none, none, public) should error")
+	}
+}
+
 func TestSpecNoneAllowlistBase(t *testing.T) {
 	spec, err := (Policy{Profiles: []Profile{ProfileNone}}).Spec()
 	if err != nil {

@@ -47,14 +47,12 @@ type SecretSubstitution struct {
 type SecretEnvOptions struct {
 	Allow []string
 	// AllowPlaceholderFor lists hosts that may receive the unchanged placeholder
-	// where substitution does not apply. Combined with Passthrough when both are set.
+	// where substitution does not apply.
 	AllowPlaceholderFor []string
-	// Deprecated: use AllowPlaceholderFor.
-	Passthrough        []string
-	Placeholder        string
-	RequireTLSIdentity *bool
-	Substitution       SecretSubstitution
-	ViolationAction    ViolationAction
+	Placeholder         string
+	RequireTLSIdentity  *bool
+	Substitution        SecretSubstitution
+	ViolationAction     ViolationAction
 }
 
 // Secret is the factory namespace matching the SDK's Secret.Env.
@@ -62,16 +60,13 @@ var Secret secretFactory
 
 type secretFactory struct{}
 
-// Env mirrors microsandbox's Secret.Env, including folding Passthrough into
-// AllowPlaceholderFor + Passthrough as the SDK does.
+// Env mirrors microsandbox's Secret.Env for the option fields the launcher sets.
 func (secretFactory) Env(envVar, value string, opts SecretEnvOptions) SecretEntry {
-	placeholderHosts := append([]string(nil), opts.AllowPlaceholderFor...)
-	placeholderHosts = append(placeholderHosts, opts.Passthrough...)
 	return SecretEntry{
 		EnvVar:             envVar,
 		Value:              value,
 		Allow:              opts.Allow,
-		Passthrough:        placeholderHosts,
+		Passthrough:        append([]string(nil), opts.AllowPlaceholderFor...),
 		Placeholder:        opts.Placeholder,
 		RequireTLSIdentity: opts.RequireTLSIdentity,
 		Substitution:       opts.Substitution,

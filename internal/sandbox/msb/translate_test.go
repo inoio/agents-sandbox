@@ -835,6 +835,12 @@ func TestSandboxOptionsOmitRootDiskWhenUnset(t *testing.T) {
 	if len(cfg.PortBindings) != 0 {
 		t.Errorf("PortBindings = %v, want none", cfg.PortBindings)
 	}
+	// An omitted option leaves the map nil; emitting it with an empty value
+	// would allocate an empty map the runtime then persists.
+	if cfg.Labels != nil || cfg.Volumes != nil || cfg.Env != nil {
+		t.Errorf("default-valued spec allocated an empty map: labels=%v volumes=%v env=%v",
+			cfg.Labels, cfg.Volumes, cfg.Env)
+	}
 }
 
 func TestSandboxOptionsOmitSDKDefaults(t *testing.T) {
@@ -898,6 +904,9 @@ func TestNetworkConfigRuleOrder(t *testing.T) {
 	for i, want := range wantActions {
 		if cfg.Rules[i].Action != want {
 			t.Errorf("rule[%d].Action = %q, want %q (%+v)", i, cfg.Rules[i].Action, want, cfg.Rules)
+		}
+		if cfg.Rules[i].Direction != msbSdk.PolicyDirectionEgress {
+			t.Errorf("rule[%d].Direction = %q, want egress (%+v)", i, cfg.Rules[i].Direction, cfg.Rules)
 		}
 	}
 	if cfg.Rules[0].Destination != "host" || cfg.Rules[0].Port != "53" {
