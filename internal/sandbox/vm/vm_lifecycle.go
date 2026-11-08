@@ -6,7 +6,6 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/agents-sandbox/internal/hostlock"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
@@ -48,10 +47,11 @@ func (b VMBoot) Booted() bool {
 
 // acquireProjectVMLock takes the per-(slug, agent) creation lock that serializes
 // a project VM's create and destroy. It is the production default a test
-// overrides through ProjectVMCreation.Seams.ProjectVMLock.
-var acquireProjectVMLock = func(k state.Key) (func(), error) {
-	return hostlock.AcquireExclusive(state.ProjectVMLockDir(k), state.ProjectVMLockName)
-}
+// overrides through ProjectVMCreation.Seams.ProjectVMLock. The acquire rejects a
+// lock dir that did not resolve to an absolute path, so an unresolved state root
+// fails the ensure instead of creating the lock under the process working
+// directory.
+var acquireProjectVMLock = state.AcquireProjectVMLock
 
 // projectVMLock returns the creation lock for this ensure: the injected seam
 // when a test set one, else the shared host flock.

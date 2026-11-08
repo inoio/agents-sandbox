@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
@@ -242,8 +242,8 @@ func TestCheckDocumentSchemaReportsMalformedDocumentsAsUnparsable(t *testing.T) 
 	}
 
 	err := checkDocumentSchema([]byte("schema: [1, 2]\n"), RootStateSchema)
-	if _, ok := errors.AsType[*yaml.TypeError](err); !ok {
-		t.Errorf("checkDocumentSchema error = %v, want its *yaml.TypeError cause reachable", err)
+	if _, ok := errors.AsType[*yaml.LoadErrors](err); !ok {
+		t.Errorf("checkDocumentSchema error = %v, want its *yaml.LoadErrors cause reachable", err)
 	}
 
 	// A document from a newer schema is refused, not quarantined as unparsable.

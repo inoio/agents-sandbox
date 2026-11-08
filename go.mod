@@ -18,7 +18,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/superradcompany/microsandbox/sdk/go v0.7.13
 	github.com/titanous/json5 v1.0.0
-	go.yaml.in/yaml/v3 v3.0.6
+	go.yaml.in/yaml/v4 v4.0.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
 	oneyaml.dev/go v1.0.0
@@ -62,6 +62,7 @@ require (
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
+	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/text v0.43.0 // indirect

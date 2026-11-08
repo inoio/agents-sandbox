@@ -294,7 +294,7 @@ linters:
         - ^github.com/testcontainers/testcontainers-go.FromDockerfile$
         - ^golang.org/x/tools/go/analysis.Analyzer$
         - ^google.golang.org/protobuf/.+Options$
-        - ^go.yaml.in/yaml/v3.Node$
+        - ^go.yaml.in/yaml/v4.Node$
         # std libs (project-specific)
         - ^archive/tar.Header$
         # third-party libs (project-specific)

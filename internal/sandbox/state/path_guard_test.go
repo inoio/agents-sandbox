@@ -74,6 +74,10 @@ func TestStateWriteFunnelsRejectARelativeRoot(t *testing.T) {
 		{"AcquireClaim", func() (func(), bool, error) {
 			return AcquireClaim(k.Slug, "token")
 		}},
+		{"AcquireProjectVMLock", func() (func(), bool, error) {
+			release, err := AcquireProjectVMLock(k)
+			return release, false, err
+		}},
 		{"AcquireClientLease", func() (func(), bool, error) {
 			release, err := AcquireClientLease(k)
 			return release, false, err

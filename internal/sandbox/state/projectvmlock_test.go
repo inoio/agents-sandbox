@@ -98,6 +98,33 @@ func TestLockProjectVMNonBlockingSucceedsWhenFree(t *testing.T) {
 	release()
 }
 
+// TestAcquireProjectVMLockTakesTheRawFlock pins the success path the VM caller
+// depends on: the exported route acquires the lock file and actually holds the
+// flock (a second open contends) until its release.
+func TestAcquireProjectVMLockTakesTheRawFlock(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	k := testKey()
+
+	release, err := AcquireProjectVMLock(k)
+	if err != nil {
+		t.Fatalf("AcquireProjectVMLock: %v", err)
+	}
+	defer release()
+
+	probe, err := os.OpenFile(filepath.Join(ProjectVMLockDir(k), ProjectVMLockName), os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("open lock for probe: %v", err)
+	}
+	defer probe.Close()
+	contentionErr := hostlock.ExclusiveNonBlocking(probe)
+	if contentionErr == nil {
+		t.Fatal("AcquireProjectVMLock returned without holding the flock")
+	}
+	if !hostlock.IsContention(contentionErr) {
+		t.Fatalf("probe must fail because the lock is held, got: %v", contentionErr)
+	}
+}
+
 func TestLockProjectVMMkdirError(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	wantErr := errors.New("mkdir boom")
