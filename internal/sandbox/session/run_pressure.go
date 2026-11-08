@@ -39,7 +39,7 @@ var (
 func offerMemoryRaiseAfterAttach(
 	ctx context.Context,
 	k state.Key,
-	sb msb.Sandbox,
+	sb resourceproposal.MemoryReads,
 	summary pressureSummary,
 	opts options.RunOptions,
 	ui termio.UI,
@@ -77,7 +77,7 @@ const diskProbeTimeout = 10 * time.Second
 func offerDiskRaiseAfterAttach(
 	ctx context.Context,
 	k state.Key,
-	sb msb.Sandbox,
+	sb msb.SandboxExecutor,
 	opts options.RunOptions,
 	ui termio.UI,
 ) {

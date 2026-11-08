@@ -24,7 +24,7 @@ var resolveHomeVolumePath = func(ctx context.Context, volumeName string) (string
 // watchHostOpener serves the in-VM xdg-open shim's spool until ctx is done. It
 // is a test seam; production runs an opener.Watcher with the host handler,
 // forwarding OAuth login callbacks into sb.
-var watchHostOpener = func(ctx context.Context, homeVolumePath string, sb msb.Sandbox) (opener.Report, error) {
+var watchHostOpener = func(ctx context.Context, homeVolumePath string, sb msb.SandboxExecutor) (opener.Report, error) {
 	watcher := &opener.Watcher{
 		HomeVolumePath: homeVolumePath,
 		Handle:         opener.NewHostHandler(opener.OpenOnHost, opener.NewCallbackForwarder(guestFetcher(sb))),
@@ -41,7 +41,7 @@ const curlExitCouldNotConnect = 7
 // on 127.0.0.1 or, for some, on ::1, so a refused IPv4 connection is retried
 // on IPv6. Errors carry only the exit status: the URL holds the authorization
 // code and must not end up in a log.
-func guestFetcher(sb msb.Sandbox) opener.GuestFetcher {
+func guestFetcher(sb msb.SandboxExecutor) opener.GuestFetcher {
 	return func(ctx context.Context, url string) ([]byte, error) {
 		result, err := fetchInGuest(ctx, sb, url)
 		if err == nil && result.ExitCode() == curlExitCouldNotConnect {
@@ -64,7 +64,7 @@ func curlCallbackArguments(url string) []string {
 	return []string{"--silent", "--include", "--raw", "--noproxy", "*", "--max-time", "110", "--", url}
 }
 
-func fetchInGuest(ctx context.Context, sb msb.Sandbox, url string) (msb.ShellResult, error) {
+func fetchInGuest(ctx context.Context, sb msb.SandboxExecutor, url string) (msb.ShellResult, error) {
 	return sb.Exec(ctx, "curl", curlCallbackArguments(url))
 }
 

@@ -24,7 +24,7 @@ func stubHostOpener(t *testing.T, volumePath string, report opener.Report, watch
 		}
 		return volumePath, nil
 	}
-	watchHostOpener = func(ctx context.Context, homeVolumePath string, _ msb.Sandbox) (opener.Report, error) {
+	watchHostOpener = func(ctx context.Context, homeVolumePath string, _ msb.SandboxExecutor) (opener.Report, error) {
 		watchedPaths = append(watchedPaths, homeVolumePath)
 		<-ctx.Done()
 		return report, watchErr

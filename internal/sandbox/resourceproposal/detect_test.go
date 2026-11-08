@@ -22,6 +22,16 @@ import (
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
+// The msb side satisfies MemoryReads, so a caller can hand its sandbox or
+// sandbox handle to DetectAndOfferMemoryRaise. Machine-checked here rather than
+// asserted only in prose; it lives in the test package so the production
+// resourceproposal package keeps depending on the abstraction, not on msb.
+var (
+	_ MemoryReads = msb.SandboxObserver(nil)
+	_ MemoryReads = msb.Sandbox(nil)
+	_ MemoryReads = msb.SandboxHandle(nil)
+)
+
 // detectKey is the project/agent key the shared-core tests detect for.
 func detectKey() state.Key {
 	return state.Key{Slug: "detectslug", Agent: "opencode"}
