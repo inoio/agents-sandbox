@@ -1,11 +1,12 @@
 package msb
 
 import (
-	"go/build"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -98,16 +99,29 @@ func TestSDKBoundaryResiduePackagesExist(t *testing.T) {
 	}
 }
 
-// productionImportsSDK reports whether the package at dir imports sdkPath in its
-// non-test sources. A directory that is not a buildable package (no buildable
-// Go files, or a build error) reports false, so the walk skips non-package
-// directories.
+// productionImportsSDK reports whether any non-test Go file in dir imports sdkPath.
+// It parses every file regardless of build constraints, because go/build's default
+// context would skip the macOS-only sources on a Linux runner and let an SDK import
+// there escape the boundary.
 func productionImportsSDK(dir, sdkPath string) bool {
-	pkg, err := build.ImportDir(dir, 0)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		// A non-package directory (no buildable Go files, or a build error) is
-		// skipped, not a boundary violation.
 		return false
 	}
-	return slices.Contains(pkg.Imports, sdkPath)
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, parseErr := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, parser.ImportsOnly)
+		if parseErr != nil {
+			continue
+		}
+		for _, importSpec := range file.Imports {
+			if path, unquoteErr := strconv.Unquote(importSpec.Path.Value); unquoteErr == nil && path == sdkPath {
+				return true
+			}
+		}
+	}
+	return false
 }

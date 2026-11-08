@@ -1252,3 +1252,13 @@ func TestDiskCompactionResultFromNilIsNil(t *testing.T) {
 		t.Errorf("diskCompactionResultFrom(nil) = %v, want nil", got)
 	}
 }
+
+func TestDiskCompactionDisksFromPreservesNil(t *testing.T) {
+	if got := diskCompactionDisksFrom(nil); got != nil {
+		t.Errorf("diskCompactionDisksFrom(nil) = %v, want nil", got)
+	}
+	disks := diskCompactionResultFrom(&msbSdk.DiskCompactionResult{}).Disks
+	if disks != nil {
+		t.Errorf("diskCompactionResultFrom(no disks).Disks = %v, want nil", disks)
+	}
+}
