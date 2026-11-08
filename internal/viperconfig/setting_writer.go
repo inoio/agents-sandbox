@@ -15,6 +15,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configread"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
 
@@ -54,7 +55,7 @@ func LayerSettingOwner(paths configpaths.ConfigPaths, slug, key string) (string,
 // format that file uses. An absent, unreadable, or unparseable file reports
 // false.
 func layerSetsKey(dir, key string) bool {
-	path, _, ok := configpaths.FindConfigFile(dir)
+	path, _, ok, _ := configdecode.FindFile(dir)
 	// gomutants:disable-next-line BRANCH_IF reason="without a config file the empty path fails configread's open and the next guard returns false, so the body is redundant"
 	if !ok {
 		return false
@@ -114,41 +115,52 @@ func WriteSetting(dir, key string, value any) error {
 	if dir == "" {
 		return fmt.Errorf("config dir is empty; the config path did not resolve")
 	}
-	path, ext, found := configpaths.FindConfigFile(dir)
+	path, ext, found, err := configdecode.FindFile(dir)
+	if err != nil {
+		return err
+	}
 	if !found {
 		path = filepath.Join(dir, "config.yaml")
-		return writeYAMLSetting(path, nil, 0o600, key, value)
+		_, err = writeYAMLSetting(path, nil, 0o600, key, value)
+		return err
 	}
 	if ext != extYAML && ext != extYML {
 		return ErrUnsupportedConfigFormat
 	}
 	// Edit the link target, not the link: atomicwrite renames its temporary
 	// file over path, which would replace a symlinked config with a regular file.
-	path, err := evalSymlinks(path)
+	target, err := evalSymlinks(path)
 	if err != nil {
 		return fmt.Errorf("resolve config file link %s: %w", path, err)
 	}
-	info, statErr := os.Stat(path)
-	data, readErr := configread.ReadFile(path)
-	if err := errors.Join(statErr, readErr); err != nil {
-		return fmt.Errorf("read config file %s: %w", path, err)
+	info, statErr := os.Stat(target)
+	// The file is read as the approved project config it must still be, so a
+	// change made since the approval is never edited into an approved file.
+	data, readErr := projectguard.ReadFile(path, configread.ReadFile)
+	if joined := errors.Join(statErr, readErr); joined != nil {
+		return fmt.Errorf("read config file %s: %w", path, joined)
 	}
-	return writeYAMLSetting(path, data, info.Mode().Perm(), key, value)
+	edited, err := writeYAMLSetting(target, data, info.Mode().Perm(), key, value)
+	if err != nil {
+		return err
+	}
+	projectguard.Accept(path, edited)
+	return nil
 }
 
-// writeYAMLSetting applies key=value to the YAML document in data and writes the
-// result atomically to path with mode perm. An empty data set starts a new
-// document.
-func writeYAMLSetting(path string, data []byte, perm os.FileMode, key string, value any) error {
+// writeYAMLSetting applies key=value to the YAML document in data, writes the
+// result atomically to path with mode perm, and returns the written bytes. An
+// empty data set starts a new document.
+func writeYAMLSetting(path string, data []byte, perm os.FileMode, key string, value any) ([]byte, error) {
 	document, err := oneyaml.Parse(data, oneyaml.Untrusted())
 	if err != nil {
-		return yamlfmt.WrapErr(path, err)
+		return nil, yamlfmt.WrapErr(path, err)
 	}
 	edited, err := setDocumentValue(document, strings.Split(key, "."), value)
 	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	return atomicwrite.WriteFileMode(path, edited, perm)
+	return edited, atomicwrite.WriteFileMode(path, edited, perm)
 }
 
 // setDocumentValue sets the dotted key to value on document and returns the new

@@ -11,6 +11,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -288,5 +289,40 @@ func TestLoadEnvAndSecretsPerSlugSecretFormats(t *testing.T) {
 	}
 	if got := byVar["OTHER"].Allow; !slices.Equal(got, []string{"project-other.example"}) {
 		t.Errorf("OTHER Allow = %v, want [project-other.example]", got)
+	}
+}
+
+// TestEnvAndSecretReadsGoThroughTheApproval pins that env and secret files are
+// read through the approval: changed ones are ignored with a warning and the
+// change is recorded.
+func TestEnvAndSecretReadsGoThroughTheApproval(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, "env")
+	legacy := filepath.Join(dir, "env.secret")
+	yamlFile := filepath.Join(dir, "env.secret.yaml")
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		envFile:  projectguard.ApprovalOf([]byte("A=1\n")),
+		legacy:   projectguard.ApprovalOf([]byte("T=v@a.example.com\n")),
+		yamlFile: projectguard.ApprovalOf([]byte("T:\n  value: v\n  hosts: [a.example.com]\n")),
+	}))
+	testutil.WritePath(t, envFile, "A=1\nHTTP_PROXY=http://evil\n")
+	testutil.WritePath(t, legacy, "T=v@evil.example.com\n")
+	testutil.WritePath(t, yamlFile, "T:\n  value: v\n  hosts: [evil.example.com]\n")
+	ui := termio.NewTestMock(t)
+
+	if got := BuildEnvMap(envFile, &ui); got != nil {
+		t.Errorf("BuildEnvMap = %v, want nothing from a changed env file", got)
+	}
+	if got := ParseSecretSpecLegacy(legacy, &ui); got != nil {
+		t.Errorf("ParseSecretSpecLegacy = %v, want nothing from a changed secret file", got)
+	}
+	if got := ParseSecretSpecYAML(yamlFile, &ui); got != nil {
+		t.Errorf("ParseSecretSpecYAML = %v, want nothing from a changed secret file", got)
+	}
+	if len(ui.WarnCalls) != 3 {
+		t.Errorf("warnings = %q, want one per changed file", ui.WarnCalls)
+	}
+	if !errors.Is(projectguard.Violation(), projectguard.ErrNotApproved) {
+		t.Errorf("Violation() = %v, want the change recorded", projectguard.Violation())
 	}
 }

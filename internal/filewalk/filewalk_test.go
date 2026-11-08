@@ -6,7 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 )
 
 // chmod0000 grants the mode its test needs. Modes do not restrict root, so a
@@ -214,5 +217,83 @@ func TestWalkVisitErrorAborts(t *testing.T) {
 	err := Walk(root, func(string, bool) bool { return true }, func(Entry) error { return sentinel })
 	if !errors.Is(err, sentinel) {
 		t.Errorf("Walk() error = %v, want %v", err, sentinel)
+	}
+}
+
+// TestWalkSkipsAFileChangedSinceItsApproval pins that the walk reads project
+// files through the approval: a changed file is not visited, and the walk
+// reports it.
+func TestWalkSkipsAFileChangedSinceItsApproval(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "plugin.ts")
+	t.Cleanup(projectguard.Install([]string{root}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte("approved")),
+	}))
+	writeFile(t, path, "changed")
+	var visited []string
+	err := Walk(root, func(string, bool) bool { return true }, func(entry Entry) error {
+		visited = append(visited, entry.Rel)
+		return nil
+	})
+	if len(visited) != 0 || !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("Walk visited %q, returned %v; want the changed file refused", visited, err)
+	}
+}
+
+// TestWalkRefusesAnApprovedFileThatIsGone pins that the walk reports an
+// approved file it would have taken but did not reach, while one its filter
+// leaves out may be gone.
+func TestWalkRefusesAnApprovedFileThatIsGone(t *testing.T) {
+	root := t.TempDir()
+	t.Cleanup(projectguard.Install([]string{root}, map[string]projectguard.Approval{
+		filepath.Join(root, "plugins", "a.ts"):       projectguard.ApprovalOf([]byte("a")),
+		filepath.Join(root, "node_modules", "x.js"):  projectguard.ApprovalOf([]byte("x")),
+		filepath.Join(root, "plugins", "skip.local"): projectguard.ApprovalOf([]byte("s")),
+	}))
+	filter := func(rel string, isDir bool) bool {
+		if isDir {
+			return rel != "node_modules"
+		}
+		return filepath.Ext(rel) != ".local"
+	}
+	if err := os.MkdirAll(filepath.Join(root, "plugins"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	err := Walk(root, filter, func(Entry) error { return nil })
+	if !errors.Is(err, projectguard.ErrNotApproved) || !strings.Contains(err.Error(), "a.ts") {
+		t.Errorf("Walk = %v, want the gone plugins/a.ts refused", err)
+	}
+	writeFile(t, filepath.Join(root, "plugins", "a.ts"), "a")
+	t.Cleanup(projectguard.Install([]string{root}, map[string]projectguard.Approval{
+		filepath.Join(root, "plugins", "a.ts"):       projectguard.ApprovalOf([]byte("a")),
+		filepath.Join(root, "node_modules", "x.js"):  projectguard.ApprovalOf([]byte("x")),
+		filepath.Join(root, "plugins", "skip.local"): projectguard.ApprovalOf([]byte("s")),
+	}))
+	if err := Walk(root, filter, func(Entry) error { return nil }); err != nil {
+		t.Errorf("Walk with only filtered-out files gone = %v, want nil", err)
+	}
+}
+
+// TestWalkRefusesAnApprovedFileReplacedByADanglingLink pins that a listed
+// entry counts as reached only once read: an approved file swapped for a link
+// to nothing is refused, not skipped.
+func TestWalkRefusesAnApprovedFileReplacedByADanglingLink(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "plugin.ts")
+	t.Cleanup(projectguard.Install([]string{root}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte("approved")),
+	}))
+	if err := os.Symlink(filepath.Join(root, "nowhere"), path); err != nil {
+		t.Fatal(err)
+	}
+	if err := Walk(
+		root,
+		func(string, bool) bool { return true },
+		func(Entry) error { return nil },
+	); !errors.Is(
+		err,
+		projectguard.ErrNotApproved,
+	) {
+		t.Errorf("Walk = %v, want the dangling approved file refused", err)
 	}
 }

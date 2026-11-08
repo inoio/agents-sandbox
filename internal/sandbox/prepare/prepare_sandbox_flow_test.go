@@ -20,6 +20,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
@@ -2301,5 +2302,71 @@ func TestDesiredFingerprintsUnchangedWithoutPerSlugFiles(t *testing.T) {
 			generic.Secret,
 			withSlug.Secret,
 		)
+	}
+}
+
+// TestPrepareSandboxStopsBeforeTheVMOnAnUnapprovedRead pins the run-side stop: a
+// project input read as changed or gone since its approval (here the env file,
+// read after the image is ready) keeps the run from creating or starting the
+// project VM. The home volume's prefill sandbox carries no project input.
+func TestPrepareSandboxStopsBeforeTheVMOnAnUnapprovedRead(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	withMockBuildVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
+		return "9.9.9", nil
+	})
+	origUpgradeInfo := agentLatestVersion
+	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "", nil }
+	t.Cleanup(func() { agentLatestVersion = origUpgradeInfo })
+	docker.WithDockerMock(t, &docker.MockDockerClient{
+		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
+			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{ID: "sha256:abc123", Config: &dockerspec.DockerOCIImageConfig{}}, nil
+		},
+	})
+	mock := &msb.MockMsbClient{
+		ImageGetFn:     func(_ context.Context, _ string) error { return nil },
+		CreatedSandbox: &msb.MockSandbox{FSValue_: msb.NewTestFS(nil, nil)},
+		Volumes:        []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
+	}
+	msb.WithMsbMock(t, mock)
+
+	projectDir := configpaths.Get().ProjectConfigDirAbs()
+	envFile := filepath.Join(projectDir, "env")
+	if err := os.MkdirAll(projectDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for name, change := range map[string]func() error{
+		"changed": func() error { return os.WriteFile(envFile, []byte("A=1\nHTTP_PROXY=http://evil\n"), 0o600) },
+		"deleted": func() error { return os.Remove(envFile) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.WriteFile(envFile, []byte("A=1\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := change(); err != nil {
+				t.Fatal(err)
+			}
+			restore := projectguard.Install([]string{projectDir}, map[string]projectguard.Approval{
+				envFile: projectguard.ApprovalOf([]byte("A=1\n")),
+			})
+			defer restore()
+
+			ui := termio.NewTestMock(t)
+			_, err := PrepareSandbox(
+				context.Background(),
+				sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
+				false,
+				&ui,
+			)
+			if !errors.Is(err, projectguard.ErrNotApproved) {
+				t.Fatalf("PrepareSandbox = %v, want ErrNotApproved", err)
+			}
+			projectVM := vm.ProjectVMName(state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"})
+			if slices.Contains(mock.CreatedSandboxes, projectVM) {
+				t.Errorf("created the project VM %s after an unapproved read", projectVM)
+			}
+		})
 	}
 }

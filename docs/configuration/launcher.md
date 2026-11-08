@@ -88,6 +88,9 @@ does not ask again.
 - `--dry-run` shows the change and previews the run without the project config.
 - Every other command prints a warning and runs without the project config.
 - When agents-sandbox itself raises `memory` or a disk limit in the project config, it keeps that change approved.
+- A run uses exactly the files you approved. If a file in `.agents-sandbox/`, or a file `home:` copies from the
+  checkout, changes or disappears while the run starts, the run stops before it starts the sandbox and never builds
+  an image from a changed `Dockerfile`. Run it again to review the change.
 
 Your user config (`~/.config/agents-sandbox/`), environment variables, and flags are never checked: you wrote them.
 

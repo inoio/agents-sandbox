@@ -19,6 +19,16 @@ const (
 // through FindConfigFile, so this is the single order the two agree on.
 var supportedExts = []string{".yaml", ".yml", ".json", ExtJSONC, ExtJSON5}
 
+// ConfigFileCandidates lists the config file paths FindConfigFile tries in dir,
+// in its order.
+func ConfigFileCandidates(dir string) []string {
+	candidates := make([]string, 0, len(supportedExts))
+	for _, ext := range supportedExts {
+		candidates = append(candidates, filepath.Join(dir, "config"+ext))
+	}
+	return candidates
+}
+
 // FindConfigFile returns the first existing config file in dir: the path, the
 // matching extension, and whether one was found. An empty dir reports no file;
 // the extension lets callers normalize JSONC/JSON5 before parsing.

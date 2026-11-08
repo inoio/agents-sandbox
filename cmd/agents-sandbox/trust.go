@@ -17,7 +17,8 @@ import (
 // process's path factory with the project layer; an earlier exclusion it may
 // carry is undone first, so each command decides afresh.
 //
-// An approved (or empty) layer is used. A changed layer is approved
+// An approved (or empty) layer is used, and every later read of it must return
+// exactly the bytes approved (projectguard). A changed layer is approved
 // interactively by the commands that turn it into VM or image state, which
 // refuse without a terminal; a dry run reports it, and every other command
 // warns. A layer that ends up unapproved is left out of the run.
@@ -35,6 +36,7 @@ func gateProjectConfig(
 		return err
 	}
 	if decision.Approved {
+		projecttrust.Guard(decision.Current, withProject().ProjectConfigDirAbs())
 		return nil
 	}
 	switch {
@@ -44,7 +46,11 @@ func gateProjectConfig(
 		ui.Warn(projecttrust.RenderChanges(decision.Changes) +
 			"\nIt needs your approval before a run uses it; this preview leaves it out.")
 	default:
-		return projecttrust.Approve(ui, identity.CheckoutSlug, decision)
+		if err := projecttrust.Approve(ui, identity.CheckoutSlug, decision); err != nil {
+			return err
+		}
+		projecttrust.Guard(decision.Current, withProject().ProjectConfigDirAbs())
+		return nil
 	}
 	configpaths.Use(func() configpaths.ConfigPaths { return configpaths.WithoutProjectLayer(withProject()) })
 	return nil

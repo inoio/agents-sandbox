@@ -10,6 +10,7 @@ import (
 	"github.com/titanous/json5"
 
 	"github.com/inoio/agents-sandbox/internal/configdecode"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -165,5 +166,61 @@ func TestDecodeFileRejectsAnUnknownExtension(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), path) {
 		t.Errorf("err = %q, want it to name the path", err)
+	}
+}
+
+// TestDecodeFileReadsOnlyTheApprovedBytes pins that a config file is read
+// through the project config approval: a file changed since it was approved is
+// refused, not decoded.
+func TestDecodeFileReadsOnlyTheApprovedBytes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte("memory: 4G\n")),
+	}))
+	testutil.WritePath(t, path, "memory: 64G\n")
+	if _, err := configdecode.DecodeFile(path, "launcher config"); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("DecodeFile = %v, want ErrNotApproved", err)
+	}
+}
+
+// TestDecodeDataRejectsAnUnknownExtension pins that bytes read elsewhere are
+// held to the same extension rule as DecodeFile.
+func TestDecodeDataRejectsAnUnknownExtension(t *testing.T) {
+	if _, err := configdecode.DecodeData("config.ini", "launcher config", []byte("memory: 8G\n")); err == nil {
+		t.Error("DecodeData accepted an unknown extension")
+	}
+}
+
+// TestFindFileRefusesAnApprovedConfigFileThatIsGone pins that a deleted
+// approved config file is a refusal, not a missing layer.
+func TestFindFileRefusesAnApprovedConfigFileThatIsGone(t *testing.T) {
+	dir := t.TempDir()
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		filepath.Join(dir, "config.yaml"): projectguard.ApprovalOf([]byte("network: none\n")),
+	}))
+	if _, _, found, err := configdecode.FindFile(dir); found || !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("FindFile = found %v, %v; want ErrNotApproved", found, err)
+	}
+	testutil.WritePath(t, filepath.Join(dir, "config.yaml"), "network: none\n")
+	if path, ext, found, err := configdecode.FindFile(
+		dir,
+	); !found || err != nil || filepath.Base(path) != "config.yaml" ||
+		ext != ".yaml" {
+		t.Errorf("FindFile = %q, %q, %v, %v; want the config file", path, ext, found, err)
+	}
+}
+
+// TestFindFileLooksForNothingWithoutADir pins that a layer with no dir (env,
+// flags) looks for no config file and is never refused, even when an approved
+// config file named like one relative to the working directory is gone.
+func TestFindFileLooksForNothingWithoutADir(t *testing.T) {
+	dir := t.TempDir()
+	t.Cleanup(projectguard.Install(nil, map[string]projectguard.Approval{
+		filepath.Join(dir, "config.yaml"): projectguard.ApprovalOf([]byte("memory: 8G\n")),
+	}))
+	t.Chdir(dir)
+	if path, _, found, err := configdecode.FindFile(""); found || err != nil || path != "" {
+		t.Errorf("FindFile(\"\") = %q, %v, %v; want nothing", path, found, err)
 	}
 }

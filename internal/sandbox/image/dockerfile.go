@@ -13,6 +13,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -734,7 +735,7 @@ func RenderProjectDockerfile(
 // then thread the bytes into the image entry points, so no lower layer reaches
 // for a process-global path.
 func ReadProjectDockerfile(paths configpaths.ConfigPaths) []byte {
-	if data, err := os.ReadFile(paths.ProjectDockerfile()); err == nil {
+	if data, err := projectguard.ReadFile(paths.ProjectDockerfile(), os.ReadFile); err == nil {
 		return data
 	}
 	return nil

@@ -3,6 +3,8 @@ package viperconfig
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/notify"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -340,42 +343,48 @@ func TestHomeKeyFromPerSlugConfig(t *testing.T) {
 	t.Errorf("expected the per-slug home entry .gitconfig in cfg.Home, got %+v", cfg.Home)
 }
 
-// TestLayerSettingsReadsOneLayerAlone pins that a single config dir is read on
-// its own, in any supported format, so a caller can tell what that layer sets
-// independently of the merged view.
-func TestLayerSettingsReadsOneLayerAlone(t *testing.T) {
-	yamlDir := t.TempDir()
-	testutil.WritePath(t, filepath.Join(yamlDir, "config.yaml"), "memory: 8G\nnetwork:\n  profile: public\n")
-	jsonDir := t.TempDir()
-	testutil.WritePath(t, filepath.Join(jsonDir, "config.json5"), "{memory: '8G', network: {profile: 'public'}}")
-
-	for name, dir := range map[string]string{"yaml": yamlDir, "json5": jsonDir} {
-		path, settings, err := LayerSettings(dir)
+// TestParseLayerSettingsReadsOneLayerAlone pins that one config file's bytes
+// are parsed on their own, in any supported format, so a caller can tell what
+// that layer sets independently of the merged view.
+func TestParseLayerSettingsReadsOneLayerAlone(t *testing.T) {
+	want := map[string]any{"memory": "8G", "network": map[string]any{"profile": "public"}}
+	for ext, data := range map[string]string{
+		".yaml":  "memory: 8G\nnetwork:\n  profile: public\n",
+		".json5": "{memory: '8G', network: {profile: 'public'}}",
+	} {
+		settings, err := ParseLayerSettings("config"+ext, []byte(data))
 		if err != nil {
-			t.Fatalf("%s: LayerSettings: %v", name, err)
+			t.Fatalf("%s: ParseLayerSettings: %v", ext, err)
 		}
-		if filepath.Dir(path) != dir {
-			t.Errorf("%s: path = %q, want a file in %q", name, path, dir)
-		}
-		want := map[string]any{"memory": "8G", "network": map[string]any{"profile": "public"}}
 		if !reflect.DeepEqual(settings, want) {
-			t.Errorf("%s: settings = %#v, want %#v", name, settings, want)
+			t.Errorf("%s: settings = %#v, want %#v", ext, settings, want)
 		}
 	}
 }
 
-func TestLayerSettingsWithoutAConfigFileIsEmpty(t *testing.T) {
-	path, settings, err := LayerSettings(t.TempDir())
-	if err != nil || path != "" || settings != nil {
-		t.Errorf("LayerSettings(empty dir) = %q, %v, %v; want empty", path, settings, err)
+func TestParseLayerSettingsReportsAnUnparsableFile(t *testing.T) {
+	for ext, data := range map[string]string{".yaml": "memory: [unclosed\n", ".json5": "{memory: [}"} {
+		if _, err := ParseLayerSettings("config"+ext, []byte(data)); err == nil {
+			t.Errorf("%s: ParseLayerSettings accepted an unparsable file", ext)
+		}
 	}
 }
 
-func TestLayerSettingsReportsAnUnparsableFile(t *testing.T) {
-	dir := t.TempDir()
-	testutil.WritePath(t, filepath.Join(dir, "config.yaml"), "memory: [unclosed\n")
-	if _, _, err := LayerSettings(dir); err == nil {
-		t.Error("LayerSettings accepted an unparsable config file")
+// TestNewResolverReadsOnlyTheApprovedProjectConfig pins that the merged config
+// takes the project layer only as approved.
+func TestNewResolverReadsOnlyTheApprovedProjectConfig(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	if err := os.MkdirAll(cp.ProjectConfigDir(), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(cp.ProjectConfigDirAbs(), "config.yaml")
+	t.Cleanup(projectguard.Install([]string{cp.ProjectConfigDirAbs()}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte("memory: 4G\n")),
+	}))
+	testutil.WritePath(t, path, "memory: 4G\nyes: true\n")
+	if _, err := NewResolver(nil, cp, ""); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("NewResolver = %v, want ErrNotApproved", err)
 	}
 }
 
@@ -453,4 +462,67 @@ func legacyMergeConfig(t *testing.T, file, content string) *viper.Viper {
 		t.Fatalf("legacy MergeConfig: %v", err)
 	}
 	return v
+}
+
+// TestNewResolverWithAnApprovedConfigInTheWorkingDirectory pins Greptile's
+// regression: the layers without a dir (env, flags) look for no config file, so
+// an approved config file in the working directory never blocks startup.
+func TestNewResolverWithAnApprovedConfigInTheWorkingDirectory(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	cwd := t.TempDir()
+	testutil.WritePath(t, filepath.Join(cwd, "config.yaml"), "memory: 8G\n")
+	t.Cleanup(projectguard.Install(nil, map[string]projectguard.Approval{
+		filepath.Join(cwd, "config.yaml"): projectguard.ApprovalOf([]byte("memory: 8G\n")),
+	}))
+	t.Chdir(cwd)
+	if _, err := NewResolver(nil, configpaths.Get(), ""); err != nil {
+		t.Errorf("NewResolver = %v, want startup to succeed", err)
+	}
+}
+
+// TestNewResolverRefusesWhenTheApprovedProjectConfigIsGone pins that the merge
+// does not fall back to the lower layers when the approved project config was
+// removed or swapped for a link to nothing.
+func TestNewResolverRefusesWhenTheApprovedProjectConfigIsGone(t *testing.T) {
+	for name, remove := range map[string]func(path string) error{
+		"deleted": os.Remove,
+		"dangling link": func(path string) error {
+			if err := os.Remove(path); err != nil {
+				return err
+			}
+			return os.Symlink(path+".gone", path)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			configpaths.WithMockConfigPaths(t)
+			cp := configpaths.Get()
+			path := filepath.Join(cp.ProjectConfigDirAbs(), "config.yaml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			testutil.WritePath(t, path, "network:\n  profile: none\n")
+			restore := projectguard.Install([]string{cp.ProjectConfigDirAbs()}, map[string]projectguard.Approval{
+				path: projectguard.ApprovalOf([]byte("network:\n  profile: none\n")),
+			})
+			defer restore()
+			if err := remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := NewResolver(nil, cp, ""); !errors.Is(err, projectguard.ErrNotApproved) {
+				t.Errorf("NewResolver = %v, want ErrNotApproved", err)
+			}
+		})
+	}
+}
+
+// TestMergeDirRefusesAGoneApprovedConfig pins the merge's own refusal: a
+// project layer whose approved config file is gone is not merged as empty.
+func TestMergeDirRefusesAGoneApprovedConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		filepath.Join(dir, "config.yaml"): projectguard.ApprovalOf([]byte("network:\n  profile: none\n")),
+	}))
+	if err := mergeDir(viper.New(), dir); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("mergeDir = %v, want ErrNotApproved", err)
+	}
 }

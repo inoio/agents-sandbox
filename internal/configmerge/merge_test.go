@@ -13,6 +13,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	"go.yaml.in/yaml/v4"
 
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -809,6 +810,23 @@ func TestScanMirrorPerSlugOverridesGeneric(t *testing.T) {
 	}
 }
 
+// TestScanSnippetsSkipsASnippetChangedSinceItsApproval pins that a snippet is
+// read through the approval: a changed one is not merged and is recorded.
+func TestScanSnippetsSkipsASnippetChangedSinceItsApproval(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "opencode-a.json")
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		path: projectguard.ApprovalOf([]byte(`{"a": 1}`)),
+	}))
+	writeSnippet(t, dir, "opencode-a.json", `{"a": 2}`)
+	if merged, _ := scanSnippets([]string{dir}, "opencode*.json*"); len(merged) != 0 {
+		t.Errorf("merged = %v, want the changed snippet skipped", merged)
+	}
+	if !errors.Is(projectguard.Violation(), projectguard.ErrNotApproved) {
+		t.Errorf("Violation() = %v, want the changed snippet recorded", projectguard.Violation())
+	}
+}
+
 // TestBuildMergedAcceptsJSON5Comments pins that a JSON5 snippet's comments and
 // trailing commas parse through the shared decode path.
 func TestBuildMergedAcceptsJSON5Comments(t *testing.T) {
@@ -865,5 +883,75 @@ func TestBuildMergedReadsYAMLSnippet(t *testing.T) {
 	}
 	if parsed["model"] != "y" {
 		t.Errorf("model = %v, want y", parsed["model"])
+	}
+}
+
+// TestScanSnippetsRefusesAnApprovedSnippetThatIsGone pins that deleting an
+// approved snippet, or its whole directory, is recorded for the run to stop on
+// rather than silently dropping its settings.
+func TestScanSnippetsRefusesAnApprovedSnippetThatIsGone(t *testing.T) {
+	for name, gone := range map[string]func(dir string) error{
+		"snippet":   func(dir string) error { return os.Remove(filepath.Join(dir, "opencode-a.json")) },
+		"directory": os.RemoveAll,
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "opencode")
+			writeSnippet(t, dir, "opencode-a.json", `{"a": 1}`)
+			restore := projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+				filepath.Join(dir, "opencode-a.json"): projectguard.ApprovalOf([]byte(`{"a": 1}`)),
+			})
+			defer restore()
+			if err := gone(dir); err != nil {
+				t.Fatal(err)
+			}
+			scanSnippets([]string{dir}, "opencode*.json*")
+			if !errors.Is(projectguard.Violation(), projectguard.ErrNotApproved) {
+				t.Errorf("Violation() = %v, want the gone snippet recorded", projectguard.Violation())
+			}
+		})
+	}
+}
+
+// TestScanSnippetsAcceptsACompleteListing pins that only an approved snippet
+// the listing lacks is refused: present snippets, files in subdirectories, and
+// files that are no snippet are not.
+func TestScanSnippetsAcceptsACompleteListing(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "opencode")
+	writeSnippet(t, dir, "opencode-a.json", `{"a": 1}`)
+	writeSnippet(t, dir, "opencode-b.json", `{"b": 1}`)
+	restore := projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		filepath.Join(dir, "opencode-a.json"):         projectguard.ApprovalOf([]byte(`{"a": 1}`)),
+		filepath.Join(dir, "opencode-b.json"):         projectguard.ApprovalOf([]byte(`{"b": 1}`)),
+		filepath.Join(dir, "plugin", "opencode.json"): projectguard.ApprovalOf([]byte(`{}`)),
+		filepath.Join(dir, "notes.md"):                projectguard.ApprovalOf([]byte(`x`)),
+	})
+	defer restore()
+	if merged, _ := scanSnippets([]string{dir}, "opencode*.json*"); len(merged) != 2 {
+		t.Errorf("merged = %v, want both approved snippets", merged)
+	}
+	if projectguard.Violation() != nil {
+		t.Errorf("Violation() = %v, want none for a complete listing", projectguard.Violation())
+	}
+}
+
+// TestScanSnippetsRefusesAfterAFailedListing pins that a listing that failed
+// part way does not count its partial entries as present.
+func TestScanSnippetsRefusesAfterAFailedListing(t *testing.T) {
+	dir := t.TempDir()
+	writeSnippet(t, dir, "opencode-a.json", `{"a": 1}`)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := readDir
+	readDir = func(string) ([]os.DirEntry, error) { return entries, errors.New("partial read") }
+	t.Cleanup(func() { readDir = original })
+	restore := projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		filepath.Join(dir, "opencode-a.json"): projectguard.ApprovalOf([]byte(`{"a": 1}`)),
+	})
+	defer restore()
+	scanSnippets([]string{dir}, "opencode*.json*")
+	if !errors.Is(projectguard.Violation(), projectguard.ErrNotApproved) {
+		t.Errorf("Violation() = %v, want the unlisted snippet refused", projectguard.Violation())
 	}
 }

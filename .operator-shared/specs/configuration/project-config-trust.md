@@ -153,19 +153,47 @@ are.
 
 ## Consistency between approval and use
 
-What reaches the image and the VM must be what was approved. The consumers still read their project inputs
-at different stages — viper at config resolution, the env and secret files in ensure-home, the agent config
-in plan-reconfig, the Dockerfile in ensure-image — so a guest edit after the approval could slip unreviewed
-content in. The contract is enforced by recomputing the projection from the inputs actually consumed,
-before the image build and before the VM is created or started, and aborting the run on a mismatch with the
-approved digest. This replaces a single snapshot reader, which would mean rerouting every consumer.
+What reaches the image and the VM must be exactly what was approved, byte for byte. The readers take their
+project inputs at different stages — viper at config resolution, the env and secret files in ensure-home, the
+agent config in plan-reconfig, the Dockerfile in ensure-image — and a guest can rewrite a file at any moment,
+including flipping it back and forth. Re-reading and comparing at a checkpoint cannot close that: a reader may
+have used other bytes than the checkpoint saw.
+
+The contract is **verify on read**:
+
+- The gate reads each project file once, parses or shows those very bytes, and keeps the digest of every file
+  it read (in memory only, never persisted — a secret file's digest never reaches state). A file read twice by
+  the gate (an `env` file also copied by `home:`) must read the same bytes, or the gate fails.
+- After the approval, every reader of a project input reads through `projectguard.ReadFile` and verifies the
+  digest of **the bytes it got**, so no window remains between verifying and using: every config file
+  `configdecode.DecodeFile` reads (viper's config merge, the `home:` manifest, the setting writer's owner
+  lookup), the `home:` source reads, the env and secret files, agent config snippets and the mirror
+  walk (`filewalk`), and the project Dockerfile. Different bytes are refused, and so is an approved file that
+  no longer reads (deleted, grown past a reader's bound). Paths are compared absolute and cleaned, so a
+  `home:` source spelled with `..` is verified like any other.
+- Under the project config dir, a file the approval does not hold may only be missing; an added file is
+  refused. A `home:` source the gate skipped stays absent and is never read.
+- Deleting an approved file is refused where it would be discovered, not only where it would be read: the
+  config file lookup (`configdecode.FindFile`, every candidate extension), the `home:` source check, the
+  snippet listing, and the mirror walk report what they did not find (`projectguard.Missing`,
+  `projectguard.CheckListing`), so a reader never silently falls back to the lower layers or drops approved
+  content — e.g. an approved `network: none` deleted to let the default `public` apply. "Gone" follows links
+  as discovery does: an approved file swapped for a link to nothing is gone, and a listed entry counts as
+  found only once it was read.
+- A refused read is recorded as the command's violation. A reader that tolerates a read failure (a walk
+  that skips, an env loader that warns) cannot carry it on: the image build and the VM stage stop on a
+  recorded violation. The Dockerfile is read before the image build, so no image is built from a changed one;
+  the env, secret, and agent config files are read after it, so a change there stops the run before the VM.
+- A launcher write to the project config reads the file through the same check (a changed file is never
+  edited into an approved one) and makes the bytes it wrote the approved bytes.
 
 ## Provenance
 
 The projection is computed from the project layer alone, not from viper's merged view, because the merge
 discards which file set a key. `projecttrust.Compute` reads the project config dir on its own: the launcher
-config file through `viperconfig.LayerSettings` (one layer, parsed as a merged layer would be), the env and
-secret files through the project scope's file joins and the `envsecret` parsers, every agent config dir any
+config file once, parsed by `viperconfig.ParseLayerSettings` (as a merged layer would be) and
+`homeconfig.ParseHomeConfig` from the same bytes, the env and secret files through the project scope's file
+joins and the `envsecret` data parsers, every agent config dir any
 registered agent reads (primary names and aliases, `agent.ConfigDirNames`), the Dockerfile, and the `home:`
 manifest through `homeconfig`, resolving each source and following symlinks before the guest-writable test.
 Provenance is used only to build the projection; the projection and its digest are persisted (State), nothing
@@ -189,9 +217,8 @@ Recorded on #229 (2026-11-08):
   `prepare` (Where the gate runs).
 - Project-layer `home:` sources that resolve into the project config directory or the `/workspace` checkout,
   startup hook scripts included, are gated by content, decided on the resolved path (What is gated).
-- Consistency between approval and use is enforced by a recompute-and-compare check, delivered after the gate
-  itself; until it lands, an edit between approval and consumption is a known gap (Consistency between
-  approval and use).
+- Consistency between approval and use is verify-on-read of the bytes each reader got, not a recompute at a
+  checkpoint, which a guest flipping a file back and forth could pass (Consistency between approval and use).
 
 ## Defense in depth (related, not this contract)
 

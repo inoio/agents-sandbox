@@ -232,25 +232,24 @@ func NewResolverWithConfig(cfg Config) *Resolver {
 	return &Resolver{cfg: cfg, slug: "", legacyEnv: nil, dockerLegacy: ""}
 }
 
-// LayerSettings reads the launcher config file in dir on its own, parsed like a
-// merged layer, and returns its path and the settings it sets (keys lowercased,
-// nested maps kept). A dir without a config file yields "" and nil settings.
-func LayerSettings(dir string) (string, map[string]any, error) {
-	path, _, ok := configpaths.FindConfigFile(dir)
-	if !ok {
-		return "", nil, nil
+// ParseLayerSettings parses the launcher config file data read from path like
+// a merged layer, and returns the settings it sets (keys lowercased, nested
+// maps kept).
+func ParseLayerSettings(path string, data []byte) (map[string]any, error) {
+	values, err := configdecode.DecodeData(path, "launcher config", data)
+	if err != nil {
+		return nil, err
 	}
 	v := viper.New()
-	if err := mergeDir(v, dir); err != nil {
-		return "", nil, err
-	}
-	return path, v.AllSettings(), nil
+	// MergeConfigMap never fails; merging normalizes the keys as a layer would.
+	_ = v.MergeConfigMap(values)
+	return v.AllSettings(), nil
 }
 
 func mergeDir(v *viper.Viper, dir string) error {
-	path, _, ok := configpaths.FindConfigFile(dir)
+	path, _, ok, err := configdecode.FindFile(dir)
 	if !ok {
-		return nil
+		return err
 	}
 	values, err := configdecode.DecodeFile(path, "launcher config")
 	if err != nil {

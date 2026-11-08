@@ -2,6 +2,7 @@ package configpaths
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -47,5 +48,13 @@ func TestFindConfigFileMissingDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "absent")
 	if path, ext, ok := FindConfigFile(dir); ok {
 		t.Errorf("FindConfigFile(%q) = %q, %q, true; want no file", dir, path, ext)
+	}
+}
+
+func TestConfigFileCandidatesListsTheTriedPathsInOrder(t *testing.T) {
+	got := ConfigFileCandidates("/p")
+	want := []string{"/p/config.yaml", "/p/config.yml", "/p/config.json", "/p/config.jsonc", "/p/config.json5"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("ConfigFileCandidates = %q, want %q", got, want)
 	}
 }

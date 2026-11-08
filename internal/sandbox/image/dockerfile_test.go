@@ -1,6 +1,7 @@
 package image
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
@@ -1632,3 +1634,20 @@ func (p *projectDockerfilePaths) ProjectConfigDir() string { return "" }
 func (p *projectDockerfilePaths) ProjectConfigDirAbs() string { return "" }
 
 func (p *projectDockerfilePaths) IgnoredWorktreeConfigDir() string { return "" }
+
+// TestReadProjectDockerfileReadsOnlyTheApprovedBytes pins that the project
+// Dockerfile is read through the approval.
+func TestReadProjectDockerfileReadsOnlyTheApprovedBytes(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	paths := configpaths.Get()
+	writeFileAt(t, paths.ProjectDockerfile(), "FROM changed\n")
+	t.Cleanup(projectguard.Install([]string{paths.ProjectConfigDirAbs()}, map[string]projectguard.Approval{
+		filepath.Join(paths.ProjectConfigDirAbs(), "Dockerfile"): projectguard.ApprovalOf([]byte("FROM approved\n")),
+	}))
+	if got := ReadProjectDockerfile(paths); got != nil {
+		t.Errorf("ReadProjectDockerfile = %q, want nothing from a changed Dockerfile", got)
+	}
+	if !errors.Is(projectguard.Violation(), projectguard.ErrNotApproved) {
+		t.Errorf("Violation() = %v, want the change recorded", projectguard.Violation())
+	}
+}

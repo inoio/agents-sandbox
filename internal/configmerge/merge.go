@@ -22,6 +22,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/filewalk"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 )
 
 // snippetFileMatches reports whether name matches the agent's snippet pattern
@@ -94,6 +95,19 @@ var readDir = os.ReadDir
 // produced it. Directory order is user first then project; within a directory
 // files are merged in alphabetical order, so later files override earlier ones.
 // The source list is in the same merge order.
+// checkSnippetListing refuses an approved project snippet in dir that the
+// listing lacks, so deleting one cannot silently drop its settings. The refusal
+// is recorded for the run to stop on.
+func checkSnippetListing(dir, pattern string, entries []os.DirEntry) {
+	var listed []string
+	for _, entry := range entries {
+		listed = append(listed, filepath.Join(dir, entry.Name()))
+	}
+	_ = projectguard.CheckListing(dir, listed, func(rel string) bool {
+		return !strings.ContainsRune(rel, filepath.Separator) && snippetFileMatches(pattern, rel)
+	})
+}
+
 func scanSnippets(dirs []string, pattern string) (map[string]any, []string) {
 	var merged map[string]any
 	var sources []string
@@ -105,6 +119,10 @@ func scanSnippets(dirs []string, pattern string) (map[string]any, []string) {
 		entries, err := readDir(dir)
 		// readDir (os.ReadDir) can return the entries it read before an
 		// error; those partial entries must be discarded, not merged.
+		if err != nil {
+			entries = nil
+		}
+		checkSnippetListing(dir, pattern, entries)
 		if err != nil {
 			continue
 		}
@@ -119,7 +137,7 @@ func scanSnippets(dirs []string, pattern string) (map[string]any, []string) {
 				continue
 			}
 			snippetPath := filepath.Join(dir, entry.Name())
-			data, err := configread.ReadFile(snippetPath)
+			data, err := projectguard.ReadFile(snippetPath, configread.ReadFile)
 			if err != nil {
 				continue
 			}

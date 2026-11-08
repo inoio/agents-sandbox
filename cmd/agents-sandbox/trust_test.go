@@ -13,6 +13,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
@@ -284,5 +285,49 @@ func TestAllAgentConfigDirNamesCoversEveryAgent(t *testing.T) {
 		if !slices.Contains(names, profile.ConfigDirName()) {
 			t.Errorf("config dir names %q miss agent %s's %q", names, name, profile.ConfigDirName())
 		}
+	}
+}
+
+// TestGateGuardsTheReadsOfAnApprovedLayer pins that an approved layer, whether
+// recorded before or approved now, is read only as approved: a change or a
+// deletion after the gate is refused by the command's own config read.
+func TestGateGuardsTheReadsOfAnApprovedLayer(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		prepare func(*testing.T, gateFixture)
+	}{
+		{"recorded approval", func(t *testing.T, _ gateFixture) { approveProjectConfig(t) }},
+		{"approved now", func(_ *testing.T, f gateFixture) {
+			f.ui.IsInteractiveResult = true
+			f.ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return "a", nil }
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newGateFixture(t)
+			t.Cleanup(projectguard.Install(nil, nil))
+			writeProjectConfig(t, "memory: 8G\n")
+			tc.prepare(t, f)
+			if err := f.gate(t, cmdRun); err != nil {
+				t.Fatalf("gate: %v", err)
+			}
+			writeProjectConfig(t, "memory: 8G\nyes: true\n")
+			if _, err := launcherconfig.NewResolver(
+				nil,
+				configpaths.Get(),
+				"",
+			); !errors.Is(
+				err,
+				projectguard.ErrNotApproved,
+			) {
+				t.Errorf("NewResolver after a change = %v, want ErrNotApproved", err)
+			}
+			if err := os.Remove(filepath.Join(configpaths.Get().ProjectConfigDir(), "config.yaml")); err != nil {
+				t.Fatal(err)
+			}
+			_, err := launcherconfig.NewResolver(nil, configpaths.Get(), "")
+			if !errors.Is(err, projectguard.ErrNotApproved) {
+				t.Errorf("NewResolver after a deletion = %v, want ErrNotApproved", err)
+			}
+		})
 	}
 }
