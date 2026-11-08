@@ -52,10 +52,11 @@ The **whole project config layer** is gated — every input the launcher consume
 - the project agent config directories (`<project-config>/<agent-config-dir>/`) — the snippets that merge
   into the agent's VM config and the files mirrored verbatim (plugins, sub-configs, …).
 - the project Dockerfile.
-- the files the project layer's `home:` entries copy out of the project config directory — a relative
-  source, startup hook scripts included. Their content is gated, not only the entry: a hook script runs in
-  the VM, so changing it is as consequential as changing the entry. An absolute or `~/…` source is a host
-  path the entry value already names; that value is gated as launcher config.
+- the files the project layer's `home:` entries copy from a guest-writable location — a source whose
+  **resolved** path lies inside the project config directory or inside the checkout bound as `/workspace`,
+  however the entry spells it (relative, absolute, or `~/…`), startup hook scripts included. Their content
+  is gated, not only the entry: the guest can rewrite such a file, and a hook script runs in the VM. A source
+  outside both is a host path the guest cannot write; the entry value naming it is gated as launcher config.
 
 Rationale: the directory sits in the guest-writable checkout, so the agent can rewrite any of it; config
 keys reach host state, and agent snippets configure the agent and its plugins, which run in the VM but can
@@ -180,7 +181,8 @@ Recorded on #229 (2026-11-08):
 
 - The gate runs at config resolution and an unapproved project layer is not loaded, rather than a gate in
   `prepare` (Where the gate runs).
-- Project files copied by `home:`, startup hook scripts included, are gated by content (What is gated).
+- Project-layer `home:` sources that resolve into the project config directory or the `/workspace` checkout,
+  startup hook scripts included, are gated by content, decided on the resolved path (What is gated).
 - Consistency between approval and use is enforced by a recompute-and-compare check, delivered after the gate
   itself; until it lands, an edit between approval and consumption is a known gap (Consistency between
   approval and use).
