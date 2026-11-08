@@ -20,13 +20,17 @@ func TestWithDockerMockAndNoop(t *testing.T) {
 	}
 }
 
-// TestWithDefaultErrorDockerMockInstalls verifies the helper installs an
-// erroring mock and restores Get after the test.
+// TestWithDefaultErrorDockerMockInstalls verifies the helper installs a mock
+// that actually errors (not a nil client that would panic on use) and restores
+// Get after the test.
 func TestWithDefaultErrorDockerMockInstalls(t *testing.T) {
 	orig := Get
 	WithDefaultErrorDockerMock(t)
 	if Get() == orig() {
-		t.Error("Get should return the error mock after WithDefaultErrorDockerMock")
+		t.Fatal("Get should return the error mock after WithDefaultErrorDockerMock")
+	}
+	if _, err := Get().Ping(context.Background(), client.PingOptions{}); err == nil {
+		t.Error("the default error mock should fail Ping")
 	}
 }
 

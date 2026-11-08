@@ -781,40 +781,6 @@ func TestRealSandboxHandleConfigAndModify(t *testing.T) {
 	}
 }
 
-func TestRealVolumeHandleFromHandle(t *testing.T) {
-	v := &realVolumeHandle{handle: &msbSdk.VolumeHandle{}}
-	if got := v.Name(); got != "" {
-		t.Errorf("Name() = %q, want empty", got)
-	}
-	if got := v.Path(); got != "" {
-		t.Errorf("Path() = %q, want empty", got)
-	}
-	if got := v.Kind(); got != msbSdk.VolumeKind("") {
-		t.Errorf("Kind() = %q, want empty", got)
-	}
-	if !v.CreatedAt().Equal(time.Time{}) {
-		t.Errorf("CreatedAt() = %v, want zero time", v.CreatedAt())
-	}
-	if v.QuotaMiB() != nil {
-		t.Errorf("QuotaMiB() = %v, want nil", v.QuotaMiB())
-	}
-	if v.UsedBytes() != 0 {
-		t.Errorf("UsedBytes() = %d, want 0", v.UsedBytes())
-	}
-	if v.CapacityBytes() != nil {
-		t.Errorf("CapacityBytes() = %v, want nil", v.CapacityBytes())
-	}
-	if v.DiskFormat() != nil {
-		t.Errorf("DiskFormat() = %v, want nil", v.DiskFormat())
-	}
-	if v.DiskFstype() != nil {
-		t.Errorf("DiskFstype() = %v, want nil", v.DiskFstype())
-	}
-	if v.Labels() != nil {
-		t.Errorf("Labels() = %v, want nil", v.Labels())
-	}
-}
-
 func TestRealSandboxHandleAccessors(t *testing.T) {
 	h := &realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
 	if got := h.Name(); got != "" {
@@ -1025,15 +991,18 @@ func TestRealMsbClientCreateRemoveVolume(t *testing.T) {
 	}
 }
 
+// TestCreateVolumeResolvesTheCreatedVolumeThroughGetVolume pins that CreateVolume
+// returns the resolved lookup handle, not a wrapper or the raw create result.
 func TestCreateVolumeResolvesTheCreatedVolumeThroughGetVolume(t *testing.T) {
 	ctx := context.Background()
 	swapSeam(t, &createVolume, func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
 		return &msbSdk.Volume{}, nil
 	})
 	var resolvedName string
+	resolved := &msbSdk.VolumeHandle{}
 	swapSeam(t, &getVolume, func(_ context.Context, name string) (*msbSdk.VolumeHandle, error) {
 		resolvedName = name
-		return &msbSdk.VolumeHandle{}, nil
+		return resolved, nil
 	})
 
 	handle, err := (&realMsbClient{}).CreateVolume(ctx, "vol")
@@ -1043,12 +1012,8 @@ func TestCreateVolumeResolvesTheCreatedVolumeThroughGetVolume(t *testing.T) {
 	if resolvedName != "vol" {
 		t.Fatal("CreateVolume did not resolve the created volume through getVolume")
 	}
-	// Pre-fix the adapter wrapped the *msbSdk.Volume, whose Kind falls through
-	// to VolumeKindDir; post-fix it reports the resolved *msbSdk.VolumeHandle's
-	// own Kind, so the two differ for the zero-valued seam handle.
-	want := (&msbSdk.VolumeHandle{}).Kind()
-	if got := handle.Kind(); got != want {
-		t.Errorf("Kind() = %v, want the resolved handle's %v", got, want)
+	if got, ok := handle.(*msbSdk.VolumeHandle); !ok || got != resolved {
+		t.Errorf("CreateVolume() handle = %T, want the resolved *msbSdk.VolumeHandle", handle)
 	}
 }
 
@@ -1082,6 +1047,28 @@ func TestCreateVolumeRemovesTheOrphanWhenGetVolumeFails(t *testing.T) {
 	}
 	if removedCtxErr != nil {
 		t.Errorf("cleanup context err = %v, want a context detached from the caller", removedCtxErr)
+	}
+}
+
+// TestCreateVolumeSkipsLookupWhenCreateFails pins that a failed create returns
+// immediately: the lookup is never reached, so a create error cannot be masked
+// by a lookup that happens to succeed.
+func TestCreateVolumeSkipsLookupWhenCreateFails(t *testing.T) {
+	createErr := errors.New("create boom")
+	swapSeam(t, &createVolume, func(context.Context, string, ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
+		return nil, createErr
+	})
+	lookedUp := false
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
+		lookedUp = true
+		return &msbSdk.VolumeHandle{}, nil
+	})
+
+	if _, err := (&realMsbClient{}).CreateVolume(context.Background(), "vol"); !errors.Is(err, createErr) {
+		t.Fatalf("CreateVolume() error = %v, want %v", err, createErr)
+	}
+	if lookedUp {
+		t.Error("CreateVolume looked up the volume after the create failed")
 	}
 }
 

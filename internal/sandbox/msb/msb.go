@@ -397,7 +397,7 @@ func (realMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandle, 
 	if err != nil {
 		return nil, err
 	}
-	return &realVolumeHandle{handle: v}, nil
+	return v, nil
 }
 
 func (realMsbClient) CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error) {
@@ -415,7 +415,7 @@ func (realMsbClient) CreateVolume(ctx context.Context, name string, opts ...msbS
 		}
 		return nil, err
 	}
-	return &realVolumeHandle{handle: handle}, nil
+	return handle, nil
 }
 
 func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
@@ -425,7 +425,7 @@ func (realMsbClient) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
 	}
 	result := make([]VolumeHandle, len(handles))
 	for i, h := range handles {
-		result[i] = &realVolumeHandle{handle: h}
+		result[i] = h
 	}
 	return result, nil
 }
@@ -521,51 +521,6 @@ func (realMsbClient) ImageInspectDetail(ctx context.Context, ref string) (*Image
 
 func (realMsbClient) StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error) {
 	return storageUsage(ctx)
-}
-
-// realVolumeHandle adapts *msbSdk.VolumeHandle to VolumeHandle.
-type realVolumeHandle struct {
-	handle *msbSdk.VolumeHandle
-}
-
-func (v realVolumeHandle) Name() string {
-	return v.handle.Name()
-}
-
-func (v realVolumeHandle) Path() string {
-	return v.handle.Path()
-}
-
-func (v realVolumeHandle) Kind() msbSdk.VolumeKind {
-	return v.handle.Kind()
-}
-
-func (v realVolumeHandle) CreatedAt() time.Time {
-	return v.handle.CreatedAt()
-}
-
-func (v realVolumeHandle) QuotaMiB() *uint32 {
-	return v.handle.QuotaMiB()
-}
-
-func (v realVolumeHandle) UsedBytes() uint64 {
-	return v.handle.UsedBytes()
-}
-
-func (v realVolumeHandle) CapacityBytes() *uint64 {
-	return v.handle.CapacityBytes()
-}
-
-func (v realVolumeHandle) DiskFormat() *string {
-	return v.handle.DiskFormat()
-}
-
-func (v realVolumeHandle) DiskFstype() *string {
-	return v.handle.DiskFstype()
-}
-
-func (v realVolumeHandle) Labels() map[string]string {
-	return v.handle.Labels()
 }
 
 // realSandboxHandle adapts *msbSdk.SandboxHandle to SandboxHandle.
