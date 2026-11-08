@@ -110,7 +110,9 @@ func noMaximum(DiskLimits) (uint32, string) { return 0, "" }
 // tmpRaiseMaximumMiB is the largest whole-GiB tmp size strictly below the memory
 // limit. An explicit tmp-size must stay below memory (options.ValidateSizes) and
 // a raise rounds to a whole GiB, so the offer must stop at a GiB boundary;
-// memoryMiB-1 is the floor when no whole GiB fits (memory below 1 GiB).
+// memoryMiB-1 is the floor when no whole GiB fits (memory below 1 GiB). The
+// floor is 0 for a 1 MiB memory, which the offer reads as no maximum; that
+// memory is unreachable behind the options.ValidateSizes 128 MiB floor.
 func tmpRaiseMaximumMiB(memoryMiB uint32) uint32 {
 	if memoryMiB == 0 {
 		return 0

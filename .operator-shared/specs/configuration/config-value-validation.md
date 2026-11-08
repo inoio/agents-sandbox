@@ -1,6 +1,6 @@
 ---
-description: Contract for validating the launcher's VM size and duration settings - memory has a 128 MiB floor and is clamped (not rejected) to the host's RAM at boot, tmp-size defaults to min(2 GiB, memory/2) and must stay below the effective memory (clamped at creation), disk-size and workspace-quota must be positive, and the duration/retry keys keep their existing bounds.
-read_if: Changing VM size validation, `options.ParseMemoryOK`/`ResolveTmpSizeMiB`/`ValidateSizes`/`ResolveDiskSizeMiB`/`ResolveWorkspaceQuotaMiB`, `runoptions.resolveSizes`, the `memory`/`tmp-size`/`disk-size`/`workspace-quota` bounds or the tmp-vs-memory relation, `vm.bootMemoryMiB`/`vm.effectiveTmpSizeMiB`/`reconfig.tmpSizeChange` or the tmp mount; or diagnosing a rejected size, a zero-size setting, or a `/tmp` larger than the VM's memory.
+description: Contract for validating the launcher's VM size and duration settings - memory has a 128 MiB floor and is clamped (not rejected) to the host's RAM at boot, tmp-size defaults to min(2 GiB, memory/2) and must stay below the effective memory (clamped at creation), disk-size and workspace-quota must be positive, the `/tmp` disk-raise offer caps at the largest whole GiB strictly below memory (`tmpRaiseMaximumMiB`), and the duration/retry keys keep their existing bounds.
+read_if: Changing VM size validation, `options.ParseMemoryOK`/`ResolveTmpSizeMiB`/`ValidateSizes`/`ResolveDiskSizeMiB`/`ResolveWorkspaceQuotaMiB`, `runoptions.resolveSizes`, `resourceproposal.tmpRaiseMaximumMiB`, the `memory`/`tmp-size`/`disk-size`/`workspace-quota` bounds or the tmp-vs-memory relation, `vm.bootMemoryMiB`/`vm.effectiveTmpSizeMiB`/`reconfig.tmpSizeChange` or the tmp mount; or diagnosing a rejected size, a zero-size setting, a `/tmp` raise equal to memory, or a `/tmp` larger than the VM's memory.
 ---
 
 # Config value validation
@@ -87,8 +87,9 @@ recreate the VM on every run.
 ### Raise offer
 
 The disk-limit offer (`resourceproposal`) caps a `/tmp` raise at the largest whole GiB strictly below `memory`
-(`tmpRaiseMaximumMiB`): an explicit `tmp-size` must stay below memory, and the suggestion rounds to a whole GiB,
-so the offer must stop at a GiB boundary. An accepted raise therefore stays valid and never blocks the next launch.
+(`tmpRaiseMaximumMiB`), falling back to `memory-1` when no whole GiB fits (memory below 1 GiB): an explicit
+`tmp-size` must stay below memory, and the suggestion rounds to a whole GiB, so the offer must stop at a GiB
+boundary. An accepted raise therefore stays valid and never blocks the next launch.
 
 ## Unchanged bounds
 
