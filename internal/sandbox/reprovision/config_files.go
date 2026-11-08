@@ -725,7 +725,7 @@ func hostPathForDst(dst, hostHome, vmHome string) string {
 
 // ReadVMConfig reads the given absolute VM paths, returning a map of path to
 // content for files that exist.
-func ReadVMConfig(ctx context.Context, sb msb.Sandbox, paths []string, ui termio.Logger) map[string][]byte {
+func ReadVMConfig(ctx context.Context, sb msb.SandboxExecutor, paths []string, ui termio.Logger) map[string][]byte {
 	result := make(map[string][]byte)
 	for _, p := range paths {
 		data, err := sb.FS().Read(ctx, p)
