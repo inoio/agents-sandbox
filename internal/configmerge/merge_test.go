@@ -828,6 +828,27 @@ func TestBuildMergedAcceptsJSON5Comments(t *testing.T) {
 	}
 }
 
+// TestBuildMergedDecodesUnknownExtensionAsJSON pins the unknown-extension
+// default: a snippet whose extension the format table does not know (a
+// settings.json.bak backup the glob still matches) is best-effort parsed as the
+// JSON family rather than skipped for having no known format.
+func TestBuildMergedDecodesUnknownExtensionAsJSON(t *testing.T) {
+	dir := t.TempDir()
+	writeSnippet(t, dir, "settings.json.bak", "{\n  // a comment\n  \"model\": \"z\",\n}")
+
+	merged, err := BuildMerged("", "settings*.json*", []string{dir, ""})
+	if err != nil || !merged.HasSnippets {
+		t.Fatalf("BuildMerged: has=%v err=%v", merged.HasSnippets, err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(merged.Content, &parsed); err != nil {
+		t.Fatalf("output not valid JSON: %v", err)
+	}
+	if parsed["model"] != "z" {
+		t.Errorf("model = %v, want z", parsed["model"])
+	}
+}
+
 // TestBuildMergedReadsYAMLSnippet pins that a plain YAML snippet parses and the
 // merged output is re-encoded as YAML for a .yaml config path.
 func TestBuildMergedReadsYAMLSnippet(t *testing.T) {
