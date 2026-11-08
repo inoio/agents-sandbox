@@ -808,3 +808,62 @@ func TestScanMirrorPerSlugOverridesGeneric(t *testing.T) {
 		t.Errorf("mirror data = %q, want the per-slug content", entries[0].Data)
 	}
 }
+
+// TestBuildMergedAcceptsJSON5Comments pins that a JSON5 snippet's comments and
+// trailing commas parse through the shared decode path.
+func TestBuildMergedAcceptsJSON5Comments(t *testing.T) {
+	dir := t.TempDir()
+	writeSnippet(t, dir, "opencode-x.json5", "{\n  // a comment\n  \"model\": \"x\",\n}")
+
+	merged, err := BuildMerged("", "opencode*.json*", []string{dir, ""})
+	if err != nil || !merged.HasSnippets {
+		t.Fatalf("BuildMerged: has=%v err=%v", merged.HasSnippets, err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(merged.Content, &parsed); err != nil {
+		t.Fatalf("output not valid JSON: %v", err)
+	}
+	if parsed["model"] != "x" {
+		t.Errorf("model = %v, want x", parsed["model"])
+	}
+}
+
+// TestBuildMergedDecodesUnknownExtensionAsJSON pins the unknown-extension
+// default: a snippet whose extension the format table does not know (a
+// settings.json.bak backup the glob still matches) is best-effort parsed as the
+// JSON family rather than skipped for having no known format.
+func TestBuildMergedDecodesUnknownExtensionAsJSON(t *testing.T) {
+	dir := t.TempDir()
+	writeSnippet(t, dir, "settings.json.bak", "{\n  // a comment\n  \"model\": \"z\",\n}")
+
+	merged, err := BuildMerged("", "settings*.json*", []string{dir, ""})
+	if err != nil || !merged.HasSnippets {
+		t.Fatalf("BuildMerged: has=%v err=%v", merged.HasSnippets, err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(merged.Content, &parsed); err != nil {
+		t.Fatalf("output not valid JSON: %v", err)
+	}
+	if parsed["model"] != "z" {
+		t.Errorf("model = %v, want z", parsed["model"])
+	}
+}
+
+// TestBuildMergedReadsYAMLSnippet pins that a plain YAML snippet parses and the
+// merged output is re-encoded as YAML for a .yaml config path.
+func TestBuildMergedReadsYAMLSnippet(t *testing.T) {
+	dir := t.TempDir()
+	writeSnippet(t, dir, "pi-x.yaml", "model: y\n")
+
+	merged, err := BuildMerged("/home/dev/.config/pi/config.yaml", "pi-*", []string{dir, ""})
+	if err != nil || !merged.HasSnippets {
+		t.Fatalf("BuildMerged: has=%v err=%v", merged.HasSnippets, err)
+	}
+	var parsed map[string]any
+	if err := yaml.Unmarshal(merged.Content, &parsed); err != nil {
+		t.Fatalf("output not valid YAML: %v", err)
+	}
+	if parsed["model"] != "y" {
+		t.Errorf("model = %v, want y", parsed["model"])
+	}
+}

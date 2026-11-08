@@ -1,7 +1,6 @@
 package homeconfig
 
 import (
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -301,15 +300,15 @@ func TestReadHomeFromConfigDirJSON5ParseErrorKeepsPresentFalse(t *testing.T) {
 	}
 }
 
-func TestReadHomeFromConfigDirNormalizeErrorKeepsPresentFalse(t *testing.T) {
+func TestReadHomeFromConfigDirJSONIsJSON5Lenient(t *testing.T) {
 	dir := t.TempDir()
-	testutil.WriteFile(t, dir, "config.json5", `{"home": {}, "cpus": NaN}`)
-	_, has, err := ReadHomeFromConfigDir(dir)
-	if err == nil || has {
-		t.Fatalf("normalize error: has=%v err=%v", has, err)
+	testutil.WriteFile(t, dir, "config.json", "{\n  // a comment\n  \"home\": {\".gitconfig\": \"\"},\n}")
+	m, has, err := ReadHomeFromConfigDir(dir)
+	if err != nil || !has {
+		t.Fatalf("ReadHomeFromConfigDir: has=%v err=%v", has, err)
 	}
-	if _, ok := errors.AsType[*json.UnsupportedValueError](err); !ok {
-		t.Errorf("expected the wrapped *json.UnsupportedValueError, got %v", err)
+	if e, ok := m[".gitconfig"]; !ok || e != (Entry{}) {
+		t.Errorf("manifest = %v, want an empty .gitconfig entry", m)
 	}
 }
 

@@ -1,13 +1,18 @@
 package viperconfig
 
 import (
+	"bytes"
+	"encoding/json"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/spf13/viper"
+	"github.com/titanous/json5"
 
+	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/notify"
@@ -307,16 +312,6 @@ func TestLauncherAndHomeLoadersSelectTheSameConfigFile(t *testing.T) {
 	}
 }
 
-// configType returns "" for unsupported extensions.
-func TestConfigTypeUnknown(t *testing.T) {
-	if got := configType(".toml"); got != "" {
-		t.Errorf("configType(.toml) = %q; want \"\"", got)
-	}
-	if got := configType(".JSON5"); got != "json" {
-		t.Errorf("configType(.JSON5) = %q; want json", got)
-	}
-}
-
 // TestHomeKeyFromPerSlugConfig proves the per-slug user config dir contributes
 // its home manifest to the resolver, so home entries can be scoped per project.
 func TestHomeKeyFromPerSlugConfig(t *testing.T) {
@@ -382,4 +377,80 @@ func TestLayerSettingsReportsAnUnparsableFile(t *testing.T) {
 	if _, _, err := LayerSettings(dir); err == nil {
 		t.Error("LayerSettings accepted an unparsable config file")
 	}
+}
+
+// TestDecodeMergeConfigMapMatchesMergeConfig pins that the launcher read path's
+// decoder change — viper's MergeConfig (yaml/v3 + strict JSON) to configdecode's
+// DecodeFile (yaml/v4 + json5) applied through MergeConfigMap — resolves the same
+// viper state. LayerSettings feeds the trust projection's approve-on-change diff,
+// so AllSettings must match too.
+func TestDecodeMergeConfigMapMatchesMergeConfig(t *testing.T) {
+	fixtures := []struct{ file, content string }{
+		{"config.yaml", "memory: 8G\ncpus: 2\nnetwork:\n  profile: public\n"},
+		{"config.json", `{"memory":"8G","cpus":2,"network":{"profile":"public"}}`},
+		{
+			"config.jsonc",
+			"{\n  // c\n  \"memory\": \"8G\",\n  \"cpus\": 2,\n  \"network\": {\"profile\": \"public\"}\n}\n",
+		},
+		{"config.json5", "{memory: '8G', cpus: 2, network: {profile: 'public'}}"},
+	}
+	for _, tc := range fixtures {
+		t.Run(tc.file, func(t *testing.T) {
+			dir := t.TempDir()
+			testutil.WriteFile(t, dir, tc.file, tc.content)
+			path := filepath.Join(dir, tc.file)
+
+			legacy := legacyMergeConfig(t, tc.file, tc.content)
+
+			modern := viper.New()
+			values, err := configdecode.DecodeFile(path, "launcher config")
+			if err != nil {
+				t.Fatalf("DecodeFile: %v", err)
+			}
+			if err := modern.MergeConfigMap(values); err != nil {
+				t.Fatalf("MergeConfigMap: %v", err)
+			}
+
+			for _, key := range []string{"memory", "cpus", "network.profile"} {
+				if legacy.Get(key) != modern.Get(key) {
+					t.Errorf("%s: legacy %v != modern %v", key, legacy.Get(key), modern.Get(key))
+				}
+				if legacy.InConfig(key) != modern.InConfig(key) {
+					t.Errorf("%s InConfig: legacy %v != modern %v", key, legacy.InConfig(key), modern.InConfig(key))
+				}
+			}
+			if !reflect.DeepEqual(legacy.AllSettings(), modern.AllSettings()) {
+				t.Errorf("AllSettings differ:\n legacy %#v\n modern %#v", legacy.AllSettings(), modern.AllSettings())
+			}
+		})
+	}
+}
+
+// legacyMergeConfig reproduces the pre-change mergeDir: JSON5/JSONC are
+// normalized to JSON with json5 + json.Marshal, then viper's MergeConfig parses
+// with its own codec (strict JSON for .json, yaml/v3 for .yaml).
+func legacyMergeConfig(t *testing.T, file, content string) *viper.Viper {
+	t.Helper()
+	configType := "json"
+	data := []byte(content)
+	if strings.HasSuffix(file, ".yaml") || strings.HasSuffix(file, ".yml") {
+		configType = "yaml"
+	}
+	if strings.HasSuffix(file, ".jsonc") || strings.HasSuffix(file, ".json5") {
+		var m map[string]any
+		if err := json5.Unmarshal(data, &m); err != nil {
+			t.Fatalf("legacy normalize: %v", err)
+		}
+		normalized, err := json.Marshal(m)
+		if err != nil {
+			t.Fatalf("legacy normalize: %v", err)
+		}
+		data = normalized
+	}
+	v := viper.New()
+	v.SetConfigType(configType)
+	if err := v.MergeConfig(bytes.NewReader(data)); err != nil {
+		t.Fatalf("legacy MergeConfig: %v", err)
+	}
+	return v
 }

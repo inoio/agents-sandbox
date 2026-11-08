@@ -142,8 +142,6 @@ const (
 
 const (
 	strTrue                      = "true"
-	ctJSON                       = "json"
-	ctYAML                       = "yaml"
 	keyAutoPruneAge              = "auto-prune-age"
 	keyManualPruneAge            = "manual-prune-age"
 	keyAutoStopOnActiveSessions  = "auto-stop-on-active-sessions"

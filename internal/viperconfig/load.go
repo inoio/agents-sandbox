@@ -1,22 +1,17 @@
 package viperconfig
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/titanous/json5"
 
+	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
 
 // ConfigLayers returns the launcher-config layers from lowest to highest
@@ -253,42 +248,13 @@ func LayerSettings(dir string) (string, map[string]any, error) {
 }
 
 func mergeDir(v *viper.Viper, dir string) error {
-	path, ext, ok := configpaths.FindConfigFile(dir)
+	path, _, ok := configpaths.FindConfigFile(dir)
 	if !ok {
 		return nil
 	}
-	data, err := configread.ReadFile(path)
+	values, err := configdecode.DecodeFile(path, "launcher config")
 	if err != nil {
-		return fmt.Errorf("read launcher config %s: %w", path, err)
+		return err
 	}
-	ct := configType(ext)
-	if ext == configpaths.ExtJSON5 || ext == configpaths.ExtJSONC {
-		var m map[string]any
-		if unmarshalErr := json5.Unmarshal(data, &m); unmarshalErr != nil {
-			return fmt.Errorf("parse launcher config %s: %w", path, unmarshalErr)
-		}
-		data, err = json.Marshal(m)
-		if err != nil {
-			return fmt.Errorf("normalize launcher config %s: %w", path, err)
-		}
-		// configType already reports both JSON5 and JSONC as JSON.
-	}
-	v.SetConfigType(ct)
-	if err := v.MergeConfig(bytes.NewReader(data)); err != nil {
-		if ct == ctYAML {
-			return yamlfmt.WrapErr(path, err)
-		}
-		return fmt.Errorf("load launcher config %s: %w", path, err)
-	}
-	return nil
-}
-
-func configType(ext string) string {
-	switch strings.ToLower(ext) {
-	case ".yaml", ".yml":
-		return ctYAML
-	case ".json", configpaths.ExtJSONC, configpaths.ExtJSON5:
-		return ctJSON
-	}
-	return ""
+	return v.MergeConfigMap(values)
 }
