@@ -13,6 +13,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -21,7 +22,7 @@ import (
 // fingerprint persisted to disk still compares equal to the desired policy, so
 // a run does not see a spurious "network policy changed" and rebuild the VM.
 func TestNetworkFingerprintSurvivesStateRoundTrip(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "netproj-aBc1234D", Agent: "opencode"}
 	policy := network.Policy{
@@ -51,7 +52,7 @@ func TestNetworkFingerprintSurvivesStateRoundTrip(t *testing.T) {
 // absent entries mean the state predates them, which hides the previous value
 // when the setting later changes.
 func TestRecordedEmptyEntriesSurviveStateRoundTrip(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "entriesproj-aBc1234D", Agent: "opencode"}
 	if err := writeState(k, HomeState{
@@ -75,7 +76,7 @@ func TestRecordedEmptyEntriesSurviveStateRoundTrip(t *testing.T) {
 }
 
 func TestStateFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "testproj-aBc1234D", Agent: "opencode"}
 	f := stateFile(k)
@@ -88,7 +89,7 @@ func TestStateFile(t *testing.T) {
 }
 
 func TestReadState_NoFileReturnsErrStateNotFound(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "nonexistentproj-xyz", Agent: "opencode"}
 	result, err := ReadState(k)
@@ -101,7 +102,7 @@ func TestReadState_NoFileReturnsErrStateNotFound(t *testing.T) {
 }
 
 func TestWriteAndReadState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "myproj-aBc1234D", Agent: "opencode"}
 	digest := "sha256:deadbeef1234"
 
@@ -131,7 +132,7 @@ func TestWriteAndReadState(t *testing.T) {
 }
 
 func TestWriteStateCreatesDirectory(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "newproj-a", Agent: "opencode"}
 
 	err := writeState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
@@ -150,7 +151,7 @@ func TestWriteStateCreatesDirectory(t *testing.T) {
 }
 
 func TestReadState_CorruptedYAML(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "corruptproj", Agent: "opencode"}
 
 	sdir := KeyDir(k)
@@ -199,7 +200,7 @@ func TestFingerprintsApply(t *testing.T) {
 }
 
 func TestRemoveHomeStateIf(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "myproj", Agent: "opencode"}
 
 	writeState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"})
@@ -223,7 +224,7 @@ func TestRemoveHomeStateIf(t *testing.T) {
 // TestRemoveHomeStateIfKeepsWhenPredicateFalse pins that the decision runs
 // before any removal: a false predicate leaves the state in place untouched.
 func TestRemoveHomeStateIfKeepsWhenPredicateFalse(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "keepme", Agent: "opencode"}
 	if err := writeState(k, HomeState{HomeVolume: "vol"}); err != nil {
 		t.Fatal(err)
@@ -239,7 +240,7 @@ func TestRemoveHomeStateIfKeepsWhenPredicateFalse(t *testing.T) {
 // TestRemoveHomeStateIfMissingSkipsPredicate pins that a missing document is a
 // no-op and never consulted: there is nothing to protect and nothing to remove.
 func TestRemoveHomeStateIfMissingSkipsPredicate(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "nofile", Agent: "opencode"}
 	called := false
 	if err := RemoveHomeStateIf(k, func(*HomeState) bool { called = true; return true }); err != nil {
@@ -253,7 +254,7 @@ func TestRemoveHomeStateIfMissingSkipsPredicate(t *testing.T) {
 // TestRemoveHomeStateIfUnreadableFailsClosed pins that an unparsable document is
 // returned as an error and never removed: an unknown document is not discarded.
 func TestRemoveHomeStateIfUnreadableFailsClosed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "corrupt", Agent: "opencode"}
 	dir := KeyDir(k)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -275,7 +276,7 @@ func TestRemoveHomeStateIfUnreadableFailsClosed(t *testing.T) {
 }
 
 func TestRemoveHomeStateIf_LegacySlugOnly(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "legacyproj"
 
 	// Legacy agent-less state lives directly under the slug dir.
@@ -312,7 +313,7 @@ func TestRemoveHomeStateIf_LegacySlugOnly(t *testing.T) {
 }
 
 func TestRemoveHomeStateIf_LegacyMissing(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "missingproj", Agent: ""}
 	if err := RemoveHomeStateIf(k, removeAlways); err != nil {
 		t.Fatalf("RemoveHomeStateIf on missing legacy state should be a no-op, got: %v", err)
@@ -320,7 +321,7 @@ func TestRemoveHomeStateIf_LegacyMissing(t *testing.T) {
 }
 
 func TestRemoveHomeStateIfRemovesStateButKeepsLock(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	if err := writeState(k, HomeState{HomeVolume: "vol"}); err != nil {
 		t.Fatal(err)
@@ -341,7 +342,7 @@ func TestRemoveHomeStateIfRemovesStateButKeepsLock(t *testing.T) {
 func removeAlways(*HomeState) bool { return true }
 
 func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "myproj-abc123", Agent: "opencode"}
 
 	input := HomeState{
@@ -395,7 +396,7 @@ func TestWriteAndReadState_EnvSecretRoundTrip(t *testing.T) {
 }
 
 func TestHomeState_ZeroEnvSecretOmitted(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "emptyproj", Agent: "opencode"}
 
 	err := writeState(k, HomeState{
@@ -421,7 +422,7 @@ func TestHomeState_ZeroEnvSecretOmitted(t *testing.T) {
 }
 
 func TestWriteAndReadState_MountRoundTrip(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "mountproj-abc123", Agent: "opencode"}
 
 	input := HomeState{
@@ -449,7 +450,7 @@ func TestWriteAndReadState_MountRoundTrip(t *testing.T) {
 }
 
 func TestHomeStateUpgradeFieldsRoundTrip(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
 	if err := writeState(k, HomeState{
 		HomeVolume: "vol", ImageDigest: "d1",
@@ -483,7 +484,7 @@ func TestHomeStateMarkOffered(t *testing.T) {
 }
 
 func TestStateKeyScopesDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	root := configpaths.Get().UserStateDir()
 	k := Key{Slug: "proj-aBc1234D", Agent: "pi"}
 	if err := writeState(k, HomeState{HomeVolume: "vol", ImageDigest: "d1"}); err != nil {
@@ -510,7 +511,7 @@ func TestStateKeyScopesDir(t *testing.T) {
 }
 
 func TestKeyDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	got := KeyDir(Key{Slug: "s-abc", Agent: "opencode"})
 	want := filepath.Join(configpaths.Get().UserStateDir(), "s-abc", "opencode")
 	if got != want {
@@ -519,7 +520,7 @@ func TestKeyDir(t *testing.T) {
 }
 
 func TestReadState_NonNotFoundReadError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "dirslate-a", Agent: "opencode"}
 
 	// A directory at the state file path makes os.ReadFile fail with a
@@ -554,7 +555,7 @@ func TestParseHomeStateTypeErrorIsUnparsable(t *testing.T) {
 // TestReadStateTypeErrorWrapsTypeError pins that the typed-unmarshal failure
 // survives ReadState's wrapping as a retrievable *yaml.LoadErrors.
 func TestReadStateTypeErrorWrapsTypeError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "typecorrupt-a", Agent: "opencode"}
 	if err := os.MkdirAll(KeyDir(k), 0o700); err != nil {
 		t.Fatal(err)
@@ -575,7 +576,7 @@ func TestReadStateTypeErrorWrapsTypeError(t *testing.T) {
 // TestWriteState_MarshalError covers the marshal failure via the seam: the
 // concrete HomeState shape cannot make yaml.Marshal fail.
 func TestWriteState_MarshalError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("marshal boom")
 	orig := marshalHomeState
 	marshalHomeState = func(any) ([]byte, error) { return nil, wantErr }
@@ -587,7 +588,7 @@ func TestWriteState_MarshalError(t *testing.T) {
 }
 
 func TestWriteState_MkdirAllError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "blockedstate-a", Agent: "opencode"}
 
 	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
@@ -602,7 +603,7 @@ func TestWriteState_MkdirAllError(t *testing.T) {
 }
 
 func TestWriteState_RenameErrorCleansTemp(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "renproj-a", Agent: "opencode"}
 
 	sdir := KeyDir(k)
@@ -631,7 +632,7 @@ func TestRemoveHomeStateIf_LegacyRemoveError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root bypasses the read-only directory permission this test relies on")
 	}
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "legacyerrproj"
 
 	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
@@ -654,7 +655,7 @@ func TestRemoveHomeStateIf_LegacyRemoveError(t *testing.T) {
 }
 
 func TestRemoveHomeStateIfLockError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("mkdir boom")
 	orig := mkdirHomeLock
 	mkdirHomeLock = func(string, os.FileMode) error { return wantErr }

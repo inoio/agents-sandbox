@@ -11,6 +11,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
@@ -134,7 +135,7 @@ func TestReadLiveProjectVMConnectFailureKeepsHandle(t *testing.T) {
 // present, a changed setting must not force a recreate (the VM is created fresh
 // with the desired config anyway).
 func TestResolveReconfigDecisionNoVMSkipsRecreate(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.GetSandboxFn = func(_ context.Context, _ string) (msb.SandboxHandle, error) {
@@ -183,7 +184,7 @@ func TestResolveReconfigDecisionNoVMSkipsRecreate(t *testing.T) {
 // lookup is returned instead of being treated as "no VM", which would silently
 // skip reconfiguration.
 func TestResolveReconfigDecisionFailsWhenVMLookupFails(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.SetGetSandboxErr(errors.New("msb unreachable"))
@@ -226,7 +227,7 @@ func TestResolveReconfigDecisionFailsWhenVMLookupFails(t *testing.T) {
 // TestResolveReconfigDecisionNeedsNoVMAccess pins the split of #341: planning
 // works from the facts read up front, so it runs without an msb client at all.
 func TestResolveReconfigDecisionNeedsNoVMAccess(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{
 		GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 			t.Fatal("resolveReconfigDecision looked up the VM; it must plan from the facts it is given")
@@ -264,7 +265,7 @@ func TestResolveReconfigDecisionNeedsNoVMAccess(t *testing.T) {
 // TestResolveReconfigDecisionLogsDetachFailure pins that a failing detach from
 // the live VM is verbose-logged and does not fail the decision.
 func TestResolveReconfigDecisionLogsDetachFailure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	sh := &msb.MockSandboxHandle{
 		Cfg: &msb.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
 	}
@@ -316,7 +317,7 @@ func TestResolveReconfigDecisionLogsDetachFailure(t *testing.T) {
 // run cannot silently reuse a VM whose image, env, or network may differ from
 // the desired config.
 func TestResolveReconfigDecisionRecreatesWhenVMConfigIsUnreadable(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	handle := &msb.MockSandboxHandle{
 		ConfigErr: errors.New("config read failed"),
@@ -374,7 +375,7 @@ func TestResolveReconfigDecisionRecreatesWhenVMConfigIsUnreadable(t *testing.T) 
 // that with another client attached the forced recreate goes through the
 // rebuild prompt, and choosing "keep" defers it.
 func TestResolveReconfigDecisionOffersUnreadableVMConfigToAttachedClients(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 	slug := git.MustCheckoutSlug()
@@ -449,7 +450,7 @@ func TestResolveReconfigDecisionOffersUnreadableVMConfigToAttachedClients(t *tes
 // — so the content id is the only remaining signal that the live VM is still on
 // the old image (specs/runner-image/image-build.md).
 func TestResolveReconfigDecisionRecreatesOnContentIDSwitch(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const slug = "testproj"
 	const desiredContentID = "9f2c1a7b4d6e0f31"
@@ -494,7 +495,7 @@ func TestResolveReconfigDecisionRecreatesOnContentIDSwitch(t *testing.T) {
 // side: a live VM persisted under the name spelling of the desired identity is
 // reused, so the content-addressing change alone never recreates an existing VM.
 func TestResolveReconfigDecisionReusesVMOnSameContentIdentity(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const slug = "testproj"
 	const contentID = "9f2c1a7b4d6e0f31"
@@ -536,7 +537,7 @@ func TestResolveReconfigDecisionReusesVMOnSameContentIdentity(t *testing.T) {
 // attached an image change prompts the user, and choosing "quit" aborts with an
 // error.
 func TestResolveReconfigDecisionQuitAtRecreatePrompt(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 	slug := git.MustCheckoutSlug()
@@ -669,7 +670,7 @@ func TestResolveReconfigDecisionRecreatesWhenARecordedFingerprintDiffers(t *test
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			mock := reconfigMockClient()
 			msb.WithMsbMock(t, mock)
 			ui := termio.NewTestMock(t)
@@ -712,7 +713,7 @@ func TestResolveReconfigDecisionRecreatesWhenARecordedFingerprintDiffers(t *test
 }
 
 func TestResolveReconfigDecisionDetectsTmpSizeChangeFromLiveMounts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	opts := options.RunOptions{TmpSize: "4G"}
 	f := newReconfigFixture(t, launcherLiveMounts(1024, 16384, "vol"), nil)
@@ -751,7 +752,7 @@ func TestResolveReconfigDecisionWarnsWithTheMountsThatChanged(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			opts := options.RunOptions{Mounts: desired}
 			f := newReconfigFixture(t, launcherLiveMounts(0, 0, "vol"), nil)
 			hs := matchingHomeState(opts.Network)
@@ -772,7 +773,7 @@ func TestResolveReconfigDecisionWarnsWithTheMountsThatChanged(t *testing.T) {
 }
 
 func TestResolveReconfigDecisionNoRecreateWhenLiveMountsMatch(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	opts := options.RunOptions{TmpSize: "2G", WorkspaceQuota: "16G"}
 	f := newReconfigFixture(t, launcherLiveMounts(2048, 16384, "vol"), nil)
@@ -792,7 +793,7 @@ func TestResolveReconfigDecisionNoRecreateWhenLiveMountsMatch(t *testing.T) {
 }
 
 func TestResolveReconfigDecisionRecreatesOnWorkspaceQuotaChange(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	opts := options.RunOptions{TmpSize: "2G", WorkspaceQuota: "32G"}
 	f := newReconfigFixture(t, launcherLiveMounts(2048, 8192, "vol"), nil)
@@ -811,7 +812,7 @@ func TestResolveReconfigDecisionRecreatesOnWorkspaceQuotaChange(t *testing.T) {
 // that a live VM still mounting the previous home volume is recreated when home
 // resolution points at a different one.
 func TestResolveReconfigDecisionRecreatesOnHomeVolumeChangeFromLiveMounts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	opts := options.RunOptions{TmpSize: "2G", WorkspaceQuota: "16G"}
 	f := newReconfigFixture(t, launcherLiveMounts(2048, 16384, "old-vol"), nil)
@@ -827,7 +828,7 @@ func TestResolveReconfigDecisionRecreatesOnHomeVolumeChangeFromLiveMounts(t *tes
 }
 
 func TestResolveReconfigDecisionMountsReadFailureDegrades(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	opts := options.RunOptions{TmpSize: "2G", WorkspaceQuota: "16G"}
 	f := newReconfigFixture(t, nil, errors.New("mounts boom"))
@@ -858,7 +859,7 @@ func TestResolveReconfigDecisionAgentConfigDrivesRestart(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			ui := termio.NewTestMock(t)
 			configFiles := &reprovision.ConfigFiles{
 				Mirror: map[string][]byte{mirrorPath: []byte("new")},
@@ -903,11 +904,11 @@ func TestResolveReconfigDecisionAgentConfigDrivesRestart(t *testing.T) {
 }
 
 func TestResolveReconfigDecisionAgentConfigChangeOnStoppedVM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	// Desired opencode config: a snippet producing {"model":"y"} (new config).
 	testutil.WriteFile(t,
-		configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), opencodeAgent(t).ConfigDirName())),
+		configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), opencodeAgent(t).ConfigDirName())),
 		"a.json",
 		`{"model":"y"}`,
 	)
@@ -973,7 +974,7 @@ func TestResolveReconfigDecisionAgentConfigChangeOnStoppedVM(t *testing.T) {
 // driven by a non-image change must leave HomeAction nil, so no home-volume
 // prompt or state write happens for it.
 func TestResolveReconfigDecisionNoHomeActionOnUnchangedDigest(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	opts := options.RunOptions{TmpSize: "4G"} // the tmp-size change forces a recreate
 	f := newReconfigFixture(t, launcherLiveMounts(1024, 16384, "vol"), nil)
@@ -1003,11 +1004,11 @@ func TestResolveReconfigDecisionNoHomeActionOnUnchangedDigest(t *testing.T) {
 }
 
 func TestResolveReconfigDecisionHomePromptDeferredWhenRebuildDeferred(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	key := state.Key{Slug: "testproj", Agent: "opencode"}
 	release, err := state.AcquireClientLease(key)
@@ -1098,11 +1099,11 @@ func TestResolveReconfigDecisionHomePromptDeferredWhenRebuildDeferred(t *testing
 }
 
 func TestResolveReconfigDecisionHomePromptAskedWhenRebuildConfirmed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
 	msb.WithMsbMock(t, mock)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	prompted := false
 	ui := &termio.Mock{
@@ -1188,7 +1189,7 @@ func TestResolveReconfigDecisionHomePromptAskedWhenRebuildConfirmed(t *testing.T
 // TestApplyReconfigHomeActionError pins that a failing home-volume action
 // aborts the reconfig with that error.
 func TestApplyReconfigHomeActionError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	mock := reconfigMockClient()
 	createErr := errors.New("create volume failed")
@@ -1262,7 +1263,7 @@ func TestApplyReconfigHomeActionError(t *testing.T) {
 // returns the freshly created home volume, not the old one, so the run mounts
 // what the action produced.
 func TestApplyReconfigHomeActionReturnsNewVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 
 	const oldVolume = "home-applyproj-old"
@@ -1298,7 +1299,7 @@ func TestApplyReconfigHomeActionReturnsNewVolume(t *testing.T) {
 // with "quit" makes applyReconfigHomeAction abort the session with a
 // vm.ExitError.
 func TestApplyReconfigHomeActionQuit(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	sh := &msb.MockSandboxHandle{
 		Cfg: &msb.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
@@ -1516,7 +1517,7 @@ func reconfigMockClient() *msb.MockMsbClient {
 // decision must not adopt the freshly probed serve port (that port applies at
 // the next recreate).
 func TestResolveReconfigDecisionDeferredPortsKeepsServePort(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 	slug := git.MustCheckoutSlug()
@@ -1607,7 +1608,7 @@ func TestResolveReconfigDecisionDeferredPortsKeepsServePort(t *testing.T) {
 // prompt, and the decision adopts the freshly probed serve port the recreated
 // VM will bind.
 func TestResolveReconfigDecisionRecreateAdoptsProbedServePort(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 	slug := git.MustCheckoutSlug()
@@ -1681,7 +1682,7 @@ func TestResolveReconfigDecisionRecreateAdoptsProbedServePort(t *testing.T) {
 // without user ports against a VM that has them is a change — the recreate
 // drops the published ports.
 func TestResolveReconfigDecisionDroppedPortsRecreate(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 	slug := git.MustCheckoutSlug()
@@ -1740,7 +1741,7 @@ func TestResolveReconfigDecisionDroppedPortsRecreate(t *testing.T) {
 // records (via ConfigPorts) equal the desired bindings, so nothing reads as
 // changed, the VM is not recreated, and the serve port is reused.
 func TestResolveReconfigDecisionUnchangedPortsNoRecreate(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	tmpRepo := testutil.InitRepo(t)
 	t.Chdir(tmpRepo)
 	slug := git.MustCheckoutSlug()
@@ -1955,7 +1956,7 @@ func withoutMemoryEnv(t *testing.T) {
 // an OOM kill newer than the marker's recorded, answered kill is offered once
 // and an accepted raise is persisted.
 func TestDetectAndOfferMemoryRaiseNewerOOMOffersAndPersists(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withoutMemoryEnv(t)
 	k := testVMKey()
 	oldKill := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -2001,7 +2002,7 @@ func TestDetectAndOfferMemoryRaiseNewerOOMOffersAndPersists(t *testing.T) {
 // TestDetectAndOfferMemoryRaiseDeclineDoesNotReOfferSameOOM pins the decline
 // answer: it advances the marker, so the same log entry is not offered again.
 func TestDetectAndOfferMemoryRaiseDeclineDoesNotReOfferSameOOM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testVMKey()
 	seedEmptyHomeState(t, k)
 	kill := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
@@ -2056,7 +2057,7 @@ func TestDetectAndOfferMemoryRaiseLogOrMetricsErrorIsBestEffort(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			k := testVMKey()
 			seedEmptyHomeState(t, k)
 			var selects int
@@ -2087,7 +2088,7 @@ func TestDetectAndOfferMemoryRaiseLogOrMetricsErrorIsBestEffort(t *testing.T) {
 // deferral: a non-interactive launch records the hit but does not answer it, so
 // the next interactive launch offers it.
 func TestDetectAndOfferMemoryRaiseNonInteractiveRecordsAndLaterOffers(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testVMKey()
 	seedEmptyHomeState(t, k)
 	kill := time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC)
@@ -2136,7 +2137,7 @@ func TestDetectAndOfferMemoryRaiseNonInteractiveRecordsAndLaterOffers(t *testing
 // OOM line and no recorded hit is not a limit hit (another client may simply be
 // using the memory).
 func TestDetectAndOfferMemoryRaiseFreshHeadroomAtLaunchDoesNotOffer(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withoutMemoryEnv(t)
 	k := testVMKey()
 	seedEmptyHomeState(t, k)
@@ -2165,7 +2166,7 @@ func TestDetectAndOfferMemoryRaiseFreshHeadroomAtLaunchDoesNotOffer(t *testing.T
 // of a recorded-but-unanswered headroom trip: offering it again keeps the
 // first-seen time rather than starting a new one.
 func TestDetectAndOfferMemoryRaisePreservesHeadroomSeenTime(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testVMKey()
 	seen := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	if err := seedHomeState(k, state.HomeState{ResourcePressure: &state.ResourcePressureState{
@@ -2196,7 +2197,7 @@ func TestDetectAndOfferMemoryRaisePreservesHeadroomSeenTime(t *testing.T) {
 // when neither is known (a zero basis would pre-fill a decrease).
 func TestDetectAndOfferMemoryRaiseCurrentMemoryFallbacks(t *testing.T) {
 	t.Run("metrics limit when the config is unreadable", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		withoutMemoryEnv(t)
 		k := testVMKey()
 		seedEmptyHomeState(t, k)
@@ -2215,7 +2216,7 @@ func TestDetectAndOfferMemoryRaiseCurrentMemoryFallbacks(t *testing.T) {
 	})
 
 	t.Run("no offer when neither is known", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		withoutMemoryEnv(t)
 		k := testVMKey()
 		seedEmptyHomeState(t, k)
@@ -2264,7 +2265,7 @@ func raiseUI(t *testing.T) (*termio.Mock, *string) {
 // TestDetectAndOfferMemoryRaisePromptErrorIsBestEffort pins that a prompt
 // failure records the hit unanswered and does not fail the run.
 func TestDetectAndOfferMemoryRaisePromptErrorIsBestEffort(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testVMKey()
 	seedEmptyHomeState(t, k)
 	cfg := &msb.SandboxConfig{MemoryMiB: 4096}
@@ -2292,7 +2293,7 @@ func TestDetectAndOfferMemoryRaisePromptErrorIsBestEffort(t *testing.T) {
 // (here a JSON config the launcher does not edit) warns rather than failing, and
 // still advances the marker.
 func TestDetectAndOfferMemoryRaisePersistErrorWarns(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testVMKey()
 	seedEmptyHomeState(t, k)
 	cfg := &msb.SandboxConfig{MemoryMiB: 4096}
@@ -2329,7 +2330,7 @@ func TestDetectAndOfferMemoryRaisePersistErrorWarns(t *testing.T) {
 
 // TestDetectAndOfferMemoryRaiseSkipsWithoutVM pins the no-VM guard.
 func TestDetectAndOfferMemoryRaiseSkipsWithoutVM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	detectAndOfferMemoryRaise(
 		context.Background(), liveProjectVM{}, testVMKey(), options.RunOptions{},
@@ -2361,7 +2362,7 @@ func TestDetectAndOfferDiskRaiseAtLaunch(t *testing.T) {
 		{answer: "keep", wantDisk: "4G", wantQuota: "16G", wantTmp: "2G"},
 	} {
 		t.Run(tc.answer, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			for _, key := range []string{"DISK_SIZE", "WORKSPACE_QUOTA", "TMP_SIZE"} {
 				t.Setenv("AGENTS_SANDBOX_"+key, "")
 				t.Setenv("OPENCODE_SANDBOX_"+key, "")

@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 )
 
 func TestLauncherStoreRoundTripsThroughRootState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	s := launcherStore{}
 	if got, err := s.Load(); err != nil || !got.LastChecked.IsZero() {
 		t.Fatalf("empty load = %+v, %v", got, err)
@@ -60,7 +61,7 @@ func TestLauncherStoreRoundTripsThroughRootState(t *testing.T) {
 // adapter turns that into an error so upgrade.Check defers instead of reading a
 // false empty state or clobbering a concurrent writer.
 func TestLauncherStoreReportsContendedRootLock(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ran := false
 	_, _ = state.WithRootState(true, func(_ *state.RootTxn) error {
 		ran = true
@@ -83,7 +84,7 @@ func TestLauncherStoreReportsContendedRootLock(t *testing.T) {
 // FoldLegacyState must leave upgrade.json in place when the root lock is held,
 // so the next run retries the fold instead of losing the dismissals.
 func TestFoldLegacyStateDefersOnContendedRootLock(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacyPath := filepath.Join(configpaths.Get().UserStateDir(), "upgrade.json")
 	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o700); err != nil {
 		t.Fatal(err)
@@ -111,7 +112,7 @@ func TestFoldLegacyStateDefersOnContendedRootLock(t *testing.T) {
 // state: upgrade.Check then defers the check and the legacy-file fold keeps its
 // file, instead of overwriting the unreadable document with a zero one.
 func TestLauncherStoreErrorsOnCorruptRootState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	statePath := filepath.Join(configpaths.Get().UserStateDir(), "state.yaml")
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
 		t.Fatal(err)

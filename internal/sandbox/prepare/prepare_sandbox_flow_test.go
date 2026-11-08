@@ -19,6 +19,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
@@ -40,7 +41,7 @@ import (
 // re-resolving "latest" from the network. Passing the stored version keeps the
 // image identity (and thus the microsandbox load decision) stable across runs.
 func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	// The resolver records the requested version and returns it, so the test
 	// observes exactly what PrepareSandbox passed instead of a network lookup.
@@ -125,7 +126,7 @@ func TestPrepareSandboxReusesStoredOpenCodeVersion(t *testing.T) {
 // force-rebuilds the image and that the run reports the newer version being
 // baked in.
 func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "2.0.0", nil }
@@ -211,7 +212,7 @@ func TestPrepareSandboxUpgradeRebuildsImage(t *testing.T) {
 // resolution creates the state, so the next run does not offer the same
 // release again.
 func TestPrepareSandboxRecordsTheOfferedUpgradeOnAFreshProject(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Chdir(newOriginClone(t))
 	installPrepareSandboxDockerMock(t)
 	installPrepareSandboxMSBMock(t)
@@ -246,7 +247,7 @@ func TestPrepareSandboxRecordsTheOfferedUpgradeOnAFreshProject(t *testing.T) {
 // loaded twice (once in resolveReconfigDecision and once in vm.SetUpSandbox), which made
 // the warning (and the underlying BuildHomeFilesWithModes computation) run twice.
 func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 
 	// A project home config whose host source does not exist triggers the
@@ -349,7 +350,7 @@ func TestPrepareSandboxLoadsHomeYamlOnce(t *testing.T) {
 }
 
 func TestPrepareSandboxLoadsEnvSecretsOnce(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 
 	// A project secret spec whose value lacks the "value@host" format makes the
@@ -441,7 +442,7 @@ func TestPrepareSandboxLoadsEnvSecretsOnce(t *testing.T) {
 // fingerprints record, so the next run compares against what is really baked
 // in (#342).
 func TestPrepareSandboxBakesAndFingerprintsTheLoadedEnv(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserConfigDir(), configpaths.EnvFileName, "FROM_HOST=yes\n")
 	testutil.WriteFile(t, cp.UserConfigDir(), configpaths.EnvSecretFileName, "TOKEN=value-a@api.example.com\n")
@@ -532,7 +533,7 @@ func TestPrepareSandboxBakesAndFingerprintsTheLoadedEnv(t *testing.T) {
 // hook: startup is executed through an interactive AttachWith as the configured
 // user (root) during startup, before the opencode daemon is ensured.
 func TestPrepareSandboxRunsStartupHook(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 
 	// A project home config that both provisions a script and marks it a
@@ -623,7 +624,7 @@ func TestPrepareSandboxRunsStartupHook(t *testing.T) {
 // wiring: the opt-in legacy home-volume offer runs once, with the msb client,
 // as part of PrepareSandbox.
 func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
@@ -711,7 +712,7 @@ func TestPrepareSandboxInvokesRuntimeHomeMigrationOffer(t *testing.T) {
 // volume, so no fresh home is created and the project's recorded reference is
 // left intact for a later copy.
 func TestPrepareSandboxBlocksOnPendingRuntimeHomeMigration(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
@@ -774,7 +775,7 @@ func TestPrepareSandboxBlocksOnPendingRuntimeHomeMigration(t *testing.T) {
 // the session. The offer is best-effort, so PrepareSandbox warns and continues
 // rather than failing, and it never prompts.
 func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
@@ -873,7 +874,7 @@ func TestPrepareSandboxRuntimeHomeMigrationStateErrorIsNonFatal(t *testing.T) {
 // dir would add the shared-git-dir bind, so the recorded mount set would depend
 // on where the suite runs.
 func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Chdir(testutil.InitRepo(t))
 
 	origUpgradeInfo := agentLatestVersion
@@ -959,7 +960,7 @@ func TestPrepareSandboxPersistsMountFingerprintOnVMCreation(t *testing.T) {
 // This is the writer of record for profiles without an in-VM version probe
 // (opencode2), whose boot-time provenance cannot fill the baseline.
 func TestPrepareSandboxRecordsBakedAgentVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	withMockBuildVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "9.9.9", nil
@@ -1030,7 +1031,7 @@ func TestPrepareSandboxRecordsBakedAgentVersion(t *testing.T) {
 // longer match the requested tmp size is destroyed and recreated, proving the
 // mount read-back reaches the VM lifecycle and not only the decision.
 func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
@@ -1130,7 +1131,7 @@ func TestPrepareSandboxRecreatesVMOnLiveMountChange(t *testing.T) {
 // subject is the project, not the agent), so this test keeps whichever agent is
 // the default wired through orchestration.
 func TestPrepareSandboxRunsDefaultAgentDaemon(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	defaultAgent, ok := agent.Lookup(agent.DefaultAgentName)
 	if !ok {
@@ -1192,7 +1193,7 @@ func TestPrepareSandboxRunsDefaultAgentDaemon(t *testing.T) {
 // runner image tag) from its checkout slug while the grouping label stays the
 // shared repo slug, so `list --label project=<repo>` groups both.
 func TestPrepareSandboxUsesCheckoutSlugForStateAndRepoSlugForLabel(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	firstClone := newOriginClone(t)
 	secondClone := newOriginClone(t)
@@ -1278,7 +1279,7 @@ func TestPrepareSandboxUsesCheckoutSlugForStateAndRepoSlugForLabel(t *testing.T)
 // notice and the rest of the pipeline keeps the legacy repo slug, so no
 // post-migration artifact is presented as if the migration had run.
 func TestPrepareSandboxSkipVMKeepsLegacySlugWhileMigrationPending(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	clone := newOriginClone(t)
 	identity := mustIdentity(t, clone)
 	if identity.RepoSlug == identity.CheckoutSlug {
@@ -1331,7 +1332,7 @@ func TestPrepareSandboxSkipVMKeepsLegacySlugWhileMigrationPending(t *testing.T) 
 // moves the state onto the checkout slug, and recreates the VM under the
 // checkout name.
 func TestPrepareSandboxMigratesOnFirstRun(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	clone := newOriginClone(t)
 	identity := mustIdentity(t, clone)
 
@@ -1389,7 +1390,7 @@ func TestPrepareSandboxMigratesOnFirstRun(t *testing.T) {
 // the run path: an unreadable legacy state aborts PrepareSandbox before it
 // resolves a version, ensures an image, or creates a VM.
 func TestPrepareSandboxAdoptionFailureReturnsError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	clone := newOriginClone(t)
 	identity := mustIdentity(t, clone)
 	t.Chdir(clone)
@@ -1421,7 +1422,7 @@ func TestPrepareSandboxAdoptionFailureReturnsError(t *testing.T) {
 // checkout root so the target is exactly /workspace regardless of where the
 // test binary runs.
 func TestPrepareSandboxDryRunVMSkipsTheVM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Chdir(testutil.InitRepo(t))
 
 	origUpgradeInfo := agentLatestVersion
@@ -1493,7 +1494,7 @@ func TestPrepareSandboxDryRunVMSkipsTheVM(t *testing.T) {
 // --dry-run-vm run on a project without state neither creates a home volume nor
 // writes state, so the first real run creates and prefills the home itself.
 func TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Chdir(testutil.InitRepo(t))
 
 	origUpgradeInfo := agentLatestVersion
@@ -1551,7 +1552,7 @@ func TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome(t *testing.T) {
 // without a published port probes a free host port and records it on the
 // Session, even when --dry-run-vm skips the VM.
 func TestPrepareSandboxDryRunVMServeOnlyPublishesPort(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	stubPrepareSandboxImage(t)
 
 	slug := git.MustCheckoutSlug()
@@ -1595,7 +1596,7 @@ func TestPrepareSandboxDryRunVMServeOnlyPublishesPort(t *testing.T) {
 // directory: launched from a repository subdirectory, the bound /workspace is
 // the checkout root and the agent starts in the launched subdirectory.
 func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	origUpgradeInfo := agentLatestVersion
 	agentLatestVersion = func(_ context.Context, _ agent.Agent) (string, error) { return "1.5.0", nil }
@@ -1668,7 +1669,7 @@ func TestPrepareSandboxDryRunVMLaunchSubdirectory(t *testing.T) {
 // VM ones included, so reordering, adding or removing a stage in
 // PrepareSandbox's list changes the trace and fails here.
 func TestPrepareSandboxSkipVMRecordsStagesInOrder(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	clone := newOriginClone(t)
 	installPrepareSandboxDockerMock(t)
 	ui := termio.NewTestMock(t)
@@ -1966,7 +1967,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			run := tc.arrange(t, tc.cause)
 			trace := &lifecycle.Trace{}
 			run.opts.Trace = trace
@@ -2231,7 +2232,7 @@ func withMockBuildVersionResolver(t *testing.T, resolve image.AgentVersionResolv
 // whole probe range aborts before any VM work rather than publishing the agent
 // on a colliding port.
 func TestPrepareSandboxServeOnlyPortExhausted(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	stubPrepareSandboxImage(t)
 
 	k := state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"}
@@ -2269,7 +2270,7 @@ func TestPrepareSandboxServeOnlyPortExhausted(t *testing.T) {
 // recreate guarantee: putting the slug in the scope chain while the per-slug dir
 // holds no env/secret files leaves the env and secret fingerprints unchanged.
 func TestDesiredFingerprintsUnchangedWithoutPerSlugFiles(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	scopes := configpaths.ConfigScopes(configpaths.Get(), "")
 	testutil.WriteFile(t, scopes[0].Dir, configpaths.EnvFileName, "A=generic\n")
 	testutil.WriteFile(t, scopes[1].Dir, configpaths.EnvFileName, "B=project\n")
@@ -2297,7 +2298,7 @@ func TestDesiredFingerprintsUnchangedWithoutPerSlugFiles(t *testing.T) {
 // read after the image is ready) keeps the run from creating or starting the
 // project VM. The home volume's prefill sandbox carries no project input.
 func TestPrepareSandboxStopsBeforeTheVMOnAnUnapprovedRead(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockBuildVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "9.9.9", nil
 	})

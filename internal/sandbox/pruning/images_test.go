@@ -12,7 +12,7 @@ import (
 	imagetypes "github.com/moby/moby/api/types/image"
 	mobyclient "github.com/moby/moby/client"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -47,7 +47,7 @@ func TestPruneImages(t *testing.T) {
 	}
 
 	t.Run("prunes VM-less slug and older surplus of a kept slug", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
 				img("agents-sandbox/runner-orphan-1mjusbm3wikhb0:digest1", old),
@@ -75,7 +75,7 @@ func TestPruneImages(t *testing.T) {
 	})
 
 	t.Run("reclaims all images of a VM-less slug", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
 				img("agents-sandbox/runner-orphan-1mjusbm3wikhb0:digest1", old),
@@ -102,7 +102,7 @@ func TestPruneImages(t *testing.T) {
 	})
 
 	t.Run("keeps per-agent latest tags of a live slug, prunes surplus", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
 				img("agents-sandbox/runner-active-1mjusbm3wikhb0:opencode-latest", old),
@@ -131,7 +131,7 @@ func TestPruneImages(t *testing.T) {
 	})
 
 	t.Run("reclaims images of a slug that has neither VM nor state", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
 				img("agents-sandbox/runner-unknown-1mjusbm3wikhb0:digest1", old),
@@ -165,7 +165,7 @@ func TestPruneImages(t *testing.T) {
 	})
 
 	t.Run("continues past an ImageRemove error", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		removed := make(map[string]bool)
 		client := &msb.MockMsbClient{
 			Images: []msb.ImageHandle{
@@ -222,7 +222,7 @@ func TestPruneImages(t *testing.T) {
 }
 
 func TestPruneImagesSkipsNonRunnerReferences(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{
 		Images: []msb.ImageHandle{
 			&msb.MockImageHandle{Reference_: "other/namespace:latest"},
@@ -253,7 +253,7 @@ func TestPruneImagesSkipsNonRunnerReferences(t *testing.T) {
 func TestPruneImagesSkipsHashlessSingleSegmentImage(t *testing.T) {
 	for _, ref := range []string{"manually-loaded:latest", "agents-sandbox/runner-manual:latest"} {
 		t.Run(ref, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			client := &msb.MockMsbClient{
 				Images: []msb.ImageHandle{
 					&msb.MockImageHandle{
@@ -308,7 +308,7 @@ func TestKeepImageDropsLatestSuffixWithoutAgent(t *testing.T) {
 // of the Greptile P1: a leftover stopped task sandbox for a live project must
 // not cause the project's current runner image to be reclaimed.
 func TestPruneImagesKeepsLiveProjectImageWithLeftoverTask(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "proj-1mjusbm3wikhb0"
 	live := &msb.MockSandboxHandle{
 		Name_:      slug + "-opencode",
@@ -350,7 +350,7 @@ func TestPruneImagesKeepsLiveProjectImageWithLeftoverTask(t *testing.T) {
 // VM, and the run's own startup prune must not reclaim it. Both the content ref
 // and the legacy prefixed tag survive while within the prune age.
 func TestPruneImagesKeepsRecentImageOfVmLessProject(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "built-1mjusbm3wikhb0"
 	client := &msb.MockMsbClient{
 		Images: []msb.ImageHandle{
@@ -807,7 +807,7 @@ func TestKeepImageDropsAgentlessRefOfLiveKey(t *testing.T) {
 // TestPruneImagesKeepsPerAgentTagsOfLiveSlug verifies that a live slug keeps
 // exactly its recent per-agent refs and reclaims every other (digest) ref.
 func TestPruneImagesKeepsPerAgentTagsOfLiveSlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	now := time.Now()
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	older := time.Now().Add(-30 * 24 * time.Hour)
@@ -854,7 +854,7 @@ func TestPruneImagesKeepsPerAgentTagsOfLiveSlug(t *testing.T) {
 // per-agent refs and reclaim only the surplus digest ref, so the next run does
 // not re-import the fresh image.
 func TestPruneImagesPreservesFreshSurplus(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	now := time.Now()
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	older := time.Now().Add(-30 * 24 * time.Hour)
@@ -901,7 +901,7 @@ func TestPruneImagesPreservesFreshSurplus(t *testing.T) {
 // project's cached variants survive while used within the prune age; an aged one
 // is reclaimed, and the dry-run report names which content id went.
 func TestPruneImagesDryRunReportsAgedVariants(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "proj-1mjusbm3wikhb0"
 	heldRef := slug + ":opencode.9f2c1a7b4d6e0f31"
 	recentRef := slug + ":opencode.1122334455667788"
@@ -944,7 +944,7 @@ func TestPruneImagesDryRunReportsAgedVariants(t *testing.T) {
 // its msb images behind. With no VM, the slug is VM-less and its images are
 // reclaimed, including any current/latest-tagged image.
 func TestPruneImagesReclaimsKilledProjectImages(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	client := &msb.MockMsbClient{
 		Images: []msb.ImageHandle{
@@ -976,7 +976,7 @@ func TestPruneImagesReclaimsKilledProjectImages(t *testing.T) {
 // digest ref rather than a per-agent "-latest" tag (pre-redesign VMs). Such an
 // image is still in use by the sandbox and must not be pruned.
 func TestPruneImagesKeepsImageReferencedByKeptVM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{
 		Images: []msb.ImageHandle{
 			&msb.MockImageHandle{
@@ -1050,7 +1050,7 @@ func TestPruneImagesSkipsNativePruneWhenRetaining(t *testing.T) {
 }
 
 func TestPruneImagesSkipsForeignAndReports(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{Images: []msb.ImageHandle{
 		&msb.MockImageHandle{Reference_: "docker.io/library/foreign:1"},
 		&msb.MockImageHandle{Reference_: "agents-sandbox/runner-orphan-1mjusbm3wikhb0:digest1"},
@@ -1094,7 +1094,7 @@ func TestPruneImagesErrorReturnsZeroReport(t *testing.T) {
 // TestPruneImagesDockerCounts pins that the docker-image count from
 // pruneDockerImages is written back into the report.
 func TestPruneImagesDockerCounts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	dockertest.WithDockerMock(t, deletedImagesDockerMock(3))
 
@@ -1110,7 +1110,7 @@ func TestPruneImagesDockerCounts(t *testing.T) {
 // TestPruneImagesEmptyAgentLatestTagIsSurplus pins that a "-latest" reference
 // with no agent (tag exactly "-latest") is not kept for a live key.
 func TestPruneImagesEmptyAgentLatestTagIsSurplus(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{Images: []msb.ImageHandle{
 		&msb.MockImageHandle{Reference_: "agents-sandbox/runner-active-1mjusbm3wikhb0:-latest"},
 	}}
@@ -1133,7 +1133,7 @@ func TestPruneImagesEmptyAgentLatestTagIsSurplus(t *testing.T) {
 // how long the image has been stale: measured from LastUsedAt, falling back to
 // CreatedAt when the image was never used, and zero when it has no timestamps.
 func TestPruneImagesPopulatesStaleFor(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	now := time.Now()
 	client := &msb.MockMsbClient{Images: []msb.ImageHandle{
 		&msb.MockImageHandle{
@@ -1410,7 +1410,7 @@ func deletedImagesDockerMock(n int) *dockertest.MockDockerClient {
 // prune deleted are folded into the report's details, alongside the msb-image
 // entries, so the rendered report names every reclaimed image.
 func TestPruneImagesIncludesDockerDetailsInReport(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	dockertest.WithDockerMock(t, deletedImagesDockerMock(2))
 

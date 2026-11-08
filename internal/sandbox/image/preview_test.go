@@ -13,6 +13,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -148,7 +149,7 @@ func TestPreviewImageEmptyVersionReportsResolveAtBuild(t *testing.T) {
 // ignored project config and delegates to the read-only plan path with the
 // caller-supplied project Dockerfile bytes.
 func TestPreviewImageDelegatesToReadOnlyPlan(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
 		t.Fatal("PreviewImage must not resolve the agent version")
 		return "", nil
@@ -237,7 +238,7 @@ func TestPreviewImageWarnsIgnoredWorktreeConfig(t *testing.T) {
 // computeDockerfileID over the rendered project Dockerfile, so a seeded image
 // matches the plan the preview computes.
 func TestRunnerDockerfileIDMatchesTheRenderedPlan(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 
 	id, err := RunnerDockerfileID(configpaths.Get(), a, testAgentVersion, dockerOff)
@@ -256,7 +257,7 @@ func TestRunnerDockerfileIDMatchesTheRenderedPlan(t *testing.T) {
 // TestRunnerDockerfileIDSurfacesRenderError pins that a project Dockerfile that
 // cannot render propagates the error instead of returning a bogus id.
 func TestRunnerDockerfileIDSurfacesRenderError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	dockerfilePath := configpaths.Get().ProjectDockerfile()
 	if err := os.MkdirAll(filepath.Dir(dockerfilePath), 0o700); err != nil {

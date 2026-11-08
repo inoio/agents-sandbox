@@ -8,11 +8,12 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestAcquireClaimExclusivePerKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "claimproj-a"
 
 	release1, claimed1, err := AcquireClaim(slug, "keyA")
@@ -50,7 +51,7 @@ func TestAcquireClaimExclusivePerKey(t *testing.T) {
 }
 
 func TestAcquireClaimAbandonedFileReclaimable(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "claimproj-c"
 
 	// Simulate a crashed holder: create the claim file with no live flock.
@@ -73,7 +74,7 @@ func TestAcquireClaimAbandonedFileReclaimable(t *testing.T) {
 }
 
 func TestAcquireClaimReleaseRemovesFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "claimproj-b"
 
 	release1, claimed1, err := AcquireClaim(slug, "keyX")
@@ -97,7 +98,7 @@ func TestAcquireClaimReleaseRemovesFile(t *testing.T) {
 }
 
 func TestAcquireClaimFlockErrorSurfaces(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	claimOpened = func(f *os.File, _ string) { _ = f.Close() }
 	t.Cleanup(func() { claimOpened = nil })
 
@@ -117,7 +118,7 @@ func TestAcquireClaimFlockErrorSurfaces(t *testing.T) {
 }
 
 func TestAcquireClaimRetriesWhenFileRemovedUnderIt(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	attempts := 0
 	claimOpened = func(_ *os.File, path string) {
 		attempts++
@@ -199,7 +200,7 @@ func TestSameFileDifferentInode(t *testing.T) {
 // TestAcquireClaimUsesPrivateModes pins the claims dir and file modes at the
 // seam, so the assertion does not depend on the test process's umask.
 func TestAcquireClaimUsesPrivateModes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	var dirMode, fileMode os.FileMode
 	origMkdir, origOpen := mkdirClaimDir, openClaimFile
 	mkdirClaimDir = func(dir string, mode os.FileMode) error {
@@ -230,7 +231,7 @@ func TestAcquireClaimUsesPrivateModes(t *testing.T) {
 // creation failure: it must wrap the underlying error (not flatten it) and
 // report claimed=false.
 func TestAcquireClaimMkdirErrorWrapsAndReportsUnclaimed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("mkdir boom")
 	orig := mkdirClaimDir
 	mkdirClaimDir = func(string, os.FileMode) error { return wantErr }
@@ -251,7 +252,7 @@ func TestAcquireClaimMkdirErrorWrapsAndReportsUnclaimed(t *testing.T) {
 // TestAcquireClaimOpenErrorWrapsAndReportsUnclaimed pins the claim-file open
 // failure: the wrap is preserved and the tuple reports unclaimed.
 func TestAcquireClaimOpenErrorWrapsAndReportsUnclaimed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("open boom")
 	orig := openClaimFile
 	openClaimFile = func(string, int, os.FileMode) (*os.File, error) { return nil, wantErr }
@@ -270,7 +271,7 @@ func TestAcquireClaimOpenErrorWrapsAndReportsUnclaimed(t *testing.T) {
 }
 
 func TestAcquireClaim_MkdirError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "claimmkdirproj"
 	sdir := filepath.Join(configpaths.Get().UserStateDir(), slug)
 	if err := os.MkdirAll(sdir, 0o700); err != nil {
@@ -288,7 +289,7 @@ func TestAcquireClaim_OpenFileError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("cannot simulate an unwritable dir as root")
 	}
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "claimroproj"
 	dir := filepath.Join(configpaths.Get().UserStateDir(), slug, "claims")
 	if err := os.MkdirAll(dir, 0o700); err != nil {

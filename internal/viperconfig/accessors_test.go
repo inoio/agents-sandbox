@@ -4,13 +4,14 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 // TestResolverSlug pins the config-write target: a built resolver reports the
 // slug it was built for, and a nil resolver reports an empty slug so the caller
 // falls back to its own.
 func TestResolverSlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	r, err := NewResolver(nil, configpaths.Get(), "widget-bbb")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)

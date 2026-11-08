@@ -11,7 +11,7 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
@@ -77,7 +77,7 @@ func TestCheckMsbEnsureInstalledErrorSurfacesErrorWithoutInstallHint(t *testing.
 }
 
 func TestCheckMsbReportsPrivateHomeBinPathWithoutPathHints(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	mockEnsureInstalled(t, false)
 	t.Setenv("PATH", "/nonexistent")
 	t.Setenv("SHELL", "/bin/zsh")
@@ -100,7 +100,7 @@ func TestCheckMsbReportsPrivateHomeBinPathWithoutPathHints(t *testing.T) {
 }
 
 func TestCheckMsbIgnoresMsbHomeAndMsbPathEnv(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	mockEnsureInstalled(t, false)
 
 	legacyHome := filepath.Join(t.TempDir(), "legacy-home")
@@ -198,7 +198,7 @@ func TestRealCheckDockerPingOK(t *testing.T) {
 }
 
 func TestCollectChecksAggregatesFailures(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	mockCheckDocker(t, false)
 	mockEnsureInstalled(t, false)
 	t.Setenv("PATH", "/nonexistent")
@@ -220,7 +220,7 @@ func TestCollectChecksAggregatesFailures(t *testing.T) {
 }
 
 func TestCollectChecksMsbInfoNamesPrivateHome(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	mockCheckDocker(t, true)
 	mockEnsureInstalled(t, false)
 	t.Setenv("PATH", "/nonexistent")
@@ -247,7 +247,7 @@ func TestCollectChecksMsbInfoNamesPrivateHome(t *testing.T) {
 // TestCollectChecksCollectsMsbError covers collectChecks appending the msb check
 // failure when the private runtime cannot be ensured.
 func TestCollectChecksCollectsMsbError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	mockCheckDocker(t, true)
 	mockEnsureInstalled(t, true)
 
@@ -300,7 +300,7 @@ func TestCheckAllDelegates(t *testing.T) {
 // failure is reported with its troubleshooting link while the other checks still
 // run and report (#423).
 func TestCheckAllReportsMsbRuntimeFailureWithDocsLink(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		PingFn: func(context.Context, client.PingOptions) (client.PingResult, error) {
 			return client.PingResult{}, errors.New("docker down")

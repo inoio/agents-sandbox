@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	cp "github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -199,7 +199,7 @@ func TestBuildPruneStateKeysByAgent(t *testing.T) {
 		},
 	}
 	msb.WithMsbMock(t, client)
-	cp.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	got, err := buildPruneState(context.Background(), 7*24*time.Hour)
 	if err != nil {
@@ -250,7 +250,7 @@ func TestPruneAggregateParity(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
-	cp.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	testUI := termio.NewTestMock(t)
 	report, err := Prune(context.Background(), docker.Get(), PruneOptions{
@@ -295,7 +295,7 @@ func TestPruneNeverRemovesVolumes(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
-	cp.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
 
 	report, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &testUI)
@@ -325,7 +325,7 @@ func TestPruneRunsStoragePhase(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
-	cp.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	report, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &termio.Mock{})
 	if err != nil {
@@ -355,7 +355,7 @@ func TestPruneJoinsStorageError(t *testing.T) {
 	}
 	msb.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
-	cp.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	ui := &termio.Mock{}
 	_, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, ui)
@@ -385,7 +385,7 @@ func TestPruneSurfacesSubPrunerError(t *testing.T) {
 	client := &msb.MockMsbClient{ListImagesErr: errBoom}
 	msb.WithMsbMock(t, client)
 	dockertest.WithNoopDockerMock(t)
-	cp.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
 	_, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &testUI)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
@@ -517,7 +517,7 @@ func TestRenderPruneSummaryVerboseDetails(t *testing.T) {
 // a run passes the key it is about to use, and that key's image survives even
 // though its stale project VM is pruned in the same invocation.
 func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
-	cp.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "proj-1mjusbm3wikhb0"
 	key := state.Key{Slug: slug, Agent: "opencode"}
 	ref := "agents-sandbox/runner-" + slug + ":opencode-latest"
@@ -674,7 +674,7 @@ func TestInvokePruneFunc(t *testing.T) {
 // state phase: a state recording no home volume is reclaimed, so the phase is
 // not silently skipped.
 func TestPruneNonDryRunSweepsState(t *testing.T) {
-	cp.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	dockertest.WithNoopDockerMock(t)
 	testUI := termio.NewTestMock(t)

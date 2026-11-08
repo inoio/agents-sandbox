@@ -13,7 +13,7 @@ import (
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/client"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
@@ -48,7 +48,7 @@ type volumeOpScenario struct {
 func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 	t.Helper()
 	initTestProjectDir(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}
 
@@ -169,7 +169,7 @@ func TestVolumeOpsDryRunDoesNotEnsureImage(t *testing.T) {
 	for _, command := range []string{cmdMigrate, cmdReset, cmdEdit} {
 		t.Run(command, func(t *testing.T) {
 			initTestProjectDir(t)
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			ui := &termio.Mock{}
 
 			dockerMock := &dockertest.MockDockerClient{
@@ -491,7 +491,7 @@ func TestVolumeMigrateUnknownAgent(t *testing.T) {
 
 func TestVolumeMigrateWithPositionalArg(t *testing.T) {
 	initTestProjectDir(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}
 	doctortest.MockedCheckAll(t, true)
@@ -527,7 +527,7 @@ func TestBuildVolumeOpsRejectsTwoArgs(t *testing.T) {
 // --remove flag is registered from the op definition.
 func TestBuildVolumeOpsForwardsPositionalNameAndInfo(t *testing.T) {
 	initTestProjectDir(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	doctortest.MockedCheckAll(t, true)
 	withMockAgentVersion(t, "3.3.3")
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
@@ -575,7 +575,7 @@ func TestBuildVolumeOpsForwardsPositionalNameAndInfo(t *testing.T) {
 // wrapped with %w rather than %v.
 func TestVolumeOpsEnsureImageErrorWrapsCause(t *testing.T) {
 	initTestProjectDir(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	doctortest.MockedCheckAll(t, true)
 	withMockAgentVersion(t, "0.0.0-test")
 	dockertest.WithDefaultErrorDockerMock(t)

@@ -8,7 +8,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
@@ -103,7 +103,7 @@ func TestHomeVolumeResolution_PreviewMatchesRealDecision(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			k := state.Key{Slug: "decideproj", Agent: "opencode"}
 			if tt.seed {
 				if err := seedHomeState(k, state.HomeState{
@@ -178,7 +178,7 @@ func TestHomeVolumeResolution_PreviewMatchesRealDecision(t *testing.T) {
 }
 
 func TestPreviewHomeVolumeReusesRecordedPresentVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "previewproj", Agent: "opencode"}
 	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol-1"}); err != nil {
 		t.Fatal(err)
@@ -198,7 +198,7 @@ func TestPreviewHomeVolumeReusesRecordedPresentVolume(t *testing.T) {
 // ResolveHomeVolume uses: a recorded volume that still exists wins over a
 // recovered candidate, so a branch swap cannot silently prefer the live mount.
 func TestPreviewHomeVolumeRecordedBeatsRecovered(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "previewproj", Agent: "opencode"}
 	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol-1"}); err != nil {
 		t.Fatal(err)
@@ -215,7 +215,7 @@ func TestPreviewHomeVolumeRecordedBeatsRecovered(t *testing.T) {
 }
 
 func TestPreviewHomeVolumeReusesRecoveredVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "previewproj", Agent: "opencode"}
 	mock := noCreateVolumeMock(t, "live-1")
 
@@ -232,7 +232,7 @@ func TestPreviewHomeVolumeReusesRecoveredVolume(t *testing.T) {
 // precedence ResolveHomeVolume uses: a recorded volume that no longer exists
 // does not win over a live recovered one.
 func TestPreviewHomeVolumeRecordedVolumeGoneFallsBackToRecovered(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "previewproj", Agent: "opencode"}
 	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol-gone"}); err != nil {
 		t.Fatal(err)
@@ -252,7 +252,7 @@ func TestPreviewHomeVolumeRecordedVolumeGoneFallsBackToRecovered(t *testing.T) {
 // names no volume: a fresh volume's name embeds a timestamp, so there is no
 // single name the preview could report.
 func TestPreviewHomeVolumeReportsCreateWhenNonePresent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "previewproj", Agent: "opencode"}
 	mock := noCreateVolumeMock(t)
 
@@ -268,7 +268,7 @@ func TestPreviewHomeVolumeReportsCreateWhenNonePresent(t *testing.T) {
 // TestPreviewHomeVolumeReportsCreateWhenRecoveredVolumeMissing pins that an
 // unusable recovered candidate is not adopted.
 func TestPreviewHomeVolumeReportsCreateWhenRecoveredVolumeMissing(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "previewproj", Agent: "opencode"}
 	mock := noCreateVolumeMock(t)
 
@@ -292,7 +292,7 @@ func TestPreviewHomeVolumeTransientErrorFailsClosed(t *testing.T) {
 	}
 
 	t.Run("recorded volume", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		k := state.Key{Slug: "previewtransient", Agent: "opencode"}
 		if err := seedHomeState(k, state.HomeState{HomeVolume: "vol-transient"}); err != nil {
 			t.Fatal(err)
@@ -305,7 +305,7 @@ func TestPreviewHomeVolumeTransientErrorFailsClosed(t *testing.T) {
 	})
 
 	t.Run("recovered candidate", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		k := state.Key{Slug: "previewtransient", Agent: "opencode"}
 		mock := &msb.MockMsbClient{GetVolumeFn: transient}
 
@@ -319,7 +319,7 @@ func TestPreviewHomeVolumeTransientErrorFailsClosed(t *testing.T) {
 // cannot be read: the preview must report a create rather than fail, and leave
 // the corrupt document untouched for the real run to repair.
 func TestPreviewHomeVolumeCorruptStateReportsCreate(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "corruptpreview", Agent: "opencode"}
 	if err := os.MkdirAll(state.KeyDir(k), 0o700); err != nil {
 		t.Fatal(err)

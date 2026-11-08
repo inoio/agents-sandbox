@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
@@ -165,7 +166,7 @@ func TestCopyTreeSkipsSpecialFiles(t *testing.T) {
 }
 
 func TestCopyVolumesCopiesIntoCreatedVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	name := naming.LegacyHomePrefix + "legacy"
 	addVolumeDir(t, legacy, name)
@@ -197,7 +198,7 @@ func TestCopyVolumesCopiesIntoCreatedVolume(t *testing.T) {
 // home resolver adopt the leftover partial under the project's recorded name, so
 // the campaign must abort and leave the status copying for a retry.
 func TestCopyVolumesAbortsWhenFailedCopyLeavesDestination(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	name := naming.LegacyHomePrefix + "legacy"
 	addVolumeDir(t, legacy, name)
@@ -227,7 +228,7 @@ func TestCopyVolumesAbortsWhenFailedCopyLeavesDestination(t *testing.T) {
 // already-present targets (here, the legacy volumes directory is unlistable)
 // aborts before the campaign records a copying status.
 func TestCopyVolumesStartListingErrorAborts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	makeLegacyVolumesUnlistable(t, installLegacyHome(t))
 
 	ui := termio.NewTestMock(t)
@@ -245,7 +246,7 @@ func TestCopyVolumesStartListingErrorAborts(t *testing.T) {
 // the private home is recorded as copied when the campaign starts, so it is left
 // alone while the remaining targets are copied.
 func TestCopyVolumesPreservesAlreadyPresentTarget(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	present := naming.LegacyHomePrefix + "present"
 	missing := naming.LegacyHomePrefix + "missing"
@@ -285,7 +286,7 @@ func TestCopyVolumesPreservesAlreadyPresentTarget(t *testing.T) {
 // campaign collapses to a completed migration, retains Copied as the record of
 // fully-migrated volumes, and drops the transient Kept/Excluded lists.
 func TestCopyVolumesRecordsProgressAndCompletes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	name := naming.LegacyHomePrefix + "legacy"
 	addVolumeDir(t, legacy, name)
@@ -319,7 +320,7 @@ func TestCopyVolumesRecordsProgressAndCompletes(t *testing.T) {
 // the excluded volume is observed in the persisted state mid-campaign, when the
 // next volume is being copied.
 func TestCopyVolumesExcludesVolumeScopedFailureAndCompletes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	bad := naming.LegacyHomePrefix + "bad"
 	good := naming.LegacyHomePrefix + "good"
@@ -362,7 +363,7 @@ func TestCopyVolumesExcludesVolumeScopedFailureAndCompletes(t *testing.T) {
 // TestCopyVolumesResumesFromCopying pins exact resume: a prior campaign that
 // recorded "done" and crashed re-copies only the unrecorded "partial".
 func TestCopyVolumesResumesFromCopying(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	done := naming.LegacyHomePrefix + "done"
 	partial := naming.LegacyHomePrefix + "partial"
@@ -410,7 +411,7 @@ func TestCopyVolumesResumesFromCopying(t *testing.T) {
 // finding: a legacy volume containing a symlink named like the old marker must
 // not cause a host write through it. The host file survives untouched.
 func TestCopyVolumesDoesNotFollowCopiedSymlink(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	name := naming.LegacyHomePrefix + "legacy"
 	addVolumeDir(t, legacy, name)
@@ -443,7 +444,7 @@ func TestCopyVolumesDoesNotFollowCopiedSymlink(t *testing.T) {
 // failure whose destination is successfully cleaned up is excluded while the
 // campaign still completes.
 func TestCopyVolumesExcludesCopyTreeFailureAndCompletes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	name := naming.LegacyHomePrefix + "legacy"
 	addVolumeDir(t, legacy, name)
@@ -474,7 +475,7 @@ func TestCopyVolumesExcludesCopyTreeFailureAndCompletes(t *testing.T) {
 // lock aborts the campaign. A directory occupying the root-state lock path
 // makes the lock open fail.
 func TestCopyVolumesLockFailureAborts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	installLegacyHome(t)
 	blockRootLock(t)
 
@@ -485,7 +486,7 @@ func TestCopyVolumesLockFailureAborts(t *testing.T) {
 }
 
 func TestCopyVolumesStateReadErrorAborts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeCorruptRootState(t)
 	ui := termio.NewTestMock(t)
 	if err := CopyVolumes(context.Background(), &msb.MockMsbClient{}, &ui); err == nil {
@@ -498,7 +499,7 @@ func TestCopyVolumesStateReadErrorAborts(t *testing.T) {
 // acknowledged case meaningful: without the guard the campaign would open and
 // finalize, overwriting it to completed.
 func TestCopyVolumesTerminalIsNoOp(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 	for _, status := range []state.MigrationStatus{state.MigrationCompleted, state.MigrationDismissed, state.MigrationAcknowledged} {
@@ -529,7 +530,7 @@ func TestCopyVolumesTerminalIsNoOp(t *testing.T) {
 // whose legacy home has become unlistable aborts (campaign-scoped) rather than
 // finalizing.
 func TestCopyVolumesResumeListingErrorAborts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	makeLegacyVolumesUnlistable(t, installLegacyHome(t))
 	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
 		MigrationName: {Status: state.MigrationCopying},
@@ -547,7 +548,7 @@ func TestCopyVolumesResumeListingErrorAborts(t *testing.T) {
 // successful copy's progress (here, the state root is unwritable) aborts the
 // campaign-scoped run.
 func TestCopyVolumesCopiedSaveErrorAborts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	name := naming.LegacyHomePrefix + "legacy"
 	addVolumeDir(t, legacy, name)
@@ -573,7 +574,7 @@ func TestCopyVolumesCopiedSaveErrorAborts(t *testing.T) {
 // TestCopyVolumesExclusionSaveErrorAborts pins that a failure to persist an
 // exclusion aborts the campaign-scoped run.
 func TestCopyVolumesExclusionSaveErrorAborts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
@@ -599,7 +600,7 @@ func TestCopyVolumesExclusionSaveErrorAborts(t *testing.T) {
 // campaign. The state directory is made read-only, so the atomic write's temp
 // file cannot be created.
 func TestCopyVolumesStateWriteFailureAborts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 	blockRootState(t)
@@ -659,7 +660,7 @@ func overrideChmod(t *testing.T, err error) {
 // TestCopyVolumesLegacyHomeError covers the failure to resolve the legacy home
 // (here, $HOME is unset), which aborts the copy before touching any volume.
 func TestCopyVolumesLegacyHomeError(t *testing.T) {
-	configpaths.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
+	configpathstest.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
 
 	ui := termio.NewTestMock(t)
 	if err := CopyVolumes(context.Background(), &msb.MockMsbClient{}, &ui); err == nil {

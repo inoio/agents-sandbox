@@ -11,7 +11,7 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -66,7 +66,7 @@ func TestImageRefCandidates(t *testing.T) {
 }
 
 func TestEnsureLoadedVerboseReportsUpToDate(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	rTag := runnerTag("test-project", a.Name())
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
@@ -98,7 +98,7 @@ func TestEnsureLoadedVerboseReportsUpToDate(t *testing.T) {
 }
 
 func TestEnsureLoadedVerboseReportsNotPresent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			return io.NopCloser(strings.NewReader("tar-data")), nil
@@ -119,7 +119,7 @@ func TestEnsureLoadedVerboseReportsNotPresent(t *testing.T) {
 }
 
 func TestEnsureLoadedVerboseReportsStaleCache(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	rTag := runnerTag("test-project", a.Name())
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
@@ -165,7 +165,7 @@ func TestEnsureLoadedFailsWhenTheImageTransferFails(t *testing.T) {
 		{name: "microsandbox load fails", loadErr: errors.New("load boom")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			rTag := runnerTag("test-project", agentOpencode(t).Name())
 			dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 				ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
@@ -251,7 +251,7 @@ func TestEnsureLoadedDecision(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			hostInspected := false
 			dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 				ImageInspectFn: func(
@@ -300,7 +300,7 @@ func TestEnsureLoadedDecision(t *testing.T) {
 }
 
 func TestEnsureLoadedReloadsStaleContentUnderSameRef(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	rTag := runnerTag("test-project", a.Name())
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
@@ -336,7 +336,7 @@ func TestEnsureLoadedReloadsStaleContentUnderSameRef(t *testing.T) {
 }
 
 func TestEnsureLoadedSkipsWhenCachedContentMatches(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	removed := false
 	msbClient := &msb.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return nil },
@@ -363,7 +363,7 @@ func TestEnsureLoadedSkipsWhenCachedContentMatches(t *testing.T) {
 // stand in for a content comparison. The load records a digest, so the reload
 // happens at most once.
 func TestEnsureLoadedReloadsLegacyImageWithoutDigest(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageSaveFn: func(_ context.Context, _ []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			return io.NopCloser(strings.NewReader("tar-data")), nil
@@ -386,7 +386,7 @@ func TestEnsureLoadedReloadsLegacyImageWithoutDigest(t *testing.T) {
 }
 
 func TestEnsureLoadedLoadsWhenNotCached(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageSaveFn: func(_ context.Context, refs []string, _ ...client.ImageSaveOption) (client.ImageSaveResult, error) {
 			if len(refs) != 1 || refs[0] != "agents-sandbox/runner-test-project:abc" {
@@ -424,7 +424,7 @@ func TestEnsureLoadedLoadsWhenNotCached(t *testing.T) {
 // TestEnsureLoadedReusesContentRef pins the primary reuse path: when the cache
 // already holds the content under the content reference, nothing is reimported.
 func TestEnsureLoadedReusesContentRef(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	dockerTag := naming.DockerImageRef("test-project", "opencode")
 	dockertest.WithNoopDockerMock(t)
@@ -460,7 +460,7 @@ func TestEnsureLoadedReusesContentRef(t *testing.T) {
 // name ref is derived from the image's structured identity and reused when its
 // content matches.
 func TestEnsureLoadedReusesNameRefForMigration(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	nameRef := naming.RunnerImageRef("test-project", "opencode")
 	dockerTag := naming.DockerImageRef("test-project", "opencode")
@@ -497,7 +497,7 @@ func TestEnsureLoadedReusesNameRefForMigration(t *testing.T) {
 // Docker tag: an info that names its (slug, agent, contentID) reuses the
 // cached name reference even when no Docker tag accompanies it.
 func TestEnsureLoadedReusesNameRefFromIdentity(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	nameRef := naming.RunnerImageRef("test-project", "opencode")
 	dockertest.WithNoopDockerMock(t)
@@ -532,7 +532,7 @@ func TestEnsureLoadedReusesNameRefFromIdentity(t *testing.T) {
 // install, which cached the image under the prefixed Docker tag, keeps its
 // cache: the Docker-tag candidate is reused when its content matches.
 func TestEnsureLoadedReusesLegacyPrefixedRefForMigration(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	dockerTag := naming.DockerImageRef("test-project", "opencode")
 	dockertest.WithNoopDockerMock(t)
@@ -567,7 +567,7 @@ func TestEnsureLoadedReusesLegacyPrefixedRefForMigration(t *testing.T) {
 // path: with no candidate cached, the Docker image is loaded under the content
 // reference.
 func TestEnsureLoadedLoadsUnderContentRefWhenNoCandidateMatches(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	dockerTag := naming.DockerImageRef("test-project", "opencode")
 	var savedRefs []string
@@ -604,7 +604,7 @@ func TestEnsureLoadedLoadsUnderContentRefWhenNoCandidateMatches(t *testing.T) {
 // candidate holding stale content is not reused: the image loads under the
 // content ref, and the load reason reports the content mismatch.
 func TestEnsureLoadedLoadsUnderContentRefWhenContentDiffers(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	contentRef := naming.ContentImageRef("test-project", "opencode", "9f2c1a7b4d6e0f31")
 	dockerTag := naming.DockerImageRef("test-project", "opencode")
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
@@ -644,7 +644,7 @@ func TestEnsureLoadedLoadsUnderContentRefWhenContentDiffers(t *testing.T) {
 // resolution: an ImageInfo built before the ref was resolved carries only the
 // Docker tag, so loading falls back to it as the microsandbox reference.
 func TestEnsureLoadedFallsBackToDockerTagWhenRefEmpty(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacyRef := naming.DockerImageRef("test-project", "opencode")
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageSaveFn: func(
@@ -677,7 +677,7 @@ func TestEnsureLoadedFallsBackToDockerTagWhenRefEmpty(t *testing.T) {
 // with the same content, that reference is reused instead of loading a second
 // copy under the prefix-free reference.
 func TestEnsureLoadedReusesLegacyRefWhenContentMatches(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	newRef := naming.RunnerImageRef("test-project", "opencode")
 	legacyRef := naming.DockerImageRef("test-project", "opencode")
 	dockertest.WithNoopDockerMock(t)
@@ -711,7 +711,7 @@ func TestEnsureLoadedReusesLegacyRefWhenContentMatches(t *testing.T) {
 // TestEnsureLoadedLoadsUnderNewRefWhenLegacyAbsent pins that a fresh install
 // loads the image under the prefix-free reference.
 func TestEnsureLoadedLoadsUnderNewRefWhenLegacyAbsent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	newRef := naming.RunnerImageRef("test-project", "opencode")
 	legacyRef := naming.DockerImageRef("test-project", "opencode")
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
@@ -744,7 +744,7 @@ func TestEnsureLoadedLoadsUnderNewRefWhenLegacyAbsent(t *testing.T) {
 // reference holding stale content is not reused: the current Docker image is
 // loaded under the prefix-free reference instead.
 func TestEnsureLoadedLoadsUnderNewRefWhenLegacyContentDiffers(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	newRef := naming.RunnerImageRef("test-project", "opencode")
 	legacyRef := naming.DockerImageRef("test-project", "opencode")
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{

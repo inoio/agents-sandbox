@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -20,7 +20,7 @@ import (
 // needed because PruneVolumes now reads project state references unconditionally.
 func withAutoPruneMocks(t *testing.T) {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	dockertest.WithNoopDockerMock(t)
 }
@@ -79,7 +79,7 @@ func TestAutoPruneDefaultThresholdLiteral(t *testing.T) {
 // zero threshold must behave as 30 days, keeping a freshly stopped VM.
 func TestAutoPruneZeroThresholdKeepsFreshStoppedVM(t *testing.T) {
 	autoPruneOnce = sync.Once{}
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	fresh := &msb.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 		Status_:    msb.SandboxStatusStopped,

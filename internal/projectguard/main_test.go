@@ -3,7 +3,7 @@ package projectguard
 import (
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
@@ -14,7 +14,7 @@ import (
 // a cycle. testutil's InitFailFastMocks is out of reach: the notify family
 // transitively imports projectguard through filewalk.
 func TestMain(m *testing.M) {
-	configpaths.InstallFailFastConfigPaths()
+	configpathstest.InstallFailFastConfigPaths()
 	dockertest.InstallFailFastGet()
 	doctortest.InstallFailFast()
 	msb.InstallFailFastGet()

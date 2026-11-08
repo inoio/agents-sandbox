@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -34,7 +35,7 @@ func resolveOpenLinks(t *testing.T, commandName string, args ...string) bool {
 func TestOpenLinksDefaultsOnForRunAndShell(t *testing.T) {
 	for _, commandName := range []string{cmdRun, cmdShell} {
 		t.Run(commandName, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			if !resolveOpenLinks(t, commandName) {
 				t.Fatal("OpenLinks = false, want on by default")
 			}
@@ -45,7 +46,7 @@ func TestOpenLinksDefaultsOnForRunAndShell(t *testing.T) {
 func TestOpenLinksFlagDisables(t *testing.T) {
 	for _, commandName := range []string{cmdRun, cmdShell} {
 		t.Run(commandName, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			if resolveOpenLinks(t, commandName, "--open-links=false") {
 				t.Fatal("OpenLinks = true, want --open-links=false to disable")
 			}
@@ -54,7 +55,7 @@ func TestOpenLinksFlagDisables(t *testing.T) {
 }
 
 func TestOpenLinksEnvDisables(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_OPEN_LINKS", "false")
 	if resolveOpenLinks(t, cmdRun) {
 		t.Fatal("OpenLinks = true, want AGENTS_SANDBOX_OPEN_LINKS=false to disable")
@@ -62,7 +63,7 @@ func TestOpenLinksEnvDisables(t *testing.T) {
 }
 
 func TestOpenLinksConfigDisablesAndFlagOverrides(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"open-links": false})
 	if resolveOpenLinks(t, cmdRun) {
 		t.Fatal("OpenLinks = true, want the config file to disable")

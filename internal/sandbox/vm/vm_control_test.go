@@ -13,6 +13,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -277,7 +278,7 @@ var stopAndKillCommands = []struct {
 func TestStopAndKillProjectVMRunTheirAction(t *testing.T) {
 	for _, command := range stopAndKillCommands {
 		t.Run(command.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			t.Chdir(testutil.InitRepo(t))
 			handle := &msb.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning}
 			if command.name == "stop" {
@@ -348,7 +349,7 @@ func TestStopKillProjectVMErrorsWhenIdentityUnresolvable(t *testing.T) {
 // wiring on stop/kill: an unreadable legacy state aborts before the VM lookup,
 // so a first post-upgrade stop cannot act on a half-understood identity.
 func TestStopKillProjectVMAdoptionFailureFailsClosed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Chdir(newOriginClone(t))
 	identity := mustIdentity(t, ".")
 	if identity.RepoSlug == identity.CheckoutSlug {
@@ -380,7 +381,7 @@ func TestStopKillProjectVMAdoptionFailureFailsClosed(t *testing.T) {
 // adoption call: a dry run passes apply=false, so a pending legacy migration is
 // left in place rather than applied as a side effect of a read-only stop/kill.
 func TestStopKillProjectVMDryRunLeavesLegacyState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Chdir(newOriginClone(t))
 	identity := mustIdentity(t, ".")
 	if identity.RepoSlug == identity.CheckoutSlug {

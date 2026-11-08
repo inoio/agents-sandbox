@@ -12,6 +12,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 func TestRuntimePreparationHelpers(t *testing.T) {
@@ -37,7 +38,7 @@ func TestRuntimePreparationHelpers(t *testing.T) {
 // TestValidateInstalledPassesPrivateHome asserts the resolve call names the
 // private home explicitly instead of relying on the process-global MSB_HOME.
 func TestValidateInstalledPassesPrivateHome(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantHome := configpaths.MSBHome()
 
 	orig := resolveRuntime
@@ -530,7 +531,7 @@ func TestRealSandboxFS(t *testing.T) {
 // TestRealClientEnsureInstalledPassesPrivateHome asserts the ensure call names
 // the private home explicitly.
 func TestRealClientEnsureInstalledPassesPrivateHome(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	previous := skipRuntimeInstall
 	skipRuntimeInstall = false
 	t.Cleanup(func() { skipRuntimeInstall = previous })
@@ -559,7 +560,7 @@ func TestPinnedRuntimeVersionMatchesSDK(t *testing.T) {
 }
 
 func TestEnsureRuntimePassesPrivateHome(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	var gotConfig msbSdk.RuntimeConfig
 	var gotOpts msbSdk.InstallOptions
 	orig := ensureRuntime
@@ -581,7 +582,7 @@ func TestEnsureRuntimePassesPrivateHome(t *testing.T) {
 }
 
 func TestEnsureRuntimePropagatesError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("ensure boom")
 	orig := ensureRuntime
 	ensureRuntime = func(context.Context, msbSdk.RuntimeConfig, msbSdk.InstallOptions) (msbSdk.ResolvedRuntime, error) {
@@ -595,7 +596,7 @@ func TestEnsureRuntimePropagatesError(t *testing.T) {
 }
 
 func TestInstallRuntimePassesPrivateHomeAndForces(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	var gotConfig msbSdk.RuntimeConfig
 	var gotOpts msbSdk.InstallOptions
 	orig := installRuntime
@@ -617,7 +618,7 @@ func TestInstallRuntimePassesPrivateHomeAndForces(t *testing.T) {
 }
 
 func TestInstallRuntimePropagatesError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("install boom")
 	orig := installRuntime
 	installRuntime = func(context.Context, msbSdk.RuntimeConfig, msbSdk.InstallOptions) (msbSdk.ResolvedRuntime, error) {
@@ -1442,7 +1443,7 @@ func TestRealMsbClientListSandboxesOmitsLabelOption(t *testing.T) {
 // and the success path (including the private home it must name) is covered by
 // TestRealClientEnsureInstalledPassesPrivateHome.
 func TestRealMsbClientEnsureInstalled(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	previous := skipRuntimeInstall
 	skipRuntimeInstall = false
 	t.Cleanup(func() { skipRuntimeInstall = previous })

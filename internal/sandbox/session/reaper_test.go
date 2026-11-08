@@ -11,7 +11,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -19,7 +19,7 @@ import (
 )
 
 func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	origInterval := waitQuiescentPollInterval
 	waitQuiescentPollInterval = 10 * time.Millisecond
@@ -77,7 +77,7 @@ func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
 }
 
 func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "otherproj"
 	release, _ := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
@@ -114,7 +114,7 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 }
 
 func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "leaseproj"
 	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
@@ -141,7 +141,7 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 }
 
 func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "nopollproj"
 
@@ -179,7 +179,7 @@ func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing
 }
 
 func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "idleproj"
 
@@ -212,7 +212,7 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 }
 
 func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "emptyproj"
 
@@ -244,7 +244,7 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 // keeps holding the VM. The short context turns "kept waiting" into a deadline
 // error; releasing early would return nil.
 func TestReapOnLastClient_WaitMode_RetryBelowCapKeepsWaiting(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer shortCancel()
@@ -286,7 +286,7 @@ func TestReapOnLastClient_WaitMode_RetryBelowCapKeepsWaiting(t *testing.T) {
 // longer hold the VM. The bounded context only guards a regression that holds
 // forever.
 func TestReapOnLastClient_WaitMode_RetryAtOrOverCapReaps(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	tests := []struct {
 		name   string
@@ -327,7 +327,7 @@ func TestReapOnLastClient_WaitMode_RetryAtOrOverCapReaps(t *testing.T) {
 }
 
 func TestReapOnLastClient_ContextCancelled(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	// Session status is busy, so the poll loop keeps waiting.
 	// Use a short timeout context that expires during the 2s ticker wait.
@@ -363,7 +363,7 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 }
 
 func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "qproj"
 	ui := &termio.Mock{}
 	sb := &msb.MockSandbox{
@@ -394,7 +394,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
 }
 
 func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "qerrproj"
 	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer shortCancel()
@@ -431,7 +431,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.
 }
 
 func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	tests := []struct {
 		name   string
@@ -460,7 +460,7 @@ func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
 }
 
 func TestReapOnLastClient_NoSessionStatusProvider_SkipsWait(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "nosessionproj"
 	ui := &termio.Mock{}
@@ -485,7 +485,7 @@ func TestReapOnLastClient_NoSessionStatusProvider_SkipsWait(t *testing.T) {
 }
 
 func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "attachproj"
 	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
@@ -525,7 +525,7 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 }
 
 func TestReapOnLastClientSkipsNonDaemonAgent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a, ok := agent.Lookup("pi")
 	if !ok {
 		t.Fatal("pi agent not registered")
@@ -554,7 +554,7 @@ func TestReapOnLastClientSkipsNonDaemonAgent(t *testing.T) {
 // through the reaper's entry point: a canceled context must not suppress the
 // running-container warning on the last-client detach.
 func TestReapOnLastClient_CanceledContextStillWarns(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	sb := canceledContextSandbox{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{
 		ShellOut: map[string]msb.ShellResult{
@@ -586,7 +586,7 @@ func TestReapOnLastClient_CanceledContextStillWarns(t *testing.T) {
 // uses auto-stop mode, where the reaper returns immediately, so the warning must
 // precede that return.
 func TestReapOnLastClient_WarnsWhenContainersRunning(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	sb := msb.NewMockSandbox(msb.SandboxOpts{
 		ShellOut: map[string]msb.ShellResult{
@@ -615,7 +615,7 @@ func TestReapOnLastClient_WarnsWhenContainersRunning(t *testing.T) {
 // holding path: the warning is independent of auto-stop mode, so it fires before
 // the quiescence wait begins.
 func TestReapOnLastClient_WarnsWhenContainersRunningWithoutAutoStop(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	sb := msb.NewMockSandbox(msb.SandboxOpts{
 		ShellOut: map[string]msb.ShellResult{
@@ -648,7 +648,7 @@ func TestReapOnLastClient_WarnsWhenContainersRunningWithoutAutoStop(t *testing.T
 // the config/flag setting cannot decide whether the VM can hold containers. The
 // probe self-guards, so a docker-less VM's failure warns nothing.
 func TestReapOnLastClient_ProbesRegardlessOfDockerSetting(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	var shellCalls []string
 	sb := &msb.MockSandbox{Name_: "test-vm", ShellCalls: &shellCalls}
@@ -676,7 +676,7 @@ func TestReapOnLastClient_ProbesRegardlessOfDockerSetting(t *testing.T) {
 // TestReapOnLastClient_NoContainerProbeWhenSandboxNil verifies the warning is
 // skipped when there is no sandbox to probe, so a nil held sandbox cannot panic.
 func TestReapOnLastClient_NoContainerProbeWhenSandboxNil(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	ui := &termio.Mock{}
 
@@ -701,7 +701,7 @@ func TestReapOnLastClient_NoContainerProbeWhenSandboxNil(t *testing.T) {
 // the session-status poll fails closed and the reaper returns immediately
 // instead of spinning forever on a sandbox that no longer exists.
 func TestReapOnLastClient_SandboxReplacedOrGoneStopsWaiting(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	cases := []struct {
 		name string
@@ -1193,7 +1193,7 @@ func TestKeepVMAliveStopEndsTheKeeper(t *testing.T) {
 // are only listed when a session is busy, since only a busy session can be
 // waiting on one.
 func TestReapOnLastClient_IdleSessionsSkipTheQuestionPoll(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	var shellCalls []string
 	sb := &msb.MockSandbox{
 		Name_:      "test-vm",

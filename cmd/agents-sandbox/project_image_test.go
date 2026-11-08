@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -34,7 +35,7 @@ func recordingImageOperation(
 func setupProjectImageFixture(t *testing.T) (configpaths.ConfigPaths, state.Key) {
 	t.Helper()
 	initTestProjectDir(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	checkoutKey := state.Key{Slug: git.MustCheckoutSlug(), Agent: defaultAgentName}
 	require.NoError(t, seedHomeState(checkoutKey, state.HomeState{HomeVolume: "home-vol"}))
 	return configpaths.Get(), checkoutKey
@@ -91,7 +92,7 @@ func TestAdoptAndPrepareImageReturnsTheOperationErrorWithoutRecording(t *testing
 
 func TestAdoptAndPrepareImageWarnsWhenRecordingTheVersionFails(t *testing.T) {
 	initTestProjectDir(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	checkoutKey := state.Key{Slug: git.MustCheckoutSlug(), Agent: defaultAgentName}
 	// A directory at the state file's path makes the version write fail.
 	require.NoError(t, os.MkdirAll(filepath.Join(state.KeyDir(checkoutKey), "state.yaml"), 0o700))
@@ -111,7 +112,7 @@ func TestAdoptAndPrepareImageFailsClosedOnAnAdoptionError(t *testing.T) {
 	clone := newOriginClone(t)
 	identity := mustIdentity(t, clone)
 	t.Chdir(clone)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeUnparsableLegacyState(t, state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName})
 	operation, calls := recordingImageOperation(image.ImageInfo{}, nil)
 
@@ -127,7 +128,7 @@ func TestAdoptAndPrepareImageFailsClosedOnAnAdoptionError(t *testing.T) {
 
 func TestAdoptAndPrepareImageFailsOnAnUnresolvableIdentity(t *testing.T) {
 	t.Chdir(unresolvableIdentityDir(t))
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	operation, calls := recordingImageOperation(image.ImageInfo{}, nil)
 
 	_, _, err := adoptAndPrepareImage(

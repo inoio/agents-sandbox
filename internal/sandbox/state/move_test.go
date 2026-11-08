@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -33,7 +33,7 @@ func readFile(t *testing.T, path string) string {
 // TestSlugDirIsStateRootChild pins that SlugDir is the agent-agnostic parent of
 // KeyDir, so the two cannot drift apart.
 func TestSlugDirIsStateRootChild(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	projectDir := filepath.Join(stateRoot(), "widget-abc")
 	require.Equal(t, projectDir, SlugDir("widget-abc"))
@@ -41,7 +41,7 @@ func TestSlugDirIsStateRootChild(t *testing.T) {
 }
 
 func TestMoveSlugDirMovesEveryEntry(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "clients", "lease"), "x")
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "claims", "notify.claim"), "y")
@@ -65,7 +65,7 @@ func TestMoveSlugDirMovesEveryEntry(t *testing.T) {
 // file must still arrive, or the adoption trigger re-fires forever and the run
 // proceeds under the checkout identity with no state at all.
 func TestMoveSlugDirMergesIntoAnExistingDestinationDirectory(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "ensure-vm.lock"), "legacy lock")
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "clients", "lease"), "old lease")
@@ -97,7 +97,7 @@ func TestMoveSlugDirMergesIntoAnExistingDestinationDirectory(t *testing.T) {
 }
 
 func TestMoveSlugDirSkipsCollidingFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "stray.lock"), "legacy lock")
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
 	writeFile(t, filepath.Join(SlugDir("new-slug"), "stray.lock"), "new lock")
@@ -113,7 +113,7 @@ func TestMoveSlugDirSkipsCollidingFile(t *testing.T) {
 
 func TestMoveSlugDirSkipsTypeMismatch(t *testing.T) {
 	t.Run("destination file where the source has a directory", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
 		writeFile(t, filepath.Join(SlugDir("new-slug"), "opencode"), "not a directory")
 
@@ -126,7 +126,7 @@ func TestMoveSlugDirSkipsTypeMismatch(t *testing.T) {
 	})
 
 	t.Run("destination directory where the source has a file", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		writeFile(t, filepath.Join(SlugDir("old-slug"), "claims"), "not a directory")
 		writeFile(t, filepath.Join(SlugDir("new-slug"), "claims", "keep"), "keep")
 
@@ -140,7 +140,7 @@ func TestMoveSlugDirSkipsTypeMismatch(t *testing.T) {
 }
 
 func TestMoveSlugDirMissingSource(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	skipped, err := MoveSlugDir("never-created", "new-slug")
 	require.NoError(t, err)
@@ -149,7 +149,7 @@ func TestMoveSlugDirMissingSource(t *testing.T) {
 }
 
 func TestMoveSlugDirEmptySource(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	require.NoError(t, os.MkdirAll(SlugDir("old-slug"), 0o700))
 
 	skipped, err := MoveSlugDir("old-slug", "new-slug")
@@ -163,7 +163,7 @@ func TestMoveSlugDirEmptySource(t *testing.T) {
 // every entry would collide with itself and the caller would report a bogus
 // skip list.
 func TestMoveSlugDirSameSlugIsNoOp(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, filepath.Join(SlugDir("some-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
 
 	skipped, err := MoveSlugDir("some-slug", "some-slug")
@@ -173,7 +173,7 @@ func TestMoveSlugDirSameSlugIsNoOp(t *testing.T) {
 }
 
 func TestMoveSlugDirCreatesDestinationParent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
 	require.NoDirExists(t, SlugDir("new-slug"))
 
@@ -209,7 +209,7 @@ func makeReadOnly(t *testing.T, path string) {
 // path that exists but is not a directory is not "missing", so it is an error
 // rather than the missing-source no-op.
 func TestMoveSlugDirErrorsWhenSourceIsNotADirectory(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, SlugDir("old-slug"), "not a directory")
 
 	_, err := MoveSlugDir("old-slug", "new-slug")
@@ -223,7 +223,7 @@ func TestMoveSlugDirErrorsWhenSourceIsNotADirectory(t *testing.T) {
 // a non-directory destination makes every entry's stat fail with ENOTDIR, which
 // must surface rather than being mistaken for a free name.
 func TestMoveSlugDirErrorsWhenDestinationIsNotADirectory(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
 	writeFile(t, SlugDir("new-slug"), "not a directory")
 
@@ -239,7 +239,7 @@ func TestMoveSlugDirErrorsWhenDestinationIsNotADirectory(t *testing.T) {
 // failure is reported instead of being treated as an empty move.
 func TestMoveSlugDirErrorsWhenDestinationCannotBeCreated(t *testing.T) {
 	requireNonRoot(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
 	makeReadOnly(t, stateRoot())
 
@@ -254,7 +254,7 @@ func TestMoveSlugDirErrorsWhenDestinationCannotBeCreated(t *testing.T) {
 // the destination directory exists but cannot accept the entry.
 func TestMoveSlugDirErrorsWhenDestinationIsNotWritable(t *testing.T) {
 	requireNonRoot(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
 	require.NoError(t, os.MkdirAll(SlugDir("new-slug"), 0o700))
 	makeReadOnly(t, SlugDir("new-slug"))
@@ -270,7 +270,7 @@ func TestMoveSlugDirErrorsWhenDestinationIsNotWritable(t *testing.T) {
 // return: an inner failure stops the merge and propagates to the caller.
 func TestMoveSlugDirErrorsInsideANestedMerge(t *testing.T) {
 	requireNonRoot(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
 	inner := filepath.Join(SlugDir("new-slug"), "opencode")
 	require.NoError(t, os.MkdirAll(inner, 0o700))
@@ -288,7 +288,7 @@ func TestMoveSlugDirErrorsInsideANestedMerge(t *testing.T) {
 // removal, which is reported rather than ignored.
 func TestMoveSlugDirErrorsWhenEmptiedSourceCannotBeRemoved(t *testing.T) {
 	requireNonRoot(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	require.NoError(t, os.MkdirAll(SlugDir("old-slug"), 0o700))
 	makeReadOnly(t, stateRoot())
 
@@ -304,7 +304,7 @@ func TestMoveSlugDirErrorsWhenEmptiedSourceCannotBeRemoved(t *testing.T) {
 // holding a state file are agents; a project-level subdirectory without one (a
 // claim) is not, and a missing slug is empty rather than an error.
 func TestStatefulAgentNames(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, filepath.Join(SlugDir("widget-abc"), "opencode", "state.yaml"), "home_volume: v1\n")
 	writeFile(t, filepath.Join(SlugDir("widget-abc"), "pi", "state.yaml"), "home_volume: v2\n")
 	writeFile(t, filepath.Join(SlugDir("widget-abc"), "claims", "notify.claim"), "x")
@@ -334,7 +334,7 @@ func TestStatefulAgentNames(t *testing.T) {
 // slug path that is not a readable directory is an error, not "no agents", so
 // adoption never moves state with an unknown legacy VM left behind.
 func TestStatefulAgentNamesErrorsOnUnreadableSlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, SlugDir("widget-abc"), "not a directory")
 
 	_, err := StatefulAgentNames("widget-abc")
@@ -349,7 +349,7 @@ func TestStatefulAgentNamesErrorsOnUnreadableSlug(t *testing.T) {
 // that stayed behind to warn about it.
 func TestMoveSlugDirReportsSkipsCollectedBeforeANestedError(t *testing.T) {
 	requireNonRoot(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "aaa-collide"), "legacy")
 	writeFile(t, filepath.Join(SlugDir("new-slug"), "aaa-collide"), "present")
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
@@ -367,7 +367,7 @@ func TestMoveSlugDirReportsSkipsCollectedBeforeANestedError(t *testing.T) {
 // direct move failure: an earlier collision must still be reported.
 func TestMoveSlugDirReportsSkipsCollectedBeforeAMoveError(t *testing.T) {
 	requireNonRoot(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "aaa-collide"), "legacy")
 	writeFile(t, filepath.Join(SlugDir("new-slug"), "aaa-collide"), "present")
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "zzz-file"), "legacy")
@@ -384,7 +384,7 @@ func TestMoveSlugDirReportsSkipsCollectedBeforeAMoveError(t *testing.T) {
 // is reported when the emptied source directory then cannot be removed.
 func TestMoveSlugDirReportsSkipsCollectedBeforeARemoveError(t *testing.T) {
 	requireNonRoot(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "state.yaml"), "home_volume: v1\n")
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "opencode", "ensure-vm.lock"), "legacy lock")
 	writeFile(t, filepath.Join(SlugDir("new-slug"), "opencode", "ensure-vm.lock"), "stray lock")
@@ -399,7 +399,7 @@ func TestMoveSlugDirReportsSkipsCollectedBeforeARemoveError(t *testing.T) {
 // TestMoveSlugDirReportsSkipsCollectedBeforeACreateDirError pins that an earlier
 // collision is still reported when a later destination-directory creation fails.
 func TestMoveSlugDirReportsSkipsCollectedBeforeACreateDirError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "aaa-collide"), "legacy")
 	writeFile(t, filepath.Join(SlugDir("new-slug"), "aaa-collide"), "present")
 	writeFile(t, filepath.Join(SlugDir("old-slug"), "zzz-dir", "state.yaml"), "home_volume: v1\n")
@@ -422,7 +422,7 @@ func TestMoveSlugDirReportsSkipsCollectedBeforeACreateDirError(t *testing.T) {
 // TestMoveSlugDirCreatesDestinationWithPrivateMode pins the mode of a destination
 // directory the merge creates, at the seam, independent of the process umask.
 func TestMoveSlugDirCreatesDestinationWithPrivateMode(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	var dirMode os.FileMode
 	orig := mkdirMergeDir
 	mkdirMergeDir = func(dir string, mode os.FileMode) error {

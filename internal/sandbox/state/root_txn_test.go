@@ -5,11 +5,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 func TestWithRootStateNonBlockingDefersWhenHeld(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	held, ok, err := lockRootState(true)
 	if err != nil || !ok {
 		t.Fatalf("hold: ok=%v err=%v", ok, err)
@@ -23,7 +23,7 @@ func TestWithRootStateNonBlockingDefersWhenHeld(t *testing.T) {
 }
 
 func TestWithRootStateCommitsState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ok, err := WithRootState(true, func(tx *RootTxn) error {
 		tx.State().SetAgentCheck("opencode", AgentCheckState{LatestVersion: "2.0.0"})
 		return tx.Commit()
@@ -38,7 +38,7 @@ func TestWithRootStateCommitsState(t *testing.T) {
 }
 
 func TestWithRootStateMissingGetsZeroState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ok, err := WithRootState(true, func(tx *RootTxn) error {
 		if got := tx.State().AgentCheck("opencode"); got != (AgentCheckState{}) {
 			t.Errorf("AgentCheck = %+v, want zero for a missing file", got)
@@ -51,7 +51,7 @@ func TestWithRootStateMissingGetsZeroState(t *testing.T) {
 }
 
 func TestWithRootStatePresentLoadsState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := writeRootState(RootState{Updates: Updates{Agents: map[string]AgentCheckState{
 		"opencode": {LatestVersion: "1.0.0"},
 	}}}); err != nil {
@@ -69,7 +69,7 @@ func TestWithRootStatePresentLoadsState(t *testing.T) {
 }
 
 func TestWithRootStateCorruptReturnsErrorWithoutRunning(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestWithRootStateCorruptReturnsErrorWithoutRunning(t *testing.T) {
 }
 
 func TestWithRootStateCallbackErrorPropagates(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("boom")
 	ok, err := WithRootState(true, func(*RootTxn) error { return wantErr })
 	if !ok || !errors.Is(err, wantErr) {
@@ -99,7 +99,7 @@ func TestWithRootStateCallbackErrorPropagates(t *testing.T) {
 }
 
 func TestWithRootStateLockError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("mkdir boom")
 	orig := mkdirRootLock
 	mkdirRootLock = func(string, os.FileMode) error { return wantErr }
@@ -112,7 +112,7 @@ func TestWithRootStateLockError(t *testing.T) {
 }
 
 func TestRootTxnCommitError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("marshal boom")
 	orig := marshalRootState
 	marshalRootState = func(any) ([]byte, error) { return nil, wantErr }

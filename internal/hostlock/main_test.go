@@ -3,7 +3,7 @@ package hostlock
 import (
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -13,7 +13,7 @@ import (
 // cycle. testutil.InitFailFastMocks is out of reach: the doctor and notify
 // families transitively import hostlock (via runtime and state).
 func TestMain(m *testing.M) {
-	configpaths.InstallFailFastConfigPaths()
+	configpathstest.InstallFailFastConfigPaths()
 	dockertest.InstallFailFastGet()
 	msb.InstallFailFastGet()
 	opener.InstallFailFast()

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
@@ -40,7 +40,7 @@ func TestVolumeOpsKeepDeprecatedRebuildFlag(t *testing.T) {
 // 0.5.0 spelling keep working.
 func TestVolumeMigrateRebuildIsDeprecatedNoOp(t *testing.T) {
 	initTestProjectDir(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}
 	doctortest.MockedCheckAll(t, true)
@@ -76,7 +76,7 @@ func TestVolumeOpsRebuildDeprecatedAcrossOps(t *testing.T) {
 	for _, name := range []string{cmdMigrate, cmdReset, cmdEdit} {
 		t.Run(name, func(t *testing.T) {
 			initTestProjectDir(t)
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			ui := &termio.Mock{}
 			mock := &msb.MockMsbClient{}
 			doctortest.MockedCheckAll(t, true)

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -21,7 +22,7 @@ func TestConfigEgressListsAreConfigFileOnly(t *testing.T) {
 		}
 	}
 
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"network": map[string]any{
 			"egress-allow": []string{"file.example"},
@@ -60,7 +61,7 @@ func TestConfigAllowPlaceholderForEnvIsIgnored(t *testing.T) {
 		t.Errorf("envKeys must not contain the config-file-only key %q", key)
 	}
 
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv(envVarName(EnvPrefix, key), "env-only.example")
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -80,7 +81,7 @@ func TestConfigAllowPlaceholderForEnvIsIgnored(t *testing.T) {
 // AutomaticEnv and no binding for the key, the variable is not honored at all.
 func TestConfigAllowPlaceholderForEnvIgnoredWhenConfigFileSetsIt(t *testing.T) {
 	const key = "secrets.common.allow-placeholder-for"
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"secrets": map[string]any{
 			"common": map[string]any{

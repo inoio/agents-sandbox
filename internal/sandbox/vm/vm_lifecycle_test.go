@@ -17,6 +17,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
@@ -79,7 +80,7 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			ui := termio.NewTestMock(t)
 			client := &msb.MockMsbClient{}
 			client.SetGotSandbox(tc.handle())
@@ -185,7 +186,7 @@ func (l *lockRecorder) acquire(options.ProjectVMKey) (func(), error) {
 // every lookup misses and creating it succeeds.
 func missingVMCreation(t *testing.T, client *msb.MockMsbClient, ui *termio.Mock) ProjectVMCreation {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 	if client.GetSandboxFn == nil {
 		client.GetSandboxFn = func(context.Context, string) (msb.SandboxHandle, error) {
@@ -677,7 +678,7 @@ func newVMCreation(
 	opts options.RunOptions,
 ) ProjectVMCreation {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 	return ProjectVMCreation{
 		Client:       client,
@@ -880,7 +881,7 @@ func TestCreateProjectVMReportsFailures(t *testing.T) {
 // EnsureLoaded resolved (a reused legacy ref), not the freshly computed one, and
 // that the image label records the same ref.
 func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 	key := testVMKey()
 	legacyRef := naming.DockerImageRef(key.Slug, key.Agent)
@@ -932,7 +933,7 @@ func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
 }
 
 func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	// The image is not yet in microsandbox (ImageGet fails), so EnsureLoaded
 	// must export it from Docker and load it before creating the VM.
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{

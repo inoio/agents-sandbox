@@ -15,6 +15,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
@@ -27,7 +28,7 @@ import (
 )
 
 func TestPreviewSandboxReportsBuildAndCreate(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	absentImageDockerMock(t)
 	resolutions := noVolumeCreateMock(t)
 
@@ -60,7 +61,7 @@ func TestPreviewSandboxReportsBuildAndCreate(t *testing.T) {
 }
 
 func TestPreviewSandboxReportsReuse(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := opencodeAgent(t)
 
 	id, err := sandboximage.RunnerDockerfileID(configpaths.Get(), a, "1.0.0", options.DockerSetting{})
@@ -116,7 +117,7 @@ func TestPreviewSandboxReportsReuse(t *testing.T) {
 // version, matching the real run: a stale record must not make the preview
 // report an older version or a phantom rebuild.
 func TestPreviewSandboxReconcilesStaleRecordedVersionWithImageLabel(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	// TestMain stubs the seam to "no image"; restore the real reader so the
 	// docker mock's label is what supplies the version.
 	orig := existingAgentVersion
@@ -164,7 +165,7 @@ func TestPreviewSandboxReconcilesStaleRecordedVersionWithImageLabel(t *testing.T
 }
 
 func TestPreviewSandboxRecoversVersionFromImageLabelReadOnly(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	// The seam is what supplies the recovered version; the docker mock below
 	// only feeds PreviewImage's image decision.
 	orig := existingAgentVersion
@@ -203,7 +204,7 @@ func TestPreviewSandboxRecoversVersionFromImageLabelReadOnly(t *testing.T) {
 }
 
 func TestPreviewSandboxPinnedVersionWinsAndNeverChecksNetwork(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	absentImageDockerMock(t)
 	noVolumeCreateMock(t)
 
@@ -233,7 +234,7 @@ func TestPreviewSandboxPinnedVersionWinsAndNeverChecksNetwork(t *testing.T) {
 }
 
 func TestPreviewSandboxCorruptStateReportsCreate(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	absentImageDockerMock(t)
 	noVolumeCreateMock(t)
 
@@ -267,7 +268,7 @@ func TestPreviewSandboxCorruptStateReportsCreate(t *testing.T) {
 // an agent the tool does not own, so it reports the recorded version and the
 // reuse a real run would get instead of a phantom rebuild.
 func TestPreviewSandboxUserProvidedAgentIgnoresPin(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := opencodeAgent(t)
 	k := previewKey()
 
@@ -321,7 +322,7 @@ func TestPreviewSandboxUserProvidedAgentIgnoresPin(t *testing.T) {
 // user-provided agent with no recorded version defers resolution to build time
 // instead of recovering a version from the image label, matching the real run.
 func TestPreviewSandboxUserProvidedAgentNeverRecoversVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	absentImageDockerMock(t)
 	noVolumeCreateMock(t)
 	seedAgentState(t, previewKey(), "", state.AgentSourceUser)
@@ -347,7 +348,7 @@ func TestPreviewSandboxUserProvidedAgentNeverRecoversVersion(t *testing.T) {
 }
 
 func TestPreviewSandboxForcedRebuildReportsBuild(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 	noVolumeCreateMock(t)
 
@@ -365,7 +366,7 @@ func TestPreviewSandboxForcedRebuildReportsBuild(t *testing.T) {
 }
 
 func TestPreviewSandboxUnknownAgentErrors(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	ui := termio.NewTestMock(t)
 	if _, err := PreviewSandbox(
@@ -380,7 +381,7 @@ func TestPreviewSandboxUnknownAgentErrors(t *testing.T) {
 // TestPreviewSandboxWorkspaceDirError pins that a deleted working directory
 // fails the preview with the not-exist cause.
 func TestPreviewSandboxWorkspaceDirError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -411,7 +412,7 @@ func TestPreviewSandboxErrorsWhenIdentityUnresolvable(t *testing.T) {
 }
 
 func TestPreviewSandboxSurfacesRenderError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 	noVolumeCreateMock(t)
 
@@ -434,7 +435,7 @@ func TestPreviewSandboxSurfacesRenderError(t *testing.T) {
 // TestPreviewSandboxSurfacesAdoptionError pins that a corrupt legacy state
 // document surfaces from the read-only adoption check instead of being ignored.
 func TestPreviewSandboxSurfacesAdoptionError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacySlug := git.MustRepoSlug()
 	if legacySlug == git.MustCheckoutSlug() {
 		t.Skip("no distinct legacy identity in this checkout")
@@ -459,7 +460,7 @@ func TestPreviewSandboxSurfacesAdoptionError(t *testing.T) {
 // whose lookup fails transiently (not true absence) is reported as an error,
 // not as "would create", matching the real run's fail-closed check.
 func TestPreviewSandboxSurfacesHomeVolumeLookupError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{
 		GetVolumeFn: func(context.Context, string) (msb.VolumeHandle, error) {

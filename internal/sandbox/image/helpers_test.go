@@ -12,7 +12,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -211,8 +211,8 @@ func synthesizeBareWorktree(t *testing.T, withWorktreeConfig bool) (worktree str
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	configpaths.WithRealConfigPaths(t)
-	configpaths.WithBareCheckoutLocator(t, git.BareCheckoutRoots)
+	configpathstest.WithRealConfigPaths(t)
+	configpathstest.WithBareCheckoutLocator(t, git.BareCheckoutRoots)
 
 	root := t.TempDir()
 	worktree = filepath.Join(root, "main")

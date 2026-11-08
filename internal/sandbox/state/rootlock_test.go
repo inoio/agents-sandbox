@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
 
 func TestLockRootStateNonBlockingSkipsWhenHeld(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	release, ok, err := lockRootState(true)
 	if err != nil || !ok {
 		t.Fatalf("first lock: ok=%v err=%v", ok, err)
@@ -30,7 +30,7 @@ func TestLockRootStateNonBlockingSkipsWhenHeld(t *testing.T) {
 }
 
 func TestLockRootStateReleasesForReacquire(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	release, ok, err := lockRootState(false)
 	if err != nil || !ok {
 		t.Fatalf("acquire: ok=%v err=%v", ok, err)
@@ -44,7 +44,7 @@ func TestLockRootStateReleasesForReacquire(t *testing.T) {
 }
 
 func TestLockRootStateMkdirError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("mkdir boom")
 	orig := mkdirRootLock
 	mkdirRootLock = func(string, os.FileMode) error { return wantErr }
@@ -60,7 +60,7 @@ func TestLockRootStateMkdirError(t *testing.T) {
 }
 
 func TestLockRootStateOpenError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("open boom")
 	orig := openRootLock
 	openRootLock = func(string, int, os.FileMode) (*os.File, error) { return nil, wantErr }
@@ -82,7 +82,7 @@ func TestLockRootStateOpenError(t *testing.T) {
 }
 
 func TestLockRootStateFlockError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("flock boom")
 	orig := flockRootLock
 	flockRootLock = func(*os.File, bool) error { return wantErr }
@@ -100,7 +100,7 @@ func TestLockRootStateFlockError(t *testing.T) {
 // TestLockRootStateReentrantReportsNotOk pins the reentrancy fail-fast: a second
 // blocking acquire of a held path errors with ok=false.
 func TestLockRootStateReentrantReportsNotOk(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	release, ok, err := lockRootState(true)
 	if err != nil || !ok {
@@ -120,7 +120,7 @@ func TestLockRootStateReentrantReportsNotOk(t *testing.T) {
 // TestLockRootStateUsesPrivateModes pins the lock dir and file modes at the
 // seam, so the assertion does not depend on the test process's umask.
 func TestLockRootStateUsesPrivateModes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	var dirMode, fileMode os.FileMode
 	origMkdir, origOpen := mkdirRootLock, openRootLock
 	mkdirRootLock = func(dir string, mode os.FileMode) error {
@@ -151,7 +151,7 @@ func TestLockRootStateUsesPrivateModes(t *testing.T) {
 // while another open file description holds the lock, the acquire must wait, not
 // report contention.
 func TestLockRootStateBlockingWaitsForFlock(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	path := rootLockPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
@@ -194,7 +194,7 @@ func TestLockRootStateBlockingWaitsForFlock(t *testing.T) {
 // TestLockRootStateBlockingContentionErrorIsSurfaced pins that a contention error
 // on a blocking acquire is a failure, not the non-blocking "lock is busy" signal.
 func TestLockRootStateBlockingContentionErrorIsSurfaced(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	orig := flockRootLock
 	flockRootLock = func(*os.File, bool) error { return syscall.EWOULDBLOCK }
 	t.Cleanup(func() { flockRootLock = orig })
@@ -210,7 +210,7 @@ func TestLockRootStateBlockingContentionErrorIsSurfaced(t *testing.T) {
 // flock failure on a non-blocking acquire is an error, not the "lock is busy"
 // signal.
 func TestLockRootStateNonBlockingRealErrorIsSurfaced(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("flock boom")
 	orig := flockRootLock
 	flockRootLock = func(*os.File, bool) error { return wantErr }

@@ -9,7 +9,7 @@ import (
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -36,7 +36,7 @@ func TestIsProjectVMName(t *testing.T) {
 }
 
 func TestRemoveSandboxRefusesTaskSandboxName(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	handle := &msb.MockSandboxHandle{
 		Name_:   naming.LegacyTaskPrefix + "x-1729",
 		Status_: msb.SandboxStatusStopped,
@@ -55,7 +55,7 @@ func TestRemoveSandboxRefusesTaskSandboxName(t *testing.T) {
 }
 
 func TestRemoveSandboxRefusesRunningWithoutForce(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	handle := &msb.MockSandboxHandle{
 		Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
 		Status_: msb.SandboxStatusRunning,
@@ -78,7 +78,7 @@ func TestRemoveSandboxRefusesRunningWithoutForce(t *testing.T) {
 }
 
 func TestRemoveSandboxForceStopsThenRemoves(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	handle := &msb.MockSandboxHandle{
 		Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
 		Status_: msb.SandboxStatusRunning,
@@ -131,7 +131,7 @@ func TestRemoveSandboxRemovesNothingWithoutConfirmation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			handle := &msb.MockSandboxHandle{Name_: naming.LegacyVMPrefix + "proj-aBc1234D", Status_: tc.status}
 			client := &msb.MockMsbClient{}
 			client.SetGotSandbox(handle)
@@ -154,7 +154,7 @@ func TestRemoveSandboxRemovesNothingWithoutConfirmation(t *testing.T) {
 func TestRemoveSandboxKeepsTheProjectState(t *testing.T) {
 	for _, force := range []bool{false, true} {
 		t.Run(fmt.Sprintf("force=%v", force), func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 			const homeVolume = "agents-sandbox-home-proj-1mjusbm3wikhb0-opencode-20260812T123456"
 			if err := seedHomeState(key, state.HomeState{HomeVolume: homeVolume}); err != nil {
@@ -183,7 +183,7 @@ func TestRemoveSandboxKeepsTheProjectState(t *testing.T) {
 }
 
 func TestRemoveSandboxReplacedFailsClosed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	replaced := &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "handle was replaced"}
 	handle := &msb.MockSandboxHandle{
 		Name_:     naming.LegacyVMPrefix + "proj-aBc1234D",
@@ -204,7 +204,7 @@ func TestRemoveSandboxReplacedFailsClosed(t *testing.T) {
 }
 
 func TestRemoveSandboxSurfacesGetError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	getErr := errors.New("boom")
 	client := &msb.MockMsbClient{}
 	client.SetGetSandboxErr(getErr)
@@ -220,7 +220,7 @@ func TestRemoveSandboxSurfacesGetError(t *testing.T) {
 }
 
 func TestRemoveSandboxSurfacesStopError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	stopErr := errors.New("stop failed")
 	handle := &msb.MockSandboxHandle{
 		Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
@@ -244,7 +244,7 @@ func TestRemoveSandboxSurfacesStopError(t *testing.T) {
 }
 
 func TestRemoveSandboxSurfacesRemoveError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	removeErr := errors.New("remove failed")
 	handle := &msb.MockSandboxHandle{
 		Name_:     naming.LegacyVMPrefix + "proj-aBc1234D",
@@ -265,7 +265,7 @@ func TestRemoveSandboxSurfacesRemoveError(t *testing.T) {
 }
 
 func TestRemoveSandboxBarePrefixRemoves(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	handle := &msb.MockSandboxHandle{Name_: naming.LegacyVMPrefix, Status_: msb.SandboxStatusStopped}
 	client := &msb.MockMsbClient{}
 	client.SetGotSandbox(handle)

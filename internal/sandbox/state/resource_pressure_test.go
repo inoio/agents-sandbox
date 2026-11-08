@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 func TestRecordResourcePressureWritesExistingState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
 	if err := writeState(k, HomeState{HomeVolume: "vol"}); err != nil {
 		t.Fatalf("writeState: %v", err)
@@ -45,7 +45,7 @@ func TestRecordResourcePressureWritesExistingState(t *testing.T) {
 }
 
 func TestRecordResourcePressureSkipsMissingState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
 
 	if err := RecordResourcePressure(k, ResourcePressureState{Kind: "memory"}); err != nil {
@@ -57,7 +57,7 @@ func TestRecordResourcePressureSkipsMissingState(t *testing.T) {
 }
 
 func TestRecordResourcePressureSkipsUnchangedMarker(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
 	rp := ResourcePressureState{Kind: "memory", OOMSeenAt: time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)}
 	if err := writeState(k, HomeState{ResourcePressure: &rp}); err != nil {
@@ -70,7 +70,7 @@ func TestRecordResourcePressureSkipsUnchangedMarker(t *testing.T) {
 }
 
 func TestMarkResourcePressureOfferedPreservesFields(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
 	seenAt := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
 	if err := writeState(k, HomeState{
@@ -104,7 +104,7 @@ func TestMarkResourcePressureOfferedPreservesFields(t *testing.T) {
 }
 
 func TestMarkResourcePressureOfferedSkipsNewerHit(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
 	answeredSeenAt := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
 	newerSeenAt := answeredSeenAt.Add(time.Minute)
@@ -128,7 +128,7 @@ func TestMarkResourcePressureOfferedSkipsNewerHit(t *testing.T) {
 }
 
 func TestMarkResourcePressureOfferedSkipsAbsentMarker(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
 	if err := writeState(k, HomeState{HomeVolume: "vol"}); err != nil {
 		t.Fatalf("writeState: %v", err)
@@ -149,7 +149,7 @@ func TestMarkResourcePressureOfferedSkipsAbsentMarker(t *testing.T) {
 // TestMarkResourcePressureOfferedSkipsMissingState pins that answering with no
 // state at all is a no-op and never creates a fingerprint-less state file.
 func TestMarkResourcePressureOfferedSkipsMissingState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
 
 	if err := MarkResourcePressureOffered(k, time.Time{}, time.Now()); err != nil {

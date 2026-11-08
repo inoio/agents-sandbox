@@ -4,14 +4,14 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 // TestApprovedProjectLayerRoundTripsPerCheckout pins that an approval is kept
 // per checkout and survives the root state write, next to the fields the
 // approval does not own.
 func TestApprovedProjectLayerRoundTripsPerCheckout(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	approval := ApprovedProjectLayer{
 		Digest: "abc",
 		Inputs: []TrustedInput{

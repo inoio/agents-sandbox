@@ -38,8 +38,8 @@ var seamFamilies = []seamFamily{
 		name:                 "configpaths",
 		dir:                  "internal/configpaths",
 		packageName:          "configpaths",
-		installerDir:         "internal/configpaths",
-		installerPackageName: "configpaths",
+		installerDir:         "internal/configpaths/configpathstest",
+		installerPackageName: "configpathstest",
 		installer:            "InstallFailFastConfigPaths",
 	},
 	{

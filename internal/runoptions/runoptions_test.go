@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
@@ -355,7 +356,7 @@ func TestBuildRootFlagNotSet(t *testing.T) {
 }
 
 func TestBuildInvalidTmpSize(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set("tmp-size", "bogus"); err != nil {
 		t.Fatalf("set tmp-size: %v", err)
@@ -371,7 +372,7 @@ func TestBuildInvalidTmpSize(t *testing.T) {
 }
 
 func TestBuildInvalidMemory(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set("memory", "bogus"); err != nil {
 		t.Fatalf("set memory: %v", err)
@@ -387,7 +388,7 @@ func TestBuildInvalidMemory(t *testing.T) {
 }
 
 func TestBuildMemoryBelowFloor(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set("memory", "64M"); err != nil {
 		t.Fatalf("set memory: %v", err)
@@ -403,7 +404,7 @@ func TestBuildMemoryBelowFloor(t *testing.T) {
 }
 
 func TestBuildTmpSizeNotBelowMemory(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set("memory", "4G"); err != nil {
 		t.Fatalf("set memory: %v", err)
@@ -424,7 +425,7 @@ func TestBuildTmpSizeNotBelowMemory(t *testing.T) {
 func TestBuildZeroSizesRejected(t *testing.T) {
 	for _, flag := range []string{"disk-size", "workspace-quota"} {
 		t.Run(flag, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			cmd := newRunCommand()
 			if err := cmd.Flags().Set(flag, "0"); err != nil {
 				t.Fatalf("set %s: %v", flag, err)
@@ -442,7 +443,7 @@ func TestBuildZeroSizesRejected(t *testing.T) {
 }
 
 func TestBuildInvalidDiskSize(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set("disk-size", "bogus"); err != nil {
 		t.Fatalf("set disk-size: %v", err)
@@ -458,7 +459,7 @@ func TestBuildInvalidDiskSize(t *testing.T) {
 }
 
 func TestBuildOutOfRangeTmpSize(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set("tmp-size", "4294967296"); err != nil {
 		t.Fatalf("set tmp-size: %v", err)
@@ -474,7 +475,7 @@ func TestBuildOutOfRangeTmpSize(t *testing.T) {
 }
 
 func TestBuildValidSizeFlags(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set("memory", "8G"); err != nil {
 		t.Fatalf("set memory: %v", err)
@@ -499,7 +500,7 @@ func TestBuildValidSizeFlags(t *testing.T) {
 }
 
 func TestBuildInvalidWorkspaceQuota(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set("workspace-quota", "bogus"); err != nil {
 		t.Fatalf("set workspace-quota: %v", err)
@@ -515,7 +516,7 @@ func TestBuildInvalidWorkspaceQuota(t *testing.T) {
 }
 
 func TestBuildWorkspaceQuota(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set("workspace-quota", "32G"); err != nil {
 		t.Fatalf("set workspace-quota: %v", err)
@@ -531,7 +532,7 @@ func TestBuildWorkspaceQuota(t *testing.T) {
 }
 
 func TestBuildWorkspaceQuotaDefault(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
 	opts, err := Build(r.Config(), cmd, &termio.Mock{})
@@ -558,7 +559,7 @@ func TestBuildPropagatesDocker(t *testing.T) {
 // A user config `docker: false` is an explicit source: the setting must reach the
 // boundary as Explicit, so it overrides any project-Dockerfile content signal.
 func TestResolveDockerSettingFromConfigExplicitOff(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"docker": false})
 
 	cmd := newRunCommand()
@@ -607,7 +608,7 @@ func TestBuildDockerFlagWinsOverDind(t *testing.T) {
 // canonical docker config key beats the deprecated --dind flag, so the run path
 // resolves dind only when no docker source is set at all.
 func TestBuildDindFlagLosesToDockerConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"docker": false})
 
 	cmd := newRunCommand()
@@ -627,7 +628,7 @@ func TestBuildDindFlagLosesToDockerConfig(t *testing.T) {
 // AGENTS_SANDBOX_DOCKER is the canonical env spelling, so it beats a
 // deprecated --dind flag in either direction.
 func TestBuildDindFlagLosesToDockerEnv(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_DOCKER", "true")
 
 	cmd := newRunCommand()
@@ -645,7 +646,7 @@ func TestBuildDindFlagLosesToDockerEnv(t *testing.T) {
 }
 
 func TestBuildAgentVersionFlag(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set(FlagAgentVersion, "1.2.3"); err != nil {
 		t.Fatalf("set agent-version: %v", err)
@@ -661,7 +662,7 @@ func TestBuildAgentVersionFlag(t *testing.T) {
 }
 
 func TestBuildNetworkFlag(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set(FlagNetwork, "none"); err != nil {
 		t.Fatalf("set network: %v", err)
@@ -675,7 +676,7 @@ func TestBuildNetworkFlag(t *testing.T) {
 }
 
 func TestBuildNetworkFlagCombinesProfiles(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set(FlagNetwork, "public,host"); err != nil {
 		t.Fatalf("set network: %v", err)
@@ -689,7 +690,7 @@ func TestBuildNetworkFlagCombinesProfiles(t *testing.T) {
 }
 
 func TestBuildNetworkFromResolver(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "private")
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
@@ -701,7 +702,7 @@ func TestBuildNetworkFromResolver(t *testing.T) {
 }
 
 func TestBuildNetworkSpacedFromResolver(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "public, host")
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
@@ -713,7 +714,7 @@ func TestBuildNetworkSpacedFromResolver(t *testing.T) {
 }
 
 func TestBuildNetworkInvalid(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set(FlagNetwork, "bogus"); err != nil {
 		t.Fatalf("set network: %v", err)
@@ -750,7 +751,7 @@ func TestBuildDNSServersFlag(t *testing.T) {
 }
 
 func TestBuildDNSCombinedWithNetworkNone(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set(FlagNetwork, "none"); err != nil {
 		t.Fatalf("set network: %v", err)
@@ -770,7 +771,7 @@ func TestBuildDNSCombinedWithNetworkNone(t *testing.T) {
 }
 
 func TestBuildDNSFlagOverridesConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_DNS_SERVERS", "9.9.9.9")
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set(FlagDNSServers, "1.1.1.1"); err != nil {
@@ -787,7 +788,7 @@ func TestBuildDNSFlagOverridesConfig(t *testing.T) {
 }
 
 func TestBuildDNSFromResolver(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_DNS_SERVERS", "1.1.1.1,8.8.8.8")
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
@@ -845,7 +846,7 @@ func TestBuildPortsFlag(t *testing.T) {
 }
 
 func TestBuildPortsFlagOverridesEnv(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_PORTS", "5173")
 	cmd := newRunCommand()
 	if err := cmd.Flags().Set(FlagPort, "3000"); err != nil {
@@ -863,7 +864,7 @@ func TestBuildPortsFlagOverridesEnv(t *testing.T) {
 }
 
 func TestBuildPortsFromEnv(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_PORTS", "3000,8080:5173")
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)
@@ -986,7 +987,7 @@ func TestBuildResolvesAgent(t *testing.T) {
 
 // The agent can be selected via the AGENTS_SANDBOX_AGENT env var.
 func TestBuildAgentFromEnv(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_AGENT", defaultAgentName)
 	cmd := newRunCommand()
 	r := mustResolver(t, cmd)

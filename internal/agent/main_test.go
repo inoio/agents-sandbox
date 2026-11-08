@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
@@ -14,7 +14,7 @@ import (
 // internal/testutil/mocks would cycle through notify, so this mirrors its body
 // minus notify.
 func TestMain(m *testing.M) {
-	configpaths.InstallFailFastConfigPaths()
+	configpathstest.InstallFailFastConfigPaths()
 	dockertest.InstallFailFastGet()
 	doctortest.InstallFailFast()
 	msb.InstallFailFastGet()

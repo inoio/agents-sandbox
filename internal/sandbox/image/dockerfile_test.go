@@ -10,6 +10,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -1638,7 +1639,7 @@ func (p *projectDockerfilePaths) IgnoredWorktreeConfigDir() string { return "" }
 // TestReadProjectDockerfileReadsOnlyTheApprovedBytes pins that the project
 // Dockerfile is read through the approval.
 func TestReadProjectDockerfileReadsOnlyTheApprovedBytes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	paths := configpaths.Get()
 	writeFileAt(t, paths.ProjectDockerfile(), "FROM changed\n")
 	t.Cleanup(projectguard.Install([]string{paths.ProjectConfigDirAbs()}, map[string]projectguard.Approval{

@@ -7,11 +7,12 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestPrivateHomeUsesDataDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	got := PrivateHome()
 	want := filepath.Join(configpaths.Get().UserDataDir(), "msb")
 	if got != want || filepath.Base(got) != "msb" {
@@ -20,7 +21,7 @@ func TestPrivateHomeUsesDataDir(t *testing.T) {
 }
 
 func TestApplyHomeSetsMSBHome(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "MSB_HOME")
 	home, err := ApplyHome()
 	if err != nil {
@@ -34,7 +35,7 @@ func TestApplyHomeSetsMSBHome(t *testing.T) {
 }
 
 func TestApplyHomeWrapsSetenvError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("setenv boom")
 	orig := setenv
 	setenv = func(string, string) error { return wantErr }
@@ -46,7 +47,7 @@ func TestApplyHomeWrapsSetenvError(t *testing.T) {
 }
 
 func TestLegacyHomeUsesUserHome(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	home, err := configpaths.Get().UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +63,7 @@ func TestLegacyHomeUsesUserHome(t *testing.T) {
 }
 
 func TestLegacyHomePropagatesHomeError(t *testing.T) {
-	configpaths.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
+	configpathstest.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
 
 	if _, err := LegacyHome(); err == nil {
 		t.Fatal("LegacyHome() error = nil, want home resolution error")

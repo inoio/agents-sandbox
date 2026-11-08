@@ -13,6 +13,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -44,7 +45,7 @@ type gateFixture struct {
 
 func newGateFixture(t *testing.T) gateFixture {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	return gateFixture{root: buildRootCmd(ui), ui: ui}
 }
@@ -255,7 +256,7 @@ func TestGateReportsAnUnreadableProjectConfig(t *testing.T) {
 // TestExecuteRestoresThePathFactory pins that the gate's decision does not
 // outlive the command it was made for.
 func TestExecuteRestoresThePathFactory(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeProjectConfig(t, "memory: 8G\n")
 	ui := &termio.Mock{}
 	if err := execute([]string{cmdConfig, cmdPaths}, ui); err != nil {

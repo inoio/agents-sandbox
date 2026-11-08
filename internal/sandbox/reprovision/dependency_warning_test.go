@@ -10,12 +10,13 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestWarnUnprovisionedDependenciesWarnsForTheOpencodeConfigDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	hostHome, _ := configpaths.Get().UserHomeDir()
 	manifest := writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
 	opencode, _ := agent.Lookup("opencode")
@@ -35,7 +36,7 @@ func TestWarnUnprovisionedDependenciesWarnsForTheOpencodeConfigDir(t *testing.T)
 }
 
 func TestWarnUnprovisionedDependenciesSilentWhenHostProvisioningIsDisabled(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	hostHome, _ := configpaths.Get().UserHomeDir()
 	writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
 	opencode, _ := agent.Lookup("opencode")
@@ -56,7 +57,7 @@ func TestWarnUnprovisionedDependenciesSilentWhenHomeOrMirrorSuppliesTheManifest(
 	}
 	for name, files := range cases {
 		t.Run(name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			hostHome, _ := configpaths.Get().UserHomeDir()
 			writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
 			opencode, _ := agent.Lookup("opencode")
@@ -72,7 +73,7 @@ func TestWarnUnprovisionedDependenciesSilentWhenHomeOrMirrorSuppliesTheManifest(
 }
 
 func TestWarnUnprovisionedDependenciesSilentForAgentsNotProvisioningTheOpencodeDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	hostHome, _ := configpaths.Get().UserHomeDir()
 	writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
 	claude, _ := agent.Lookup("claude-code")
@@ -86,7 +87,7 @@ func TestWarnUnprovisionedDependenciesSilentForAgentsNotProvisioningTheOpencodeD
 }
 
 func TestWarnUnprovisionedDependenciesSilentForAgentsWithoutProvisionRules(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	hostHome, _ := configpaths.Get().UserHomeDir()
 	writeHostManifest(t, hostHome, `{"dependencies": {"zod": "4.1.8"}}`)
 	ui := termio.NewTestMock(t)
@@ -102,7 +103,7 @@ func TestWarnUnprovisionedDependenciesSilentForAgentsWithoutProvisionRules(t *te
 // pins that an unknown host home skips the check instead of reading the
 // config dir relative to the current directory.
 func TestWarnUnprovisionedDependenciesNeverResolvesAgainstTheWorkingDirectory(t *testing.T) {
-	configpaths.WithMockConfigPathsHomeError(t, errors.New("no home"))
+	configpathstest.WithMockConfigPathsHomeError(t, errors.New("no home"))
 	workingDir := t.TempDir()
 	writeHostManifest(t, workingDir, `{"dependencies": {"zod": "4.1.8"}}`)
 	t.Chdir(workingDir)

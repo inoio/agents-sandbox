@@ -7,10 +7,11 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 func TestDedupCrossClientSingleNotification(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "dedupcross-a"
 	sink := &sharedSink{}
 
@@ -33,7 +34,7 @@ func TestDedupCrossClientSingleNotification(t *testing.T) {
 }
 
 func TestDedupDifferentSessionsIndependent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "dedupses-a"
 	sink := &sharedSink{}
 	c := NewDedup(slug, StateClaimer{}, sink)
@@ -46,7 +47,7 @@ func TestDedupDifferentSessionsIndependent(t *testing.T) {
 }
 
 func TestDedupDifferentTriggersIndependent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "deduptrig-a"
 	sink := &sharedSink{}
 	c := NewDedup(slug, StateClaimer{}, sink)
@@ -59,7 +60,7 @@ func TestDedupDifferentTriggersIndependent(t *testing.T) {
 }
 
 func TestDedupBypassesWhenNoSessionID(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "dedupnosid-a"
 	sink := &sharedSink{}
 	c := NewDedup(slug, StateClaimer{}, sink)
@@ -72,7 +73,7 @@ func TestDedupBypassesWhenNoSessionID(t *testing.T) {
 }
 
 func TestDedupSameClientSecondNotifyDropped(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	sink := &sharedSink{}
 	c := NewDedup("dedupheld-a", StateClaimer{}, sink)
 
@@ -89,7 +90,7 @@ func TestDedupSameClientSecondNotifyDropped(t *testing.T) {
 // request), and releasing the session's claims removes their files rather than
 // leaving one per request behind.
 func TestDedupReleasesInputClaims(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "dedupcleanup-a"
 	sink := &sharedSink{}
 	c := NewDedup(slug, StateClaimer{}, sink)
@@ -114,7 +115,7 @@ func TestDedupReleasesInputClaims(t *testing.T) {
 // dropped (so it never sees the second request). Each request has its own
 // token, so the other client can still deliver it.
 func TestDedupLaterInputNotBlockedByAnotherClient(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "dedupliveness-a"
 	sink := &sharedSink{}
 	c1 := NewDedup(slug, StateClaimer{}, sink)
@@ -146,7 +147,7 @@ func TestDedupSameInputEventDeliveredOnce(t *testing.T) {
 // TestDedupCrossClientInputsDeliveredOnce guards cross-client behavior: each
 // distinct request is claimed by one client and dropped by the other.
 func TestDedupCrossClientInputsDeliveredOnce(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "dedupcross-input-a"
 	sink := &sharedSink{}
 	c1 := NewDedup(slug, StateClaimer{}, sink)

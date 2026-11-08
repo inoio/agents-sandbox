@@ -12,7 +12,7 @@ import (
 
 	"go.yaml.in/yaml/v4"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 // homeStateSchemaFields and rootStateSchemaFields pin the persisted field set of
@@ -305,7 +305,7 @@ func TestCheckDocumentSchemaReportsMalformedDocumentsAsUnparsable(t *testing.T) 
 }
 
 func TestWriteStampsCurrentSchema(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
 	if err := writeState(k, HomeState{HomeVolume: "vol"}); err != nil {
 		t.Fatalf("writeState: %v", err)
@@ -332,7 +332,7 @@ func assertFileSchema(t *testing.T, path string, want int) {
 }
 
 func TestTransactionsRefuseNewerSchemaWithoutWriting(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
 	newer := []byte("schema: 99\nhome_volume: vol\nfuture_field: keep\n")
 	seedFile(t, stateFile(k), newer)

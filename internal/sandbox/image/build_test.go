@@ -15,6 +15,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -25,7 +26,7 @@ import (
 // TestEnsureImageWithClientSetsContentRef pins that the built image's content id
 // keys the microsandbox reference, while the Docker tag stays the slug/agent name.
 func TestEnsureImageWithClientSetsContentRef(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
@@ -63,7 +64,7 @@ func TestEnsureImageWithClientSetsContentRef(t *testing.T) {
 // no-content-id fallback: an image whose inspect reports no ID keeps the
 // prefix-free name reference rather than emitting a dangling content suffix.
 func TestEnsureImageWithClientFallsBackToNameRefWhenContentIDEmpty(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
@@ -282,7 +283,7 @@ func TestLogBuildDecisionNamesSingleSkippedRebuildReason(t *testing.T) {
 }
 
 func TestEnsureImageReportsBakedAgentVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	rendered, err := RenderDockerfile(a, "1.2.3", nil, dockerOff)
@@ -324,7 +325,7 @@ func TestEnsureImageReportsBakedAgentVersion(t *testing.T) {
 }
 
 func TestEnsureImageReportsEmptyForSentinelLabel(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	rendered, err := RenderDockerfile(a, "1.2.3", nil, dockerOff)
@@ -368,7 +369,7 @@ func TestEnsureImageReportsEmptyForSentinelLabel(t *testing.T) {
 // TestEnsureImageSkipsBuildWhenDockerfileIDMatches verifies the build is skipped
 // when the existing runner image already carries a matching dockerfile-id label.
 func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	built := false
@@ -415,7 +416,7 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 // TestEnsureImageReportsRenderError verifies a project Dockerfile that declares
 // a reserved stage alias surfaces the render error before any build runs.
 func TestEnsureImageReportsRenderError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	project := []byte("FROM debian:trixie-slim AS agents-sandbox-base\n")
@@ -437,7 +438,7 @@ func TestEnsureImageReportsRenderError(t *testing.T) {
 // TestEnsureImageBuildsWhenDockerfileIDMismatches verifies the build runs when
 // the existing runner image's dockerfile-id label differs from the current one.
 func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	built := false
@@ -478,7 +479,7 @@ func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
 // TestEnsureImageBuildArgsIncludeBaseAndAgentVersion asserts the BASE_IMAGE
 // provenance build arg and the pinned agent version arg.
 func TestEnsureImageBuildArgsIncludeBaseAndAgentVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	var gotArgs map[string]*string
@@ -517,7 +518,7 @@ func TestEnsureImageBuildArgsIncludeBaseAndAgentVersion(t *testing.T) {
 // TestEnsureImageResolvesAnUnpinnedAgentVersion verifies that an empty version
 // is resolved to a real release before it is passed to the Docker build.
 func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	var requested string
 	var gotArgs map[string]*string
@@ -561,7 +562,7 @@ func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
 // an existing user-provided image can be reused without contacting the release
 // endpoint when its version was not recorded.
 func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	// The deferred path renders before the version is known, so the identity
 	// uses the version-less render.
@@ -607,7 +608,7 @@ func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) 
 // user-provided image gets a real installer version and records that resolved
 // version in the image identity for subsequent reuse.
 func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	var gotArgs map[string]*string
 	var gotDockerfileID string
@@ -654,7 +655,7 @@ func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
 // TestEnsureImageDockerAddsDockerVersionArg verifies the docker build arg is only
 // passed when dind is enabled.
 func TestEnsureImageDockerAddsDockerVersionArg(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	var gotArgs map[string]*string
@@ -681,7 +682,7 @@ func TestEnsureImageDockerAddsDockerVersionArg(t *testing.T) {
 }
 
 func TestEnsureImageVerboseNamesChangedInputs(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "2.0.0")
 	a := agentOpencode(t)
 	oldLabels := identityLabels(computeImageIdentity(nil, "1.0.0", false))
@@ -726,7 +727,7 @@ func TestEnsureImageVerboseNamesChangedInputs(t *testing.T) {
 }
 
 func TestEnsureImageVerboseReportsReuse(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	rendered, err := RenderDockerfile(a, testAgentVersion, nil, dockerOff)
@@ -768,7 +769,7 @@ func TestEnsureImageVerboseReportsReuse(t *testing.T) {
 }
 
 func TestEnsureImageVerboseReportsForcedRebuild(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
@@ -904,7 +905,7 @@ func TestEnsureImageFailsWhenAStepFails(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			tc.setup(t)
 			_, err := EnsureImageWithClient(context.Background(), docker.Get(), agentOpencode(t),
 				[]byte("FROM debian:trixie-slim\n"), "proj", tc.opts, &termio.Mock{},
@@ -923,7 +924,7 @@ func TestEnsureImageFailsWhenAStepFails(t *testing.T) {
 // through the UI when a project Dockerfile using a legacy dind spelling is
 // ensured for building.
 func TestEnsureImageWarnsOnLegacyDockerfileForms(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 
@@ -970,7 +971,7 @@ func TestEnsureImageWarnsOnLegacyDockerfileForms(t *testing.T) {
 // project-Dockerfile deprecations warn on every ensure, including a cached
 // reuse: a Dockerfile carrying both legacy forms yields two warnings per call.
 func TestEnsureImageWarnsOnEveryEnsure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 
@@ -1024,7 +1025,7 @@ func TestEnsureImageWarnsOnEveryEnsure(t *testing.T) {
 
 func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -1063,7 +1064,7 @@ func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 // BASE_IMAGE label keeps the familiar spelling either way.
 func TestEnsureImageResolvesBaseDigestByRenderedRef(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	orig := defaultAgentVersionResolver
 	defaultAgentVersionResolver = func(_ context.Context, _ agent.Agent, requested string) (string, error) {
 		return requested, nil
@@ -1141,7 +1142,7 @@ func TestEnsureImageResolvesBaseDigestByRenderedRef(t *testing.T) {
 
 func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	orig := defaultAgentVersionResolver
 	defaultAgentVersionResolver = func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "2.0.0", nil
@@ -1180,7 +1181,7 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 
 func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
@@ -1209,7 +1210,7 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 
 func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	orig := defaultAgentVersionResolver
 	defaultAgentVersionResolver = func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "3.0.0", nil
@@ -1248,7 +1249,7 @@ func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 // reuses an image without an agent-version label without looking up the latest
 // release: the lookup needs the network, and a reused image never uses it.
 func TestEnsureImageNoRebuildReusesUnlabeledImageOffline(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
 		return "", errors.New("offline")
 	})
@@ -1329,7 +1330,7 @@ func TestBuildRequestKeepsRawAndEffectiveDockerApart(t *testing.T) {
 }
 
 func TestBuildLoadsTheEnsuredImageIntoMicrosandbox(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
@@ -1393,7 +1394,7 @@ func TestBuildFailsWhenEnsureOrLoadFails(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			withMockAgentVersion(t, "1.2.3")
 			tc.setup(t)
 			msbClient := &msb.MockMsbClient{

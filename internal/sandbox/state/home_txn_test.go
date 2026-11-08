@@ -5,11 +5,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 func TestWithHomeStateCreatesWhenMissing(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	if err := WithHomeState(k, func(hs *HomeState, exists bool) (bool, error) {
 		if exists {
@@ -27,7 +27,7 @@ func TestWithHomeStateCreatesWhenMissing(t *testing.T) {
 }
 
 func TestWithHomeStateCorruptReturnsErrorWithoutWriting(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	if err := os.MkdirAll(KeyDir(k), 0o700); err != nil {
 		t.Fatal(err)
@@ -49,7 +49,7 @@ func TestWithHomeStateCorruptReturnsErrorWithoutWriting(t *testing.T) {
 }
 
 func TestWithHomeStateNoWriteIsNoop(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	if err := WithHomeState(k, func(*HomeState, bool) (bool, error) { return false, nil }); err != nil {
 		t.Fatalf("WithHomeState: %v", err)
@@ -60,7 +60,7 @@ func TestWithHomeStateNoWriteIsNoop(t *testing.T) {
 }
 
 func TestWithHomeStateCallbackErrorDoesNotWrite(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	wantErr := errors.New("boom")
 	err := WithHomeState(k, func(*HomeState, bool) (bool, error) { return true, wantErr })
@@ -73,7 +73,7 @@ func TestWithHomeStateCallbackErrorDoesNotWrite(t *testing.T) {
 }
 
 func TestWithHomeStatePresentExistsTrue(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	if err := writeState(k, HomeState{HomeVolume: "vol-1", AgentVersion: "1.2.3"}); err != nil {
 		t.Fatalf("writeState: %v", err)
@@ -97,7 +97,7 @@ func TestWithHomeStatePresentExistsTrue(t *testing.T) {
 }
 
 func TestRecoverHomeStateRepairsCorrupt(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	if err := os.MkdirAll(KeyDir(k), 0o700); err != nil {
 		t.Fatal(err)
@@ -121,7 +121,7 @@ func TestRecoverHomeStateRepairsCorrupt(t *testing.T) {
 }
 
 func TestRecoverHomeStateRepairsMissing(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	if err := RecoverHomeState(k, func(hs *HomeState, exists bool) (bool, error) {
 		if exists {
@@ -139,7 +139,7 @@ func TestRecoverHomeStateRepairsMissing(t *testing.T) {
 }
 
 func TestRecoverHomeStatePresentExistsTrue(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	if err := writeState(k, HomeState{HomeVolume: "old", AgentVersion: "1.2.3"}); err != nil {
 		t.Fatalf("writeState: %v", err)
@@ -163,7 +163,7 @@ func TestRecoverHomeStatePresentExistsTrue(t *testing.T) {
 }
 
 func TestRecoverHomeStateReadErrorReturns(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	if err := os.MkdirAll(stateFile(k), 0o700); err != nil {
 		t.Fatal(err)
@@ -182,7 +182,7 @@ func TestRecoverHomeStateReadErrorReturns(t *testing.T) {
 }
 
 func TestRecoverHomeStateNoWriteIsNoop(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	if err := RecoverHomeState(k, func(*HomeState, bool) (bool, error) { return false, nil }); err != nil {
 		t.Fatalf("RecoverHomeState: %v", err)
@@ -193,7 +193,7 @@ func TestRecoverHomeStateNoWriteIsNoop(t *testing.T) {
 }
 
 func TestRecoverHomeStateCallbackErrorDoesNotWrite(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	wantErr := errors.New("boom")
 	err := RecoverHomeState(k, func(*HomeState, bool) (bool, error) { return true, wantErr })
@@ -206,7 +206,7 @@ func TestRecoverHomeStateCallbackErrorDoesNotWrite(t *testing.T) {
 }
 
 func TestReadStateCorruptIsUnparsable(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	if err := os.MkdirAll(KeyDir(k), 0o700); err != nil {
 		t.Fatal(err)

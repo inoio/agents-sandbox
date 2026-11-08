@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
 
@@ -38,7 +39,7 @@ func TestFormatKeysSortsUnorderedInput(t *testing.T) {
 // project state. Reading either as state would fail the whole removal scan
 // closed.
 func TestHomeVolumeReferencesSkipsNonStateEntries(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	stray := Key{Slug: "stray-aBc1234D", Agent: "opencode"}
 	if err := os.MkdirAll(KeyDir(stray), 0o700); err != nil {
@@ -64,7 +65,7 @@ func TestHomeVolumeReferencesSkipsNonStateEntries(t *testing.T) {
 // state.yaml deeper than the two known layouts is not a project state. Reading
 // it as the zero key would read the launcher-global root document instead.
 func TestHomeVolumeReferencesSkipsTooDeepStateFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	deep := filepath.Join(stateRoot(), "deep-aBc1234D", "opencode", "nested")
 	if err := os.MkdirAll(deep, 0o700); err != nil {
 		t.Fatalf("mkdir deep tree: %v", err)
@@ -87,7 +88,7 @@ func TestHomeVolumeReferencesSkipsTooDeepStateFile(t *testing.T) {
 // "no state root" no-op, which would let a destructive removal proceed.
 func TestHomeVolumeReferencesErrorsOnUnreadableRoot(t *testing.T) {
 	requireNonRoot(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.Chmod(stateRoot(), 0o000); err != nil {
 		t.Fatalf("chmod state root: %v", err)
 	}
@@ -99,7 +100,7 @@ func TestHomeVolumeReferencesErrorsOnUnreadableRoot(t *testing.T) {
 }
 
 func TestHomeVolumeReferencesScansBothLayouts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	perAgent := Key{Slug: "proj-aBc1234D", Agent: "opencode"}
 	legacy := Key{Slug: "legacy-aBc1234D"}
@@ -125,7 +126,7 @@ func TestHomeVolumeReferencesScansBothLayouts(t *testing.T) {
 }
 
 func TestHomeVolumeReferencesProtectsPendingRecoveredVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := Key{Slug: "proj-aBc1234D", Agent: "opencode"}
 	vol := "agents-sandbox-home-legacy-aBc1234D-opencode-20260812T123456"
 	if err := writeState(key, HomeState{RecoveredHomeVolume: vol}); err != nil {
@@ -143,7 +144,7 @@ func TestHomeVolumeReferencesProtectsPendingRecoveredVolume(t *testing.T) {
 }
 
 func TestHomeVolumeReferencesSkipsStateWithoutAVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := Key{Slug: "proj-aBc1234D", Agent: "opencode"}
 	if err := writeState(key, HomeState{ImageDigest: "sha256:abc"}); err != nil {
 		t.Fatalf("write state: %v", err)
@@ -159,7 +160,7 @@ func TestHomeVolumeReferencesSkipsStateWithoutAVolume(t *testing.T) {
 }
 
 func TestHomeVolumeReferencesIgnoresRootState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := writeRootState(RootState{Migrations: map[string]Migration{
 		"runtime_home": {Status: MigrationCompleted},
 	}}); err != nil {
@@ -187,7 +188,7 @@ type missingStatePaths struct {
 func (m missingStatePaths) UserStateDir() string { return m.stateDir }
 
 func TestHomeVolumeReferencesEmptyWhenNoStateDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	base := configpaths.Get()
 	configpaths.Get = func() configpaths.ConfigPaths {
 		return missingStatePaths{ConfigPaths: base, stateDir: filepath.Join(t.TempDir(), "absent")}
@@ -206,7 +207,7 @@ func TestHomeVolumeReferencesErrorsOnUnreadableDir(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: chmod 0 does not block directory reads")
 	}
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	blocked := filepath.Join(configpaths.Get().UserStateDir(), "blocked")
 	if err := os.MkdirAll(blocked, 0o000); err != nil {
 		t.Fatalf("mkdir blocked: %v", err)
@@ -222,7 +223,7 @@ func TestHomeVolumeReferencesErrorsOnUnreadableDir(t *testing.T) {
 }
 
 func TestHomeVolumeReferencesErrorsOnCorruptStateFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := KeyDir(Key{Slug: "proj-aBc1234D", Agent: "opencode"})
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -236,7 +237,7 @@ func TestHomeVolumeReferencesErrorsOnCorruptStateFile(t *testing.T) {
 }
 
 func TestImageReferencesScansPerAgentStates(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := Key{Slug: "proj-aBc1234D", Agent: "opencode"}
 	if err := writeState(key, HomeState{ImageDigest: "sha256:abc"}); err != nil {
 		t.Fatalf("write per-agent state: %v", err)
@@ -261,7 +262,7 @@ func TestImageReferencesScansPerAgentStates(t *testing.T) {
 }
 
 func TestImageReferencesIgnoresLegacyAgentlessState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := Key{Slug: "legacy-aBc1234D"}
 	if err := writeState(legacy, HomeState{HomeVolume: "vol"}); err != nil {
 		t.Fatalf("write legacy state: %v", err)
@@ -280,7 +281,7 @@ func TestImageReferencesErrorsOnUnreadableDir(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: chmod 0 does not block directory reads")
 	}
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	blocked := filepath.Join(configpaths.Get().UserStateDir(), "blocked")
 	if err := os.MkdirAll(blocked, 0o000); err != nil {
 		t.Fatalf("mkdir blocked: %v", err)
@@ -292,7 +293,7 @@ func TestImageReferencesErrorsOnUnreadableDir(t *testing.T) {
 }
 
 func TestImageReferencesErrorsOnCorruptStateFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := KeyDir(Key{Slug: "proj-aBc1234D", Agent: "opencode"})
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)

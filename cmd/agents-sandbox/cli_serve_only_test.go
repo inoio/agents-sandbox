@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -139,7 +139,7 @@ func TestServeOnlyStdinReaderSelectsOnTerminal(t *testing.T) {
 // prerequisite checks fail stops with the preflight error.
 func TestRunFuncServeOnlyReportsAFailedPreflight(t *testing.T) {
 	initTestProjectDir(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	doctortest.MockedCheckAll(t, false)
 	ui := &termio.Mock{}
 

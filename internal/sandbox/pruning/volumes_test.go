@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -23,7 +23,7 @@ func TestPruneVolumes(t *testing.T) {
 	}
 
 	t.Run("prunes stale slug volumes and keeps others", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Volumes: []msb.VolumeHandle{
 				home("agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"),
@@ -51,7 +51,7 @@ func TestPruneVolumes(t *testing.T) {
 	})
 
 	t.Run("removes state when the last unreferenced volume for slug is removed", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		slug := "stale-1mjusbm3wikhb0"
 		// The state records no home volume, so it does not reference the volume
 		// below and the reference guard lets the volume be reclaimed; the state
@@ -79,7 +79,7 @@ func TestPruneVolumes(t *testing.T) {
 	})
 
 	t.Run("keeps state when a volume for slug remains", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		slug := "stale-1mjusbm3wikhb0"
 		if err := seedHomeState(
 			state.Key{Slug: slug, Agent: ""},
@@ -113,7 +113,7 @@ func TestPruneVolumes(t *testing.T) {
 	})
 
 	t.Run("dry run counts but does not delete", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Volumes: []msb.VolumeHandle{home("agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022")},
 		}
@@ -137,7 +137,7 @@ func TestPruneVolumes(t *testing.T) {
 	})
 
 	t.Run("empty state prunes nothing", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Volumes: []msb.VolumeHandle{home("agents-sandbox-home-kept-1mjusbm3wikhb0-20260806T143022")},
 		}
@@ -167,7 +167,7 @@ func TestPruneVolumes(t *testing.T) {
 	})
 
 	t.Run("skips unparseable and non-home volumes", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		client := &msb.MockMsbClient{
 			Volumes: []msb.VolumeHandle{
 				home("agents-sandbox-home-"),
@@ -195,7 +195,7 @@ func TestPruneVolumes(t *testing.T) {
 }
 
 func TestPruneVolumesSkipsReferencedVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	const (
 		slug   = "stale-1mjusbm3wikhb0"
@@ -235,7 +235,7 @@ func TestPruneVolumesSkipsReferencedVolume(t *testing.T) {
 }
 
 func TestPruneVolumesStillRemovesUnreferencedVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	const (
 		referencedSlug   = "stale-1mjusbm3wikhb0"
@@ -285,7 +285,7 @@ func TestPruneVolumesStillRemovesUnreferencedVolume(t *testing.T) {
 // the Greptile P1: a leftover stopped task for a live project must not make the
 // project's unrecorded (e.g. pre-reset) home volume prunable.
 func TestPruneVolumesKeepsLiveProjectVolumeWithLeftoverTask(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "proj-1mjusbm3wikhb0"
 	live := &msb.MockSandboxHandle{
 		Name_:      slug + "-opencode",
@@ -326,7 +326,7 @@ func TestPruneVolumesKeepsLiveProjectVolumeWithLeftoverTask(t *testing.T) {
 // kept. state.HomeVolumeReferences is slug-agnostic, so the guard must not
 // assume the volume's own slug is the only one that can reference it.
 func TestPruneVolumesKeepsVolumeReferencedFromEitherSlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const (
 		legacySlug   = "legacyrepo-1mjusbm3wikhb0"
 		checkoutSlug = "checkoutrepo-2abcd"
@@ -367,7 +367,7 @@ func TestPruneVolumesKeepsVolumeReferencedFromEitherSlug(t *testing.T) {
 }
 
 func TestPruneVolumesFailsClosedOnUnreadableState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const (
 		slug   = "stale-1mjusbm3wikhb0"
 		volume = "agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"
@@ -408,7 +408,7 @@ func TestPruneVolumesKeepsStateWhenReferencedVolumeSiblingRemoved(t *testing.T) 
 	// removeStateForGoneKeys must not delete the state and orphan the referenced
 	// volume for the next prune to reclaim: the count guard skips the key, and
 	// the state-content guard would keep it anyway.
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const (
 		slug       = "stale-1mjusbm3wikhb0"
 		referenced = "agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"
@@ -448,7 +448,7 @@ func TestPruneVolumesKeepsStateWhenReferencedVolumeSiblingRemoved(t *testing.T) 
 }
 
 func TestPruneVolumesDryRunWarnsOnReferencedVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const (
 		slug       = "stale-1mjusbm3wikhb0"
 		referenced = "agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"
@@ -548,7 +548,7 @@ func TestRenderVolumeReport(t *testing.T) {
 // volume listing never contains the new volume, so the old removed >= exists
 // decision deleted the state that named it and orphaned the volume.
 func TestPruneVolumesKeepsStateCommittedAfterTheSnapshot(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const (
 		slug          = "stale-1mjusbm3wikhb0"
 		staleVolume   = "agents-sandbox-home-stale-1mjusbm3wikhb0-20260806T143022"
@@ -592,7 +592,7 @@ func TestPruneVolumesKeepsStateCommittedAfterTheSnapshot(t *testing.T) {
 }
 
 func TestRemoveStateForGoneKeysProcessesKeysAfterASkippedOne(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	kept := state.Key{Slug: "aaaa-kept"}
 	gone := state.Key{Slug: "bbbb-gone"}
 	for _, k := range []state.Key{kept, gone} {
@@ -615,7 +615,7 @@ func TestRemoveStateForGoneKeysProcessesKeysAfterASkippedOne(t *testing.T) {
 }
 
 func TestRemoveStateForGoneKeysWarnsOnRemoveError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "prunewarn-a"}
 	// A non-empty directory named state.yaml makes the state unreadable, so
 	// RemoveHomeStateIf returns an error and prune warns rather than discarding
@@ -652,7 +652,7 @@ func TestCountVolumesByKeySkipsForeign(t *testing.T) {
 // whose key is not being pruned, a still-referenced volume, and a failed
 // removal each skip only themselves: a later prunable volume is still removed.
 func TestPruneHomeVolumesSkipsAndContinues(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	vol := func(name string) msb.VolumeHandle {
 		return &msb.MockVolumeHandle{Name_: name, CreatedAt_: old}
@@ -711,7 +711,7 @@ func TestPruneHomeVolumesSkipsAndContinues(t *testing.T) {
 // skipped before its (empty) key is looked up: an empty key in ToPrune must not
 // turn it into a prune candidate.
 func TestPruneHomeVolumesSkipsForeignEvenWithEmptyKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{}
 	handles := []msb.VolumeHandle{
 		&msb.MockVolumeHandle{Name_: "foreign-volume", CreatedAt_: time.Now()},
@@ -729,7 +729,7 @@ func TestPruneHomeVolumesSkipsForeignEvenWithEmptyKey(t *testing.T) {
 }
 
 func TestRemoveStateForGoneKeysRemovesEveryKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	keys := []state.Key{
 		{Slug: "a-1mjusbm3wikhb0"},
 		{Slug: "b-1mjusbm3wikhb0"},
@@ -761,7 +761,7 @@ func TestRemoveStateForGoneKeysRemovesEveryKey(t *testing.T) {
 // names a home volume is kept, so a concurrently created volume is never
 // orphaned.
 func TestRemoveStateForGoneKeysKeepsStateNamingAVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	kept := state.Key{Slug: "names-a-volume"}
 	if err := seedHomeState(kept, state.HomeState{HomeVolume: "vol-1"}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
@@ -779,7 +779,7 @@ func TestRemoveStateForGoneKeysKeepsStateNamingAVolume(t *testing.T) {
 // volume does: the state names a volume the project still expects to recover, so
 // discarding it would lose the marker.
 func TestRemoveStateForGoneKeysKeepsStateNamingARecoveredVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	kept := state.Key{Slug: "pending-recovery"}
 	if err := seedHomeState(kept, state.HomeState{RecoveredHomeVolume: "vol-pending"}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)

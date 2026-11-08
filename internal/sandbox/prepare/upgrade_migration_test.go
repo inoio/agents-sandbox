@@ -11,12 +11,13 @@ import (
 	"go.yaml.in/yaml/v4"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestMigrateLegacyUpdaterStateFoldsLastCheckedAndDeletes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.WriteFile(
 		legacyUpdaterStatePath(configpaths.Get()),
 		[]byte("agents:\n  opencode:\n    last_checked: 2020-01-01T00:00:00Z\n"),
@@ -35,7 +36,7 @@ func TestMigrateLegacyUpdaterStateFoldsLastCheckedAndDeletes(t *testing.T) {
 }
 
 func TestMigrateLegacyUpdaterStatePresentValueWins(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := seedRootState(state.RootState{Updates: state.Updates{Agents: map[string]state.AgentCheckState{
 		"opencode": {LastChecked: time.Unix(5000, 0).UTC()},
 	}}}); err != nil {
@@ -56,7 +57,7 @@ func TestMigrateLegacyUpdaterStatePresentValueWins(t *testing.T) {
 }
 
 func TestMigrateLegacyUpdaterStateCorruptIsDeleted(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.WriteFile(
 		legacyUpdaterStatePath(configpaths.Get()),
 		[]byte("not: valid: yaml: ["),
@@ -71,7 +72,7 @@ func TestMigrateLegacyUpdaterStateCorruptIsDeleted(t *testing.T) {
 }
 
 func TestMigrateLegacyUpdaterStateSkippedWhenLockHeld(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.WriteFile(
 		legacyUpdaterStatePath(configpaths.Get()),
 		[]byte("agents:\n  opencode:\n    last_checked: 2020-01-01T00:00:00Z\n"),
@@ -92,7 +93,7 @@ func TestMigrateLegacyUpdaterStateSkippedWhenLockHeld(t *testing.T) {
 }
 
 func TestMigrateLegacyUpdaterStateFoldsFlatFieldIntoOpencode(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.WriteFile(
 		legacyUpdaterStatePath(configpaths.Get()),
 		[]byte("last_checked: 2021-06-01T00:00:00Z\n"),
@@ -111,7 +112,7 @@ func TestMigrateLegacyUpdaterStateFoldsFlatFieldIntoOpencode(t *testing.T) {
 }
 
 func TestMigrateLegacyUpdaterStateSkipsZeroLastChecked(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.WriteFile(
 		legacyUpdaterStatePath(configpaths.Get()),
 		[]byte("agents:\n  opencode:\n    current_version: 1.2.3\n"),
@@ -134,7 +135,7 @@ func TestMigrateLegacyUpdaterStateSkipsZeroLastChecked(t *testing.T) {
 // no-op guard leaves an existing root document byte-for-byte untouched rather
 // than rewriting it.
 func TestMigrateLegacyUpdaterStateNoOpPreservesRootDocument(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := seedRootState(state.RootState{Updates: state.Updates{Agents: map[string]state.AgentCheckState{
 		"opencode": {LastChecked: time.Unix(5000, 0).UTC()},
 	}}}); err != nil {
@@ -165,7 +166,7 @@ func TestMigrateLegacyUpdaterStateNoOpPreservesRootDocument(t *testing.T) {
 }
 
 func TestMigrateLegacyUpdaterStateReadErrorIsNonFatal(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.MkdirAll(legacyUpdaterStatePath(configpaths.Get()), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +181,7 @@ func TestMigrateLegacyUpdaterStateReadErrorIsNonFatal(t *testing.T) {
 }
 
 func TestMigrateLegacyUpdaterStateRootStateReadErrorIsNonFatal(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	rootStatePath := filepath.Join(configpaths.Get().UserStateDir(), "state.yaml")
 	if err := os.WriteFile(rootStatePath, []byte("not: valid: yaml: ["), 0o600); err != nil {
 		t.Fatal(err)
@@ -203,7 +204,7 @@ func TestMigrateLegacyUpdaterStateRootStateReadErrorIsNonFatal(t *testing.T) {
 }
 
 func TestMigrateLegacyUpdaterStateLockErrorIsNonFatal(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.MkdirAll(filepath.Join(configpaths.Get().UserStateDir(), "locks", "root.lock"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +225,7 @@ func TestMigrateLegacyUpdaterStateWriteErrorIsNonFatal(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: a read-only directory does not block writes")
 	}
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	stateDir := configpaths.Get().UserStateDir()
 	if err := os.MkdirAll(filepath.Join(stateDir, "locks"), 0o700); err != nil {
 		t.Fatal(err)
@@ -255,7 +256,7 @@ func TestMigrateLegacyUpdaterStateWriteErrorIsNonFatal(t *testing.T) {
 // before "opencode"), so a `break` on the zero entry deterministically drops
 // opencode.
 func TestMigrateLegacyUpdaterStateFoldsPastAZeroAgent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.WriteFile(
 		legacyUpdaterStatePath(configpaths.Get()),
 		[]byte("agents:\n  aaa:\n    current_version: 1\n  opencode:\n    last_checked: 2021-06-01T00:00:00Z\n"),
@@ -274,7 +275,7 @@ func TestMigrateLegacyUpdaterStateFoldsPastAZeroAgent(t *testing.T) {
 // a partial decode: yaml.v3 sets an earlier valid field before failing on a later
 // type error, and the guard must discard that partial state rather than fold it.
 func TestMigrateLegacyUpdaterStateTypeErrorFoldsNothing(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	rootStatePath := filepath.Join(configpaths.Get().UserStateDir(), "state.yaml")
 	if err := os.WriteFile(
 		legacyUpdaterStatePath(configpaths.Get()),

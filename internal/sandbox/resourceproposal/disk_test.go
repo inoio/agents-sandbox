@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -103,7 +104,7 @@ func unsetDiskEnv(t *testing.T) {
 // /tmp is recorded, offered with its free space and a rebuild notice, and an
 // accepted raise (the +50 % suggestion) is persisted and answered.
 func TestDetectAndOfferDiskRaiseOffersAndPersists(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	unsetDiskEnv(t)
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
@@ -150,7 +151,7 @@ func TestDetectAndOfferDiskRaiseOffersAndPersists(t *testing.T) {
 // TestDetectAndOfferDiskRaiseRootAppliesLive pins the root disk's wording: its
 // raise applies without a rebuild.
 func TestDetectAndOfferDiskRaiseRootAppliesLive(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	unsetDiskEnv(t)
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
@@ -179,7 +180,7 @@ func TestDetectAndOfferDiskRaiseRootAppliesLive(t *testing.T) {
 // offer: a non-interactive run records the hit without answering it, and the
 // next launch (no probe) offers it with the recorded free space.
 func TestDetectAndOfferDiskRaiseNonInteractiveThenNextLaunch(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	unsetDiskEnv(t)
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
@@ -219,7 +220,7 @@ func TestDetectAndOfferDiskRaiseNonInteractiveThenNextLaunch(t *testing.T) {
 // answered hit is not re-offered while its mount stays short, and a recovered
 // mount clears the marker so a later trip is offered again.
 func TestDetectAndOfferDiskRaiseAnsweredHitStaysClosed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	unsetDiskEnv(t)
 	k := detectKey()
 	seen := time.Now().Add(-time.Hour)
@@ -253,7 +254,7 @@ func TestDetectAndOfferDiskRaiseAnsweredHitStaysClosed(t *testing.T) {
 // TestDetectAndOfferDiskRaiseOffersEachTrippedLimit pins that one probe can
 // trip several limits and each is offered and persisted on its own.
 func TestDetectAndOfferDiskRaiseOffersEachTrippedLimit(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	unsetDiskEnv(t)
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
@@ -305,7 +306,7 @@ func TestDetectAndOfferDiskRaiseExplainsWhatItCannotOffer(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			unsetDiskEnv(t)
 			if tc.env != "" {
 				t.Setenv(tc.env, "2G")
@@ -341,7 +342,7 @@ func TestDetectAndOfferDiskRaiseExplainsWhatItCannotOffer(t *testing.T) {
 // since an explicit tmp-size equal to memory is rejected by options.ValidateSizes
 // on the next launch.
 func TestDetectAndOfferDiskRaiseCapsTmpBelowMemory(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	unsetDiskEnv(t)
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
@@ -399,7 +400,7 @@ func TestTmpRaiseMaximumMiB(t *testing.T) {
 // leaves the hit unanswered and a failing write warns, and neither raises.
 func TestDetectAndOfferDiskRaiseFailuresAreBestEffort(t *testing.T) {
 	t.Run("prompt error", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		unsetDiskEnv(t)
 		k := detectKey()
 		seedDetectState(t, k, state.HomeState{})
@@ -418,7 +419,7 @@ func TestDetectAndOfferDiskRaiseFailuresAreBestEffort(t *testing.T) {
 		}
 	})
 	t.Run("write error", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		unsetDiskEnv(t)
 		k := detectKey()
 		seedDetectState(t, k, state.HomeState{})
@@ -499,7 +500,7 @@ func TestDetectAndOfferDiskRaiseWarnsWhenTheHostLacksTheSpace(t *testing.T) {
 		{name: "free space unknown", known: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			unsetDiskEnv(t)
 			k := detectKey()
 			seedDetectState(t, k, state.HomeState{})
@@ -542,7 +543,7 @@ func TestDetectAndOfferDiskRaiseWarnsForTheWorkspaceQuota(t *testing.T) {
 		{name: "free space unknown", known: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			unsetDiskEnv(t)
 			k := detectKey()
 			seedDetectState(t, k, state.HomeState{})
@@ -569,7 +570,7 @@ func TestDetectAndOfferDiskRaiseWarnsForTheWorkspaceQuota(t *testing.T) {
 // TestWithHostFreeSpace pins that the host free-space figures are filled in
 // for the root disk and the workspace quota from existing paths.
 func TestWithHostFreeSpace(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	limits := WithHostFreeSpace(diskTestLimits())
 	if !limits.RootHostFreeKnown || !limits.WorkspaceHostFreeKnown {
 		t.Errorf("WithHostFreeSpace = %+v, want both host figures known", limits)
@@ -584,7 +585,7 @@ func TestWithHostFreeSpace(t *testing.T) {
 // from its measured size, so the offer never suggests a smaller disk, which the
 // next launch would treat as a decrease and rebuild.
 func TestDetectAndOfferDiskRaiseStartsFromTheMeasuredSize(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	unsetDiskEnv(t)
 	k := detectKey()
 	seedDetectState(t, k, state.HomeState{})
@@ -612,7 +613,7 @@ func TestDetectAndOfferDiskRaiseStartsFromTheMeasuredSize(t *testing.T) {
 // caller read the markers is not offered again, and a recovery the caller saw
 // for an older hit does not clear a newer one.
 func TestDetectAndOfferDiskRaiseUsesTheStoredHit(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	unsetDiskEnv(t)
 	k := detectKey()
 	seen := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
@@ -677,7 +678,7 @@ func TestDetectAndOfferDiskRaiseJudgesTheWorkspaceByItsQuota(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			unsetDiskEnv(t)
 			k := detectKey()
 			seedDetectState(t, k, state.HomeState{})
@@ -732,7 +733,7 @@ func TestDetectAndOfferDiskRaiseStartsFromTheLargerSize(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			unsetDiskEnv(t)
 			k := detectKey()
 			seedDetectState(t, k, state.HomeState{})
@@ -762,7 +763,7 @@ func TestDetectAndOfferDiskRaiseStartsFromTheLargerSize(t *testing.T) {
 // caller passes the older, unanswered copy, the offer uses the marker stored
 // now, so the answered hit is not offered again.
 func TestDetectAndOfferDiskRaiseRefreshesAStaleMarker(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	unsetDiskEnv(t)
 	k := detectKey()
 	seen := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)

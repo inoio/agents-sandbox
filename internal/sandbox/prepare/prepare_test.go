@@ -15,6 +15,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
@@ -58,7 +59,7 @@ func TestRuntimeHomeMigrationOfferSeamResolution(t *testing.T) {
 // plan-reconfig warns when the host opencode config dir declares dependencies
 // the drop-in copy leaves behind (#288).
 func TestPlanReconfigStageWarnsAboutUnprovisionedConfigDirDependencies(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	hostHome, err := configpaths.Get().UserHomeDir()
 	if err != nil {
 		t.Fatalf("UserHomeDir: %v", err)
@@ -103,7 +104,7 @@ func TestPlanReconfigStageWarnsAboutUnprovisionedConfigDirDependencies(t *testin
 // TestPlanReconfigStageLiveVMReadError pins the fail-closed lookup through the
 // stage: a lookup error aborts plan-reconfig instead of planning against "no VM".
 func TestPlanReconfigStageLiveVMReadError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	lookupErr := errors.New("msb unreachable")
 	client := (&msb.MockMsbClient{}).SetGetSandboxErr(lookupErr)
@@ -131,7 +132,7 @@ func TestPlanReconfigStageLiveVMReadError(t *testing.T) {
 // TestPlanAndEnsureVMLookUpProjectVMOnce pins the single lookup of #341: the
 // handle plan-reconfig read the decision from is the one ensure-vm attaches to.
 func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	connected := &msb.MockSandbox{}
 	handle := &msb.MockSandboxHandle{Name_: "vm", Status_: msb.SandboxStatusRunning, ConnectSb: connected}
@@ -180,7 +181,7 @@ func TestPlanAndEnsureVMLookUpProjectVMOnce(t *testing.T) {
 // plan's memory, which carries a raise accepted while planning, rather than the
 // run's configured memory.
 func TestEnsureVMStageAppliesThePlannedMemory(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 	handle := &msb.MockSandboxHandle{
 		Name_:         "vm",
@@ -231,7 +232,7 @@ func TestPlannedLimitsApplyToTheRun(t *testing.T) {
 // failed per-project flock acquisition is returned with no sandbox, and the
 // fingerprints are not persisted, since no VM was created.
 func TestEnsureVMStageFailureSkipsFingerprints(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	lockErr := errors.New("flock boom")
 	seams := options.Seams{ProjectVMLock: func(options.ProjectVMKey) (func(), error) { return nil, lockErr }}
 	k := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
@@ -282,7 +283,7 @@ func TestResolveSessionIdentityErrorsWhenIdentityUnresolvable(t *testing.T) {
 // explicit pin makes resolveBuildVersion return without touching the network or
 // the injected docker client.
 func TestDetermineAgentVersionRunsLegacyUpdaterMigration(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.WriteFile(
 		legacyUpdaterStatePath(configpaths.Get()),
 		[]byte("agents:\n  opencode:\n    last_checked: 2020-01-01T00:00:00Z\n"),
@@ -476,7 +477,7 @@ func TestReportActivePorts(t *testing.T) {
 // the legacy home copy on every prepare path (the --dry-run gate is gone; a
 // preview never reaches the hub).
 func TestPrepareHomeVolumeAlwaysOffersRuntimeHomeMigration(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	client := &msb.MockMsbClient{
 		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
@@ -515,7 +516,7 @@ func TestPrepareHomeVolumeAlwaysOffersRuntimeHomeMigration(t *testing.T) {
 // TestPrepareHomeVolumeOfferErrorPropagates verifies that a failure from the
 // runtime-home migration offer aborts volume setup with a wrapped error.
 func TestPrepareHomeVolumeOfferErrorPropagates(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
 	wantErr := errors.New("offer boom")
@@ -547,7 +548,7 @@ func TestPrepareHomeVolumeOfferErrorPropagates(t *testing.T) {
 // home volume, the existing volume is reused (no duplicate created) and state
 // is rewritten to point at it.
 func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const recovered = "agents-sandbox-home-slug-20260101T000000"
 	k := state.Key{Slug: "slug", Agent: "opencode"}
@@ -615,7 +616,7 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 // adoption recorded in the checkout state, but never handed to this run in
 // memory, is recovered from the state instead of a fresh one being created.
 func TestPrepareHomeVolumeRecoversPersistedAdoptionVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const recovered = "agents-sandbox-home-widget-aaa-opencode-9"
 	k := state.Key{Slug: "widget-bbb", Agent: "opencode"}
@@ -667,7 +668,7 @@ func TestPrepareHomeVolumeRecoversPersistedAdoptionVolume(t *testing.T) {
 // TestPersistAgentVersionWarnsOnError verifies that a failure to record the
 // baked agent version only warns: recording must never fail a run.
 func TestPersistAgentVersionWarnsOnError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	if err := os.MkdirAll(filepath.Join(state.KeyDir(k), "state.yaml"), 0o700); err != nil {
 		t.Fatal(err)
@@ -682,7 +683,7 @@ func TestPersistAgentVersionWarnsOnError(t *testing.T) {
 }
 
 func TestPersistOfferedVersionMarksExistingState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol"}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
@@ -700,7 +701,7 @@ func TestPersistOfferedVersionMarksExistingState(t *testing.T) {
 }
 
 func TestPersistOfferedVersionSkipsMissingState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 
 	persistOfferedVersion(k, "2.0.0", &termio.Mock{})
@@ -711,7 +712,7 @@ func TestPersistOfferedVersionSkipsMissingState(t *testing.T) {
 }
 
 func TestPersistOfferedVersionNoVersionIsNoop(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol"}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
@@ -729,7 +730,7 @@ func TestPersistOfferedVersionNoVersionIsNoop(t *testing.T) {
 }
 
 func TestPersistOfferedVersionWarnsOnError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	if err := os.MkdirAll(filepath.Join(state.KeyDir(k), "state.yaml"), 0o700); err != nil {
 		t.Fatal(err)
@@ -844,7 +845,7 @@ func TestHomeWritersPreserveUnrelatedFields(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			k := state.Key{Slug: "proj", Agent: "opencode"}
 			if err := seedHomeState(k, seed()); err != nil {
 				t.Fatalf("seed home state: %v", err)
@@ -862,7 +863,7 @@ func TestHomeWritersPreserveUnrelatedFields(t *testing.T) {
 }
 
 func TestLiveHomeVolumeReturnsMountedVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
 	mock := &msb.MockMsbClient{
@@ -883,7 +884,7 @@ func TestLiveHomeVolumeReturnsMountedVolume(t *testing.T) {
 }
 
 func TestLiveHomeVolumeNoVM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
 	ui := termio.NewTestMock(t)
@@ -895,7 +896,7 @@ func TestLiveHomeVolumeNoVM(t *testing.T) {
 // TestLiveHomeVolumeMountsError pins that a mounts read failure on an otherwise
 // readable VM yields no volume instead of failing the run.
 func TestLiveHomeVolumeMountsError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
 	mock := &msb.MockMsbClient{
@@ -920,7 +921,7 @@ func TestLiveHomeVolumeMountsError(t *testing.T) {
 // lookup failure is verbose-logged instead of silently falling back to a fresh
 // volume, which could orphan the surviving one.
 func TestLiveHomeVolumeLookupErrorLogs(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
 	mock := &msb.MockMsbClient{
@@ -941,7 +942,7 @@ func TestLiveHomeVolumeLookupErrorLogs(t *testing.T) {
 // TestLiveHomeVolumeNilHandle pins that a lookup returning no handle and no
 // error yields no volume.
 func TestLiveHomeVolumeNilHandle(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := state.Key{Slug: "slug", Agent: "opencode"}
 	mock := &msb.MockMsbClient{
@@ -959,7 +960,7 @@ func TestLiveHomeVolumeNilHandle(t *testing.T) {
 // TestPersistConfigHashesRecordsFingerprints pins that the desired fingerprints
 // are persisted after a fresh VM creation.
 func TestPersistConfigHashesRecordsFingerprints(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 
 	slug := "hashproj"
@@ -993,7 +994,7 @@ func TestPersistConfigHashesRecordsFingerprints(t *testing.T) {
 // TestPersistConfigHashesWarnsOnError pins that a failure to persist the
 // fingerprints (a corrupt state file) is a warning, not a run failure.
 func TestPersistConfigHashesWarnsOnError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := termio.NewTestMock(t)
 
 	slug := "corrupthashproj"
@@ -1110,7 +1111,7 @@ func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.answer, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			withoutMemoryEnv(t)
 			t.Setenv("AGENTS_SANDBOX_TMP_SIZE", "")
 			t.Setenv("OPENCODE_SANDBOX_TMP_SIZE", "")
@@ -1169,7 +1170,7 @@ func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
 // a skipVM prepare must not prompt or persist a memory or disk raise, matching the
 // deferred home action (specs/resources/resource-limit-proposal.md §1, §8).
 func TestPlanReconfigStageSkipVMSuppressesMemoryRaise(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withoutMemoryEnv(t)
 	kill := time.Now().Add(-time.Hour)
 	handle := &msb.MockSandboxHandle{

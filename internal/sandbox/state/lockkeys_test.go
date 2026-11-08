@@ -7,7 +7,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 func TestSortedUniqueKeysOrdersBySlugThenAgent(t *testing.T) {
@@ -33,7 +33,7 @@ func TestSortedUniqueKeysDoesNotMutateInput(t *testing.T) {
 }
 
 func TestWithKeyLocksEmptyIsNoOp(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	called := false
 	if err := WithKeyLocks(nil, func() error { called = true; return nil }); err != nil {
 		t.Fatalf("WithKeyLocks(nil): %v", err)
@@ -44,7 +44,7 @@ func TestWithKeyLocksEmptyIsNoOp(t *testing.T) {
 }
 
 func TestWithKeyLocksHoldsHomeAndProjectVMLocks(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 
 	if err := WithKeyLocks([]Key{k}, func() error {
@@ -72,7 +72,7 @@ func TestWithKeyLocksHoldsHomeAndProjectVMLocks(t *testing.T) {
 }
 
 func TestWithKeyLocksReleasesOnHomeAcquireFailure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("mkdir boom")
 	orig := mkdirHomeLock
 	mkdirHomeLock = func(string, os.FileMode) error { return wantErr }
@@ -87,7 +87,7 @@ func TestWithKeyLocksReleasesOnHomeAcquireFailure(t *testing.T) {
 }
 
 func TestWithKeyLocksReleasesEarlierKeysOnLaterFailure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	first := Key{Slug: "a", Agent: "opencode"}
 	second := Key{Slug: "b", Agent: "opencode"}
 	wantErr := errors.New("mkdir boom")
@@ -124,7 +124,7 @@ func TestWithKeyLocksReleasesEarlierKeysOnLaterFailure(t *testing.T) {
 // path's release: when a later key's home acquire fails, the earlier key's locks
 // are released rather than leaked.
 func TestWithKeyLocksReleasesEarlierKeysOnHomeFailure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	first := Key{Slug: "a", Agent: "opencode"}
 	second := Key{Slug: "b", Agent: "opencode"}
 	wantErr := errors.New("mkdir boom")
@@ -157,7 +157,7 @@ func TestWithKeyLocksReleasesEarlierKeysOnHomeFailure(t *testing.T) {
 }
 
 func TestWithKeyLocksPropagatesFnError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("boom")
 	if err := WithKeyLocks([]Key{testKey()}, func() error { return wantErr }); !errors.Is(err, wantErr) {
 		t.Fatalf("WithKeyLocks() = %v, want %v", err, wantErr)

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -148,7 +149,7 @@ func TestParseKeyValueLinesHandlesWhitespace(t *testing.T) {
 }
 
 func TestLoadEnvAndSecretsMergesUserAndProject(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	scopes := configpaths.ConfigScopes(configpaths.Get(), "")
 
 	testutil.WritePath(t, scopes[0].EnvFile(), "A=user\nSHARED=user\n")
@@ -193,7 +194,7 @@ func TestLoadEnvAndSecretsMergesUserAndProject(t *testing.T) {
 // placeholder-passthrough host, while a host the secret already allows keeps
 // substitution and is excluded from passthrough.
 func TestLoadEnvAndSecretsAppliesAllowPlaceholderFor(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	scopes := configpaths.ConfigScopes(configpaths.Get(), "")
 
 	testutil.WritePath(t, scopes[1].EnvSecretFile(), "SECRET_A=value-a@a.example\n")
@@ -210,7 +211,7 @@ func TestLoadEnvAndSecretsAppliesAllowPlaceholderFor(t *testing.T) {
 }
 
 func TestLoadEnvAndSecretsEmptyWhenNoFiles(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	scopes := configpaths.ConfigScopes(configpaths.Get(), "")
 
 	ui := termio.NewTestMock(t)
@@ -227,7 +228,7 @@ func TestLoadEnvAndSecretsEmptyWhenNoFiles(t *testing.T) {
 // TestLoadEnvAndSecretsPerSlugPrecedence pins that env files merge across all
 // scopes in order: generic < per-slug < project, with later scopes winning.
 func TestLoadEnvAndSecretsPerSlugPrecedence(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	scopes := configpaths.ConfigScopes(configpaths.Get(), "widget-bbb")
 
 	testutil.WritePath(t, scopes[0].EnvFile(), "SHARED=generic\nA=generic\n")
@@ -253,7 +254,7 @@ func TestLoadEnvAndSecretsPerSlugPrecedence(t *testing.T) {
 // scope's YAML specs, so a per-slug YAML entry beats a project legacy entry for
 // the same key while the later project scope still wins within the YAML tier.
 func TestLoadEnvAndSecretsPerSlugSecretFormats(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	scopes := configpaths.ConfigScopes(configpaths.Get(), "widget-bbb")
 
 	testutil.WritePath(t, scopes[1].EnvSecretFile(), "TOKEN=legacy@legacy.example\n")

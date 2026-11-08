@@ -15,6 +15,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
@@ -90,7 +91,7 @@ func TestHomeVolumeNameTimestamp(t *testing.T) {
 }
 
 func TestPrefillVolume_LoadImageFails(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithDefaultErrorDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
@@ -109,7 +110,7 @@ func TestPrefillVolume_LoadImageFails(t *testing.T) {
 }
 
 func TestCopyVolume_DestroyFailureWarns(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
@@ -143,7 +144,7 @@ func TestCopyVolume_DestroyFailureWarns(t *testing.T) {
 }
 
 func TestCopyVolume_LoadImageFails(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithDefaultErrorDockerMock(t)
 
 	mock := &msb.MockMsbClient{}
@@ -163,7 +164,7 @@ func TestCopyVolume_LoadImageFails(t *testing.T) {
 }
 
 func TestApplyHomeAction_KeepRecordImageFails_Warns(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "corrupt-keep"
 	statePath := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode", "state.yaml")
@@ -203,7 +204,7 @@ func TestApplyHomeAction_KeepRecordImageFails_Warns(t *testing.T) {
 }
 
 func TestApplyHomeAction_CreateVolumeFails(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	mock := &msb.MockMsbClient{}
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
@@ -227,7 +228,7 @@ func TestApplyHomeAction_CreateVolumeFails(t *testing.T) {
 }
 
 func TestApplyHomeAction_WriteStateFails_ReturnsError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 
 	slug := "writefail-apply"
@@ -422,7 +423,7 @@ func TestPrefillVolume_DestroyFailureWarns(t *testing.T) {
 // compare-and-set guard for the run-time home action: after its msb I/O it
 // commits under the home lock only if home_volume is still the resolved one.
 func TestApplyHomeActionAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 
 	key := state.Key{Slug: "myproj", Agent: "opencode"}
@@ -468,7 +469,7 @@ func TestApplyHomeActionAbortsWhenHomeVolumeChangedConcurrently(t *testing.T) {
 }
 
 func TestApplyHomeAction_KeepReturnsOldVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	mock := &msb.MockMsbClient{}
 	vm := NewManager(docker.Get())
@@ -515,7 +516,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			dockertest.WithNoopDockerMock(t)
 
 			slug := "myproj"
@@ -573,7 +574,7 @@ func TestApplyHomeAction_ExecutesAndKeepsOld(t *testing.T) {
 // TestApplyHomeAction_Reset_SkipVM_NoWrites pins the skip-VM gate: the chosen
 // reset is deferred without a VM, so the old volume and the state are untouched.
 func TestApplyHomeAction_Reset_SkipVM_NoWrites(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "myproj"
 	oldVol := "agents-sandbox-home-myproj-old"
@@ -627,7 +628,7 @@ func TestApplyHomeAction_Reset_SkipVM_NoWrites(t *testing.T) {
 // the skip-VM gate: the copy would spawn a VM, so it is deferred and the state
 // keeps the old volume and digest.
 func TestApplyHomeAction_Migrate_SkipVM_NoStateWrite(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "myproj"
 	oldVol := "agents-sandbox-home-myproj-old"
@@ -672,7 +673,7 @@ func TestApplyHomeAction_Migrate_SkipVM_NoStateWrite(t *testing.T) {
 }
 
 func TestApplyHomeAction_Migrate_CopyFails_RemovesNewVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 
 	slug := "myproj"
@@ -962,7 +963,7 @@ func TestCopyVolume_ExecExitFailure(t *testing.T) {
 }
 
 func TestApplyHomeAction_Reset_Success(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 
 	slug := "myproj"
@@ -1010,7 +1011,7 @@ func TestApplyHomeAction_Reset_Success(t *testing.T) {
 // every fingerprint as changed and blame a spurious VM rebuild on (e.g.) the
 // network policy. This mirrors TestVolumeOp_PreservesEnvSecretFingerprints.
 func TestApplyHomeAction_PreservesFingerprints(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 
 	slug := "myproj"
@@ -1065,7 +1066,7 @@ func TestApplyHomeAction_PreservesFingerprints(t *testing.T) {
 }
 
 func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dockertest.WithNoopDockerMock(t)
 
 	slug := "myproj"

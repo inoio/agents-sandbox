@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -24,7 +24,7 @@ import (
 // sandboxes, home volumes, runner images, state files, claims and root-state
 // adoption claims.
 func TestPlanRemovalListsEveryArtifactForSlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
 	const slug = "purge-plan-1mjusbm3wikhb0"
 	volumeName := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
@@ -108,7 +108,7 @@ func TestPlanRemovalListsEveryArtifactForSlug(t *testing.T) {
 // volume is removed before its state.yaml, so the pointer is dropped only after
 // the volume is gone, and the slug dir is reclaimed once everything is removed.
 func TestExecuteRemovesVolumeThenState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "purge-order-1mjusbm3wikhb0"
 	volumeName := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
 	agentKey := state.Key{Slug: slug, Agent: "opencode"}
@@ -160,7 +160,7 @@ func TestExecuteRemovesVolumeThenState(t *testing.T) {
 // stops the purge before anything is deleted: the state is never discarded and
 // no volume, sandbox or image is removed.
 func TestExecuteFailsClosedOnCorruptState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "purge-corrupt-1mjusbm3wikhb0"
 	volumeName := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
 	agentKey := state.Key{Slug: slug, Agent: "opencode"}
@@ -205,7 +205,7 @@ func TestExecuteFailsClosedOnCorruptState(t *testing.T) {
 // aborts the purge with a hint naming --force and deletes nothing; with --force
 // the sandbox is stopped first, then removed.
 func TestExecuteRefusesRunningSandboxWithoutForce(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "purge-running-1mjusbm3wikhb0"
 	volumeName := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
 	vm := &msb.MockSandboxHandle{Name_: slug + "-opencode", Status_: msb.SandboxStatusRunning}
@@ -255,7 +255,7 @@ func TestExecuteRefusesRunningSandboxWithoutForce(t *testing.T) {
 // TestExecuteDryRunDeletesNothing pins that --dry-run performs no deletion at
 // all: no sandbox, volume, image, state file or root-state claim is touched.
 func TestExecuteDryRunDeletesNothing(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "purge-dry-1mjusbm3wikhb0"
 	volumeName := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
 	imageRef := naming.RunnerImageRef(slug, "opencode")
@@ -309,7 +309,7 @@ func TestExecuteDryRunDeletesNothing(t *testing.T) {
 // still discoverable), the error is returned, and the purge still completes the
 // other removals.
 func TestExecuteKeepsStateWhenVolumeRemovalFails(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "purge-volfail-1mjusbm3wikhb0"
 	volumeName := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
 	agentKey := state.Key{Slug: slug, Agent: "opencode"}
@@ -346,7 +346,7 @@ func TestExecuteKeepsStateWhenVolumeRemovalFails(t *testing.T) {
 // set, not only the key map: with two agents' volumes, images and sandboxes for
 // one slug, only the targeted agent's artifacts are planned.
 func TestPlanRemovalScopesToAgent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
 	const slug = "purge-agent-1mjusbm3wikhb0"
 	opencodeVolume := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
@@ -399,7 +399,7 @@ func TestPlanRemovalScopesToAgent(t *testing.T) {
 // not list it) keeps its state file, so deleting the state can never orphan a
 // volume that still exists.
 func TestExecuteKeepsStateForUnplannedVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "purge-unplanned-1mjusbm3wikhb0"
 	agentKey := state.Key{Slug: slug, Agent: "opencode"}
 	recorded := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
@@ -428,7 +428,7 @@ func TestExecuteKeepsStateForUnplannedVolume(t *testing.T) {
 // TestExecuteRemovesPlannedImage pins the success branch of the image step: the
 // planned runner image is removed in a real purge.
 func TestExecuteRemovesPlannedImage(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "purge-image-1mjusbm3wikhb0"
 	ref := naming.RunnerImageRef(slug, "opencode")
 	mock := &msb.MockMsbClient{
@@ -454,7 +454,7 @@ func TestExecuteRemovesPlannedImage(t *testing.T) {
 // image step: a failed removal warns, is joined into the returned error, and the
 // purge still removes the rest.
 func TestExecuteImageRemovalFailureWarnsAndContinues(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "purge-imagefail-1mjusbm3wikhb0"
 	ref := naming.RunnerImageRef(slug, "opencode")
 	volumeName := naming.HomeVolumeName(slug, "opencode", "20260101T000000")
@@ -486,7 +486,7 @@ func TestExecuteImageRemovalFailureWarnsAndContinues(t *testing.T) {
 // TestExecuteRemovesAdoptionClaim pins the root-state cleanup branch: a purge
 // drops the adoption claims its checkout owns.
 func TestExecuteRemovesAdoptionClaim(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "purge-claim-1mjusbm3wikhb0"
 	if _, err := state.WithRootState(true, func(txn *state.RootTxn) error {
 		txn.State().ClaimAdoptedHomeVolume(slug, "pi", slug, "legacy-volume")
@@ -516,7 +516,7 @@ func TestExecuteRemovesAdoptionClaim(t *testing.T) {
 // TestExecuteSweepsClaimsAndLeases pins the step-1 branches: an unheld claim and
 // a stale client lease are removed, a held claim is kept.
 func TestExecuteSweepsClaimsAndLeases(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "purge-sweep-1mjusbm3wikhb0"
 	agentKey := state.Key{Slug: slug, Agent: "opencode"}
 	if err := seedHomeState(agentKey, state.HomeState{}); err != nil {
@@ -571,7 +571,7 @@ func TestExecuteSweepsClaimsAndLeases(t *testing.T) {
 // volume. The volume name still embeds the legacy slug, so the name-based rule
 // alone would plan it; the checkout's state reference makes it foreign.
 func TestPlanRemovalKeepsVolumeOwnedByAnotherCheckout(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
 	const (
 		legacy   = "purge-legacy-1mjusbm3wikhb0"
@@ -609,7 +609,7 @@ func TestPlanRemovalKeepsVolumeOwnedByAnotherCheckout(t *testing.T) {
 // the P1 fix: purging the checkout reclaims the legacy-named volume its state
 // points at, and drops the state in the same run (the pointer never dangles).
 func TestPlanRemovalReclaimsVolumeReferencedByScopedCheckout(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
 	const (
 		legacy   = "purge-legacyref-1mjusbm3wikhb0"
@@ -645,7 +645,7 @@ func TestPlanRemovalReclaimsVolumeReferencedByScopedCheckout(t *testing.T) {
 // legacy slug does not delete a live checkout's adoption claim: the claim is the
 // checkout's recovery marker, not the legacy identity's to remove.
 func TestPlanRemovalKeepsAdoptionClaimOwnedByAnotherCheckout(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testUI := termio.NewTestMock(t)
 	const legacy = "purge-claimkeep-1mjusbm3wikhb0"
 	seedAdoptionClaim(t, legacy, "opencode", "other-checkout-slug", "legacy-volume")

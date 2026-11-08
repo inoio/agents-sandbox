@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -329,7 +329,7 @@ func TestWatchDrivesBackend(t *testing.T) {
 }
 
 func TestWatchDedupClearsOnBusy(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	stream := &streamStub{
 		events: []msb.StreamEvent{
 			{Kind: msb.StreamEventStdout, Data: sseBlockFor("message.part.updated", "ses_A")}, // busy
@@ -515,7 +515,7 @@ func TestWatchOnceReportsCleanStreamEnd(t *testing.T) {
 // between them. The first request claims the input token; the second carries a
 // distinct envelope id, claims its own token, and notifies too.
 func TestHandleEventSameStepInputRequestsBothNotify(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	sink := &sharedSink{}
 	dedup := NewDedup("dedupinturn-b", StateClaimer{}, sink)
 	tr := NewTracker(opencode2Spec())
@@ -533,7 +533,7 @@ func TestHandleEventSameStepInputRequestsBothNotify(t *testing.T) {
 // TestHandleEventRepeatedInputEventNotifiesOnce is the other direction: the
 // same envelope id (a replayed event) claims the same token and notifies once.
 func TestHandleEventRepeatedInputEventNotifiesOnce(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	sink := &sharedSink{}
 	dedup := NewDedup("dedupinturn-c", StateClaimer{}, sink)
 	tr := NewTracker(opencode2Spec())

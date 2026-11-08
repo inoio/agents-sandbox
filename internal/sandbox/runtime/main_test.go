@@ -3,7 +3,7 @@ package runtime
 import (
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
@@ -16,7 +16,7 @@ import (
 // close a test import cycle. Doctor is not reachable from runtime, so its
 // fail-fast is not installed here.
 func TestMain(m *testing.M) {
-	configpaths.InstallFailFastConfigPaths()
+	configpathstest.InstallFailFastConfigPaths()
 	dockertest.InstallFailFastGet()
 	sandboxmsb.InstallFailFastGet()
 	notify.InstallFailFast()

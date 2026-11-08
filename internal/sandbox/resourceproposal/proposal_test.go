@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -380,7 +381,7 @@ func TestSelectPromptNamesVictimOnlyForOOM(t *testing.T) {
 func TestPersistSettingRejectsEnvShadow(t *testing.T) {
 	for _, name := range []string{"AGENTS_SANDBOX_MEMORY", "OPENCODE_SANDBOX_MEMORY"} {
 		t.Run(name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			t.Setenv(name, "8G")
 
 			dir, err := PersistSetting(configpaths.Get(), testSlug, testCheckoutSlug, memoryKey, "6144M", false)
@@ -402,7 +403,7 @@ func TestPersistSettingRejectsEnvShadow(t *testing.T) {
 // disk-size env variable or flag refuses a disk-size write and names its own
 // source, while it does not shadow memory.
 func TestPersistSettingShadowNamesTheKeysSource(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	t.Setenv("AGENTS_SANDBOX_DISK_SIZE", "16G")
@@ -425,7 +426,7 @@ func TestPersistSettingShadowNamesTheKeysSource(t *testing.T) {
 // TestPersistSettingRejectsFlagShadow pins that a changed --memory flag refuses
 // to write a shadowed value.
 func TestPersistSettingRejectsFlagShadow(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	dir, err := PersistSetting(configpaths.Get(), testSlug, testCheckoutSlug, memoryKey, "6144M", true)
 	if err == nil {
@@ -443,7 +444,7 @@ func TestPersistSettingRejectsFlagShadow(t *testing.T) {
 // TestPersistSettingWritesToOwningLayer pins the success path: the value lands in
 // the layer that already sets memory and a resolver re-read yields it.
 func TestPersistSettingWritesToOwningLayer(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	cp := configpaths.Get()
@@ -467,7 +468,7 @@ func TestPersistSettingWritesToOwningLayer(t *testing.T) {
 // the raise is written there (in place, keeping the spelling) rather than to the
 // lower-precedence user config where the project's `Memory:` would still win.
 func TestPersistSettingOverwritesDifferentlyCasedOwnerKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	cp := configpaths.Get()
@@ -488,7 +489,7 @@ func TestPersistSettingOverwritesDifferentlyCasedOwnerKey(t *testing.T) {
 // TestPersistSettingDefaultsToUserSlugLayer pins that with no file layer owning
 // memory the raise is written to the per-project user config.
 func TestPersistSettingDefaultsToUserSlugLayer(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	cp := configpaths.Get()
@@ -508,7 +509,7 @@ func TestPersistSettingDefaultsToUserSlugLayer(t *testing.T) {
 // TestPersistSettingWritesToProjectLayer pins that a project config already
 // setting memory is the owner written to, so the raise is not shadowed.
 func TestPersistSettingWritesToProjectLayer(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	cp := configpaths.Get()
@@ -557,7 +558,7 @@ func projectLayerApproved(t *testing.T, cp configpaths.ConfigPaths) bool {
 // launcher's own raise into the project config does not make the next run ask
 // for approval of it.
 func TestPersistSettingKeepsAnApprovedProjectLayerApproved(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	cp := configpaths.Get()
@@ -576,7 +577,7 @@ func TestPersistSettingKeepsAnApprovedProjectLayerApproved(t *testing.T) {
 // its approval are one operation: when the approval cannot be recorded, the
 // project config file is not touched.
 func TestPersistSettingWritesNothingWhenTheApprovalFails(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	cp := configpaths.Get()
@@ -603,7 +604,7 @@ func TestPersistSettingWritesNothingWhenTheApprovalFails(t *testing.T) {
 // TestPersistSettingRestoresTheApprovalWhenTheWriteFails pins the other half:
 // a project config the writer refuses leaves the approval as it was.
 func TestPersistSettingRestoresTheApprovalWhenTheWriteFails(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	cp := configpaths.Get()
@@ -622,7 +623,7 @@ func TestPersistSettingRestoresTheApprovalWhenTheWriteFails(t *testing.T) {
 // non-YAML config file the writer cannot edit format-preservingly) is surfaced
 // rather than swallowed.
 func TestPersistSettingSurfacesWriteFailure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
 	testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
 	cp := configpaths.Get()

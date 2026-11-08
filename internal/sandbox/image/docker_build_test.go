@@ -17,7 +17,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
@@ -247,7 +247,7 @@ func TestBuildImageNoCacheFollowsParameter(t *testing.T) {
 
 func TestBuildImagePassesAgentVersionBuildArg(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	orig := defaultAgentVersionResolver
 	defaultAgentVersionResolver = func(_ context.Context, _ agent.Agent, requested string) (string, error) {
 		return requested, nil

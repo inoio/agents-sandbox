@@ -10,6 +10,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
@@ -70,7 +71,7 @@ var pruneAgeFlags = []FlagSet{
 
 func setupCommandFixtures(t *testing.T, args ...string) (*cobra.Command, *termio.Mock) {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "0.0.0-test")
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	dockertest.WithNoopDockerMock(t)

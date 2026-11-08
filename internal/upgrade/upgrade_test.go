@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -469,7 +470,7 @@ func TestCheckDefaultsIntervalAndStore(t *testing.T) {
 	// A zero Interval and a nil Store exercise the default-resolution branches
 	// of Check: the interval falls back to DefaultInterval and the check runs
 	// against the in-memory store, writing no host state.
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	serveLatest(t, "2.0.0", nil)
 	ui := termio.Mock{}
 	opts := Options{CurrentVersion: "1.0.0", Mode: ModeNotify, UI: &ui}
@@ -487,7 +488,7 @@ func TestCheckDefaultsIntervalAndStore(t *testing.T) {
 // real upgrade.json, losing the dismissals and cadence for good. Paths is a real
 // resolver so the nil Store, not a nil Paths, is what suppresses the fold.
 func TestCheckNilStoreLeavesLegacyFileInPlace(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeLegacy(t, `{"dismissed_versions":["1.5.2"]}`)
 	serveLatest(t, "2.0.0", nil)
 	ui := termio.Mock{}
@@ -1376,7 +1377,7 @@ func copyTestBinary(t *testing.T) string {
 // because Check folds the retired upgrade.json from the user state directory.
 func mockOptions(t *testing.T, version string, mode Mode) Options {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	return Options{
 		CurrentVersion: version,
 		Mode:           mode,

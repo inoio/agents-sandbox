@@ -16,6 +16,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
@@ -29,7 +30,7 @@ import (
 // every file layer. The order is the one NewResolver documents and merges, so
 // display and merge cannot drift: both walk the same slice.
 func TestConfigLayersOrderAndPaths(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	// Only the generic user layer has a file, so Present separates the layers
 	// that resolve to a config file from the ones that do not.
@@ -101,7 +102,7 @@ func TestResolverUpgradeIntervalOneNanosecond(t *testing.T) {
 }
 
 func TestResolverGettersReturnConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cfg := Config{
 		CPUs: 4, Memory: "8G", TmpSize: "4G", DiskSize: "32G", WorkspaceQuota: "64G",
 		Yes: true, LogLevel: "verbose", Quiet: true,
@@ -130,7 +131,7 @@ func TestResolverGettersReturnConfig(t *testing.T) {
 }
 
 func TestResolverWorkspaceQuotaGetter(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cfg := Config{WorkspaceQuota: "16G"}
 	r := NewResolverWithConfig(cfg)
 	if r.cfg.WorkspaceQuota != "16G" {
@@ -318,7 +319,7 @@ func TestLauncherAndHomeLoadersSelectTheSameConfigFile(t *testing.T) {
 // TestHomeKeyFromPerSlugConfig proves the per-slug user config dir contributes
 // its home manifest to the resolver, so home entries can be scoped per project.
 func TestHomeKeyFromPerSlugConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserSlugConfigDir("widget-bbb"), "config.yaml", map[string]any{
 		"home": map[string]any{".gitconfig": ""},
@@ -373,7 +374,7 @@ func TestParseLayerSettingsReportsAnUnparsableFile(t *testing.T) {
 // TestNewResolverReadsOnlyTheApprovedProjectConfig pins that the merged config
 // takes the project layer only as approved.
 func TestNewResolverReadsOnlyTheApprovedProjectConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	if err := os.MkdirAll(cp.ProjectConfigDir(), 0o750); err != nil {
 		t.Fatal(err)
@@ -468,7 +469,7 @@ func legacyMergeConfig(t *testing.T, file, content string) *viper.Viper {
 // regression: the layers without a dir (env, flags) look for no config file, so
 // an approved config file in the working directory never blocks startup.
 func TestNewResolverWithAnApprovedConfigInTheWorkingDirectory(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cwd := t.TempDir()
 	testutil.WritePath(t, filepath.Join(cwd, "config.yaml"), "memory: 8G\n")
 	t.Cleanup(projectguard.Install(nil, map[string]projectguard.Approval{
@@ -494,7 +495,7 @@ func TestNewResolverRefusesWhenTheApprovedProjectConfigIsGone(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			cp := configpaths.Get()
 			path := filepath.Join(cp.ProjectConfigDirAbs(), "config.yaml")
 			if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {

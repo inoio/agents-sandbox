@@ -10,13 +10,13 @@ import (
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 )
 
 func TestExistingAgentVersionReadsImageLabel(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withInspectLabels(t, map[string]string{agentVersionLabelKey: "1.4.0"}, true)
 
 	got, ok := ExistingAgentVersion(context.Background(), docker.Get(), "proj", "opencode")
@@ -28,7 +28,7 @@ func TestExistingAgentVersionReadsImageLabel(t *testing.T) {
 func TestExistingAgentVersionRejectsSentinels(t *testing.T) {
 	for _, sentinel := range []string{"", identityNone, userProvidedImageIdentity} {
 		t.Run("sentinel "+sentinel, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			withInspectLabels(t, map[string]string{agentVersionLabelKey: sentinel}, true)
 
 			if got, ok := ExistingAgentVersion(context.Background(), docker.Get(), "proj", "opencode"); ok {
@@ -39,7 +39,7 @@ func TestExistingAgentVersionRejectsSentinels(t *testing.T) {
 }
 
 func TestExistingAgentVersionAbsentImage(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withInspectLabels(t, nil, false)
 
 	if got, ok := ExistingAgentVersion(context.Background(), docker.Get(), "proj", "opencode"); ok {
@@ -48,7 +48,7 @@ func TestExistingAgentVersionAbsentImage(t *testing.T) {
 }
 
 func TestExistingAgentVersionMissingLabel(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withInspectLabels(t, map[string]string{"unrelated": "x"}, true)
 
 	if got, ok := ExistingAgentVersion(context.Background(), docker.Get(), "proj", "opencode"); ok {

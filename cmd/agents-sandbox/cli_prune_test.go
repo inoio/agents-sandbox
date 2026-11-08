@@ -12,7 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
@@ -1280,7 +1280,7 @@ func TestPrunePurgeRunningSandboxRefusalSkipsPlanAndPrompt(t *testing.T) {
 // failure surfaces while the returned slice stays non-nil, so the caller's
 // retired_projects JSON always marshals as an array rather than null.
 func TestRetiredProjectSlugsErrorReturnsEmptySlice(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{ListSandboxesErr: errBoom})
 
 	slugs, err := retiredProjectSlugs(context.Background(), time.Hour)

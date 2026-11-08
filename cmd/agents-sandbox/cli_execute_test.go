@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -18,7 +18,7 @@ import (
 )
 
 func TestExecuteVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 
 	if err := execute([]string{"version"}, ui); err != nil {
@@ -33,7 +33,7 @@ func TestExecuteVersion(t *testing.T) {
 }
 
 func TestExecuteTree(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 
 	if err := execute([]string{"tree"}, ui); err != nil {
@@ -51,7 +51,7 @@ func TestExecuteTree(t *testing.T) {
 // branch in buildRootCmd: an invalid resolver value (cpus > 255) makes
 // launcherconfig.NewResolver fail, so execute must surface that error.
 func TestExecuteRootPreRunResolverError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_CPUS", "999")
 	ui := &termio.Mock{}
 
@@ -63,7 +63,7 @@ func TestExecuteRootPreRunResolverError(t *testing.T) {
 // TestExecuteWarnsOnLegacyEnvPrefix verifies that a deprecated
 // OPENCODE_SANDBOX_ variable still resolves and surfaces a warning once.
 func TestExecuteWarnsOnLegacyEnvPrefix(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("OPENCODE_SANDBOX_CPUS", "4")
 	ui := &termio.Mock{}
 
@@ -81,7 +81,7 @@ func TestExecuteWarnsOnLegacyEnvPrefix(t *testing.T) {
 // TestExecuteWarnsOnDockerDindAlias verifies the deprecated dind setting
 // surfaces a one-time docker-alias warning.
 func TestExecuteWarnsOnDockerDindAlias(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_DIND", "true")
 	ui := &termio.Mock{}
 
@@ -99,7 +99,7 @@ func TestExecuteWarnsOnDockerDindAlias(t *testing.T) {
 // TestExecuteSilencesUsageAndErrors pins that execute suppresses cobra's own
 // usage and error printing so main() is the sole reporter.
 func TestExecuteSilencesUsageAndErrors(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 
 	if err := execute([]string{"config", "agent", "bogus"}, ui); err == nil {
@@ -116,7 +116,7 @@ func TestExecuteSilencesUsageAndErrors(t *testing.T) {
 // TestBuildRootCmdRoutesErrorToUIStderr pins that buildRootCmd wires cmd's error
 // stream to the UI (execute no longer re-sets it).
 func TestBuildRootCmdRoutesErrorToUIStderr(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"config", "agent", "bogus"})
@@ -132,7 +132,7 @@ func TestBuildRootCmdRoutesErrorToUIStderr(t *testing.T) {
 // TestExecutePreviewHomeErrorPropagates pins that a previewing command surfaces
 // the preview-home redirection error instead of swallowing it.
 func TestExecutePreviewHomeErrorPropagates(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	orig := applyPreviewHome
 	applyPreviewHome = func() error { return errors.New("preview home failed") }
 	t.Cleanup(func() { applyPreviewHome = orig })
@@ -277,7 +277,7 @@ func TestMainHelperProcess(t *testing.T) {
 	}
 	//testenv:allow reads the helper-process guard the child sets
 	args := strings.Split(os.Getenv("GO_MAIN_ARGS"), ",")
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	os.Args = append([]string{"agents-sandbox"}, args...)
 	main()
 	os.Exit(0)

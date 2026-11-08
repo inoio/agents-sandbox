@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -103,7 +103,7 @@ func TestRenderNoticeUnreadableVolumesSuppressesWholesaleCommand(t *testing.T) {
 }
 
 func TestShowNoticeSilentWithoutArtifacts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{IsInteractiveResult: true}
 	if err := showNotice(ui); err != nil {
 		t.Fatalf("showNotice() error = %v", err)
@@ -114,7 +114,7 @@ func TestShowNoticeSilentWithoutArtifacts(t *testing.T) {
 }
 
 func TestShowNoticeSilentWhenAcknowledged(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
 	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
@@ -132,7 +132,7 @@ func TestShowNoticeSilentWhenAcknowledged(t *testing.T) {
 }
 
 func TestShowNoticeNamesUncopiedVolumes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	uncopied := naming.LegacyHomePrefix + "uncopied"
 	addVolumeDir(t, legacy, uncopied)
@@ -152,7 +152,7 @@ func TestShowNoticeNamesUncopiedVolumes(t *testing.T) {
 // volume the campaign recorded as fully copied, with its destination still
 // present, is not named and does not suppress the destructive commands.
 func TestShowNoticeTreatsCopiedVolumeAsSafe(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	name := naming.LegacyHomePrefix + "a"
 	addVolumeDir(t, legacy, name)
@@ -179,7 +179,7 @@ func TestShowNoticeTreatsCopiedVolumeAsSafe(t *testing.T) {
 }
 
 func TestShowNoticeInteractiveMarksAcknowledged(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
 	ui := &termio.Mock{IsInteractiveResult: true}
@@ -197,7 +197,7 @@ func TestShowNoticeInteractiveMarksAcknowledged(t *testing.T) {
 }
 
 func TestShowNoticeNonInteractivePrintsBoundedLineButDoesNotMark(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
 	ui := &termio.Mock{IsInteractiveResult: false}
@@ -221,7 +221,7 @@ func TestShowNoticeNonInteractivePrintsBoundedLineButDoesNotMark(t *testing.T) {
 }
 
 func TestShowNoticeAcknowledgeErrorWarnsAndContinues(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
 	ui := &termio.Mock{IsInteractiveResult: true, AcknowledgeErr: errors.New("stdin closed")}
@@ -242,7 +242,7 @@ func TestShowNoticeAcknowledgeErrorWarnsAndContinues(t *testing.T) {
 // recording the notice. The state stays readable (a missing file reads as the
 // zero state) but its directory is unwritable, so only the write fails.
 func TestShowNoticeRecordErrorWarnsAndContinues(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
 	blockRootState(t)
@@ -256,7 +256,7 @@ func TestShowNoticeRecordErrorWarnsAndContinues(t *testing.T) {
 }
 
 func TestShowNoticeDetectionErrorWarnsAndContinues(t *testing.T) {
-	configpaths.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
+	configpathstest.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
 	ui := &termio.Mock{IsInteractiveResult: true}
 	if err := showNotice(ui); err != nil {
 		t.Fatalf("showNotice() error = %v, want nil (best-effort)", err)
@@ -270,7 +270,7 @@ func TestShowNoticeDetectionErrorWarnsAndContinues(t *testing.T) {
 // best-effort state read: a corrupt root state warns and lets the session
 // continue rather than blocking.
 func TestShowNoticeStateReadErrorWarnsAndContinues(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeCorruptRootState(t)
 	ui := &termio.Mock{IsInteractiveResult: true}
 	if err := showNotice(ui); err != nil {
@@ -286,7 +286,7 @@ func TestShowNoticeStateReadErrorWarnsAndContinues(t *testing.T) {
 // treated as uncopied so the notice never prints a command that could delete
 // data.
 func TestShowNoticePrivateListingErrorSuppressesCommands(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	name := naming.LegacyHomePrefix + "a"
 	addVolumeDir(t, legacy, name)
@@ -317,7 +317,7 @@ func TestShowNoticePrivateListingErrorSuppressesCommands(t *testing.T) {
 // <legacyHome>/volumes is unlistable, so the notice withholds the wholesale
 // command and explains why instead.
 func TestShowNoticeUnreadableVolumesSuppressesWholesaleCommand(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	makeVolumeDirUnreadable(t, legacy)
 	addSandboxDir(t, legacy, naming.LegacyVMPrefix+"proj")
@@ -373,7 +373,7 @@ func warnedAbout(warnCalls []string, substring string) bool {
 // TestAcknowledgeNoticeKeepsAnExistingEntry pins that recording the notice is
 // idempotent: an entry written by a concurrent session is left untouched.
 func TestAcknowledgeNoticeKeepsAnExistingEntry(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
 		LegacyRuntimeNoticeName: {Status: state.MigrationAcknowledged},
 	}}); err != nil {

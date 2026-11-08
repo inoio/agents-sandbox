@@ -8,14 +8,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestRemoveVolumesRefusesReferenced(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	name := "agents-sandbox-home-proj-aBc1234D-opencode-20260812T123456"
 	if err := seedHomeState(
 		state.Key{Slug: "proj-aBc1234D", Agent: "opencode"},
@@ -39,7 +39,7 @@ func TestRemoveVolumesRefusesReferenced(t *testing.T) {
 }
 
 func TestRemoveVolumesForceBypassesReference(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	name := "agents-sandbox-home-proj-aBc1234D-opencode-20260812T123456"
 	if err := seedHomeState(
 		state.Key{Slug: "proj-aBc1234D", Agent: "opencode"},
@@ -61,7 +61,7 @@ func TestRemoveVolumesForceBypassesReference(t *testing.T) {
 }
 
 func TestRemoveVolumesRemovesSeveral(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 
@@ -77,7 +77,7 @@ func TestRemoveVolumesRemovesSeveral(t *testing.T) {
 }
 
 func TestRemoveVolumesPropagatesRemoveError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("remove boom")
 	client := &msb.MockMsbClient{
 		RemoveVolumeFn: func(_ context.Context, _ string) error { return wantErr },
@@ -99,7 +99,7 @@ func TestRemoveVolumesPropagatesRemoveError(t *testing.T) {
 }
 
 func TestRemoveVolumesFailsClosedOnReferenceScanError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := state.KeyDir(state.Key{Slug: "proj-aBc1234D", Agent: "opencode"})
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -123,7 +123,7 @@ func TestRemoveVolumesFailsClosedOnReferenceScanError(t *testing.T) {
 }
 
 func TestRemoveVolumesNonInteractiveRequiresConfirmation(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 

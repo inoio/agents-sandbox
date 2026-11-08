@@ -8,6 +8,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -24,7 +25,7 @@ func writeHomeTarget(t *testing.T, dir, content string) {
 // config dir is provisioned even when neither the generic nor the project scope
 // declares it.
 func TestHomeFilesFromPerSlugConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 
 	writeHomeTarget(t, cp.UserSlugConfigDir("widget-bbb"), "per-slug\n")
@@ -50,7 +51,7 @@ func TestHomeFilesFromPerSlugConfig(t *testing.T) {
 // layers: the per-slug scope overrides the generic user scope, and the project
 // scope still overrides the per-slug scope.
 func TestHomeFilesPerSlugOverridesGeneric(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 
 	writeHomeTarget(t, cp.UserConfigDir(), "generic\n")
@@ -83,10 +84,10 @@ func TestHomeFilesPerSlugOverridesGeneric(t *testing.T) {
 // snippet that exists only in the per-slug user scope is described, so the slug
 // resolved at the CLI boundary reaches Describe's load instead of being dropped.
 func TestDescribeUsesConfigSlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 
-	perSlugDir := configpaths.CreateDir(
+	perSlugDir := configpathstest.CreateDir(
 		filepath.Join(cp.UserSlugConfigDir("widget-bbb"), opencodeTestAgent().ConfigDirName()),
 	)
 	testutil.WriteFile(t, perSlugDir, "opencode-model.json", `{"model":"per-slug"}`)

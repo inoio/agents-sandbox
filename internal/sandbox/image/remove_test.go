@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -16,7 +16,7 @@ import (
 )
 
 func TestRemoveImagesRefusesReferenced(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	if err := seedHomeState(key, state.HomeState{}); err != nil {
 		t.Fatalf("seed state: %v", err)
@@ -38,7 +38,7 @@ func TestRemoveImagesRefusesReferenced(t *testing.T) {
 }
 
 func TestRemoveImagesRefusesImageHeldByLiveSandbox(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	handle := &msb.MockSandboxHandle{
 		Name_: naming.LegacyVMPrefix + key.Slug + "-" + key.Agent,
@@ -58,7 +58,7 @@ func TestRemoveImagesRefusesImageHeldByLiveSandbox(t *testing.T) {
 }
 
 func TestRemoveImagesForceSkipsGuard(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	if err := seedHomeState(key, state.HomeState{}); err != nil {
 		t.Fatalf("seed state: %v", err)
@@ -82,7 +82,7 @@ func TestRemoveImagesForceSkipsGuard(t *testing.T) {
 }
 
 func TestRemoveImagesFailsClosedOnCorruptState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := state.KeyDir(state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"})
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -107,7 +107,7 @@ func TestRemoveImagesFailsClosedOnCorruptState(t *testing.T) {
 }
 
 func TestRemoveImagesRefusesNonRunnerRef(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 
@@ -123,7 +123,7 @@ func TestRemoveImagesRefusesNonRunnerRef(t *testing.T) {
 }
 
 func TestRemoveImagesForceDoesNotBypassOwnershipGuard(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 
@@ -142,7 +142,7 @@ func TestRemoveImagesForceDoesNotBypassOwnershipGuard(t *testing.T) {
 // ownership check: a single-segment reference whose slug lacks the launcher's
 // 14-character hash is a manually loaded image, not a runner image.
 func TestRemoveImagesRefusesSingleSegmentRefWithoutHash(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{
 		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
 			return nil, errors.New("the ownership guard must run before the reference scan")
@@ -164,7 +164,7 @@ func TestRemoveImagesRefusesSingleSegmentRefWithoutHash(t *testing.T) {
 // TestRemoveImagesForceDoesNotBypassHashOwnershipGuard pins that the tightened
 // guard, like the repository-reference guard, is not overridable by --force.
 func TestRemoveImagesForceDoesNotBypassHashOwnershipGuard(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 
@@ -182,7 +182,7 @@ func TestRemoveImagesForceDoesNotBypassHashOwnershipGuard(t *testing.T) {
 // TestRemoveImagesAcceptsHashBearingRefsEitherScheme pins that a slug carrying
 // the launcher hash keeps both reference shapes removable.
 func TestRemoveImagesAcceptsHashBearingRefsEitherScheme(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{}
 	resolutions := msb.WithCountingMsbMock(t, client)
 
@@ -204,7 +204,7 @@ func TestRemoveImagesAcceptsHashBearingRefsEitherScheme(t *testing.T) {
 }
 
 func TestRemoveImagesGuardSurfacesScanError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{
 		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
 			return nil, errors.New("list boom")
@@ -224,7 +224,7 @@ func TestRemoveImagesGuardSurfacesScanError(t *testing.T) {
 }
 
 func TestRemoveImagesNonInteractiveRequiresConfirmation(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	client := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, client)
 
@@ -243,7 +243,7 @@ func TestRemoveImagesNonInteractiveRequiresConfirmation(t *testing.T) {
 }
 
 func TestRemoveImagesSurfacesRemoveError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("remove boom")
 	client := &msb.MockMsbClient{
 		ImageRemoveFn: func(context.Context, string, bool) error { return wantErr },

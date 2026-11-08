@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -25,7 +26,7 @@ func changedDecision() Decision {
 // prompt shows every change escaped, and approving records the projection so
 // the next evaluation is approved.
 func TestApproveRecordsTheProjectionOnApproval(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{IsInteractiveResult: true}
 	var prompt string
 	ui.SelectFn = func(message string, _ []termio.Choice, defaultKey string) (string, error) {
@@ -55,7 +56,7 @@ func TestApproveRecordsTheProjectionOnApproval(t *testing.T) {
 }
 
 func TestApproveDeclinedRecordsNothing(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{IsInteractiveResult: true}
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return declineKey, nil }
 
@@ -73,7 +74,7 @@ func TestApproveDeclinedRecordsNothing(t *testing.T) {
 }
 
 func TestApprovePropagatesAPromptFailure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{IsInteractiveResult: true}
 	promptErr := errors.New("stdin closed")
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) { return approveKey, promptErr }
@@ -90,7 +91,7 @@ func TestApprovePropagatesAPromptFailure(t *testing.T) {
 // answer approves: a UI without a TTY, assume-yes notwithstanding, gets an
 // error naming each changed input and the remedy, and no prompt.
 func TestApproveRefusesWithoutATerminal(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	ui.SetAssumeYes(true)
 	ui.SelectFn = func(string, []termio.Choice, string) (string, error) {
@@ -161,7 +162,7 @@ func TestApproveSettingWriteKeepsTheLaunchersOwnChangeApproved(t *testing.T) {
 }
 
 func TestApproveSettingWriteWithoutAnApprovalRecordsNothing(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	restore, err := ApproveSettingWrite("checkout-a", "memory", "8G")
 	if err != nil {
 		t.Fatalf("ApproveSettingWrite: %v", err)
@@ -195,7 +196,7 @@ func TestApproveSettingWriteRestoresThePreviousApproval(t *testing.T) {
 // TestApprovalStateFailuresAreReported pins that an unreadable root state is
 // reported by every approval read and write rather than taken as no approval.
 func TestApprovalStateFailuresAreReported(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteFile(t, configpaths.Get().UserStateDir(), "state.yaml", "schema: [not-valid")
 
 	if _, found, err := LoadApproval("checkout-a"); found || !errors.Is(err, state.ErrStateUnparsable) {

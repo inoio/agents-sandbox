@@ -12,6 +12,7 @@ import (
 	"github.com/titanous/json5"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -423,7 +424,7 @@ func TestLoadLayersEmptyManifestHasTrue(t *testing.T) {
 }
 
 func TestResolveSourceEmptyFallsBackToTarget(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	home, err := configpaths.Get().UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
@@ -442,7 +443,7 @@ func TestResolveSourceAbsolute(t *testing.T) {
 }
 
 func TestResolveSourceTilde(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	home, err := configpaths.Get().UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
@@ -602,7 +603,7 @@ func TestResolveVMTargetAcceptsNonMatchingReservedSpelling(t *testing.T) {
 // TestBuildHomeFilesMergesDirsInOrder pins that the dirs slice is an ordered
 // layer chain: later dirs override earlier ones per target.
 func TestBuildHomeFilesMergesDirsInOrder(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	generic := t.TempDir()
 	perSlug := t.TempDir()
 	project := t.TempDir()
@@ -722,7 +723,7 @@ func TestBuildHomeFilesRejectsInvalidUserManifest(t *testing.T) {
 }
 
 func TestBuildHomeFilesReadsUserManifest(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	home, err := configpaths.Get().UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
@@ -748,7 +749,7 @@ func TestBuildHomeFilesReadsUserManifest(t *testing.T) {
 }
 
 func TestBuildHomeFilesReportsLoadErrorWithHasFalse(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 	testutil.WritePath(t, filepath.Join(user, "config.yaml"), "home: [\n")
@@ -763,7 +764,7 @@ func TestBuildHomeFilesReportsLoadErrorWithHasFalse(t *testing.T) {
 }
 
 func TestBuildHomeFilesContinuesPastMissingSource(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 	testutil.WritePath(t, filepath.Join(proj, "present.txt"), "data")
@@ -790,7 +791,7 @@ func TestBuildHomeFilesContinuesPastMissingSource(t *testing.T) {
 func TestBuildHomeFilesSkipsMissingSource(t *testing.T) {
 	// The mocked home is an empty temp dir, so the empty-source default
 	// (host $HOME/.gitconfig) deterministically does not exist.
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	home, err := configpaths.Get().UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
@@ -815,7 +816,7 @@ func TestBuildHomeFilesSkipsMissingSource(t *testing.T) {
 }
 
 func TestBuildHomeFilesRejectsReservedTarget(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, proj, ".config/opencode/opencode.jsonc:\n")
@@ -939,7 +940,7 @@ func TestBuildHomeFilesReadsProjectRelativeSourceFromProjectDir(t *testing.T) {
 // MergeManifests wrapper's behaviour that TestDescribeLayersProjectWinsOnOverlap
 // does not: a key only the user layer declares survives the merge.
 func TestDescribeLayersKeepsUserOnlyKeys(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, user, ".ssh/config:\n")
@@ -962,7 +963,7 @@ func TestDescribeLayersKeepsUserOnlyKeys(t *testing.T) {
 }
 
 func TestDescribeLayersRejectsReservedTarget(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, proj, ".pi/agent/settings.json:\n")
@@ -1001,7 +1002,7 @@ func TestDescribeLayersResolvesProjectRelativeAgainstProjectDir(t *testing.T) {
 }
 
 func TestDescribeLayersSortsPairsByVMPath(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 	writeHomeConfig(t, proj, ""+
@@ -1187,7 +1188,7 @@ func TestBuildHooksRejectsReservedTarget(t *testing.T) {
 }
 
 func TestBuildHooksFiltersAndSorts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	user := t.TempDir()
 	proj := t.TempDir()
 
@@ -1368,7 +1369,7 @@ func homeContents(files map[string]HomeFile) map[string][]byte {
 // TestHomeReadsGoThroughTheApproval pins that both home reads verify the
 // approval: the config file holding the manifest and each source file.
 func TestHomeReadsGoThroughTheApproval(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := t.TempDir()
 	config := filepath.Join(dir, "config.yaml")
 	source := filepath.Join(dir, "hook.sh")
@@ -1412,7 +1413,7 @@ func TestParseHomeConfigReadsTheManifestFromBytes(t *testing.T) {
 // TestHomeDiscoveryRefusesApprovedFilesThatAreGone pins that deleting an
 // approved config file or home: source stops the run instead of dropping it.
 func TestHomeDiscoveryRefusesApprovedFilesThatAreGone(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := t.TempDir()
 	config := filepath.Join(dir, "config.yaml")
 	source := filepath.Join(dir, "hook.sh")

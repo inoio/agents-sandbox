@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
@@ -32,7 +32,7 @@ func seedPressureMarker(t *testing.T, k state.Key, marker state.ResourcePressure
 // the project's pressure marker and passes it to the detector: a recorded
 // unanswered OOM with no log line is offered from the marker.
 func TestOfferMemoryRaiseAfterAttachUsesMarker(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "runpressure", Agent: "opencode"}
 	seedPressureMarker(t, k, state.ResourcePressureState{
 		Kind: "memory", Evidence: string(pressure.EvidenceOOMLog), Victim: "opencode",
@@ -58,7 +58,7 @@ func TestOfferMemoryRaiseAfterAttachUsesMarker(t *testing.T) {
 // arguments: with neither supplied, the detector falls back to the metrics limit
 // for the suggestion.
 func TestOfferMemoryRaiseAfterAttachUsesMetricsLimit(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "runpressurelimit", Agent: "opencode"}
 	seedPressureMarker(t, k, state.ResourcePressureState{})
 	sb := &msb.MockSandbox{
@@ -109,7 +109,7 @@ func TestAbnormalEnd(t *testing.T) {
 // TestOfferMemoryRaiseAfterAttachDeclinedSaysNothingAboutTheNextRun pins that
 // a declined offer persists nothing, so no "next run" notice follows.
 func TestOfferMemoryRaiseAfterAttachDeclinedSaysNothingAboutTheNextRun(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "declinedoffer", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	ui := &termio.Mock{
@@ -132,7 +132,7 @@ func TestOfferMemoryRaiseAfterAttachDeclinedSaysNothingAboutTheNextRun(t *testin
 // accepted after a session tells the user when it applies: the VM keeps its
 // limit until the next run.
 func TestOfferMemoryRaiseAfterAttachSaysTheRaiseAppliesNextRun(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_MEMORY", "")
 	t.Setenv("OPENCODE_SANDBOX_MEMORY", "")
 	k := state.Key{Slug: "nextrunoffer", Agent: "opencode"}
@@ -158,7 +158,7 @@ func TestOfferMemoryRaiseAfterAttachSaysTheRaiseAppliesNextRun(t *testing.T) {
 // post-attach offer never suggests more than a VM can boot with: the suggestion
 // is clamped to the host maximum a project VM is created with.
 func TestOfferMemoryRaiseAfterAttachClampsToTheBootMaximum(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	bootMaxMiB := bootMaxMemoryMiB()
 	k := state.Key{Slug: "clampedoffer", Agent: "opencode"}
 	seedSessionHomeState(t, k)
@@ -187,7 +187,7 @@ func TestOfferMemoryRaiseAfterAttachClampsToTheBootMaximum(t *testing.T) {
 // summary into the shared core: a tripped summary offers a headroom raise even
 // with no OOM line and recovered fresh metrics, while an untripped one is silent.
 func TestOfferMemoryRaiseAfterAttachWitnessedTrip(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	recovered := &msb.Metrics{MemoryBytes: 5000 << 20, MemoryLimitBytes: 8192 << 20}
 
 	t.Run("tripped summary offers", func(t *testing.T) {
@@ -245,7 +245,7 @@ func diskProbeKey() string {
 // a /tmp short of space is offered with the run's /tmp size and saved, and the
 // user learns it applies on the next run.
 func TestOfferDiskRaiseAfterAttachOffersAFullTmp(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	for _, key := range []string{"AGENTS_SANDBOX_TMP_SIZE", "OPENCODE_SANDBOX_TMP_SIZE"} {
 		t.Setenv(key, "")
 	}
@@ -277,7 +277,7 @@ func TestOfferDiskRaiseAfterAttachOffersAFullTmp(t *testing.T) {
 // TestOfferDiskRaiseAfterAttachProbeFailureIsSilent pins that a failed probe
 // offers nothing and is logged only at verbose.
 func TestOfferDiskRaiseAfterAttachProbeFailureIsSilent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "diskprobefail", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	ui := &termio.Mock{IsInteractiveResult: true}
@@ -318,7 +318,7 @@ func (s *deadlineRecordingSandbox) Exec(
 // TestOfferDiskRaiseAfterAttachBoundsTheProbe pins that the in-guest probe runs
 // under its own timeout, so a wedged guest cannot hang the end of a session.
 func TestOfferDiskRaiseAfterAttachBoundsTheProbe(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "diskprobetimeout", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	sb := &deadlineRecordingSandbox{MockSandbox: &msb.MockSandbox{ExecErr: errors.New("exec refused")}}
@@ -344,7 +344,7 @@ func TestOfferDiskRaiseAfterAttachHonoursTheRecordedState(t *testing.T) {
 		}
 	}
 	t.Run("answered hit", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		k := state.Key{Slug: "diskanswered", Agent: "opencode"}
 		seen := time.Now().Add(-time.Hour)
 		if err := state.RecoverHomeState(k, func(hs *state.HomeState, _ bool) (bool, error) {
@@ -368,7 +368,7 @@ func TestOfferDiskRaiseAfterAttachHonoursTheRecordedState(t *testing.T) {
 		}
 	})
 	t.Run("declined", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		k := state.Key{Slug: "diskdeclined", Agent: "opencode"}
 		seedSessionHomeState(t, k)
 		ui := &termio.Mock{
@@ -381,7 +381,7 @@ func TestOfferDiskRaiseAfterAttachHonoursTheRecordedState(t *testing.T) {
 		}
 	})
 	t.Run("missing state", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		ui := &termio.Mock{}
 		offerDiskRaiseAfterAttach(
 			context.Background(),
@@ -404,7 +404,7 @@ func TestOfferDiskRaiseAfterAttachHonoursTheRecordedState(t *testing.T) {
 // (the mount sits between the trip and recovery levels): the recorded marker,
 // not the probe, decides, so the probe's markers must reach the core.
 func TestOfferDiskRaiseAfterAttachOffersARecordedHitInTheBand(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	for _, key := range []string{"AGENTS_SANDBOX_TMP_SIZE", "OPENCODE_SANDBOX_TMP_SIZE"} {
 		t.Setenv(key, "")
 	}

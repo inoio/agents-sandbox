@@ -14,7 +14,7 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -28,7 +28,7 @@ import (
 // records it in the real root state, so the rest of the suite reuses it.
 func integrationAgentVersion(t *testing.T, a agent.Agent) string {
 	t.Helper()
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 
 	if version, cached := cachedAgentVersion(a); cached {
 		return version

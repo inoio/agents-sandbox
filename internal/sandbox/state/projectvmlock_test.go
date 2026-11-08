@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
 
@@ -17,7 +18,7 @@ import (
 // the never-deleted locks tree. It lived under KeyDir before #330, so prune's
 // state removal unlinked the lock a concurrent VM creation held.
 func TestProjectVMLockDirLivesUnderLocksDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 
 	want := filepath.Join(configpaths.Get().UserStateDir(), "locks", k.Slug, k.Agent)
@@ -33,7 +34,7 @@ func TestProjectVMLockDirLivesUnderLocksDir(t *testing.T) {
 // agent. Agents of one project use separate VMs (see vm.ProjectVMName), so sharing
 // one creation lock would make an unrelated agent's creation wait (#330).
 func TestProjectVMLockDirIsAgentScoped(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	opencode := Key{Slug: "proj", Agent: "opencode"}
 	pi := Key{Slug: "proj", Agent: "pi"}
 
@@ -45,7 +46,7 @@ func TestProjectVMLockDirIsAgentScoped(t *testing.T) {
 // TestLockProjectVMFailsFastWhileHeld pins the same-process guard: a second
 // blocking acquire of a held project-VM lock errors instead of deadlocking.
 func TestLockProjectVMFailsFastWhileHeld(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 
 	release, _, err := lockProjectVM(k, true)
@@ -64,7 +65,7 @@ func TestLockProjectVMFailsFastWhileHeld(t *testing.T) {
 // TestLockProjectVMFlockContention pins the non-blocking contract callers rely
 // on: contention reports ok=false, not an error.
 func TestLockProjectVMFlockContention(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 
 	release, _, err := lockProjectVM(k, true)
@@ -85,7 +86,7 @@ func TestLockProjectVMFlockContention(t *testing.T) {
 // TestLockProjectVMNonBlockingSucceedsWhenFree pins the non-blocking success
 // path (and its release).
 func TestLockProjectVMNonBlockingSucceedsWhenFree(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 
 	release, ok, err := lockProjectVM(k, false)
@@ -102,7 +103,7 @@ func TestLockProjectVMNonBlockingSucceedsWhenFree(t *testing.T) {
 // depends on: the exported route acquires the lock file and actually holds the
 // flock (a second open contends) until its release.
 func TestAcquireProjectVMLockTakesTheRawFlock(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 
 	release, err := AcquireProjectVMLock(k)
@@ -126,7 +127,7 @@ func TestAcquireProjectVMLockTakesTheRawFlock(t *testing.T) {
 }
 
 func TestLockProjectVMMkdirError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("mkdir boom")
 	orig := mkdirProjectVMLock
 	mkdirProjectVMLock = func(string, os.FileMode) error { return wantErr }
@@ -142,7 +143,7 @@ func TestLockProjectVMMkdirError(t *testing.T) {
 }
 
 func TestLockProjectVMOpenError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	wantErr := errors.New("open boom")
 	orig := openProjectVMLock
@@ -167,7 +168,7 @@ func TestLockProjectVMOpenError(t *testing.T) {
 }
 
 func TestLockProjectVMFlockErrorReleasesRegistry(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	wantErr := errors.New("flock boom")
 	orig := flockProjectVMLock
@@ -190,7 +191,7 @@ func TestLockProjectVMFlockErrorReleasesRegistry(t *testing.T) {
 // TestLockProjectVMUsesPrivateModes pins the lock dir and file modes at the
 // seam, so the assertion does not depend on the test process's umask.
 func TestLockProjectVMUsesPrivateModes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	var dirMode, fileMode os.FileMode
 	origMkdir, origOpen := mkdirProjectVMLock, openProjectVMLock
 	mkdirProjectVMLock = func(dir string, mode os.FileMode) error {
@@ -221,7 +222,7 @@ func TestLockProjectVMUsesPrivateModes(t *testing.T) {
 // while another open file description holds the lock, the acquire must wait, not
 // report contention.
 func TestLockProjectVMBlockingWaitsForFlock(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	dir := ProjectVMLockDir(k)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -267,7 +268,7 @@ func TestLockProjectVMBlockingWaitsForFlock(t *testing.T) {
 // on a blocking acquire is a failure, not the non-blocking "lock is busy"
 // signal. The injected flock stands in for a real flock that returned EWOULDBLOCK.
 func TestLockProjectVMBlockingContentionErrorIsSurfaced(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	orig := flockProjectVMLock
 	flockProjectVMLock = func(*os.File, bool) error { return syscall.EWOULDBLOCK }
 	t.Cleanup(func() { flockProjectVMLock = orig })
@@ -283,7 +284,7 @@ func TestLockProjectVMBlockingContentionErrorIsSurfaced(t *testing.T) {
 // flock failure on a non-blocking acquire is an error, not the "lock is busy"
 // signal.
 func TestLockProjectVMNonBlockingRealErrorIsSurfaced(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("flock boom")
 	orig := flockProjectVMLock
 	flockProjectVMLock = func(*os.File, bool) error { return wantErr }
@@ -301,7 +302,7 @@ func TestLockProjectVMNonBlockingRealErrorIsSurfaced(t *testing.T) {
 // removable key dir), so a prune's state removal cannot unlink the lock a
 // concurrent creation holds and let a second invocation create a duplicate VM.
 func TestProjectVMLockSurvivesStateRemoval(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "myproj", Agent: "opencode"}
 
 	lockDir := ProjectVMLockDir(k)

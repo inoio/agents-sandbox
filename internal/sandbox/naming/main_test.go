@@ -3,7 +3,7 @@ package naming
 import (
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
@@ -13,7 +13,7 @@ import (
 func TestMain(m *testing.M) {
 	// can't call testutil.InitFailFastMocks(m) because of cyclic dependency: it installs notify, and notify
 	// imports naming. Keep in sync with testutil.InitFailFastMocks' body, minus notify.
-	configpaths.InstallFailFastConfigPaths()
+	configpathstest.InstallFailFastConfigPaths()
 	dockertest.InstallFailFastGet()
 	doctortest.InstallFailFast()
 	msb.InstallFailFastGet()

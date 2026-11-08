@@ -16,6 +16,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
@@ -544,7 +545,7 @@ func TestResolveBuildDockerSetting(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			cmd := buildDockerfileCmd(&termio.Mock{})
 			for name, value := range tc.flags {
 				if err := cmd.Flags().Set(name, value); err != nil {
@@ -770,7 +771,7 @@ func TestBuildCommandsRejectAnUnknownAgent(t *testing.T) {
 }
 
 func TestBuildDockerfileStdOutError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "0.0.0-test")
 	ui := &errStdOutUI{err: errors.New("write failed")}
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
@@ -58,7 +59,7 @@ func TestCommandNeedsMSBRuntimeSkipsLauncherOnlyCommands(t *testing.T) {
 }
 
 func TestRootCommandReturnsRuntimePreparationError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	oldPrepare := prepareMSBRuntime
 	prepareMSBRuntime = func(context.Context, termio.Logger, string) error {
@@ -113,7 +114,7 @@ func TestDryRunPreviewsSkipPreflightRuntimeInstall(t *testing.T) {
 }
 
 func TestRootCommandReturnsInvalidCLISettingsError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	oldPrepare := prepareMSBRuntime
 	prepareMSBRuntime = func(context.Context, termio.Logger, string) error {
@@ -134,7 +135,7 @@ func TestRootCommandReturnsInvalidCLISettingsError(t *testing.T) {
 // troubleshooting link) alongside the KVM and Docker results rather than
 // aborting the command with a raw preflight error.
 func TestDoctorRunsItsOwnChecksWithoutPreflightRuntimeInstall(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	msb.WithMsbMock(t, &msb.MockMsbClient{})
 	dockertest.WithNoopDockerMock(t)
 	doctortest.MockedCheckAll(t, false)
@@ -227,7 +228,7 @@ func TestCLILogLevelFlagSetsLevel(t *testing.T) {
 		{"prune", "--age", "1m", "-l", "verbose", "--yes"},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			ui := &termio.Mock{}
 			mock := &msb.MockMsbClient{}
 			msb.WithMsbMock(t, mock)
@@ -247,7 +248,7 @@ func TestCLILogLevelFlagSetsLevel(t *testing.T) {
 }
 
 func TestCLIPersistentYesAffectsUIAfterSubcommand(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
@@ -270,7 +271,7 @@ func TestCLIQuietFlagSetsQuiet(t *testing.T) {
 		{"prune", "--age", "1m", "-q", "--yes"},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			ui := &termio.Mock{}
 			mock := &msb.MockMsbClient{}
 			msb.WithMsbMock(t, mock)
@@ -290,7 +291,7 @@ func TestCLIQuietFlagSetsQuiet(t *testing.T) {
 }
 
 func TestCLIQuietFlagFalseByDefault(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui := &termio.Mock{}
 	mock := &msb.MockMsbClient{}
 	msb.WithMsbMock(t, mock)
@@ -312,7 +313,7 @@ func TestNewConfigSetsUserDirs(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("XDG_STATE_HOME", "")
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	cfg := configpaths.Get()
 	a, _ := agent.Lookup("opencode")
 	if cfg.UserStateDir() != "/testhome/.local/state/agents-sandbox" {
@@ -334,7 +335,7 @@ func TestNewConfigHonorsXdgEnv(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/xdg/config")
 	t.Setenv("XDG_CACHE_HOME", "/xdg/cache")
 	t.Setenv("XDG_STATE_HOME", "/xdg/state")
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	cfg := configpaths.Get()
 	a, _ := agent.Lookup("opencode")
 	if cfg.UserStateDir() != "/xdg/state/agents-sandbox" {
@@ -431,7 +432,7 @@ func TestKillCommandHasForceFlag(t *testing.T) {
 }
 
 func TestCLIConfigPrecedenceViaResolver(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2, "memory": "8G"})
 
