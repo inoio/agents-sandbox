@@ -62,13 +62,7 @@ func reuseLockPath(dir string) string {
 // every sandbox in the home, including the other's live VMs. It returns the
 // release.
 func acquireReuseLock(dir string) (func(), error) {
-	return hostlock.AcquireExclusiveWaiting(filepath.Dir(dir), filepath.Base(dir)+reuseLockSuffix, func() {
-		fmt.Fprintf(
-			os.Stderr,
-			"msb tests: microsandbox home %s is in use by another run; waiting for it to finish\n",
-			dir,
-		)
-	})
+	return hostlock.AcquireExclusive(filepath.Dir(dir), filepath.Base(dir)+reuseLockSuffix)
 }
 
 // installIsolatedRuntimeHome points the process at a microsandbox home and

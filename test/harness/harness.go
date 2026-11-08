@@ -177,9 +177,7 @@ func reuseLockPath(dir string) string {
 // every sandbox in the home, including the other's live VMs. dir is absolute,
 // so the lock path is stable across working directories. It returns the release.
 func acquireReuseLock(dir string) (func(), error) {
-	return hostlock.AcquireExclusiveWaiting(filepath.Dir(dir), filepath.Base(dir)+reuseLockSuffix, func() {
-		fmt.Fprintf(os.Stderr, "harness smoke: reuse root %s is in use by another run; waiting for it to finish\n", dir)
-	})
+	return hostlock.AcquireExclusive(filepath.Dir(dir), filepath.Base(dir)+reuseLockSuffix)
 }
 
 // resolveSuiteRoot returns the suite's shared root, whether it is a reused
@@ -192,7 +190,7 @@ func acquireReuseLock(dir string) (func(), error) {
 // destroy VMs another run is still using.
 func resolveSuiteRoot() (string, bool, func(), error) {
 	if dir := os.Getenv(smokeRootReuseEnv); dir != "" {
-		reuseRoot, err := filepath.Abs(dir)
+		reuseRoot, err := absPath(dir)
 		if err != nil {
 			return "", false, nil, fmt.Errorf("resolve reuse root %s: %w", dir, err)
 		}
@@ -204,7 +202,6 @@ func resolveSuiteRoot() (string, bool, func(), error) {
 		}
 		// reuseRoot is an explicit operator opt-in (the reuse root), not request
 		// data.
-		//nolint:gosec // G703: reuseRoot is operator-provided, not tainted input
 		if err = os.MkdirAll(reuseRoot, 0o750); err != nil {
 			return "", false, nil, fmt.Errorf("create reuse root %s: %w", reuseRoot, err)
 		}
@@ -478,12 +475,14 @@ func seedHomeFiles(homeBase string, files map[string]string) error {
 }
 
 // mkdirAll and writeFile are the filesystem seams seedHomeFiles writes through;
-// mkdtemp is the seam resolveSuiteRoot creates a fresh root through. A test
-// replaces one to assert its failure branch.
+// mkdtemp is the seam resolveSuiteRoot creates a fresh root through, and absPath
+// the seam it resolves the reuse root through. A test replaces one to assert its
+// failure branch.
 var (
 	mkdirAll  = os.MkdirAll
 	writeFile = os.WriteFile
 	mkdtemp   = os.MkdirTemp
+	absPath   = filepath.Abs
 )
 
 // usableTerm returns the TERM to run the child under: the inherited value

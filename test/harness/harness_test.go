@@ -367,15 +367,29 @@ func TestSmokeRootStaysShortEnoughForSandboxSockets(t *testing.T) {
 	}
 }
 
+// shortTempDir creates a unique directory under smokeRootBase. Its path is short
+// enough for a reuse root's derived sandbox control socket, and being unique per
+// invocation keeps a test from sharing (and deleting) a fixed /tmp path another
+// concurrent run uses.
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	// mkdtemp (the resolveSuiteRoot seam) with the short smokeRootBase, not
+	// t.TempDir: t.TempDir's test-named path under TMPDIR is too long for the
+	// socket budget.
+	dir, err := mkdtemp(smokeRootBase, smokeRootPrefix+"t-")
+	if err != nil {
+		t.Fatalf("create short temp dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // TestResolveSuiteRootReusesEnv pins the reuse escape hatch: a set
 // smokeRootReuseEnv reuses (and creates) that directory, while an unset one
 // creates a fresh temp root, and a reused path whose derived socket would exceed
 // the budget is rejected.
 func TestResolveSuiteRootReusesEnv(t *testing.T) {
-	// The reuse path must stay short (sun_path budget), so it is fixed under the
-	// default base rather than t.TempDir, whose test-named path is too long.
-	shortRoot := filepath.Join(smokeRootBase, smokeRootPrefix+"reuse-test")
-	t.Cleanup(func() { _ = os.RemoveAll(shortRoot) })
+	shortRoot := shortTempDir(t)
 
 	t.Setenv(smokeRootReuseEnv, shortRoot)
 	root, reused, release, err := resolveSuiteRoot()
@@ -392,8 +406,10 @@ func TestResolveSuiteRootReusesEnv(t *testing.T) {
 	}
 
 	t.Setenv(smokeRootReuseEnv, filepath.Join(t.TempDir(), strings.Repeat("x", sunPathLimit)))
-	if _, _, _, err := resolveSuiteRoot(); err == nil {
+	if _, reused, _, err := resolveSuiteRoot(); err == nil {
 		t.Error("resolveSuiteRoot = nil error, want a too-long reuse path rejected")
+	} else if reused {
+		t.Error("resolveSuiteRoot reported a rejected reuse path as reused")
 	}
 
 	t.Setenv(smokeRootReuseEnv, "")
@@ -415,11 +431,7 @@ func TestResolveSuiteRootReusesEnv(t *testing.T) {
 // directory as its working directory, so a relative smokeBinary path would look
 // for the binary beneath the project dir instead of where it was built.
 func TestResolveSuiteRootMakesTheReuseRootAbsolute(t *testing.T) {
-	workDir := filepath.Join(smokeRootBase, smokeRootPrefix+"abs")
-	if err := os.MkdirAll(workDir, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(workDir) })
+	workDir := shortTempDir(t)
 	t.Chdir(workDir)
 
 	t.Setenv(smokeRootReuseEnv, "r")
@@ -443,8 +455,7 @@ func TestResolveSuiteRootMakesTheReuseRootAbsolute(t *testing.T) {
 // exclusive lock for the run's lifetime: two runs sharing a root serialize there
 // instead of one run's sandbox sweep destroying the other's live VMs.
 func TestResolveSuiteRootLocksTheReuseRoot(t *testing.T) {
-	shortRoot := filepath.Join(smokeRootBase, smokeRootPrefix+"reuse-lock")
-	t.Cleanup(func() { _ = os.RemoveAll(shortRoot) })
+	shortRoot := shortTempDir(t)
 	t.Setenv(smokeRootReuseEnv, shortRoot)
 
 	_, reused, release, err := resolveSuiteRoot()
@@ -486,27 +497,84 @@ func lockContended(t *testing.T, path string) bool {
 	return true
 }
 
+// TestResolveSuiteRootReportsTheAbsFailure pins that a reuse root that cannot be
+// resolved against the working directory (a deleted CWD) is reported, not
+// mistaken for a successful reuse.
+func TestResolveSuiteRootReportsTheAbsFailure(t *testing.T) {
+	originalAbsPath := absPath
+	t.Cleanup(func() { absPath = originalAbsPath })
+	absPath = func(string) (string, error) { return "", syscall.ENOENT }
+
+	t.Setenv(smokeRootReuseEnv, "r")
+	_, reused, release, err := resolveSuiteRoot()
+	if err == nil {
+		t.Fatal("resolveSuiteRoot = nil error, want the resolution failure reported")
+	}
+	if !errors.Is(err, syscall.ENOENT) {
+		t.Errorf("resolveSuiteRoot error %q, want it to wrap the filesystem cause ENOENT", err)
+	}
+	if !strings.Contains(err.Error(), "resolve reuse root") {
+		t.Errorf("resolveSuiteRoot error %q, want it to name the reuse-root resolution", err)
+	}
+	if reused || release != nil {
+		t.Errorf("resolveSuiteRoot = (reused %v, release %v), want neither on failure", reused, release != nil)
+	}
+}
+
+// TestResolveSuiteRootReportsTheLockFailure pins that a reuse root whose lock
+// cannot be taken is reported, not returned as a locked reuse root with a nil
+// release.
+func TestResolveSuiteRootReportsTheLockFailure(t *testing.T) {
+	shortRoot := shortTempDir(t)
+	// A directory where the lock file belongs makes the lock open fail.
+	lockPath := reuseLockPath(shortRoot)
+	if err := os.MkdirAll(lockPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(lockPath) })
+
+	t.Setenv(smokeRootReuseEnv, shortRoot)
+	_, reused, release, err := resolveSuiteRoot()
+	if err == nil {
+		t.Fatal("resolveSuiteRoot = nil error, want the lock failure reported")
+	}
+	if !errors.Is(err, syscall.EISDIR) {
+		t.Errorf("resolveSuiteRoot error %q, want it to wrap the filesystem cause EISDIR", err)
+	}
+	if !strings.Contains(err.Error(), "lock reuse root") {
+		t.Errorf("resolveSuiteRoot error %q, want it to name the reuse-root lock", err)
+	}
+	if reused || release != nil {
+		t.Errorf("resolveSuiteRoot = (reused %v, release %v), want neither on failure", reused, release != nil)
+	}
+}
+
 // TestResolveSuiteRootReportsCreateFailures pins both failure surfaces: a reuse
 // root that cannot be created (a file where its parent must be), and a temp root
-// that cannot be created. Each error preserves the filesystem cause so a run
-// reports why it failed.
+// that cannot be created. Each error preserves the filesystem cause and names
+// the surface, so a run reports why it failed.
 func TestResolveSuiteRootReportsCreateFailures(t *testing.T) {
 	t.Run("reuse root cannot be created", func(t *testing.T) {
-		// The path must still pass the sun_path budget check before MkdirAll, so
-		// it stays short and based under smokeRootBase.
-		blocker := filepath.Join(smokeRootBase, smokeRootPrefix+"reuse-blocked")
+		// A file where the reuse root's parent must be makes MkdirAll fail; the
+		// path stays short so it passes the sun_path budget check first.
+		blocker := filepath.Join(shortTempDir(t), "f")
 		if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = os.Remove(blocker) })
 
 		t.Setenv(smokeRootReuseEnv, filepath.Join(blocker, "child"))
-		_, _, _, err := resolveSuiteRoot()
+		_, reused, release, err := resolveSuiteRoot()
 		if err == nil {
 			t.Fatal("resolveSuiteRoot = nil error, want the create failure reported")
 		}
 		if !errors.Is(err, syscall.ENOTDIR) {
 			t.Errorf("resolveSuiteRoot error %q, want it to wrap the filesystem cause ENOTDIR", err)
+		}
+		if !strings.Contains(err.Error(), "create reuse root") {
+			t.Errorf("resolveSuiteRoot error %q, want it to name the reuse-root creation", err)
+		}
+		if reused || release != nil {
+			t.Errorf("resolveSuiteRoot = (reused %v, release %v), want neither on failure", reused, release != nil)
 		}
 	})
 
@@ -516,14 +584,36 @@ func TestResolveSuiteRootReportsCreateFailures(t *testing.T) {
 		mkdtemp = func(string, string) (string, error) { return "", syscall.ENOSPC }
 
 		t.Setenv(smokeRootReuseEnv, "")
-		_, _, _, err := resolveSuiteRoot()
+		_, reused, release, err := resolveSuiteRoot()
 		if err == nil {
 			t.Fatal("resolveSuiteRoot = nil error, want the temp-root failure reported")
 		}
 		if !errors.Is(err, syscall.ENOSPC) {
 			t.Errorf("resolveSuiteRoot error %q, want it to wrap the filesystem cause ENOSPC", err)
 		}
+		if reused || release != nil {
+			t.Errorf("resolveSuiteRoot = (reused %v, release %v), want neither on failure", reused, release != nil)
+		}
 	})
+}
+
+// TestRootFitsSandboxSocketBoundary pins the strict boundary of the sun_path
+// budget predicate: a root whose derived control-socket path is one byte short
+// of the limit fits, and one whose path reaches the limit does not.
+func TestRootFitsSandboxSocketBoundary(t *testing.T) {
+	// msbHomeUnderRoot appends a fixed suffix to root, and the derived socket
+	// path adds sandboxSocketPathSuffix; `len(appended)` isolates the suffix
+	// length for the boundary computation.
+	appended := len(msbHomeUnderRoot("x")) - len("x")
+	fitsLen := sunPathLimit - sandboxSocketPathSuffix - appended - 1
+	rootOfLength := func(n int) string { return "/" + strings.Repeat("a", n-1) }
+
+	if !rootFitsSandboxSocket(rootOfLength(fitsLen)) {
+		t.Errorf("rootFitsSandboxSocket rejected a %d-byte root, want the tightest fitting root accepted", fitsLen)
+	}
+	if rootFitsSandboxSocket(rootOfLength(fitsLen + 1)) {
+		t.Errorf("rootFitsSandboxSocket accepted a %d-byte root, want one reaching the limit rejected", fitsLen+1)
+	}
 }
 
 // TestIsolatedEnvSharesDataKeepsHome pins the per-harness split: two harnesses
