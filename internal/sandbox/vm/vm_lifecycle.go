@@ -54,10 +54,14 @@ func (b VMBoot) Booted() bool {
 var acquireProjectVMLock = state.AcquireProjectVMLock
 
 // projectVMLock returns the creation lock for this ensure: the injected seam
-// when a test set one, else the shared host flock.
+// when a test set one, else the shared host flock. The injected seam is keyed by
+// options.ProjectVMKey, so this adapter maps the state.Key the ensure carries.
 func projectVMLock(seams options.Seams) func(state.Key) (func(), error) {
 	if seams.ProjectVMLock != nil {
-		return seams.ProjectVMLock
+		injectedLock := seams.ProjectVMLock
+		return func(k state.Key) (func(), error) {
+			return injectedLock(options.ProjectVMKey{Slug: k.Slug, Agent: k.Agent})
+		}
 	}
 	return acquireProjectVMLock
 }
@@ -296,6 +300,21 @@ func bootMemoryMiB(memory string, ui termio.Logger) uint32 {
 	return memoryMiB
 }
 
+// effectiveTmpSizeMiB is the tmpfs size a new project VM mounts: the resolved
+// tmp-size, clamped to the effective memory with a warning. Validation compares
+// an explicit tmp against the configured memory; the boot clamp can lower the
+// effective memory on a smaller host, and a RAM-backed tmpfs cannot exceed the
+// VM's memory. The memory-derived default is already below the effective memory,
+// so the clamp only bites an explicit value above it.
+func effectiveTmpSizeMiB(tmpSpec string, effectiveMemoryMiB uint32, ui termio.Logger) uint32 {
+	tmpMiB := options.ResolveTmpSizeMiB(tmpSpec, effectiveMemoryMiB)
+	if tmpMiB > effectiveMemoryMiB {
+		ui.Warnf("tmp-size limited to %d MiB (VM memory); requested %d MiB", effectiveMemoryMiB, tmpMiB)
+		return effectiveMemoryMiB
+	}
+	return tmpMiB
+}
+
 func createProjectVM(ctx context.Context, creation ProjectVMCreation, name string) (msb.Sandbox, error) {
 	info, err := image.EnsureLoaded(ctx, creation.DockerClient, creation.Client, creation.Image, creation.UI)
 	if err != nil {
@@ -311,10 +330,11 @@ func createProjectVM(ctx context.Context, creation ProjectVMCreation, name strin
 	vmEnv := buildProjectVMEnv(creation.Env.Vars, info.Env)
 	creation.UI.Verbosef("adding docker env definitions to project VM environment: %s", info.Env)
 
+	effectiveMemoryMiB := bootMemoryMiB(opts.Memory, creation.UI)
 	mountConfigs := buildMounts(
 		creation.HomeVolume,
 		creation.RepoPath,
-		options.ResolveTmpSizeMiB(opts.TmpSize),
+		effectiveTmpSizeMiB(opts.TmpSize, effectiveMemoryMiB, creation.UI),
 		options.ResolveWorkspaceQuotaMiB(opts.WorkspaceQuota),
 		opts.Mounts,
 	)
@@ -343,7 +363,7 @@ func createProjectVM(ctx context.Context, creation ProjectVMCreation, name strin
 		msbSdk.WithWorkdir(defaultTargetDir),
 		msbSdk.WithCPUs(cpus),
 		msbSdk.WithMaxCPUs(numCPUs),
-		msbSdk.WithMemory(bootMemoryMiB(opts.Memory, creation.UI)),
+		msbSdk.WithMemory(effectiveMemoryMiB),
 		msbSdk.WithMaxMemory(BootMaxMemoryMiB()),
 		msbSdk.WithDetached(),
 		msbSdk.WithIdleTimeout(idleTimeout),

@@ -33,9 +33,9 @@ func TestParseMemoryLowercase(t *testing.T) {
 }
 
 func TestResolveTmpSizeDefaultsWhenEmpty(t *testing.T) {
-	got := ResolveTmpSizeMiB("")
-	if got != DefaultTmpSizeMiB {
-		t.Errorf("expected default %d, got %d", DefaultTmpSizeMiB, got)
+	got := ResolveTmpSizeMiB("", DefaultMemoryMiB)
+	if got != DefaultTmpSizeCapMiB {
+		t.Errorf("expected default %d, got %d", DefaultTmpSizeCapMiB, got)
 	}
 }
 
@@ -47,7 +47,7 @@ func TestServeOnlyOptionsSet(t *testing.T) {
 }
 
 func TestResolveTmpSizeParsesSpec(t *testing.T) {
-	got := ResolveTmpSizeMiB("4G")
+	got := ResolveTmpSizeMiB("4G", DefaultMemoryMiB)
 	if got != 4096 {
 		t.Errorf("expected 4096, got %d", got)
 	}

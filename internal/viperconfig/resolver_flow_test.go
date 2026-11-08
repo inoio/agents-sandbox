@@ -138,18 +138,11 @@ func TestNewResolverReportsABrokenConfigLayer(t *testing.T) {
 			wantText: "parse launcher config",
 		},
 		{
-			name:     "json5 that cannot be normalized",
-			dir:      userDir,
-			file:     "config.json5",
-			content:  `{"cpus": NaN}`,
-			wantText: "normalize launcher config",
-		},
-		{
 			name:     "malformed json",
 			dir:      userDir,
 			file:     "config.json",
 			content:  `{"cpus": }`,
-			wantText: "load launcher config",
+			wantText: "parse launcher config",
 		},
 		{
 			name:     "list-valued memory",
@@ -169,6 +162,37 @@ func TestNewResolverReportsABrokenConfigLayer(t *testing.T) {
 				t.Fatalf("error = %v, want %q wrapping its cause", err, tc.wantText)
 			}
 		})
+	}
+}
+
+// TestNewResolverRejectsANonFiniteNumber pins the one substantive behavior
+// change from removing the json5 normalize step: a NaN under a known numeric
+// key is still rejected, now at value validation rather than the removed
+// json.Marshal.
+func TestNewResolverRejectsANonFiniteNumber(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.json5", `{"cpus": NaN}`)
+
+	_, err := NewResolver(nil, configpaths.Get(), "")
+	if err == nil || !strings.Contains(err.Error(), "cpus must be between 0 and 255") {
+		t.Fatalf("error = %v, want the cpus range rejection", err)
+	}
+}
+
+// TestNewResolverDecodesANonFiniteMemory pins the non-finite policy for a
+// string-valued key: json5 accepts `memory: NaN`, the resolver does not reject
+// it, and the value decodes to "NaN" — which ParseMemory later treats like any
+// other unparseable memory string.
+func TestNewResolverDecodesANonFiniteMemory(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.json5", `{"memory": NaN}`)
+
+	r, err := NewResolver(nil, configpaths.Get(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	if r.cfg.Memory != "NaN" {
+		t.Errorf("Memory = %q, want the decoded NaN text", r.cfg.Memory)
 	}
 }
 

@@ -1,7 +1,6 @@
 package homeconfig
 
 import (
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -302,15 +301,15 @@ func TestReadHomeFromConfigDirJSON5ParseErrorKeepsPresentFalse(t *testing.T) {
 	}
 }
 
-func TestReadHomeFromConfigDirNormalizeErrorKeepsPresentFalse(t *testing.T) {
+func TestReadHomeFromConfigDirJSONIsJSON5Lenient(t *testing.T) {
 	dir := t.TempDir()
-	testutil.WriteFile(t, dir, "config.json5", `{"home": {}, "cpus": NaN}`)
-	_, has, err := ReadHomeFromConfigDir(dir)
-	if err == nil || has {
-		t.Fatalf("normalize error: has=%v err=%v", has, err)
+	testutil.WriteFile(t, dir, "config.json", "{\n  // a comment\n  \"home\": {\".gitconfig\": \"\"},\n}")
+	m, has, err := ReadHomeFromConfigDir(dir)
+	if err != nil || !has {
+		t.Fatalf("ReadHomeFromConfigDir: has=%v err=%v", has, err)
 	}
-	if _, ok := errors.AsType[*json.UnsupportedValueError](err); !ok {
-		t.Errorf("expected the wrapped *json.UnsupportedValueError, got %v", err)
+	if e, ok := m[".gitconfig"]; !ok || e != (Entry{}) {
+		t.Errorf("manifest = %v, want an empty .gitconfig entry", m)
 	}
 }
 
@@ -1395,5 +1394,17 @@ func TestHomeReadsGoThroughTheApproval(t *testing.T) {
 	testutil.WritePath(t, config, "home:\n  other.sh: /etc/passwd\n")
 	if _, _, err := ReadHomeFromConfigDir(dir); !errors.Is(err, projectguard.ErrNotApproved) {
 		t.Errorf("ReadHomeFromConfigDir = %v, want ErrNotApproved for the changed manifest", err)
+	}
+}
+
+// TestParseHomeConfigReadsTheManifestFromBytes pins that bytes read once are
+// parsed like a config file read from disk, errors included.
+func TestParseHomeConfigReadsTheManifestFromBytes(t *testing.T) {
+	manifest, present, err := ParseHomeConfig("config.yaml", []byte("home:\n  .bashrc: bashrc\n"))
+	if err != nil || !present || manifest[".bashrc"].Source != "bashrc" {
+		t.Errorf("ParseHomeConfig = %+v, %v, %v; want the .bashrc entry", manifest, present, err)
+	}
+	if _, _, err := ParseHomeConfig("config.yaml", []byte("home: [unclosed\n")); err == nil {
+		t.Error("ParseHomeConfig accepted an unparsable config")
 	}
 }

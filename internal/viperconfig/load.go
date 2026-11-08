@@ -1,23 +1,17 @@
 package viperconfig
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/titanous/json5"
 
+	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
-	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
-	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
 
 // ConfigLayers returns the launcher-config layers from lowest to highest
@@ -238,60 +232,28 @@ func NewResolverWithConfig(cfg Config) *Resolver {
 	return &Resolver{cfg: cfg, slug: "", legacyEnv: nil, dockerLegacy: ""}
 }
 
-// ParseLayerSettings parses the launcher config file data read from path,
-// with extension ext, like a merged layer, and returns the settings it sets
-// (keys lowercased, nested maps kept).
-func ParseLayerSettings(path, ext string, data []byte) (map[string]any, error) {
-	v := viper.New()
-	if err := mergeData(v, path, ext, data); err != nil {
+// ParseLayerSettings parses the launcher config file data read from path like
+// a merged layer, and returns the settings it sets (keys lowercased, nested
+// maps kept).
+func ParseLayerSettings(path string, data []byte) (map[string]any, error) {
+	values, err := configdecode.DecodeData(path, "launcher config", data)
+	if err != nil {
 		return nil, err
 	}
+	v := viper.New()
+	// MergeConfigMap never fails; merging normalizes the keys as a layer would.
+	_ = v.MergeConfigMap(values)
 	return v.AllSettings(), nil
 }
 
 func mergeDir(v *viper.Viper, dir string) error {
-	path, ext, ok := configpaths.FindConfigFile(dir)
+	path, _, ok := configpaths.FindConfigFile(dir)
 	if !ok {
 		return nil
 	}
-	data, err := projectguard.ReadFile(path, configread.ReadFile)
+	values, err := configdecode.DecodeFile(path, "launcher config")
 	if err != nil {
-		return fmt.Errorf("read launcher config %s: %w", path, err)
+		return err
 	}
-	return mergeData(v, path, ext, data)
-}
-
-// mergeData merges the launcher config file data read from path into v.
-func mergeData(v *viper.Viper, path, ext string, data []byte) error {
-	ct := configType(ext)
-	if ext == configpaths.ExtJSON5 || ext == configpaths.ExtJSONC {
-		var m map[string]any
-		if unmarshalErr := json5.Unmarshal(data, &m); unmarshalErr != nil {
-			return fmt.Errorf("parse launcher config %s: %w", path, unmarshalErr)
-		}
-		normalized, err := json.Marshal(m)
-		if err != nil {
-			return fmt.Errorf("normalize launcher config %s: %w", path, err)
-		}
-		data = normalized
-		// configType already reports both JSON5 and JSONC as JSON.
-	}
-	v.SetConfigType(ct)
-	if err := v.MergeConfig(bytes.NewReader(data)); err != nil {
-		if ct == ctYAML {
-			return yamlfmt.WrapErr(path, err)
-		}
-		return fmt.Errorf("load launcher config %s: %w", path, err)
-	}
-	return nil
-}
-
-func configType(ext string) string {
-	switch strings.ToLower(ext) {
-	case ".yaml", ".yml":
-		return ctYAML
-	case ".json", configpaths.ExtJSONC, configpaths.ExtJSON5:
-		return ctJSON
-	}
-	return ""
+	return v.MergeConfigMap(values)
 }

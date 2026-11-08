@@ -17,9 +17,9 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
-	"github.com/titanous/json5"
 	"go.yaml.in/yaml/v4"
 
+	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/filewalk"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
@@ -124,8 +124,8 @@ func scanSnippets(dirs []string, pattern string) (map[string]any, []string) {
 			if err != nil {
 				continue
 			}
-			var cfg map[string]any
-			if err := parseConfigFile(entry.Name(), data, &cfg); err != nil {
+			cfg, err := decodeSnippet(entry.Name(), data)
+			if err != nil {
 				continue
 			}
 			merged = deepMerge(merged, cfg)
@@ -138,42 +138,15 @@ func scanSnippets(dirs []string, pattern string) (map[string]any, []string) {
 	return merged, sources
 }
 
-// configFormat is the serialization format a config path implies.
-type configFormat int
-
-const (
-	configJSON configFormat = iota
-	configTOML
-	configYAML
-)
-
-// configFormatFor classifies a config path by extension: .toml is TOML,
-// .yaml/.yml is YAML, everything else (.json, .jsonc, .json5) is the JSON
-// family. It is the single source of the extension-to-format mapping, shared by
-// parsing and marshaling.
-func configFormatFor(configPath string) configFormat {
-	switch strings.ToLower(filepath.Ext(configPath)) {
-	case ".toml":
-		return configTOML
-	case ".yaml", ".yml":
-		return configYAML
-	default:
-		// gomutants:disable-next-line RETURN_ZERO reason="configJSON is the zero value of configFormat, so RETURN_ZERO compiles to the identical constant"
-		return configJSON
+// decodeSnippet decodes data in the format name's extension implies, defaulting
+// an unknown extension to the JSON family: a best-effort parse the caller skips
+// on failure.
+func decodeSnippet(name string, data []byte) (map[string]any, error) {
+	format, ok := configdecode.FormatFor(name)
+	if !ok {
+		format = configdecode.FormatJSON
 	}
-}
-
-// parseConfigFile unmarshals config data into cfg in the format its extension
-// implies.
-func parseConfigFile(name string, data []byte, cfg *map[string]any) error {
-	format := configFormatFor(name)
-	if format == configTOML {
-		return toml.Unmarshal(data, cfg)
-	}
-	if format == configYAML {
-		return yaml.Unmarshal(data, cfg)
-	}
-	return json5.Unmarshal(data, cfg)
+	return configdecode.Decode(format, data)
 }
 
 // MergedConfig is the outcome of merging snippet files: the marshaled config
@@ -206,11 +179,14 @@ func BuildMerged(configPath, pattern string, dirs []string) (MergedConfig, error
 // config file (hermes' config.yaml) is both the agent's input and something
 // users edit, so it is never handed a JSON document under a .yaml name.
 func marshalConfig(configPath string, merged map[string]any) ([]byte, error) {
-	format := configFormatFor(configPath)
-	if format == configTOML {
+	format, ok := configdecode.FormatFor(configPath)
+	if !ok {
+		format = configdecode.FormatJSON
+	}
+	if format == configdecode.FormatTOML {
 		return toml.Marshal(merged)
 	}
-	if format == configYAML {
+	if format == configdecode.FormatYAML {
 		return yaml.Marshal(merged)
 	}
 	return marshalJSONConfig(merged)
@@ -230,8 +206,9 @@ func marshalJSONConfig(merged map[string]any) ([]byte, error) {
 // parsed in the format configPath's extension calls for. Either side failing
 // to parse counts as a difference.
 func DocumentsEqual(configPath string, a, b []byte) bool {
-	var documentA, documentB map[string]any
-	if parseConfigFile(configPath, a, &documentA) != nil || parseConfigFile(configPath, b, &documentB) != nil {
+	documentA, aErr := decodeSnippet(configPath, a)
+	documentB, bErr := decodeSnippet(configPath, b)
+	if aErr != nil || bErr != nil {
 		return false
 	}
 	return reflect.DeepEqual(documentA, documentB)

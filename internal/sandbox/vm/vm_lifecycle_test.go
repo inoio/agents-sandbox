@@ -110,7 +110,7 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 
 // TestProjectVMLockSeamResolution pins the seam contract: a nil
 // options.Seams.ProjectVMLock uses the production default (acquireProjectVMLock),
-// while a set field is used as-is.
+// while a set field is called with the state.Key mapped to options.ProjectVMKey.
 func TestProjectVMLockSeamResolution(t *testing.T) {
 	orig := acquireProjectVMLock
 	t.Cleanup(func() { acquireProjectVMLock = orig })
@@ -122,9 +122,13 @@ func TestProjectVMLockSeamResolution(t *testing.T) {
 	}
 
 	seamErr := errors.New("injected lock")
-	seam := func(state.Key) (func(), error) { return nil, seamErr }
+	var gotKey options.ProjectVMKey
+	seam := func(k options.ProjectVMKey) (func(), error) { gotKey = k; return nil, seamErr }
 	if _, err := projectVMLock(options.Seams{ProjectVMLock: seam})(testVMKey()); !errors.Is(err, seamErr) {
 		t.Errorf("set seam lock error = %v, want %v", err, seamErr)
+	}
+	if wantKey := (options.ProjectVMKey{Slug: "testproj", Agent: "opencode"}); gotKey != wantKey {
+		t.Errorf("seam key = %+v, want %+v", gotKey, wantKey)
 	}
 }
 
@@ -171,7 +175,7 @@ func TestAcquireProjectVMLockRejectsARelativeStateRoot(t *testing.T) {
 // lockRecorder is a project-VM lock seam that records whether it is held.
 type lockRecorder struct{ held bool }
 
-func (l *lockRecorder) acquire(state.Key) (func(), error) {
+func (l *lockRecorder) acquire(options.ProjectVMKey) (func(), error) {
 	l.held = true
 	return func() { l.held = false }, nil
 }
@@ -376,7 +380,7 @@ func TestEnsureProjectVMFailsBeforeCreatingAVM(t *testing.T) {
 		{
 			name: "creation lock cannot be acquired",
 			arrange: func(_ *testing.T, _ *msb.MockMsbClient, creation *ProjectVMCreation, cause error) {
-				creation.Seams.ProjectVMLock = func(state.Key) (func(), error) { return nil, cause }
+				creation.Seams.ProjectVMLock = func(options.ProjectVMKey) (func(), error) { return nil, cause }
 			},
 			wantText:     "acquire project flock",
 			wantNoCreate: true,
@@ -487,7 +491,7 @@ func withFailingReconcile(h *msb.MockSandboxHandle) *msb.MockSandboxHandle {
 	return h
 }
 
-func noProjectVMLock(state.Key) (func(), error) { return func() {}, nil }
+func noProjectVMLock(options.ProjectVMKey) (func(), error) { return func() {}, nil }
 
 // TestEnsureProjectVMResolvesAnExistingVM pins what EnsureProjectVM makes of a
 // VM it finds: the runtime's connect-or-start connects or boots it, and the
@@ -985,11 +989,54 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 	}
 }
 
+// TestEffectiveTmpSizeMiBClampsToMemory pins the creation-side clamp: the
+// resolved tmp is capped at the effective memory with a warning, so a host-RAM
+// clamp cannot leave a RAM-backed tmpfs larger than the VM's memory.
+func TestEffectiveTmpSizeMiBClampsToMemory(t *testing.T) {
+	ui := &termio.Mock{}
+	if got := effectiveTmpSizeMiB("48G", 32*1024, ui); got != 32*1024 {
+		t.Errorf("effectiveTmpSizeMiB = %d, want 32768 (clamped to memory)", got)
+	}
+	if len(ui.WarnCalls) == 0 {
+		t.Error("expected a warning when the tmp is clamped to memory")
+	}
+
+	ui = &termio.Mock{}
+	if got := effectiveTmpSizeMiB("2G", 32*1024, ui); got != 2048 {
+		t.Errorf("effectiveTmpSizeMiB = %d, want 2048 (already below memory)", got)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none when the tmp is below memory", ui.WarnCalls)
+	}
+}
+
+// TestEffectiveTmpSizeMiBAtMemoryDoesNotWarn pins that a tmp equal to the
+// effective memory is not clamped (nothing to clamp) and does not warn.
+func TestEffectiveTmpSizeMiBAtMemoryDoesNotWarn(t *testing.T) {
+	ui := &termio.Mock{}
+	if got := effectiveTmpSizeMiB("2048M", 2048, ui); got != 2048 {
+		t.Errorf("effectiveTmpSizeMiB = %d, want 2048", got)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none at the memory", ui.WarnCalls)
+	}
+}
+
+// TestEffectiveTmpSizeMiBDerivesFromEffectiveMemory pins that an unset tmp
+// derives from the effective memory, so a host-RAM clamp also lowers the tmp
+// default.
+func TestEffectiveTmpSizeMiBDerivesFromEffectiveMemory(t *testing.T) {
+	ui := &termio.Mock{}
+	if got := effectiveTmpSizeMiB("", 2048, ui); got != 1024 {
+		t.Errorf("effectiveTmpSizeMiB(\"\", 2048) = %d, want 1024", got)
+	}
+}
+
 func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
 	mounts := buildMounts(
 		"test-home-vol",
 		"/repo/path",
-		options.DefaultTmpSizeMiB,
+		options.DefaultTmpSizeCapMiB,
 		options.DefaultWorkspaceQuotaMiB,
 		nil,
 	)
@@ -1019,7 +1066,7 @@ func TestBuildMountsRespectsCustomTmpSize(t *testing.T) {
 }
 
 func TestBuildMountsSetsWorkspaceQuota(t *testing.T) {
-	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeMiB, 32*1024, nil)
+	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeCapMiB, 32*1024, nil)
 
 	wsMount, ok := mounts[defaultTargetDir]
 	if !ok {
@@ -1037,7 +1084,7 @@ func TestBuildMountsSetsWorkspaceMirrorHostPermissions(t *testing.T) {
 	mounts := buildMounts(
 		"test-home-vol",
 		"/repo/path",
-		options.DefaultTmpSizeMiB,
+		options.DefaultTmpSizeCapMiB,
 		options.DefaultWorkspaceQuotaMiB,
 		nil,
 	)
@@ -1059,7 +1106,7 @@ func TestBuildMountsWorkspaceQuotaDefault(t *testing.T) {
 	mounts := buildMounts(
 		"test-home-vol",
 		"/repo/path",
-		options.DefaultTmpSizeMiB,
+		options.DefaultTmpSizeCapMiB,
 		options.DefaultWorkspaceQuotaMiB,
 		nil,
 	)
@@ -1077,7 +1124,7 @@ func TestBuildMountsIncludesConfiguredBindMount(t *testing.T) {
 	mounts := buildMounts(
 		"test-home-vol",
 		"/repo/path",
-		options.DefaultTmpSizeMiB,
+		options.DefaultTmpSizeCapMiB,
 		options.DefaultWorkspaceQuotaMiB,
 		mounts.Mounts{
 			"/home/dev/.m2": {Source: "/host/home/.m2"},
@@ -1120,7 +1167,7 @@ func TestBuildMountsKeepsManagedMounts(t *testing.T) {
 	built := buildMounts(
 		"test-home-vol",
 		"/repo/path",
-		options.DefaultTmpSizeMiB,
+		options.DefaultTmpSizeCapMiB,
 		options.DefaultWorkspaceQuotaMiB,
 		mounts.Mounts{"/home/dev/.m2": {Source: "/host/.m2"}},
 	)

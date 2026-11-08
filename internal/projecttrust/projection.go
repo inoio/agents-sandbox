@@ -232,7 +232,7 @@ func (c inputCollector) recordRead(path string, approval projectguard.Approval) 
 // addConfigFile adds the launcher config file's keys and its home: manifest,
 // both parsed from one read, and returns the manifest.
 func (c inputCollector) addConfigFile(projectDir string) (homeconfig.Manifest, error) {
-	path, ext, found := configpaths.FindConfigFile(projectDir)
+	path, _, found := configpaths.FindConfigFile(projectDir)
 	if !found {
 		return homeconfig.Manifest{}, nil
 	}
@@ -240,11 +240,11 @@ func (c inputCollector) addConfigFile(projectDir string) (homeconfig.Manifest, e
 	if err != nil {
 		return nil, err
 	}
-	settings, err := viperconfig.ParseLayerSettings(path, ext, data)
+	settings, err := viperconfig.ParseLayerSettings(path, data)
 	if err != nil {
 		return nil, err
 	}
-	manifest, _, err := homeconfig.ParseHomeConfig(path, ext, data)
+	manifest, _, err := homeconfig.ParseHomeConfig(path, data)
 	if err != nil {
 		return nil, err
 	}

@@ -5,9 +5,16 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
+
+// ProjectVMKey identifies a project artifact by project slug and agent. It is
+// the seam's own key type so options does not import the state persistence
+// package; vm adapts it to state.Key where the lock is taken.
+type ProjectVMKey struct {
+	Slug  string
+	Agent string
+}
 
 // Seams carries the run's behavior test seams: the injectable functions the run
 // and shell lifecycle stages would otherwise reach through package-level
@@ -17,7 +24,7 @@ import (
 type Seams struct {
 	// ProjectVMLock takes the per-(slug, agent) creation lock that serializes a
 	// project VM's create and destroy.
-	ProjectVMLock func(k state.Key) (func(), error)
+	ProjectVMLock func(k ProjectVMKey) (func(), error)
 	// DaemonHealth runs the agent serve daemon's health probe command.
 	DaemonHealth func(ctx context.Context, sb msb.Sandbox, command string) (string, int, error)
 	// AgentLatestVersion resolves an agent's newest release for the upgrade

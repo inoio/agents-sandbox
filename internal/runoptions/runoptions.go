@@ -356,32 +356,11 @@ func resolvePorts(cfg *viperconfig.Config, cmd *cobra.Command, opts *options.Run
 	return nil
 }
 
-// resolveSizes validates the resolved tmp-size, disk-size, and workspace-quota
-// values against the shared size grammar.
+// resolveSizes validates the resolved memory, tmp-size, disk-size, and
+// workspace-quota specs against the shared size contract. It runs after the
+// flag > env > config merge, so a bad flag is caught the same as a bad config
+// value, and it is the only size validation: viperconfig.validate sees only the
+// config-file layer and would miss a flag.
 func resolveSizes(opts *options.RunOptions) error {
-	if opts.TmpSize != "" {
-		if _, ok := options.ParseMemoryOK(opts.TmpSize); !ok {
-			return fmt.Errorf(
-				"invalid --tmp-size %q: expected a size like 4G, 512M, or 2048",
-				opts.TmpSize,
-			)
-		}
-	}
-	if opts.DiskSize != "" {
-		if _, ok := options.ParseMemoryOK(opts.DiskSize); !ok {
-			return fmt.Errorf(
-				"invalid --disk-size %q: expected a size like 16G, 512M, or 4096",
-				opts.DiskSize,
-			)
-		}
-	}
-	if opts.WorkspaceQuota != "" {
-		if _, ok := options.ParseMemoryOK(opts.WorkspaceQuota); !ok {
-			return fmt.Errorf(
-				"invalid --workspace-quota %q: expected a size like 16G, 512M, or 4096",
-				opts.WorkspaceQuota,
-			)
-		}
-	}
-	return nil
+	return options.ValidateSizes(opts.Memory, opts.TmpSize, opts.DiskSize, opts.WorkspaceQuota)
 }

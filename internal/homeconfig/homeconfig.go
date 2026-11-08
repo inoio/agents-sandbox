@@ -5,7 +5,6 @@
 package homeconfig
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -15,23 +14,29 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/titanous/json5"
-	"go.yaml.in/yaml/v4"
-
+	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/yamlfmt"
 )
 
-// ParseHomeSection parses the home manifest from raw config-file data (YAML or
-// JSON; JSON5/JSONC must be normalized first). The boolean reports whether a
-// top-level "home" key was present. path is used only for error messages.
+// ParseHomeSection parses the home manifest from raw YAML config-file data.
+// JSON is a subset of YAML and parses too; JSON5/JSONC must be normalized by the
+// caller. The boolean reports whether a top-level "home" key was present. path
+// is used only for error messages.
+//
+//deadcode:ignore reason="exported parse seam kept for tests and FuzzParseHomeSection; the home read path shares homeSection"
 func ParseHomeSection(data []byte, path string) (Manifest, bool, error) {
-	var root map[string]any
-	if err := yaml.Unmarshal(data, &root); err != nil {
+	root, err := configdecode.Decode(configdecode.FormatYAML, data)
+	if err != nil {
 		return nil, false, yamlfmt.WrapErr(path, err)
 	}
+	return homeSection(root, path)
+}
+
+// homeSection extracts the home manifest from a decoded config document. The
+// boolean reports whether a top-level "home" key was present.
+func homeSection(root map[string]any, path string) (Manifest, bool, error) {
 	homeRaw, ok := root["home"]
 	if !ok {
 		return Manifest{}, false, nil
@@ -77,32 +82,25 @@ func parseManifestValue(raw any, path string) (Manifest, error) {
 // ReadHomeFromConfigDir reads the config file in dir and returns its home
 // manifest. The boolean reports whether a home key was present.
 func ReadHomeFromConfigDir(dir string) (Manifest, bool, error) {
-	path, ext, ok := configpaths.FindConfigFile(dir)
+	path, _, ok := configpaths.FindConfigFile(dir)
 	if !ok {
 		return Manifest{}, false, nil
 	}
-	data, err := projectguard.ReadFile(path, configread.ReadFile)
+	root, err := configdecode.DecodeFile(path, "config")
 	if err != nil {
-		return nil, false, fmt.Errorf("read config %s: %w", path, err)
+		return nil, false, err
 	}
-	return ParseHomeConfig(path, ext, data)
+	return homeSection(root, path)
 }
 
 // ParseHomeConfig returns the home manifest of the config file data read from
-// path, with extension ext. The boolean reports whether a home key was present.
-func ParseHomeConfig(path, ext string, data []byte) (Manifest, bool, error) {
-	if ext == configpaths.ExtJSON5 || ext == configpaths.ExtJSONC {
-		var m map[string]any
-		if unmarshalErr := json5.Unmarshal(data, &m); unmarshalErr != nil {
-			return nil, false, fmt.Errorf("parse config %s: %w", path, unmarshalErr)
-		}
-		normalized, err := json.Marshal(m)
-		if err != nil {
-			return nil, false, fmt.Errorf("normalize config %s: %w", path, err)
-		}
-		data = normalized
+// path. The boolean reports whether a home key was present.
+func ParseHomeConfig(path string, data []byte) (Manifest, bool, error) {
+	root, err := configdecode.DecodeData(path, "config", data)
+	if err != nil {
+		return nil, false, err
 	}
-	return ParseHomeSection(data, path)
+	return homeSection(root, path)
 }
 
 // startupHook is the only supported startup-hook value.

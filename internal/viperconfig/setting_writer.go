@@ -2,7 +2,6 @@ package viperconfig
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -10,11 +9,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/titanous/json5"
-	"go.yaml.in/yaml/v4"
 	oneyaml "oneyaml.dev/go"
 
 	"github.com/inoio/agents-sandbox/internal/atomicwrite"
+	"github.com/inoio/agents-sandbox/internal/configdecode"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
@@ -57,37 +55,18 @@ func LayerSettingOwner(paths configpaths.ConfigPaths, slug, key string) (string,
 // format that file uses. An absent, unreadable, or unparseable file reports
 // false.
 func layerSetsKey(dir, key string) bool {
-	path, ext, ok := configpaths.FindConfigFile(dir)
-	// gomutants:disable-next-line BRANCH_IF reason="without a config file the empty path fails os.ReadFile and the next guard returns false, so the body is redundant"
+	path, _, ok := configpaths.FindConfigFile(dir)
+	// gomutants:disable-next-line BRANCH_IF reason="without a config file the empty path fails configread's open and the next guard returns false, so the body is redundant"
 	if !ok {
 		return false
 	}
-	values, err := readLayerValues(path, ext)
-	// A parse error must discard the values: yaml.v3 fills earlier keys before
-	// a later error, so the partial map can still hold the key.
+	values, err := configdecode.DecodeFile(path, "launcher config")
+	// A parse error must discard the values: the decoders fill earlier keys
+	// before a later error, so the partial map can still hold the key.
 	if err != nil {
 		return false
 	}
 	return mapSetsKey(values, key)
-}
-
-// readLayerValues parses a config file into a nested string-keyed map using the
-// parser its extension implies, mirroring mergeDir.
-func readLayerValues(path, ext string) (map[string]any, error) {
-	data, err := configread.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	values := map[string]any{}
-	switch ext {
-	case extYAML, extYML:
-		err = yaml.Unmarshal(data, &values)
-	case configpaths.ExtJSON5, configpaths.ExtJSONC:
-		err = json5.Unmarshal(data, &values)
-	default:
-		err = json.Unmarshal(data, &values)
-	}
-	return values, err
 }
 
 // mapSetsKey reports whether the dotted key is present in values, descending
