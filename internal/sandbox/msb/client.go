@@ -90,8 +90,7 @@ func (realMsbClient) EnsureInstalled(ctx context.Context) error {
 	if skipRuntimeInstall {
 		return nil
 	}
-	_, err := ensureRuntime(ctx, runtimeConfig(), msbSdk.InstallOptions{})
-	return err
+	return EnsureRuntime(ctx)
 }
 
 func (realMsbClient) GetSandbox(ctx context.Context, name string) (SandboxHandle, error) {

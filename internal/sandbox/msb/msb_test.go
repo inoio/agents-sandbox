@@ -552,6 +552,84 @@ func TestRealClientEnsureInstalledPassesPrivateHome(t *testing.T) {
 	}
 }
 
+func TestPinnedRuntimeVersionMatchesSDK(t *testing.T) {
+	if got := PinnedRuntimeVersion(); got != msbSdk.SDKVersion() || got == "" {
+		t.Errorf("PinnedRuntimeVersion() = %q, want %q", got, msbSdk.SDKVersion())
+	}
+}
+
+func TestEnsureRuntimePassesPrivateHome(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	var gotConfig msbSdk.RuntimeConfig
+	var gotOpts msbSdk.InstallOptions
+	orig := ensureRuntime
+	ensureRuntime = func(_ context.Context, config msbSdk.RuntimeConfig, opts msbSdk.InstallOptions) (msbSdk.ResolvedRuntime, error) {
+		gotConfig, gotOpts = config, opts
+		return msbSdk.ResolvedRuntime{}, nil
+	}
+	t.Cleanup(func() { ensureRuntime = orig })
+
+	if err := EnsureRuntime(context.Background()); err != nil {
+		t.Fatalf("EnsureRuntime() error = %v", err)
+	}
+	if gotConfig.Home != configpaths.MSBHome() {
+		t.Errorf("RuntimeConfig.Home = %q, want %q", gotConfig.Home, configpaths.MSBHome())
+	}
+	if gotOpts.Force {
+		t.Error("EnsureRuntime() forced an install; want no force")
+	}
+}
+
+func TestEnsureRuntimePropagatesError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("ensure boom")
+	orig := ensureRuntime
+	ensureRuntime = func(context.Context, msbSdk.RuntimeConfig, msbSdk.InstallOptions) (msbSdk.ResolvedRuntime, error) {
+		return msbSdk.ResolvedRuntime{}, wantErr
+	}
+	t.Cleanup(func() { ensureRuntime = orig })
+
+	if err := EnsureRuntime(context.Background()); !errors.Is(err, wantErr) {
+		t.Errorf("EnsureRuntime() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestInstallRuntimePassesPrivateHomeAndForces(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	var gotConfig msbSdk.RuntimeConfig
+	var gotOpts msbSdk.InstallOptions
+	orig := installRuntime
+	installRuntime = func(_ context.Context, config msbSdk.RuntimeConfig, opts msbSdk.InstallOptions) (msbSdk.ResolvedRuntime, error) {
+		gotConfig, gotOpts = config, opts
+		return msbSdk.ResolvedRuntime{}, nil
+	}
+	t.Cleanup(func() { installRuntime = orig })
+
+	if err := InstallRuntime(context.Background()); err != nil {
+		t.Fatalf("InstallRuntime() error = %v", err)
+	}
+	if gotConfig.Home != configpaths.MSBHome() {
+		t.Errorf("RuntimeConfig.Home = %q, want %q", gotConfig.Home, configpaths.MSBHome())
+	}
+	if !gotOpts.Force {
+		t.Error("InstallRuntime() did not force the install; want force")
+	}
+}
+
+func TestInstallRuntimePropagatesError(t *testing.T) {
+	configpaths.WithMockConfigPaths(t)
+	wantErr := errors.New("install boom")
+	orig := installRuntime
+	installRuntime = func(context.Context, msbSdk.RuntimeConfig, msbSdk.InstallOptions) (msbSdk.ResolvedRuntime, error) {
+		return msbSdk.ResolvedRuntime{}, wantErr
+	}
+	t.Cleanup(func() { installRuntime = orig })
+
+	if err := InstallRuntime(context.Background()); !errors.Is(err, wantErr) {
+		t.Errorf("InstallRuntime() error = %v, want %v", err, wantErr)
+	}
+}
+
 func TestRealSandboxDetachedDelegates(t *testing.T) {
 	ctx := context.Background()
 

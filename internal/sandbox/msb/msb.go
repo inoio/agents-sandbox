@@ -31,6 +31,7 @@ func SkipRuntimeInstall() { skipRuntimeInstall = true }
 var (
 	resolveRuntime = msbSdk.ResolveRuntime
 	ensureRuntime  = msbSdk.EnsureRuntime
+	installRuntime = msbSdk.InstallRuntime
 )
 
 // runtimeConfig names agents-sandbox's private runtime home explicitly. MSB_HOME
@@ -42,5 +43,23 @@ func runtimeConfig() msbSdk.RuntimeConfig {
 // ValidateInstalled checks the SDK-managed runtime without downloading it.
 func ValidateInstalled(_ context.Context) error {
 	_, err := resolveRuntime(runtimeConfig())
+	return err
+}
+
+// PinnedRuntimeVersion is the microsandbox runtime version the linked SDK
+// requires; the launcher compares the installed runtime against it.
+func PinnedRuntimeVersion() string { return msbSdk.SDKVersion() }
+
+// EnsureRuntime installs the SDK-pinned runtime into the private home if it is
+// absent, leaving an existing complete pair in place.
+func EnsureRuntime(ctx context.Context) error {
+	_, err := ensureRuntime(ctx, runtimeConfig(), msbSdk.InstallOptions{})
+	return err
+}
+
+// InstallRuntime force-installs the SDK-pinned runtime into the private home,
+// replacing a complete but stale pair.
+func InstallRuntime(ctx context.Context) error {
+	_, err := installRuntime(ctx, runtimeConfig(), msbSdk.InstallOptions{Force: true})
 	return err
 }
