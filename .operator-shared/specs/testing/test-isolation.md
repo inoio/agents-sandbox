@@ -1,6 +1,6 @@
 ---
-description: Contract for keeping tests off real host state - the fail-fast seam mocks installed by every test package's TestMain, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, the msb-tagged isolated runtime home and its stop-then-remove sandbox teardown, and the rule that seam overrides must be restored so the suite stays idempotent under -count>1.
-read_if: Adding a test package or a TestMain, debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, or a test that passes at -count=1 but fails under -count>1.
+description: Contract for keeping tests off real host state - the fail-fast seam mocks installed by every test package's TestMain, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, the msb-tagged isolated runtime home and its stop-then-remove sandbox teardown, the rule that seam overrides must be restored so the suite stays idempotent under -count>1, and the absolute-write-root invariant that guards every state/config write funnel at the consumer so an unresolved root cannot write relative to the process CWD.
+read_if: Adding a test package or a TestMain, debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, a test that passes at -count=1 but fails under -count>1, or a state/config/lock write that must reject a path that did not resolve to an absolute root.
 ---
 
 # Test isolation
@@ -222,6 +222,25 @@ one must still restore it with `t.Cleanup`/`defer`.
 The incident: `TestResolveBuildVersionPromptNamesThisProjectsVersion` replaced `agentLatestVersion` without restoring
 it, so the coverage tests asserting the real default closure passed at `-count=1` (alphabetical file order runs them
 first) but failed 19/20 at `-count=20`.
+
+## Absolute write roots
+
+Every state and config write funnel validates the **concrete path a helper returned** is an absolute root
+before it writes, so a root that failed to resolve cannot make the write land relative to the process working
+directory. Without the guard, a path helper returning the zero value makes `filepath.Join("", …)` resolve under
+the CWD — which during a mutation sweep is the package source directory — leaving `state.yaml`, `config.yaml`,
+and lock files next to the code. gomutants does not undo filesystem side effects, so the residue persists.
+
+The guard reads the returned value at the **consumer**, never inside the helper: a guard inside `stateRoot` is
+bypassed by the `RETURN_ZERO` mutant that zeroes it. Guarded funnels: `state.writeState`; the home, project-VM,
+and root locks and the claim/client-lease dirs (`state.requireAbsoluteStatePath`); the VM creation lock that
+`EnsureProjectVM` reaches through `state.AcquireProjectVMLock` (the raw `hostlock.AcquireExclusive` is itself
+unguarded); and `resourceproposal.requireWritableConfigDir` for the config write. The project config base is the
+one intentional relative root, validated as exactly that so the legitimate relative project layer still writes.
+
+This is also a production-behaviour change: with `$HOME` unset and the relevant XDG variable unset or relative,
+`configpaths.xdgBaseDir` degrades to a relative path. Writes targeting that unresolved root now fail at the write
+funnel instead of landing relative to the CWD. An absolute XDG value still supplies a valid root.
 
 ## Audit status (2026-11-06)
 
