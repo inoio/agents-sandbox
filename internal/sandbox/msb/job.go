@@ -82,13 +82,18 @@ type realStreamHandle struct {
 	handle *msbSdk.ExecHandle
 }
 
+var (
+	realStreamRecv  = (*msbSdk.ExecHandle).Recv
+	realStreamClose = (*msbSdk.ExecHandle).Close
+)
+
 // Recv maps the SDK's ExecEventKind onto StreamEventKind explicitly. The SDK
 // enum has extra kinds (Started, StdinError, Done) so a numeric cast would
 // mislabel events. Done is translated to io.EOF so callers can detect a clean
 // stream end; Started/StdinError carry no stdout payload and are skipped.
 func (h *realStreamHandle) Recv(ctx context.Context) (StreamEvent, error) {
 	for {
-		ev, err := h.handle.Recv(ctx)
+		ev, err := realStreamRecv(h.handle, ctx)
 		if err != nil {
 			return StreamEvent{}, err
 		}
@@ -128,4 +133,4 @@ func mapExecEvent(ev msbSdk.ExecEvent) (StreamEvent, bool, error) {
 	}
 }
 
-func (h *realStreamHandle) Close() error { return h.handle.Close() }
+func (h *realStreamHandle) Close() error { return realStreamClose(h.handle) }

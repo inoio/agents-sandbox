@@ -16,14 +16,15 @@ coverage:
         target: 100%
         threshold: 0%
 
-# Test doubles (testmock.go) are shared fixtures for other packages' tests, not
-# product code; their own tests pin only fail-open contracts (see
-# .operator-shared/specs/testing/test-coverage.md), so their coverage is not gated.
-# testgit.go is test support too: RunGit executes the real git binary, so its
-# behaviour tests need the integration build tag and cannot run in the default
-# coverage profile; its env-building is unit-tested purely instead.
+# Test doubles (testmock.go and the role-split testmock_*.go files) are shared
+# fixtures for other packages' tests, not product code; their own tests pin only
+# fail-open contracts (see .operator-shared/specs/testing/test-coverage.md), so
+# their coverage is not gated. testgit.go is test support too: RunGit executes
+# the real git binary, so its behaviour tests need the integration build tag and
+# cannot run in the default coverage profile; its env-building is unit-tested
+# purely instead.
 ignore:
-  - "**/testmock.go"
+  - "**/testmock*.go"
   - "**/testutil/testgit.go"
 
 comment:

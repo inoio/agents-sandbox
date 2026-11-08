@@ -146,7 +146,7 @@ func (w realSandboxHandle) BackendKind() msbSdk.BackendKind {
 }
 
 func (w realSandboxHandle) Image() string {
-	cfg, err := w.handle.Config()
+	cfg, err := realSandboxHandleConfig(w.handle)
 	if err != nil {
 		return ""
 	}
@@ -154,12 +154,20 @@ func (w realSandboxHandle) Image() string {
 }
 
 func (w realSandboxHandle) Connect(ctx context.Context) (Sandbox, error) {
-	sb, err := w.handle.Connect(ctx)
+	sb, err := realSandboxHandleConnect(w.handle, ctx)
 	if err != nil {
 		return nil, err
 	}
 	return &realSandbox{sandbox: sb}, nil
 }
+
+// The handle config/connect delegation targets are package-level seams (method
+// expressions) so the thin adapters are unit-testable without a live VM.
+var (
+	realSandboxHandleConfig     = (*msbSdk.SandboxHandle).Config
+	realSandboxHandleConfigJSON = (*msbSdk.SandboxHandle).ConfigJSON
+	realSandboxHandleConnect    = (*msbSdk.SandboxHandle).Connect
+)
 
 // The connect-or-start delegation targets are package-level seams (method
 // expressions) so the boot report is unit-testable without a live VM.
@@ -202,15 +210,15 @@ func (w realSandboxHandle) Destroy(ctx context.Context, opts ...msbSdk.DestroyOp
 }
 
 func (w realSandboxHandle) Config() (*msbSdk.SandboxConfig, error) {
-	return w.handle.Config()
+	return realSandboxHandleConfig(w.handle)
 }
 
 func (w realSandboxHandle) ConfigMounts() (map[string]msbSdk.MountConfig, error) {
-	return ParseConfigMounts(w.handle.ConfigJSON())
+	return ParseConfigMounts(realSandboxHandleConfigJSON(w.handle))
 }
 
 func (w realSandboxHandle) ConfigPorts() ([]msbSdk.PortBinding, error) {
-	return ParseConfigPorts(w.handle.ConfigJSON())
+	return ParseConfigPorts(realSandboxHandleConfigJSON(w.handle))
 }
 
 func (w realSandboxHandle) Modify(
@@ -245,7 +253,7 @@ func (s realSandbox) FS() SandboxFS {
 }
 
 func (s realSandbox) Shell(ctx context.Context, command string, opts ...msbSdk.ExecOption) (ShellResult, error) {
-	return s.sandbox.Shell(ctx, command, opts...)
+	return realSandboxShell(s.sandbox, ctx, command, opts...)
 }
 
 func (s realSandbox) Exec(
@@ -254,7 +262,7 @@ func (s realSandbox) Exec(
 	args []string,
 	opts ...msbSdk.ExecOption,
 ) (ShellResult, error) {
-	return s.sandbox.Exec(ctx, command, args, opts...)
+	return realSandboxExec(s.sandbox, ctx, command, args, opts...)
 }
 
 func (s realSandbox) ShellStream(
@@ -262,7 +270,7 @@ func (s realSandbox) ShellStream(
 	command string,
 	opts ...msbSdk.ExecOption,
 ) (StreamHandle, error) {
-	handle, err := s.sandbox.ShellStream(ctx, command, opts...)
+	handle, err := realSandboxShellStream(s.sandbox, ctx, command, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -318,6 +326,9 @@ func (s realSandbox) ListJobs(ctx context.Context, opts ...msbSdk.JobListOption)
 // Each delegation target is a package-level seam (a method expression) so the
 // thin wrapper is unit-testable without a live VM.
 var (
+	realSandboxShell        = (*msbSdk.Sandbox).Shell
+	realSandboxExec         = (*msbSdk.Sandbox).Exec
+	realSandboxShellStream  = (*msbSdk.Sandbox).ShellStream
 	realSandboxExecDetached = (*msbSdk.Sandbox).ExecDetached
 	realSandboxGetJob       = (*msbSdk.Sandbox).GetJob
 	realSandboxListJobs     = (*msbSdk.Sandbox).ListJobs

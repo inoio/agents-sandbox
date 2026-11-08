@@ -33,6 +33,7 @@ func GetVMStatus(status msbSdk.SandboxStatus) (VMStatusKind, error) {
 	case msbSdk.SandboxStatusStopped, msbSdk.SandboxStatusCrashed:
 		return VMStatusStopped, nil
 	default:
+		// gomutants:disable-next-line RETURN_ZERO reason="VMStatusUnknown is VMStatusKind's zero value, so a RETURN_ZERO replacement is identical"
 		return VMStatusUnknown, fmt.Errorf("unexpected sandbox status: %q", status)
 	}
 }

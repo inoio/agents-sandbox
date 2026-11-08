@@ -417,6 +417,11 @@ func TestMapExecEvent(t *testing.T) {
 			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventStdinError},
 			ok:   false,
 		},
+		{
+			name: "unknown kind is skipped",
+			ev:   msbSdk.ExecEvent{Kind: msbSdk.ExecEventKind(9999)},
+			ok:   false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -433,6 +438,60 @@ func TestMapExecEvent(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRealStreamHandleRecvAndClose covers the streaming handle's Recv loop
+// (skip payload-less events, return the first payload, surface errors and the
+// clean-end io.EOF) and its Close delegation, all without a live VM.
+func TestRealStreamHandleRecvAndClose(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("skips payload-less events then returns the payload", func(t *testing.T) {
+		events := []msbSdk.ExecEvent{
+			{Kind: msbSdk.ExecEventStarted},
+			{Kind: msbSdk.ExecEventStdout, Data: []byte("hi")},
+		}
+		consumed := 0
+		swapSeam(t, &realStreamRecv, func(_ *msbSdk.ExecHandle, _ context.Context) (*msbSdk.ExecEvent, error) {
+			ev := events[consumed]
+			consumed++
+			return &ev, nil
+		})
+		got, err := (&realStreamHandle{}).Recv(ctx)
+		if err != nil || got.Kind != StreamEventStdout || string(got.Data) != "hi" || consumed != 2 {
+			t.Fatalf("Recv() = (%+v, %v), consumed=%d; want stdout \"hi\" after skipping Started", got, err, consumed)
+		}
+	})
+
+	t.Run("done maps to io.EOF", func(t *testing.T) {
+		swapSeam(t, &realStreamRecv, func(_ *msbSdk.ExecHandle, _ context.Context) (*msbSdk.ExecEvent, error) {
+			return &msbSdk.ExecEvent{Kind: msbSdk.ExecEventDone}, nil
+		})
+		if _, err := (&realStreamHandle{}).Recv(ctx); !errors.Is(err, io.EOF) {
+			t.Fatalf("Recv() error = %v, want io.EOF", err)
+		}
+	})
+
+	t.Run("recv error propagates", func(t *testing.T) {
+		wantErr := errors.New("recv boom")
+		swapSeam(t, &realStreamRecv, func(_ *msbSdk.ExecHandle, _ context.Context) (*msbSdk.ExecEvent, error) {
+			return nil, wantErr
+		})
+		if _, err := (&realStreamHandle{}).Recv(ctx); !errors.Is(err, wantErr) {
+			t.Fatalf("Recv() error = %v, want %v", err, wantErr)
+		}
+	})
+
+	t.Run("Close delegates", func(t *testing.T) {
+		called := false
+		swapSeam(t, &realStreamClose, func(_ *msbSdk.ExecHandle) error {
+			called = true
+			return nil
+		})
+		if err := (&realStreamHandle{}).Close(); err != nil || !called {
+			t.Fatalf("Close() = %v, called=%v; want nil, true", err, called)
+		}
+	})
 }
 
 func TestRealSandboxFS(t *testing.T) {
@@ -806,6 +865,81 @@ func TestRealSandboxHandleAccessors(t *testing.T) {
 	}
 }
 
+// TestRealSandboxHandleConfigImageConnect covers the handle's Config/Image and
+// Connect adapters through their SDK seams, including the config-error and
+// connect-error branches that a bare handle cannot reach.
+func TestRealSandboxHandleConfigImageConnect(t *testing.T) {
+	ctx := context.Background()
+	h := realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+
+	t.Run("Config and Image read the SDK config", func(t *testing.T) {
+		swapSeam(t, &realSandboxHandleConfig, func(*msbSdk.SandboxHandle) (*msbSdk.SandboxConfig, error) {
+			return &msbSdk.SandboxConfig{Image: "alpine:3"}, nil
+		})
+		if got := h.Image(); got != "alpine:3" {
+			t.Fatalf("Image() = %q, want alpine:3", got)
+		}
+		cfg, err := h.Config()
+		if err != nil || cfg == nil || cfg.Image != "alpine:3" {
+			t.Fatalf("Config() = (%+v, %v), want image alpine:3", cfg, err)
+		}
+	})
+
+	t.Run("Image reads empty on a config error", func(t *testing.T) {
+		swapSeam(t, &realSandboxHandleConfig, func(*msbSdk.SandboxHandle) (*msbSdk.SandboxConfig, error) {
+			return nil, errors.New("no config")
+		})
+		if got := h.Image(); got != "" {
+			t.Fatalf("Image() = %q, want empty on a config error", got)
+		}
+	})
+
+	t.Run("Connect wraps the SDK sandbox", func(t *testing.T) {
+		live := &msbSdk.Sandbox{}
+		swapSeam(t, &realSandboxHandleConnect, func(*msbSdk.SandboxHandle, context.Context) (*msbSdk.Sandbox, error) {
+			return live, nil
+		})
+		sb, err := h.Connect(ctx)
+		if err != nil || sb == nil {
+			t.Fatalf("Connect() = (%v, %v), want a sandbox, nil", sb, err)
+		}
+		wrapped, ok := sb.(*realSandbox)
+		if !ok || wrapped.sandbox != live {
+			t.Fatalf("Connect() = %#v, want realSandbox wrapping the live handle", sb)
+		}
+	})
+
+	t.Run("Connect propagates the SDK error", func(t *testing.T) {
+		wantErr := errors.New("connect boom")
+		swapSeam(t, &realSandboxHandleConnect, func(*msbSdk.SandboxHandle, context.Context) (*msbSdk.Sandbox, error) {
+			return nil, wantErr
+		})
+		if _, err := h.Connect(ctx); !errors.Is(err, wantErr) {
+			t.Fatalf("Connect() error = %v, want %v", err, wantErr)
+		}
+	})
+}
+
+// TestRealSandboxHandleConfigMounts covers the handle's ConfigMounts adapter
+// through the config-JSON seam, so the delegation to ParseConfigMounts is
+// exercised without a live VM.
+func TestRealSandboxHandleConfigMounts(t *testing.T) {
+	swapSeam(t, &realSandboxHandleConfigJSON, func(*msbSdk.SandboxHandle) string {
+		return persistedConfigWithMounts
+	})
+	h := realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+	mounts, err := h.ConfigMounts()
+	if err != nil {
+		t.Fatalf("ConfigMounts() error = %v", err)
+	}
+	if len(mounts) != 5 {
+		t.Fatalf("ConfigMounts() returned %d mounts, want 5: %+v", len(mounts), mounts)
+	}
+	if workspace := mounts["/workspace"]; workspace.Bind != "/host/proj" {
+		t.Errorf("ConfigMounts()[/workspace] = %+v, want bind /host/proj", workspace)
+	}
+}
+
 // TestRealMsbClientAdapterErrors pins that every adapter propagates the SDK
 // error through its seam.
 func TestRealMsbClientAdapterErrors(t *testing.T) {
@@ -936,6 +1070,27 @@ func TestRealMsbClientListSandboxesPagination(t *testing.T) {
 	}
 	if len(optionCounts) != 2 || optionCounts[0] != 1 || optionCounts[1] != 2 {
 		t.Errorf("ListSandboxesWith option counts = %v, want [1 2]", optionCounts)
+	}
+}
+
+// TestRealMsbClientListSandboxesOmitsLabelOption pins that an empty label
+// filter adds no WithListLabels option, so a nil/empty map does not filter.
+func TestRealMsbClientListSandboxesOmitsLabelOption(t *testing.T) {
+	var optionCounts []int
+	swapSeam(
+		t,
+		&listSandboxesWith,
+		func(_ context.Context, opts ...msbSdk.SandboxListOption) (*msbSdk.SandboxPage, error) {
+			optionCounts = append(optionCounts, len(opts))
+			return &msbSdk.SandboxPage{}, nil
+		},
+	)
+
+	if _, err := (&realMsbClient{}).ListSandboxes(context.Background(), map[string]string{}); err != nil {
+		t.Fatalf("ListSandboxes() error = %v", err)
+	}
+	if len(optionCounts) != 1 || optionCounts[0] != 0 {
+		t.Errorf("ListSandboxesWith option counts = %v, want [0] for empty labels", optionCounts)
 	}
 }
 
@@ -1160,11 +1315,84 @@ func TestRealMsbClientImageAdapters(t *testing.T) {
 
 // TestRealMsbClientImageLoadErrors covers the spooling failure before the SDK
 // seam is reached; the SDK load failure is covered by
-// TestRealMsbClientAdapterErrors.
+// TestRealMsbClientAdapterErrors. The reader's error must be wrapped with %w so
+// callers can unwrap it.
 func TestRealMsbClientImageLoadErrors(t *testing.T) {
-	if err := (&realMsbClient{}).ImageLoad(context.Background(), "ref", errReader{}); err == nil {
-		t.Error("ImageLoad() with failing reader = nil error, want spooling error")
+	wantErr := errors.New("reader boom")
+	err := (&realMsbClient{}).ImageLoad(context.Background(), "ref", errReader{err: wantErr})
+	if !errors.Is(err, wantErr) {
+		t.Errorf("ImageLoad() error = %v, want it to wrap %v", err, wantErr)
 	}
+}
+
+// fakeSpoolFile is an imageSpoolFile whose Write/Sync/Close can each fail, so
+// the ImageLoad spool branches that a real temp file cannot reach are covered.
+type fakeSpoolFile struct {
+	name     string
+	writeErr error
+	syncErr  error
+	closeErr error
+}
+
+func (f *fakeSpoolFile) Write(p []byte) (int, error) {
+	if f.writeErr != nil {
+		return 0, f.writeErr
+	}
+	return len(p), nil
+}
+
+func (f *fakeSpoolFile) Name() string { return f.name }
+func (f *fakeSpoolFile) Sync() error  { return f.syncErr }
+func (f *fakeSpoolFile) Close() error { return f.closeErr }
+
+// TestRealMsbClientImageLoadSpoolFailures covers ImageLoad's temp-file
+// creation, sync, and close failure branches. The close branch is asserted both
+// ways: a close error after a clean spool is surfaced, and a close error after a
+// prior failure does not mask the earlier error.
+func TestRealMsbClientImageLoadSpoolFailures(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("creating the temp file fails", func(t *testing.T) {
+		wantErr := errors.New("temp boom")
+		swapSeam(t, &createImageSpoolFile, func() (imageSpoolFile, error) { return nil, wantErr })
+		if err := (&realMsbClient{}).ImageLoad(ctx, "ref", strings.NewReader("x")); !errors.Is(err, wantErr) {
+			t.Fatalf("ImageLoad() error = %v, want %v", err, wantErr)
+		}
+	})
+
+	t.Run("syncing fails", func(t *testing.T) {
+		wantErr := errors.New("sync boom")
+		swapSeam(t, &createImageSpoolFile, func() (imageSpoolFile, error) {
+			return &fakeSpoolFile{name: "spool.tar", syncErr: wantErr}, nil
+		})
+		if err := (&realMsbClient{}).ImageLoad(ctx, "ref", strings.NewReader("x")); !errors.Is(err, wantErr) {
+			t.Fatalf("ImageLoad() error = %v, want %v", err, wantErr)
+		}
+	})
+
+	t.Run("close failure after a clean spool is surfaced", func(t *testing.T) {
+		closeErr := errors.New("close boom")
+		swapSeam(t, &createImageSpoolFile, func() (imageSpoolFile, error) {
+			return &fakeSpoolFile{name: "spool.tar", closeErr: closeErr}, nil
+		})
+		swapSeam(t, &imageLoad, func(context.Context, string, ...string) ([]*msbSdk.ImageHandle, error) {
+			return nil, nil
+		})
+		if err := (&realMsbClient{}).ImageLoad(ctx, "ref", strings.NewReader("x")); !errors.Is(err, closeErr) {
+			t.Fatalf("ImageLoad() error = %v, want %v", err, closeErr)
+		}
+	})
+
+	t.Run("close failure does not mask a prior error", func(t *testing.T) {
+		syncErr := errors.New("sync boom")
+		swapSeam(t, &createImageSpoolFile, func() (imageSpoolFile, error) {
+			return &fakeSpoolFile{name: "spool.tar", syncErr: syncErr, closeErr: errors.New("close boom")}, nil
+		})
+		err := (&realMsbClient{}).ImageLoad(ctx, "ref", strings.NewReader("x"))
+		if !errors.Is(err, syncErr) {
+			t.Fatalf("ImageLoad() error = %v, want the earlier %v not masked by close", err, syncErr)
+		}
+	})
 }
 
 func TestRealSandboxDelegatesToSDK(t *testing.T) {
@@ -1235,6 +1463,74 @@ func TestRealSandboxDelegatesToSDK(t *testing.T) {
 		}
 		if err := (realSandbox{}).Close(); err != nil || !called {
 			t.Fatalf("Close() = %v, called=%v; want nil, true", err, called)
+		}
+	})
+}
+
+// TestRealSandboxShellExecStreamDelegation covers the sandbox's Shell, Exec, and
+// ShellStream adapters through their SDK seams, including the ShellStream
+// success wrap and error branch.
+func TestRealSandboxShellExecStreamDelegation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Shell", func(t *testing.T) {
+		out := &msbSdk.ExecOutput{}
+		swapSeam(t, &realSandboxShell, func(
+			_ *msbSdk.Sandbox, _ context.Context, command string, _ ...msbSdk.ExecOption,
+		) (*msbSdk.ExecOutput, error) {
+			if command != "echo hi" {
+				t.Errorf("Shell() command = %q, want echo hi", command)
+			}
+			return out, nil
+		})
+		got, err := (realSandbox{}).Shell(ctx, "echo hi")
+		if err != nil || got != ShellResult(out) {
+			t.Fatalf("Shell() = (%v, %v), want the SDK output", got, err)
+		}
+	})
+
+	t.Run("Exec", func(t *testing.T) {
+		out := &msbSdk.ExecOutput{}
+		swapSeam(t, &realSandboxExec, func(
+			_ *msbSdk.Sandbox, _ context.Context, command string, args []string, _ ...msbSdk.ExecOption,
+		) (*msbSdk.ExecOutput, error) {
+			if command != "sh" || len(args) != 1 || args[0] != "-c" {
+				t.Errorf("Exec() = (%q, %v), want sh [-c]", command, args)
+			}
+			return out, nil
+		})
+		got, err := (realSandbox{}).Exec(ctx, "sh", []string{"-c"})
+		if err != nil || got != ShellResult(out) {
+			t.Fatalf("Exec() = (%v, %v), want the SDK output", got, err)
+		}
+	})
+
+	t.Run("ShellStream wraps the SDK handle", func(t *testing.T) {
+		handle := &msbSdk.ExecHandle{}
+		swapSeam(t, &realSandboxShellStream, func(
+			_ *msbSdk.Sandbox, _ context.Context, _ string, _ ...msbSdk.ExecOption,
+		) (*msbSdk.ExecHandle, error) {
+			return handle, nil
+		})
+		got, err := (realSandbox{}).ShellStream(ctx, "cmd")
+		if err != nil {
+			t.Fatalf("ShellStream() error = %v", err)
+		}
+		wrapped, ok := got.(*realStreamHandle)
+		if !ok || wrapped.handle != handle {
+			t.Fatalf("ShellStream() = %#v, want realStreamHandle wrapping the SDK handle", got)
+		}
+	})
+
+	t.Run("ShellStream propagates the SDK error", func(t *testing.T) {
+		wantErr := errors.New("stream boom")
+		swapSeam(t, &realSandboxShellStream, func(
+			_ *msbSdk.Sandbox, _ context.Context, _ string, _ ...msbSdk.ExecOption,
+		) (*msbSdk.ExecHandle, error) {
+			return nil, wantErr
+		})
+		if _, err := (realSandbox{}).ShellStream(ctx, "cmd"); !errors.Is(err, wantErr) {
+			t.Fatalf("ShellStream() error = %v, want %v", err, wantErr)
 		}
 	})
 }

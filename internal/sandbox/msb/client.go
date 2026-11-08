@@ -212,8 +212,22 @@ func (realMsbClient) ImageRemove(ctx context.Context, ref string, force bool) er
 	return imageRemove(ctx, ref, force)
 }
 
+// imageSpoolFile is the temp file ImageLoad spools an image archive into. It is
+// an interface so the sync and close failure branches are unit-testable with a
+// fake; production uses the *os.File os.CreateTemp returns.
+type imageSpoolFile interface {
+	io.Writer
+	Name() string
+	Sync() error
+	Close() error
+}
+
+var createImageSpoolFile = func() (imageSpoolFile, error) {
+	return os.CreateTemp("", "agents-sandbox-image-*.tar")
+}
+
 func (realMsbClient) ImageLoad(ctx context.Context, ref string, r io.Reader) (err error) {
-	tmp, err := os.CreateTemp("", "agents-sandbox-image-*.tar")
+	tmp, err := createImageSpoolFile()
 	if err != nil {
 		return fmt.Errorf("creating temp file for image load: %w", err)
 	}
