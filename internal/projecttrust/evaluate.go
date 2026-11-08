@@ -121,6 +121,7 @@ func lineDiff(before, after []string) []string {
 		case before[i] == after[j]:
 			i++
 			j++
+		// gomutants:disable-next-line INTEGER_DECREMENT reason="on a mismatch common[i][j] is the max of common[i+1][j] and common[i][j+1], so comparing with common[i][j] decides the same way"
 		case common[i+1][j] >= common[i][j+1]:
 			lines = append(lines, "- "+before[i])
 			i++
