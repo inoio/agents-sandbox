@@ -193,6 +193,21 @@ func TestServeHostBinding(t *testing.T) {
 	}
 }
 
+func TestBindingsFromSDKTranslatesAndPreservesNil(t *testing.T) {
+	if got := BindingsFromSDK(nil); got != nil {
+		t.Errorf("BindingsFromSDK(nil) = %v, want nil", got)
+	}
+	got := BindingsFromSDK([]msbSdk.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 5173, Protocol: msbSdk.PortProtocolUDP},
+	})
+	want := []msb.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 5173, Protocol: msb.PortProtocolUDP},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("BindingsFromSDK = %+v, want %+v", got, want)
+	}
+}
+
 func TestBindingsEqualIgnoresOrder(t *testing.T) {
 	a := UserPortBindings([]PortMapping{{HostPort: 3000, GuestPort: 3000}, {HostPort: 8080, GuestPort: 5173}})
 	b := UserPortBindings([]PortMapping{{HostPort: 8080, GuestPort: 5173}, {HostPort: 3000, GuestPort: 3000}})

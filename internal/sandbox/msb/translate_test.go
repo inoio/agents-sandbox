@@ -981,6 +981,24 @@ func TestMountConfigsPreservesNil(t *testing.T) {
 	}
 }
 
+func TestPortBindingsPreservesNil(t *testing.T) {
+	if got := portBindings(nil); got != nil {
+		t.Errorf("portBindings(nil) = %v, want nil", got)
+	}
+}
+
+func TestMountConfigUnknownKindIsZero(t *testing.T) {
+	if got := mountConfig(MountConfig{}); got != (msbSdk.MountConfig{}) {
+		t.Errorf("mountConfig(unknown kind) = %+v, want the zero SDK mount", got)
+	}
+}
+
+func TestMountOwnedDefaultsToDir(t *testing.T) {
+	if got := Mount.Owned(OwnedVolumeOptions{}).Owned; got != string(VolumeKindDir) {
+		t.Errorf("Mount.Owned(zero).Owned = %q, want %q", got, VolumeKindDir)
+	}
+}
+
 func TestSecretEntryTranslatesFields(t *testing.T) {
 	if got := secretEntries(nil); got != nil {
 		t.Errorf("secretEntries(nil) = %v, want nil", got)

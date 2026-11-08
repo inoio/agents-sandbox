@@ -34,11 +34,15 @@ func TestSpecUnsetDefaultsToPublic(t *testing.T) {
 }
 
 func TestSpecComposableProfiles(t *testing.T) {
-	spec, err := (Policy{Profiles: []Profile{ProfilePublic, ProfileHost, ProfilePublic}}).Spec()
+	spec, err := (Policy{Profiles: []Profile{ProfilePublic, ProfilePrivate, ProfileHost, ProfilePublic}}).Spec()
 	if err != nil {
 		t.Fatalf("Spec: %v", err)
 	}
-	want := []msb.NetworkProfile{msb.NetworkProfilePublic, msb.NetworkProfileHost}
+	want := []msb.NetworkProfile{
+		msb.NetworkProfilePublic,
+		msb.NetworkProfilePrivate,
+		msb.NetworkProfileHost,
+	}
 	if !slices.Equal(spec.Profiles, want) {
 		t.Fatalf("Spec.Profiles = %v, want deduped %v", spec.Profiles, want)
 	}
