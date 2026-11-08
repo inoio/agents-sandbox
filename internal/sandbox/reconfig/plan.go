@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -142,17 +143,33 @@ func changeListUnder(heading string, changes []Change) string {
 	for _, c := range changes {
 		switch {
 		case c.Old != "" && c.New != "":
-			lines = append(lines, "  - "+c.Label+": "+c.Old+" → "+c.New)
+			lines = append(lines, "  - "+displayValue(c.Label)+": "+displayValue(c.Old)+" → "+displayValue(c.New))
 		case len(c.Details) > 0:
-			lines = append(lines, "  - "+c.Label+":")
+			lines = append(lines, "  - "+displayValue(c.Label)+":")
 			for _, detail := range c.Details {
-				lines = append(lines, "      "+detail)
+				lines = append(lines, "      "+displayValue(detail))
 			}
 		default:
-			lines = append(lines, "  - "+c.Label)
+			lines = append(lines, "  - "+displayValue(c.Label))
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// displayValue escapes control and format characters, so a configured value (a
+// mount path, a network entry) can neither send terminal escape sequences,
+// reorder the text, nor add lines to the change list it is shown in.
+func displayValue(value string) string {
+	var escaped strings.Builder
+	for _, character := range value {
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
+			quoted := strconv.QuoteRune(character)
+			escaped.WriteString(quoted[1 : len(quoted)-1])
+			continue
+		}
+		escaped.WriteRune(character)
+	}
+	return escaped.String()
 }
 
 // warnAloneChange announces a change applied without asking because no other
@@ -272,10 +289,10 @@ func (d *Plan) applyEnvSecretRecreate(flags ChangeFlags) {
 
 // imageChange describes an image recreate with the VM's persisted reference and
 // the one this run wants, when they differ; a recreate driven only by the image
-// digest keeps the bare label.
+// digest keeps the bare label, as does a side that is empty when displayed.
 func imageChange(cfg *msbSdk.SandboxConfig, image naming.ImageIdentity) Change {
 	want := image.Ref()
-	if cfg.Image == "" || want == "" || cfg.Image == want {
+	if cfg.Image == want {
 		return Change{Label: changeLabelImage}
 	}
 	return Change{Label: changeLabelImage, Old: cfg.Image, New: want}

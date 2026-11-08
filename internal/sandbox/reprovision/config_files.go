@@ -749,7 +749,7 @@ func ChangedAgentConfigPaths(cf *ConfigFiles, vmData map[string][]byte) []string
 	var changed []string
 	if cf.HasSnippets {
 		vm, ok := vmData[cf.MergedPath]
-		// gomutants:disable-next-line BRANCH_IF reason="DocumentsEqual fails to parse a missing (nil) VM document against any non-empty merged one, so it already reports the difference"
+		// gomutants:disable-next-line BRANCH_IF,EXPRESSION_REMOVE reason="DocumentsEqual fails to parse a missing (nil) VM document against any non-empty merged one, so it already reports the difference"
 		if !ok || !config.DocumentsEqual(cf.MergedPath, cf.Merged, vm) {
 			changed = append(changed, cf.MergedPath)
 		}

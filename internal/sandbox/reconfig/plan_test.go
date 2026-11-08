@@ -1154,6 +1154,23 @@ func TestResolveReconfigWarnsWithTheResolvedChangesWhenAlone(t *testing.T) {
 	}
 }
 
+// TestChangeListEscapesControlCharacters pins that a configured value cannot
+// hide or fake lines of the change list: a mount path carrying a terminal escape
+// sequence, a newline, or a bidi override is shown escaped.
+func TestChangeListEscapesControlCharacters(t *testing.T) {
+	got := configChangeList([]Change{
+		{Label: changeLabelBindMounts, Details: []string{"+ /a\x1b[2J\n  - fake ← / (read-write)"}},
+		{Label: changeLabelImage, Old: "old\u202eimage", New: "new"},
+	})
+	want := "Project VM config changed:\n" +
+		"  - host bind mounts:\n" +
+		`      + /a\x1b[2J\n  - fake ← / (read-write)` + "\n" +
+		`  - image: old\u202eimage → new`
+	if got != want {
+		t.Errorf("configChangeList() = %q, want %q", got, want)
+	}
+}
+
 // TestSettingChangeShowsTheEntriesThatChanged pins how a fingerprinted
 // setting's change is shown: removed and added entries when the applied ones
 // were recorded, the kind-specific note when only values outside the entries
@@ -1263,13 +1280,23 @@ func TestPlanReconfigShowsResolvedValues(t *testing.T) {
 	})
 	t.Run("published ports", func(t *testing.T) {
 		cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
+			{Bind: "127.0.0.1", HostPort: 9000, GuestPort: 9000, Protocol: msbSdk.PortProtocolTCP},
 			{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP},
 		}}
 		opts := options.RunOptions{Ports: []ports.PortMapping{{HostPort: 8080, GuestPort: 5173}}}
 		plan := PlanReconfig(cfg, planImage(), opts, ChangeFlags{}, "")
 		assertChange(t, plan, Change{Label: changeLabelPublishedPorts, Details: []string{
-			"- 127.0.0.1:3000 → 3000/tcp", "+ 127.0.0.1:8080 → 5173/tcp",
+			"- 127.0.0.1:3000 → 3000/tcp", "- 127.0.0.1:9000 → 9000/tcp", "+ 127.0.0.1:8080 → 5173/tcp",
 		}})
+	})
+	t.Run("published ports keep the serve host port", func(t *testing.T) {
+		cfg := &msbSdk.SandboxConfig{PortBindings: ports.ServeOnlyBindings(4555)}
+		opts := options.RunOptions{ServeOnly: true, Ports: []ports.PortMapping{{HostPort: 8080, GuestPort: 5173}}}
+		plan := PlanReconfig(cfg, planImage(), opts, ChangeFlags{}, "")
+		if !plan.PortsChanged || plan.ServeHostPort != 4555 {
+			t.Errorf("PortsChanged = %v, ServeHostPort = %d, want a change that keeps serving on 4555",
+				plan.PortsChanged, plan.ServeHostPort)
+		}
 	})
 }
 

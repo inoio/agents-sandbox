@@ -234,13 +234,12 @@ func resolveReconfigDecision(
 }
 
 // settingDiff pairs a fingerprinted setting's change detection with the entries
-// recorded for the running VM and those of this run. Entries recorded for the
-// VM count only when a fingerprint was recorded alongside them; a state that
-// predates recorded entries has a hash but no entries.
+// recorded for the running VM and those of this run. Absent (nil) entries are a
+// state written before entries were recorded.
 func settingDiff(changed bool, applied, desired state.FingerprintState) reconfig.SettingDiff {
 	return reconfig.SettingDiff{
 		Changed:         changed,
-		AppliedRecorded: applied.Hash != "" && applied.Entries != nil,
+		AppliedRecorded: applied.Entries != nil,
 		Applied:         applied.Entries,
 		Desired:         desired.Entries,
 	}

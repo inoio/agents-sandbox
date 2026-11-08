@@ -77,6 +77,8 @@ and the user's own config, env, and flags stay unprompted.
   (`nil`) means *not recorded* — a state written before entries existed, `HomeStateSchema` 3 — and shows
   `(previous value not recorded)` with the desired entries; a recorded empty setting persists as `entries: []`
   (`FingerprintLines.IsZero`), so it is never mistaken for unrecorded.
+- Displayed values are configured input, partly project-sourced: the change list escapes control and format characters
+  in every value, so a mount path cannot inject terminal sequences, reorder text, or add fake change lines.
 - Values read from the live VM need no persistence: image and home volume show old → new, published ports their
   binding diff, and an agent-config restart the guest paths that differ.
 
