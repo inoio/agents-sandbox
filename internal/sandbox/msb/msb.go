@@ -2,6 +2,7 @@ package msb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -405,6 +406,13 @@ func (realMsbClient) CreateVolume(ctx context.Context, name string, opts ...msbS
 	}
 	handle, err := getVolume(ctx, name)
 	if err != nil {
+		// The volume exists now, and the caller never receives a handle to
+		// remove it, so a failed lookup would orphan it. Remove it best-effort,
+		// detached from the caller's cancellation so a cancelled or
+		// deadline-exceeded ctx cannot skip the cleanup.
+		if removeErr := removeVolume(context.WithoutCancel(ctx), name); removeErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("remove orphaned volume %q: %w", name, removeErr))
+		}
 		return nil, err
 	}
 	return &realVolumeHandle{handle: handle}, nil

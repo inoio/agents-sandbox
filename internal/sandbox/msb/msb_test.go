@@ -1052,16 +1052,56 @@ func TestCreateVolumeResolvesTheCreatedVolumeThroughGetVolume(t *testing.T) {
 	}
 }
 
-func TestCreateVolumePropagatesGetVolumeError(t *testing.T) {
+// TestCreateVolumeRemovesTheOrphanWhenGetVolumeFails pins that a volume created
+// but not resolved is not orphaned: the lookup error still surfaces, the volume
+// is removed by name, and the removal runs detached from the caller's
+// cancellation so a cancelled ctx cannot skip it.
+func TestCreateVolumeRemovesTheOrphanWhenGetVolumeFails(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
 	swapSeam(t, &createVolume, func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
 		return &msbSdk.Volume{}, nil
 	})
 	wantErr := errors.New("resolve boom")
 	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
+		cancel() // the run is abandoned before the orphan can be cleaned up
 		return nil, wantErr
 	})
-	if _, err := (&realMsbClient{}).CreateVolume(context.Background(), "vol"); !errors.Is(err, wantErr) {
-		t.Errorf("CreateVolume() error = %v, want %v", err, wantErr)
+	var removedName string
+	var removedCtxErr error
+	swapSeam(t, &removeVolume, func(cleanupCtx context.Context, name string) error {
+		removedName = name
+		removedCtxErr = cleanupCtx.Err()
+		return nil
+	})
+
+	if _, err := (&realMsbClient{}).CreateVolume(ctx, "vol"); !errors.Is(err, wantErr) {
+		t.Fatalf("CreateVolume() error = %v, want %v", err, wantErr)
+	}
+	if removedName != "vol" {
+		t.Errorf("removed volume = %q, want %q", removedName, "vol")
+	}
+	if removedCtxErr != nil {
+		t.Errorf("cleanup context err = %v, want a context detached from the caller", removedCtxErr)
+	}
+}
+
+// TestCreateVolumeReportsOrphanRemovalFailure pins that when the lookup and the
+// best-effort removal both fail, the error carries both, so the orphan is not
+// silently lost.
+func TestCreateVolumeReportsOrphanRemovalFailure(t *testing.T) {
+	swapSeam(t, &createVolume, func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (*msbSdk.Volume, error) {
+		return &msbSdk.Volume{}, nil
+	})
+	lookupErr := errors.New("resolve boom")
+	removeErr := errors.New("remove boom")
+	swapSeam(t, &getVolume, func(context.Context, string) (*msbSdk.VolumeHandle, error) {
+		return nil, lookupErr
+	})
+	swapSeam(t, &removeVolume, func(context.Context, string) error { return removeErr })
+
+	_, err := (&realMsbClient{}).CreateVolume(context.Background(), "vol")
+	if !errors.Is(err, lookupErr) || !errors.Is(err, removeErr) {
+		t.Errorf("CreateVolume() error = %v, want both the lookup and removal errors", err)
 	}
 }
 
