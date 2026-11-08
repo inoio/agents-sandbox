@@ -54,10 +54,14 @@ func (b VMBoot) Booted() bool {
 var acquireProjectVMLock = state.AcquireProjectVMLock
 
 // projectVMLock returns the creation lock for this ensure: the injected seam
-// when a test set one, else the shared host flock.
+// when a test set one, else the shared host flock. The injected seam is keyed by
+// options.ProjectVMKey, so this adapter maps the state.Key the ensure carries.
 func projectVMLock(seams options.Seams) func(state.Key) (func(), error) {
 	if seams.ProjectVMLock != nil {
-		return seams.ProjectVMLock
+		injectedLock := seams.ProjectVMLock
+		return func(k state.Key) (func(), error) {
+			return injectedLock(options.ProjectVMKey{Slug: k.Slug, Agent: k.Agent})
+		}
 	}
 	return acquireProjectVMLock
 }

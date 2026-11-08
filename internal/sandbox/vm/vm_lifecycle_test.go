@@ -110,7 +110,7 @@ func TestLifecycleSpinnerIsFinishedOnPreLockResolution(t *testing.T) {
 
 // TestProjectVMLockSeamResolution pins the seam contract: a nil
 // options.Seams.ProjectVMLock uses the production default (acquireProjectVMLock),
-// while a set field is used as-is.
+// while a set field is called with the state.Key mapped to options.ProjectVMKey.
 func TestProjectVMLockSeamResolution(t *testing.T) {
 	orig := acquireProjectVMLock
 	t.Cleanup(func() { acquireProjectVMLock = orig })
@@ -122,9 +122,13 @@ func TestProjectVMLockSeamResolution(t *testing.T) {
 	}
 
 	seamErr := errors.New("injected lock")
-	seam := func(state.Key) (func(), error) { return nil, seamErr }
+	var gotKey options.ProjectVMKey
+	seam := func(k options.ProjectVMKey) (func(), error) { gotKey = k; return nil, seamErr }
 	if _, err := projectVMLock(options.Seams{ProjectVMLock: seam})(testVMKey()); !errors.Is(err, seamErr) {
 		t.Errorf("set seam lock error = %v, want %v", err, seamErr)
+	}
+	if wantKey := (options.ProjectVMKey{Slug: "testproj", Agent: "opencode"}); gotKey != wantKey {
+		t.Errorf("seam key = %+v, want %+v", gotKey, wantKey)
 	}
 }
 
@@ -171,7 +175,7 @@ func TestAcquireProjectVMLockRejectsARelativeStateRoot(t *testing.T) {
 // lockRecorder is a project-VM lock seam that records whether it is held.
 type lockRecorder struct{ held bool }
 
-func (l *lockRecorder) acquire(state.Key) (func(), error) {
+func (l *lockRecorder) acquire(options.ProjectVMKey) (func(), error) {
 	l.held = true
 	return func() { l.held = false }, nil
 }
@@ -376,7 +380,7 @@ func TestEnsureProjectVMFailsBeforeCreatingAVM(t *testing.T) {
 		{
 			name: "creation lock cannot be acquired",
 			arrange: func(_ *testing.T, _ *msb.MockMsbClient, creation *ProjectVMCreation, cause error) {
-				creation.Seams.ProjectVMLock = func(state.Key) (func(), error) { return nil, cause }
+				creation.Seams.ProjectVMLock = func(options.ProjectVMKey) (func(), error) { return nil, cause }
 			},
 			wantText:     "acquire project flock",
 			wantNoCreate: true,
@@ -487,7 +491,7 @@ func withFailingReconcile(h *msb.MockSandboxHandle) *msb.MockSandboxHandle {
 	return h
 }
 
-func noProjectVMLock(state.Key) (func(), error) { return func() {}, nil }
+func noProjectVMLock(options.ProjectVMKey) (func(), error) { return func() {}, nil }
 
 // TestEnsureProjectVMResolvesAnExistingVM pins what EnsureProjectVM makes of a
 // VM it finds: the runtime's connect-or-start connects or boots it, and the

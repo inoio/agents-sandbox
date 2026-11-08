@@ -1,6 +1,6 @@
 ---
-description: Contract for resolving the external clients (msb, docker, config-paths) once at an entry point and threading them explicitly, replacing the remaining process globals after #345; the four behavior test seams as one injected struct on RunOptions, and the process-root configpaths.Get() reads that stay global by design.
-read_if: Changing a docker.Get()/configpaths.Get() call site, image.EnsureImage*/EnsureLoaded/Build/PreviewImage or the image render helpers, adding a client or path resolver parameter to a run/build/doctor/prune entry point, or the image build's agent-release resolver.
+description: Contract for resolving the external clients (msb, docker, config-paths) once at an entry point and threading them explicitly, replacing the remaining process globals after #345; the four behavior test seams as one injected struct on RunOptions; the process-root configpaths.Get() reads that stay global by design; and the two deliberate cross-layer edges (viperconfig→sandbox/mounts+network, notify→sandbox/state+msb) alongside the removed options→state edge.
+read_if: Changing a docker.Get()/configpaths.Get() call site, image.EnsureImage*/EnsureLoaded/Build/PreviewImage or the image render helpers, adding a client or path resolver parameter to a run/build/doctor/prune entry point, or the image build's agent-release resolver; or deciding whether a cross-layer dependency (options, viperconfig, notify) is a deliberate exception.
 ---
 
 # External client injection
@@ -84,3 +84,31 @@ One `msb.Get()` remains below the boundary outside these roots: `session`'s
 `resolveHomeVolumePath` (`internal/sandbox/session/host_opener.go`), the
 host-opener home-volume probe reached from `session.Run` when `--open-links` is
 on. It is not a per-operation client and is left for a later pass.
+
+## Deliberate cross-layer edges
+
+Three dependency edges sit outside the client families above (#532). Two are
+deliberate exceptions; the third is removed.
+
+- **`options` does not import `state`.** The run-options aggregate's
+  `Seams.ProjectVMLock` is keyed by `options.ProjectVMKey`, a dependency-free key
+  type defined in `options`, so `options` stays clear of the state package's lock
+  and state model. `vm` adapts it to `state.Key` in `vm.projectVMLock` where the
+  creation flock is taken. `internal/sandbox/options/boundary_contract_test.go`
+  enforces the rule by reading the package's own imports.
+- **`viperconfig` imports `sandbox/mounts` and `sandbox/network` — deliberate.**
+  Both are import-level leaf *value* packages: their production sources import no
+  other `internal/` package, so no cycle forms and no sandbox behavior crosses.
+  `viperconfig` consumes their types (`mounts.Mounts`, `network.Policy`,
+  `network.Profile`) and their pure decoders and validators (`mounts.DecodeMounts`,
+  `network.ParseProfiles`, `network.NormalizeDNSServers`), not sandbox behavior.
+  Relocating either out of `sandbox/` is pure churn; the namespace mismatch is
+  accepted.
+- **`notify` imports `sandbox/state` and `sandbox/msb` — deliberate.** `notify` is
+  presentation, but each domain touchpoint is a seam `session` injects and
+  constructs in `internal/sandbox/session/run.go`: `StateClaimer` (the one-line
+  `sandboxstate.AcquireClaim` behind the `claimer` interface) and
+  `SandboxStreamOpener` (adapting `msb.Sandbox` to `StreamOpener`, which uses only
+  `msb.StreamHandle` and `msb.ShellResult`). A later pass could move the two
+  adapters into `session` and leaf-type `StreamOpener`; until then the edge is
+  recorded here.
