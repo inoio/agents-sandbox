@@ -334,8 +334,8 @@ that command ran without your project config.
 
 A file in `.agents-sandbox/` (or a file `home:` copies from the checkout) changed after you approved the project
 config and before the run used it, often because the agent in a running sandbox edited it. The run stopped before
-it built the image or started the sandbox, so nothing used the changed file. Run `agents-sandbox` again: it shows
-the change and asks for approval.
+it started the sandbox and did not build an image from a changed `Dockerfile`, so the sandbox never saw the changed
+file. Run `agents-sandbox` again: it shows the change and asks for approval.
 
 ## Image build fails
 

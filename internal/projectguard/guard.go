@@ -43,13 +43,18 @@ var (
 
 // Install makes reads the approval for this command: every file under roots
 // must be in reads with the digest of the bytes read, and every other path in
-// reads is verified too. Before any Install every read passes. It returns a
-// function restoring the previous approval.
+// reads is verified too. Paths are compared absolute and cleaned, however they
+// are spelled. Before any Install every read passes. It returns a function
+// restoring the previous approval.
 func Install(roots []string, reads map[string]Approval) func() {
+	normalized := make(map[string]Approval, len(reads))
+	for path, approval := range reads {
+		normalized[absolute(path)] = approval
+	}
 	mutex.Lock()
 	defer mutex.Unlock()
 	previous := current
-	current = &guard{roots: roots, reads: reads, violation: nil}
+	current = &guard{roots: roots, reads: normalized, violation: nil}
 	return func() {
 		mutex.Lock()
 		defer mutex.Unlock()
@@ -66,15 +71,16 @@ func Violation() error {
 
 // ReadFile reads path with read and verifies the bytes against the approval.
 // Without an approval it reads through. An approved absence is not read. A path
-// under a guarded root that the approval does not hold may only be missing.
-// A mismatch is returned and recorded as the command's violation.
+// under a guarded root that the approval does not hold may only be missing. An
+// approved file must still read, with the approved bytes. A refusal is returned
+// and recorded as the command's violation.
 func ReadFile(path string, read func(string) ([]byte, error)) ([]byte, error) {
 	mutex.Lock()
 	defer mutex.Unlock()
 	absolutePath := absolute(path)
 	approval, approved := current.reads[absolutePath]
 	switch {
-	case approved && approval.Absent:
+	case approval.Absent:
 		return nil, fmt.Errorf("read %s: %w", path, fs.ErrNotExist)
 	case !approved && !current.guarded(absolutePath):
 		return read(path)
@@ -88,7 +94,7 @@ func ReadFile(path string, read func(string) ([]byte, error)) ([]byte, error) {
 	}
 	data, err := read(path)
 	if err != nil {
-		return nil, err
+		return nil, current.record(fmt.Errorf("%w: %s can no longer be read: %w", ErrNotApproved, path, err))
 	}
 	if digestOf(data) != approval.Digest {
 		return nil, current.record(fmt.Errorf("%w: %s", ErrNotApproved, path))
@@ -116,8 +122,9 @@ func (g *guard) record(err error) error {
 
 func (g *guard) guarded(path string) bool {
 	for _, root := range g.roots {
-		rel, err := filepath.Rel(root, path)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		// Both paths are absolute, so Rel cannot fail.
+		rel, _ := filepath.Rel(root, path)
+		if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return true
 		}
 	}

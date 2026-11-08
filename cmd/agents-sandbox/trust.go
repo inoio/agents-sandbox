@@ -6,7 +6,6 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
-	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/projecttrust"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -31,7 +30,6 @@ func gateProjectConfig(
 ) error {
 	withProject := func() configpaths.ConfigPaths { return configpaths.WithProjectLayer(projectPaths()) }
 	configpaths.Use(withProject)
-	projectguard.Install(nil, nil)
 
 	decision, err := evaluateProjectConfig(withProject(), identity)
 	if err != nil {

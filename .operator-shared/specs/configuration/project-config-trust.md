@@ -167,12 +167,15 @@ The contract is **verify on read**:
 - After the approval, every reader of a project input reads through `projectguard.ReadFile` and verifies the
   digest of **the bytes it got**, so no window remains between verifying and using: viper's config merge, the
   `home:` manifest and `home:` source reads, the env and secret files, agent config snippets and the mirror
-  walk (`filewalk`), and the project Dockerfile. Different bytes are refused.
+  walk (`filewalk`), and the project Dockerfile. Different bytes are refused, and so is an approved file that
+  no longer reads (deleted, grown past a reader's bound). Paths are compared absolute and cleaned, so a
+  `home:` source spelled with `..` is verified like any other.
 - Under the project config dir, a file the approval does not hold may only be missing; an added file is
   refused. A `home:` source the gate skipped stays absent and is never read.
 - A refused read is recorded as the command's violation. A reader that tolerates a read failure (a walk
   that skips, an env loader that warns) cannot carry it on: the image build and the VM stage stop on a
-  recorded violation, so no project input that changed since its approval reaches an image or a VM.
+  recorded violation. The Dockerfile is read before the image build, so no image is built from a changed one;
+  the env, secret, and agent config files are read after it, so a change there stops the run before the VM.
 - A launcher write to the project config reads the file through the same check (a changed file is never
   edited into an approved one) and makes the bytes it wrote the approved bytes.
 

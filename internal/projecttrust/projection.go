@@ -206,10 +206,11 @@ func (c inputCollector) readParsedFile(path string) ([]byte, bool, error) {
 	}
 	data, err := configread.ReadFile(path)
 	if err != nil {
+		// gomutants:disable-next-line RETURN_TRUE reason="the caller adds nothing and returns the error whenever it is set, so the found flag beside an error is never read"
 		return nil, false, fmt.Errorf("read project input %s: %w", path, err)
 	}
 	// The parsed files are the first reads of their paths.
-	c.reads[path] = projectguard.ApprovalOf(data)
+	c.reads[filepath.Clean(path)] = projectguard.ApprovalOf(data)
 	return data, true, nil
 }
 
@@ -220,10 +221,11 @@ var errChangedWhileReading = errors.New("changed while the project config was re
 // recordRead records what the projection read from path. A path read twice
 // must have read the same bytes.
 func (c inputCollector) recordRead(path string, approval projectguard.Approval) error {
-	if previous, seen := c.reads[path]; seen && previous != approval {
+	key := filepath.Clean(path)
+	if previous, seen := c.reads[key]; seen && previous != approval {
 		return fmt.Errorf("read project input %s: %w", path, errChangedWhileReading)
 	}
-	c.reads[path] = approval
+	c.reads[key] = approval
 	return nil
 }
 

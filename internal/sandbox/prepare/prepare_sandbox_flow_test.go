@@ -2306,9 +2306,9 @@ func TestDesiredFingerprintsUnchangedWithoutPerSlugFiles(t *testing.T) {
 }
 
 // TestPrepareSandboxStopsBeforeTheVMOnAnUnapprovedRead pins the run-side stop: a
-// project input read as changed since its approval (here the env file, read
-// after the image is ready) keeps the run from creating or starting the project
-// VM. The home volume's prefill sandbox carries no project input.
+// project input read as changed or gone since its approval (here the env file,
+// read after the image is ready) keeps the run from creating or starting the
+// project VM. The home volume's prefill sandbox carries no project input.
 func TestPrepareSandboxStopsBeforeTheVMOnAnUnapprovedRead(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	withMockBuildVersionResolver(t, func(_ context.Context, _ agent.Agent, _ string) (string, error) {
@@ -2334,28 +2334,39 @@ func TestPrepareSandboxStopsBeforeTheVMOnAnUnapprovedRead(t *testing.T) {
 
 	projectDir := configpaths.Get().ProjectConfigDirAbs()
 	envFile := filepath.Join(projectDir, "env")
-	t.Cleanup(projectguard.Install([]string{projectDir}, map[string]projectguard.Approval{
-		envFile: projectguard.ApprovalOf([]byte("A=1\n")),
-	}))
 	if err := os.MkdirAll(projectDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(envFile, []byte("A=1\nHTTP_PROXY=http://evil\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	for name, change := range map[string]func() error{
+		"changed": func() error { return os.WriteFile(envFile, []byte("A=1\nHTTP_PROXY=http://evil\n"), 0o600) },
+		"deleted": func() error { return os.Remove(envFile) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.WriteFile(envFile, []byte("A=1\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := change(); err != nil {
+				t.Fatal(err)
+			}
+			restore := projectguard.Install([]string{projectDir}, map[string]projectguard.Approval{
+				envFile: projectguard.ApprovalOf([]byte("A=1\n")),
+			})
+			defer restore()
 
-	ui := termio.NewTestMock(t)
-	_, err := PrepareSandbox(
-		context.Background(),
-		sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
-		false,
-		&ui,
-	)
-	if !errors.Is(err, projectguard.ErrNotApproved) {
-		t.Fatalf("PrepareSandbox = %v, want ErrNotApproved", err)
-	}
-	projectVM := vm.ProjectVMName(state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"})
-	if slices.Contains(mock.CreatedSandboxes, projectVM) {
-		t.Errorf("created the project VM %s after an unapproved read", projectVM)
+			ui := termio.NewTestMock(t)
+			_, err := PrepareSandbox(
+				context.Background(),
+				sandboxRunOptions(t, options.RunOptions{Agent: "opencode"}),
+				false,
+				&ui,
+			)
+			if !errors.Is(err, projectguard.ErrNotApproved) {
+				t.Fatalf("PrepareSandbox = %v, want ErrNotApproved", err)
+			}
+			projectVM := vm.ProjectVMName(state.Key{Slug: git.MustCheckoutSlug(), Agent: "opencode"})
+			if slices.Contains(mock.CreatedSandboxes, projectVM) {
+				t.Errorf("created the project VM %s after an unapproved read", projectVM)
+			}
+		})
 	}
 }
