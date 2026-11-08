@@ -34,21 +34,6 @@ import (
 // TestReadLiveProjectVMWithoutVM pins the first-run case: no project VM exists,
 // so there is nothing to read and the zero value is returned.
 
-// sdkBindings translates launcher bindings onto the SDK read-back type so a
-// test can seed an SDK-backed handle that the reconfiguration decision reads.
-func sdkBindings(bindings []msb.PortBinding) []msbSdk.PortBinding {
-	out := make([]msbSdk.PortBinding, len(bindings))
-	for i, b := range bindings {
-		out[i] = msbSdk.PortBinding{
-			Bind:      b.Bind,
-			HostPort:  b.HostPort,
-			GuestPort: b.GuestPort,
-			Protocol:  msbSdk.PortProtocol(b.Protocol),
-		}
-	}
-	return out
-}
-
 func TestReadLiveProjectVMWithoutVM(t *testing.T) {
 	ui := termio.NewTestMock(t)
 
@@ -92,7 +77,7 @@ func TestReadLiveProjectVMReadsAgentConfigAndDetaches(t *testing.T) {
 			return nil
 		},
 	}
-	vmConfig := &msbSdk.SandboxConfig{Image: "img:tag"}
+	vmConfig := &msb.SandboxConfig{Image: "img:tag"}
 	handle := &msb.MockSandboxHandle{Cfg: vmConfig, ConnectSb: connected}
 	client := (&msb.MockMsbClient{}).SetGotSandbox(handle)
 	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), callerContextKey{}, "caller"))
@@ -128,7 +113,7 @@ func TestReadLiveProjectVMReadsAgentConfigAndDetaches(t *testing.T) {
 // only the agent config comparison is skipped.
 func TestReadLiveProjectVMConnectFailureKeepsHandle(t *testing.T) {
 	ui := termio.NewTestMock(t)
-	handle := &msb.MockSandboxHandle{Cfg: &msbSdk.SandboxConfig{}, ConnectErr: errors.New("not running")}
+	handle := &msb.MockSandboxHandle{Cfg: &msb.SandboxConfig{}, ConnectErr: errors.New("not running")}
 	client := (&msb.MockMsbClient{}).SetGotSandbox(handle)
 
 	live, err := readLiveProjectVM(context.Background(), client, testVMKey(), []string{"/x"}, &ui)
@@ -280,7 +265,7 @@ func TestResolveReconfigDecisionNeedsNoVMAccess(t *testing.T) {
 func TestResolveReconfigDecisionLogsDetachFailure(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	sh := &msb.MockSandboxHandle{
-		Cfg: &msbSdk.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
+		Cfg: &msb.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
 	}
 	liveSb := &msb.MockSandbox{DetachErr: errors.New("detach failed")}
 	sh.ConnectSb = liveSb
@@ -881,7 +866,7 @@ func TestResolveReconfigDecisionAgentConfigDrivesRestart(t *testing.T) {
 			persisted := matchingHomeState(network.Policy{})
 			live := liveProjectVM{
 				handle: &msb.MockSandboxHandle{},
-				config: &msbSdk.SandboxConfig{
+				config: &msb.SandboxConfig{
 					Image:     "img:tag",
 					CPUs:      4,
 					MemoryMiB: 4096,
@@ -931,7 +916,7 @@ func TestResolveReconfigDecisionAgentConfigChangeOnStoppedVM(t *testing.T) {
 	// recreate nor spuriously flag a daemon restart. Provisioning + fresh daemon
 	// pickup happen downstream in vm.SetUpSandbox once the VM is started.
 	sh := &msb.MockSandboxHandle{
-		Cfg: &msbSdk.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
+		Cfg: &msb.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
 	}
 	sh.ConnectErr = errors.New("vm not running")
 	mock := &msb.MockMsbClient{}
@@ -1315,7 +1300,7 @@ func TestApplyReconfigHomeActionQuit(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 
 	sh := &msb.MockSandboxHandle{
-		Cfg: &msbSdk.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
+		Cfg: &msb.SandboxConfig{Image: "img:tag", CPUs: 4, MemoryMiB: 4096},
 	}
 	sh.ConnectSb = &msb.MockSandbox{}
 	mock := &msb.MockMsbClient{}
@@ -1419,7 +1404,7 @@ type callerContextKey struct{}
 // newReconfigFixture builds a project VM whose persisted config carries the
 // given mounts. The mounts are seeded through the seam (ConfigMounts) rather
 // than Cfg.Volumes, because that is how a live VM's mounts reach the decision.
-func newReconfigFixture(t *testing.T, liveMounts map[string]msbSdk.MountConfig, mountsErr error) reconfigFixture {
+func newReconfigFixture(t *testing.T, liveMounts map[string]msb.MountConfig, mountsErr error) reconfigFixture {
 	t.Helper()
 	return newReconfigFixtureForImage(t, "img:tag", liveMounts, mountsErr)
 }
@@ -1429,13 +1414,13 @@ func newReconfigFixture(t *testing.T, liveMounts map[string]msbSdk.MountConfig, 
 func newReconfigFixtureForImage(
 	t *testing.T,
 	cfgImage string,
-	liveMounts map[string]msbSdk.MountConfig,
+	liveMounts map[string]msb.MountConfig,
 	mountsErr error,
 ) reconfigFixture {
 	t.Helper()
 
 	handle := &msb.MockSandboxHandle{
-		Cfg:       &msbSdk.SandboxConfig{Image: cfgImage, CPUs: 4, MemoryMiB: 4096},
+		Cfg:       &msb.SandboxConfig{Image: cfgImage, CPUs: 4, MemoryMiB: 4096},
 		Mounts:    liveMounts,
 		MountsErr: mountsErr,
 	}
@@ -1469,11 +1454,11 @@ func newReconfigFixtureForImage(
 
 // launcherLiveMounts is the mount set buildMounts creates: a tmpfs /tmp, a
 // quota-bound /workspace bind, and the named home volume.
-func launcherLiveMounts(tmpSizeMiB, workspaceQuotaMiB uint32, homeVolume string) map[string]msbSdk.MountConfig {
-	return map[string]msbSdk.MountConfig{
-		mounts.TmpMountPath:       msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{SizeMiB: tmpSizeMiB}),
-		mounts.WorkspaceMountPath: msbSdk.Mount.Bind("/host/repo", msbSdk.MountOptions{QuotaMiB: workspaceQuotaMiB}),
-		mounts.VMHomeDir:          msbSdk.Mount.Named(homeVolume, msbSdk.MountOptions{}),
+func launcherLiveMounts(tmpSizeMiB, workspaceQuotaMiB uint32, homeVolume string) map[string]msb.MountConfig {
+	return map[string]msb.MountConfig{
+		mounts.TmpMountPath:       msb.Mount.Tmpfs(msb.TmpfsOptions{SizeMiB: tmpSizeMiB}),
+		mounts.WorkspaceMountPath: msb.Mount.Bind("/host/repo", msb.MountOptions{QuotaMiB: workspaceQuotaMiB}),
+		mounts.VMHomeDir:          msb.Mount.Named(homeVolume, msb.MountOptions{}),
 	}
 }
 
@@ -1514,7 +1499,7 @@ func assertVerbose(t *testing.T, ui *termio.Mock, want string) {
 
 func reconfigMockClient() *msb.MockMsbClient {
 	mock := &msb.MockMsbClient{}
-	sh := &msb.MockSandboxHandle{Cfg: &msbSdk.SandboxConfig{
+	sh := &msb.MockSandboxHandle{Cfg: &msb.SandboxConfig{
 		Image: "img:tag", CPUs: 4, MemoryMiB: 4096,
 	}}
 	sh.ConnectSb = &msb.MockSandbox{}
@@ -1542,17 +1527,17 @@ func TestResolveReconfigDecisionDeferredPortsKeepsServePort(t *testing.T) {
 	defer release()
 
 	handle := &msb.MockSandboxHandle{
-		Cfg: &msbSdk.SandboxConfig{
+		Cfg: &msb.SandboxConfig{
 			Image:     "img:tag",
 			CPUs:      4,
 			MemoryMiB: 4096,
 		},
-		PortBindings: []msbSdk.PortBinding{
+		PortBindings: []msb.PortBinding{
 			{
 				Bind:      "127.0.0.1",
 				HostPort:  ports.ServeOnlyBasePort,
 				GuestPort: ports.ServeOnlyBasePort,
-				Protocol:  msbSdk.PortProtocolTCP,
+				Protocol:  msb.PortProtocolTCP,
 			},
 		},
 		ConnectSb: &msb.MockSandbox{},
@@ -1627,17 +1612,17 @@ func TestResolveReconfigDecisionRecreateAdoptsProbedServePort(t *testing.T) {
 	slug := git.MustCheckoutSlug()
 
 	handle := &msb.MockSandboxHandle{
-		Cfg: &msbSdk.SandboxConfig{
+		Cfg: &msb.SandboxConfig{
 			Image:     "img:tag",
 			CPUs:      4,
 			MemoryMiB: 4096,
 		},
-		PortBindings: []msbSdk.PortBinding{
+		PortBindings: []msb.PortBinding{
 			{
 				Bind:      "127.0.0.1",
 				HostPort:  ports.ServeOnlyBasePort,
 				GuestPort: ports.ServeOnlyBasePort,
-				Protocol:  msbSdk.PortProtocolTCP,
+				Protocol:  msb.PortProtocolTCP,
 			},
 		},
 		ConnectSb: &msb.MockSandbox{},
@@ -1701,12 +1686,12 @@ func TestResolveReconfigDecisionDroppedPortsRecreate(t *testing.T) {
 	slug := git.MustCheckoutSlug()
 
 	handle := &msb.MockSandboxHandle{
-		Cfg: &msbSdk.SandboxConfig{
+		Cfg: &msb.SandboxConfig{
 			Image:     "img:tag",
 			CPUs:      4,
 			MemoryMiB: 4096,
 		},
-		PortBindings: sdkBindings(ports.UserPortBindings([]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}})),
+		PortBindings: ports.UserPortBindings([]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}),
 		ConnectSb:    &msb.MockSandbox{},
 	}
 	mock := &msb.MockMsbClient{}
@@ -1760,15 +1745,15 @@ func TestResolveReconfigDecisionUnchangedPortsNoRecreate(t *testing.T) {
 	slug := git.MustCheckoutSlug()
 
 	handle := &msb.MockSandboxHandle{
-		Cfg: &msbSdk.SandboxConfig{
+		Cfg: &msb.SandboxConfig{
 			Image:     "img:tag",
 			CPUs:      4,
 			MemoryMiB: 4096,
 		},
-		PortBindings: sdkBindings(append(
+		PortBindings: append(
 			ports.ServeOnlyBindings(ports.ServeOnlyBasePort),
 			ports.UserPortBindings([]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}})...,
-		)),
+		),
 		ConnectSb: &msb.MockSandbox{},
 	}
 	mock := &msb.MockMsbClient{}
@@ -1833,7 +1818,7 @@ func TestResolveReconfigDecisionUnchangedPortsNoRecreate(t *testing.T) {
 // when the live VM's published ports cannot be read, the bindings are left
 // untouched and the failure is reported at verbose level instead of aborting.
 func TestApplyLivePortsReadFailureDegrades(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{}
+	cfg := &msb.SandboxConfig{}
 	failing := &msb.MockSandboxHandle{PortsErr: errors.New("ports boom")}
 	ui := termio.NewTestMock(t)
 
@@ -1849,15 +1834,15 @@ func TestExistingServeHostPort(t *testing.T) {
 	if got := existingServeHostPort(nil, 4100); got != 4100 {
 		t.Errorf("existingServeHostPort(nil, 4100) = %d, want the fallback", got)
 	}
-	cfg := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
-		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP},
-		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: ports.ServeOnlyBasePort, Protocol: msbSdk.PortProtocolTCP},
+	cfg := &msb.SandboxConfig{PortBindings: []msb.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msb.PortProtocolTCP},
+		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: ports.ServeOnlyBasePort, Protocol: msb.PortProtocolTCP},
 	}}
 	if got := existingServeHostPort(cfg, 4100); got != 4096 {
 		t.Errorf("existingServeHostPort = %d, want 4096 (the agent guest port binding)", got)
 	}
-	userOnly := &msbSdk.SandboxConfig{PortBindings: []msbSdk.PortBinding{
-		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP},
+	userOnly := &msb.SandboxConfig{PortBindings: []msb.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msb.PortProtocolTCP},
 	}}
 	if got := existingServeHostPort(userOnly, 4100); got != 4100 {
 		t.Errorf("existingServeHostPort(no serve binding) = %d, want the fallback", got)
@@ -1877,12 +1862,12 @@ func TestBootMaxMemoryGrew(t *testing.T) {
 		{name: "no live config", live: liveProjectVM{}, want: false},
 		{
 			name: "same maximum",
-			live: liveProjectVM{config: &msbSdk.SandboxConfig{MaxMemoryMiB: freshMaxMiB}},
+			live: liveProjectVM{config: &msb.SandboxConfig{MaxMemoryMiB: freshMaxMiB}},
 			want: false,
 		},
 		{
 			name: "lower live maximum",
-			live: liveProjectVM{config: &msbSdk.SandboxConfig{MaxMemoryMiB: freshMaxMiB - 1024}},
+			live: liveProjectVM{config: &msb.SandboxConfig{MaxMemoryMiB: freshMaxMiB - 1024}},
 			want: true,
 		},
 	}
@@ -1980,7 +1965,7 @@ func TestDetectAndOfferMemoryRaiseNewerOOMOffersAndPersists(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 	newKill := oldKill.Add(time.Hour)
-	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}
+	cfg := &msb.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}
 	handle := &msb.MockSandboxHandle{
 		Cfg:        cfg,
 		LogsResult: []msb.LogEntry{memoryRaiseLogEntry(newKill)},
@@ -2019,7 +2004,7 @@ func TestDetectAndOfferMemoryRaiseDeclineDoesNotReOfferSameOOM(t *testing.T) {
 	k := testVMKey()
 	seedEmptyHomeState(t, k)
 	kill := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
-	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096}
+	cfg := &msb.SandboxConfig{MemoryMiB: 4096}
 	handle := &msb.MockSandboxHandle{Cfg: cfg, LogsResult: []msb.LogEntry{memoryRaiseLogEntry(kill)}}
 	var selects int
 	ui := &termio.Mock{
@@ -2105,7 +2090,7 @@ func TestDetectAndOfferMemoryRaiseNonInteractiveRecordsAndLaterOffers(t *testing
 	k := testVMKey()
 	seedEmptyHomeState(t, k)
 	kill := time.Date(2026, 2, 15, 0, 0, 0, 0, time.UTC)
-	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096}
+	cfg := &msb.SandboxConfig{MemoryMiB: 4096}
 	handle := &msb.MockSandboxHandle{Cfg: cfg, LogsResult: []msb.LogEntry{memoryRaiseLogEntry(kill)}}
 	live := liveProjectVM{handle: handle, config: cfg}
 
@@ -2154,7 +2139,7 @@ func TestDetectAndOfferMemoryRaiseFreshHeadroomAtLaunchDoesNotOffer(t *testing.T
 	withoutMemoryEnv(t)
 	k := testVMKey()
 	seedEmptyHomeState(t, k)
-	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}
+	cfg := &msb.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}
 	handle := &msb.MockSandboxHandle{Cfg: cfg, MetricsResult: floorTrippedMetrics()}
 	var selects int
 	ui := &termio.Mock{
@@ -2187,7 +2172,7 @@ func TestDetectAndOfferMemoryRaisePreservesHeadroomSeenTime(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
-	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096}
+	cfg := &msb.SandboxConfig{MemoryMiB: 4096}
 	handle := &msb.MockSandboxHandle{Cfg: cfg, MetricsResult: trippedMetrics()}
 	ui := &termio.Mock{
 		IsInteractiveResult: true,
@@ -2281,7 +2266,7 @@ func TestDetectAndOfferMemoryRaisePromptErrorIsBestEffort(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := testVMKey()
 	seedEmptyHomeState(t, k)
-	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096}
+	cfg := &msb.SandboxConfig{MemoryMiB: 4096}
 	handle := &msb.MockSandboxHandle{
 		Cfg:        cfg,
 		LogsResult: []msb.LogEntry{memoryRaiseLogEntry(time.Now())},
@@ -2309,7 +2294,7 @@ func TestDetectAndOfferMemoryRaisePersistErrorWarns(t *testing.T) {
 	configpaths.WithMockConfigPaths(t)
 	k := testVMKey()
 	seedEmptyHomeState(t, k)
-	cfg := &msbSdk.SandboxConfig{MemoryMiB: 4096}
+	cfg := &msb.SandboxConfig{MemoryMiB: 4096}
 	handle := &msb.MockSandboxHandle{
 		Cfg:        cfg,
 		LogsResult: []msb.LogEntry{memoryRaiseLogEntry(time.Now())},
@@ -2354,7 +2339,7 @@ func TestDetectAndOfferMemoryRaiseSkipsWithoutVM(t *testing.T) {
 // TestBootMaxMemoryMiB pins the live-VM boot-maximum read: the configured value
 // is returned, and an unread config reports 0 (no clamp).
 func TestBootMaxMemoryMiB(t *testing.T) {
-	live := liveProjectVM{config: &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}}
+	live := liveProjectVM{config: &msb.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192}}
 	if got := bootMaxMemoryMiB(live); got != 8192 {
 		t.Errorf("bootMaxMemoryMiB = %d, want 8192", got)
 	}

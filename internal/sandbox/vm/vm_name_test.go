@@ -200,8 +200,8 @@ func TestProjectVMHomeVolume(t *testing.T) {
 		{
 			name: "mounted home volume",
 			getSandbox: func(context.Context, string) (msb.SandboxHandle, error) {
-				return &msb.MockSandboxHandle{Name_: "vm", Mounts: map[string]msbSdk.MountConfig{
-					mounts.VMHomeDir: msbSdk.Mount.Named("home-vol", msbSdk.MountOptions{}),
+				return &msb.MockSandboxHandle{Name_: "vm", Mounts: map[string]msb.MountConfig{
+					mounts.VMHomeDir: msb.Mount.Named("home-vol", msb.MountOptions{}),
 				}}, nil
 			},
 			wantVolume: "home-vol",

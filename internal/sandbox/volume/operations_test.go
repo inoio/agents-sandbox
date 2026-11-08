@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
@@ -73,7 +71,7 @@ func TestCheckForActiveVMs(t *testing.T) {
 			sandboxes: []msb.SandboxHandle{&msb.MockSandboxHandle{
 				Name_:   slug + "-opencode",
 				Status_: running,
-				Cfg:     &msbSdk.SandboxConfig{Labels: map[string]string{naming.LabelType: naming.SandboxTypeTask}},
+				Cfg:     &msb.SandboxConfig{Labels: map[string]string{naming.LabelType: naming.SandboxTypeTask}},
 			}},
 		},
 		{

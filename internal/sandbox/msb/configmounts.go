@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // persistedConfigMounts mirrors the `mounts` array of a persisted sandbox
@@ -47,13 +45,13 @@ type persistedOwnedStorage struct {
 	CapacityMiB uint32 `json:"capacity_mib"`
 }
 
-// volumeKind maps the persisted storage tag onto the SDK's volume kind. The
-// runtime spells the directory kind "directory"; the SDK constant is "dir".
-func (s persistedOwnedStorage) volumeKind() msbSdk.VolumeKind {
+// volumeKind maps the persisted storage tag onto the launcher's volume kind. The
+// runtime spells the directory kind "directory"; the launcher constant is "dir".
+func (s persistedOwnedStorage) volumeKind() VolumeKind {
 	if s.Kind == "disk" {
-		return msbSdk.VolumeKindDisk
+		return VolumeKindDisk
 	}
-	return msbSdk.VolumeKindDir
+	return VolumeKindDir
 }
 
 // persistedMountFlags is the nested `options` object every variant shares.
@@ -64,14 +62,14 @@ type persistedMountFlags struct {
 	Nodev    bool `json:"nodev"`
 }
 
-func (m persistedMount) mountOptions() msbSdk.MountOptions {
-	return msbSdk.MountOptions{
+func (m persistedMount) mountOptions() MountOptions {
+	return MountOptions{
 		Readonly:           m.Options.Readonly,
 		Noexec:             m.Options.Noexec,
 		Nosuid:             m.Options.Nosuid,
 		Nodev:              m.Options.Nodev,
-		StatVirtualization: msbSdk.StatVirtualization(m.StatVirtualization),
-		HostPermissions:    msbSdk.HostPermissions(m.HostPermissions),
+		StatVirtualization: StatVirtualization(m.StatVirtualization),
+		HostPermissions:    HostPermissions(m.HostPermissions),
 	}
 }
 
@@ -87,13 +85,13 @@ var errUnknownMountType = errors.New("unknown mount type")
 // that does not describe mounts is valid and must not read as "every mount
 // changed". A mount variant this launcher does not know (a newer runtime) is
 // skipped, so one new kind cannot disable detection of the mounts we do manage.
-func ParseConfigMounts(configJSON string) (map[string]msbSdk.MountConfig, error) {
+func ParseConfigMounts(configJSON string) (map[string]MountConfig, error) {
 	var persisted persistedConfigMounts
 	if err := json.Unmarshal([]byte(configJSON), &persisted); err != nil {
 		return nil, fmt.Errorf("parsing persisted sandbox config: %w", err)
 	}
 
-	parsed := make(map[string]msbSdk.MountConfig, len(persisted.Mounts))
+	parsed := make(map[string]MountConfig, len(persisted.Mounts))
 	for _, entry := range persisted.Mounts {
 		mount, err := entry.mountConfig()
 		if errors.Is(err, errUnknownMountType) {
@@ -107,11 +105,11 @@ func ParseConfigMounts(configJSON string) (map[string]msbSdk.MountConfig, error)
 	return parsed, nil
 }
 
-// mountConfig maps one persisted entry onto the SDK's MountConfig. It reports
-// errUnknownMountType for a variant this launcher does not know.
-func (m persistedMount) mountConfig() (msbSdk.MountConfig, error) {
+// mountConfig maps one persisted entry onto the launcher's MountConfig. It
+// reports errUnknownMountType for a variant this launcher does not know.
+func (m persistedMount) mountConfig() (MountConfig, error) {
 	if m.Guest == "" {
-		return msbSdk.MountConfig{}, fmt.Errorf(
+		return MountConfig{}, fmt.Errorf(
 			"parsing persisted sandbox config: %s mount without a guest path",
 			m.Type,
 		)
@@ -120,21 +118,43 @@ func (m persistedMount) mountConfig() (msbSdk.MountConfig, error) {
 	flags := m.mountOptions()
 	switch m.Type {
 	case "Bind":
-		flags.QuotaMiB = m.QuotaMiB
-		return msbSdk.Mount.Bind(m.Host, flags), nil
+		return MountConfig{
+			Kind:               MountKindBind,
+			Bind:               m.Host,
+			QuotaMiB:           m.QuotaMiB,
+			Readonly:           flags.Readonly,
+			Noexec:             flags.Noexec,
+			Nosuid:             flags.Nosuid,
+			Nodev:              flags.Nodev,
+			StatVirtualization: flags.StatVirtualization,
+			HostPermissions:    flags.HostPermissions,
+			Owner:              flags.Owner,
+		}, nil
 	case "Named":
-		return msbSdk.Mount.Named(m.Name, flags), nil
+		return MountConfig{
+			Kind:               MountKindNamed,
+			Named:              m.Name,
+			Readonly:           flags.Readonly,
+			Noexec:             flags.Noexec,
+			Nosuid:             flags.Nosuid,
+			Nodev:              flags.Nodev,
+			StatVirtualization: flags.StatVirtualization,
+			HostPermissions:    flags.HostPermissions,
+			Owner:              flags.Owner,
+		}, nil
 	case "Tmpfs":
-		return msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{
+		return MountConfig{
+			Kind:     MountKindTmpfs,
 			SizeMiB:  m.SizeMiB,
 			Readonly: flags.Readonly,
 			Noexec:   flags.Noexec,
 			Nosuid:   flags.Nosuid,
 			Nodev:    flags.Nodev,
-		}), nil
+		}, nil
 	case "Owned":
-		return msbSdk.Mount.Owned(msbSdk.OwnedVolumeOptions{
-			Kind:               m.Storage.volumeKind(),
+		return MountConfig{
+			Kind:               MountKindOwned,
+			Owned:              string(m.Storage.volumeKind()),
 			SizeMiB:            m.Storage.CapacityMiB,
 			QuotaMiB:           m.Storage.QuotaMiB,
 			Readonly:           flags.Readonly,
@@ -146,19 +166,21 @@ func (m persistedMount) mountConfig() (msbSdk.MountConfig, error) {
 			// Guest uid/gid overrides are not compared by any consumer, so the
 			// read-back leaves them unset rather than reconstructing them.
 			Owner: nil,
-		}), nil
+		}, nil
 	case "DiskImage":
-		return msbSdk.Mount.Disk(m.Host, msbSdk.DiskOptions{
+		return MountConfig{
+			Kind: MountKindDisk,
+			Disk: m.Host,
 			// Upstream serializes DiskImageFormat as the bare variant name
-			// ("Raw"), while DiskOptions.Format is the lowercase hint.
+			// ("Raw"), while the launcher's Format is the lowercase hint.
 			Format:   strings.ToLower(m.Format),
 			Fstype:   m.Fstype,
 			Readonly: flags.Readonly,
 			Noexec:   flags.Noexec,
 			Nosuid:   flags.Nosuid,
 			Nodev:    flags.Nodev,
-		}), nil
+		}, nil
 	default:
-		return msbSdk.MountConfig{}, fmt.Errorf("%w: %q", errUnknownMountType, m.Type)
+		return MountConfig{}, fmt.Errorf("%w: %q", errUnknownMountType, m.Type)
 	}
 }

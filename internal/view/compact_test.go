@@ -3,17 +3,16 @@ package view
 import (
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 )
 
 func TestNewCompactReportJSONMapsSandboxesAndDisks(t *testing.T) {
 	report := pruning.CompactReport{DryRun: true, Entries: []pruning.CompactEntry{{
 		Name: "proj-abc", Slug: "proj",
-		Result: msbSdk.DiskCompactionResult{
+		Result: msb.DiskCompactionResult{
 			InputLayers: 5, SelectedLayers: 4, OutputLayers: 2, MaterializedBytes: 10, TotalUs: 20, PauseUs: 30,
-			Disks: []msbSdk.DiskCompactionDiskResult{{
+			Disks: []msb.DiskCompactionDiskResult{{
 				GuestPath: "/", InputLayers: 5, SelectedLayers: 4, OutputLayers: 2, MaterializedBytes: 10, TotalUs: 20,
 			}},
 		},

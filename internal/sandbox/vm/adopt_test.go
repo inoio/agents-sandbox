@@ -1451,8 +1451,8 @@ func TestAdoptLegacyIdentityAdoptsLiveLegacyVMWithoutState(t *testing.T) {
 	const legacyVolume = "agents-sandbox-home-widget-aaa-opencode-9"
 	handle := &msb.MockSandboxHandle{
 		Name_: adoptLegacyVMName(),
-		Mounts: map[string]msbSdk.MountConfig{
-			mounts.VMHomeDir: msbSdk.Mount.Named(legacyVolume, msbSdk.MountOptions{}),
+		Mounts: map[string]msb.MountConfig{
+			mounts.VMHomeDir: msb.Mount.Named(legacyVolume, msb.MountOptions{}),
 		},
 	}
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
@@ -1504,8 +1504,8 @@ func TestAdoptLegacyIdentityPersistsVolumeBeforeDestroyFails(t *testing.T) {
 	handle := &msb.MockSandboxHandle{
 		Name_:      adoptLegacyVMName(),
 		DestroyErr: errors.New("destroy boom"),
-		Mounts: map[string]msbSdk.MountConfig{
-			mounts.VMHomeDir: msbSdk.Mount.Named(legacyVolume, msbSdk.MountOptions{}),
+		Mounts: map[string]msb.MountConfig{
+			mounts.VMHomeDir: msb.Mount.Named(legacyVolume, msb.MountOptions{}),
 		},
 	}
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
@@ -1566,8 +1566,8 @@ func TestAdoptLegacyIdentityDryRunLiveLegacyVMIsReadOnly(t *testing.T) {
 	const legacyVolume = "agents-sandbox-home-widget-aaa-opencode-9"
 	handle := &msb.MockSandboxHandle{
 		Name_: adoptLegacyVMName(),
-		Mounts: map[string]msbSdk.MountConfig{
-			mounts.VMHomeDir: msbSdk.Mount.Named(legacyVolume, msbSdk.MountOptions{}),
+		Mounts: map[string]msb.MountConfig{
+			mounts.VMHomeDir: msb.Mount.Named(legacyVolume, msb.MountOptions{}),
 		},
 	}
 	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
@@ -1642,8 +1642,8 @@ func TestAdoptLegacyIdentityClaimsSharedVolumeOnce(t *testing.T) {
 	checkoutA := state.Key{Slug: "checkout-aaa", Agent: adoptAgentName}
 	checkoutB := state.Key{Slug: "checkout-bbb", Agent: adoptAgentName}
 
-	legacyMount := map[string]msbSdk.MountConfig{
-		mounts.VMHomeDir: msbSdk.Mount.Named(legacyVolume, msbSdk.MountOptions{}),
+	legacyMount := map[string]msb.MountConfig{
+		mounts.VMHomeDir: msb.Mount.Named(legacyVolume, msb.MountOptions{}),
 	}
 	// Clone A claims the volume and records the marker, then its destroy fails.
 	failing := &msb.MockSandboxHandle{
@@ -2308,8 +2308,8 @@ func legacyVMNotFound(handle msb.SandboxHandle) *msb.MockMsbClient {
 func legacyVMWithHome() *msb.MockSandboxHandle {
 	return &msb.MockSandboxHandle{
 		Name_: adoptLegacyVMName(),
-		Mounts: map[string]msbSdk.MountConfig{
-			mounts.VMHomeDir: msbSdk.Mount.Named(adoptLegacyVolume, msbSdk.MountOptions{}),
+		Mounts: map[string]msb.MountConfig{
+			mounts.VMHomeDir: msb.Mount.Named(adoptLegacyVolume, msb.MountOptions{}),
 		},
 	}
 }

@@ -15,10 +15,10 @@ func TestParseConfigPortsMapsEveryProtocol(t *testing.T) {
 		t.Fatalf("ParseConfigPorts() error = %v", err)
 	}
 	// The Sctp entry is unknown to the launcher and skipped, not fatal.
-	want := []msbSdk.PortBinding{
-		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
-		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP},
-		{Bind: "127.0.0.1", HostPort: 8080, GuestPort: 5173, Protocol: msbSdk.PortProtocolUDP},
+	want := []PortBinding{
+		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: PortProtocolTCP},
+		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: PortProtocolTCP},
+		{Bind: "127.0.0.1", HostPort: 8080, GuestPort: 5173, Protocol: PortProtocolUDP},
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("ParseConfigPorts() = %+v, want %+v", got, want)
@@ -69,7 +69,7 @@ func TestParseConfigPortsSkipsUnknownProtocol(t *testing.T) {
 	  {"host_bind":"127.0.0.1","host_port":9,"guest_port":9,"protocol":"Sctp"},
 	  {"host_bind":"127.0.0.1","host_port":3000,"guest_port":3000,"protocol":"Tcp"}
 	]}}`)
-	want := []msbSdk.PortBinding{{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: msbSdk.PortProtocolTCP}}
+	want := []PortBinding{{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 3000, Protocol: PortProtocolTCP}}
 	if err != nil || !slices.Equal(got, want) {
 		t.Errorf("ParseConfigPorts() = %+v, %v; want %+v", got, err, want)
 	}
@@ -86,8 +86,8 @@ func TestRealSandboxHandleConfigPorts(t *testing.T) {
 }
 
 func TestMockSandboxHandleConfigPorts(t *testing.T) {
-	want := []msbSdk.PortBinding{
-		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: msbSdk.PortProtocolTCP},
+	want := []PortBinding{
+		{Bind: "127.0.0.1", HostPort: 4096, GuestPort: 4096, Protocol: PortProtocolTCP},
 	}
 	m := &MockSandboxHandle{PortBindings: want}
 	got, err := m.ConfigPorts()

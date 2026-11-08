@@ -13,26 +13,26 @@ import (
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-func compactableHandle(name string, result *msbSdk.DiskCompactionResult) *msb.MockSandboxHandle {
+func compactableHandle(name string, result *msb.DiskCompactionResult) *msb.MockSandboxHandle {
 	return labelledHandle(name, map[string]string{naming.LabelSlug: strings.SplitN(name, "-", 2)[0]}, result)
 }
 
-func labelledHandle(name string, labels map[string]string, result *msbSdk.DiskCompactionResult) *msb.MockSandboxHandle {
+func labelledHandle(name string, labels map[string]string, result *msb.DiskCompactionResult) *msb.MockSandboxHandle {
 	return &msb.MockSandboxHandle{
 		Name_:         name,
 		Status_:       msb.SandboxStatusStopped,
-		Cfg:           &msbSdk.SandboxConfig{Labels: labels},
+		Cfg:           &msb.SandboxConfig{Labels: labels},
 		CompactResult: result,
 	}
 }
 
-func rootDiskResult(inputLayers, outputLayers uint32, materializedBytes uint64) *msbSdk.DiskCompactionResult {
-	return &msbSdk.DiskCompactionResult{
+func rootDiskResult(inputLayers, outputLayers uint32, materializedBytes uint64) *msb.DiskCompactionResult {
+	return &msb.DiskCompactionResult{
 		InputLayers:       inputLayers,
 		SelectedLayers:    inputLayers,
 		OutputLayers:      outputLayers,
 		MaterializedBytes: materializedBytes,
-		Disks: []msbSdk.DiskCompactionDiskResult{{
+		Disks: []msb.DiskCompactionDiskResult{{
 			GuestPath:         "/",
 			InputLayers:       inputLayers,
 			SelectedLayers:    inputLayers,
@@ -166,7 +166,7 @@ func TestRenderCompactReport(t *testing.T) {
 		Entries: []CompactEntry{
 			{Name: "a-abc12345", Slug: "a", Result: first},
 			{Name: "b-abc12345", Slug: "b", Result: *rootDiskResult(3, 2, 1024)},
-			{Name: "c-abc12345", Slug: "c", Result: msbSdk.DiskCompactionResult{PauseUs: 1}},
+			{Name: "c-abc12345", Slug: "c", Result: msb.DiskCompactionResult{PauseUs: 1}},
 		},
 	}
 	ui := &termio.Mock{}

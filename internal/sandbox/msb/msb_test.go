@@ -365,7 +365,7 @@ func TestRealSandboxHandleOperationsReturnErrors(t *testing.T) {
 	if result, err := h.Compact(ctx, CompactionRequest{}); !IsUnsupportedOperation(err) || result != nil {
 		t.Errorf("Compact() = %v, %v; want unsupported-operation error on non-local handle", result, err)
 	}
-	if plan, err := h.Modify(ctx, msbSdk.ModifyOptions{}); err == nil || plan != nil {
+	if plan, err := h.Modify(ctx, ModifyOptions{}); err == nil || plan != nil {
 		t.Errorf("Modify() = %v, %v; want error on empty handle", plan, err)
 	}
 }
@@ -942,6 +942,73 @@ func TestRealSandboxHandleStatusAndBackendKindDelegation(t *testing.T) {
 	if got := h.BackendKind(); got != BackendLocal {
 		t.Errorf("BackendKind() = %q, want %q", got, BackendLocal)
 	}
+}
+
+// TestRealSandboxHandleModifyCompactTranslates covers the Modify and Compact
+// adapters through their SDK seams: the success path translates the SDK value
+// onto the launcher type and the error path propagates the SDK error. The
+// translation itself is pinned in translate_test.go; this pins the adapter.
+func TestRealSandboxHandleModifyCompactTranslates(t *testing.T) {
+	ctx := context.Background()
+	h := realSandboxHandle{handle: &msbSdk.SandboxHandle{}}
+
+	t.Run("Modify translates the plan", func(t *testing.T) {
+		swapSeam(t, &realSandboxHandleModify, func(
+			*msbSdk.SandboxHandle,
+			context.Context,
+			msbSdk.ModifyOptions,
+		) (*msbSdk.SandboxModificationPlan, error) {
+			return &msbSdk.SandboxModificationPlan{
+				Conflicts: []msbSdk.ModificationConflict{{Field: "cpus", Message: "nope"}},
+			}, nil
+		})
+		plan, err := h.Modify(ctx, ModifyOptions{CPUs: 4})
+		if err != nil || plan == nil || len(plan.Conflicts) != 1 || plan.Conflicts[0].Field != "cpus" {
+			t.Fatalf("Modify() = (%+v, %v), want a translated conflict", plan, err)
+		}
+	})
+
+	t.Run("Modify propagates the SDK error", func(t *testing.T) {
+		wantErr := errors.New("modify boom")
+		swapSeam(t, &realSandboxHandleModify, func(
+			*msbSdk.SandboxHandle,
+			context.Context,
+			msbSdk.ModifyOptions,
+		) (*msbSdk.SandboxModificationPlan, error) {
+			return nil, wantErr
+		})
+		if _, err := h.Modify(ctx, ModifyOptions{}); !errors.Is(err, wantErr) {
+			t.Fatalf("Modify() error = %v, want %v", err, wantErr)
+		}
+	})
+
+	t.Run("Compact translates the result", func(t *testing.T) {
+		swapSeam(t, &realSandboxHandleCompact, func(
+			*msbSdk.SandboxHandle,
+			context.Context,
+			msbSdk.DiskCompactionOptions,
+		) (*msbSdk.DiskCompactionResult, error) {
+			return &msbSdk.DiskCompactionResult{InputLayers: 3}, nil
+		})
+		result, err := h.Compact(ctx, CompactionRequest{})
+		if err != nil || result == nil || result.InputLayers != 3 {
+			t.Fatalf("Compact() = (%+v, %v), want a translated result", result, err)
+		}
+	})
+
+	t.Run("Compact propagates the SDK error", func(t *testing.T) {
+		wantErr := errors.New("compact boom")
+		swapSeam(t, &realSandboxHandleCompact, func(
+			*msbSdk.SandboxHandle,
+			context.Context,
+			msbSdk.DiskCompactionOptions,
+		) (*msbSdk.DiskCompactionResult, error) {
+			return nil, wantErr
+		})
+		if _, err := h.Compact(ctx, CompactionRequest{}); !errors.Is(err, wantErr) {
+			t.Fatalf("Compact() error = %v, want %v", err, wantErr)
+		}
+	})
 }
 
 // TestRealSandboxHandleConfigImageConnect covers the handle's Config/Image and

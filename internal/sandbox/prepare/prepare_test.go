@@ -185,9 +185,9 @@ func TestEnsureVMStageAppliesThePlannedMemory(t *testing.T) {
 		Name_:         "vm",
 		Status_:       msb.SandboxStatusRunning,
 		ConnectSb:     &msb.MockSandbox{},
-		Cfg:           &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 16384},
+		Cfg:           &msb.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 16384},
 		MetricsResult: &msb.Metrics{MemoryLimitBytes: 8192 << 20},
-		Plan:          &msbSdk.SandboxModificationPlan{},
+		Plan:          &msb.SandboxModificationPlan{},
 	}
 	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return handle, nil
@@ -554,9 +554,9 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 	mock := &msb.MockMsbClient{
 		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 			return &msb.MockSandboxHandle{
-				Cfg: &msbSdk.SandboxConfig{Image: "img:tag"},
-				Mounts: map[string]msbSdk.MountConfig{
-					mounts.VMHomeDir: msbSdk.Mount.Named(recovered, msbSdk.MountOptions{}),
+				Cfg: &msb.SandboxConfig{Image: "img:tag"},
+				Mounts: map[string]msb.MountConfig{
+					mounts.VMHomeDir: msb.Mount.Named(recovered, msb.MountOptions{}),
 				},
 			}, nil
 		},
@@ -867,9 +867,9 @@ func TestLiveHomeVolumeReturnsMountedVolume(t *testing.T) {
 	mock := &msb.MockMsbClient{
 		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 			return &msb.MockSandboxHandle{
-				Cfg: &msbSdk.SandboxConfig{Image: "img:tag"},
-				Mounts: map[string]msbSdk.MountConfig{
-					mounts.VMHomeDir: msbSdk.Mount.Named("home-vol", msbSdk.MountOptions{}),
+				Cfg: &msb.SandboxConfig{Image: "img:tag"},
+				Mounts: map[string]msb.MountConfig{
+					mounts.VMHomeDir: msb.Mount.Named("home-vol", msb.MountOptions{}),
 				},
 			}, nil
 		},
@@ -900,7 +900,7 @@ func TestLiveHomeVolumeMountsError(t *testing.T) {
 	mock := &msb.MockMsbClient{
 		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 			return &msb.MockSandboxHandle{
-				Cfg:       &msbSdk.SandboxConfig{Image: "img:tag"},
+				Cfg:       &msb.SandboxConfig{Image: "img:tag"},
 				MountsErr: errors.New("mounts boom"),
 			}, nil
 		},
@@ -1117,7 +1117,7 @@ func TestPlanReconfigStageAppliesAnAcceptedRaiseToThisRun(t *testing.T) {
 				Name_:      "vm",
 				Status_:    msb.SandboxStatusRunning,
 				ConnectSb:  &msb.MockSandbox{},
-				Cfg:        &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 16384},
+				Cfg:        &msb.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 16384},
 				LogsResult: []msb.LogEntry{memoryRaiseLogEntry(time.Now().Add(-time.Hour))},
 			}
 			client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
@@ -1175,7 +1175,7 @@ func TestPlanReconfigStageSkipVMSuppressesMemoryRaise(t *testing.T) {
 		Name_:      "vm",
 		Status_:    msb.SandboxStatusRunning,
 		ConnectSb:  &msb.MockSandbox{},
-		Cfg:        &msbSdk.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192},
+		Cfg:        &msb.SandboxConfig{MemoryMiB: 4096, MaxMemoryMiB: 8192},
 		LogsResult: []msb.LogEntry{memoryRaiseLogEntry(kill)},
 	}
 	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {

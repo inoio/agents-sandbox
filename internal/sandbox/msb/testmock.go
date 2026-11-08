@@ -403,16 +403,16 @@ type MockSandboxHandle struct {
 	DestroyFn        func(context.Context) error
 	DestroyErr       error
 	Destroyed        bool
-	Cfg              *msbSdk.SandboxConfig
+	Cfg              *SandboxConfig
 	ConfigErr        error
-	Mounts           map[string]msbSdk.MountConfig
+	Mounts           map[string]MountConfig
 	MountsErr        error
-	PortBindings     []msbSdk.PortBinding
+	PortBindings     []PortBinding
 	PortsErr         error
 	ModifyErr        error
-	Plan             *msbSdk.SandboxModificationPlan
-	ModifiedOptions  []msbSdk.ModifyOptions
-	CompactResult    *msbSdk.DiskCompactionResult
+	Plan             *SandboxModificationPlan
+	ModifiedOptions  []ModifyOptions
+	CompactResult    *DiskCompactionResult
 	CompactErr       error
 	CompactedOptions []CompactionRequest
 	MetricsResult    *Metrics
@@ -505,7 +505,7 @@ func (m *MockSandboxHandle) Destroy(ctx context.Context, _ LifecycleOptions) err
 
 func (m *MockSandboxHandle) DidDestroy() bool { return m.Destroyed }
 
-func (m *MockSandboxHandle) Config() (*msbSdk.SandboxConfig, error) {
+func (m *MockSandboxHandle) Config() (*SandboxConfig, error) {
 	return m.Cfg, m.ConfigErr
 }
 
@@ -513,7 +513,7 @@ func (m *MockSandboxHandle) Config() (*msbSdk.SandboxConfig, error) {
 // JSON, which the mock has no equivalent of: the real handle's wiring of
 // ParseConfigMounts over ConfigJSON() needs the FFI runtime to exercise. The
 // parser it calls carries the tests for the decode itself.
-func (m *MockSandboxHandle) ConfigMounts() (map[string]msbSdk.MountConfig, error) {
+func (m *MockSandboxHandle) ConfigMounts() (map[string]MountConfig, error) {
 	if m.MountsErr != nil {
 		return nil, m.MountsErr
 	}
@@ -523,7 +523,7 @@ func (m *MockSandboxHandle) ConfigMounts() (map[string]msbSdk.MountConfig, error
 // ConfigPorts is seeded like ConfigMounts: the real handle's ParseConfigPorts
 // over ConfigJSON() needs the FFI runtime, so the mock carries the decoded
 // bindings directly and the parser carries the decode tests.
-func (m *MockSandboxHandle) ConfigPorts() ([]msbSdk.PortBinding, error) {
+func (m *MockSandboxHandle) ConfigPorts() ([]PortBinding, error) {
 	if m.PortsErr != nil {
 		return nil, m.PortsErr
 	}
@@ -532,8 +532,8 @@ func (m *MockSandboxHandle) ConfigPorts() ([]msbSdk.PortBinding, error) {
 
 func (m *MockSandboxHandle) Modify(
 	_ context.Context,
-	opts msbSdk.ModifyOptions,
-) (*msbSdk.SandboxModificationPlan, error) {
+	opts ModifyOptions,
+) (*SandboxModificationPlan, error) {
 	m.ModifiedOptions = append(m.ModifiedOptions, opts)
 	return m.Plan, m.ModifyErr
 }
@@ -541,7 +541,7 @@ func (m *MockSandboxHandle) Modify(
 func (m *MockSandboxHandle) Compact(
 	_ context.Context,
 	req CompactionRequest,
-) (*msbSdk.DiskCompactionResult, error) {
+) (*DiskCompactionResult, error) {
 	m.CompactedOptions = append(m.CompactedOptions, req)
 	return m.CompactResult, m.CompactErr
 }

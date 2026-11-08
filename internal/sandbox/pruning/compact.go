@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/humanize"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -17,7 +15,7 @@ const microsecondsPerMillisecond = 1000
 type CompactEntry struct {
 	Name   string
 	Slug   string
-	Result msbSdk.DiskCompactionResult
+	Result msb.DiskCompactionResult
 }
 
 // CompactReport summarizes a CompactSandboxes run.

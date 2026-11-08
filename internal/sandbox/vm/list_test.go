@@ -7,8 +7,6 @@ import (
 	"testing"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
@@ -46,7 +44,7 @@ func TestListSandboxesPopulatesInfo(t *testing.T) {
 			Status_:    msb.SandboxStatusRunning,
 			CreatedAt_: now,
 			UpdatedAt_: now.Add(time.Hour),
-			Cfg: &msbSdk.SandboxConfig{
+			Cfg: &msb.SandboxConfig{
 				Image:  "agents-sandbox/runner:latest",
 				Labels: map[string]string{naming.LabelProject: "proj"},
 			},
@@ -152,7 +150,7 @@ func TestListSandboxesHidesTaskSandboxesBothSchemes(t *testing.T) {
 		&msb.MockSandboxHandle{
 			Name_:   "labelled-prefill",
 			Status_: msb.SandboxStatusRunning,
-			Cfg:     &msbSdk.SandboxConfig{Labels: map[string]string{naming.LabelTask: "1"}},
+			Cfg:     &msb.SandboxConfig{Labels: map[string]string{naming.LabelTask: "1"}},
 		},
 		&msb.MockSandboxHandle{Name_: "myproj-1mjusbm3wikhb0-opencode", Status_: msb.SandboxStatusRunning},
 	}

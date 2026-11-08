@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // persistedConfigPorts mirrors the `network.ports` array of a persisted sandbox
@@ -42,18 +40,18 @@ type persistedPort struct {
 // that publishes nothing is valid and must not read as "every port changed".
 // An entry whose protocol this launcher does not know is skipped, mirroring
 // ParseConfigMounts' treatment of unknown mount variants.
-func ParseConfigPorts(configJSON string) ([]msbSdk.PortBinding, error) {
+func ParseConfigPorts(configJSON string) ([]PortBinding, error) {
 	var persisted persistedConfigPorts
 	if err := json.Unmarshal([]byte(configJSON), &persisted); err != nil {
 		return nil, fmt.Errorf("parsing persisted sandbox config: %w", err)
 	}
-	bindings := make([]msbSdk.PortBinding, 0, len(persisted.Network.Ports))
+	bindings := make([]PortBinding, 0, len(persisted.Network.Ports))
 	for _, entry := range persisted.Network.Ports {
 		protocol, known := portProtocol(entry.Protocol)
 		if !known {
 			continue
 		}
-		bindings = append(bindings, msbSdk.PortBinding{
+		bindings = append(bindings, PortBinding{
 			Bind:      entry.HostBind,
 			HostPort:  entry.HostPort,
 			GuestPort: entry.GuestPort,
@@ -63,15 +61,15 @@ func ParseConfigPorts(configJSON string) ([]msbSdk.PortBinding, error) {
 	return bindings, nil
 }
 
-// portProtocol maps the persisted protocol onto the SDK constant. Upstream
-// serializes the Rust variant name ("Tcp", "Udp"); the SDK constants are the
-// lowercase spellings. An absent protocol is TCP, upstream's serde default.
-func portProtocol(persisted string) (msbSdk.PortProtocol, bool) {
+// portProtocol maps the persisted protocol onto the launcher constant. Upstream
+// serializes the Rust variant name ("Tcp", "Udp"); the launcher constants are
+// the lowercase spellings. An absent protocol is TCP, upstream's serde default.
+func portProtocol(persisted string) (PortProtocol, bool) {
 	switch strings.ToLower(persisted) {
 	case "", "tcp":
-		return msbSdk.PortProtocolTCP, true
+		return PortProtocolTCP, true
 	case "udp":
-		return msbSdk.PortProtocolUDP, true
+		return PortProtocolUDP, true
 	default:
 		return "", false
 	}

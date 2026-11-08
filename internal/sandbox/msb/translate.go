@@ -338,6 +338,78 @@ var (
 		"SizeMiB":  "the launcher creates directory volumes, not disk volumes",
 		"Labels":   "the launcher does not label named volumes",
 	}
+
+	// modifyProjected names every field of msbSdk.ModifyOptions the launcher
+	// projects onto ModifyOptions.
+	modifyProjected = map[string]struct{}{
+		"CPUs":            {},
+		"MemoryMiB":       {},
+		"RootDiskSizeMiB": {},
+		"Policy":          {},
+	}
+
+	// modifyNotModeled names msbSdk.ModifyOptions fields the launcher
+	// deliberately drops: the launcher only grows CPUs, memory and the root
+	// disk live; everything else is applied by a recreate.
+	modifyNotModeled = map[string]string{
+		"MaxCPUs":       "the boot maximum is set at creation and never raised live",
+		"MaxMemoryMiB":  "the boot maximum is set at creation and never raised live",
+		"Env":           "env changes are baked in at creation, not patched live",
+		"EnvRemove":     "env changes are baked in at creation, not patched live",
+		"Labels":        "labels are set at creation and never patched live",
+		"LabelsRemove":  "labels are set at creation and never patched live",
+		"Workdir":       "the workdir is set at creation and never patched live",
+		"Secrets":       "secrets are baked in at creation, not patched live",
+		"SecretsRemove": "secrets are baked in at creation, not patched live",
+		"Ports":         "published ports are recreated, not patched live",
+		"PortsRemove":   "published ports are recreated, not patched live",
+		"DryRun":        "the launcher always applies the modification it planned",
+	}
+
+	// sandboxModificationPlanProjected names the msbSdk.SandboxModificationPlan
+	// field the launcher surfaces; the rest is notModeled.
+	sandboxModificationPlanProjected = map[string]struct{}{
+		"Conflicts": {},
+	}
+	sandboxModificationPlanNotModeled = map[string]string{
+		"Sandbox":      "the caller already knows which sandbox it modified",
+		"Status":       "the caller read the status before deciding to modify",
+		"Applied":      "the launcher treats a returned plan as applied and reports only conflicts",
+		"Policy":       "the caller sets the policy it requested",
+		"Changes":      "the launcher surfaces blocking conflicts, not the full change list",
+		"Warnings":     "non-fatal planning warnings are not surfaced",
+		"ResizeStatus": "live resize convergence is polled through Metrics, not the plan",
+	}
+
+	// diskCompactionResultProjected names every field of
+	// msbSdk.DiskCompactionResult the launcher projects; DryRun is notModeled
+	// because the caller issued the run and already knows whether it was one.
+	diskCompactionResultProjected = map[string]struct{}{
+		"InputLayers":       {},
+		"SelectedLayers":    {},
+		"OutputLayers":      {},
+		"MaterializedBytes": {},
+		"TotalUs":           {},
+		"PauseUs":           {},
+		"Disks":             {},
+	}
+	diskCompactionResultNotModeled = map[string]string{
+		"DryRun": "the caller issued the run and already knows whether it was a dry run",
+	}
+
+	// diskCompactionDiskResultProjected names every field of
+	// msbSdk.DiskCompactionDiskResult the launcher projects;
+	// diskCompactionDiskResultNotModeled is empty because every field is
+	// projected.
+	diskCompactionDiskResultProjected = map[string]struct{}{
+		"GuestPath":         {},
+		"InputLayers":       {},
+		"SelectedLayers":    {},
+		"OutputLayers":      {},
+		"MaterializedBytes": {},
+		"TotalUs":           {},
+	}
+	diskCompactionDiskResultNotModeled = map[string]string{}
 )
 
 // execOptions translates an ExecRequest into the SDK exec options. Options
@@ -750,6 +822,170 @@ func volumeKindFrom(kind msbSdk.VolumeKind) VolumeKind {
 // volumeKindTo translates the launcher volume kind onto the SDK enum.
 func volumeKindTo(kind VolumeKind) msbSdk.VolumeKind {
 	return msbSdk.VolumeKind(kind)
+}
+
+// sandboxConfigFrom projects the SDK's persisted config onto the launcher
+// model, including the managed root disk the SDK decode parses. A nil config
+// stays nil. The mounts and ports the SDK decode drops are absent from the
+// projection; a consumer that needs them reads ConfigMounts/ConfigPorts
+// (specs/vm/live-mount-readback.md). The read itself can fail, but only inside
+// the adapter's Config seam; this projection always succeeds.
+func sandboxConfigFrom(config *msbSdk.SandboxConfig) *SandboxConfig {
+	if config == nil {
+		return nil
+	}
+	var rootDisk *RootDiskConfig
+	if config.RootDisk != nil {
+		rootDisk = &RootDiskConfig{SizeMiB: config.RootDisk.SizeMiB}
+	}
+	return &SandboxConfig{
+		Image:        config.Image,
+		Labels:       config.Labels,
+		CPUs:         config.CPUs,
+		MaxCPUs:      config.MaxCPUs,
+		MemoryMiB:    config.MemoryMiB,
+		MaxMemoryMiB: config.MaxMemoryMiB,
+		RootDisk:     rootDisk,
+		Volumes:      mountConfigsFrom(config.Volumes),
+		PortBindings: portBindingsFrom(config.PortBindings),
+	}
+}
+
+// mountConfigsFrom translates a guest-path-keyed map of SDK mount descriptors,
+// preserving nil as nil.
+func mountConfigsFrom(mounts map[string]msbSdk.MountConfig) map[string]MountConfig {
+	if mounts == nil {
+		return nil
+	}
+	out := make(map[string]MountConfig, len(mounts))
+	for target, mount := range mounts {
+		out[target] = mountConfigFrom(mount)
+	}
+	return out
+}
+
+// mountConfigFrom projects one SDK mount descriptor onto the launcher model,
+// reading the unexported kind through Kind(). The SDK-only NamedMode, NamedKind
+// and Tmpfs fields are not modeled: the launcher derives the tmpfs variant from
+// the kind.
+func mountConfigFrom(mount msbSdk.MountConfig) MountConfig {
+	return MountConfig{
+		Kind:               MountKind(mount.Kind()),
+		Bind:               mount.Bind,
+		Named:              mount.Named,
+		Disk:               mount.Disk,
+		Owned:              mount.Owned,
+		Format:             mount.Format,
+		Fstype:             mount.Fstype,
+		QuotaMiB:           mount.QuotaMiB,
+		SizeMiB:            mount.SizeMiB,
+		Readonly:           mount.Readonly,
+		Noexec:             mount.Noexec,
+		Nosuid:             mount.Nosuid,
+		Nodev:              mount.Nodev,
+		StatVirtualization: StatVirtualization(mount.StatVirtualization),
+		HostPermissions:    HostPermissions(mount.HostPermissions),
+		Owner:              mountOwnerFrom(mount.Owner),
+	}
+}
+
+// mountOwnerFrom translates an SDK mount owner, preserving nil.
+func mountOwnerFrom(owner *msbSdk.MountOwner) *MountOwner {
+	if owner == nil {
+		return nil
+	}
+	return &MountOwner{UID: owner.UID, GID: owner.GID}
+}
+
+// portBindingsFrom translates SDK read-back port bindings onto the launcher
+// type, preserving nil as nil.
+func portBindingsFrom(bindings []msbSdk.PortBinding) []PortBinding {
+	if bindings == nil {
+		return nil
+	}
+	out := make([]PortBinding, len(bindings))
+	for i, binding := range bindings {
+		out[i] = PortBinding{
+			Bind:      binding.Bind,
+			HostPort:  binding.HostPort,
+			GuestPort: binding.GuestPort,
+			Protocol:  PortProtocol(binding.Protocol),
+		}
+	}
+	return out
+}
+
+// modifyOptions translates a launcher modification request into the SDK
+// options. A zero field is omitted, so it leaves the current value unchanged.
+func modifyOptions(opts ModifyOptions) msbSdk.ModifyOptions {
+	//nolint:exhaustruct_v5 // the launcher models only the fields it sets; the rest stay zero (unchanged)
+	return msbSdk.ModifyOptions{
+		CPUs:            opts.CPUs,
+		MemoryMiB:       opts.MemoryMiB,
+		RootDiskSizeMiB: opts.RootDiskSizeMiB,
+		Policy:          msbSdk.ModificationPolicy(opts.Policy),
+	}
+}
+
+// modificationPlanFrom projects the SDK modification plan onto the launcher
+// model, keeping only the blocking conflicts. A nil plan stays nil.
+func modificationPlanFrom(plan *msbSdk.SandboxModificationPlan) *SandboxModificationPlan {
+	if plan == nil {
+		return nil
+	}
+	return &SandboxModificationPlan{
+		Conflicts: modificationConflictsFrom(plan.Conflicts),
+	}
+}
+
+// modificationConflictsFrom translates SDK modification conflicts, preserving
+// nil as nil.
+func modificationConflictsFrom(conflicts []msbSdk.ModificationConflict) []ModificationConflict {
+	if conflicts == nil {
+		return nil
+	}
+	out := make([]ModificationConflict, len(conflicts))
+	for i, conflict := range conflicts {
+		out[i] = ModificationConflict{Field: conflict.Field, Message: conflict.Message}
+	}
+	return out
+}
+
+// diskCompactionResultFrom projects the SDK compaction result. A nil result
+// stays nil.
+func diskCompactionResultFrom(result *msbSdk.DiskCompactionResult) *DiskCompactionResult {
+	if result == nil {
+		return nil
+	}
+	return &DiskCompactionResult{
+		InputLayers:       result.InputLayers,
+		SelectedLayers:    result.SelectedLayers,
+		OutputLayers:      result.OutputLayers,
+		MaterializedBytes: result.MaterializedBytes,
+		TotalUs:           result.TotalUs,
+		PauseUs:           result.PauseUs,
+		Disks:             diskCompactionDisksFrom(result.Disks),
+	}
+}
+
+// diskCompactionDisksFrom translates per-disk compaction outcomes, preserving
+// nil as nil.
+func diskCompactionDisksFrom(disks []msbSdk.DiskCompactionDiskResult) []DiskCompactionDiskResult {
+	if disks == nil {
+		return nil
+	}
+	out := make([]DiskCompactionDiskResult, len(disks))
+	for i, disk := range disks {
+		out[i] = DiskCompactionDiskResult{
+			GuestPath:         disk.GuestPath,
+			InputLayers:       disk.InputLayers,
+			SelectedLayers:    disk.SelectedLayers,
+			OutputLayers:      disk.OutputLayers,
+			MaterializedBytes: disk.MaterializedBytes,
+			TotalUs:           disk.TotalUs,
+		}
+	}
+	return out
 }
 
 // sandboxOptions translates a SandboxSpec into the SDK option list in the order

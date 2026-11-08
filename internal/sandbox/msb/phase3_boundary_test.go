@@ -6,10 +6,10 @@ import (
 )
 
 // TestPhase3ConsumersDoNotImportSDK pins the phase-3 boundary: the packages
-// whose msb-facing return values and lifecycle enums are now launcher-owned
-// must not import the microsandbox SDK in their non-test sources. vm, volume
-// and pruning still import it for the phase-4 config model (SandboxConfig,
-// MountConfig, VolumeSpec, DiskCompaction*) and are deliberately not covered.
+// whose msb-facing return values and lifecycle enums are launcher-owned must not
+// import the microsandbox SDK in their non-test sources. The phase-4
+// TestNoProductionPackageImportsSDK supersedes this with the whole-module scan;
+// this pin stays for the specific phase-3 packages.
 func TestPhase3ConsumersDoNotImportSDK(t *testing.T) {
 	const sdkPath = "github.com/superradcompany/microsandbox/sdk/go"
 	for _, dir := range []string{

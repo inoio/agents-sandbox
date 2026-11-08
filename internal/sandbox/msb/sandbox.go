@@ -37,24 +37,24 @@ type SandboxLifecycleHandle interface {
 
 // SandboxConfigReader reads a sandbox's persisted configuration.
 type SandboxConfigReader interface {
-	Config() (*msbSdk.SandboxConfig, error)
+	Config() (*SandboxConfig, error)
 	// ConfigMounts returns the mounts the persisted config records, keyed by
 	// guest path. Config() cannot supply them: the SDK's
 	// SandboxConfig.UnmarshalJSON drops the persisted mounts, so
 	// cfg.Volumes is always empty on a read-back
 	// (specs/vm/live-mount-readback.md).
-	ConfigMounts() (map[string]msbSdk.MountConfig, error)
+	ConfigMounts() (map[string]MountConfig, error)
 	// ConfigPorts returns the published port bindings the persisted config
 	// records. Config() cannot supply them either: the same SDK decode drops
 	// the persisted network.ports, so cfg.PortBindings is always empty on a
 	// read-back (specs/vm/live-mount-readback.md).
-	ConfigPorts() ([]msbSdk.PortBinding, error)
+	ConfigPorts() ([]PortBinding, error)
 }
 
 // SandboxResourceControl modifies, compacts and observes a sandbox.
 type SandboxResourceControl interface {
-	Modify(ctx context.Context, opts msbSdk.ModifyOptions) (*msbSdk.SandboxModificationPlan, error)
-	Compact(ctx context.Context, req CompactionRequest) (*msbSdk.DiskCompactionResult, error)
+	Modify(ctx context.Context, opts ModifyOptions) (*SandboxModificationPlan, error)
+	Compact(ctx context.Context, req CompactionRequest) (*DiskCompactionResult, error)
 	Metrics(ctx context.Context) (*Metrics, error)
 	Logs(ctx context.Context, query LogQuery) ([]LogEntry, error)
 }
@@ -167,6 +167,8 @@ var (
 	realSandboxHandleConfig     = (*msbSdk.SandboxHandle).Config
 	realSandboxHandleConfigJSON = (*msbSdk.SandboxHandle).ConfigJSON
 	realSandboxHandleConnect    = (*msbSdk.SandboxHandle).Connect
+	realSandboxHandleModify     = (*msbSdk.SandboxHandle).Modify
+	realSandboxHandleCompact    = (*msbSdk.SandboxHandle).Compact
 )
 
 // The handle identity accessors delegate through package-level seams (method
@@ -219,30 +221,42 @@ func (w realSandboxHandle) Destroy(ctx context.Context, opts LifecycleOptions) e
 	return w.handle.Destroy(ctx, destroyOptions...)
 }
 
-func (w realSandboxHandle) Config() (*msbSdk.SandboxConfig, error) {
-	return realSandboxHandleConfig(w.handle)
+func (w realSandboxHandle) Config() (*SandboxConfig, error) {
+	config, err := realSandboxHandleConfig(w.handle)
+	if err != nil {
+		return nil, err
+	}
+	return sandboxConfigFrom(config), nil
 }
 
-func (w realSandboxHandle) ConfigMounts() (map[string]msbSdk.MountConfig, error) {
+func (w realSandboxHandle) ConfigMounts() (map[string]MountConfig, error) {
 	return ParseConfigMounts(realSandboxHandleConfigJSON(w.handle))
 }
 
-func (w realSandboxHandle) ConfigPorts() ([]msbSdk.PortBinding, error) {
+func (w realSandboxHandle) ConfigPorts() ([]PortBinding, error) {
 	return ParseConfigPorts(realSandboxHandleConfigJSON(w.handle))
 }
 
 func (w realSandboxHandle) Modify(
 	ctx context.Context,
-	opts msbSdk.ModifyOptions,
-) (*msbSdk.SandboxModificationPlan, error) {
-	return w.handle.Modify(ctx, opts)
+	opts ModifyOptions,
+) (*SandboxModificationPlan, error) {
+	plan, err := realSandboxHandleModify(w.handle, ctx, modifyOptions(opts))
+	if err != nil {
+		return nil, err
+	}
+	return modificationPlanFrom(plan), nil
 }
 
 func (w realSandboxHandle) Compact(
 	ctx context.Context,
 	req CompactionRequest,
-) (*msbSdk.DiskCompactionResult, error) {
-	return w.handle.Compact(ctx, compactionOptions(req))
+) (*DiskCompactionResult, error) {
+	result, err := realSandboxHandleCompact(w.handle, ctx, compactionOptions(req))
+	if err != nil {
+		return nil, err
+	}
+	return diskCompactionResultFrom(result), nil
 }
 
 func (w realSandboxHandle) Metrics(ctx context.Context) (*Metrics, error) {

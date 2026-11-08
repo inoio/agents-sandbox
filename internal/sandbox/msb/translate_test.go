@@ -93,6 +93,30 @@ func TestSDKStructFieldsAreClassified(t *testing.T) {
 			volumeConfigProjected,
 			volumeConfigNotModeled,
 		},
+		{
+			"ModifyOptions",
+			reflect.TypeFor[msbSdk.ModifyOptions](),
+			modifyProjected,
+			modifyNotModeled,
+		},
+		{
+			"SandboxModificationPlan",
+			reflect.TypeFor[msbSdk.SandboxModificationPlan](),
+			sandboxModificationPlanProjected,
+			sandboxModificationPlanNotModeled,
+		},
+		{
+			"DiskCompactionResult",
+			reflect.TypeFor[msbSdk.DiskCompactionResult](),
+			diskCompactionResultProjected,
+			diskCompactionResultNotModeled,
+		},
+		{
+			"DiskCompactionDiskResult",
+			reflect.TypeFor[msbSdk.DiskCompactionDiskResult](),
+			diskCompactionDiskResultProjected,
+			diskCompactionDiskResultNotModeled,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1053,5 +1077,178 @@ func TestVolumeOptionsProjectKind(t *testing.T) {
 	}
 	if cfg.Kind != msbSdk.VolumeKindDir {
 		t.Errorf("Kind = %q, want dir", cfg.Kind)
+	}
+}
+
+func TestSandboxConfigFromProjectsFields(t *testing.T) {
+	owner := &msbSdk.MountOwner{UID: 1000, GID: 1000}
+	rootDisk := msbSdk.RootDisk.Managed(16384)
+	config := sandboxConfigFrom(&msbSdk.SandboxConfig{
+		Image:        "img:1",
+		Labels:       map[string]string{"k": "v"},
+		CPUs:         2,
+		MaxCPUs:      4,
+		MemoryMiB:    1024,
+		MaxMemoryMiB: 2048,
+		RootDisk:     &rootDisk,
+		Volumes: map[string]msbSdk.MountConfig{
+			"/data": msbSdk.Mount.Bind("/host", msbSdk.MountOptions{Readonly: true, Owner: owner}),
+		},
+		PortBindings: []msbSdk.PortBinding{{
+			Bind:      "127.0.0.1",
+			HostPort:  3000,
+			GuestPort: 8080,
+			Protocol:  msbSdk.PortProtocolTCP,
+		}},
+	})
+	if config == nil {
+		t.Fatal("sandboxConfigFrom() = nil, want a config")
+	}
+	if config.Image != "img:1" || config.CPUs != 2 || config.MaxCPUs != 4 ||
+		config.MemoryMiB != 1024 || config.MaxMemoryMiB != 2048 {
+		t.Errorf("sandboxConfigFrom() = %+v, want every scalar field projected", config)
+	}
+	if config.Labels["k"] != "v" {
+		t.Errorf("Labels = %v, want k=v", config.Labels)
+	}
+	if config.RootDisk == nil || config.RootDisk.SizeMiB != 16384 {
+		t.Errorf("RootDisk = %+v, want 16384 MiB", config.RootDisk)
+	}
+	mount, ok := config.Volumes["/data"]
+	if !ok || mount.Kind != MountKindBind || mount.Bind != "/host" || !mount.Readonly {
+		t.Errorf("Volumes[/data] = %+v, want a readonly bind of /host", mount)
+	}
+	if mount.Owner == nil || mount.Owner.UID != 1000 || mount.Owner.GID != 1000 {
+		t.Errorf("Volumes[/data].Owner = %+v, want the projected owner", mount.Owner)
+	}
+	if len(config.PortBindings) != 1 || config.PortBindings[0].HostPort != 3000 ||
+		config.PortBindings[0].GuestPort != 8080 || config.PortBindings[0].Protocol != PortProtocolTCP {
+		t.Errorf("PortBindings = %+v, want 127.0.0.1:3000 → 8080/tcp", config.PortBindings)
+	}
+}
+
+func TestSandboxConfigFromNilIsNil(t *testing.T) {
+	if got := sandboxConfigFrom(nil); got != nil {
+		t.Errorf("sandboxConfigFrom(nil) = %v, want nil", got)
+	}
+}
+
+func TestMountConfigFromProjectsKindAndFields(t *testing.T) {
+	bind := mountConfigFrom(msbSdk.Mount.Bind("/host", msbSdk.MountOptions{
+		Readonly: true,
+		Noexec:   true,
+		QuotaMiB: 128,
+	}))
+	if bind.Kind != MountKindBind || bind.Bind != "/host" || !bind.Readonly || !bind.Noexec || bind.QuotaMiB != 128 {
+		t.Errorf("mountConfigFrom(bind) = %+v, want a readonly noexec bind with a 128 MiB quota", bind)
+	}
+	if got := mountConfigFrom(msbSdk.MountConfig{}).Kind; got != 0 {
+		t.Errorf("mountConfigFrom(zero).Kind = %v, want 0", got)
+	}
+}
+
+func TestMountConfigsFromPreservesNil(t *testing.T) {
+	if got := mountConfigsFrom(nil); got != nil {
+		t.Errorf("mountConfigsFrom(nil) = %v, want nil", got)
+	}
+}
+
+func TestPortBindingsFromPreservesNilAndFields(t *testing.T) {
+	if got := portBindingsFrom(nil); got != nil {
+		t.Errorf("portBindingsFrom(nil) = %v, want nil", got)
+	}
+	got := portBindingsFrom([]msbSdk.PortBinding{{
+		Bind:      "127.0.0.1",
+		HostPort:  3000,
+		GuestPort: 8080,
+		Protocol:  msbSdk.PortProtocolUDP,
+	}})
+	if len(got) != 1 || got[0].Bind != "127.0.0.1" || got[0].HostPort != 3000 ||
+		got[0].GuestPort != 8080 || got[0].Protocol != PortProtocolUDP {
+		t.Errorf("portBindingsFrom() = %+v, want every field projected", got)
+	}
+}
+
+func TestModifyOptionsProjectsFields(t *testing.T) {
+	want := msbSdk.ModifyOptions{
+		CPUs:            4,
+		MemoryMiB:       4096,
+		RootDiskSizeMiB: 16384,
+		Policy:          msbSdk.ModificationPolicyRestart,
+	}
+	got := modifyOptions(ModifyOptions{
+		CPUs:            4,
+		MemoryMiB:       4096,
+		RootDiskSizeMiB: 16384,
+		Policy:          ModificationPolicyRestart,
+	})
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("modifyOptions() = %+v, want %+v", got, want)
+	}
+	if got := modifyOptions(ModifyOptions{}); !reflect.DeepEqual(got, msbSdk.ModifyOptions{}) {
+		t.Errorf("modifyOptions(zero) = %+v, want the zero SDK options", got)
+	}
+}
+
+func TestModificationPlanFromProjectsConflicts(t *testing.T) {
+	plan := modificationPlanFrom(&msbSdk.SandboxModificationPlan{
+		Sandbox: "sb",
+		Applied: true,
+		Conflicts: []msbSdk.ModificationConflict{
+			{Field: "cpus", Message: "cannot shrink"},
+		},
+	})
+	if plan == nil {
+		t.Fatal("modificationPlanFrom() = nil, want a plan")
+	}
+	if len(plan.Conflicts) != 1 || plan.Conflicts[0].Field != "cpus" ||
+		plan.Conflicts[0].Message != "cannot shrink" {
+		t.Errorf("Conflicts = %+v, want the projected conflict", plan.Conflicts)
+	}
+}
+
+func TestModificationPlanFromNilIsNil(t *testing.T) {
+	if got := modificationPlanFrom(nil); got != nil {
+		t.Errorf("modificationPlanFrom(nil) = %v, want nil", got)
+	}
+	if got := modificationPlanFrom(&msbSdk.SandboxModificationPlan{}); got.Conflicts != nil {
+		t.Errorf("Conflicts = %v, want nil for a nil SDK conflict list", got.Conflicts)
+	}
+}
+
+func TestDiskCompactionResultFromProjectsFields(t *testing.T) {
+	result := diskCompactionResultFrom(&msbSdk.DiskCompactionResult{
+		DryRun:            true,
+		InputLayers:       4,
+		SelectedLayers:    3,
+		OutputLayers:      2,
+		MaterializedBytes: 1024,
+		TotalUs:           10,
+		PauseUs:           5,
+		Disks: []msbSdk.DiskCompactionDiskResult{{
+			GuestPath:         "/data",
+			InputLayers:       2,
+			SelectedLayers:    1,
+			OutputLayers:      1,
+			MaterializedBytes: 512,
+			TotalUs:           4,
+		}},
+	})
+	if result == nil {
+		t.Fatal("diskCompactionResultFrom() = nil, want a result")
+	}
+	if result.InputLayers != 4 || result.SelectedLayers != 3 || result.OutputLayers != 2 ||
+		result.MaterializedBytes != 1024 || result.TotalUs != 10 || result.PauseUs != 5 {
+		t.Errorf("diskCompactionResultFrom() = %+v, want every scalar field projected", result)
+	}
+	if len(result.Disks) != 1 || result.Disks[0].GuestPath != "/data" ||
+		result.Disks[0].InputLayers != 2 || result.Disks[0].TotalUs != 4 {
+		t.Errorf("Disks = %+v, want the projected disk result", result.Disks)
+	}
+}
+
+func TestDiskCompactionResultFromNilIsNil(t *testing.T) {
+	if got := diskCompactionResultFrom(nil); got != nil {
+		t.Errorf("diskCompactionResultFrom(nil) = %v, want nil", got)
 	}
 }

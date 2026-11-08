@@ -12,8 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
@@ -194,7 +192,7 @@ type ChangeFlags struct {
 // the VM. Returns a nil Plan when there is no existing config (first creation)
 // or nothing needs to change.
 func PlanReconfig(
-	cfg *msbSdk.SandboxConfig,
+	cfg *msb.SandboxConfig,
 	image naming.ImageIdentity,
 	opts options.RunOptions,
 	flags ChangeFlags,
@@ -277,7 +275,7 @@ func (d *Plan) applyEnvSecretRecreate(flags ChangeFlags) {
 // imageChange describes an image recreate with the VM's persisted reference and
 // the one this run wants, when they differ; a recreate driven only by the image
 // digest keeps the bare label, as does a side that is empty when displayed.
-func imageChange(cfg *msbSdk.SandboxConfig, image naming.ImageIdentity) Change {
+func imageChange(cfg *msb.SandboxConfig, image naming.ImageIdentity) Change {
 	want := image.Ref()
 	if cfg.Image == want {
 		return Change{Label: changeLabelImage}
@@ -286,7 +284,7 @@ func imageChange(cfg *msbSdk.SandboxConfig, image naming.ImageIdentity) Change {
 }
 
 // imageRecreate reports whether the runner image differs from the configured one.
-func imageRecreate(cfg *msbSdk.SandboxConfig, image naming.ImageIdentity, flag bool) bool {
+func imageRecreate(cfg *msb.SandboxConfig, image naming.ImageIdentity, flag bool) bool {
 	if flag {
 		return true
 	}
@@ -330,7 +328,7 @@ func isNameImage(info naming.ArtifactInfo) bool {
 // tmpSizeChange reports the /tmp tmpfs size change, if any. It compares only an
 // explicit tmp-size: an unset spec is the memory-derived default, and comparing
 // that would recreate every existing VM whose memory is below the default.
-func tmpSizeChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change, bool) {
+func tmpSizeChange(cfg *msb.SandboxConfig, opts options.RunOptions) (Change, bool) {
 	want, ok := options.ParseMemoryOK(opts.TmpSize)
 	if !ok {
 		return Change{}, false
@@ -350,7 +348,7 @@ func tmpSizeChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change, 
 }
 
 // workspaceQuotaChange reports the /workspace write-quota change, if any.
-func workspaceQuotaChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change, bool) {
+func workspaceQuotaChange(cfg *msb.SandboxConfig, opts options.RunOptions) (Change, bool) {
 	want, ok := options.ParseMemoryOK(opts.WorkspaceQuota)
 	if !ok {
 		return Change{}, false
@@ -371,7 +369,7 @@ func workspaceQuotaChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (C
 // homeVolumeChange reports whether the requested home volume differs from the
 // one baked into the VM. A migration/reset points state at a new volume, which
 // can only take effect by recreating the VM with the new volume mounted.
-func homeVolumeChange(cfg *msbSdk.SandboxConfig, homeVol string) bool {
+func homeVolumeChange(cfg *msb.SandboxConfig, homeVol string) bool {
 	if homeVol == "" {
 		return false
 	}
@@ -380,7 +378,7 @@ func homeVolumeChange(cfg *msbSdk.SandboxConfig, homeVol string) bool {
 }
 
 // rootDiskChange reports the root-disk size change, if any.
-func rootDiskChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change, bool) {
+func rootDiskChange(cfg *msb.SandboxConfig, opts options.RunOptions) (Change, bool) {
 	want, ok := options.ParseMemoryOK(opts.DiskSize)
 	if !ok {
 		return Change{}, false
@@ -397,15 +395,15 @@ func rootDiskChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change,
 
 // publishReconfig returns the resolved serve-only host port, the published
 // ports change, and whether the desired bindings differ from the VM's.
-func publishReconfig(opts options.RunOptions, cfg *msbSdk.SandboxConfig) (int, Change, bool) {
+func publishReconfig(opts options.RunOptions, cfg *msb.SandboxConfig) (int, Change, bool) {
 	want := desiredPublishBindings(opts, cfg)
 	hostPort, _ := ports.ServeHostBinding(want)
-	if ports.BindingsEqual(want, ports.BindingsFromSDK(cfg.PortBindings)) {
+	if ports.BindingsEqual(want, cfg.PortBindings) {
 		return hostPort, Change{}, false
 	}
 	change := Change{
 		Label:   changeLabelPublishedPorts,
-		Details: entryDiff(describeBindings(ports.BindingsFromSDK(cfg.PortBindings)), describeBindings(want)),
+		Details: entryDiff(describeBindings(cfg.PortBindings), describeBindings(want)),
 	}
 	return hostPort, change, true
 }
@@ -423,7 +421,7 @@ func describeBindings(bindings []msb.PortBinding) []string {
 
 // memoryAboveBootMax reports whether the desired memory exceeds the VM's boot
 // maximum (host RAM at creation): no live modification is possible above it.
-func memoryAboveBootMax(cfg *msbSdk.SandboxConfig, opts options.RunOptions) bool {
+func memoryAboveBootMax(cfg *msb.SandboxConfig, opts options.RunOptions) bool {
 	return opts.Memory != "" && cfg.MaxMemoryMiB > 0 &&
 		options.ParseMemory(opts.Memory) > cfg.MaxMemoryMiB
 }
@@ -476,7 +474,7 @@ func ResolveReconfig(
 	return ApplyActions{}, nil
 }
 
-func diskMiBOr0(cfg *msbSdk.SandboxConfig) uint32 {
+func diskMiBOr0(cfg *msb.SandboxConfig) uint32 {
 	if cfg.RootDisk == nil {
 		return 0
 	}
@@ -486,7 +484,7 @@ func diskMiBOr0(cfg *msbSdk.SandboxConfig) uint32 {
 // desiredPublishBindings returns the port bindings agents-sandbox wants on the
 // project VM, composed by the single ports authority: the serve-only agent
 // binding (with its resolved host port) plus the user-published mappings.
-func desiredPublishBindings(opts options.RunOptions, cfg *msbSdk.SandboxConfig) []msb.PortBinding {
+func desiredPublishBindings(opts options.RunOptions, cfg *msb.SandboxConfig) []msb.PortBinding {
 	return ports.PublishBindings(
 		opts.ServeOnly, ports.ResolveServeHostPort(cfg, opts.ServeOnly, opts.Ports), opts.Ports,
 	)

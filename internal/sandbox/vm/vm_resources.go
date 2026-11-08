@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -71,7 +69,7 @@ func reconcileResourceConfig(
 	if mo.CPUs == 0 && mo.MemoryMiB == 0 && mo.RootDiskSizeMiB == 0 {
 		return nil
 	}
-	mo.Policy = msbSdk.ModificationPolicyNoRestart
+	mo.Policy = msb.ModificationPolicyNoRestart
 	plan, err := handle.Modify(ctx, mo)
 	if err != nil {
 		return fmt.Errorf("modify VM resources: %w", err)
@@ -92,8 +90,8 @@ func reconcileResourceConfig(
 // warning. A zero CPUs means "all CPUs" (left unchanged); a zero MemoryMiB
 // means "unchanged". A root disk grows to a larger requested size; a smaller
 // one is a recreate (reconfig.PlanReconfig), never staged here.
-func buildModifyOptions(cfg *msbSdk.SandboxConfig, opts options.RunOptions, ui termio.Logger) msbSdk.ModifyOptions {
-	var mo msbSdk.ModifyOptions
+func buildModifyOptions(cfg *msb.SandboxConfig, opts options.RunOptions, ui termio.Logger) msb.ModifyOptions {
+	var mo msb.ModifyOptions
 	if opts.CPUs != 0 {
 		want := opts.CPUs
 		if cfg.MaxCPUs > 0 && want > cfg.MaxCPUs {
@@ -121,7 +119,7 @@ func buildModifyOptions(cfg *msbSdk.SandboxConfig, opts options.RunOptions, ui t
 	return mo
 }
 
-func summarizeConflicts(cs []msbSdk.ModificationConflict) string {
+func summarizeConflicts(cs []msb.ModificationConflict) string {
 	var b []string
 	for _, c := range cs {
 		b = append(b, c.Field+": "+c.Message)
