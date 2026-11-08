@@ -10,21 +10,28 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// Client is the public abstraction over the microsandbox SDK used by the
-// sandbox package. It covers discovery and creation of sandboxes and deletion
-// of volumes and images, plus runtime setup. Sandboxes are removed through the
-// identity-aware handle/live operations (SandboxHandle.Remove, Sandbox.Destroy)
-// rather than by bare name, so this interface has no RemoveSandbox. Production
-// code uses realMsbClient; tests construct MockMsbClient directly.
-type Client interface {
+// RuntimeInstaller ensures the microsandbox runtime is installed on the host.
+type RuntimeInstaller interface {
 	EnsureInstalled(ctx context.Context) error
+}
+
+// SandboxStore discovers and creates sandboxes.
+type SandboxStore interface {
 	GetSandbox(ctx context.Context, name string) (SandboxHandle, error)
 	CreateSandbox(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)
 	ListSandboxes(ctx context.Context, labels map[string]string) ([]SandboxHandle, error)
+}
+
+// VolumeStore discovers, creates and removes volumes.
+type VolumeStore interface {
 	GetVolume(ctx context.Context, name string) (VolumeHandle, error)
 	CreateVolume(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error)
 	ListVolumes(ctx context.Context) ([]VolumeHandle, error)
 	RemoveVolume(ctx context.Context, name string) error
+}
+
+// ImageStore inspects, loads, removes and prunes images.
+type ImageStore interface {
 	ImageGet(ctx context.Context, ref string) error
 	ImageList(ctx context.Context) ([]ImageHandle, error)
 	ImagePrune(ctx context.Context) (*msbSdk.ImagePruneReport, error)
@@ -32,8 +39,26 @@ type Client interface {
 	ImageLoad(ctx context.Context, ref string, r io.Reader) error
 	ImageInspect(ctx context.Context, ref string) (*msbSdk.ImageConfig, error)
 	ImageInspectDetail(ctx context.Context, ref string) (*ImageDetail, error)
+}
+
+// StorageStore reports and prunes runtime storage.
+type StorageStore interface {
 	StorageUsage(ctx context.Context) (*msbSdk.StorageUsageReport, error)
 	PruneStorage(ctx context.Context, options msbSdk.StoragePruneOptions) (*msbSdk.StoragePruneReport, error)
+}
+
+// Client is the public abstraction over the microsandbox SDK used by the
+// sandbox package. It covers discovery and creation of sandboxes and deletion
+// of volumes and images, plus runtime setup. Sandboxes are removed through the
+// identity-aware handle/live operations (SandboxHandle.Remove, Sandbox.Destroy)
+// rather than by bare name, so this interface has no RemoveSandbox. Production
+// code uses realMsbClient; tests construct MockMsbClient directly.
+type Client interface {
+	RuntimeInstaller
+	SandboxStore
+	VolumeStore
+	ImageStore
+	StorageStore
 }
 
 // Seams over the SDK calls realMsbClient delegates to, so its unit tests inject

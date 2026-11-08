@@ -8,8 +8,8 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// SandboxHandle is the subset of *msb.SandboxHandle used by the launcher.
-type SandboxHandle interface {
+// SandboxIdentity exposes a sandbox's stable identity attributes.
+type SandboxIdentity interface {
 	Name() string
 	ID() string
 	Status() msbSdk.SandboxStatus
@@ -17,6 +17,11 @@ type SandboxHandle interface {
 	CreatedAt() time.Time
 	BackendKind() msbSdk.BackendKind
 	Image() string
+}
+
+// SandboxLifecycleHandle connects to, stops, kills, removes and destroys a
+// sandbox by its stable identity.
+type SandboxLifecycleHandle interface {
 	Connect(ctx context.Context) (Sandbox, error)
 	// ConnectOrStart connects to this exact sandbox when it runs, waits while
 	// another caller starts it, or starts it when it is created, stopped or
@@ -28,6 +33,10 @@ type SandboxHandle interface {
 	Kill(ctx context.Context, opts ...msbSdk.KillOption) error
 	Remove(ctx context.Context) error
 	Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error
+}
+
+// SandboxConfigReader reads a sandbox's persisted configuration.
+type SandboxConfigReader interface {
 	Config() (*msbSdk.SandboxConfig, error)
 	// ConfigMounts returns the mounts the persisted config records, keyed by
 	// guest path. Config() cannot supply them: the SDK's
@@ -40,28 +49,71 @@ type SandboxHandle interface {
 	// the persisted network.ports, so cfg.PortBindings is always empty on a
 	// read-back (specs/vm/live-mount-readback.md).
 	ConfigPorts() ([]msbSdk.PortBinding, error)
+}
+
+// SandboxResourceControl modifies, compacts and observes a sandbox.
+type SandboxResourceControl interface {
 	Modify(ctx context.Context, opts msbSdk.ModifyOptions) (*msbSdk.SandboxModificationPlan, error)
 	Compact(ctx context.Context, opts msbSdk.DiskCompactionOptions) (*msbSdk.DiskCompactionResult, error)
 	Metrics(ctx context.Context) (*msbSdk.Metrics, error)
 	Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error)
 }
 
-// Sandbox is the subset of *msb.Sandbox used by the launcher.
-type Sandbox interface {
-	FS() SandboxFS
+// SandboxHandle is the subset of *msb.SandboxHandle used by the launcher.
+type SandboxHandle interface {
+	SandboxIdentity
+	SandboxLifecycleHandle
+	SandboxConfigReader
+	SandboxResourceControl
+}
+
+// SandboxExecutor runs commands in a sandbox and exposes its filesystem.
+type SandboxExecutor interface {
 	Shell(ctx context.Context, command string, opts ...msbSdk.ExecOption) (ShellResult, error)
 	Exec(ctx context.Context, command string, args []string, opts ...msbSdk.ExecOption) (ShellResult, error)
+	FS() SandboxFS
+}
+
+// SandboxStreamer runs a shell and its streaming variant in a sandbox.
+type SandboxStreamer interface {
+	Shell(ctx context.Context, command string, opts ...msbSdk.ExecOption) (ShellResult, error)
 	ShellStream(ctx context.Context, command string, opts ...msbSdk.ExecOption) (StreamHandle, error)
-	ExecDetached(ctx context.Context, cmd string, args []string, opts ...msbSdk.JobExecOption) (Job, error)
-	GetJob(ctx context.Context, id string) (Job, error)
-	ListJobs(ctx context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error)
+}
+
+// SandboxAttacher attaches and detaches an interactive session on a sandbox.
+type SandboxAttacher interface {
 	AttachWith(ctx context.Context, command string, args []string, opts ...msbSdk.AttachOption) (int, error)
 	Attach(ctx context.Context, command string, args ...string) (int, error)
 	Detach(ctx context.Context) error
-	Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error
-	Close() error
+}
+
+// SandboxJobs runs and lists detached jobs in a sandbox.
+type SandboxJobs interface {
+	ExecDetached(ctx context.Context, cmd string, args []string, opts ...msbSdk.JobExecOption) (Job, error)
+	GetJob(ctx context.Context, id string) (Job, error)
+	ListJobs(ctx context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error)
+}
+
+// SandboxObserver reads a sandbox's metrics and logs.
+type SandboxObserver interface {
 	Metrics(ctx context.Context) (*msbSdk.Metrics, error)
 	Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error)
+}
+
+// SandboxLifecycle destroys and closes a sandbox.
+type SandboxLifecycle interface {
+	Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error
+	Close() error
+}
+
+// Sandbox is the subset of *msb.Sandbox used by the launcher.
+type Sandbox interface {
+	SandboxExecutor
+	SandboxStreamer
+	SandboxAttacher
+	SandboxJobs
+	SandboxObserver
+	SandboxLifecycle
 }
 
 // realSandboxHandle adapts *msbSdk.SandboxHandle to SandboxHandle.
