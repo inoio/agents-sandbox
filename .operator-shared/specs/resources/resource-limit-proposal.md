@@ -204,9 +204,11 @@ pressure, and re-arming on the ratio alone would re-offer every launch.)
 - Disk: each tripped limit is offered on its own (one probe can trip several). The prompt names
   the mount and its free space and says whether the raise applies live (root disk) or by rebuilding
   the VM (`/workspace` quota, `/tmp`; the home volume is kept). The suggestion is +50 % rounded up to
-  a whole GiB, at least +1 GiB. A `/tmp` raise above the VM's memory limit is refused with that
-  reason (`/tmp` uses memory); the root disk and the quota have no hard cap, but the prompt warns
-  when the host filesystem holding the runtime home, respectively the repo, has less free space
+  a whole GiB, at least +1 GiB. A `/tmp` raise is capped at the largest whole GiB strictly below
+  `memory` (falling back to `memory-1` when no whole GiB fits, i.e. memory below 1 GiB), so an
+  accepted raise stays below the memory limit `options.ValidateSizes` enforces; a refusal names the
+  tmp ceiling below the VM memory limit. The root disk and the quota have no hard cap, but the prompt
+  warns when the host filesystem holding the runtime home, respectively the repo, has less free space
   than the raise. The persisted keys are `disk-size`, `workspace-quota` and `tmp-size`, with the
   same owner-layer and shadowing rules as `memory` (§4).
 

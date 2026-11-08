@@ -989,11 +989,54 @@ func TestCreateProjectVMLoadsImageWhenNotCached(t *testing.T) {
 	}
 }
 
+// TestEffectiveTmpSizeMiBClampsToMemory pins the creation-side clamp: the
+// resolved tmp is capped at the effective memory with a warning, so a host-RAM
+// clamp cannot leave a RAM-backed tmpfs larger than the VM's memory.
+func TestEffectiveTmpSizeMiBClampsToMemory(t *testing.T) {
+	ui := &termio.Mock{}
+	if got := effectiveTmpSizeMiB("48G", 32*1024, ui); got != 32*1024 {
+		t.Errorf("effectiveTmpSizeMiB = %d, want 32768 (clamped to memory)", got)
+	}
+	if len(ui.WarnCalls) == 0 {
+		t.Error("expected a warning when the tmp is clamped to memory")
+	}
+
+	ui = &termio.Mock{}
+	if got := effectiveTmpSizeMiB("2G", 32*1024, ui); got != 2048 {
+		t.Errorf("effectiveTmpSizeMiB = %d, want 2048 (already below memory)", got)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none when the tmp is below memory", ui.WarnCalls)
+	}
+}
+
+// TestEffectiveTmpSizeMiBAtMemoryDoesNotWarn pins that a tmp equal to the
+// effective memory is not clamped (nothing to clamp) and does not warn.
+func TestEffectiveTmpSizeMiBAtMemoryDoesNotWarn(t *testing.T) {
+	ui := &termio.Mock{}
+	if got := effectiveTmpSizeMiB("2048M", 2048, ui); got != 2048 {
+		t.Errorf("effectiveTmpSizeMiB = %d, want 2048", got)
+	}
+	if len(ui.WarnCalls) != 0 {
+		t.Errorf("warnings = %v, want none at the memory", ui.WarnCalls)
+	}
+}
+
+// TestEffectiveTmpSizeMiBDerivesFromEffectiveMemory pins that an unset tmp
+// derives from the effective memory, so a host-RAM clamp also lowers the tmp
+// default.
+func TestEffectiveTmpSizeMiBDerivesFromEffectiveMemory(t *testing.T) {
+	ui := &termio.Mock{}
+	if got := effectiveTmpSizeMiB("", 2048, ui); got != 1024 {
+		t.Errorf("effectiveTmpSizeMiB(\"\", 2048) = %d, want 1024", got)
+	}
+}
+
 func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
 	mounts := buildMounts(
 		"test-home-vol",
 		"/repo/path",
-		options.DefaultTmpSizeMiB,
+		options.DefaultTmpSizeCapMiB,
 		options.DefaultWorkspaceQuotaMiB,
 		nil,
 	)
@@ -1023,7 +1066,7 @@ func TestBuildMountsRespectsCustomTmpSize(t *testing.T) {
 }
 
 func TestBuildMountsSetsWorkspaceQuota(t *testing.T) {
-	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeMiB, 32*1024, nil)
+	mounts := buildMounts("test-home-vol", "/repo/path", options.DefaultTmpSizeCapMiB, 32*1024, nil)
 
 	wsMount, ok := mounts[defaultTargetDir]
 	if !ok {
@@ -1041,7 +1084,7 @@ func TestBuildMountsSetsWorkspaceMirrorHostPermissions(t *testing.T) {
 	mounts := buildMounts(
 		"test-home-vol",
 		"/repo/path",
-		options.DefaultTmpSizeMiB,
+		options.DefaultTmpSizeCapMiB,
 		options.DefaultWorkspaceQuotaMiB,
 		nil,
 	)
@@ -1063,7 +1106,7 @@ func TestBuildMountsWorkspaceQuotaDefault(t *testing.T) {
 	mounts := buildMounts(
 		"test-home-vol",
 		"/repo/path",
-		options.DefaultTmpSizeMiB,
+		options.DefaultTmpSizeCapMiB,
 		options.DefaultWorkspaceQuotaMiB,
 		nil,
 	)
@@ -1081,7 +1124,7 @@ func TestBuildMountsIncludesConfiguredBindMount(t *testing.T) {
 	mounts := buildMounts(
 		"test-home-vol",
 		"/repo/path",
-		options.DefaultTmpSizeMiB,
+		options.DefaultTmpSizeCapMiB,
 		options.DefaultWorkspaceQuotaMiB,
 		mounts.Mounts{
 			"/home/dev/.m2": {Source: "/host/home/.m2"},
@@ -1124,7 +1167,7 @@ func TestBuildMountsKeepsManagedMounts(t *testing.T) {
 	built := buildMounts(
 		"test-home-vol",
 		"/repo/path",
-		options.DefaultTmpSizeMiB,
+		options.DefaultTmpSizeCapMiB,
 		options.DefaultWorkspaceQuotaMiB,
 		mounts.Mounts{"/home/dev/.m2": {Source: "/host/.m2"}},
 	)
