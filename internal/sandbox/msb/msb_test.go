@@ -742,7 +742,7 @@ func TestGetFactory(t *testing.T) {
 // realMsbClient.CreateVolume (invalid empty name fails before touching a VM).
 func TestRealMsbClientCreateVolumeError(t *testing.T) {
 	c := &realMsbClient{}
-	if _, err := c.CreateVolume(context.Background(), ""); err == nil {
+	if _, err := c.CreateVolume(context.Background(), "", VolumeSpec{}); err == nil {
 		t.Error("CreateVolume() with empty name = nil error, want config error")
 	}
 }
@@ -1166,10 +1166,10 @@ func TestRealMsbClientAdapterErrors(t *testing.T) {
 		call func() error
 	}{
 		{"GetSandbox", func() error { _, err := c.GetSandbox(ctx, "x"); return err }},
-		{"CreateSandbox", func() error { _, err := c.CreateSandbox(ctx, "x"); return err }},
+		{"CreateSandbox", func() error { _, err := c.CreateSandbox(ctx, "x", SandboxSpec{}); return err }},
 		{"ListSandboxes", func() error { _, err := c.ListSandboxes(ctx, nil); return err }},
 		{"GetVolume", func() error { _, err := c.GetVolume(ctx, "x"); return err }},
-		{"CreateVolume", func() error { _, err := c.CreateVolume(ctx, "x"); return err }},
+		{"CreateVolume", func() error { _, err := c.CreateVolume(ctx, "x", VolumeSpec{}); return err }},
 		{"ListVolumes", func() error { _, err := c.ListVolumes(ctx); return err }},
 		{"RemoveVolume", func() error { return c.RemoveVolume(ctx, "x") }},
 		{"ImageGet", func() error { return c.ImageGet(ctx, "x") }},
@@ -1307,7 +1307,7 @@ func TestRealMsbClientCreateRemoveVolume(t *testing.T) {
 	})
 
 	c := &realMsbClient{}
-	if h, err := c.CreateVolume(ctx, "vol"); err != nil || h == nil {
+	if h, err := c.CreateVolume(ctx, "vol", VolumeSpec{}); err != nil || h == nil {
 		t.Fatalf("CreateVolume() = %v, %v; want a handle", h, err)
 	}
 	if err := c.RemoveVolume(ctx, "vol"); err != nil {
@@ -1332,7 +1332,7 @@ func TestCreateVolumeResolvesTheCreatedVolumeThroughGetVolume(t *testing.T) {
 		return resolved, nil
 	})
 
-	handle, err := (&realMsbClient{}).CreateVolume(ctx, "vol")
+	handle, err := (&realMsbClient{}).CreateVolume(ctx, "vol", VolumeSpec{})
 	if err != nil || handle == nil {
 		t.Fatalf("CreateVolume() = %v, %v; want a handle", handle, err)
 	}
@@ -1366,7 +1366,7 @@ func TestCreateVolumeRemovesTheOrphanWhenGetVolumeFails(t *testing.T) {
 		return nil
 	})
 
-	if _, err := (&realMsbClient{}).CreateVolume(ctx, "vol"); !errors.Is(err, wantErr) {
+	if _, err := (&realMsbClient{}).CreateVolume(ctx, "vol", VolumeSpec{}); !errors.Is(err, wantErr) {
 		t.Fatalf("CreateVolume() error = %v, want %v", err, wantErr)
 	}
 	if removedName != "vol" {
@@ -1391,7 +1391,14 @@ func TestCreateVolumeSkipsLookupWhenCreateFails(t *testing.T) {
 		return &msbSdk.VolumeHandle{}, nil
 	})
 
-	if _, err := (&realMsbClient{}).CreateVolume(context.Background(), "vol"); !errors.Is(err, createErr) {
+	if _, err := (&realMsbClient{}).CreateVolume(
+		context.Background(),
+		"vol",
+		VolumeSpec{},
+	); !errors.Is(
+		err,
+		createErr,
+	) {
 		t.Fatalf("CreateVolume() error = %v, want %v", err, createErr)
 	}
 	if lookedUp {
@@ -1413,14 +1420,15 @@ func TestCreateVolumeReportsOrphanRemovalFailure(t *testing.T) {
 	})
 	swapSeam(t, &removeVolume, func(context.Context, string) error { return removeErr })
 
-	_, err := (&realMsbClient{}).CreateVolume(context.Background(), "vol")
+	_, err := (&realMsbClient{}).CreateVolume(context.Background(), "vol", VolumeSpec{})
 	if !errors.Is(err, lookupErr) || !errors.Is(err, removeErr) {
 		t.Errorf("CreateVolume() error = %v, want both the lookup and removal errors", err)
 	}
 }
 
 // TestRealMsbClientSandboxAdapters covers the GetSandbox and CreateSandbox
-// success paths, wrapping the seam's SDK handle in the adapter.
+// paths, wrapping the seam's SDK handle in the adapter and failing the creation
+// when the launcher spec cannot be translated.
 func TestRealMsbClientSandboxAdapters(t *testing.T) {
 	ctx := context.Background()
 	swapSeam(t, &getSandbox, func(context.Context, string) (*msbSdk.SandboxHandle, error) {
@@ -1434,8 +1442,13 @@ func TestRealMsbClientSandboxAdapters(t *testing.T) {
 	if handle, err := c.GetSandbox(ctx, "s"); err != nil || handle == nil {
 		t.Errorf("GetSandbox() = %v, %v; want a handle, nil", handle, err)
 	}
-	if sandbox, err := c.CreateSandbox(ctx, "s"); err != nil || sandbox == nil {
+	if sandbox, err := c.CreateSandbox(ctx, "s", SandboxSpec{}); err != nil || sandbox == nil {
 		t.Errorf("CreateSandbox() = %v, %v; want a sandbox, nil", sandbox, err)
+	}
+	if _, err := c.CreateSandbox(ctx, "s", SandboxSpec{
+		Network: NetworkSpec{Profiles: []NetworkProfile{"unknown"}},
+	}); err == nil {
+		t.Error("CreateSandbox() with an unknown network profile = nil error, want a translation error")
 	}
 }
 

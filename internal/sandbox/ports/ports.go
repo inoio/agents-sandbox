@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 // ServeOnlyBindAddr is the loopback address every published port binds to,
@@ -133,31 +135,31 @@ func firstFreeHostPortExcluding(base int, excluded []int, free func(int) bool) i
 	return 0
 }
 
-// ServeOnlyBindings returns the msb port binding for serve-only mode with the
-// given host port, mapping it to the fixed guest port.
-func ServeOnlyBindings(hostPort int) []msbSdk.PortBinding {
-	return []msbSdk.PortBinding{
+// ServeOnlyBindings returns the launcher port binding for serve-only mode with
+// the given host port, mapping it to the fixed guest port.
+func ServeOnlyBindings(hostPort int) []msb.PortBinding {
+	return []msb.PortBinding{
 		//nolint:gosec // G115: host ports are well below the uint16 max
 		{
 			Bind:      ServeOnlyBindAddr,
 			HostPort:  uint16(hostPort),
 			GuestPort: ServeOnlyBasePort,
-			Protocol:  msbSdk.PortProtocolTCP,
+			Protocol:  msb.PortProtocolTCP,
 		},
 	}
 }
 
-// UserPortBindings returns the msb port bindings for the user-published
+// UserPortBindings returns the launcher port bindings for the user-published
 // mappings, each on the host loopback.
-func UserPortBindings(mappings []PortMapping) []msbSdk.PortBinding {
-	bindings := make([]msbSdk.PortBinding, 0, len(mappings))
+func UserPortBindings(mappings []PortMapping) []msb.PortBinding {
+	bindings := make([]msb.PortBinding, 0, len(mappings))
 	for _, mapping := range mappings {
 		//nolint:gosec // G115: host ports are well below the uint16 max
-		bindings = append(bindings, msbSdk.PortBinding{
+		bindings = append(bindings, msb.PortBinding{
 			Bind:      ServeOnlyBindAddr,
 			HostPort:  uint16(mapping.HostPort),
 			GuestPort: uint16(mapping.GuestPort),
-			Protocol:  msbSdk.PortProtocolTCP,
+			Protocol:  msb.PortProtocolTCP,
 		})
 	}
 	return bindings
@@ -168,8 +170,8 @@ func UserPortBindings(mappings []PortMapping) []msbSdk.PortBinding {
 // the user-published mappings. It is the single composer both the reconfig
 // plan and VM creation build their binding lists from, so the equality check
 // and the creation path cannot drift apart.
-func PublishBindings(serveOnly bool, serveHostPort int, mappings []PortMapping) []msbSdk.PortBinding {
-	var bindings []msbSdk.PortBinding
+func PublishBindings(serveOnly bool, serveHostPort int, mappings []PortMapping) []msb.PortBinding {
+	var bindings []msb.PortBinding
 	if serveOnly && serveHostPort != 0 {
 		bindings = append(bindings, ServeOnlyBindings(serveHostPort)...)
 	}
@@ -178,7 +180,7 @@ func PublishBindings(serveOnly bool, serveHostPort int, mappings []PortMapping) 
 
 // ServeHostBinding returns the host port the binding list publishes for the
 // serve-only agent guest port, and whether such a binding exists.
-func ServeHostBinding(bindings []msbSdk.PortBinding) (int, bool) {
+func ServeHostBinding(bindings []msb.PortBinding) (int, bool) {
 	for _, pb := range bindings {
 		if pb.GuestPort == ServeOnlyBasePort && pb.HostPort != 0 {
 			return int(pb.HostPort), true
@@ -189,18 +191,37 @@ func ServeHostBinding(bindings []msbSdk.PortBinding) (int, bool) {
 
 // BindingsEqual reports whether two binding lists carry the same bindings,
 // ignoring order. It is the single comparison authority for published ports.
-func BindingsEqual(a, b []msbSdk.PortBinding) bool {
+func BindingsEqual(a, b []msb.PortBinding) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	return slices.Equal(sortBindings(a), sortBindings(b))
 }
 
+// BindingsFromSDK translates SDK read-back port bindings onto the launcher
+// type. It bridges the reconfiguration decision (Task 4.2) to the launcher
+// binding model and is removed once the read-back model is launcher-owned.
+func BindingsFromSDK(bindings []msbSdk.PortBinding) []msb.PortBinding {
+	if bindings == nil {
+		return nil
+	}
+	out := make([]msb.PortBinding, len(bindings))
+	for i, binding := range bindings {
+		out[i] = msb.PortBinding{
+			Bind:      binding.Bind,
+			HostPort:  binding.HostPort,
+			GuestPort: binding.GuestPort,
+			Protocol:  msb.PortProtocol(binding.Protocol),
+		}
+	}
+	return out
+}
+
 // sortBindings returns bindings ordered deterministically so publication drift
 // compares sets rather than list order.
-func sortBindings(bindings []msbSdk.PortBinding) []msbSdk.PortBinding {
+func sortBindings(bindings []msb.PortBinding) []msb.PortBinding {
 	sorted := slices.Clone(bindings)
-	slices.SortFunc(sorted, func(a, b msbSdk.PortBinding) int {
+	slices.SortFunc(sorted, func(a, b msb.PortBinding) int {
 		return cmp.Or(
 			cmp.Compare(a.HostPort, b.HostPort),
 			cmp.Compare(a.GuestPort, b.GuestPort),
@@ -216,19 +237,23 @@ func sortBindings(bindings []msbSdk.PortBinding) []msbSdk.PortBinding {
 // stable across runs), or the first free host port at or above
 // ServeOnlyBasePort that no user-published port takes. It returns 0 when not
 // serving, and when no free port remains in the probe range.
+//
+// cfg stays SDK-typed until the read-back model is launcher-owned (Task 4.2);
+// the bindings are translated onto the launcher type before comparison.
 func ResolveServeHostPort(cfg *msbSdk.SandboxConfig, serveOnly bool, mappings []PortMapping) int {
 	if !serveOnly {
 		return 0
 	}
 	published := HostPorts(mappings)
 	if cfg != nil {
-		if port, ok := ServeHostBinding(cfg.PortBindings); ok && !slices.Contains(published, port) {
+		live := BindingsFromSDK(cfg.PortBindings)
+		if port, ok := ServeHostBinding(live); ok && !slices.Contains(published, port) {
 			return port
 		}
 		// A published binding can read back without its guest port, so fall
 		// back to the first binding no user-published host port claims: the
 		// serve binding is the only other one a VM carries.
-		for _, pb := range cfg.PortBindings {
+		for _, pb := range live {
 			if pb.HostPort != 0 && !slices.Contains(published, int(pb.HostPort)) {
 				return int(pb.HostPort)
 			}

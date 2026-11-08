@@ -15,6 +15,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
@@ -399,18 +400,18 @@ func rootDiskChange(cfg *msbSdk.SandboxConfig, opts options.RunOptions) (Change,
 func publishReconfig(opts options.RunOptions, cfg *msbSdk.SandboxConfig) (int, Change, bool) {
 	want := desiredPublishBindings(opts, cfg)
 	hostPort, _ := ports.ServeHostBinding(want)
-	if ports.BindingsEqual(want, cfg.PortBindings) {
+	if ports.BindingsEqual(want, ports.BindingsFromSDK(cfg.PortBindings)) {
 		return hostPort, Change{}, false
 	}
 	change := Change{
 		Label:   changeLabelPublishedPorts,
-		Details: entryDiff(describeBindings(cfg.PortBindings), describeBindings(want)),
+		Details: entryDiff(describeBindings(ports.BindingsFromSDK(cfg.PortBindings)), describeBindings(want)),
 	}
 	return hostPort, change, true
 }
 
 // describeBindings renders port bindings as sorted "<bind>:<host> → <guest>/<protocol>" lines.
-func describeBindings(bindings []msbSdk.PortBinding) []string {
+func describeBindings(bindings []msb.PortBinding) []string {
 	lines := make([]string, 0, len(bindings))
 	for _, binding := range bindings {
 		lines = append(lines, fmt.Sprintf("%s:%d → %d/%s",
@@ -485,7 +486,7 @@ func diskMiBOr0(cfg *msbSdk.SandboxConfig) uint32 {
 // desiredPublishBindings returns the port bindings agents-sandbox wants on the
 // project VM, composed by the single ports authority: the serve-only agent
 // binding (with its resolved host port) plus the user-published mappings.
-func desiredPublishBindings(opts options.RunOptions, cfg *msbSdk.SandboxConfig) []msbSdk.PortBinding {
+func desiredPublishBindings(opts options.RunOptions, cfg *msbSdk.SandboxConfig) []msb.PortBinding {
 	return ports.PublishBindings(
 		opts.ServeOnly, ports.ResolveServeHostPort(cfg, opts.ServeOnly, opts.Ports), opts.Ports,
 	)

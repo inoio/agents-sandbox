@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
@@ -344,44 +342,41 @@ func createProjectVM(ctx context.Context, creation ProjectVMCreation, name strin
 	if idleTimeout <= 0 {
 		idleTimeout = options.DefaultVMIdleTimeout
 	}
-	optsList := []msbSdk.SandboxOption{
-		msbSdk.WithImage(info.Ref),
+	networkSpec, err := opts.Network.Spec()
+	if err != nil {
+		spin.StopError(err)
+		return nil, fmt.Errorf("network config: %w", err)
+	}
+	spec := msb.SandboxSpec{
+		Image: info.Ref,
 		// The labels carry the artifact's identity and kind authoritatively; the
 		// name cannot distinguish a folder that itself begins with a legacy
 		// prefix, and it may have been truncated. The grouping label carries the
 		// repo slug so list --label project=<repo> groups every clone of one
 		// origin.
-		msbSdk.WithLabels(naming.ProjectSandboxLabels(
+		Labels: naming.ProjectSandboxLabels(
 			creation.Key.Slug,
 			creation.Key.Agent,
 			creation.RepoSlug,
 			info.Ref,
-		)),
-		msbSdk.WithMounts(mountConfigs),
-		msbSdk.WithSecrets(creation.Env.Secrets...),
-		msbSdk.WithEnv(vmEnv),
-		msbSdk.WithWorkdir(defaultTargetDir),
-		msbSdk.WithCPUs(cpus),
-		msbSdk.WithMaxCPUs(numCPUs),
-		msbSdk.WithMemory(effectiveMemoryMiB),
-		msbSdk.WithMaxMemory(BootMaxMemoryMiB()),
-		msbSdk.WithDetached(),
-		msbSdk.WithIdleTimeout(idleTimeout),
+		),
+		Mounts:       mountConfigs,
+		Secrets:      creation.Env.Secrets,
+		Env:          vmEnv,
+		Workdir:      defaultTargetDir,
+		CPUs:         cpus,
+		MaxCPUs:      numCPUs,
+		MemoryMiB:    effectiveMemoryMiB,
+		MaxMemoryMiB: BootMaxMemoryMiB(),
+		Detached:     true,
+		IdleTimeout:  idleTimeout,
+		Ports:        ports.PublishBindings(opts.ServeOnly, opts.ServeHostPort, opts.Ports),
+		Network:      networkSpec,
 	}
 	if opts.DiskSize != "" {
-		optsList = append(optsList, msbSdk.WithRootDisk(msbSdk.RootDisk.Managed(options.ParseMemory(opts.DiskSize))))
+		spec.RootDiskMiB = options.ParseMemory(opts.DiskSize)
 	}
-	optsList = append(
-		optsList,
-		msbSdk.WithPortBindings(ports.PublishBindings(opts.ServeOnly, opts.ServeHostPort, opts.Ports)...),
-	)
-	netCfg, err := opts.Network.Config()
-	if err != nil {
-		spin.StopError(err)
-		return nil, fmt.Errorf("network config: %w", err)
-	}
-	optsList = append(optsList, msbSdk.WithNetwork(netCfg))
-	sb, err := creation.Client.CreateSandbox(ctx, name, optsList...)
+	sb, err := creation.Client.CreateSandbox(ctx, name, spec)
 	if msb.IsSandboxAlreadyExists(err) {
 		// Never replace or adopt it: it is not the VM this run checked for
 		// (specs/identity/sandbox-identity.md).
@@ -408,20 +403,20 @@ const tmpMountPath = mounts.TmpMountPath
 // virtualized, so an in-VM git write drops the host file's exec bit while the
 // guest still reports the tree clean. Mirror keeps host git working trees in
 // sync; setuid/setgid and uid/gid are never propagated.
-const workspaceHostPermissions = msbSdk.HostPermissionsMirror
+const workspaceHostPermissions = msb.HostPermissionsMirror
 
 func buildMounts(
 	homeVol, repoPath string,
 	tmpSizeMiB, workspaceQuotaMiB uint32,
 	extra mounts.Mounts,
-) map[string]msbSdk.MountConfig {
-	built := map[string]msbSdk.MountConfig{
-		mounts.VMHomeDir: msbSdk.Mount.Named(homeVol, msbSdk.MountOptions{}),
-		defaultTargetDir: msbSdk.Mount.Bind(repoPath, msbSdk.MountOptions{
+) map[string]msb.MountConfig {
+	built := map[string]msb.MountConfig{
+		mounts.VMHomeDir: msb.Mount.Named(homeVol, msb.MountOptions{}),
+		defaultTargetDir: msb.Mount.Bind(repoPath, msb.MountOptions{
 			QuotaMiB:        workspaceQuotaMiB,
 			HostPermissions: workspaceHostPermissions,
 		}),
-		tmpMountPath: msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{
+		tmpMountPath: msb.Mount.Tmpfs(msb.TmpfsOptions{
 			SizeMiB:  tmpSizeMiB,
 			Readonly: false,
 			Noexec:   false,
@@ -430,7 +425,7 @@ func buildMounts(
 		}),
 	}
 	for target, mount := range extra {
-		built[target] = msbSdk.Mount.Bind(mount.Source, msbSdk.MountOptions{Readonly: mount.Readonly})
+		built[target] = msb.Mount.Bind(mount.Source, msb.MountOptions{Readonly: mount.Readonly})
 	}
 	return built
 }

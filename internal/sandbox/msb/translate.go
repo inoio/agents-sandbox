@@ -1,6 +1,10 @@
 package msb
 
-import msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+import (
+	"slices"
+
+	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+)
 
 // The projection registers below name every exported field of an SDK struct a
 // translator projects — both the option (input) structs and the return structs
@@ -258,6 +262,82 @@ var (
 		"Position":            {},
 	}
 	imageLayerNotModeled = map[string]string{}
+
+	// sandboxConfigProjected names every field of msbSdk.SandboxConfig the
+	// adapter sets through a creation option.
+	sandboxConfigProjected = map[string]struct{}{
+		"Image":        {},
+		"Labels":       {},
+		"Volumes":      {},
+		"Secrets":      {},
+		"Env":          {},
+		"Workdir":      {},
+		"CPUs":         {},
+		"MaxCPUs":      {},
+		"MemoryMiB":    {},
+		"MaxMemoryMiB": {},
+		"Detached":     {},
+		"IdleTimeout":  {},
+		"PortBindings": {},
+		"Network":      {},
+		"RootDisk":     {},
+	}
+
+	// sandboxConfigNotModeled names msbSdk.SandboxConfig fields the launcher
+	// deliberately drops at creation. The reason is the contract: a field that
+	// later becomes a launcher input is removed from here and added above.
+	sandboxConfigNotModeled = map[string]string{
+		"Name":               "the launcher names the sandbox itself",
+		"ImageFstype":        "the launcher uses OCI images, not raw disk images",
+		"ImageBind":          "the launcher uses OCI images, not bind rootfs",
+		"OCIUpperSizeMiB":    "deprecated SDK field; the launcher sets RootDisk",
+		"CPUPlacement":       "host placement policy is left to the runtime default",
+		"PlacementProfile":   "host placement profile is left to the runtime default",
+		"NestedVirt":         "nested virtualization is not used by the launcher",
+		"THP":                "transparent huge-page policy is left to the runtime default",
+		"Shell":              "the guest shell comes from the image",
+		"SecurityProfile":    "the in-guest security profile is left to the runtime default",
+		"DeploymentProfile":  "the deployment profile is left to the runtime default",
+		"Hostname":           "hostname is left to the runtime",
+		"User":               "the guest user is set by the image and attach/exec requests",
+		"Replace":            "a taken name fails closed; the launcher never replaces on create",
+		"ReplaceWithTimeout": "only meaningful with Replace, which the launcher does not set",
+		"Ephemeral":          "the launcher manages the sandbox lifecycle explicitly",
+		"Entrypoint":         "the image entrypoint is used",
+		"Cmd":                "the image cmd is used",
+		"Init":               "PID 1 init is left to the runtime default",
+		"LogLevel":           "log level is left to the runtime default",
+		"QuietLogs":          "quiet-logs is left to the runtime default",
+		"Scripts":            "startup hooks come from the image",
+		"PullPolicy":         "image pulling is driven by the launcher's image stage",
+		"MaxDuration":        "no maximum sandbox duration is set",
+		"RegistryAuth":       "registry credentials are not passed by the launcher",
+		"RegistryInsecure":   "plain-HTTP pulls are not used by the launcher",
+		"RegistryCACerts":    "registry CA certificates are not passed by the launcher",
+		"RegistryCACertPaths": "registry CA certificate paths are not passed by the " +
+			"launcher",
+		"Ports":             "the launcher publishes ports through explicit PortBindings",
+		"PortsUDP":          "the launcher publishes ports through explicit PortBindings",
+		"Vsock":             "vsock routes are not used by the launcher",
+		"Proxy":             "an outbound proxy is not configured by the launcher",
+		"Patches":           "rootfs patches are not used by the launcher",
+		"ociUpperSizeSet":   "unexported: set internally when a root disk size is provided",
+		"registryAnonymous": "unexported: set internally by registry-auth options",
+	}
+
+	// volumeConfigProjected names every field of msbSdk.VolumeConfig the
+	// launcher projects onto VolumeSpec.
+	volumeConfigProjected = map[string]struct{}{
+		"Kind": {},
+	}
+
+	// volumeConfigNotModeled names msbSdk.VolumeConfig fields the launcher
+	// deliberately drops at creation.
+	volumeConfigNotModeled = map[string]string{
+		"QuotaMiB": "the launcher creates unquoted directory volumes",
+		"SizeMiB":  "the launcher creates directory volumes, not disk volumes",
+		"Labels":   "the launcher does not label named volumes",
+	}
 )
 
 // execOptions translates an ExecRequest into the SDK exec options. Options
@@ -665,4 +745,244 @@ func backendKindFrom(kind msbSdk.BackendKind) BackendKind {
 // volumeKindFrom translates the SDK volume kind onto the launcher enum.
 func volumeKindFrom(kind msbSdk.VolumeKind) VolumeKind {
 	return VolumeKind(kind)
+}
+
+// volumeKindTo translates the launcher volume kind onto the SDK enum.
+func volumeKindTo(kind VolumeKind) msbSdk.VolumeKind {
+	return msbSdk.VolumeKind(kind)
+}
+
+// sandboxOptions translates a SandboxSpec into the SDK option list in the order
+// the launcher has always emitted it: image, labels, mounts, secrets, env,
+// workdir, CPUs and memory bounds, detached, idle timeout, then an optional
+// managed root disk, port bindings, and the network policy. Options equal to
+// the SDK defaults are omitted, so a spec that sets nothing but a network
+// policy (the throwaway task sandboxes) does not accidentally detach, bound, or
+// size the sandbox. A network profile the runtime rejects fails the whole
+// translation.
+func sandboxOptions(spec SandboxSpec) ([]msbSdk.SandboxOption, error) {
+	network, err := networkConfig(spec.Network)
+	if err != nil {
+		return nil, err
+	}
+	opts := []msbSdk.SandboxOption{msbSdk.WithImage(spec.Image)}
+	if len(spec.Labels) > 0 {
+		opts = append(opts, msbSdk.WithLabels(spec.Labels))
+	}
+	if len(spec.Mounts) > 0 {
+		opts = append(opts, msbSdk.WithMounts(mountConfigs(spec.Mounts)))
+	}
+	if len(spec.Secrets) > 0 {
+		opts = append(opts, msbSdk.WithSecrets(secretEntries(spec.Secrets)...))
+	}
+	if len(spec.Env) > 0 {
+		opts = append(opts, msbSdk.WithEnv(spec.Env))
+	}
+	if spec.Workdir != "" {
+		opts = append(opts, msbSdk.WithWorkdir(spec.Workdir))
+	}
+	if spec.CPUs != 0 {
+		opts = append(opts, msbSdk.WithCPUs(spec.CPUs))
+	}
+	if spec.MaxCPUs != 0 {
+		opts = append(opts, msbSdk.WithMaxCPUs(spec.MaxCPUs))
+	}
+	if spec.MemoryMiB != 0 {
+		opts = append(opts, msbSdk.WithMemory(spec.MemoryMiB))
+	}
+	if spec.MaxMemoryMiB != 0 {
+		opts = append(opts, msbSdk.WithMaxMemory(spec.MaxMemoryMiB))
+	}
+	if spec.Detached {
+		opts = append(opts, msbSdk.WithDetached())
+	}
+	if spec.IdleTimeout != 0 {
+		opts = append(opts, msbSdk.WithIdleTimeout(spec.IdleTimeout))
+	}
+	if spec.RootDiskMiB > 0 {
+		opts = append(opts, msbSdk.WithRootDisk(msbSdk.RootDisk.Managed(spec.RootDiskMiB)))
+	}
+	if len(spec.Ports) > 0 {
+		opts = append(opts, msbSdk.WithPortBindings(portBindings(spec.Ports)...))
+	}
+	// The launcher always configures a network policy for a project VM (its
+	// default is deny-by-default egress), so the network option is emitted even
+	// for an empty spec.
+	opts = append(opts, msbSdk.WithNetwork(network))
+	return opts, nil
+}
+
+// mountConfigs translates a guest-path-keyed map of mount descriptors,
+// preserving nil as nil.
+func mountConfigs(mounts map[string]MountConfig) map[string]msbSdk.MountConfig {
+	if mounts == nil {
+		return nil
+	}
+	out := make(map[string]msbSdk.MountConfig, len(mounts))
+	for target, mount := range mounts {
+		out[target] = mountConfig(mount)
+	}
+	return out
+}
+
+// mountConfig rebuilds the SDK mount descriptor for a launcher descriptor via
+// the SDK factory matching its kind, copying exactly the fields the descriptor
+// carries.
+func mountConfig(m MountConfig) msbSdk.MountConfig {
+	options := msbSdk.MountOptions{
+		Readonly:           m.Readonly,
+		Noexec:             m.Noexec,
+		Nosuid:             m.Nosuid,
+		Nodev:              m.Nodev,
+		StatVirtualization: msbSdk.StatVirtualization(m.StatVirtualization),
+		HostPermissions:    msbSdk.HostPermissions(m.HostPermissions),
+		Owner:              sdkMountOwner(m.Owner),
+	}
+	switch m.Kind {
+	case MountKindBind:
+		options.QuotaMiB = m.QuotaMiB
+		return msbSdk.Mount.Bind(m.Bind, options)
+	case MountKindNamed:
+		return msbSdk.Mount.Named(m.Named, options)
+	case MountKindTmpfs:
+		return msbSdk.Mount.Tmpfs(msbSdk.TmpfsOptions{
+			SizeMiB:  m.SizeMiB,
+			Readonly: m.Readonly,
+			Noexec:   m.Noexec,
+			Nosuid:   m.Nosuid,
+			Nodev:    m.Nodev,
+		})
+	case MountKindDisk:
+		return msbSdk.Mount.Disk(m.Disk, msbSdk.DiskOptions{
+			Format:   m.Format,
+			Fstype:   m.Fstype,
+			Readonly: m.Readonly,
+			Noexec:   m.Noexec,
+			Nosuid:   m.Nosuid,
+			Nodev:    m.Nodev,
+		})
+	case MountKindOwned:
+		return msbSdk.Mount.Owned(msbSdk.OwnedVolumeOptions{
+			Kind:               volumeKindTo(VolumeKind(m.Owned)),
+			SizeMiB:            m.SizeMiB,
+			QuotaMiB:           m.QuotaMiB,
+			Readonly:           m.Readonly,
+			Noexec:             m.Noexec,
+			Nosuid:             m.Nosuid,
+			Nodev:              m.Nodev,
+			StatVirtualization: msbSdk.StatVirtualization(m.StatVirtualization),
+			HostPermissions:    msbSdk.HostPermissions(m.HostPermissions),
+			Owner:              sdkMountOwner(m.Owner),
+		})
+	default:
+		return msbSdk.MountConfig{}
+	}
+}
+
+// sdkMountOwner translates a launcher mount owner, preserving nil.
+func sdkMountOwner(owner *MountOwner) *msbSdk.MountOwner {
+	if owner == nil {
+		return nil
+	}
+	return &msbSdk.MountOwner{UID: owner.UID, GID: owner.GID}
+}
+
+// portBindings translates launcher port bindings, preserving nil as nil.
+func portBindings(bindings []PortBinding) []msbSdk.PortBinding {
+	if bindings == nil {
+		return nil
+	}
+	out := make([]msbSdk.PortBinding, len(bindings))
+	for i, binding := range bindings {
+		out[i] = msbSdk.PortBinding{
+			Bind:      binding.Bind,
+			HostPort:  binding.HostPort,
+			GuestPort: binding.GuestPort,
+			Protocol:  msbSdk.PortProtocol(binding.Protocol),
+		}
+	}
+	return out
+}
+
+// secretEntries translates launcher secret entries, preserving nil as nil.
+func secretEntries(entries []SecretEntry) []msbSdk.SecretEntry {
+	if entries == nil {
+		return nil
+	}
+	out := make([]msbSdk.SecretEntry, len(entries))
+	for i, entry := range entries {
+		out[i] = secretEntry(entry)
+	}
+	return out
+}
+
+// secretEntry rebuilds the SDK secret entry through the SDK's Secret.Env
+// factory, which folds Passthrough into AllowPlaceholderFor + Passthrough.
+func secretEntry(e SecretEntry) msbSdk.SecretEntry {
+	return msbSdk.Secret.Env(e.EnvVar, e.Value, msbSdk.SecretEnvOptions{
+		Allow:               e.Allow,
+		AllowPlaceholderFor: e.Passthrough,
+		Placeholder:         e.Placeholder,
+		RequireTLSIdentity:  e.RequireTLSIdentity,
+		Substitution: msbSdk.SecretSubstitution{
+			Headers:      e.Substitution.Headers,
+			HeaderFields: e.Substitution.HeaderFields,
+			Query:        e.Substitution.Query,
+			Body:         e.Substitution.Body,
+		},
+		ViolationAction: msbSdk.ViolationAction(e.ViolationAction),
+	})
+}
+
+// networkConfig composes the SDK network policy from a launcher NetworkSpec.
+// It reproduces the launcher's rule order: the gateway-DNS rule first only when
+// a composable profile is present, then the egress-deny carve-outs, then the
+// profile allow rules, then the explicit egress-allow rules (first match wins).
+func networkConfig(spec NetworkSpec) (*msbSdk.NetworkConfig, error) {
+	profiles := make([]msbSdk.NetworkProfile, 0, len(spec.Profiles))
+	for _, profile := range spec.Profiles {
+		profiles = append(profiles, msbSdk.NetworkProfile(profile))
+	}
+	cfg, err := msbSdk.NetworkPolicy.FromProfilesChecked(profiles...)
+	if err != nil {
+		return nil, err
+	}
+	// FromProfilesChecked returns the gateway-DNS rule first, then the profile
+	// allow rules. Drop that DNS rule and re-emit it at the front so the deny
+	// carve-outs can sit between them; no profile selects no rules at all.
+	profileRules := cfg.Rules
+	if len(profiles) > 0 {
+		profileRules = cfg.Rules[1:]
+	}
+	if len(spec.DNSServers) > 0 {
+		cfg.DNS = &msbSdk.DNSConfig{Nameservers: spec.DNSServers}
+	}
+	denyRules := make([]msbSdk.PolicyRule, 0, len(spec.EgressDeny))
+	for _, destination := range spec.EgressDeny {
+		denyRules = append(denyRules, networkEgressRule(msbSdk.PolicyActionDeny, destination))
+	}
+	allowRules := make([]msbSdk.PolicyRule, 0, len(spec.EgressAllow))
+	for _, destination := range spec.EgressAllow {
+		allowRules = append(allowRules, networkEgressRule(msbSdk.PolicyActionAllow, destination))
+	}
+	var gatewayDNSRules []msbSdk.PolicyRule
+	if len(profiles) > 0 {
+		gatewayDNSRules = []msbSdk.PolicyRule{msbSdk.Rule.AllowDNS()}
+	}
+	cfg.Rules = slices.Concat(gatewayDNSRules, denyRules, profileRules, allowRules)
+	return cfg, nil
+}
+
+// networkEgressRule builds one explicit egress policy rule.
+func networkEgressRule(action msbSdk.PolicyAction, destination string) msbSdk.PolicyRule {
+	var rule msbSdk.PolicyRule
+	rule.Action = action
+	rule.Direction = msbSdk.PolicyDirectionEgress
+	rule.Destination = destination
+	return rule
+}
+
+// volumeOptions translates a VolumeSpec into the SDK creation options.
+func volumeOptions(spec VolumeSpec) []msbSdk.VolumeOption {
+	return []msbSdk.VolumeOption{msbSdk.WithVolumeKind(volumeKindTo(spec.Kind))}
 }

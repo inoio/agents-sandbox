@@ -33,6 +33,22 @@ import (
 
 // TestReadLiveProjectVMWithoutVM pins the first-run case: no project VM exists,
 // so there is nothing to read and the zero value is returned.
+
+// sdkBindings translates launcher bindings onto the SDK read-back type so a
+// test can seed an SDK-backed handle that the reconfiguration decision reads.
+func sdkBindings(bindings []msb.PortBinding) []msbSdk.PortBinding {
+	out := make([]msbSdk.PortBinding, len(bindings))
+	for i, b := range bindings {
+		out[i] = msbSdk.PortBinding{
+			Bind:      b.Bind,
+			HostPort:  b.HostPort,
+			GuestPort: b.GuestPort,
+			Protocol:  msbSdk.PortProtocol(b.Protocol),
+		}
+	}
+	return out
+}
+
 func TestReadLiveProjectVMWithoutVM(t *testing.T) {
 	ui := termio.NewTestMock(t)
 
@@ -595,7 +611,7 @@ func TestResolveReconfigDecisionRecreatesWhenARecordedFingerprintDiffers(t *test
 	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}}
 	desired := envsecret.EnvSecrets{
 		Vars:    map[string]string{"FOO": "bar"},
-		Secrets: []msbSdk.SecretEntry{{EnvVar: "TOKEN", Value: "secret"}},
+		Secrets: []msb.SecretEntry{{EnvVar: "TOKEN", Value: "secret"}},
 	}
 	matching := func() state.HomeState {
 		return state.HomeState{
@@ -1190,7 +1206,7 @@ func TestApplyReconfigHomeActionError(t *testing.T) {
 
 	mock := reconfigMockClient()
 	createErr := errors.New("create volume failed")
-	mock.CreateVolumeFn = func(_ context.Context, _ string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return nil, createErr
 	}
 	msb.WithMsbMock(t, mock)
@@ -1690,7 +1706,7 @@ func TestResolveReconfigDecisionDroppedPortsRecreate(t *testing.T) {
 			CPUs:      4,
 			MemoryMiB: 4096,
 		},
-		PortBindings: ports.UserPortBindings([]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}}),
+		PortBindings: sdkBindings(ports.UserPortBindings([]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}})),
 		ConnectSb:    &msb.MockSandbox{},
 	}
 	mock := &msb.MockMsbClient{}
@@ -1749,10 +1765,10 @@ func TestResolveReconfigDecisionUnchangedPortsNoRecreate(t *testing.T) {
 			CPUs:      4,
 			MemoryMiB: 4096,
 		},
-		PortBindings: append(
+		PortBindings: sdkBindings(append(
 			ports.ServeOnlyBindings(ports.ServeOnlyBasePort),
 			ports.UserPortBindings([]ports.PortMapping{{HostPort: 3000, GuestPort: 3000}})...,
-		),
+		)),
 		ConnectSb: &msb.MockSandbox{},
 	}
 	mock := &msb.MockMsbClient{}

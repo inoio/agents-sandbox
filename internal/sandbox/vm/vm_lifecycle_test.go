@@ -233,9 +233,6 @@ func TestEnsureProjectVMCreatesAMissingVM(t *testing.T) {
 	if cfg.Labels[naming.LabelProject] == "" || cfg.Labels[naming.LabelImage] == "" {
 		t.Errorf("labels = %v, want the project and image labels", cfg.Labels)
 	}
-	if cfg.Replace {
-		t.Error("project VM created with replace, want a taken name to fail instead of being replaced")
-	}
 	assertInfoCall(t, &ui, "created new project VM")
 }
 
@@ -246,7 +243,7 @@ func TestEnsureProjectVMFailsClosedOnATakenName(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	taken := &msbSdk.Error{Kind: msbSdk.ErrSandboxAlreadyExists, Message: "sandbox already exists"}
 	client := &msb.MockMsbClient{
-		CreateSandboxFn: func(context.Context, string, ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		CreateSandboxFn: func(context.Context, string, msb.SandboxSpec) (msb.Sandbox, error) {
 			return nil, taken
 		},
 	}
@@ -319,7 +316,7 @@ func TestEnsureProjectVMRecreatesTheHeldVM(t *testing.T) {
 					lookups++
 					return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "not found"}
 				},
-				CreateSandboxFn: func(_ context.Context, name string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+				CreateSandboxFn: func(_ context.Context, name string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 					if !lock.held {
 						t.Error("created the replacement outside the creation lock")
 					}
@@ -707,68 +704,67 @@ func TestCreateProjectVMConfiguresTheVM(t *testing.T) {
 	cases := []struct {
 		name  string
 		opts  options.RunOptions
-		check func(t *testing.T, cfg msbSdk.SandboxConfig)
+		check func(t *testing.T, spec msb.SandboxSpec)
 	}{
 		{
 			name: "defaults",
 			opts: options.RunOptions{Memory: "1G"},
-			check: func(t *testing.T, cfg msbSdk.SandboxConfig) {
+			check: func(t *testing.T, spec msb.SandboxSpec) {
 				//testenv:allow asserts the VM CPU default is the host's CPU count
 				hostCPUs := sysinfo.NumCPUs()
-				if cfg.CPUs != hostCPUs || cfg.MaxCPUs != hostCPUs {
-					t.Errorf("CPUs/MaxCPUs = %d/%d, want the host's %d", cfg.CPUs, cfg.MaxCPUs, hostCPUs)
+				if spec.CPUs != hostCPUs || spec.MaxCPUs != hostCPUs {
+					t.Errorf("CPUs/MaxCPUs = %d/%d, want the host's %d", spec.CPUs, spec.MaxCPUs, hostCPUs)
 				}
-				if cfg.IdleTimeout != options.DefaultVMIdleTimeout {
-					t.Errorf("IdleTimeout = %v, want the default %v", cfg.IdleTimeout, options.DefaultVMIdleTimeout)
+				if spec.IdleTimeout != options.DefaultVMIdleTimeout {
+					t.Errorf("IdleTimeout = %v, want the default %v", spec.IdleTimeout, options.DefaultVMIdleTimeout)
 				}
-				if cfg.RootDisk != nil {
-					t.Errorf("RootDisk = %+v, want none without a disk size", cfg.RootDisk)
+				if spec.RootDiskMiB != 0 {
+					t.Errorf("RootDiskMiB = %d, want none without a disk size", spec.RootDiskMiB)
 				}
-				if cfg.Network == nil || cfg.Network.DefaultEgress != msbSdk.PolicyActionDeny {
-					t.Errorf("network = %+v, want deny-by-default egress", cfg.Network)
+				if !slices.Equal(spec.Network.Profiles, []msb.NetworkProfile{msb.NetworkProfilePublic}) {
+					t.Errorf("network profiles = %v, want the default public profile", spec.Network.Profiles)
 				}
-				if len(cfg.PortBindings) != 0 {
-					t.Errorf("port bindings = %v, want none outside serve-only mode", cfg.PortBindings)
+				if len(spec.Ports) != 0 {
+					t.Errorf("ports = %v, want none outside serve-only mode", spec.Ports)
 				}
 			},
 		},
 		{
 			name: "configured CPUs",
 			opts: options.RunOptions{Memory: "1G", CPUs: 1},
-			check: func(t *testing.T, cfg msbSdk.SandboxConfig) {
+			check: func(t *testing.T, spec msb.SandboxSpec) {
 				//testenv:allow asserts the VM CPU maximum is the host's CPU count
 				hostCPUs := sysinfo.NumCPUs()
-				if cfg.CPUs != 1 || cfg.MaxCPUs != hostCPUs {
-					t.Errorf("CPUs/MaxCPUs = %d/%d, want 1/%d", cfg.CPUs, cfg.MaxCPUs, hostCPUs)
+				if spec.CPUs != 1 || spec.MaxCPUs != hostCPUs {
+					t.Errorf("CPUs/MaxCPUs = %d/%d, want 1/%d", spec.CPUs, spec.MaxCPUs, hostCPUs)
 				}
 			},
 		},
 		{
 			name: "configured idle timeout",
 			opts: options.RunOptions{Memory: "1G", IdleTimeout: 45 * time.Second},
-			check: func(t *testing.T, cfg msbSdk.SandboxConfig) {
-				if cfg.IdleTimeout != 45*time.Second {
-					t.Errorf("IdleTimeout = %v, want 45s", cfg.IdleTimeout)
+			check: func(t *testing.T, spec msb.SandboxSpec) {
+				if spec.IdleTimeout != 45*time.Second {
+					t.Errorf("IdleTimeout = %v, want 45s", spec.IdleTimeout)
 				}
 			},
 		},
 		{
 			name: "memory above the boot maximum is clamped to it",
 			opts: options.RunOptions{Memory: fmt.Sprintf("%dM", BootMaxMemoryMiB()+1024)},
-			check: func(t *testing.T, cfg msbSdk.SandboxConfig) {
-				if cfg.MemoryMiB != BootMaxMemoryMiB() || cfg.MaxMemoryMiB != BootMaxMemoryMiB() {
+			check: func(t *testing.T, spec msb.SandboxSpec) {
+				if spec.MemoryMiB != BootMaxMemoryMiB() || spec.MaxMemoryMiB != BootMaxMemoryMiB() {
 					t.Errorf("memory = %d MiB, max = %d MiB; want both at the boot maximum %d MiB",
-						cfg.MemoryMiB, cfg.MaxMemoryMiB, BootMaxMemoryMiB())
+						spec.MemoryMiB, spec.MaxMemoryMiB, BootMaxMemoryMiB())
 				}
 			},
 		},
 		{
 			name: "disk size",
 			opts: options.RunOptions{Memory: "1G", DiskSize: "16G"},
-			check: func(t *testing.T, cfg msbSdk.SandboxConfig) {
-				if cfg.RootDisk == nil || cfg.RootDisk.Kind() != msbSdk.RootDiskKindManaged ||
-					cfg.RootDisk.SizeMiB != 16*1024 {
-					t.Errorf("RootDisk = %+v, want a managed 16 GiB disk", cfg.RootDisk)
+			check: func(t *testing.T, spec msb.SandboxSpec) {
+				if spec.RootDiskMiB != 16*1024 {
+					t.Errorf("RootDiskMiB = %d, want a managed 16 GiB disk", spec.RootDiskMiB)
 				}
 			},
 		},
@@ -778,31 +774,29 @@ func TestCreateProjectVMConfiguresTheVM(t *testing.T) {
 				Memory:  "1G",
 				Network: network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
 			},
-			check: func(t *testing.T, cfg msbSdk.SandboxConfig) {
-				if cfg.Network == nil || !slices.ContainsFunc(cfg.Network.Rules, func(r msbSdk.PolicyRule) bool {
-					return r.Action == msbSdk.PolicyActionAllow && r.Destination == "public"
-				}) {
-					t.Errorf("network = %+v, want an egress rule allowing public destinations", cfg.Network)
+			check: func(t *testing.T, spec msb.SandboxSpec) {
+				if !slices.Contains(spec.Network.Profiles, msb.NetworkProfilePublic) {
+					t.Errorf("network profiles = %v, want the public profile", spec.Network.Profiles)
 				}
 			},
 		},
 		{
 			name: "serve-only on the planned host port",
 			opts: options.RunOptions{Memory: "1G", ServeOnly: true, ServeHostPort: ports.ServeOnlyBasePort + 17},
-			check: func(t *testing.T, cfg msbSdk.SandboxConfig) {
+			check: func(t *testing.T, spec msb.SandboxSpec) {
 				want := ports.ServeOnlyBindings(ports.ServeOnlyBasePort + 17)
-				if !reflect.DeepEqual(cfg.PortBindings, want) {
-					t.Errorf("port bindings = %#v, want %#v", cfg.PortBindings, want)
+				if !reflect.DeepEqual(spec.Ports, want) {
+					t.Errorf("port bindings = %#v, want %#v", spec.Ports, want)
 				}
 			},
 		},
 		{
 			name: "user port mappings",
 			opts: options.RunOptions{Memory: "1G", Ports: []ports.PortMapping{{HostPort: 3000, GuestPort: 8080}}},
-			check: func(t *testing.T, cfg msbSdk.SandboxConfig) {
+			check: func(t *testing.T, spec msb.SandboxSpec) {
 				want := ports.UserPortBindings([]ports.PortMapping{{HostPort: 3000, GuestPort: 8080}})
-				if !reflect.DeepEqual(cfg.PortBindings, want) {
-					t.Errorf("port bindings = %#v, want the user mapping %#v", cfg.PortBindings, want)
+				if !reflect.DeepEqual(spec.Ports, want) {
+					t.Errorf("port bindings = %#v, want the user mapping %#v", spec.Ports, want)
 				}
 			},
 		},
@@ -924,19 +918,11 @@ func TestCreateProjectVMUsesResolvedRef(t *testing.T) {
 		t.Fatalf("createProjectVM: %v", err)
 	}
 
-	var cfg msbSdk.SandboxConfig
-	for _, call := range client.CreatedSandboxCalls {
-		if call.Name != ProjectVMName(key) {
-			continue
-		}
-		for _, opt := range call.Opts {
-			opt(&cfg)
-		}
+	spec := createdProjectVMConfig(t, client, ProjectVMName(key))
+	if spec.Image != legacyRef {
+		t.Errorf("created VM image = %q, want the reused legacy ref %q", spec.Image, legacyRef)
 	}
-	if cfg.Image != legacyRef {
-		t.Errorf("created VM image = %q, want the reused legacy ref %q", cfg.Image, legacyRef)
-	}
-	if got := cfg.Labels[naming.LabelImage]; got != legacyRef {
+	if got := spec.Labels[naming.LabelImage]; got != legacyRef {
 		t.Errorf("LabelImage = %q, want %q", got, legacyRef)
 	}
 	if !verboseContains(ui.VerboseCalls, "adding docker env definitions to project VM environment: map[FOO:bar]") {
@@ -1045,8 +1031,8 @@ func TestBuildMountsIncludesTmpfsAtTmp(t *testing.T) {
 	if !ok {
 		t.Fatal("expected /tmp mount, not found in mounts map")
 	}
-	if tmpMount.Kind() != msbSdk.MountKindTmpfs {
-		t.Errorf("expected /tmp to be a tmpfs mount, got kind %d", tmpMount.Kind())
+	if tmpMount.Kind != msb.MountKindTmpfs {
+		t.Errorf("expected /tmp to be a tmpfs mount, got kind %d", tmpMount.Kind)
 	}
 	if tmpMount.SizeMiB == 0 {
 		t.Error("expected /tmp tmpfs to have a nonzero size cap")
@@ -1072,8 +1058,8 @@ func TestBuildMountsSetsWorkspaceQuota(t *testing.T) {
 	if !ok {
 		t.Fatal("expected /workspace mount, not found in mounts map")
 	}
-	if wsMount.Kind() != msbSdk.MountKindBind {
-		t.Errorf("expected /workspace to be a bind mount, got kind %d", wsMount.Kind())
+	if wsMount.Kind != msb.MountKindBind {
+		t.Errorf("expected /workspace to be a bind mount, got kind %d", wsMount.Kind)
 	}
 	if wsMount.QuotaMiB != 32*1024 {
 		t.Errorf("expected /workspace quota 32768 MiB, got %d", wsMount.QuotaMiB)
@@ -1093,10 +1079,10 @@ func TestBuildMountsSetsWorkspaceMirrorHostPermissions(t *testing.T) {
 	if !ok {
 		t.Fatal("expected /workspace mount, not found in mounts map")
 	}
-	if wsMount.HostPermissions != msbSdk.HostPermissionsMirror {
+	if wsMount.HostPermissions != msb.HostPermissionsMirror {
 		t.Errorf(
 			"expected /workspace host permissions %q, got %q",
-			msbSdk.HostPermissionsMirror,
+			msb.HostPermissionsMirror,
 			wsMount.HostPermissions,
 		)
 	}
@@ -1136,8 +1122,8 @@ func TestBuildMountsIncludesConfiguredBindMount(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected configured .m2 bind mount, got %v", mounts)
 	}
-	if m2.Kind() != msbSdk.MountKindBind {
-		t.Errorf("expected a bind mount, got kind %d", m2.Kind())
+	if m2.Kind != msb.MountKindBind {
+		t.Errorf("expected a bind mount, got kind %d", m2.Kind)
 	}
 	if m2.Bind != "/host/home/.m2" {
 		t.Errorf("bind source = %q, want /host/home/.m2", m2.Bind)
@@ -1145,7 +1131,7 @@ func TestBuildMountsIncludesConfiguredBindMount(t *testing.T) {
 	if m2.Readonly {
 		t.Error("expected .m2 to be writable")
 	}
-	if m2.HostPermissions != msbSdk.HostPermissionsDefault {
+	if m2.HostPermissions != msb.HostPermissionsDefault {
 		t.Errorf(
 			"expected configured mounts to keep the private host-permissions default, got %q",
 			m2.HostPermissions,
@@ -1178,11 +1164,11 @@ func TestBuildMountsKeepsManagedMounts(t *testing.T) {
 	if ws, ok := built[defaultTargetDir]; !ok || ws.Bind != "/repo/path" {
 		t.Errorf("managed workspace mount altered: %+v", built[defaultTargetDir])
 	}
-	if tmp, ok := built[tmpMountPath]; !ok || tmp.Kind() != msbSdk.MountKindTmpfs {
+	if tmp, ok := built[tmpMountPath]; !ok || tmp.Kind != msb.MountKindTmpfs {
 		t.Errorf("managed tmp mount altered: %+v", built[tmpMountPath])
 	}
 	for _, target := range []string{mounts.VMHomeDir, tmpMountPath} {
-		if got := built[target].HostPermissions; got != msbSdk.HostPermissionsDefault {
+		if got := built[target].HostPermissions; got != msb.HostPermissionsDefault {
 			t.Errorf("mount %q should keep the private host-permissions default, got %q", target, got)
 		}
 	}
@@ -1215,23 +1201,17 @@ func lookUpAndEnsureProjectVM(ctx context.Context, creation ProjectVMCreation) (
 	return EnsureProjectVM(ctx, creation)
 }
 
-// createdProjectVMConfig applies the recorded CreateSandbox options for the
-// named project VM and returns the config it was created with. Other
-// CreateSandbox calls (a home-volume prefill) are ignored.
-func createdProjectVMConfig(t *testing.T, mock *msb.MockMsbClient, name string) msbSdk.SandboxConfig {
+// createdProjectVMConfig returns the spec the named project VM was created
+// with. Other CreateSandbox calls (a home-volume prefill) are ignored.
+func createdProjectVMConfig(t *testing.T, mock *msb.MockMsbClient, name string) msb.SandboxSpec {
 	t.Helper()
 	for _, call := range mock.CreatedSandboxCalls {
-		if call.Name != name {
-			continue
+		if call.Name == name {
+			return call.Spec
 		}
-		var cfg msbSdk.SandboxConfig
-		for _, opt := range call.Opts {
-			opt(&cfg)
-		}
-		return cfg
 	}
 	t.Fatalf("no CreateSandbox call for %q; calls: %v", name, mock.CreatedSandboxes)
-	return msbSdk.SandboxConfig{}
+	return msb.SandboxSpec{}
 }
 
 func assertInfoCall(t *testing.T, ui *termio.Mock, wantSubstr string) {

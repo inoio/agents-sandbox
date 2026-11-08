@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -386,7 +384,7 @@ func createHomeVolume(ctx context.Context, client msb.Client, k state.Key) (stri
 	var err error
 	for attempt := 1; ; attempt++ {
 		volName := HomeVolumeName(k)
-		_, err = client.CreateVolume(ctx, volName, msbSdk.WithVolumeKind(msbSdk.VolumeKindDir))
+		_, err = client.CreateVolume(ctx, volName, msb.VolumeSpec{Kind: msb.VolumeKindDir})
 		if err == nil {
 			return volName, nil
 		}

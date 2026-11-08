@@ -10,8 +10,6 @@ import (
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
-	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 )
 
 // TestNetworkPolicyDNSResolution boots a VM per launcher network policy and
@@ -25,49 +23,48 @@ import (
 // proxy: a leaked query would be answered, not rejected.
 func TestNetworkPolicyDNSResolution(t *testing.T) {
 	ensureIsolatedRuntime(t)
-	none := []network.Profile{network.ProfileNone}
 	cases := []struct {
 		name        string
-		policy      network.Policy
+		spec        NetworkSpec
 		resolves    []string
 		notResolves []string
 	}{
 		{
 			name:        "none-without-allow-list",
-			policy:      network.Policy{Profiles: none},
+			spec:        NetworkSpec{},
 			notResolves: []string{"example.com", "example.org"},
 		},
 		{
 			name:        "none-with-ip-allow-list",
-			policy:      network.Policy{Profiles: none, EgressAllow: []string{"1.1.1.1"}},
+			spec:        NetworkSpec{EgressAllow: []string{"1.1.1.1"}},
 			notResolves: []string{"example.com", "example.org"},
 		},
 		{
 			name:        "none-with-hostname-allow-list",
-			policy:      network.Policy{Profiles: none, EgressAllow: []string{"example.com"}},
+			spec:        NetworkSpec{EgressAllow: []string{"example.com"}},
 			resolves:    []string{"example.com"},
 			notResolves: []string{"www.example.com", "example.org"},
 		},
 		{
 			name:        "none-with-suffix-allow-list",
-			policy:      network.Policy{Profiles: none, EgressAllow: []string{".example.com"}},
+			spec:        NetworkSpec{EgressAllow: []string{".example.com"}},
 			resolves:    []string{"example.com", "www.example.com"},
 			notResolves: []string{"example.org"},
 		},
 		{
 			name:     "none-with-host-allow-list",
-			policy:   network.Policy{Profiles: none, EgressAllow: []string{"host"}},
+			spec:     NetworkSpec{EgressAllow: []string{"host"}},
 			resolves: []string{"example.com", "example.org"},
 		},
 		{
 			name:     "public",
-			policy:   network.Policy{Profiles: []network.Profile{network.ProfilePublic}},
+			spec:     NetworkSpec{Profiles: []NetworkProfile{NetworkProfilePublic}},
 			resolves: []string{"example.com", "www.example.com", "example.org"},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sandbox := createSandboxWithPolicy(t, "agents-sandbox-dns-egress-"+tc.name, tc.policy)
+			sandbox := createSandboxWithPolicy(t, "agents-sandbox-dns-egress-"+tc.name, tc.spec)
 			for _, name := range tc.resolves {
 				if result := lookup(t, sandbox, name); !result.Success() {
 					t.Errorf("%s: lookup of %q failed, want it to resolve: %s", tc.name, name, result.Stdout())
@@ -82,11 +79,11 @@ func TestNetworkPolicyDNSResolution(t *testing.T) {
 	}
 }
 
-func createSandboxWithPolicy(t *testing.T, sandboxName string, policy network.Policy) *msbSdk.Sandbox {
+func createSandboxWithPolicy(t *testing.T, sandboxName string, spec NetworkSpec) *msbSdk.Sandbox {
 	t.Helper()
-	networkConfig, err := policy.Config()
+	networkConfig, err := networkConfig(spec)
 	if err != nil {
-		t.Fatalf("Policy.Config: %v", err)
+		t.Fatalf("networkConfig: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()

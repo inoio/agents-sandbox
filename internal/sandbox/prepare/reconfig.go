@@ -54,7 +54,7 @@ func existingServeHostPort(cfg *msbSdk.SandboxConfig, fallback int) int {
 	if cfg == nil {
 		return fallback
 	}
-	if port, ok := ports.ServeHostBinding(cfg.PortBindings); ok {
+	if port, ok := ports.ServeHostBinding(ports.BindingsFromSDK(cfg.PortBindings)); ok {
 		return port
 	}
 	return fallback

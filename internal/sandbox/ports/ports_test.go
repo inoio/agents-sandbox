@@ -6,7 +6,24 @@ import (
 	"testing"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
+
+// sdkBindings translates launcher bindings onto the SDK read-back type so a
+// test can seed an SDK SandboxConfig that ResolveServeHostPort still reads.
+func sdkBindings(bindings []msb.PortBinding) []msbSdk.PortBinding {
+	out := make([]msbSdk.PortBinding, len(bindings))
+	for i, b := range bindings {
+		out[i] = msbSdk.PortBinding{
+			Bind:      b.Bind,
+			HostPort:  b.HostPort,
+			GuestPort: b.GuestPort,
+			Protocol:  msbSdk.PortProtocol(b.Protocol),
+		}
+	}
+	return out
+}
 
 func TestParsePortMapping(t *testing.T) {
 	cases := []struct {
@@ -109,8 +126,8 @@ func TestFirstFreeHostPortExcludingExhaustedReturnsZero(t *testing.T) {
 
 func TestServeOnlyBindings(t *testing.T) {
 	got := ServeOnlyBindings(4097)
-	want := []msbSdk.PortBinding{{
-		Bind: ServeOnlyBindAddr, HostPort: 4097, GuestPort: ServeOnlyBasePort, Protocol: msbSdk.PortProtocolTCP,
+	want := []msb.PortBinding{{
+		Bind: ServeOnlyBindAddr, HostPort: 4097, GuestPort: ServeOnlyBasePort, Protocol: msb.PortProtocolTCP,
 	}}
 	if !slices.Equal(got, want) {
 		t.Errorf("ServeOnlyBindings(4097) = %+v, want %+v", got, want)
@@ -119,8 +136,8 @@ func TestServeOnlyBindings(t *testing.T) {
 
 func TestUserPortBindings(t *testing.T) {
 	got := UserPortBindings([]PortMapping{{HostPort: 8080, GuestPort: 5173}})
-	want := []msbSdk.PortBinding{{
-		Bind: ServeOnlyBindAddr, HostPort: 8080, GuestPort: 5173, Protocol: msbSdk.PortProtocolTCP,
+	want := []msb.PortBinding{{
+		Bind: ServeOnlyBindAddr, HostPort: 8080, GuestPort: 5173, Protocol: msb.PortProtocolTCP,
 	}}
 	if !slices.Equal(got, want) {
 		t.Errorf("UserPortBindings = %+v, want %+v", got, want)
@@ -176,6 +193,21 @@ func TestServeHostBinding(t *testing.T) {
 	}
 }
 
+func TestBindingsFromSDKTranslatesAndPreservesNil(t *testing.T) {
+	if got := BindingsFromSDK(nil); got != nil {
+		t.Errorf("BindingsFromSDK(nil) = %v, want nil", got)
+	}
+	got := BindingsFromSDK([]msbSdk.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 5173, Protocol: msbSdk.PortProtocolUDP},
+	})
+	want := []msb.PortBinding{
+		{Bind: "127.0.0.1", HostPort: 3000, GuestPort: 5173, Protocol: msb.PortProtocolUDP},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("BindingsFromSDK = %+v, want %+v", got, want)
+	}
+}
+
 func TestBindingsEqualIgnoresOrder(t *testing.T) {
 	a := UserPortBindings([]PortMapping{{HostPort: 3000, GuestPort: 3000}, {HostPort: 8080, GuestPort: 5173}})
 	b := UserPortBindings([]PortMapping{{HostPort: 8080, GuestPort: 5173}, {HostPort: 3000, GuestPort: 3000}})
@@ -207,8 +239,8 @@ func TestFirstFreeHostPortExcludingReachesWindowEdge(t *testing.T) {
 }
 
 func TestServeHostBindingSkipsZeroHostPort(t *testing.T) {
-	zeroHost := []msbSdk.PortBinding{
-		{Bind: ServeOnlyBindAddr, HostPort: 0, GuestPort: ServeOnlyBasePort, Protocol: msbSdk.PortProtocolTCP},
+	zeroHost := []msb.PortBinding{
+		{Bind: ServeOnlyBindAddr, HostPort: 0, GuestPort: ServeOnlyBasePort, Protocol: msb.PortProtocolTCP},
 	}
 	if _, ok := ServeHostBinding(zeroHost); ok {
 		t.Error("ServeHostBinding(zero host port) reported a binding, want none")
@@ -216,7 +248,7 @@ func TestServeHostBindingSkipsZeroHostPort(t *testing.T) {
 }
 
 func TestResolveServeHostPortUsesPortOne(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{PortBindings: ServeOnlyBindings(1)}
+	cfg := &msbSdk.SandboxConfig{PortBindings: sdkBindings(ServeOnlyBindings(1))}
 	if got := ResolveServeHostPort(cfg, true, nil); got != 1 {
 		t.Errorf("ResolveServeHostPort = %d, want 1", got)
 	}
@@ -226,7 +258,7 @@ func TestResolveServeHostPort(t *testing.T) {
 	if got := ResolveServeHostPort(nil, false, nil); got != 0 {
 		t.Errorf("ResolveServeHostPort(not serve-only) = %d, want 0", got)
 	}
-	cfg := &msbSdk.SandboxConfig{PortBindings: ServeOnlyBindings(4096)}
+	cfg := &msbSdk.SandboxConfig{PortBindings: sdkBindings(ServeOnlyBindings(4096))}
 	if got := ResolveServeHostPort(cfg, true, nil); got != 4096 {
 		t.Errorf("ResolveServeHostPort(existing binding) = %d, want 4096", got)
 	}
@@ -239,13 +271,27 @@ func TestResolveServeHostPortProbesWhenNoBinding(t *testing.T) {
 }
 
 func TestResolveServeHostPortPicksAgentBindingAmongUserPorts(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{PortBindings: append(
+	cfg := &msbSdk.SandboxConfig{PortBindings: sdkBindings(append(
 		UserPortBindings([]PortMapping{{HostPort: 3000, GuestPort: 3000}}),
 		ServeOnlyBindings(4097)...,
-	)}
+	))}
 	got := ResolveServeHostPort(cfg, true, []PortMapping{{HostPort: 3000, GuestPort: 3000}})
 	if got != 4097 {
 		t.Errorf("ResolveServeHostPort = %d, want 4097 (the agent guest port binding)", got)
+	}
+}
+
+// TestResolveServeHostPortKeepsServeBindingBeforeStaleUserBinding covers a live
+// VM that still carries a user binding this run no longer maps (the user dropped
+// the --port). The stable agent serve port must win over that earlier, unclaimed
+// binding.
+func TestResolveServeHostPortKeepsServeBindingBeforeStaleUserBinding(t *testing.T) {
+	cfg := &msbSdk.SandboxConfig{PortBindings: sdkBindings(append(
+		UserPortBindings([]PortMapping{{HostPort: 3000, GuestPort: 3000}}),
+		ServeOnlyBindings(4097)...,
+	))}
+	if got := ResolveServeHostPort(cfg, true, nil); got != 4097 {
+		t.Errorf("ResolveServeHostPort = %d, want 4097 (the serve binding, not the stale user port)", got)
 	}
 }
 
@@ -257,7 +303,7 @@ func TestResolveServeHostPortProbesAroundUserPorts(t *testing.T) {
 }
 
 func TestResolveServeHostPortSkipsAgentPortClaimedByNewMapping(t *testing.T) {
-	cfg := &msbSdk.SandboxConfig{PortBindings: ServeOnlyBindings(ServeOnlyBasePort)}
+	cfg := &msbSdk.SandboxConfig{PortBindings: sdkBindings(ServeOnlyBindings(ServeOnlyBasePort))}
 	got := ResolveServeHostPort(cfg, true, []PortMapping{{HostPort: ServeOnlyBasePort, GuestPort: 3000}})
 	if got == ServeOnlyBasePort {
 		t.Errorf("ResolveServeHostPort = %d, want a port the new --port mapping does not claim", got)

@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -204,9 +202,7 @@ func volumeOp(
 	}
 
 	newVolumeName := HomeVolumeName(k)
-	newVol, err := client.CreateVolume(ctx, newVolumeName,
-		msbSdk.WithVolumeKind(msbSdk.VolumeKindDir),
-	)
+	newVol, err := client.CreateVolume(ctx, newVolumeName, msb.VolumeSpec{Kind: msb.VolumeKindDir})
 	if err != nil {
 		return fmt.Errorf("create volume %s: %w", newVolumeName, err)
 	}
@@ -257,9 +253,9 @@ func editVolumesInteractively(
 ) error {
 	return withThrowawaySandbox(ctx, dclient, client, k, info, throwawaySandbox{
 		purpose: "edit",
-		mounts: map[string]msbSdk.MountConfig{
-			srcMount: msbSdk.Mount.Named(oldVolume, msbSdk.MountOptions{}),
-			dstMount: msbSdk.Mount.Named(newVolumeName, msbSdk.MountOptions{}),
+		mounts: map[string]msb.MountConfig{
+			srcMount: msb.Mount.Named(oldVolume, msb.MountOptions{}),
+			dstMount: msb.Mount.Named(newVolumeName, msb.MountOptions{}),
 		},
 		spinnerLabel: "Starting interactive session with both volumes",
 	}, ui, func(sb msb.Sandbox, spin termio.Spinner) error {

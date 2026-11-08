@@ -12,7 +12,6 @@ import (
 
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/client"
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
@@ -61,7 +60,7 @@ func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 	}
 
 	if tc.createVolumeErr {
-		mock.CreateVolumeFn = func(context.Context, string, ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		mock.CreateVolumeFn = func(context.Context, string, msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return nil, errBoom
 		}
 	}
@@ -69,7 +68,7 @@ func runVolumeOpScenario(t *testing.T, tc volumeOpScenario) {
 		// PrefillVolume is always the first CreateSandbox; migrate's
 		// CopyVolume and edit's own sandbox are the second.
 		calls := 0
-		mock.CreateSandboxFn = func(_ context.Context, _ string, _ ...msbSdk.SandboxOption) (msb.Sandbox, error) {
+		mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 			calls++
 			switch {
 			case tc.prefillErr:
@@ -194,7 +193,7 @@ func TestVolumeOpsDryRunDoesNotEnsureImage(t *testing.T) {
 
 			createVolumeCalls := 0
 			msb.WithMsbMock(t, &msb.MockMsbClient{
-				CreateVolumeFn: func(context.Context, string, ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+				CreateVolumeFn: func(context.Context, string, msb.VolumeSpec) (msb.VolumeHandle, error) {
 					createVolumeCalls++
 					return nil, errors.New("CreateVolume must not be called during --dry-run")
 				},

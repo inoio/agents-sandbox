@@ -126,14 +126,10 @@ func (f *throwawayFixture) run(spec throwawaySandbox, payload func(msb.Sandbox, 
 	)
 }
 
-func (f *throwawayFixture) createdConfig(t *testing.T) msbSdk.SandboxConfig {
+func (f *throwawayFixture) createdConfig(t *testing.T) msb.SandboxSpec {
 	t.Helper()
 	require.Len(t, f.client.CreatedSandboxCalls, 1)
-	var cfg msbSdk.SandboxConfig
-	for _, opt := range f.client.CreatedSandboxCalls[0].Opts {
-		opt(&cfg)
-	}
-	return cfg
+	return f.client.CreatedSandboxCalls[0].Spec
 }
 
 // seedAdoptionClaim records a legacy identity's adoption claim (#144) through the

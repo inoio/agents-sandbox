@@ -17,7 +17,7 @@ import (
 // MockCreateSandboxCall tracks a CreateSandbox call made on MockMsbClient.
 type MockCreateSandboxCall struct {
 	Name string
-	Opts []msbSdk.SandboxOption
+	Spec SandboxSpec
 }
 
 // MockRemoveImageCall tracks an ImageRemove call made on MockMsbClient.
@@ -83,10 +83,10 @@ type MockMsbClient struct {
 	// Callback-style fields (granular control). Nil = no-op/succeed.
 	EnsureInstalledFn    func(ctx context.Context) error
 	GetSandboxFn         func(ctx context.Context, name string) (SandboxHandle, error)
-	CreateSandboxFn      func(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)
+	CreateSandboxFn      func(ctx context.Context, name string, spec SandboxSpec) (Sandbox, error)
 	ListSandboxesFn      func(ctx context.Context, labels map[string]string) ([]SandboxHandle, error)
 	GetVolumeFn          func(ctx context.Context, name string) (VolumeHandle, error)
-	CreateVolumeFn       func(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error)
+	CreateVolumeFn       func(ctx context.Context, name string, spec VolumeSpec) (VolumeHandle, error)
 	ListVolumesFn        func(ctx context.Context) ([]VolumeHandle, error)
 	RemoveVolumeFn       func(ctx context.Context, name string) error
 	ImageGetFn           func(ctx context.Context, ref string) error
@@ -175,14 +175,14 @@ func (m *MockMsbClient) GetSandbox(ctx context.Context, name string) (SandboxHan
 }
 
 // CreateSandbox implements Client.
-func (m *MockMsbClient) CreateSandbox(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error) {
+func (m *MockMsbClient) CreateSandbox(ctx context.Context, name string, spec SandboxSpec) (Sandbox, error) {
 	m.mu.Lock()
 	m.CreatedSandboxes = append(m.CreatedSandboxes, name)
-	m.CreatedSandboxCalls = append(m.CreatedSandboxCalls, MockCreateSandboxCall{Name: name, Opts: opts})
+	m.CreatedSandboxCalls = append(m.CreatedSandboxCalls, MockCreateSandboxCall{Name: name, Spec: spec})
 	m.mu.Unlock()
 
 	if m.CreateSandboxFn != nil {
-		return m.CreateSandboxFn(ctx, name, opts...)
+		return m.CreateSandboxFn(ctx, name, spec)
 	}
 	if m.CreateSandboxErr != nil {
 		return nil, m.CreateSandboxErr
@@ -216,10 +216,10 @@ func (m *MockMsbClient) GetVolume(ctx context.Context, name string) (VolumeHandl
 func (m *MockMsbClient) CreateVolume(
 	ctx context.Context,
 	name string,
-	opts ...msbSdk.VolumeOption,
+	spec VolumeSpec,
 ) (VolumeHandle, error) {
 	if m.CreateVolumeFn != nil {
-		return m.CreateVolumeFn(ctx, name, opts...)
+		return m.CreateVolumeFn(ctx, name, spec)
 	}
 	return &MockVolumeHandle{Name_: name}, nil
 }
@@ -1003,7 +1003,7 @@ func (f *failFastMsbClient) GetSandbox(_ context.Context, _ string) (SandboxHand
 func (f *failFastMsbClient) CreateSandbox(
 	_ context.Context,
 	_ string,
-	_ ...msbSdk.SandboxOption,
+	_ SandboxSpec,
 ) (Sandbox, error) {
 	f.mustMock()
 	return nil, nil
@@ -1022,7 +1022,7 @@ func (f *failFastMsbClient) GetVolume(_ context.Context, _ string) (VolumeHandle
 func (f *failFastMsbClient) CreateVolume(
 	_ context.Context,
 	_ string,
-	_ ...msbSdk.VolumeOption,
+	_ VolumeSpec,
 ) (VolumeHandle, error) {
 	f.mustMock()
 	return nil, nil

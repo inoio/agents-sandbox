@@ -566,7 +566,7 @@ func TestPrepareHomeVolumeRecoversLostStateFromLiveVM(t *testing.T) {
 			}
 			return nil, fmt.Errorf("volume %s not found", name)
 		},
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			t.Fatalf("CreateVolume must not be called during recovery (got %q)", name)
 			return nil, errors.New("unexpected CreateVolume")
 		},
@@ -632,7 +632,7 @@ func TestPrepareHomeVolumeRecoversPersistedAdoptionVolume(t *testing.T) {
 			}
 			return nil, fmt.Errorf("volume %s not found", name)
 		},
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			t.Fatalf("CreateVolume must not be called during recovery (got %q)", name)
 			return nil, errors.New("unexpected CreateVolume")
 		},

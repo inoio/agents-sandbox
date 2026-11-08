@@ -468,7 +468,7 @@ func setupAbsentImagePreviewMocks(t *testing.T, mock *sandboxmsb.MockMsbClient) 
 			return client.ImageBuildResult{}, errors.New("unexpected build")
 		},
 	})
-	mock.CreateVolumeFn = func(context.Context, string, ...msb.VolumeOption) (sandboxmsb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(context.Context, string, sandboxmsb.VolumeSpec) (sandboxmsb.VolumeHandle, error) {
 		t.Error("the --dry-run preview must not create a home volume")
 		return nil, errors.New("unexpected CreateVolume")
 	}

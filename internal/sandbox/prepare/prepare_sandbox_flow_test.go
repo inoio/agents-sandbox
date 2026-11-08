@@ -505,13 +505,12 @@ func TestPrepareSandboxBakesAndFingerprintsTheLoadedEnv(t *testing.T) {
 	if len(mock.CreatedSandboxCalls) != 1 {
 		t.Fatalf("expected the project VM to be created, got %d creations", len(mock.CreatedSandboxCalls))
 	}
-	var cfg msbSdk.SandboxConfig
-	applySandboxOpts(&cfg, mock.CreatedSandboxCalls[0].Opts)
-	if cfg.Env["FROM_HOST"] != "yes" {
-		t.Errorf("created VM env FROM_HOST = %q, want %q (env: %v)", cfg.Env["FROM_HOST"], "yes", cfg.Env)
+	spec := mock.CreatedSandboxCalls[0].Spec
+	if spec.Env["FROM_HOST"] != "yes" {
+		t.Errorf("created VM env FROM_HOST = %q, want %q (env: %v)", spec.Env["FROM_HOST"], "yes", spec.Env)
 	}
-	if len(cfg.Secrets) != 1 || cfg.Secrets[0].EnvVar != "TOKEN" || cfg.Secrets[0].Value != "value-a" {
-		t.Errorf("created VM secrets = %#v, want the TOKEN secret from the host file", cfg.Secrets)
+	if len(spec.Secrets) != 1 || spec.Secrets[0].EnvVar != "TOKEN" || spec.Secrets[0].Value != "value-a" {
+		t.Errorf("created VM secrets = %#v, want the TOKEN secret from the host file", spec.Secrets)
 	}
 
 	st, err := state.ReadState(key)
@@ -522,7 +521,7 @@ func TestPrepareSandboxBakesAndFingerprintsTheLoadedEnv(t *testing.T) {
 	if st.EnvState.Hash != wantEnv.Hash {
 		t.Errorf("persisted EnvState.Hash = %q, want %q (the env baked into the VM)", st.EnvState.Hash, wantEnv.Hash)
 	}
-	wantSecrets := state.BuildSecretState(cfg.Secrets)
+	wantSecrets := state.BuildSecretState(spec.Secrets)
 	if st.SecretState.Hash != wantSecrets.Hash {
 		t.Errorf("persisted SecretState.Hash = %q, want %q (the secrets baked into the VM)",
 			st.SecretState.Hash, wantSecrets.Hash)
@@ -735,7 +734,7 @@ func TestPrepareSandboxBlocksOnPendingRuntimeHomeMigration(t *testing.T) {
 
 	var createdVolumes int
 	mock := &msb.MockMsbClient{
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			createdVolumes++
 			return &msb.MockVolumeHandle{Name_: name}, nil
 		},
@@ -1524,7 +1523,7 @@ func TestPrepareSandboxDryRunVMFreshProjectCreatesNoHome(t *testing.T) {
 				Labels: map[string]string{"org.agents-sandbox.agent": "opencode"},
 			}, nil
 		},
-		CreateVolumeFn: func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			t.Errorf("dry-run-vm created home volume %q", name)
 			return &msb.MockVolumeHandle{Name_: name}, nil
 		},
@@ -1809,7 +1808,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 				stubPrepareSandboxImage(t)
 				msb.WithMsbMock(t, &msb.MockMsbClient{
 					ImageGetFn: func(context.Context, string) error { return nil },
-					CreateVolumeFn: func(context.Context, string, ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+					CreateVolumeFn: func(context.Context, string, msb.VolumeSpec) (msb.VolumeHandle, error) {
 						return nil, cause
 					},
 				})
@@ -1886,7 +1885,7 @@ func TestPrepareSandboxStopsAtTheFailingStage(t *testing.T) {
 					ImageGetFn:   func(context.Context, string) error { return nil },
 					Volumes:      []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "home-vol"}},
 					GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) { return existing, nil },
-					CreateVolumeFn: func(context.Context, string, ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+					CreateVolumeFn: func(context.Context, string, msb.VolumeSpec) (msb.VolumeHandle, error) {
 						return nil, cause
 					},
 				})
@@ -2076,23 +2075,17 @@ func seedMatchingHomeState(t *testing.T, k state.Key) {
 	}
 }
 
-// createdProjectVMConfig applies the recorded CreateSandbox options for the
-// named project VM and returns the config it was created with. Other
-// CreateSandbox calls (a home-volume prefill) are ignored.
-func createdProjectVMConfig(t *testing.T, mock *msb.MockMsbClient, name string) msbSdk.SandboxConfig {
+// createdProjectVMConfig returns the spec the named project VM was created
+// with. Other CreateSandbox calls (a home-volume prefill) are ignored.
+func createdProjectVMConfig(t *testing.T, mock *msb.MockMsbClient, name string) msb.SandboxSpec {
 	t.Helper()
 	for _, call := range mock.CreatedSandboxCalls {
-		if call.Name != name {
-			continue
+		if call.Name == name {
+			return call.Spec
 		}
-		var cfg msbSdk.SandboxConfig
-		for _, opt := range call.Opts {
-			opt(&cfg)
-		}
-		return cfg
 	}
 	t.Fatalf("no CreateSandbox call for %q; calls: %v", name, mock.CreatedSandboxes)
-	return msbSdk.SandboxConfig{}
+	return msb.SandboxSpec{}
 }
 
 // createdProjectVMNames returns the names of the project-VM-shaped CreateSandbox
@@ -2175,12 +2168,6 @@ func mustIdentity(t testing.TB, cwd string) git.Identity {
 	identity, err := git.ResolveIdentity(cwd)
 	require.NoError(t, err)
 	return identity
-}
-
-func applySandboxOpts(cfg *msbSdk.SandboxConfig, opts []msbSdk.SandboxOption) {
-	for _, o := range opts {
-		o(cfg)
-	}
 }
 
 // assertDetachedHelperLaunch fails the test unless the recorded detached calls

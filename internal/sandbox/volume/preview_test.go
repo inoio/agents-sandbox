@@ -8,8 +8,6 @@ import (
 	"slices"
 	"testing"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
@@ -124,7 +122,7 @@ func TestHomeVolumeResolution_PreviewMatchesRealDecision(t *testing.T) {
 
 			created := false
 			realMock := lookupMock(tt.present, tt.transient)
-			realMock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+			realMock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 				created = true
 				return msb.MockVolumeHandle{Name_: name}, nil
 			}
@@ -359,7 +357,7 @@ func noCreateVolumeMock(t *testing.T, present ...string) *msb.MockMsbClient {
 		}
 		return nil, volumeNotFoundError(name)
 	}
-	mock.CreateVolumeFn = func(_ context.Context, name string, _ ...msbSdk.VolumeOption) (msb.VolumeHandle, error) {
+	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must never be called by a preview (got %q)", name)
 		panic("unreachable")
 	}

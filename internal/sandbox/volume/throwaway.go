@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -22,7 +20,7 @@ type throwawaySandbox struct {
 	// purpose names the operation in error and warning messages.
 	purpose string
 	// mounts maps guest paths to the volumes mounted there.
-	mounts map[string]msbSdk.MountConfig
+	mounts map[string]msb.MountConfig
 	// spinnerLabel, when set, starts a spinner before the sandbox is created
 	// and hands it to the payload, which must stop it.
 	spinnerLabel string
@@ -54,11 +52,11 @@ func withThrowawaySandbox(
 		spin = ui.Spinner(spec.spinnerLabel)
 	}
 	sandboxName := naming.TaskSandboxName(k.Slug, k.Agent, time.Now().UnixNano())
-	sb, err := client.CreateSandbox(ctx, sandboxName,
-		msbSdk.WithImage(info.Ref),
-		msbSdk.WithLabels(naming.TaskSandboxLabels(k.Slug, k.Agent)),
-		msbSdk.WithMounts(spec.mounts),
-	)
+	sb, err := client.CreateSandbox(ctx, sandboxName, msb.SandboxSpec{
+		Image:  info.Ref,
+		Labels: naming.TaskSandboxLabels(k.Slug, k.Agent),
+		Mounts: spec.mounts,
+	})
 	if err != nil {
 		if spin != nil {
 			spin.StopError(err)

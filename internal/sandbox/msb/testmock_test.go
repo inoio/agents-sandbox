@@ -33,10 +33,10 @@ func TestFailFastClientPanics(t *testing.T) {
 	}{
 		{"EnsureInstalled", func() { _ = f.EnsureInstalled(ctx) }},
 		{"GetSandbox", func() { _, _ = f.GetSandbox(ctx, "x") }},
-		{"CreateSandbox", func() { _, _ = f.CreateSandbox(ctx, "x") }},
+		{"CreateSandbox", func() { _, _ = f.CreateSandbox(ctx, "x", SandboxSpec{}) }},
 		{"ListSandboxes", func() { _, _ = f.ListSandboxes(ctx, nil) }},
 		{"GetVolume", func() { _, _ = f.GetVolume(ctx, "x") }},
-		{"CreateVolume", func() { _, _ = f.CreateVolume(ctx, "x") }},
+		{"CreateVolume", func() { _, _ = f.CreateVolume(ctx, "x", VolumeSpec{}) }},
 		{"ListVolumes", func() { _, _ = f.ListVolumes(ctx) }},
 		{"RemoveVolume", func() { _ = f.RemoveVolume(ctx, "x") }},
 		{"ImageGet", func() { _ = f.ImageGet(ctx, "x") }},

@@ -4,8 +4,6 @@ package msb
 import (
 	"context"
 	"io"
-
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // MockRuntimeInstaller is a test double for RuntimeInstaller. A nil
@@ -29,7 +27,7 @@ func (m *MockRuntimeInstaller) EnsureInstalled(ctx context.Context) error {
 // return the zero value with no error.
 type MockSandboxStore struct {
 	GetSandboxFn    func(ctx context.Context, name string) (SandboxHandle, error)
-	CreateSandboxFn func(ctx context.Context, name string, opts ...msbSdk.SandboxOption) (Sandbox, error)
+	CreateSandboxFn func(ctx context.Context, name string, spec SandboxSpec) (Sandbox, error)
 	ListSandboxesFn func(ctx context.Context, labels map[string]string) ([]SandboxHandle, error)
 }
 
@@ -48,10 +46,10 @@ func (m *MockSandboxStore) GetSandbox(ctx context.Context, name string) (Sandbox
 func (m *MockSandboxStore) CreateSandbox(
 	ctx context.Context,
 	name string,
-	opts ...msbSdk.SandboxOption,
+	spec SandboxSpec,
 ) (Sandbox, error) {
 	if m.CreateSandboxFn != nil {
-		return m.CreateSandboxFn(ctx, name, opts...)
+		return m.CreateSandboxFn(ctx, name, spec)
 	}
 	return nil, nil
 }
@@ -68,7 +66,7 @@ func (m *MockSandboxStore) ListSandboxes(ctx context.Context, labels map[string]
 // return the zero value with no error.
 type MockVolumeStore struct {
 	GetVolumeFn    func(ctx context.Context, name string) (VolumeHandle, error)
-	CreateVolumeFn func(ctx context.Context, name string, opts ...msbSdk.VolumeOption) (VolumeHandle, error)
+	CreateVolumeFn func(ctx context.Context, name string, spec VolumeSpec) (VolumeHandle, error)
 	ListVolumesFn  func(ctx context.Context) ([]VolumeHandle, error)
 	RemoveVolumeFn func(ctx context.Context, name string) error
 }
@@ -88,10 +86,10 @@ func (m *MockVolumeStore) GetVolume(ctx context.Context, name string) (VolumeHan
 func (m *MockVolumeStore) CreateVolume(
 	ctx context.Context,
 	name string,
-	opts ...msbSdk.VolumeOption,
+	spec VolumeSpec,
 ) (VolumeHandle, error) {
 	if m.CreateVolumeFn != nil {
-		return m.CreateVolumeFn(ctx, name, opts...)
+		return m.CreateVolumeFn(ctx, name, spec)
 	}
 	return nil, nil
 }
