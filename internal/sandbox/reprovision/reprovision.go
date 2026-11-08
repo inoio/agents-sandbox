@@ -12,8 +12,6 @@ import (
 	"sort"
 	"strings"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
@@ -117,7 +115,7 @@ func chmodFile(ctx context.Context, sb msb.SandboxExecutor, path string, mode os
 		ctx,
 		"chmod",
 		[]string{fmt.Sprintf("%04o", mode.Perm()), path},
-		msbSdk.WithExecUser("root"),
+		msb.ExecRequest{User: "root"},
 	)
 	if err != nil {
 		return err
@@ -152,7 +150,7 @@ func chownPaths(ctx context.Context, sb msb.SandboxExecutor, paths []string) err
 		}
 	}
 	cmd := "chown -R " + defaultSandboxUser + ":" + defaultSandboxUser + " " + strings.Join(unique, " ")
-	if out, err := sb.Shell(ctx, cmd, msbSdk.WithExecUser("root")); err != nil {
+	if out, err := sb.Shell(ctx, cmd, msb.ExecRequest{User: "root"}); err != nil {
 		return fmt.Errorf("chown provisioned files: %w", err)
 	} else if !out.Success() {
 		return fmt.Errorf("chown provisioned files: %s", strings.TrimSpace(out.Stderr()))

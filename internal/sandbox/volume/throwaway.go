@@ -72,7 +72,11 @@ func withThrowawaySandbox(
 func destroyThrowawaySandbox(sb msb.Sandbox, sandboxName, purpose string, ui termio.Logger) {
 	destroyCtx, cancel := context.WithTimeout(context.Background(), options.SandboxStopTimeout)
 	defer cancel()
-	if err := sb.Destroy(destroyCtx); err != nil && !msb.IsReplaced(err) && !msb.IsNotFound(err) {
+	if err := sb.Destroy(
+		destroyCtx,
+		msb.LifecycleOptions{},
+	); err != nil && !msb.IsReplaced(err) &&
+		!msb.IsNotFound(err) {
 		ui.Warnf("failed to destroy %s sandbox %s: %v", purpose, sandboxName, err)
 	}
 	_ = sb.Close()
@@ -88,7 +92,7 @@ type shellStep struct {
 
 // runShell runs the step's script via `sh -c` and stops spin with the outcome.
 func runShell(ctx context.Context, sb msb.Sandbox, spin termio.Spinner, step shellStep) error {
-	out, err := sb.Exec(ctx, "sh", []string{"-c", step.script})
+	out, err := sb.Exec(ctx, "sh", []string{"-c", step.script}, msb.ExecRequest{})
 	if err != nil {
 		spin.StopError(err)
 		return fmt.Errorf("%s: %w", step.execErrPrefix, err)

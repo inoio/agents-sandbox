@@ -350,19 +350,19 @@ func TestRealSandboxHandleOperationsReturnErrors(t *testing.T) {
 	if sb, err := h.Connect(ctx); err == nil || sb != nil {
 		t.Errorf("Connect() = %v, %v; want error on empty handle", sb, err)
 	}
-	if err := h.Stop(ctx); err == nil {
+	if err := h.Stop(ctx, LifecycleOptions{}); err == nil {
 		t.Error("Stop() = nil, want error on empty handle")
 	}
-	if err := h.Kill(ctx); err == nil {
+	if err := h.Kill(ctx, LifecycleOptions{}); err == nil {
 		t.Error("Kill() = nil, want error on empty handle")
 	}
 	if err := h.Remove(ctx); err == nil {
 		t.Error("Remove() = nil, want error on empty handle")
 	}
-	if err := h.Destroy(ctx); err == nil {
+	if err := h.Destroy(ctx, LifecycleOptions{}); err == nil {
 		t.Error("Destroy() = nil, want error on empty handle")
 	}
-	if result, err := h.Compact(ctx, msbSdk.DiskCompactionOptions{}); !IsUnsupportedOperation(err) || result != nil {
+	if result, err := h.Compact(ctx, CompactionRequest{}); !IsUnsupportedOperation(err) || result != nil {
 		t.Errorf("Compact() = %v, %v; want unsupported-operation error on non-local handle", result, err)
 	}
 	if plan, err := h.Modify(ctx, msbSdk.ModifyOptions{}); err == nil || plan != nil {
@@ -543,7 +543,7 @@ func TestRealSandboxDetachedDelegates(t *testing.T) {
 			}
 			return &msbSdk.Job{}, nil
 		}
-		got, err := (realSandbox{}).ExecDetached(ctx, "dockerd", []string{"x"})
+		got, err := (realSandbox{}).ExecDetached(ctx, "dockerd", []string{"x"}, JobSpec{})
 		if err != nil || !called {
 			t.Fatalf("ExecDetached() = %v, called=%v; want nil, true", err, called)
 		}
@@ -561,7 +561,7 @@ func TestRealSandboxDetachedDelegates(t *testing.T) {
 		) (*msbSdk.Job, error) {
 			return nil, wantErr
 		}
-		if _, err := (realSandbox{}).ExecDetached(ctx, "x", nil); !errors.Is(err, wantErr) {
+		if _, err := (realSandbox{}).ExecDetached(ctx, "x", nil, JobSpec{}); !errors.Is(err, wantErr) {
 			t.Fatalf("ExecDetached() error = %v, want %v", err, wantErr)
 		}
 	})
@@ -612,7 +612,7 @@ func TestRealSandboxDetachedDelegates(t *testing.T) {
 				return &msbSdk.JobPage{Items: []msbSdk.JobInfo{{ID: "b"}}}, nil
 			}
 		}
-		got, err := (realSandbox{}).ListJobs(ctx)
+		got, err := (realSandbox{}).ListJobs(ctx, JobQuery{})
 		if err != nil || len(got) != 2 || got[0].ID != "a" || got[1].ID != "b" {
 			t.Fatalf("ListJobs() = (%v, err=%v), want [a b] over 2 pages", got, err)
 		}
@@ -631,7 +631,7 @@ func TestRealSandboxDetachedDelegates(t *testing.T) {
 			calls++
 			return &msbSdk.JobPage{Items: []msbSdk.JobInfo{{ID: "a"}}, NextCursor: &empty}, nil
 		}
-		got, err := (realSandbox{}).ListJobs(ctx)
+		got, err := (realSandbox{}).ListJobs(ctx, JobQuery{})
 		if err != nil || len(got) != 1 || got[0].ID != "a" {
 			t.Fatalf("ListJobs() = (%v, err=%v), want [a]", got, err)
 		}
@@ -649,7 +649,7 @@ func TestRealSandboxDetachedDelegates(t *testing.T) {
 		) (*msbSdk.JobPage, error) {
 			return nil, wantErr
 		}
-		if _, err := (realSandbox{}).ListJobs(ctx); !errors.Is(err, wantErr) {
+		if _, err := (realSandbox{}).ListJobs(ctx, JobQuery{}); !errors.Is(err, wantErr) {
 			t.Fatalf("ListJobs() error = %v, want %v", err, wantErr)
 		}
 	})
@@ -1422,7 +1422,7 @@ func TestRealSandboxDelegatesToSDK(t *testing.T) {
 			called = true
 			return 4, nil
 		}
-		code, err := (realSandbox{}).AttachWith(ctx, "cmd", []string{"a"})
+		code, err := (realSandbox{}).AttachWith(ctx, "cmd", []string{"a"}, AttachRequest{})
 		if err != nil || code != 4 || !called {
 			t.Fatalf("AttachWith() = (%d, %v), called=%v; want (4, nil, true)", code, err, called)
 		}
@@ -1448,7 +1448,7 @@ func TestRealSandboxDelegatesToSDK(t *testing.T) {
 		realSandboxDestroy = func(_ *msbSdk.Sandbox, _ context.Context, _ ...msbSdk.DestroyOption) error {
 			return wantErr
 		}
-		if err := (realSandbox{}).Destroy(ctx); !errors.Is(err, wantErr) {
+		if err := (realSandbox{}).Destroy(ctx, LifecycleOptions{}); !errors.Is(err, wantErr) {
 			t.Fatalf("Destroy() error = %v, want %v", err, wantErr)
 		}
 	})
@@ -1483,7 +1483,7 @@ func TestRealSandboxShellExecStreamDelegation(t *testing.T) {
 			}
 			return out, nil
 		})
-		got, err := (realSandbox{}).Shell(ctx, "echo hi")
+		got, err := (realSandbox{}).Shell(ctx, "echo hi", ExecRequest{})
 		if err != nil || got != ShellResult(out) {
 			t.Fatalf("Shell() = (%v, %v), want the SDK output", got, err)
 		}
@@ -1499,7 +1499,7 @@ func TestRealSandboxShellExecStreamDelegation(t *testing.T) {
 			}
 			return out, nil
 		})
-		got, err := (realSandbox{}).Exec(ctx, "sh", []string{"-c"})
+		got, err := (realSandbox{}).Exec(ctx, "sh", []string{"-c"}, ExecRequest{})
 		if err != nil || got != ShellResult(out) {
 			t.Fatalf("Exec() = (%v, %v), want the SDK output", got, err)
 		}
@@ -1512,7 +1512,7 @@ func TestRealSandboxShellExecStreamDelegation(t *testing.T) {
 		) (*msbSdk.ExecHandle, error) {
 			return handle, nil
 		})
-		got, err := (realSandbox{}).ShellStream(ctx, "cmd")
+		got, err := (realSandbox{}).ShellStream(ctx, "cmd", ExecRequest{})
 		if err != nil {
 			t.Fatalf("ShellStream() error = %v", err)
 		}
@@ -1529,7 +1529,7 @@ func TestRealSandboxShellExecStreamDelegation(t *testing.T) {
 		) (*msbSdk.ExecHandle, error) {
 			return nil, wantErr
 		})
-		if _, err := (realSandbox{}).ShellStream(ctx, "cmd"); !errors.Is(err, wantErr) {
+		if _, err := (realSandbox{}).ShellStream(ctx, "cmd", ExecRequest{}); !errors.Is(err, wantErr) {
 			t.Fatalf("ShellStream() error = %v, want %v", err, wantErr)
 		}
 	})
@@ -1575,7 +1575,7 @@ func TestRealSandboxMetricsAndLogsDelegation(t *testing.T) {
 			gotOpts = opts
 			return want, nil
 		}
-		got, err := (realSandbox{}).Logs(ctx, msbSdk.LogOptions{Tail: 7})
+		got, err := (realSandbox{}).Logs(ctx, LogQuery{Tail: 7})
 		if err != nil || len(got) != 1 || got[0].Source != msbSdk.LogSourceSystem || gotOpts.Tail != 7 {
 			t.Fatalf("Logs() = (%v, %v), opts=%+v; want one system entry, tail 7", got, err, gotOpts)
 		}
@@ -1608,7 +1608,7 @@ func TestRealSandboxHandleMetricsAndLogsDelegation(t *testing.T) {
 		) ([]msbSdk.LogEntry, error) {
 			return want, nil
 		}
-		got, err := h.Logs(ctx, msbSdk.LogOptions{})
+		got, err := h.Logs(ctx, LogQuery{})
 		if err != nil || len(got) != 1 {
 			t.Fatalf("Logs() = (%v, %v); want one entry, nil", got, err)
 		}
@@ -1631,14 +1631,14 @@ func TestMockSandboxMetricsAndLogs(t *testing.T) {
 
 	entries := []msbSdk.LogEntry{{Source: msbSdk.LogSourceSystem}}
 	logSB := &MockSandbox{LogsResult: entries}
-	gotEntries, err := logSB.Logs(ctx, msbSdk.LogOptions{Tail: 3})
+	gotEntries, err := logSB.Logs(ctx, LogQuery{Tail: 3})
 	if err != nil || len(gotEntries) != 1 {
 		t.Fatalf("Logs() = (%v, %v); want one entry, nil", gotEntries, err)
 	}
 	if len(logSB.LogsOptions) != 1 || logSB.LogsOptions[0].Tail != 3 {
 		t.Fatalf("LogsOptions = %+v; want one call with Tail 3", logSB.LogsOptions)
 	}
-	if _, err := (&MockSandbox{LogsErr: boom}).Logs(ctx, msbSdk.LogOptions{}); !errors.Is(err, boom) {
+	if _, err := (&MockSandbox{LogsErr: boom}).Logs(ctx, LogQuery{}); !errors.Is(err, boom) {
 		t.Fatalf("Logs() error = %v; want boom", err)
 	}
 }
@@ -1658,14 +1658,14 @@ func TestMockSandboxHandleMetricsAndLogs(t *testing.T) {
 	}
 
 	logHandle := &MockSandboxHandle{LogsResult: []msbSdk.LogEntry{{Source: msbSdk.LogSourceSystem}}}
-	gotEntries, err := logHandle.Logs(ctx, msbSdk.LogOptions{Tail: 9})
+	gotEntries, err := logHandle.Logs(ctx, LogQuery{Tail: 9})
 	if err != nil || len(gotEntries) != 1 {
 		t.Fatalf("Logs() = (%v, %v); want one entry, nil", gotEntries, err)
 	}
 	if len(logHandle.LogsOptions) != 1 || logHandle.LogsOptions[0].Tail != 9 {
 		t.Fatalf("LogsOptions = %+v; want one call with Tail 9", logHandle.LogsOptions)
 	}
-	if _, err := (&MockSandboxHandle{LogsErr: boom}).Logs(ctx, msbSdk.LogOptions{}); !errors.Is(err, boom) {
+	if _, err := (&MockSandboxHandle{LogsErr: boom}).Logs(ctx, LogQuery{}); !errors.Is(err, boom) {
 		t.Fatalf("Logs() error = %v; want boom", err)
 	}
 }

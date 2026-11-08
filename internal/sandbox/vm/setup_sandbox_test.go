@@ -147,7 +147,7 @@ func TestRestartDaemonsWarnsWhenTheDaemonCannotStart(t *testing.T) {
 	ui := termio.NewTestMock(t)
 	sb := &msb.MockSandbox{
 		Name_: "vm",
-		ExecDetachedFn: func(context.Context, string, []string, ...msbSdk.JobExecOption) (msb.Job, error) {
+		ExecDetachedFn: func(context.Context, string, []string, msb.JobSpec) (msb.Job, error) {
 			return nil, errors.New("start failed")
 		},
 	}

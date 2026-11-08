@@ -29,10 +29,10 @@ type SandboxLifecycleHandle interface {
 	// callers on one stopped sandbox exactly one boots it and the others
 	// connect. A same-name replacement is rejected (IsReplaced).
 	ConnectOrStart(ctx context.Context) (sb Sandbox, booted bool, err error)
-	Stop(ctx context.Context, opts ...msbSdk.StopOption) error
-	Kill(ctx context.Context, opts ...msbSdk.KillOption) error
+	Stop(ctx context.Context, opts LifecycleOptions) error
+	Kill(ctx context.Context, opts LifecycleOptions) error
 	Remove(ctx context.Context) error
-	Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error
+	Destroy(ctx context.Context, opts LifecycleOptions) error
 }
 
 // SandboxConfigReader reads a sandbox's persisted configuration.
@@ -54,9 +54,9 @@ type SandboxConfigReader interface {
 // SandboxResourceControl modifies, compacts and observes a sandbox.
 type SandboxResourceControl interface {
 	Modify(ctx context.Context, opts msbSdk.ModifyOptions) (*msbSdk.SandboxModificationPlan, error)
-	Compact(ctx context.Context, opts msbSdk.DiskCompactionOptions) (*msbSdk.DiskCompactionResult, error)
+	Compact(ctx context.Context, req CompactionRequest) (*msbSdk.DiskCompactionResult, error)
 	Metrics(ctx context.Context) (*msbSdk.Metrics, error)
-	Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error)
+	Logs(ctx context.Context, query LogQuery) ([]msbSdk.LogEntry, error)
 }
 
 // SandboxHandle is the subset of *msb.SandboxHandle used by the launcher.
@@ -69,40 +69,40 @@ type SandboxHandle interface {
 
 // SandboxExecutor runs commands in a sandbox and exposes its filesystem.
 type SandboxExecutor interface {
-	Shell(ctx context.Context, command string, opts ...msbSdk.ExecOption) (ShellResult, error)
-	Exec(ctx context.Context, command string, args []string, opts ...msbSdk.ExecOption) (ShellResult, error)
+	Shell(ctx context.Context, command string, req ExecRequest) (ShellResult, error)
+	Exec(ctx context.Context, command string, args []string, req ExecRequest) (ShellResult, error)
 	FS() SandboxFS
 }
 
 // SandboxStreamer runs a shell and its streaming variant in a sandbox.
 type SandboxStreamer interface {
-	Shell(ctx context.Context, command string, opts ...msbSdk.ExecOption) (ShellResult, error)
-	ShellStream(ctx context.Context, command string, opts ...msbSdk.ExecOption) (StreamHandle, error)
+	Shell(ctx context.Context, command string, req ExecRequest) (ShellResult, error)
+	ShellStream(ctx context.Context, command string, req ExecRequest) (StreamHandle, error)
 }
 
 // SandboxAttacher attaches and detaches an interactive session on a sandbox.
 type SandboxAttacher interface {
-	AttachWith(ctx context.Context, command string, args []string, opts ...msbSdk.AttachOption) (int, error)
+	AttachWith(ctx context.Context, command string, args []string, req AttachRequest) (int, error)
 	Attach(ctx context.Context, command string, args ...string) (int, error)
 	Detach(ctx context.Context) error
 }
 
 // SandboxJobs runs and lists detached jobs in a sandbox.
 type SandboxJobs interface {
-	ExecDetached(ctx context.Context, cmd string, args []string, opts ...msbSdk.JobExecOption) (Job, error)
+	ExecDetached(ctx context.Context, cmd string, args []string, spec JobSpec) (Job, error)
 	GetJob(ctx context.Context, id string) (Job, error)
-	ListJobs(ctx context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error)
+	ListJobs(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error)
 }
 
 // SandboxObserver reads a sandbox's metrics and logs.
 type SandboxObserver interface {
 	Metrics(ctx context.Context) (*msbSdk.Metrics, error)
-	Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error)
+	Logs(ctx context.Context, query LogQuery) ([]msbSdk.LogEntry, error)
 }
 
 // SandboxLifecycle destroys and closes a sandbox.
 type SandboxLifecycle interface {
-	Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error
+	Destroy(ctx context.Context, opts LifecycleOptions) error
 	Close() error
 }
 
@@ -193,20 +193,23 @@ func (w realSandboxHandle) ConnectOrStart(ctx context.Context) (Sandbox, bool, e
 	return realSandbox{sandbox: sb}, booted, nil
 }
 
-func (w realSandboxHandle) Stop(ctx context.Context, opts ...msbSdk.StopOption) error {
-	return w.handle.Stop(ctx, opts...)
+func (w realSandboxHandle) Stop(ctx context.Context, opts LifecycleOptions) error {
+	stopOptions, _, _ := lifecycleOptions(opts)
+	return w.handle.Stop(ctx, stopOptions...)
 }
 
-func (w realSandboxHandle) Kill(ctx context.Context, opts ...msbSdk.KillOption) error {
-	return w.handle.Kill(ctx, opts...)
+func (w realSandboxHandle) Kill(ctx context.Context, opts LifecycleOptions) error {
+	_, killOptions, _ := lifecycleOptions(opts)
+	return w.handle.Kill(ctx, killOptions...)
 }
 
 func (w realSandboxHandle) Remove(ctx context.Context) error {
 	return w.handle.Remove(ctx)
 }
 
-func (w realSandboxHandle) Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error {
-	return w.handle.Destroy(ctx, opts...)
+func (w realSandboxHandle) Destroy(ctx context.Context, opts LifecycleOptions) error {
+	_, _, destroyOptions := lifecycleOptions(opts)
+	return w.handle.Destroy(ctx, destroyOptions...)
 }
 
 func (w realSandboxHandle) Config() (*msbSdk.SandboxConfig, error) {
@@ -230,17 +233,17 @@ func (w realSandboxHandle) Modify(
 
 func (w realSandboxHandle) Compact(
 	ctx context.Context,
-	opts msbSdk.DiskCompactionOptions,
+	req CompactionRequest,
 ) (*msbSdk.DiskCompactionResult, error) {
-	return w.handle.Compact(ctx, opts)
+	return w.handle.Compact(ctx, compactionOptions(req))
 }
 
 func (w realSandboxHandle) Metrics(ctx context.Context) (*msbSdk.Metrics, error) {
 	return realSandboxHandleMetrics(w.handle, ctx)
 }
 
-func (w realSandboxHandle) Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error) {
-	return realSandboxHandleLogs(w.handle, ctx, opts)
+func (w realSandboxHandle) Logs(ctx context.Context, query LogQuery) ([]msbSdk.LogEntry, error) {
+	return realSandboxHandleLogs(w.handle, ctx, logOptions(query))
 }
 
 // realSandbox adapts *msbSdk.Sandbox to Sandbox.
@@ -252,25 +255,25 @@ func (s realSandbox) FS() SandboxFS {
 	return s.sandbox.FS()
 }
 
-func (s realSandbox) Shell(ctx context.Context, command string, opts ...msbSdk.ExecOption) (ShellResult, error) {
-	return realSandboxShell(s.sandbox, ctx, command, opts...)
+func (s realSandbox) Shell(ctx context.Context, command string, req ExecRequest) (ShellResult, error) {
+	return realSandboxShell(s.sandbox, ctx, command, execOptions(req)...)
 }
 
 func (s realSandbox) Exec(
 	ctx context.Context,
 	command string,
 	args []string,
-	opts ...msbSdk.ExecOption,
+	req ExecRequest,
 ) (ShellResult, error) {
-	return realSandboxExec(s.sandbox, ctx, command, args, opts...)
+	return realSandboxExec(s.sandbox, ctx, command, args, execOptions(req)...)
 }
 
 func (s realSandbox) ShellStream(
 	ctx context.Context,
 	command string,
-	opts ...msbSdk.ExecOption,
+	req ExecRequest,
 ) (StreamHandle, error) {
-	handle, err := realSandboxShellStream(s.sandbox, ctx, command, opts...)
+	handle, err := realSandboxShellStream(s.sandbox, ctx, command, execOptions(req)...)
 	if err != nil {
 		return nil, err
 	}
@@ -281,9 +284,9 @@ func (s realSandbox) ExecDetached(
 	ctx context.Context,
 	cmd string,
 	args []string,
-	opts ...msbSdk.JobExecOption,
+	spec JobSpec,
 ) (Job, error) {
-	job, err := realSandboxExecDetached(s.sandbox, ctx, cmd, args, opts...)
+	job, err := realSandboxExecDetached(s.sandbox, ctx, cmd, args, jobExecOptions(spec)...)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +302,8 @@ func (s realSandbox) GetJob(ctx context.Context, id string) (Job, error) {
 }
 
 // ListJobs returns every job known to the sandbox, following pagination.
-func (s realSandbox) ListJobs(ctx context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error) {
+func (s realSandbox) ListJobs(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error) {
+	opts := jobListOptions(query)
 	var result []msbSdk.JobInfo
 	var cursor *string
 	for {
@@ -352,17 +356,18 @@ func (s realSandbox) AttachWith(
 	ctx context.Context,
 	command string,
 	args []string,
-	opts ...msbSdk.AttachOption,
+	req AttachRequest,
 ) (int, error) {
-	return realSandboxAttachWith(s.sandbox, ctx, command, args, opts...)
+	return realSandboxAttachWith(s.sandbox, ctx, command, args, attachOptions(req)...)
 }
 
 func (s realSandbox) Detach(ctx context.Context) error {
 	return realSandboxDetach(s.sandbox, ctx)
 }
 
-func (s realSandbox) Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error {
-	return realSandboxDestroy(s.sandbox, ctx, opts...)
+func (s realSandbox) Destroy(ctx context.Context, opts LifecycleOptions) error {
+	_, _, destroyOptions := lifecycleOptions(opts)
+	return realSandboxDestroy(s.sandbox, ctx, destroyOptions...)
 }
 
 func (s realSandbox) Close() error {
@@ -373,6 +378,6 @@ func (s realSandbox) Metrics(ctx context.Context) (*msbSdk.Metrics, error) {
 	return realSandboxMetrics(s.sandbox, ctx)
 }
 
-func (s realSandbox) Logs(ctx context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error) {
-	return realSandboxLogs(s.sandbox, ctx, opts)
+func (s realSandbox) Logs(ctx context.Context, query LogQuery) ([]msbSdk.LogEntry, error) {
+	return realSandboxLogs(s.sandbox, ctx, logOptions(query))
 }

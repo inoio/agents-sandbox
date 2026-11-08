@@ -10,8 +10,6 @@ import (
 	"strings"
 	"syscall"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
@@ -385,11 +383,11 @@ func runAttach(
 		opts.ResolvedAgent,
 		func(agent.Resolved) error {
 			stopPressure := startPressureWatcher(ctx, sb, pressure.DefaultThreshold())
-			attachOpts := []msbSdk.AttachOption{msbSdk.WithAttachCwd(guestCWD)}
+			attachReq := msb.AttachRequest{Cwd: guestCWD}
 			if opts.Root {
-				attachOpts = append(attachOpts, msbSdk.WithAttachUser(sandbox.RootUser))
+				attachReq.User = sandbox.RootUser
 			}
-			exitCode, interrupted, attachErr := attachUntilSignal(ctx, sb, bashArgs, attachOpts)
+			exitCode, interrupted, attachErr := attachUntilSignal(ctx, sb, bashArgs, attachReq)
 			// The guest TUI's emulator modes (alternate screen, mouse) survive
 			// a killed TUI; clear them before the launcher's post-attach
 			// messages re-enter the terminal. A clean exit restored them
@@ -433,10 +431,10 @@ func attachUntilSignal(
 	ctx context.Context,
 	sb msb.SandboxAttacher,
 	bashArgs []string,
-	attachOpts []msbSdk.AttachOption,
+	attachReq msb.AttachRequest,
 ) (int, bool, error) {
 	attachCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
-	exitCode, attachErr := sb.AttachWith(attachCtx, "/bin/bash", bashArgs, attachOpts...)
+	exitCode, attachErr := sb.AttachWith(attachCtx, "/bin/bash", bashArgs, attachReq)
 	return exitCode, attachCtx.Err() != nil && ctx.Err() == nil, attachErr
 }

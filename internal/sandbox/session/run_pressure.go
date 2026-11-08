@@ -84,7 +84,7 @@ func offerDiskRaiseAfterAttach(
 	probeCtx, cancel := context.WithTimeout(ctx, diskProbeTimeout)
 	defer cancel()
 	command, args := pressure.DiskProbeCommand()
-	result, err := sb.Exec(probeCtx, command, args)
+	result, err := sb.Exec(probeCtx, command, args, msb.ExecRequest{})
 	if err != nil {
 		ui.Verbosef("disk probe failed: %v (continuing)", err)
 		return

@@ -184,7 +184,7 @@ func destroyProjectVMHandle(
 	handle msb.SandboxHandle,
 	name, onReplaced string,
 ) (bool, error) {
-	switch destroyErr := handle.Destroy(ctx); {
+	switch destroyErr := handle.Destroy(ctx, msb.LifecycleOptions{}); {
 	case msb.IsReplaced(destroyErr):
 		return false, fmt.Errorf(
 			"project VM %q was replaced by a different sandbox since it was checked; %s: %w",

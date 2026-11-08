@@ -4,8 +4,6 @@ import (
 	"context"
 	"strings"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -64,7 +62,7 @@ func detectToolAgentVersion(ctx context.Context, a agent.Resolved, sb msb.Sandbo
 	if provider == nil {
 		return "", false
 	}
-	out, runErr := sb.Shell(ctx, provider.VersionCmd(), msbSdk.WithExecUser(DefaultSandboxUser))
+	out, runErr := sb.Shell(ctx, provider.VersionCmd(), msb.ExecRequest{User: DefaultSandboxUser})
 	if runErr != nil {
 		ui.Warnf("could not detect agent version: %v (continuing)", runErr)
 		return "", false

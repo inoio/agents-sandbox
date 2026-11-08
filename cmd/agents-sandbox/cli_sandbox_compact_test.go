@@ -37,7 +37,7 @@ func TestSandboxCompactDefaultsCompactAllDisksWithoutPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(vm.CompactedOptions) != 1 || vm.CompactedOptions[0] != (msbSdk.DiskCompactionOptions{}) {
+	if len(vm.CompactedOptions) != 1 || vm.CompactedOptions[0] != (msb.CompactionRequest{}) {
 		t.Fatalf("CompactedOptions = %+v, want one zero-value call", vm.CompactedOptions)
 	}
 	if !slices.Contains(out, "Compacted 1 sandbox(es): 4 -> 1 layers, 2 KiB materialized") {

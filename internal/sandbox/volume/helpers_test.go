@@ -89,9 +89,9 @@ type trackingSandbox struct {
 	log *eventLog
 }
 
-func (s *trackingSandbox) Destroy(ctx context.Context, opts ...msbSdk.DestroyOption) error {
+func (s *trackingSandbox) Destroy(ctx context.Context, opts msb.LifecycleOptions) error {
 	s.log.add("destroy")
-	return s.MockSandbox.Destroy(ctx, opts...)
+	return s.MockSandbox.Destroy(ctx, opts)
 }
 
 func (s *trackingSandbox) Close() error {

@@ -41,7 +41,7 @@ func RemoveSandbox(ctx context.Context, name string, force bool, ui termio.Promp
 		return err
 	}
 	if !stopped {
-		if err := handle.Stop(ctx); err != nil {
+		if err := handle.Stop(ctx, msb.LifecycleOptions{}); err != nil {
 			return fmt.Errorf("stop sandbox %q: %w", name, err)
 		}
 	}

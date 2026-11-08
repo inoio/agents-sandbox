@@ -311,10 +311,10 @@ func (s *deadlineRecordingSandbox) Exec(
 	ctx context.Context,
 	command string,
 	args []string,
-	options ...msbSdk.ExecOption,
+	req msb.ExecRequest,
 ) (msb.ShellResult, error) {
 	s.deadline, s.hasDeadline = ctx.Deadline()
-	return s.MockSandbox.Exec(ctx, command, args, options...)
+	return s.MockSandbox.Exec(ctx, command, args, req)
 }
 
 // TestOfferDiskRaiseAfterAttachBoundsTheProbe pins that the in-guest probe runs

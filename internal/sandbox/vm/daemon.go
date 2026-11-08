@@ -21,7 +21,7 @@ var daemonPollInterval = 2 * time.Second
 // through it: the daemon itself is started and stopped as a runtime-owned job,
 // not by a shell command.
 var daemonHealthFunc = func(ctx context.Context, sb msb.Sandbox, command string) (string, int, error) {
-	out, err := sb.Shell(ctx, command)
+	out, err := sb.Shell(ctx, command, msb.ExecRequest{})
 	if err != nil {
 		return "", -1, err
 	}

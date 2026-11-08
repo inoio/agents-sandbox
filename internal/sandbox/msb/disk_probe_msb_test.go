@@ -48,7 +48,7 @@ func TestRealDiskProbeAndRootGrow(t *testing.T) {
 	probe := func() map[pressure.Kind]pressure.DiskUsage {
 		t.Helper()
 		command, args := pressure.DiskProbeCommand()
-		result, execErr := guest.Exec(ctx, command, args)
+		result, execErr := guest.Exec(ctx, command, args, ExecRequest{})
 		if execErr != nil {
 			t.Fatalf("disk probe: %v", execErr)
 		}
@@ -69,6 +69,7 @@ func TestRealDiskProbeAndRootGrow(t *testing.T) {
 	if _, fillErr := guest.Shell(
 		ctx,
 		"dd if=/dev/zero of=/tmp/fill bs=1M count=100 2>/dev/null; true",
+		ExecRequest{},
 	); fillErr != nil {
 		t.Fatalf("fill /tmp: %v", fillErr)
 	}

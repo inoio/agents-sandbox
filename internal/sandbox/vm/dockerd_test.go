@@ -394,11 +394,11 @@ func TestStartDockerdIfPresentLaunchesMarkedJob(t *testing.T) {
 		t.Fatalf("startDockerdIfPresent: %v", err)
 	}
 	assertDetachedHelperLaunch(t, *calls, "dockerd", dockerdBinary)
-	// dockerd runs as root, so its detached launch carries exactly one
-	// exec-user option; a helper that dropped it would leave dockerd as the
+	// dockerd runs as root, so its detached launch carries the root exec
+	// user; a helper that dropped it would leave dockerd as the
 	// default user.
-	if len((*calls)[0].Opts) != 1 {
-		t.Errorf("dockerd launch exec options = %d, want 1 (root)", len((*calls)[0].Opts))
+	if (*calls)[0].Spec.User != RootUser {
+		t.Errorf("dockerd launch exec user = %q, want %q", (*calls)[0].Spec.User, RootUser)
 	}
 }
 

@@ -105,10 +105,10 @@ func TestEnsureDaemonStartsWhenUnhealthy(t *testing.T) {
 	}
 	assertDetachedHelperLaunch(t, *calls, "agent-daemon", "opencode")
 	// The daemon runs as the sandbox default user, so its detached launch
-	// carries no exec-user option; a helper that added one would launch it as
+	// carries no exec user; a helper that added one would launch it as
 	// the wrong user.
-	if len((*calls)[0].Opts) != 0 {
-		t.Errorf("daemon launch exec options = %d, want 0 (default user)", len((*calls)[0].Opts))
+	if (*calls)[0].Spec.User != "" {
+		t.Errorf("daemon launch exec user = %q, want empty (default user)", (*calls)[0].Spec.User)
 	}
 	if !slices.Contains(testUI.VerboseCalls, "opencode daemon is healthy") {
 		t.Errorf("expected a verbose healthy note, got %v", testUI.VerboseCalls)
@@ -292,7 +292,7 @@ func TestEnsureDaemonExecError(t *testing.T) {
 	wantErr := errors.New("connection lost")
 	sb := &msb.MockSandbox{
 		ExecDetachedFn: func(
-			context.Context, string, []string, ...msbSdk.JobExecOption,
+			context.Context, string, []string, msb.JobSpec,
 		) (msb.Job, error) {
 			return nil, wantErr
 		},

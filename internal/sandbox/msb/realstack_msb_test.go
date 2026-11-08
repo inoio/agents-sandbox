@@ -102,7 +102,7 @@ func TestRealClientSandboxLifecycle(t *testing.T) {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), destroyTimeout)
 		defer cleanupCancel()
 		if handle, err := client.GetSandbox(cleanupCtx, name); err == nil {
-			_ = handle.Destroy(cleanupCtx)
+			_ = handle.Destroy(cleanupCtx, LifecycleOptions{})
 		}
 	})
 
@@ -114,7 +114,7 @@ func TestRealClientSandboxLifecycle(t *testing.T) {
 	}
 
 	original := handleNamed(ctx, t, client, name)
-	if err := original.Stop(ctx); err != nil {
+	if err := original.Stop(ctx, LifecycleOptions{}); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 	if booted := connectOrStartFromProcesses(t, name, 3); booted != 1 {
@@ -126,7 +126,7 @@ func TestRealClientSandboxLifecycle(t *testing.T) {
 			converged.ID(), converged.Status(), original.ID())
 	}
 
-	if err := original.Destroy(ctx); err != nil {
+	if err := original.Destroy(ctx, LifecycleOptions{}); err != nil {
 		t.Fatalf("Destroy: %v", err)
 	}
 	if _, err := client.CreateSandbox(ctx, name, createOptions...); err != nil {

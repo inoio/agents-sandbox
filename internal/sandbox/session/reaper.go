@@ -103,7 +103,7 @@ const containerProbeTimeout = 5 * time.Second
 func warnRunningContainers(ctx context.Context, sb msb.SandboxExecutor, ui termio.Logger) {
 	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), containerProbeTimeout)
 	defer cancel()
-	out, err := sb.Shell(probeCtx, runningContainersProbeCmd)
+	out, err := sb.Shell(probeCtx, runningContainersProbeCmd, msb.ExecRequest{})
 	if err != nil || out == nil || !out.Success() {
 		return
 	}
@@ -246,7 +246,7 @@ func pollQuiescence(
 // sessionStates reads the provider's session-status endpoint once via an in-VM
 // curl and decodes the sessionID->status map.
 func sessionStates(ctx context.Context, sb msb.SandboxExecutor, cmd string) (map[string]SessionStatus, error) {
-	res, err := sb.Shell(ctx, cmd)
+	res, err := sb.Shell(ctx, cmd, msb.ExecRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +261,7 @@ func sessionStates(ctx context.Context, sb msb.SandboxExecutor, cmd string) (map
 // unanswered question. On any failure it returns an error and a nil set; the
 // caller keeps those sessions busy (never risks cutting off real work).
 func pendingQuestionSessionIDs(ctx context.Context, sb msb.SandboxExecutor, cmd string) (map[string]bool, error) {
-	res, err := sb.Shell(ctx, cmd)
+	res, err := sb.Shell(ctx, cmd, msb.ExecRequest{})
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +347,7 @@ func keepVMAlive(ctx context.Context, sb msb.SandboxExecutor) func() error {
 
 	go func() {
 		defer close(done)
-		_, _ = sb.Exec(keeper, "sleep", []string{"1h"})
+		_, _ = sb.Exec(keeper, "sleep", []string{"1h"}, msb.ExecRequest{})
 	}()
 
 	return func() error {

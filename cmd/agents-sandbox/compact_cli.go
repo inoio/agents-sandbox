@@ -4,9 +4,9 @@ import (
 	"errors"
 
 	"github.com/spf13/cobra"
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/cliout"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/termio"
 	"github.com/inoio/agents-sandbox/internal/view"
@@ -58,16 +58,16 @@ func buildSandboxCompactCmd(ui termio.UI) *cobra.Command {
 	return cmd
 }
 
-func resolveCompactOptions(cmd *cobra.Command) (msbSdk.DiskCompactionOptions, error) {
+func resolveCompactOptions(cmd *cobra.Command) (msb.CompactionRequest, error) {
 	flags := cmd.Flags()
 	dryRun, _ := flags.GetBool(flagDryRun)
 	disk, _ := flags.GetString(flagDisk)
 	rootDiskOnly, _ := flags.GetBool(flagRootOnly)
-	options := msbSdk.DiskCompactionOptions{DryRun: dryRun, Disk: disk, RootDiskOnly: rootDiskOnly, Layers: nil}
+	options := msb.CompactionRequest{DryRun: dryRun, Disk: disk, RootDiskOnly: rootDiskOnly, Layers: nil}
 	if flags.Changed(flagLayers) {
 		layers, _ := flags.GetUint32(flagLayers)
 		if layers < minimumCompactionLayers {
-			return msbSdk.DiskCompactionOptions{}, errors.New("--layers must be at least 2")
+			return msb.CompactionRequest{}, errors.New("--layers must be at least 2")
 		}
 		options.Layers = &layers
 	}

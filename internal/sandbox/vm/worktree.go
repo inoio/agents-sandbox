@@ -17,7 +17,7 @@ const defaultTargetDir = mounts.WorkspaceMountPath
 // validateWorktreeBase confirms the base ref resolves among existing local refs
 // inside the VM. It never fetches: the ref must already be present locally.
 func validateWorktreeBase(ctx context.Context, sb msb.Sandbox, dir, base string) error {
-	out, err := sb.Exec(ctx, "git", []string{"-C", dir, "rev-parse", "--verify", base + "^{commit}"})
+	out, err := sb.Exec(ctx, "git", []string{"-C", dir, "rev-parse", "--verify", base + "^{commit}"}, msb.ExecRequest{})
 	if err != nil {
 		return fmt.Errorf("check base %q: %w", base, err)
 	}
@@ -47,7 +47,7 @@ func resolveWorktreeProject(
 	if command == "" {
 		return agent.WorktreeProject{}, nil
 	}
-	out, err := sb.Shell(ctx, command)
+	out, err := sb.Shell(ctx, command, msb.ExecRequest{})
 	if err != nil {
 		return agent.WorktreeProject{}, fmt.Errorf("resolve project for %q: %w", target, err)
 	}
@@ -108,7 +108,7 @@ func ResolveTarget(
 	}
 
 	ui.Verbosef("checking for an existing worktree %q", spec.Name)
-	listOut, err := sb.Shell(ctx, provider.WorktreeListCmd(project))
+	listOut, err := sb.Shell(ctx, provider.WorktreeListCmd(project), msb.ExecRequest{})
 	if err != nil {
 		return "", fmt.Errorf("list worktrees for %q: %w", spec.Name, err)
 	}
@@ -143,7 +143,7 @@ func ResolveTarget(
 
 	ui.Verbosef("creating worktree %q", spec.Name)
 	createSpec := agent.WorktreeSpec{Name: spec.Name, Base: spec.Base}
-	out, err := sb.Shell(ctx, provider.WorktreeCreateCmd(createSpec, project))
+	out, err := sb.Shell(ctx, provider.WorktreeCreateCmd(createSpec, project), msb.ExecRequest{})
 	if err != nil {
 		return "", fmt.Errorf("create worktree %q: %w", spec.Name, err)
 	}

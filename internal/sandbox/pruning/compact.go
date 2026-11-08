@@ -33,17 +33,17 @@ type CompactReport struct {
 func CompactSandboxes(
 	ctx context.Context,
 	sandboxName string,
-	options msbSdk.DiskCompactionOptions,
+	req msb.CompactionRequest,
 	ui termio.Logger,
 ) (CompactReport, error) {
 	handles, err := projectSandboxes(ctx, sandboxName)
 	if err != nil {
 		return CompactReport{}, err
 	}
-	report := CompactReport{DryRun: options.DryRun, Entries: nil}
+	report := CompactReport{DryRun: req.DryRun, Entries: nil}
 	for _, handle := range handles {
 		name := handle.Name()
-		result, err := handle.Compact(ctx, options)
+		result, err := handle.Compact(ctx, req)
 		if err != nil {
 			reportCompactFailure(ui, name, err)
 			continue

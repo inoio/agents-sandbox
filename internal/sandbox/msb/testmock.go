@@ -30,7 +30,7 @@ type MockRemoveImageCall struct {
 type MockDetachedCall struct {
 	Cmd  string
 	Args []string
-	Opts []msbSdk.JobExecOption
+	Spec JobSpec
 }
 
 // MockJob is a test double for Job. Nil callbacks return the configured fields.
@@ -414,12 +414,12 @@ type MockSandboxHandle struct {
 	ModifiedOptions  []msbSdk.ModifyOptions
 	CompactResult    *msbSdk.DiskCompactionResult
 	CompactErr       error
-	CompactedOptions []msbSdk.DiskCompactionOptions
+	CompactedOptions []CompactionRequest
 	MetricsResult    *msbSdk.Metrics
 	MetricsErr       error
 	LogsResult       []msbSdk.LogEntry
 	LogsErr          error
-	LogsOptions      []msbSdk.LogOptions
+	LogsOptions      []LogQuery
 }
 
 func (m *MockSandboxHandle) Name() string                    { return m.Name_ }
@@ -474,12 +474,12 @@ func (m *MockSandboxHandle) ConnectOrStart(ctx context.Context) (Sandbox, bool, 
 	return nil, false, fmt.Errorf("sandbox %q has unexpected status %q", m.Name_, m.Status_)
 }
 
-func (m *MockSandboxHandle) Stop(_ context.Context, _ ...msbSdk.StopOption) error {
+func (m *MockSandboxHandle) Stop(_ context.Context, _ LifecycleOptions) error {
 	m.DidStop = true
 	return m.StopErr
 }
 
-func (m *MockSandboxHandle) Kill(_ context.Context, _ ...msbSdk.KillOption) error {
+func (m *MockSandboxHandle) Kill(_ context.Context, _ LifecycleOptions) error {
 	m.DidKill = true
 	return m.KillErr
 }
@@ -492,7 +492,7 @@ func (m *MockSandboxHandle) Remove(_ context.Context) error {
 	return nil
 }
 func (m *MockSandboxHandle) DidRemove() bool { return m.DidRmv }
-func (m *MockSandboxHandle) Destroy(ctx context.Context, _ ...msbSdk.DestroyOption) error {
+func (m *MockSandboxHandle) Destroy(ctx context.Context, _ LifecycleOptions) error {
 	if m.DestroyFn != nil {
 		return m.DestroyFn(ctx)
 	}
@@ -540,9 +540,9 @@ func (m *MockSandboxHandle) Modify(
 
 func (m *MockSandboxHandle) Compact(
 	_ context.Context,
-	opts msbSdk.DiskCompactionOptions,
+	req CompactionRequest,
 ) (*msbSdk.DiskCompactionResult, error) {
-	m.CompactedOptions = append(m.CompactedOptions, opts)
+	m.CompactedOptions = append(m.CompactedOptions, req)
 	return m.CompactResult, m.CompactErr
 }
 
@@ -550,8 +550,8 @@ func (m *MockSandboxHandle) Metrics(_ context.Context) (*msbSdk.Metrics, error) 
 	return m.MetricsResult, m.MetricsErr
 }
 
-func (m *MockSandboxHandle) Logs(_ context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error) {
-	m.LogsOptions = append(m.LogsOptions, opts)
+func (m *MockSandboxHandle) Logs(_ context.Context, query LogQuery) ([]msbSdk.LogEntry, error) {
+	m.LogsOptions = append(m.LogsOptions, query)
 	return m.LogsResult, m.LogsErr
 }
 
@@ -586,11 +586,11 @@ type MockSandbox struct {
 
 	// Detached jobs. ExecDetached returns Job_ (or a fresh MockJob) when
 	// ExecDetachedFn is nil; ListJobs returns Jobs when ListJobsFn is nil.
-	ExecDetachedFn    func(ctx context.Context, cmd string, args []string, opts ...msbSdk.JobExecOption) (Job, error)
+	ExecDetachedFn    func(ctx context.Context, cmd string, args []string, spec JobSpec) (Job, error)
 	ExecDetachedCalls *[]MockDetachedCall
 	Job_              Job
 	GetJobFn          func(ctx context.Context, id string) (Job, error)
-	ListJobsFn        func(ctx context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error)
+	ListJobsFn        func(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error)
 	Jobs              []msbSdk.JobInfo
 
 	// StreamHandle_ is returned by ShellStream when ShellStreamFn is nil. When
@@ -608,8 +608,8 @@ type MockSandbox struct {
 	MetricsErr    error
 	LogsResult    []msbSdk.LogEntry
 	LogsErr       error
-	// LogsOptions records every LogOptions passed to Logs.
-	LogsOptions []msbSdk.LogOptions
+	// LogsOptions records every LogQuery passed to Logs.
+	LogsOptions []LogQuery
 }
 
 func (m *MockSandbox) FS() SandboxFS {
@@ -619,7 +619,7 @@ func (m *MockSandbox) FS() SandboxFS {
 	return &TestFS{}
 }
 
-func (m *MockSandbox) Shell(_ context.Context, command string, _ ...msbSdk.ExecOption) (ShellResult, error) {
+func (m *MockSandbox) Shell(_ context.Context, command string, _ ExecRequest) (ShellResult, error) {
 	if m.ShellCalls != nil {
 		*m.ShellCalls = append(*m.ShellCalls, command)
 	}
@@ -637,7 +637,7 @@ func (m *MockSandbox) Exec(
 	_ context.Context,
 	command string,
 	args []string,
-	_ ...msbSdk.ExecOption,
+	_ ExecRequest,
 ) (ShellResult, error) {
 	if m.ExecErr != nil {
 		return nil, m.ExecErr
@@ -657,13 +657,13 @@ func (m *MockSandbox) ExecDetached(
 	ctx context.Context,
 	cmd string,
 	args []string,
-	opts ...msbSdk.JobExecOption,
+	spec JobSpec,
 ) (Job, error) {
 	if m.ExecDetachedCalls != nil {
-		*m.ExecDetachedCalls = append(*m.ExecDetachedCalls, MockDetachedCall{Cmd: cmd, Args: args, Opts: opts})
+		*m.ExecDetachedCalls = append(*m.ExecDetachedCalls, MockDetachedCall{Cmd: cmd, Args: args, Spec: spec})
 	}
 	if m.ExecDetachedFn != nil {
-		return m.ExecDetachedFn(ctx, cmd, args, opts...)
+		return m.ExecDetachedFn(ctx, cmd, args, spec)
 	}
 	if m.Job_ != nil {
 		return m.Job_, nil
@@ -681,9 +681,9 @@ func (m *MockSandbox) GetJob(ctx context.Context, id string) (Job, error) {
 	return &MockJob{}, nil
 }
 
-func (m *MockSandbox) ListJobs(ctx context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error) {
+func (m *MockSandbox) ListJobs(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error) {
 	if m.ListJobsFn != nil {
-		return m.ListJobsFn(ctx, opts...)
+		return m.ListJobsFn(ctx, query)
 	}
 	return m.Jobs, nil
 }
@@ -696,19 +696,13 @@ func (m *MockSandbox) AttachWith(
 	ctx context.Context,
 	command string,
 	args []string,
-	opts ...msbSdk.AttachOption,
+	req AttachRequest,
 ) (int, error) {
 	m.AttachCmd = command
 	m.AttachArgs = args
-	if len(opts) > 0 {
-		cfg := msbSdk.AttachConfig{}
-		for _, opt := range opts {
-			opt(&cfg)
-		}
-		m.AttachUser = cfg.User
-		m.AttachCwd = cfg.Cwd
-		m.AttachEnv = cfg.Env
-	}
+	m.AttachUser = req.User
+	m.AttachCwd = req.Cwd
+	m.AttachEnv = req.Env
 	if m.AttachFn != nil {
 		return m.AttachFn(ctx)
 	}
@@ -722,7 +716,7 @@ func (m *MockSandbox) Detach(ctx context.Context) error {
 	return m.DetachErr
 }
 
-func (m *MockSandbox) Destroy(_ context.Context, _ ...msbSdk.DestroyOption) error {
+func (m *MockSandbox) Destroy(_ context.Context, _ LifecycleOptions) error {
 	if m.DestroyErr != nil {
 		return m.DestroyErr
 	}
@@ -736,15 +730,15 @@ func (m *MockSandbox) Metrics(_ context.Context) (*msbSdk.Metrics, error) {
 	return m.MetricsResult, m.MetricsErr
 }
 
-func (m *MockSandbox) Logs(_ context.Context, opts msbSdk.LogOptions) ([]msbSdk.LogEntry, error) {
-	m.LogsOptions = append(m.LogsOptions, opts)
+func (m *MockSandbox) Logs(_ context.Context, query LogQuery) ([]msbSdk.LogEntry, error) {
+	m.LogsOptions = append(m.LogsOptions, query)
 	return m.LogsResult, m.LogsErr
 }
 
 func (m *MockSandbox) ShellStream(
 	_ context.Context,
 	command string,
-	_ ...msbSdk.ExecOption,
+	_ ExecRequest,
 ) (StreamHandle, error) {
 	if m.ShellStreamCmds != nil {
 		*m.ShellStreamCmds = append(*m.ShellStreamCmds, command)
@@ -788,11 +782,11 @@ type SandboxOpts struct {
 	ShellStreamCmds *[]string
 
 	// Detached jobs.
-	ExecDetachedFn    func(ctx context.Context, cmd string, args []string, opts ...msbSdk.JobExecOption) (Job, error)
+	ExecDetachedFn    func(ctx context.Context, cmd string, args []string, spec JobSpec) (Job, error)
 	ExecDetachedCalls *[]MockDetachedCall
 	Job_              Job
 	GetJobFn          func(ctx context.Context, id string) (Job, error)
-	ListJobsFn        func(ctx context.Context, opts ...msbSdk.JobListOption) ([]msbSdk.JobInfo, error)
+	ListJobsFn        func(ctx context.Context, query JobQuery) ([]msbSdk.JobInfo, error)
 	Jobs              []msbSdk.JobInfo
 }
 
@@ -1092,7 +1086,7 @@ func (f *failFastMsbClient) StorageUsage(_ context.Context) (*msbSdk.StorageUsag
 	return nil, nil
 }
 
-func (f *failFastMsbClient) ShellStream(_ context.Context, _ string, _ ...msbSdk.ExecOption) (StreamHandle, error) {
+func (f *failFastMsbClient) ShellStream(_ context.Context, _ string, _ ExecRequest) (StreamHandle, error) {
 	f.mustMock()
 	return nil, nil
 }

@@ -71,7 +71,7 @@ func TestJobsRoundTrip(t *testing.T) {
 	launchArgs := []string{launchMarker, "sh", "-c", "echo " + sentinel + "; sleep 30"}
 	wantCommand := append([]string{launchBinary}, launchArgs...)
 
-	job, err := adapter.ExecDetached(ctx, launchBinary, launchArgs)
+	job, err := adapter.ExecDetached(ctx, launchBinary, launchArgs, JobSpec{})
 	if err != nil {
 		t.Fatalf("ExecDetached: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestJobsRoundTrip(t *testing.T) {
 		t.Fatal("ExecDetached returned an empty job id")
 	}
 
-	infos, err := adapter.ListJobs(ctx, msbSdk.WithAllJobs())
+	infos, err := adapter.ListJobs(ctx, JobQuery{All: true})
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}

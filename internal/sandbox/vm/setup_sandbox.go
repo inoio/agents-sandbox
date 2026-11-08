@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
-
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -51,8 +49,7 @@ func runStartupHooks(ctx context.Context, sb msb.Sandbox, hooks []homeconfig.Hoo
 			ctx,
 			command,
 			args,
-			msbSdk.WithAttachUser(user),
-			msbSdk.WithAttachEnv(map[string]string{"HOME": home}),
+			msb.AttachRequest{User: user, Env: map[string]string{"HOME": home}},
 		); err != nil {
 			ui.Warnf("startup hook %s failed: %v", h.Target, err)
 		}
