@@ -36,7 +36,7 @@ the [XDG base directory spec](https://specifications.freedesktop.org/basedir-spe
 `env` uses `KEY=value` format. `env.secret` uses `KEY=value@host` (see [Secrets]({% link configuration/secrets.md %})).
 
 Supported configuration formats/filenames: YAML (`config.yaml`, `config.yml`), JSON(`config.json`, `config.jsonc`, `config.json5`). The
-first one found is used.
+first one found is used. All three JSON extensions are parsed as JSON5, so they also accept comments and trailing commas.
 
 ## Project-level configuration
 

@@ -59,17 +59,18 @@ untrusted input.
 - Every YAML parse and serialize we own goes through `go.yaml.in/yaml/v4` (the maintained continuation of
   go-yaml); neither `gopkg.in/yaml.v3` nor `go.yaml.in/yaml/v3` is imported directly. `gopkg.in/yaml.v3`
   still resolves as an indirect *test* dependency of `go-git` via `gomega`, and viper v1.21.0 pulls
-  `go.yaml.in/yaml/v3` for its own config decoding, so both stay in `go.sum`; that is not a licence to
-  import either.
+  `go.yaml.in/yaml/v3`, whose codec we no longer call (see the read-path note below), so both stay in
+  `go.sum`; that is not a licence to import either.
 - Two emitter defects drove the choice, both in the persist-a-value-then-cannot-read-it class the
   `FuzzParseState` stability invariant guards. `gopkg.in/yaml.v3` v3.0.1 corrupted a string with a single
   leading newline (`home_volume: |4-`, dropping the leading blank line); `go.yaml.in/yaml/v3` corrupted a
   string whose first content character is a tab (`agent_version: |` then an indent plus tab, with no block
   indentation indicator), emitting a block scalar it cannot itself re-parse. v4 emits the tab-bearing
   string quoted and round-trips.
-- viper only reads YAML and never marshals, so its pinned `go.yaml.in/yaml/v3` cannot reintroduce the
-  emitter defect; every write path we own (`state`, `configmerge`) is on v4. Migrating viper itself is not
-  ours to do and would not change the write path.
+- viper no longer parses the launcher config: `viperconfig.mergeDir` decodes the file through `configdecode`
+  (`go.yaml.in/yaml/v4` + `json5`) and passes the resulting map to `viper.MergeConfigMap`, so viper's own codec — and
+  the pinned `go.yaml.in/yaml/v3` it pulls — is no longer on our read path. `MergeConfigMap` still runs
+  `insensitiviseMap`, so key folding is unchanged. Every read and write path we own is on v4.
 - Both crashers are committed regression seeds under
   `internal/sandbox/state/testdata/fuzz/FuzzParseState/`, run under `make test`: `79cbe6941173cc3b`
   (`home_volume: >\n\n 0`) and `f51287d7a34b879e` / `95bcaa4bcca42f8c` (`agent_version: "\t\n"`).
@@ -105,14 +106,14 @@ A second decision was taken alongside the library choice: bound the untrusted re
 
 ### Non-goals
 
-- **The owner scan (`LayerSettingOwner` → `readLayerValues`) stays on yaml.v3/json5/json; migrating it to
-  oneyaml is not planned.** It is a read path with no byte contract, it parses three formats (oneyaml is a
-  YAML document API, so it would not even unify them), and it resolves keys case-insensitively through a
-  `map[string]any` walk that oneyaml's case-sensitive pointers would have to rebuild. Migrating it would add
-  code and change owner-resolution semantics for no benefit. The scan and the editor therefore no longer
-  share a parser: a YAML file the scan accepts but oneyaml rejects surfaces as a `WriteSetting` error from
-  `PersistMemory` (an error path, never a shadowed write), and the scan's skip-unparseable-layer guard
-  covers the reverse.
+- **The owner scan (`LayerSettingOwner` → `readLayerValues`) and the editor stay separate parsers; migrating the
+  scan to oneyaml is not planned.** The scan is a read path with no byte contract, it parses three formats (oneyaml is
+  a YAML document API, so it would not even unify them), and it resolves keys case-insensitively through a
+  `map[string]any` walk that oneyaml's case-sensitive pointers would have to rebuild. Migrating it would add code and
+  change owner-resolution semantics for no benefit. Since #531 the scan decodes through `configdecode` (yaml/v4 +
+  json5) like the other read paths, so it and the `oneyaml` editor still do not share a parser: a YAML file the scan
+  accepts but oneyaml rejects surfaces as a `WriteSetting` error from `PersistMemory` (an error path, never a shadowed
+  write), and the scan's skip-unparseable-layer guard covers the reverse.
 
 ### Follow-ups
 
