@@ -132,6 +132,9 @@ func lookupKeyFold(mapping map[string]any, key string) (any, bool) {
 // unrelated keys and the user's comments, spacing and styles survive. An edited
 // file keeps its permissions; a created one is private (0600).
 func WriteSetting(dir, key string, value any) error {
+	if dir == "" {
+		return fmt.Errorf("config dir is empty; the config path did not resolve")
+	}
 	path, ext, found := configpaths.FindConfigFile(dir)
 	if !found {
 		path = filepath.Join(dir, "config.yaml")

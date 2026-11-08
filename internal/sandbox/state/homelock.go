@@ -45,6 +45,9 @@ func homeLockPath(k Key) string {
 //nolint:nonamedreturns // the documented (release, ok, err) signature is the contract
 func lockHomeState(k Key, blocking bool) (release func(), ok bool, err error) {
 	path := homeLockPath(k)
+	if pathErr := requireAbsoluteStatePath(path); pathErr != nil {
+		return nil, false, pathErr
+	}
 	dir := filepath.Dir(path)
 	if mkdirErr := mkdirHomeLock(dir, 0o700); mkdirErr != nil {
 		return nil, false, fmt.Errorf("create lock dir: %w", mkdirErr)

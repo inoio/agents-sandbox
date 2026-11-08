@@ -153,6 +153,20 @@ func stateFile(k Key) string {
 	return slugPath(k, "state.yaml")
 }
 
+// requireAbsoluteStatePath rejects a resolved state path that is not absolute.
+// Every state path is joined onto configpaths.UserStateDir(), which is absolute;
+// a non-absolute path means the root failed to resolve (for example $HOME is
+// unset), and using it would read or write relative to the process working
+// directory instead of the launcher's state directory. A caller checks the
+// concrete path a helper returned, not the helper's internals, so a helper that
+// yields the zero value is caught too.
+func requireAbsoluteStatePath(path string) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("state path %q is not absolute; the state root did not resolve", path)
+	}
+	return nil
+}
+
 // ErrStateNotFound is returned by ReadState when no state file exists yet.
 var ErrStateNotFound = errors.New("state file not found")
 
@@ -210,11 +224,15 @@ func parseHomeState(data []byte) (HomeState, error) {
 // writeState atomically writes the state to disk. Unexported so every mutation
 // flows through WithHomeState or RecoverHomeState.
 func writeState(k Key, state HomeState) error {
+	path := stateFile(k)
+	if err := requireAbsoluteStatePath(path); err != nil {
+		return err
+	}
 	data, err := yaml.Marshal(versionedDocument[HomeState]{Schema: HomeStateSchema, Document: state})
 	if err != nil {
 		return fmt.Errorf("marshal state: %w", err)
 	}
-	if err := atomicwrite.WriteFile(stateFile(k), data); err != nil {
+	if err := atomicwrite.WriteFile(path, data); err != nil {
 		return fmt.Errorf("write state file: %w", err)
 	}
 	return nil

@@ -25,6 +25,9 @@ var claimOpened func(f *os.File, path string)
 // removal cannot hand two callers the same token.
 func AcquireClaim(slug, key string) (func(), bool, error) {
 	dir := filepath.Join(slugDir(slug), "claims")
+	if err := requireAbsoluteStatePath(dir); err != nil {
+		return nil, false, err
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, false, fmt.Errorf("create claim dir: %w", err)
 	}

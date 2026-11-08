@@ -52,6 +52,9 @@ func ProjectVMLockDir(k Key) string {
 //nolint:nonamedreturns // the documented (release, ok, err) signature is the contract
 func lockProjectVM(k Key, blocking bool) (release func(), ok bool, err error) {
 	dir := ProjectVMLockDir(k)
+	if dirErr := requireAbsoluteStatePath(dir); dirErr != nil {
+		return nil, false, dirErr
+	}
 	if mkdirErr := mkdirProjectVMLock(dir, 0o700); mkdirErr != nil {
 		return nil, false, fmt.Errorf("create lock dir: %w", mkdirErr)
 	}

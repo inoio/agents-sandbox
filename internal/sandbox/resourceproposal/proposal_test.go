@@ -576,3 +576,82 @@ func assertNoConfigWritten(t *testing.T, cp configpaths.ConfigPaths) {
 		}
 	}
 }
+
+// unresolvableConfigPaths is a ConfigPaths whose per-slug config dir is the
+// test's chosen value, standing in for an unresolved config path: a relative or
+// empty dir would make PersistSetting write into the process working directory.
+type unresolvableConfigPaths struct{ slugDir string }
+
+func (unresolvableConfigPaths) UserConfigDir() string             { return "cfg" }
+func (c unresolvableConfigPaths) UserSlugConfigDir(string) string { return c.slugDir }
+func (unresolvableConfigPaths) UserCacheDir() string              { return "cache" }
+func (unresolvableConfigPaths) UserStateDir() string              { return "state" }
+func (unresolvableConfigPaths) UserDataDir() string               { return "data" }
+func (unresolvableConfigPaths) UserHomeDir() (string, error)      { return "home", nil }
+func (unresolvableConfigPaths) ProjectConfigDir() string          { return ".agents-sandbox" }
+func (unresolvableConfigPaths) ProjectConfigDirAbs() string       { return "" }
+func (unresolvableConfigPaths) IgnoredWorktreeConfigDir() string  { return "" }
+
+func (unresolvableConfigPaths) ProjectDockerfile() string {
+	return filepath.Join(".agents-sandbox", "Dockerfile")
+}
+
+// TestRequireWritableConfigDir pins the helper's contract directly: an absolute
+// dir and the legitimately relative project config base are writable, while an
+// empty dir and any other relative dir are rejected, each with its own message
+// so a caller can tell an unresolved root from a misresolved one.
+func TestRequireWritableConfigDir(t *testing.T) {
+	paths := unresolvableConfigPaths{slugDir: "widget-bbb"}
+	tests := []struct {
+		name    string
+		dir     string
+		wantErr string
+	}{
+		{"absolute", "/home/dev/.config/agents-sandbox/widget-bbb", ""},
+		{"project config dir", paths.ProjectConfigDir(), ""},
+		{"empty", "", "config dir is empty"},
+		{"other relative", "widget-bbb", "neither absolute nor the project config dir"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := requireWritableConfigDir(paths, tt.dir)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("requireWritableConfigDir(%q) = %v, want nil", tt.dir, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("requireWritableConfigDir(%q) = nil, want an error", tt.dir)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("requireWritableConfigDir(%q) = %v, want it to contain %q", tt.dir, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestPersistSettingRejectsAnUnresolvedConfigDir pins that a config dir which
+// did not resolve — empty, or relative and not the project base — is refused
+// rather than written into the process working directory (the mutation-sweep
+// residue).
+func TestPersistSettingRejectsAnUnresolvedConfigDir(t *testing.T) {
+	for _, tc := range []struct{ name, slugDir string }{
+		{"empty", ""},
+		{"relative", "widget-bbb"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Pin the CWD so a write made with the guard removed lands in a temp
+			// tree, not the package directory.
+			t.Chdir(t.TempDir())
+			testutil.UnsetEnv(t, "AGENTS_SANDBOX_MEMORY")
+			testutil.UnsetEnv(t, "OPENCODE_SANDBOX_MEMORY")
+
+			if _, err := PersistSetting(
+				unresolvableConfigPaths{slugDir: tc.slugDir}, testSlug, memoryKey, "8192M", false,
+			); err == nil {
+				t.Fatal("PersistSetting with an unresolved config dir = nil error, want a rejection")
+			}
+		})
+	}
+}
