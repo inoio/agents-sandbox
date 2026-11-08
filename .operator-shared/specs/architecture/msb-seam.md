@@ -14,10 +14,10 @@ the SDK: the interface method set is exactly what callers use, and SDK types mus
 currency.
 
 Issue #196 narrows the adapter to that contract. Phase 0 (dead surface + the `realVolumeHandle`
-silent-zero fix), Phase 1 (role interfaces), Phase 2 (launcher-owned option types) and Phase 3
-(launcher-owned value types and lifecycle enums) have landed; Phase 4 (the config model) remains. The
-sections below are the durable contract, stated as the end state; the "Status" note at the end records
-what is already true.
+silent-zero fix), Phase 1 (role interfaces), Phase 2 (launcher-owned option types), Phase 3
+(launcher-owned value types and lifecycle enums) and Phase 4a (the launcher-owned creation model)
+have landed; Phase 4b (the read-back config model) remains. The sections below are the durable
+contract, stated as the end state; the "Status" note at the end records what is already true.
 
 ## Roles and composites
 
@@ -125,6 +125,17 @@ files.
   `StoragePruneOptions` inputs joined the reflection register. `realVolumeHandle` wraps the SDK
   volume handle, translating only `Kind()`. `Modify`/`msbSdk.ModifyOptions` and the compaction result
   stay SDK types for Phase 4.
-- **Pending:** Phase 4 — the config model (`SandboxSpec`/`VolumeSpec`, mounts/secrets/network; moving
-  `vm.buildMounts` behind the adapter), which removes the last direct `msbSdk` imports
-  (`network`, `envsecret`, `state/fingerprint`, `reconfig/plan`, `runtime`).
+- **Landed (#196 Phase 4a):** the creation path no longer speaks the SDK.
+  `CreateSandbox(name, SandboxSpec)` and `CreateVolume(name, VolumeSpec)` take launcher-owned specs;
+  `translate.go` gained `sandboxOptions`, the mount/port/secret/network translators (`networkConfig`
+  composes gateway-DNS → deny → profile → allow), and `volumeOptions`/`volumeKindTo`. New value
+  types: `SandboxSpec`/`VolumeSpec`, the mount model (`MountConfig` + the `Mount` factory for
+  bind/named/tmpfs; disk/owned descriptors come from read-back), `PortBinding`/`PortProtocol`,
+  `SecretEntry`/`SecretSubstitution`/`SecretEnvOptions`/`ViolationAction` + `Secret.Env`, and
+  `NetworkSpec`/`NetworkProfile`. `vm` project-VM creation, the `volume`/`runtimemigration` create
+  paths, and the `network`/`envsecret`/`ports`/`state/fingerprint` producers are SDK-free. The
+  `SandboxConfig`/`VolumeConfig` inputs joined the reflection register.
+- **Pending:** Phase 4b — the read-back config model (`SandboxConfig`, `ConfigMounts`/`ConfigPorts`,
+  `Modify`/`ModifyOptions`/plan, `DiskCompaction*`, `ports.ResolveServeHostPort`), which removes the
+  last direct `msbSdk` imports (`reconfig/plan`, `prepare/reconfig`, `pruning/compact`,
+  `vm/inspect`/`vm_resources`/`detached`, `runtime`).
