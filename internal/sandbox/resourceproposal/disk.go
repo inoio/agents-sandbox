@@ -117,7 +117,12 @@ func tmpRaiseMaximumMiB(memoryMiB uint32) uint32 {
 	if memoryMiB == 0 {
 		return 0
 	}
-	if wholeGiB := (memoryMiB - 1) / mibPerGiB * mibPerGiB; wholeGiB > 0 {
+	wholeGiB := memoryMiB / mibPerGiB * mibPerGiB
+	if wholeGiB == memoryMiB {
+		// memory is a whole GiB, so step down to stay strictly below it.
+		wholeGiB -= mibPerGiB
+	}
+	if wholeGiB != 0 {
 		return wholeGiB
 	}
 	return memoryMiB - 1
