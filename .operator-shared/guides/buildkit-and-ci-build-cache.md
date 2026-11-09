@@ -46,7 +46,7 @@ registry cache), so the investigation turned into "should the launcher build wit
   heredoc/continuation/directive rules - but only to *parse the user's project Dockerfile* (to detect base image
   references and stage headers, e.g. whether dind/docker stages are needed). It is not a build-time requirement.
 - **The test output seam handles both.** `stageStepCached` already recognises classic (`---> Using cache`) and
-  BuildKit (`#N CACHED`) output. `image.buildImage`'s doc comment notes the classic vs BuildKit stream difference.
+  BuildKit (`#N CACHED`) output. The `stageInstallMarkers` comment in `internal/sandbox/image/render_integration_test.go` notes the classic vs BuildKit stream difference.
 - Consequence: a user Dockerfile using BuildKit-only syntax (heredoc `RUN`, `RUN --mount`) is parsed correctly today
   but **fails to build** on the classic builder - an existing correctness gap that a BuildKit switch would close.
 
