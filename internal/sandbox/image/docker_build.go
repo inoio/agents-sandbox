@@ -75,9 +75,10 @@ func buildDockerImage(
 }
 
 // buildImage builds the described image, dispatching to the engine builder the
-// daemon advertises: classic for Docker Engine and podman, BuildKit for an
-// engine that reports Builder-Version "2". noCache bypasses the engine's layer
-// cache; it is independent of whether a build is needed at all.
+// daemon advertises: BuildKit for the dockerd family, which reports
+// Builder-Version "2", and classic for podman's compat /ping ("1") and any
+// engine that omits the header. noCache bypasses the engine's layer cache; it
+// is independent of whether a build is needed at all.
 func buildImage(
 	ctx context.Context,
 	dclient docker.Client,
@@ -133,9 +134,10 @@ func buildImageClassic(
 	return nil
 }
 
-// buildImageBuildKit builds the image via the engine's BuildKit builder. The
-// dispatch lands here when the daemon advertises Builder-Version "2"; the
-// implementation follows in the BuildKit task.
+// buildImageBuildKit builds the image via the engine's embedded BuildKit
+// builder, reached over the Docker API hijack endpoints (/grpc and /session)
+// with the dockerfile.v0 frontend and the moby exporter, so the produced image
+// is indistinguishable from the classic path's.
 func buildImageBuildKit(
 	ctx context.Context,
 	dclient docker.Client,

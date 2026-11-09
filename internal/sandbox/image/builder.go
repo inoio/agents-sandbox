@@ -18,10 +18,11 @@ const (
 )
 
 // selectBuilder returns the builder the engine advertises via the ping
-// Builder-Version header: BuilderBuildKit ("2") selects the BuildKit path, and
-// anything else — including BuilderV1 and an absent header, which Docker Engine
-// and podman both report — the classic path. A ping failure surfaces unchanged:
-// a build on an unreachable engine must not silently assume a builder.
+// Builder-Version header: the dockerd family advertises BuilderBuildKit ("2")
+// and selects the BuildKit path; podman's compat /ping reports BuilderV1, and
+// an absent header, both select the classic path. A ping failure surfaces
+// unchanged: a build on an unreachable engine must not silently assume a
+// builder.
 func selectBuilder(ctx context.Context, dclient docker.Client) (builderKind, error) {
 	ping, err := dclient.Ping(ctx, client.PingOptions{})
 	if err != nil {
