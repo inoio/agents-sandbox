@@ -111,13 +111,13 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 				"RUN apt-get update && apt-get install -y --no-install-recommends curl procps && rm -rf /var/lib/apt/lists/*\n"), dockerOff},
 		{"custom-base-slim-no-tar-docker", []byte(
 			"FROM debian:trixie-slim\n" +
-				"RUN apt-get update && apt-get install -y --no-install-recommends curl procps iptables git xz-utils && rm -rf /var/lib/apt/lists/*\n"), dockerOn},
+				"RUN apt-get update && apt-get install -y --no-install-recommends curl procps iptables git xz-utils uidmap slirp4netns iproute2 && rm -rf /var/lib/apt/lists/*\n"), dockerOn},
 		{"custom-base-fedora-docker", []byte(
 			"FROM fedora:latest\n" +
-				"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n"), dockerOn},
+				"RUN dnf install -y curl tar iptables git procps-ng xz slirp4netns iproute && dnf clean all\n"), dockerOn},
 		{"custom-base-docker-marker", []byte(
 			"FROM fedora:latest\n" +
-				"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n" +
+				"RUN dnf install -y curl tar iptables git procps-ng xz slirp4netns iproute && dnf clean all\n" +
 				"# agents-sandbox:docker\n" +
 				"RUN echo after-docker\n"), dockerOn},
 	}
@@ -468,11 +468,11 @@ func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 
 	base := []byte(
 		"FROM fedora:latest\n" +
-			"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n" +
+			"RUN dnf install -y curl tar iptables git procps-ng xz slirp4netns iproute && dnf clean all\n" +
 			"RUN echo body-v1\n")
 	changed := []byte(
 		"FROM fedora:latest\n" +
-			"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n" +
+			"RUN dnf install -y curl tar iptables git procps-ng xz slirp4netns iproute && dnf clean all\n" +
 			"RUN echo body-v2\n")
 
 	tag := "agents-sandbox/it-cache"
@@ -519,7 +519,7 @@ func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 
 	project := []byte(
 		"FROM fedora:latest\n" +
-			"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n")
+			"RUN dnf install -y curl tar iptables git procps-ng xz slirp4netns iproute && dnf clean all\n")
 
 	tag := "agents-sandbox/it-agent-version"
 	t.Cleanup(func() { removeTestImage(tag) })
