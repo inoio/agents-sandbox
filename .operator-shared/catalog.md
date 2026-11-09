@@ -29,6 +29,9 @@
 - `branch-worktree-cleanup.md`
   - Description: How `scripts/cleanup-merged-branches.sh` (via `make cleanup-branches`) removes merged worktrees/branches and reports the rest; the three merge-detection tiers, the fresh-session worktree guard, the config-mirror protection, the named plan printed before the gate, dry-run skipping the remote refresh, the `--force-with-lease` origin deletion, and the host/VM worktree safety rules.
   - Read If: Running or changing local repository maintenance, cleaning up worktrees or merged branches, or debugging a branch the sweep kept or removed.
+- `buildkit-and-ci-build-cache.md`
+  - Description: Investigation handoff for making the CI integration tier a required PR check - whether to move the runner-image build to BuildKit (the cache-export requirement), the podman and classic-builder compatibility costs, the GitHub Actions cache scoping that forces a single main writer, and the three candidate approaches with their open decision.
+  - Read If: Deciding whether to switch the runner-image build off the classic builder to BuildKit; adding a cross-run build cache for `make test-integration` in CI; reasoning about podman and other Docker-API engines and BuildKit compatibility; or picking up the "run integration on every PR" work.
 - `dead-code-detection-go.md`
   - Description: Using x/tools `deadcode` to find production code only tests keep alive: why staticcheck U1000 cannot, the default vs `-test` modes, the test-support paths to filter, and `-whylive` for seam-vs-accident triage.
   - Read If: Looking for dead or unreferenced production code, auditing whether a seam is still wired, or evaluating a dead-code linter; for the gate, the pin, or the `//deadcode:ignore` marker, read `specs/ci/quality-gates.md`.
