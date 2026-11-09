@@ -254,7 +254,7 @@ config key `docker`, env `AGENTS_SANDBOX_DOCKER`, and the Go names `BuildOptions
 `Config.Docker`/`Config.DockerSource()` (the resolver exposes them through `Resolver.Config()`, since a Resolver
 wrapper for the same value would be reachable only from tests),
 `RenderDockerfile(a, agentVersion, projectDockerfile []byte, docker options.DockerSetting)`,
-`dockerBlock`, `injectDockerBlock`, `dockerFinalizationBlock`.
+`dockerStage`, `injectDockerBlock`, `dockerMergeBlock`, `dockerAdoptionBlock`.
 The provenance file `docker-source` already uses this token.
 
 Deprecated aliases stay accepted at lower precedence with a one-time warning, mirroring the `OPENCODE_SANDBOX_` →

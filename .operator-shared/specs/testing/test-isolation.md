@@ -281,7 +281,7 @@ A full sweep of `internal/**` and `cmd/**` found the seam model holding: no prod
 `configpaths` exceptions (`mounts` `~/` sources, `docker`'s `~/.docker`) reads or writes host config/home state, and no
 seam family is reached without its injectable factory. The remaining ambient paths are read-only or transient:
 
-- `options.FirstFreeHostPort` probes a real loopback port through the `probeHostPort` var seam (added so tests inject a
+- `ports.FirstFreeHostPortExcluding` probes a real loopback port through the `ports`-package `probeHostPort` var seam (added so tests inject a
   deterministic probe); production still binds/frees a transient socket. Read-only.
 - `notify`'s backend runs the notifier through the `execCommand` var seam, whose `TestMain` now installs an
   `InstallFailFast` panic by default (tests opt in by overriding it); the temp WAV still goes to the real `os.TempDir`.

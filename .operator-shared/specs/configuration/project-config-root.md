@@ -1,11 +1,11 @@
 ---
 description: Contract for where a bare checkout's project config (`.agents-sandbox`) is read from: the bare root next to `.git`, selected by `core.bare`, with every project accessor routed through one base-dir resolver. Non-bare and non-repo behavior is unchanged; a bare checkout's worktree-level `.agents-sandbox` is ignored with a warning; the bare-worktrees recipe is marked beta.
-read_if: Implementing or reviewing the bare-layout project-config root fix, the `core.bare` discriminator, the project config base-dir resolver, or the bare-worktrees recipe/Beta marking.
+read_if: The bare-layout project-config root, the `core.bare` discriminator, the project config base-dir resolver, or the bare-worktrees recipe/Beta marking.
 ---
 
 # Bare checkout project config root
 
-Status: merged (PR #247).
+Status: implemented.
 Related: [worktree-layout.md](../worktrees/worktree-layout.md) (the `/workspace` bind rule this builds on; supersedes its "project config unchanged" implication) and [checkout-identity.md](../identity/checkout-identity.md) (the checkout-scoped identity that extends the same `configpaths` seam).
 
 ## Problem
@@ -101,8 +101,7 @@ Implementation facts that shape the resolver:
 The resolver stays pure: it exposes the ignored directory as a fact through
 `configpaths.ConfigPaths.IgnoredWorktreeConfigDir`, empty when there is no ignored copy. The fact is the **worktree root**'s
 `.agents-sandbox` reported by the locator (exposed for this), not one derived from the CWD — so a launch from any
-subdirectory of the worktree still detects the copy the bare root replaces, which a CWD-derived check missed (PR #247
-review). A `.agents-sandbox` at a deeper subdirectory is not inspected; that is the
+subdirectory of the worktree still detects the copy the bare root replaces, which a CWD-derived check missed. A `.agents-sandbox` at a deeper subdirectory is not inspected; that is the
 deferred layering extension's job. When the CWD is the bare root itself the worktree root *is* the bare root, so the
 ignored path equals the base: that is the directory being read, not an ignored copy — no warning (guard:
 `ignored == base`). One `termio`-facing helper, `image.WarnIgnoredProjectConfig`, warns from the image path

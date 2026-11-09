@@ -1,11 +1,11 @@
 ---
 description: Contract for splitting project identity in two (issue #144): a repo-scoped slug (origin-derived) driving the per-slug user config dir and the sandbox grouping label, and a checkout-scoped slug (resolved git common dir) driving state, VM name, home volume, locks/claims, and the runner image tag. Two clones of one remote get separate VMs/volumes; a checkout and the worktrees inside it share one. Includes the automatic, noticed migration that adopts the legacy origin-keyed identity (destroy the legacy VM, then move the state dir), the prune home-volume reference guard, the side-effect-free dry-run, and the rule that a worktree outside its checkout gets its own identity.
-read_if: Implementing or reviewing issue #144 (two checkouts sharing one VM), the repo-vs-checkout slug derivation, the runner-image tag identity, the `config paths` command, the checkout-identity migration and its notice, the prune reference guard, or the identity of a worktree outside its checkout.
+read_if: Two checkouts sharing one VM (issue #144), the repo-vs-checkout slug derivation, the runner-image tag identity, the `config paths` command, the checkout-identity migration and its notice, the prune reference guard, or the identity of a worktree outside its checkout.
 ---
 
 # Per-checkout project identity (issue #144)
 
-Status: implemented (PR #244; the multi-agent/concurrency hardening, the lost-state recovery, the corrupt-state skip, and the shared-legacy volume claim are described below).
+Status: implemented. The multi-agent/concurrency hardening, the lost-state recovery, the corrupt-state skip, and the shared-legacy volume claim are described below.
 Date: 2026-10-19.
 
 ## Problem

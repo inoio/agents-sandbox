@@ -14,7 +14,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 - `internal/sandbox/` is the largest area of the codebase; it drives VM lifecycle, runner-image builds, docker & microsandbox (msb) clients, volumes, pruning, sessions, and state locking.
 - A run is layered `session/` → `prepare/` → `vm/` (`specs/architecture/package-boundaries.md`): `prepare/` runs the stages that ready the project VM and makes the version/reconfig/home decisions; `vm/` holds the capabilities that act on a project VM (create/ensure, setup with the dockerd sidecar and agent daemon, worktree handling, adoption, VM env/control).
 - Cross-cutting dependencies: `msb/` (microsandbox SDK client) and `docker/` are the external system clients; `naming/`, `options/`, `state/`, `network/`, `mounts/` provide shared configuration/locking primitives used across sandbox subpackages.
-- Heavily test-driven (many `*_test.go` / `coverage_*.go` files per package); most integration seams are mockable via `testmock.go` / `main_test.go` per package.
+- Heavily test-driven; behaviour doubles and fail-fast installers live in a sibling `<pkg>/<name>test` subpackage (e.g. `msb/msbtest`, `opener/openertest`), so the production package's dependency graph never links `testing` (`specs/testing/test-isolation.md`).
 
 ## `internal/sandbox` Index
 
@@ -53,17 +53,17 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 ### `msb/` — Microsandbox SDK client
 
 - The launcher's port over the microsandbox SDK (`specs/architecture/msb-seam.md`, #196): provider-owned role interfaces (`RuntimeInstaller`, `SandboxStore`, `VolumeStore`, `ImageStore`, `StorageStore`, `SandboxIdentity`, `SandboxLifecycleHandle`, `SandboxConfigReader`, `SandboxResourceControl`, `SandboxExecutor`, `SandboxStreamer`, `SandboxAttacher`, `SandboxJobs`, `SandboxObserver`, `SandboxLifecycle`) composed into the `Client`/`SandboxHandle`/`Sandbox` composites; consumers narrow to the role they use. `roles_boundary_test.go` pins `composite method set == union of roles`.
-- `msb.go` (package doc, `Get` factory, the runtime seams/wrappers — `PinnedRuntimeVersion`/`EnsureRuntime`/`InstallRuntime`/`ValidateInstalled`), `client.go` (`Client` + `realMsbClient` + option seams), `sandbox.go` (`Sandbox`/`SandboxHandle` + reals), `job.go` (`Job`/`ShellResult`/`Stream*`), `volume.go`, `image.go` (`ImageHandle`/`ImageDetail`), `fs.go`, `errors.go` (the `Is*` classifiers), `status.go` (`VMStatusKind`, `GetVMStatus`) — the split introduced by #196 Phase 1.
-- `requests.go` — launcher-owned request types (`ExecRequest`, `AttachRequest`, `JobSpec`, `JobQuery`, `LifecycleOptions`, `LogQuery`+`LogSource`, `CompactionRequest`); `translate.go` — one translator per option family plus the reflection projection registers. #196 Phase 2 makes the option-taking methods (`Shell`/`Exec`/`ShellStream`, `AttachWith`, `ExecDetached`, `ListJobs`, `Stop`/`Kill`/`Destroy`, `Logs`, `Compact`) accept these instead of `...msbSdk.*Option`.
-- `storage_values.go` / `observation_values.go` / `image_values.go` / `enums.go` — the launcher-owned return types and enums (#196 Phase 3): `StorageReport`/`PruneRequest`/`PruneReport`, `JobInfo`/`JobLogEntry`/`JobLogQuery`/`LogEntry`/`Metrics`, `ImageConfig`/`ImageLayer`/`ImagePruneReport`, and string-backed `SandboxStatus`/`BackendKind`/`VolumeKind`. `phase3_boundary_test.go` pins that `storage`/`pressure`/`resourceproposal`/`image`/`session` do not import the SDK.
-- `spec_values.go` / `mount_values.go` / `port_values.go` / `secret_values.go` / `network_values.go` — the launcher-owned creation model (#196 Phase 4a): `SandboxSpec`/`VolumeSpec`, `MountConfig` + the `Mount` factory (bind/named/tmpfs; disk/owned via read-back), `PortBinding`/`PortProtocol`, `SecretEntry`/`SecretEnvOptions` + `Secret.Env`, `NetworkSpec`/`NetworkProfile`. `CreateSandbox`/`CreateVolume` take the specs; the creation paths and their producers (`network`, `envsecret`, `ports`, `state/fingerprint`) are SDK-free.
-- `config_values.go` — the launcher-owned read-back model (#196 Phase 4b): `SandboxConfig`/`RootDiskConfig`, `ModifyOptions`/`ModificationPolicy`, `SandboxModificationPlan`/`ModificationConflict`, `DiskCompactionResult`/`DiskCompactionDiskResult`. `SandboxConfigReader.Config`/`ConfigMounts`/`ConfigPorts` and `SandboxResourceControl.Modify`/`Compact` return these; `ParseConfigMounts`/`ParseConfigPorts` build launcher values. `phase4_boundary_test.go` scans the whole module and asserts the SDK is imported only by `msb` (no residue).
-- `configmounts.go` — `ParseConfigMounts` / `SandboxHandle.ConfigMounts()`: the live-mount read-back the Go SDK drops (`specs/vm/live-mount-readback.md`)
-- `testmock.go` — `MockMsbClient` (the wide composite double; fields stay on the outer struct), `testmock_roles.go` — standalone role doubles (`MockImageStore`, `MockSandboxStore`, …) for narrower tests; `*_msb_test.go` — `//go:build msb` real-runtime tests
+- `msb.go` (package doc, `Get` factory, the runtime seams/wrappers — `PinnedRuntimeVersion`/`EnsureRuntime`/`InstallRuntime`/`ValidateInstalled`), `client.go` (`Client` + `realMsbClient` + option seams), `sandbox.go` (`Sandbox`/`SandboxHandle` + reals), `job.go` (`Job`/`ShellResult`/`Stream*`), `volume.go`, `image.go` (`ImageHandle`/`ImageDetail`), `fs.go`, `errors.go` (the `Is*` classifiers), `status.go` (`VMStatusKind`, `GetVMStatus`) — the split interfaces and reals.
+- `requests.go` — launcher-owned request types (`ExecRequest`, `AttachRequest`, `JobSpec`, `JobQuery`, `LifecycleOptions`, `LogQuery`+`LogSource`, `CompactionRequest`); `translate.go` — one translator per option family plus the reflection projection registers. The option-taking methods (`Shell`/`Exec`/`ShellStream`, `AttachWith`, `ExecDetached`, `ListJobs`, `Stop`/`Kill`/`Destroy`, `Logs`, `Compact`) accept these instead of `...msbSdk.*Option`.
+- `storage_values.go` / `observation_values.go` / `image_values.go` / `enums.go` — the launcher-owned return types and enums: `StorageReport`/`PruneRequest`/`PruneReport`, `JobInfo`/`JobLogEntry`/`JobLogQuery`/`LogEntry`/`Metrics`, `ImageConfig`/`ImageLayer`/`ImagePruneReport`, and string-backed `SandboxStatus`/`BackendKind`/`VolumeKind`. `phase3_boundary_test.go` pins that `storage`/`pressure`/`resourceproposal`/`image`/`session` do not import the SDK.
+- `spec_values.go` / `mount_values.go` / `port_values.go` / `secret_values.go` / `network_values.go` — the launcher-owned creation model: `SandboxSpec`/`VolumeSpec`, `MountConfig` + the `Mount` factory (bind/named/tmpfs; disk/owned via read-back), `PortBinding`/`PortProtocol`, `SecretEntry`/`SecretEnvOptions` + `Secret.Env`, `NetworkSpec`/`NetworkProfile`. `CreateSandbox`/`CreateVolume` take the specs; the creation paths and their producers (`network`, `envsecret`, `ports`, `state/fingerprint`) are SDK-free.
+- `config_values.go` — the launcher-owned read-back model: `SandboxConfig`/`RootDiskConfig`, `ModifyOptions`/`ModificationPolicy`, `SandboxModificationPlan`/`ModificationConflict`, `DiskCompactionResult`/`DiskCompactionDiskResult`. `SandboxConfigReader.Config`/`ConfigMounts`/`ConfigPorts` and `SandboxResourceControl.Modify`/`Compact` return these; `ParseConfigMounts`/`ParseConfigPorts` build launcher values. `phase4_boundary_test.go` scans the whole module and asserts the SDK is imported only by `msb` (no residue).
+- `configmounts.go`, `configports.go` — `ParseConfigMounts`/`ConfigMounts()` and `ParseConfigPorts`/`ConfigPorts()`: the live-mount and published-port read-back the Go SDK drops (`specs/vm/live-mount-readback.md`)
+- `msbtest/` — the msb test doubles: `MockMsbClient` (the wide composite double; fields stay on the outer struct) and standalone role doubles (`MockImageStore`, `MockSandboxStore`, …) for narrower tests; `*_msb_test.go` — `//go:build msb` real-runtime tests
 
 ### `naming/` — Naming, labels, artifacts
 
-- `artifact.go`, `labels.go`, `naming.go`
+- `artifact.go`, `labels.go`, `naming.go`, `projecttarget.go`
 
 ### `network/` — Network policy/config
 
@@ -71,8 +71,12 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `options/` — Sandbox options, sizes, timeouts, worktree spec, run mode
 
-- `mode.go`, `options.go`, `sizes.go`, `timeouts.go`, `worktree_spec.go`
+- `mode.go`, `options.go`, `sizes.go`, `timeouts.go`, `worktree_spec.go`, `seams.go`
 - `fuzz_test.go` — `FuzzParseOptions`: size-spec parsing against an independent overflow oracle, and `--worktree` slug validation
+
+### `ports/` — Published-port grammar and residency
+
+- `ports.go` — parses user port specs, probes free host ports (`FirstFreeHostPortExcluding`, via the `probeHostPort` seam), and composes the binding list; the self-contained domain layer mirroring `network/`, so `viperconfig` validates specs without importing `options`.
 
 ### `prepare/` — Run preparation: stages resolve-identity through setup-sandbox
 
@@ -83,9 +87,14 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 - `run_envstate.go`, `shared_git_dir_mount.go` — fingerprint persistence and the shared-git-dir mount for an outside-worktree checkout
 - `fuzz_test.go` — `FuzzParseLegacyUpdaterState`: the retired `updater.yaml` reader is panic-free and folds a flat `last_checked` into the opencode agent entry
 
+### `pressure/` — VM resource-limit classification
+
+- `pressure.go`, `disk.go` — classifies a memory (guest OOM kernel line, metrics headroom) or disk (in-guest usage) limit hit into the evidence classes of `specs/resources/resource-limit-proposal.md`.
+
 ### `pruning/` — Cleanup and prune of images, sandboxes, volumes
 
-- `cleanup.go`, `compact.go`, `helpers.go`, `images.go`, `liveness.go`, `prune.go`, `report.go`, `sandboxes.go`, `storage.go`, `volumes.go` — `liveness.go` holds `PruneState`, its builder and the liveness rules (`prunable`, `retires`, `keepImage`, `allowsNativeImagePrune`) of `specs/vm/lifecycle.md`; `compact.go` backs `sandbox compact`; `storage.go` is the age-gated runtime-RAM phase (`PruneStorage`) that enriches the top-level `prune`
+- `cleanup.go`, `compact.go`, `images.go`, `liveness.go`, `prune.go`, `report.go`, `sandboxes.go`, `storage.go`, `volumes.go` — `liveness.go` holds `PruneState`, its builder and the liveness rules (`prunable`, `retires`, `keepImage`, `allowsNativeImagePrune`) of `specs/vm/lifecycle.md`; `compact.go` backs `sandbox compact`; `storage.go` is the age-gated runtime-RAM phase (`PruneStorage`) that enriches the top-level `prune`
+- `candidates.go`, `options.go`, `purge.go`, `state_sweep.go` — the `prune --purge` tier: retired-project candidate enumeration, `PruneOptions`, and volume/image/stale-state reclamation
 
 ### `reconfig/` — Reconfiguration planning
 
@@ -93,7 +102,11 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `reprovision/` — Reconfig and reprovision planning
 
-- `config_files.go`, `dependency_warning.go`, `reprovision.go` — materializes the agent config-merge subject and provisions the worktree's config files
+- `config_files.go`, `config_slug.go`, `dependency_warning.go`, `reprovision.go` — materializes the agent config-merge subject and provisions the worktree's config files
+
+### `resourceproposal/` — Raise-limit proposal and persistence
+
+- `proposal.go`, `detect.go`, `disk.go` — offers to raise a memory/disk/workspace/tmp limit after a detected hit and persists an accepted raise to the owning config layer (`specs/resources/resource-limit-proposal.md`).
 
 ### `runtime/` — Runtime selection and private runtime home
 
@@ -105,7 +118,7 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 
 ### `session/` — Session run and reaper
 
-- `run.go`, `reaper.go`, `host_opener.go` — the run/shell session loop, the idle reaper, and the host-opener channel wiring (`internal/opener`)
+- `run.go`, `reaper.go`, `host_opener.go`, `pressure_watch.go`, `run_pressure.go`, `termreset.go` — the run/shell session loop, the idle reaper, the host-opener channel wiring (`internal/opener`), the post-attach resource-pressure probes, and the terminal-reset emit
 
 ### `state/` — State transactions, locking, and project state
 
@@ -116,7 +129,9 @@ read_if: Working in internal/sandbox (VM lifecycle, image building, docker/msb c
 - `fingerprint.go`, `agent_version.go`, `root_repair.go` — the config fingerprint, the `agent_version` baseline writer (`specs/state/upgrade-state.md`), and root-state repair
 - `move.go` — `SlugDir` and `MoveSlugDir`: a project's state slug directory, and the recursive merge that migrates a legacy origin-keyed state onto its checkout slug, returning the source-relative paths it could not move (#144).
 - `references.go` — fail-closed project-state reference scan: `HomeVolumeReferences` and `ImageReferences` (the image analogue), both built on the shared `projectStateReferences` walk
-- `testmock.go`, `fuzz_test.go` — mock state and `FuzzParseState`: both state documents must never panic, classify malformed bytes as `ErrStateUnparsable`, and serialize stably (a re-read of the writer's output yields the same bytes)
+- `project_trust.go` — the per-checkout approved project layer (`ApprovedProjectLayer`) the trust gate reads (`specs/configuration/project-config-trust.md`)
+- `disk_pressure.go`, `resource_pressure.go` — the per-kind recorded resource-limit-hit markers (`specs/resources/resource-limit-proposal.md`); `sweep.go` — the stale-claim/lease/empty-slug-dir sweep primitives
+- `fuzz_test.go` — `FuzzParseState`: both state documents must never panic, classify malformed bytes as `ErrStateUnparsable`, and serialize stably (a re-read of the writer's output yields the same bytes)
 
 ### `storage/` — Private-home storage accounting seam (backs `df`)
 

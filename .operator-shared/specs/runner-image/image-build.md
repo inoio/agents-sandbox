@@ -117,7 +117,7 @@ Each profile's `LatestVersion` (the upgrade-check source) must mirror the source
 
 ## Non-goals / limitations
 
-- **The Docker rebuild and the VM recreate are not avoided.** Switching variants still rebuilds the Docker image (Docker layer cache makes it cheap) and changes the image digest, so `decideReconfig` still recreates the VM and still asks the image-change home-volume question. This removes the *reimport* only; removing the rebuild/recreate would require the docker capability to stop being an image axis, which is a separate decision.
+- **The Docker rebuild and the VM recreate are not avoided.** Switching variants still rebuilds the Docker image (Docker layer cache makes it cheap) and changes the image digest, so `reconfig.PlanReconfig` still recreates the VM and still asks the image-change home-volume question. This removes the *reimport* only; removing the rebuild/recreate would require the docker capability to stop being an image axis, which is a separate decision.
 - No GC of a live project's variants by count, and no pinning; only the age window above.
 - No change to the Docker tag or its prefix, and no rename/rewrite of existing msb images (write-new, read-all-both).
 - The content id length and encoding are the builder's call within the shape above; a change to it is not a contract change as long as it stays deterministic and content-derived.

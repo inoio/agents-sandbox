@@ -8,7 +8,7 @@ read_if: Reading or changing how the launcher learns a live VM's mounts or publi
 ## The gap
 
 `SandboxHandle.Config()` decodes the sandbox record's `config_json` column through the Go SDK's
-`SandboxConfig.UnmarshalJSON` (`sdk/go@v0.7.8`, `options.go`), which populates a `persistedSandboxConfig` that has
+`SandboxConfig.UnmarshalJSON` (`sdk/go@v0.7.13`, `options.go`), which populates a `persistedSandboxConfig` that has
 **no mounts field and no ports field**. `cfg.Volumes` and `cfg.PortBindings` are therefore nil for any config read
 back from a live VM. Fields that do round-trip (`cfg.Image`, `cfg.RootDisk`, `cfg.Labels`, resources) are
 unaffected, which is why `rootDiskChange` works and the `cfg.Volumes`/`cfg.PortBindings` readers do not.

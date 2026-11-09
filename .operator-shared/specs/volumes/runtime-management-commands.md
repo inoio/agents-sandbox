@@ -1,6 +1,6 @@
 ---
 description: Contract for agents-sandbox's microsandbox management surface — volume/image/sandbox inspection, image and sandbox removal, sandbox disk compaction, a top-level `df` plus a `storage` group alias, and uniform `-q`/`--format json`/`--yes`/`--older-than` conventions — deliberately bounded, not a mirror of msb's lifecycle, data-portability, registry, cloud, or self-install surface.
-read_if: Adding or reviewing volume/image/sandbox inspection, removal, and disk-compaction commands, the `df`/`storage` accounting commands, prune confirmation/format flags, or command-surface consistency conventions.
+read_if: Volume/image/sandbox inspection, removal, and disk-compaction commands, the `df`/`storage` accounting commands, prune confirmation/format flags, or command-surface consistency conventions.
 ---
 
 # Runtime management commands

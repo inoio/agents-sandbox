@@ -1,6 +1,6 @@
 ---
 description: Design for extending the launcher's self-upgrade with release channels - an `upgrade.channel` setting (`stable` default, `canary` for opted-in testers) where canary means "the newest release eligible for that channel" (a final release or a `canary`-identified prerelease), a tag-addressed download replacing the `/latest` URL, a switch back to stable only via an explicit `--channel` (a configured channel never downgrades), an undocumented dev-only lever that lifts the `dev`-build short-circuit so a locally built binary can drive the real check/install, and the in-scope release-CI change that classifies a `v*-canary.N` tag as a GitHub prerelease and skips the Homebrew bump.
-read_if: Implementing or reviewing self-upgrade release channels (`upgrade.channel`), canary resolution and eligibility, the tag-pinned release download, the undocumented dev-build upgrade lever, or the release CI's prerelease classification and the docs workflow's prerelease guard (`.github/workflows/pages.yml`).
+read_if: Self-upgrade release channels (`upgrade.channel`), canary resolution and eligibility, the tag-pinned release download, the undocumented dev-build upgrade lever, or the release CI's prerelease classification and the docs workflow's prerelease guard (`.github/workflows/pages.yml`).
 ---
 
 # Self-upgrade release channels

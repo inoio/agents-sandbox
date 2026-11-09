@@ -513,7 +513,7 @@ The source data is the **37 JSON reports attached to `#268`**, treated as an imm
   instead — or have each worker re-run at the end and treat mid-run failures as noise.
 - **Across packages they still interfere: the module build and the gomutants cache are shared.** The first real turn
   (14 packages, one `implementer-small` per package) hit this hard: one peer's broken in-flight edit
-  (`filewalk.go:63: undefined: data`) broke every other worker's `go test` and coverage build, because a changed
+  (`internal/filewalk` failing to compile) broke every other worker's `go test` and coverage build, because a changed
   dependency recompiles for all of them; `.gomutants-cache.json` is a single file too. One worker also wandered off its
   unit into another package and reverted that worker's edits. **Run units serially** (one worker; commit each handback,
   then start the next) or give each worker **its own worktree**; do not fan a dozen out in one checkout.

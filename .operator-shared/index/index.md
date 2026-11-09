@@ -11,7 +11,7 @@ read_if: Navigating the codebase.
 - It uses `msb` (the microsandbox CLI / SDK) and Docker to build/reuse the VM, and Viper + Cobra for config and CLI.
 - Layout: `cmd/agents-sandbox/` is the Cobra CLI; `internal/` holds the packages, dominated by `internal/sandbox/` (see its subindex). `docs/` is a Jekyll (just-the-docs) site; `ci/`, `Formula/`, `.github/` handle build/verification scripts, Homebrew, and CI (the macOS linker stubs the darwin cross-build needs live in `.github/stubs/`).
 - Target platforms: Linux (KVM) and macOS (Apple Silicon); platform-specific code lives in `_darwin.go`/`_linux.go` files.
-- Heavily test-driven; each `internal/` package pairs source files with `*_test.go` (and often `main_test.go`/`testmock.go`/`coverage_*.go`) for mocks and integration seams.
+- Heavily test-driven; behaviour doubles and fail-fast installers live in a sibling `<pkg>/<name>test` subpackage so the production package's dependency graph never links `testing` (`specs/testing/test-isolation.md`).
 
 ## Project Index
 
@@ -21,7 +21,7 @@ read_if: Navigating the codebase.
 - `GLOSSARY.md` — Project terminology.
 - `CHANGELOG.md`, `CHANGELOG` fragments in `changelog.d/`, `ROADMAP.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `LICENSE.md`, `SECURITY.md` — Project metadata and policy.
 - `Makefile` — fmt/lint/test/build targets.
-- `scripts/` — Repo-maintenance shell scripts; `cleanup-merged-branches.sh` prunes merged worktrees and branches (`make cleanup-branches`); `upstream-drift.sh` and `rebase-status.sh` report upstream drift and rebase state (see the `upstream-drift`/`rebase-status` skills); each has a `test-*.sh` harness.
+- `scripts/` — Repo-maintenance shell scripts: `cleanup-merged-branches.sh` (`make cleanup-branches`), `upstream-drift.sh`, `rebase-status.sh`, and the hermetic envelope driver `test-envelope.sh` (`make test-scrubbed`/`test-hermetic`; see `specs/testing/test-isolation.md`); each has a `test-*.sh` harness.
 - `go.mod`, `go.sum`, `.go-version` — Module deps (cobra, viper, go-git, msb SDK, docker/moby, testify) and the pinned Go toolchain.
 - `opencode.jsonc` — opencode config for this repo.
 - `.golangci.yml`, `.gitignore` — Lint config and ignore rules.
@@ -39,9 +39,12 @@ read_if: Navigating the codebase.
 - `configpaths/` — Config/home path resolution and guards, plus shared config-file discovery (`FindConfigFile`) used by both config loaders.
 - `configread/` — `ReadFile` under a 16 MiB cap (`MaxBytes`/`ErrTooLarge`) for untrusted config, secret, and snippet reads.
 - `configdecode/` — The one config-file read/classify/decode core (`FormatFor`/`Decode`/`DecodeFile`) over `configread` and `configpaths`; JSON5/JSONC via `json5`, YAML via `go.yaml.in/yaml/v4`, TOML via `go-toml/v2`.
+- `homeconfig/` — Provisions arbitrary user files (the `home:` key) into a sandbox home from the ordered config scopes.
+- `docslink/` — Composes links to the published docs site (`BaseURL`, section anchors) for the doctor and build-error `Docs:` hints.
 - `git/` — Git helpers (go-git wrapper) and project identity: the repo slug (origin-derived; per-slug config dir, grouping label) vs the checkout slug (git common dir; state/VM/volume/locks/image tag).
 - `hostlock/` — Advisory `flock` file locks, shared by the state transactions and the per-project VM lock.
 - `notify/` — Desktop notifications (backend, dedup, events, watch).
+- `opener/` — Host link-opener channel: watches the home volume's spool for in-VM `xdg-open` requests, allowlist-checks the target, and hands it to the host handler.
 - `termio/` — Terminal UI: role interfaces (`Logger`/`Output`/`Prompter`/`SpinnerFactory`/`TerminalState`/`Streams`), printer, table, spinner, ansi, levels.
 - `upgrade/` — Self-upgrade (channel selection, Homebrew).
 - `projectguard/` — Leaf holding, for one command, the digests of the approved project files; `ReadFile` verifies every project read against them and records a violation the image build and VM stage stop on.
@@ -51,6 +54,7 @@ read_if: Navigating the codebase.
 - `cliout/` + `view/` — Output rendering: `cliout` is domain-free (generic list/JSON plus `RenderPruneReport`); `view` holds the sandbox-shaped printers and report DTOs (see `specs/architecture/package-boundaries.md`).
 - `sandbox/` — **See [sandbox subindex](sandbox.md)** (VM lifecycle, docker, image, msb, volumes, pruning, sessions, state).
 - Leaf utilities — `atomicwrite` (durable state/config writes), `configmerge`, `filewalk`, `humanize`, `sysinfo`, `yamlfmt`.
+- `testutil/` — Test-only helpers: in-process go-git repo init, the fail-fast mock installers, and the module-wide scans the contract tests share.
 
 ### `test/harness/` — `msb`-tagged harness smoke tests
 
@@ -75,7 +79,7 @@ read_if: Navigating the codebase.
 
 ### `.agents-sandbox/` — Development VM
 
-- `Dockerfile`, `config.yaml`, `*.sh`, `opencode/` — dev environment image (go, msb, docker, …) and its provisioning.
+- `Dockerfile`, `config.yaml`, `*.sh`, `opencode2/` — dev environment image (go, msb, docker, …) and its provisioning.
 
 ### `.agents/skills/` — Repo engineering skills
 
