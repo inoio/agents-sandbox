@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"syscall"
 	"testing"
 
 	buildkitclient "github.com/moby/buildkit/client"
@@ -172,21 +173,29 @@ func TestBuildKitSolveOptCleanupRemovesTheContextDir(t *testing.T) {
 // TestBuildKitWriteContextWritesDockerfileAndContextFiles pins that the
 // on-disk BuildKit context carries the rendered Dockerfile and every
 // buildContextFiles() entry at the same mode the classic context tar gives it,
-// so the two builders receive byte-identical sources.
+// so the two builders receive byte-identical sources. A restrictive umask runs
+// for the duration of the test, so the modes must survive it — proving the
+// write path chmods explicitly instead of relying on the creating umask.
+// The test is not parallel because umask is process-global.
 func TestBuildKitWriteContextWritesDockerfileAndContextFiles(t *testing.T) {
+	previousUmask := syscall.Umask(0o077)
+	defer syscall.Umask(previousUmask)
+
 	dir := t.TempDir()
 	dockerfile := []byte("FROM scratch\nRUN echo hi\n")
 	if err := writeBuildKitContext(dir, dockerfile); err != nil {
 		t.Fatalf("writeBuildKitContext: %v", err)
 	}
 
-	gotDockerfile, err := os.ReadFile(filepath.Join(dir, "Dockerfile"))
+	dockerfilePath := filepath.Join(dir, "Dockerfile")
+	gotDockerfile, err := os.ReadFile(dockerfilePath)
 	if err != nil {
 		t.Fatalf("read Dockerfile: %v", err)
 	}
 	if !bytes.Equal(gotDockerfile, dockerfile) {
 		t.Errorf("Dockerfile = %q, want the rendered %q", gotDockerfile, dockerfile)
 	}
+	assertMode(t, dockerfilePath, dockerfileMode)
 	for _, file := range buildContextFiles() {
 		path := filepath.Join(dir, file.name)
 		content, err := os.ReadFile(path)
@@ -196,13 +205,19 @@ func TestBuildKitWriteContextWritesDockerfileAndContextFiles(t *testing.T) {
 		if !bytes.Equal(content, file.content) {
 			t.Errorf("context file %s carries %d bytes, want %d", file.name, len(content), len(file.content))
 		}
-		info, err := os.Stat(path)
-		if err != nil {
-			t.Fatalf("stat context file %s: %v", file.name, err)
-		}
-		if got := info.Mode().Perm(); got != os.FileMode(file.mode) {
-			t.Errorf("context file %s mode = %o, want %o", file.name, got, os.FileMode(file.mode))
-		}
+		assertMode(t, path, os.FileMode(file.mode))
+	}
+}
+
+// assertMode fails the test unless path's permission bits equal want.
+func assertMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Errorf("%s mode = %o, want %o", path, got, want)
 	}
 }
 

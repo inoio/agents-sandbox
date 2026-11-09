@@ -57,20 +57,25 @@ func buildKitSolveOpt(req buildRequest, tag string, noCache bool) (buildkitclien
 // writeBuildKitContext writes the synthetic build context — the rendered
 // Dockerfile followed by the build-context files — into dir as regular files
 // with the same modes the classic path gives the tar entries, so the BuildKit
-// filesync and the classic tar serve byte-identical sources.
+// filesync and the classic tar serve byte-identical sources. The modes are
+// applied with an explicit chmod after each write, because WriteFile creates
+// the file masked by the process umask.
 func writeBuildKitContext(dir string, dockerfile []byte) error {
-	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), dockerfile, dockerfileMode); err != nil {
+	dockerfilePath := filepath.Join(dir, "Dockerfile")
+	if err := os.WriteFile(dockerfilePath, dockerfile, dockerfileMode); err != nil {
 		return fmt.Errorf("write build context Dockerfile: %w", err)
+	}
+	if err := os.Chmod(dockerfilePath, dockerfileMode); err != nil {
+		return fmt.Errorf("chmod build context Dockerfile: %w", err)
 	}
 	for _, file := range buildContextFiles() {
 		path := filepath.Join(dir, file.name)
-		if err := os.WriteFile(
-			path,
-			file.content,
-			//nolint:gosec // the context modes are constants (0644/0755)
-			os.FileMode(file.mode),
-		); err != nil {
+		mode := os.FileMode(file.mode) //nolint:gosec // the context modes are constants (0644/0755)
+		if err := os.WriteFile(path, file.content, mode); err != nil {
 			return fmt.Errorf("write build context %s: %w", file.name, err)
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			return fmt.Errorf("chmod build context %s: %w", file.name, err)
 		}
 	}
 	return nil
