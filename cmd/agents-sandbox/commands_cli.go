@@ -353,7 +353,7 @@ func registerSharedRunShellFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool(flagDryRunVM, false, "Skip VM lifecycle but prepare everything else")
 	cmd.Flags().Uint8P(flagCpus, flagCpus[:1], 0, "Number of CPUs (default: all)")
 	cmd.Flags().StringP(flagMemory, flagMemory[:1], "4G", "Memory limit")
-	cmd.Flags().String(flagTmpSize, "2G", "Size of the /tmp tmpfs in the sandbox")
+	cmd.Flags().String(flagTmpSize, "", "Size of the /tmp tmpfs in the sandbox (default: min(2G, memory/2))")
 	cmd.Flags().String(flagDiskSize, "", "Size of the project VM root disk (e.g. 16G)")
 	cmd.Flags().String(flagWorkspaceQuota, "16G", "Guest-write quota for the /workspace bind mount (e.g. 32G)")
 	cmd.Flags().

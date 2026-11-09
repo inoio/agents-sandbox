@@ -401,6 +401,36 @@ func TestRunShellPreviewSkipsPreflight(t *testing.T) {
 	}
 }
 
+// TestRunShellMemoryTwoGiBHalvesTmpSize pins the memory-relative tmp default
+// end to end: with --tmp-size unset and --memory 2G, the run must not reject the
+// implicit tmp size and must mount a 1 GiB /tmp. The flag's default is the empty
+// string so the default stays memory-relative (options.ResolveTmpSizeMiB),
+// rather than a fixed literal that collides with a smaller memory.
+func TestRunShellMemoryTwoGiBHalvesTmpSize(t *testing.T) {
+	initTestProjectDir(t)
+
+	mock := &msbtest.MockMsbClient{}
+	root, _ := setupRunMocks(t, mock, &msbtest.MockSandbox{AttachErr: errors.New("fail")},
+		"run", "--memory", "2G")
+
+	_ = root.Execute()
+
+	var tmpSizeMiB uint32
+	found := false
+	for _, call := range mock.CreatedSandboxCalls {
+		if mount, ok := call.Spec.Mounts[mounts.TmpMountPath]; ok {
+			tmpSizeMiB = mount.SizeMiB
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no created sandbox mounted %s; creations: %v", mounts.TmpMountPath, mock.CreatedSandboxCalls)
+	}
+	if tmpSizeMiB != 1024 {
+		t.Errorf("/tmp size = %d MiB, want 1024 (half of --memory 2G)", tmpSizeMiB)
+	}
+}
+
 func TestRunShellRunNonZeroExit(t *testing.T) {
 	initTestProjectDir(t)
 	mock := &msbtest.MockMsbClient{}

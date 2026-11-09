@@ -219,6 +219,7 @@ func TestValidateSizes(t *testing.T) {
 		{name: "all defaults"},
 		{name: "typical", memory: "8G", tmpSize: "2G", diskSize: "16G", quota: "16G"},
 		{name: "tmp set with default memory", tmpSize: "2G"},
+		{name: "tmp unset with memory 2G", memory: "2G"},
 		{name: "memory at floor", memory: "128M"},
 		{name: "tmp just below memory", memory: "4G", tmpSize: "3968M"},
 		{name: "tmp below floor memory is implicit", memory: "128M", tmpSize: "64M"},
