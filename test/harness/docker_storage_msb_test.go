@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -114,6 +115,7 @@ func assertRootlessEngine(t *testing.T, ses *ptySession) {
 		`docker run --rm escape-probe cat /etc/hostname >/dev/null; echo "__CONTROL_RC=__$?__"`,
 		`docker run --rm -v /:/host escape-probe cat /host/etc/shadow >/dev/null; echo "__BIND_RC=__$?__"`,
 		`docker run --rm --privileged --pid=host escape-probe nsenter -t 1 -m -u -i -n -p cat /etc/shadow >/dev/null; echo "__NSENTER_RC=__$?__"`,
+		`echo "__DEVUID=__$(id -u)__END__"`,
 		`echo "__UIDMAP=__$(docker run --rm --privileged escape-probe cat /proc/self/uid_map | awk '{printf "%s:%s:%s;", $1, $2, $3}')__END__"`,
 		"printf '__ESCAPE%s__\\n' _DONE",
 	}, "; ")
@@ -122,7 +124,13 @@ func assertRootlessEngine(t *testing.T, ses *ptySession) {
 	if !strings.Contains(output, "__CONTROL_RC=__0__") {
 		t.Fatalf("the escape probe image does not run; output:\n%s", stripANSI(ses.output()))
 	}
-	if !strings.Contains(output, "__UIDMAP=__0:1000:1;") {
+	// dev's uid is the host user's (the USER_UID build arg), so the expected
+	// mapping is read from the VM rather than assumed.
+	devUID := devUIDPattern.FindStringSubmatch(output)
+	if devUID == nil {
+		t.Fatalf("the shell did not report dev's uid; output:\n%s", stripANSI(ses.output()))
+	}
+	if !strings.Contains(output, "__UIDMAP=__0:"+devUID[1]+":1;") {
 		t.Errorf("a privileged container must map its root to dev in a non-initial user namespace; output:\n%s",
 			stripANSI(ses.output()))
 	}
@@ -132,6 +140,9 @@ func assertRootlessEngine(t *testing.T, ses *ptySession) {
 		}
 	}
 }
+
+// devUIDPattern extracts dev's uid from the rootless check's marker output.
+var devUIDPattern = regexp.MustCompile(`__DEVUID=__([0-9]+)__END__`)
 
 // dockerStorageProject is the throwaway project directory the docker-storage
 // subtest runs from, fixing the slug its runner image is keyed by.
