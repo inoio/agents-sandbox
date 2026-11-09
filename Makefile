@@ -312,12 +312,24 @@ test-hermetic:
 envelope-test:
 	./scripts/test-envelope_test.sh
 
-check: fmt lint test compile-all docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test cleanup-branches-test envelope-test
+# Test the upstream-drift reporter itself (fixtures only: never touches this repo).
+upstream-drift-test:
+	./scripts/test-upstream-drift.sh
+
+# Test the rebase-status reporter itself (fixtures only: never touches this repo).
+rebase-status-test:
+	./scripts/test-rebase-status.sh
+
+# Read-only local gate (does not modify files): formatter check + lint + test +
+# compile-all + the docs/changelog/deadcode/envelope harness tests. Run this when
+# finalizing; `make fmt` fixes formatting. CI runs the same formatter check via
+# `make validate-fmt`.
+check: validate-fmt lint test compile-all docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test cleanup-branches-test envelope-test upstream-drift-test rebase-status-test
 
 # Read-only check for CI parity: fmt-check + lint + test + race + vulncheck (does not modify files).
-verify: validate-fmt lint test test-race compile-all vulncheck deadcode docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test cleanup-branches-test envelope-test
+verify: validate-fmt lint test test-race compile-all vulncheck deadcode docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test cleanup-branches-test envelope-test upstream-drift-test rebase-status-test
 
-all: fmt lint test docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test build cleanup-branches-test
+all: fmt lint test docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test build cleanup-branches-test upstream-drift-test rebase-status-test
 
 clean:
 	rm -f agents-sandbox

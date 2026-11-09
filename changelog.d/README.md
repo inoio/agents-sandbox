@@ -10,7 +10,11 @@ Create `changelog.d/<slug>.<type>.md`, where:
 
 - `<slug>` is the **PR number**. It is unique across pull requests, so two PRs cannot pick the same
   filename — an issue number is shared when several PRs close the same issue. Put the `(#issue)`
-  reference in the bullet text, where it already lives.
+  reference in the bullet text, where it already lives. If you write the fragment before the PR
+  exists, use the next number after the highest existing PR as the slug
+  (`gh pr list --state all --limit 1 --json number` names it); the `changelog` CI check fails a pull
+  request whose added fragment slug is not its own PR number, so rename the fragment to the real
+  number once the PR is open.
 - `<type>` is one of `added`, `changed`, `deprecated`, `docs`, `fixed` — the section the entry
   belongs to in `CHANGELOG.md`.
 - `<n>` numbers several entries of the same type from one change (`103.changed-1.md`,

@@ -114,10 +114,11 @@ Fragments are assembled by the release process; there is no separate tool and no
 
 ### Enforcement contract
 
-Two rules, enforced by a dedicated `changelog` check that **always runs** and is a required status check. It must never be conditionally skipped (a skipped required check reports success; see the gating invariants). It decides the presence rule internally from the PR's diff rather than gating its own execution.
+Three rules, enforced by a dedicated `changelog` check that **always runs** and is a required status check. It must never be conditionally skipped (a skipped required check reports success; see the gating invariants). It decides the presence rule internally from the PR's diff rather than gating its own execution.
 
 - **Shape** (every run): every file in `changelog.d/` matches `<slug>.<type>.md` (or `<slug>.<type>-<n>.md`) with a known type, except the ignored names.
 - **Presence** (from the changeset, on every event): a changeset that touches production code must add at least one top-level, non-ignored fragment. "Production code" is the complement of the `changes` filter — `docs/`, `.operator-shared/`, `Formula/`, `.github/ISSUE_TEMPLATE/`, any `*.md`, and `.gitignore` are exempt — minus a further exemption for test files (`*_test.go`): a test-only changeset needs no fragment. An ignored name or a nested path under `changelog.d/` does not count. The job runs on the PR's diff and again on the queue/merge diff.
+- **Slug** (`pull_request` events, where the number is known): a fragment the changeset adds must be present in the tree and its `<slug>` must equal the pull-request number, turning the add-before-the-PR-exists guess into a gate. `check-changelog.sh` takes `--pr NUMBER` for this; the CI job passes `github.event.pull_request.number`. A deleted fragment (the release PR removes every fragment when assembling `CHANGELOG.md`) is skipped, so the release PR is not compared against old numbers.
 
 ### Transition
 

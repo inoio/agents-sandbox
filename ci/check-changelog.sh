@@ -16,8 +16,10 @@
 #   (`*_test.go`) needs none; keep the exempt prefix set in sync with the
 #   `changes` job.
 #
-# Usage: ci/check-changelog.sh [ROOT] [--changed FILE]
+# Usage: ci/check-changelog.sh [ROOT] [--changed FILE] [--pr NUMBER]
 #   ROOT defaults to the repository root; the test harness passes a fixture root.
+#   --pr NUMBER, with --changed, also requires each added fragment's slug to be
+#   the pull-request number (CI passes it for pull_request events).
 #
 # Exit status is non-zero when any violation is found.
 
@@ -25,10 +27,15 @@ set -euo pipefail
 
 ROOT=""
 CHANGED_FILE=""
+PR_NUMBER=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --changed)
       CHANGED_FILE="$2"
+      shift 2
+      ;;
+    --pr)
+      PR_NUMBER="$2"
       shift 2
       ;;
     *)
@@ -97,6 +104,29 @@ check_presence() {
   fi
 }
 [[ -n "$CHANGED_FILE" ]] && check_presence
+
+# When the PR number is known (CI passes it for pull_request events), the slug of
+# each fragment this changeset adds must equal it. The fragment is often authored
+# before the PR exists, so its slug is a guess (the next number after the highest
+# existing PR); this check is what turns that guess into a gate. Only fragments
+# present in the tree count: the release PR deletes every fragment, and a deleted
+# path (which `git diff --name-only` reports) must not be compared to its number.
+check_pr_slug() {
+  local line base slug
+  [[ -n "$PR_NUMBER" ]] || return 0
+  while IFS= read -r line; do
+    [[ "$line" =~ ^changelog\.d/([^/]+)$ ]] || continue
+    base="${BASH_REMATCH[1]}"
+    [[ " $IGNORE " == *" $base "* ]] && continue
+    [[ -f "$CHANGELOG_DIR/$base" ]] || continue
+    if [[ "$base" =~ ^([0-9]+)\.($TYPES)(-[0-9]+)?\.md$ ]]; then
+      slug="${BASH_REMATCH[1]}"
+      [[ "$slug" == "$PR_NUMBER" ]] \
+        || report "changelog.d/$base: slug '$slug' is not the pull-request number '$PR_NUMBER'"
+    fi
+  done <"$CHANGED_FILE"
+}
+[[ -n "$CHANGED_FILE" ]] && check_pr_slug
 
 if [[ "$violations" -gt 0 ]]; then
   printf 'changelog: %d violation(s) found\n' "$violations"
