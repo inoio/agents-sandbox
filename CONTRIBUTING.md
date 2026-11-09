@@ -12,6 +12,9 @@ The layout is a standard Go module:
 
 ## Development environment
 
+- **GNU Make 4.0+** — `make check`/`make verify` pass `-O` (output-sync), absent from macOS's system
+  `make` (3.81). Install GNU Make with `brew install make` and call it as `gmake`, or add
+  `$(brew --prefix make)/libexec/gnubin` to `PATH`.
 - **Go** — version pinned in `.go-version`, managed via goenv
 - **golangci-lint** — used by `make lint` and `make fmt`
 - **Docker** — for building the runner image (`agents-sandbox build`)
