@@ -59,6 +59,9 @@ func ResolveTmpSizeMiB(spec string, memoryMiB uint32) uint32
   for that reason.
 - The derived default is always `< memory`: if `memory/2 <= 2 GiB` it is `memory/2 < memory`; otherwise
   `2 GiB < memory/2 < memory`. So the `tmp < memory` check only ever fires on an **explicit** value.
+  The `--tmp-size` CLI flag therefore declares **no default** (empty): it is bound to viper, which
+  mirrors the flag's declared default as the config default, so a fixed `--tmp-size 2G` default would
+  reach `ValidateSizes` as an explicit-looking value and reject e.g. `run --memory 2G` that never set it.
 
 ### Creation-side clamp
 

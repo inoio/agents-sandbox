@@ -177,6 +177,10 @@ func TestRunNotifyFlagBareValueIsOn(t *testing.T) {
 
 // TestRunFlagDefaults pins the defaults of shared run/shell flags whose values
 // are contract: --cpus defaults to 0 ("all") and --workspace-quota to 16G.
+// --tmp-size must default to the empty string, not a fixed literal: an unset
+// value is what lets options.ResolveTmpSizeMiB apply its memory-relative default
+// (min(2 GiB, memory/2)); a fixed default would collide with a smaller --memory
+// and be rejected by the tmp < memory check.
 func TestRunFlagDefaults(t *testing.T) {
 	cmd := buildRunCmd(&termiotest.Mock{})
 	cpus := cmd.Flags().Lookup(flagCpus)
@@ -186,6 +190,10 @@ func TestRunFlagDefaults(t *testing.T) {
 	quota := cmd.Flags().Lookup(flagWorkspaceQuota)
 	if quota == nil || quota.DefValue != "16G" {
 		t.Errorf("--%s default = %v, want 16G", flagWorkspaceQuota, quota)
+	}
+	tmpSize := cmd.Flags().Lookup(flagTmpSize)
+	if tmpSize == nil || tmpSize.DefValue != "" {
+		t.Errorf("--%s default = %v, want \"\" (unset, memory-relative)", flagTmpSize, tmpSize)
 	}
 }
 

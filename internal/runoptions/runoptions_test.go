@@ -49,7 +49,7 @@ func registerRunFlags(cmd *cobra.Command) {
 
 	cmd.Flags().Uint8("cpus", 0, "cpus")
 	cmd.Flags().String(FlagMemory, "4G", "memory")
-	cmd.Flags().String(FlagTmpSize, "2G", "tmp-size")
+	cmd.Flags().String(FlagTmpSize, "", "tmp-size")
 	cmd.Flags().String(FlagDiskSize, "", "disk-size")
 	cmd.Flags().String(FlagWorkspaceQuota, "16G", "workspace-quota")
 	cmd.Flags().Bool("docker", false, "docker")
