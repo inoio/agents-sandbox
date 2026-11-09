@@ -40,12 +40,6 @@ const DestroyTimeout = 30 * time.Second
 // sandbox, which is why Destroy and the sweep stay primary.
 const TestIdleTimeout = 5 * time.Minute
 
-// reuseRuntimeHomeEnv, when set, points the msb-tagged tests at an existing
-// microsandbox home they keep between runs instead of a fresh temp home. A kept
-// home skips reinstalling the SDK-pinned runtime and reloading cached images.
-// Local iteration only: unset (the default) creates and removes a fresh home.
-const reuseRuntimeHomeEnv = "AGENTS_SANDBOX_MSB_TEST_HOME"
-
 // reuseLockSuffix names the lock file that serializes runs sharing a reused
 // microsandbox home. The lock sits beside the home, not inside it, so it never
 // lands in the runtime home.
