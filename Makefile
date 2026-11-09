@@ -323,6 +323,8 @@ rebase-status-test:
 # The gates' targets are independent and read-only, so `check` and `verify` run
 # them as parallel jobs by re-entering make with -j. nproc on Linux, hw.ncpu on
 # macOS, with a fixed fallback. A user's own `-j` still bounds the jobserver.
+# -O groups each parallel job's output; it needs GNU Make 4.0+ (macOS ships 3.81,
+# so build with Homebrew's gmake — see CONTRIBUTING.md).
 JOBS ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
 
 CHECK_TARGETS = validate-fmt lint test compile-all docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test deadcode-test cleanup-branches-test envelope-test upstream-drift-test rebase-status-test
@@ -333,11 +335,11 @@ VERIFY_TARGETS = $(CHECK_TARGETS) test-race vulncheck deadcode
 # finalizing; `make fmt` fixes formatting. CI runs the same formatter check via
 # `make validate-fmt`.
 check:
-	@$(MAKE) --no-print-directory -j$(JOBS) $(CHECK_TARGETS)
+	@$(MAKE) --no-print-directory -j$(JOBS) -O $(CHECK_TARGETS)
 
 # Read-only check for CI parity: fmt-check + lint + test + race + vulncheck (does not modify files).
 verify:
-	@$(MAKE) --no-print-directory -j$(JOBS) $(VERIFY_TARGETS)
+	@$(MAKE) --no-print-directory -j$(JOBS) -O $(VERIFY_TARGETS)
 
 all: fmt lint test docs-linkcheck docs-linkcheck-test changelog-check changelog-check-test build cleanup-branches-test upstream-drift-test rebase-status-test
 
