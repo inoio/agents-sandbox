@@ -14,6 +14,9 @@ what `AGENTS.md` does not cover.
 
 - When adding or editing a catalog entry, spec, plan, or guide, follow
   `guides/operator-brain-maintenance.md`.
+- The spec catalog is grouped by subsystem: each `specs/<subsystem>/` has one summary
+  entry naming its files. To find the right contract, list `specs/<subsystem>/` and read
+  each file's `read_if` frontmatter — the per-spec Read If lives in the file, not the catalog.
 
 ## Skills
 

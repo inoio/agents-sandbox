@@ -16,6 +16,10 @@ The catalog is a map, not a second copy of the docs.
   prefixes "Implementing or reviewing …" / "Reviewing or resuming …" — the field already says when to read.
 - Keep entries to `Description` + `Read If`. Entries and their order are stable while the document set is; a reorganisation
   (merging, splitting, or regrouping docs) changes both, and the catalog is rewritten to match.
+- **Spec subsystems are one entry each.** A `specs/<subsystem>/` entry names the files it holds and aggregates their
+  distinct read triggers; the per-spec `read_if` lives in the file's frontmatter, so a reader lists the subsystem
+  directory and scans frontmatter for the exact contract. This keeps the auto-injected catalog small at the cost of one
+  extra lookup; do not expand a subsystem back into one entry per spec file.
 
 ## Plans vs specs
 
