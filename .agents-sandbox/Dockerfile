@@ -36,8 +36,8 @@ RUN GOBIN=/usr/local/bin go install gotest.tools/gotestsum@v${GOTESTSUM_VERSION}
 # call hierarchy). goimports: add/remove imports across a package move. deadcode: the
 # same x/tools pinned by the `make deadcode` gate (DEADCODE_VERSION), prebuilt so the
 # gate needs no first-use fetch.
+RUN GOBIN=/usr/local/bin go install golang.org/x/tools/gopls@v${GOPLS_VERSION}
 RUN GOBIN=/usr/local/bin go install \
-    golang.org/x/tools/gopls@v${GOPLS_VERSION} \
     golang.org/x/tools/cmd/goimports@v${XTOOLS_VERSION} \
     golang.org/x/tools/cmd/deadcode@v${XTOOLS_VERSION}
 # ast-grep: structural search/rewrite over the AST (Rust). Its GitHub releases carry
