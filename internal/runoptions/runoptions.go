@@ -103,8 +103,8 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.Logger) (optio
 		opts.ProvisionHostConfig = &provisionHostConfig
 		opts.OpenLinks = cfg.OpenLinks
 		opts.AllowPlaceholderFor = cfg.Secrets.Common.AllowPlaceholderFor
-		opts.CacheFrom = cfg.ImageCacheFrom
-		opts.CacheTo = cfg.ImageCacheTo
+		opts.CacheFrom = singleCacheEntry(cfg.ImageCacheFrom)
+		opts.CacheTo = singleCacheEntry(cfg.ImageCacheTo)
 		opts.ConfigSlug = cfg.ConfigSlug
 	} else {
 		opts.OpenLinks, _ = cmd.Flags().GetBool(FlagOpenLinks)
@@ -132,6 +132,17 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.Logger) (optio
 	}
 
 	return opts, nil
+}
+
+// singleCacheEntry wraps a configured BuildKit cache spec into the one-element
+// slice RunOptions carries. A single spec stays one entry: the config value is a
+// string (one spec per direction), and splitting it on commas would break a spec
+// such as "type=gha,scope=runner-image,mode=max". Empty means no entry.
+func singleCacheEntry(value string) []string {
+	if value == "" {
+		return nil
+	}
+	return []string{value}
 }
 
 // ResolveDockerSetting returns the effective docker setting for cmd's changed

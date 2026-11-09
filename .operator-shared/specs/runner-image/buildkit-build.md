@@ -64,12 +64,13 @@ service URLs.
 
 ### Configuration
 
-One config key per direction, `image-cache-from` and `image-cache-to` (each a `[]string`, env-bound, with no CLI
-flag), holding BuildKit cache specs such as `type=gha,scope=runner-image,mode=max`. Empty — the default — means no
-entry. The CI sets `image-cache-to` on a main push (the single writer) and only `image-cache-from` on a PR, so a PR
-never publishes a throwaway cache. The cache spec syntax is BuildKit's; the launcher does not interpret it beyond
-passing it through. Config-key registration (the golden env-key list, docs) follows
-`../configuration/config-keys.md`.
+One config key per direction, `image-cache-from` and `image-cache-to` (each a single spec string, env-bound, with no
+CLI flag), holding one BuildKit cache spec such as `type=gha,scope=runner-image,mode=max`. A spec is passed through
+whole — it contains commas (`type=`, `scope=`, `mode=`), so the keys are deliberately not `[]string` (which would
+comma-split an env value). Empty — the default — means no entry. The CI sets `image-cache-to` on a main push (the
+single writer) and only `image-cache-from` on a PR, so a PR never publishes a throwaway cache. The cache spec syntax
+is BuildKit's; the launcher does not interpret it beyond passing it through. Config-key registration (the golden
+env-key list, docs) follows `../configuration/config-keys.md`.
 
 The CI job gating and the main-writer/PR-restore split are owned by `../ci/ci-pipeline.md` once that section lands
 with the implementation.
