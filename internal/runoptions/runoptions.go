@@ -103,6 +103,8 @@ func Build(cfg *viperconfig.Config, cmd *cobra.Command, ui termio.Logger) (optio
 		opts.ProvisionHostConfig = &provisionHostConfig
 		opts.OpenLinks = cfg.OpenLinks
 		opts.AllowPlaceholderFor = cfg.Secrets.Common.AllowPlaceholderFor
+		opts.CacheFrom = cfg.ImageCacheFrom
+		opts.CacheTo = cfg.ImageCacheTo
 		opts.ConfigSlug = cfg.ConfigSlug
 	} else {
 		opts.OpenLinks, _ = cmd.Flags().GetBool(FlagOpenLinks)

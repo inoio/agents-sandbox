@@ -212,6 +212,26 @@ func TestBuildAllowPlaceholderForFromConfig(t *testing.T) {
 	}
 }
 
+// The image cache keys reach RunOptions, where prepare reads them into the
+// image build's cache-from/cache-to entries. Empty stays empty: a local build
+// without the keys carries no cache entry.
+func TestBuildCarriesImageCacheKeys(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{
+		ImageCacheFrom: []string{"type=gha,scope=runner-image,mode=max"},
+		ImageCacheTo:   []string{"type=registry,ref=example.com/cache:main"},
+	})
+	opts, err := Build(r.Config(), newRunCommand(), &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !slices.Equal(opts.CacheFrom, []string{"type=gha,scope=runner-image,mode=max"}) {
+		t.Errorf("CacheFrom = %v, want the configured image-cache-from entries", opts.CacheFrom)
+	}
+	if !slices.Equal(opts.CacheTo, []string{"type=registry,ref=example.com/cache:main"}) {
+		t.Errorf("CacheTo = %v, want the configured image-cache-to entries", opts.CacheTo)
+	}
+}
+
 // TestBuildRecordsExplicitLimitFlags pins the limit flags' provenance: Build
 // records which of --memory, --disk-size, --workspace-quota and --tmp-size were
 // set explicitly, so a raise is not written as a config value the flag would

@@ -6,11 +6,15 @@ import (
 	"errors"
 	"io"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	buildkitclient "github.com/moby/buildkit/client"
+	"github.com/moby/buildkit/client/llb"
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
+	"github.com/moby/moby/api/types/build"
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
@@ -1428,6 +1432,59 @@ func TestBuildWarnsIgnoredWorktreeConfig(t *testing.T) {
 	)
 
 	assertWarnsIgnoredWorktreeConfig(t, ui)
+}
+
+// TestBuildRequestCarriesCacheEntries pins that the cache configuration threaded
+// from BuildOptions reaches the BuildKit solve options as cache import/export
+// entries: the image-cache-from/image-cache-to config keys drive the CI build
+// cache, and each spec passes through uninterpreted. The BuildKit path is
+// selected (ping advertises Builder-Version 2) so the assertion observes the
+// solve options the build constructs from the request.
+func TestBuildRequestCarriesCacheEntries(t *testing.T) {
+	var captured buildkitclient.SolveOpt
+	stubBuildKitClient(t, &fakeBuildKitSolver{solve: func(
+		_ context.Context, _ *llb.Definition, opt buildkitclient.SolveOpt, _ chan *buildkitclient.SolveStatus,
+	) {
+		captured = opt
+	}})
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
+		PingFn: func(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
+			return client.PingResult{BuilderVersion: build.BuilderBuildKit}, nil
+		},
+		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
+			return client.ImageInspectResult{ID: "sha256:base"}, nil
+		},
+	})
+
+	req := testBuildRequest([]byte("FROM debian:trixie-slim\n"), "", "", "", imageIdentity{})
+	err := buildFromPlan(
+		context.Background(),
+		docker.Get(),
+		agentOpencode(t),
+		req.plan,
+		"tag",
+		BuildOptions{
+			CacheFrom: []string{"type=gha"},
+			CacheTo:   []string{"type=gha,scope=runner-image,mode=max"},
+		},
+		&termiotest.Mock{},
+	)
+	if err != nil {
+		t.Fatalf("buildFromPlan: %v", err)
+	}
+
+	wantImports := []buildkitclient.CacheOptionsEntry{
+		{Type: "gha", Attrs: map[string]string{}},
+	}
+	if !reflect.DeepEqual(captured.CacheImports, wantImports) {
+		t.Errorf("CacheImports = %#v, want %#v", captured.CacheImports, wantImports)
+	}
+	wantExports := []buildkitclient.CacheOptionsEntry{
+		{Type: "gha", Attrs: map[string]string{"scope": "runner-image", "mode": "max"}},
+	}
+	if !reflect.DeepEqual(captured.CacheExports, wantExports) {
+		t.Errorf("CacheExports = %#v, want %#v", captured.CacheExports, wantExports)
+	}
 }
 
 // testDockerImageID is a full sha256 image ID whose 16-char prefix keys the
