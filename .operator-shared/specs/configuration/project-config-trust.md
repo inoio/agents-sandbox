@@ -133,6 +133,10 @@ are.
 - At **config resolution**: the root command's `PersistentPreRunE`, after the checkout identity is resolved
   and before `viperconfig.NewResolver` merges the layers and `applyCLISettings` applies them. The gate decides
   whether the project layer is part of this run at all; it is not a stage of `prepare.PrepareSandbox`.
+- The gate resolves the process path factory (`configpaths.Get`) when it runs, not when `buildRootCmd` builds
+  the tree, so a test seam that swaps the factory afterwards is honoured. It captures that factory before
+  installing its own `configpaths.WithProjectLayer` wrapper, since `configpaths.Use` would otherwise make the
+  wrapper self-referential.
   Several project keys act before `PrepareSandbox` runs — `yes` sets assume-yes for the whole process,
   `upgrade.*` drives the self-upgrade, `auto-prune-age` the startup prune, and `quiet`/`log-level` could hide
   the very prompt and warnings this contract relies on — so a gate inside `prepare` would come too late.

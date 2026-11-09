@@ -69,6 +69,9 @@ func TestBuildDockerfileCommandReadsBareRoot(t *testing.T) {
 	}
 	testutil.WritePath(t, filepath.Join(bareConfigDir, "Dockerfile"), "FROM bare-root\n")
 	testutil.WritePath(t, filepath.Join(ignoredDir, "Dockerfile"), "FROM worktree\n")
+	// The trust gate leaves an unapproved project layer out of `build
+	// dockerfile`; approve it so this test exercises bare-root resolution.
+	approveProjectConfig(t)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -96,6 +99,9 @@ func TestBuildDockerfileWritesDiagnosticsToStderr(t *testing.T) {
 	}
 	testutil.WritePath(t, filepath.Join(bareConfigDir, "Dockerfile"),
 		"FROM debian:trixie-slim\n# Agents-Sandbox:docker\nRUN echo hi\n")
+	// `build dockerfile` does not apply the project config without approval;
+	// approve so the near-miss marker in the project Dockerfile is emitted.
+	approveProjectConfig(t)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)

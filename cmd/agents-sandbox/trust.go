@@ -28,7 +28,11 @@ func gateProjectConfig(
 	identity git.Identity,
 	projectPaths func() configpaths.ConfigPaths,
 ) error {
-	withProject := func() configpaths.ConfigPaths { return configpaths.WithProjectLayer(projectPaths()) }
+	// Resolve the base factory before installing the wrapper: configpaths.Use
+	// makes the wrapper the process factory, so reading it again here would
+	// recurse.
+	base := projectPaths()
+	withProject := func() configpaths.ConfigPaths { return configpaths.WithProjectLayer(base) }
 	configpaths.Use(withProject)
 
 	decision, err := evaluateProjectConfig(withProject(), identity)
