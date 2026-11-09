@@ -548,19 +548,32 @@ RUN set -e; mkdir -p /etc/agents-sandbox; \
 `, agentBinary(a), toolDir)
 }
 
-// launcherGuestTools are in-VM tools the launcher invokes directly, independent
-// of the agent: curl replays a browser-login callback inside the VM for the
-// host opener. The opener is on by default, so every runner image verifies
-// these; the check makes a custom base that lacks one fail the image build
-// naming the tool instead of failing at login time. The managed base already
-// provides curl.
-var launcherGuestTools = []string{"curl"}
+// launcherGuestTool is an in-VM tool one of the launcher's own features invokes,
+// independent of the agent, with the feature named in the missing-tool error.
+type launcherGuestTool struct {
+	name   string
+	reason string
+}
+
+// launcherGuestTools are verified in every runner image, so a custom base that
+// lacks one fails the image build naming the tool instead of failing when the
+// feature runs: curl replays a browser-login callback inside the VM for the
+// host opener (on by default), and tar copies the old home volume onto the new
+// one on migrate. The managed base provides both.
+var launcherGuestTools = []launcherGuestTool{
+	{name: "curl", reason: "required by the host opener"},
+	{name: "tar", reason: "required by the home volume migrate"},
+}
 
 // launcherToolsBlock verifies the in-VM tools the launcher's own features need,
 // on top of the agent's runtime tools. It runs last, with the same PATH as
 // guestToolsBlock, and fails the build naming the missing tool.
 func launcherToolsBlock() string {
-	return guestToolCheck(launcherGuestTools, "launcher runtime tool missing", "required by the host opener")
+	var blocks strings.Builder
+	for _, tool := range launcherGuestTools {
+		blocks.WriteString(guestToolCheck([]string{tool.name}, "launcher runtime tool missing", tool.reason))
+	}
+	return blocks.String()
 }
 
 // guestToolsBlock verifies the in-VM tools this agent's runtime needs (daemon

@@ -756,10 +756,11 @@ func TestRenderDockerfileNoChownForStatelessAgents(t *testing.T) {
 	}
 }
 
-// TestRenderDockerfileChecksLauncherTools guards the host opener's custom-base
-// contract: the launcher replays a browser-login callback inside the VM with
-// curl, so every runner image must verify curl in the final stage, including
-// the daemonless agents (pi, claude-code) that declare no agent tools.
+// TestRenderDockerfileChecksLauncherTools guards the launcher's custom-base
+// contract: the host opener replays a browser-login callback inside the VM with
+// curl, and migrate copies the home volume with tar, so every runner image must
+// verify both in the final stage, including the daemonless agents (pi,
+// claude-code) that declare no agent tools.
 func TestRenderDockerfileChecksLauncherTools(t *testing.T) {
 	for _, name := range []string{"opencode", "pi", "claude-code"} {
 		a, ok := agent.Lookup(name)
@@ -767,11 +768,16 @@ func TestRenderDockerfileChecksLauncherTools(t *testing.T) {
 			t.Fatalf("agent %q not registered", name)
 		}
 		final := finalStage(t, mustRender(t, a, nil, dockerOff))
-		if !strings.Contains(final, "for p in curl;") {
-			t.Errorf("%s: the final stage must verify the launcher's curl; got:\n%s", name, final)
-		}
-		if !strings.Contains(final, "launcher runtime tool missing") {
-			t.Errorf("%s: the missing-tool error must name the launcher; got:\n%s", name, final)
+		for _, check := range []struct{ tool, reason string }{
+			{"curl", "required by the host opener"},
+			{"tar", "required by the home volume migrate"},
+		} {
+			if !strings.Contains(final, "for p in "+check.tool+";") {
+				t.Errorf("%s: the final stage must verify the launcher's %s; got:\n%s", name, check.tool, final)
+			}
+			if !strings.Contains(final, "launcher runtime tool missing: $p ("+check.reason+")") {
+				t.Errorf("%s: the missing-%s error must name its launcher feature; got:\n%s", name, check.tool, final)
+			}
 		}
 	}
 }

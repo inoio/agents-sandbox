@@ -236,7 +236,8 @@ base must meet these requirements:
   the merged `PATH`.
 - **For Docker only**: the runtime prerequisites `iptables`, `git`, `ps`, and `xz`. These are checked after your
   Dockerfile body runs, so they may be installed in the body or an earlier stage. If one is missing, the build fails and
-  names the missing package. The engine download itself runs on the tool base, so your image needs no `curl` or `tar`.
+  names the missing package. The engine download itself runs on the tool base, so docker adds no `curl` or `tar`
+  requirement of its own.
 - **For the daemon agents (`opencode`, `opencode2`)**: the in-VM tool the launcher uses — `curl`. It reaches the daemon
   (the health probe, session and worktree calls, and notifications); the daemon is launched and stopped as a
   runtime-owned job, so no process-control tool is needed. `curl` is checked after your Dockerfile body runs, so it may
@@ -246,6 +247,9 @@ base must meet these requirements:
   base needs `curl` even when the agent runs no daemon (the daemon agents' `curl` requirement covers the same tool). It
   is checked after your Dockerfile body runs, and a missing `curl` fails the build naming the tool. See
   [Opening links]({% link configuration/opening-links.md %}#logging-in-to-an-agent).
+- **For migrating the home volume**: `tar`. When the image changes and you choose **migrate**, the launcher copies
+  your old home volume onto the new one with `tar` inside the VM, so every custom base needs it. It is checked after
+  your Dockerfile body runs, and a missing `tar` fails the build naming the tool.
 - **For `hermes`**: the shared library `libatomic.so.1`. Hermes's provisioned Node.js links it on glibc, and the agent
   stage that installs it is discarded, so the base must provide it — `libatomic1` on Debian/Ubuntu, `libatomic` on
   Fedora/RHEL. It is resolved with `ldconfig` after your Dockerfile body runs, located from `PATH` or the standard sbin
