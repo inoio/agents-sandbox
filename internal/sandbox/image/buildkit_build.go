@@ -240,7 +240,8 @@ func buildKitCacheEntries(specs []string) []buildkitclient.CacheOptionsEntry {
 // "type=gha,scope=x,mode=max" into the entry a SolveOpt carries. Only the
 // shape is parsed — the type and attribute values pass through to BuildKit
 // uninterpreted, so an invalid backend or attribute is the daemon's error to
-// report.
+// report. A gha spec additionally gains the Actions cache credentials from the
+// environment; see fillGitHubActionsCacheAttrs.
 func parseBuildKitCacheSpec(spec string) buildkitclient.CacheOptionsEntry {
 	attrs := map[string]string{}
 	entryType := ""
@@ -255,5 +256,29 @@ func parseBuildKitCacheSpec(spec string) buildkitclient.CacheOptionsEntry {
 		}
 		attrs[key] = value
 	}
+	if entryType == "gha" {
+		fillGitHubActionsCacheAttrs(attrs)
+	}
 	return buildkitclient.CacheOptionsEntry{Type: entryType, Attrs: attrs}
+}
+
+// fillGitHubActionsCacheAttrs copies the GitHub Actions cache-service
+// credentials onto a gha cache entry's attributes. BuildKit's gha backend reads
+// the cache url and token from the entry attributes only — its documented
+// ACTIONS_* defaults are applied by buildx on the client, not by BuildKit — and
+// the embedded builder runs in the engine daemon, which never sees the step's
+// environment. So the client carries them, the way buildx does. An attribute
+// set explicitly in the spec is left untouched.
+func fillGitHubActionsCacheAttrs(attrs map[string]string) {
+	fromEnv := func(attr, envVar string) {
+		if _, set := attrs[attr]; set {
+			return
+		}
+		if value := os.Getenv(envVar); value != "" {
+			attrs[attr] = value
+		}
+	}
+	fromEnv("url", "ACTIONS_CACHE_URL")
+	fromEnv("url_v2", "ACTIONS_RESULTS_URL")
+	fromEnv("token", "ACTIONS_RUNTIME_TOKEN")
 }

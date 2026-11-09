@@ -229,7 +229,9 @@ jobs:
       # Every build restores from the shared GHA cache; only a push to main
       # writes it, so a PR restores but never exports a merge-ref cache. Each
       # value is one BuildKit cache spec, forwarded verbatim (see the
-      # integration suite's imageCacheEnv helper).
+      # integration suite's imageCacheEnv helper). The launcher fills the
+      # cache-service url and token from the ACTIONS_* environment the
+      # `ghaction-github-runtime` step exposes.
       AGENTS_SANDBOX_IMAGE_CACHE_FROM: type=gha,scope=runner-image
       AGENTS_SANDBOX_IMAGE_CACHE_TO: ${{ github.ref == 'refs/heads/main' && 'type=gha,scope=runner-image,mode=max' || '' }}
     runs-on: ubuntu-latest
@@ -239,6 +241,10 @@ jobs:
         with:
           go-version-file: .go-version
           cache: true
+      # GitHub does not put the Actions cache-service url/token into a plain
+      # `run` step's environment; this exposes them so the launcher can carry
+      # them to the daemon's BuildKit (which cannot read the step's env).
+      - uses: crazy-max/ghaction-github-runtime@v3
       - run: make test-integration
 
   integration-podman:

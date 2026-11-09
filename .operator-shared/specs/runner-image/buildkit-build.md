@@ -58,9 +58,13 @@ optimization only:
   and is invisible to main and sibling PRs, so main (a `push`) is the single writer; PRs are restore-only.
 - The cache is off unless configured; a normal local build carries none.
 
-The concrete backend the CI uses is `type=gha`, whose exporter is BuildKit's (`cache/remotecache/gha`): it reads the
-GitHub Actions cache environment itself, so the launcher only has to be told *which entries* to use, not the cache
-service URLs.
+The concrete backend the CI uses is `type=gha`, whose exporter is BuildKit's (`cache/remotecache/gha`). That backend
+reads the cache url and token from the **entry attributes**, not from the ambient environment: its documented
+`ACTIONS_*` defaults are applied by buildx on the client (not in our path), and the embedded builder runs in the engine
+daemon, which never sees the step's environment. So the launcher carries the credentials — for a `gha` entry it copies
+`url` ← `ACTIONS_CACHE_URL`, `url_v2` ← `ACTIONS_RESULTS_URL`, and `token` ← `ACTIONS_RUNTIME_TOKEN` onto the entry's
+attributes, leaving an attribute the spec sets explicitly untouched. The CI exposes those variables to the step with
+`crazy-max/ghaction-github-runtime`.
 
 ### Configuration
 

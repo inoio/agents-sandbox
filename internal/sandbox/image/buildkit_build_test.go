@@ -129,6 +129,12 @@ func TestBuildKitSolveOptCacheEntriesEmptyWhenUnset(t *testing.T) {
 // TestBuildKitSolveOptCacheEntriesPassThroughVerbatim pins that a configured
 // cache spec's type and attributes reach the solve options uninterpreted.
 func TestBuildKitSolveOptCacheEntriesPassThroughVerbatim(t *testing.T) {
+	// The gha entry gains the Actions cache env attrs when they are set; clear
+	// them so this test asserts the verbatim pass-through only.
+	t.Setenv("ACTIONS_CACHE_URL", "")
+	t.Setenv("ACTIONS_RESULTS_URL", "")
+	t.Setenv("ACTIONS_RUNTIME_TOKEN", "")
+
 	req := testBuildRequest([]byte("FROM scratch\n"), "", "", "", imageIdentity{})
 	req.cacheFrom = []string{"type=gha,scope=runner-image,mode=max"}
 	req.cacheTo = []string{"type=registry,ref=example.com/cache:main"}
@@ -149,6 +155,83 @@ func TestBuildKitSolveOptCacheEntriesPassThroughVerbatim(t *testing.T) {
 	}
 	if !reflect.DeepEqual(opt.CacheExports, wantExports) {
 		t.Errorf("CacheExports = %#v, want %#v", opt.CacheExports, wantExports)
+	}
+}
+
+// TestBuildKitCacheEntriesFillGitHubActionsEnv pins that a gha cache entry
+// gains the cache-service url and token from the GitHub Actions environment:
+// BuildKit reads them from the entry attributes only, and the daemon cannot see
+// the step's environment, so the client has to carry them (as buildx does).
+func TestBuildKitCacheEntriesFillGitHubActionsEnv(t *testing.T) {
+	t.Setenv("ACTIONS_CACHE_URL", "https://cache.actions.example/")
+	t.Setenv("ACTIONS_RESULTS_URL", "https://results.actions.example/")
+	t.Setenv("ACTIONS_RUNTIME_TOKEN", "runtime-token")
+
+	req := testBuildRequest([]byte("FROM scratch\n"), "", "", "", imageIdentity{})
+	req.cacheTo = []string{"type=gha,scope=runner-image,mode=max"}
+	opt, cleanup, err := buildKitSolveOpt(req, "tag", false)
+	if err != nil {
+		t.Fatalf("buildKitSolveOpt: %v", err)
+	}
+	defer cleanup()
+
+	want := []buildkitclient.CacheOptionsEntry{{
+		Type: "gha",
+		Attrs: map[string]string{
+			"scope":  "runner-image",
+			"mode":   "max",
+			"url":    "https://cache.actions.example/",
+			"url_v2": "https://results.actions.example/",
+			"token":  "runtime-token",
+		},
+	}}
+	if !reflect.DeepEqual(opt.CacheExports, want) {
+		t.Errorf("CacheExports = %#v, want %#v", opt.CacheExports, want)
+	}
+}
+
+// TestBuildKitCacheEntriesExplicitAttrsBeatGitHubActionsEnv pins that an
+// attribute the spec sets explicitly is not overwritten by the environment.
+func TestBuildKitCacheEntriesExplicitAttrsBeatGitHubActionsEnv(t *testing.T) {
+	t.Setenv("ACTIONS_RUNTIME_TOKEN", "runtime-token")
+
+	req := testBuildRequest([]byte("FROM scratch\n"), "", "", "", imageIdentity{})
+	req.cacheTo = []string{"type=gha,token=explicit-token"}
+	opt, cleanup, err := buildKitSolveOpt(req, "tag", false)
+	if err != nil {
+		t.Fatalf("buildKitSolveOpt: %v", err)
+	}
+	defer cleanup()
+
+	want := []buildkitclient.CacheOptionsEntry{{
+		Type:  "gha",
+		Attrs: map[string]string{"token": "explicit-token"},
+	}}
+	if !reflect.DeepEqual(opt.CacheExports, want) {
+		t.Errorf("CacheExports = %#v, want %#v", opt.CacheExports, want)
+	}
+}
+
+// TestBuildKitCacheEntriesLeaveNonGitHubActionsTypesAlone pins that the
+// Actions environment is applied only to the gha backend.
+func TestBuildKitCacheEntriesLeaveNonGitHubActionsTypesAlone(t *testing.T) {
+	t.Setenv("ACTIONS_CACHE_URL", "https://cache.actions.example/")
+	t.Setenv("ACTIONS_RESULTS_URL", "https://results.actions.example/")
+	t.Setenv("ACTIONS_RUNTIME_TOKEN", "runtime-token")
+
+	req := testBuildRequest([]byte("FROM scratch\n"), "", "", "", imageIdentity{})
+	req.cacheFrom = []string{"type=registry,ref=example.com/cache:main"}
+	opt, cleanup, err := buildKitSolveOpt(req, "tag", false)
+	if err != nil {
+		t.Fatalf("buildKitSolveOpt: %v", err)
+	}
+	defer cleanup()
+
+	want := []buildkitclient.CacheOptionsEntry{
+		{Type: "registry", Attrs: map[string]string{"ref": "example.com/cache:main"}},
+	}
+	if !reflect.DeepEqual(opt.CacheImports, want) {
+		t.Errorf("CacheImports = %#v, want %#v", opt.CacheImports, want)
 	}
 }
 
