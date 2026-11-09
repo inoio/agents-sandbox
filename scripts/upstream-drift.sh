@@ -96,7 +96,7 @@ if [[ "$overlap_count" -gt 0 ]]; then
   printf '\nLikely conflict sites (changed on both sides):\n'
   printf '%s\n' "$overlap" | sed 's/^/  /'
 else
-  printf '\nNo file changed on both sides - a rebase should be clean.\n'
+  printf '\nNo file changed on both sides in the final trees - likely a clean rebase.\n'
 fi
 
 if ! "$quiet"; then
@@ -105,7 +105,10 @@ if ! "$quiet"; then
   fi
   if [[ "$overlap_count" -gt 0 ]]; then
     printf '\nUpstream commits touching the overlap:\n'
-    mapfile -t overlap_paths <<<"$overlap"
+    overlap_paths=()
+    while IFS= read -r path; do
+      [[ -n "$path" ]] && overlap_paths+=("$path")
+    done <<<"$overlap"
     git -C "$repo" log --oneline "$merge_base..$base" -- "${overlap_paths[@]}" | sed 's/^/  /'
   fi
 fi

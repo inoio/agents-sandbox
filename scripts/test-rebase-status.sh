@@ -40,6 +40,11 @@ git -C "$proj" branch feature
 # main rewrites the first line; feature rewrites it differently.
 printf 'main-line\ntwo\n' >"$proj/conflict.txt"; git -C "$proj" commit -q -am main
 git -C "$proj" checkout -q feature
+# feature has a clean commit (clean.txt) then a conflicting one (conflict.txt):
+# the rebase applies the first, advancing HEAD to its rewritten commit, then
+# stops on the second.
+printf 'feature-only\n' >"$proj/clean.txt"
+git -C "$proj" add -A; git -C "$proj" commit -q -m feature-clean
 printf 'feature-line\ntwo\n' >"$proj/conflict.txt"; git -C "$proj" commit -q -am feature
 
 echo "# rebase-status.sh (clean)"
@@ -50,8 +55,12 @@ assert_contains "reports zero markers" "$out" "files with conflict markers: 0"
 
 echo "# rebase-status.sh (conflicted rebase)"
 git -C "$proj" rebase main >/dev/null 2>&1 || true
+main_tip="$(git -C "$proj" rev-parse --short main)"
 out="$("$STATUS" --repo "$proj")"
 assert_contains "reports a rebase in progress" "$out" "rebase in progress"
+assert_not_contains "does not report no rebase" "$out" "no rebase in progress"
+assert_contains "reports the step counter" "$out" "step 2/2"
+assert_contains "reports the rebase target, not HEAD" "$out" "onto $main_tip"
 assert_contains "counts the unmerged path" "$out" "unmerged paths: 1"
 assert_contains "names the unmerged file" "$out" "conflict.txt"
 assert_contains "counts the marker file" "$out" "files with conflict markers: 1"

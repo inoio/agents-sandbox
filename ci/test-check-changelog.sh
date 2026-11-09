@@ -202,6 +202,12 @@ d="$(new_fixture 431.added.md)"
 expect_pr "slug is not the PR number" 1 "not the pull-request number" "$d" 432 "internal/foo/foo.go" "changelog.d/431.added.md"
 rm -rf "$d"
 
+# The release PR deletes old fragments: a deleted fragment (an old PR number)
+# must be skipped, not compared to the release PR's number.
+d="$(new_fixture)"
+expect_pr "release PR deleting fragments" 0 "" "$d" 500 "CHANGELOG.md" "changelog.d/432.added.md"
+rm -rf "$d"
+
 # A test-only changeset adds no fragment, so --pr has nothing to reject.
 d="$(new_fixture)"
 expect_pr "no fragment, nothing to check" 0 "" "$d" 432 "internal/foo/foo_test.go"

@@ -108,7 +108,9 @@ check_presence() {
 # When the PR number is known (CI passes it for pull_request events), the slug of
 # each fragment this changeset adds must equal it. The fragment is often authored
 # before the PR exists, so its slug is a guess (the next number after the highest
-# existing PR); this check is what turns that guess into a gate.
+# existing PR); this check is what turns that guess into a gate. Only fragments
+# present in the tree count: the release PR deletes every fragment, and a deleted
+# path (which `git diff --name-only` reports) must not be compared to its number.
 check_pr_slug() {
   local line base slug
   [[ -n "$PR_NUMBER" ]] || return 0
@@ -116,6 +118,7 @@ check_pr_slug() {
     [[ "$line" =~ ^changelog\.d/([^/]+)$ ]] || continue
     base="${BASH_REMATCH[1]}"
     [[ " $IGNORE " == *" $base "* ]] && continue
+    [[ -f "$CHANGELOG_DIR/$base" ]] || continue
     if [[ "$base" =~ ^([0-9]+)\.($TYPES)(-[0-9]+)?\.md$ ]]; then
       slug="${BASH_REMATCH[1]}"
       [[ "$slug" == "$PR_NUMBER" ]] \

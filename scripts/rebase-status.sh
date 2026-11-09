@@ -38,8 +38,11 @@ fi
 
 printf 'rebase status: %s\n' "$repo"
 
-rebase_merge="$(git -C "$repo" rev-parse --git-path rebase-merge)"
-rebase_apply="$(git -C "$repo" rev-parse --git-path rebase-apply)"
+# --path-format=absolute: --git-path otherwise returns a path relative to the
+# target repo root, which the directory tests below would resolve against the
+# caller's CWD when --repo points elsewhere.
+rebase_merge="$(git -C "$repo" rev-parse --path-format=absolute --git-path rebase-merge)"
+rebase_apply="$(git -C "$repo" rev-parse --path-format=absolute --git-path rebase-apply)"
 
 if [[ -d "$rebase_merge" || -d "$rebase_apply" ]]; then
   dir="$rebase_merge"
@@ -48,7 +51,13 @@ if [[ -d "$rebase_merge" || -d "$rebase_apply" ]]; then
   total="?"
   [[ -f "$dir/msgnum" ]] && step="$(<"$dir/msgnum")"
   [[ -f "$dir/end" ]] && total="$(<"$dir/end")"
-  onto="$(git -C "$repo" rev-parse --short HEAD 2>/dev/null || echo '?')"
+  # Read the rebase target from the stored `onto`, not HEAD: HEAD detaches and
+  # advances as commits replay, so after the first one it names the last applied
+  # commit rather than the branch being rebased onto.
+  onto="?"
+  if [[ -f "$dir/onto" ]]; then
+    onto="$(git -C "$repo" rev-parse --short "$(<"$dir/onto")" 2>/dev/null || echo '?')"
+  fi
   head_name=""
   [[ -f "$dir/head-name" ]] && head_name="$(<"$dir/head-name")"
   printf '  state: rebase in progress (step %s/%s), onto %s%s\n' \
