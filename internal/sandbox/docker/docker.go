@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"io"
+	"net"
 	"sync"
 
 	"github.com/moby/moby/client"
@@ -10,6 +11,11 @@ import (
 
 // Client is the exported interface for Docker API operations.
 type Client interface {
+	DialHijack(
+		ctx context.Context,
+		url, protocol string,
+		meta map[string][]string,
+	) (net.Conn, error)
 	ImageBuild(
 		ctx context.Context,
 		buildContext io.Reader,
@@ -69,6 +75,17 @@ var ensureMobyClient = func() error {
 }
 
 type realDockerClient struct{}
+
+func (realDockerClient) DialHijack(
+	ctx context.Context,
+	url, protocol string,
+	meta map[string][]string,
+) (net.Conn, error) {
+	if err := ensureMobyClient(); err != nil {
+		return nil, err
+	}
+	return mobyClient.DialHijack(ctx, url, protocol, meta)
+}
 
 func (realDockerClient) ImageBuild(
 	ctx context.Context,

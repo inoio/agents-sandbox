@@ -5,9 +5,10 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
-    # `labeled` opts a PR into the integration jobs via the `run-integration`
-    # and `run-integration-podman` labels; the other three are the default
-    # pull_request types.
+    # `labeled` opts a PR into the opt-in podman integration job via the
+    # `run-integration-podman` label; the other three are the default
+    # pull_request types. The docker `integration` job no longer needs a label
+    # — it runs on every code-affecting PR.
     types: [opened, synchronize, reopened, labeled]
   # The merge queue re-runs the required checks on the temporary
   # `gh-readonly-queue/main/...` ref, which holds `main` plus the queued PRs.
@@ -212,17 +213,27 @@ jobs:
 
   integration:
     name: integration (docker build)
-    # Costly full-image builds (~10 minutes): run on main, releases, manual
-    # dispatch, and on a PR a maintainer opted in by adding the
-    # `run-integration` label — not on every PR. On a main push the `changes`
-    # gate skips it when the merge touched no code (docs/brain/formula only).
+    # A required check (see the `protect main` ruleset). Runs on a code-affecting
+    # PR (the `changes` gate skips a docs/brain-only one), a code-affecting push
+    # to main, every release tag, and manual dispatch. It deliberately does not
+    # run on a merge group: GitHub reports a skipped required check as Success,
+    # so the queue satisfies the requirement without paying the build, and the
+    # post-merge push to main is what runs and re-seeds the cache.
     needs: [changes]
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/') ||
-      (github.event_name == 'pull_request' &&
-      contains(github.event.pull_request.labels.*.name, 'run-integration')) ||
+      (github.event_name == 'pull_request' && needs.changes.outputs.code == 'true') ||
       (github.ref == 'refs/heads/main' && needs.changes.outputs.code == 'true')
+    env:
+      # Every build restores from the shared GHA cache; only a push to main
+      # writes it, so a PR restores but never exports a merge-ref cache. Each
+      # value is one BuildKit cache spec, forwarded verbatim (see the
+      # integration suite's imageCacheEnv helper). The launcher fills the
+      # cache-service url and token from the ACTIONS_* environment the
+      # `ghaction-github-runtime` step exposes.
+      AGENTS_SANDBOX_IMAGE_CACHE_FROM: type=gha,scope=runner-image
+      AGENTS_SANDBOX_IMAGE_CACHE_TO: ${{ github.ref == 'refs/heads/main' && 'type=gha,scope=runner-image,mode=max' || '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -230,6 +241,10 @@ jobs:
         with:
           go-version-file: .go-version
           cache: true
+      # GitHub does not put the Actions cache-service url/token into a plain
+      # `run` step's environment; this exposes them so the launcher can carry
+      # them to the daemon's BuildKit (which cannot read the step's env).
+      - uses: crazy-max/ghaction-github-runtime@v3
       - run: make test-integration
 
   integration-podman:

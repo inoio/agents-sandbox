@@ -21,6 +21,25 @@ func TestRunCommandHasNoOpenCodeVersionFlag(t *testing.T) {
 	}
 }
 
+// The image-cache-from/image-cache-to keys are env/config-only: the derived
+// bind set includes them, so binding would find a flag if one existed. Assert
+// the commands that consume them register none, so the keys cannot be set via a
+// CLI flag that would shadow the env/config value.
+func TestImageCacheKeysHaveNoCLIFlag(t *testing.T) {
+	for _, name := range []string{cmdRun, cmdShell, cmdBuild} {
+		cmd, _ := setupCommandFixtures(t, name, "--help")
+		foundCmd, _, err := cmd.Find([]string{name})
+		if err != nil {
+			t.Fatalf("Find %q: %v", name, err)
+		}
+		for _, key := range []string{"image-cache-from", "image-cache-to"} {
+			if flag := foundCmd.Flags().Lookup(key); flag != nil {
+				t.Errorf("%s command must NOT have --%s flag, got %q", name, key, flag.Name)
+			}
+		}
+	}
+}
+
 func TestRunAndShellHaveDockerFlags(t *testing.T) {
 	for _, name := range []string{cmdRun, cmdShell} {
 		cmd, _ := setupCommandFixtures(t, name, "--help")
