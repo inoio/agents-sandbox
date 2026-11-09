@@ -3,8 +3,10 @@ package docker
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/moby/moby/client"
@@ -72,4 +74,52 @@ func TestRealClientImageListSuccess(t *testing.T) {
 	if len(result.Items) != 0 {
 		t.Errorf("ImageList items = %v, want none", result.Items)
 	}
+}
+
+// TestRealClientDialHijackSuccess pins the delegation line: with a usable
+// client, DialHijack returns the negotiated connection. A stub HTTP server
+// upgrades the connection in place of a real daemon.
+func TestRealClientDialHijackSuccess(t *testing.T) {
+	var serverConn net.Conn
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			http.Error(w, "hijack unsupported", http.StatusInternalServerError)
+			return
+		}
+		conn, buf, err := hijacker.Hijack()
+		if err != nil {
+			return
+		}
+		serverConn = conn
+		_, _ = buf.WriteString("HTTP/1.1 101 Switching Protocols\r\nUpgrade: h2c\r\nConnection: Upgrade\r\n\r\n")
+		_ = buf.Flush()
+	}))
+	t.Cleanup(func() {
+		if serverConn != nil {
+			_ = serverConn.Close()
+		}
+		server.Close()
+	})
+
+	mobyClientForTest, err := client.New(client.WithHost("tcp://" + strings.TrimPrefix(server.URL, "http://")))
+	if err != nil {
+		t.Fatalf("client.New: %v", err)
+	}
+	origEnsure := ensureMobyClient
+	origClient := mobyClient
+	ensureMobyClient = func() error {
+		mobyClient = mobyClientForTest
+		return nil
+	}
+	t.Cleanup(func() {
+		ensureMobyClient = origEnsure
+		mobyClient = origClient
+	})
+
+	conn, err := (realDockerClient{}).DialHijack(context.Background(), "/grpc", "h2c", nil)
+	if err != nil {
+		t.Fatalf("DialHijack: %v", err)
+	}
+	_ = conn.Close()
 }

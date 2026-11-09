@@ -26,10 +26,12 @@ const (
 func selectBuilder(ctx context.Context, dclient docker.Client) (builderKind, error) {
 	ping, err := dclient.Ping(ctx, client.PingOptions{})
 	if err != nil {
+		// gomutants:disable-next-line RETURN_ZERO reason="builderClassic is builderKind's zero value, so the RETURN_ZERO replacement is the identical constant"
 		return builderClassic, err
 	}
 	if ping.BuilderVersion == build.BuilderBuildKit {
 		return builderBuildKit, nil
 	}
+	// gomutants:disable-next-line RETURN_ZERO reason="builderClassic is builderKind's zero value, so the RETURN_ZERO replacement is the identical constant"
 	return builderClassic, nil
 }

@@ -46,6 +46,18 @@ var newBuildKitClient = func(ctx context.Context, dclient docker.Client) (buildK
 	)
 }
 
+// buildKitContextFS opens a staged context directory as the fsutil filesystem
+// the solve's local mounts serve. It is a package var so a unit test can drive
+// the open-failure branch, which a directory this build just created never
+// takes.
+var buildKitContextFS = fsutil.NewFS
+
+// buildKitContextChmod applies the explicit mode to a written build-context
+// file, because os.WriteFile creates the file masked by the process umask. It is
+// a package var so a unit test can drive the chmod-failure branch, which the
+// mode of a file in a directory this build just created never produces.
+var buildKitContextChmod = os.Chmod
+
 // newBuildKitSession returns the session attachables a solve carries: the
 // registry-auth provider built from the user's docker credential configuration,
 // so a private base image resolves on this path as it does on the classic path.
@@ -173,7 +185,7 @@ func buildKitSolveOpt(req buildRequest, tag string, noCache bool) (buildkitclien
 		cleanup()
 		return buildkitclient.SolveOpt{}, nil, err
 	}
-	contextFS, err := fsutil.NewFS(dir)
+	contextFS, err := buildKitContextFS(dir)
 	if err != nil {
 		cleanup()
 		return buildkitclient.SolveOpt{}, nil, err
@@ -210,7 +222,7 @@ func writeBuildKitContext(dir string, dockerfile []byte) error {
 	if err := os.WriteFile(dockerfilePath, dockerfile, dockerfileMode); err != nil {
 		return fmt.Errorf("write build context Dockerfile: %w", err)
 	}
-	if err := os.Chmod(dockerfilePath, dockerfileMode); err != nil {
+	if err := buildKitContextChmod(dockerfilePath, dockerfileMode); err != nil {
 		return fmt.Errorf("chmod build context Dockerfile: %w", err)
 	}
 	for _, file := range buildContextFiles() {
@@ -219,7 +231,7 @@ func writeBuildKitContext(dir string, dockerfile []byte) error {
 		if err := os.WriteFile(path, file.content, mode); err != nil {
 			return fmt.Errorf("write build context %s: %w", file.name, err)
 		}
-		if err := os.Chmod(path, mode); err != nil {
+		if err := buildKitContextChmod(path, mode); err != nil {
 			return fmt.Errorf("chmod build context %s: %w", file.name, err)
 		}
 	}
