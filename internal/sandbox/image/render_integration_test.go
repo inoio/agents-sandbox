@@ -641,6 +641,7 @@ func buildDockerfileTagOutput(
 		}
 	}
 	req := testBuildRequest(dockerfile, agentVersion, "", "", imageIdentity{})
+	req.cacheFrom, req.cacheTo = imageCacheEnv()
 	if dockerEnabled {
 		req.docker = options.DockerSetting{Enabled: true, Explicit: true}
 	}
@@ -655,6 +656,24 @@ func buildDockerfileTagOutput(
 	); err != nil {
 		t.Fatalf("docker image build failed: %v", err)
 	}
+}
+
+// imageCacheEnv reads the BuildKit build-cache specs the integration builds
+// forward to the engine from the environment. Each variable holds exactly one
+// spec (for example `type=gha,scope=runner-image,mode=max`) and is used verbatim
+// as a single entry — never comma-split. CI sets
+// AGENTS_SANDBOX_IMAGE_CACHE_FROM on every build and
+// AGENTS_SANDBOX_IMAGE_CACHE_TO only on a push to main, so a PR restores from
+// the cache without exporting a merge-ref cache. An unset or empty variable
+// contributes no entry.
+func imageCacheEnv() (cacheFrom, cacheTo []string) {
+	if spec := os.Getenv("AGENTS_SANDBOX_IMAGE_CACHE_FROM"); spec != "" {
+		cacheFrom = []string{spec}
+	}
+	if spec := os.Getenv("AGENTS_SANDBOX_IMAGE_CACHE_TO"); spec != "" {
+		cacheTo = []string{spec}
+	}
+	return cacheFrom, cacheTo
 }
 
 // TestRenderDockerfileLoginShellHasImagePath proves the profile.d merge fires

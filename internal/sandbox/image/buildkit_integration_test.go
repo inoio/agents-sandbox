@@ -45,11 +45,13 @@ func TestBuildImageBuildKitRealDocker(t *testing.T) {
 	t.Cleanup(func() { removeTestImage(tag) })
 
 	var lines []string
+	req := testBuildRequest([]byte("FROM scratch\nCOPY Dockerfile /Dockerfile\n"), "", "", "", imageIdentity{})
+	req.cacheFrom, req.cacheTo = imageCacheEnv()
 	buildErr := buildImageBuildKit(
 		ctx,
 		docker.Get(),
 		a,
-		testBuildRequest([]byte("FROM scratch\nCOPY Dockerfile /Dockerfile\n"), "", "", "", imageIdentity{}),
+		req,
 		tag,
 		false,
 		func(s string) { lines = append(lines, s) },
