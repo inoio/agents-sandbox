@@ -130,7 +130,11 @@ func (v *autoPruneOutToVerboseRedirect) Outf(format string, args ...any) {
 
 func buildRootCmd(ui termio.UI) *cobra.Command {
 	rootCmd := buildMinimalRootFlagsCmd()
-	projectPaths := configpaths.Get
+	// Read the factory when the gate runs, not when the tree is built: the gate
+	// installs its own working-copy factory with configpaths.Use, so a caller
+	// that swaps the process factory after building (the bare-checkout CLI tests
+	// opt into the real resolver) must still be honoured.
+	projectPaths := func() configpaths.ConfigPaths { return configpaths.Get() }
 
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
 		// Config stays on the repo slug: the per-slug user config dir is shared by

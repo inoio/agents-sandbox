@@ -550,11 +550,10 @@ func TestRenderDockerfileDockerStage(t *testing.T) {
 	for _, want := range []string{
 		"FROM agents-sandbox-toolbase AS agents-sandbox-docker",
 		"ARG DOCKER_VERSION=29.7.2",
-		"download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz",
+		"for archive in docker docker-rootless-extras; do",
+		"download.docker.com/linux/static/stable/$(uname -m)/${archive}-${DOCKER_VERSION}.tgz",
 		"COPY --from=agents-sandbox-docker /opt/agents-sandbox /opt/agents-sandbox",
 		"> /etc/agents-sandbox/docker-source",
-		"groupadd -f docker",
-		"usermod -aG docker dev",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("rendered Dockerfile missing %q", want)
@@ -565,15 +564,49 @@ func TestRenderDockerfileDockerStage(t *testing.T) {
 	}
 }
 
-// TestRenderDockerfileDockerAdoptionAddsDevToGroup guards C1: the docker
-// adoption block in the final stage must add dev to the docker group, or the
-// root:docker 0660 socket leaves dev unable to run `docker info`.
-func TestRenderDockerfileDockerAdoptionAddsDevToGroup(t *testing.T) {
+// TestRenderDockerfileDockerAdoptionGrantsNoDockerGroup guards the rootless
+// engine (#487): membership in the docker group reaches a rootful socket and is
+// root-equivalent, so the adoption block must not grant it.
+func TestRenderDockerfileDockerAdoptionGrantsNoDockerGroup(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	s := mustRender(t, a, nil, dockerOn)
-	final := finalStage(t, s)
-	if !strings.Contains(final, "usermod -aG docker dev") {
-		t.Errorf("final runner stage must add dev to the docker group; got:\n%s", final)
+	final := finalStage(t, mustRender(t, a, nil, dockerOn))
+	for _, grant := range []string{"usermod -aG docker", "groupadd -f docker"} {
+		if strings.Contains(final, grant) {
+			t.Errorf("the final stage must not grant the docker group (%q); got:\n%s", grant, final)
+		}
+	}
+}
+
+// TestRenderDockerfileDockerChecksRootlessPrereqs pins the rootless runtime's
+// build-time contract: the final stage verifies the rootless prerequisites after
+// the user body for every engine source (a base-provided dockerd runs rootless
+// too), and gives dev subordinate id ranges.
+func TestRenderDockerfileDockerChecksRootlessPrereqs(t *testing.T) {
+	a, _ := agent.Lookup("opencode")
+	project := []byte("FROM fedora:latest\nRUN dnf install -y shadow-utils slirp4netns iproute\n")
+	final := finalStage(t, mustRender(t, a, project, dockerOn))
+
+	bodyIdx := strings.Index(final, "RUN dnf install")
+	checkIdx := strings.Index(final, "rootless docker prerequisite missing")
+	if checkIdx < 0 {
+		t.Fatalf("the final stage must check the rootless prerequisites; got:\n%s", final)
+	}
+	if bodyIdx < 0 || checkIdx < bodyIdx {
+		t.Errorf("the rootless check must run after the user body; got:\n%s", final)
+	}
+	for _, want := range []string{
+		"newuidmap newgidmap slirp4netns ip rootlesskit dockerd-rootless.sh",
+		`for f in /etc/subuid /etc/subgid; do grep -q '^dev:' "$f" || echo 'dev:100000:65536' >> "$f"; done`,
+	} {
+		if !strings.Contains(final, want) {
+			t.Errorf("the final stage is missing %q; got:\n%s", want, final)
+		}
+	}
+	// The tool-only static prerequisites close their guard with "fi;"; the
+	// rootless check must follow it, not sit inside it.
+	guardEnd := strings.Index(final, "fi;")
+	if guardEnd < 0 || checkIdx < guardEnd {
+		t.Errorf("the rootless check must not be limited to the tool-installed engine; got:\n%s", final)
 	}
 }
 
@@ -705,13 +738,14 @@ func TestRenderDockerfileManagedBaseInstallsLibatomic(t *testing.T) {
 }
 
 // TestRenderDockerfileManagedBaseInstallsFuseOverlayfs pins the managed base's
-// storage-driver packages: the docker stage installs only the static docker
-// tarball into toolDir, which is all the runner copies from it, so the
-// fuse-overlayfs binary and its libfuse3 runtime must come from the base. They
-// are what vm/dockerd.go probes for to select fuse-overlayfs over vfs (#489).
+// docker system packages: the docker stage installs only the static tarballs
+// into toolDir, which is all the runner copies from it, so system packages must
+// come from the base. fuse-overlayfs and libfuse3 are what vm/dockerd.go probes
+// for to select fuse-overlayfs over vfs (#489); uidmap, slirp4netns, and
+// iproute2 are the rootless engine's runtime (#487).
 func TestRenderDockerfileManagedBaseInstallsFuseOverlayfs(t *testing.T) {
 	base := string(embeddedBaseToolsBlock)
-	for _, pkg := range []string{"fuse-overlayfs", "libfuse3-4"} {
+	for _, pkg := range []string{"fuse-overlayfs", "libfuse3-4", "uidmap", "slirp4netns", "iproute2"} {
 		if !strings.Contains(base, pkg) {
 			t.Errorf("the managed base must install %s; got:\n%s", pkg, base)
 		}

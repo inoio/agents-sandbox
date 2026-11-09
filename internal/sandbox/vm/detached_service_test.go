@@ -77,7 +77,7 @@ func TestEnsureDetachedServiceKillsStaleThenLaunchesAndAwaits(t *testing.T) {
 	if !stale.DidKill {
 		t.Error("the stale service job was not killed before the launch")
 	}
-	assertDetachedHelperLaunch(t, *calls, "dockerd", dockerdBinary)
+	assertDetachedHelperLaunch(t, *calls, "dockerd", dockerdRootlessBinary)
 	if !slices.Contains(ui.VerboseCalls, "pre-check: not yet") {
 		t.Errorf("verbose calls = %v, want the pre-check detail", ui.VerboseCalls)
 	}
@@ -271,7 +271,7 @@ func testDetachedService() detachedService {
 		label:      "dockerd",
 		startLabel: "dockerd",
 		launchArgs: func(context.Context) ([]string, string, error) {
-			return []string{dockerdSocketFlag, dockerdSocket}, "starting dockerd", nil
+			return []string{"--data-root=" + dockerdDataRoot}, "starting dockerd", nil
 		},
 		timeout:            time.Second,
 		pollInterval:       time.Millisecond,
