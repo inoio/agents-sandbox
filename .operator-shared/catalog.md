@@ -71,8 +71,8 @@
 #### `specs/agents/` - Agent profiles and their daemons
 
 - `specs/agents/`
-  - Description: Agent-profile contracts: `hermes-agent.md` (the Hermes profile, its installer/tool-store, `HERMES_HOME`), `notify.md` (the desktop-notify event watcher on opencode/opencode2), `opencode2.md` (the opencode2 profile: config namespace, basic auth, v2 worktree API).
-  - Read If: Adding or changing an agent profile (the `hermes` install/`OwnsToolTree`, or the opencode2 config-namespace fork / `ConfigDirAliaser` / `OPENCODE_SERVER_PASSWORD` / `DaemonHealthCmd`); the notify decode seam (`agent.EventStreamSpec`/`Parse`/`SessionListSpec`) or `parentID` subagent filtering; or diagnosing a dead-looking opencode2 daemon, a `--worktree` that 404s, "notify does nothing on opencode2", or a Hermes launch that fails before its REPL.
+  - Description: Agent-profile contracts: `hermes-agent.md` (the Hermes profile, its installer/tool-store, `HERMES_HOME`), `notify.md` (the desktop-notify event watcher on opencode/opencode2), `opencode2.md` (the opencode2 profile: config namespace, basic auth, credential store, v2 worktree API).
+  - Read If: Adding or changing an agent profile (the `hermes` install/`OwnsToolTree`, or the opencode2 config-namespace fork / `ConfigDirAliaser` / `OPENCODE_SERVER_PASSWORD` / `DaemonHealthCmd`); the notify decode seam (`agent.EventStreamSpec`/`Parse`/`SessionListSpec`) or `parentID` subagent filtering; or diagnosing a dead-looking opencode2 daemon, an opencode2 provider without a connection, a `--worktree` that 404s, "notify does nothing on opencode2", or a Hermes launch that fails before its REPL.
 
 #### `specs/architecture/` - Cross-cutting package seams and run orchestration
 

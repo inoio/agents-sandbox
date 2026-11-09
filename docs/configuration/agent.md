@@ -151,6 +151,8 @@ The drop-in copy is scoped to the agent's settings and, for opencode, its creden
   warns that plugins importing them will not load; install them inside the VM as described in
   [Install Opencode Plugin Dependencies]({% link recipes/opencode-plugin-dependencies.md %}).
 - **opencode2** — same drop-in copy as `opencode` (`~/.config/opencode/**` and `~/.local/share/opencode/auth.json`).
+  `opencode2` reads credentials from its own database and ignores the copied `auth.json` in a new sandbox; see
+  [GitHub Copilot with opencode2]({% link configuration/secrets.md %}#github-copilot-with-opencode2).
 - **pi** — `~/.pi/agent/settings.json`.
 - **claude-code** — `~/.claude/settings.json` (runtime state and the machine-managed `.credentials.json` are not copied).
 - **codex** — `~/.codex/config.toml` (sessions, logs, and the `auth.json` login cache are not copied).

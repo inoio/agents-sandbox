@@ -76,6 +76,15 @@ v1 (`opencode`) is unaffected: its `/global/health` is unauthenticated and its `
 
 Non-goals: no per-VM random password and no state persistence of a credential (a fixed env value is simpler); no reliance on an unauthenticated endpoint (`/` web UI reports "listening", not "healthy"); no reliance on making `serve` unauthenticated when the password is unset.
 
+## Credential store
+
+Verified on opencode2 2.2.6:
+
+- v2 keeps provider credentials in `opencode.db` (table `credential`), not in `auth.json`. The `import_legacy_credentials` migration reads `~/.local/share/opencode/auth.json` only when it migrates an existing database. A fresh database, which every new home volume starts with, is bootstrapped with every migration marked done, so a provisioned `auth.json` is never imported.
+- Copilot activates only through a connection backed by an `oauth` credential; the integration removes the key method. A config `options.apiKey` does not create one. API-key providers declared in `opencode.jsonc` keep working without a credential.
+- `POST /api/credential` (`{integrationID, label, value, activate}`, basic auth like every `/api/*` route) stores a credential. v2's own Copilot device login stores `value: {type: "oauth", methodID: "device", refresh: <GitHub OAuth token>, access: <same>, expires: 0, metadata: {enterpriseUrl?}}` and sends `refresh` as the Bearer token to `copilot-api.<domain>` (or the default endpoint). Storing an msb placeholder there keeps the real token out of the VM, which is the documented user workaround (`docs/configuration/secrets.md`, "GitHub Copilot with opencode2").
+- This is user-side coupling to an undocumented API. The launcher does not register credentials itself; doing so would put v2 field names into the profile and is not decided.
+
 ## Worktree API (v2 routes, project scoping, base refs)
 
 `--worktree <name>` with opencode2 previously issued v1 worktree routes that v2 does not serve (`GET /api/project/current`, `GET /api/worktree/$PID`, `POST /api/worktree/$PID` all 404 on v2). The credential fixed authentication only. Three v2 facts make this more than a route rename: the worktree routes are **project-scoped** (the id comes from a separate response and nothing registers the project before `ResolveTarget` runs), the v1 create body does not fit v2's `additionalProperties: false` schema, and base refs differ (v1 uses `startCommand: "git reset --hard <base>"`, v2 uses `branch`).
