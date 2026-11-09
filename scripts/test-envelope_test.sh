@@ -164,26 +164,29 @@ else
   ok "netns wraps the command (skipped: no netns on this host)"
 fi
 
-# Case: --netns actually denies egress (name resolution fails inside). The host
-# must first resolve the name itself, so a host with no working network does not
-# pass trivially; the fixture echoes a start marker so a setup failure is
-# distinguished from a denied lookup, and bounds the lookup so a blackholed DNS
-# cannot stall the run.
-if unshare --net --map-root-user true >/dev/null 2>&1 && command -v ip >/dev/null 2>&1 && command -v getent >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1; then
-  if timeout 10 getent hosts example.com >/dev/null 2>&1; then
-    resolving="$(new_fixture resolving)"
-    cat >"$resolving/check.sh" <<'EOF'
+# Case: --netns actually denies egress. Probe a numeric address, never a name:
+# name resolution can reach a resolver over a pathname Unix socket
+# (systemd-resolved's nss-resolve, nscd), which a network namespace does not
+# isolate, so a `getent` check reports egress as reachable even though no packet
+# can leave. The host must first reach the same address itself, so a host with
+# no working network does not pass trivially; the fixture echoes a start marker
+# so a setup failure is distinguished from a denied connect, and the connect is
+# bounded so a blackhole cannot stall the run.
+egress_ip=""
+if command -v getent >/dev/null 2>&1; then
+  egress_ip="$(timeout 10 getent ahostsv4 example.com 2>/dev/null | awk 'NR==1 {print $1}' || true)"
+fi
+if unshare --net --map-root-user true >/dev/null 2>&1 && command -v ip >/dev/null 2>&1 && command -v timeout >/dev/null 2>&1 && [[ -n "$egress_ip" ]] && timeout 5 bash -c "exec 3<>/dev/tcp/$egress_ip/443" >/dev/null 2>&1; then
+  egress_fixture="$(new_fixture egress)"
+  cat >"$egress_fixture/check.sh" <<EOF
 echo "REACHED_NET_CHECK"
-timeout 10 getent hosts example.com
+timeout 10 bash -c 'exec 3<>/dev/tcp/$egress_ip/443'
 EOF
-    egress_out="$("$ENVELOPE" --source "$resolving" --work-dir "$fixture_root/netns-work" --netns -- make test 2>&1)" && rc=0 || rc=$?
-    assert_contains "netns child reached its check" "$egress_out" "REACHED_NET_CHECK"
-    [[ "$rc" -ne 0 ]] && ok "netns blocks egress" || bad "netns blocks egress (unexpected success)"
-  else
-    ok "netns blocks egress (skipped: host cannot resolve example.com)"
-  fi
+  egress_out="$("$ENVELOPE" --source "$egress_fixture" --work-dir "$fixture_root/netns-work" --netns -- make test 2>&1)" && rc=0 || rc=$?
+  assert_contains "netns child reached its check" "$egress_out" "REACHED_NET_CHECK"
+  [[ "$rc" -ne 0 ]] && ok "netns blocks egress" || bad "netns blocks egress (unexpected success)"
 else
-  ok "netns blocks egress (skipped: no netns-capable unshare/ip/getent/timeout)"
+  ok "netns blocks egress (skipped: no netns-capable unshare/ip or host egress)"
 fi
 
 # Case: a successful child run inside the namespace proves loopback is up (the
