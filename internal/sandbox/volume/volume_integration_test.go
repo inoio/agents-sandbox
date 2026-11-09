@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -65,6 +66,48 @@ func TestCopyTreeCommand_CopiesModesTimestampsAndSymlinksOntoExistingFiles(t *te
 	if link, err := os.Readlink(filepath.Join(target, "link")); err != nil || link != "bin/tool" {
 		t.Errorf("link = %q (err %v), want a symlink to bin/tool", link, err)
 	}
+}
+
+func TestCopyTreeCommand_KeepsSparseFilesSparse(t *testing.T) {
+	source, target := t.TempDir(), t.TempDir()
+	const apparentSize = 256 << 20
+	image, err := os.Create(filepath.Join(source, "disk.img"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := image.WriteAt([]byte("x"), apparentSize/2); err != nil {
+		t.Fatal(err)
+	}
+	if err := image.Truncate(apparentSize); err != nil {
+		t.Fatal(err)
+	}
+	if err := image.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if allocatedBytes(t, filepath.Join(source, "disk.img")) >= apparentSize/2 {
+		t.Skip("the temp directory's filesystem does not keep holes")
+	}
+
+	if output, err := runCopyTree(t, source, target); err != nil {
+		t.Fatalf("copy failed: %v\n%s", err, output)
+	}
+
+	if allocated := allocatedBytes(t, filepath.Join(target, "disk.img")); allocated >= apparentSize/2 {
+		t.Errorf("copied sparse file allocates %d bytes of %d; its holes were written out", allocated, apparentSize)
+	}
+}
+
+func allocatedBytes(t *testing.T, path string) int64 {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Skip("allocated size is not available on this platform")
+	}
+	return stat.Blocks * 512
 }
 
 func TestCopyTreeCommand_FailsWhenTheSourceCannotBeArchived(t *testing.T) {

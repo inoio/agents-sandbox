@@ -164,11 +164,14 @@ var copyVolumeScript = copyTreeCommand(srcMount, dstMount, copySourceFailedMarke
 // onto target, setting the mode and timestamps of files that already exist in
 // target too, and preserving symlinks, but not extended attributes: a volume
 // exposes the host's xattrs (an SELinux host's security.selinux label), and
-// reading those fails with ERANGE, so `cp -a` cannot copy from a volume. sh may
+// reading those fails with ERANGE, so `cp -a` cannot copy from a volume. A tar
+// that supports --sparse (GNU tar) keeps sparse files' holes unallocated, as
+// `cp -a` did; BusyBox tar lacks the option and copies them in full. sh may
 // lack pipefail, so a failing archive writer is recorded in sourceFailedMarker
 // and fails the command.
 func copyTreeCommand(source, target, sourceFailedMarker string) string {
-	return "{ tar -C " + source + " -cf - . || echo failed > " + sourceFailedMarker + "; }" +
+	return "sparse=; tar --sparse --version >/dev/null 2>&1 && sparse=--sparse; " +
+		"{ tar -C " + source + " $sparse -cf - . || echo failed > " + sourceFailedMarker + "; }" +
 		" | tar -C " + target + " -xpf -" +
 		" && [ ! -e " + sourceFailedMarker + " ]"
 }
