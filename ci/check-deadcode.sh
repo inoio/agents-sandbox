@@ -27,6 +27,8 @@
 #                         use instead of running deadcode.
 #   DEADCODE_FILES        file listing the source paths to scan, instead of
 #                         `git ls-files '*.go'`.
+#   DEADCODE_CHECKER      path to a prebuilt deadcodecheck binary to run, so a
+#                         caller with many runs (the test harness) builds once.
 # The checker always runs from the module root, so fixtures use absolute paths.
 
 set -euo pipefail
@@ -69,9 +71,14 @@ trap 'rm -rf "$report_dir" "$checker_dir"' EXIT
 
 # Build once and run the binary directly: `go run` reports any non-zero program
 # exit as 1, which would erase the checker's distinction between a diagnosis and
-# an untrustworthy analysis.
-checker="$checker_dir/deadcodecheck"
-go build -o "$checker" ./ci/deadcodecheck
+# an untrustworthy analysis. A caller that already has the binary passes it as
+# DEADCODE_CHECKER instead of paying the build.
+if [[ -n "${DEADCODE_CHECKER:-}" ]]; then
+  checker="$DEADCODE_CHECKER"
+else
+  checker="$checker_dir/deadcodecheck"
+  go build -o "$checker" ./ci/deadcodecheck
+fi
 
 for tags in "${configurations[@]}"; do
   name="$(configuration_name "$tags")"

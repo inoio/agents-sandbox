@@ -4,13 +4,15 @@
 # Builds throwaway fixture trees — a source file plus one deadcode JSON payload
 # per build-tag configuration — and asserts the gate's exit status and messages.
 # The real tool is never run: DEADCODE_FIXTURE_DIR and DEADCODE_FILES stand in
-# for it, so these cases are fast and offline.
+# for it, and the checker is built once and shared through DEADCODE_CHECKER, so
+# these cases are fast and offline.
 #
 # Run directly (ci/test-check-deadcode.sh).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHECK="$SCRIPT_DIR/check-deadcode.sh"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 
 pass=0
 fail=0
@@ -21,13 +23,31 @@ REPORTS=""
 FILES=""
 DEAD_LINE=""
 
+# Build the checker once and hand it to every case through DEADCODE_CHECKER: a
+# rebuild per case (check-deadcode.sh's default) would dominate this harness.
+CHECKER_DIR="$(mktemp -d)"
+CHECKER="$CHECKER_DIR/deadcodecheck"
+
+# cleanup removes the current fixture's work dir; new_fixture calls it to start
+# each case fresh, so it must leave the shared checker build in place. The EXIT
+# trap removes both.
 cleanup() {
   if [[ -n "$WORK" && -d "$WORK" ]]; then
     rm -rf "$WORK"
   fi
   return 0
 }
-trap cleanup EXIT
+cleanup_all() {
+  cleanup
+  if [[ -n "$CHECKER_DIR" && -d "$CHECKER_DIR" ]]; then
+    rm -rf "$CHECKER_DIR"
+  fi
+  return 0
+}
+trap cleanup_all EXIT
+
+( cd "$REPO_ROOT" && go build -o "$CHECKER" ./ci/deadcodecheck )
+export DEADCODE_CHECKER="$CHECKER"
 
 # new_fixture <marker-line>
 # Creates the source tree every case starts from: one function, either bare or
@@ -92,10 +112,12 @@ expect() {
   pass=$((pass + 1))
 }
 
-# A finding covered by a marker in every configuration passes.
+# A finding covered by a marker in every configuration passes. This case leaves
+# DEADCODE_CHECKER empty so check-deadcode.sh's own `go build` path stays
+# exercised; every other case reuses the binary this harness built once.
 new_fixture '//deadcode:ignore reason="test seam"'
 write_all_configurations "$DEAD_LINE" Dead
-expect "marked finding in every configuration" 0 ""
+expect "marked finding in every configuration" 0 "" DEADCODE_CHECKER=
 
 # A finding only the tool's tagged build reports is still a finding, and the
 # message names both the function and the configuration that saw it.
@@ -144,6 +166,15 @@ write_empty_report integration
 write_empty_report msb
 write_empty_report 'integration+msb'
 expect "package-scoped run skips staleness" 0 "skipping the stale-marker pass" PKG=./cmd/...
+
+# A supplied checker is executed and its status propagated, not rebuilt: exit 3
+# comes only from the stub, so the case fails if the seam is ignored.
+new_fixture
+write_all_configurations "$DEAD_LINE" Dead
+stub="$CHECKER_DIR/stub-checker"
+printf '#!/usr/bin/env bash\nexit 3\n' >"$stub"
+chmod +x "$stub"
+expect "supplied checker is executed" 3 "" DEADCODE_CHECKER="$stub"
 
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]
