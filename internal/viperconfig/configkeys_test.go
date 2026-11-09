@@ -147,6 +147,7 @@ func TestConfigEnvKeysGoldenSet(t *testing.T) {
 		keyAutoStopOnActiveSessions, keyAutoStopTimeout, keyAutoStopMaxSessionRetries,
 		keyNetworkProfile, keyNetworkDNSServers, keyPorts,
 		keyUpgradeMode, keyUpgradeInterval, keyUpgradeChannel,
+		"image-cache-from", "image-cache-to",
 		KeyDind,
 	}
 	got := slices.Clone(configEnvKeys)

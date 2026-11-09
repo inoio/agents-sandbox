@@ -40,6 +40,14 @@ context (`docker context ls`), then the default `/var/run/docker.sock`. An engin
 docker context, such as colima or Docker Desktop, needs no extra configuration; point `DOCKER_HOST` at an engine that
 publishes none.
 
+#### BuildKit vs the classic builder
+
+Which builder the image build uses depends on the engine. Docker Engine, Docker Desktop, colima, and the untested
+OrbStack, Rancher Desktop (moby mode), and Lima build with BuildKit; podman (including the untested Podman Desktop and
+macOS podman machines) uses the classic builder. BuildKit-only Dockerfile features — `RUN --mount=...`, cache mounts,
+a `# syntax` directive — build on the Docker engines and fail on podman with a parse error from the classic builder;
+heredoc `RUN` support depends on the podman version (4.8 or newer).
+
 ### Microsandbox runtime
 
 agents-sandbox provisions its own private microsandbox runtime under its data

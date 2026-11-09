@@ -212,6 +212,54 @@ func TestBuildAllowPlaceholderForFromConfig(t *testing.T) {
 	}
 }
 
+// The image cache keys reach RunOptions, where prepare reads them into the
+// image build's cache-from/cache-to entries. Each config key is one cache spec
+// (a single string), so it must arrive as exactly one entry. Empty stays empty:
+// a local build without the keys carries no cache entry.
+func TestBuildCarriesImageCacheKeys(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{
+		ImageCacheFrom: "type=gha,scope=runner-image,mode=max",
+		ImageCacheTo:   "type=registry,ref=example.com/cache:main",
+	})
+	opts, err := Build(r.Config(), newRunCommand(), &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !slices.Equal(opts.CacheFrom, []string{"type=gha,scope=runner-image,mode=max"}) {
+		t.Errorf("CacheFrom = %v, want the configured image-cache-from spec as one entry", opts.CacheFrom)
+	}
+	if !slices.Equal(opts.CacheTo, []string{"type=registry,ref=example.com/cache:main"}) {
+		t.Errorf("CacheTo = %v, want the configured image-cache-to spec as one entry", opts.CacheTo)
+	}
+}
+
+// R17 regression: a cache spec contains commas ("type=gha,scope=x,mode=max"),
+// so it must survive as ONE entry and never be split on them the way the config
+// registry's stringToSliceDecodeHook splits a []string env value. Empty config
+// values carry no entry.
+func TestBuildImageCacheSpecSurvivesAsOneEntry(t *testing.T) {
+	r := viperconfig.NewResolverWithConfig(viperconfig.Config{
+		ImageCacheFrom: "type=gha,scope=x,mode=max",
+	})
+	opts, err := Build(r.Config(), newRunCommand(), &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	want := []string{"type=gha,scope=x,mode=max"}
+	if !slices.Equal(opts.CacheFrom, want) {
+		t.Errorf("CacheFrom = %v, want the comma-containing spec as one entry %v", opts.CacheFrom, want)
+	}
+
+	empty := viperconfig.NewResolverWithConfig(viperconfig.Config{})
+	opts, err = Build(empty.Config(), newRunCommand(), &termiotest.Mock{})
+	if err != nil {
+		t.Fatalf("Build (empty config): %v", err)
+	}
+	if opts.CacheFrom != nil || opts.CacheTo != nil {
+		t.Errorf("empty config: CacheFrom = %v, CacheTo = %v, want no entries", opts.CacheFrom, opts.CacheTo)
+	}
+}
+
 // TestBuildRecordsExplicitLimitFlags pins the limit flags' provenance: Build
 // records which of --memory, --disk-size, --workspace-quota and --tmp-size were
 // set explicitly, so a raise is not written as a config value the flag would

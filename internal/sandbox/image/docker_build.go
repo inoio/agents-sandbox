@@ -43,6 +43,11 @@ type buildRequest struct {
 	plan       buildPlan
 	baseDigest string
 	docker     options.DockerSetting
+	// cacheFrom and cacheTo forward the build cache configuration to the
+	// selected builder path: the classic builder ignores them, the BuildKit
+	// builder consumes them as cache-from/cache-to.
+	cacheFrom []string
+	cacheTo   []string
 }
 
 // buildDockerImage builds the described image as a tag, wrapping the build with a
@@ -68,9 +73,11 @@ func buildDockerImage(
 	return nil
 }
 
-// buildImage builds a Docker image via dclient.ImageBuild and reports each
-// decoded build output line to the given callback. noCache bypasses Docker's layer
-// cache; it is independent of whether a build is needed at all.
+// buildImage builds the described image, dispatching to the engine builder the
+// daemon advertises: BuildKit for the dockerd family, which reports
+// Builder-Version "2", and classic for podman's compat /ping ("1") and any
+// engine that omits the header. noCache bypasses the engine's layer cache; it
+// is independent of whether a build is needed at all.
 func buildImage(
 	ctx context.Context,
 	dclient docker.Client,
@@ -85,6 +92,28 @@ func buildImage(
 	if err := projectguard.Violation(); err != nil {
 		return err
 	}
+	builder, err := selectBuilder(ctx, dclient)
+	if err != nil {
+		return err
+	}
+	if builder == builderBuildKit {
+		return buildImageBuildKit(ctx, dclient, a, req, tag, noCache, line)
+	}
+	return buildImageClassic(ctx, dclient, a, req, tag, noCache, line)
+}
+
+// buildImageClassic builds the image via the daemon's classic builder
+// (dclient.ImageBuild) and reports each decoded build output line to the given
+// callback.
+func buildImageClassic(
+	ctx context.Context,
+	dclient docker.Client,
+	a agent.Agent,
+	req buildRequest,
+	tag string,
+	noCache bool,
+	line func(string),
+) error {
 	buildResp, err := dclient.ImageBuild(ctx, buildContextTar(req.plan.rendered), client.ImageBuildOptions{
 		Tags:      []string{tag},
 		Remove:    true,
