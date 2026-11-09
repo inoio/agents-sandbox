@@ -295,7 +295,8 @@ connection in every new project, while API-key providers configured in `opencode
 Register the placeholder with the `opencode2` daemon instead, from a startup hook. The hook stores the value of
 `$GH_COPILOT_REFRESH_TOKEN` (the placeholder, not your token) as the Copilot credential once the daemon is up, and
 does nothing when a Copilot credential already exists or the sandbox runs another agent. `opencode2` sends that token
-to `copilot-api.<domain>`, which `GH_COPILOT_REFRESH_TOKEN` must list in its `hosts` (see the example above). The script
+to `copilot-api.<domain>`, which `GH_COPILOT_REFRESH_TOKEN` must list in its `hosts`, as in
+[GitHub Copilot on GitHub Enterprise (GHE.com)](#github-copilot-on-github-enterprise-ghecom). The script
 is written for GitHub Enterprise (GHE.com); set `ENTERPRISE_DOMAIN` to your domain.
 
 ```sh
