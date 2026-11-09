@@ -134,9 +134,7 @@ func TestBuildKitSolveOptCacheEntriesEmptyWhenUnset(t *testing.T) {
 func TestBuildKitSolveOptCacheEntriesPassThroughVerbatim(t *testing.T) {
 	// The gha entry gains the Actions cache env attrs when they are set; clear
 	// them so this test asserts the verbatim pass-through only.
-	t.Setenv("ACTIONS_CACHE_URL", "")
-	t.Setenv("ACTIONS_RESULTS_URL", "")
-	t.Setenv("ACTIONS_RUNTIME_TOKEN", "")
+	clearActionsCacheEnv(t)
 
 	req := testBuildRequest([]byte("FROM scratch\n"), "", "", "", imageIdentity{})
 	req.cacheFrom = []string{"type=gha,scope=runner-image,mode=max"}
@@ -196,6 +194,7 @@ func TestBuildKitCacheEntriesFillGitHubActionsEnv(t *testing.T) {
 // TestBuildKitCacheEntriesExplicitAttrsBeatGitHubActionsEnv pins that an
 // attribute the spec sets explicitly is not overwritten by the environment.
 func TestBuildKitCacheEntriesExplicitAttrsBeatGitHubActionsEnv(t *testing.T) {
+	clearActionsCacheEnv(t)
 	t.Setenv("ACTIONS_RUNTIME_TOKEN", "runtime-token")
 
 	req := testBuildRequest([]byte("FROM scratch\n"), "", "", "", imageIdentity{})
@@ -555,6 +554,17 @@ func stubContextChmod(t *testing.T, chmod func(string, os.FileMode) error) {
 	t.Cleanup(func() { buildKitContextChmod = orig })
 }
 
+// clearActionsCacheEnv blanks the GitHub Actions cache-service variables so a
+// test asserting exact cache-entry attributes is not perturbed by the ambient
+// environment. The CI integration job exposes them (via
+// crazy-max/ghaction-github-runtime), and a gha entry picks up whatever is set.
+func clearActionsCacheEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("ACTIONS_CACHE_URL", "")
+	t.Setenv("ACTIONS_RESULTS_URL", "")
+	t.Setenv("ACTIONS_RUNTIME_TOKEN", "")
+}
+
 // TestNewBuildKitClientConstructsAClient pins that the real client constructor
 // builds a client over the hijack dialers (nothing is dialed until the first
 // call), rather than the seam being stub-only. The dialer fails so no daemon is
@@ -867,6 +877,7 @@ func TestBuildKitWriteContextReportsContextFileChmodFailure(t *testing.T) {
 // TestParseBuildKitCacheSpecSkipsPartsWithoutEqual pins that a part carrying no
 // "=" is skipped rather than becoming an empty-named attribute.
 func TestParseBuildKitCacheSpecSkipsPartsWithoutEqual(t *testing.T) {
+	clearActionsCacheEnv(t)
 	got := parseBuildKitCacheSpec("type=gha,malformed,mode=max")
 	want := buildkitclient.CacheOptionsEntry{Type: "gha", Attrs: map[string]string{"mode": "max"}}
 	if !reflect.DeepEqual(got, want) {

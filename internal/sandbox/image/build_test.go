@@ -1441,6 +1441,8 @@ func TestBuildWarnsIgnoredWorktreeConfig(t *testing.T) {
 // selected (ping advertises Builder-Version 2) so the assertion observes the
 // solve options the build constructs from the request.
 func TestBuildRequestCarriesCacheEntries(t *testing.T) {
+	clearActionsCacheEnv(t)
+
 	var captured buildkitclient.SolveOpt
 	stubBuildKitClient(t, &fakeBuildKitSolver{solve: func(
 		_ context.Context, _ *llb.Definition, opt buildkitclient.SolveOpt, _ chan *buildkitclient.SolveStatus,
