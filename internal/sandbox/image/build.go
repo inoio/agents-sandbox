@@ -38,6 +38,11 @@ type BuildOptions struct {
 	// empty. It is injected at the boundary so the image package holds no
 	// process-global test seam; nil uses DefaultAgentVersionResolver.
 	ResolveVersion AgentVersionResolver
+	// CacheFrom and CacheTo name the build-cache sources and targets the
+	// BuildKit builder uses (image-cache-from / image-cache-to). The classic
+	// builder ignores them; nothing wires values into them yet.
+	CacheFrom []string
+	CacheTo   []string
 }
 
 // userProvidedImageIdentity keeps an unknown user-provided version stable
@@ -269,7 +274,13 @@ func buildFromPlan(
 	}
 	return buildDockerImage(
 		ctx, dclient, a,
-		buildRequest{plan: plan, baseDigest: baseDigest, docker: buildOpts.Docker},
+		buildRequest{
+			plan:       plan,
+			baseDigest: baseDigest,
+			docker:     buildOpts.Docker,
+			cacheFrom:  buildOpts.CacheFrom,
+			cacheTo:    buildOpts.CacheTo,
+		},
 		rTag, "Ensuring runner image", buildOpts.Force, ui,
 	)
 }
