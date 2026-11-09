@@ -33,6 +33,10 @@ TEST_TIMEOUT ?= 5m
 # semaphore, so a bare `go test -tags msb` cannot start a VM per harness; set
 # MSB_PARALLEL to a count to force it instead of the memory-derived default.
 INTEGRATION_PARALLEL ?= 4
+# Per-binary cap for the integration suite. The default mirrors the intent of
+# the unit suite's cap; the serialized podman job raises it, since serializing
+# the image builds lengthens the one binary that dominates the run.
+INTEGRATION_TIMEOUT ?= 60m
 MSB_PARALLEL ?=
 # Stable root for `test-msb-reuse`: it must stay short enough for microsandbox's
 # derived sandbox control socket (see test/harness/harness.go). Remove it to
@@ -185,7 +189,7 @@ fuzz:
 # build tag. Requires a working docker daemon and network access (base image
 # pulls, agent installs, registry round-trips).
 test-integration:
-	CGO_ENABLED=1 go test -tags 'integration $(NO_EMBEDDED_FFI_TAG)' -timeout 60m -count=1 -parallel $(INTEGRATION_PARALLEL) ./...
+	CGO_ENABLED=1 go test -tags 'integration $(NO_EMBEDDED_FFI_TAG)' -timeout $(INTEGRATION_TIMEOUT) -count=1 -parallel $(INTEGRATION_PARALLEL) ./...
 
 # Harness smoke tests plus the real-client msb tests: start every registered
 # harness to its TUI in a real microsandbox VM, and drive the real SDK client

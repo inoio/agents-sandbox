@@ -38,6 +38,23 @@ troubleshooting page's build-failure section, and `buildFailureError` appends th
 link's fragment is the heading `### The base image cannot be found` in `docs/troubleshooting.md`; nothing tests the
 coupling, so renaming the heading silently breaks the link the error prints.
 
+## Parallel-build race
+
+The `integration-podman` job runs `make test-integration` with `INTEGRATION_PARALLEL=1` (and a raised
+`INTEGRATION_TIMEOUT`). Buildah has a race between concurrent `--layers` builds and `rmi`
+([buildah#5674](https://github.com/podman-container-tools/buildah/issues/5674)): two builds read each
+other's cache-candidate layers, and a concurrent `rmi` removes one, so a build dies at its start with
+`checking if cached image exists from a previous build: getting top layer info: layer not known`. That
+is exactly what the image integration tests do — `TestRenderDockerfileBuildsEveryAgent` and
+`TestRenderDockerfileBuilds` run their subtests in parallel and each `t.Cleanup` removes its tag — so on
+a parallel run the podman job fails on an arbitrary agent/base case. Serializing removes the concurrency
+the race needs; the raised timeout covers the serialized image binary, which dominates the run.
+
+Do not try to fix it by upgrading podman: the runner is already `ubuntu-26.04`, whose apt podman
+(`5.7.0`) is the newest available, and the standard newer-podman channel
+(`devel:kubic:libcontainers:stable`) publishes only up to `xUbuntu_22.04`. So serialization is the
+mitigation, not a version bump.
+
 ## Why not in the dev VM
 
 The dev VM is an unprivileged `dev`: no `sudo`, no docker binary or socket, no `newuidmap`/`newgidmap`. podman can be
