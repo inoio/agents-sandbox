@@ -933,7 +933,7 @@ func TestCopyVolume_ExecExitFailure(t *testing.T) {
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		return msbtest.NewMockSandbox(msbtest.SandboxOpts{
 			ExecOut: map[string]msb.ShellResult{
-				"sh -c cp -a /src/. /dst/ && chown -R dev:dev /dst": msbtest.NewTestResult(
+				"sh -c " + copyVolumeScript: msbtest.NewTestResult(
 					false,
 					1,
 					"",

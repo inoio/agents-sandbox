@@ -47,7 +47,9 @@ func NewManager(dclient docker.Client) *Manager {
 
 // PrefillVolume builds a throwaway sandbox from the given image, mounts the
 // target home volume at /mnt/home, and copies the image's home directory onto it.
-// The throwaway sandbox is stopped and removed afterwards.
+// The throwaway sandbox is stopped and removed afterwards. Its `cp -a` reads
+// from the image rootfs, which carries no host xattrs, so unlike CopyVolume it
+// is not affected by a volume's unreadable security.selinux label.
 func (vm *Manager) PrefillVolume(
 	ctx context.Context,
 	client msb.Client,
@@ -149,6 +151,31 @@ func (vm *Manager) cleanupUncommittedVolume(
 	vm.cleanupVolume(ctx, client, name, ui)
 }
 
+// copySourceFailedMarker is where copyTreeCommand records a failing source
+// archive; it lives on the throwaway sandbox's rootfs, not on a volume.
+const copySourceFailedMarker = "/tmp/copy-source-failed"
+
+// copyVolumeScript copies the old home volume onto the new one in the copy
+// sandbox and hands the result to dev. It needs tar in the runner image, which
+// image.launcherGuestTools enforces.
+var copyVolumeScript = copyTreeCommand(srcMount, dstMount, copySourceFailedMarker) + " && chown -R dev:dev " + dstMount
+
+// copyTreeCommand returns a shell command that copies the contents of source
+// onto target, setting the mode and timestamps of files that already exist in
+// target too, and preserving symlinks, but not extended attributes: a volume
+// exposes the host's xattrs (an SELinux host's security.selinux label), and
+// reading those fails with ERANGE, so `cp -a` cannot copy from a volume. A tar
+// that supports --sparse (GNU tar) keeps sparse files' holes unallocated, as
+// `cp -a` did; BusyBox tar lacks the option and copies them in full. sh may
+// lack pipefail, so a failing archive writer is recorded in sourceFailedMarker
+// and fails the command.
+func copyTreeCommand(source, target, sourceFailedMarker string) string {
+	return "sparse=; tar --sparse --version >/dev/null 2>&1 && sparse=--sparse; " +
+		"{ tar -C " + source + " $sparse -cf - . || echo failed > " + sourceFailedMarker + "; }" +
+		" | tar -C " + target + " -xpf -" +
+		" && [ ! -e " + sourceFailedMarker + " ]"
+}
+
 // CopyVolume copies the contents of the old home volume on top of the newly
 // created one via a throwaway sandbox that mounts both.
 func (vm *Manager) CopyVolume(
@@ -171,7 +198,7 @@ func (vm *Manager) CopyVolume(
 		return runShell(ctx, sb, spin, shellStep{
 			execErrPrefix: "copy files",
 			failurePrefix: "copy failed",
-			script:        "cp -a " + srcMount + "/. " + dstMount + "/ && chown -R dev:dev " + dstMount,
+			script:        copyVolumeScript,
 		})
 	})
 }
