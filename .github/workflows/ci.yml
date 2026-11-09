@@ -244,7 +244,7 @@ jobs:
       # GitHub does not put the Actions cache-service url/token into a plain
       # `run` step's environment; this exposes them so the launcher can carry
       # them to the daemon's BuildKit (which cannot read the step's env).
-      - uses: crazy-max/ghaction-github-runtime@v3
+      - uses: crazy-max/ghaction-github-runtime@v4
       - run: make test-integration
 
   integration-podman:
