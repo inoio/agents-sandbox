@@ -77,7 +77,7 @@ func TestDetachedHelperMarkedCommand(t *testing.T) {
 	}
 	want := []string{
 		"AGENTS_SANDBOX_DETACHED_JOB=dockerd",
-		"dockerd",
+		"dockerd-rootless.sh",
 		"-H",
 		"unix:///var/run/docker.sock",
 	}
