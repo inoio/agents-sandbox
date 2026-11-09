@@ -20,6 +20,16 @@ const (
 	dstMount  = "/dst"
 )
 
+// copyVolumeScript copies the old home volume onto the new one, preserving
+// modes, timestamps, and symlinks but not extended attributes. A volume exposes
+// the host's xattrs (an SELinux host's security.selinux label), and reading
+// those fails with ERANGE, so `cp -a` cannot copy between volumes. sh may lack
+// pipefail, so a failing archive writer is reported through a marker file.
+const copyVolumeScript = "{ tar -C " + srcMount + " -cf - . || echo failed > /tmp/copy-source-failed; }" +
+	" | tar -C " + dstMount + " -xpf -" +
+	" && [ ! -e /tmp/copy-source-failed ]" +
+	" && chown -R dev:dev " + dstMount
+
 // homeVolumeClock is the clock HomeVolumeName timestamps from.
 var homeVolumeClock = time.Now
 
@@ -171,7 +181,7 @@ func (vm *Manager) CopyVolume(
 		return runShell(ctx, sb, spin, shellStep{
 			execErrPrefix: "copy files",
 			failurePrefix: "copy failed",
-			script:        "cp -a " + srcMount + "/. " + dstMount + "/ && chown -R dev:dev " + dstMount,
+			script:        copyVolumeScript,
 		})
 	})
 }

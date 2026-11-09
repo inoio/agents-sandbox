@@ -329,7 +329,7 @@ func TestCmdMigrate_NonDryRun_Success(t *testing.T) {
 					"",
 					nil,
 				),
-				"sh -c cp -a /src/. /dst/ && chown -R dev:dev /dst": msbtest.NewTestResult(
+				"sh -c " + copyVolumeScript: msbtest.NewTestResult(
 					true,
 					0,
 					"",
