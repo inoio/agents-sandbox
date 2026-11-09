@@ -512,20 +512,13 @@ func dockerMergeBlock() string {
 	return fmt.Sprintf("COPY --from=%s %s %s\n%s", dockerStageAlias, toolDir, toolDir, dockerAdoptionBlock())
 }
 
-// dockerAdoptionBlock records whether dockerd was provided by the base (user)
-// or the tool, checks the static-install runtime prerequisites when the tool
-// installed the engine, and prepares the rootless engine the launcher runs as
-// dev. It resets to root so a project body ending in a non-root USER cannot
-// break the block, and it runs in the final stage after the user body so a base
-// that installs the prerequisites in the body is accepted. PATH prefers base
-// binaries, so a base-provided dockerd resolves outside toolDir; a base that
-// ships its own engine is not required to carry the static-tarball
-// prerequisites. The download's curl/tar are not checked: the docker install
-// runs on the tool base, which carries them.
-//
-// The rootless prerequisites apply to every engine source, because the
-// launcher runs a base-provided dockerd rootless too. dev gets no docker group:
-// the engine runs as dev and owns its socket.
+// dockerAdoptionBlock records whether dockerd came from the base (user) or the
+// tool, checks the static-install prerequisites when the tool installed it, and
+// checks the rootless prerequisites for every engine source, since the launcher
+// runs a base-provided dockerd rootless too. It runs as root after the user
+// body, so a body ending in a non-root USER cannot break it and a base may
+// install the prerequisites in the body. dev joins no docker group: the engine
+// runs as dev and owns its socket.
 func dockerAdoptionBlock() string {
 	return fmt.Sprintf(`USER root
 RUN set -e; mkdir -p /etc/agents-sandbox; \
@@ -542,8 +535,7 @@ RUN set -e; mkdir -p /etc/agents-sandbox; \
       command -v "$p" >/dev/null 2>&1 || \
         { echo "error: rootless docker prerequisite missing: $p" >&2; exit 1; }; \
     done; \
-    grep -q '^dev:' /etc/subuid || echo 'dev:100000:65536' >> /etc/subuid; \
-    grep -q '^dev:' /etc/subgid || echo 'dev:100000:65536' >> /etc/subgid
+    for f in /etc/subuid /etc/subgid; do grep -q '^dev:' "$f" || echo 'dev:100000:65536' >> "$f"; done
 `, toolDir)
 }
 

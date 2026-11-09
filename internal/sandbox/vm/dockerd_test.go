@@ -489,6 +489,7 @@ func TestStartDockerdPreparesTheRootlessRuntimeAsRoot(t *testing.T) {
 	}
 	for _, want := range []string{
 		"set -e",
+		"[ -c /dev/net/tun ] || { echo 'error: /dev/net/tun is missing; the rootless engine needs it for container networking' >&2; exit 1; }",
 		"chmod 0666 /dev/net/tun",
 		"chmod 0666 /dev/fuse",
 		"mkdir -p /run/agents-sandbox/docker /var/lib/agents-sandbox/docker",
@@ -511,8 +512,14 @@ func TestStartDockerdFailsWhenThePrepareStepFails(t *testing.T) {
 	sb := &msbtest.MockSandbox{
 		ExecDetachedCalls: detached,
 		ShellOut: map[string]msb.ShellResult{
-			dockerdReadyCmd:           msbtest.NewTestResult(false, 1, "", "", nil),
-			dockerdRootlessPrepareCmd: msbtest.NewTestResult(false, 1, "", "chmod: /dev/net/tun: No such file", nil),
+			dockerdReadyCmd: msbtest.NewTestResult(false, 1, "", "", nil),
+			dockerdRootlessPrepareCmd: msbtest.NewTestResult(
+				false,
+				1,
+				"",
+				"error: /dev/net/tun is missing; the rootless engine needs it for container networking",
+				nil,
+			),
 		},
 	}
 

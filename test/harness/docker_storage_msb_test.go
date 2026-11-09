@@ -86,8 +86,10 @@ func runDockerStorageDriverSmoke(t *testing.T, root, binary string) {
 
 // assertRootlessEngine asserts the in-VM engine runs rootless and that a
 // container cannot reach VM root through it (#487): a host bind mount cannot
-// read the root-only /etc/shadow, and a privileged host-pid container cannot
-// enter PID 1's namespaces. The probe image is assembled from the VM's own cat
+// read the root-only /etc/shadow, a privileged host-pid container cannot enter
+// PID 1's namespaces, and a privileged container runs in a non-initial user
+// namespace, where the kernel never grants module loading (CAP_SYS_MODULE only
+// counts in the initial user namespace). The probe image is assembled from the VM's own cat
 // and nsenter plus their libraries, because the smoke VM has no registry
 // access; a positive control proves the image runs, so a broken probe cannot
 // pass as a blocked escape.
@@ -112,12 +114,17 @@ func assertRootlessEngine(t *testing.T, ses *ptySession) {
 		`docker run --rm escape-probe cat /etc/hostname >/dev/null; echo "__CONTROL_RC=__$?__"`,
 		`docker run --rm -v /:/host escape-probe cat /host/etc/shadow >/dev/null; echo "__BIND_RC=__$?__"`,
 		`docker run --rm --privileged --pid=host escape-probe nsenter -t 1 -m -u -i -n -p cat /etc/shadow >/dev/null; echo "__NSENTER_RC=__$?__"`,
+		`echo "__UIDMAP=__$(docker run --rm --privileged escape-probe cat /proc/self/uid_map | awk '{printf "%s:%s:%s;", $1, $2, $3}')__END__"`,
 		"printf '__ESCAPE%s__\\n' _DONE",
 	}, "; ")
 	writeAndAwaitMarker(t, ses, script+"\n", "__ESCAPE_DONE__")
 	output := markerText(string(ses.output()))
 	if !strings.Contains(output, "__CONTROL_RC=__0__") {
 		t.Fatalf("the escape probe image does not run; output:\n%s", stripANSI(ses.output()))
+	}
+	if !strings.Contains(output, "__UIDMAP=__0:1000:1;") {
+		t.Errorf("a privileged container must map its root to dev in a non-initial user namespace; output:\n%s",
+			stripANSI(ses.output()))
 	}
 	for _, escape := range []string{"__BIND_RC=__", "__NSENTER_RC=__"} {
 		if strings.Contains(output, escape+"0__") || !strings.Contains(output, escape) {

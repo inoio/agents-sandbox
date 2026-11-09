@@ -44,6 +44,7 @@ const (
 	// dev owns. It creates the dev-only runtime directory and the data root,
 	// and links the default socket path to the rootless socket.
 	dockerdRootlessPrepareCmd = "set -e; " +
+		"[ -c /dev/net/tun ] || { echo 'error: /dev/net/tun is missing; the rootless engine needs it for container networking' >&2; exit 1; }; " +
 		"chmod 0666 /dev/net/tun; " +
 		"if [ -c /dev/fuse ]; then chmod 0666 /dev/fuse; fi; " +
 		"mkdir -p " + dockerdRuntimeDir + " " + dockerdDataRoot + "; " +
@@ -94,16 +95,12 @@ var (
 	dockerdPollInterval = dockerdPollIntervalDefault
 )
 
-// dockerdArgs builds the rootless engine's argument list for this VM and
-// returns the storage driver it selected. The microsandbox filesystem cannot
-// back overlay2, so the launcher asks for a driver the guest supports:
-// fuse-overlayfs when its binary and /dev/fuse are usable, vfs otherwise. The
-// image's daemon.json, when present, is passed as the engine's configuration,
-// and a launcher flag (--storage-driver, --data-root) is dropped when the file
-// already sets that key, because dockerd refuses a directive set both as a flag
-// and in the configuration file. A daemon.json requesting any driver other than
-// those two is a hard error rather than a silent override or a flag/file
-// conflict.
+// dockerdArgs builds the rootless engine's arguments and returns the storage
+// driver it selected: fuse-overlayfs when usable, vfs otherwise (the
+// microsandbox filesystem cannot back overlay2). The image's daemon.json, when
+// present, is the engine's configuration, and a launcher flag is dropped when
+// the file sets the same key, because dockerd refuses a directive set both
+// ways. Any other driver in daemon.json is an error.
 func dockerdArgs(ctx context.Context, sb msb.Sandbox) ([]string, string, error) {
 	config, err := readGuestDaemonConfig(ctx, sb)
 	if err != nil {

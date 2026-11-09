@@ -596,8 +596,7 @@ func TestRenderDockerfileDockerChecksRootlessPrereqs(t *testing.T) {
 	}
 	for _, want := range []string{
 		"newuidmap newgidmap slirp4netns ip rootlesskit dockerd-rootless.sh",
-		"grep -q '^dev:' /etc/subuid || echo 'dev:100000:65536' >> /etc/subuid",
-		"grep -q '^dev:' /etc/subgid || echo 'dev:100000:65536' >> /etc/subgid",
+		`for f in /etc/subuid /etc/subgid; do grep -q '^dev:' "$f" || echo 'dev:100000:65536' >> "$f"; done`,
 	} {
 		if !strings.Contains(final, want) {
 			t.Errorf("the final stage is missing %q; got:\n%s", want, final)

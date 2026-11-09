@@ -326,9 +326,9 @@ binary and `/dev/fuse` is usable, falling back to `vfs` otherwise (the microsand
 `overlay2` driver, which is why `vfs` was the only option before). `fuse-overlayfs` merges in userspace and exposes its
 own FUSE mount, so it copies layers on write instead of copying each one whole, which cuts build time and data-root disk
 use. The image never writes `/etc/docker/daemon.json`, so your edits to it are preserved: if your `daemon.json` already
-sets `"storage-driver"` to `vfs` or `fuse-overlayfs`, agents-sandbox leaves the file alone and starts dockerd without the
-flag (passing both makes dockerd refuse to start); if it sets any other driver, start-up fails with an error naming the
-two accepted drivers. The launcher starts the engine (and the agent's `serve` daemon) as a microsandbox runtime-owned
+sets `"storage-driver"` to `vfs` or `fuse-overlayfs`, agents-sandbox leaves the file alone and starts the engine without
+the flag (passing both makes the engine refuse to start); if it sets any other driver, start-up fails with an error
+naming the two accepted drivers. The launcher starts the engine (and the agent's `serve` daemon) as a microsandbox runtime-owned
 detached job inside the VM: startup is confirmed by health probe, and if the job fails the launcher reports its exit code
 and a log tail (there is no `dockerd.log`). `buildx` and `docker compose` are **not** installed — install them in your
 project Dockerfile if you need them. The static tarball's platform is selected by `uname -m` (`x86_64`/`aarch64`).
@@ -351,8 +351,8 @@ The `docker` command and tools that talk to the Docker API, such as Testcontaine
 - **Container networking runs in user space** (`slirp4netns`). Published ports (`-p 8080:80`) are reachable from the
   sandbox as usual; the engine has no `docker0` bridge.
 - **Images and containers live in `/var/lib/agents-sandbox/docker`** on the sandbox disk. They are lost when the sandbox
-  is recreated, like before. Images built by an earlier agents-sandbox version, which ran the engine as root, are not
-  carried over.
+  is recreated, like before. Images, containers, and volumes created by an earlier agents-sandbox version, which ran
+  the engine as root, are not carried over.
 
 The engine reads your image's `/etc/docker/daemon.json`. If it sets `"data-root"`, that directory must be writable by
 `dev`, or the engine fails to start and the launcher shows its log.

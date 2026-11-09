@@ -66,35 +66,31 @@ const jobMarkerBinary = "env"
 type detachedHelper struct {
 	// marker is the helper's identity value, carried in the job's command line.
 	marker string
-	// binary is the helper's executable, and the argv[0] a marker-less helper
-	// left by an older launcher ran as.
-	binary string
-	// launchBinary, when set, is the executable this release launches instead
-	// of binary.
+	// launchBinary is the executable this release launches under the marker.
 	launchBinary string
+	// legacyBinary is the argv[0] a marker-less helper left by an older
+	// launcher ran as.
+	legacyBinary string
 }
 
 // dockerdHelper is the identity of the Docker engine job. It launches the
 // rootless entrypoint; a marker-less helper an older launcher left is a rootful
 // dockerd, which is still matched so it is killed.
 func dockerdHelper() detachedHelper {
-	return detachedHelper{marker: "dockerd", binary: dockerdBinary, launchBinary: dockerdRootlessBinary}
+	return detachedHelper{marker: "dockerd", launchBinary: dockerdRootlessBinary, legacyBinary: dockerdBinary}
 }
 
 // agentDaemonHelper is the identity of the agent serve daemon job; binary is
-// the agent's own serve executable (opencode, opencode2, …).
+// the agent's own serve executable (opencode, opencode2, …), launched now and
+// run by older launchers alike.
 func agentDaemonHelper(binary string) detachedHelper {
-	return detachedHelper{marker: "agent-daemon", binary: binary, launchBinary: ""}
+	return detachedHelper{marker: "agent-daemon", launchBinary: binary, legacyBinary: binary}
 }
 
 // markedCommand returns the command and arguments that launch the helper under
 // its marker.
 func (h detachedHelper) markedCommand(args []string) (string, []string) {
-	launched := h.binary
-	if h.launchBinary != "" {
-		launched = h.launchBinary
-	}
-	command := []string{jobMarkerEnv + "=" + h.marker, launched}
+	command := []string{jobMarkerEnv + "=" + h.marker, h.launchBinary}
 	return jobMarkerBinary, append(command, args...)
 }
 
@@ -110,7 +106,7 @@ func (h detachedHelper) matches(command []string) bool {
 	if len(command) >= 2 && command[0] == jobMarkerBinary {
 		return command[1] == jobMarkerEnv+"="+h.marker
 	}
-	return len(command) > 0 && command[0] == h.binary
+	return len(command) > 0 && command[0] == h.legacyBinary
 }
 
 // jobAlreadyStopped reports whether an error means the job is not running — it

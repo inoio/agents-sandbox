@@ -7,7 +7,7 @@ read_if: Changing how the in-VM Docker engine is installed, started, or reached 
 
 Date: 2026-11-08. Issue #487.
 
-Status: Proposed.
+Status: Accepted.
 
 ## Context
 
