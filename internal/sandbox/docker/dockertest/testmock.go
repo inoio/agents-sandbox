@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"iter"
+	"net"
 	"strings"
 	"testing"
 
@@ -112,6 +113,7 @@ func newErrorDockerClient(mockErrs mockErrors) *MockDockerClient {
 // All methods succeed with nil/empty returns. Use newErrorDockerClient
 // to override specific methods with errors.
 type MockDockerClient struct {
+	DialHijackFn   func(ctx context.Context, url, protocol string, meta map[string][]string) (net.Conn, error)
 	ImageBuildFn   func(ctx context.Context, r io.Reader, options client.ImageBuildOptions) (client.ImageBuildResult, error)
 	ImageInspectFn func(ctx context.Context, ref string, inspectOpts ...client.ImageInspectOption) (client.ImageInspectResult, error)
 	ImageListFn    func(ctx context.Context, opts client.ImageListOptions) (client.ImageListResult, error)
@@ -123,6 +125,17 @@ type MockDockerClient struct {
 
 // Compile time check Client interface conformity of MockDockerClient.
 var _ docker.Client = (*MockDockerClient)(nil)
+
+func (m *MockDockerClient) DialHijack(
+	ctx context.Context,
+	url, protocol string,
+	meta map[string][]string,
+) (net.Conn, error) {
+	if m.DialHijackFn != nil {
+		return m.DialHijackFn(ctx, url, protocol, meta)
+	}
+	return nil, nil
+}
 
 func (m *MockDockerClient) ImageBuild(
 	ctx context.Context,
@@ -212,6 +225,15 @@ type failFastDockerClient struct{}
 
 func (f *failFastDockerClient) mustMock() {
 	panic("docker.Get reached the real Docker client; install dockertest.WithDockerMock(t, ...) in the test")
+}
+
+func (f *failFastDockerClient) DialHijack(
+	_ context.Context,
+	_, _ string,
+	_ map[string][]string,
+) (net.Conn, error) {
+	f.mustMock()
+	return nil, nil
 }
 
 func (f *failFastDockerClient) ImageBuild(

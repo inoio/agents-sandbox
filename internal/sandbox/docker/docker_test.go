@@ -10,6 +10,20 @@ import (
 	"github.com/moby/moby/client"
 )
 
+// TestRealClientDialHijackConstructionFailure pins the shared-client construction
+// failure branch the DialHijack method guards on, via the ensureMobyClient seam.
+func TestRealClientDialHijackConstructionFailure(t *testing.T) {
+	wantErr := errors.New("no docker")
+	orig := ensureMobyClient
+	ensureMobyClient = func() error { return wantErr }
+	t.Cleanup(func() { ensureMobyClient = orig })
+
+	_, err := (realDockerClient{}).DialHijack(context.Background(), "/grpc", "h2c", nil)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("DialHijack error = %v, want %v", err, wantErr)
+	}
+}
+
 // TestRealClientImageListClientError pins the shared-client construction failure
 // branch every real-client method guards on: when the moby client cannot be
 // created, ImageList surfaces the error instead of dereferencing a nil client.
