@@ -312,6 +312,10 @@ when a Copilot credential already exists or the sandbox runs another agent. `ope
 [GitHub Copilot on GitHub Enterprise (GHE.com)](#github-copilot-on-github-enterprise-ghecom). The script is written for
 GitHub Enterprise (GHE.com); set `ENTERPRISE_DOMAIN` to your domain.
 
+The hook stores the same token as the credential's `refresh` and `access`, as `opencode2`'s own Copilot login does:
+`opencode2` sends the GitHub OAuth token (the one `opencode` keeps in `refresh`) directly to Copilot, and no longer
+exchanges it for the short-lived token `opencode` keeps in `access`. `GH_COPILOT_ACCESS_TOKEN` is therefore not used.
+
 The hook calls the daemon's credential API (`GET`/`POST /api/credential`), which `opencode2` does not document as
 stable. It was tested with `opencode2` 2.2.6; a later version may change the route or the credential's fields.
 
