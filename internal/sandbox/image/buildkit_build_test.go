@@ -318,10 +318,43 @@ func TestBuildImageBuildKitStreamsStatus(t *testing.T) {
 	}
 }
 
+// TestStreamSolveStatusReportsCacheHits pins the BuildKit cache-hit signal: a
+// cached vertex emits a CACHED line immediately after its name (BuildKit writes
+// no log for a cached step), while a non-cached vertex emits none. This is what
+// lets a consumer scanning the streamed output see the hit on a BuildKit engine,
+// where the classic builder's "Using cache" line does not exist.
+func TestStreamSolveStatusReportsCacheHits(t *testing.T) {
+	var lines []string
+	streamSolveStatus(&buildkitclient.SolveStatus{
+		Vertexes: []*buildkitclient.Vertex{
+			{Name: "install node", Cached: true},
+			{Name: "install agent"},
+		},
+	}, func(s string) { lines = append(lines, s) })
+
+	index := slices.Index(lines, "CACHED")
+	if index < 0 {
+		t.Fatalf("streamed lines = %v, want a CACHED line for the cached vertex", lines)
+	}
+	if index == 0 || lines[index-1] != "install node" {
+		t.Errorf("streamed lines = %v, want CACHED immediately after the cached vertex name", lines)
+	}
+	cachedLines := 0
+	for _, l := range lines {
+		if l == "CACHED" {
+			cachedLines++
+		}
+	}
+	if cachedLines != 1 {
+		t.Errorf("streamed lines = %v, want exactly one CACHED line (only the cached vertex)", lines)
+	}
+}
+
 // TestBuildImageBuildKitCarriesBuildArgs pins that the classic build args reach
 // the BuildKit build as frontend `build-arg:` attributes, so the two builders
-// produce the same image for the same render (Review Focus #1). A nil arg value
-// (an arg the render leaves unset) must not become an attribute.
+// produce the same image for the same render (Review Focus #1). An arg the
+// render omits (here DOCKER_VERSION with docker disabled) must not become an
+// attribute.
 func TestBuildImageBuildKitCarriesBuildArgs(t *testing.T) {
 	var captured map[string]string
 	stubBuildKitClient(t, &fakeBuildKitSolver{solve: func(

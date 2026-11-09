@@ -286,17 +286,19 @@ In the `integration` job, set `AGENTS_SANDBOX_IMAGE_CACHE_FROM` on every run tha
 
 - [ ] **Step 2: Run integration on PRs and make it required**
 
-Extend the `integration` job condition so a `pull_request` (with `code=true`) runs it, and remove `integration` from the opt-in-only set. Keep the merge-queue consequence in view: a `merge_group`-skipped required job reports Success (the gating invariant), so the queue does not pay the build. Update the required-check set for the `protect main` ruleset with:
+Extend the `integration` job condition so a `pull_request` (with `code=true`) runs it, and remove `integration` from the opt-in-only set. Keep the merge-queue consequence in view: a `merge_group`-skipped required job reports Success (the gating invariant), so the queue does not pay the build.
+
+**Outstanding post-merge action (do not run now).** The `protect main` ruleset must additionally require the `integration` check, whose context is the job's `name:` — `integration (docker build)`, not `integration` — so an admin applies this after the workflow change lands on `main`:
 
 ```console
 gh api -X PUT repos/inoio/agents-sandbox/rulesets/<id> --input - <<'JSON'
 { "rules": [ { "type": "required_status_checks", "parameters": { "required_status_checks": [
   {"context": "lint"}, {"context": "test"}, {"context": "race"},
-  {"context": "deadcode"}, {"context": "changelog"}, {"context": "integration"} ] } } ] }
+  {"context": "deadcode"}, {"context": "changelog"}, {"context": "integration (docker build)"} ] } } ] }
 JSON
 ```
 
-(fetch the existing ruleset and merge the `integration` context rather than replacing the rule wholesale).
+(fetch the existing ruleset and merge the `integration (docker build)` context rather than replacing the rule wholesale). Until this lands, the job runs on every code-affecting PR but is not yet enforced.
 
 - [ ] **Step 3: Fold the CI spec and add the changelog fragment**
 

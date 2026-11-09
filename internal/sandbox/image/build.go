@@ -40,7 +40,7 @@ type BuildOptions struct {
 	ResolveVersion AgentVersionResolver
 	// CacheFrom and CacheTo name the build-cache sources and targets the
 	// BuildKit builder uses (image-cache-from / image-cache-to). The classic
-	// builder ignores them; nothing wires values into them yet.
+	// builder ignores them.
 	CacheFrom []string
 	CacheTo   []string
 }

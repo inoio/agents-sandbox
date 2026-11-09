@@ -108,9 +108,6 @@ func buildImageBuildKit(
 	defer cleanup()
 
 	for name, value := range userBuildArgs(os.Getuid(), os.Getgid(), a.ImageSpec(), req) {
-		if value == nil {
-			continue
-		}
 		opt.FrontendAttrs["build-arg:"+name] = *value
 	}
 	opt.Session = newBuildKitSession()
@@ -136,10 +133,19 @@ func buildImageBuildKit(
 
 // streamSolveStatus forwards each solve status's vertex names and log data to
 // line, so a BuildKit build reports its progress the way the classic build does.
+// A cached vertex emits no log, so its cache hit is surfaced as a CACHED line
+// after the vertex name — the BuildKit counterpart of the classic "Using cache".
 func streamSolveStatus(status *buildkitclient.SolveStatus, line func(string)) {
 	for _, vertex := range status.Vertexes {
 		if vertex.Name != "" {
 			line(vertex.Name)
+			// A cached step produces no log of its own, so the hit is reported
+			// from the vertex flag; this mirrors the classic builder's
+			// "Using cache" and lets a consumer scanning the streamed output see
+			// the hit on a BuildKit engine.
+			if vertex.Cached {
+				line("CACHED")
+			}
 		}
 	}
 	for _, log := range status.Logs {

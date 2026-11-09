@@ -292,9 +292,10 @@ func (ownedPathsStubAgent) ImageSpec() agent.ImageSpec {
 }
 
 // TestRenderDockerfileOwnsToolTreeOnPreProvidedDevBase proves the dev group is
-// guaranteed for a custom base, which is what makes COPY --chown=dev:dev safe on
-// the production classic builder: it fails on an unresolvable group name where
-// BuildKit silently falls back to the user's primary group. Each base
+// guaranteed for a custom base, which is what makes COPY --chown=dev:dev
+// well-defined on whichever builder buildImage selects: the classic builder
+// fails on an unresolvable group name, while BuildKit silently falls back to the
+// user's primary group, so either way the group must exist. Each base
 // pre-creates the dev user in an earlier stage (the final-stage body runs after
 // devUserBlock), covering a base with a dev group, one without, and one where
 // the host's USER_GID is already taken (the macOS dialout/20 drift).
@@ -568,10 +569,11 @@ func imageAgentVersion(t *testing.T, tag string, a agent.Agent) string {
 }
 
 // stageInstallMarkers maps each tool stage to a substring unique to its install
-// RUN, so the streamed build output can be scanned for that step. The classic
-// builder (what buildImage uses) prints "Step N/M : <instruction>" followed by
-// " ---> Using cache", with no stage label; BuildKit prints "#N [<stage> ...]"
-// followed by "#N CACHED". Keying on the instruction text works for both.
+// RUN, so the streamed build output can be scanned for that step. BuildKit (what
+// buildImage selects on the dockerd family) prints "#N [<stage> ...]" followed
+// by "#N CACHED"; the classic builder prints "Step N/M : <instruction>" followed
+// by " ---> Using cache", with no stage label. Keying on the instruction text
+// works for both.
 var stageInstallMarkers = map[string]string{
 	nodeStageAlias:   "nodejs.org/dist",
 	agentStageAlias:  "npm install",
