@@ -132,6 +132,10 @@ func prepareVolumeOp(c *cobra.Command, ui termio.UI, dryRun bool) (state.Key, im
 				UserProvided:   false,
 				Docker:         resolveBuildDockerSetting(c),
 				ResolveVersion: agentVersionResolver,
+				// The volume ops seed from an image but never publish or consume
+				// the CI build cache.
+				CacheFrom: nil,
+				CacheTo:   nil,
 			},
 			ui,
 		)
@@ -288,6 +292,11 @@ func buildBuildCmd(ui termio.UI) *cobra.Command {
 						UserProvided:   userProvided,
 						Docker:         resolveBuildDockerSetting(cmd),
 						ResolveVersion: agentVersionResolver,
+						// The system build command runs on a developer machine,
+						// not in CI, so it never publishes or consumes the CI
+						// build cache.
+						CacheFrom: nil,
+						CacheTo:   nil,
 					},
 					ui,
 				)

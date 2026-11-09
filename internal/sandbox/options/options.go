@@ -85,6 +85,11 @@ type RunOptions struct {
 	// AgentVersion pins the agent version baked into the runner image on
 	// rebuild. Empty means resolve the latest at build time.
 	AgentVersion string
+	// CacheFrom and CacheTo name the BuildKit build-cache sources and targets
+	// the runner-image build uses (image-cache-from / image-cache-to). Empty
+	// means no cache entry; CI sets them, local builds leave them empty.
+	CacheFrom []string
+	CacheTo   []string
 	// ProvisionHostConfig controls whether the agent's host config files are
 	// copied into the VM (drop-in provisioning). A nil value enables it
 	// (default); cmd resolves the launcher config and sets it explicitly.

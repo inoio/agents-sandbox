@@ -639,6 +639,8 @@ func buildOptions(opts options.RunOptions, agentVersion string, force, userProvi
 		// AgentLatestVersion), which defaults to the same agentLatestVersion
 		// lookup the upgrade check uses.
 		ResolveVersion: agentVersionResolverFor(opts.Seams),
+		CacheFrom:      opts.CacheFrom,
+		CacheTo:        opts.CacheTo,
 	}
 }
 

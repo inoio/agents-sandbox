@@ -25,6 +25,13 @@ type Config struct {
 	// Docker bakes the tool's Docker engine block into the runner image.
 	Docker bool  `mapstructure:"docker"`
 	CPUs   uint8 `mapstructure:"cpus"`
+	// ImageCacheFrom and ImageCacheTo name the BuildKit build-cache sources and
+	// targets the runner-image build uses (image-cache-from / image-cache-to).
+	// Each holds one BuildKit cache spec per direction; empty means no entry. CI
+	// sets them per event (main writes, PRs restore); local builds leave them
+	// empty.
+	ImageCacheFrom string `mapstructure:"image-cache-from"`
+	ImageCacheTo   string `mapstructure:"image-cache-to"`
 	// ProvisionHostConfig controls whether the agent's host config files are
 	// copied into the VM (drop-in provisioning). Default true.
 	ProvisionHostConfig bool `mapstructure:"provision-host-config"`

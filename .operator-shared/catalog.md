@@ -32,9 +32,9 @@
 - `guides/branch-worktree-cleanup.md`
   - Description: How `scripts/cleanup-merged-branches.sh` (via `make cleanup-branches`) removes merged worktrees/branches and reports the rest; the three merge-detection tiers, the fresh-session worktree guard, the config-mirror protection, the named plan printed before the gate, dry-run skipping the remote refresh, the `--force-with-lease` origin deletion, and the host/VM worktree safety rules.
   - Read If: Running or changing local repository maintenance, cleaning up worktrees or merged branches, or debugging a branch the sweep kept or removed.
-- `guides/buildkit-and-ci-build-cache.md`
-  - Description: Investigation handoff for making the CI integration tier a required PR check - whether to move the runner-image build to BuildKit (the cache-export requirement), the podman and classic-builder compatibility costs, the GitHub Actions cache scoping that forces a single main writer, and the three candidate approaches with their open decision.
-  - Read If: Deciding whether to switch the runner-image build off the classic builder to BuildKit; adding a cross-run build cache for `make test-integration` in CI; reasoning about podman and other Docker-API engines and BuildKit compatibility; or picking up the "run integration on every PR" work.
+- `guides/buildkit-engine-compatibility.md`
+  - Description: Which engines agents-sandbox claims would survive switching the runner-image build to BuildKit, per mechanism (moby `/build?version=2` with no session vs a real BuildKit client via `/grpc`+`/session`): the dockerd family survives with a registry-resolution/auth caveat, podman ignores `version` (Buildah, not BuildKit) under mechanism 1 and breaks under mechanism 2, containerd modes stay unsupported; plus the render's feature-safety and user BuildKit-only syntax.
+  - Read If: Considering or implementing a BuildKit runner-image build, or diagnosing a runner-image build that fails on a non-Docker engine.
 - `guides/dead-code-detection-go.md`
   - Description: Using x/tools `deadcode` to find production code only tests keep alive: why staticcheck U1000 cannot, the default vs `-test` modes, the test-support paths to filter, and `-whylive` for seam-vs-accident triage.
   - Read If: Looking for dead or unreferenced production code, auditing whether a seam is still wired, or evaluating a dead-code linter; for the gate, the pin, or the `//deadcode:ignore` marker, read `specs/ci/quality-gates.md`.
@@ -131,8 +131,8 @@
 #### `specs/runner-image/` - Runner image build, composition, PATH, CA trust
 
 - `specs/runner-image/`
-  - Description: Runner-image contracts: `ca-trust-helper.md` (the `msb-trust` helper), `image-build.md` (build/caching and the msb cache), `image-composition.md` (multistage Dockerfile composition and tool-tree ownership), `login-shell-path.md` (PATH in login shells).
-  - Read If: TLS interception, secret-substitution failures in an app (Java/Gradle, Chrome), or the `msb-trust` helper; image build/caching, `BuildOptions.Force`/`--rebuild`, `image.EnsureImage`/`Build`/`EnsureLoaded`/`ImageInfo`, or `naming.RunnerImageRef`/`ParseImageTag`; `RenderDockerfile`/stage composition, layer caching, agent install methods, `COPY --chown`, the `dind`/`docker` switch, or custom-base handling; or runner-image PATH/login-shell (`-l`) handling.
+  - Description: Runner-image contracts: `buildkit-build.md` (BuildKit builder selection, the classic fallback, and the build-cache surface), `ca-trust-helper.md` (the `msb-trust` helper), `image-build.md` (build/caching and the msb cache), `image-composition.md` (multistage Dockerfile composition and tool-tree ownership), `login-shell-path.md` (PATH in login shells).
+  - Read If: The BuildKit build/selection, `DialHijack`, `image-cache-from`/`image-cache-to`, or the classic fallback; TLS interception, secret-substitution failures in an app (Java/Gradle, Chrome), or the `msb-trust` helper; image build/caching, `BuildOptions.Force`/`--rebuild`, `image.EnsureImage`/`Build`/`EnsureLoaded`/`ImageInfo`, or `naming.RunnerImageRef`/`ParseImageTag`; `RenderDockerfile`/stage composition, layer caching, agent install methods, `COPY --chown`, the `dind`/`docker` switch, or custom-base handling; or runner-image PATH/login-shell (`-l`) handling.
 
 #### `specs/state/` - Persisted state model and upgrade/provenance state
 
@@ -175,3 +175,6 @@
 - `plans/2026-11-07-hermetic-uid-permission-surface.md`
   - Description: Plan 2 of the hermetic design: remove the effective-uid dependence from the six tests the strict envelope runs as uid 0 (via `configmerge.readFile`, `runtimemigration.readDir`, and a `state.OverrideStateWriteForTest` hook), pin `GOTOOLCHAIN=local`, and verify `make test-hermetic` is green.
   - Read If: Implementing the uid/permission surface fix that makes the strict hermetic envelope green, or adding a read/write failure seam to `configmerge`, `runtimemigration`, or `state`.
+- `plans/2026-11-08-buildkit-runner-image-build.md`
+  - Description: TDD plan for the BuildKit runner-image build (#597) - the `DialHijack` seam, ping-based builder selection, the buildkit client + session + `dockerfile.v0`/`moby`-exporter path, the `image-cache-from`/`image-cache-to` config surface, and the CI cache (main writes, PRs restore) with the integration check made required.
+  - Read If: Implementing the BuildKit runner-image build, the engine-selected classic fallback, or the cached/required integration CI check.

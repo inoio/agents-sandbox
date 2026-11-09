@@ -111,13 +111,13 @@ func TestRenderDockerfileBuilds(t *testing.T) {
 				"RUN apt-get update && apt-get install -y --no-install-recommends curl procps && rm -rf /var/lib/apt/lists/*\n"), dockerOff},
 		{"custom-base-slim-no-tar-docker", []byte(
 			"FROM debian:trixie-slim\n" +
-				"RUN apt-get update && apt-get install -y --no-install-recommends curl procps iptables git xz-utils && rm -rf /var/lib/apt/lists/*\n"), dockerOn},
+				"RUN apt-get update && apt-get install -y --no-install-recommends curl procps iptables git xz-utils uidmap slirp4netns iproute2 && rm -rf /var/lib/apt/lists/*\n"), dockerOn},
 		{"custom-base-fedora-docker", []byte(
 			"FROM fedora:latest\n" +
-				"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n"), dockerOn},
+				"RUN dnf install -y curl tar iptables git procps-ng xz slirp4netns iproute && dnf clean all\n"), dockerOn},
 		{"custom-base-docker-marker", []byte(
 			"FROM fedora:latest\n" +
-				"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n" +
+				"RUN dnf install -y curl tar iptables git procps-ng xz slirp4netns iproute && dnf clean all\n" +
 				"# agents-sandbox:docker\n" +
 				"RUN echo after-docker\n"), dockerOn},
 	}
@@ -292,9 +292,10 @@ func (ownedPathsStubAgent) ImageSpec() agent.ImageSpec {
 }
 
 // TestRenderDockerfileOwnsToolTreeOnPreProvidedDevBase proves the dev group is
-// guaranteed for a custom base, which is what makes COPY --chown=dev:dev safe on
-// the production classic builder: it fails on an unresolvable group name where
-// BuildKit silently falls back to the user's primary group. Each base
+// guaranteed for a custom base, which is what makes COPY --chown=dev:dev
+// well-defined on whichever builder buildImage selects: the classic builder
+// fails on an unresolvable group name, while BuildKit silently falls back to the
+// user's primary group, so either way the group must exist. Each base
 // pre-creates the dev user in an earlier stage (the final-stage body runs after
 // devUserBlock), covering a base with a dev group, one without, and one where
 // the host's USER_GID is already taken (the macOS dialout/20 drift).
@@ -467,11 +468,11 @@ func TestRenderDockerfileToolLayersStayCached(t *testing.T) {
 
 	base := []byte(
 		"FROM fedora:latest\n" +
-			"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n" +
+			"RUN dnf install -y curl tar iptables git procps-ng xz slirp4netns iproute && dnf clean all\n" +
 			"RUN echo body-v1\n")
 	changed := []byte(
 		"FROM fedora:latest\n" +
-			"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n" +
+			"RUN dnf install -y curl tar iptables git procps-ng xz slirp4netns iproute && dnf clean all\n" +
 			"RUN echo body-v2\n")
 
 	tag := "agents-sandbox/it-cache"
@@ -518,7 +519,7 @@ func TestRenderDockerfileAgentVersionRebuildsInstall(t *testing.T) {
 
 	project := []byte(
 		"FROM fedora:latest\n" +
-			"RUN dnf install -y curl tar iptables git procps-ng xz && dnf clean all\n")
+			"RUN dnf install -y curl tar iptables git procps-ng xz slirp4netns iproute && dnf clean all\n")
 
 	tag := "agents-sandbox/it-agent-version"
 	t.Cleanup(func() { removeTestImage(tag) })
@@ -568,10 +569,11 @@ func imageAgentVersion(t *testing.T, tag string, a agent.Agent) string {
 }
 
 // stageInstallMarkers maps each tool stage to a substring unique to its install
-// RUN, so the streamed build output can be scanned for that step. The classic
-// builder (what buildImage uses) prints "Step N/M : <instruction>" followed by
-// " ---> Using cache", with no stage label; BuildKit prints "#N [<stage> ...]"
-// followed by "#N CACHED". Keying on the instruction text works for both.
+// RUN, so the streamed build output can be scanned for that step. BuildKit (what
+// buildImage selects on the dockerd family) prints "#N [<stage> ...]" followed
+// by "#N CACHED"; the classic builder prints "Step N/M : <instruction>" followed
+// by " ---> Using cache", with no stage label. Keying on the instruction text
+// works for both.
 var stageInstallMarkers = map[string]string{
 	nodeStageAlias:   "nodejs.org/dist",
 	agentStageAlias:  "npm install",
@@ -641,6 +643,7 @@ func buildDockerfileTagOutput(
 		}
 	}
 	req := testBuildRequest(dockerfile, agentVersion, "", "", imageIdentity{})
+	req.cacheFrom, req.cacheTo = imageCacheEnv()
 	if dockerEnabled {
 		req.docker = options.DockerSetting{Enabled: true, Explicit: true}
 	}
@@ -655,6 +658,24 @@ func buildDockerfileTagOutput(
 	); err != nil {
 		t.Fatalf("docker image build failed: %v", err)
 	}
+}
+
+// imageCacheEnv reads the BuildKit build-cache specs the integration builds
+// forward to the engine from the environment. Each variable holds exactly one
+// spec (for example `type=gha,scope=runner-image,mode=max`) and is used verbatim
+// as a single entry — never comma-split. CI sets
+// AGENTS_SANDBOX_IMAGE_CACHE_FROM on every build and
+// AGENTS_SANDBOX_IMAGE_CACHE_TO only on a push to main, so a PR restores from
+// the cache without exporting a merge-ref cache. An unset or empty variable
+// contributes no entry.
+func imageCacheEnv() (cacheFrom, cacheTo []string) {
+	if spec := os.Getenv("AGENTS_SANDBOX_IMAGE_CACHE_FROM"); spec != "" {
+		cacheFrom = []string{spec}
+	}
+	if spec := os.Getenv("AGENTS_SANDBOX_IMAGE_CACHE_TO"); spec != "" {
+		cacheTo = []string{spec}
+	}
+	return cacheFrom, cacheTo
 }
 
 // TestRenderDockerfileLoginShellHasImagePath proves the profile.d merge fires

@@ -27,6 +27,9 @@ agents-sandbox build        # builds if the image is missing or its inputs chang
 agents-sandbox build -r     # force rebuild, pulling the latest base image
 ```
 
+Which builder the engine provides decides which Dockerfile features a project can use; see
+[BuildKit vs the classic builder]({% link troubleshooting.md %}#buildkit-vs-the-classic-builder).
+
 Preview the exact Dockerfile that would be built (without invoking docker):
 
 ```console

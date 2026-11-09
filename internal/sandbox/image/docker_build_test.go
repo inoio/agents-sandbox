@@ -186,6 +186,27 @@ func TestBuildImageClassifiesBuildFailures(t *testing.T) {
 	}
 }
 
+// TestBuildImageSurfacesTheBuilderSelectionFailure pins that a ping failure
+// during builder selection is returned to the caller, so a build on an
+// unreachable engine never silently assumes a builder.
+func TestBuildImageSurfacesTheBuilderSelectionFailure(t *testing.T) {
+	wantErr := errors.New("ping boom")
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
+		PingFn: func(context.Context, client.PingOptions) (client.PingResult, error) {
+			return client.PingResult{}, wantErr
+		},
+	})
+
+	err := buildImage(
+		context.Background(), docker.Get(), agentOpencode(t),
+		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "", "debian:trixie-slim", "", imageIdentity{}),
+		"tag", false, func(string) {},
+	)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("buildImage error = %v, want %v", err, wantErr)
+	}
+}
+
 // TestBuildImageSendsTheRenderedDockerfileAsBuildContext pins that the engine
 // receives a tar build context whose Dockerfile is the rendered one.
 func TestBuildImageSendsTheRenderedDockerfileAsBuildContext(t *testing.T) {

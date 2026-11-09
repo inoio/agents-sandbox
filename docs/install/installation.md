@@ -28,8 +28,9 @@ agents-sandbox doctor
 
 Both platforms also need a container engine that serves the Docker API to build the sandbox image. **Docker Engine**,
 **Docker Desktop**, **colima**, and **podman** are the tested engines; others (Rancher Desktop, OrbStack, ...) are
-expected to work, but untested. [Troubleshooting]({% link troubleshooting.md %}) covers starting an engine and pointing
-agents-sandbox at its socket.
+expected to work, but untested. The build uses the engine's BuildKit builder when it has one — Docker Engine, Docker
+Desktop, colima, and the untested dockerd-family engines do — and podman's classic builder otherwise.
+[Troubleshooting]({% link troubleshooting.md %}) covers starting an engine and pointing agents-sandbox at its socket.
 
 ## Binary download
 

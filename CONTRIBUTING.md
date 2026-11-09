@@ -134,10 +134,12 @@ This project defaults to **test-driven development**:
   at most ten), a sticky PR comment with the totals and the complete survivor list, and a `mutation-report` artifact.
   Because gomutants has no threshold, the job stays green on survivors; a red run means the sweep failed, and nothing is
   ever gated on it.
-- The `integration`-tagged docker-build suite is excluded from `make test` and from PR CI by default (~10 minutes). Run
-  it locally with `make test-integration`, or ask a maintainer to add the `run-integration` label to a PR to run it
-  there; it always runs on `main` (when the merge changed code) and on releases. The same suite also runs against rootless podman under the
-  `run-integration-podman` label, which keeps podman an engine this project tests rather than only documents.
+- The `integration`-tagged docker-build suite is excluded from `make test` (~10 minutes). It runs on every code-affecting PR
+  as a **required** check, cached through the GitHub Actions BuildKit cache (`main` writes the `runner-image` cache; PRs
+  restore from it), and always on `main` (when the merge changed code) and on releases. Run it locally with
+  `make test-integration`. The same suite also runs against rootless podman, kept opt-in behind the
+  `run-integration-podman` label: podman advertises only the classic builder, so it neither exercises the BuildKit path nor
+  uses the cache, and it stays a tested engine without adding the build to every PR.
 
 ## Documentation
 
@@ -163,15 +165,16 @@ If you change a CLI command or flag, update the relevant docs in the same PR.
 ### Merging
 
 `main` merges through a **merge queue**. Once a PR is approved and its required checks (`lint`, `test`, `race`,
-`deadcode`, `changelog`) pass, add it to the queue (a maintainer can, and anyone with write access can in the PR's merge box). The
+`deadcode`, `changelog`, `integration`) pass, add it to the queue (a maintainer can, and anyone with write access can in the PR's merge box). The
 queue builds your branch on top of the current `main` **plus the PRs ahead of you**, re-runs the required checks on that
 combined tree, and merges it only if they pass. This is what stops two independently-green PRs from breaking `main`
 together, without anyone hand-rebasing before merging.
 
 If a required check fails on that combined build, the queue drops your PR and leaves the reason on the timeline; fix it
 and re-add the PR. `race`, `deadcode`, and `changelog` are required and always run — a gated required check would report success
-without running — so a docs-only change runs them too. The `integration` suites are not in the queue: they still run on
-`main` after the merge (and on releases).
+without running — so a docs-only change runs them too. The `integration` check is required but skipped on the queue (a
+skipped required check reports success), so the cached docker build runs on `main` after the merge (and on releases)
+rather than in the queue; the podman suite is not in the queue either.
 
 ## Changelog & versioning
 
