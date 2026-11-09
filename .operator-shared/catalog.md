@@ -17,6 +17,9 @@
 - `0001-yaml-handling.md`
   - Description: Decision to adopt `oneyaml.dev/go` for the config write path (`viperconfig.WriteSetting`), to serialize on `go.yaml.in/yaml/v4` for every path we own (viper keeps its read-only `go.yaml.in/yaml/v3`), and to cap untrusted config/secret/snippet reads at 16 MiB (`internal/configread`); `goccy/go-yaml` rejected, the owner scan and JSON5 depth recorded.
   - Read If: Changing `viperconfig.WriteSetting`, the YAML edit path, or the `configread` bound; evaluating oneyaml vs goccy; touching `go.mod`'s YAML dependency or the `yaml/v3`↔`v4` choice; or triaging a `FuzzParseState` serialization-stability failure.
+- `0002-rootless-docker-engine.md`
+  - Description: Decision to run the agent's Docker engine rootless as `dev` instead of granting the root-equivalent `docker` group; records the spike evidence, the fail-the-build prerequisite policy, the data root on the VM root disk, the `/var/run/docker.sock` symlink, and the `/dev/fuse`/`/dev/net/tun` permission fix.
+  - Read If: Changing how the in-VM Docker engine is installed, started, or reached (`dockerAdoptionBlock`, `vm/dockerd.go`), its prerequisites, or evaluating podman/a daemonless builder/an authz proxy instead.
 - `TEMPLATE.md`
   - Description: Template for an ADR in this directory (Context / Options / Decision / Consequences).
   - Read If: Writing a new ADR.

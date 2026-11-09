@@ -425,9 +425,11 @@ RUN mkdir -p %s && %s
 }
 
 // dockerStage renders the optional Docker tool stage on the tool base. It
-// installs the static Docker binaries into toolBin unconditionally: the fixed
-// tool base never carries dockerd, and a base-provided engine is handled by the
-// runner's PATH precedence and recorded by adoption. It does not check the
+// installs the static Docker binaries and the rootless extras (rootlesskit and
+// dockerd-rootless.sh) into toolBin unconditionally: the fixed tool base never
+// carries dockerd, and a base-provided engine is handled by the runner's PATH
+// precedence and recorded by adoption. The rootless extras run a base-provided
+// dockerd too, so no base has to ship them. It does not check the
 // runtime prerequisites (iptables, git, ps, xz): the check runs in the final
 // stage instead (dockerAdoptionBlock), after the user body, so a body that
 // installs them is accepted.
@@ -435,16 +437,18 @@ RUN mkdir -p %s && %s
 // It deliberately installs no system package: only toolDir is copied into the
 // runner (dockerMergeBlock), so a package installed here would not reach the
 // image. The storage driver's copy-on-write runtime (fuse-overlayfs + libfuse3)
-// is a system package, so the embedded managed base installs it instead; a
-// custom base must provide it or the launcher falls back to vfs. See
-// specs/runner-image/image-composition.md.
+// and the rootless runtime (uidmap, slirp4netns, iproute2) are system packages,
+// so the embedded managed base installs them instead; a custom base must
+// provide them. See specs/runner-image/image-composition.md.
 func dockerStage() string {
 	return fmt.Sprintf(`FROM %s AS %s
 USER root
 ARG DOCKER_VERSION=%s
 RUN set -e; mkdir -p %s && \
-    curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_VERSION}.tgz" \
-      | tar -xz -C %s --strip-components=1
+    for archive in docker docker-rootless-extras; do \
+      curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/${archive}-${DOCKER_VERSION}.tgz" \
+        | tar -xz -C %s --strip-components=1; \
+    done
 `, toolbaseStageAlias, dockerStageAlias, dockerVersion, toolBin, toolBin)
 }
 
@@ -510,14 +514,18 @@ func dockerMergeBlock() string {
 
 // dockerAdoptionBlock records whether dockerd was provided by the base (user)
 // or the tool, checks the static-install runtime prerequisites when the tool
-// installed the engine, ensures the docker group exists, and adds dev to it so
-// the dev user can reach the root:docker 0660 socket. It resets to root so a
-// project body ending in a non-root USER cannot break the block, and it runs in
-// the final stage after the user body so a base that installs the prerequisites
-// in the body is accepted. PATH prefers base binaries, so a base-provided
-// dockerd resolves outside toolDir; a base that ships its own engine is not
-// required to carry the static-tarball prerequisites. The download's curl/tar
-// are not checked: the docker install runs on the tool base, which carries them.
+// installed the engine, and prepares the rootless engine the launcher runs as
+// dev. It resets to root so a project body ending in a non-root USER cannot
+// break the block, and it runs in the final stage after the user body so a base
+// that installs the prerequisites in the body is accepted. PATH prefers base
+// binaries, so a base-provided dockerd resolves outside toolDir; a base that
+// ships its own engine is not required to carry the static-tarball
+// prerequisites. The download's curl/tar are not checked: the docker install
+// runs on the tool base, which carries them.
+//
+// The rootless prerequisites apply to every engine source, because the
+// launcher runs a base-provided dockerd rootless too. dev gets no docker group:
+// the engine runs as dev and owns its socket.
 func dockerAdoptionBlock() string {
 	return fmt.Sprintf(`USER root
 RUN set -e; mkdir -p /etc/agents-sandbox; \
@@ -530,8 +538,12 @@ RUN set -e; mkdir -p /etc/agents-sandbox; \
           { echo "error: docker prerequisite missing: $p" >&2; exit 1; }; \
       done; \
     fi; \
-    groupadd -f docker; \
-    usermod -aG docker dev 2>/dev/null || true
+    for p in newuidmap newgidmap slirp4netns ip rootlesskit dockerd-rootless.sh; do \
+      command -v "$p" >/dev/null 2>&1 || \
+        { echo "error: rootless docker prerequisite missing: $p" >&2; exit 1; }; \
+    done; \
+    grep -q '^dev:' /etc/subuid || echo 'dev:100000:65536' >> /etc/subuid; \
+    grep -q '^dev:' /etc/subgid || echo 'dev:100000:65536' >> /etc/subgid
 `, toolDir)
 }
 

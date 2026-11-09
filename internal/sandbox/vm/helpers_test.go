@@ -154,7 +154,7 @@ func (s *dockerdStartSandbox) Shell(
 }
 
 // existsErrorFS is a SandboxFS whose Exists fails while every other operation is
-// delegated to the embedded test FS, so a test can exercise guestStorageDriver's
+// delegated to the embedded test FS, so a test can exercise readGuestDaemonConfig's
 // inspect-failure branch independently of Read.
 type existsErrorFS struct {
 	*msbtest.TestFS
@@ -214,6 +214,42 @@ func (s *countingSandbox) ExecDetached(
 		*s.execArgs = args
 	}
 	return s.MockSandbox.ExecDetached(ctx, cmd, args, spec)
+}
+
+// userRecordingSandbox is an msb.MockSandbox that records every shell command
+// with the user it ran as, so a test can pin which setup steps run as root and
+// which as the engine's user.
+type userRecordingSandbox struct {
+	*msb.MockSandbox
+
+	commands []string
+	users    []string
+}
+
+func (s *userRecordingSandbox) Shell(
+	ctx context.Context,
+	command string,
+	req msb.ExecRequest,
+) (msb.ShellResult, error) {
+	s.commands = append(s.commands, command)
+	s.users = append(s.users, req.User)
+	return s.MockSandbox.Shell(ctx, command, req)
+}
+
+// commandErrorSandbox is an msb.MockSandbox whose Shell fails with err for one
+// command and delegates every other command.
+type commandErrorSandbox struct {
+	*msb.MockSandbox
+
+	failing string
+	err     error
+}
+
+func (s *commandErrorSandbox) Shell(ctx context.Context, command string, req msb.ExecRequest) (msb.ShellResult, error) {
+	if command == s.failing {
+		return nil, s.err
+	}
+	return s.MockSandbox.Shell(ctx, command, req)
 }
 
 // seedHomeState writes hs as the key's HomeState through the recovery

@@ -15,7 +15,8 @@ import (
 
 // runDockerStorageDriverSmoke drives the launcher's `shell` command in a
 // docker-enabled VM and asserts the in-VM dockerd runs the fuse-overlayfs
-// storage driver and can run and layered-build an image with it (#489). It is a
+// storage driver and can run and layered-build an image with it (#489), and
+// that it runs rootless so a container cannot reach VM root (#487). It is a
 // sibling subtest of the harness smoke, sharing the suite's root, home, and
 // cleanup (see TestHarnessSmoke).
 //
@@ -71,6 +72,8 @@ func runDockerStorageDriverSmoke(t *testing.T, root, binary string) {
 		t.Fatalf("layered docker build/run reported an error; output:\n%s", output)
 	}
 
+	assertRootlessEngine(t, ses)
+
 	if err := ses.write([]byte("exit\n")); err != nil {
 		t.Fatalf("write exit: %v", err)
 	}
@@ -78,6 +81,48 @@ func runDockerStorageDriverSmoke(t *testing.T, root, binary string) {
 		t.Fatalf("shell did not exit: %v\n%s", err, output)
 	} else if code != 0 {
 		t.Fatalf("shell exited %d, want 0\n%s", code, output)
+	}
+}
+
+// assertRootlessEngine asserts the in-VM engine runs rootless and that a
+// container cannot reach VM root through it (#487): a host bind mount cannot
+// read the root-only /etc/shadow, and a privileged host-pid container cannot
+// enter PID 1's namespaces. The probe image is assembled from the VM's own cat
+// and nsenter plus their libraries, because the smoke VM has no registry
+// access; a positive control proves the image runs, so a broken probe cannot
+// pass as a blocked escape.
+func assertRootlessEngine(t *testing.T, ses *ptySession) {
+	t.Helper()
+
+	writeAndAwaitMarker(
+		t,
+		ses,
+		"echo \"__SECURITY=__$(docker info --format '{{.SecurityOptions}}')__END__\"; printf '__SECURITY%s__\\n' _DONE\n",
+		"__SECURITY_DONE__",
+	)
+	if !strings.Contains(markerText(string(ses.output())), "name=rootless") {
+		t.Fatalf("in-VM dockerd is not rootless; output:\n%s", stripANSI(ses.output()))
+	}
+
+	script := strings.Join([]string{
+		"mkdir -p /tmp/escape",
+		`for f in /usr/bin/cat /usr/bin/nsenter $(ldd /usr/bin/cat /usr/bin/nsenter | awk '/\//{print $(NF-1)}'); do cp --parents "$f" /tmp/escape; done`,
+		`printf 'FROM scratch\nCOPY . /\n' > /tmp/escape/Dockerfile`,
+		"docker build -q -t escape-probe /tmp/escape >/dev/null",
+		`docker run --rm escape-probe cat /etc/hostname >/dev/null; echo "__CONTROL_RC=__$?__"`,
+		`docker run --rm -v /:/host escape-probe cat /host/etc/shadow >/dev/null; echo "__BIND_RC=__$?__"`,
+		`docker run --rm --privileged --pid=host escape-probe nsenter -t 1 -m -u -i -n -p cat /etc/shadow >/dev/null; echo "__NSENTER_RC=__$?__"`,
+		"printf '__ESCAPE%s__\\n' _DONE",
+	}, "; ")
+	writeAndAwaitMarker(t, ses, script+"\n", "__ESCAPE_DONE__")
+	output := markerText(string(ses.output()))
+	if !strings.Contains(output, "__CONTROL_RC=__0__") {
+		t.Fatalf("the escape probe image does not run; output:\n%s", stripANSI(ses.output()))
+	}
+	for _, escape := range []string{"__BIND_RC=__", "__NSENTER_RC=__"} {
+		if strings.Contains(output, escape+"0__") || !strings.Contains(output, escape) {
+			t.Errorf("a container reached VM root (%s); output:\n%s", escape, stripANSI(ses.output()))
+		}
 	}
 }
 

@@ -52,14 +52,24 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
   a live VM cannot kill them, so the fresh job fails to bind (`:4096`/the socket) and surfaces a structured failure or
   timeout. This is accepted rather than mitigated with legacy `pkill` cleanup (the no-fallback rule): VMs are ephemeral,
   and a stop/start relaunches both as jobs.
-- **dockerd teardown keeps residue cleanup.** Killing the dockerd job does not necessarily reap its `containerd` child,
-  so a minimal shell cleanup (`pkill containerd` plus `/run`,`/var/run` pid/socket deletion) still runs before a
-  restart. The job kill replaces `pkill dockerd`.
-- **dockerd's storage driver.** The driver request is built as arguments (`dockerdArgs`) and passed to `ExecDetached`,
-  not as a shell string. The default driver is `fuse-overlayfs` when `guestSupportsFuseOverlayfs` passes (the
-  `fuse-overlayfs` binary and a usable `/dev/fuse`), otherwise `vfs`. It keeps the #287 rule: request
-  `--storage-driver=<driver>` unless the image's `daemon.json` already sets a driver (then the flag is dropped), and
-  fail when the file sets any driver other than those two.
+- **The Docker engine job is rootless.** It launches `dockerd-rootless.sh` as `dev` with
+  `XDG_RUNTIME_DIR=/run/agents-sandbox/docker`, under the `dockerd` marker; a marker-less helper still matches by the
+  `dockerd` binary, so a rootful engine an older launcher left is killed. Before each launch, as root,
+  `prepareRootlessDockerd` fails with a `--rebuild` hint when the image has `dockerd` but no `dockerd-rootless.sh`
+  (never a rootful fallback), then makes `/dev/net/tun` and `/dev/fuse` `0666` (the guest recreates them `0600` each
+  boot), creates the `dev`-owned runtime directory (`0700`) and data root `/var/lib/agents-sandbox/docker`, and links
+  `/var/run/docker.sock` to the rootless socket, so clients and the `docker info`/`docker ps -q` probes need no
+  `DOCKER_HOST`. See `adr/0002-rootless-docker-engine.md`.
+- **Engine teardown keeps residue cleanup.** Killing the engine job tears down rootlesskit and dockerd, but a
+  `containerd` or `slirp4netns` helper and the runtime directory's sockets, pid files, and state may survive, so a
+  minimal shell cleanup (`pkill -KILL -x` of those two, then emptying the runtime directory) runs before a restart. The
+  job kill owns the engine itself.
+- **dockerd's arguments.** The request is built as arguments (`dockerdArgs`) and passed to `ExecDetached`, not as a
+  shell string: `--config-file /etc/docker/daemon.json` when the image has that file, `--data-root`, and the storage
+  driver. The default driver is `fuse-overlayfs` when `guestSupportsFuseOverlayfs` passes (the `fuse-overlayfs` binary
+  and a `/dev/fuse` usable by `dev`), otherwise `vfs`. It keeps the #287 rule: a flag is dropped when the image's
+  `daemon.json` already sets that key (`storage-driver`, `data-root`), and the start fails when the file sets any driver
+  other than those two.
 - **Agent command shape.** `agent.DaemonProvider` exposes a structured `DaemonCommand{Binary, Args}` for the detached
   launch (health command/parse unchanged); it no longer exposes shell start/kill strings or a log path. Serve-only binds
   `0.0.0.0` (loopback `127.0.0.1` otherwise) so the host's published-port forwarder reaches the guest.

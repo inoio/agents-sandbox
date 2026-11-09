@@ -228,15 +228,17 @@ stage the runner builds on, while the node, agent, and optional docker stages bu
 image. For a custom base, the earlier build stages in your project Dockerfile are kept before the base stage. The custom
 base must meet these requirements:
 
-- **shadow-utils** providing `groupadd`, `useradd`, and `usermod` (used to create the `dev` user and docker group).
+- **shadow-utils** providing `groupadd` and `useradd` (used to create the `dev` user).
 - **A POSIX shell** — the `dev` user's login shell is set to the first of `bash`, `zsh`, `sh` found, falling back to
   `/bin/sh`.
 - **A login profile that sources `/etc/profile.d/*.sh`** — the runner installs `/etc/profile.d/agents-sandbox-path.sh`
   to restore the composed `PATH` in login shells, so a base whose profile does not source `/etc/profile.d` will not get
   the merged `PATH`.
-- **For Docker only**: the runtime prerequisites `iptables`, `git`, `ps`, and `xz`. These are checked after your
-  Dockerfile body runs, so they may be installed in the body or an earlier stage. If one is missing, the build fails and
-  names the missing package. The engine download itself runs on the tool base, so your image needs no `curl` or `tar`.
+- **For Docker only**: the runtime prerequisites `iptables`, `git`, `ps`, and `xz`, plus what the rootless engine needs:
+  `newuidmap` and `newgidmap` (Debian/Ubuntu package `uidmap`, Fedora `shadow-utils`), `slirp4netns`, and `ip`
+  (`iproute2`). These are checked after your Dockerfile body runs, so they may be installed in the body or an earlier
+  stage. If one is missing, the build fails and names the missing package. The engine download itself runs on the tool
+  base, so your image needs no `curl` or `tar`.
 - **For the daemon agents (`opencode`, `opencode2`)**: the in-VM tool the launcher uses — `curl`. It reaches the daemon
   (the health probe, session and worktree calls, and notifications); the daemon is launched and stopped as a
   runtime-owned job, so no process-control tool is needed. `curl` is checked after your Dockerfile body runs, so it may
@@ -326,10 +328,36 @@ own FUSE mount, so it copies layers on write instead of copying each one whole, 
 use. The image never writes `/etc/docker/daemon.json`, so your edits to it are preserved: if your `daemon.json` already
 sets `"storage-driver"` to `vfs` or `fuse-overlayfs`, agents-sandbox leaves the file alone and starts dockerd without the
 flag (passing both makes dockerd refuse to start); if it sets any other driver, start-up fails with an error naming the
-two accepted drivers. The launcher starts dockerd (and the agent's `serve` daemon) as a microsandbox runtime-owned
+two accepted drivers. The launcher starts the engine (and the agent's `serve` daemon) as a microsandbox runtime-owned
 detached job inside the VM: startup is confirmed by health probe, and if the job fails the launcher reports its exit code
 and a log tail (there is no `dockerd.log`). `buildx` and `docker compose` are **not** installed — install them in your
 project Dockerfile if you need them. The static tarball's platform is selected by `uname -m` (`x86_64`/`aarch64`).
+
+### The engine runs rootless
+
+The Docker engine in the sandbox runs as the `dev` user, the same user as the agent, not as root. This is called
+rootless mode. A container started through it gets no more rights in the sandbox than the agent already has: its
+`root` user is `dev`, so mounting `/` into a container does not let it read files only root may read, and
+`--privileged` grants privileges only inside the engine's own user namespace. Rootless mode keeps the agent from
+turning access to Docker into root access inside the sandbox.
+
+The `docker` command and tools that talk to the Docker API, such as Testcontainers, work unchanged:
+`/var/run/docker.sock` points to the engine's socket, so no `DOCKER_HOST` is needed. Some things work differently from a regular Docker host:
+
+- **Resource limits are not enforced.** Options such as `--memory` and `--cpus` are accepted but have no effect,
+  because the sandbox has no systemd to hand the engine a cgroup.
+- **Privileged tooling does not work.** Anything that needs real root, such as running Docker inside a container or
+  loading kernel modules, fails.
+- **Container networking runs in user space** (`slirp4netns`). Published ports (`-p 8080:80`) are reachable from the
+  sandbox as usual; the engine has no `docker0` bridge.
+- **Images and containers live in `/var/lib/agents-sandbox/docker`** on the sandbox disk. They are lost when the sandbox
+  is recreated, like before. Images built by an earlier agents-sandbox version, which ran the engine as root, are not
+  carried over.
+
+The engine reads your image's `/etc/docker/daemon.json`. If it sets `"data-root"`, that directory must be writable by
+`dev`, or the engine fails to start and the launcher shows its log.
+
+### Placing the Docker install
 
 With a custom base, a thin `COPY --from=agents-sandbox-docker` plus an adopt step is appended after your Dockerfile body
 by default, so steps after it see `docker` (the heavy download stays in the cacheable Docker stage). To run your own steps
@@ -342,7 +370,8 @@ FROM ubuntu:24.04
 # The Docker runtime prerequisites are checked after this body runs, so install
 # them here. The engine download runs on the tool base, so curl/tar are not
 # needed in your image.
-RUN apt-get update && apt-get install -y iptables git procps xz-utils && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y iptables git procps xz-utils uidmap slirp4netns iproute2 && \
+    rm -rf /var/lib/apt/lists/*
 
 # agents-sandbox:docker
 
