@@ -559,10 +559,10 @@ type launcherGuestTool struct {
 // lacks one fails the image build naming the tool instead of failing when the
 // feature runs: curl replays a browser-login callback inside the VM for the
 // host opener (on by default), and tar copies the old home volume onto the new
-// one on migrate. The managed base provides both.
+// one on migrate (volume.copyVolumeScript). The managed base provides both.
 var launcherGuestTools = []launcherGuestTool{
 	{name: "curl", reason: "required by the host opener"},
-	{name: "tar", reason: "required by the home volume migrate"},
+	{name: "tar", reason: "required to migrate a home volume"},
 }
 
 // launcherToolsBlock verifies the in-VM tools the launcher's own features need,

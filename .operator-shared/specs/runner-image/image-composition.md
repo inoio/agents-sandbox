@@ -231,10 +231,13 @@ at the daemon health probe. This is the honest-contract counterpart to #143: the
 from the base (they run on the tool base), but a daemon agent's *runtime* still does. Removing the `curl` requirement
 altogether — moving the daemon HTTP/SSE calls host-side — is #263.
 
-On top of the agent's tools, the launcher declares its own in-VM tools (`launcherGuestTools`), rendered as a second check
-in the same final stage. Today that is `curl`: the host opener replays a browser-login callback inside the VM with it
-(#273). Because the opener is on by default, this check runs for every agent, including the daemonless ones, so a custom
-base without `curl` fails the image build naming the tool instead of failing at login time.
+On top of the agent's tools, the launcher declares its own in-VM tools (`launcherGuestTools`), each with the feature that
+needs it, rendered as checks in the same final stage: `curl` for the host opener, which replays a browser-login callback
+inside the VM (#273), and `tar` for the home volume migrate, which copies the old volume onto the new one in a throwaway
+sandbox (`cp -a` cannot: a volume exposes the host's `security.selinux` xattr, whose read fails with `ERANGE`, #627).
+Both features are available to every agent, so these checks run for the daemonless ones too, and a custom base missing
+a tool fails the image build naming it instead of failing when the feature runs. Moving these tools out of the guest is
+#263.
 
 The agent's **runtime shared libraries** are declared per agent (`ImageSpec.RuntimeLibs`) and rendered into the same final
 stage after the user body. They exist because the agent's runtime is installed in the agent stage on the tool base while

@@ -20,16 +20,6 @@ const (
 	dstMount  = "/dst"
 )
 
-// copyVolumeScript copies the old home volume onto the new one, preserving
-// modes, timestamps, and symlinks but not extended attributes. A volume exposes
-// the host's xattrs (an SELinux host's security.selinux label), and reading
-// those fails with ERANGE, so `cp -a` cannot copy between volumes. sh may lack
-// pipefail, so a failing archive writer is reported through a marker file.
-const copyVolumeScript = "{ tar -C " + srcMount + " -cf - . || echo failed > /tmp/copy-source-failed; }" +
-	" | tar -C " + dstMount + " -xpf -" +
-	" && [ ! -e /tmp/copy-source-failed ]" +
-	" && chown -R dev:dev " + dstMount
-
 // homeVolumeClock is the clock HomeVolumeName timestamps from.
 var homeVolumeClock = time.Now
 
@@ -57,7 +47,9 @@ func NewManager(dclient docker.Client) *Manager {
 
 // PrefillVolume builds a throwaway sandbox from the given image, mounts the
 // target home volume at /mnt/home, and copies the image's home directory onto it.
-// The throwaway sandbox is stopped and removed afterwards.
+// The throwaway sandbox is stopped and removed afterwards. Its `cp -a` reads
+// from the image rootfs, which carries no host xattrs, so unlike CopyVolume it
+// is not affected by a volume's unreadable security.selinux label.
 func (vm *Manager) PrefillVolume(
 	ctx context.Context,
 	client msb.Client,
@@ -157,6 +149,28 @@ func (vm *Manager) cleanupUncommittedVolume(
 		return
 	}
 	vm.cleanupVolume(ctx, client, name, ui)
+}
+
+// copySourceFailedMarker is where copyTreeCommand records a failing source
+// archive; it lives on the throwaway sandbox's rootfs, not on a volume.
+const copySourceFailedMarker = "/tmp/copy-source-failed"
+
+// copyVolumeScript copies the old home volume onto the new one in the copy
+// sandbox and hands the result to dev. It needs tar in the runner image, which
+// image.launcherGuestTools enforces.
+var copyVolumeScript = copyTreeCommand(srcMount, dstMount, copySourceFailedMarker) + " && chown -R dev:dev " + dstMount
+
+// copyTreeCommand returns a shell command that copies the contents of source
+// onto target, setting the mode and timestamps of files that already exist in
+// target too, and preserving symlinks, but not extended attributes: a volume
+// exposes the host's xattrs (an SELinux host's security.selinux label), and
+// reading those fails with ERANGE, so `cp -a` cannot copy from a volume. sh may
+// lack pipefail, so a failing archive writer is recorded in sourceFailedMarker
+// and fails the command.
+func copyTreeCommand(source, target, sourceFailedMarker string) string {
+	return "{ tar -C " + source + " -cf - . || echo failed > " + sourceFailedMarker + "; }" +
+		" | tar -C " + target + " -xpf -" +
+		" && [ ! -e " + sourceFailedMarker + " ]"
 }
 
 // CopyVolume copies the contents of the old home volume on top of the newly

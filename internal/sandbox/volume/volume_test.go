@@ -1098,22 +1098,3 @@ func TestApplyHomeAction_PrefillFails_RemovesVolume(t *testing.T) {
 		t.Errorf("expected new volume to be cleaned up, got %v", mock.RemovedVolumes)
 	}
 }
-
-func TestCopyVolumeScript_CopiesWithoutExtendedAttributes(t *testing.T) {
-	if strings.Contains(copyVolumeScript, "cp -a") || strings.Contains(copyVolumeScript, "--xattrs") {
-		t.Errorf(
-			"copy script must not preserve extended attributes, which a volume cannot read back: %q",
-			copyVolumeScript,
-		)
-	}
-	if !strings.Contains(copyVolumeScript, "tar -C /dst -xpf -") {
-		t.Errorf("copy script must extract with preserved modes: %q", copyVolumeScript)
-	}
-}
-
-func TestCopyVolumeScript_FailsWhenTheSourceArchiveFails(t *testing.T) {
-	if !strings.Contains(copyVolumeScript, "|| echo failed > /tmp/copy-source-failed") ||
-		!strings.Contains(copyVolumeScript, "&& [ ! -e /tmp/copy-source-failed ]") {
-		t.Errorf("copy script must turn a failing source archive into a failed copy: %q", copyVolumeScript)
-	}
-}

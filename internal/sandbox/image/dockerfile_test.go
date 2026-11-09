@@ -770,7 +770,7 @@ func TestRenderDockerfileChecksLauncherTools(t *testing.T) {
 		final := finalStage(t, mustRender(t, a, nil, dockerOff))
 		for _, check := range []struct{ tool, reason string }{
 			{"curl", "required by the host opener"},
-			{"tar", "required by the home volume migrate"},
+			{"tar", "required to migrate a home volume"},
 		} {
 			if !strings.Contains(final, "for p in "+check.tool+";") {
 				t.Errorf("%s: the final stage must verify the launcher's %s; got:\n%s", name, check.tool, final)
