@@ -39,8 +39,12 @@ type detachedService struct {
 	startLabel string
 
 	// execUser runs the detached job as that user; empty uses the sandbox
-	// default (the daemon runs as the dev user, dockerd as root).
+	// default user.
 	execUser string
+
+	// env adds environment variables to the detached job; nil keeps the
+	// image's environment unchanged.
+	env map[string]string
 
 	// timeout and pollInterval bound the readiness await.
 	timeout      time.Duration
@@ -111,7 +115,7 @@ func ensureDetachedService(
 		ctx,
 		binary,
 		commandArgs,
-		msb.JobSpec{User: service.execUser},
+		msb.JobSpec{User: service.execUser, Env: service.env},
 	)
 	if startErr != nil {
 		return fmt.Errorf("start %s: %w", service.startLabel, startErr)
