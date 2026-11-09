@@ -466,9 +466,9 @@ func TestStartDockerdIfPresentLaunchesMarkedJob(t *testing.T) {
 // it makes the devices the guest recreates 0600 each boot usable by dev, creates
 // the dev-only runtime and data directories, and links the default socket.
 func TestStartDockerdPreparesTheRootlessRuntimeAsRoot(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	sb := &userRecordingSandbox{MockSandbox: &msb.MockSandbox{
-		ShellOut: map[string]msb.ShellResult{dockerdReadyCmd: msb.NewTestResult(false, 1, "", "", nil)},
+	ui := termiotest.NewTestMock(t)
+	sb := &userRecordingSandbox{MockSandbox: &msbtest.MockSandbox{
+		ShellOut: map[string]msb.ShellResult{dockerdReadyCmd: msbtest.NewTestResult(false, 1, "", "", nil)},
 	}}
 	origTimeout, origInterval := dockerdReadyTimeout, dockerdPollInterval
 	t.Cleanup(func() { dockerdReadyTimeout, dockerdPollInterval = origTimeout, origInterval })
@@ -506,13 +506,13 @@ func TestStartDockerdPreparesTheRootlessRuntimeAsRoot(t *testing.T) {
 // launcher cannot set up stops before the launch with the cause, instead of
 // surfacing as the readiness timeout.
 func TestStartDockerdFailsWhenThePrepareStepFails(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	detached := &[]msb.MockDetachedCall{}
-	sb := &msb.MockSandbox{
+	ui := termiotest.NewTestMock(t)
+	detached := &[]msbtest.MockDetachedCall{}
+	sb := &msbtest.MockSandbox{
 		ExecDetachedCalls: detached,
 		ShellOut: map[string]msb.ShellResult{
-			dockerdReadyCmd:           msb.NewTestResult(false, 1, "", "", nil),
-			dockerdRootlessPrepareCmd: msb.NewTestResult(false, 1, "", "chmod: /dev/net/tun: No such file", nil),
+			dockerdReadyCmd:           msbtest.NewTestResult(false, 1, "", "", nil),
+			dockerdRootlessPrepareCmd: msbtest.NewTestResult(false, 1, "", "chmod: /dev/net/tun: No such file", nil),
 		},
 	}
 
@@ -532,14 +532,14 @@ func TestStartDockerdFailsWhenThePrepareStepFails(t *testing.T) {
 func TestStartDockerdWrapsARootlessSetupTransportError(t *testing.T) {
 	for _, failing := range []string{dockerdRootlessCheckCmd, dockerdRootlessPrepareCmd} {
 		t.Run(failing, func(t *testing.T) {
-			ui := termio.NewTestMock(t)
+			ui := termiotest.NewTestMock(t)
 			sentinel := errors.New("transport boom")
-			detached := &[]msb.MockDetachedCall{}
+			detached := &[]msbtest.MockDetachedCall{}
 			sb := &commandErrorSandbox{
-				MockSandbox: &msb.MockSandbox{
+				MockSandbox: &msbtest.MockSandbox{
 					ExecDetachedCalls: detached,
 					ShellOut: map[string]msb.ShellResult{
-						dockerdReadyCmd: msb.NewTestResult(false, 1, "", "", nil),
+						dockerdReadyCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 					},
 				},
 				failing: failing,
@@ -561,13 +561,13 @@ func TestStartDockerdWrapsARootlessSetupTransportError(t *testing.T) {
 // image that has dockerd but predates the rootless engine fails with a rebuild
 // hint rather than starting a root-equivalent engine.
 func TestStartDockerdRequiresTheRootlessEntrypoint(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	detached := &[]msb.MockDetachedCall{}
-	sb := &msb.MockSandbox{
+	ui := termiotest.NewTestMock(t)
+	detached := &[]msbtest.MockDetachedCall{}
+	sb := &msbtest.MockSandbox{
 		ExecDetachedCalls: detached,
 		ShellOut: map[string]msb.ShellResult{
-			dockerdReadyCmd:         msb.NewTestResult(false, 1, "", "", nil),
-			dockerdRootlessCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+			dockerdReadyCmd:         msbtest.NewTestResult(false, 1, "", "", nil),
+			dockerdRootlessCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 		},
 	}
 

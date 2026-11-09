@@ -216,11 +216,11 @@ func (s *countingSandbox) ExecDetached(
 	return s.MockSandbox.ExecDetached(ctx, cmd, args, spec)
 }
 
-// userRecordingSandbox is an msb.MockSandbox that records every shell command
+// userRecordingSandbox is an msbtest.MockSandbox that records every shell command
 // with the user it ran as, so a test can pin which setup steps run as root and
 // which as the engine's user.
 type userRecordingSandbox struct {
-	*msb.MockSandbox
+	*msbtest.MockSandbox
 
 	commands []string
 	users    []string
@@ -236,10 +236,10 @@ func (s *userRecordingSandbox) Shell(
 	return s.MockSandbox.Shell(ctx, command, req)
 }
 
-// commandErrorSandbox is an msb.MockSandbox whose Shell fails with err for one
+// commandErrorSandbox is an msbtest.MockSandbox whose Shell fails with err for one
 // command and delegates every other command.
 type commandErrorSandbox struct {
-	*msb.MockSandbox
+	*msbtest.MockSandbox
 
 	failing string
 	err     error
