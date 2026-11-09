@@ -190,7 +190,15 @@ type connectOrStartChild struct {
 func startConnectOrStartChild(t *testing.T, name string) *connectOrStartChild {
 	t.Helper()
 	command := exec.Command(os.Args[0], "-test.run=^TestRealClientConnectOrStartChild$", "-test.v")
-	command.Env = append(os.Environ(), childHomeEnv+"="+runtime.IsolatedRuntimeHome(), childNameEnv+"="+name)
+	// A reused home (AGENTS_SANDBOX_MSB_TEST_HOME) is held under an exclusive
+	// lock for the whole run; drop it from the child's environment so the
+	// child's TestMain does not re-enter that lock and deadlock. The child
+	// borrows the parent's home through the markers and its inherited MSB_HOME.
+	command.Env = append(
+		runtime.WithoutReuseHome(os.Environ()),
+		childHomeEnv+"="+runtime.IsolatedRuntimeHome(),
+		childNameEnv+"="+name,
+	)
 	child := &connectOrStartChild{command: command}
 	command.Stderr = &child.output
 	stdin, err := command.StdinPipe()

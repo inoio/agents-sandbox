@@ -147,7 +147,9 @@ never be reached by a later invocation. Three rules keep the msb-tagged tests fr
 - **Child processes borrow the parent's home.** A test that needs cross-process behaviour re-executes the test binary
   with the parent's home in its environment (`TestRealClientSandboxLifecycle`). The child points `MSB_HOME` at that home and
   never calls `ensureIsolatedRuntime`, so its own `TestMain` sweep stays a no-op and cannot destroy the parent's
-  sandboxes.
+  sandboxes. It is spawned without `AGENTS_SANDBOX_MSB_TEST_HOME` (`runtime.WithoutReuseHome`), because a reused home
+  is held under the parent's exclusive lock for the whole run — a child whose `TestMain` ran `InstallIsolatedRuntimeHome`
+  with that variable set would block on the lock forever while the parent waited on the child's ready line.
 
 ## Host-home redirect
 
