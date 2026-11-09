@@ -1,14 +1,153 @@
 package image
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
+	"github.com/docker/cli/cli/config"
 	buildkitclient "github.com/moby/buildkit/client"
+	"github.com/moby/buildkit/client/llb"
+	"github.com/moby/buildkit/session"
+	"github.com/moby/buildkit/session/auth/authprovider"
 	"github.com/tonistiigi/fsutil"
+
+	"github.com/inoio/agents-sandbox/internal/agent"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 )
+
+// buildKitSolver is the slice of the BuildKit client the build uses, so a unit
+// test can substitute a fake for the real client without a builder. Solve closes
+// statusChan on every return path (the real client defers the close), so an
+// implementation must do the same or the status pump never drains.
+type buildKitSolver interface {
+	Solve(
+		ctx context.Context,
+		def *llb.Definition,
+		opt buildkitclient.SolveOpt,
+		statusChan chan *buildkitclient.SolveStatus,
+	) (*buildkitclient.SolveResponse, error)
+	Close() error
+}
+
+// newBuildKitClient constructs a BuildKit client that reaches the daemon's
+// embedded builder over the Docker API hijack endpoints. It is a package var so
+// a unit test can substitute a fake client.
+var newBuildKitClient = func(ctx context.Context, dclient docker.Client) (buildKitSolver, error) {
+	return buildkitclient.New(
+		ctx,
+		"",
+		buildkitclient.WithContextDialer(buildKitControlDialer(dclient)),
+		buildkitclient.WithSessionDialer(buildKitSessionDialer(dclient)),
+	)
+}
+
+// newBuildKitSession returns the session attachables a solve carries: the
+// registry-auth provider built from the user's docker credential configuration,
+// so a private base image resolves on this path as it does on the classic path.
+// The build context needs no attachable of its own — Solve registers the
+// filesync provider for SolveOpt.LocalMounts automatically.
+//
+// It is a package var so a unit test can substitute an empty list and never read
+// the host's docker config.
+var newBuildKitSession = func() []session.Attachable {
+	dockerConfig := config.LoadDefaultConfigFile(os.Stderr)
+	//nolint:exhaustruct_v5 // only the credential source is controlled here; TLS/expiry keep their defaults
+	return []session.Attachable{authprovider.NewDockerAuthProvider(authprovider.DockerAuthProviderConfig{
+		AuthConfigProvider: authprovider.LoadAuthConfig(dockerConfig),
+	})}
+}
+
+// buildKitControlDialer returns the context dialer the BuildKit client uses for
+// its control connection: the daemon's /grpc endpoint over h2c.
+func buildKitControlDialer(dclient docker.Client) func(context.Context, string) (net.Conn, error) {
+	return func(ctx context.Context, _ string) (net.Conn, error) {
+		return dclient.DialHijack(ctx, "/grpc", "h2c", nil)
+	}
+}
+
+// buildKitSessionDialer returns the session dialer the BuildKit client uses for
+// its session connection: the daemon's /session endpoint, forwarding the
+// protocol and metadata the session requests.
+func buildKitSessionDialer(dclient docker.Client) func(context.Context, string, map[string][]string) (net.Conn, error) {
+	return func(ctx context.Context, proto string, meta map[string][]string) (net.Conn, error) {
+		return dclient.DialHijack(ctx, "/session", proto, meta)
+	}
+}
+
+// buildImageBuildKit builds the image through the engine's embedded BuildKit
+// builder, reached over the Docker API hijack endpoints (/grpc and /session),
+// with the dockerfile.v0 frontend and the moby exporter, so the produced image
+// is indistinguishable from the classic path's. The classic build args travel
+// as frontend build-arg attributes, and the daemon's streamed solve status is
+// forwarded to line. A solve failure is returned as-is — the launcher never
+// retries with the classic builder.
+func buildImageBuildKit(
+	ctx context.Context,
+	dclient docker.Client,
+	a agent.Agent,
+	req buildRequest,
+	tag string,
+	noCache bool,
+	line func(string),
+) error {
+	solver, err := newBuildKitClient(ctx, dclient)
+	if err != nil {
+		return buildFailureError(err)
+	}
+	defer func() { _ = solver.Close() }()
+
+	opt, cleanup, err := buildKitSolveOpt(req, tag, noCache)
+	if err != nil {
+		return buildFailureError(err)
+	}
+	defer cleanup()
+
+	for name, value := range userBuildArgs(os.Getuid(), os.Getgid(), a.ImageSpec(), req) {
+		if value == nil {
+			continue
+		}
+		opt.FrontendAttrs["build-arg:"+name] = *value
+	}
+	opt.Session = newBuildKitSession()
+
+	statusCh := make(chan *buildkitclient.SolveStatus)
+	var pump sync.WaitGroup
+	pump.Go(func() {
+		for status := range statusCh {
+			streamSolveStatus(status, line)
+		}
+	})
+
+	// Client.Solve closes statusCh itself (a deferred close on every return
+	// path), so the build must not close it again; it only waits for the pump to
+	// drain the closed channel before reporting the outcome.
+	_, solveErr := solver.Solve(ctx, nil, opt, statusCh)
+	pump.Wait()
+	if solveErr != nil {
+		return buildFailureError(solveErr)
+	}
+	return nil
+}
+
+// streamSolveStatus forwards each solve status's vertex names and log data to
+// line, so a BuildKit build reports its progress the way the classic build does.
+func streamSolveStatus(status *buildkitclient.SolveStatus, line func(string)) {
+	for _, vertex := range status.Vertexes {
+		if vertex.Name != "" {
+			line(vertex.Name)
+		}
+	}
+	for _, log := range status.Logs {
+		if data := strings.TrimRight(string(log.Data), "\n"); data != "" {
+			line(data)
+		}
+	}
+}
 
 // buildKitSolveOpt assembles the solve options for one BuildKit build: the
 // rendered Dockerfile and its context files are written to a fresh temporary

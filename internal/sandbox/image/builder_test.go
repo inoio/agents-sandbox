@@ -63,11 +63,12 @@ func TestSelectBuilderPropagatesPingError(t *testing.T) {
 }
 
 // TestBuildImageNoSilentDowngradeFromBuildKit pins the no-silent-downgrade
-// invariant: when the engine advertises BuildKit, the build errors out and the
-// classic builder is never reached. Falling back would silently build with a
-// different engine than the one configured.
+// invariant: when the engine advertises BuildKit, a BuildKit failure surfaces
+// and the classic builder is never reached. Falling back would silently build
+// with a different engine than the one configured.
 func TestBuildImageNoSilentDowngradeFromBuildKit(t *testing.T) {
 	a := agentOpencode(t)
+	stubBuildKitClient(t, &fakeBuildKitSolver{solveErr: errors.New("buildkit boom")})
 	classicCalled := false
 	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		PingFn: func(_ context.Context, _ client.PingOptions) (client.PingResult, error) {
@@ -86,8 +87,8 @@ func TestBuildImageNoSilentDowngradeFromBuildKit(t *testing.T) {
 	if err == nil {
 		t.Fatal("buildImage error = nil, want the BuildKit path error")
 	}
-	if !strings.Contains(err.Error(), "BuildKit build path not implemented") {
-		t.Errorf("buildImage error = %v, want the BuildKit placeholder error", err)
+	if !strings.Contains(err.Error(), "buildkit boom") {
+		t.Errorf("buildImage error = %v, want the BuildKit solve error to surface", err)
 	}
 	if classicCalled {
 		t.Error("buildImage reached the classic builder on a BuildKit engine")

@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -132,22 +131,6 @@ func buildImageClassic(
 	}
 
 	return nil
-}
-
-// buildImageBuildKit builds the image via the engine's embedded BuildKit
-// builder, reached over the Docker API hijack endpoints (/grpc and /session)
-// with the dockerfile.v0 frontend and the moby exporter, so the produced image
-// is indistinguishable from the classic path's.
-func buildImageBuildKit(
-	ctx context.Context,
-	dclient docker.Client,
-	a agent.Agent,
-	req buildRequest,
-	tag string,
-	noCache bool,
-	line func(string),
-) error {
-	return buildFailureError(errors.New("BuildKit build path not implemented"))
 }
 
 // buildFailureError classifies an engine build failure and tailors the message

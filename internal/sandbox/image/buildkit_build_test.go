@@ -3,17 +3,25 @@ package image
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 
 	buildkitclient "github.com/moby/buildkit/client"
+	"github.com/moby/buildkit/client/llb"
+	"github.com/moby/buildkit/session"
 	"github.com/tonistiigi/fsutil"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 )
 
 // TestBuildKitSolveOptFrontendAndExports pins the dockerfile.v0 frontend over
@@ -219,6 +227,181 @@ func assertMode(t *testing.T, path string, want os.FileMode) {
 	if got := info.Mode().Perm(); got != want {
 		t.Errorf("%s mode = %o, want %o", path, got, want)
 	}
+}
+
+// TestBuildKitClientDialers pins the two hijack endpoints the BuildKit client
+// reaches the daemon's embedded builder through: the control connection dials
+// /grpc with the h2c protocol and no metadata, and the session dialer forwards
+// the requested protocol and its metadata to /session. A wrong endpoint here is
+// what fails against an engine that does not serve the embedded builder.
+func TestBuildKitClientDialers(t *testing.T) {
+	dialedConn, dialedPeer := net.Pipe()
+	t.Cleanup(func() {
+		_ = dialedConn.Close()
+		_ = dialedPeer.Close()
+	})
+	var gotURL, gotProto string
+	var gotMeta map[string][]string
+	m := &dockertest.MockDockerClient{
+		DialHijackFn: func(_ context.Context, url, protocol string, meta map[string][]string) (net.Conn, error) {
+			gotURL, gotProto, gotMeta = url, protocol, meta
+			return dialedConn, nil
+		},
+	}
+
+	if _, err := buildKitControlDialer(m)(context.Background(), "ignored"); err != nil {
+		t.Fatalf("control dialer: %v", err)
+	}
+	if gotURL != "/grpc" || gotProto != "h2c" || gotMeta != nil {
+		t.Errorf("control dialer hijacked (%q, %q, %v), want (/grpc, h2c, nil)", gotURL, gotProto, gotMeta)
+	}
+
+	meta := map[string][]string{"session-id": {"abc"}}
+	if _, err := buildKitSessionDialer(m)(context.Background(), "h2c", meta); err != nil {
+		t.Fatalf("session dialer: %v", err)
+	}
+	if gotURL != "/session" || gotProto != "h2c" {
+		t.Errorf("session dialer hijacked (%q, %q), want (/session, h2c)", gotURL, gotProto)
+	}
+	if !reflect.DeepEqual(gotMeta, meta) {
+		t.Errorf("session dialer meta = %v, want %v", gotMeta, meta)
+	}
+}
+
+// TestBuildImageBuildKitReportsSolveFailure pins the no-silent-downgrade
+// invariant on the BuildKit path: a Solve error surfaces as a build failure and
+// is never swallowed into a classic retry.
+func TestBuildImageBuildKitReportsSolveFailure(t *testing.T) {
+	stubBuildKitClient(t, &fakeBuildKitSolver{solveErr: errors.New("solve boom")})
+
+	err := buildImageBuildKit(
+		context.Background(), &dockertest.MockDockerClient{}, agentOpencode(t),
+		testBuildRequest([]byte("FROM scratch\n"), "", "", "", imageIdentity{}),
+		"tag", false, func(string) {},
+	)
+	if err == nil {
+		t.Fatal("buildImageBuildKit error = nil, want a build failure")
+	}
+	if !strings.Contains(err.Error(), "docker image build failed") {
+		t.Errorf("error = %v, want a buildFailureError wrap", err)
+	}
+	if !strings.Contains(err.Error(), "solve boom") {
+		t.Errorf("error = %v, want it to carry the solve error", err)
+	}
+}
+
+// TestBuildImageBuildKitStreamsStatus pins that each SolveStatus the client
+// emits reaches the line callback, so a BuildKit build reports its progress the
+// way the classic build does.
+func TestBuildImageBuildKitStreamsStatus(t *testing.T) {
+	stubBuildKitClient(t, &fakeBuildKitSolver{solve: func(
+		_ context.Context, _ *llb.Definition, _ buildkitclient.SolveOpt, ch chan *buildkitclient.SolveStatus,
+	) {
+		ch <- &buildkitclient.SolveStatus{
+			Vertexes: []*buildkitclient.Vertex{{Name: "load build definition from Dockerfile"}},
+			Logs:     []*buildkitclient.VertexLog{{Data: []byte("step output\n")}},
+		}
+	}})
+
+	var lines []string
+	if err := buildImageBuildKit(
+		context.Background(), &dockertest.MockDockerClient{}, agentOpencode(t),
+		testBuildRequest([]byte("FROM scratch\n"), "", "", "", imageIdentity{}),
+		"tag", false, func(s string) { lines = append(lines, s) },
+	); err != nil {
+		t.Fatalf("buildImageBuildKit: %v", err)
+	}
+	for _, want := range []string{"load build definition from Dockerfile", "step output"} {
+		if !slices.Contains(lines, want) {
+			t.Errorf("streamed lines = %v, want them to include %q", lines, want)
+		}
+	}
+}
+
+// TestBuildImageBuildKitCarriesBuildArgs pins that the classic build args reach
+// the BuildKit build as frontend `build-arg:` attributes, so the two builders
+// produce the same image for the same render (Review Focus #1). A nil arg value
+// (an arg the render leaves unset) must not become an attribute.
+func TestBuildImageBuildKitCarriesBuildArgs(t *testing.T) {
+	var captured map[string]string
+	stubBuildKitClient(t, &fakeBuildKitSolver{solve: func(
+		_ context.Context, _ *llb.Definition, opt buildkitclient.SolveOpt, _ chan *buildkitclient.SolveStatus,
+	) {
+		captured = opt.FrontendAttrs
+	}})
+
+	req := testBuildRequest(
+		[]byte("FROM scratch\n"), "1.2.3", "debian:trixie-slim@sha256:abc", "dockerfile-id",
+		imageIdentity{ProjectDockerfileHash: "hash", AgentVersion: "1.2.3", Docker: "false", User: "1000:1000"},
+	)
+	if err := buildImageBuildKit(
+		context.Background(), &dockertest.MockDockerClient{}, agentOpencode(t),
+		req, "tag", false, func(string) {},
+	); err != nil {
+		t.Fatalf("buildImageBuildKit: %v", err)
+	}
+
+	for name, want := range map[string]string{
+		"USER_UID":         strconv.Itoa(os.Getuid()),
+		"USER_GID":         strconv.Itoa(os.Getgid()),
+		"OPENCODE_VERSION": "1.2.3",
+		"BASE_IMAGE":       "debian:trixie-slim@sha256:abc",
+		"DOCKERFILE_ID":    "dockerfile-id",
+	} {
+		if got := captured["build-arg:"+name]; got != want {
+			t.Errorf("FrontendAttrs[build-arg:%s] = %q, want %q", name, got, want)
+		}
+	}
+	if _, present := captured["build-arg:DOCKER_VERSION"]; present {
+		t.Error("DOCKER_VERSION must stay absent when the request disables docker")
+	}
+}
+
+// stubBuildKitClient replaces the BuildKit client seam with solver and the
+// session seam with an empty attachable list for the test, restoring both when
+// it ends, so the unit tests never reach the host's docker config or a real
+// builder.
+func stubBuildKitClient(t *testing.T, solver buildKitSolver) {
+	t.Helper()
+	origClient, origSession := newBuildKitClient, newBuildKitSession
+	newBuildKitClient = func(context.Context, docker.Client) (buildKitSolver, error) { return solver, nil }
+	newBuildKitSession = func() []session.Attachable { return nil }
+	t.Cleanup(func() {
+		newBuildKitClient = origClient
+		newBuildKitSession = origSession
+	})
+}
+
+// fakeBuildKitSolver is a buildKitSolver whose Solve runs the test-supplied
+// callback (writing statuses or capturing the solve options) and then returns
+// solveErr. Like the real client, it closes statusChan on every return path, so
+// buildImageBuildKit's pump drains and the build does not deadlock. Close
+// records that the build released the client.
+type fakeBuildKitSolver struct {
+	solve    func(context.Context, *llb.Definition, buildkitclient.SolveOpt, chan *buildkitclient.SolveStatus)
+	solveErr error
+	closed   bool
+}
+
+func (f *fakeBuildKitSolver) Solve(
+	ctx context.Context,
+	def *llb.Definition,
+	opt buildkitclient.SolveOpt,
+	statusChan chan *buildkitclient.SolveStatus,
+) (*buildkitclient.SolveResponse, error) {
+	defer close(statusChan)
+	if f.solve != nil {
+		f.solve(ctx, def, opt, statusChan)
+	}
+	if f.solveErr != nil {
+		return nil, f.solveErr
+	}
+	return &buildkitclient.SolveResponse{}, nil
+}
+
+func (f *fakeBuildKitSolver) Close() error {
+	f.closed = true
+	return nil
 }
 
 // buildKitFSNames walks an fsutil.FS and returns the entry names it serves; a
