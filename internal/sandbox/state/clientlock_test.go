@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestAcquireClientLease(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "testproj-aBc1234D", Agent: "opencode"}
 
@@ -63,7 +63,7 @@ func TestAcquireClientLease(t *testing.T) {
 }
 
 func TestAcquireClientLease_DirectoriesCreated(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "newslug-x7y9z", Agent: "opencode"}
 
@@ -90,7 +90,7 @@ func TestAcquireClientLease_DirectoriesCreated(t *testing.T) {
 }
 
 func TestAcquireClientLease_MultipleClients(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "multiproj-a", Agent: "opencode"}
 
@@ -131,7 +131,7 @@ func TestAcquireClientLease_MultipleClients(t *testing.T) {
 }
 
 func TestCountActiveClients_CleansStaleLockFiles(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "staleproj-b", Agent: "opencode"}
 
@@ -170,7 +170,7 @@ func TestCountActiveClients_CleansStaleLockFiles(t *testing.T) {
 // would leave the acquirer holding a flock on an anonymous inode that no later
 // count can see (#298).
 func TestCountActiveClients_CountsFreshUnlockedLockFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "freshlease-proj", Agent: "opencode"}
 
@@ -203,7 +203,7 @@ func TestCountActiveClients_CountsFreshUnlockedLockFile(t *testing.T) {
 // and even a lease it did unlink is re-created by AcquireClientLease's sameFile
 // retry, so the invariant holds every iteration. Bounded so it stays fast in CI.
 func TestCountActiveClients_AcquireVsCountRace(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "acquirecountrace-proj", Agent: "opencode"}
 
@@ -239,7 +239,7 @@ func TestCountActiveClients_AcquireVsCountRace(t *testing.T) {
 }
 
 func TestAcquireClientLease_NonExistentSlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "nonexistent-slug-xyz", Agent: "opencode"}
 	release, err := AcquireClientLease(k)
@@ -250,7 +250,7 @@ func TestAcquireClientLease_NonExistentSlug(t *testing.T) {
 }
 
 func TestCountActiveClients_NoClientsDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "nodir-proj", Agent: "opencode"}
 	if got := CountActiveClients(k); got != 0 {
@@ -259,7 +259,7 @@ func TestCountActiveClients_NoClientsDir(t *testing.T) {
 }
 
 func TestCountActiveClients_SkipsUnopenableEntry(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "subdir-proj", Agent: "opencode"}
 	clientsDir := filepath.Join(stateRoot(), k.Slug, k.Agent, "clients")
@@ -291,7 +291,7 @@ func TestCountActiveClients_SkipsUnopenableEntry(t *testing.T) {
 // held branch must short-circuit before the freshness check, or the counter
 // would unlink a live client's lease and undercount.
 func TestCountActiveClientsAgedHeldLeaseIsLive(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "agedheldproj", Agent: "opencode"}
 
 	release, err := AcquireClientLease(k)
@@ -346,7 +346,7 @@ func TestLeaseIsFreshTreatsStatFailureAsFresh(t *testing.T) {
 // at the seam, including the dir re-created after a sweep race, so the assertion
 // does not depend on the test process's umask.
 func TestAcquireClientLeaseUsesPrivateModes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "leasemodeproj", Agent: "opencode"}
 
 	var dirModes, fileModes []os.FileMode
@@ -397,7 +397,7 @@ func TestAcquireClientLeaseUsesPrivateModes(t *testing.T) {
 // surface immediately, not fall through to the per-attempt open/re-create path
 // that would mask the original failure.
 func TestAcquireClientLeaseMkdirErrorWraps(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("mkdir boom")
 	openErr := errors.New("open fallthrough")
 	origMkdir, origOpen := mkdirClientLeaseDir, openClientLeaseFile
@@ -416,7 +416,7 @@ func TestAcquireClientLeaseMkdirErrorWraps(t *testing.T) {
 // TestAcquireClientLeaseOpenErrorWraps pins the lease-file open failure: a
 // non-ENOENT error surfaces wrapped rather than being retried.
 func TestAcquireClientLeaseOpenErrorWraps(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("open boom")
 	orig := openClientLeaseFile
 	openClientLeaseFile = func(string, int, os.FileMode) (*os.File, error) { return nil, wantErr }
@@ -430,7 +430,7 @@ func TestAcquireClientLeaseOpenErrorWraps(t *testing.T) {
 // TestAcquireClientLeaseSweptDirRecreateErrorWraps pins the re-create failure
 // after a sweep race: the second MkdirAll's error is wrapped, not swallowed.
 func TestAcquireClientLeaseSweptDirRecreateErrorWraps(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "leasesweeprecreateesc", Agent: "opencode"}
 	wantErr := errors.New("recreate boom")
 
@@ -464,7 +464,7 @@ func TestAcquireClientLeaseSweptDirRecreateErrorWraps(t *testing.T) {
 }
 
 func TestAcquireClientLease_MkdirFailure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	// Place a file where the key dir would live so MkdirAll fails.
 	k := Key{Slug: "blocked-proj", Agent: "opencode"}
@@ -483,7 +483,7 @@ func TestAcquireClientLease_OpenFileFailure(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("cannot simulate an unwritable dir as root")
 	}
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "roproj-a", Agent: "opencode"}
 
 	clientsDir := filepath.Join(stateRoot(), k.Slug, k.Agent, "clients")
@@ -502,7 +502,7 @@ func TestAcquireClientLease_OpenFileFailure(t *testing.T) {
 }
 
 func TestAcquireClientLease_FlockErrorSurfaces(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	clientLeaseOpened = func(f *os.File, _ string) { _ = f.Close() }
 	t.Cleanup(func() { clientLeaseOpened = nil })
 
@@ -520,7 +520,7 @@ func TestAcquireClientLease_FlockErrorSurfaces(t *testing.T) {
 // the acquirer must not keep the lock on the now-anonymous inode. It re-checks
 // the directory entry with sameFile and retries on a fresh name.
 func TestAcquireClientLease_RetriesThenSucceeds(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "leaseretryproj", Agent: "opencode"}
 
 	attempts := 0
@@ -551,7 +551,7 @@ func TestAcquireClientLease_RetriesThenSucceeds(t *testing.T) {
 // ENOENT open must recreate the dir and retry rather than fail the session's
 // lease (which would leave the client out of the active count).
 func TestAcquireClientLease_RecreatesSweptClientsDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "sweptleaseproj", Agent: "opencode"}
 
 	swept := false
@@ -584,7 +584,7 @@ func TestAcquireClientLease_RecreateFailureSurfaces(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("cannot make a dir unwritable as root")
 	}
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "sweptfailproj", Agent: "opencode"}
 
 	clientLeaseDirReady = func(dir string) {
@@ -606,7 +606,7 @@ func TestAcquireClientLease_RecreateFailureSurfaces(t *testing.T) {
 }
 
 func TestAcquireClientLease_ErrorsWhenUnlinkedEveryAttempt(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	attempts := 0
 	clientLeaseOpened = func(_ *os.File, path string) {
@@ -624,7 +624,7 @@ func TestAcquireClientLease_ErrorsWhenUnlinkedEveryAttempt(t *testing.T) {
 }
 
 func TestAcquireClientLease_MultipleFromSameProcess(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "testproj-z", Agent: "opencode"}
 
@@ -653,7 +653,7 @@ func TestAcquireClientLease_MultipleFromSameProcess(t *testing.T) {
 }
 
 func TestClientLeaseScopedByKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	rel, err := AcquireClientLease(Key{Slug: "p-abc123", Agent: "opencode"})
 	if err != nil {
 		t.Fatalf("AcquireClientLease: %v", err)

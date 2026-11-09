@@ -24,8 +24,8 @@ func TestStripANSICodes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := stripANSICodes(tc.in); got != tc.want {
-				t.Errorf("stripANSICodes(%q) = %q, want %q", tc.in, got, tc.want)
+			if got := StripANSICodes(tc.in); got != tc.want {
+				t.Errorf("StripANSICodes(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}
@@ -54,14 +54,14 @@ func TestStyleStatus(t *testing.T) {
 		})
 	}
 	// Styled status strips back to the plain text.
-	if got := stripANSICodes(StyleStatus(StatusRunning)); got != "running" {
+	if got := StripANSICodes(StyleStatus(StatusRunning)); got != "running" {
 		t.Errorf("strip(StyleStatus(running)) = %q, want running", got)
 	}
 }
 
 func TestStyleStatusStripsToPlainText(t *testing.T) {
 	for _, s := range []string{StatusRunning, StatusStopped, StatusStarting, StatusCrashed} {
-		if got := stripANSICodes(StyleStatus(s)); got != s {
+		if got := StripANSICodes(StyleStatus(s)); got != s {
 			t.Errorf("strip(StyleStatus(%q)) = %q, want %q", s, got, s)
 		}
 	}

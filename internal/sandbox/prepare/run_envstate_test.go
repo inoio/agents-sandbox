@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
@@ -19,7 +20,7 @@ import (
 // the fields persistFingerprints does not own (home volume, image digest) are
 // kept.
 func TestPersistFingerprintsRecordsEveryFingerprintOnExistingState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	if err := seedHomeState(k, state.HomeState{
 		HomeVolume:  "existing-vol",
@@ -66,7 +67,7 @@ func TestPersistFingerprintsRecordsEveryFingerprintOnExistingState(t *testing.T)
 // TestPersistFingerprintsReplacesWithZeroFingerprints pins that an empty
 // fingerprint clears the recorded one instead of keeping the old value.
 func TestPersistFingerprintsReplacesWithZeroFingerprints(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	if err := seedHomeState(k, state.HomeState{
 		HomeVolume:  "vol",
@@ -97,7 +98,7 @@ func TestPersistFingerprintsReplacesWithZeroFingerprints(t *testing.T) {
 // persist home_volume: "" (HomeVolume has no omitempty) and poison the next
 // run's home resolution with a GetVolume("") failure.
 func TestPersistFingerprintsSkipsMissingState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "newproj", Agent: "opencode"}
 
 	if err := persistFingerprints(k, state.Fingerprints{
@@ -118,7 +119,7 @@ func TestPersistFingerprintsSkipsMissingState(t *testing.T) {
 // TestPersistFingerprintsFailsOnCorruptState pins that a state file that exists
 // but cannot be parsed is reported, not treated as missing state.
 func TestPersistFingerprintsFailsOnCorruptState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "corruptproj", Agent: "opencode"}
 	stateDir := filepath.Join(configpaths.Get().UserStateDir(), k.Slug, k.Agent)
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {

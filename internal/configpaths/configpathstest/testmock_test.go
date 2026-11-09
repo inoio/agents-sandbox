@@ -1,4 +1,4 @@
-package configpaths
+package configpathstest
 
 import (
 	"errors"
@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
 // TestFailFastConfigPathsPanics verifies that every method of the default
@@ -118,7 +120,7 @@ func TestGetConfigPathsFailFastDefault(t *testing.T) {
 			t.Fatal("GetConfigPaths() should panic by default in tests when no mock is installed, but did not")
 		}
 	}()
-	Get().UserConfigDir()
+	configpaths.Get().UserConfigDir()
 }
 
 // TestMockConfigPaths exercises the WithMockConfigPaths helper that other
@@ -126,8 +128,8 @@ func TestGetConfigPathsFailFastDefault(t *testing.T) {
 // the isolated temp base directory rather than the real XDG locations.
 func TestMockConfigPaths(t *testing.T) {
 	WithMockConfigPaths(t)
-	cfgPaths := Get()
-	m := Get().(*mockConfigPaths)
+	cfgPaths := configpaths.Get()
+	m := configpaths.Get().(*mockConfigPaths)
 	base := m.baseDir
 
 	if got := cfgPaths.UserConfigDir(); got != filepath.Join(base, "userconfig") {
@@ -166,8 +168,12 @@ func TestMockConfigPaths(t *testing.T) {
 	if got := cfgPaths.ProjectConfigDir(); got != filepath.Join(base, "projectconfig") {
 		t.Errorf("ProjectConfigDir() = %q, want %q", got, filepath.Join(base, "projectconfig"))
 	}
-	if got := cfgPaths.ProjectDockerfile(); got != filepath.Join(base, "projectconfig", dockerfileName) {
-		t.Errorf("ProjectDockerfile() = %q, want %q", got, filepath.Join(base, "projectconfig", dockerfileName))
+	if got := cfgPaths.ProjectDockerfile(); got != filepath.Join(base, "projectconfig", configpaths.DockerFileName) {
+		t.Errorf(
+			"ProjectDockerfile() = %q, want %q",
+			got,
+			filepath.Join(base, "projectconfig", configpaths.DockerFileName),
+		)
 	}
 	if got := cfgPaths.IgnoredWorktreeConfigDir(); got != "" {
 		t.Errorf("IgnoredWorktreeConfigDir() = %q, want empty; the mock cannot express a bare base", got)
@@ -179,10 +185,10 @@ func TestMockConfigPaths(t *testing.T) {
 func TestWithMockConfigPathsHomeError(t *testing.T) {
 	wantErr := errors.New("home unavailable")
 	WithMockConfigPathsHomeError(t, wantErr)
-	if _, err := Get().UserHomeDir(); !errors.Is(err, wantErr) {
+	if _, err := configpaths.Get().UserHomeDir(); !errors.Is(err, wantErr) {
 		t.Fatalf("UserHomeDir() error = %v, want %v", err, wantErr)
 	}
-	if got := Get().UserConfigDir(); got == "" {
+	if got := configpaths.Get().UserConfigDir(); got == "" {
 		t.Error("UserConfigDir() = empty, want a mocked path")
 	}
 }
@@ -192,7 +198,7 @@ func TestWithMockConfigPathsHomeError(t *testing.T) {
 // the mock tree rather than reading the developer's real home.
 func TestWithMockConfigPathsHomeErrorRedirectsHome(t *testing.T) {
 	WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
-	base := Get().(*mockConfigPaths).baseDir
+	base := configpaths.Get().(*mockConfigPaths).baseDir
 	//testenv:allow asserts the HOME the mock path resolver exported
 	if got, want := os.Getenv("HOME"), filepath.Join(base, "home"); got != want {
 		t.Errorf("$HOME = %q, want %q (WithMockConfigPathsHomeError must redirect HOME)", got, want)
@@ -205,11 +211,11 @@ func TestWithMockConfigPathsHomeErrorRedirectsHome(t *testing.T) {
 func TestWithMockConfigPathsHomeErrorRestoresGet(t *testing.T) {
 	t.Run("installed", func(t *testing.T) {
 		WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
-		if _, ok := Get().(*mockConfigPaths); !ok {
+		if _, ok := configpaths.Get().(*mockConfigPaths); !ok {
 			t.Fatal("Get did not install a mockConfigPaths")
 		}
 	})
-	if _, ok := Get().(*mockConfigPaths); ok {
+	if _, ok := configpaths.Get().(*mockConfigPaths); ok {
 		t.Error(
 			"Get still returns a mockConfigPaths after WithMockConfigPathsHomeError's cleanup ran; " +
 				"the replaced factory was not restored",
@@ -223,7 +229,7 @@ func TestWithMockConfigPathsHomeErrorRestoresGet(t *testing.T) {
 // which skips the redundant os.MkdirAll on the second call.
 func TestMockAccessorsAreStableAcrossCalls(t *testing.T) {
 	WithMockConfigPaths(t)
-	paths := Get()
+	paths := configpaths.Get()
 
 	for name, accessor := range map[string]func() string{
 		"UserConfigDir": paths.UserConfigDir,
@@ -248,7 +254,7 @@ func TestMockAccessorsAreStableAcrossCalls(t *testing.T) {
 // here, where the stability test above cannot see the difference.
 func TestMockAccessorDoesNotRecreateARemovedDirectory(t *testing.T) {
 	WithMockConfigPaths(t)
-	paths := Get()
+	paths := configpaths.Get()
 	dir := paths.UserCacheDir()
 
 	if err := os.RemoveAll(dir); err != nil {
@@ -271,4 +277,57 @@ func TestCreateDirCreatesAndReturnsTheDirectory(t *testing.T) {
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		t.Errorf("CreateDir did not create %q (stat err = %v)", dir, err)
 	}
+}
+
+// TestPinProjectCWDPanicsInsideABareCheckout covers the helper's fail-fast: a
+// temp dir inside a bare checkout still resolves to that checkout's bare root,
+// so it cannot serve as the pinned project CWD and must not be used silently.
+func TestPinProjectCWDPanicsInsideABareCheckout(t *testing.T) {
+	root := t.TempDir()
+	WithBareCheckoutLocator(t, func(string) (string, string, bool) { return root, root, true })
+
+	assertPanics(t, func() { pinProjectCWD(root) })
+}
+
+// TestWithBareCheckoutLocatorRestoresPrevious pins the helper's cleanup: once
+// the installing subtest returns, the locator it displaced must be back in
+// effect, or a bare-checkout stub leaks into whichever test runs next. The
+// restore is asserted through the real resolver's output rather than a
+// func-pointer comparison, which cannot tell two closures apart: the installed
+// mock resolves an absolute bare-root base, while the restored default resolves
+// the relative project base.
+func TestWithBareCheckoutLocatorRestoresPrevious(t *testing.T) {
+	previous := configpaths.GetBareCheckoutLocator()
+	t.Cleanup(func() { configpaths.UseBareCheckoutLocator(previous) })
+	configpaths.UseBareCheckoutLocator(func(string) (string, string, bool) { return "", "", false })
+
+	t.Run("installs the locator", func(t *testing.T) {
+		bareRoot := filepath.Join(t.TempDir(), "bare")
+		WithBareCheckoutLocator(t, func(string) (string, string, bool) {
+			return bareRoot, filepath.Join(bareRoot, "worktree"), true
+		})
+
+		want := filepath.Join(bareRoot, configpaths.ProjectConfigDir)
+		if got := configpaths.ProjectConfigBase("/anywhere"); got != want {
+			t.Fatalf("ProjectConfigBase with the installed locator = %q, want %q", got, want)
+		}
+	})
+
+	if got := configpaths.ProjectConfigBase("/anywhere"); got != configpaths.ProjectConfigDir {
+		t.Errorf(
+			"ProjectConfigBase after the installing subtest = %q, want the relative %q restored",
+			got,
+			configpaths.ProjectConfigDir,
+		)
+	}
+}
+
+func assertPanics(t *testing.T, fn func()) {
+	t.Helper()
+	defer func() {
+		if recover() == nil {
+			t.Error("expected panic, got none")
+		}
+	}()
+	fn()
 }

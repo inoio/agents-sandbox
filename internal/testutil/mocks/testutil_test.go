@@ -11,7 +11,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestInstalledFailFastDefaultsPanic covers what InitFailFastMocks does, not
@@ -41,7 +41,7 @@ func TestInstalledFailFastDefaultsPanic(t *testing.T) {
 			family:     "doctor",
 			panicsWith: "doctor.CheckAll not mocked",
 			reachesSeam: func(t *testing.T) {
-				testUI := termio.NewTestMock(t)
+				testUI := termiotest.NewTestMock(t)
 				_ = doctor.CheckAll(context.Background(), docker.Get(), &testUI)
 			},
 		},

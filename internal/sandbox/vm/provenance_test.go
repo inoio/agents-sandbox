@@ -10,27 +10,28 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestRecordImageProvenanceWarnsOnUnreadableState pins that a project state
 // that cannot be read is a warning and nothing is recorded.
 func TestRecordImageProvenanceWarnsOnUnreadableState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	// Make the state file resolve to a directory so os.ReadFile fails with a
 	// non-not-exist error, forcing ReadState to return an error.
 	if err := os.MkdirAll(filepath.Join(state.KeyDir(k), "state.yaml"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	fs := msb.NewTestFS(map[string][]byte{
+	fs := msbtest.NewTestFS(map[string][]byte{
 		"/etc/agents-sandbox/agent-source": []byte("tool\n"),
 	})
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{FSValue_: fs}
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{FSValue_: fs}
 	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, ui)
 	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "read state for transaction") {
 		t.Errorf("expected a warning about the unreadable project state, got %v", ui.WarnCalls)
@@ -40,7 +41,7 @@ func TestRecordImageProvenanceWarnsOnUnreadableState(t *testing.T) {
 // TestRecordImageProvenanceWarnsWhenStateCannotBeWritten pins that a project
 // state that cannot be written is a warning, not a setup failure.
 func TestRecordImageProvenanceWarnsWhenStateCannotBeWritten(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	// Persist an initial state first so the subsequent ReadState call succeeds,
 	// then make the state directory read-only so the atomic write fails while
@@ -54,11 +55,11 @@ func TestRecordImageProvenanceWarnsWhenStateCannotBeWritten(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 
-	fs := msb.NewTestFS(map[string][]byte{
+	fs := msbtest.NewTestFS(map[string][]byte{
 		"/etc/agents-sandbox/agent-source": []byte("user\n"),
 	})
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{FSValue_: fs}
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{FSValue_: fs}
 	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, ui)
 	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "could not persist project state") {
 		t.Errorf("expected a warning about the failed persist, got %v", ui.WarnCalls)
@@ -69,7 +70,7 @@ func TestRecordImageProvenanceWarnsWhenStateCannotBeWritten(t *testing.T) {
 // image's provenance changes only the agent and docker sources: every other
 // field of the existing project state survives.
 func TestRecordImageProvenancePreservesUnrelatedFields(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	seed := state.HomeState{
 		HomeVolume:      "vol",
@@ -86,12 +87,12 @@ func TestRecordImageProvenancePreservesUnrelatedFields(t *testing.T) {
 	if err := seedHomeState(k, seed); err != nil {
 		t.Fatalf("seed home state: %v", err)
 	}
-	sb := &msb.MockSandbox{FSValue_: msb.NewTestFS(map[string][]byte{
+	sb := &msbtest.MockSandbox{FSValue_: msbtest.NewTestFS(map[string][]byte{
 		agentSourcePath:  []byte(state.AgentSourceUser + "\n"),
 		dockerSourcePath: []byte(state.AgentSourceUser + "\n"),
 	})}
 
-	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termio.Mock{})
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termiotest.Mock{})
 
 	got, err := state.ReadState(k)
 	if err != nil {
@@ -108,22 +109,22 @@ func TestRecordImageProvenancePreservesUnrelatedFields(t *testing.T) {
 // TestRecordImageProvenanceDetectsToolAgentVersion pins that a tool-installed
 // agent's version is detected and recorded with both sources.
 func TestRecordImageProvenanceDetectsToolAgentVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	fs := msb.NewTestFS(map[string][]byte{
+	configpathstest.WithMockConfigPaths(t)
+	fs := msbtest.NewTestFS(map[string][]byte{
 		"/etc/agents-sandbox/agent-source":  []byte("tool\n"),
 		"/etc/agents-sandbox/docker-source": []byte("user\n"),
 	})
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		FSValue_: fs,
 		ShellOut: map[string]msb.ShellResult{
-			"opencode --version": msb.NewTestResult(true, 0, "0.5.0\n", "", nil),
+			"opencode --version": msbtest.NewTestResult(true, 0, "0.5.0\n", "", nil),
 		},
 	}
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
-	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termio.Mock{})
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termiotest.Mock{})
 
 	hs, err := state.ReadState(k)
 	if err != nil {
@@ -139,15 +140,15 @@ func TestRecordImageProvenanceDetectsToolAgentVersion(t *testing.T) {
 // prior state.yaml writes nothing: the provenance write must not create a
 // document with home_volume: "" (#430).
 func TestRecordImageProvenanceSkipsMissingState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "freshproj", Agent: "opencode"}
-	fs := msb.NewTestFS(map[string][]byte{
+	fs := msbtest.NewTestFS(map[string][]byte{
 		agentSourcePath:  []byte(state.AgentSourceUser + "\n"),
 		dockerSourcePath: []byte(state.AgentSourceUser + "\n"),
 	})
-	sb := &msb.MockSandbox{FSValue_: fs}
+	sb := &msbtest.MockSandbox{FSValue_: fs}
 
-	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termio.Mock{})
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termiotest.Mock{})
 
 	if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
 		t.Fatalf("ReadState error = %v, want ErrStateNotFound (no state created)", err)
@@ -160,16 +161,16 @@ func TestRecordImageProvenanceSkipsMissingState(t *testing.T) {
 // TestRecordImageProvenanceSkipsVersionForUserAgent pins that a user-provided
 // agent's version is not recorded: the tool does not own it.
 func TestRecordImageProvenanceSkipsVersionForUserAgent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	fs := msb.NewTestFS(map[string][]byte{
+	configpathstest.WithMockConfigPaths(t)
+	fs := msbtest.NewTestFS(map[string][]byte{
 		"/etc/agents-sandbox/agent-source": []byte("user\n"),
 	})
-	sb := &msb.MockSandbox{FSValue_: fs}
+	sb := &msbtest.MockSandbox{FSValue_: fs}
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	if err := seedHomeState(k, state.NewHomeState("vol", "digest")); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
-	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termio.Mock{})
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), sb, &termiotest.Mock{})
 
 	hs, err := state.ReadState(k)
 	if err != nil {
@@ -187,14 +188,14 @@ func TestRecordImageProvenanceSkipsVersionForUserAgent(t *testing.T) {
 // skip: when the agent-source read fails the function must return before writing
 // anything (so an existing provenance survives) and log the skip.
 func TestRecordImageProvenanceReadErrorLeavesStateUntouched(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "proj", Agent: "opencode"}
 	if err := seedHomeState(k, state.HomeState{AgentSource: state.AgentSourceUser}); err != nil {
 		t.Fatal(err)
 	}
-	fs := msb.NewTestFS(nil) // every ReadString fails: no provenance files
-	ui := termio.NewTestMock(t)
-	recordImageProvenance(context.Background(), k, opencodeResolved(t), &msb.MockSandbox{FSValue_: fs}, &ui)
+	fs := msbtest.NewTestFS(nil) // every ReadString fails: no provenance files
+	ui := termiotest.NewTestMock(t)
+	recordImageProvenance(context.Background(), k, opencodeResolved(t), &msbtest.MockSandbox{FSValue_: fs}, &ui)
 
 	hs, err := state.ReadState(k)
 	if err != nil {
@@ -216,28 +217,28 @@ func TestDetectToolAgentVersion(t *testing.T) {
 	cases := []struct {
 		name     string
 		agent    agent.Resolved
-		sb       *msb.MockSandbox
+		sb       *msbtest.MockSandbox
 		wantWarn string
 	}{
-		{name: "agent without a version command", agent: agent.Resolve(&fakeAgent{}), sb: &msb.MockSandbox{}},
+		{name: "agent without a version command", agent: agent.Resolve(&fakeAgent{}), sb: &msbtest.MockSandbox{}},
 		{
 			name:     "version command fails",
 			agent:    opencodeResolved(t),
-			sb:       &msb.MockSandbox{ShellErr: errors.New("shell failed")},
+			sb:       &msbtest.MockSandbox{ShellErr: errors.New("shell failed")},
 			wantWarn: "could not detect agent version",
 		},
 		{
 			name:  "unparsable version output",
 			agent: opencodeResolved(t),
-			sb: &msb.MockSandbox{ShellOut: map[string]msb.ShellResult{
-				"opencode --version": msb.NewTestResult(true, 0, "not a version string", "", nil),
+			sb: &msbtest.MockSandbox{ShellOut: map[string]msb.ShellResult{
+				"opencode --version": msbtest.NewTestResult(true, 0, "not a version string", "", nil),
 			}},
 			wantWarn: "could not parse agent version",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			version, ok := detectToolAgentVersion(context.Background(), tc.agent, tc.sb, ui)
 			if ok || version != "" {
 				t.Errorf("detectToolAgentVersion = (%q, %v), want no version", version, ok)

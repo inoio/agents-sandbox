@@ -6,18 +6,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestImageRemove(t *testing.T) {
 	t.Run("removes an unreferenced image", func(t *testing.T) {
 		ref := naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")
 		cmd, _ := setupCommandFixtures(t, "image", "remove", "--yes", ref)
-		m := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, m)
+		m := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, m)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("image remove: %v", err)
 		}
@@ -29,8 +30,8 @@ func TestImageRemove(t *testing.T) {
 	t.Run("rm alias removes", func(t *testing.T) {
 		ref := naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")
 		cmd, _ := setupCommandFixtures(t, "image", "rm", "--yes", ref)
-		m := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, m)
+		m := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, m)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("image rm: %v", err)
 		}
@@ -42,8 +43,8 @@ func TestImageRemove(t *testing.T) {
 	t.Run("refuses a referenced image naming the project", func(t *testing.T) {
 		ref := naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")
 		cmd, _ := setupCommandFixtures(t, "image", "remove", "--yes", ref)
-		m := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, m)
+		m := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, m)
 		if err := seedHomeState(
 			state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"},
 			state.HomeState{},
@@ -62,8 +63,8 @@ func TestImageRemove(t *testing.T) {
 	t.Run("force overrides the reference", func(t *testing.T) {
 		ref := naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")
 		cmd, _ := setupCommandFixtures(t, "image", "remove", "--force", "--yes", ref)
-		m := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, m)
+		m := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, m)
 		if err := seedHomeState(
 			state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"},
 			state.HomeState{},
@@ -81,8 +82,8 @@ func TestImageRemove(t *testing.T) {
 	t.Run("fails fast without --yes in non-interactive mode", func(t *testing.T) {
 		ref := naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")
 		cmd, _ := setupCommandFixtures(t, "image", "remove", ref)
-		m := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, m)
+		m := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, m)
 		err := cmd.Execute()
 		if !errors.Is(err, termio.ErrConfirmationRequired) {
 			t.Fatalf("expected ErrConfirmationRequired, got: %v", err)
@@ -95,8 +96,8 @@ func TestImageRemove(t *testing.T) {
 	t.Run("refuses a referenced image before prompting", func(t *testing.T) {
 		ref := naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")
 		cmd, ui := setupCommandFixtures(t, "image", "remove", ref)
-		m := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, m)
+		m := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, m)
 		if err := seedHomeState(
 			state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"},
 			state.HomeState{},
@@ -115,12 +116,12 @@ func TestImageRemove(t *testing.T) {
 	t.Run("missing ref surfaces the msb error", func(t *testing.T) {
 		ref := naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")
 		cmd, _ := setupCommandFixtures(t, "image", "remove", "--yes", ref)
-		m := &msb.MockMsbClient{
+		m := &msbtest.MockMsbClient{
 			ImageRemoveFn: func(_ context.Context, _ string, _ bool) error {
 				return errors.New("image not found")
 			},
 		}
-		msb.WithMsbMock(t, m)
+		msbtest.WithMsbMock(t, m)
 		err := cmd.Execute()
 		if err == nil || !strings.Contains(err.Error(), "image not found") {
 			t.Fatalf("expected the msb error to surface, got %v", err)
@@ -138,8 +139,8 @@ func TestImageRemove(t *testing.T) {
 func TestImageRemoveOwnershipAndShorthand(t *testing.T) {
 	t.Run("refuses a non-runner reference", func(t *testing.T) {
 		cmd, _ := setupCommandFixtures(t, "image", "remove", "--yes", "docker.io/library/alpine:latest")
-		m := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, m)
+		m := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, m)
 		err := cmd.Execute()
 		if err == nil || !strings.Contains(err.Error(), "not managed by agents-sandbox") {
 			t.Fatalf("expected an ownership refusal, got %v", err)
@@ -152,8 +153,8 @@ func TestImageRemoveOwnershipAndShorthand(t *testing.T) {
 	t.Run("-f shorthand forces removal", func(t *testing.T) {
 		ref := naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")
 		cmd, _ := setupCommandFixtures(t, "image", "remove", "-f", "--yes", ref)
-		m := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, m)
+		m := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, m)
 		if err := seedHomeState(
 			state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"},
 			state.HomeState{},
@@ -172,7 +173,7 @@ func TestImageRemoveOwnershipAndShorthand(t *testing.T) {
 // TestRemoveCommandsRequireAnArgument pins the at-least-one-argument bound of
 // the image and volume remove commands.
 func TestRemoveCommandsRequireAnArgument(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	imageCmd := buildImageRemoveCmd(ui)
 	if err := imageCmd.Args(imageCmd, nil); err == nil {
 		t.Error("image remove should require at least one argument")

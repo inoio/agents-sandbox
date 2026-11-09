@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestResolveMode(t *testing.T) {
@@ -43,7 +43,7 @@ func TestResolveMode(t *testing.T) {
 }
 
 func TestWriteJSONIndents(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if err := WriteJSON(ui, map[string]int{"a": 1}); err != nil {
 		t.Fatalf("WriteJSON: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestWriteJSONIndents(t *testing.T) {
 }
 
 func TestWriteJSONMarshalError(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if err := WriteJSON(ui, func() {}); err == nil {
 		t.Fatal("expected a marshal error for a non-marshalable value")
 	}

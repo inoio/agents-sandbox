@@ -1,11 +1,13 @@
 //deadcode:ignore reason="test support: referenced only by _test.go files"
-package configpaths
+package configpathstest
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
 )
 
 type mockConfigPaths struct {
@@ -20,15 +22,15 @@ type mockConfigPaths struct {
 // InstallFailFastConfigPaths binds the sandbox config-path factory to its
 // fail-fast default. Exported so packages dispatching through the factory —
 // e.g., viperconfig, cmd/agents-sandbox — can list it in their own InitMocks call.
-var InstallFailFastConfigPaths = func() { Get = FailFastConfigPaths }
+var InstallFailFastConfigPaths = func() { configpaths.Get = FailFastConfigPaths }
 
 // FailFastConfigPaths is the ConfigPaths installed by default under tests: any
 // method call panics to signal a test reached real path resolution without opting in.
-func FailFastConfigPaths() ConfigPaths { return &failFastConfigPaths{} }
+func FailFastConfigPaths() configpaths.ConfigPaths { return &failFastConfigPaths{} }
 
 func WithMockConfigPaths(t *testing.T) {
 	t.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only affects the stack trace a failing test reports, so removing it cannot change observable test behaviour"
-	orig := Get
+	orig := configpaths.Get
 	tempDir := t.TempDir()
 	// Point $HOME at the mock tree as well, so any stray os.UserHomeDir or
 	// os.Getenv("HOME") in a test resolves inside the temp tree instead of the
@@ -36,8 +38,8 @@ func WithMockConfigPaths(t *testing.T) {
 	// agent's own ~/.config/opencode) from leaking into the real home. Do not
 	// mark such tests t.Parallel: t.Setenv forbids it.
 	t.Setenv("HOME", ensureMockConfigDirectory(filepath.Join(tempDir, "home")))
-	Get = func() ConfigPaths { return &mockConfigPaths{baseDir: tempDir} }
-	t.Cleanup(func() { Get = orig })
+	configpaths.Get = func() configpaths.ConfigPaths { return &mockConfigPaths{baseDir: tempDir} }
+	t.Cleanup(func() { configpaths.Get = orig })
 }
 
 // WithMockConfigPathsHomeError installs a mock whose UserHomeDir fails, so tests
@@ -45,13 +47,13 @@ func WithMockConfigPaths(t *testing.T) {
 // back to the real resolver.
 func WithMockConfigPathsHomeError(t *testing.T, err error) {
 	t.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only affects the stack trace a failing test reports, so removing it cannot change observable test behaviour"
-	orig := Get
+	orig := configpaths.Get
 	tempDir := t.TempDir()
 	// Redirect $HOME like WithMockConfigPaths so a resolver that bypasses the
 	// seam still cannot read the developer's real home.
 	t.Setenv("HOME", ensureMockConfigDirectory(filepath.Join(tempDir, "home")))
-	Get = func() ConfigPaths { return &mockConfigPaths{baseDir: tempDir, homeErr: err} }
-	t.Cleanup(func() { Get = orig })
+	configpaths.Get = func() configpaths.ConfigPaths { return &mockConfigPaths{baseDir: tempDir, homeErr: err} }
+	t.Cleanup(func() { configpaths.Get = orig })
 }
 
 // WithRealConfigPaths opts a test into the real XDG path resolution instead of
@@ -67,22 +69,20 @@ func WithMockConfigPathsHomeError(t *testing.T, err error) {
 // after this call, as the bare-checkout tests do.
 func WithRealConfigPaths(t *testing.T) {
 	t.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only affects the stack trace a failing test reports, so removing it cannot change observable test behaviour"
-	orig := Get
-	Get = func() ConfigPaths { return &realConfigPaths{} }
-	t.Cleanup(func() { Get = orig })
+	orig := configpaths.Get
+	configpaths.Get = configpaths.NewRealConfigPaths
+	t.Cleanup(func() { configpaths.Get = orig })
 	t.Chdir(pinProjectCWD(t.TempDir()))
 }
 
 // WithBareCheckoutLocator installs locator for the test and restores the
 // previous one on cleanup. Tests that exercise bare-checkout resolution through
 // the real resolver pass git.BareCheckoutRoots, as the composition root does.
-func WithBareCheckoutLocator(t *testing.T, locator BareCheckoutLocator) {
+func WithBareCheckoutLocator(t *testing.T, locator configpaths.BareCheckoutLocator) {
 	t.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only affects the stack trace a failing test reports, so removing it cannot change observable test behaviour"
-	bareCheckoutMutex.Lock()
-	previous := bareCheckoutLocator
-	bareCheckoutMutex.Unlock()
-	UseBareCheckoutLocator(locator)
-	t.Cleanup(func() { UseBareCheckoutLocator(previous) })
+	previous := configpaths.GetBareCheckoutLocator()
+	configpaths.UseBareCheckoutLocator(locator)
+	t.Cleanup(func() { configpaths.UseBareCheckoutLocator(previous) })
 }
 
 // pinProjectCWD returns dir when the resolver reads it as the relative project
@@ -90,7 +90,7 @@ func WithBareCheckoutLocator(t *testing.T, locator BareCheckoutLocator) {
 // resolves to that checkout's bare root, so the pin could not isolate the base.
 // It panics rather than calling t.Fatal so a test can reach the guard.
 func pinProjectCWD(dir string) string {
-	if base, _ := resolveProjectConfig(dir); base != projectConfigDir {
+	if base := configpaths.ProjectConfigBase(dir); base != configpaths.ProjectConfigDir {
 		panic(
 			fmt.Sprintf("temp dir %q resolves to the bare-root base %q; set TMPDIR outside a bare checkout", dir, base),
 		)
@@ -165,7 +165,7 @@ func (m *mockConfigPaths) ProjectConfigDirAbs() string {
 }
 
 func (m *mockConfigPaths) ProjectDockerfile() string {
-	return filepath.Join(m.ProjectConfigDir(), dockerfileName)
+	return filepath.Join(m.ProjectConfigDir(), configpaths.DockerFileName)
 }
 
 func (m *mockConfigPaths) IgnoredWorktreeConfigDir() string {

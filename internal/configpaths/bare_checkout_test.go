@@ -1,11 +1,18 @@
-package configpaths
+package configpaths_test
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
+
+// noBareCheckout reports every directory as outside a bare checkout. It stands
+// in for the production default locator, which the package-internal tests pin.
+func noBareCheckout(string) (string, string, bool) { return "", "", false }
 
 // pinHostDirs points the host home and XDG directories at temp trees, so a test
 // never reads or writes the developer's real config. It does not install the
@@ -26,7 +33,7 @@ func pinHostDirs(t *testing.T) {
 func isolateProjectConfig(t *testing.T) {
 	t.Helper()
 	pinHostDirs(t)
-	WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 }
 
 // writeBareCheckout lays out root/main as the worktree of a bare checkout and
@@ -40,7 +47,7 @@ func writeBareCheckout(t *testing.T) string {
 	if err := os.MkdirAll(worktree, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", worktree, err)
 	}
-	WithBareCheckoutLocator(t, func(cwd string) (string, string, bool) {
+	configpathstest.WithBareCheckoutLocator(t, func(cwd string) (string, string, bool) {
 		switch {
 		case cwd == root:
 			return root, root, true
@@ -71,30 +78,31 @@ func physicalDir(t *testing.T, path string) string {
 func assertBareProjectBase(t *testing.T, root string) {
 	t.Helper()
 	wantBase := filepath.Join(root, ".agents-sandbox")
-	if got := Get().ProjectConfigDir(); got != wantBase {
+	if got := configpaths.Get().ProjectConfigDir(); got != wantBase {
 		t.Errorf("ProjectConfigDir() = %q, want %q", got, wantBase)
 	}
-	if got := Get().ProjectConfigDirAbs(); got != wantBase {
+	if got := configpaths.Get().ProjectConfigDirAbs(); got != wantBase {
 		t.Errorf("ProjectConfigDirAbs() = %q, want %q", got, wantBase)
 	}
-	if got := Get().ProjectDockerfile(); got != filepath.Join(wantBase, DockerFileName) {
-		t.Errorf("ProjectDockerfile() = %q, want %q", got, filepath.Join(wantBase, DockerFileName))
+	if got := configpaths.Get().ProjectDockerfile(); got != filepath.Join(wantBase, configpaths.DockerFileName) {
+		t.Errorf("ProjectDockerfile() = %q, want %q", got, filepath.Join(wantBase, configpaths.DockerFileName))
 	}
 }
 
 func assertRelativeProjectBase(t *testing.T) {
 	t.Helper()
-	if got := Get().ProjectConfigDir(); got != ".agents-sandbox" {
+	if got := configpaths.Get().ProjectConfigDir(); got != ".agents-sandbox" {
 		t.Errorf("ProjectConfigDir() = %q, want the relative .agents-sandbox", got)
 	}
-	if got := Get().ProjectDockerfile(); got != filepath.Join(".agents-sandbox", DockerFileName) {
-		t.Errorf("ProjectDockerfile() = %q, want %q", got, filepath.Join(".agents-sandbox", DockerFileName))
+	wantDockerfile := filepath.Join(".agents-sandbox", configpaths.DockerFileName)
+	if got := configpaths.Get().ProjectDockerfile(); got != wantDockerfile {
+		t.Errorf("ProjectDockerfile() = %q, want %q", got, wantDockerfile)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Getwd: %v", err)
 	}
-	if got := Get().ProjectConfigDirAbs(); got != filepath.Join(cwd, ".agents-sandbox") {
+	if got := configpaths.Get().ProjectConfigDirAbs(); got != filepath.Join(cwd, ".agents-sandbox") {
 		t.Errorf("ProjectConfigDirAbs() = %q, want %q", got, filepath.Join(cwd, ".agents-sandbox"))
 	}
 }
@@ -155,7 +163,7 @@ func TestProjectConfigBaseOutsideBareCheckoutIsRelative(t *testing.T) {
 // composition root installs a locator, no directory resolves to a bare base.
 func TestProjectConfigBaseWithoutLocatorIsRelative(t *testing.T) {
 	isolateProjectConfig(t)
-	WithBareCheckoutLocator(t, notInBareCheckout)
+	configpathstest.WithBareCheckoutLocator(t, noBareCheckout)
 
 	assertRelativeProjectBase(t)
 }
@@ -168,17 +176,17 @@ func TestProjectConfigLocatesTheBareCheckoutOncePerCwd(t *testing.T) {
 	first := physicalDir(t, t.TempDir())
 	second := physicalDir(t, t.TempDir())
 	locatedDirectories := map[string]int{}
-	WithBareCheckoutLocator(t, func(cwd string) (string, string, bool) {
+	configpathstest.WithBareCheckoutLocator(t, func(cwd string) (string, string, bool) {
 		locatedDirectories[cwd]++
 		return "", "", false
 	})
 
 	for _, dir := range []string{first, second, first} {
 		t.Chdir(dir)
-		Get().ProjectConfigDir()
-		Get().ProjectConfigDirAbs()
-		Get().ProjectDockerfile()
-		Get().IgnoredWorktreeConfigDir()
+		configpaths.Get().ProjectConfigDir()
+		configpaths.Get().ProjectConfigDirAbs()
+		configpaths.Get().ProjectDockerfile()
+		configpaths.Get().IgnoredWorktreeConfigDir()
 	}
 
 	for _, dir := range []string{first, second} {
@@ -196,7 +204,7 @@ func TestUseBareCheckoutLocatorDropsCachedResults(t *testing.T) {
 	t.Chdir(filepath.Join(root, "main"))
 	assertBareProjectBase(t, root)
 
-	WithBareCheckoutLocator(t, notInBareCheckout)
+	configpathstest.WithBareCheckoutLocator(t, noBareCheckout)
 
 	assertRelativeProjectBase(t)
 }
@@ -213,7 +221,7 @@ func TestIgnoredWorktreeConfigDir(t *testing.T) {
 
 	assertBareProjectBase(t, root)
 
-	if got := Get().IgnoredWorktreeConfigDir(); got != worktreeConfig {
+	if got := configpaths.Get().IgnoredWorktreeConfigDir(); got != worktreeConfig {
 		t.Errorf("IgnoredWorktreeConfigDir() = %q, want %q", got, worktreeConfig)
 	}
 }
@@ -237,7 +245,7 @@ func TestIgnoredWorktreeConfigDirFromWorktreeSubdirectory(t *testing.T) {
 	assertBareProjectBase(t, root)
 
 	want := filepath.Join(mainDir, ".agents-sandbox")
-	if got := Get().IgnoredWorktreeConfigDir(); got != want {
+	if got := configpaths.Get().IgnoredWorktreeConfigDir(); got != want {
 		t.Errorf("IgnoredWorktreeConfigDir() from a worktree subdirectory = %q, want %q", got, want)
 	}
 }
@@ -249,7 +257,7 @@ func TestIgnoredWorktreeConfigDirEmptyWithoutWorktreeCopy(t *testing.T) {
 	root := writeBareCheckout(t)
 	t.Chdir(filepath.Join(root, "main"))
 
-	if got := Get().IgnoredWorktreeConfigDir(); got != "" {
+	if got := configpaths.Get().IgnoredWorktreeConfigDir(); got != "" {
 		t.Errorf("IgnoredWorktreeConfigDir() = %q, want empty without a worktree copy", got)
 	}
 }
@@ -267,7 +275,7 @@ func TestIgnoredWorktreeConfigDirEmptyAtBareRoot(t *testing.T) {
 
 	assertBareProjectBase(t, root)
 
-	if got := Get().IgnoredWorktreeConfigDir(); got != "" {
+	if got := configpaths.Get().IgnoredWorktreeConfigDir(); got != "" {
 		t.Errorf("IgnoredWorktreeConfigDir() = %q, want empty when the CWD is the bare root", got)
 	}
 }
@@ -281,7 +289,7 @@ func TestIgnoredWorktreeConfigDirEmptyOutsideBareCheckout(t *testing.T) {
 	}
 	t.Chdir(dir)
 
-	if got := Get().IgnoredWorktreeConfigDir(); got != "" {
+	if got := configpaths.Get().IgnoredWorktreeConfigDir(); got != "" {
 		t.Errorf("IgnoredWorktreeConfigDir() = %q, want empty outside a bare checkout", got)
 	}
 }
@@ -297,16 +305,8 @@ func TestIgnoredWorktreeConfigDirEmptyWhenCwdUnreadable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := Get().IgnoredWorktreeConfigDir(); got != "" {
+	if got := configpaths.Get().IgnoredWorktreeConfigDir(); got != "" {
 		t.Errorf("IgnoredWorktreeConfigDir() with an unreadable cwd = %q, want empty", got)
-	}
-}
-
-// TestNotInBareCheckoutReportsOutside pins the default locator: before the
-// composition root installs one, no directory is inside a bare checkout.
-func TestNotInBareCheckoutReportsOutside(t *testing.T) {
-	if _, _, inside := notInBareCheckout(t.TempDir()); inside {
-		t.Error("notInBareCheckout reported a directory inside a bare checkout")
 	}
 }
 
@@ -316,7 +316,7 @@ func TestNotInBareCheckoutReportsOutside(t *testing.T) {
 func TestProjectConfigBaseHonorsTheInsideFlag(t *testing.T) {
 	isolateProjectConfig(t)
 	root := physicalDir(t, t.TempDir())
-	WithBareCheckoutLocator(t, func(string) (string, string, bool) {
+	configpathstest.WithBareCheckoutLocator(t, func(string) (string, string, bool) {
 		return root, filepath.Join(root, "main"), false
 	})
 
@@ -335,7 +335,7 @@ func TestIgnoredWorktreeConfigDirEmptyForAWorktreeFile(t *testing.T) {
 	}
 	t.Chdir(mainDir)
 
-	if got := Get().IgnoredWorktreeConfigDir(); got != "" {
+	if got := configpaths.Get().IgnoredWorktreeConfigDir(); got != "" {
 		t.Errorf("IgnoredWorktreeConfigDir() = %q, want empty for a regular file", got)
 	}
 }
@@ -348,7 +348,7 @@ func TestWithBareCheckoutLocatorRestoresThePreviousLocator(t *testing.T) {
 	t.Chdir(filepath.Join(root, "main"))
 
 	t.Run("override", func(t *testing.T) {
-		WithBareCheckoutLocator(t, notInBareCheckout)
+		configpathstest.WithBareCheckoutLocator(t, noBareCheckout)
 		assertRelativeProjectBase(t)
 	})
 

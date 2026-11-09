@@ -8,10 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/upgrade"
 )
 
@@ -92,7 +93,7 @@ func TestRunServeOnlyWrapsContextForCancellation(t *testing.T) {
 	serveOnlyStdinReader = func() io.Reader { return strings.NewReader("") }
 	t.Cleanup(func() { serveOnlyStdinReader = restoreReader })
 
-	root, _ := setupRunMocks(t, &msb.MockMsbClient{}, &msb.MockSandbox{}, "run", "--serve-only")
+	root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, "run", "--serve-only")
 	if err := root.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -139,9 +140,9 @@ func TestServeOnlyStdinReaderSelectsOnTerminal(t *testing.T) {
 // prerequisite checks fail stops with the preflight error.
 func TestRunFuncServeOnlyReportsAFailedPreflight(t *testing.T) {
 	initTestProjectDir(t)
-	configpaths.WithMockConfigPaths(t)
-	doctor.MockedCheckAll(t, false)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	doctortest.MockedCheckAll(t, false)
+	ui := &termiotest.Mock{}
 
 	cmd := buildRunCmd(ui)
 	cmd.SetContext(context.Background())

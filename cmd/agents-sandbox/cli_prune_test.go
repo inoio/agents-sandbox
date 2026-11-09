@@ -12,18 +12,20 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pruning"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
 // TestResolvePruneAgeDefault pins the 7-day default as a literal.
 func TestResolvePruneAgeDefault(t *testing.T) {
-	cmd := buildPruneCmd(&termio.Mock{})
+	cmd := buildPruneCmd(&termiotest.Mock{})
 	got, err := resolvePruneAge(cmd)
 	if err != nil {
 		t.Fatalf("resolvePruneAge: %v", err)
@@ -36,7 +38,7 @@ func TestResolvePruneAgeDefault(t *testing.T) {
 // TestResolvePruneAgeNonPositiveResolverFallsBack pins that a resolver's
 // non-positive manual-prune-age falls back to the default.
 func TestResolvePruneAgeNonPositiveResolverFallsBack(t *testing.T) {
-	cmd := buildPruneCmd(&termio.Mock{})
+	cmd := buildPruneCmd(&termiotest.Mock{})
 	cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil),
 		launcherconfig.NewResolverWithConfig(launcherconfig.Config{ManualPruneAge: 0})))
 
@@ -52,7 +54,7 @@ func TestResolvePruneAgeNonPositiveResolverFallsBack(t *testing.T) {
 // TestResolvePruneAgeSmallPositiveResolverValue pins that any positive
 // resolver age is used, including one nanosecond (the > 0 guard, not > 1).
 func TestResolvePruneAgeSmallPositiveResolverValue(t *testing.T) {
-	cmd := buildPruneCmd(&termio.Mock{})
+	cmd := buildPruneCmd(&termiotest.Mock{})
 	cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil),
 		launcherconfig.NewResolverWithConfig(launcherconfig.Config{ManualPruneAge: time.Nanosecond})))
 
@@ -68,7 +70,7 @@ func TestResolvePruneAgeSmallPositiveResolverValue(t *testing.T) {
 // TestResolvePruneAgeErrorReturnsZero pins the zero duration on both error paths.
 func TestResolvePruneAgeErrorReturnsZero(t *testing.T) {
 	t.Run("conflicting flags", func(t *testing.T) {
-		cmd := buildPruneCmd(&termio.Mock{})
+		cmd := buildPruneCmd(&termiotest.Mock{})
 		_ = cmd.Flags().Set(flagOlderThan, "7d")
 		_ = cmd.Flags().Set(flagAge, "7d")
 		got, err := resolvePruneAge(cmd)
@@ -80,7 +82,7 @@ func TestResolvePruneAgeErrorReturnsZero(t *testing.T) {
 		}
 	})
 	t.Run("invalid age", func(t *testing.T) {
-		cmd := buildPruneCmd(&termio.Mock{})
+		cmd := buildPruneCmd(&termiotest.Mock{})
 		_ = cmd.Flags().Set(flagOlderThan, "bogus")
 		got, err := resolvePruneAge(cmd)
 		if err == nil {
@@ -97,7 +99,7 @@ func TestResolvePruneAgeErrorReturnsZero(t *testing.T) {
 // duration is zero.
 func TestResolvePruneAgeRejectsZero(t *testing.T) {
 	for _, age := range []string{"0", "0d", "0w", "0s", "0h", "0m", "0ns"} {
-		cmd := buildPruneCmd(&termio.Mock{})
+		cmd := buildPruneCmd(&termiotest.Mock{})
 		_ = cmd.Flags().Set(flagOlderThan, age)
 		got, err := resolvePruneAge(cmd)
 		if err == nil {
@@ -120,7 +122,7 @@ func TestResolvePruneAgeRejectsZero(t *testing.T) {
 // leaves alive; TestResolvePruneAgeSmallPositiveResolverValue covers only the
 // resolver path, not this guard.
 func TestResolvePruneAgeAcceptsOneNanosecond(t *testing.T) {
-	cmd := buildPruneCmd(&termio.Mock{})
+	cmd := buildPruneCmd(&termiotest.Mock{})
 	_ = cmd.Flags().Set(flagOlderThan, "1ns")
 	got, err := resolvePruneAge(cmd)
 	if err != nil {
@@ -134,7 +136,7 @@ func TestResolvePruneAgeAcceptsOneNanosecond(t *testing.T) {
 // TestResolvePruneFlagsErrorReturnsZero pins the error return's zero age and
 // false dry-run.
 func TestResolvePruneFlagsErrorReturnsZero(t *testing.T) {
-	cmd := buildPruneCmd(&termio.Mock{})
+	cmd := buildPruneCmd(&termiotest.Mock{})
 	_ = cmd.Flags().Set(flagOlderThan, "bogus")
 
 	age, dryRun, err := resolvePruneFlags(cmd)
@@ -153,7 +155,7 @@ func TestResolvePruneFlagsErrorReturnsZero(t *testing.T) {
 // rather than swallowed.
 func TestRunGroupPrunePropagatesError(t *testing.T) {
 	_, _ = setupCommandFixtures(t)
-	ui := &termio.Mock{IsInteractiveResult: true, ConfirmResult: true}
+	ui := &termiotest.Mock{IsInteractiveResult: true, ConfirmResult: true}
 	cmd := buildImagePruneCmd(ui)
 	errBoom := errors.New("boom")
 
@@ -210,7 +212,7 @@ func oldArtifactTime() time.Time {
 }
 
 func mkStaleVM(staleTime time.Time) sandboxmsb.SandboxHandle {
-	return &sandboxmsb.MockSandboxHandle{
+	return &msbtest.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-projectname-1mjusbm3wikhb0",
 		Status_:    sandboxmsb.SandboxStatusStopped,
 		UpdatedAt_: staleTime,
@@ -218,7 +220,7 @@ func mkStaleVM(staleTime time.Time) sandboxmsb.SandboxHandle {
 }
 
 func mkStoppedVM(slug string) sandboxmsb.SandboxHandle {
-	return &sandboxmsb.MockSandboxHandle{
+	return &msbtest.MockSandboxHandle{
 		Name_:      fmt.Sprintf("agents-sandbox-vm-%s", slug),
 		Status_:    sandboxmsb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-3 * 24 * time.Hour),
@@ -227,7 +229,7 @@ func mkStoppedVM(slug string) sandboxmsb.SandboxHandle {
 }
 
 func mkActiveVM(slug string) sandboxmsb.SandboxHandle {
-	return &sandboxmsb.MockSandboxHandle{
+	return &msbtest.MockSandboxHandle{
 		Name_:      fmt.Sprintf("agents-sandbox-vm-%s", slug),
 		Status_:    sandboxmsb.SandboxStatusRunning,
 		UpdatedAt_: time.Now().Add(-3 * 24 * time.Hour),
@@ -236,7 +238,7 @@ func mkActiveVM(slug string) sandboxmsb.SandboxHandle {
 }
 
 func mkStaleTask(staleTime time.Time) sandboxmsb.SandboxHandle {
-	return &sandboxmsb.MockSandboxHandle{
+	return &msbtest.MockSandboxHandle{
 		Name_:      "agents-sandbox-task-fill",
 		Status_:    sandboxmsb.SandboxStatusStopped,
 		UpdatedAt_: staleTime,
@@ -244,17 +246,17 @@ func mkStaleTask(staleTime time.Time) sandboxmsb.SandboxHandle {
 }
 
 func homeVol(name string) sandboxmsb.VolumeHandle {
-	return &sandboxmsb.MockVolumeHandle{Name_: name, Path_: "/mnt/home", CreatedAt_: oldArtifactTime()}
+	return &msbtest.MockVolumeHandle{Name_: name, Path_: "/mnt/home", CreatedAt_: oldArtifactTime()}
 }
 
 func msbImg(ref string) sandboxmsb.ImageHandle {
-	return sandboxmsb.MockImageHandle{Reference_: ref, LastUsedAt_: oldArtifactTime()}
+	return msbtest.MockImageHandle{Reference_: ref, LastUsedAt_: oldArtifactTime()}
 }
 
 // recentMsbImg is an image a live project used within every prune threshold
 // these tests exercise, so the age window retains it.
 func recentMsbImg(ref string) sandboxmsb.ImageHandle {
-	return sandboxmsb.MockImageHandle{Reference_: ref, LastUsedAt_: time.Now()}
+	return msbtest.MockImageHandle{Reference_: ref, LastUsedAt_: time.Now()}
 }
 
 // staleSummary returns the aggregate prune summary line for the given counts.
@@ -277,7 +279,7 @@ func TestPrune(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
 				runPruneTest(t, append([]string{"--dry-run"}, flags...), func() {
-					m := &sandboxmsb.MockMsbClient{}
+					m := &msbtest.MockMsbClient{}
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes,
 						mkActiveVM("activeproject-1mjusbm3wikhb0"))
@@ -285,7 +287,7 @@ func TestPrune(t *testing.T) {
 						homeVol("agents-sandbox-home-projectname-1mjusbm3wikhb0-20260806T143022"))
 					m.Images = append(m.Images,
 						msbImg("agents-sandbox/runner-projectname-1mjusbm3wikhb0:xyz789"))
-					sandboxmsb.WithMsbMock(t, m)
+					msbtest.WithMsbMock(t, m)
 				}, staleSummary("dry-run: Would prune", 1, 1))
 			})
 		}
@@ -295,13 +297,13 @@ func TestPrune(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
 				runPruneTest(t, flags, func() {
-					m := &sandboxmsb.MockMsbClient{}
-					m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
+					m := &msbtest.MockMsbClient{}
+					m.Sandboxes = append(m.Sandboxes, &msbtest.MockSandboxHandle{
 						Name_:      "agents-sandbox-vm-first-1mjusbm3wikhb0",
 						Status_:    sandboxmsb.SandboxStatusStopped,
 						UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 					})
-					m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
+					m.Sandboxes = append(m.Sandboxes, &msbtest.MockSandboxHandle{
 						Name_:      "agents-sandbox-vm-second-1mjusbm3wikhb0",
 						Status_:    sandboxmsb.SandboxStatusStopped,
 						UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
@@ -310,15 +312,15 @@ func TestPrune(t *testing.T) {
 						homeVol("agents-sandbox-home-first-1mjusbm3wikhb0-20260806T143022"))
 					m.Images = append(m.Images,
 						msbImg("agents-sandbox/runner-second-1mjusbm3wikhb0:v1"))
-					sandboxmsb.WithMsbMock(t, m)
+					msbtest.WithMsbMock(t, m)
 				}, staleSummary("Pruned", 2, 1))
 			})
 		}
 	})
 
 	t.Run("custom age of two weeks", func(t *testing.T) {
-		runPruneTestWithAge(t, "2w", func(m *sandboxmsb.MockMsbClient) {
-			m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
+		runPruneTestWithAge(t, "2w", func(m *msbtest.MockMsbClient) {
+			m.Sandboxes = append(m.Sandboxes, &msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-staleproject-1mjusbm3wikhb0",
 				Status_:    sandboxmsb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
@@ -334,13 +336,13 @@ func TestPrune(t *testing.T) {
 	t.Run("docker client error", func(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
-				mock := &sandboxmsb.MockMsbClient{}
+				mock := &msbtest.MockMsbClient{}
 				mock.Images = append(mock.Images,
 					msbImg("agents-sandbox/runner-stale-1mjusbm3wikhb0:v2"))
 
 				cmd, ui := setupCommandFixtures(t, append([]string{"prune", "--yes"}, flags...)...)
-				sandboxmsb.WithMsbMock(t, mock)
-				docker.WithDefaultErrorDockerMock(t)
+				msbtest.WithMsbMock(t, mock)
+				dockertest.WithDefaultErrorDockerMock(t)
 
 				err := cmd.Execute()
 				if err != nil {
@@ -357,14 +359,14 @@ func TestPrune(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
 				runPruneTest(t, flags, func() {
-					m := &sandboxmsb.MockMsbClient{}
+					m := &msbtest.MockMsbClient{}
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes, mkStaleTask(time.Now().Add(-15*24*time.Hour)))
 					m.Volumes = append(m.Volumes,
 						homeVol("agents-sandbox-home-projectname-1mjusbm3wikhb0-20260806T143022"))
 					m.Images = append(m.Images,
 						msbImg("agents-sandbox/runner-projectname-1mjusbm3wikhb0:v2"))
-					sandboxmsb.WithMsbMock(t, m)
+					msbtest.WithMsbMock(t, m)
 				}, staleSummary("Pruned", 2, 1))
 			})
 		}
@@ -383,7 +385,7 @@ func TestPrune(t *testing.T) {
 						t.Fatalf("seedHomeState: %v", err)
 					}
 
-					m := &sandboxmsb.MockMsbClient{}
+					m := &msbtest.MockMsbClient{}
 					m.Sandboxes = append(m.Sandboxes,
 						mkActiveVM("activeproject-1mjusbm3wikhb0-opencode"))
 					m.Sandboxes = append(m.Sandboxes, mkStaleTask(time.Now().Add(-15*24*time.Hour)))
@@ -393,7 +395,7 @@ func TestPrune(t *testing.T) {
 					// recent or held by a kept sandbox, so this one is recent.
 					m.Images = append(m.Images,
 						recentMsbImg("agents-sandbox/runner-activeproject-1mjusbm3wikhb0:opencode-latest"))
-					sandboxmsb.WithMsbMock(t, m)
+					msbtest.WithMsbMock(t, m)
 				}, staleSummary("Pruned", 1, 0))
 			})
 		}
@@ -403,7 +405,7 @@ func TestPrune(t *testing.T) {
 		for _, flags := range pruneAgeFlags {
 			t.Run(strings.Join(flags, " "), func(t *testing.T) {
 				runPruneTest(t, flags, func() {
-					m := &sandboxmsb.MockMsbClient{}
+					m := &msbtest.MockMsbClient{}
 					// Use 15d staleness to work with all flag values (7d, 7d, 14d, 14d).
 					m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 					m.Sandboxes = append(m.Sandboxes,
@@ -412,7 +414,7 @@ func TestPrune(t *testing.T) {
 						homeVol("agents-sandbox-home-projectname-1mjusbm3wikhb0-20260806T143022"))
 					m.Images = append(m.Images,
 						msbImg("agents-sandbox/runner-projectname-1mjusbm3wikhb0:v2"))
-					sandboxmsb.WithMsbMock(t, m)
+					msbtest.WithMsbMock(t, m)
 				}, staleSummary("Pruned", 1, 1))
 			})
 		}
@@ -421,28 +423,28 @@ func TestPrune(t *testing.T) {
 
 func TestPruneNonInteractiveRequiresYes(t *testing.T) {
 	vm := mkStaleVM(time.Now().Add(-15 * 24 * time.Hour))
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, vm)
 
 	cmd, _ := setupCommandFixtures(t, "prune")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	err := cmd.Execute()
 	if !errors.Is(err, termio.ErrConfirmationRequired) {
 		t.Fatalf("expected ErrConfirmationRequired, got: %v", err)
 	}
-	if vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+	if vm.(*msbtest.MockSandboxHandle).DidRemove() {
 		t.Error("expected no removals")
 	}
 }
 
 func TestPruneYesSkipsPrompt(t *testing.T) {
 	vm := mkStaleVM(time.Now().Add(-15 * 24 * time.Hour))
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, vm)
 
 	cmd, ui := setupCommandFixtures(t, "prune", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -450,18 +452,18 @@ func TestPruneYesSkipsPrompt(t *testing.T) {
 	if len(ui.ConfirmCalls) != 0 {
 		t.Errorf("expected no prompt, got: %v", ui.ConfirmCalls)
 	}
-	if !vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+	if !vm.(*msbtest.MockSandboxHandle).DidRemove() {
 		t.Error("expected the stale sandbox to be pruned")
 	}
 }
 
 func TestPruneDryRunSkipsConfirmation(t *testing.T) {
 	vm := mkStaleVM(time.Now().Add(-15 * 24 * time.Hour))
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, vm)
 
 	cmd, ui := setupCommandFixtures(t, "prune", "--dry-run")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -469,7 +471,7 @@ func TestPruneDryRunSkipsConfirmation(t *testing.T) {
 	if len(ui.ConfirmCalls) != 0 {
 		t.Errorf("dry-run must not prompt, got: %v", ui.ConfirmCalls)
 	}
-	if vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+	if vm.(*msbtest.MockSandboxHandle).DidRemove() {
 		t.Error("dry-run must not remove anything")
 	}
 	if !slices.Contains(ui.OutCalls, staleSummary("dry-run: Would prune", 1, 0)) {
@@ -479,11 +481,11 @@ func TestPruneDryRunSkipsConfirmation(t *testing.T) {
 
 func TestPruneDeclined(t *testing.T) {
 	vm := mkStaleVM(time.Now().Add(-15 * 24 * time.Hour))
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, vm)
 
 	cmd, ui := setupCommandFixtures(t, "prune")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	ui.IsInteractiveResult = true
 	ui.ConfirmResult = false
 
@@ -491,13 +493,13 @@ func TestPruneDeclined(t *testing.T) {
 	if !errors.Is(err, termio.ErrCancelled) {
 		t.Fatalf("expected termio.ErrCancelled, got: %v", err)
 	}
-	if vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+	if vm.(*msbtest.MockSandboxHandle).DidRemove() {
 		t.Error("expected no removals")
 	}
 }
 
 func TestPruneFormatJSON(t *testing.T) {
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 	m.Volumes = append(m.Volumes,
 		homeVol("agents-sandbox-home-projectname-1mjusbm3wikhb0-20260806T143022"))
@@ -505,7 +507,7 @@ func TestPruneFormatJSON(t *testing.T) {
 		msbImg("agents-sandbox/runner-projectname-1mjusbm3wikhb0:v2"))
 
 	cmd, ui := setupCommandFixtures(t, "prune", "--format", "json", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -538,7 +540,7 @@ func TestPruneFormatJSON(t *testing.T) {
 // phase's byte accounting and the native image-prune report reach the JSON.
 func TestPruneFormatJSONIncludesStorageAndImageFields(t *testing.T) {
 	physical := uint64(4096)
-	m := &sandboxmsb.MockMsbClient{
+	m := &msbtest.MockMsbClient{
 		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
 			return &sandboxmsb.PruneReport{
 				FilesRemoved:           3,
@@ -551,7 +553,7 @@ func TestPruneFormatJSONIncludesStorageAndImageFields(t *testing.T) {
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "prune", "--format", "json", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -569,13 +571,13 @@ func TestPruneFormatJSONIncludesStorageAndImageFields(t *testing.T) {
 // TestPruneJSONUnknownBytesMarshalNull pins the nil-not-zero convention in the
 // JSON projection.
 func TestPruneJSONUnknownBytesMarshalNull(t *testing.T) {
-	m := &sandboxmsb.MockMsbClient{
+	m := &msbtest.MockMsbClient{
 		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
 			return &sandboxmsb.PruneReport{FilesRemoved: 1, LogicalBytesRemoved: 100}, nil
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "prune", "--format", "json", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -586,9 +588,9 @@ func TestPruneJSONUnknownBytesMarshalNull(t *testing.T) {
 }
 
 func TestPrunePassesAgeToStorage(t *testing.T) {
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	cmd, _ := setupCommandFixtures(t, "prune", "--older-than", "2w", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -601,9 +603,9 @@ func TestPrunePassesAgeToStorage(t *testing.T) {
 }
 
 func TestPruneDryRunPassesDryRunToStorage(t *testing.T) {
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	cmd, _ := setupCommandFixtures(t, "prune", "--dry-run")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -615,7 +617,7 @@ func TestPruneDryRunPassesDryRunToStorage(t *testing.T) {
 // TestPruneHumanOutputUnknownBytesRenderDash pins the human-side unknown-bytes
 // rendering across both the storage and image lines.
 func TestPruneHumanOutputUnknownBytesRenderDash(t *testing.T) {
-	m := &sandboxmsb.MockMsbClient{
+	m := &msbtest.MockMsbClient{
 		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
 			return &sandboxmsb.PruneReport{FilesRemoved: 1, LogicalBytesRemoved: 100}, nil
 		},
@@ -624,7 +626,7 @@ func TestPruneHumanOutputUnknownBytesRenderDash(t *testing.T) {
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "prune", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -638,13 +640,13 @@ func TestPruneHumanOutputUnknownBytesRenderDash(t *testing.T) {
 
 func TestPruneStorageFailureJoinsError(t *testing.T) {
 	storageErr := errors.New("storage boom")
-	m := &sandboxmsb.MockMsbClient{
+	m := &msbtest.MockMsbClient{
 		StoragePruneFn: func(context.Context, sandboxmsb.PruneRequest) (*sandboxmsb.PruneReport, error) {
 			return nil, storageErr
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "prune", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	err := cmd.Execute()
 	if !errors.Is(err, storageErr) {
 		t.Fatalf("expected the storage error joined, got: %v", err)
@@ -655,11 +657,11 @@ func TestPruneStorageFailureJoinsError(t *testing.T) {
 }
 
 func TestPruneVerboseShowsDetails(t *testing.T) {
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 
 	cmd, ui := setupCommandFixtures(t, "prune", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -679,11 +681,11 @@ func TestPruneFormatJSONQuietConflict(t *testing.T) {
 }
 
 func TestPruneQuietSuppressesOutput(t *testing.T) {
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 
 	cmd, ui := setupCommandFixtures(t, "prune", "--quiet", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -701,11 +703,11 @@ func TestPruneQuietSuppressesOutput(t *testing.T) {
 // effective UI quiet rather than the raw flag.
 func TestPruneEnvQuietSuppressesOutput(t *testing.T) {
 	t.Setenv("AGENTS_SANDBOX_QUIET", "true")
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 
 	cmd, ui := setupCommandFixtures(t, "prune", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -718,12 +720,12 @@ func TestPruneEnvQuietSuppressesOutput(t *testing.T) {
 // joined still renders the summary of what was removed before the error is
 // returned.
 func TestPrunePartialErrorRendersReport(t *testing.T) {
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 	m.ListImagesErr = errBoom
 
 	cmd, ui := setupCommandFixtures(t, "prune", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	err := cmd.Execute()
 	if !errors.Is(err, errBoom) {
@@ -735,12 +737,12 @@ func TestPrunePartialErrorRendersReport(t *testing.T) {
 }
 
 func TestPrunePartialErrorRendersJSON(t *testing.T) {
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, mkStaleVM(time.Now().Add(-15*24*time.Hour)))
 	m.ListImagesErr = errBoom
 
 	cmd, ui := setupCommandFixtures(t, "prune", "--format", "json", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	err := cmd.Execute()
 	if !errors.Is(err, errBoom) {
@@ -753,8 +755,8 @@ func TestPrunePartialErrorRendersJSON(t *testing.T) {
 }
 
 func TestPruneOlderThan(t *testing.T) {
-	runPruneTestWithFlags(t, []string{"--older-than", "2w"}, func(m *sandboxmsb.MockMsbClient) {
-		m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
+	runPruneTestWithFlags(t, []string{"--older-than", "2w"}, func(m *msbtest.MockMsbClient) {
+		m.Sandboxes = append(m.Sandboxes, &msbtest.MockSandboxHandle{
 			Name_:      "agents-sandbox-vm-staleproject-1mjusbm3wikhb0",
 			Status_:    sandboxmsb.SandboxStatusStopped,
 			UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
@@ -772,8 +774,8 @@ func TestPruneOlderThanAndAgeConflict(t *testing.T) {
 }
 
 func TestPruneAgeDeprecated(t *testing.T) {
-	runPruneTestWithFlags(t, []string{"--age", "2w"}, func(m *sandboxmsb.MockMsbClient) {
-		m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
+	runPruneTestWithFlags(t, []string{"--age", "2w"}, func(m *msbtest.MockMsbClient) {
+		m.Sandboxes = append(m.Sandboxes, &msbtest.MockSandboxHandle{
 			Name_:      "agents-sandbox-vm-staleproject-1mjusbm3wikhb0",
 			Status_:    sandboxmsb.SandboxStatusStopped,
 			UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
@@ -791,12 +793,12 @@ func TestPruneAgeDeprecated(t *testing.T) {
 	}
 }
 
-func runPruneTestWithFlags(t *testing.T, flags []string, setupMock func(m *sandboxmsb.MockMsbClient), expected string) {
+func runPruneTestWithFlags(t *testing.T, flags []string, setupMock func(m *msbtest.MockMsbClient), expected string) {
 	t.Helper()
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	setupMock(mock)
 	cmd, ui := setupCommandFixtures(t, append([]string{"prune", "--yes"}, flags...)...)
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -817,12 +819,12 @@ func runPruneTest(t *testing.T, flags []string, setupMocks func(), expected stri
 	checkSummary(t, ui.OutCalls, expected)
 }
 
-func runPruneTestWithAge(t *testing.T, age string, setupMock func(m *sandboxmsb.MockMsbClient), expected string) {
+func runPruneTestWithAge(t *testing.T, age string, setupMock func(m *msbtest.MockMsbClient), expected string) {
 	t.Helper()
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	setupMock(mock)
 	cmd, ui := setupCommandFixtures(t, "prune", "--yes", "--age", age)
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -833,7 +835,7 @@ func runPruneTestWithAge(t *testing.T, age string, setupMock func(m *sandboxmsb.
 func runPruneTestError(t *testing.T, args []string, wantErrContains string) {
 	t.Helper()
 	cmd, _ := setupCommandFixtures(t, append(args, "--yes")...)
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("expected error; got nil")
@@ -860,9 +862,9 @@ func checkSummary(t *testing.T, outCalls []string, expected string) {
 // sandboxes, surfacing the ListSandboxes error.
 func TestPruneCatalogError(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "prune", "--age", "7d", "--yes")
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.ListSandboxesErr = errBoom
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	err := cmd.Execute()
 	if err == nil {
@@ -889,17 +891,17 @@ func homeVolumeNameFor(slug string) string {
 
 func TestPrunePurgeRejectsRunningSandboxWithoutForce(t *testing.T) {
 	running := mkActiveVM(purgeTestSlug)
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, running)
 
 	cmd, ui := setupCommandFixtures(t, "prune", "--purge", purgeTestSlug, "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "--force") {
 		t.Fatalf("expected a --force hint error, got: %v", err)
 	}
-	if running.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+	if running.(*msbtest.MockSandboxHandle).DidRemove() {
 		t.Error("a refused purge must not remove the running sandbox")
 	}
 	if len(ui.ConfirmCalls) != 0 {
@@ -920,11 +922,11 @@ func TestPrunePurgeRemovesProjectArtifacts(t *testing.T) {
 
 	imageRef := purgeTestSlug + ":" + purgeTestAgent + "-latest"
 	vm := mkStoppedVM(purgeTestSlug)
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, vm)
 	m.Volumes = append(m.Volumes, homeVol(volumeName))
 	m.Images = append(m.Images, msbImg(imageRef))
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -935,7 +937,7 @@ func TestPrunePurgeRemovesProjectArtifacts(t *testing.T) {
 	if len(m.RemovedImages) != 1 || m.RemovedImages[0].Ref != imageRef {
 		t.Errorf("expected image %q removed, got: %+v", imageRef, m.RemovedImages)
 	}
-	if !vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+	if !vm.(*msbtest.MockSandboxHandle).DidRemove() {
 		t.Error("expected the sandbox removed")
 	}
 	key := state.Key{Slug: purgeTestSlug, Agent: purgeTestAgent}
@@ -961,9 +963,9 @@ func TestPrunePurgeQuietNamesVolumes(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Volumes = append(m.Volumes, homeVol(volumeName))
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -992,9 +994,9 @@ func TestPrunePurgeFormatJSONOmitsHumanPlan(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Volumes = append(m.Volumes, homeVol(volumeName))
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1017,8 +1019,8 @@ func TestPruneBatchListsRetiredProjectsWithoutDeletingVolumes(t *testing.T) {
 	// A stale stopped VM puts the slug's key in the retire set, so a
 	// re-enabled volume phase would delete volumeName; the assertion below that
 	// RemovedVolumes stays empty is what catches it.
-	m := &sandboxmsb.MockMsbClient{}
-	m.Sandboxes = append(m.Sandboxes, &sandboxmsb.MockSandboxHandle{
+	m := &msbtest.MockMsbClient{}
+	m.Sandboxes = append(m.Sandboxes, &msbtest.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-" + retireSlug,
 		Status_:    sandboxmsb.SandboxStatusStopped,
 		UpdatedAt_: oldArtifactTime(),
@@ -1026,7 +1028,7 @@ func TestPruneBatchListsRetiredProjectsWithoutDeletingVolumes(t *testing.T) {
 	m.Volumes = append(m.Volumes, homeVol(volumeName))
 
 	cmd, ui := setupCommandFixtures(t, "prune", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1041,7 +1043,7 @@ func TestPruneBatchListsRetiredProjectsWithoutDeletingVolumes(t *testing.T) {
 	}
 
 	jsonCmd, jsonUI := setupCommandFixtures(t, "prune", "--format", "json", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	if err := jsonCmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1052,12 +1054,12 @@ func TestPruneBatchListsRetiredProjectsWithoutDeletingVolumes(t *testing.T) {
 
 func TestPrunePurgeDryRunDoesNotPromptOrDelete(t *testing.T) {
 	vm := mkStoppedVM(purgeTestSlug)
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, vm)
 	m.Volumes = append(m.Volumes, homeVol(homeVolumeNameFor(purgeTestSlug)))
 
 	cmd, ui := setupCommandFixtures(t, "prune", "--purge", purgeTestSlug, "--dry-run")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1065,7 +1067,7 @@ func TestPrunePurgeDryRunDoesNotPromptOrDelete(t *testing.T) {
 	if len(ui.ConfirmCalls) != 0 {
 		t.Errorf("dry-run must not prompt, got: %v", ui.ConfirmCalls)
 	}
-	if vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+	if vm.(*msbtest.MockSandboxHandle).DidRemove() {
 		t.Error("dry-run must not remove the sandbox")
 	}
 	if len(m.RemovedVolumes) != 0 {
@@ -1086,19 +1088,19 @@ func TestPrunePurgeNonInteractiveWithoutYesFailsFast(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			vm := mkStoppedVM(purgeTestSlug)
-			m := &sandboxmsb.MockMsbClient{}
+			m := &msbtest.MockMsbClient{}
 			m.Sandboxes = append(m.Sandboxes, vm)
 			m.Volumes = append(m.Volumes, homeVol(homeVolumeNameFor(purgeTestSlug)))
 
 			args := append([]string{"prune", "--purge", purgeTestSlug}, tc.extra...)
 			cmd, _ := setupCommandFixtures(t, args...)
-			sandboxmsb.WithMsbMock(t, m)
+			msbtest.WithMsbMock(t, m)
 
 			err := cmd.Execute()
 			if !errors.Is(err, termio.ErrConfirmationRequired) {
 				t.Fatalf("expected ErrConfirmationRequired, got: %v", err)
 			}
-			if vm.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+			if vm.(*msbtest.MockSandboxHandle).DidRemove() {
 				t.Error("a failed confirmation must not remove the sandbox")
 			}
 			if len(m.RemovedVolumes) != 0 {
@@ -1113,25 +1115,25 @@ func TestPrunePurgeNonInteractiveWithoutYesFailsFast(t *testing.T) {
 // remains the separate authorization for the prompt.
 func TestPrunePurgeForceStopsRunningSandbox(t *testing.T) {
 	running := mkActiveVM(purgeTestSlug)
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, running)
 
 	cmd, _ := setupCommandFixtures(t, "prune", "--purge", purgeTestSlug, "--force", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !running.(*sandboxmsb.MockSandboxHandle).DidStop {
+	if !running.(*msbtest.MockSandboxHandle).DidStop {
 		t.Error("expected the running sandbox stopped before removal")
 	}
-	if !running.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+	if !running.(*msbtest.MockSandboxHandle).DidRemove() {
 		t.Error("expected the running sandbox removed with --force")
 	}
 }
 
 func TestResolvePruneAgeFromResolver(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	cmd := buildPruneCmd(ui)
 	ctx := context.WithValue(context.Background(), (*launcherConfigKey)(nil),
 		launcherconfig.NewResolverWithConfig(launcherconfig.Config{ManualPruneAge: 5 * time.Hour}))
@@ -1157,9 +1159,9 @@ func TestPrunePurgeRejectsInvalidTarget(t *testing.T) {
 // removal plan surfaces instead of purging a partial plan.
 func TestPrunePurgePlanRemovalError(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "prune", "--purge="+purgeTestSlug, "--yes")
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.ListVolumesErr = errBoom
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "boom") {
@@ -1172,7 +1174,7 @@ func TestPrunePurgePlanRemovalError(t *testing.T) {
 // returns the empty cwd-implicit target, and a bare --purge with one positional
 // argument returns that argument.
 func TestPrunePurgeTargetBarePurgeReturnsCwdTarget(t *testing.T) {
-	cmd := buildPruneCmd(&termio.Mock{})
+	cmd := buildPruneCmd(&termiotest.Mock{})
 	if err := cmd.Flags().Set(flagPurge, purgeCwdTarget); err != nil {
 		t.Fatal(err)
 	}
@@ -1229,16 +1231,16 @@ func TestPruneRejectsMultiplePositionalArgs(t *testing.T) {
 // refusal is skipped for a dry-run, which deletes nothing.
 func TestPrunePurgeDryRunPreviewsRunningSandbox(t *testing.T) {
 	running := mkActiveVM(purgeTestSlug)
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, running)
 
 	cmd, ui := setupCommandFixtures(t, "prune", "--purge", purgeTestSlug, "--dry-run")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("a dry-run must preview a running-sandbox target without failing: %v", err)
 	}
-	if running.(*sandboxmsb.MockSandboxHandle).DidRemove() {
+	if running.(*msbtest.MockSandboxHandle).DidRemove() {
 		t.Error("a dry-run must not remove the running sandbox")
 	}
 	if len(ui.ConfirmCalls) != 0 {
@@ -1252,13 +1254,13 @@ func TestPrunePurgeDryRunPreviewsRunningSandbox(t *testing.T) {
 // executed one.
 func TestPrunePurgeRunningSandboxRefusalSkipsPlanAndPrompt(t *testing.T) {
 	running := mkActiveVM(purgeTestSlug)
-	m := &sandboxmsb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, running)
 
 	cmd, ui := setupCommandFixtures(t, "prune", "--purge", purgeTestSlug)
 	ui.IsInteractiveResult = true
 	ui.ConfirmResult = true
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "--force") {
@@ -1280,8 +1282,8 @@ func TestPrunePurgeRunningSandboxRefusalSkipsPlanAndPrompt(t *testing.T) {
 // failure surfaces while the returned slice stays non-nil, so the caller's
 // retired_projects JSON always marshals as an array rather than null.
 func TestRetiredProjectSlugsErrorReturnsEmptySlice(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{ListSandboxesErr: errBoom})
+	configpathstest.WithMockConfigPaths(t)
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{ListSandboxesErr: errBoom})
 
 	slugs, err := retiredProjectSlugs(context.Background(), time.Hour)
 	if !errors.Is(err, errBoom) {

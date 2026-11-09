@@ -11,32 +11,33 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	origInterval := waitQuiescentPollInterval
 	waitQuiescentPollInterval = 10 * time.Millisecond
 	t.Cleanup(func() { waitQuiescentPollInterval = origInterval })
 
 	slug := "reattachproj"
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
-			"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+			"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
 				true, 0, `{"s1":{"type":"busy","attempt":0}}`, "", nil,
 			),
 		},
 	}
 	sb.ExecOut = map[string]msb.ShellResult{
-		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+		"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
 	}
 
 	// A client reattaches 20ms into the wait, so a later poll sees an active
@@ -77,15 +78,15 @@ func TestReapOnLastClient_ClientReattachesDuringWait(t *testing.T) {
 }
 
 func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "otherproj"
 	release, _ := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
 	defer release()
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	var shellCalls, execCalls []string
-	sb := &msb.MockSandbox{Name_: "test-vm", ShellCalls: &shellCalls, ExecCalls: &execCalls}
+	sb := &msbtest.MockSandbox{Name_: "test-vm", ShellCalls: &shellCalls, ExecCalls: &execCalls}
 
 	err := reapOnLastClient(
 		context.Background(),
@@ -114,7 +115,7 @@ func TestReapOnLastClient_NoOpWhenOtherClientsActive(t *testing.T) {
 }
 
 func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "leaseproj"
 	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
@@ -124,8 +125,8 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 	defer release()
 
 	// CountActiveClients >= 1 because current process holds the lease.
-	ui := &termio.Mock{}
-	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+	ui := &termiotest.Mock{}
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{})
 
 	err = reapOnLastClient(
 		context.Background(),
@@ -141,12 +142,12 @@ func TestReapOnLastClient_ClientLeaseHeld_NoReap(t *testing.T) {
 }
 
 func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "nopollproj"
 
-	ui := &termio.Mock{}
-	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+	ui := &termiotest.Mock{}
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{})
 
 	err := reapOnLastClient(
 		context.Background(),
@@ -179,14 +180,14 @@ func TestReapOnLastClient_AutoStopOnActiveSessions_ReturnsImmediately(t *testing
 }
 
 func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "idleproj"
 
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{Name_: "test-vm"}
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{Name_: "test-vm"}
 	sb.ShellOut = map[string]msb.ShellResult{
-		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+		"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
 			true,
 			0,
 			`{"s1":{"type":"idle","attempt":0}}`,
@@ -195,7 +196,7 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 		),
 	}
 	sb.ExecOut = map[string]msb.ShellResult{
-		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+		"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
 	}
 
 	err := reapOnLastClient(
@@ -212,17 +213,17 @@ func TestReapOnLastClient_WaitMode_IdleFromStart(t *testing.T) {
 }
 
 func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "emptyproj"
 
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{Name_: "test-vm"}
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{Name_: "test-vm"}
 	sb.ShellOut = map[string]msb.ShellResult{
-		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(true, 0, `{}`, "", nil),
+		"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(true, 0, `{}`, "", nil),
 	}
 	sb.ExecOut = map[string]msb.ShellResult{
-		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+		"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
 	}
 
 	err := reapOnLastClient(
@@ -244,22 +245,22 @@ func TestReapOnLastClient_WaitMode_EmptyStatus(t *testing.T) {
 // keeps holding the VM. The short context turns "kept waiting" into a deadline
 // error; releasing early would return nil.
 func TestReapOnLastClient_WaitMode_RetryBelowCapKeepsWaiting(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer shortCancel()
 
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
-			"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+			"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
 				true, 0, `{"s1":{"type":"retry","attempt":5}}`, "", nil,
 			),
 		},
 	}
 	sb.ExecOut = map[string]msb.ShellResult{
-		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+		"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
 	}
 
 	err := reapOnLastClient(
@@ -286,7 +287,7 @@ func TestReapOnLastClient_WaitMode_RetryBelowCapKeepsWaiting(t *testing.T) {
 // longer hold the VM. The bounded context only guards a regression that holds
 // forever.
 func TestReapOnLastClient_WaitMode_RetryAtOrOverCapReaps(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	tests := []struct {
 		name   string
@@ -300,15 +301,15 @@ func TestReapOnLastClient_WaitMode_RetryAtOrOverCapReaps(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 
-			ui := &termio.Mock{}
-			sb := &msb.MockSandbox{
+			ui := &termiotest.Mock{}
+			sb := &msbtest.MockSandbox{
 				Name_: "test-vm",
 				ShellOut: map[string]msb.ShellResult{
-					"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(true, 0, tt.status, "", nil),
+					"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(true, 0, tt.status, "", nil),
 				},
 			}
 			sb.ExecOut = map[string]msb.ShellResult{
-				"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+				"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
 			}
 
 			err := reapOnLastClient(
@@ -327,17 +328,17 @@ func TestReapOnLastClient_WaitMode_RetryAtOrOverCapReaps(t *testing.T) {
 }
 
 func TestReapOnLastClient_ContextCancelled(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	// Session status is busy, so the poll loop keeps waiting.
 	// Use a short timeout context that expires during the 2s ticker wait.
 	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer shortCancel()
 
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{Name_: "test-vm"}
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{Name_: "test-vm"}
 	sb.ShellOut = map[string]msb.ShellResult{
-		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+		"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
 			true,
 			0,
 			`{"s1":{"type":"busy","attempt":0}}`,
@@ -346,7 +347,7 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 		),
 	}
 	sb.ExecOut = map[string]msb.ShellResult{
-		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+		"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
 	}
 
 	err := reapOnLastClient(
@@ -363,22 +364,22 @@ func TestReapOnLastClient_ContextCancelled(t *testing.T) {
 }
 
 func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "qproj"
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
-			"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+			"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
 				true, 0, `{"s1":{"type":"busy","attempt":0}}`, "", nil,
 			),
-			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(
+			"curl -sf http://127.0.0.1:4096/question": msbtest.NewTestResult(
 				true, 0, `[{"id":"que_1","sessionID":"s1","questions":[]}]`, "", nil,
 			),
 		},
 	}
 	sb.ExecOut = map[string]msb.ShellResult{
-		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+		"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
 	}
 	err := reapOnLastClient(
 		context.Background(),
@@ -394,23 +395,23 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionReaps(t *testing.T) {
 }
 
 func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "qerrproj"
 	shortCtx, shortCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer shortCancel()
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
-			"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+			"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
 				true, 0, `{"s1":{"type":"busy","attempt":0}}`, "", nil,
 			),
 			// /question returns a non-success (curl) so the session stays busy.
-			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(false, 7, "", "curl error", nil),
+			"curl -sf http://127.0.0.1:4096/question": msbtest.NewTestResult(false, 7, "", "curl error", nil),
 		},
 	}
 	sb.ExecOut = map[string]msb.ShellResult{
-		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+		"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
 	}
 	err := reapOnLastClient(
 		shortCtx,
@@ -431,7 +432,7 @@ func TestReapOnLastClient_WaitMode_BusyWithQuestionErrorKeepsPolling(t *testing.
 }
 
 func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	tests := []struct {
 		name   string
@@ -443,7 +444,7 @@ func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			err := reapOnLastClient(
 				context.Background(),
 				opencodeResolved(t),
@@ -460,11 +461,11 @@ func TestReapOnLastClient_NilSandbox_AllModes(t *testing.T) {
 }
 
 func TestReapOnLastClient_NoSessionStatusProvider_SkipsWait(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "nosessionproj"
-	ui := &termio.Mock{}
-	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+	ui := &termiotest.Mock{}
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{})
 
 	err := reapOnLastClient(
 		context.Background(),
@@ -485,7 +486,7 @@ func TestReapOnLastClient_NoSessionStatusProvider_SkipsWait(t *testing.T) {
 }
 
 func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "attachproj"
 	release, err := state.AcquireClientLease(state.Key{Slug: slug, Agent: "opencode"})
@@ -493,18 +494,18 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 		t.Fatalf("state.AcquireClientLease: %v", err)
 	}
 
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
-			"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+			"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
 				true,
 				0,
 				`{"s1":{"type":"idle","attempt":0}}`,
 				"",
 				nil,
 			),
-			"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+			"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
 		},
 	}
 
@@ -525,7 +526,7 @@ func TestReapDoesNotFailSuccessfulAttach(t *testing.T) {
 }
 
 func TestReapOnLastClientSkipsNonDaemonAgent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a, ok := agent.Lookup("pi")
 	if !ok {
 		t.Fatal("pi agent not registered")
@@ -533,8 +534,8 @@ func TestReapOnLastClientSkipsNonDaemonAgent(t *testing.T) {
 	if _, isStatus := agent.AsSessionStatusProvider(a); isStatus {
 		t.Skip("pi unexpectedly has a session-status provider")
 	}
-	ui := &termio.Mock{}
-	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+	ui := &termiotest.Mock{}
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{})
 	if err := reapOnLastClient(
 		context.Background(),
 		agent.Resolve(a),
@@ -554,14 +555,14 @@ func TestReapOnLastClientSkipsNonDaemonAgent(t *testing.T) {
 // through the reaper's entry point: a canceled context must not suppress the
 // running-container warning on the last-client detach.
 func TestReapOnLastClient_CanceledContextStillWarns(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	sb := canceledContextSandbox{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{
+	sb := canceledContextSandbox{Sandbox: msbtest.NewMockSandbox(msbtest.SandboxOpts{
 		ShellOut: map[string]msb.ShellResult{
-			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+			runningContainersProbeCmd: msbtest.NewTestResult(true, 0, "abc123\n", "", nil),
 		},
 	})}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -586,14 +587,14 @@ func TestReapOnLastClient_CanceledContextStillWarns(t *testing.T) {
 // uses auto-stop mode, where the reaper returns immediately, so the warning must
 // precede that return.
 func TestReapOnLastClient_WarnsWhenContainersRunning(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	sb := msb.NewMockSandbox(msb.SandboxOpts{
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{
 		ShellOut: map[string]msb.ShellResult{
-			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+			runningContainersProbeCmd: msbtest.NewTestResult(true, 0, "abc123\n", "", nil),
 		},
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	err := reapOnLastClient(
 		context.Background(),
@@ -615,14 +616,14 @@ func TestReapOnLastClient_WarnsWhenContainersRunning(t *testing.T) {
 // holding path: the warning is independent of auto-stop mode, so it fires before
 // the quiescence wait begins.
 func TestReapOnLastClient_WarnsWhenContainersRunningWithoutAutoStop(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	sb := msb.NewMockSandbox(msb.SandboxOpts{
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{
 		ShellOut: map[string]msb.ShellResult{
-			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+			runningContainersProbeCmd: msbtest.NewTestResult(true, 0, "abc123\n", "", nil),
 		},
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	// noSessionStatusAgent returns before the quiescence wait, so the test does
 	// not need a session-status stub; the warning runs before that branch.
@@ -648,11 +649,11 @@ func TestReapOnLastClient_WarnsWhenContainersRunningWithoutAutoStop(t *testing.T
 // the config/flag setting cannot decide whether the VM can hold containers. The
 // probe self-guards, so a docker-less VM's failure warns nothing.
 func TestReapOnLastClient_ProbesRegardlessOfDockerSetting(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	var shellCalls []string
-	sb := &msb.MockSandbox{Name_: "test-vm", ShellCalls: &shellCalls}
-	ui := &termio.Mock{}
+	sb := &msbtest.MockSandbox{Name_: "test-vm", ShellCalls: &shellCalls}
+	ui := &termiotest.Mock{}
 
 	err := reapOnLastClient(
 		context.Background(),
@@ -676,9 +677,9 @@ func TestReapOnLastClient_ProbesRegardlessOfDockerSetting(t *testing.T) {
 // TestReapOnLastClient_NoContainerProbeWhenSandboxNil verifies the warning is
 // skipped when there is no sandbox to probe, so a nil held sandbox cannot panic.
 func TestReapOnLastClient_NoContainerProbeWhenSandboxNil(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	err := reapOnLastClient(
 		context.Background(),
@@ -701,7 +702,7 @@ func TestReapOnLastClient_NoContainerProbeWhenSandboxNil(t *testing.T) {
 // the session-status poll fails closed and the reaper returns immediately
 // instead of spinning forever on a sandbox that no longer exists.
 func TestReapOnLastClient_SandboxReplacedOrGoneStopsWaiting(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	cases := []struct {
 		name string
@@ -712,8 +713,8 @@ func TestReapOnLastClient_SandboxReplacedOrGoneStopsWaiting(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := &termio.Mock{}
-			sb := &msb.MockSandbox{Name_: "test-vm", ShellErr: tc.err}
+			ui := &termiotest.Mock{}
+			sb := &msbtest.MockSandbox{Name_: "test-vm", ShellErr: tc.err}
 
 			err := reapOnLastClient(
 				context.Background(),
@@ -749,19 +750,19 @@ func TestWarnRunningContainers(t *testing.T) {
 		shellErr error
 		wantWarn bool
 	}{
-		{"containers", msb.NewTestResult(true, 0, "id1\nid2\n", "", nil), nil, true},
-		{"none", msb.NewTestResult(true, 0, "", "", nil), nil, false},
-		{"blank lines", msb.NewTestResult(true, 0, "\n  \n", "", nil), nil, false},
+		{"containers", msbtest.NewTestResult(true, 0, "id1\nid2\n", "", nil), nil, true},
+		{"none", msbtest.NewTestResult(true, 0, "", "", nil), nil, false},
+		{"blank lines", msbtest.NewTestResult(true, 0, "\n  \n", "", nil), nil, false},
 		// A failed probe that still printed a container id must not warn: the
 		// exit status, not the output alone, decides.
-		{"probe failure with output", msb.NewTestResult(false, 1, "id1\n", "cannot connect", nil), nil, false},
+		{"probe failure with output", msbtest.NewTestResult(false, 1, "id1\n", "cannot connect", nil), nil, false},
 		{"nil result", nil, nil, false},
 		{"shell error", nil, errors.New("boom"), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ui := &termio.Mock{}
-			sb := msb.NewMockSandbox(msb.SandboxOpts{
+			ui := &termiotest.Mock{}
+			sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{
 				ShellOut: map[string]msb.ShellResult{runningContainersProbeCmd: tt.out},
 				ShellErr: tt.shellErr,
 			})
@@ -780,10 +781,10 @@ func TestWarnRunningContainers(t *testing.T) {
 // guard: an error from Shell must short-circuit before any output is counted,
 // even when a result is also returned.
 func TestWarnRunningContainersShellErrorWithPartialResultDoesNotWarn(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	sb := errWithResultSandbox{
-		MockSandbox: &msb.MockSandbox{},
-		out:         msb.NewTestResult(true, 0, "id1\n", "", nil),
+		MockSandbox: &msbtest.MockSandbox{},
+		out:         msbtest.NewTestResult(true, 0, "id1\n", "", nil),
 		err:         errors.New("partial failure"),
 	}
 	warnRunningContainers(context.Background(), sb, ui)
@@ -797,10 +798,10 @@ func TestWarnRunningContainersShellErrorWithPartialResultDoesNotWarn(t *testing.
 // probe that used it directly (as the SDK aborts on cancellation) would silently
 // drop the warning. The probe must run on its own non-canceled context.
 func TestWarnRunningContainers_CanceledContextStillWarns(t *testing.T) {
-	ui := &termio.Mock{}
-	sb := canceledContextSandbox{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{
+	ui := &termiotest.Mock{}
+	sb := canceledContextSandbox{Sandbox: msbtest.NewMockSandbox(msbtest.SandboxOpts{
 		ShellOut: map[string]msb.ShellResult{
-			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+			runningContainersProbeCmd: msbtest.NewTestResult(true, 0, "abc123\n", "", nil),
 		},
 	})}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -813,7 +814,7 @@ func TestWarnRunningContainers_CanceledContextStillWarns(t *testing.T) {
 }
 
 func TestSessionStatesShellError(t *testing.T) {
-	sb := &msb.MockSandbox{Name_: "test-vm"}
+	sb := &msbtest.MockSandbox{Name_: "test-vm"}
 	sb.ShellErr = errors.New("shell failed")
 
 	if _, err := sessionStates(context.Background(), sb, "curl -sf http://127.0.0.1:4096/session/status"); err == nil {
@@ -822,9 +823,9 @@ func TestSessionStatesShellError(t *testing.T) {
 }
 
 func TestSessionStatesNonSuccess(t *testing.T) {
-	sb := &msb.MockSandbox{Name_: "test-vm"}
+	sb := &msbtest.MockSandbox{Name_: "test-vm"}
 	sb.ShellOut = map[string]msb.ShellResult{
-		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(false, 7, "", "curl error", nil),
+		"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(false, 7, "", "curl error", nil),
 	}
 
 	if _, err := sessionStates(context.Background(), sb, "curl -sf http://127.0.0.1:4096/session/status"); err == nil {
@@ -833,10 +834,10 @@ func TestSessionStatesNonSuccess(t *testing.T) {
 }
 
 func TestPendingQuestionSessionIDs_DecodeError(t *testing.T) {
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
-			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(true, 0, `{invalid`, "", nil),
+			"curl -sf http://127.0.0.1:4096/question": msbtest.NewTestResult(true, 0, `{invalid`, "", nil),
 		},
 	}
 	_, err := pendingQuestionSessionIDs(
@@ -850,10 +851,10 @@ func TestPendingQuestionSessionIDs_DecodeError(t *testing.T) {
 }
 
 func TestPendingQuestionSessionIDs_PopulatesSet(t *testing.T) {
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
-			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(
+			"curl -sf http://127.0.0.1:4096/question": msbtest.NewTestResult(
 				true, 0,
 				`[{"id":"que_1","sessionID":"ses_a","questions":[]},{"id":"que_2","sessionID":"ses_b","questions":[]}]`,
 				"", nil,
@@ -873,10 +874,10 @@ func TestPendingQuestionSessionIDs_PopulatesSet(t *testing.T) {
 }
 
 func TestPendingQuestionSessionIDs_Empty(t *testing.T) {
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
-			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(true, 0, `[]`, "", nil),
+			"curl -sf http://127.0.0.1:4096/question": msbtest.NewTestResult(true, 0, `[]`, "", nil),
 		},
 	}
 	got, err := pendingQuestionSessionIDs(context.Background(), sb, "curl -sf http://127.0.0.1:4096/question")
@@ -889,10 +890,10 @@ func TestPendingQuestionSessionIDs_Empty(t *testing.T) {
 }
 
 func TestPendingQuestionSessionIDs_CurlFailure(t *testing.T) {
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
-			"curl -sf http://127.0.0.1:4096/question": msb.NewTestResult(false, 7, "", "curl error", nil),
+			"curl -sf http://127.0.0.1:4096/question": msbtest.NewTestResult(false, 7, "", "curl error", nil),
 		},
 	}
 	_, err := pendingQuestionSessionIDs(context.Background(), sb, "curl -sf http://127.0.0.1:4096/question")
@@ -902,7 +903,7 @@ func TestPendingQuestionSessionIDs_CurlFailure(t *testing.T) {
 }
 
 func TestPendingQuestionSessionIDsShellError(t *testing.T) {
-	sb := &msb.MockSandbox{Name_: "test-vm"}
+	sb := &msbtest.MockSandbox{Name_: "test-vm"}
 	sb.ShellErr = errors.New("shell failed")
 
 	if _, err := pendingQuestionSessionIDs(
@@ -1161,7 +1162,7 @@ func (s *blockingExecSandbox) Exec(
 // its command and blocks until that command has ended.
 func TestKeepVMAliveStopEndsTheKeeper(t *testing.T) {
 	sb := &blockingExecSandbox{
-		Sandbox:   msb.NewMockSandbox(msb.SandboxOpts{}),
+		Sandbox:   msbtest.NewMockSandbox(msbtest.SandboxOpts{}),
 		cancelled: make(chan struct{}),
 		release:   make(chan struct{}),
 	}
@@ -1193,19 +1194,19 @@ func TestKeepVMAliveStopEndsTheKeeper(t *testing.T) {
 // are only listed when a session is busy, since only a busy session can be
 // waiting on one.
 func TestReapOnLastClient_IdleSessionsSkipTheQuestionPoll(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	var shellCalls []string
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		Name_:      "test-vm",
 		ShellCalls: &shellCalls,
 		ShellOut: map[string]msb.ShellResult{
-			"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+			"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
 				true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
 			),
 		},
 	}
 	err := reapOnLastClient(context.Background(), opencodeResolved(t), state.Key{Slug: "idleq", Agent: "opencode"}, sb,
-		options.ReapPolicy{}, &termio.Mock{})
+		options.ReapPolicy{}, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("reapOnLastClient: %v", err)
 	}

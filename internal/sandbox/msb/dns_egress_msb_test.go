@@ -10,6 +10,8 @@ import (
 	"time"
 
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest/runtime"
 )
 
 // TestNetworkPolicyDNSResolution boots a VM per launcher network policy and
@@ -22,7 +24,7 @@ import (
 // proves in the same run. A refusal therefore has to come from microsandbox's
 // proxy: a leaked query would be answered, not rejected.
 func TestNetworkPolicyDNSResolution(t *testing.T) {
-	ensureIsolatedRuntime(t)
+	runtime.EnsureIsolatedRuntime(t)
 	cases := []struct {
 		name        string
 		spec        NetworkSpec

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 func TestVolumeInspect(t *testing.T) {
@@ -15,9 +16,9 @@ func TestVolumeInspect(t *testing.T) {
 	capacity := uint64(20 * 1024 * 1024 * 1024)
 	format := "raw"
 	fstype := "ext4"
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Volumes = []sandboxmsb.VolumeHandle{
-		&sandboxmsb.MockVolumeHandle{
+		&msbtest.MockVolumeHandle{
 			Name_:          "agents-sandbox-home-proj-opencode-20260817T104236",
 			Path_:          "/home/dev/.local/share/agents-sandbox/msb/volumes/agents-sandbox-home-proj",
 			Kind_:          sandboxmsb.VolumeKindDisk,
@@ -31,7 +32,7 @@ func TestVolumeInspect(t *testing.T) {
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdInspect, "agents-sandbox-home-proj-opencode-20260817T104236")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("volume inspect: %v", err)
 	}
@@ -55,9 +56,9 @@ func TestVolumeInspect(t *testing.T) {
 
 func TestVolumeInspectFormatJSON(t *testing.T) {
 	quota := uint32(10240)
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Volumes = []sandboxmsb.VolumeHandle{
-		&sandboxmsb.MockVolumeHandle{
+		&msbtest.MockVolumeHandle{
 			Name_:      "agents-sandbox-home-proj",
 			Path_:      "/msb/volumes/agents-sandbox-home-proj",
 			Kind_:      sandboxmsb.VolumeKindDir,
@@ -67,7 +68,7 @@ func TestVolumeInspectFormatJSON(t *testing.T) {
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdInspect, "--format", "json", "agents-sandbox-home-proj")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("volume inspect --format json: %v", err)
 	}
@@ -91,12 +92,12 @@ func TestVolumeInspectFormatJSON(t *testing.T) {
 }
 
 func TestVolumeInspectQuiet(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Volumes = []sandboxmsb.VolumeHandle{
-		&sandboxmsb.MockVolumeHandle{Name_: "agents-sandbox-home-proj", Kind_: sandboxmsb.VolumeKindDir},
+		&msbtest.MockVolumeHandle{Name_: "agents-sandbox-home-proj", Kind_: sandboxmsb.VolumeKindDir},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdInspect, "--quiet", "agents-sandbox-home-proj")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("volume inspect --quiet: %v", err)
 	}
@@ -130,23 +131,23 @@ func TestVolumeInspectRequiredArgs(t *testing.T) {
 
 func TestVolumeInspectConflict(t *testing.T) {
 	runListCmdTest(t, []string{cmdVolume, cmdInspect, "--quiet", "--format", "json", "vol"},
-		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "mutually exclusive")
+		func(_ *msbtest.MockMsbClient) {}, nil, nil, true, "mutually exclusive")
 }
 
 func TestVolumeInspectFormatUnknown(t *testing.T) {
 	runListCmdTest(t, []string{cmdVolume, cmdInspect, "--format", "yaml", "vol"},
-		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "unsupported format")
+		func(_ *msbtest.MockMsbClient) {}, nil, nil, true, "unsupported format")
 }
 
 func TestVolumeInspectMissing(t *testing.T) {
 	runListCmdTest(t, []string{cmdVolume, cmdInspect, "agents-sandbox-home-missing"},
-		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "inspect volume")
+		func(_ *msbtest.MockMsbClient) {}, nil, nil, true, "inspect volume")
 }
 
 func TestImageInspect(t *testing.T) {
 	size := int64(2 * 1024 * 1024 * 1024)
 	layerSize := int64(1024)
-	mock := &sandboxmsb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageInspectDetailFn: func(_ context.Context, _ string) (*sandboxmsb.ImageDetail, error) {
 			return &sandboxmsb.ImageDetail{
 				Reference:      "agents-sandbox/runner-proj:latest",
@@ -176,7 +177,7 @@ func TestImageInspect(t *testing.T) {
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdImage, cmdInspect, "agents-sandbox/runner-proj:latest")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("image inspect: %v", err)
 	}
@@ -202,7 +203,7 @@ func TestImageInspect(t *testing.T) {
 }
 
 func TestImageInspectFormatJSON(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageInspectDetailFn: func(_ context.Context, _ string) (*sandboxmsb.ImageDetail, error) {
 			return &sandboxmsb.ImageDetail{
 				Reference:      "agents-sandbox/runner-proj:latest",
@@ -215,7 +216,7 @@ func TestImageInspectFormatJSON(t *testing.T) {
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdImage, cmdInspect, "--format", "json", "agents-sandbox/runner-proj:latest")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("image inspect --format json: %v", err)
 	}
@@ -247,13 +248,13 @@ func TestImageInspectFormatJSON(t *testing.T) {
 }
 
 func TestImageInspectQuiet(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		ImageInspectDetailFn: func(_ context.Context, _ string) (*sandboxmsb.ImageDetail, error) {
 			return &sandboxmsb.ImageDetail{Reference: "agents-sandbox/runner-proj:latest"}, nil
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdImage, cmdInspect, "--quiet", "agents-sandbox/runner-proj:latest")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("image inspect --quiet: %v", err)
 	}
@@ -267,7 +268,7 @@ func TestImageInspectQuiet(t *testing.T) {
 
 func TestImageInspectMissing(t *testing.T) {
 	runListCmdTest(t, []string{cmdImage, cmdInspect, "agents-sandbox/runner-missing"},
-		func(m *sandboxmsb.MockMsbClient) {
+		func(m *msbtest.MockMsbClient) {
 			m.ImageInspectDetailFn = func(_ context.Context, _ string) (*sandboxmsb.ImageDetail, error) {
 				return nil, errBoom
 			}
@@ -275,9 +276,9 @@ func TestImageInspectMissing(t *testing.T) {
 }
 
 func TestSandboxInspect(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
-		&sandboxmsb.MockSandboxHandle{
+		&msbtest.MockSandboxHandle{
 			Name_:        "agents-sandbox-vm-abc",
 			ID_:          "sbx-123",
 			Status_:      sandboxmsb.SandboxStatusRunning,
@@ -299,7 +300,7 @@ func TestSandboxInspect(t *testing.T) {
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdSandbox, cmdInspect, "agents-sandbox-vm-abc")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sandbox inspect: %v", err)
 	}
@@ -327,9 +328,9 @@ func TestSandboxInspect(t *testing.T) {
 }
 
 func TestSandboxInspectFormatJSON(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
-		&sandboxmsb.MockSandboxHandle{
+		&msbtest.MockSandboxHandle{
 			Name_:        "agents-sandbox-vm-abc",
 			ID_:          "sbx-123",
 			Status_:      sandboxmsb.SandboxStatusStopped,
@@ -346,7 +347,7 @@ func TestSandboxInspectFormatJSON(t *testing.T) {
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdSandbox, cmdInspect, "--format", "json", "agents-sandbox-vm-abc")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sandbox inspect --format json: %v", err)
 	}
@@ -387,16 +388,16 @@ func TestSandboxInspectFormatJSON(t *testing.T) {
 }
 
 func TestSandboxInspectQuiet(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
-		&sandboxmsb.MockSandboxHandle{
+		&msbtest.MockSandboxHandle{
 			Name_:   "agents-sandbox-vm-abc",
 			Status_: sandboxmsb.SandboxStatusRunning,
 			Cfg:     &sandboxmsb.SandboxConfig{Image: "agents-sandbox/runner-proj:latest"},
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdSandbox, cmdInspect, "--quiet", "agents-sandbox-vm-abc")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sandbox inspect --quiet: %v", err)
 	}
@@ -410,5 +411,5 @@ func TestSandboxInspectQuiet(t *testing.T) {
 
 func TestSandboxInspectMissing(t *testing.T) {
 	runListCmdTest(t, []string{cmdSandbox, cmdInspect, "agents-sandbox-vm-missing"},
-		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "inspect sandbox")
+		func(_ *msbtest.MockMsbClient) {}, nil, nil, true, "inspect sandbox")
 }

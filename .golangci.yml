@@ -518,6 +518,7 @@ linters:
           - dupl
           - exhaustruct_v5
           - nilnil
+          - reassign
           - revive
       - path: '_test\.go'
         linters:

@@ -8,16 +8,17 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 // TestInspectSandboxWrapsLookupError pins the sandbox-lookup wrap: a GetSandbox
 // failure preserves its cause and names the requested VM.
 func TestInspectSandboxWrapsLookupError(t *testing.T) {
 	sentinel := errors.New("lookup boom")
-	mock := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+	mock := &msbtest.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return nil, sentinel
 	}}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	_, err := InspectSandbox(context.Background(), "agents-sandbox-vm-abc")
 	if err == nil {
@@ -40,9 +41,9 @@ func TestInspectSandboxPopulatesDetail(t *testing.T) {
 		MaxCPUs:      8,
 		Labels:       map[string]string{"project": "proj"},
 	}
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{
+		&msbtest.MockSandboxHandle{
 			Name_:        "agents-sandbox-vm-abc",
 			ID_:          "sbx-123",
 			Status_:      msb.SandboxStatusRunning,
@@ -56,7 +57,7 @@ func TestInspectSandboxPopulatesDetail(t *testing.T) {
 			},
 		},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	got, err := InspectSandbox(context.Background(), "agents-sandbox-vm-abc")
 	if err != nil {
@@ -90,11 +91,11 @@ func TestInspectSandboxPopulatesDetail(t *testing.T) {
 
 func TestInspectSandboxConfigError(t *testing.T) {
 	configErr := errors.New("config boom")
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-vm-abc", ConfigErr: configErr},
+		&msbtest.MockSandboxHandle{Name_: "agents-sandbox-vm-abc", ConfigErr: configErr},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	_, err := InspectSandbox(context.Background(), "agents-sandbox-vm-abc")
 	if err == nil || !strings.Contains(err.Error(), "read config") {
 		t.Fatalf("InspectSandbox() error = %v, want read config error", err)
@@ -106,15 +107,15 @@ func TestInspectSandboxConfigError(t *testing.T) {
 
 func TestInspectSandboxMountsError(t *testing.T) {
 	mountsErr := errors.New("mounts boom")
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{
+		&msbtest.MockSandboxHandle{
 			Name_:     "agents-sandbox-vm-abc",
 			Cfg:       &msb.SandboxConfig{Image: "img:tag"},
 			MountsErr: mountsErr,
 		},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	_, err := InspectSandbox(context.Background(), "agents-sandbox-vm-abc")
 	if err == nil || !strings.Contains(err.Error(), "read mounts") {
 		t.Fatalf("InspectSandbox() error = %v, want read mounts error", err)
@@ -125,7 +126,7 @@ func TestInspectSandboxMountsError(t *testing.T) {
 }
 
 func TestInspectSandboxMissing(t *testing.T) {
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 	_, err := InspectSandbox(context.Background(), "agents-sandbox-vm-missing")
 	if err == nil || !strings.Contains(err.Error(), "inspect sandbox") {
 		t.Fatalf("InspectSandbox() error = %v, want inspect sandbox error", err)

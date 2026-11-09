@@ -1,5 +1,5 @@
 //deadcode:ignore reason="test support: referenced only by _test.go files"
-package termio
+package termiotest
 
 import (
 	"bytes"
@@ -7,9 +7,11 @@ import (
 	"io"
 	"sync"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// NewTestMock returns an empty termio.Mock for tests.
+// NewTestMock returns an empty termiotest.Mock for tests.
 func NewTestMock(tb testing.TB) Mock {
 	tb.Helper()
 	return Mock{}
@@ -40,7 +42,7 @@ type Mock struct {
 	StdOutBuffer      bytes.Buffer
 	StdErrBuffer      bytes.Buffer
 
-	level               Level
+	level               termio.Level
 	assumeYes           bool
 	quiet               bool
 	IsInteractiveResult bool
@@ -48,18 +50,18 @@ type Mock struct {
 	ConfirmErr          error
 	AcknowledgeErr      error
 
-	SelectFn func(prompt string, choices []Choice, defaultKey string) (string, error)
+	SelectFn func(prompt string, choices []termio.Choice, defaultKey string) (string, error)
 	InputFn  func(prompt, defaultValue string) (string, error)
 }
 
 var (
-	_ Logger         = (*Mock)(nil)
-	_ Output         = (*Mock)(nil)
-	_ Prompter       = (*Mock)(nil)
-	_ SpinnerFactory = (*Mock)(nil)
-	_ TerminalState  = (*Mock)(nil)
-	_ Streams        = (*Mock)(nil)
-	_ UI             = (*Mock)(nil)
+	_ termio.Logger         = (*Mock)(nil)
+	_ termio.Output         = (*Mock)(nil)
+	_ termio.Prompter       = (*Mock)(nil)
+	_ termio.SpinnerFactory = (*Mock)(nil)
+	_ termio.TerminalState  = (*Mock)(nil)
+	_ termio.Streams        = (*Mock)(nil)
+	_ termio.UI             = (*Mock)(nil)
 )
 
 type mockSpinner struct{ owner *Mock }
@@ -133,7 +135,7 @@ func (m *Mock) Verbosef(format string, args ...any) {
 func (m *Mock) Out(msg string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.OutCalls = append(m.OutCalls, stripANSICodes(msg))
+	m.OutCalls = append(m.OutCalls, termio.StripANSICodes(msg))
 }
 
 // Print records a data line written regardless of the quiet setting, mirroring
@@ -141,7 +143,7 @@ func (m *Mock) Out(msg string) {
 func (m *Mock) Print(msg string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.PrintCalls = append(m.PrintCalls, stripANSICodes(msg))
+	m.PrintCalls = append(m.PrintCalls, termio.StripANSICodes(msg))
 }
 
 // Header records a table header line in OutCalls. The mock never applies ANSI
@@ -149,12 +151,12 @@ func (m *Mock) Print(msg string) {
 func (m *Mock) Header(msg string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.OutCalls = append(m.OutCalls, stripANSICodes(msg))
+	m.OutCalls = append(m.OutCalls, termio.StripANSICodes(msg))
 }
 
 // NewTable returns an empty aligned Table that records output in the mock.
-func (m *Mock) NewTable(headers ...string) *Table {
-	return &Table{ui: m, headers: headers}
+func (m *Mock) NewTable(headers ...string) *termio.Table {
+	return termio.NewTableFor(m, headers)
 }
 
 func (m *Mock) Outf(format string, args ...any) {
@@ -163,21 +165,21 @@ func (m *Mock) Outf(format string, args ...any) {
 	m.OutCalls = append(m.OutCalls, fmt.Sprintf(format, args...))
 }
 
-func (m *Mock) Spinner(msg string) Spinner {
+func (m *Mock) Spinner(msg string) termio.Spinner {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.SpinnerCalls = append(m.SpinnerCalls, msg)
 	return &mockSpinner{owner: m}
 }
 
-func (m *Mock) Spinnerf(format string, args ...any) Spinner {
+func (m *Mock) Spinnerf(format string, args ...any) termio.Spinner {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.SpinnerCalls = append(m.SpinnerCalls, fmt.Sprintf(format, args...))
 	return &mockSpinner{owner: m}
 }
 
-func (m *Mock) SetLevel(level Level) {
+func (m *Mock) SetLevel(level termio.Level) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.level = level
@@ -195,7 +197,7 @@ func (m *Mock) SetQuiet(quiet bool) {
 	m.quiet = quiet
 }
 
-func (m *Mock) Level() Level {
+func (m *Mock) Level() termio.Level {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.level
@@ -219,7 +221,7 @@ func (m *Mock) IsInteractive() bool {
 	return m.IsInteractiveResult
 }
 
-func (m *Mock) Select(prompt string, choices []Choice, defaultKey string) (string, error) {
+func (m *Mock) Select(prompt string, choices []termio.Choice, defaultKey string) (string, error) {
 	m.mu.Lock()
 	selectFn := m.SelectFn
 	m.mu.Unlock()
@@ -246,7 +248,7 @@ func (m *Mock) Confirm(prompt string, defaultYes bool) (bool, error) {
 		return true, nil
 	}
 	if !m.IsInteractiveResult {
-		return false, ErrConfirmationRequired
+		return false, termio.ErrConfirmationRequired
 	}
 	m.ConfirmCalls = append(m.ConfirmCalls, prompt)
 	return m.ConfirmResult, m.ConfirmErr

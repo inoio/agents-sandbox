@@ -8,24 +8,26 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestRemoveImagesRefusesReferenced(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	if err := seedHomeState(key, state.HomeState{}); err != nil {
 		t.Fatalf("seed state: %v", err)
 	}
 	ref := naming.RunnerImageRef(key.Slug, key.Agent)
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 
-	err := RemoveImages(context.Background(), []string{ref}, false, &termio.Mock{})
+	err := RemoveImages(context.Background(), []string{ref}, false, &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("RemoveImages() error = nil, want a refusal for a referenced image")
 	}
@@ -38,17 +40,17 @@ func TestRemoveImagesRefusesReferenced(t *testing.T) {
 }
 
 func TestRemoveImagesRefusesImageHeldByLiveSandbox(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_: naming.LegacyVMPrefix + key.Slug + "-" + key.Agent,
 		Cfg:   &msb.SandboxConfig{Image: naming.RunnerImageRef(key.Slug, key.Agent)},
 	}
-	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{handle}}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{Sandboxes: []msb.SandboxHandle{handle}}
+	msbtest.WithMsbMock(t, client)
 
 	ref := naming.RunnerImageRef(key.Slug, key.Agent)
-	err := RemoveImages(context.Background(), []string{ref}, false, &termio.Mock{})
+	err := RemoveImages(context.Background(), []string{ref}, false, &termiotest.Mock{})
 	if err == nil || !strings.Contains(err.Error(), "proj-1mjusbm3wikhb0/opencode") {
 		t.Fatalf("RemoveImages() error = %v, want a refusal naming the live sandbox project", err)
 	}
@@ -58,20 +60,20 @@ func TestRemoveImagesRefusesImageHeldByLiveSandbox(t *testing.T) {
 }
 
 func TestRemoveImagesForceSkipsGuard(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	if err := seedHomeState(key, state.HomeState{}); err != nil {
 		t.Fatalf("seed state: %v", err)
 	}
 	ref := naming.RunnerImageRef(key.Slug, key.Agent)
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
 			return nil, errors.New("guard must not run under --force")
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	if err := RemoveImages(context.Background(), []string{ref}, true, ui); err != nil {
 		t.Fatalf("RemoveImages(force): %v", err)
@@ -82,7 +84,7 @@ func TestRemoveImagesForceSkipsGuard(t *testing.T) {
 }
 
 func TestRemoveImagesFailsClosedOnCorruptState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := state.KeyDir(state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"})
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -90,14 +92,14 @@ func TestRemoveImagesFailsClosedOnCorruptState(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "state.yaml"), []byte("image_digest: ["), 0o600); err != nil {
 		t.Fatalf("write corrupt state: %v", err)
 	}
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 
 	if err := RemoveImages(
 		context.Background(),
 		[]string{naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")},
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err == nil {
 		t.Fatal("RemoveImages() error = nil, want a fail-closed reference scan error")
 	}
@@ -107,11 +109,11 @@ func TestRemoveImagesFailsClosedOnCorruptState(t *testing.T) {
 }
 
 func TestRemoveImagesRefusesNonRunnerRef(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	configpathstest.WithMockConfigPaths(t)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	err := RemoveImages(context.Background(), []string{"docker.io/library/alpine:latest"}, false, ui)
 	if err == nil || !strings.Contains(err.Error(), "not managed by agents-sandbox") {
@@ -123,11 +125,11 @@ func TestRemoveImagesRefusesNonRunnerRef(t *testing.T) {
 }
 
 func TestRemoveImagesForceDoesNotBypassOwnershipGuard(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	configpathstest.WithMockConfigPaths(t)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	err := RemoveImages(context.Background(), []string{"docker.io/library/alpine:latest"}, true, ui)
 	if err == nil || !strings.Contains(err.Error(), "not managed by agents-sandbox") {
@@ -142,15 +144,15 @@ func TestRemoveImagesForceDoesNotBypassOwnershipGuard(t *testing.T) {
 // ownership check: a single-segment reference whose slug lacks the launcher's
 // 14-character hash is a manually loaded image, not a runner image.
 func TestRemoveImagesRefusesSingleSegmentRefWithoutHash(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{
+	configpathstest.WithMockConfigPaths(t)
+	client := &msbtest.MockMsbClient{
 		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
 			return nil, errors.New("the ownership guard must run before the reference scan")
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	err := RemoveImages(context.Background(), []string{"manualimage:opencode-latest"}, false, ui)
 	if err == nil || !strings.Contains(err.Error(), "not managed by agents-sandbox") {
@@ -164,11 +166,11 @@ func TestRemoveImagesRefusesSingleSegmentRefWithoutHash(t *testing.T) {
 // TestRemoveImagesForceDoesNotBypassHashOwnershipGuard pins that the tightened
 // guard, like the repository-reference guard, is not overridable by --force.
 func TestRemoveImagesForceDoesNotBypassHashOwnershipGuard(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	configpathstest.WithMockConfigPaths(t)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	err := RemoveImages(context.Background(), []string{"manualimage:opencode-latest"}, true, ui)
 	if err == nil || !strings.Contains(err.Error(), "not managed by agents-sandbox") {
@@ -182,11 +184,11 @@ func TestRemoveImagesForceDoesNotBypassHashOwnershipGuard(t *testing.T) {
 // TestRemoveImagesAcceptsHashBearingRefsEitherScheme pins that a slug carrying
 // the launcher hash keeps both reference shapes removable.
 func TestRemoveImagesAcceptsHashBearingRefsEitherScheme(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	resolutions := msb.WithCountingMsbMock(t, client)
+	configpathstest.WithMockConfigPaths(t)
+	client := &msbtest.MockMsbClient{}
+	resolutions := msbtest.WithCountingMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	refs := []string{
 		naming.RunnerImageRef("myproj-1mjusbm3wikhb0", "opencode"),
@@ -204,19 +206,19 @@ func TestRemoveImagesAcceptsHashBearingRefsEitherScheme(t *testing.T) {
 }
 
 func TestRemoveImagesGuardSurfacesScanError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{
+	configpathstest.WithMockConfigPaths(t)
+	client := &msbtest.MockMsbClient{
 		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
 			return nil, errors.New("list boom")
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
 	err := RemoveImages(
 		context.Background(),
 		[]string{naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")},
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "check image references") {
 		t.Fatalf("RemoveImages(scan error) = %v, want a wrapped scan error", err)
@@ -224,15 +226,15 @@ func TestRemoveImagesGuardSurfacesScanError(t *testing.T) {
 }
 
 func TestRemoveImagesNonInteractiveRequiresConfirmation(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	configpathstest.WithMockConfigPaths(t)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 
 	err := RemoveImages(
 		context.Background(),
 		[]string{naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")},
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if !errors.Is(err, termio.ErrConfirmationRequired) {
 		t.Fatalf("RemoveImages(non-interactive) = %v, want ErrConfirmationRequired", err)
@@ -243,14 +245,14 @@ func TestRemoveImagesNonInteractiveRequiresConfirmation(t *testing.T) {
 }
 
 func TestRemoveImagesSurfacesRemoveError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("remove boom")
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		ImageRemoveFn: func(context.Context, string, bool) error { return wantErr },
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	ui.SetAssumeYes(true)
 	err := RemoveImages(
 		context.Background(),

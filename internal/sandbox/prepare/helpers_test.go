@@ -15,12 +15,14 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/envsecret"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sandbox/volume"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // upgradeCheckerAgent implements both the core Agent interface and the
@@ -218,9 +220,9 @@ func readAndResolveReconfigDecision(
 
 // reconfigFixture wires the mocks resolveReconfigDecision reads its live VM from.
 type reconfigFixture struct {
-	client  *msb.MockMsbClient
+	client  *msbtest.MockMsbClient
 	volumes *volume.Manager
-	ui      *termio.Mock
+	ui      *termiotest.Mock
 	cfs     *reprovision.ConfigFiles
 	homeVol string
 }

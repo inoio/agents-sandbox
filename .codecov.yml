@@ -19,12 +19,15 @@ coverage:
 # Test doubles (testmock.go and the role-split testmock_*.go files) are shared
 # fixtures for other packages' tests, not product code; their own tests pin only
 # fail-open contracts (see .operator-shared/specs/testing/test-coverage.md), so
-# their coverage is not gated. testgit.go is test support too: RunGit executes
-# the real git binary, so its behaviour tests need the integration build tag and
-# cannot run in the default coverage profile; its env-building is unit-tested
-# purely instead.
+# their coverage is not gated. termiotest/mock.go and the msbtest/runtime leaf
+# are test support under other names, so they are listed explicitly.
+# testgit.go is test support too: RunGit executes the real git binary, so its
+# behaviour tests need the integration build tag and cannot run in the default
+# coverage profile; its env-building is unit-tested purely instead.
 ignore:
   - "**/testmock*.go"
+  - "**/termiotest/mock.go"
+  - "**/msbtest/runtime/*.go"
   - "**/testutil/testgit.go"
 
 comment:

@@ -11,9 +11,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
-	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -23,14 +24,14 @@ import (
 // needs the real path resolver, so HOME and every XDG directory are pinned to
 // temp dirs to keep host state out of reach. Not parallel: t.Setenv/t.Chdir
 // forbid it.
-func setupBareCheckoutFixtures(t *testing.T, args ...string) (*cobra.Command, *termio.Mock, string) {
+func setupBareCheckoutFixtures(t *testing.T, args ...string) (*cobra.Command, *termiotest.Mock, string) {
 	t.Helper()
 	origin := testutil.InitRepo(t)
 	root := t.TempDir()
 	testutil.RunGit(t, root, "clone", "--bare", origin, ".git")
 	testutil.RunGit(t, filepath.Join(root, ".git"), "worktree", "add", filepath.Join(root, "main"))
 
-	cmd, ui := setupRunMocks(t, &sandboxmsb.MockMsbClient{}, &sandboxmsb.MockSandbox{}, args...)
+	cmd, ui := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
 
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
@@ -39,7 +40,7 @@ func setupBareCheckoutFixtures(t *testing.T, args ...string) (*cobra.Command, *t
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	// Override the command fixture's mock paths with the real resolver; cleanup
 	// runs LIFO, so the mock (and then the fail-fast default) is restored.
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	useMainBareCheckoutLocator(t)
 	t.Chdir(filepath.Join(root, "main"))
 	return cmd, ui, root
@@ -50,7 +51,7 @@ func setupBareCheckoutFixtures(t *testing.T, args ...string) (*cobra.Command, *t
 // locator on cleanup.
 func useMainBareCheckoutLocator(t *testing.T) {
 	t.Helper()
-	configpaths.WithBareCheckoutLocator(t, func(string) (string, string, bool) { return "", "", false })
+	configpathstest.WithBareCheckoutLocator(t, func(string) (string, string, bool) { return "", "", false })
 	installBareCheckoutLocator()
 }
 
@@ -143,7 +144,7 @@ func physicalPath(t *testing.T, path string) string {
 // setupBareCheckoutCommandFixtures is setupBareCheckoutFixtures for the config
 // commands: the standard command fixtures plus the real path resolver, so config
 // resolution reads the temp config tree. Not parallel: t.Setenv/t.Chdir forbid it.
-func setupBareCheckoutCommandFixtures(t *testing.T, args ...string) (*cobra.Command, *termio.Mock) {
+func setupBareCheckoutCommandFixtures(t *testing.T, args ...string) (*cobra.Command, *termiotest.Mock) {
 	t.Helper()
 	origin := testutil.InitRepo(t)
 	root := t.TempDir()
@@ -158,7 +159,7 @@ func setupBareCheckoutCommandFixtures(t *testing.T, args ...string) (*cobra.Comm
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	// Override the command fixture's mock paths with the real resolver.
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	useMainBareCheckoutLocator(t)
 	// The bare root itself records the legacy identity (a worktree inside it does
 	// not), so the config-resolution tests run from the bare root.

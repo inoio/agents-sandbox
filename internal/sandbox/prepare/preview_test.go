@@ -15,22 +15,25 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	sandboximage "github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestPreviewSandboxReportsBuildAndCreate(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	absentImageDockerMock(t)
 	resolutions := noVolumeCreateMock(t)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
@@ -59,14 +62,14 @@ func TestPreviewSandboxReportsBuildAndCreate(t *testing.T) {
 }
 
 func TestPreviewSandboxReportsReuse(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := opencodeAgent(t)
 
 	id, err := sandboximage.RunnerDockerfileID(configpaths.Get(), a, "1.0.0", options.DockerSetting{})
 	if err != nil {
 		t.Fatalf("RunnerDockerfileID: %v", err)
 	}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			context.Context, string, ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -78,14 +81,14 @@ func TestPreviewSandboxReportsReuse(t *testing.T) {
 		},
 	})
 	k := previewKey()
-	msb.WithMsbMock(t, &msb.MockMsbClient{
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "vol-1"}},
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "vol-1"}},
 	})
 	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol-1", AgentVersion: "1.0.0"}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
@@ -115,7 +118,7 @@ func TestPreviewSandboxReportsReuse(t *testing.T) {
 // version, matching the real run: a stale record must not make the preview
 // report an older version or a phantom rebuild.
 func TestPreviewSandboxReconcilesStaleRecordedVersionWithImageLabel(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	// TestMain stubs the seam to "no image"; restore the real reader so the
 	// docker mock's label is what supplies the version.
 	orig := existingAgentVersion
@@ -127,7 +130,7 @@ func TestPreviewSandboxReconcilesStaleRecordedVersionWithImageLabel(t *testing.T
 	if err != nil {
 		t.Fatalf("RunnerDockerfileID: %v", err)
 	}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			context.Context, string, ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -142,14 +145,14 @@ func TestPreviewSandboxReconcilesStaleRecordedVersionWithImageLabel(t *testing.T
 		},
 	})
 	k := previewKey()
-	msb.WithMsbMock(t, &msb.MockMsbClient{
-		Volumes: []msb.VolumeHandle{&msb.MockVolumeHandle{Name_: "vol-1"}},
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
+		Volumes: []msb.VolumeHandle{&msbtest.MockVolumeHandle{Name_: "vol-1"}},
 	})
 	if err := seedHomeState(k, state.HomeState{HomeVolume: "vol-1", AgentVersion: "1.0.0"}); err != nil {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
@@ -163,13 +166,13 @@ func TestPreviewSandboxReconcilesStaleRecordedVersionWithImageLabel(t *testing.T
 }
 
 func TestPreviewSandboxRecoversVersionFromImageLabelReadOnly(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	// The seam is what supplies the recovered version; the docker mock below
 	// only feeds PreviewImage's image decision.
 	orig := existingAgentVersion
 	existingAgentVersion = func(context.Context, docker.Client, string, string) (string, bool) { return "1.0.0", true }
 	t.Cleanup(func() { existingAgentVersion = orig })
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			context.Context, string, ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -182,7 +185,7 @@ func TestPreviewSandboxRecoversVersionFromImageLabelReadOnly(t *testing.T) {
 	})
 	noVolumeCreateMock(t)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
@@ -202,7 +205,7 @@ func TestPreviewSandboxRecoversVersionFromImageLabelReadOnly(t *testing.T) {
 }
 
 func TestPreviewSandboxPinnedVersionWinsAndNeverChecksNetwork(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	absentImageDockerMock(t)
 	noVolumeCreateMock(t)
 
@@ -211,7 +214,7 @@ func TestPreviewSandboxPinnedVersionWinsAndNeverChecksNetwork(t *testing.T) {
 		return "", nil
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{
@@ -232,7 +235,7 @@ func TestPreviewSandboxPinnedVersionWinsAndNeverChecksNetwork(t *testing.T) {
 }
 
 func TestPreviewSandboxCorruptStateReportsCreate(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	absentImageDockerMock(t)
 	noVolumeCreateMock(t)
 
@@ -244,7 +247,7 @@ func TestPreviewSandboxCorruptStateReportsCreate(t *testing.T) {
 	corrupt := []byte("{ corrupted: yaml: [")
 	testutil.WriteFile(t, state.KeyDir(k), "state.yaml", string(corrupt))
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v, want a tolerated corrupt state", err)
@@ -266,7 +269,7 @@ func TestPreviewSandboxCorruptStateReportsCreate(t *testing.T) {
 // an agent the tool does not own, so it reports the recorded version and the
 // reuse a real run would get instead of a phantom rebuild.
 func TestPreviewSandboxUserProvidedAgentIgnoresPin(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := opencodeAgent(t)
 	k := previewKey()
 
@@ -274,7 +277,7 @@ func TestPreviewSandboxUserProvidedAgentIgnoresPin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunnerDockerfileID: %v", err)
 	}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			context.Context, string, ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -293,7 +296,7 @@ func TestPreviewSandboxUserProvidedAgentIgnoresPin(t *testing.T) {
 		return "", nil
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{
@@ -320,7 +323,7 @@ func TestPreviewSandboxUserProvidedAgentIgnoresPin(t *testing.T) {
 // user-provided agent with no recorded version defers resolution to build time
 // instead of recovering a version from the image label, matching the real run.
 func TestPreviewSandboxUserProvidedAgentNeverRecoversVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	absentImageDockerMock(t)
 	noVolumeCreateMock(t)
 	seedAgentState(t, previewKey(), "", state.AgentSourceUser)
@@ -332,7 +335,7 @@ func TestPreviewSandboxUserProvidedAgentNeverRecoversVersion(t *testing.T) {
 	}
 	t.Cleanup(func() { existingAgentVersion = orig })
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
@@ -346,11 +349,11 @@ func TestPreviewSandboxUserProvidedAgentNeverRecoversVersion(t *testing.T) {
 }
 
 func TestPreviewSandboxForcedRebuildReportsBuild(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 	noVolumeCreateMock(t)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	p, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Rebuild: true}), &ui)
 	if err != nil {
 		t.Fatalf("PreviewSandbox() error = %v", err)
@@ -364,9 +367,9 @@ func TestPreviewSandboxForcedRebuildReportsBuild(t *testing.T) {
 }
 
 func TestPreviewSandboxUnknownAgentErrors(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if _, err := PreviewSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{Agent: "nope"}),
@@ -379,7 +382,7 @@ func TestPreviewSandboxUnknownAgentErrors(t *testing.T) {
 // TestPreviewSandboxWorkspaceDirError pins that a deleted working directory
 // fails the preview with the not-exist cause.
 func TestPreviewSandboxWorkspaceDirError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -387,7 +390,7 @@ func TestPreviewSandboxWorkspaceDirError(t *testing.T) {
 		t.Skipf("cannot remove cwd: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if _, err := PreviewSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -402,7 +405,7 @@ func TestPreviewSandboxWorkspaceDirError(t *testing.T) {
 func TestPreviewSandboxErrorsWhenIdentityUnresolvable(t *testing.T) {
 	t.Chdir(unresolvableIdentityDir(t))
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	_, err := PreviewSandbox(context.Background(), resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}), &ui)
 	if err == nil {
 		t.Fatal("PreviewSandbox succeeded with an unresolvable identity, want an error")
@@ -410,8 +413,8 @@ func TestPreviewSandboxErrorsWhenIdentityUnresolvable(t *testing.T) {
 }
 
 func TestPreviewSandboxSurfacesRenderError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 	noVolumeCreateMock(t)
 
 	dockerfilePath := configpaths.Get().ProjectDockerfile()
@@ -420,7 +423,7 @@ func TestPreviewSandboxSurfacesRenderError(t *testing.T) {
 	}
 	testutil.WritePath(t, dockerfilePath, "FROM ubuntu:24.04 AS agents-sandbox-base\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if _, err := PreviewSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -433,7 +436,7 @@ func TestPreviewSandboxSurfacesRenderError(t *testing.T) {
 // TestPreviewSandboxSurfacesAdoptionError pins that a corrupt legacy state
 // document surfaces from the read-only adoption check instead of being ignored.
 func TestPreviewSandboxSurfacesAdoptionError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacySlug := git.MustRepoSlug()
 	if legacySlug == git.MustCheckoutSlug() {
 		t.Skip("no distinct legacy identity in this checkout")
@@ -444,7 +447,7 @@ func TestPreviewSandboxSurfacesAdoptionError(t *testing.T) {
 	}
 	testutil.WriteFile(t, state.KeyDir(legacyKey), "state.yaml", `": [`)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if _, err := PreviewSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -458,9 +461,9 @@ func TestPreviewSandboxSurfacesAdoptionError(t *testing.T) {
 // whose lookup fails transiently (not true absence) is reported as an error,
 // not as "would create", matching the real run's fail-closed check.
 func TestPreviewSandboxSurfacesHomeVolumeLookupError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		GetVolumeFn: func(context.Context, string) (msb.VolumeHandle, error) {
 			return nil, errors.New("daemon unavailable")
 		},
@@ -469,7 +472,7 @@ func TestPreviewSandboxSurfacesHomeVolumeLookupError(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	if _, err := PreviewSandbox(
 		context.Background(),
 		resolvedRunOptions(t, options.RunOptions{Agent: "opencode"}),
@@ -491,7 +494,7 @@ const agentVersionLabel = "org.agents-sandbox.identity.agent-version"
 // the preview reports "would build" for the "not present locally" reason.
 func absentImageDockerMock(t *testing.T) {
 	t.Helper()
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			context.Context, string, ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -503,7 +506,7 @@ func absentImageDockerMock(t *testing.T) {
 // noVolumeCreateMock fails the test if the preview ever creates a volume.
 func noVolumeCreateMock(t *testing.T) *int {
 	t.Helper()
-	return msb.WithCountingMsbMock(t, &msb.MockMsbClient{
+	return msbtest.WithCountingMsbMock(t, &msbtest.MockMsbClient{
 		CreateVolumeFn: func(
 			context.Context, string, msb.VolumeSpec,
 		) (msb.VolumeHandle, error) {

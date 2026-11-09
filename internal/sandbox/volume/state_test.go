@@ -17,36 +17,39 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/atomicwrite"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestEnsureNewHome_NameCollisionRetries pins the same-second case of #431:
 // HomeVolumeName has second granularity, so two racing sessions can generate
 // the same name. The loser waits for the next name instead of failing.
 func TestEnsureNewHome_NameCollisionRetries(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 	waits := withFakeHomeVolumeClock(t)
 	k := state.Key{Slug: "collideproj", Agent: "opencode"}
 	takenName := HomeVolumeName(k)
 	var attemptedNames []string
-	client := &msb.MockMsbClient{
-		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
+	client := &msbtest.MockMsbClient{
+		CreatedSandbox: &msbtest.MockSandbox{Name_: "prefill"},
 		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			attemptedNames = append(attemptedNames, name)
 			if name == takenName {
 				return nil, errVolumeExists
 			}
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	volName, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "", ui,
@@ -62,16 +65,16 @@ func TestEnsureNewHome_NameCollisionRetries(t *testing.T) {
 // prefill, so it must neither create the volume nor record it in the state;
 // otherwise a later real run reuses a never-prefilled home.
 func TestEnsureNewHome_SkipVM_CreatesNothing(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			t.Errorf("skip-VM run created volume %q", name)
-			return &msb.MockVolumeHandle{Name_: name}, nil
+			return &msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
 	k := state.Key{Slug: "testproj", Agent: "opencode"}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	volName, hs, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(),
@@ -99,9 +102,9 @@ func TestEnsureNewHome_SkipVM_CreatesNothing(t *testing.T) {
 }
 
 func TestEnsureNewHome_CreateVolumeFails(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateVolumeFn = func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		return nil, errors.New("create failed")
 	}
@@ -114,7 +117,7 @@ func TestEnsureNewHome_CreateVolumeFails(t *testing.T) {
 		false,
 		state.Fingerprints{},
 		"",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "create volume") || errors.Unwrap(err) == nil {
 		t.Fatalf("expected create volume error, got: %v", err)
@@ -122,7 +125,7 @@ func TestEnsureNewHome_CreateVolumeFails(t *testing.T) {
 }
 
 func TestRecordHomeImage_ReadStateError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "corrupt-rh"
 	statePath := filepath.Join(configpaths.Get().UserStateDir(), slug, "opencode", "state.yaml")
@@ -131,14 +134,14 @@ func TestRecordHomeImage_ReadStateError(t *testing.T) {
 	}
 
 	vm := NewManager(docker.Get())
-	err := vm.RecordHomeImage(state.Key{Slug: slug, Agent: "opencode"}, "sha256:new", &termio.Mock{})
+	err := vm.RecordHomeImage(state.Key{Slug: slug, Agent: "opencode"}, "sha256:new", &termiotest.Mock{})
 	if err == nil {
 		t.Fatal("expected error for unreadable state, got nil")
 	}
 }
 
 func TestRecordHomeImage_WriteStateFails(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slug := "writefail-rh"
 	seedHomeState(
@@ -156,7 +159,7 @@ func TestRecordHomeImage_WriteStateFails(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chmod(sdir, 0o700) })
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	err := vm.RecordHomeImage(state.Key{Slug: slug, Agent: "opencode"}, "sha256:new", ui)
 	if err == nil {
@@ -187,22 +190,22 @@ func TestEnsureNewHome_ConcurrentCommitAdoptsWinner(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
-			docker.WithNoopDockerMock(t)
+			configpathstest.WithMockConfigPaths(t)
+			dockertest.WithNoopDockerMock(t)
 			k := state.Key{Slug: "raceproj", Agent: "opencode"}
 			if tt.priorRecorded != "" {
 				require.NoError(t, seedHomeState(k, state.NewHomeState(tt.priorRecorded, "sha256:old")))
 			}
 			var createdVolume string
-			client := &msb.MockMsbClient{
-				CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
+			client := &msbtest.MockMsbClient{
+				CreatedSandbox: &msbtest.MockSandbox{Name_: "prefill"},
 				CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 					createdVolume = name
 					commitConcurrentHome(t, k, "winner-vol")
-					return msb.MockVolumeHandle{Name_: name}, nil
+					return msbtest.MockVolumeHandle{Name_: name}, nil
 				},
 			}
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 
 			volName, hs, err := NewManager(docker.Get()).EnsureNewHome(
 				context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, tt.priorRecorded, ui,
@@ -224,17 +227,17 @@ func TestEnsureNewHome_ConcurrentCommitAdoptsWinner(t *testing.T) {
 // TestEnsureNewHome_ReplacesStaleRecordedVolume pins that a state whose
 // recorded volume is gone, unchanged since the snapshot, is still replaced.
 func TestEnsureNewHome_ReplacesStaleRecordedVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 	k := state.Key{Slug: "staleproj", Agent: "opencode"}
 	require.NoError(t, seedHomeState(k, state.NewHomeState("gone-vol", "sha256:old")))
-	client := &msb.MockMsbClient{
-		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
+	client := &msbtest.MockMsbClient{
+		CreatedSandbox: &msbtest.MockSandbox{Name_: "prefill"},
 		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	volName, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "gone-vol", ui,
@@ -252,17 +255,17 @@ func TestEnsureNewHome_ReplacesStaleRecordedVolume(t *testing.T) {
 // document naming no home volume (an identity-adoption marker) is not a
 // committed winner, so the fresh volume is still recorded.
 func TestEnsureNewHome_ReplacesConcurrentEmptyHomeVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 	k := state.Key{Slug: "markerproj", Agent: "opencode"}
-	client := &msb.MockMsbClient{
-		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
+	client := &msbtest.MockMsbClient{
+		CreatedSandbox: &msbtest.MockSandbox{Name_: "prefill"},
 		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			require.NoError(t, seedHomeState(k, state.HomeState{RecoveredHomeVolume: "legacy-vol"}))
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	volName, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "gone-vol", ui,
@@ -280,13 +283,13 @@ func TestEnsureNewHome_ReplacesConcurrentEmptyHomeVolume(t *testing.T) {
 // volume is created: the compare-and-set must use the state resolution
 // observed, not a later re-read that already names the winner.
 func TestResolveHomeVolume_WinnerCommitsBeforeCreation(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 	k := state.Key{Slug: "earlyproj", Agent: "opencode"}
 	require.NoError(t, seedHomeState(k, state.NewHomeState("gone-vol", "sha256:old")))
 	var createdVolume string
-	client := &msb.MockMsbClient{
-		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
+	client := &msbtest.MockMsbClient{
+		CreatedSandbox: &msbtest.MockSandbox{Name_: "prefill"},
 		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
 			if name == "gone-vol" {
 				commitConcurrentHome(t, k, "winner-vol")
@@ -295,10 +298,10 @@ func TestResolveHomeVolume_WinnerCommitsBeforeCreation(t *testing.T) {
 		},
 		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			createdVolume = name
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	volName, _, err := NewManager(docker.Get()).ResolveHomeVolume(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "", ui,
@@ -313,19 +316,19 @@ func TestResolveHomeVolume_WinnerCommitsBeforeCreation(t *testing.T) {
 }
 
 func TestEnsureNewHome_NameCollisionGivesUp(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 	waits := withFakeHomeVolumeClock(t)
 	k := state.Key{Slug: "collideproj", Agent: "opencode"}
 	attempts := 0
-	client := &msb.MockMsbClient{
-		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
+	client := &msbtest.MockMsbClient{
+		CreatedSandbox: &msbtest.MockSandbox{Name_: "prefill"},
 		CreateVolumeFn: func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			attempts++
 			return nil, errVolumeExists
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	_, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, k, raceTestImage, false, state.Fingerprints{}, "", ui,
@@ -338,17 +341,17 @@ func TestEnsureNewHome_NameCollisionGivesUp(t *testing.T) {
 }
 
 func TestEnsureNewHome_CreateErrorDoesNotRetry(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 	waits := withFakeHomeVolumeClock(t)
 	createErr := errors.New("disk full")
-	client := &msb.MockMsbClient{
-		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
+	client := &msbtest.MockMsbClient{
+		CreatedSandbox: &msbtest.MockSandbox{Name_: "prefill"},
 		CreateVolumeFn: func(_ context.Context, _ string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			return nil, createErr
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	_, _, err := NewManager(docker.Get()).EnsureNewHome(
 		context.Background(), client, state.Key{Slug: "failproj", Agent: "opencode"},
@@ -363,17 +366,17 @@ func TestEnsureNewHome_CreateErrorDoesNotRetry(t *testing.T) {
 // carries the desired config fingerprints, so it is never fingerprint-less
 // beside the VM created from it (issue #183).
 func TestEnsureNewHomeSeedsFingerprints(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
-	client := &msb.MockMsbClient{
-		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
+	client := &msbtest.MockMsbClient{
+		CreatedSandbox: &msbtest.MockSandbox{Name_: "prefill"},
 		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	k := state.Key{Slug: "seedproj", Agent: "opencode"}
 	desired := state.Fingerprints{
 		Network: state.BuildNetworkState(network.Policy{Profiles: []network.Profile{network.ProfileNone}}),
@@ -411,14 +414,14 @@ func TestEnsureNewHomeSeedsFingerprints(t *testing.T) {
 // replaced by recovery: ResolveHomeVolume routes it to the recovered volume,
 // and the rewrite must not fail on the same broken document it is replacing.
 func TestResolveHomeVolumeRepairsCorruptState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	k := state.Key{Slug: "corruptproj", Agent: "opencode"}
 	if err := os.MkdirAll(state.KeyDir(k), 0o700); err != nil {
 		t.Fatal(err)
@@ -459,14 +462,14 @@ func TestResolveHomeVolumeRepairsCorruptState(t *testing.T) {
 // upgrade fields are left empty, self-healed on boot by recordImageProvenance;
 // offered_versions loss is the accepted cost.
 func TestResolveHomeVolumeRepairCorruptSeedsFingerprintsAndClearsUpgradeFields(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	k := state.Key{Slug: "corruptseed", Agent: "opencode"}
 	if err := os.MkdirAll(state.KeyDir(k), 0o700); err != nil {
 		t.Fatal(err)
@@ -512,14 +515,14 @@ func TestResolveHomeVolumeRepairCorruptSeedsFingerprintsAndClearsUpgradeFields(t
 // path is not reseeded: a stored fingerprint (possibly stale) must survive so
 // the reconfig decision can detect a real change.
 func TestResolveHomeVolumeExistingStateKeepsFingerprints(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	k := state.Key{Slug: "existingproj", Agent: "opencode"}
 	stored := state.BuildNetworkState(
 		network.Policy{Profiles: []network.Profile{network.ProfilePublic}, EgressAllow: []string{"example.com"}},
@@ -560,17 +563,17 @@ func TestResolveHomeVolumeExistingStateKeepsFingerprints(t *testing.T) {
 // mount) change. Seeding happens as part of the fresh-home write, closing both
 // the concurrent window and the crash/deleted-state route.
 func TestResolveHomeVolumeSeedsFingerprints(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 
-	client := &msb.MockMsbClient{
-		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
+	client := &msbtest.MockMsbClient{
+		CreatedSandbox: &msbtest.MockSandbox{Name_: "prefill"},
 		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	k := state.Key{Slug: "seedproj", Agent: "opencode"}
 	policy := network.Policy{Profiles: []network.Profile{network.ProfileNone}}
 	extraMounts := mounts.Mounts{
@@ -618,13 +621,13 @@ func TestResolveHomeVolumeSeedsFingerprints(t *testing.T) {
 // resolves is reused silently: the real path neither reports a state-read
 // failure nor falls through to the recovery warning.
 func TestResolveHomeVolume_ReuseWarnsNothing(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "quietreuse", Agent: "opencode"}
 	if err := seedHomeState(key, state.HomeState{HomeVolume: "vol-keep"}); err != nil {
 		t.Fatal(err)
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	_, hs, err := NewManager(docker.Get()).ResolveHomeVolume(
 		context.Background(), lookupMock([]string{"vol-keep"}, false), key,
 		image.ImageInfo{Digest: "sha256:def"}, false, state.Fingerprints{}, "", ui,
@@ -644,10 +647,10 @@ func TestResolveHomeVolume_ReuseWarnsNothing(t *testing.T) {
 // (ErrStateNotFound) is not reported as a read failure; only a genuinely
 // unreadable document is.
 func TestResolveHomeVolume_AbsentStateWarnsNothing(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "absentquiet", Agent: "opencode"}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	_, _, err := NewManager(docker.Get()).ResolveHomeVolume(
 		context.Background(), lookupMock([]string{"live-quiet"}, false), key,
 		image.ImageInfo{Digest: "sha256:def"}, false, state.Fingerprints{}, "live-quiet", ui,
@@ -664,14 +667,14 @@ func TestResolveHomeVolume_AbsentStateWarnsNothing(t *testing.T) {
 // error probing the recorded volume fails closed with the cause still reachable
 // and the recorded-volume context on the error.
 func TestResolveHomeVolume_RecordedLookupErrorWrapsCause(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cause := errors.New("daemon unavailable")
 	key := state.Key{Slug: "wrapcause", Agent: "opencode"}
 	if err := seedHomeState(key, state.HomeState{HomeVolume: "vol-wrap"}); err != nil {
 		t.Fatal(err)
 	}
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, _ string) (msb.VolumeHandle, error) {
 		var vh msb.VolumeHandle
 		return vh, fmt.Errorf("lookup: %w", cause)
@@ -679,7 +682,7 @@ func TestResolveHomeVolume_RecordedLookupErrorWrapsCause(t *testing.T) {
 
 	_, _, err := NewManager(docker.Get()).ResolveHomeVolume(
 		context.Background(), mock, key,
-		image.ImageInfo{Digest: "sha256:def"}, false, state.Fingerprints{}, "", &termio.Mock{},
+		image.ImageInfo{Digest: "sha256:def"}, false, state.Fingerprints{}, "", &termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected a fail-closed error for the transient recorded-volume lookup")
@@ -696,14 +699,14 @@ func TestResolveHomeVolume_RecordedLookupErrorWrapsCause(t *testing.T) {
 // error confirming the recovery candidate — after the recorded volume is
 // already known gone — is surfaced, not swallowed.
 func TestResolveHomeVolume_RecoveryCandidateErrorSurfaces(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cause := errors.New("daemon unavailable")
 	key := state.Key{Slug: "candidateerr", Agent: "opencode"}
 	if err := seedHomeState(key, state.HomeState{HomeVolume: "vol-gone"}); err != nil {
 		t.Fatal(err)
 	}
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		if name == "vol-gone" {
 			return nil, volumeNotFoundError(name)
@@ -713,12 +716,12 @@ func TestResolveHomeVolume_RecoveryCandidateErrorSurfaces(t *testing.T) {
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called for a transient candidate lookup (got %q)", name)
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
 	_, _, err := NewManager(docker.Get()).ResolveHomeVolume(
 		context.Background(), mock, key,
-		image.ImageInfo{Digest: "sha256:def"}, false, state.Fingerprints{}, "live-x", &termio.Mock{},
+		image.ImageInfo{Digest: "sha256:def"}, false, state.Fingerprints{}, "live-x", &termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected a fail-closed error for the transient candidate lookup")
@@ -732,8 +735,8 @@ func TestResolveHomeVolume_RecoveryCandidateErrorSurfaces(t *testing.T) {
 // claim retirement on the create path: when an adoption marker's volume is gone,
 // a fresh volume is created and the spent claim is still cleared.
 func TestResolveHomeVolume_ClearsAdoptionClaimWhenMarkerVolumeGone(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 
 	const marker = "agents-sandbox-home-widget-bbb-opencode-9"
 	key := state.Key{Slug: "adoptedwidget2", Agent: "opencode"}
@@ -742,7 +745,7 @@ func TestResolveHomeVolume_ClearsAdoptionClaimWhenMarkerVolumeGone(t *testing.T)
 	}
 	seedAdoptionClaim(t, "widget-bbb", key.Slug, marker)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
@@ -750,7 +753,7 @@ func TestResolveHomeVolume_ClearsAdoptionClaimWhenMarkerVolumeGone(t *testing.T)
 
 	if _, _, err := NewManager(docker.Get()).ResolveHomeVolume(
 		context.Background(), mock, key,
-		image.ImageInfo{Digest: "sha256:new"}, false, state.Fingerprints{}, "", &termio.Mock{},
+		image.ImageInfo{Digest: "sha256:new"}, false, state.Fingerprints{}, "", &termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("ResolveHomeVolume: %v", err)
 	}
@@ -765,8 +768,8 @@ func TestResolveHomeVolume_ClearsAdoptionClaimWhenMarkerVolumeGone(t *testing.T)
 }
 
 func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 
 	slug := "myproj"
 	seedHomeState(
@@ -774,16 +777,16 @@ func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
 		state.HomeState{HomeVolume: "agents-sandbox-home-myproj-old", ImageDigest: "sha256:abc"},
 	)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
-	mockUI := &termio.Mock{}
+	mockUI := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	_, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -809,8 +812,8 @@ func TestResolveHomeVolume_VolumeNotFound_Warns(t *testing.T) {
 // create a fresh one, rewrite state to the new name, and return no error —
 // rather than failing the session.
 func TestResolveHomeVolume_MissingRecordedVolumeStartsFresh(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 
 	key := state.Key{Slug: "stalehome", Agent: "opencode"}
 	const recordedVolume = "agents-sandbox-home-stalehome-legacy"
@@ -820,17 +823,17 @@ func TestResolveHomeVolume_MissingRecordedVolumeStartsFresh(t *testing.T) {
 	})
 
 	var createdName string
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdName = name
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, st, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -868,7 +871,7 @@ func TestResolveHomeVolume_MissingRecordedVolumeStartsFresh(t *testing.T) {
 }
 
 func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	seedHomeState(state.Key{Slug: "myproj", Agent: "opencode"}, state.HomeState{
 		HomeVolume:  "agents-sandbox-home-myproj-20260806T143022",
@@ -879,7 +882,7 @@ func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
 	if err := vm.RecordHomeImage(
 		state.Key{Slug: "myproj", Agent: "opencode"},
 		"sha256:new",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("RecordHomeImage: %v", err)
 	}
@@ -897,11 +900,11 @@ func TestRecordHomeImage_UpdatesDigestInState(t *testing.T) {
 }
 
 func TestRecordHomeImage_MissingStateIsNoop(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	vm := NewManager(docker.Get())
 	k := state.Key{Slug: "nosuchproj", Agent: "opencode"}
-	if err := vm.RecordHomeImage(k, "sha256:new", &termio.Mock{}); err != nil {
+	if err := vm.RecordHomeImage(k, "sha256:new", &termiotest.Mock{}); err != nil {
 		t.Fatalf("RecordHomeImage should not error on missing state, got: %v", err)
 	}
 	if _, err := state.ReadState(k); !errors.Is(err, state.ErrStateNotFound) {
@@ -910,11 +913,11 @@ func TestRecordHomeImage_MissingStateIsNoop(t *testing.T) {
 }
 
 func TestResolveHomeVolume_FoundInState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
 	seedHomeState(state.Key{Slug: "myproj", Agent: "opencode"}, state.HomeState{
@@ -931,7 +934,7 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 		false,
 		state.Fingerprints{},
 		"",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -945,12 +948,12 @@ func TestResolveHomeVolume_FoundInState(t *testing.T) {
 }
 
 func TestResolveHomeVolume_NoStateFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
 	vm := NewManager(docker.Get())
@@ -962,7 +965,7 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 		false,
 		state.Fingerprints{},
 		"",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -982,8 +985,8 @@ func TestResolveHomeVolume_NoStateFile(t *testing.T) {
 // (#428) instead of the run proceeding against a volume with no state record;
 // the uncommitted volume is removed.
 func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 
 	// A directory in place of the state file makes os.ReadFile fail with a
 	// non-not-found error, unlike a genuinely absent file.
@@ -992,12 +995,12 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	_, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1021,16 +1024,16 @@ func TestResolveHomeVolume_CorruptStateFile(t *testing.T) {
 }
 
 func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
 	seedHomeState(state.Key{Slug: "orphanproj", Agent: "opencode"}, state.HomeState{
@@ -1047,7 +1050,7 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 		false,
 		state.Fingerprints{},
 		"",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1065,7 +1068,7 @@ func TestResolveHomeVolume_VolumeNotFoundInSandbox(t *testing.T) {
 // never mistaken for a missing volume: resolution fails closed rather than
 // minting a fresh volume over the still-valid one and rewriting the state.
 func TestResolveHomeVolume_TransientRecordedErrorFailsClosed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	key := state.Key{Slug: "transientproj", Agent: "opencode"}
 	seedHomeState(key, state.HomeState{
@@ -1073,17 +1076,17 @@ func TestResolveHomeVolume_TransientRecordedErrorFailsClosed(t *testing.T) {
 		ImageDigest: "sha256:abc",
 	})
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		var vh msb.VolumeHandle
 		return vh, fmt.Errorf("daemon unavailable looking up %s", name)
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called on a transient lookup error (got %q)", name)
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	_, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1113,20 +1116,20 @@ func TestResolveHomeVolume_TransientRecordedErrorFailsClosed(t *testing.T) {
 // must not fall back to a fresh prefill when the candidate's existence cannot
 // be established.
 func TestResolveHomeVolume_TransientRecoveryErrorFailsClosed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const recovered = "agents-sandbox-home-transientrecover-20260101T000000"
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		var vh msb.VolumeHandle
 		return vh, fmt.Errorf("daemon unavailable looking up %s", name)
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called on a transient lookup error (got %q)", name)
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	_, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1147,24 +1150,24 @@ func TestResolveHomeVolume_TransientRecoveryErrorFailsClosed(t *testing.T) {
 // the existing volume must be reused instead of a duplicate being created and
 // the previous one orphaned.
 func TestResolveHomeVolume_RecoversLiveVMVolumeOnMissingState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const recovered = "agents-sandbox-home-recoverproj-20260101T000000"
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		if name == recovered {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		}
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called when a live home volume can be recovered (got %q)", name)
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
 	key := state.Key{Slug: "recoverproj", Agent: "opencode"}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, st, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1202,26 +1205,26 @@ func TestResolveHomeVolume_RecoversLiveVMVolumeOnMissingState(t *testing.T) {
 // destroyed legacy VM mounted, and resolution finishes the recovery into
 // HomeVolume with the current digest, seeds fingerprints, and clears the marker.
 func TestResolveHomeVolume_RecoversPersistedAdoptionVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const recovered = "agents-sandbox-home-widget-aaa-opencode-9"
 	key := state.Key{Slug: "adoptedwidget", Agent: "opencode"}
 	seedHomeState(key, state.HomeState{RecoveredHomeVolume: recovered})
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		if name == recovered {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		}
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called during recovery (got %q)", name)
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, hs, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1258,22 +1261,22 @@ func TestResolveHomeVolume_RecoversPersistedAdoptionVolume(t *testing.T) {
 // VM mount that no longer resolves (e.g. the volume was removed) does not wedge
 // resolution: it falls back to a fresh prefill.
 func TestResolveHomeVolume_RecoveredVolumeMissingStartsFresh(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 
 	const recovered = "agents-sandbox-home-goneproj-20260101T000000"
 	var createdName string
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdName = name
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1303,27 +1306,27 @@ func TestResolveHomeVolume_RecoveredVolumeMissingStartsFresh(t *testing.T) {
 // state exists but its recorded volume vanished while the VM still mounts a
 // different, existing home volume: the VM's volume is adopted.
 func TestResolveHomeVolume_RecoversWhenRecordedVolumeGone(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const recorded = "agents-sandbox-home-drifted-20250101T000000"
 	const recovered = "agents-sandbox-home-drifted-20260101T000000"
 	key := state.Key{Slug: "drifted", Agent: "opencode"}
 	seedHomeState(key, state.HomeState{HomeVolume: recorded, ImageDigest: "sha256:old"})
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		if name == recovered {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		}
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called when the live volume can be recovered (got %q)", name)
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1347,7 +1350,7 @@ func TestResolveHomeVolume_RecoversWhenRecordedVolumeGone(t *testing.T) {
 // transaction cannot run (e.g. a directory sits at the state path, so the state
 // read fails): the volume is still returned and a warning is emitted.
 func TestResolveHomeVolume_RecoveryStateFails(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const recovered = "agents-sandbox-home-writefail-20260101T000000"
 	key := state.Key{Slug: "writefail", Agent: "opencode"}
@@ -1356,20 +1359,20 @@ func TestResolveHomeVolume_RecoveryStateFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		if name == recovered {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		}
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called during recovery (got %q)", name)
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, hs, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1399,26 +1402,26 @@ func TestResolveHomeVolume_RecoveryStateFails(t *testing.T) {
 // when state resolves to an existing volume, the live VM's volume is never
 // consulted, even if it differs.
 func TestResolveHomeVolume_StateWinsOverRecoveredVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const stateVol = "agents-sandbox-home-precedence-20250101T000000"
 	const liveVol = "agents-sandbox-home-precedence-20260101T000000"
 	key := state.Key{Slug: "precedence", Agent: "opencode"}
 	seedHomeState(key, state.HomeState{HomeVolume: stateVol, ImageDigest: "sha256:abc"})
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		if name != stateVol {
 			t.Errorf("GetVolume called with %q; the live volume must not be consulted when state resolves", name)
 		}
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called (got %q)", name)
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1443,7 +1446,7 @@ func TestResolveHomeVolume_StateWinsOverRecoveredVolume(t *testing.T) {
 // mount fingerprints forward, so the recovered state does not itself trigger a
 // spurious rebuild.
 func TestResolveHomeVolume_RecoveryPreservesFingerprints(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const recorded = "agents-sandbox-home-fp-20250101T000000"
 	const recovered = "agents-sandbox-home-fp-20260101T000000"
@@ -1461,20 +1464,20 @@ func TestResolveHomeVolume_RecoveryPreservesFingerprints(t *testing.T) {
 		MountState:      state.MountState{Hash: "mountHash", Entries: []string{"/x"}},
 	})
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		if name == recovered {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		}
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		t.Fatalf("CreateVolume must not be called during recovery (got %q)", name)
-		return msb.MockVolumeHandle{Name_: name}, nil
+		return msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	volName, hs, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1513,15 +1516,15 @@ func TestResolveHomeVolume_RecoveryPreservesFingerprints(t *testing.T) {
 }
 
 func TestEnsureNewHome_PrefillFails_RemovesVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateSandboxErr = errors.New("prefill sandbox creation failed")
 	var createdVolume string
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 		createdVolume = name
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 	vm := NewManager(docker.Get())
 
@@ -1533,7 +1536,7 @@ func TestEnsureNewHome_PrefillFails_RemovesVolume(t *testing.T) {
 		false,
 		state.Fingerprints{},
 		"",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -1570,24 +1573,24 @@ func TestEnsureNewHome_StateWriteFails(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			restore := recoverHomeState
 			recoverHomeState = func(_ state.Key, _ func(*state.HomeState, bool) (bool, error)) error {
 				return tt.writeErr
 			}
 			t.Cleanup(func() { recoverHomeState = restore })
 
-			docker.WithNoopDockerMock(t)
+			dockertest.WithNoopDockerMock(t)
 
 			var createdVolume string
-			mock := &msb.MockMsbClient{
-				CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
+			mock := &msbtest.MockMsbClient{
+				CreatedSandbox: &msbtest.MockSandbox{Name_: "prefill"},
 				CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 					createdVolume = name
-					return &msb.MockVolumeHandle{Name_: name}, nil
+					return &msbtest.MockVolumeHandle{Name_: name}, nil
 				},
 			}
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 
 			_, _, err := NewManager(docker.Get()).EnsureNewHome(
 				context.Background(),
@@ -1617,14 +1620,14 @@ func TestEnsureNewHome_StateWriteFails(t *testing.T) {
 }
 
 func TestEnsureNewHome_PrefillCancelled_RemovesVolumeWithLiveContext(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.CreateVolumeFn = func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-		return &msb.MockVolumeHandle{Name_: name}, nil
+		return &msbtest.MockVolumeHandle{Name_: name}, nil
 	}
 	mock.CreateSandboxFn = func(_ context.Context, _ string, _ msb.SandboxSpec) (msb.Sandbox, error) {
 		cancel()
@@ -1645,7 +1648,7 @@ func TestEnsureNewHome_PrefillCancelled_RemovesVolumeWithLiveContext(t *testing.
 		false,
 		state.Fingerprints{},
 		"",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -1662,9 +1665,9 @@ func TestEnsureNewHome_PrefillCancelled_RemovesVolumeWithLiveContext(t *testing.
 }
 
 func TestEnsureNewHome_SkipVM_NoSandbox(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	vm := NewManager(docker.Get())
 
 	volName, _, err := vm.EnsureNewHome(
@@ -1675,7 +1678,7 @@ func TestEnsureNewHome_SkipVM_NoSandbox(t *testing.T) {
 		true, // skipVM
 		state.Fingerprints{},
 		"",
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1692,20 +1695,20 @@ func TestEnsureNewHome_SkipVM_NoSandbox(t *testing.T) {
 // --dry-run-vm run on a new project followed by a real run must prefill the
 // home volume on the real run and only then record it.
 func TestResolveHomeVolume_SkipVMThenRealRun_Prefills(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	dockertest.WithNoopDockerMock(t)
 
 	var createdVolumes []string
-	mock := &msb.MockMsbClient{
-		CreatedSandbox: &msb.MockSandbox{Name_: "prefill"},
+	mock := &msbtest.MockMsbClient{
+		CreatedSandbox: &msbtest.MockSandbox{Name_: "prefill"},
 		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			createdVolumes = append(createdVolumes, name)
-			return &msb.MockVolumeHandle{Name_: name}, nil
+			return &msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
 	k := state.Key{Slug: "testproj", Agent: "opencode"}
 	info := image.ImageInfo{DockerTag: "img-tag", Ref: "img-tag", Digest: "sha256:abc"}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 
 	if _, _, err := vm.ResolveHomeVolume(
@@ -1744,23 +1747,23 @@ func TestResolveHomeVolume_SkipVMThenRealRun_Prefills(t *testing.T) {
 // once recovery folds the preserved volume into the project's own state, the
 // claim that guarded it is spent and must be retired.
 func TestResolveHomeVolume_ClearsAdoptionClaim(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const recovered = "agents-sandbox-home-widget-aaa-opencode-9"
 	key := state.Key{Slug: "adoptedwidget", Agent: "opencode"}
 	seedHomeState(key, state.HomeState{RecoveredHomeVolume: recovered})
 	seedAdoptionClaim(t, "widget-aaa", key.Slug, recovered)
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		if name == recovered {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		}
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	if _, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1788,7 +1791,7 @@ func TestResolveHomeVolume_ClearsAdoptionClaim(t *testing.T) {
 // clear: a spent claim that cannot be retired (an unreadable root state document)
 // only warns, because the recovery itself already succeeded.
 func TestResolveHomeVolume_AdoptionClaimClearErrorWarns(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const recovered = "agents-sandbox-home-widget-aaa-opencode-9"
 	key := state.Key{Slug: "adoptedwidget", Agent: "opencode"}
@@ -1802,16 +1805,16 @@ func TestResolveHomeVolume_AdoptionClaimClearErrorWarns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		if name == recovered {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		}
 		var vh msb.VolumeHandle
 		return vh, volumeNotFoundError(name)
 	}
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	vm := NewManager(docker.Get())
 	if _, _, err := vm.ResolveHomeVolume(
 		context.Background(),
@@ -1853,13 +1856,13 @@ func TestConfirmedRecoveredVolume(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mock := &msb.MockMsbClient{}
+			mock := &msbtest.MockMsbClient{}
 			mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 				if tt.getErr != nil {
 					var vh msb.VolumeHandle
 					return vh, tt.getErr
 				}
-				return msb.MockVolumeHandle{Name_: name}, nil
+				return msbtest.MockVolumeHandle{Name_: name}, nil
 			}
 
 			name, ok, err := confirmedRecoveredVolume(context.Background(), mock, tt.candidate)

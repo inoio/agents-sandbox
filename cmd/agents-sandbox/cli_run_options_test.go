@@ -6,7 +6,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
@@ -98,7 +98,7 @@ func (noDaemonAgent) Experimental() bool         { return false }
 // TestBuildInvalidNotifyFlag pins that an invalid --notify value given on the
 // flag (not through the env var) is rejected with the accepted values.
 func TestBuildInvalidNotifyFlag(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	cmd := buildRunCmd(ui)
 	if err := cmd.Flags().Set(flagNotify, "loud"); err != nil {
 		t.Fatalf("set notify: %v", err)

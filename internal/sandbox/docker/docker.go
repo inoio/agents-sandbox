@@ -9,8 +9,6 @@ import (
 )
 
 // Client is the exported interface for Docker API operations.
-//
-//nolint:dupl // the mock mirrors this interface by design
 type Client interface {
 	ImageBuild(
 		ctx context.Context,

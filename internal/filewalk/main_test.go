@@ -3,21 +3,21 @@ package filewalk
 import (
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/opener"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/opener/openertest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 // TestMain installs the fail-fast defaults directly: importing
 // internal/testutil/mocks would cycle through notify, so this mirrors its body
 // minus notify.
 func TestMain(m *testing.M) {
-	configpaths.InstallFailFastConfigPaths()
-	docker.InstallFailFastGet()
-	doctor.InstallFailFast()
-	msb.InstallFailFastGet()
-	opener.InstallFailFast()
+	configpathstest.InstallFailFastConfigPaths()
+	dockertest.InstallFailFastGet()
+	doctortest.InstallFailFast()
+	msbtest.InstallFailFastGet()
+	openertest.InstallFailFast()
 	m.Run()
 }

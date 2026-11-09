@@ -17,21 +17,24 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/prepare"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestStartNotifyWatcherReturnsWatchError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	origWatch := notifyWatch
 	defer func() { notifyWatch = origWatch }()
 	notifyWatch = func(_ context.Context, _ notify.StreamOpener, _ agent.EventStreamSpec, _ notify.Backend) error {
@@ -48,7 +51,7 @@ func TestStartNotifyWatcherReturnsWatchError(t *testing.T) {
 
 	stop := startNotifyWatcher(
 		context.Background(),
-		msb.NewMockSandbox(msb.SandboxOpts{}),
+		msbtest.NewMockSandbox(msbtest.SandboxOpts{}),
 		notify.Config{Desktop: true, Audio: notify.AudioOff, OnInput: true, OnDone: true, OnError: true},
 		ui,
 		&spec,
@@ -77,12 +80,12 @@ func TestStartNotifyWatcherNeedsASandboxConfigAndSpec(t *testing.T) {
 		spec *agent.EventStreamSpec
 	}{
 		{"no sandbox", nil, activeNotifyConfig(), spec},
-		{"inactive config", msb.NewMockSandbox(msb.SandboxOpts{}), notify.Config{}, spec},
-		{"no spec", msb.NewMockSandbox(msb.SandboxOpts{}), activeNotifyConfig(), nil},
+		{"inactive config", msbtest.NewMockSandbox(msbtest.SandboxOpts{}), notify.Config{}, spec},
+		{"no spec", msbtest.NewMockSandbox(msbtest.SandboxOpts{}), activeNotifyConfig(), nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			origWatch := notifyWatch
 			t.Cleanup(func() { notifyWatch = origWatch })
 			notifyWatch = func(context.Context, notify.StreamOpener, agent.EventStreamSpec, notify.Backend) error {
@@ -90,7 +93,7 @@ func TestStartNotifyWatcherNeedsASandboxConfigAndSpec(t *testing.T) {
 				return nil
 			}
 
-			stop := startNotifyWatcher(context.Background(), tc.sb, tc.cfg, &termio.Mock{}, tc.spec, "slug")
+			stop := startNotifyWatcher(context.Background(), tc.sb, tc.cfg, &termiotest.Mock{}, tc.spec, "slug")
 			if err := stop(); err != nil {
 				t.Errorf("stop() = %v, want nil", err)
 			}
@@ -107,7 +110,7 @@ func TestStartNotifyWatcherDedupsForAKnownProject(t *testing.T) {
 		wantDedup bool
 	}{{"slug", true}, {"", false}} {
 		t.Run("slug="+tc.slug, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			origWatch := notifyWatch
 			t.Cleanup(func() { notifyWatch = origWatch })
 			backends := make(chan notify.Backend, 1)
@@ -117,8 +120,8 @@ func TestStartNotifyWatcherDedupsForAKnownProject(t *testing.T) {
 				return nil
 			}
 
-			stop := startNotifyWatcher(context.Background(), msb.NewMockSandbox(msb.SandboxOpts{}),
-				activeNotifyConfig(), &termio.Mock{}, &agent.EventStreamSpec{Name: "pi"}, tc.slug)
+			stop := startNotifyWatcher(context.Background(), msbtest.NewMockSandbox(msbtest.SandboxOpts{}),
+				activeNotifyConfig(), &termiotest.Mock{}, &agent.EventStreamSpec{Name: "pi"}, tc.slug)
 			_, isDedup := (<-backends).(*notify.Dedup)
 			stopped := make(chan error, 1)
 			go func() { stopped <- stop() }()
@@ -135,8 +138,8 @@ func TestStartNotifyWatcherDedupsForAKnownProject(t *testing.T) {
 }
 
 func TestStartNotifyWatcherUsesSpec(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	origWatch := notifyWatch
 	defer func() { notifyWatch = origWatch }()
 	got := make(chan agent.EventStreamSpec, 1)
@@ -154,7 +157,7 @@ func TestStartNotifyWatcherUsesSpec(t *testing.T) {
 	}
 	stop := startNotifyWatcher(
 		context.Background(),
-		msb.NewMockSandbox(msb.SandboxOpts{}),
+		msbtest.NewMockSandbox(msbtest.SandboxOpts{}),
 		notify.Config{
 			Desktop: true,
 			Audio:   notify.AudioOff,
@@ -257,10 +260,10 @@ func TestServeOnlyMessageOpencode2StatesCredential(t *testing.T) {
 }
 
 func TestRunServeOnlyBlocksUntilCancel(t *testing.T) {
-	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{})
 	ctx, cancel := context.WithCancel(context.Background())
 	got := make(chan error, 1)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	go func() { got <- runServeOnly(ctx, opencodeResolved(t), sb, ui, 4096) }()
 	cancel()
 	select {
@@ -289,8 +292,8 @@ func TestRunServeOnlyBlocksUntilCancel(t *testing.T) {
 func TestRunServeOnlyClientLeaseFailureWarns(t *testing.T) {
 	key := state.Key{Slug: "serveonlyleasefail", Agent: "opencode"}
 	blockClientLease(t, key.Slug)
-	ui := &termio.Mock{}
-	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+	ui := &termiotest.Mock{}
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{})
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
 		return &fakePrepared{sb: sb, key: key}, nil
@@ -330,10 +333,10 @@ func TestRunServeOnlyClientLeaseFailureWarns(t *testing.T) {
 	}
 }
 
-// terminalStdoutUI is a termio.Mock whose stdout is a pty, so the attach path
+// terminalStdoutUI is a termiotest.Mock whose stdout is a pty, so the attach path
 // sees a real terminal and emits its reset.
 type terminalStdoutUI struct {
-	*termio.Mock
+	*termiotest.Mock
 
 	stdout *os.File
 }
@@ -349,7 +352,7 @@ func newTerminalStdoutUI(t *testing.T) (terminalStdoutUI, func() string) {
 		t.Skipf("no pty available: %v", err)
 	}
 	t.Cleanup(func() { _ = master.Close(); _ = slave.Close() })
-	return terminalStdoutUI{Mock: &termio.Mock{}, stdout: slave}, func() string {
+	return terminalStdoutUI{Mock: &termiotest.Mock{}, stdout: slave}, func() string {
 		_ = slave.Close()
 		written, _ := io.ReadAll(master)
 		return string(written)
@@ -359,12 +362,12 @@ func newTerminalStdoutUI(t *testing.T) (terminalStdoutUI, func() string) {
 // TestRunAttachEmitsTerminalResetAfterAbnormalEnd pins that a killed harness
 // (exit code -1) leaves no emulator-mode residue: the reset reaches the terminal.
 func TestRunAttachEmitsTerminalResetAfterAbnormalEnd(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	// A pty-backed stdout exercises the production TTY predicate end to end;
 	// the forced-true seam path is covered by TestResetTerminalWritesSequenceToTerminal.
 	ui, written := newTerminalStdoutUI(t)
-	sb := &msb.MockSandbox{AttachCode: -1}
+	sb := &msbtest.MockSandbox{AttachCode: -1}
 
 	release, err := state.AcquireClientLease(state.Key{Slug: "resetattach", Agent: "opencode"})
 	if err != nil {
@@ -384,9 +387,9 @@ func TestRunAttachEmitsTerminalResetAfterAbnormalEnd(t *testing.T) {
 // alternate screen restores a saved cursor (DECRC) on xterm-family terminals,
 // which could move the cursor over earlier output.
 func TestRunAttachSkipsTerminalResetAfterCleanExit(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui, written := newTerminalStdoutUI(t)
-	sb := &msb.MockSandbox{AttachCode: 0}
+	sb := &msbtest.MockSandbox{AttachCode: 0}
 
 	if err := runAttach(context.Background(), state.Key{Slug: "resetclean", Agent: "opencode"}, sb, "/workspace", ui,
 		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}), "-l"); err != nil {
@@ -401,11 +404,11 @@ func TestRunAttachSkipsTerminalResetAfterCleanExit(t *testing.T) {
 // attach boundary: when stdout is not a terminal (a piped or captured run) the
 // attach path must not write raw escape bytes into it.
 func TestRunAttachSkipsTerminalResetForNonTerminal(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	stubIsTerminalWriter(t, false)
 
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: -1}
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{AttachCode: -1}
 
 	_ = runAttach(context.Background(), state.Key{Slug: "resetpipe", Agent: "opencode"}, sb, "/workspace/sub", ui,
 		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}), "-l")
@@ -420,17 +423,17 @@ func TestRunAttachSkipsTerminalResetForNonTerminal(t *testing.T) {
 // checkout slug. The lease file is removed on release, but its clients/
 // directory remains, which is what the assertion observes.
 func TestRunUsesSessionKeyForLease(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "sessionkeyslug", Agent: "opencode"}
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{AttachCode: 0, Name_: "test-vm"}
 	sb.ShellOut = map[string]msb.ShellResult{
-		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+		"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
 			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
 		),
 	}
 	sb.ExecOut = map[string]msb.ShellResult{
-		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+		"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
 	}
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
@@ -462,9 +465,9 @@ func TestRunUsesSessionKeyForLease(t *testing.T) {
 }
 
 func TestRunServeOnlyReturnsDeadlineExceeded(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	sb := msb.NewMockSandbox(msb.SandboxOpts{})
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{})
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
 		return &fakePrepared{sb: sb, serveHostPort: 4096}, nil
@@ -486,8 +489,8 @@ func TestRunServeOnlyReturnsDeadlineExceeded(t *testing.T) {
 }
 
 func TestRunDryRunRendersPreview(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	stubPreviewSandbox(t, prepare.Preview{
 		AgentVersion: "1.0.0",
 		ImageTag:     "agents-sandbox-runner-x",
@@ -509,8 +512,8 @@ func TestRunDryRunRendersPreview(t *testing.T) {
 }
 
 func TestRunDryRunRendersReusePreview(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	stubPreviewSandbox(t, prepare.Preview{
 		AgentVersion: "1.2.3",
 		ImageTag:     "agents-sandbox-runner-y",
@@ -530,8 +533,8 @@ func TestRunDryRunRendersReusePreview(t *testing.T) {
 }
 
 func TestRunDryRunRendersUpgradeCheckSkippedSuffix(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	stubPreviewSandbox(t, prepare.Preview{
 		AgentVersion:        "1.0.0",
 		UpgradeCheckSkipped: true,
@@ -552,8 +555,8 @@ func TestRunDryRunRendersUpgradeCheckSkippedSuffix(t *testing.T) {
 }
 
 func TestRunDryRunResolveAtBuildMessage(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	stubPreviewSandbox(t, prepare.Preview{
 		ResolveVersionAtBuild: true,
 		ImageTag:              "agents-sandbox-runner-z",
@@ -573,8 +576,8 @@ func TestRunDryRunResolveAtBuildMessage(t *testing.T) {
 }
 
 func TestRunDryRunJoinsMultipleBuildReasons(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	stubPreviewSandbox(t, prepare.Preview{
 		AgentVersion: "1.0.0",
 		ImageTag:     "agents-sandbox-runner-x",
@@ -596,8 +599,8 @@ func TestRunDryRunJoinsMultipleBuildReasons(t *testing.T) {
 }
 
 func TestRunDryRunDoesNotPrepareSandbox(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	stubPreviewSandbox(t, prepare.Preview{AgentVersion: "1.0.0", ImageTag: "tag", HomeVolume: "vol"})
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
@@ -617,8 +620,8 @@ func TestRunDryRunDoesNotPrepareSandbox(t *testing.T) {
 }
 
 func TestRunDryRunPropagatesPreviewError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	orig := previewSandbox
 	previewSandbox = func(context.Context, options.RunOptions, termio.Logger) (prepare.Preview, error) {
 		return prepare.Preview{}, errors.New("preview boom")
@@ -632,8 +635,8 @@ func TestRunDryRunPropagatesPreviewError(t *testing.T) {
 }
 
 func TestRunDryRunVM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	var gotSkipVM bool
 	orig := prepareSandbox
 	prepareSandbox = func(_ context.Context, _ options.RunOptions, skipVM bool, _ termio.UI) (preparedSandbox, error) {
@@ -655,11 +658,11 @@ func TestRunDryRunVM(t *testing.T) {
 }
 
 func TestRunServeOnlyPath(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{})}, nil
+		return &fakePrepared{sb: msbtest.NewMockSandbox(msbtest.SandboxOpts{})}, nil
 	}
 	defer func() { prepareSandbox = orig }()
 
@@ -686,12 +689,12 @@ func TestRunServeOnlyPath(t *testing.T) {
 }
 
 func TestRunServeOnlyUsesSessionServeHostPort(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
 		return &fakePrepared{
-			sb:            msb.NewMockSandbox(msb.SandboxOpts{}),
+			sb:            msbtest.NewMockSandbox(msbtest.SandboxOpts{}),
 			serveHostPort: 4099,
 		}, nil
 	}
@@ -722,8 +725,8 @@ func TestRunServeOnlyUsesSessionServeHostPort(t *testing.T) {
 }
 
 func TestRunPrepareSandboxError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
 		return nil, errors.New("prepare boom")
@@ -740,8 +743,8 @@ func TestRunPrepareSandboxError(t *testing.T) {
 // the attach path: a failure before any attach ran must not write control bytes
 // into captured output (e.g. serve-only or a piped run).
 func TestRunPrepareErrorDoesNotEmitTerminalReset(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
 		return nil, errors.New("prepare boom")
@@ -760,9 +763,9 @@ func TestRunPrepareErrorDoesNotEmitTerminalReset(t *testing.T) {
 // TestShellAttachEmitsTerminalReset pins that Shell shares the attach path's
 // reset emission after an abnormal end with Run.
 func TestShellAttachEmitsTerminalReset(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ui, written := newTerminalStdoutUI(t)
-	sb := &msb.MockSandbox{AttachCode: -1, Name_: "test-vm"}
+	sb := &msbtest.MockSandbox{AttachCode: -1, Name_: "test-vm"}
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
 		return &fakePrepared{sb: sb, target: "/workspace"}, nil
@@ -785,9 +788,9 @@ func TestShellAttachEmitsTerminalReset(t *testing.T) {
 }
 
 func TestRunServeOnlyReapFailureWarns(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{Name_: "test-vm"}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{Name_: "test-vm"}
 	sb.ShellErr = errors.New("shell failed")
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
@@ -837,11 +840,11 @@ func TestRunServeOnlyReapFailureWarns(t *testing.T) {
 // context suppress the probe. Without the probe's own context this yields no
 // warning, which is the regression greptile flagged.
 func TestRunServeOnlyWarnsAboutContainersAfterCancel(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	sb := canceledContextSandbox{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	sb := canceledContextSandbox{Sandbox: msbtest.NewMockSandbox(msbtest.SandboxOpts{
 		ShellOut: map[string]msb.ShellResult{
-			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+			runningContainersProbeCmd: msbtest.NewTestResult(true, 0, "abc123\n", "", nil),
 		},
 	})}
 	orig := prepareSandbox
@@ -879,16 +882,16 @@ func TestRunServeOnlyWarnsAboutContainersAfterCancel(t *testing.T) {
 }
 
 func TestRunNormalCallsRunAttach(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{AttachCode: 0, Name_: "test-vm"}
 	sb.ShellOut = map[string]msb.ShellResult{
-		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+		"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
 			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
 		),
 	}
 	sb.ExecOut = map[string]msb.ShellResult{
-		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+		"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
 	}
 	orig := prepareSandbox
 	var gotSkipVM bool
@@ -939,11 +942,11 @@ func TestRunNormalCallsRunAttach(t *testing.T) {
 }
 
 func TestRunStartsNotifyWatcher(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	origPrepare := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
+		return &fakePrepared{sb: msbtest.NewMockSandbox(msbtest.SandboxOpts{AttachCode: 0})}, nil
 	}
 	defer func() { prepareSandbox = origPrepare }()
 
@@ -973,11 +976,11 @@ func TestRunStartsNotifyWatcher(t *testing.T) {
 }
 
 func TestRunDoesNotStartNotifyWatcherWhenInactive(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	origPrepare := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
+		return &fakePrepared{sb: msbtest.NewMockSandbox(msbtest.SandboxOpts{AttachCode: 0})}, nil
 	}
 	defer func() { prepareSandbox = origPrepare }()
 
@@ -1001,11 +1004,11 @@ func TestRunDoesNotStartNotifyWatcherWhenInactive(t *testing.T) {
 }
 
 func TestRunLogsNotifyWatcherErrorAfterStop(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	origPrepare := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
+		return &fakePrepared{sb: msbtest.NewMockSandbox(msbtest.SandboxOpts{AttachCode: 0})}, nil
 	}
 	defer func() { prepareSandbox = origPrepare }()
 
@@ -1037,11 +1040,11 @@ func TestRunLogsNotifyWatcherErrorAfterStop(t *testing.T) {
 }
 
 func TestRunDoesNotStartNotifyWatcherWithoutEventStreamProvider(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	origPrepare := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
-		return &fakePrepared{sb: msb.NewMockSandbox(msb.SandboxOpts{AttachCode: 0})}, nil
+		return &fakePrepared{sb: msbtest.NewMockSandbox(msbtest.SandboxOpts{AttachCode: 0})}, nil
 	}
 	defer func() { prepareSandbox = origPrepare }()
 
@@ -1070,8 +1073,8 @@ func TestRunDoesNotStartNotifyWatcherWithoutEventStreamProvider(t *testing.T) {
 }
 
 func TestRunDryRunRendersNoRebuildReuseWithSkippedReasons(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	stubPreviewSandbox(t, prepare.Preview{
 		AgentVersion: "1.2.3",
 		ImageTag:     "agents-sandbox-runner-y",
@@ -1092,14 +1095,14 @@ func TestRunDryRunRendersNoRebuildReuseWithSkippedReasons(t *testing.T) {
 }
 
 func TestWithClientSessionHandsResolvedAgentToBody(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 
 	var got string
 	err := withClientSession(
 		context.Background(),
 		state.Key{Slug: "withsessionagent", Agent: "opencode"},
-		&msb.MockSandbox{Name_: "test-vm"},
+		&msbtest.MockSandbox{Name_: "test-vm"},
 		options.ReapPolicy{AutoStopOnActiveSessions: true},
 		ui,
 		alwaysReap,
@@ -1123,13 +1126,13 @@ func TestWithClientSessionHandsResolvedAgentToBody(t *testing.T) {
 // first observable step and runs only when no client is active, so its warning
 // proves this session's own lease was already gone.
 func TestWithClientSessionReleasesLeaseBeforeReaping(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "withsessionrelease", Agent: "opencode"}
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
-			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+			runningContainersProbeCmd: msbtest.NewTestResult(true, 0, "abc123\n", "", nil),
 		},
 	}
 
@@ -1163,13 +1166,13 @@ func TestWithClientSessionReleasesLeaseBeforeReaping(t *testing.T) {
 // returned unchanged and the reap still runs: the attach path reaps even when the
 // attach itself fails.
 func TestWithClientSessionReturnsBodyErrorAfterReaping(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "withsessionbodyerr", Agent: "opencode"}
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
-			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+			runningContainersProbeCmd: msbtest.NewTestResult(true, 0, "abc123\n", "", nil),
 		},
 	}
 	sentinel := errors.New("body boom")
@@ -1203,11 +1206,11 @@ func TestWithClientSessionReturnsBodyErrorAfterReaping(t *testing.T) {
 func TestWithClientSessionLeaseFailureStillRunsBody(t *testing.T) {
 	slug := "withsessionleasefail"
 	blockClientLease(t, slug)
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
-			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+			runningContainersProbeCmd: msbtest.NewTestResult(true, 0, "abc123\n", "", nil),
 		},
 	}
 	ran := false
@@ -1250,9 +1253,9 @@ func TestWithClientSessionLeaseFailureStillRunsBody(t *testing.T) {
 // panicking body unwinds past the explicit release, so only the deferred
 // best-effort release drops the lease.
 func TestWithClientSessionReleasesLeaseOnPanic(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "withsessionpanic", Agent: "opencode"}
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	func() {
 		defer func() {
@@ -1263,7 +1266,7 @@ func TestWithClientSessionReleasesLeaseOnPanic(t *testing.T) {
 		_ = withClientSession(
 			context.Background(),
 			k,
-			&msb.MockSandbox{Name_: "test-vm"},
+			&msbtest.MockSandbox{Name_: "test-vm"},
 			options.ReapPolicy{AutoStopOnActiveSessions: true},
 			ui,
 			alwaysReap,
@@ -1307,13 +1310,13 @@ func TestServeOnlyShouldReap(t *testing.T) {
 // returned without reaping, so the VM is left to its idle timeout. Only a clean
 // or canceled exit reaps.
 func TestRunServeOnlySessionSkipsReapOnNonCanceledError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "serveonlyskipreap", Agent: "opencode"}
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{
 		Name_: "test-vm",
 		ShellOut: map[string]msb.ShellResult{
-			runningContainersProbeCmd: msb.NewTestResult(true, 0, "abc123\n", "", nil),
+			runningContainersProbeCmd: msbtest.NewTestResult(true, 0, "abc123\n", "", nil),
 		},
 	}
 
@@ -1341,13 +1344,13 @@ func TestShellAndRunServeHostOpenerWhileAttached(t *testing.T) {
 		start func(context.Context, options.RunOptions, options.Mode, termio.UI) error
 	}{{"shell", Shell}, {"run", Run}} {
 		t.Run(session.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			watched := stubHostOpener(t, "/host/volumes/home-vol", opener.Report{}, nil)
-			sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+			sb := &msbtest.MockSandbox{AttachCode: 0, Name_: "test-vm"}
 			sb.ShellOut = map[string]msb.ShellResult{
-				"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(true, 0, `{}`, "", nil),
+				"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(true, 0, `{}`, "", nil),
 			}
-			sb.ExecOut = map[string]msb.ShellResult{"sleep 1h": msb.NewTestResult(true, 0, "", "", nil)}
+			sb.ExecOut = map[string]msb.ShellResult{"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil)}
 			original := prepareSandbox
 			prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
 				return &fakePrepared{sb: sb, target: "/workspace", homeVolume: "home-vol"}, nil
@@ -1355,7 +1358,7 @@ func TestShellAndRunServeHostOpenerWhileAttached(t *testing.T) {
 			t.Cleanup(func() { prepareSandbox = original })
 
 			opts := options.RunOptions{OpenLinks: true, ReapPolicy: options.NewReapPolicy(true, 5)}
-			if err := session.start(context.Background(), opts, options.ModeRun, &termio.Mock{}); err != nil {
+			if err := session.start(context.Background(), opts, options.ModeRun, &termiotest.Mock{}); err != nil {
 				t.Fatalf("%s: %v", session.name, err)
 			}
 			if len(*watched) != 1 {
@@ -1366,8 +1369,8 @@ func TestShellAndRunServeHostOpenerWhileAttached(t *testing.T) {
 }
 
 func TestShellPrepareSandboxError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
 		return nil, errors.New("prepare boom")
@@ -1381,8 +1384,8 @@ func TestShellPrepareSandboxError(t *testing.T) {
 }
 
 func TestShellDryRunRendersPreview(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	stubPreviewSandbox(t, prepare.Preview{
 		AgentVersion: "1.0.0",
 		ImageTag:     "agents-sandbox-runner-x",
@@ -1404,8 +1407,8 @@ func TestShellDryRunRendersPreview(t *testing.T) {
 }
 
 func TestShellDryRunDoesNotPrepareSandbox(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	stubPreviewSandbox(t, prepare.Preview{AgentVersion: "1.0.0", ImageTag: "tag", HomeVolume: "vol"})
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
@@ -1425,8 +1428,8 @@ func TestShellDryRunDoesNotPrepareSandbox(t *testing.T) {
 }
 
 func TestShellDryRunPropagatesPreviewError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	orig := previewSandbox
 	previewSandbox = func(context.Context, options.RunOptions, termio.Logger) (prepare.Preview, error) {
 		return prepare.Preview{}, errors.New("preview boom")
@@ -1440,8 +1443,8 @@ func TestShellDryRunPropagatesPreviewError(t *testing.T) {
 }
 
 func TestShellDryRunVM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	var gotSkipVM bool
 	orig := prepareSandbox
 	prepareSandbox = func(_ context.Context, _ options.RunOptions, skipVM bool, _ termio.UI) (preparedSandbox, error) {
@@ -1463,16 +1466,16 @@ func TestShellDryRunVM(t *testing.T) {
 }
 
 func TestShellNormalCallsRunAttach(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{AttachCode: 0, Name_: "test-vm"}
 	sb.ShellOut = map[string]msb.ShellResult{
-		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+		"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
 			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
 		),
 	}
 	sb.ExecOut = map[string]msb.ShellResult{
-		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+		"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
 	}
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
@@ -1499,16 +1502,16 @@ func TestShellNormalCallsRunAttach(t *testing.T) {
 }
 
 func TestShellUsesGuestCWD(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{AttachCode: 0, Name_: "test-vm"}
 	sb.ShellOut = map[string]msb.ShellResult{
-		"curl -sf http://127.0.0.1:4096/session/status": msb.NewTestResult(
+		"curl -sf http://127.0.0.1:4096/session/status": msbtest.NewTestResult(
 			true, 0, `{"s1":{"type":"idle","attempt":0}}`, "", nil,
 		),
 	}
 	sb.ExecOut = map[string]msb.ShellResult{
-		"sleep 1h": msb.NewTestResult(true, 0, "", "", nil),
+		"sleep 1h": msbtest.NewTestResult(true, 0, "", "", nil),
 	}
 	orig := prepareSandbox
 	prepareSandbox = func(context.Context, options.RunOptions, bool, termio.UI) (preparedSandbox, error) {
@@ -1548,8 +1551,8 @@ func TestFinalizeRun(t *testing.T) {
 func TestRunAttachClientLeaseFailureWarns(t *testing.T) {
 	slug := "attachleasefail"
 	blockClientLease(t, slug)
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 0}
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{AttachCode: 0}
 
 	err := runAttach(context.Background(), state.Key{Slug: slug, Agent: "opencode"}, sb, "/workspace", ui,
 		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
@@ -1570,10 +1573,10 @@ func TestRunAttachClientLeaseFailureWarns(t *testing.T) {
 }
 
 func TestRunAttachUsesAttachWithForRoot(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 0}
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{AttachCode: 0}
 
 	release, err := state.AcquireClientLease(state.Key{Slug: "roottest", Agent: "opencode"})
 	if err != nil {
@@ -1595,10 +1598,10 @@ func TestRunAttachUsesAttachWithForRoot(t *testing.T) {
 }
 
 func TestRunAttachDefaultDoesNotUseRoot(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 0}
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{AttachCode: 0}
 
 	release, err := state.AcquireClientLease(state.Key{Slug: "defaulttest", Agent: "opencode"})
 	if err != nil {
@@ -1620,9 +1623,9 @@ func TestRunAttachDefaultDoesNotUseRoot(t *testing.T) {
 }
 
 func TestRunAttachPropagatesAttachError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachErr: errors.New("attach boom")}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{AttachErr: errors.New("attach boom")}
 
 	err := runAttach(context.Background(), state.Key{Slug: "errproj", Agent: "opencode"}, sb, "/workspace", ui,
 		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
@@ -1635,9 +1638,9 @@ func TestRunAttachPropagatesAttachError(t *testing.T) {
 }
 
 func TestRunAttachReturnsExitErrorForNonZeroCode(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 3}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{AttachCode: 3}
 
 	err := runAttach(context.Background(), state.Key{Slug: "exitproj", Agent: "opencode"}, sb, "/workspace", ui,
 		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
@@ -1648,9 +1651,9 @@ func TestRunAttachReturnsExitErrorForNonZeroCode(t *testing.T) {
 }
 
 func TestRunAttachWarnsOnReapFailure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	sb := &msb.MockSandbox{AttachCode: 0, Name_: "test-vm"}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	sb := &msbtest.MockSandbox{AttachCode: 0, Name_: "test-vm"}
 	sb.ShellErr = errors.New("shell failed")
 
 	// A cancelled context makes waitQuiescent abort on its next poll, so
@@ -1686,7 +1689,7 @@ func TestPrepareSandboxSeamDelegatesToVM(t *testing.T) {
 		context.Background(),
 		options.RunOptions{Agent: "no-such-agent"},
 		false,
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected the real PrepareSandbox to error for an unknown agent")
@@ -1701,7 +1704,7 @@ func TestPrepareSandboxSeamDelegatesToVM(t *testing.T) {
 // nested clients dir fails.
 func blockClientLease(t *testing.T, slug string) {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	root := configpaths.Get().UserStateDir()
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatalf("mkdir state root: %v", err)
@@ -1737,7 +1740,7 @@ func stubPreviewSandbox(t *testing.T, preview prepare.Preview) {
 	t.Cleanup(func() { previewSandbox = orig })
 }
 
-func assertInfoCalls(t *testing.T, ui *termio.Mock, want []string) {
+func assertInfoCalls(t *testing.T, ui *termiotest.Mock, want []string) {
 	t.Helper()
 	if len(ui.InfoCalls) != len(want) {
 		t.Fatalf("info calls = %v, want %v", ui.InfoCalls, want)
@@ -1762,7 +1765,7 @@ func hasDryRunMessage(infoCalls []string) bool {
 
 // containerProbeWarn reports whether the last-client reap probed for running
 // containers, which it only does once this session's own lease is gone.
-func containerProbeWarn(ui *termio.Mock) bool {
+func containerProbeWarn(ui *termiotest.Mock) bool {
 	for _, w := range ui.WarnCalls {
 		if strings.Contains(w, "running container") {
 			return true
@@ -1798,15 +1801,15 @@ func sessionOOMLogLine(at time.Time) msb.LogEntry {
 // abnormal end (signal death) with an OOM line prompts once, and a decline
 // records the answered marker before the lease is released.
 func TestRunPostAttachOOMOffersAndDeclineRecords(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "postattachoom", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		AttachCode:    -1,
 		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
 		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
@@ -1835,7 +1838,7 @@ func TestRunPostAttachOOMOffersAndDeclineRecords(t *testing.T) {
 // the attach: SIGINT/SIGTERM during the attach ends it, skips the memory offer
 // (the user asked to stop), and the reap still runs on an uncanceled context.
 func TestRunAttachSignalSkipsTheOfferAndStillReaps(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	// Keep the test process alive should the signal escape the attach scope.
 	guard := make(chan os.Signal, 1)
 	signal.Notify(guard, os.Interrupt)
@@ -1843,11 +1846,11 @@ func TestRunAttachSignalSkipsTheOfferAndStillReaps(t *testing.T) {
 	k := state.Key{Slug: "signalattach", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
 		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 		AttachFn: func(ctx context.Context) (int, error) {
@@ -1877,11 +1880,11 @@ func TestRunAttachSignalSkipsTheOfferAndStillReaps(t *testing.T) {
 // metrics read is reported once after the attach returns, never while the
 // agent's full-screen TUI owns the terminal.
 func TestRunAttachReportsWatcherReadErrorsAfterTheAttach(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	stubPressureWatchInterval(t)
 	k := state.Key{Slug: "watchererrors", Agent: "opencode"}
 	seedSessionHomeState(t, k)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	watcherLines := func() int {
 		count := 0
 		for _, call := range ui.VerboseCalls {
@@ -1892,7 +1895,7 @@ func TestRunAttachReportsWatcherReadErrorsAfterTheAttach(t *testing.T) {
 		return count
 	}
 	linesDuringAttach := -1
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		MetricsErr: errors.New("metrics unsupported"),
 		AttachFn: func(context.Context) (int, error) {
 			time.Sleep(20 * pressureWatchInterval)
@@ -1917,12 +1920,12 @@ func TestRunAttachReportsWatcherReadErrorsAfterTheAttach(t *testing.T) {
 // ends the launcher as usual: the attach context, which the signal scope cancels
 // when it is released, is already done when the prompt runs.
 func TestRunAttachPromptsOutsideTheSignalScope(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "promptscope", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	var attachDone <-chan struct{}
 	promptedInsideScope := false
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(string, []termio.Choice, string) (string, error) {
 			select {
@@ -1933,7 +1936,7 @@ func TestRunAttachPromptsOutsideTheSignalScope(t *testing.T) {
 			return "keep", nil
 		},
 	}
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
 		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 		AttachFn: func(ctx context.Context) (int, error) {
@@ -1956,15 +1959,15 @@ func TestRunAttachPromptsOutsideTheSignalScope(t *testing.T) {
 // TestRunPostAttachCleanExitNoOffer pins the anti-false-positive rule: a clean
 // exit does not prompt even when the system log carries an OOM line.
 func TestRunPostAttachCleanExitNoOffer(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "postattachclean", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		AttachCode:    0,
 		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
 		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
@@ -1983,12 +1986,12 @@ func TestRunPostAttachCleanExitNoOffer(t *testing.T) {
 // TestRunAttachResetsTheTerminalAfterASignal pins that a signal-ended attach
 // resets the terminal even when the guest reports a clean exit code.
 func TestRunAttachResetsTheTerminalAfterASignal(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	guard := make(chan os.Signal, 1)
 	signal.Notify(guard, os.Interrupt)
 	defer signal.Stop(guard)
 	ui, written := newTerminalStdoutUI(t)
-	sb := &msb.MockSandbox{AttachFn: func(ctx context.Context) (int, error) {
+	sb := &msbtest.MockSandbox{AttachFn: func(ctx context.Context) (int, error) {
 		//testenv:allow sends SIGINT to this process to exercise the signal scope
 		if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
 			return 0, err
@@ -2010,15 +2013,15 @@ func TestRunAttachResetsTheTerminalAfterASignal(t *testing.T) {
 // signal ended the attach.
 func TestRunAttachProbesDiskAfterEveryEndButASignal(t *testing.T) {
 	t.Run("clean exit", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		var execs []string
-		sb := &msb.MockSandbox{AttachCode: 0, ExecCalls: &execs}
+		sb := &msbtest.MockSandbox{AttachCode: 0, ExecCalls: &execs}
 		_ = runAttach(
 			context.Background(),
 			state.Key{Slug: "diskclean", Agent: "opencode"},
 			sb,
 			"/workspace",
-			&termio.Mock{},
+			&termiotest.Mock{},
 			resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}),
 			"-l",
 		)
@@ -2027,12 +2030,12 @@ func TestRunAttachProbesDiskAfterEveryEndButASignal(t *testing.T) {
 		}
 	})
 	t.Run("signal", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		guard := make(chan os.Signal, 1)
 		signal.Notify(guard, os.Interrupt)
 		defer signal.Stop(guard)
 		var execs []string
-		sb := &msb.MockSandbox{ExecCalls: &execs, AttachFn: func(ctx context.Context) (int, error) {
+		sb := &msbtest.MockSandbox{ExecCalls: &execs, AttachFn: func(ctx context.Context) (int, error) {
 			//testenv:allow sends SIGINT to this process to exercise the signal scope
 			if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
 				return 0, err
@@ -2045,7 +2048,7 @@ func TestRunAttachProbesDiskAfterEveryEndButASignal(t *testing.T) {
 			state.Key{Slug: "disksignal", Agent: "opencode"},
 			sb,
 			"/workspace",
-			&termio.Mock{},
+			&termiotest.Mock{},
 			resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(false, 5)}),
 			"-l",
 		)
@@ -2059,16 +2062,16 @@ func TestRunAttachProbesDiskAfterEveryEndButASignal(t *testing.T) {
 // parent context, not by a signal to the launcher, is no interruption: the
 // memory offer for the abnormal end still runs.
 func TestRunAttachCanceledParentIsNotASignal(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "parentcancel", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
 		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},
 		AttachFn: func(context.Context) (int, error) {
@@ -2088,15 +2091,15 @@ func TestRunAttachCanceledParentIsNotASignal(t *testing.T) {
 // TestRunPostAttachLogReadErrorDoesNotFail pins best-effort detection: a system
 // log read failure does not prompt and does not change the session's result.
 func TestRunPostAttachLogReadErrorDoesNotFail(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "postattachlogerr", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
-	sb := &msb.MockSandbox{AttachCode: -1, LogsErr: errors.New("logs boom")}
+	sb := &msbtest.MockSandbox{AttachCode: -1, LogsErr: errors.New("logs boom")}
 
 	err := runAttach(context.Background(), k, sb, "/workspace", ui,
 		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
@@ -2117,14 +2120,14 @@ func TestRunPostAttachLogReadErrorDoesNotFail(t *testing.T) {
 // path: when no marker can be read the detection logs and continues, leaving
 // the session result unchanged.
 func TestRunPostAttachReadStateErrorLogsAndContinues(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "postattachstateerr", Agent: "opencode"}
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
-	sb := &msb.MockSandbox{AttachCode: -1}
+	sb := &msbtest.MockSandbox{AttachCode: -1}
 
 	err := runAttach(context.Background(), k, sb, "/workspace", ui,
 		resolvedRunOptions(t, options.RunOptions{ReapPolicy: options.NewReapPolicy(true, 5)}), "-l")
@@ -2150,7 +2153,7 @@ func TestRunPostAttachReadStateErrorLogsAndContinues(t *testing.T) {
 
 // verboseContainsSession reports whether any verbose call reports the system-log
 // read failure, which is the observable best-effort log message.
-func verboseContainsSession(ui *termio.Mock) bool {
+func verboseContainsSession(ui *termiotest.Mock) bool {
 	for _, call := range ui.VerboseCalls {
 		if strings.Contains(call, "reading VM system log failed") {
 			return true
@@ -2162,15 +2165,15 @@ func verboseContainsSession(ui *termio.Mock) bool {
 // TestShellPostAttachOffer pins that Shell shares the post-attach detection
 // path: an OOM-killed shell also prompts once.
 func TestShellPostAttachOffer(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := state.Key{Slug: "shellpostattach", Agent: "opencode"}
 	seedSessionHomeState(t, k)
 	var selects int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(string, []termio.Choice, string) (string, error) { selects++; return "keep", nil },
 	}
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		AttachCode:    -1,
 		LogsResult:    []msb.LogEntry{sessionOOMLogLine(time.Now())},
 		MetricsResult: &msb.Metrics{MemoryBytes: 1024 << 20, MemoryLimitBytes: 4096 << 20},

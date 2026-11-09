@@ -9,20 +9,21 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestSandboxPruneNonInteractiveRequiresYes(t *testing.T) {
-	vm := &msb.MockSandboxHandle{
+	vm := &msbtest.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 	}
-	m := &msb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, vm)
 
 	cmd, _ := setupCommandFixtures(t, "sandbox", "prune")
-	msb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	err := cmd.Execute()
 	if !errors.Is(err, termio.ErrConfirmationRequired) {
@@ -34,16 +35,16 @@ func TestSandboxPruneNonInteractiveRequiresYes(t *testing.T) {
 }
 
 func TestSandboxPruneDryRunSkipsConfirmation(t *testing.T) {
-	vm := &msb.MockSandboxHandle{
+	vm := &msbtest.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 	}
-	m := &msb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, vm)
 
 	cmd, ui := setupCommandFixtures(t, "sandbox", "prune", "--dry-run")
-	msb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -61,9 +62,9 @@ func TestSandboxPruneDryRunSkipsConfirmation(t *testing.T) {
 
 func TestSandboxPrune(t *testing.T) {
 	t.Run("prunes stale sandbox", func(t *testing.T) {
-		m := &msb.MockMsbClient{
+		m := &msbtest.MockMsbClient{
 			Sandboxes: []msb.SandboxHandle{
-				&msb.MockSandboxHandle{
+				&msbtest.MockSandboxHandle{
 					Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 					Status_:    msb.SandboxStatusStopped,
 					UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
@@ -71,7 +72,7 @@ func TestSandboxPrune(t *testing.T) {
 			},
 		}
 		cmd, ui := setupCommandFixtures(t, "sandbox", "prune", "--yes")
-		msb.WithMsbMock(t, m)
+		msbtest.WithMsbMock(t, m)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -82,9 +83,9 @@ func TestSandboxPrune(t *testing.T) {
 }
 
 func TestSandboxPruneFormatJSON(t *testing.T) {
-	m := &msb.MockMsbClient{
+	m := &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
@@ -92,7 +93,7 @@ func TestSandboxPruneFormatJSON(t *testing.T) {
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "sandbox", "prune", "--format", "json", "--yes")
-	msb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

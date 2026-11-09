@@ -10,17 +10,20 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/runtime"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // interactiveUI returns an interactive mock UI whose Select returns key and
 // records that a prompt happened.
-func interactiveUI(key string, prompt *bool) *termio.Mock {
-	return &termio.Mock{
+func interactiveUI(key string, prompt *bool) *termiotest.Mock {
+	return &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
 			*prompt = true
@@ -31,8 +34,8 @@ func interactiveUI(key string, prompt *bool) *termio.Mock {
 
 // noticeUI returns an interactive mock whose Select returns key and which
 // records the notice acknowledgment.
-func noticeUI(key string) *termio.Mock {
-	return &termio.Mock{
+func noticeUI(key string) *termiotest.Mock {
+	return &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn:            func(_ string, _ []termio.Choice, _ string) (string, error) { return key, nil },
 	}
@@ -52,18 +55,18 @@ func writeCorruptRootState(t *testing.T) {
 // unreadable launcher-global state file must not block the session. The offer
 // is best-effort, so it warns and returns nil rather than surfacing the error.
 func TestOfferStateReadErrorWarnsAndSkips(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeCorruptRootState(t)
 
 	selectCalls := 0
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
 			selectCalls++
 			return choiceCopy, nil
 		},
 	}
-	client := &msb.MockMsbClient{}
+	client := &msbtest.MockMsbClient{}
 
 	if err := Offer(context.Background(), client, ui); err != nil {
 		t.Fatalf("Offer() error = %v, want nil (best-effort)", err)
@@ -83,11 +86,11 @@ func TestOfferStateReadErrorWarnsAndSkips(t *testing.T) {
 // branch: a failure deriving necessity (here, the home directory cannot be
 // resolved) warns and skips instead of blocking the session.
 func TestOfferNecessaryVolumesErrorWarnsAndSkips(t *testing.T) {
-	configpaths.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
+	configpathstest.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
 
 	var prompted bool
 	ui := interactiveUI(choiceCopy, &prompted)
-	client := &msb.MockMsbClient{}
+	client := &msbtest.MockMsbClient{}
 
 	if err := Offer(context.Background(), client, ui); err != nil {
 		t.Fatalf("Offer() error = %v, want nil (best-effort)", err)
@@ -101,7 +104,7 @@ func TestOfferNecessaryVolumesErrorWarnsAndSkips(t *testing.T) {
 }
 
 func TestOfferDismissedDoesNotPrompt(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 	if err := seedRootState(state.RootState{
@@ -112,7 +115,7 @@ func TestOfferDismissedDoesNotPrompt(t *testing.T) {
 
 	var prompted bool
 	ui := interactiveUI("c", &prompted)
-	client := &msb.MockMsbClient{}
+	client := &msbtest.MockMsbClient{}
 
 	if err := Offer(context.Background(), client, ui); err != nil {
 		t.Fatalf("Offer() error = %v", err)
@@ -129,7 +132,7 @@ func TestOfferDismissedDoesNotPrompt(t *testing.T) {
 // migration is never re-armed: even with a legacy volume present, the offer
 // returns without prompting.
 func TestOfferTerminalMigrationDoesNotPrompt(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
@@ -139,7 +142,7 @@ func TestOfferTerminalMigrationDoesNotPrompt(t *testing.T) {
 	}
 	var prompted bool
 	ui := interactiveUI(choiceCopy, &prompted)
-	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
+	if err := Offer(context.Background(), &msbtest.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer: %v", err)
 	}
 	if prompted {
@@ -151,7 +154,7 @@ func TestOfferTerminalMigrationDoesNotPrompt(t *testing.T) {
 // a campaign that copied everything but crashed before recording completion is
 // closed out as completed on the next offer, without prompting.
 func TestOfferFinalizesOpenCampaignWithNothingLeft(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	name := naming.LegacyHomePrefix + "done"
 	addVolumeDir(t, legacy, name)
@@ -161,8 +164,8 @@ func TestOfferFinalizesOpenCampaignWithNothingLeft(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	ui := &termio.Mock{IsInteractiveResult: true}
-	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	if err := Offer(context.Background(), &msbtest.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer: %v", err)
 	}
 	root, _ := state.ReadRootState()
@@ -179,7 +182,7 @@ func TestOfferFinalizesOpenCampaignWithNothingLeft(t *testing.T) {
 // fresh must re-read under the lock and leave the terminal completed status
 // intact.
 func TestOfferStartFreshIsNotLostToACompletedCampaign(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 
@@ -204,7 +207,7 @@ func TestOfferStartFreshIsNotLostToACompletedCampaign(t *testing.T) {
 		return choiceFresh, nil
 	}
 
-	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
+	if err := Offer(context.Background(), &msbtest.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer: %v", err)
 	}
 	if !prompted {
@@ -224,25 +227,25 @@ func TestOfferStartFreshIsNotLostToACompletedCampaign(t *testing.T) {
 // silent no-op. A directory occupying the root-state lock path makes the lock
 // open fail.
 func TestOfferStartFreshLockFailureSurfaces(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 	blockRootLock(t)
 
 	var prompted bool
 	ui := interactiveUI(choiceFresh, &prompted)
-	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err == nil {
+	if err := Offer(context.Background(), &msbtest.MockMsbClient{}, ui); err == nil {
 		t.Fatal("Offer() error = nil, want a lock-acquisition failure on start-fresh")
 	}
 }
 
 func TestOfferNothingNecessaryDoesNotPrompt(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	installLegacyHome(t)
 
 	var prompted bool
 	ui := interactiveUI("c", &prompted)
-	client := &msb.MockMsbClient{}
+	client := &msbtest.MockMsbClient{}
 
 	if err := Offer(context.Background(), client, ui); err != nil {
 		t.Fatalf("Offer() error = %v", err)
@@ -261,12 +264,12 @@ func TestOfferNothingNecessaryDoesNotPrompt(t *testing.T) {
 // reference before the user can accept the copy. It returns the pending error
 // and touches no volumes.
 func TestOfferNonInteractiveBlocksBeforeFreshHome(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 
-	ui := &termio.Mock{IsInteractiveResult: false}
-	client := &msb.MockMsbClient{}
+	ui := &termiotest.Mock{IsInteractiveResult: false}
+	client := &msbtest.MockMsbClient{}
 
 	err := Offer(context.Background(), client, ui)
 	if !errors.Is(err, ErrMigrationPending) {
@@ -284,12 +287,12 @@ func TestOfferNonInteractiveBlocksBeforeFreshHome(t *testing.T) {
 // treated as non-interactive for this offer, so no prompt is ever shown even
 // though the user "assumed yes" globally.
 func TestOfferAssumeYesBehavesLikeNonInteractive(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 
 	var selectCalls int
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: false,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
 			selectCalls++
@@ -297,7 +300,7 @@ func TestOfferAssumeYesBehavesLikeNonInteractive(t *testing.T) {
 		},
 	}
 	ui.SetAssumeYes(true)
-	client := &msb.MockMsbClient{}
+	client := &msbtest.MockMsbClient{}
 
 	err := Offer(context.Background(), client, ui)
 	if !errors.Is(err, ErrMigrationPending) {
@@ -309,16 +312,16 @@ func TestOfferAssumeYesBehavesLikeNonInteractive(t *testing.T) {
 }
 
 func TestOfferChooseCopyCopiesVolumes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	name := naming.LegacyHomePrefix + "legacy"
 	addVolumeDir(t, legacy, name)
 	writeFileWithMode(t, legacy+"/volumes/"+name+"/settings.json", "{}", 0o600)
 
 	target := t.TempDir()
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, volumeName string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: volumeName, Path_: target}, nil
+			return &msbtest.MockVolumeHandle{Name_: volumeName, Path_: target}, nil
 		},
 	}
 
@@ -344,7 +347,7 @@ func TestOfferChooseCopyCopiesVolumes(t *testing.T) {
 // A volume-scoped copy failure, by contrast, is excluded inside CopyVolumes and
 // does not abort (see TestCopyVolumesExcludesVolumeScopedFailureAndCompletes).
 func TestOfferCopyErrorAborts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 	blockRootState(t)
@@ -352,19 +355,19 @@ func TestOfferCopyErrorAborts(t *testing.T) {
 	var prompted bool
 	ui := interactiveUI(choiceCopy, &prompted)
 
-	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err == nil {
+	if err := Offer(context.Background(), &msbtest.MockMsbClient{}, ui); err == nil {
 		t.Fatal("Offer() error = nil, want a campaign-scoped copy failure to abort the session")
 	}
 }
 
 func TestOfferChooseStartFreshPersistsDismissal(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 
 	var prompted bool
 	ui := interactiveUI("s", &prompted)
-	client := &msb.MockMsbClient{}
+	client := &msbtest.MockMsbClient{}
 
 	if err := Offer(context.Background(), client, ui); err != nil {
 		t.Fatalf("Offer() error = %v", err)
@@ -382,13 +385,13 @@ func TestOfferChooseStartFreshPersistsDismissal(t *testing.T) {
 // TestOfferChooseQuitAborts pins that quitting the prompt aborts the session
 // without a decision: no copy, no dismissal, and the migration stays pending.
 func TestOfferChooseQuitAborts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 
 	var prompted bool
 	ui := interactiveUI(choiceQuit, &prompted)
-	client := &msb.MockMsbClient{}
+	client := &msbtest.MockMsbClient{}
 
 	if err := Offer(context.Background(), client, ui); !errors.Is(err, ErrMigrationPending) {
 		t.Fatalf("Offer() error = %v, want ErrMigrationPending on quit", err)
@@ -406,17 +409,17 @@ func TestOfferChooseQuitAborts(t *testing.T) {
 // TestOfferSelectErrorAborts verifies that a failing prompt (e.g. the terminal
 // closed) aborts the session rather than proceeding to a fresh home.
 func TestOfferSelectErrorAborts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"legacy")
 
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
 			return "", context.Canceled
 		},
 	}
-	client := &msb.MockMsbClient{}
+	client := &msbtest.MockMsbClient{}
 
 	if err := Offer(context.Background(), client, ui); !errors.Is(err, ErrMigrationPending) {
 		t.Fatalf("Offer() error = %v, want ErrMigrationPending on prompt failure", err)
@@ -477,14 +480,14 @@ func createPrivateVolume(t *testing.T, name string) {
 // unfinished destination is removed before the dismissal is recorded, so the
 // home resolver creates a genuinely fresh volume.
 func TestOfferStartFreshRemovesUnfinishedDestination(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	name := naming.LegacyHomePrefix + "partial"
 	seedPartialDestination(t, legacy, name)
 
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		GetVolumeFn: func(_ context.Context, volumeName string) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: volumeName}, nil
+			return &msbtest.MockVolumeHandle{Name_: volumeName}, nil
 		},
 	}
 	var prompted bool
@@ -509,14 +512,14 @@ func TestOfferStartFreshRemovesUnfinishedDestination(t *testing.T) {
 // dismissal: recording "start fresh" while a usable partial remains would let the
 // home resolver adopt the half-copied home under a permanent opt-out.
 func TestOfferStartFreshRemovalFailureAborts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	name := naming.LegacyHomePrefix + "partial"
 	seedPartialDestination(t, legacy, name)
 
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		GetVolumeFn: func(_ context.Context, volumeName string) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: volumeName}, nil
+			return &msbtest.MockVolumeHandle{Name_: volumeName}, nil
 		},
 		RemoveVolumeFn: func(_ context.Context, _ string) error { return errors.New("remove boom") },
 	}
@@ -535,7 +538,7 @@ func TestOfferStartFreshRemovalFailureAborts(t *testing.T) {
 // TestFinalizeCompletedCampaignTerminalIsNoOp pins that closing out a campaign
 // never clobbers a terminal write another session already made.
 func TestFinalizeCompletedCampaignTerminalIsNoOp(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
 		MigrationName: {Status: state.MigrationCompleted},
 	}}); err != nil {
@@ -551,7 +554,7 @@ func TestFinalizeCompletedCampaignTerminalIsNoOp(t *testing.T) {
 }
 
 func TestFinalizeCompletedCampaignStateReadError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeCorruptRootState(t)
 	if err := finalizeCompletedCampaign(); err == nil {
 		t.Fatal("finalizeCompletedCampaign() error = nil, want a state read error")
@@ -559,9 +562,9 @@ func TestFinalizeCompletedCampaignStateReadError(t *testing.T) {
 }
 
 func TestDismissMigrationStateReadError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeCorruptRootState(t)
-	if err := dismissMigration(context.Background(), &msb.MockMsbClient{}); err == nil {
+	if err := dismissMigration(context.Background(), &msbtest.MockMsbClient{}); err == nil {
 		t.Fatal("dismissMigration() error = nil, want a state read error")
 	}
 }
@@ -571,7 +574,7 @@ func TestDismissMigrationStateReadError(t *testing.T) {
 // copied target, a user-kept target, and a private volume that is not a legacy
 // target.
 func TestRemoveUnclearDestinationsRemovesOnlyUnclear(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	partial := naming.LegacyHomePrefix + "partial"
 	copied := naming.LegacyHomePrefix + "copied"
@@ -586,9 +589,9 @@ func TestRemoveUnclearDestinationsRemovesOnlyUnclear(t *testing.T) {
 			t.Fatalf("seed %q: %v", name, err)
 		}
 	}
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		GetVolumeFn: func(_ context.Context, name string) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: name}, nil
+			return &msbtest.MockVolumeHandle{Name_: name}, nil
 		},
 	}
 	m := state.Migration{Status: state.MigrationCopying, Copied: []string{copied}, Kept: []string{kept}}
@@ -599,27 +602,27 @@ func TestRemoveUnclearDestinationsRemovesOnlyUnclear(t *testing.T) {
 }
 
 func TestRemoveUnclearDestinationsLegacyHomeError(t *testing.T) {
-	configpaths.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
+	configpathstest.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
 	if err := removeUnclearDestinations(
-		context.Background(), &msb.MockMsbClient{}, state.Migration{Status: state.MigrationCopying},
+		context.Background(), &msbtest.MockMsbClient{}, state.Migration{Status: state.MigrationCopying},
 	); err == nil {
 		t.Fatal("removeUnclearDestinations() error = nil, want legacy home resolution error")
 	}
 }
 
 func TestRemoveUnclearDestinationsLegacyListingError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	makeLegacyVolumesUnlistable(t, legacy)
 	if err := removeUnclearDestinations(
-		context.Background(), &msb.MockMsbClient{}, state.Migration{Status: state.MigrationCopying},
+		context.Background(), &msbtest.MockMsbClient{}, state.Migration{Status: state.MigrationCopying},
 	); err == nil {
 		t.Fatal("removeUnclearDestinations() error = nil, want legacy listing error")
 	}
 }
 
 func TestRemoveUnclearDestinationsPrivateListingError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"target")
 
@@ -631,7 +634,7 @@ func TestRemoveUnclearDestinationsPrivateListingError(t *testing.T) {
 		t.Fatalf("symlink private volumes: %v", err)
 	}
 	if err := removeUnclearDestinations(
-		context.Background(), &msb.MockMsbClient{}, state.Migration{Status: state.MigrationCopying},
+		context.Background(), &msbtest.MockMsbClient{}, state.Migration{Status: state.MigrationCopying},
 	); err == nil {
 		t.Fatal("removeUnclearDestinations() error = nil, want private listing error")
 	}
@@ -643,7 +646,7 @@ func TestRemoveUnclearDestinationsPrivateListingError(t *testing.T) {
 // campaign listing fail (ENOTDIR) while the pending tolerant listing treats it as
 // empty, exercising the failure at the present-target listing.
 func TestOfferPendingListingErrorWarnsAndSkips(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	volumes := filepath.Join(legacy, "volumes")
 	if err := os.RemoveAll(volumes); err != nil {
@@ -655,7 +658,7 @@ func TestOfferPendingListingErrorWarnsAndSkips(t *testing.T) {
 
 	var prompted bool
 	ui := interactiveUI(choiceCopy, &prompted)
-	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
+	if err := Offer(context.Background(), &msbtest.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer() error = %v, want nil (best-effort in pending)", err)
 	}
 	if prompted {
@@ -672,7 +675,7 @@ func TestOfferPendingListingErrorWarnsAndSkips(t *testing.T) {
 // destination. The pending state keeps its best-effort warn-and-skip (see
 // TestOfferNecessaryVolumesErrorWarnsAndSkips).
 func TestOfferCopyingListingErrorBlocks(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	makeLegacyVolumesUnlistable(t, legacy)
 	if err := seedRootState(state.RootState{Migrations: map[string]state.Migration{
@@ -683,7 +686,7 @@ func TestOfferCopyingListingErrorBlocks(t *testing.T) {
 
 	var prompted bool
 	ui := interactiveUI(choiceCopy, &prompted)
-	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err == nil {
+	if err := Offer(context.Background(), &msbtest.MockMsbClient{}, ui); err == nil {
 		t.Fatal("Offer() error = nil, want the campaign listing failure to block the session")
 	}
 	if prompted {
@@ -794,7 +797,7 @@ func TestOfferPromptCopyingResumeNotice(t *testing.T) {
 // a present private volume of unclear status is recorded as Kept and left
 // untouched while only the missing volumes are copied.
 func TestOfferAmbiguousStateCopyKeepsExisting(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	present := naming.LegacyHomePrefix + "present"
 	missing := naming.LegacyHomePrefix + "missing"
@@ -806,10 +809,10 @@ func TestOfferAmbiguousStateCopyKeepsExisting(t *testing.T) {
 
 	target := t.TempDir()
 	var created []string
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			created = append(created, n)
-			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
+			return &msbtest.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
 	}
 	var prompted bool
@@ -836,20 +839,20 @@ func TestOfferAmbiguousStateCopyKeepsExisting(t *testing.T) {
 // wording: while a campaign is open, accepting "Resume the copy" discards an
 // interrupted partial destination and re-copies it, reaching completed.
 func TestOfferCopyingResumeRecopiesPartial(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	name := naming.LegacyHomePrefix + "partial"
 	seedPartialDestination(t, legacy, name)
 
 	target := t.TempDir()
 	var created []string
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		GetVolumeFn: func(_ context.Context, volumeName string) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: volumeName}, nil
+			return &msbtest.MockVolumeHandle{Name_: volumeName}, nil
 		},
 		CreateVolumeFn: func(_ context.Context, n string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			created = append(created, n)
-			return &msb.MockVolumeHandle{Name_: n, Path_: target}, nil
+			return &msbtest.MockVolumeHandle{Name_: n, Path_: target}, nil
 		},
 	}
 	var prompted bool
@@ -877,16 +880,16 @@ func TestOfferCopyingResumeRecopiesPartial(t *testing.T) {
 // state: "Dismiss" removes the unclear private volume before recording the
 // permanent opt-out, so the home resolver never adopts it.
 func TestOfferAmbiguousStateDismissRemovesUnclear(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	name := naming.LegacyHomePrefix + "unclear"
 	addVolumeDir(t, legacy, name)
 	if err := os.MkdirAll(filepath.Join(runtime.PrivateHome(), "volumes", name), 0o750); err != nil {
 		t.Fatalf("seed unclear private volume: %v", err)
 	}
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		GetVolumeFn: func(_ context.Context, volumeName string) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: volumeName}, nil
+			return &msbtest.MockVolumeHandle{Name_: volumeName}, nil
 		},
 	}
 	var prompted bool
@@ -904,13 +907,13 @@ func TestOfferAmbiguousStateDismissRemovesUnclear(t *testing.T) {
 }
 
 func TestOfferShowsNoticeAfterCopy(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
 	target := t.TempDir()
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
-			return &msb.MockVolumeHandle{Name_: name, Path_: target}, nil
+			return &msbtest.MockVolumeHandle{Name_: name, Path_: target}, nil
 		},
 	}
 	ui := noticeUI(choiceCopy)
@@ -927,11 +930,11 @@ func TestOfferShowsNoticeAfterCopy(t *testing.T) {
 }
 
 func TestOfferShowsNoticeAfterDismiss(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
 	ui := noticeUI(choiceFresh)
-	client := &msb.MockMsbClient{}
+	client := &msbtest.MockMsbClient{}
 	if err := Offer(context.Background(), client, ui); err != nil {
 		t.Fatalf("Offer() error = %v", err)
 	}
@@ -941,7 +944,7 @@ func TestOfferShowsNoticeAfterDismiss(t *testing.T) {
 }
 
 func TestOfferShowsNoticeOnLaterTerminalSession(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
 	if err := seedRootState(state.RootState{}); err != nil {
@@ -954,8 +957,8 @@ func TestOfferShowsNoticeOnLaterTerminalSession(t *testing.T) {
 		t.Fatalf("seed completed migration: %v", err)
 	}
 
-	ui := &termio.Mock{IsInteractiveResult: true}
-	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	if err := Offer(context.Background(), &msbtest.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer() error = %v", err)
 	}
 	if len(ui.AcknowledgeCalls) != 1 {
@@ -964,11 +967,11 @@ func TestOfferShowsNoticeOnLaterTerminalSession(t *testing.T) {
 }
 
 func TestOfferShowsNoticePendingNothingToCopy(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addSandboxDir(t, legacy, naming.LegacyVMPrefix+"proj") // artifacts present, no volumes to copy
-	ui := &termio.Mock{IsInteractiveResult: true}
-	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	if err := Offer(context.Background(), &msbtest.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer() error = %v", err)
 	}
 	if len(ui.AcknowledgeCalls) != 1 {
@@ -977,7 +980,7 @@ func TestOfferShowsNoticePendingNothingToCopy(t *testing.T) {
 }
 
 func TestOfferNoticeOnceEver(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
 	if _, err := state.WithRootState(true, func(tx *state.RootTxn) error {
@@ -987,8 +990,8 @@ func TestOfferNoticeOnceEver(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed acknowledged notice: %v", err)
 	}
-	ui := &termio.Mock{IsInteractiveResult: true}
-	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	if err := Offer(context.Background(), &msbtest.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer() error = %v", err)
 	}
 	if len(ui.AcknowledgeCalls) != 0 {
@@ -997,7 +1000,7 @@ func TestOfferNoticeOnceEver(t *testing.T) {
 }
 
 func TestOfferNonInteractiveNoticeDoesNotMark(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	addVolumeDir(t, legacy, naming.LegacyHomePrefix+"a")
 	if _, err := state.WithRootState(true, func(tx *state.RootTxn) error {
@@ -1006,8 +1009,8 @@ func TestOfferNonInteractiveNoticeDoesNotMark(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed completed migration: %v", err)
 	}
-	ui := &termio.Mock{IsInteractiveResult: false}
-	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
+	ui := &termiotest.Mock{IsInteractiveResult: false}
+	if err := Offer(context.Background(), &msbtest.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer() error = %v", err)
 	}
 	root, _ := state.ReadRootState()
@@ -1022,7 +1025,7 @@ func TestOfferNonInteractiveNoticeDoesNotMark(t *testing.T) {
 // present-but-unverified volume (Kept) both still hold the only trustworthy data
 // and must be named; a Copied volume whose destination exists must not be.
 func TestOfferNoticeNamesUncopiedVolumes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	bad := naming.LegacyHomePrefix + "bad"
 	present := naming.LegacyHomePrefix + "present"
@@ -1033,13 +1036,13 @@ func TestOfferNoticeNamesUncopiedVolumes(t *testing.T) {
 	createPrivateVolume(t, present) // present but unverified: an unclear private home
 
 	target := t.TempDir()
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			if name == bad {
 				return nil, errors.New("no space")
 			}
 			createPrivateVolume(t, name)
-			return &msb.MockVolumeHandle{Name_: name, Path_: target}, nil
+			return &msbtest.MockVolumeHandle{Name_: name, Path_: target}, nil
 		},
 	}
 	ui := noticeUI(choiceCopy)
@@ -1066,7 +1069,7 @@ func TestOfferNoticeNamesUncopiedVolumes(t *testing.T) {
 // it and withhold every destructive command, while the genuinely copied volume
 // is safe.
 func TestOfferAmbiguousCopyNoticeKeepsUnverifiedVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	present := naming.LegacyHomePrefix + "present"
 	missing := naming.LegacyHomePrefix + "missing"
@@ -1075,10 +1078,10 @@ func TestOfferAmbiguousCopyNoticeKeepsUnverifiedVolume(t *testing.T) {
 	createPrivateVolume(t, present)
 
 	target := t.TempDir()
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		CreateVolumeFn: func(_ context.Context, name string, _ msb.VolumeSpec) (msb.VolumeHandle, error) {
 			createPrivateVolume(t, name)
-			return &msb.MockVolumeHandle{Name_: name, Path_: target}, nil
+			return &msbtest.MockVolumeHandle{Name_: name, Path_: target}, nil
 		},
 	}
 	ui := noticeUI(choiceCopy)
@@ -1101,7 +1104,7 @@ func TestOfferAmbiguousCopyNoticeKeepsUnverifiedVolume(t *testing.T) {
 // Excluded set is dropped at the terminal write: the uncopied volume is derived
 // from the home listings when the notice renders.
 func TestOfferDismissSuppressesCommandsForUncopiedVolumes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	uncopied := naming.LegacyHomePrefix + "uncopied"
 	remaining := naming.LegacyHomePrefix + "remaining"
@@ -1115,7 +1118,7 @@ func TestOfferDismissSuppressesCommandsForUncopiedVolumes(t *testing.T) {
 	}
 
 	ui := noticeUI(choiceFresh)
-	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
+	if err := Offer(context.Background(), &msbtest.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer: %v", err)
 	}
 	if len(ui.AcknowledgeCalls) != 1 {
@@ -1132,7 +1135,7 @@ func TestOfferDismissSuppressesCommandsForUncopiedVolumes(t *testing.T) {
 // yet a legacy volume with no private counterpart must still be named and must
 // still suppress both destructive commands.
 func TestOfferTerminalSessionSuppressesCommandsForUncopiedVolumes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	left := naming.LegacyHomePrefix + "left-behind"
 	addVolumeDir(t, legacy, left)
@@ -1142,8 +1145,8 @@ func TestOfferTerminalSessionSuppressesCommandsForUncopiedVolumes(t *testing.T) 
 		t.Fatalf("seed: %v", err)
 	}
 
-	ui := &termio.Mock{IsInteractiveResult: true}
-	if err := Offer(context.Background(), &msb.MockMsbClient{}, ui); err != nil {
+	ui := &termiotest.Mock{IsInteractiveResult: true}
+	if err := Offer(context.Background(), &msbtest.MockMsbClient{}, ui); err != nil {
 		t.Fatalf("Offer: %v", err)
 	}
 	if len(ui.AcknowledgeCalls) != 1 {
@@ -1158,7 +1161,7 @@ func TestOfferTerminalSessionSuppressesCommandsForUncopiedVolumes(t *testing.T) 
 // TestOfferFinalizeErrorPropagates pins that a failed finalize of a finished
 // campaign blocks the session instead of reporting success.
 func TestOfferFinalizeErrorPropagates(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := installLegacyHome(t)
 	done := naming.LegacyHomePrefix + "done"
 	addVolumeDir(t, legacy, done)
@@ -1168,8 +1171,8 @@ func TestOfferFinalizeErrorPropagates(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	blockRootState(t)
-	ui := termio.NewTestMock(t)
-	if err := Offer(context.Background(), &msb.MockMsbClient{}, &ui); err == nil {
+	ui := termiotest.NewTestMock(t)
+	if err := Offer(context.Background(), &msbtest.MockMsbClient{}, &ui); err == nil {
 		t.Fatal("Offer() error = nil, want the finalize write failure")
 	}
 }

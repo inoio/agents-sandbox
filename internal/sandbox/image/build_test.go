@@ -15,19 +15,21 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestEnsureImageWithClientSetsContentRef pins that the built image's content id
 // keys the microsandbox reference, while the Docker tag stays the slug/agent name.
 func TestEnsureImageWithClientSetsContentRef(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				ID:     testDockerImageID,
@@ -40,7 +42,7 @@ func TestEnsureImageWithClientSetsContentRef(t *testing.T) {
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"myproj-1abc1234defg5",
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureImageWithClient: %v", err)
@@ -62,10 +64,10 @@ func TestEnsureImageWithClientSetsContentRef(t *testing.T) {
 // no-content-id fallback: an image whose inspect reports no ID keeps the
 // prefix-free name reference rather than emitting a dangling content suffix.
 func TestEnsureImageWithClientFallsBackToNameRefWhenContentIDEmpty(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{Config: dockerConfigWith("1.2.3", nil)}, nil
 		},
@@ -75,7 +77,7 @@ func TestEnsureImageWithClientFallsBackToNameRefWhenContentIDEmpty(t *testing.T)
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"myproj-1abc1234defg5",
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureImageWithClient: %v", err)
@@ -214,7 +216,7 @@ func TestPlanRunnerImageNoRebuildReusesChangedImage(t *testing.T) {
 // TestPlanRunnerImageNoRebuildStillBuildsMissingImage pins that --no-rebuild
 // only skips a rebuild: without an image there is nothing to reuse.
 func TestPlanRunnerImageNoRebuildStillBuildsMissingImage(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(context.Context, string, ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{}, errors.New("No such image")
 		},
@@ -242,7 +244,7 @@ func TestPlanRunnerImageNoRebuildStillBuildsMissingImage(t *testing.T) {
 }
 
 func TestLogBuildDecisionNamesSkippedRebuildReasons(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	logBuildDecision(ui, "runner:tag", false, []string{"project Dockerfile changed", "agent version changed"},
 		"opencode", "1.2.3", "")
@@ -255,7 +257,7 @@ func TestLogBuildDecisionNamesSkippedRebuildReasons(t *testing.T) {
 }
 
 func TestLogBuildDecisionReuseWithoutChangesStaysVerbose(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	logBuildDecision(ui, "runner:tag", false, nil, "opencode", "1.2.3", "")
 
@@ -270,7 +272,7 @@ func TestLogBuildDecisionReuseWithoutChangesStaysVerbose(t *testing.T) {
 }
 
 func TestLogBuildDecisionNamesSingleSkippedRebuildReason(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 
 	logBuildDecision(ui, "runner:tag", false, []string{"base image updated"}, "opencode", "1.2.3", "")
 
@@ -281,7 +283,7 @@ func TestLogBuildDecisionNamesSingleSkippedRebuildReason(t *testing.T) {
 }
 
 func TestEnsureImageReportsBakedAgentVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	rendered, err := RenderDockerfile(a, "1.2.3", nil, dockerOff)
@@ -292,7 +294,7 @@ func TestEnsureImageReportsBakedAgentVersion(t *testing.T) {
 		dockerfileIDLabelKey: computeDockerfileID(rendered, "1.2.3"),
 		agentVersionLabelKey: "1.2.3",
 	}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			if ref == "debian:trixie-slim" {
 				return client.ImageInspectResult{ID: "sha256:base"}, nil
@@ -312,7 +314,7 @@ func TestEnsureImageReportsBakedAgentVersion(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
@@ -323,7 +325,7 @@ func TestEnsureImageReportsBakedAgentVersion(t *testing.T) {
 }
 
 func TestEnsureImageReportsEmptyForSentinelLabel(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	rendered, err := RenderDockerfile(a, "1.2.3", nil, dockerOff)
@@ -334,7 +336,7 @@ func TestEnsureImageReportsEmptyForSentinelLabel(t *testing.T) {
 		dockerfileIDLabelKey: computeDockerfileID(rendered, "1.2.3"),
 		agentVersionLabelKey: userProvidedImageIdentity,
 	}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			if ref == "debian:trixie-slim" {
 				return client.ImageInspectResult{ID: "sha256:base"}, nil
@@ -354,7 +356,7 @@ func TestEnsureImageReportsEmptyForSentinelLabel(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
@@ -367,11 +369,11 @@ func TestEnsureImageReportsEmptyForSentinelLabel(t *testing.T) {
 // TestEnsureImageSkipsBuildWhenDockerfileIDMatches verifies the build is skipped
 // when the existing runner image already carries a matching dockerfile-id label.
 func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	built := false
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			id := "sha256:existing"
 			labels := map[string]string{
@@ -398,7 +400,7 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
@@ -414,7 +416,7 @@ func TestEnsureImageSkipsBuildWhenDockerfileIDMatches(t *testing.T) {
 // TestEnsureImageReportsRenderError verifies a project Dockerfile that declares
 // a reserved stage alias surfaces the render error before any build runs.
 func TestEnsureImageReportsRenderError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	project := []byte("FROM debian:trixie-slim AS agents-sandbox-base\n")
@@ -426,7 +428,7 @@ func TestEnsureImageReportsRenderError(t *testing.T) {
 		project,
 		"proj",
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "render Dockerfile") {
 		t.Fatalf("EnsureImageWithClient error = %v, want a render Dockerfile error", err)
@@ -436,11 +438,11 @@ func TestEnsureImageReportsRenderError(t *testing.T) {
 // TestEnsureImageBuildsWhenDockerfileIDMismatches verifies the build runs when
 // the existing runner image's dockerfile-id label differs from the current one.
 func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	built := false
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			if ref == "debian:trixie-slim" {
 				return client.ImageInspectResult{ID: "sha256:base"}, nil
@@ -465,7 +467,7 @@ func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -477,11 +479,11 @@ func TestEnsureImageBuildsWhenDockerfileIDMismatches(t *testing.T) {
 // TestEnsureImageBuildArgsIncludeBaseAndAgentVersion asserts the BASE_IMAGE
 // provenance build arg and the pinned agent version arg.
 func TestEnsureImageBuildArgsIncludeBaseAndAgentVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	var gotArgs map[string]*string
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{ID: "sha256:base"}, nil
 		},
@@ -498,7 +500,7 @@ func TestEnsureImageBuildArgsIncludeBaseAndAgentVersion(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
@@ -516,7 +518,7 @@ func TestEnsureImageBuildArgsIncludeBaseAndAgentVersion(t *testing.T) {
 // TestEnsureImageResolvesAnUnpinnedAgentVersion verifies that an empty version
 // is resolved to a real release before it is passed to the Docker build.
 func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	var requested string
 	var gotArgs map[string]*string
@@ -524,7 +526,7 @@ func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
 		requested = req
 		return "1.2.3", nil
 	})
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{ID: "sha256:base"}, nil
 		},
@@ -541,7 +543,7 @@ func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -560,7 +562,7 @@ func TestEnsureImageResolvesAnUnpinnedAgentVersion(t *testing.T) {
 // an existing user-provided image can be reused without contacting the release
 // endpoint when its version was not recorded.
 func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	// The deferred path renders before the version is known, so the identity
 	// uses the version-less render.
@@ -572,7 +574,7 @@ func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) 
 		resolverCalled = true
 		return "1.2.3", nil
 	})
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				ID: "sha256:existing",
@@ -590,7 +592,7 @@ func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) 
 		"proj",
 		nil,
 		BuildOptions{UserProvided: true},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -606,7 +608,7 @@ func TestEnsureImageReusesUnknownUserAgentWithoutResolvingVersion(t *testing.T) 
 // user-provided image gets a real installer version and records that resolved
 // version in the image identity for subsequent reuse.
 func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	a := agentOpencode(t)
 	var gotArgs map[string]*string
 	var gotDockerfileID string
@@ -616,7 +618,7 @@ func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
 		}
 		return "1.2.3", nil
 	})
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				ID: "sha256:existing",
@@ -637,7 +639,7 @@ func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{UserProvided: true},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -653,11 +655,11 @@ func TestEnsureImageResolvesUnknownUserAgentOnlyForARebuild(t *testing.T) {
 // TestEnsureImageDockerAddsDockerVersionArg verifies the docker build arg is only
 // passed when dind is enabled.
 func TestEnsureImageDockerAddsDockerVersionArg(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	var gotArgs map[string]*string
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{ID: "sha256:base"}, nil
 		},
@@ -670,7 +672,7 @@ func TestEnsureImageDockerAddsDockerVersionArg(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{Docker: dockerOn},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("EnsureImage: %v", err)
 	}
@@ -680,13 +682,13 @@ func TestEnsureImageDockerAddsDockerVersionArg(t *testing.T) {
 }
 
 func TestEnsureImageVerboseNamesChangedInputs(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "2.0.0")
 	a := agentOpencode(t)
 	oldLabels := identityLabels(computeImageIdentity(nil, "1.0.0", false))
 	oldLabels[dockerfileIDLabelKey] = "stale"
 	built := false
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			_ context.Context, ref string, _ ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -703,7 +705,7 @@ func TestEnsureImageVerboseNamesChangedInputs(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if _, err := EnsureImage(
 		context.Background(),
 		docker.Get(),
@@ -725,7 +727,7 @@ func TestEnsureImageVerboseNamesChangedInputs(t *testing.T) {
 }
 
 func TestEnsureImageVerboseReportsReuse(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 	rendered, err := RenderDockerfile(a, testAgentVersion, nil, dockerOff)
@@ -735,7 +737,7 @@ func TestEnsureImageVerboseReportsReuse(t *testing.T) {
 	labels := map[string]string{
 		dockerfileIDLabelKey: computeDockerfileID(rendered, "1.2.3"),
 	}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			_ context.Context, ref string, _ ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -748,7 +750,7 @@ func TestEnsureImageVerboseReportsReuse(t *testing.T) {
 			}, nil
 		},
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if _, err := EnsureImage(
 		context.Background(),
 		docker.Get(),
@@ -767,10 +769,10 @@ func TestEnsureImageVerboseReportsReuse(t *testing.T) {
 }
 
 func TestEnsureImageVerboseReportsForcedRebuild(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(
 			_ context.Context, _ string, _ ...client.ImageInspectOption,
 		) (client.ImageInspectResult, error) {
@@ -780,7 +782,7 @@ func TestEnsureImageVerboseReportsForcedRebuild(t *testing.T) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
 	})
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if _, err := EnsureImage(
 		context.Background(),
 		docker.Get(),
@@ -818,7 +820,7 @@ func TestEnsureImageFailsWhenAStepFails(t *testing.T) {
 			t.Helper()
 			withMockAgentVersion(t, "1.2.3")
 			built, inspectsAfterBuild := false, 0
-			docker.WithDockerMock(t, &docker.MockDockerClient{
+			dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 				ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 					if !built {
 						return client.ImageInspectResult{ID: "sha256:base"}, nil
@@ -850,7 +852,7 @@ func TestEnsureImageFailsWhenAStepFails(t *testing.T) {
 			setup: func(t *testing.T) {
 				t.Helper()
 				failingResolver(t)
-				docker.WithDockerMock(t, &docker.MockDockerClient{
+				dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 					ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 						return client.ImageInspectResult{
 							ID: "sha256:existing",
@@ -869,7 +871,7 @@ func TestEnsureImageFailsWhenAStepFails(t *testing.T) {
 			setup: func(t *testing.T) {
 				t.Helper()
 				withMockAgentVersion(t, "1.2.3")
-				docker.WithDockerMock(t, &docker.MockDockerClient{
+				dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 					ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 						return client.ImageInspectResult{ID: "sha256:base"}, nil
 					},
@@ -903,10 +905,10 @@ func TestEnsureImageFailsWhenAStepFails(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			tc.setup(t)
 			_, err := EnsureImageWithClient(context.Background(), docker.Get(), agentOpencode(t),
-				[]byte("FROM debian:trixie-slim\n"), "proj", tc.opts, &termio.Mock{},
+				[]byte("FROM debian:trixie-slim\n"), "proj", tc.opts, &termiotest.Mock{},
 			)
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Errorf("EnsureImageWithClient error = %v, want it to contain %q", err, tc.wantErr)
@@ -922,11 +924,11 @@ func TestEnsureImageFailsWhenAStepFails(t *testing.T) {
 // through the UI when a project Dockerfile using a legacy dind spelling is
 // ensured for building.
 func TestEnsureImageWarnsOnLegacyDockerfileForms(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			if ref == "debian:trixie-slim" {
 				return client.ImageInspectResult{ID: "sha256:base"}, nil
@@ -944,7 +946,7 @@ func TestEnsureImageWarnsOnLegacyDockerfileForms(t *testing.T) {
 	})
 
 	project := []byte("FROM agents-sandbox/runner-base-dind\n# agents-sandbox:dind\nRUN echo hi\n")
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if _, err := EnsureImageWithClient(
 		context.Background(),
 		docker.Get(),
@@ -969,11 +971,11 @@ func TestEnsureImageWarnsOnLegacyDockerfileForms(t *testing.T) {
 // project-Dockerfile deprecations warn on every ensure, including a cached
 // reuse: a Dockerfile carrying both legacy forms yields two warnings per call.
 func TestEnsureImageWarnsOnEveryEnsure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a := agentOpencode(t)
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			if ref == "debian:trixie-slim" {
 				return client.ImageInspectResult{ID: "sha256:base"}, nil
@@ -991,7 +993,7 @@ func TestEnsureImageWarnsOnEveryEnsure(t *testing.T) {
 	})
 
 	project := []byte("FROM agents-sandbox/runner-base-dind\n# agents-sandbox:dind\nRUN echo hi\n")
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	for range 2 {
 		if _, err := EnsureImageWithClient(
 			context.Background(),
@@ -1023,9 +1025,9 @@ func TestEnsureImageWarnsOnEveryEnsure(t *testing.T) {
 
 func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				ID:     "sha256:abc123",
@@ -1033,7 +1035,7 @@ func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 			}, nil
 		},
 	})
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error {
 			return errors.New("image not in cache")
 		},
@@ -1043,7 +1045,7 @@ func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 		dockerfile,
 		"test-project",
 		BuildOptions{Force: false},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1062,7 +1064,7 @@ func TestEnsureImageDoesNotLoadIntoMSB(t *testing.T) {
 // BASE_IMAGE label keeps the familiar spelling either way.
 func TestEnsureImageResolvesBaseDigestByRenderedRef(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	orig := defaultAgentVersionResolver
 	defaultAgentVersionResolver = func(_ context.Context, _ agent.Agent, requested string) (string, error) {
 		return requested, nil
@@ -1092,7 +1094,7 @@ func TestEnsureImageResolvesBaseDigestByRenderedRef(t *testing.T) {
 			var inspected []string
 			var pulled string
 			var captured map[string]*string
-			m := &docker.MockDockerClient{}
+			m := &dockertest.MockDockerClient{}
 			m.ImageInspectFn = func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 				inspected = append(inspected, ref)
 				if ref == tc.wantLookup && pulled == "" {
@@ -1102,19 +1104,19 @@ func TestEnsureImageResolvesBaseDigestByRenderedRef(t *testing.T) {
 			}
 			m.ImagePullFn = func(_ context.Context, ref string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
 				pulled = ref
-				return docker.PullResponse{Body: strings.NewReader("")}, nil
+				return dockertest.PullResponse{Body: strings.NewReader("")}, nil
 			}
 			m.ImageBuildFn = func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
 				captured = opts.BuildArgs
 				return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
 			}
-			docker.WithDockerMock(t, m)
+			dockertest.WithDockerMock(t, m)
 
 			if _, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
 				tc.project,
 				"test-project",
 				BuildOptions{Force: true, AgentVersion: "1.2.3"},
-				&termio.Mock{},
+				&termiotest.Mock{},
 			); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -1140,14 +1142,14 @@ func TestEnsureImageResolvesBaseDigestByRenderedRef(t *testing.T) {
 
 func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	orig := defaultAgentVersionResolver
 	defaultAgentVersionResolver = func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "2.0.0", nil
 	}
 	t.Cleanup(func() { defaultAgentVersionResolver = orig })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				ID:     "sha256:abc123",
@@ -1156,7 +1158,7 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 		},
 	})
 
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 
@@ -1164,7 +1166,7 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1179,9 +1181,9 @@ func TestEnsureImageReadsVersionAndEnvFromDocker(t *testing.T) {
 
 func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				ID: "sha256:abc123",
@@ -1195,7 +1197,7 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1208,14 +1210,14 @@ func TestEnsureImageReturnsDigestImageRefAsTag(t *testing.T) {
 
 func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	orig := defaultAgentVersionResolver
 	defaultAgentVersionResolver = func(_ context.Context, _ agent.Agent, _ string) (string, error) {
 		return "3.0.0", nil
 	}
 	t.Cleanup(func() { defaultAgentVersionResolver = orig })
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				ID:     "sha256:abc123",
@@ -1224,13 +1226,13 @@ func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 		},
 	})
 
-	msbClient := &msb.MockMsbClient{}
+	msbClient := &msbtest.MockMsbClient{}
 
 	info, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: false},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1247,11 +1249,11 @@ func TestEnsureImageReadsVersionFromDocker(t *testing.T) {
 // reuses an image without an agent-version label without looking up the latest
 // release: the lookup needs the network, and a reused image never uses it.
 func TestEnsureImageNoRebuildReusesUnlabeledImageOffline(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersionResolver(t, func(context.Context, agent.Agent, string) (string, error) {
 		return "", errors.New("offline")
 	})
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(context.Context, string, ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				ID:     "sha256:existing",
@@ -1268,7 +1270,7 @@ func TestEnsureImageNoRebuildReusesUnlabeledImageOffline(t *testing.T) {
 		"proj",
 		nil,
 		BuildOptions{NoRebuild: true},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("EnsureImage: %v", err)
@@ -1283,8 +1285,8 @@ func TestEnsureImageNoRebuildReusesUnlabeledImageOffline(t *testing.T) {
 // runs before any docker work, so a docker failure is immaterial to the assert.
 func TestEnsureImageWarnsIgnoredWorktreeConfig(t *testing.T) {
 	synthesizeBareWorktree(t, true)
-	docker.WithDefaultErrorDockerMock(t)
-	ui := &termio.Mock{}
+	dockertest.WithDefaultErrorDockerMock(t)
+	ui := &termiotest.Mock{}
 
 	_, _ = EnsureImage(
 		context.Background(),
@@ -1328,10 +1330,10 @@ func TestBuildRequestKeepsRawAndEffectiveDockerApart(t *testing.T) {
 }
 
 func TestBuildLoadsTheEnsuredImageIntoMicrosandbox(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "1.2.3")
 	a, _ := agent.Lookup("opencode")
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				ID:     "sha256:abc123",
@@ -1342,7 +1344,7 @@ func TestBuildLoadsTheEnsuredImageIntoMicrosandbox(t *testing.T) {
 			return io.NopCloser(io.LimitReader(nil, 0)), nil
 		},
 	})
-	msbClient := &msb.MockMsbClient{
+	msbClient := &msbtest.MockMsbClient{
 		ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 	}
 	if _, err := Build(
@@ -1354,7 +1356,7 @@ func TestBuildLoadsTheEnsuredImageIntoMicrosandbox(t *testing.T) {
 		"test-project",
 		nil,
 		BuildOptions{},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1373,14 +1375,14 @@ func TestBuildFailsWhenEnsureOrLoadFails(t *testing.T) {
 	}{
 		{
 			name:  "image build fails",
-			setup: docker.WithDefaultErrorDockerMock,
+			setup: dockertest.WithDefaultErrorDockerMock,
 			opts:  BuildOptions{Force: true},
 		},
 		{
 			name: "load into microsandbox fails",
 			setup: func(t *testing.T) {
 				t.Helper()
-				docker.WithDockerMock(t, &docker.MockDockerClient{
+				dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 					ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 						return client.ImageInspectResult{ID: "sha256:abc123", Config: dockerConfigWith("1.2.3", nil)}, nil
 					},
@@ -1392,14 +1394,14 @@ func TestBuildFailsWhenEnsureOrLoadFails(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			withMockAgentVersion(t, "1.2.3")
 			tc.setup(t)
-			msbClient := &msb.MockMsbClient{
+			msbClient := &msbtest.MockMsbClient{
 				ImageGetFn: func(_ context.Context, _ string) error { return errors.New("not cached") },
 			}
 			if _, err := Build(context.Background(), docker.Get(), msbClient, configpaths.Get(),
-				agentOpencode(t), "test-project", nil, tc.opts, &termio.Mock{},
+				agentOpencode(t), "test-project", nil, tc.opts, &termiotest.Mock{},
 			); err == nil {
 				t.Error("Build error = nil, want a failure")
 			}
@@ -1410,13 +1412,13 @@ func TestBuildFailsWhenEnsureOrLoadFails(t *testing.T) {
 // TestBuildWarnsIgnoredWorktreeConfig pins the same warning on the Build entry.
 func TestBuildWarnsIgnoredWorktreeConfig(t *testing.T) {
 	synthesizeBareWorktree(t, true)
-	docker.WithDefaultErrorDockerMock(t)
-	ui := &termio.Mock{}
+	dockertest.WithDefaultErrorDockerMock(t)
+	ui := &termiotest.Mock{}
 
 	_, _ = Build(
 		context.Background(),
 		docker.Get(),
-		&msb.MockMsbClient{},
+		&msbtest.MockMsbClient{},
 		configpaths.Get(),
 		agentOpencode(t),
 		"slug",

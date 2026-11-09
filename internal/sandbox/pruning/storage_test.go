@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestPruneAgeSeconds pins the age-to-seconds conversion, including the
@@ -40,10 +41,10 @@ func TestPruneAgeSeconds(t *testing.T) {
 }
 
 func TestPruneStoragePassesAgeAndDryRun(t *testing.T) {
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if _, err := PruneStorage(context.Background(), PruneState{Age: 2 * 24 * time.Hour}, true, ui); err != nil {
 		t.Fatalf("PruneStorage: %v", err)
 	}
@@ -60,10 +61,10 @@ func TestPruneStoragePassesAgeAndDryRun(t *testing.T) {
 }
 
 func TestPruneStorageZeroAgeDisablesAgeFilter(t *testing.T) {
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
 
-	if _, err := PruneStorage(context.Background(), PruneState{Age: 0}, false, &termio.Mock{}); err != nil {
+	if _, err := PruneStorage(context.Background(), PruneState{Age: 0}, false, &termiotest.Mock{}); err != nil {
 		t.Fatalf("PruneStorage: %v", err)
 	}
 	if got := client.StoragePruneCalls[0].OlderThanSeconds; got != 0 {
@@ -73,7 +74,7 @@ func TestPruneStorageZeroAgeDisablesAgeFilter(t *testing.T) {
 
 func TestPruneStorageReportsBytes(t *testing.T) {
 	physical := uint64(4096)
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
 			return &msb.PruneReport{
 				FilesRemoved:           2,
@@ -82,9 +83,9 @@ func TestPruneStorageReportsBytes(t *testing.T) {
 			}, nil
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
-	report, err := PruneStorage(context.Background(), PruneState{Age: time.Hour}, false, &termio.Mock{})
+	report, err := PruneStorage(context.Background(), PruneState{Age: time.Hour}, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("PruneStorage: %v", err)
 	}
@@ -100,14 +101,14 @@ func TestPruneStorageReportsBytes(t *testing.T) {
 // a runtime that cannot measure physical reclamation must not be reported as
 // having reclaimed zero bytes.
 func TestPruneStorageUnknownPhysicalBytesStayNil(t *testing.T) {
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
 			return &msb.PruneReport{FilesRemoved: 1, LogicalBytesRemoved: 100}, nil
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
-	report, err := PruneStorage(context.Background(), PruneState{Age: time.Hour}, false, &termio.Mock{})
+	report, err := PruneStorage(context.Background(), PruneState{Age: time.Hour}, false, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("PruneStorage: %v", err)
 	}
@@ -117,14 +118,14 @@ func TestPruneStorageUnknownPhysicalBytesStayNil(t *testing.T) {
 }
 
 func TestPruneStorageFailureWarnsAndReturnsError(t *testing.T) {
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
 			return nil, errors.New("storage boom")
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	_, err := PruneStorage(context.Background(), PruneState{Age: time.Hour}, false, ui)
 	if err == nil || !strings.Contains(err.Error(), "storage boom") {
 		t.Fatalf("PruneStorage error = %v, want the SDK error", err)

@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
 func TestCommitNewHomeVolumePreservesUnrelatedFields(t *testing.T) {
 	for _, clearRecoveredMarker := range []bool{false, true} {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		key := state.Key{Slug: "myproj", Agent: "opencode"}
 		prior := priorHomeStateWithFingerprints("old-vol")
 		seedHomeState(key, prior)
@@ -33,7 +33,7 @@ func TestCommitNewHomeVolumePreservesUnrelatedFields(t *testing.T) {
 }
 
 func TestCommitNewHomeVolumeAbortsWhenHomeVolumeChanged(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "myproj", Agent: "opencode"}
 	prior := priorHomeStateWithFingerprints("other-vol")
 	seedHomeState(key, prior)

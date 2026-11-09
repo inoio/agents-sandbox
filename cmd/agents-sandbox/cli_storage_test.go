@@ -15,6 +15,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
@@ -47,7 +48,7 @@ func storageReportWithTotals() *sandboxmsb.StorageReport {
 
 func TestDF(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, cmdDF)
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		StorageUsageFn: func(context.Context) (*sandboxmsb.StorageReport, error) {
 			return storageReportWithTotals(), nil
 		},
@@ -74,7 +75,7 @@ func TestDF(t *testing.T) {
 
 func TestDFUnknownRendersDash(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, cmdDF)
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		StorageUsageFn: func(context.Context) (*sandboxmsb.StorageReport, error) {
 			return &sandboxmsb.StorageReport{}, nil
 		},
@@ -89,7 +90,7 @@ func TestDFUnknownRendersDash(t *testing.T) {
 
 func TestDFUnsupported(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, cmdDF)
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		StorageUsageFn: func(context.Context) (*sandboxmsb.StorageReport, error) {
 			return nil, &msbSdk.Error{Kind: msbSdk.ErrUnsupportedOperation, Message: "remote backend"}
 		},
@@ -109,7 +110,7 @@ func TestDFUnsupported(t *testing.T) {
 
 func TestDFVerboseUnsupported(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, cmdDF, "--verbose")
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		StorageUsageFn: func(context.Context) (*sandboxmsb.StorageReport, error) {
 			return nil, &msbSdk.Error{Kind: msbSdk.ErrUnsupportedOperation, Message: "remote backend"}
 		},
@@ -135,7 +136,7 @@ func TestStorageCategoryJSONFallback(t *testing.T) {
 }
 
 func TestDFObserveError(t *testing.T) {
-	runListCmdTest(t, []string{cmdDF}, func(m *sandboxmsb.MockMsbClient) {
+	runListCmdTest(t, []string{cmdDF}, func(m *msbtest.MockMsbClient) {
 		m.StorageUsageFn = func(context.Context) (*sandboxmsb.StorageReport, error) {
 			return nil, errBoom
 		}
@@ -144,7 +145,7 @@ func TestDFObserveError(t *testing.T) {
 
 func TestDFQuiet(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, cmdDF, "--quiet")
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		StorageUsageFn: func(context.Context) (*sandboxmsb.StorageReport, error) {
 			return storageReportWithTotals(), nil
 		},
@@ -164,7 +165,7 @@ func TestDFQuiet(t *testing.T) {
 
 func TestDFFormatJSON(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, cmdDF, "--format", "json")
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		StorageUsageFn: func(context.Context) (*sandboxmsb.StorageReport, error) {
 			return storageReportWithTotals(), nil
 		},
@@ -199,7 +200,7 @@ func TestDFFormatJSON(t *testing.T) {
 func TestDFVerbose(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, cmdDF, "--verbose")
 	path := writeRuntimeFile(t, "bin", "msb", 64)
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		StorageUsageFn: func(context.Context) (*sandboxmsb.StorageReport, error) {
 			return storageReportWithTotals(), nil
 		},
@@ -248,7 +249,7 @@ func storageReportWithItem() *sandboxmsb.StorageReport {
 
 func TestDFVerboseDetails(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, cmdDF, "--verbose")
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		StorageUsageFn: func(context.Context) (*sandboxmsb.StorageReport, error) {
 			return storageReportWithItem(), nil
 		},
@@ -278,7 +279,7 @@ func TestDFVerboseDetails(t *testing.T) {
 func TestDFVerboseFormatJSON(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, cmdDF, "--verbose", "--format", "json")
 	path := writeRuntimeFile(t, "bin", "msb", 64)
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		StorageUsageFn: func(context.Context) (*sandboxmsb.StorageReport, error) {
 			return storageReportWithTotals(), nil
 		},
@@ -304,7 +305,7 @@ func TestDFVerboseFormatJSON(t *testing.T) {
 func TestDFFormatJSONIncludesObjects(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, cmdDF, "--format", "json")
 	path := writeRuntimeFile(t, "bin", "msb", 64)
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		StorageUsageFn: func(context.Context) (*sandboxmsb.StorageReport, error) {
 			return storageReportWithTotals(), nil
 		},
@@ -322,7 +323,7 @@ func TestDFFormatJSONIncludesObjects(t *testing.T) {
 // %w so its cause stays reachable.
 func TestDFObserveErrorPreservesCause(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, cmdDF)
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		StorageUsageFn: func(context.Context) (*sandboxmsb.StorageReport, error) {
 			return nil, errBoom
 		},
@@ -335,12 +336,12 @@ func TestDFObserveErrorPreservesCause(t *testing.T) {
 
 func TestDFFormatConflict(t *testing.T) {
 	runListCmdTest(t, []string{cmdDF, "--quiet", "--format", "json"},
-		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "mutually exclusive")
+		func(_ *msbtest.MockMsbClient) {}, nil, nil, true, "mutually exclusive")
 }
 
 func TestDFFormatUnknown(t *testing.T) {
 	runListCmdTest(t, []string{cmdDF, "--format", "yaml"},
-		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "unsupported format")
+		func(_ *msbtest.MockMsbClient) {}, nil, nil, true, "unsupported format")
 }
 
 func TestDFNoArgs(t *testing.T) {
@@ -352,7 +353,7 @@ func TestDFNoArgs(t *testing.T) {
 
 func TestStorageDF(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, cmdStorage, cmdDF)
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		StorageUsageFn: func(context.Context) (*sandboxmsb.StorageReport, error) {
 			return storageReportWithTotals(), nil
 		},
@@ -367,7 +368,7 @@ func TestStorageDF(t *testing.T) {
 
 func TestStoragePruneDryRun(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, cmdStorage, cmdPrune, "--dry-run")
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("storage prune --dry-run: %v", err)
 	}
@@ -378,7 +379,7 @@ func TestStoragePruneDryRun(t *testing.T) {
 
 func TestStoragePruneNonInteractiveRequiresYes(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, cmdStorage, cmdPrune)
-	sandboxmsb.WithMsbMock(t, &sandboxmsb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 	if err := cmd.Execute(); !errors.Is(err, termio.ErrConfirmationRequired) {
 		t.Fatalf("storage prune error = %v, want ErrConfirmationRequired", err)
 	}

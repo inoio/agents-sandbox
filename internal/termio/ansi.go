@@ -21,7 +21,7 @@ const (
 // StyleStatus returns a sandbox status rendered with the color microsandbox
 // uses in its list output: running is green, stopped/created dim, transitional
 // states yellow, crashed red. The returned string embeds ANSI codes; callers
-// strip them via stripANSICodes when writing with color disabled. Unknown
+// strip them via StripANSICodes when writing with color disabled. Unknown
 // statuses are returned lowercased and unstyled.
 func StyleStatus(status string) string {
 	var style string
@@ -40,11 +40,11 @@ func StyleStatus(status string) string {
 	return style + status + ansiReset
 }
 
-// stripANSICodes removes ANSI escape sequences from s, returning the visible
+// StripANSICodes removes ANSI escape sequences from s, returning the visible
 // text. It handles CSI sequences (ESC [ ... final byte) and two-byte escapes
 // (ESC followed by a single character), which covers every sequence the CLI
 // emits.
-func stripANSICodes(s string) string {
+func StripANSICodes(s string) string {
 	if !strings.ContainsRune(s, '\x1b') {
 		return s
 	}

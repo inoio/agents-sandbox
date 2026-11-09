@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 func TestMemoryStoreRoundTrips(t *testing.T) {
@@ -27,7 +28,7 @@ func TestMemoryStoreRoundTrips(t *testing.T) {
 }
 
 func TestLegacyStatePathLivesInUserStateDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	want := filepath.Join(configpaths.Get().UserStateDir(), "upgrade.json")
 	if got := legacyStatePath(configpaths.Get()); got != want {
 		t.Fatalf("legacyStatePath(configpaths.Get()) = %q, want %q", got, want)
@@ -35,7 +36,7 @@ func TestLegacyStatePathLivesInUserStateDir(t *testing.T) {
 }
 
 func TestFoldLegacyStateCopiesAndRemoves(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeLegacy(t, `{"last_check":"2026-09-01T00:00:00Z","dismissed_versions":["1.5.2"]}`)
 	s := &fakeStore{}
 	if err := FoldLegacyState(s, configpaths.Get()); err != nil {
@@ -50,7 +51,7 @@ func TestFoldLegacyStateCopiesAndRemoves(t *testing.T) {
 }
 
 func TestFoldLegacyStateUnionsDismissalsAndKeepsPresentLastChecked(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeLegacy(t, `{"last_check":"2026-09-01T00:00:00Z","dismissed_versions":["1.5.2"]}`)
 	present := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	s := &fakeStore{state: LauncherState{LastChecked: present, DismissedVersions: []string{"2.0.0"}}}
@@ -66,7 +67,7 @@ func TestFoldLegacyStateUnionsDismissalsAndKeepsPresentLastChecked(t *testing.T)
 }
 
 func TestFoldLegacyStateCorruptRemovedWithoutFolding(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeLegacy(t, "{not json")
 	s := &fakeStore{}
 	if err := FoldLegacyState(s, configpaths.Get()); err != nil {
@@ -81,7 +82,7 @@ func TestFoldLegacyStateCorruptRemovedWithoutFolding(t *testing.T) {
 }
 
 func TestFoldLegacyStateKeepsFileOnWriteFailure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeLegacy(t, `{"dismissed_versions":["1.5.2"]}`)
 	s := &writeFailingStore{inner: &fakeStore{}}
 	if err := FoldLegacyState(s, configpaths.Get()); err == nil {
@@ -93,7 +94,7 @@ func TestFoldLegacyStateKeepsFileOnWriteFailure(t *testing.T) {
 }
 
 func TestFoldLegacyStateDoesNotClobberAConcurrentDismissal(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	writeLegacy(t, `{"dismissed_versions":["1.5.2"]}`)
 	s := &interleavingStore{}
 	if err := FoldLegacyState(s, configpaths.Get()); err != nil {
@@ -110,7 +111,7 @@ func TestFoldLegacyStateDoesNotClobberAConcurrentDismissal(t *testing.T) {
 func TestFoldLegacyStateUnreadableFileIsRetried(t *testing.T) {
 	// A read error other than "does not exist" leaves the file in place so a
 	// later check retries the fold.
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.Mkdir(legacyStatePath(configpaths.Get()), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +121,7 @@ func TestFoldLegacyStateUnreadableFileIsRetried(t *testing.T) {
 }
 
 func TestFoldLegacyStateMissingFileLeavesStoreUntouched(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	_ = os.Remove(legacyStatePath(configpaths.Get()))
 	if err := FoldLegacyState(&storeNotTouchedStore{t: t}, configpaths.Get()); err != nil {
 		t.Fatalf("missing file must be a no-op, got %v", err)

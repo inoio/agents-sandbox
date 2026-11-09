@@ -1,8 +1,11 @@
-package configpaths
+package configpaths_test
 
 import (
 	"reflect"
 	"testing"
+
+	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 // TestWithoutProjectLayerDropsEveryProjectInput pins the exclusion an
@@ -10,14 +13,14 @@ import (
 // project Dockerfile, so no reader that derives its inputs from these can reach
 // the project layer.
 func TestWithoutProjectLayerDropsEveryProjectInput(t *testing.T) {
-	WithMockConfigPaths(t)
-	paths := WithoutProjectLayer(Get())
+	configpathstest.WithMockConfigPaths(t)
+	paths := configpaths.WithoutProjectLayer(configpaths.Get())
 
-	want := []ConfigScope{
-		{Kind: ScopeGenericUser, Dir: paths.UserConfigDir()},
-		{Kind: ScopePerSlugUser, Dir: paths.UserSlugConfigDir("widget-bbb")},
+	want := []configpaths.ConfigScope{
+		{Kind: configpaths.ScopeGenericUser, Dir: paths.UserConfigDir()},
+		{Kind: configpaths.ScopePerSlugUser, Dir: paths.UserSlugConfigDir("widget-bbb")},
 	}
-	if got := ConfigScopes(paths, "widget-bbb"); !reflect.DeepEqual(got, want) {
+	if got := configpaths.ConfigScopes(paths, "widget-bbb"); !reflect.DeepEqual(got, want) {
 		t.Errorf("ConfigScopes() = %+v, want only the user scopes %+v", got, want)
 	}
 	for name, got := range map[string]string{
@@ -35,9 +38,9 @@ func TestWithoutProjectLayerDropsEveryProjectInput(t *testing.T) {
 // TestWithoutProjectLayerKeepsTheUserPaths pins that the exclusion touches only
 // the project layer: every user path delegates unchanged.
 func TestWithoutProjectLayerKeepsTheUserPaths(t *testing.T) {
-	WithMockConfigPaths(t)
-	inner := Get()
-	paths := WithoutProjectLayer(inner)
+	configpathstest.WithMockConfigPaths(t)
+	inner := configpaths.Get()
+	paths := configpaths.WithoutProjectLayer(inner)
 
 	innerHome, innerErr := inner.UserHomeDir()
 	home, err := paths.UserHomeDir()
@@ -60,25 +63,27 @@ func TestWithoutProjectLayerKeepsTheUserPaths(t *testing.T) {
 // TestWithProjectLayerUndoesTheExclusion pins that the exclusion can be undone,
 // so a later decision starts from the full paths again.
 func TestWithProjectLayerUndoesTheExclusion(t *testing.T) {
-	WithMockConfigPaths(t)
-	inner := Get()
-	if got := WithProjectLayer(WithoutProjectLayer(inner)); got.ProjectConfigDir() != inner.ProjectConfigDir() {
+	configpathstest.WithMockConfigPaths(t)
+	inner := configpaths.Get()
+	if got := configpaths.WithProjectLayer(
+		configpaths.WithoutProjectLayer(inner),
+	); got.ProjectConfigDir() != inner.ProjectConfigDir() {
 		t.Errorf("ProjectConfigDir() after undo = %q, want %q", got.ProjectConfigDir(), inner.ProjectConfigDir())
 	}
-	if got := WithProjectLayer(inner); got != inner {
+	if got := configpaths.WithProjectLayer(inner); got != inner {
 		t.Error("WithProjectLayer changed paths that were not excluded")
 	}
 }
 
 func TestUseInstallsAndRestoresThePathFactory(t *testing.T) {
-	WithMockConfigPaths(t)
-	original := Get()
-	restore := Use(func() ConfigPaths { return WithoutProjectLayer(original) })
-	if Get().ProjectConfigDir() != "" {
+	configpathstest.WithMockConfigPaths(t)
+	original := configpaths.Get()
+	restore := configpaths.Use(func() configpaths.ConfigPaths { return configpaths.WithoutProjectLayer(original) })
+	if configpaths.Get().ProjectConfigDir() != "" {
 		t.Error("Use did not install the factory")
 	}
 	restore()
-	if Get().ProjectConfigDir() != original.ProjectConfigDir() {
+	if configpaths.Get().ProjectConfigDir() != original.ProjectConfigDir() {
 		t.Error("restore did not reinstall the previous factory")
 	}
 }

@@ -9,20 +9,21 @@ import (
 	"time"
 
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 var errBoom = errors.New("boom")
 
-func runListCmdTest(t *testing.T, cmdArgs []string, mockSetup func(m *sandboxmsb.MockMsbClient), wantOut,
+func runListCmdTest(t *testing.T, cmdArgs []string, mockSetup func(m *msbtest.MockMsbClient), wantOut,
 	wantInfo []string, wantErr bool, wantErrContains string,
 ) {
 	t.Helper()
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mockSetup(mock)
 	cmd, ui := setupCommandFixtures(t, cmdArgs...)
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	if err := cmd.Execute(); err != nil {
 		if !wantErr {
@@ -67,7 +68,7 @@ func containsNormalized(got []string, want string) bool {
 func TestListSandboxes(t *testing.T) {
 	type testCase struct {
 		name            string
-		mockSetup       func(m *sandboxmsb.MockMsbClient)
+		mockSetup       func(m *msbtest.MockMsbClient)
 		wantOut         []string
 		wantInfo        []string
 		wantErr         bool
@@ -77,14 +78,14 @@ func TestListSandboxes(t *testing.T) {
 	tests := []testCase{
 		{
 			name:      "empty (no sandboxes found)",
-			mockSetup: func(_ *sandboxmsb.MockMsbClient) {},
+			mockSetup: func(_ *msbtest.MockMsbClient) {},
 			wantInfo:  []string{"No sandboxes found."},
 		},
 		{
 			name: "one sandbox running",
-			mockSetup: func(m *sandboxmsb.MockMsbClient) {
+			mockSetup: func(m *msbtest.MockMsbClient) {
 				m.Sandboxes = []sandboxmsb.SandboxHandle{
-					&sandboxmsb.MockSandboxHandle{
+					&msbtest.MockSandboxHandle{
 						Name_:      "agents-sandbox-vm-abc123",
 						Status_:    sandboxmsb.SandboxStatusRunning,
 						CreatedAt_: time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC),
@@ -100,23 +101,23 @@ func TestListSandboxes(t *testing.T) {
 		},
 		{
 			name: "multiple sandboxes",
-			mockSetup: func(m *sandboxmsb.MockMsbClient) {
+			mockSetup: func(m *msbtest.MockMsbClient) {
 				m.Sandboxes = []sandboxmsb.SandboxHandle{
-					&sandboxmsb.MockSandboxHandle{
+					&msbtest.MockSandboxHandle{
 						Name_:      "agents-sandbox-vm-alpha",
 						Status_:    sandboxmsb.SandboxStatusRunning,
 						CreatedAt_: time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC),
 						UpdatedAt_: time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC),
 						Cfg:        &sandboxmsb.SandboxConfig{Image: "agents-sandbox/runner:latest"},
 					},
-					&sandboxmsb.MockSandboxHandle{
+					&msbtest.MockSandboxHandle{
 						Name_:      "agents-sandbox-vm-beta",
 						Status_:    sandboxmsb.SandboxStatusStopped,
 						CreatedAt_: time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC),
 						UpdatedAt_: time.Date(2026, 8, 16, 13, 0, 0, 0, time.UTC),
 						Cfg:        &sandboxmsb.SandboxConfig{Image: "agents-sandbox/runner:v1.0.0"},
 					},
-					&sandboxmsb.MockSandboxHandle{
+					&msbtest.MockSandboxHandle{
 						Name_:      "agents-sandbox-vm-gamma",
 						Status_:    sandboxmsb.SandboxStatusDraining,
 						CreatedAt_: time.Date(2026, 8, 15, 8, 30, 0, 0, time.UTC),
@@ -133,11 +134,11 @@ func TestListSandboxes(t *testing.T) {
 		},
 		{
 			name: "non-project VMs filtered",
-			mockSetup: func(m *sandboxmsb.MockMsbClient) {
+			mockSetup: func(m *msbtest.MockMsbClient) {
 				m.Sandboxes = []sandboxmsb.SandboxHandle{
-					&sandboxmsb.MockSandboxHandle{Name_: "myvm-other-abc", Status_: sandboxmsb.SandboxStatusRunning},
-					&sandboxmsb.MockSandboxHandle{Name_: "legacy-vm-xyz", Status_: sandboxmsb.SandboxStatusRunning},
-					&sandboxmsb.MockSandboxHandle{
+					&msbtest.MockSandboxHandle{Name_: "myvm-other-abc", Status_: sandboxmsb.SandboxStatusRunning},
+					&msbtest.MockSandboxHandle{Name_: "legacy-vm-xyz", Status_: sandboxmsb.SandboxStatusRunning},
+					&msbtest.MockSandboxHandle{
 						Name_:      "agents-sandbox-vm-abc",
 						Status_:    sandboxmsb.SandboxStatusRunning,
 						CreatedAt_: time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC),
@@ -152,7 +153,7 @@ func TestListSandboxes(t *testing.T) {
 		},
 		{
 			name:            "list sandboxes error",
-			mockSetup:       func(m *sandboxmsb.MockMsbClient) { m.ListSandboxesErr = errBoom },
+			mockSetup:       func(m *msbtest.MockMsbClient) { m.ListSandboxesErr = errBoom },
 			wantErr:         true,
 			wantErrContains: "list sandboxes",
 		},
@@ -175,8 +176,8 @@ func TestListSandboxes(t *testing.T) {
 }
 
 // projectSandbox builds a running project-VM mock handle with the given label map.
-func projectSandbox(name string, labels map[string]string) *sandboxmsb.MockSandboxHandle {
-	return &sandboxmsb.MockSandboxHandle{
+func projectSandbox(name string, labels map[string]string) *msbtest.MockSandboxHandle {
+	return &msbtest.MockSandboxHandle{
 		Name_:      name,
 		Status_:    sandboxmsb.SandboxStatusRunning,
 		CreatedAt_: time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC),
@@ -186,7 +187,7 @@ func projectSandbox(name string, labels map[string]string) *sandboxmsb.MockSandb
 }
 
 func TestListSandboxesLabelFilter(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
 		projectSandbox("agents-sandbox-vm-match",
 			map[string]string{naming.LabelProject: "myslug"}),
@@ -204,7 +205,7 @@ func TestListSandboxesLabelFilter(t *testing.T) {
 		return filtered, nil
 	}
 	cmd, ui := setupCommandFixtures(t, cmdList, "--label", "org.agents-sandbox.project=myslug")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -233,17 +234,17 @@ func labelsMatch(got, want map[string]string) bool {
 
 func TestListSandboxesLabelInvalid(t *testing.T) {
 	runListCmdTest(t, []string{cmdList, "--label", "missing-equals"},
-		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "invalid label")
+		func(_ *msbtest.MockMsbClient) {}, nil, nil, true, "invalid label")
 }
 
 func TestListSandboxesLimit(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
 		projectSandbox("agents-sandbox-vm-alpha", nil),
 		projectSandbox("agents-sandbox-vm-beta", nil),
 	}
 	cmd, ui := setupCommandFixtures(t, cmdList, "--limit", "1")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -262,13 +263,13 @@ func TestListSandboxesLimit(t *testing.T) {
 }
 
 func TestListSandboxesLimitZeroMeansNoLimit(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
 		projectSandbox("agents-sandbox-vm-alpha", nil),
 		projectSandbox("agents-sandbox-vm-beta", nil),
 	}
 	cmd, ui := setupCommandFixtures(t, cmdList, "--limit", "0")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -283,14 +284,14 @@ func TestListSandboxesLimitZeroMeansNoLimit(t *testing.T) {
 }
 
 func TestListSandboxesRunningOnly(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
 		projectSandbox("agents-sandbox-vm-running", nil),
 		projectSandbox("agents-sandbox-vm-stopped", nil),
 	}
-	mock.Sandboxes[1].(*sandboxmsb.MockSandboxHandle).Status_ = sandboxmsb.SandboxStatusStopped
+	mock.Sandboxes[1].(*msbtest.MockSandboxHandle).Status_ = sandboxmsb.SandboxStatusStopped
 	cmd, ui := setupCommandFixtures(t, cmdList, "--running")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -309,14 +310,14 @@ func TestListSandboxesRunningOnly(t *testing.T) {
 }
 
 func TestListSandboxesStoppedOnly(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
 		projectSandbox("agents-sandbox-vm-running", nil),
 		projectSandbox("agents-sandbox-vm-stopped", nil),
 	}
-	mock.Sandboxes[1].(*sandboxmsb.MockSandboxHandle).Status_ = sandboxmsb.SandboxStatusStopped
+	mock.Sandboxes[1].(*msbtest.MockSandboxHandle).Status_ = sandboxmsb.SandboxStatusStopped
 	cmd, ui := setupCommandFixtures(t, cmdList, "--stopped")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -335,14 +336,14 @@ func TestListSandboxesStoppedOnly(t *testing.T) {
 }
 
 func TestListSandboxesBothFlagsRunningWins(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
 		projectSandbox("agents-sandbox-vm-running", nil),
 		projectSandbox("agents-sandbox-vm-stopped", nil),
 	}
-	mock.Sandboxes[1].(*sandboxmsb.MockSandboxHandle).Status_ = sandboxmsb.SandboxStatusStopped
+	mock.Sandboxes[1].(*msbtest.MockSandboxHandle).Status_ = sandboxmsb.SandboxStatusStopped
 	cmd, ui := setupCommandFixtures(t, cmdList, "--running", "--stopped")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -361,13 +362,13 @@ func TestListSandboxesBothFlagsRunningWins(t *testing.T) {
 }
 
 func TestListSandboxesQuietNames(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
 		projectSandbox("agents-sandbox-vm-alpha", nil),
 		projectSandbox("agents-sandbox-vm-beta", nil),
 	}
 	cmd, ui := setupCommandFixtures(t, cmdList, "--names")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -389,13 +390,13 @@ func TestListSandboxesQuietNames(t *testing.T) {
 }
 
 func TestListSandboxesQuiet(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
 		projectSandbox("agents-sandbox-vm-alpha", nil),
 		projectSandbox("agents-sandbox-vm-beta", nil),
 	}
 	cmd, ui := setupCommandFixtures(t, cmdList, "--quiet")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -414,13 +415,13 @@ func TestListSandboxesQuiet(t *testing.T) {
 // effective UI quiet rather than the raw flag.
 func TestListSandboxesEnvQuiet(t *testing.T) {
 	t.Setenv("AGENTS_SANDBOX_QUIET", "true")
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
 		projectSandbox("agents-sandbox-vm-alpha", nil),
 		projectSandbox("agents-sandbox-vm-beta", nil),
 	}
 	cmd, ui := setupCommandFixtures(t, cmdList)
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -435,13 +436,13 @@ func TestListSandboxesEnvQuiet(t *testing.T) {
 }
 
 func TestListSandboxesFormatJSON(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []sandboxmsb.SandboxHandle{
 		projectSandbox("agents-sandbox-vm-abc",
 			map[string]string{naming.LabelProject: "myslug"}),
 	}
 	cmd, ui := setupCommandFixtures(t, cmdList, "--format", "json")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -472,23 +473,23 @@ func TestListSandboxesFormatJSON(t *testing.T) {
 
 func TestListSandboxesFormatJSONAndNamesConflict(t *testing.T) {
 	runListCmdTest(t, []string{cmdList, "--names", "--format", "json"},
-		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "mutually exclusive")
+		func(_ *msbtest.MockMsbClient) {}, nil, nil, true, "mutually exclusive")
 }
 
 func TestListSandboxesFormatJSONQuietConflict(t *testing.T) {
 	runListCmdTest(t, []string{cmdList, "--quiet", "--format", "json"},
-		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "mutually exclusive")
+		func(_ *msbtest.MockMsbClient) {}, nil, nil, true, "mutually exclusive")
 }
 
 func TestListSandboxesFormatUnknown(t *testing.T) {
 	runListCmdTest(t, []string{cmdList, "--format", "yaml"},
-		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "unsupported format")
+		func(_ *msbtest.MockMsbClient) {}, nil, nil, true, "unsupported format")
 }
 
 func TestListImages(t *testing.T) {
 	type testCase struct {
 		name            string
-		mockSetup       func(m *sandboxmsb.MockMsbClient)
+		mockSetup       func(m *msbtest.MockMsbClient)
 		wantOut         []string
 		wantInfo        []string
 		wantErr         bool
@@ -498,14 +499,14 @@ func TestListImages(t *testing.T) {
 	tests := []testCase{
 		{
 			name:      "empty (no images found)",
-			mockSetup: func(_ *sandboxmsb.MockMsbClient) {},
+			mockSetup: func(_ *msbtest.MockMsbClient) {},
 			wantInfo:  []string{"No images found."},
 		},
 		{
 			name: "one image",
-			mockSetup: func(m *sandboxmsb.MockMsbClient) {
+			mockSetup: func(m *msbtest.MockMsbClient) {
 				m.Images = []sandboxmsb.ImageHandle{
-					&sandboxmsb.MockImageHandle{
+					&msbtest.MockImageHandle{
 						Reference_:      "agents-sandbox/runner-proj-1mjusbm3wikhb0:opencode-latest",
 						ManifestDigest_: "sha256-abc123def456",
 						SizeBytes_:      int64PtrCLI(2 * 1024 * 1024 * 1024),
@@ -520,21 +521,21 @@ func TestListImages(t *testing.T) {
 		},
 		{
 			name: "multiple images",
-			mockSetup: func(m *sandboxmsb.MockMsbClient) {
+			mockSetup: func(m *msbtest.MockMsbClient) {
 				m.Images = []sandboxmsb.ImageHandle{
-					&sandboxmsb.MockImageHandle{
+					&msbtest.MockImageHandle{
 						Reference_:      "agents-sandbox/runner-alpha-1mjusbm3wikhb0:opencode-latest",
 						ManifestDigest_: "sha256-aaa",
 						SizeBytes_:      int64PtrCLI(864256000),
 						CreatedAt_:      time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC),
 					},
-					&sandboxmsb.MockImageHandle{
+					&msbtest.MockImageHandle{
 						Reference_:      "agents-sandbox/runner-beta-1mjusbm3wikhb0:pi-latest",
 						ManifestDigest_: "sha256-bbb",
 						SizeBytes_:      int64PtrCLI(1024),
 						CreatedAt_:      time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC),
 					},
-					&sandboxmsb.MockImageHandle{
+					&msbtest.MockImageHandle{
 						Reference_:      "agents-sandbox/runner-gamma-1mjusbm3wikhb0:opencode-latest",
 						ManifestDigest_: "sha256-ccc",
 					},
@@ -548,15 +549,15 @@ func TestListImages(t *testing.T) {
 		},
 		{
 			name: "non-opencode images filtered",
-			mockSetup: func(m *sandboxmsb.MockMsbClient) {
+			mockSetup: func(m *msbtest.MockMsbClient) {
 				m.Images = []sandboxmsb.ImageHandle{
-					&sandboxmsb.MockImageHandle{
+					&msbtest.MockImageHandle{
 						Reference_:      "agents-sandbox/runner-xyz-1mjusbm3wikhb0:opencode-latest",
 						ManifestDigest_: "sha256-abc123",
 						SizeBytes_:      int64PtrCLI(512),
 						CreatedAt_:      time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC),
 					},
-					&sandboxmsb.MockImageHandle{Reference_: "docker.io/some/img:latest", ManifestDigest_: "sha256-xxx"},
+					&msbtest.MockImageHandle{Reference_: "docker.io/some/img:latest", ManifestDigest_: "sha256-xxx"},
 				}
 			},
 			wantOut: []string{
@@ -565,7 +566,7 @@ func TestListImages(t *testing.T) {
 		},
 		{
 			name:            "list images error",
-			mockSetup:       func(m *sandboxmsb.MockMsbClient) { m.ListImagesErr = errBoom },
+			mockSetup:       func(m *msbtest.MockMsbClient) { m.ListImagesErr = errBoom },
 			wantErr:         true,
 			wantErrContains: "list images",
 		},
@@ -588,19 +589,19 @@ func TestListImages(t *testing.T) {
 }
 
 func TestListImagesQuiet(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Images = []sandboxmsb.ImageHandle{
-		&sandboxmsb.MockImageHandle{
+		&msbtest.MockImageHandle{
 			Reference_:      "agents-sandbox/runner-aaa-1mjusbm3wikhb0:opencode-latest",
 			ManifestDigest_: "sha256-aaa",
 		},
-		&sandboxmsb.MockImageHandle{
+		&msbtest.MockImageHandle{
 			Reference_:      "agents-sandbox/runner-bbb-1mjusbm3wikhb0:pi-latest",
 			ManifestDigest_: "sha256-bbb",
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdImage, cmdList, "--quiet")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -619,19 +620,19 @@ func TestListImagesQuiet(t *testing.T) {
 
 func TestListImagesEnvQuiet(t *testing.T) {
 	t.Setenv("AGENTS_SANDBOX_QUIET", "true")
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Images = []sandboxmsb.ImageHandle{
-		&sandboxmsb.MockImageHandle{
+		&msbtest.MockImageHandle{
 			Reference_:      "agents-sandbox/runner-aaa-1mjusbm3wikhb0:opencode-latest",
 			ManifestDigest_: "sha256-aaa",
 		},
-		&sandboxmsb.MockImageHandle{
+		&msbtest.MockImageHandle{
 			Reference_:      "agents-sandbox/runner-bbb-1mjusbm3wikhb0:pi-latest",
 			ManifestDigest_: "sha256-bbb",
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdImage, cmdList)
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -650,14 +651,14 @@ func TestListImagesEnvQuiet(t *testing.T) {
 
 func TestListImagesFormatUnknown(t *testing.T) {
 	runListCmdTest(t, []string{cmdImage, cmdList, "--format", "yaml"},
-		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "unsupported format")
+		func(_ *msbtest.MockMsbClient) {}, nil, nil, true, "unsupported format")
 }
 
 func TestListImagesFormatJSON(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	reference := "agents-sandbox/runner-abc-1mjusbm3wikhb0:opencode-latest"
 	mock.Images = []sandboxmsb.ImageHandle{
-		&sandboxmsb.MockImageHandle{
+		&msbtest.MockImageHandle{
 			Reference_:      reference,
 			ManifestDigest_: "sha256-abc",
 			SizeBytes_:      int64PtrCLI(1024),
@@ -665,7 +666,7 @@ func TestListImagesFormatJSON(t *testing.T) {
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdImage, cmdList, "--format", "json")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -690,9 +691,9 @@ func TestListImagesFormatJSON(t *testing.T) {
 }
 
 func TestListImagesFormatJSONEmpty(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	cmd, ui := setupCommandFixtures(t, cmdImage, cmdList, "--format", "json")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -703,13 +704,13 @@ func TestListImagesFormatJSONEmpty(t *testing.T) {
 }
 
 func TestListVolumesQuiet(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Volumes = []sandboxmsb.VolumeHandle{
-		&sandboxmsb.MockVolumeHandle{Name_: "agents-sandbox-home-aaa", Kind_: sandboxmsb.VolumeKindDir},
-		&sandboxmsb.MockVolumeHandle{Name_: "agents-sandbox-home-bbb", Kind_: sandboxmsb.VolumeKindDir},
+		&msbtest.MockVolumeHandle{Name_: "agents-sandbox-home-aaa", Kind_: sandboxmsb.VolumeKindDir},
+		&msbtest.MockVolumeHandle{Name_: "agents-sandbox-home-bbb", Kind_: sandboxmsb.VolumeKindDir},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdList, "--quiet")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -725,9 +726,9 @@ func TestListVolumesQuiet(t *testing.T) {
 
 func TestListVolumesFormatJSON(t *testing.T) {
 	capacity := uint64(1024 * 1024 * 1024)
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Volumes = []sandboxmsb.VolumeHandle{
-		&sandboxmsb.MockVolumeHandle{
+		&msbtest.MockVolumeHandle{
 			Name_:          "agents-sandbox-home-proj",
 			Kind_:          sandboxmsb.VolumeKindDisk,
 			CapacityBytes_: &capacity,
@@ -735,7 +736,7 @@ func TestListVolumesFormatJSON(t *testing.T) {
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdList, "--format", "json")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -759,9 +760,9 @@ func TestListVolumesFormatJSON(t *testing.T) {
 }
 
 func TestListVolumesFormatJSONEmpty(t *testing.T) {
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdList, "--format", "json")
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -773,13 +774,13 @@ func TestListVolumesFormatJSONEmpty(t *testing.T) {
 
 func TestListVolumesEnvQuiet(t *testing.T) {
 	t.Setenv("AGENTS_SANDBOX_QUIET", "true")
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Volumes = []sandboxmsb.VolumeHandle{
-		&sandboxmsb.MockVolumeHandle{Name_: "agents-sandbox-home-aaa", Kind_: sandboxmsb.VolumeKindDir},
-		&sandboxmsb.MockVolumeHandle{Name_: "agents-sandbox-home-bbb", Kind_: sandboxmsb.VolumeKindDir},
+		&msbtest.MockVolumeHandle{Name_: "agents-sandbox-home-aaa", Kind_: sandboxmsb.VolumeKindDir},
+		&msbtest.MockVolumeHandle{Name_: "agents-sandbox-home-bbb", Kind_: sandboxmsb.VolumeKindDir},
 	}
 	cmd, ui := setupCommandFixtures(t, cmdVolume, cmdList)
-	sandboxmsb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -795,7 +796,7 @@ func TestListVolumesEnvQuiet(t *testing.T) {
 
 func TestListVolumesFormatUnknown(t *testing.T) {
 	runListCmdTest(t, []string{cmdVolume, cmdList, "--format", "yaml"},
-		func(_ *sandboxmsb.MockMsbClient) {}, nil, nil, true, "unsupported format")
+		func(_ *msbtest.MockMsbClient) {}, nil, nil, true, "unsupported format")
 }
 
 func int64PtrCLI(n int64) *int64 { return new(n) }
@@ -815,7 +816,7 @@ func TestParseLabelFlagsRejectsEmptyKey(t *testing.T) {
 // TestBuildSandboxCmdHasListAndRun pins that the sandbox group still registers
 // the list and run subcommands.
 func TestBuildSandboxCmdHasListAndRun(t *testing.T) {
-	cmd := buildSandboxCmd(&termio.Mock{})
+	cmd := buildSandboxCmd(&termiotest.Mock{})
 	names := map[string]bool{}
 	for _, sub := range cmd.Commands() {
 		names[sub.Name()] = true
@@ -827,7 +828,7 @@ func TestBuildSandboxCmdHasListAndRun(t *testing.T) {
 
 // TestBuildListLimitDefault pins the --limit default of 0.
 func TestBuildListLimitDefault(t *testing.T) {
-	cmd := buildListCmd(&termio.Mock{})
+	cmd := buildListCmd(&termiotest.Mock{})
 	if got := cmd.Flags().Lookup(flagLimit).DefValue; got != "0" {
 		t.Errorf("--%s default = %q, want %q", flagLimit, got, "0")
 	}

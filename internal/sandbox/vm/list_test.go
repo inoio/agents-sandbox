@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 )
 
@@ -37,9 +38,9 @@ func TestFormatTime(t *testing.T) {
 // status, image, labels, and its created/updated times both formatted and raw.
 func TestListSandboxesPopulatesInfo(t *testing.T) {
 	now := time.Date(2026, 8, 17, 10, 30, 0, 0, time.UTC)
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{
+		&msbtest.MockSandboxHandle{
 			Name_:      "agents-sandbox-vm-abc",
 			Status_:    msb.SandboxStatusRunning,
 			CreatedAt_: now,
@@ -50,7 +51,7 @@ func TestListSandboxesPopulatesInfo(t *testing.T) {
 			},
 		},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	got, err := ListSandboxes(context.Background(), ListOption{})
 	if err != nil {
@@ -79,12 +80,12 @@ func TestListSandboxesPopulatesInfo(t *testing.T) {
 // slices past the result.
 func TestListSandboxesFiltersAndLimits(t *testing.T) {
 	sandboxes := []msb.SandboxHandle{
-		&msb.MockSandboxHandle{Name_: "running", Status_: msb.SandboxStatusRunning},
-		&msb.MockSandboxHandle{Name_: "stopped", Status_: msb.SandboxStatusStopped},
-		&msb.MockSandboxHandle{Name_: "starting", Status_: msb.SandboxStatusStarting},
-		&msb.MockSandboxHandle{Name_: "draining", Status_: msb.SandboxStatusDraining},
-		&msb.MockSandboxHandle{Name_: "created", Status_: msb.SandboxStatusCreated},
-		&msb.MockSandboxHandle{Name_: "crashed", Status_: msb.SandboxStatusCrashed},
+		&msbtest.MockSandboxHandle{Name_: "running", Status_: msb.SandboxStatusRunning},
+		&msbtest.MockSandboxHandle{Name_: "stopped", Status_: msb.SandboxStatusStopped},
+		&msbtest.MockSandboxHandle{Name_: "starting", Status_: msb.SandboxStatusStarting},
+		&msbtest.MockSandboxHandle{Name_: "draining", Status_: msb.SandboxStatusDraining},
+		&msbtest.MockSandboxHandle{Name_: "created", Status_: msb.SandboxStatusCreated},
+		&msbtest.MockSandboxHandle{Name_: "crashed", Status_: msb.SandboxStatusCrashed},
 	}
 	all := []string{"running", "stopped", "starting", "draining", "created", "crashed"}
 	cases := []struct {
@@ -101,7 +102,7 @@ func TestListSandboxesFiltersAndLimits(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			msb.WithMsbMock(t, &msb.MockMsbClient{Sandboxes: sandboxes})
+			msbtest.WithMsbMock(t, &msbtest.MockMsbClient{Sandboxes: sandboxes})
 
 			infos, err := ListSandboxes(context.Background(), tc.opt)
 			if err != nil {
@@ -119,14 +120,14 @@ func TestListSandboxesFiltersAndLimits(t *testing.T) {
 }
 
 func TestListSandboxesLabelsForwarded(t *testing.T) {
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = nil
 	var captured map[string]string
 	mock.ListSandboxesFn = func(_ context.Context, labels map[string]string) ([]msb.SandboxHandle, error) {
 		captured = labels
 		return mock.Sandboxes, nil
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	if _, err := ListSandboxes(context.Background(), ListOption{Labels: map[string]string{"k": "v"}}); err != nil {
 		t.Fatalf("ListSandboxes: %v", err)
@@ -140,21 +141,21 @@ func TestListSandboxesLabelsForwarded(t *testing.T) {
 // left out whichever naming scheme or label marks them, and that the filter
 // skips them rather than stopping: the project VM is listed after them.
 func TestListSandboxesHidesTaskSandboxesBothSchemes(t *testing.T) {
-	mock := &msb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	mock.Sandboxes = []msb.SandboxHandle{
-		&msb.MockSandboxHandle{
+		&msbtest.MockSandboxHandle{
 			Name_:   "myproj-1mjusbm3wikhb0-opencode-1729000000000000000",
 			Status_: msb.SandboxStatusRunning,
 		},
-		&msb.MockSandboxHandle{Name_: "agents-sandbox-task-x-1729", Status_: msb.SandboxStatusRunning},
-		&msb.MockSandboxHandle{
+		&msbtest.MockSandboxHandle{Name_: "agents-sandbox-task-x-1729", Status_: msb.SandboxStatusRunning},
+		&msbtest.MockSandboxHandle{
 			Name_:   "labelled-prefill",
 			Status_: msb.SandboxStatusRunning,
 			Cfg:     &msb.SandboxConfig{Labels: map[string]string{naming.LabelTask: "1"}},
 		},
-		&msb.MockSandboxHandle{Name_: "myproj-1mjusbm3wikhb0-opencode", Status_: msb.SandboxStatusRunning},
+		&msbtest.MockSandboxHandle{Name_: "myproj-1mjusbm3wikhb0-opencode", Status_: msb.SandboxStatusRunning},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	infos, err := ListSandboxes(context.Background(), ListOption{})
 	if err != nil {
@@ -169,10 +170,12 @@ func TestListSandboxesHidesTaskSandboxesBothSchemes(t *testing.T) {
 // preserved.
 func TestListSandboxesWrapsListError(t *testing.T) {
 	sentinel := errors.New("list boom")
-	mock := &msb.MockMsbClient{ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
-		return nil, sentinel
-	}}
-	msb.WithMsbMock(t, mock)
+	mock := &msbtest.MockMsbClient{
+		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
+			return nil, sentinel
+		},
+	}
+	msbtest.WithMsbMock(t, mock)
 
 	_, err := ListSandboxes(context.Background(), ListOption{})
 	if err == nil {

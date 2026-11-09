@@ -27,6 +27,14 @@ var Get = func() ConfigPaths {
 	return &realConfigPaths{}
 }
 
+// NewRealConfigPaths returns the real resolver. It is the seam a relocated test
+// double builds on when it needs the real impl but cannot name the internal type.
+//
+//deadcode:ignore reason="test seam: only the configpathstest package builds the real resolver"
+func NewRealConfigPaths() ConfigPaths {
+	return &realConfigPaths{}
+}
+
 // UserConfigDir returns the tool's user-config directory: $XDG_CONFIG_HOME/
 // agents-sandbox, defaulting to ~/.config/agents-sandbox.
 func (c *realConfigPaths) UserConfigDir() string {
@@ -84,8 +92,8 @@ func (c *realConfigPaths) ProjectConfigDir() string { return c.projectConfigBase
 // as ProjectConfigDirAbs does.
 func (c *realConfigPaths) projectConfigBase() string {
 	cwd, err := os.Getwd()
-	if err != nil { // gomutants:disable BRANCH_IF reason="an unreadable CWD makes resolveProjectConfig of the empty path resolve through the relative dot, which never yields the absolute bare base, so the fall-through returns projectConfigDir too"
-		return projectConfigDir
+	if err != nil { // gomutants:disable BRANCH_IF reason="an unreadable CWD makes resolveProjectConfig of the empty path resolve through the relative dot, which never yields the absolute bare base, so the fall-through returns ProjectConfigDir too"
+		return ProjectConfigDir
 	}
 	base, _ := resolveProjectConfig(cwd)
 	return base
@@ -112,8 +120,8 @@ func (c *realConfigPaths) ProjectConfigDirAbs() string {
 // project-local and the user-level config path helpers.
 const (
 	pathPrefix = "agents-sandbox"
-	// projectConfigDir is the project-local metadata directory for the tool.
-	projectConfigDir  = "." + pathPrefix
+	// ProjectConfigDir is the project-local metadata directory for the tool.
+	ProjectConfigDir  = "." + pathPrefix
 	EnvFileName       = "env"
 	EnvSecretFileName = "env.secret"
 	// Derived rather than a literal so gosec G101 does not flag the sensitive name.

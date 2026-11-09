@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 func diskStateKey() Key { return Key{Slug: "proj", Agent: "opencode"} }
@@ -23,7 +23,7 @@ func readDiskPressure(t *testing.T, k Key) map[string]DiskPressureState {
 // TestRecordDiskPressureKeepsOtherKindsAndFields pins that recording one kind's
 // hit leaves the other kinds' markers and the rest of the state untouched.
 func TestRecordDiskPressureKeepsOtherKindsAndFields(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := diskStateKey()
 	seen := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
 	tmp := DiskPressureState{SeenAt: seen, SizeKiB: 2048, AvailKiB: 10}
@@ -51,7 +51,7 @@ func TestRecordDiskPressureKeepsOtherKindsAndFields(t *testing.T) {
 // TestRecordDiskPressureStartsTheMap pins the first hit recorded into a state
 // that has no disk markers yet.
 func TestRecordDiskPressureStartsTheMap(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := diskStateKey()
 	if err := writeState(k, HomeState{HomeVolume: "vol"}); err != nil {
 		t.Fatalf("writeState: %v", err)
@@ -70,7 +70,7 @@ func TestRecordDiskPressureStartsTheMap(t *testing.T) {
 // TestDiskPressureWritersSkipMissingState pins that no writer creates a
 // fingerprint-less partial state.
 func TestDiskPressureWritersSkipMissingState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := diskStateKey()
 	now := time.Now()
 
@@ -96,7 +96,7 @@ func TestDiskPressureWritersSkipMissingState(t *testing.T) {
 // advances only the hit the offer named: a newer hit recorded meanwhile, or a
 // kind without a marker, stays as it is.
 func TestMarkDiskPressureOfferedAnswersOnlyTheNamedHit(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := diskStateKey()
 	seen := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
 	answeredAt := seen.Add(time.Minute)
@@ -137,7 +137,7 @@ func TestMarkDiskPressureOfferedAnswersOnlyTheNamedHit(t *testing.T) {
 // session recorded first, answered or not, is kept and returned, so a later
 // recorder neither re-opens an answered offer nor replaces a pending one.
 func TestRecordDiskPressureKeepsAnExistingHit(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := diskStateKey()
 	seen := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
 	first := DiskPressureState{SeenAt: seen, SizeKiB: 2048, AvailKiB: 10, OfferedAt: seen.Add(time.Minute)}
@@ -157,7 +157,7 @@ func TestRecordDiskPressureKeepsAnExistingHit(t *testing.T) {
 // TestRecordDiskPressureReportsAnUnreadableState pins that a state the
 // transaction cannot read fails the record, returning the caller's hit.
 func TestRecordDiskPressureReportsAnUnreadableState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := diskStateKey()
 	if err := writeState(k, HomeState{}); err != nil {
 		t.Fatalf("writeState: %v", err)
@@ -176,7 +176,7 @@ func TestRecordDiskPressureReportsAnUnreadableState(t *testing.T) {
 // the kind's marker only when it is the hit the caller saw recover, so a newer
 // hit another session recorded meanwhile, and the other kinds, stay.
 func TestClearDiskPressureRemovesOnlyTheNamedHit(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := diskStateKey()
 	seen := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
 	if err := writeState(k, HomeState{DiskPressure: map[string]DiskPressureState{

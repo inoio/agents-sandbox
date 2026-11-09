@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 )
 
@@ -18,7 +19,7 @@ func testKey() Key {
 }
 
 func TestWithHomeStateReadErrorDoesNotWrite(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 
 	// A directory at the state file path makes the read fail with EISDIR, which
@@ -39,7 +40,7 @@ func TestWithHomeStateWriteError(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: a read-only directory does not block writes")
 	}
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	if err := writeState(k, HomeState{HomeVolume: "vol-1"}); err != nil {
 		t.Fatalf("writeState: %v", err)
@@ -66,7 +67,7 @@ func TestWithHomeStateWriteError(t *testing.T) {
 }
 
 func TestWithHomeStateLockErrorReturnsError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("mkdir boom")
 	orig := mkdirHomeLock
 	mkdirHomeLock = func(string, os.FileMode) error { return wantErr }
@@ -80,7 +81,7 @@ func TestWithHomeStateLockErrorReturnsError(t *testing.T) {
 }
 
 func TestWithHomeStateFailsFastWhileHomeLockHeld(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 
 	release, ok, err := lockHomeState(k, true)
@@ -110,7 +111,7 @@ func TestWithHomeStateFailsFastWhileHomeLockHeld(t *testing.T) {
 }
 
 func TestLockHomeStateNonBlockingSkipsWhenHeld(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 
 	release, ok, err := lockHomeState(k, true)
@@ -129,7 +130,7 @@ func TestLockHomeStateNonBlockingSkipsWhenHeld(t *testing.T) {
 }
 
 func TestLockHomeStateIsPerKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	releaseA, ok, err := lockHomeState(Key{Slug: "a", Agent: "opencode"}, true)
 	if err != nil || !ok {
@@ -145,7 +146,7 @@ func TestLockHomeStateIsPerKey(t *testing.T) {
 }
 
 func TestLockHomeStateMkdirError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("mkdir boom")
 	orig := mkdirHomeLock
 	mkdirHomeLock = func(string, os.FileMode) error { return wantErr }
@@ -161,7 +162,7 @@ func TestLockHomeStateMkdirError(t *testing.T) {
 }
 
 func TestLockHomeStateOpenError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	wantErr := errors.New("open boom")
 	orig := openHomeLock
@@ -185,7 +186,7 @@ func TestLockHomeStateOpenError(t *testing.T) {
 }
 
 func TestLockHomeStateFlockError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	wantErr := errors.New("flock boom")
 	orig := flockHomeLock
@@ -210,7 +211,7 @@ func TestLockHomeStateFlockError(t *testing.T) {
 // TestLockHomeStateUsesPrivateModes pins the lock dir and file modes at the
 // seam, so the assertion does not depend on the test process's umask.
 func TestLockHomeStateUsesPrivateModes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	var dirMode, fileMode os.FileMode
 	origMkdir, origOpen := mkdirHomeLock, openHomeLock
 	mkdirHomeLock = func(dir string, mode os.FileMode) error {
@@ -241,7 +242,7 @@ func TestLockHomeStateUsesPrivateModes(t *testing.T) {
 // blocking acquire of a held path errors with ok=false, so a caller that reads
 // the tuple is not handed a false success.
 func TestLockHomeStateReentrantReportsNotOk(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 
 	release, ok, err := lockHomeState(k, true)
@@ -263,7 +264,7 @@ func TestLockHomeStateReentrantReportsNotOk(t *testing.T) {
 // while another open file description holds the lock, the acquire must wait, not
 // report contention.
 func TestLockHomeStateBlockingWaitsForFlock(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	path := homeLockPath(k)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -307,7 +308,7 @@ func TestLockHomeStateBlockingWaitsForFlock(t *testing.T) {
 // TestLockHomeStateBlockingContentionErrorIsSurfaced pins that a contention error
 // on a blocking acquire is a failure, not the non-blocking "lock is busy" signal.
 func TestLockHomeStateBlockingContentionErrorIsSurfaced(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	orig := flockHomeLock
 	flockHomeLock = func(*os.File, bool) error { return syscall.EWOULDBLOCK }
 	t.Cleanup(func() { flockHomeLock = orig })
@@ -323,7 +324,7 @@ func TestLockHomeStateBlockingContentionErrorIsSurfaced(t *testing.T) {
 // flock failure on a non-blocking acquire is an error, not the "lock is busy"
 // signal.
 func TestLockHomeStateNonBlockingRealErrorIsSurfaced(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("flock boom")
 	orig := flockHomeLock
 	flockHomeLock = func(*os.File, bool) error { return wantErr }
@@ -337,7 +338,7 @@ func TestLockHomeStateNonBlockingRealErrorIsSurfaced(t *testing.T) {
 }
 
 func TestHomeLockPathLivesUnderLocksDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	want := filepath.Join(configpaths.Get().UserStateDir(), "locks", k.Slug, k.Agent+".lock")
 	if got := homeLockPath(k); got != want {
@@ -349,7 +350,7 @@ func TestHomeLockPathLivesUnderLocksDir(t *testing.T) {
 }
 
 func TestHomeLockPathLegacyHasNoAgent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj"}
 	want := filepath.Join(configpaths.Get().UserStateDir(), "locks", k.Slug, "legacy.lock")
 	if got := homeLockPath(k); got != want {

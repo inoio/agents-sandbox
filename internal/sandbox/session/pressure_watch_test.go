@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 )
 
@@ -17,7 +18,7 @@ import (
 // the first one, so a test can wait until sampling has started before stopping
 // the watcher.
 type countingMetricsSandbox struct {
-	*msb.MockSandbox
+	*msbtest.MockSandbox
 
 	mu          sync.Mutex
 	calls       int
@@ -62,7 +63,7 @@ func TestPressureWatchIntervalDefault(t *testing.T) {
 // can observe that the watcher's stop waits for an in-flight sample to fold into
 // the summary.
 type gatedMetricsSandbox struct {
-	*msb.MockSandbox
+	*msbtest.MockSandbox
 
 	entered   chan struct{}
 	release   chan struct{}
@@ -81,7 +82,7 @@ func (g *gatedMetricsSandbox) Metrics(ctx context.Context) (*msb.Metrics, error)
 func TestPressureWatcherStopWaitsForInFlightSample(t *testing.T) {
 	stubPressureWatchInterval(t)
 	sb := &gatedMetricsSandbox{
-		MockSandbox: &msb.MockSandbox{
+		MockSandbox: &msbtest.MockSandbox{
 			MetricsResult: &msb.Metrics{MemoryBytes: 950 << 20, MemoryLimitBytes: 1000 << 20},
 		},
 		entered: make(chan struct{}),
@@ -112,7 +113,7 @@ func TestPressureWatcherStopWaitsForInFlightSample(t *testing.T) {
 func TestPressureWatcherTripsAndStoresHeadroom(t *testing.T) {
 	stubPressureWatchInterval(t)
 	sb := &countingMetricsSandbox{
-		MockSandbox: &msb.MockSandbox{
+		MockSandbox: &msbtest.MockSandbox{
 			MetricsResult: &msb.Metrics{MemoryBytes: 950 << 20, MemoryLimitBytes: 1000 << 20},
 		},
 		firstSample: make(chan struct{}),
@@ -133,7 +134,7 @@ func TestPressureWatcherTripsAndStoresHeadroom(t *testing.T) {
 func TestPressureWatcherToleratesMetricsError(t *testing.T) {
 	stubPressureWatchInterval(t)
 	sb := &countingMetricsSandbox{
-		MockSandbox: &msb.MockSandbox{MetricsErr: errors.New("vm stopped")},
+		MockSandbox: &msbtest.MockSandbox{MetricsErr: errors.New("vm stopped")},
 		firstSample: make(chan struct{}),
 	}
 
@@ -155,7 +156,7 @@ func TestPressureWatcherToleratesMetricsError(t *testing.T) {
 func TestPressureWatcherStopIsPromptAndStopsSampling(t *testing.T) {
 	stubPressureWatchInterval(t)
 	sb := &countingMetricsSandbox{
-		MockSandbox: &msb.MockSandbox{
+		MockSandbox: &msbtest.MockSandbox{
 			MetricsResult: &msb.Metrics{MemoryBytes: 1 << 20, MemoryLimitBytes: 1000 << 20},
 		},
 		firstSample: make(chan struct{}),
@@ -191,7 +192,7 @@ func TestPressureWatcherIgnoresUnusableSnapshot(t *testing.T) {
 	for name, metrics := range cases {
 		t.Run(name, func(t *testing.T) {
 			sb := &countingMetricsSandbox{
-				MockSandbox: &msb.MockSandbox{MetricsResult: metrics},
+				MockSandbox: &msbtest.MockSandbox{MetricsResult: metrics},
 				firstSample: make(chan struct{}),
 			}
 			stop := startPressureWatcher(context.Background(), sb, pressure.DefaultThreshold())

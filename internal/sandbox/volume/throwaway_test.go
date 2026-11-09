@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -34,14 +35,14 @@ func TestRunShell(t *testing.T) {
 		},
 		{
 			name:        "non-zero exit",
-			execOut:     msb.NewTestResult(false, 3, "", "denied", nil),
+			execOut:     msbtest.NewTestResult(false, 3, "", "denied", nil),
 			wantErr:     "copy failed (exit 3): denied",
 			wantSpinner: "spinner error: copy failed (exit 3): denied",
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			log := &eventLog{}
-			sandbox := &msb.MockSandbox{ExecErr: testCase.execErr}
+			sandbox := &msbtest.MockSandbox{ExecErr: testCase.execErr}
 			if testCase.execOut != nil {
 				sandbox.ExecOut = map[string]msb.ShellResult{"sh -c " + script: testCase.execOut}
 			}
@@ -156,7 +157,7 @@ func TestWithThrowawaySandbox_DestroyErrors(t *testing.T) {
 
 func TestWithThrowawaySandbox_LoadImageFailureSkipsEverything(t *testing.T) {
 	fixture := newThrowawayFixture(t)
-	docker.WithDefaultErrorDockerMock(t)
+	dockertest.WithDefaultErrorDockerMock(t)
 
 	payloadRan := false
 	err := fixture.run(
@@ -230,15 +231,15 @@ func TestWithThrowawaySandbox_NoSpinnerLabelStartsNoSpinner(t *testing.T) {
 
 func newThrowawayFixture(t *testing.T) *throwawayFixture {
 	t.Helper()
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	log := &eventLog{}
-	sandbox := &trackingSandbox{MockSandbox: &msb.MockSandbox{Name_: "throwaway"}, log: log}
+	sandbox := &trackingSandbox{MockSandbox: &msbtest.MockSandbox{Name_: "throwaway"}, log: log}
 	fixture := &throwawayFixture{
 		log:     log,
 		ui:      &recordingUI{log: log},
 		sandbox: sandbox,
 	}
-	fixture.client = &msb.MockMsbClient{
+	fixture.client = &msbtest.MockMsbClient{
 		CreateSandboxFn: func(context.Context, string, msb.SandboxSpec) (msb.Sandbox, error) {
 			log.add("create")
 			return sandbox, nil

@@ -98,15 +98,16 @@ The drift guard is reflection-based by decision: a `golang.org/x/tools/go/packag
 
 ## The mock
 
-`testmock.go`'s `MockMsbClient` stays the wide composite double the suite already uses, with **all
-callback/collection/recorder fields on the outer struct** — a promoted field from an embedded type
-cannot be set in a composite literal, and ~100 test sites build `&msb.MockMsbClient{…}` directly, so
-moving fields into embedded roles would break every literal. Standalone role doubles
-(`MockImageStore`, `MockSandboxStore`, `MockStorageStore`, `MockSandboxExecutor`, …) live in
-`testmock_roles.go` and are used by tests that need the small double; they are never embedded in
-`MockMsbClient`. The central mock therefore shrinks only as consumers migrate, not all at once
-(follow-up #22 relocates whatever remains into a test-support package). `failFastMsbClient` keeps its
-role. The mock files carry a `//deadcode:ignore` marker because they are referenced only by `_test.go`
+The mock lives in `internal/sandbox/msb/msbtest` (package `msbtest`), outside the production import
+graph. Its `MockMsbClient` (`testmock.go`) stays the wide composite double the suite already uses,
+with **all callback/collection/recorder fields on the outer struct** — a promoted field from an
+embedded type cannot be set in a composite literal, and ~100 test sites build
+`&msbtest.MockMsbClient{…}` directly, so moving fields into embedded roles would break every literal.
+Standalone role doubles (`MockImageStore`, `MockSandboxStore`, `MockStorageStore`,
+`MockSandboxExecutor`, …) live in `testmock_roles.go` and are used by tests that need the small
+double; they are never embedded in `MockMsbClient`. The isolation helpers (the pinned runtime home and
+the post-run sandbox sweep) live in the `msbtest/runtime` leaf. `failFastMsbClient` keeps its role.
+The mock files carry a `//deadcode:ignore` marker because they are referenced only by `_test.go`
 files.
 
 ## Status
@@ -162,3 +163,7 @@ files.
   `EnsureRuntime`. `internal/sandbox/runtime` retargets its `ensureRuntime`/`installRuntime` seams at
   those wrappers, drops its `msbSdk` import and `runtimeConfig()`, and `phase4_boundary_test.go` scans
   with zero residue, with `TestSDKBoundaryDetectsAnImporter` as the positive control.
+- **Landed (#22):** the test doubles and the fail-fast installer left the production import graph for
+  `internal/sandbox/msb/msbtest` (isolated-runtime helpers in the `msbtest/runtime` leaf), so the
+  shipped binary links neither `testing` nor the mock. The mock contract above is unchanged — wide
+  composite, roles never embedded, `failFastMsbClient` — only its location moved.

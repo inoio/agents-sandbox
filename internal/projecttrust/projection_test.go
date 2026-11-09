@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/configread"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/testutil"
@@ -24,7 +24,7 @@ type projectFixture struct {
 
 func newProjectFixture(t *testing.T) projectFixture {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	checkout := t.TempDir()
 	return projectFixture{checkout: checkout, projectDir: filepath.Join(checkout, ".agents-sandbox")}
 }
@@ -93,7 +93,7 @@ func TestComputeEmptyProjectLayer(t *testing.T) {
 // TestComputeWithoutAProjectConfigDirReadsNothing pins that an excluded layer
 // reads nothing, not the current directory's files.
 func TestComputeWithoutAProjectConfigDirReadsNothing(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cwd := t.TempDir()
 	writeFile(t, filepath.Join(cwd, "env"), "A=1\n")
 	writeFile(t, filepath.Join(cwd, "Dockerfile"), "FROM base\n")

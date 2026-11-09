@@ -9,16 +9,17 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestBuildEnvMap(t *testing.T) {
 	envFile := filepath.Join(t.TempDir(), "env")
 	testutil.WritePath(t, envFile, "FOO=bar\n# comment\n\nBAZ=qux\n")
-	got := BuildEnvMap(envFile, new(termio.NewTestMock(t)))
+	got := BuildEnvMap(envFile, new(termiotest.NewTestMock(t)))
 
 	if len(got) != 2 {
 		t.Fatalf("expected 2 env vars, got %d: %v", len(got), got)
@@ -37,7 +38,7 @@ func TestBuildEnvMap(t *testing.T) {
 func TestBuildEnvMapSkipsEmptyName(t *testing.T) {
 	envFile := filepath.Join(t.TempDir(), "env")
 	testutil.WritePath(t, envFile, "=orphan\nFOO=bar\n")
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got := BuildEnvMap(envFile, &ui)
 
@@ -50,7 +51,7 @@ func TestBuildEnvMapSkipsEmptyName(t *testing.T) {
 }
 
 func TestReadSandboxEnvMissing(t *testing.T) {
-	env := BuildEnvMap("missing", new(termio.NewTestMock(t)))
+	env := BuildEnvMap("missing", new(termiotest.NewTestMock(t)))
 	if env != nil {
 		t.Errorf("expected nil env map when .agents-sandbox/env missing, got %#v", env)
 	}
@@ -62,7 +63,7 @@ func TestMergeEnvMapsProjectOverridesUser(t *testing.T) {
 	projectFile := filepath.Join(t.TempDir(), "env")
 	testutil.WritePath(t, projectFile, "FOO=project\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	got := MergeEnvMaps(BuildEnvMap(userFile, &ui), BuildEnvMap(projectFile, &ui))
 	want := map[string]string{"FOO": "project", "BAR": "user"}
 	if !reflect.DeepEqual(got, want) {
@@ -148,7 +149,7 @@ func TestParseKeyValueLinesHandlesWhitespace(t *testing.T) {
 }
 
 func TestLoadEnvAndSecretsMergesUserAndProject(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	scopes := configpaths.ConfigScopes(configpaths.Get(), "")
 
 	testutil.WritePath(t, scopes[0].EnvFile(), "A=user\nSHARED=user\n")
@@ -159,7 +160,7 @@ func TestLoadEnvAndSecretsMergesUserAndProject(t *testing.T) {
 	testutil.WritePath(t, scopes[0].EnvSecretYAMLFile(), "SECRET_C:\n  value: value-c\n  host: user.example\n")
 	testutil.WritePath(t, scopes[1].EnvSecretYAMLFile(), "SECRET_D:\n  value: value-d\n  hosts: [project.example]\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	loaded := LoadEnvAndSecrets(&ui, scopes, nil)
 
 	wantEnv := map[string]string{"A": "user", "B": "project", "SHARED": "project"}
@@ -193,12 +194,12 @@ func TestLoadEnvAndSecretsMergesUserAndProject(t *testing.T) {
 // placeholder-passthrough host, while a host the secret already allows keeps
 // substitution and is excluded from passthrough.
 func TestLoadEnvAndSecretsAppliesAllowPlaceholderFor(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	scopes := configpaths.ConfigScopes(configpaths.Get(), "")
 
 	testutil.WritePath(t, scopes[1].EnvSecretFile(), "SECRET_A=value-a@a.example\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	loaded := LoadEnvAndSecrets(&ui, scopes, []string{"model.example", "a.example"})
 
 	if len(loaded.Secrets) != 1 {
@@ -210,10 +211,10 @@ func TestLoadEnvAndSecretsAppliesAllowPlaceholderFor(t *testing.T) {
 }
 
 func TestLoadEnvAndSecretsEmptyWhenNoFiles(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	scopes := configpaths.ConfigScopes(configpaths.Get(), "")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	loaded := LoadEnvAndSecrets(&ui, scopes, nil)
 
 	if len(loaded.Vars) != 0 {
@@ -227,14 +228,14 @@ func TestLoadEnvAndSecretsEmptyWhenNoFiles(t *testing.T) {
 // TestLoadEnvAndSecretsPerSlugPrecedence pins that env files merge across all
 // scopes in order: generic < per-slug < project, with later scopes winning.
 func TestLoadEnvAndSecretsPerSlugPrecedence(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	scopes := configpaths.ConfigScopes(configpaths.Get(), "widget-bbb")
 
 	testutil.WritePath(t, scopes[0].EnvFile(), "SHARED=generic\nA=generic\n")
 	testutil.WritePath(t, scopes[1].EnvFile(), "SHARED=slug\nB=slug\n")
 	testutil.WritePath(t, scopes[2].EnvFile(), "SHARED=project\nC=project\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	loaded := LoadEnvAndSecrets(&ui, scopes, nil)
 
 	wantEnv := map[string]string{
@@ -253,7 +254,7 @@ func TestLoadEnvAndSecretsPerSlugPrecedence(t *testing.T) {
 // scope's YAML specs, so a per-slug YAML entry beats a project legacy entry for
 // the same key while the later project scope still wins within the YAML tier.
 func TestLoadEnvAndSecretsPerSlugSecretFormats(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	scopes := configpaths.ConfigScopes(configpaths.Get(), "widget-bbb")
 
 	testutil.WritePath(t, scopes[1].EnvSecretFile(), "TOKEN=legacy@legacy.example\n")
@@ -270,7 +271,7 @@ func TestLoadEnvAndSecretsPerSlugSecretFormats(t *testing.T) {
 		"OTHER:\n  value: yaml-project-other\n  hosts: [project-other.example]\n",
 	)
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	loaded := LoadEnvAndSecrets(&ui, scopes, nil)
 
 	byVar := make(map[string]msb.SecretEntry, len(loaded.Secrets))
@@ -307,7 +308,7 @@ func TestEnvAndSecretReadsGoThroughTheApproval(t *testing.T) {
 	testutil.WritePath(t, envFile, "A=1\nHTTP_PROXY=http://evil\n")
 	testutil.WritePath(t, legacy, "T=v@evil.example.com\n")
 	testutil.WritePath(t, yamlFile, "T:\n  value: v\n  hosts: [evil.example.com]\n")
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if got := BuildEnvMap(envFile, &ui); got != nil {
 		t.Errorf("BuildEnvMap = %v, want nothing from a changed env file", got)

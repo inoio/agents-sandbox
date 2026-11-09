@@ -5,13 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestVolumeOpsKeepDeprecatedRebuildFlag verifies the three volume ops keep
@@ -40,19 +40,19 @@ func TestVolumeOpsKeepDeprecatedRebuildFlag(t *testing.T) {
 // 0.5.0 spelling keep working.
 func TestVolumeMigrateRebuildIsDeprecatedNoOp(t *testing.T) {
 	initTestProjectDir(t)
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	mock := &msb.MockMsbClient{}
-	doctor.MockedCheckAll(t, true)
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	mock := &msbtest.MockMsbClient{}
+	doctortest.MockedCheckAll(t, true)
 	withMockAgentVersion(t, "0.0.0-test")
-	docker.WithNoopDockerMock(t)
+	dockertest.WithNoopDockerMock(t)
 	slug := git.MustCheckoutSlug()
 	if err := seedHomeState(state.Key{Slug: slug, Agent: defaultAgentName}, state.HomeState{
 		HomeVolume: fmt.Sprintf("agents-sandbox-home-%s-20260101T000000", slug),
 	}); err != nil {
 		t.Fatalf("seed state: %v", err)
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	root := buildRootCmd(ui)
 	root.SetOut(ui.StdOut())
@@ -76,19 +76,19 @@ func TestVolumeOpsRebuildDeprecatedAcrossOps(t *testing.T) {
 	for _, name := range []string{cmdMigrate, cmdReset, cmdEdit} {
 		t.Run(name, func(t *testing.T) {
 			initTestProjectDir(t)
-			configpaths.WithMockConfigPaths(t)
-			ui := &termio.Mock{}
-			mock := &msb.MockMsbClient{}
-			doctor.MockedCheckAll(t, true)
+			configpathstest.WithMockConfigPaths(t)
+			ui := &termiotest.Mock{}
+			mock := &msbtest.MockMsbClient{}
+			doctortest.MockedCheckAll(t, true)
 			withMockAgentVersion(t, "0.0.0-test")
-			docker.WithNoopDockerMock(t)
+			dockertest.WithNoopDockerMock(t)
 			slug := git.MustCheckoutSlug()
 			if err := seedHomeState(state.Key{Slug: slug, Agent: defaultAgentName}, state.HomeState{
 				HomeVolume: fmt.Sprintf("agents-sandbox-home-%s-20260101T000000", slug),
 			}); err != nil {
 				t.Fatalf("seed state: %v", err)
 			}
-			msb.WithMsbMock(t, mock)
+			msbtest.WithMsbMock(t, mock)
 
 			root := buildRootCmd(ui)
 			root.SetOut(ui.StdOut())

@@ -9,25 +9,32 @@ import (
 // tableGap is the number of spaces placed between columns.
 const tableGap = 4
 
-// Table renders column-aligned rows matching the microsandbox (`msb`) CLI
-// output style: each column is sized to the widest cell and columns are
-// separated by a four-space gap. The header row is rendered bold and cyan when
-// color is enabled. Alignment is computed on plain text before styling, so
-// ANSI codes never shift columns. Build a Table with ui.NewTable, add rows with
-// AddRow, then print with Print.
-//
-// tableWriter is the surface a Table prints through: the header line and each
+// TableWriter is the surface a Table prints through: the header line and each
 // data line. It keeps Table independent of the whole UI.
-type tableWriter interface {
+type TableWriter interface {
 	Header(msg string)
 	Out(msg string)
 }
 
+// Table renders column-aligned rows matching the microsandbox (`msb`) CLI
+// output style: each column is sized to the widest cell and columns are
+// separated by a four-space gap. The header row is rendered bold and cyan when
+// color is enabled. Alignment is computed on plain text before styling, so
+// ANSI codes never shift columns. Build a Table with NewTableFor, add rows with
+// AddRow, then print with Print.
+//
 //exhaustruct:ignore
 type Table struct {
-	ui      tableWriter
+	ui      TableWriter
 	headers []string
 	rows    [][]string
+}
+
+// NewTableFor returns an empty aligned Table that prints through w. UIs use it
+// to attach a table to their output stream, and test doubles use it to capture
+// the rendered header and rows.
+func NewTableFor(w TableWriter, headers []string) *Table {
+	return &Table{ui: w, headers: headers}
 }
 
 // AddRow appends a data row. Rows longer than the header are truncated and
@@ -103,5 +110,5 @@ func renderRow(row []string, widths []int) string {
 // codes are stripped first so styled cells (e.g., colored statuses) align with
 // plain text, matching msb's console::measure_text_width.
 func displayWidth(s string) int {
-	return utf8.RuneCountInString(stripANSICodes(s))
+	return utf8.RuneCountInString(StripANSICodes(s))
 }

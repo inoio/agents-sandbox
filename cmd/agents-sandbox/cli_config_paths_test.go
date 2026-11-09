@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	"github.com/inoio/agents-sandbox/internal/viperconfig"
@@ -116,7 +117,7 @@ func TestConfigPathsResolvesOutsideRepo(t *testing.T) {
 // of the exported LayerName* constants, each env layer has a glob, and the flags
 // layer does not.
 func TestEnvLayerGlobCoversConfigLayers(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	known := map[string]bool{
 		viperconfig.LayerNameGenericUserConfig: true,
 		viperconfig.LayerNamePerSlugUserConfig: true,

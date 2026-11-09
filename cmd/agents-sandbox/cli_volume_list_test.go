@@ -5,6 +5,7 @@ import (
 	"time"
 
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 func TestVolumeList(t *testing.T) {
@@ -13,7 +14,7 @@ func TestVolumeList(t *testing.T) {
 
 	tests := []struct {
 		name            string
-		mockSetup       func(m *sandboxmsb.MockMsbClient)
+		mockSetup       func(m *msbtest.MockMsbClient)
 		wantOut         []string
 		wantInfo        []string
 		wantErr         bool
@@ -21,14 +22,14 @@ func TestVolumeList(t *testing.T) {
 	}{
 		{
 			name:      "empty",
-			mockSetup: func(_ *sandboxmsb.MockMsbClient) {},
+			mockSetup: func(_ *msbtest.MockMsbClient) {},
 			wantInfo:  []string{"No volumes found."},
 		},
 		{
 			name: "dir volume renders dash size",
-			mockSetup: func(m *sandboxmsb.MockMsbClient) {
+			mockSetup: func(m *msbtest.MockMsbClient) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
-					&sandboxmsb.MockVolumeHandle{
+					&msbtest.MockVolumeHandle{
 						Name_:      "agents-sandbox-home-proj",
 						Kind_:      sandboxmsb.VolumeKindDir,
 						CreatedAt_: time.Date(2026, 8, 17, 10, 42, 36, 0, time.UTC),
@@ -42,9 +43,9 @@ func TestVolumeList(t *testing.T) {
 		},
 		{
 			name: "disk volume uses capacity for size",
-			mockSetup: func(m *sandboxmsb.MockMsbClient) {
+			mockSetup: func(m *msbtest.MockMsbClient) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
-					&sandboxmsb.MockVolumeHandle{
+					&msbtest.MockVolumeHandle{
 						Name_:          "agents-sandbox-home-proj",
 						Kind_:          sandboxmsb.VolumeKindDisk,
 						CapacityBytes_: &capacity,
@@ -58,9 +59,9 @@ func TestVolumeList(t *testing.T) {
 		},
 		{
 			name: "disk volume without capacity renders dash",
-			mockSetup: func(m *sandboxmsb.MockMsbClient) {
+			mockSetup: func(m *msbtest.MockMsbClient) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
-					&sandboxmsb.MockVolumeHandle{
+					&msbtest.MockVolumeHandle{
 						Name_:      "agents-sandbox-home-proj",
 						Kind_:      sandboxmsb.VolumeKindDisk,
 						QuotaMiB_:  &quota,
@@ -74,9 +75,9 @@ func TestVolumeList(t *testing.T) {
 		},
 		{
 			name: "dir volume uses quota for size",
-			mockSetup: func(m *sandboxmsb.MockMsbClient) {
+			mockSetup: func(m *msbtest.MockMsbClient) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
-					&sandboxmsb.MockVolumeHandle{
+					&msbtest.MockVolumeHandle{
 						Name_:      "agents-sandbox-home-proj",
 						Kind_:      sandboxmsb.VolumeKindDir,
 						QuotaMiB_:  &quota,
@@ -90,16 +91,16 @@ func TestVolumeList(t *testing.T) {
 		},
 		{
 			name: "non-project volume filtered",
-			mockSetup: func(m *sandboxmsb.MockMsbClient) {
+			mockSetup: func(m *msbtest.MockMsbClient) {
 				m.Volumes = []sandboxmsb.VolumeHandle{
-					&sandboxmsb.MockVolumeHandle{Name_: "other-volume", Kind_: sandboxmsb.VolumeKindDir},
+					&msbtest.MockVolumeHandle{Name_: "other-volume", Kind_: sandboxmsb.VolumeKindDir},
 				}
 			},
 			wantOut: []string{},
 		},
 		{
 			name:            "list error",
-			mockSetup:       func(m *sandboxmsb.MockMsbClient) { m.ListVolumesErr = errBoom },
+			mockSetup:       func(m *msbtest.MockMsbClient) { m.ListVolumesErr = errBoom },
 			wantErr:         true,
 			wantErrContains: "list volumes",
 		},
@@ -107,10 +108,10 @@ func TestVolumeList(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			mock := &sandboxmsb.MockMsbClient{}
+			mock := &msbtest.MockMsbClient{}
 			tc.mockSetup(mock)
 			cmd, ui := setupCommandFixtures(t, cmdVolume, cmdList)
-			sandboxmsb.WithMsbMock(t, mock)
+			msbtest.WithMsbMock(t, mock)
 			if err := cmd.Execute(); err != nil {
 				if !tc.wantErr {
 					t.Fatalf("unexpected error: %v", err)

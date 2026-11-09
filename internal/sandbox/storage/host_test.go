@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 func writeFile(t *testing.T, path string, size int) {
@@ -95,7 +96,7 @@ func TestObserveRuntimeWalkErrorPropagates(t *testing.T) {
 }
 
 func TestObservePropagatesRuntimeWalkError(t *testing.T) {
-	msb.WithMsbMock(t, &msb.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{StorageUsageFn: func(context.Context) (*msb.StorageReport, error) {
 		return &msb.StorageReport{}, nil
 	}})
 	home := lockedRuntimeHome(t)

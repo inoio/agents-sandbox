@@ -3,7 +3,7 @@ package cliout
 import (
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestRenderPruneReportModes(t *testing.T) {
@@ -19,7 +19,7 @@ func TestRenderPruneReportModes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			humanCalled := false
 			RenderPruneReport(ui, tt.mode, func() { humanCalled = true }, map[string]bool{"dry_run": true})
 			if humanCalled != tt.wantHuman {

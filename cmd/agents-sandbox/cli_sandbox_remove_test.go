@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -14,14 +15,14 @@ import (
 
 func TestSandboxRemove(t *testing.T) {
 	t.Run("removes a stopped VM", func(t *testing.T) {
-		handle := &msb.MockSandboxHandle{
+		handle := &msbtest.MockSandboxHandle{
 			Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
 			Status_: msb.SandboxStatusStopped,
 		}
-		m := &msb.MockMsbClient{}
+		m := &msbtest.MockMsbClient{}
 		m.SetGotSandbox(handle)
 		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--yes", handle.Name_)
-		msb.WithMsbMock(t, m)
+		msbtest.WithMsbMock(t, m)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("sandbox remove: %v", err)
 		}
@@ -31,14 +32,14 @@ func TestSandboxRemove(t *testing.T) {
 	})
 
 	t.Run("rm alias removes", func(t *testing.T) {
-		handle := &msb.MockSandboxHandle{
+		handle := &msbtest.MockSandboxHandle{
 			Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
 			Status_: msb.SandboxStatusStopped,
 		}
-		m := &msb.MockMsbClient{}
+		m := &msbtest.MockMsbClient{}
 		m.SetGotSandbox(handle)
 		cmd, _ := setupCommandFixtures(t, "sandbox", "rm", "--yes", handle.Name_)
-		msb.WithMsbMock(t, m)
+		msbtest.WithMsbMock(t, m)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("sandbox rm: %v", err)
 		}
@@ -48,14 +49,14 @@ func TestSandboxRemove(t *testing.T) {
 	})
 
 	t.Run("refuses a running VM without --force", func(t *testing.T) {
-		handle := &msb.MockSandboxHandle{
+		handle := &msbtest.MockSandboxHandle{
 			Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
 			Status_: msb.SandboxStatusRunning,
 		}
-		m := &msb.MockMsbClient{}
+		m := &msbtest.MockMsbClient{}
 		m.SetGotSandbox(handle)
 		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--yes", handle.Name_)
-		msb.WithMsbMock(t, m)
+		msbtest.WithMsbMock(t, m)
 		err := cmd.Execute()
 		if err == nil || !strings.Contains(err.Error(), "not stopped") {
 			t.Fatalf("expected a not-stopped refusal, got %v", err)
@@ -66,14 +67,14 @@ func TestSandboxRemove(t *testing.T) {
 	})
 
 	t.Run("force on a running VM stops then removes", func(t *testing.T) {
-		handle := &msb.MockSandboxHandle{
+		handle := &msbtest.MockSandboxHandle{
 			Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
 			Status_: msb.SandboxStatusRunning,
 		}
-		m := &msb.MockMsbClient{}
+		m := &msbtest.MockMsbClient{}
 		m.SetGotSandbox(handle)
 		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "-f", "--yes", handle.Name_)
-		msb.WithMsbMock(t, m)
+		msbtest.WithMsbMock(t, m)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("sandbox remove -f: %v", err)
 		}
@@ -86,14 +87,14 @@ func TestSandboxRemove(t *testing.T) {
 	})
 
 	t.Run("force with a declined confirmation does not stop", func(t *testing.T) {
-		handle := &msb.MockSandboxHandle{
+		handle := &msbtest.MockSandboxHandle{
 			Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
 			Status_: msb.SandboxStatusRunning,
 		}
-		m := &msb.MockMsbClient{}
+		m := &msbtest.MockMsbClient{}
 		m.SetGotSandbox(handle)
 		cmd, ui := setupCommandFixtures(t, "sandbox", "remove", "--force", handle.Name_)
-		msb.WithMsbMock(t, m)
+		msbtest.WithMsbMock(t, m)
 		ui.IsInteractiveResult = true
 		ui.ConfirmResult = false
 		err := cmd.Execute()
@@ -111,11 +112,11 @@ func TestSandboxRemove(t *testing.T) {
 	t.Run("force keeps persisted state", func(t *testing.T) {
 		key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 		name := naming.LegacyVMPrefix + key.Slug + "-" + key.Agent
-		handle := &msb.MockSandboxHandle{Name_: name, Status_: msb.SandboxStatusStopped}
-		m := &msb.MockMsbClient{}
+		handle := &msbtest.MockSandboxHandle{Name_: name, Status_: msb.SandboxStatusStopped}
+		m := &msbtest.MockMsbClient{}
 		m.SetGotSandbox(handle)
 		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--force", "--yes", name)
-		msb.WithMsbMock(t, m)
+		msbtest.WithMsbMock(t, m)
 		if err := seedHomeState(key, state.HomeState{}); err != nil {
 			t.Fatalf("seed state: %v", err)
 		}
@@ -128,14 +129,14 @@ func TestSandboxRemove(t *testing.T) {
 	})
 
 	t.Run("refuses a task-sandbox name", func(t *testing.T) {
-		handle := &msb.MockSandboxHandle{
+		handle := &msbtest.MockSandboxHandle{
 			Name_:   naming.LegacyTaskPrefix + "x-1729",
 			Status_: msb.SandboxStatusStopped,
 		}
-		m := &msb.MockMsbClient{}
+		m := &msbtest.MockMsbClient{}
 		m.SetGotSandbox(handle)
 		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--yes", handle.Name_)
-		msb.WithMsbMock(t, m)
+		msbtest.WithMsbMock(t, m)
 		err := cmd.Execute()
 		if err == nil || !strings.Contains(err.Error(), "not an agents-sandbox project VM") {
 			t.Fatalf("expected a refusal, got %v", err)
@@ -146,14 +147,14 @@ func TestSandboxRemove(t *testing.T) {
 	})
 
 	t.Run("fails fast without --yes in non-interactive mode", func(t *testing.T) {
-		handle := &msb.MockSandboxHandle{
+		handle := &msbtest.MockSandboxHandle{
 			Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
 			Status_: msb.SandboxStatusStopped,
 		}
-		m := &msb.MockMsbClient{}
+		m := &msbtest.MockMsbClient{}
 		m.SetGotSandbox(handle)
 		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", handle.Name_)
-		msb.WithMsbMock(t, m)
+		msbtest.WithMsbMock(t, m)
 		err := cmd.Execute()
 		if !errors.Is(err, termio.ErrConfirmationRequired) {
 			t.Fatalf("expected ErrConfirmationRequired, got: %v", err)
@@ -164,14 +165,14 @@ func TestSandboxRemove(t *testing.T) {
 	})
 
 	t.Run("running refusal precedes the prompt", func(t *testing.T) {
-		handle := &msb.MockSandboxHandle{
+		handle := &msbtest.MockSandboxHandle{
 			Name_:   naming.LegacyVMPrefix + "proj-aBc1234D",
 			Status_: msb.SandboxStatusRunning,
 		}
-		m := &msb.MockMsbClient{}
+		m := &msbtest.MockMsbClient{}
 		m.SetGotSandbox(handle)
 		cmd, ui := setupCommandFixtures(t, "sandbox", "remove", handle.Name_)
-		msb.WithMsbMock(t, m)
+		msbtest.WithMsbMock(t, m)
 		ui.IsInteractiveResult = true
 		if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "not stopped") {
 			t.Fatalf("expected a not-stopped refusal, got %v", err)
@@ -188,16 +189,16 @@ func TestSandboxRemove(t *testing.T) {
 func TestSandboxRemoveWithoutPurgeLeavesStateAndVolume(t *testing.T) {
 	key := state.Key{Slug: purgeTestSlug, Agent: purgeTestAgent}
 	volumeName := homeVolumeNameFor(purgeTestSlug)
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_:   naming.LegacyVMPrefix + key.Slug + "-" + key.Agent,
 		Status_: msb.SandboxStatusStopped,
 	}
-	m := &msb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.SetGotSandbox(handle)
 	m.Volumes = append(m.Volumes, homeVol(volumeName))
 
 	cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--yes", handle.Name_)
-	msb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	if err := seedHomeState(key, state.HomeState{HomeVolume: volumeName}); err != nil {
 		t.Fatalf("seed state: %v", err)
 	}
@@ -225,13 +226,13 @@ func TestSandboxRemovePurgeAcceptsSlugAndSlugAgent(t *testing.T) {
 		volumeName := homeVolumeNameFor(purgeTestSlug)
 		imageRef := purgeTestSlug + ":" + purgeTestAgent + "-latest"
 		vm := mkStoppedVM(purgeTestSlug)
-		m := &msb.MockMsbClient{}
+		m := &msbtest.MockMsbClient{}
 		m.Sandboxes = append(m.Sandboxes, vm)
 		m.Volumes = append(m.Volumes, homeVol(volumeName))
 		m.Images = append(m.Images, msbImg(imageRef))
 
 		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--purge", purgeTestSlug, "--yes")
-		msb.WithMsbMock(t, m)
+		msbtest.WithMsbMock(t, m)
 		if err := seedHomeState(
 			state.Key{Slug: purgeTestSlug, Agent: purgeTestAgent},
 			state.HomeState{HomeVolume: volumeName},
@@ -248,7 +249,7 @@ func TestSandboxRemovePurgeAcceptsSlugAndSlugAgent(t *testing.T) {
 		if len(m.RemovedImages) != 1 || m.RemovedImages[0].Ref != imageRef {
 			t.Errorf("expected image %q removed, got: %+v", imageRef, m.RemovedImages)
 		}
-		if !vm.(*msb.MockSandboxHandle).DidRemove() {
+		if !vm.(*msbtest.MockSandboxHandle).DidRemove() {
 			t.Error("expected the sandbox removed")
 		}
 		key := state.Key{Slug: purgeTestSlug, Agent: purgeTestAgent}
@@ -261,13 +262,13 @@ func TestSandboxRemovePurgeAcceptsSlugAndSlugAgent(t *testing.T) {
 		const otherAgent = "codex"
 		opencodeVolume := homeVolumeNameFor(purgeTestSlug)
 		codexVolume := naming.HomeVolumeName(purgeTestSlug, otherAgent, "20260806T143022")
-		m := &msb.MockMsbClient{}
+		m := &msbtest.MockMsbClient{}
 		m.Volumes = append(m.Volumes, homeVol(opencodeVolume), homeVol(codexVolume))
 
 		cmd, _ := setupCommandFixtures(
 			t, "sandbox", "remove", "--purge", purgeTestSlug+"-"+purgeTestAgent, "--yes",
 		)
-		msb.WithMsbMock(t, m)
+		msbtest.WithMsbMock(t, m)
 		for key, volumeName := range map[state.Key]string{
 			{Slug: purgeTestSlug, Agent: purgeTestAgent}: opencodeVolume,
 			{Slug: purgeTestSlug, Agent: otherAgent}:     codexVolume,
@@ -309,9 +310,9 @@ func TestSandboxRemovePurgeQuietNamesVolumes(t *testing.T) {
 	); err != nil {
 		t.Fatalf("seed state: %v", err)
 	}
-	m := &msb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Volumes = append(m.Volumes, homeVol(volumeName))
-	msb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("sandbox remove --purge --quiet: %v", err)
@@ -335,12 +336,12 @@ func TestSandboxRemovePurgeImplicitCwdTarget(t *testing.T) {
 	volumeName := homeVolumeNameFor(identity.CheckoutSlug)
 	otherVolumeName := homeVolumeNameFor("otherproject-1mjusbm3wikhb0")
 	vm := mkStoppedVM(identity.CheckoutSlug)
-	m := &msb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, vm)
 	m.Volumes = append(m.Volumes, homeVol(volumeName), homeVol(otherVolumeName))
 
 	cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--purge", "--yes")
-	msb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 	if err := seedHomeState(
 		state.Key{Slug: identity.CheckoutSlug, Agent: purgeTestAgent},
 		state.HomeState{HomeVolume: volumeName},
@@ -357,7 +358,7 @@ func TestSandboxRemovePurgeImplicitCwdTarget(t *testing.T) {
 	if slices.Contains(m.RemovedVolumes, otherVolumeName) {
 		t.Errorf("an unrelated project's volume %q must survive", otherVolumeName)
 	}
-	if !vm.(*msb.MockSandboxHandle).DidRemove() {
+	if !vm.(*msbtest.MockSandboxHandle).DidRemove() {
 		t.Error("expected the checkout slug's sandbox removed")
 	}
 }
@@ -367,17 +368,17 @@ func TestSandboxRemovePurgeImplicitCwdTarget(t *testing.T) {
 // nothing.
 func TestSandboxRemovePurgeRefusesRunningWithoutForce(t *testing.T) {
 	running := mkActiveVM(purgeTestSlug)
-	m := &msb.MockMsbClient{}
+	m := &msbtest.MockMsbClient{}
 	m.Sandboxes = append(m.Sandboxes, running)
 
 	cmd, ui := setupCommandFixtures(t, "sandbox", "remove", "--purge", purgeTestSlug, "--yes")
-	msb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	err := cmd.Execute()
 	if err == nil || !strings.Contains(err.Error(), "--force") {
 		t.Fatalf("expected a --force hint error, got: %v", err)
 	}
-	if running.(*msb.MockSandboxHandle).DidRemove() {
+	if running.(*msbtest.MockSandboxHandle).DidRemove() {
 		t.Error("a refused purge must not remove the running sandbox")
 	}
 	if len(ui.ConfirmCalls) != 0 {
@@ -391,21 +392,21 @@ func TestSandboxRemovePurgeRefusesRunningWithoutForce(t *testing.T) {
 func TestSandboxRemoveArgValidation(t *testing.T) {
 	t.Run("plain remove requires a name", func(t *testing.T) {
 		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--yes")
-		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 		if err := cmd.Execute(); err == nil {
 			t.Fatal("plain sandbox remove without a name should fail")
 		}
 	})
 	t.Run("plain remove rejects a second name", func(t *testing.T) {
 		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--yes", "one", "two")
-		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 		if err := cmd.Execute(); err == nil {
 			t.Fatal("plain sandbox remove with two names should fail")
 		}
 	})
 	t.Run("purge rejects a second target", func(t *testing.T) {
 		cmd, _ := setupCommandFixtures(t, "sandbox", "remove", "--purge", "--yes", "one", "two")
-		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 		if err := cmd.Execute(); err == nil {
 			t.Fatal("sandbox remove --purge with two targets should fail")
 		}

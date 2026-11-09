@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
@@ -17,7 +18,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/sandbox/vm"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -39,7 +40,7 @@ func TestPrepareSandboxRecomputesConfigSlugAfterAdoption(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	t.Chdir(root)
 
 	identity := mustIdentity(t, ".")
@@ -69,7 +70,7 @@ func TestPrepareSandboxRecomputesConfigSlugAfterAdoption(t *testing.T) {
 		t.Fatalf("seedHomeState: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sess, err := PrepareSandbox(
 		context.Background(),
 		sandboxRunOptions(t, options.RunOptions{Agent: "opencode", ConfigSlug: legacySlug}),
@@ -99,7 +100,7 @@ func TestPrepareSandboxRecomputesConfigSlugAfterAdoption(t *testing.T) {
 // its own checkout by hashing its worktree root, so its state key, VM name and
 // image tag carry the worktree-root-derived slug rather than the checkout's.
 func TestPrepareSandboxOutsideWorktreeUsesItsOwnKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	repo := testutil.InitRepo(t)
 	testutil.RunGit(t, repo, "remote", "add", "origin", cloneOrigin)
@@ -121,7 +122,7 @@ func TestPrepareSandboxOutsideWorktreeUsesItsOwnKey(t *testing.T) {
 	}
 
 	inspectedTag := installPrepareSandboxDockerMock(t)
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	t.Chdir(outside)
 	key := state.Key{Slug: identity.CheckoutSlug, Agent: "opencode"}

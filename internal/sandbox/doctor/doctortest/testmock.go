@@ -1,5 +1,5 @@
 //deadcode:ignore reason="test support: referenced only by _test.go files"
-package doctor
+package doctortest
 
 import (
 	"context"
@@ -7,23 +7,19 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
-// MockedEnsureInstalled replaces the ensureInstalled factory used by the
-// doctor package. The original factory is returned so callers can restore
-// it after their test.
+// MockedEnsureInstalled replaces the ensure-installed seam doctor's checkMsb
+// reaches, and restores the previous seam when the test ends.
 //
-// Usage from an external test package:
+// Usage:
 //
-//	orig := doctor.SetEnsureInstalled(func(ctx context.Context) error {
-//	    return nil // succeed
-//	})
-//	t.Cleanup(func() { doctor.SetEnsureInstalled(orig) })
+//	doctortest.MockedEnsureInstalled(t, true) // fail
 func MockedEnsureInstalled(t *testing.T, raise bool) {
-	orig := ensureInstalledFunc
-	ensureInstalledFunc = ensureInstalledMockFunc(raise)
-	t.Cleanup(func() { ensureInstalledFunc = orig })
+	orig := doctor.SetEnsureInstalled(ensureInstalledMockFunc(raise))
+	t.Cleanup(func() { doctor.SetEnsureInstalled(orig) })
 }
 
 // errMockedEnsureInstalled is the cause the ensureInstalled mock returns, so
@@ -53,25 +49,23 @@ func checkDockerMockFunc(success bool) func(context.Context, docker.Client) erro
 }
 
 func MockedCheckAll(t *testing.T, success bool) {
-	orig := checkAllFunc
-	checkAllFunc = checkAllMockFunc(success)
-	t.Cleanup(func() { checkAllFunc = orig })
+	orig := doctor.SetCheckAll(checkAllMockFunc(success))
+	t.Cleanup(func() { doctor.SetCheckAll(orig) })
 }
 
 func MockedCheckDocker(t *testing.T, success bool) {
-	orig := checkDockerFunc
-	checkDockerFunc = checkDockerMockFunc(success)
-	t.Cleanup(func() { checkDockerFunc = orig })
+	orig := doctor.SetCheckDocker(checkDockerMockFunc(success))
+	t.Cleanup(func() { doctor.SetCheckDocker(orig) })
 }
 
 func InstallFailFast() {
-	checkAllFunc = func(context.Context, docker.Client, termio.Logger) bool {
-		panic("doctor.CheckAll not mocked; use doctor.MockedCheckAll(t, ...) in the test")
-	}
-	checkDockerFunc = func(context.Context, docker.Client) error {
-		panic("doctor.CheckDocker not mocked; use doctor.MockedCheckDocker(t, ...) in the test")
-	}
-	ensureInstalledFunc = func(context.Context) error {
-		panic("doctor.EnsureInstalled not mocked; use doctor.SetEnsureInstalled(t, ...) in the test")
-	}
+	doctor.SetCheckAll(func(context.Context, docker.Client, termio.Logger) bool {
+		panic("doctor.CheckAll not mocked; use doctortest.MockedCheckAll(t, ...) in the test")
+	})
+	doctor.SetCheckDocker(func(context.Context, docker.Client) error {
+		panic("doctor.CheckDocker not mocked; use doctortest.MockedCheckDocker(t, ...) in the test")
+	})
+	doctor.SetEnsureInstalled(func(context.Context) error {
+		panic("doctor.EnsureInstalled not mocked; use doctortest.MockedEnsureInstalled(t, ...) in the test")
+	})
 }

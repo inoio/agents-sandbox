@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -13,7 +14,7 @@ import (
 // identity: ConfigScopes omits the per-slug scope for an empty slug, so there
 // is no per-slug user input to read.
 func TestSlugHasUserInputsEmptySlugIsFalse(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	if SlugHasUserInputs("") {
 		t.Error("an empty slug has no per-slug user inputs")
@@ -25,7 +26,7 @@ func TestSlugHasUserInputsEmptySlugIsFalse(t *testing.T) {
 // dir as populated, or a bare root with only generic user config would be
 // routed away from its legacy slug.
 func TestSlugHasUserInputsIgnoresNonPerSlugScopes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserConfigDir(), "config.yaml", "yes: true\n")
 
@@ -39,7 +40,7 @@ func TestSlugHasUserInputsIgnoresNonPerSlugScopes(t *testing.T) {
 // env/secret files, and any registered agent's config dir. Empty and missing
 // dirs must not count.
 func TestSlugHasUserInputs(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 
 	tests := []struct {
@@ -78,7 +79,7 @@ func TestSlugHasUserInputs(t *testing.T) {
 		{
 			name: "agent config dir",
 			setup: func(t *testing.T, slug string) {
-				dir := configpaths.CreateDir(
+				dir := configpathstest.CreateDir(
 					filepath.Join(cp.UserSlugConfigDir(slug), opencodeTestAgent().ConfigDirName()),
 				)
 				testutil.WriteFile(t, dir, "opencode-model.json", `{"model":"x"}`)
@@ -99,7 +100,7 @@ func TestSlugHasUserInputs(t *testing.T) {
 		},
 		{
 			name:  "empty dir",
-			setup: func(t *testing.T, slug string) { configpaths.CreateDir(cp.UserSlugConfigDir(slug)) },
+			setup: func(t *testing.T, slug string) { configpathstest.CreateDir(cp.UserSlugConfigDir(slug)) },
 			want:  false,
 		},
 		{
@@ -125,7 +126,7 @@ func TestSlugHasUserInputs(t *testing.T) {
 // legacy-slug selection, a secrets-only repo-slug dir must not be skipped,
 // which would silently reintroduce the #578 failure.
 func TestEffectiveConfigSlugSeesSecretsOnlyPerSlugDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	repoSlug := "repo-slug"
 	legacySlug := "legacy-slug"
 	testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(repoSlug), "env.secret.yaml", "TOKEN: secret\n")
@@ -140,7 +141,7 @@ func TestEffectiveConfigSlugSeesSecretsOnlyPerSlugDir(t *testing.T) {
 // TestEffectiveConfigSlugPrefersRepoSlug pins that the repo slug's per-slug
 // config wins over a legacy slug's during a bare-root config migration.
 func TestEffectiveConfigSlugPrefersRepoSlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	repoSlug := "repo-slug"
 	legacySlug := "legacy-slug"
 	testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(repoSlug), "config.yaml", "yes: true\n")
@@ -156,7 +157,7 @@ func TestEffectiveConfigSlugPrefersRepoSlug(t *testing.T) {
 // while the repo-slug dir holds no inputs, the launcher reads the legacy slug's
 // dir, so the user's saved settings are not skipped before adoption moves them.
 func TestEffectiveConfigSlugFallsBackToLegacy(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	repoSlug := "repo-slug"
 	legacySlug := "legacy-slug"
 	testutil.WriteFile(t, configpaths.Get().UserSlugConfigDir(legacySlug), "config.yaml", "yes: true\n")
@@ -171,7 +172,7 @@ func TestEffectiveConfigSlugFallsBackToLegacy(t *testing.T) {
 // no per-slug inputs anywhere the repo slug is returned, so callers still label
 // the dir the launcher would create.
 func TestEffectiveConfigSlugReturnsRepoSlugWhenNothingExists(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	got := EffectiveConfigSlug("repo-slug", []string{"legacy-slug"})
 	if got != "repo-slug" {
 		t.Errorf("EffectiveConfigSlug = %q, want the repo slug", got)

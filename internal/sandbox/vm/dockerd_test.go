@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestDockerdArgsSelectsTheStorageDriver pins the storage driver dockerd is
@@ -23,64 +24,66 @@ func TestDockerdArgsSelectsTheStorageDriver(t *testing.T) {
 	readErr := errors.New("read boom")
 	cases := []struct {
 		name       string
-		sb         func() *msb.MockSandbox
+		sb         func() *msbtest.MockSandbox
 		wantDriver string
 		wantFlag   bool
 		wantErr    func(error) bool
 	}{
 		{
 			name:       "no daemon.json, no fuse",
-			sb:         func() *msb.MockSandbox { return daemonJSONSandbox("") },
+			sb:         func() *msbtest.MockSandbox { return daemonJSONSandbox("") },
 			wantDriver: vfsStorageDriver,
 			wantFlag:   true,
 		},
 		{
 			name:       "no daemon.json, fuse available",
-			sb:         func() *msb.MockSandbox { return daemonJSONSandboxWithFuse("", true) },
+			sb:         func() *msbtest.MockSandbox { return daemonJSONSandboxWithFuse("", true) },
 			wantDriver: fuseOverlayfsStorageDriver,
 			wantFlag:   true,
 		},
 		{
 			name: "fuse probe fails",
-			sb: func() *msb.MockSandbox {
-				return &msb.MockSandbox{FSValue_: msb.NewTestFS(nil), ShellErr: errors.New("probe boom")}
+			sb: func() *msbtest.MockSandbox {
+				return &msbtest.MockSandbox{FSValue_: msbtest.NewTestFS(nil), ShellErr: errors.New("probe boom")}
 			},
 			wantDriver: vfsStorageDriver,
 			wantFlag:   true,
 		},
 		{
-			name:       "unrelated keys",
-			sb:         func() *msb.MockSandbox { return daemonJSONSandbox(`{"registry-mirrors":["https://mirror.example"]}`) },
+			name: "unrelated keys",
+			sb: func() *msbtest.MockSandbox {
+				return daemonJSONSandbox(`{"registry-mirrors":["https://mirror.example"]}`)
+			},
 			wantDriver: vfsStorageDriver,
 			wantFlag:   true,
 		},
 		{
 			name:       "malformed daemon.json",
-			sb:         func() *msb.MockSandbox { return daemonJSONSandbox(`{"storage-driver":`) },
+			sb:         func() *msbtest.MockSandbox { return daemonJSONSandbox(`{"storage-driver":`) },
 			wantDriver: vfsStorageDriver,
 			wantFlag:   true,
 		},
 		{
 			name:       "null driver",
-			sb:         func() *msb.MockSandbox { return daemonJSONSandbox(`{"storage-driver":null}`) },
+			sb:         func() *msbtest.MockSandbox { return daemonJSONSandbox(`{"storage-driver":null}`) },
 			wantDriver: vfsStorageDriver,
 			wantFlag:   true,
 		},
 		{
 			name:       "daemon.json sets vfs",
-			sb:         func() *msb.MockSandbox { return daemonJSONSandbox(`{"storage-driver":"vfs"}`) },
+			sb:         func() *msbtest.MockSandbox { return daemonJSONSandbox(`{"storage-driver":"vfs"}`) },
 			wantDriver: vfsStorageDriver,
 		},
 		{
 			name: "daemon.json sets fuse-overlayfs",
-			sb: func() *msb.MockSandbox {
+			sb: func() *msbtest.MockSandbox {
 				return daemonJSONSandboxWithFuse(`{"storage-driver":"fuse-overlayfs"}`, false)
 			},
 			wantDriver: fuseOverlayfsStorageDriver,
 		},
 		{
 			name: "daemon.json sets another driver",
-			sb:   func() *msb.MockSandbox { return daemonJSONSandbox(`{"storage-driver":"overlay2"}`) },
+			sb:   func() *msbtest.MockSandbox { return daemonJSONSandbox(`{"storage-driver":"overlay2"}`) },
 			wantErr: func(err error) bool {
 				return strings.Contains(err.Error(), "overlay2") &&
 					strings.Contains(err.Error(), vfsStorageDriver) &&
@@ -89,15 +92,15 @@ func TestDockerdArgsSelectsTheStorageDriver(t *testing.T) {
 		},
 		{
 			name:    "non-string driver",
-			sb:      func() *msb.MockSandbox { return daemonJSONSandbox(`{"storage-driver":42}`) },
+			sb:      func() *msbtest.MockSandbox { return daemonJSONSandbox(`{"storage-driver":42}`) },
 			wantErr: func(err error) bool { return strings.Contains(err.Error(), "storage-driver") },
 		},
 		{
 			name: "unreadable daemon.json",
-			sb: func() *msb.MockSandbox {
-				fs := msb.NewTestFS(map[string][]byte{dockerdDaemonConfigPath: []byte(`{}`)})
+			sb: func() *msbtest.MockSandbox {
+				fs := msbtest.NewTestFS(map[string][]byte{dockerdDaemonConfigPath: []byte(`{}`)})
 				fs.ReadErr = readErr
-				return &msb.MockSandbox{FSValue_: fs}
+				return &msbtest.MockSandbox{FSValue_: fs}
 			},
 			wantErr: func(err error) bool { return errors.Is(err, readErr) },
 		},
@@ -135,7 +138,7 @@ func TestDockerdArgsSelectsTheStorageDriver(t *testing.T) {
 // be checked for aborts with its cause, rather than being treated as absent.
 func TestGuestStorageDriverExistsErrorWrapsCause(t *testing.T) {
 	sentinel := errors.New("exists boom")
-	sb := &msb.MockSandbox{FSValue_: existsErrorFS{TestFS: msb.NewTestFS(nil), err: sentinel}}
+	sb := &msbtest.MockSandbox{FSValue_: existsErrorFS{TestFS: msbtest.NewTestFS(nil), err: sentinel}}
 
 	driver, err := guestStorageDriver(context.Background(), sb)
 	if err == nil {
@@ -161,8 +164,8 @@ func TestStartDockerdTreatsAMissingProbeResultAsNotReady(t *testing.T) {
 	dockerdReadyTimeout = 50 * time.Millisecond
 	dockerdPollInterval = time.Millisecond
 
-	ui := termio.NewTestMock(t)
-	sb := &nilResultDockerd{Sandbox: msb.NewMockSandbox(msb.SandboxOpts{})}
+	ui := termiotest.NewTestMock(t)
+	sb := &nilResultDockerd{Sandbox: msbtest.NewMockSandbox(msbtest.SandboxOpts{})}
 
 	err := startDockerdIfPresent(context.Background(), sb, &ui)
 	if err == nil || !strings.Contains(err.Error(), "did not become ready") {
@@ -171,7 +174,7 @@ func TestStartDockerdTreatsAMissingProbeResultAsNotReady(t *testing.T) {
 }
 
 func TestStartDockerdUsesConfigDrivenArgsWhenDaemonJSONSetsVFS(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb, detached := newDockerdStartSandbox(`{"storage-driver":"vfs"}`)
 
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
@@ -188,7 +191,7 @@ func TestStartDockerdUsesConfigDrivenArgsWhenDaemonJSONSetsVFS(t *testing.T) {
 }
 
 func TestStartDockerdFailsOnOtherStorageDriver(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb, detached := newDockerdStartSandbox(`{"storage-driver":"overlay2"}`)
 
 	err := startDockerdIfPresent(context.Background(), sb, &ui)
@@ -206,11 +209,11 @@ func TestStartDockerdFailsOnOtherStorageDriver(t *testing.T) {
 // TestStartDockerdStopsWhenCancelled pins that a cancelled context ends the
 // dockerd readiness wait with the cancellation.
 func TestStartDockerdStopsWhenCancelled(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	sb := &msb.MockSandbox{
+	ui := termiotest.NewTestMock(t)
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			dockerdBinaryCheckCmd: msb.NewTestResult(true, 0, "", "", nil),
-			dockerdReadyCmd:       msb.NewTestResult(false, 1, "", "", nil),
+			dockerdBinaryCheckCmd: msbtest.NewTestResult(true, 0, "", "", nil),
+			dockerdReadyCmd:       msbtest.NewTestResult(false, 1, "", "", nil),
 		},
 	}
 
@@ -226,9 +229,9 @@ func TestStartDockerdStopsWhenCancelled(t *testing.T) {
 // failure: a Shell error checking for dockerd aborts with its cause preserved,
 // rather than being read as "not present".
 func TestStartDockerdIfPresentBinaryCheckErrorWrapsCause(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sentinel := errors.New("shell boom")
-	sb := msb.NewMockSandbox(msb.SandboxOpts{ShellErr: sentinel})
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{ShellErr: sentinel})
 
 	err := startDockerdIfPresent(context.Background(), sb, &ui)
 	if err == nil {
@@ -240,10 +243,10 @@ func TestStartDockerdIfPresentBinaryCheckErrorWrapsCause(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentNoDockerdBinary(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	sb := msb.NewMockSandbox(msb.SandboxOpts{
+	ui := termiotest.NewTestMock(t)
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{
 		ShellOut: map[string]msb.ShellResult{
-			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+			dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 		},
 	})
 
@@ -256,7 +259,7 @@ func TestStartDockerdIfPresentNoDockerdBinary(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentAlreadyRunning(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := newCountingSandbox(0)
 
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
@@ -271,7 +274,7 @@ func TestStartDockerdIfPresentAlreadyRunning(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentStartsAndBecomesReady(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := newCountingSandbox(1)
 
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
@@ -293,7 +296,7 @@ func TestStartDockerdIfPresentStartsAndBecomesReady(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentExecError(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := newCountingSandbox(1 << 30)
 	wantErr := errors.New("connection lost")
 	sb.execErr = wantErr
@@ -311,7 +314,7 @@ func TestStartDockerdIfPresentExecError(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentNeverReady(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	// A huge threshold means the ready check can never become healthy within
 	// the (shortened) poll window, forcing the timeout path.
 	sb := newCountingSandbox(1 << 30)
@@ -334,7 +337,7 @@ func TestStartDockerdIfPresentNeverReady(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentProbesBeforeWaiting(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	// The pre-detach check fails once; the first post-detach probe is healthy.
 	// A long poll interval proves that probe happens immediately, not after the
 	// interval.
@@ -358,9 +361,9 @@ func TestStartDockerdIfPresentProbesBeforeWaiting(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentKillsStaleJobWithChangedArgs(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	stale := &msb.MockJob{}
-	running := &msb.MockJob{}
+	ui := termiotest.NewTestMock(t)
+	stale := &msbtest.MockJob{}
+	running := &msbtest.MockJob{}
 	sb := newCountingSandbox(1)
 	// The stale job was launched by a release whose dockerd arguments differ
 	// from this one's (no storage-driver flag), which is exactly the case the
@@ -383,9 +386,9 @@ func TestStartDockerdIfPresentKillsStaleJobWithChangedArgs(t *testing.T) {
 // started under dockerd's identity marker, so a later release can target it
 // whatever arguments it uses.
 func TestStartDockerdIfPresentLaunchesMarkedJob(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := newCountingSandbox(1)
-	calls := &[]msb.MockDetachedCall{}
+	calls := &[]msbtest.MockDetachedCall{}
 	sb.ExecDetachedCalls = calls
 
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
@@ -401,7 +404,7 @@ func TestStartDockerdIfPresentLaunchesMarkedJob(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentContinuesAfterCleanupError(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := newCountingSandbox(1)
 	sb.cleanupErr = errors.New("residue boom")
 
@@ -414,9 +417,9 @@ func TestStartDockerdIfPresentContinuesAfterCleanupError(t *testing.T) {
 }
 
 func TestStartDockerdIfPresentReportsCloseFailure(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	sb := newCountingSandbox(1)
-	sb.Job_ = &msb.MockJob{CloseErr: errors.New("close boom")}
+	sb.Job_ = &msbtest.MockJob{CloseErr: errors.New("close boom")}
 
 	if err := startDockerdIfPresent(context.Background(), sb, &ui); err != nil {
 		t.Fatalf("startDockerdIfPresent: %v", err)
@@ -437,10 +440,10 @@ func TestTimeoutErrorIncludesJobLog(t *testing.T) {
 
 	const sentinel = "failed to start containerd: timeout waiting for containerd to start"
 	sb := newCountingSandbox(1 << 30)
-	sb.Job_ = &msb.MockJob{
+	sb.Job_ = &msbtest.MockJob{
 		Logs_: []msb.JobLogEntry{{Data: []byte(sentinel)}},
 	}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	err := startDockerdIfPresent(context.Background(), sb, &ui)
 	if err == nil {
@@ -491,34 +494,34 @@ func TestDockerdReadyTimeoutAllowsFailOver(t *testing.T) {
 // daemonJSONSandbox returns a MockSandbox whose guest has the given
 // /etc/docker/daemon.json contents (omitted when content is empty) and reports
 // fuse-overlayfs as unavailable, exercising the vfs fallback.
-func daemonJSONSandbox(content string) *msb.MockSandbox {
+func daemonJSONSandbox(content string) *msbtest.MockSandbox {
 	return daemonJSONSandboxWithFuse(content, false)
 }
 
 // daemonJSONSandboxWithFuse returns a MockSandbox with the given daemon.json
 // contents whose guest probe reports the fuse-overlayfs binary and /dev/fuse as
 // available or not.
-func daemonJSONSandboxWithFuse(content string, fuseAvailable bool) *msb.MockSandbox {
+func daemonJSONSandboxWithFuse(content string, fuseAvailable bool) *msbtest.MockSandbox {
 	files := map[string][]byte{}
 	if content != "" {
 		files[dockerdDaemonConfigPath] = []byte(content)
 	}
-	return &msb.MockSandbox{
-		FSValue_: msb.NewTestFS(files),
+	return &msbtest.MockSandbox{
+		FSValue_: msbtest.NewTestFS(files),
 		ShellOut: map[string]msb.ShellResult{
-			fuseOverlayfsProbeCmd: msb.NewTestResult(fuseAvailable, 0, "", "", nil),
+			fuseOverlayfsProbeCmd: msbtest.NewTestResult(fuseAvailable, 0, "", "", nil),
 		},
 	}
 }
 
-func newDockerdStartSandbox(content string) (*dockerdStartSandbox, *[]msb.MockDetachedCall) {
+func newDockerdStartSandbox(content string) (*dockerdStartSandbox, *[]msbtest.MockDetachedCall) {
 	files := map[string][]byte{}
 	if content != "" {
 		files[dockerdDaemonConfigPath] = []byte(content)
 	}
-	detachedCalls := &[]msb.MockDetachedCall{}
-	mock := &msb.MockSandbox{
-		FSValue_:          msb.NewTestFS(files),
+	detachedCalls := &[]msbtest.MockDetachedCall{}
+	mock := &msbtest.MockSandbox{
+		FSValue_:          msbtest.NewTestFS(files),
 		ExecDetachedCalls: detachedCalls,
 	}
 	return &dockerdStartSandbox{Sandbox: mock}, detachedCalls
@@ -526,7 +529,7 @@ func newDockerdStartSandbox(content string) (*dockerdStartSandbox, *[]msb.MockDe
 
 func newCountingSandbox(readyCallsBeforeHealthy int) *countingSandbox {
 	return &countingSandbox{
-		MockSandbox:             &msb.MockSandbox{},
+		MockSandbox:             &msbtest.MockSandbox{},
 		readyCallsBeforeHealthy: readyCallsBeforeHealthy,
 	}
 }

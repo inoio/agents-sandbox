@@ -7,6 +7,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/opener"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
@@ -59,7 +60,7 @@ func (noSessionStatusAgent) ImageSpec() agent.ImageSpec { return agent.ImageSpec
 // that produced a partial result before failing. A plain MockSandbox cannot: it
 // returns either a result or an error, never both.
 type errWithResultSandbox struct {
-	*msb.MockSandbox
+	*msbtest.MockSandbox
 
 	out msb.ShellResult
 	err error

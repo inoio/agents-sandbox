@@ -11,17 +11,19 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
 
 func TestRootHasGlobalFlags(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	flags := []string{"yes", "log-level", "quiet"}
 	for _, f := range flags {
@@ -58,8 +60,8 @@ func TestCommandNeedsMSBRuntimeSkipsLauncherOnlyCommands(t *testing.T) {
 }
 
 func TestRootCommandReturnsRuntimePreparationError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	oldPrepare := prepareMSBRuntime
 	prepareMSBRuntime = func(context.Context, termio.Logger, string) error {
 		return errors.New("runtime mismatch")
@@ -90,8 +92,8 @@ func TestDryRunPreviewsSkipPreflightRuntimeInstall(t *testing.T) {
 
 	t.Run("run", func(t *testing.T) {
 		initTestProjectDir(t)
-		mock := &msb.MockMsbClient{}
-		root, ui := setupRunMocks(t, mock, &msb.MockSandbox{}, "run", "--dry-run")
+		mock := &msbtest.MockMsbClient{}
+		root, ui := setupRunMocks(t, mock, &msbtest.MockSandbox{}, "run", "--dry-run")
 		setupAbsentImagePreviewMocks(t, mock)
 		skipRuntimeInstall(t)
 
@@ -113,8 +115,8 @@ func TestDryRunPreviewsSkipPreflightRuntimeInstall(t *testing.T) {
 }
 
 func TestRootCommandReturnsInvalidCLISettingsError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	oldPrepare := prepareMSBRuntime
 	prepareMSBRuntime = func(context.Context, termio.Logger, string) error {
 		t.Fatal("runtime preparation must not run after invalid CLI settings")
@@ -134,10 +136,10 @@ func TestRootCommandReturnsInvalidCLISettingsError(t *testing.T) {
 // troubleshooting link) alongside the KVM and Docker results rather than
 // aborting the command with a raw preflight error.
 func TestDoctorRunsItsOwnChecksWithoutPreflightRuntimeInstall(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
-	docker.WithNoopDockerMock(t)
-	doctor.MockedCheckAll(t, false)
+	configpathstest.WithMockConfigPaths(t)
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
+	dockertest.WithNoopDockerMock(t)
+	doctortest.MockedCheckAll(t, false)
 
 	oldPrepare := prepareMSBRuntime
 	prepareMSBRuntime = func(context.Context, termio.Logger, string) error {
@@ -146,7 +148,7 @@ func TestDoctorRunsItsOwnChecksWithoutPreflightRuntimeInstall(t *testing.T) {
 	}
 	t.Cleanup(func() { prepareMSBRuntime = oldPrepare })
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{cmdDoctor})
 
@@ -171,7 +173,7 @@ func stateChildCommand() *cobra.Command {
 }
 
 func TestRunCommandHasExpectedFlags(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -186,7 +188,7 @@ func TestRunCommandHasExpectedFlags(t *testing.T) {
 }
 
 func TestRunCommandFlagShortcuts(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if runCmd == nil {
@@ -209,7 +211,7 @@ func TestRunCommandFlagShortcuts(t *testing.T) {
 }
 
 func TestImageBuildNounFormExists(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	imageCmd, _, _ := root.Find([]string{"image"})
 	if imageCmd == nil {
@@ -227,11 +229,11 @@ func TestCLILogLevelFlagSetsLevel(t *testing.T) {
 		{"prune", "--age", "1m", "-l", "verbose", "--yes"},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
-			ui := &termio.Mock{}
-			mock := &msb.MockMsbClient{}
-			msb.WithMsbMock(t, mock)
-			docker.WithNoopDockerMock(t)
+			configpathstest.WithMockConfigPaths(t)
+			ui := &termiotest.Mock{}
+			mock := &msbtest.MockMsbClient{}
+			msbtest.WithMsbMock(t, mock)
+			dockertest.WithNoopDockerMock(t)
 
 			root := buildRootCmd(ui)
 			root.SetArgs(args)
@@ -247,11 +249,11 @@ func TestCLILogLevelFlagSetsLevel(t *testing.T) {
 }
 
 func TestCLIPersistentYesAffectsUIAfterSubcommand(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	mock := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mock)
+	dockertest.WithNoopDockerMock(t)
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"prune", "--age", "1m", "-n", "-y"})
@@ -270,11 +272,11 @@ func TestCLIQuietFlagSetsQuiet(t *testing.T) {
 		{"prune", "--age", "1m", "-q", "--yes"},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
-			ui := &termio.Mock{}
-			mock := &msb.MockMsbClient{}
-			msb.WithMsbMock(t, mock)
-			docker.WithNoopDockerMock(t)
+			configpathstest.WithMockConfigPaths(t)
+			ui := &termiotest.Mock{}
+			mock := &msbtest.MockMsbClient{}
+			msbtest.WithMsbMock(t, mock)
+			dockertest.WithNoopDockerMock(t)
 
 			root := buildRootCmd(ui)
 			root.SetArgs(args)
@@ -290,11 +292,11 @@ func TestCLIQuietFlagSetsQuiet(t *testing.T) {
 }
 
 func TestCLIQuietFlagFalseByDefault(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
-	docker.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
+	mock := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mock)
+	dockertest.WithNoopDockerMock(t)
 
 	root := buildRootCmd(ui)
 	root.SetArgs([]string{"prune", "--age", "1m", "--yes"})
@@ -312,7 +314,7 @@ func TestNewConfigSetsUserDirs(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("XDG_STATE_HOME", "")
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	cfg := configpaths.Get()
 	a, _ := agent.Lookup("opencode")
 	if cfg.UserStateDir() != "/testhome/.local/state/agents-sandbox" {
@@ -334,7 +336,7 @@ func TestNewConfigHonorsXdgEnv(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/xdg/config")
 	t.Setenv("XDG_CACHE_HOME", "/xdg/cache")
 	t.Setenv("XDG_STATE_HOME", "/xdg/state")
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	cfg := configpaths.Get()
 	a, _ := agent.Lookup("opencode")
 	if cfg.UserStateDir() != "/xdg/state/agents-sandbox" {
@@ -352,7 +354,7 @@ func TestNewConfigHonorsXdgEnv(t *testing.T) {
 }
 
 func TestShellRootFlag(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 
 	shellCmd, _, _ := root.Find([]string{"shell"})
@@ -389,7 +391,7 @@ func TestShellRootFlag(t *testing.T) {
 }
 
 func TestStopCommandExists(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	stopCmd, _, _ := root.Find([]string{"stop"})
 	if stopCmd == nil {
@@ -398,7 +400,7 @@ func TestStopCommandExists(t *testing.T) {
 }
 
 func TestKillCommandExists(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	killCmd, _, _ := root.Find([]string{"kill"})
 	if killCmd == nil {
@@ -407,7 +409,7 @@ func TestKillCommandExists(t *testing.T) {
 }
 
 func TestStopCommandHasForceFlag(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	stopCmd, _, _ := root.Find([]string{"stop"})
 	if stopCmd == nil {
@@ -419,7 +421,7 @@ func TestStopCommandHasForceFlag(t *testing.T) {
 }
 
 func TestKillCommandHasForceFlag(t *testing.T) {
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	root := buildRootCmd(&testUI)
 	killCmd, _, _ := root.Find([]string{"kill"})
 	if killCmd == nil {
@@ -431,11 +433,11 @@ func TestKillCommandHasForceFlag(t *testing.T) {
 }
 
 func TestCLIConfigPrecedenceViaResolver(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2, "memory": "8G"})
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	root := buildRootCmd(ui)
 	runCmd, _, _ := root.Find([]string{"run"})
 	if err := runCmd.ParseFlags([]string{"--cpus", "6"}); err != nil {

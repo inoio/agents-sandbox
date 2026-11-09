@@ -1,32 +1,13 @@
-package doctor
+package doctortest
 
 import (
 	"context"
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
-
-func TestCheckAllUsesMockedCheckAll(t *testing.T) {
-	tests := []struct {
-		name    string
-		success bool
-	}{
-		{"success", true},
-		{"failure", false},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			testUI := termio.NewTestMock(t)
-			MockedCheckAll(t, tc.success)
-
-			if got := CheckAll(context.Background(), docker.Get(), &testUI); got != tc.success {
-				t.Errorf("CheckAll() = %v, want %v", got, tc.success)
-			}
-		})
-	}
-}
 
 func TestInstallFailFastFactoriesPanic(t *testing.T) {
 	MockedCheckAll(t, true)
@@ -62,14 +43,20 @@ func assertFactoryPanics(t *testing.T, name string, fn func()) {
 	fn()
 }
 
-// assertFailFastFactoriesPanic asserts every doctor factory is the fail-fast
-// default installed by InstallFailFast.
+// assertFailFastFactoriesPanic asserts the CheckAll, CheckDocker, and
+// ensure-installed factories are the fail-fast default installed by
+// InstallFailFast. ensureMsbInstalled is unexported, so the ensure-installed
+// factory is probed through doctor.SetEnsureInstalled's previous-value contract:
+// displacing the installed seam with a no-op yields the factory that was in
+// effect, which must be the fail-fast default and so must panic.
 func assertFailFastFactoriesPanic(t *testing.T) {
 	t.Helper()
-	assertFactoryPanics(t, "CheckDocker", func() { _ = CheckDocker(context.Background(), docker.Get()) })
+	assertFactoryPanics(t, "CheckDocker", func() { _ = doctor.CheckDocker(context.Background(), docker.Get()) })
 	assertFactoryPanics(t, "CheckAll", func() {
-		testUI := termio.NewTestMock(t)
-		_ = CheckAll(context.Background(), docker.Get(), &testUI)
+		testUI := termiotest.NewTestMock(t)
+		_ = doctor.CheckAll(context.Background(), docker.Get(), &testUI)
 	})
-	assertFactoryPanics(t, "ensureMsbInstalled", func() { _ = ensureMsbInstalled(context.Background()) })
+	displacedEnsureInstalled := doctor.SetEnsureInstalled(func(context.Context) error { return nil })
+	t.Cleanup(func() { doctor.SetEnsureInstalled(displacedEnsureInstalled) })
+	assertFactoryPanics(t, "EnsureInstalled", func() { _ = displacedEnsureInstalled(context.Background()) })
 }

@@ -10,6 +10,7 @@ import (
 	"go.yaml.in/yaml/v4"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
@@ -20,7 +21,7 @@ const settingSlug = "widget-bbb"
 // project config sets the key, its directory wins even though the lower user
 // layers set it too.
 func TestLayerSettingOwnerPrefersProjectLayer(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"memory": "2G"})
 	testutil.WriteYAML(t, cp.UserSlugConfigDir(settingSlug), "config.yaml", map[string]any{"memory": "4G"})
@@ -38,7 +39,7 @@ func TestLayerSettingOwnerPrefersProjectLayer(t *testing.T) {
 // TestLayerSettingOwnerPicksUserSlugLayer pins that a key only the per-slug user
 // layer sets resolves to that layer, not the generic user layer that lacks it.
 func TestLayerSettingOwnerPicksUserSlugLayer(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
 	testutil.WriteYAML(t, cp.UserSlugConfigDir(settingSlug), "config.yaml", map[string]any{"memory": "4G"})
@@ -56,7 +57,7 @@ func TestLayerSettingOwnerPicksUserSlugLayer(t *testing.T) {
 // TestLayerSettingOwnerPicksGenericUserLayer pins that the generic user layer is
 // the owner when it is the only one setting the key.
 func TestLayerSettingOwnerPicksGenericUserLayer(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"memory": "2G"})
 	testutil.WriteYAML(t, cp.UserSlugConfigDir(settingSlug), "config.yaml", map[string]any{"cpus": 2})
@@ -73,7 +74,7 @@ func TestLayerSettingOwnerPicksGenericUserLayer(t *testing.T) {
 // TestLayerSettingOwnerNone pins that no owner is reported when no file layer
 // sets the key.
 func TestLayerSettingOwnerNone(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
 	testutil.WriteYAML(t, cp.ProjectConfigDir(), "config.yaml", map[string]any{"tmp-size": "1G"})
@@ -87,7 +88,7 @@ func TestLayerSettingOwnerNone(t *testing.T) {
 // TestLayerSettingOwnerEmptySlugSkipsSlugLayer pins that an empty slug does not
 // consult the per-slug user layer, matching ConfigLayers.
 func TestLayerSettingOwnerEmptySlugSkipsSlugLayer(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
 
@@ -100,7 +101,7 @@ func TestLayerSettingOwnerEmptySlugSkipsSlugLayer(t *testing.T) {
 // TestLayerSettingOwnerNestedKey pins that a dotted key resolves through nested
 // mappings in a file layer.
 func TestLayerSettingOwnerNestedKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserConfigDir(), "config.yaml", "network:\n  profile: private\n")
 
@@ -122,7 +123,7 @@ func TestLayerSettingOwnerNestedKey(t *testing.T) {
 // user layer's `memory:`, and its differently-cased nested key owns
 // `network.profile`.
 func TestLayerSettingOwnerMatchesKeyCaseInsensitively(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserSlugConfigDir(settingSlug), "config.yaml", "memory: 4G\n")
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "Network:\n  Profile: private\nMemory: 8G\n")
@@ -156,7 +157,7 @@ func TestLayerSettingOwnerReadsEveryFormat(t *testing.T) {
 		{name: "yml", ext: ".yml", content: "memory: 8G\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			cp := configpaths.Get()
 			testutil.WriteFile(t, cp.ProjectConfigDir(), "config"+tc.ext, tc.content)
 
@@ -185,7 +186,7 @@ func TestLayerSettingOwnerSkipsUnreadableLayers(t *testing.T) {
 		{name: "json5", ext: ".json5", content: "{memory: }"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			cp := configpaths.Get()
 			testutil.WriteFile(t, cp.ProjectConfigDir(), "config"+tc.ext, tc.content)
 			testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"memory": "2G"})
@@ -204,7 +205,7 @@ func TestLayerSettingOwnerSkipsUnreadableLayers(t *testing.T) {
 // TestLayerSettingOwnerSkipsUnreadableFile pins that a config path that cannot
 // be read (a directory named like the config file) is skipped.
 func TestLayerSettingOwnerSkipsUnreadableFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	if err := os.Mkdir(filepath.Join(cp.ProjectConfigDir(), "config.yaml"), 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -225,7 +226,7 @@ func TestLayerSettingOwnerSkipsUnreadableFile(t *testing.T) {
 // after setting the key must still be skipped rather than treating the partial
 // map as complete.
 func TestLayerSettingOwnerSkipsPartiallyParsedLayer(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.ProjectConfigDir(), "config.yaml", "memory: 4G\nx: !!int notanint\n")
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"memory": "2G"})
@@ -242,7 +243,7 @@ func TestLayerSettingOwnerSkipsPartiallyParsedLayer(t *testing.T) {
 // TestWriteSettingCreatesConfigFile pins that an empty directory gains a
 // config.yaml the resolver reads back.
 func TestWriteSettingCreatesConfigFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserSlugConfigDir(settingSlug)
 
 	if err := WriteSetting(dir, "memory", "8G"); err != nil {
@@ -265,7 +266,7 @@ func TestWriteSettingCreatesConfigFile(t *testing.T) {
 // contract: an existing key keeps its value, and both a top-of-file comment and
 // a comment attached to another key survive the edit.
 func TestWriteSettingPreservesUnrelatedKeyAndComments(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "# top comment\ncpus: 2 # trailing comment\n")
 
@@ -294,7 +295,7 @@ func TestWriteSettingPreservesUnrelatedKeyAndComments(t *testing.T) {
 // its value in place, keeping the user's spelling, and the resolver then reads
 // the replaced value.
 func TestWriteSettingReplacesValueUnderExistingKeySpelling(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "Memory: 2G # keep me\n")
 
@@ -419,7 +420,7 @@ func TestWriteSettingPreservesFileBytes(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			dir := configpaths.Get().UserConfigDir()
 			testutil.WriteFile(t, dir, "config.yaml", tc.original)
 
@@ -451,7 +452,7 @@ func TestWriteSettingFallsBackToReencoding(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			dir := configpaths.Get().UserConfigDir()
 			testutil.WriteFile(t, dir, "config.yaml", tc.original)
 
@@ -471,7 +472,7 @@ func TestWriteSettingFallsBackToReencoding(t *testing.T) {
 // permissions, so a file other readers rely on does not turn private, while a
 // newly created config file stays private.
 func TestWriteSettingKeepsTheFileMode(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "memory: 4G\n")
 	path := filepath.Join(dir, "config.yaml")
@@ -510,7 +511,7 @@ func TestWriteSettingKeepsCommentsOnAReencodedValue(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			dir := configpaths.Get().UserConfigDir()
 			testutil.WriteFile(t, dir, "config.yaml", tc.original)
 
@@ -532,7 +533,7 @@ func TestWriteSettingKeepsCommentsOnAReencodedValue(t *testing.T) {
 // style). The value is not the first key, so the edit must pick the right
 // entry's comments.
 func TestWriteSettingKeepsCommentWhenValueContainsQuoteHash(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "cpus: 2\nmemory: \"4 #G\" # keep me\n")
 
@@ -550,7 +551,7 @@ func TestWriteSettingKeepsCommentWhenValueContainsQuoteHash(t *testing.T) {
 // spans several lines is not spliced into one line: the document is re-encoded
 // with two-space indentation.
 func TestWriteSettingReencodesAMultiLineValue(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "cpus: 2\n")
 
@@ -568,7 +569,7 @@ func TestWriteSettingReencodesAMultiLineValue(t *testing.T) {
 // path cannot express (a new nested key) re-encodes with two-space indentation,
 // matching how config files are written by hand.
 func TestWriteSettingNestedKeyKeepsTwoSpaceIndent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "network:\n  profile: private\n")
 
@@ -585,7 +586,7 @@ func TestWriteSettingNestedKeyKeepsTwoSpaceIndent(t *testing.T) {
 // TestWriteSettingOverwritesExistingKey pins that setting an already-present key
 // replaces its value in place.
 func TestWriteSettingOverwritesExistingKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "memory: 2G\ncpus: 2\n")
 
@@ -606,7 +607,7 @@ func TestWriteSettingOverwritesExistingKey(t *testing.T) {
 // an existing key spelled with different case instead of adding a second entry
 // that the resolver would see as the same key.
 func TestWriteSettingOverwritesDifferentlyCasedKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "Memory: 2G\n")
 
@@ -623,7 +624,7 @@ func TestWriteSettingOverwritesDifferentlyCasedKey(t *testing.T) {
 // TestWriteSettingPreservesCommentOnOverwrittenKey pins that overwriting a key's
 // value does not drop the comments attached to that key.
 func TestWriteSettingPreservesCommentOnOverwrittenKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "memory: 2G # keep me\n")
 
@@ -643,7 +644,7 @@ func TestWriteSettingPreservesCommentOnOverwrittenKey(t *testing.T) {
 // TestWriteSettingEditsSymlinkTarget pins that a symlinked config file keeps its
 // link: the atomic write edits the target, not the link itself.
 func TestWriteSettingEditsSymlinkTarget(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
@@ -675,7 +676,7 @@ func TestWriteSettingEditsSymlinkTarget(t *testing.T) {
 // TestWriteSettingSymlinkResolutionError pins that a link-resolution failure is
 // surfaced instead of editing the link path.
 func TestWriteSettingSymlinkResolutionError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "memory: 2G\n")
 	orig := evalSymlinks
@@ -693,7 +694,7 @@ func TestWriteSettingSymlinkResolutionError(t *testing.T) {
 // value another key aliases is left untouched: replacing it would remove the
 // anchor and leave the alias dangling.
 func TestWriteSettingRefusesAnchoredValueReferencedElsewhere(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	const original = "memory: &size 4G\ntmp-size: *size\n"
 	testutil.WriteFile(t, dir, "config.yaml", original)
@@ -711,7 +712,7 @@ func TestWriteSettingRefusesAnchoredValueReferencedElsewhere(t *testing.T) {
 // TestWriteSettingEditsUnreferencedAnchor pins that an anchor with no aliases is
 // replaceable: removing it leaves no dangling reference.
 func TestWriteSettingEditsUnreferencedAnchor(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "memory: &size 4G\ncpus: 2\n")
 
@@ -731,7 +732,7 @@ func TestWriteSettingEditsUnreferencedAnchor(t *testing.T) {
 // TestWriteSettingEmptyFile pins that an existing but empty config file is
 // treated as an empty mapping.
 func TestWriteSettingEmptyFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "")
 
@@ -748,7 +749,7 @@ func TestWriteSettingEmptyFile(t *testing.T) {
 // TestWriteSettingKeepsYAMLExtension pins that a .yml file stays YAML and keeps
 // its extension.
 func TestWriteSettingKeepsYAMLExtension(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yml", "memory: 2G\n")
 
@@ -764,7 +765,7 @@ func TestWriteSettingKeepsYAMLExtension(t *testing.T) {
 
 // TestWriteSettingNestedKey pins that a dotted key creates the nested mapping.
 func TestWriteSettingNestedKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "network:\n  profile: private\n")
 
@@ -789,7 +790,7 @@ func TestWriteSettingNestedKey(t *testing.T) {
 // editing a key that is not the first entry must replace exactly its value and
 // keep its neighbours, so an index that drifts off the pair corrupts the file.
 func TestWriteSettingOverwritesSecondKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "cpus: 2\nmemory: 4G # keep me\ntmp-size: 1G\n")
 
@@ -816,7 +817,7 @@ func TestWriteSettingOverwritesSecondKey(t *testing.T) {
 // TestWriteSettingNestedKeyAfterAnotherKey pins descending into a mapping that
 // is not the first entry of the document.
 func TestWriteSettingNestedKeyAfterAnotherKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "cpus: 2\nnetwork:\n  profile: private\n")
 
@@ -843,7 +844,7 @@ func TestWriteSettingNestedKeyAfterAnotherKey(t *testing.T) {
 // TestWriteSettingEditsAnchorWithUnrelatedAlias pins that an alias to a
 // different anchor does not block replacing the anchor's value.
 func TestWriteSettingEditsAnchorWithUnrelatedAlias(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "memory: &size 4G\ntmp-size: &other 2G\nquota: *other\n")
 
@@ -859,7 +860,7 @@ func TestWriteSettingEditsAnchorWithUnrelatedAlias(t *testing.T) {
 // TestWriteSettingPreservesHeadCommentOnOverwrittenKey pins that a block comment
 // above the key is carried onto the replacement value node.
 func TestWriteSettingPreservesHeadCommentOnOverwrittenKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "# head comment\nmemory: 2G\n")
 
@@ -876,7 +877,7 @@ func TestWriteSettingPreservesHeadCommentOnOverwrittenKey(t *testing.T) {
 // scalar whose text happens to equal an anchor name does not count as a
 // reference to that anchor.
 func TestWriteSettingEditsAnchorWithScalarMatchingAnchorName(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "memory: &size 4G\ncpus: size\n")
 
@@ -893,7 +894,7 @@ func TestWriteSettingEditsAnchorWithScalarMatchingAnchorName(t *testing.T) {
 // anchor detection: the value is found at its nested path and refused when an
 // alias references it.
 func TestWriteSettingRefusesNestedAnchoredValueReferencedElsewhere(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	const original = "cpus: 2\nnet:\n  profile: &p private\nother: *p\n"
 	testutil.WriteFile(t, dir, "config.yaml", original)
@@ -911,7 +912,7 @@ func TestWriteSettingRefusesNestedAnchoredValueReferencedElsewhere(t *testing.T)
 // only inspects key nodes: a value string equal to the target key name must not
 // be mistaken for the key.
 func TestWriteSettingOverwritesKeyWhoseNameAppearsAsAValue(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "note: memory\nmemory: 4G\n")
 
@@ -930,7 +931,7 @@ func TestWriteSettingOverwritesKeyWhoseNameAppearsAsAValue(t *testing.T) {
 // TestWriteSettingSingleCharacterRootRefused pins that a one-character
 // non-mapping root is detected rather than treated as an empty document.
 func TestWriteSettingSingleCharacterRootRefused(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	path := filepath.Join(dir, "config.yaml")
 	testutil.WriteFile(t, dir, "config.yaml", "x")
@@ -957,7 +958,7 @@ func TestWriteSettingRejectsNonYAML(t *testing.T) {
 		{name: "json", ext: ".json", content: "{\"memory\": \"2G\"}\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			dir := configpaths.Get().UserConfigDir()
 			path := filepath.Join(dir, "config"+tc.ext)
 			testutil.WriteFile(t, dir, "config"+tc.ext, tc.content)
@@ -976,7 +977,7 @@ func TestWriteSettingRejectsNonYAML(t *testing.T) {
 // TestWriteSettingInvalidYAML pins that an unparseable YAML file is surfaced as
 // an error and left untouched.
 func TestWriteSettingInvalidYAML(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	path := filepath.Join(dir, "config.yaml")
 	testutil.WriteFile(t, dir, "config.yaml", "memory: [unclosed\n")
@@ -996,7 +997,7 @@ func TestWriteSettingInvalidYAML(t *testing.T) {
 // TestWriteSettingUnreadableFile pins that an existing config path that cannot
 // be read (a directory) is surfaced as an error.
 func TestWriteSettingUnreadableFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	if err := os.Mkdir(filepath.Join(dir, "config.yaml"), 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -1015,7 +1016,7 @@ func TestWriteSettingUnreadableFile(t *testing.T) {
 // TestWriteSettingNonMappingRoot pins that a config file whose root is not a
 // mapping is refused rather than rewritten.
 func TestWriteSettingNonMappingRoot(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	path := filepath.Join(dir, "config.yaml")
 	testutil.WriteFile(t, dir, "config.yaml", "- one\n- two\n")
@@ -1034,7 +1035,7 @@ func TestWriteSettingNonMappingRoot(t *testing.T) {
 // is refused outright: without the root-kind guard an index-shaped key would be
 // written into the sequence.
 func TestWriteSettingRefusesIndexShapedKeyOnSequenceRoot(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	path := filepath.Join(dir, "config.yaml")
 	const original = "- one\n- two\n"
@@ -1051,7 +1052,7 @@ func TestWriteSettingRefusesIndexShapedKeyOnSequenceRoot(t *testing.T) {
 // TestWriteSettingIntermediateNotMapping pins that a dotted key cannot descend
 // through a scalar.
 func TestWriteSettingIntermediateNotMapping(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	testutil.WriteFile(t, dir, "config.yaml", "memory: 2G\n")
 
@@ -1073,7 +1074,7 @@ func (failingTextMarshaler) MarshalText() ([]byte, error) {
 // TestWriteSettingUnencodableValue pins that a value the YAML encoder rejects is
 // surfaced and nothing is written.
 func TestWriteSettingUnencodableValue(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserSlugConfigDir(settingSlug)
 
 	if err := WriteSetting(dir, "memory", failingTextMarshaler{}); err == nil {
@@ -1091,7 +1092,7 @@ func TestWriteSettingUnencodableValue(t *testing.T) {
 // is surfaced and nothing is written when the target key already exists, so the
 // in-place Set path fails closed too.
 func TestWriteSettingUnencodableExistingValue(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	path := filepath.Join(dir, "config.yaml")
 	testutil.WriteFile(t, dir, "config.yaml", "memory: 2G\n")
@@ -1109,7 +1110,7 @@ func TestWriteSettingUnencodableExistingValue(t *testing.T) {
 // TestLayerSettingOwnerNestedKeyThroughScalar pins that a dotted key whose
 // intermediate value is a scalar does not resolve.
 func TestLayerSettingOwnerNestedKeyThroughScalar(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserConfigDir(), "config.yaml", "network: private\n")
 
@@ -1121,7 +1122,7 @@ func TestLayerSettingOwnerNestedKeyThroughScalar(t *testing.T) {
 // TestWriteSettingCreatesIntermediateMapping pins that a dotted key whose
 // intermediate mapping is absent creates it.
 func TestWriteSettingCreatesIntermediateMapping(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 
 	if err := WriteSetting(dir, "a.b", "c"); err != nil {
@@ -1143,7 +1144,7 @@ func TestWriteSettingCreatesIntermediateMapping(t *testing.T) {
 // untouched, so a hostile project config cannot drive unbounded allocation. The
 // parser's own limits are pinned by TestWriteSettingRefusesDeeplyNestedInput.
 func TestWriteSettingRefusesOversizedInput(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	path := filepath.Join(dir, "config.yaml")
 	oversized := "note: " + strings.Repeat("x", 17<<20) + "\n" // above the 16 MiB untrusted scalar cap
@@ -1162,7 +1163,7 @@ func TestWriteSettingRefusesOversizedInput(t *testing.T) {
 // enough to pass the size cap but nested past oneyaml's depth limit is refused,
 // so dropping oneyaml.Untrusted() would let it through.
 func TestWriteSettingRefusesDeeplyNestedInput(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	path := filepath.Join(dir, "config.yaml")
 	// oneyaml's untrusted depth limit is 1000; its default is 10000.
@@ -1182,7 +1183,7 @@ func TestWriteSettingRefusesDeeplyNestedInput(t *testing.T) {
 // unambiguous pointer, so the edit is refused and the file is left untouched
 // rather than editing an arbitrary one of the entries.
 func TestWriteSettingRefusesDuplicateKeys(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	path := filepath.Join(dir, "config.yaml")
 	const original = "memory: 2G\nmemory: 4G\n"
@@ -1200,7 +1201,7 @@ func TestWriteSettingRefusesDuplicateKeys(t *testing.T) {
 // of the reference scan: an alias nested inside a sequence still blocks replacing
 // the anchor it names.
 func TestWriteSettingRefusesAnchorReferencedFromASequence(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := configpaths.Get().UserConfigDir()
 	path := filepath.Join(dir, "config.yaml")
 	const original = "memory: &size 4G\nsizes:\n  - *size\n"

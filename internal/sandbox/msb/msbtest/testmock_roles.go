@@ -1,9 +1,11 @@
 //deadcode:ignore reason="test support: referenced only by _test.go files"
-package msb
+package msbtest
 
 import (
 	"context"
 	"io"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 )
 
 // MockRuntimeInstaller is a test double for RuntimeInstaller. A nil
@@ -13,7 +15,7 @@ type MockRuntimeInstaller struct {
 }
 
 // Compile-time check.
-var _ RuntimeInstaller = (*MockRuntimeInstaller)(nil)
+var _ msb.RuntimeInstaller = (*MockRuntimeInstaller)(nil)
 
 // EnsureInstalled implements RuntimeInstaller.
 func (m *MockRuntimeInstaller) EnsureInstalled(ctx context.Context) error {
@@ -26,16 +28,16 @@ func (m *MockRuntimeInstaller) EnsureInstalled(ctx context.Context) error {
 // MockSandboxStore is a test double for SandboxStore. A nil callback means
 // return the zero value with no error.
 type MockSandboxStore struct {
-	GetSandboxFn    func(ctx context.Context, name string) (SandboxHandle, error)
-	CreateSandboxFn func(ctx context.Context, name string, spec SandboxSpec) (Sandbox, error)
-	ListSandboxesFn func(ctx context.Context, labels map[string]string) ([]SandboxHandle, error)
+	GetSandboxFn    func(ctx context.Context, name string) (msb.SandboxHandle, error)
+	CreateSandboxFn func(ctx context.Context, name string, spec msb.SandboxSpec) (msb.Sandbox, error)
+	ListSandboxesFn func(ctx context.Context, labels map[string]string) ([]msb.SandboxHandle, error)
 }
 
 // Compile-time check.
-var _ SandboxStore = (*MockSandboxStore)(nil)
+var _ msb.SandboxStore = (*MockSandboxStore)(nil)
 
 // GetSandbox implements SandboxStore.
-func (m *MockSandboxStore) GetSandbox(ctx context.Context, name string) (SandboxHandle, error) {
+func (m *MockSandboxStore) GetSandbox(ctx context.Context, name string) (msb.SandboxHandle, error) {
 	if m.GetSandboxFn != nil {
 		return m.GetSandboxFn(ctx, name)
 	}
@@ -46,8 +48,8 @@ func (m *MockSandboxStore) GetSandbox(ctx context.Context, name string) (Sandbox
 func (m *MockSandboxStore) CreateSandbox(
 	ctx context.Context,
 	name string,
-	spec SandboxSpec,
-) (Sandbox, error) {
+	spec msb.SandboxSpec,
+) (msb.Sandbox, error) {
 	if m.CreateSandboxFn != nil {
 		return m.CreateSandboxFn(ctx, name, spec)
 	}
@@ -55,7 +57,7 @@ func (m *MockSandboxStore) CreateSandbox(
 }
 
 // ListSandboxes implements SandboxStore.
-func (m *MockSandboxStore) ListSandboxes(ctx context.Context, labels map[string]string) ([]SandboxHandle, error) {
+func (m *MockSandboxStore) ListSandboxes(ctx context.Context, labels map[string]string) ([]msb.SandboxHandle, error) {
 	if m.ListSandboxesFn != nil {
 		return m.ListSandboxesFn(ctx, labels)
 	}
@@ -65,17 +67,17 @@ func (m *MockSandboxStore) ListSandboxes(ctx context.Context, labels map[string]
 // MockVolumeStore is a test double for VolumeStore. A nil callback means
 // return the zero value with no error.
 type MockVolumeStore struct {
-	GetVolumeFn    func(ctx context.Context, name string) (VolumeHandle, error)
-	CreateVolumeFn func(ctx context.Context, name string, spec VolumeSpec) (VolumeHandle, error)
-	ListVolumesFn  func(ctx context.Context) ([]VolumeHandle, error)
+	GetVolumeFn    func(ctx context.Context, name string) (msb.VolumeHandle, error)
+	CreateVolumeFn func(ctx context.Context, name string, spec msb.VolumeSpec) (msb.VolumeHandle, error)
+	ListVolumesFn  func(ctx context.Context) ([]msb.VolumeHandle, error)
 	RemoveVolumeFn func(ctx context.Context, name string) error
 }
 
 // Compile-time check.
-var _ VolumeStore = (*MockVolumeStore)(nil)
+var _ msb.VolumeStore = (*MockVolumeStore)(nil)
 
 // GetVolume implements VolumeStore.
-func (m *MockVolumeStore) GetVolume(ctx context.Context, name string) (VolumeHandle, error) {
+func (m *MockVolumeStore) GetVolume(ctx context.Context, name string) (msb.VolumeHandle, error) {
 	if m.GetVolumeFn != nil {
 		return m.GetVolumeFn(ctx, name)
 	}
@@ -86,8 +88,8 @@ func (m *MockVolumeStore) GetVolume(ctx context.Context, name string) (VolumeHan
 func (m *MockVolumeStore) CreateVolume(
 	ctx context.Context,
 	name string,
-	spec VolumeSpec,
-) (VolumeHandle, error) {
+	spec msb.VolumeSpec,
+) (msb.VolumeHandle, error) {
 	if m.CreateVolumeFn != nil {
 		return m.CreateVolumeFn(ctx, name, spec)
 	}
@@ -95,7 +97,7 @@ func (m *MockVolumeStore) CreateVolume(
 }
 
 // ListVolumes implements VolumeStore.
-func (m *MockVolumeStore) ListVolumes(ctx context.Context) ([]VolumeHandle, error) {
+func (m *MockVolumeStore) ListVolumes(ctx context.Context) ([]msb.VolumeHandle, error) {
 	if m.ListVolumesFn != nil {
 		return m.ListVolumesFn(ctx)
 	}
@@ -114,16 +116,16 @@ func (m *MockVolumeStore) RemoveVolume(ctx context.Context, name string) error {
 // the zero value with no error.
 type MockImageStore struct {
 	ImageGetFn           func(ctx context.Context, ref string) error
-	ImageListFn          func(ctx context.Context) ([]ImageHandle, error)
-	ImagePruneFn         func(ctx context.Context) (*ImagePruneReport, error)
+	ImageListFn          func(ctx context.Context) ([]msb.ImageHandle, error)
+	ImagePruneFn         func(ctx context.Context) (*msb.ImagePruneReport, error)
 	ImageRemoveFn        func(ctx context.Context, ref string, force bool) error
 	ImageLoadFn          func(ctx context.Context, ref string, r io.Reader) error
-	ImageInspectFn       func(ctx context.Context, ref string) (*ImageConfig, error)
-	ImageInspectDetailFn func(ctx context.Context, ref string) (*ImageDetail, error)
+	ImageInspectFn       func(ctx context.Context, ref string) (*msb.ImageConfig, error)
+	ImageInspectDetailFn func(ctx context.Context, ref string) (*msb.ImageDetail, error)
 }
 
 // Compile-time check.
-var _ ImageStore = (*MockImageStore)(nil)
+var _ msb.ImageStore = (*MockImageStore)(nil)
 
 // ImageGet implements ImageStore.
 func (m *MockImageStore) ImageGet(ctx context.Context, ref string) error {
@@ -134,7 +136,7 @@ func (m *MockImageStore) ImageGet(ctx context.Context, ref string) error {
 }
 
 // ImageList implements ImageStore.
-func (m *MockImageStore) ImageList(ctx context.Context) ([]ImageHandle, error) {
+func (m *MockImageStore) ImageList(ctx context.Context) ([]msb.ImageHandle, error) {
 	if m.ImageListFn != nil {
 		return m.ImageListFn(ctx)
 	}
@@ -142,7 +144,7 @@ func (m *MockImageStore) ImageList(ctx context.Context) ([]ImageHandle, error) {
 }
 
 // ImagePrune implements ImageStore.
-func (m *MockImageStore) ImagePrune(ctx context.Context) (*ImagePruneReport, error) {
+func (m *MockImageStore) ImagePrune(ctx context.Context) (*msb.ImagePruneReport, error) {
 	if m.ImagePruneFn != nil {
 		return m.ImagePruneFn(ctx)
 	}
@@ -166,7 +168,7 @@ func (m *MockImageStore) ImageLoad(ctx context.Context, ref string, r io.Reader)
 }
 
 // ImageInspect implements ImageStore.
-func (m *MockImageStore) ImageInspect(ctx context.Context, ref string) (*ImageConfig, error) {
+func (m *MockImageStore) ImageInspect(ctx context.Context, ref string) (*msb.ImageConfig, error) {
 	if m.ImageInspectFn != nil {
 		return m.ImageInspectFn(ctx, ref)
 	}
@@ -174,7 +176,7 @@ func (m *MockImageStore) ImageInspect(ctx context.Context, ref string) (*ImageCo
 }
 
 // ImageInspectDetail implements ImageStore.
-func (m *MockImageStore) ImageInspectDetail(ctx context.Context, ref string) (*ImageDetail, error) {
+func (m *MockImageStore) ImageInspectDetail(ctx context.Context, ref string) (*msb.ImageDetail, error) {
 	if m.ImageInspectDetailFn != nil {
 		return m.ImageInspectDetailFn(ctx, ref)
 	}
@@ -184,15 +186,15 @@ func (m *MockImageStore) ImageInspectDetail(ctx context.Context, ref string) (*I
 // MockStorageStore is a test double for StorageStore. A nil callback means
 // return the zero value with no error.
 type MockStorageStore struct {
-	StorageUsageFn func(ctx context.Context) (*StorageReport, error)
-	PruneStorageFn func(ctx context.Context, req PruneRequest) (*PruneReport, error)
+	StorageUsageFn func(ctx context.Context) (*msb.StorageReport, error)
+	PruneStorageFn func(ctx context.Context, req msb.PruneRequest) (*msb.PruneReport, error)
 }
 
 // Compile-time check.
-var _ StorageStore = (*MockStorageStore)(nil)
+var _ msb.StorageStore = (*MockStorageStore)(nil)
 
 // StorageUsage implements StorageStore.
-func (m *MockStorageStore) StorageUsage(ctx context.Context) (*StorageReport, error) {
+func (m *MockStorageStore) StorageUsage(ctx context.Context) (*msb.StorageReport, error) {
 	if m.StorageUsageFn != nil {
 		return m.StorageUsageFn(ctx)
 	}
@@ -202,8 +204,8 @@ func (m *MockStorageStore) StorageUsage(ctx context.Context) (*StorageReport, er
 // PruneStorage implements StorageStore.
 func (m *MockStorageStore) PruneStorage(
 	ctx context.Context,
-	req PruneRequest,
-) (*PruneReport, error) {
+	req msb.PruneRequest,
+) (*msb.PruneReport, error) {
 	if m.PruneStorageFn != nil {
 		return m.PruneStorageFn(ctx, req)
 	}
@@ -213,20 +215,20 @@ func (m *MockStorageStore) PruneStorage(
 // MockSandboxExecutor is a test double for SandboxExecutor. A nil callback
 // means return the zero value with no error.
 type MockSandboxExecutor struct {
-	ShellFn func(ctx context.Context, command string, req ExecRequest) (ShellResult, error)
-	ExecFn  func(ctx context.Context, command string, args []string, req ExecRequest) (ShellResult, error)
-	FSFn    func() SandboxFS
+	ShellFn func(ctx context.Context, command string, req msb.ExecRequest) (msb.ShellResult, error)
+	ExecFn  func(ctx context.Context, command string, args []string, req msb.ExecRequest) (msb.ShellResult, error)
+	FSFn    func() msb.SandboxFS
 }
 
 // Compile-time check.
-var _ SandboxExecutor = (*MockSandboxExecutor)(nil)
+var _ msb.SandboxExecutor = (*MockSandboxExecutor)(nil)
 
 // Shell implements SandboxExecutor.
 func (m *MockSandboxExecutor) Shell(
 	ctx context.Context,
 	command string,
-	req ExecRequest,
-) (ShellResult, error) {
+	req msb.ExecRequest,
+) (msb.ShellResult, error) {
 	if m.ShellFn != nil {
 		return m.ShellFn(ctx, command, req)
 	}
@@ -238,8 +240,8 @@ func (m *MockSandboxExecutor) Exec(
 	ctx context.Context,
 	command string,
 	args []string,
-	req ExecRequest,
-) (ShellResult, error) {
+	req msb.ExecRequest,
+) (msb.ShellResult, error) {
 	if m.ExecFn != nil {
 		return m.ExecFn(ctx, command, args, req)
 	}
@@ -247,7 +249,7 @@ func (m *MockSandboxExecutor) Exec(
 }
 
 // FS implements SandboxExecutor.
-func (m *MockSandboxExecutor) FS() SandboxFS {
+func (m *MockSandboxExecutor) FS() msb.SandboxFS {
 	if m.FSFn != nil {
 		return m.FSFn()
 	}
@@ -257,19 +259,19 @@ func (m *MockSandboxExecutor) FS() SandboxFS {
 // MockSandboxStreamer is a test double for SandboxStreamer. A nil callback
 // means return the zero value with no error.
 type MockSandboxStreamer struct {
-	ShellFn       func(ctx context.Context, command string, req ExecRequest) (ShellResult, error)
-	ShellStreamFn func(ctx context.Context, command string, req ExecRequest) (StreamHandle, error)
+	ShellFn       func(ctx context.Context, command string, req msb.ExecRequest) (msb.ShellResult, error)
+	ShellStreamFn func(ctx context.Context, command string, req msb.ExecRequest) (msb.StreamHandle, error)
 }
 
 // Compile-time check.
-var _ SandboxStreamer = (*MockSandboxStreamer)(nil)
+var _ msb.SandboxStreamer = (*MockSandboxStreamer)(nil)
 
 // Shell implements SandboxStreamer.
 func (m *MockSandboxStreamer) Shell(
 	ctx context.Context,
 	command string,
-	req ExecRequest,
-) (ShellResult, error) {
+	req msb.ExecRequest,
+) (msb.ShellResult, error) {
 	if m.ShellFn != nil {
 		return m.ShellFn(ctx, command, req)
 	}
@@ -280,8 +282,8 @@ func (m *MockSandboxStreamer) Shell(
 func (m *MockSandboxStreamer) ShellStream(
 	ctx context.Context,
 	command string,
-	req ExecRequest,
-) (StreamHandle, error) {
+	req msb.ExecRequest,
+) (msb.StreamHandle, error) {
 	if m.ShellStreamFn != nil {
 		return m.ShellStreamFn(ctx, command, req)
 	}
@@ -291,20 +293,20 @@ func (m *MockSandboxStreamer) ShellStream(
 // MockSandboxAttacher is a test double for SandboxAttacher. A nil callback
 // means return the zero value with no error.
 type MockSandboxAttacher struct {
-	AttachWithFn func(ctx context.Context, command string, args []string, req AttachRequest) (int, error)
+	AttachWithFn func(ctx context.Context, command string, args []string, req msb.AttachRequest) (int, error)
 	AttachFn     func(ctx context.Context, command string, args ...string) (int, error)
 	DetachFn     func(ctx context.Context) error
 }
 
 // Compile-time check.
-var _ SandboxAttacher = (*MockSandboxAttacher)(nil)
+var _ msb.SandboxAttacher = (*MockSandboxAttacher)(nil)
 
 // AttachWith implements SandboxAttacher.
 func (m *MockSandboxAttacher) AttachWith(
 	ctx context.Context,
 	command string,
 	args []string,
-	req AttachRequest,
+	req msb.AttachRequest,
 ) (int, error) {
 	if m.AttachWithFn != nil {
 		return m.AttachWithFn(ctx, command, args, req)
@@ -331,21 +333,21 @@ func (m *MockSandboxAttacher) Detach(ctx context.Context) error {
 // MockSandboxJobs is a test double for SandboxJobs. A nil callback means return
 // the zero value with no error.
 type MockSandboxJobs struct {
-	ExecDetachedFn func(ctx context.Context, cmd string, args []string, spec JobSpec) (Job, error)
-	GetJobFn       func(ctx context.Context, id string) (Job, error)
-	ListJobsFn     func(ctx context.Context, query JobQuery) ([]JobInfo, error)
+	ExecDetachedFn func(ctx context.Context, cmd string, args []string, spec msb.JobSpec) (msb.Job, error)
+	GetJobFn       func(ctx context.Context, id string) (msb.Job, error)
+	ListJobsFn     func(ctx context.Context, query msb.JobQuery) ([]msb.JobInfo, error)
 }
 
 // Compile-time check.
-var _ SandboxJobs = (*MockSandboxJobs)(nil)
+var _ msb.SandboxJobs = (*MockSandboxJobs)(nil)
 
 // ExecDetached implements SandboxJobs.
 func (m *MockSandboxJobs) ExecDetached(
 	ctx context.Context,
 	cmd string,
 	args []string,
-	spec JobSpec,
-) (Job, error) {
+	spec msb.JobSpec,
+) (msb.Job, error) {
 	if m.ExecDetachedFn != nil {
 		return m.ExecDetachedFn(ctx, cmd, args, spec)
 	}
@@ -353,7 +355,7 @@ func (m *MockSandboxJobs) ExecDetached(
 }
 
 // GetJob implements SandboxJobs.
-func (m *MockSandboxJobs) GetJob(ctx context.Context, id string) (Job, error) {
+func (m *MockSandboxJobs) GetJob(ctx context.Context, id string) (msb.Job, error) {
 	if m.GetJobFn != nil {
 		return m.GetJobFn(ctx, id)
 	}
@@ -361,7 +363,7 @@ func (m *MockSandboxJobs) GetJob(ctx context.Context, id string) (Job, error) {
 }
 
 // ListJobs implements SandboxJobs.
-func (m *MockSandboxJobs) ListJobs(ctx context.Context, query JobQuery) ([]JobInfo, error) {
+func (m *MockSandboxJobs) ListJobs(ctx context.Context, query msb.JobQuery) ([]msb.JobInfo, error) {
 	if m.ListJobsFn != nil {
 		return m.ListJobsFn(ctx, query)
 	}
@@ -371,15 +373,15 @@ func (m *MockSandboxJobs) ListJobs(ctx context.Context, query JobQuery) ([]JobIn
 // MockSandboxObserver is a test double for SandboxObserver. A nil callback
 // means return the zero value with no error.
 type MockSandboxObserver struct {
-	MetricsFn func(ctx context.Context) (*Metrics, error)
-	LogsFn    func(ctx context.Context, query LogQuery) ([]LogEntry, error)
+	MetricsFn func(ctx context.Context) (*msb.Metrics, error)
+	LogsFn    func(ctx context.Context, query msb.LogQuery) ([]msb.LogEntry, error)
 }
 
 // Compile-time check.
-var _ SandboxObserver = (*MockSandboxObserver)(nil)
+var _ msb.SandboxObserver = (*MockSandboxObserver)(nil)
 
 // Metrics implements SandboxObserver.
-func (m *MockSandboxObserver) Metrics(ctx context.Context) (*Metrics, error) {
+func (m *MockSandboxObserver) Metrics(ctx context.Context) (*msb.Metrics, error) {
 	if m.MetricsFn != nil {
 		return m.MetricsFn(ctx)
 	}
@@ -387,7 +389,7 @@ func (m *MockSandboxObserver) Metrics(ctx context.Context) (*Metrics, error) {
 }
 
 // Logs implements SandboxObserver.
-func (m *MockSandboxObserver) Logs(ctx context.Context, query LogQuery) ([]LogEntry, error) {
+func (m *MockSandboxObserver) Logs(ctx context.Context, query msb.LogQuery) ([]msb.LogEntry, error) {
 	if m.LogsFn != nil {
 		return m.LogsFn(ctx, query)
 	}

@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestProjectSlugsExcludesLocksAndFiles(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	root := stateRoot()
 	for _, slug := range []string{"zeta-project", "alpha-project", "mid-project"} {
@@ -41,7 +41,7 @@ func TestProjectSlugsExcludesLocksAndFiles(t *testing.T) {
 }
 
 func TestProjectSlugsEmptyRoot(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	slugs, err := ProjectSlugs()
 	if err != nil {
@@ -53,7 +53,7 @@ func TestProjectSlugsEmptyRoot(t *testing.T) {
 }
 
 func TestClaimTokensReturnsSettledTokenNames(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	dir := filepath.Join(SlugDir("sweep-claims"), "claims")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -87,7 +87,7 @@ func TestClaimTokensReturnsSettledTokenNames(t *testing.T) {
 }
 
 func TestRemoveUnheldClaimRemovesFreeFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "sweep-claim-free"
 
 	dir := filepath.Join(SlugDir(slug), "claims")
@@ -112,7 +112,7 @@ func TestRemoveUnheldClaimRemovesFreeFile(t *testing.T) {
 // TestRemoveUnheldClaimUsesPrivateModes pins the claims dir and file modes at
 // the seam, so the assertion does not depend on the test process's umask.
 func TestRemoveUnheldClaimUsesPrivateModes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	var dirMode, fileMode os.FileMode
 	origMkdir, origOpen := mkdirSweepClaimDir, openSweepClaimFile
 	mkdirSweepClaimDir = func(dir string, mode os.FileMode) error {
@@ -141,7 +141,7 @@ func TestRemoveUnheldClaimUsesPrivateModes(t *testing.T) {
 // report removed=false and wrap the underlying error.
 func TestRemoveUnheldClaimErrorPathsReportNotRemovedAndWrap(t *testing.T) {
 	t.Run("mkdir", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		wantErr := errors.New("mkdir boom")
 		orig := mkdirSweepClaimDir
 		mkdirSweepClaimDir = func(string, os.FileMode) error { return wantErr }
@@ -157,7 +157,7 @@ func TestRemoveUnheldClaimErrorPathsReportNotRemovedAndWrap(t *testing.T) {
 	})
 
 	t.Run("open", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		wantErr := errors.New("open boom")
 		orig := openSweepClaimFile
 		openSweepClaimFile = func(string, int, os.FileMode) (*os.File, error) { return nil, wantErr }
@@ -173,7 +173,7 @@ func TestRemoveUnheldClaimErrorPathsReportNotRemovedAndWrap(t *testing.T) {
 	})
 
 	t.Run("flock", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		claimOpened = func(f *os.File, _ string) { _ = f.Close() }
 		t.Cleanup(func() { claimOpened = nil })
 
@@ -188,7 +188,7 @@ func TestRemoveUnheldClaimErrorPathsReportNotRemovedAndWrap(t *testing.T) {
 }
 
 func TestRemoveUnheldClaimKeepsHeldFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	slug := "sweep-claim-held"
 
 	release, claimed, err := AcquireClaim(slug, "token")
@@ -214,7 +214,7 @@ func TestRemoveUnheldClaimKeepsHeldFile(t *testing.T) {
 // and the lock must not be removed blindly (the path may now name a different,
 // possibly held, claim), so the sweep retries on the current file.
 func TestRemoveUnheldClaimRetriesWhenFileReplacedUnderIt(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	attempts := 0
 	claimOpened = func(_ *os.File, path string) {
@@ -238,7 +238,7 @@ func TestRemoveUnheldClaimRetriesWhenFileReplacedUnderIt(t *testing.T) {
 }
 
 func TestRemoveUnheldClaimGivesUpWhenReplacedEveryAttempt(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	attempts := 0
 	claimOpened = func(_ *os.File, path string) {
@@ -260,7 +260,7 @@ func TestRemoveUnheldClaimGivesUpWhenReplacedEveryAttempt(t *testing.T) {
 }
 
 func TestSweepClientLeasesRemovesOnlyStaleFreeLeases(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "sweep-leases-proj", Agent: "opencode"}
 	clientsDir := filepath.Join(KeyDir(k), "clients")
@@ -307,7 +307,7 @@ func TestSweepClientLeasesRemovesOnlyStaleFreeLeases(t *testing.T) {
 }
 
 func TestSweepClientLeasesMissingDir(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	if got := SweepClientLeases(Key{Slug: "sweep-nodir", Agent: "opencode"}); got != 0 {
 		t.Fatalf("SweepClientLeases = %d, want 0 for a missing clients dir", got)
@@ -315,7 +315,7 @@ func TestSweepClientLeasesMissingDir(t *testing.T) {
 }
 
 func TestRemoveSlugDirIfEmptyKeepsNonEmptyAndReclaimsEmptyShells(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	// A slug dir whose subtree holds a file stays, and the empty sibling shell
 	// beneath it is reclaimed.
@@ -365,7 +365,7 @@ func TestRemoveSlugDirIfEmptyKeepsNonEmptyAndReclaimsEmptyShells(t *testing.T) {
 }
 
 func TestStateFileModTime(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := Key{Slug: "sweep-modtime", Agent: "opencode"}
 	path := filepath.Join(KeyDir(k), "state.yaml")
@@ -397,7 +397,7 @@ func TestStateFileModTime(t *testing.T) {
 // a fresh install has no state root yet. It uses the real resolver so the state
 // dir is not eagerly created, as the mock resolver's accessors do.
 func TestProjectSlugsMissingRoot(t *testing.T) {
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
@@ -413,7 +413,7 @@ func TestProjectSlugsMissingRoot(t *testing.T) {
 // TestProjectSlugsReadError pins the fail-closed root read: an unreadable state
 // root is an error, never a silently empty project list.
 func TestProjectSlugsReadError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	root := stateRoot()
 	if err := os.MkdirAll(filepath.Dir(root), 0o700); err != nil {
 		t.Fatal(err)
@@ -435,7 +435,7 @@ func TestProjectSlugsReadError(t *testing.T) {
 // TestStateFileModTimeStatError pins that a path component that is not a
 // directory surfaces as an error rather than being mistaken for absence.
 func TestStateFileModTimeStatError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +453,7 @@ func TestStateFileModTimeStatError(t *testing.T) {
 // TestClaimTokensReadError pins the fail-closed claim read: a claims path that
 // is not a directory is an error, not an empty token list.
 func TestClaimTokensReadError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "sweep-claims-file"
 	if err := os.MkdirAll(SlugDir(slug), 0o700); err != nil {
 		t.Fatal(err)
@@ -472,7 +472,7 @@ func TestClaimTokensReadError(t *testing.T) {
 // TestRemoveUnheldClaimMkdirError pins the claims-dir creation failure: a slug
 // path that is a file cannot hold a claims dir.
 func TestRemoveUnheldClaimMkdirError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "sweep-claim-mkdir"
 	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
 		t.Fatal(err)
@@ -487,7 +487,7 @@ func TestRemoveUnheldClaimMkdirError(t *testing.T) {
 // TestRemoveUnheldClaimOpenError pins the open failure: a claim path that is a
 // directory cannot be opened as a claim file.
 func TestRemoveUnheldClaimOpenError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "sweep-claim-open"
 	if err := os.MkdirAll(filepath.Join(SlugDir(slug), "claims", "token.claim"), 0o700); err != nil {
 		t.Fatal(err)
@@ -502,7 +502,7 @@ func TestRemoveUnheldClaimOpenError(t *testing.T) {
 // closed probe file cannot be locked, and the error must surface rather than be
 // taken for a held claim.
 func TestRemoveUnheldClaimFlockError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	claimOpened = func(f *os.File, _ string) { _ = f.Close() }
 	t.Cleanup(func() { claimOpened = nil })
 
@@ -515,7 +515,7 @@ func TestRemoveUnheldClaimFlockError(t *testing.T) {
 // read-only claims dir is locked but cannot be removed, and the error surfaces.
 func TestRemoveUnheldClaimRemoveError(t *testing.T) {
 	requireNonRoot(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "sweep-claim-remove"
 	claimsDir := filepath.Join(SlugDir(slug), "claims")
 	if err := os.MkdirAll(claimsDir, 0o700); err != nil {
@@ -542,7 +542,7 @@ func TestRemoveUnheldClaimRemoveError(t *testing.T) {
 // TestRemoveSlugDirIfEmptyReadError pins the fail-closed slug read: a slug path
 // that is a file surfaces the read error.
 func TestRemoveSlugDirIfEmptyReadError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "sweep-dir-file"
 	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
 		t.Fatal(err)
@@ -558,7 +558,7 @@ func TestRemoveSlugDirIfEmptyReadError(t *testing.T) {
 // empty child dir in a read-only slug dir cannot be removed, and the error
 // propagates from the child.
 func TestRemoveSlugDirIfEmptyRemoveError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "sweep-dir-readonly"
 	child := filepath.Join(SlugDir(slug), "opencode")
 	if err := os.MkdirAll(child, 0o700); err != nil {

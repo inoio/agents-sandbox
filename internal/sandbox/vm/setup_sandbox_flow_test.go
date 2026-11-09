@@ -10,13 +10,16 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/homeconfig"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/reprovision"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -28,9 +31,9 @@ import (
 // were it still resolving opts.Agent, an unknown name would fail here.
 func TestSetUpSandboxUsesTheThreadedResolvedAgent(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
-	configpaths.WithMockConfigPaths(t)
-	sb := &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil)}
-	ui := termio.NewTestMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: msbtest.NewTestFS(nil)}
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := SetUpSandbox(
 		context.Background(),
@@ -59,16 +62,16 @@ func TestSetUpSandboxContinuesWhenProvisioningFails(t *testing.T) {
 		return "", 0, nil
 	}}
 
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	ui := termio.NewTestMock(t)
-	fs := msb.NewTestFS(nil)
+	ui := termiotest.NewTestMock(t)
+	fs := msbtest.NewTestFS(nil)
 	fs.WriteErr = errors.New("write denied")
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		Name_:    "vm",
 		FSValue_: fs,
 		ShellOut: map[string]msb.ShellResult{
-			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+			dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 		},
 	}
 
@@ -102,19 +105,19 @@ func TestSetUpSandboxReportsADaemonThatCannotStart(t *testing.T) {
 		return "", 0, errors.New("daemon shell failed")
 	}}
 
-	ui := termio.NewTestMock(t)
-	sb := &msb.MockSandbox{
+	ui := termiotest.NewTestMock(t)
+	sb := &msbtest.MockSandbox{
 		Name_:    "vm",
-		FSValue_: msb.NewTestFS(nil),
+		FSValue_: msbtest.NewTestFS(nil),
 		ShellOut: map[string]msb.ShellResult{
-			dockerdBinaryCheckCmd: msb.NewTestResult(false, 1, "", "", nil),
+			dockerdBinaryCheckCmd: msbtest.NewTestResult(false, 1, "", "", nil),
 		},
 		ExecDetachedFn: func(context.Context, string, []string, msb.JobSpec) (msb.Job, error) {
 			return nil, startFailed
 		},
 	}
 
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cfs := &reprovision.ConfigFiles{}
 	_, err := SetUpSandbox(
 		context.Background(),
@@ -141,35 +144,35 @@ func TestSetUpSandboxProvisionsEachConfigKind(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		cfs         *reprovision.ConfigFiles
-		provisioned func(fs *msb.TestFS) bool
+		provisioned func(fs *msbtest.TestFS) bool
 	}{
 		{
 			name:        "home files",
 			cfs:         &reprovision.ConfigFiles{HomeFiles: map[string][]byte{path: []byte("x")}},
-			provisioned: func(fs *msb.TestFS) bool { return fs.Writes[path] != nil },
+			provisioned: func(fs *msbtest.TestFS) bool { return fs.Writes[path] != nil },
 		},
 		{
 			name:        "drop-in files",
 			cfs:         &reprovision.ConfigFiles{Provisioned: map[string][]byte{path: []byte("x")}},
-			provisioned: func(fs *msb.TestFS) bool { return fs.Writes[path] != nil },
+			provisioned: func(fs *msbtest.TestFS) bool { return fs.Writes[path] != nil },
 		},
 		{
 			name:        "mirror files",
 			cfs:         &reprovision.ConfigFiles{Mirror: map[string][]byte{path: []byte("x")}},
-			provisioned: func(fs *msb.TestFS) bool { return fs.Writes[path] != nil },
+			provisioned: func(fs *msbtest.TestFS) bool { return fs.Writes[path] != nil },
 		},
 		{
 			name:        "stale files to remove",
 			cfs:         &reprovision.ConfigFiles{Remove: []string{path}},
-			provisioned: func(fs *msb.TestFS) bool { return slices.Contains(fs.Removed, path) },
+			provisioned: func(fs *msbtest.TestFS) bool { return slices.Contains(fs.Removed, path) },
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			seams := healthyOpencodeDaemon(t)
-			configpaths.WithMockConfigPaths(t)
-			fs := msb.NewTestFS(map[string][]byte{path: []byte("old")})
-			sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
-			ui := termio.NewTestMock(t)
+			configpathstest.WithMockConfigPaths(t)
+			fs := msbtest.NewTestFS(map[string][]byte{path: []byte("old")})
+			sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: fs}
+			ui := termiotest.NewTestMock(t)
 
 			if err := setUpOpencodeSandbox(t, sb, tc.cfs, &ui, VMBootConnected, seams); err != nil {
 				t.Fatalf("SetUpSandbox: %v", err)
@@ -195,13 +198,13 @@ func TestSetUpSandboxRecordsProvenanceOnlyOnBoot(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			seams := healthyOpencodeDaemon(t)
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			if err := seedHomeState(testVMKey(), state.HomeState{AgentSource: state.AgentSourceTool}); err != nil {
 				t.Fatalf("seed home state: %v", err)
 			}
-			fs := msb.NewTestFS(map[string][]byte{agentSourcePath: []byte(state.AgentSourceUser + "\n")})
-			sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
-			ui := termio.NewTestMock(t)
+			fs := msbtest.NewTestFS(map[string][]byte{agentSourcePath: []byte(state.AgentSourceUser + "\n")})
+			sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: fs}
+			ui := termiotest.NewTestMock(t)
 
 			if err := setUpOpencodeSandbox(t, sb, &reprovision.ConfigFiles{}, &ui, tc.boot, seams); err != nil {
 				t.Fatalf("SetUpSandbox: %v", err)
@@ -220,16 +223,16 @@ func TestSetUpSandboxRecordsProvenanceOnlyOnBoot(t *testing.T) {
 // TestSetUpSandboxStopsWhenDockerdCannotStart pins that a dockerd startup
 // failure ends the setup with its cause, before the agent daemon is started.
 func TestSetUpSandboxStopsWhenDockerdCannotStart(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	shellErr := errors.New("dockerd binary check failed")
-	calls := &[]msb.MockDetachedCall{}
-	sb := &msb.MockSandbox{
+	calls := &[]msbtest.MockDetachedCall{}
+	sb := &msbtest.MockSandbox{
 		Name_:             "vm",
-		FSValue_:          msb.NewTestFS(nil),
+		FSValue_:          msbtest.NewTestFS(nil),
 		ShellErr:          shellErr,
 		ExecDetachedCalls: calls,
 	}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	// An unhealthy daemon would be probed and launched if the setup went on.
 	probes := 0
 	seams := options.Seams{DaemonHealth: func(context.Context, msb.Sandbox, string) (string, int, error) {
@@ -251,9 +254,9 @@ func TestSetUpSandboxStopsWhenDockerdCannotStart(t *testing.T) {
 // daemon restart.
 func TestSetUpSandboxReportsWhatItDoes(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
-	configpaths.WithMockConfigPaths(t)
-	sb := &msb.MockSandbox{Name_: "vm", FSValue_: msb.NewTestFS(nil)}
-	ui := termio.NewTestMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: msbtest.NewTestFS(nil)}
+	ui := termiotest.NewTestMock(t)
 	cfs := &reprovision.ConfigFiles{
 		Keys:  []string{"/home/dev/.config/example"},
 		Hooks: []homeconfig.HookSpec{{Target: "/home/dev/.hello.sh", Source: "x", HasShebang: true}},
@@ -304,12 +307,12 @@ func TestSetUpSandboxRestartsDaemonsOnReuseDecision(t *testing.T) {
 		return `{"healthy":true,"version":"x"}`, 0, nil
 	}}
 
-	calls := &[]msb.MockDetachedCall{}
-	fs := msb.NewTestFS(nil)
-	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs, ExecDetachedCalls: calls}
-	ui := termio.NewTestMock(t)
+	calls := &[]msbtest.MockDetachedCall{}
+	fs := msbtest.NewTestFS(nil)
+	sb := &msbtest.MockSandbox{Name_: "test-vm", FSValue_: fs, ExecDetachedCalls: calls}
+	ui := termiotest.NewTestMock(t)
 
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	// SetUpSandbox's signature is
 	//   (ctx, k, sb, opts, seams, cfs, ui, restart, boot, guestCWD).
@@ -355,12 +358,12 @@ func TestSetUpSandboxSkipsRestartOnProvisionError(t *testing.T) {
 		return "", 0, nil
 	}}
 
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	ui := termio.NewTestMock(t)
-	fs := msb.NewTestFS(nil)
+	ui := termiotest.NewTestMock(t)
+	fs := msbtest.NewTestFS(nil)
 	fs.WriteErr = errors.New("write denied")
-	sb := &msb.MockSandbox{Name_: "vm", FSValue_: fs}
+	sb := &msbtest.MockSandbox{Name_: "vm", FSValue_: fs}
 
 	cfs := &reprovision.ConfigFiles{HasSnippets: true, Merged: []byte("{}")}
 	target, err := SetUpSandbox(
@@ -400,15 +403,15 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 	// restart, but the updated config must still be provisioned so the next
 	// daemon start picks it up.
 	ocPath := opencodeMergedConfigPath
-	fs := msb.NewTestFS(map[string][]byte{
+	fs := msbtest.NewTestFS(map[string][]byte{
 		ocPath: []byte(`{"model":"old"}`),
 	})
-	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
+	sb := &msbtest.MockSandbox{Name_: "test-vm", FSValue_: fs}
 
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	snippet := filepath.Join(
-		configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), opencodeAgent(t).ConfigDirName())),
+		configpathstest.CreateDir(filepath.Join(cp.UserConfigDir(), opencodeAgent(t).ConfigDirName())),
 		"opencode-x.json5",
 	)
 	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
@@ -416,7 +419,7 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 	}
 	testutil.WritePath(t, snippet, `{"model":"new"}`)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	cfs, err := reprovision.LoadConfigFilesForHost(
 		opencodeResolved(t),
 		"",
@@ -457,10 +460,10 @@ func TestSetUpSandboxProvisionsUpdatedConfigOnKeep(t *testing.T) {
 func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
 
-	fs := msb.NewTestFS(nil)
-	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
-	configpaths.WithMockConfigPaths(t)
-	ui := &termio.Mock{}
+	fs := msbtest.NewTestFS(nil)
+	sb := &msbtest.MockSandbox{Name_: "test-vm", FSValue_: fs}
+	configpathstest.WithMockConfigPaths(t)
+	ui := &termiotest.Mock{}
 	cfs := &reprovision.ConfigFiles{
 		Hooks: []homeconfig.HookSpec{
 			{Target: "/home/dev/.hello.sh", Source: "x", HasShebang: true},
@@ -506,17 +509,17 @@ func TestSetUpSandboxRunsHooksOnlyOnBoot(t *testing.T) {
 func TestSetUpSandboxReturnsGuestCWD(t *testing.T) {
 	seams := healthyOpencodeDaemon(t)
 
-	fs := msb.NewTestFS(nil)
-	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
-	configpaths.WithMockConfigPaths(t)
+	fs := msbtest.NewTestFS(nil)
+	sb := &msbtest.MockSandbox{Name_: "test-vm", FSValue_: fs}
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	snippet := filepath.Join(
-		configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), opencodeAgent(t).ConfigDirName())),
+		configpathstest.CreateDir(filepath.Join(cp.UserConfigDir(), opencodeAgent(t).ConfigDirName())),
 		"opencode-x.json5",
 	)
 	testutil.WritePath(t, snippet, `{"model":"x"}`)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	cfs, err := reprovision.LoadConfigFilesForHost(
 		opencodeResolved(t),
 		"",
@@ -563,7 +566,7 @@ func healthyOpencodeDaemon(t *testing.T) options.Seams {
 
 func setUpOpencodeSandbox(
 	t *testing.T,
-	sb *msb.MockSandbox,
+	sb *msbtest.MockSandbox,
 	cfs *reprovision.ConfigFiles,
 	ui termio.UI,
 	boot VMBoot,
@@ -594,12 +597,12 @@ func setUpSandboxProvisionsConfig(t *testing.T) {
 	t.Helper()
 	seams := healthyOpencodeDaemon(t)
 
-	fs := msb.NewTestFS(nil) // empty FS simulates a VM with empty config dir
-	sb := &msb.MockSandbox{Name_: "test-vm", FSValue_: fs}
-	configpaths.WithMockConfigPaths(t)
+	fs := msbtest.NewTestFS(nil) // empty FS simulates a VM with empty config dir
+	sb := &msbtest.MockSandbox{Name_: "test-vm", FSValue_: fs}
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	snippet := filepath.Join(
-		configpaths.CreateDir(filepath.Join(cp.UserConfigDir(), opencodeAgent(t).ConfigDirName())),
+		configpathstest.CreateDir(filepath.Join(cp.UserConfigDir(), opencodeAgent(t).ConfigDirName())),
 		"opencode-x.json5",
 	)
 	if err := os.MkdirAll(filepath.Dir(snippet), 0o755); err != nil {
@@ -607,7 +610,7 @@ func setUpSandboxProvisionsConfig(t *testing.T) {
 	}
 	testutil.WritePath(t, snippet, `{"model":"x"}`)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	cfs, err := reprovision.LoadConfigFilesForHost(
 		opencodeResolved(t),
 		"",

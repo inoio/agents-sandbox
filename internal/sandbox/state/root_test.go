@@ -12,12 +12,12 @@ import (
 
 	"go.yaml.in/yaml/v4"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
 func TestRootStateFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	f := rootStateFile()
 	if filepath.Base(f) != "state.yaml" {
@@ -29,7 +29,7 @@ func TestRootStateFile(t *testing.T) {
 }
 
 func TestReadRootState_MissingFileReturnsZero(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	result, err := ReadRootState()
 	if err != nil {
@@ -44,7 +44,7 @@ func TestReadRootState_MissingFileReturnsZero(t *testing.T) {
 }
 
 func TestMigrationRegistryRoundTrip(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := writeRootState(RootState{Migrations: map[string]Migration{
 		"runtime_home": {Status: MigrationCopying, Copied: []string{"a"}, Excluded: []string{"b"}},
 	}}); err != nil {
@@ -61,7 +61,7 @@ func TestMigrationRegistryRoundTrip(t *testing.T) {
 }
 
 func TestMigrationWireKeys(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := writeRootState(RootState{Migrations: map[string]Migration{
 		"runtime_home": {Status: MigrationCompleted},
 	}}); err != nil {
@@ -113,7 +113,7 @@ func TestMigrationAcknowledgedRoundTrips(t *testing.T) {
 }
 
 func TestWithRootStatePreservesOtherMigrations(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := writeRootState(RootState{Migrations: map[string]Migration{
 		"other": {Status: MigrationCompleted},
 	}}); err != nil {
@@ -135,7 +135,7 @@ func TestWithRootStatePreservesOtherMigrations(t *testing.T) {
 }
 
 func TestReadRootState_ParseError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
 		t.Fatalf("create state root: %v", err)
@@ -152,7 +152,7 @@ func TestReadRootState_ParseError(t *testing.T) {
 // TestReadRootState_NonNotFoundReadError covers a read failure that is not
 // "not exist": a directory at the state file path.
 func TestReadRootState_NonNotFoundReadError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	if err := os.MkdirAll(rootStateFile(), 0o700); err != nil {
 		t.Fatalf("mkdir at state file path: %v", err)
@@ -170,7 +170,7 @@ func TestReadRootState_NonNotFoundReadError(t *testing.T) {
 // TestWriteRootState_MarshalError covers the marshal failure via the seam: the
 // concrete RootState shape cannot make yaml.Marshal fail.
 func TestWriteRootState_MarshalError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	wantErr := errors.New("marshal boom")
 	orig := marshalRootState
@@ -190,7 +190,7 @@ func TestWriteRootState_MarshalError(t *testing.T) {
 // TestWriteRootState_MkdirAllError covers the state-root creation failure: a
 // regular file occupies the directory's path.
 func TestWriteRootState_MkdirAllError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	root := stateRoot()
 	if err := os.RemoveAll(root); err != nil {
@@ -209,7 +209,7 @@ func TestWriteRootState_MkdirAllError(t *testing.T) {
 // directory occupies the final state file path. The unique temp file must be
 // cleaned up.
 func TestWriteRootState_RenameErrorCleansTemp(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	if err := os.MkdirAll(rootStateFile(), 0o700); err != nil {
 		t.Fatal(err)
@@ -233,7 +233,7 @@ func TestWriteRootState_RenameErrorCleansTemp(t *testing.T) {
 // temp name, the first rename removed it and the second failed, aborting a
 // dismissing session.
 func TestWriteRootState_ConcurrentWritesDoNotCollide(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const writers = 16
 	var wg sync.WaitGroup
@@ -257,7 +257,7 @@ func TestWriteRootState_ConcurrentWritesDoNotCollide(t *testing.T) {
 }
 
 func TestRootStateAgentCheckRoundTrip(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := writeRootState(RootState{Updates: Updates{Agents: map[string]AgentCheckState{
 		"opencode": {LastChecked: time.Unix(100, 0).UTC(), LatestVersion: "2.0.0"},
 	}}}); err != nil {
@@ -274,7 +274,7 @@ func TestRootStateAgentCheckRoundTrip(t *testing.T) {
 }
 
 func TestRootStateAgentCheckMissingIsZero(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	got, err := ReadRootState()
 	if err != nil {
 		t.Fatalf("ReadRootState: %v", err)
@@ -298,7 +298,7 @@ func TestAgentCheckDueForCheck(t *testing.T) {
 }
 
 func TestRootStateAgentCheckWireKeys(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := writeRootState(RootState{Updates: Updates{Agents: map[string]AgentCheckState{
 		"opencode": {LastChecked: time.Unix(100, 0).UTC(), LatestVersion: "2.0.0"},
 	}}}); err != nil {
@@ -352,7 +352,7 @@ func assertNoRootStateTempFiles(t *testing.T) {
 }
 
 func TestRootStateAdoptedHomeVolumeRoundTrip(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := writeRootState(RootState{AdoptedHomeVolumes: map[string]AdoptedHomeVolume{
 		adoptedHomeVolumeKey("widget-aaa", "opencode"): {CheckoutSlug: "widget-bbb", Volume: "home-1"},
 	}}); err != nil {
@@ -393,7 +393,7 @@ func TestRootStateForgetAdoptedHomeVolumeMatchesCheckoutAndVolume(t *testing.T) 
 // TestClearAdoptedHomeVolumeAbsentIsNoOp covers the write-skipping guard: clearing
 // a claim that is not there must not create a root state file where none existed.
 func TestClearAdoptedHomeVolumeAbsentIsNoOp(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	if err := ClearAdoptedHomeVolume("checkout-a", "vol-a"); err != nil {
 		t.Fatalf("ClearAdoptedHomeVolume: %v", err)
@@ -407,7 +407,7 @@ func TestClearAdoptedHomeVolumeAbsentIsNoOp(t *testing.T) {
 // call: a recovered volume string that is empty has no claim to retire, so the
 // transaction must not run at all.
 func TestClearAdoptedHomeVolumeEmptyVolumeIsNoOp(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	if err := ClearAdoptedHomeVolume("checkout-a", ""); err != nil {
 		t.Fatalf("ClearAdoptedHomeVolume: %v", err)
@@ -421,7 +421,7 @@ func TestClearAdoptedHomeVolumeEmptyVolumeIsNoOp(t *testing.T) {
 // that is present is removed from the document, so the change is written and a
 // write failure is returned rather than silently dropped.
 func TestClearAdoptedHomeVolumeCommitError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	if err := writeRootState(RootState{AdoptedHomeVolumes: map[string]AdoptedHomeVolume{
 		adoptedHomeVolumeKey("widget-aaa", "opencode"): {CheckoutSlug: "checkout-a", Volume: "vol-a"},
@@ -440,7 +440,7 @@ func TestClearAdoptedHomeVolumeCommitError(t *testing.T) {
 }
 
 func TestAgentCheckLivesUnderUpdates(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := writeRootState(RootState{Updates: Updates{Agents: map[string]AgentCheckState{
 		"opencode": {LatestVersion: "2.0.0"},
 	}}}); err != nil {
@@ -573,7 +573,7 @@ func TestUpdatesIsZeroKeepsLauncherState(t *testing.T) {
 // no-op returns before taking (and reading under) the root lock, so an unrelated
 // corrupt root document does not turn the documented no-op into an error.
 func TestClearAdoptedHomeVolumeEmptyVolumeSkipsLock(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +637,7 @@ func TestParseRootStateLegacyKeyKeepsLauncher(t *testing.T) {
 }
 
 func TestRootStateWriteDropsLegacyAgentsKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacy := []byte("agents:\n  opencode:\n    latest_version: 1.2.3\n")
 	if err := os.MkdirAll(stateRoot(), 0o700); err != nil {
 		t.Fatal(err)

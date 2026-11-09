@@ -13,13 +13,15 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
 	"github.com/inoio/agents-sandbox/internal/hostlock"
 	"github.com/inoio/agents-sandbox/internal/sandbox/mounts"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -28,7 +30,7 @@ import (
 // but a later legacy slug cannot be enumerated, so adoption aborts before
 // destroying or moving anything.
 func TestAdoptLegacyIdentityFailsWhenALaterLegacySlugIsUnreadable(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 	const badSlug = "workspace-bad"
 	testutil.WritePath(t, state.SlugDir(badSlug), "not a directory")
@@ -36,10 +38,10 @@ func TestAdoptLegacyIdentityFailsWhenALaterLegacySlugIsUnreadable(t *testing.T) 
 	identity := adoptIdentity()
 	identity.LegacyRepoSlugs = []string{adoptRepoSlug, badSlug}
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client, identity, adoptAgentName, true, &ui)
 	if err == nil {
@@ -57,7 +59,7 @@ func TestAdoptLegacyIdentityFailsWhenALaterLegacySlugIsUnreadable(t *testing.T) 
 }
 
 func TestAdoptLegacyIdentityHoldsKeyLocksAcrossTheMove(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 	sibling := state.Key{Slug: adoptRepoSlug, Agent: "pi"}
 	if err := seedHomeState(sibling, state.HomeState{HomeVolume: "vol-pi"}); err != nil {
@@ -77,10 +79,10 @@ func TestAdoptLegacyIdentityHoldsKeyLocksAcrossTheMove(t *testing.T) {
 	}
 	t.Cleanup(func() { adoptKeysLockedHook = nil })
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
@@ -100,14 +102,14 @@ func TestAdoptLegacyIdentityHoldsKeyLocksAcrossTheMove(t *testing.T) {
 }
 
 func TestAdoptLegacyIdentityReleasesKeyLocksOnDestroyFailure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName(), DestroyErr: errors.New("destroy boom")}
-	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName(), DestroyErr: errors.New("destroy boom")}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
@@ -129,7 +131,7 @@ func TestAdoptLegacyIdentityReleasesKeyLocksOnDestroyFailure(t *testing.T) {
 // marker write failing after the claim committed: adoption aborts and, crucially,
 // leaves the legacy VM running so the volume is not lost.
 func TestAdoptLegacyIdentityPersistRecoveredVolumeFailureFailsClosed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	// The checkout state directory is read-only, so the marker write cannot
 	// create its temp file. The read still sees a missing file (the trigger).
@@ -143,7 +145,7 @@ func TestAdoptLegacyIdentityPersistRecoveredVolumeFailureFailsClosed(t *testing.
 	t.Cleanup(func() { _ = os.Chmod(keyDir, 0o700) })
 
 	handle := legacyVMWithHome()
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
@@ -174,7 +176,7 @@ func TestAdoptLegacyIdentityPersistRecoveredVolumeFailureFailsClosed(t *testing.
 // failing: the root-state write is the first durable step of a VM-only adoption,
 // so its failure aborts before the marker and before the destroy.
 func TestAdoptLegacyIdentityClaimCommitFailureFailsClosed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	// Pre-create the root lock so a read-only state root still lets the
 	// transaction acquire its lock and read (a missing root state file), leaving
@@ -198,7 +200,7 @@ func TestAdoptLegacyIdentityClaimCommitFailureFailsClosed(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(root, 0o700) })
 
 	handle := legacyVMWithHome()
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
@@ -227,7 +229,7 @@ func TestAdoptLegacyIdentityClaimCommitFailureFailsClosed(t *testing.T) {
 // the live legacy VM mounts cannot be trusted, so adoption refuses rather than
 // destroying the VM and overwriting the record.
 func TestAdoptLegacyIdentityClaimVolumeMismatchFailsClosed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	if err := seedRootState(state.RootState{AdoptedHomeVolumes: map[string]state.AdoptedHomeVolume{
 		"widget-aaa/opencode": {CheckoutSlug: adoptCheckoutSlug, Volume: "some-other-volume"},
@@ -236,7 +238,7 @@ func TestAdoptLegacyIdentityClaimVolumeMismatchFailsClosed(t *testing.T) {
 	}
 
 	handle := legacyVMWithHome()
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
@@ -261,7 +263,7 @@ func TestAdoptLegacyIdentityClaimVolumeMismatchFailsClosed(t *testing.T) {
 // materialize A's marker from the claim before destroying the VM (the volume's
 // only other reference). B still starts with its own fresh volume.
 func TestAdoptLegacyIdentityRestoresOtherOwnersMarkerBeforeDestroy(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	if err := seedRootState(state.RootState{AdoptedHomeVolumes: map[string]state.AdoptedHomeVolume{
 		"widget-aaa/opencode": {CheckoutSlug: adoptOtherOwnerSlug, Volume: adoptLegacyVolume},
@@ -270,7 +272,7 @@ func TestAdoptLegacyIdentityRestoresOtherOwnersMarkerBeforeDestroy(t *testing.T)
 	}
 
 	handle := legacyVMWithHome()
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
@@ -304,7 +306,7 @@ func TestAdoptLegacyIdentityRestoresOtherOwnersMarkerBeforeDestroy(t *testing.T)
 // different volume than the live VM mounts, so destroying the VM could strand
 // whatever it actually holds, and adoption refuses.
 func TestAdoptLegacyIdentityOtherOwnerClaimVolumeMismatchFailsClosed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	if err := seedRootState(state.RootState{AdoptedHomeVolumes: map[string]state.AdoptedHomeVolume{
 		"widget-aaa/opencode": {CheckoutSlug: adoptOtherOwnerSlug, Volume: "some-other-volume"},
@@ -313,7 +315,7 @@ func TestAdoptLegacyIdentityOtherOwnerClaimVolumeMismatchFailsClosed(t *testing.
 	}
 
 	handle := legacyVMWithHome()
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
@@ -339,7 +341,7 @@ func TestAdoptLegacyIdentityOtherOwnerClaimVolumeMismatchFailsClosed(t *testing.
 // owner's marker restore failing: the VM's only other reference could not be
 // made durable, so adoption must not destroy the VM and strand the volume.
 func TestAdoptLegacyIdentityOtherOwnerMarkerRestoreFailureFailsClosed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	if err := seedRootState(state.RootState{AdoptedHomeVolumes: map[string]state.AdoptedHomeVolume{
 		"widget-aaa/opencode": {CheckoutSlug: adoptOtherOwnerSlug, Volume: adoptLegacyVolume},
@@ -353,7 +355,7 @@ func TestAdoptLegacyIdentityOtherOwnerMarkerRestoreFailureFailsClosed(t *testing
 	}
 
 	handle := legacyVMWithHome()
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
@@ -372,7 +374,7 @@ func TestAdoptLegacyIdentityOtherOwnerMarkerRestoreFailureFailsClosed(t *testing
 // failing: the legacy state became unreadable while this run waited for the root
 // lock, so adoption reports it instead of proceeding on unknown state.
 func TestAdoptLegacyIdentityRecheckErrorPropagates(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	legacyStatePath := seedLegacyState(t)
 	adoptLockHook = func() {
@@ -382,10 +384,10 @@ func TestAdoptLegacyIdentityRecheckErrorPropagates(t *testing.T) {
 	}
 	t.Cleanup(func() { adoptLockHook = nil })
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -411,10 +413,10 @@ func TestAdoptLegacyIdentityRecheckErrorPropagates(t *testing.T) {
 // on the VM-only arm: a legacy VM with no home mount has nothing to preserve, so
 // adoption destroys it without claiming a volume or recording a recovery marker.
 func TestAdoptLegacyIdentityLiveLegacyVMWithoutHomeMountSkipsTheClaim(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName()}
-	ui := termio.NewTestMock(t)
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName()}
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), legacyVMNotFound(handle),
 		adoptIdentity(),
@@ -447,16 +449,16 @@ func TestAdoptLegacyIdentityLiveLegacyVMWithoutHomeMountSkipsTheClaim(t *testing
 // legacy VM is destroyed and the legacy state directory merges onto the
 // checkout slug, so the caller continues under the checkout identity.
 func TestAdoptLegacyIdentityMovesStateAndDestroysVM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName()}
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName()}
 	var requested string
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		requested = name
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -502,14 +504,14 @@ func TestAdoptLegacyIdentityMovesStateAndDestroysVM(t *testing.T) {
 // the only place the user learns where their state went, so every moved or
 // recreated path has to appear in the block.
 func TestAdoptLegacyIdentityNoticeNamesEveryPath(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName()}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName()}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
@@ -541,16 +543,16 @@ func TestAdoptLegacyIdentityNoticeNamesEveryPath(t *testing.T) {
 // renders when the legacy state records no home volume, so the row never shows
 // an empty value.
 func TestAdoptLegacyIdentityNoticeWithoutHomeVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := seedHomeState(adoptRepoKey(), state.HomeState{}); err != nil {
 		t.Fatalf("seed legacy state: %v", err)
 	}
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		t.Errorf("GetSandbox(%q) called during a dry run", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -585,13 +587,13 @@ func failIfAdoptionLocks(t *testing.T) {
 // legacy identity: no legacy state file and no surviving legacy VM, so nothing is
 // locked, destroyed, moved or printed.
 func TestAdoptLegacyIdentityNoLegacyState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	failIfAdoptionLocks(t)
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no legacy VM"}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -621,18 +623,18 @@ func TestAdoptLegacyIdentityNoLegacyState(t *testing.T) {
 // directory still exists, so the legacy state is deliberately left alone and
 // nothing is locked.
 func TestAdoptLegacyIdentityAlreadyAtCheckoutSlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	failIfAdoptionLocks(t)
 	legacyStateFile := seedLegacyState(t)
 	if err := seedHomeState(adoptCheckoutKey(), state.HomeState{HomeVolume: "home-bbb"}); err != nil {
 		t.Fatalf("seed checkout state: %v", err)
 	}
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		t.Errorf("GetSandbox(%q) called for an already-adopted project", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -662,18 +664,18 @@ func TestAdoptLegacyIdentityAlreadyAtCheckoutSlug(t *testing.T) {
 // predicate: an unreadable legacy document aborts adoption before anything is
 // destroyed or moved, because the caller cannot know what it would be adopting.
 func TestAdoptLegacyIdentityUnparsableLegacyState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacyDir := filepath.Join(state.SlugDir(adoptRepoSlug), adoptAgentName)
 	if err := os.MkdirAll(legacyDir, 0o700); err != nil {
 		t.Fatalf("create legacy state dir: %v", err)
 	}
 	testutil.WriteFile(t, legacyDir, "state.yaml", `": [`)
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName()}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName()}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
@@ -701,14 +703,14 @@ func TestAdoptLegacyIdentityUnparsableLegacyState(t *testing.T) {
 // printed under the "would" headline, nothing is touched, and the caller is told
 // to keep resolving against the legacy slug.
 func TestAdoptLegacyIdentityApplyFalseIsReadOnly(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacyStateFile := seedLegacyState(t)
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		t.Errorf("GetSandbox(%q) called during a dry run", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -748,13 +750,13 @@ func TestAdoptLegacyIdentityApplyFalseIsReadOnly(t *testing.T) {
 // TestAdoptLegacyIdentityLegacyVMAlreadyGone verifies that an absent legacy VM
 // does not block adoption: the state move is the part that matters.
 func TestAdoptLegacyIdentityLegacyVMAlreadyGone(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: name}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -790,17 +792,17 @@ func TestAdoptLegacyIdentityLegacyVMAlreadyGone(t *testing.T) {
 // identity-aware destroy: the name now belongs to a sandbox this run did not
 // create, so the VM is left alone and the state is not moved.
 func TestAdoptLegacyIdentityLegacyVMReplacedFailsClosed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_:      "widget-aaa--renamed-sandbox",
 		DestroyErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"},
 	}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -838,7 +840,7 @@ func TestAdoptLegacyIdentityLegacyVMReplacedFailsClosed(t *testing.T) {
 // — a fresh home volume and the agent's auth silently gone — so adoption must
 // fail loudly, naming what is half-done and what to clear to finish it.
 func TestAdoptLegacyIdentityStrandedStateFileFailsLoudly(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacyStateFile := seedLegacyState(t)
 
 	checkoutSlugDir := state.SlugDir(adoptCheckoutSlug)
@@ -852,11 +854,11 @@ func TestAdoptLegacyIdentityStrandedStateFileFailsLoudly(t *testing.T) {
 		t.Fatalf("create blocking symlink: %v", err)
 	}
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName()}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName()}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -904,7 +906,7 @@ func TestAdoptLegacyIdentityStrandedStateFileFailsLoudly(t *testing.T) {
 // repair it, so adoption reports nothing pending and leaves the legacy VM and
 // state untouched.
 func TestAdoptLegacyIdentityUnparsableCheckoutStateSkipsMigration(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	legacyStateFile := seedLegacyState(t)
 	checkoutDir := state.KeyDir(adoptCheckoutKey())
 	if err := os.MkdirAll(checkoutDir, 0o700); err != nil {
@@ -912,11 +914,11 @@ func TestAdoptLegacyIdentityUnparsableCheckoutStateSkipsMigration(t *testing.T) 
 	}
 	testutil.WriteFile(t, checkoutDir, "state.yaml", `": [`)
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		t.Errorf("GetSandbox(%q) called despite an unreadable checkout state", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	adoption, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -942,7 +944,7 @@ func TestAdoptLegacyIdentityUnparsableCheckoutStateSkipsMigration(t *testing.T) 
 // case: outside a repository there is no legacy identity to adopt, so a corrupt
 // checkout state must not block the run's own recovery path.
 func TestAdoptLegacyIdentityNonRepoCorruptStateDoesNotBlock(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	// Both slugs equal for a non-repo directory, so legacySlugs is empty.
 	identity := git.Identity{RepoSlug: "workspace-ccc", CheckoutSlug: "workspace-ccc"}
@@ -952,11 +954,11 @@ func TestAdoptLegacyIdentityNonRepoCorruptStateDoesNotBlock(t *testing.T) {
 	}
 	testutil.WriteFile(t, state.KeyDir(key), "state.yaml", `": [`)
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		t.Errorf("GetSandbox(%q) called with no legacy identity", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	adoption, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -980,7 +982,7 @@ func TestAdoptLegacyIdentityNonRepoCorruptStateDoesNotBlock(t *testing.T) {
 // destination symlink, but the merge then cannot create the destination, so
 // adoption fails loudly instead of continuing with no state.
 func TestAdoptLegacyIdentityStateMoveFailureFailsLoudly(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 	if err := os.Symlink(
 		filepath.Join(t.TempDir(), "nowhere"),
@@ -989,11 +991,11 @@ func TestAdoptLegacyIdentityStateMoveFailureFailsLoudly(t *testing.T) {
 		t.Fatalf("create dangling destination symlink: %v", err)
 	}
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName()}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName()}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1022,13 +1024,13 @@ func TestAdoptLegacyIdentityStateMoveFailureFailsLoudly(t *testing.T) {
 // resolving the legacy VM: adoption must abort rather than move state and leave
 // an unknown VM running against the shared home volume.
 func TestAdoptLegacyIdentityGetSandboxErrorAborts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, errLegacyVMBoom
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1057,17 +1059,17 @@ func TestAdoptLegacyIdentityGetSandboxErrorAborts(t *testing.T) {
 // teardown's already-gone outcome: the name vanished between the check and the
 // destroy, so the move continues and the caller is told.
 func TestAdoptLegacyIdentityLegacyVMAlreadyGoneOnDestroy(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_:      adoptLegacyVMName(),
 		DestroyErr: &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"},
 	}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1103,20 +1105,20 @@ func TestAdoptLegacyIdentityLegacyVMAlreadyGoneOnDestroy(t *testing.T) {
 // legacy VM must be destroyed — not only the one the command named — or the
 // left-behind sibling keeps writing the shared home volume under its old name.
 func TestAdoptLegacyIdentityDestroysEveryMovedAgentsVM(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 	piKey := state.Key{Slug: adoptRepoSlug, Agent: "pi"}
 	if err := seedHomeState(piKey, state.HomeState{HomeVolume: "home-pi"}); err != nil {
 		t.Fatalf("seed pi state: %v", err)
 	}
 
-	handles := map[string]*msb.MockSandboxHandle{}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		handle := &msb.MockSandboxHandle{Name_: name}
+	handles := map[string]*msbtest.MockSandboxHandle{}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+		handle := &msbtest.MockSandboxHandle{Name_: name}
 		handles[name] = handle
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1154,7 +1156,7 @@ func TestAdoptLegacyIdentityDestroysEveryMovedAgentsVM(t *testing.T) {
 // sees the state already moved, and continues under the checkout identity instead
 // of tripping the incomplete-migration failure on a source that is already gone.
 func TestAdoptLegacyIdentityLosingTheLockRaceContinues(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
 	adoptLockHook = func() {
@@ -1164,11 +1166,11 @@ func TestAdoptLegacyIdentityLosingTheLockRaceContinues(t *testing.T) {
 	}
 	t.Cleanup(func() { adoptLockHook = nil })
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		t.Errorf("GetSandbox(%q) called although another adopter won the lock", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1193,7 +1195,7 @@ func TestAdoptLegacyIdentityLosingTheLockRaceContinues(t *testing.T) {
 // shared checkout slug and its legacy VM is destroyed, even though the
 // origin-derived repo slug has no state at all.
 func TestAdoptLegacyIdentityAdoptsBareRootLegacySlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const legacySlug = "workspace-aaa"
 
 	identity := adoptIdentity()
@@ -1203,13 +1205,13 @@ func TestAdoptLegacyIdentityAdoptsBareRootLegacySlug(t *testing.T) {
 		t.Fatalf("seed bare-root legacy state: %v", err)
 	}
 
-	handles := map[string]*msb.MockSandboxHandle{}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		handle := &msb.MockSandboxHandle{Name_: name}
+	handles := map[string]*msbtest.MockSandboxHandle{}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+		handle := &msbtest.MockSandboxHandle{Name_: name}
 		handles[name] = handle
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1240,7 +1242,7 @@ func TestAdoptLegacyIdentityAdoptsBareRootLegacySlug(t *testing.T) {
 // lock, adoption skips rather than proceeding on a document it cannot read, and
 // leaves the legacy VM untouched for the caller's recovery path.
 func TestAdoptLegacyIdentityRecheckCorruptStateSkips(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedLegacyState(t)
 
 	adoptLockHook = func() {
@@ -1253,11 +1255,11 @@ func TestAdoptLegacyIdentityRecheckCorruptStateSkips(t *testing.T) {
 	}
 	t.Cleanup(func() { adoptLockHook = nil })
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		t.Errorf("GetSandbox(%q) called despite an unreadable re-check", name)
 		return nil, errors.New("GetSandbox must not be called")
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	adoption, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1283,7 +1285,7 @@ func TestAdoptLegacyIdentityConfigMoveFailurePropagates(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	paths := configpaths.Get()
 
 	from := paths.UserSlugConfigDir("workspace-aaa")
@@ -1301,12 +1303,12 @@ func TestAdoptLegacyIdentityConfigMoveFailurePropagates(t *testing.T) {
 	renameConfigDir = func(_, _ string) error { return errRenameBoom }
 	t.Cleanup(func() { renameConfigDir = os.Rename })
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
 	identity := adoptIdentity()
 	identity.LegacyRepoSlugs = []string{"workspace-aaa"}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	_, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client, identity, adoptAgentName, true, &ui)
 	if err == nil {
@@ -1324,7 +1326,7 @@ func TestAdoptLegacyIdentityConfigMoveFailurePropagates(t *testing.T) {
 // bare root's pending state can live under its path-derived legacy slug, so a dry
 // run must report that slug (not the repo slug) for the caller to resolve against.
 func TestAdoptLegacyIdentityDryRunReturnsFoundLegacySlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const legacySlug = "workspace-aaa"
 
 	identity := adoptIdentity()
@@ -1336,10 +1338,10 @@ func TestAdoptLegacyIdentityDryRunReturnsFoundLegacySlug(t *testing.T) {
 		t.Fatalf("seed bare-root legacy state: %v", err)
 	}
 
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "no VM for " + name}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1375,7 +1377,7 @@ func TestAdoptLegacyIdentityDryRunReturnsFoundLegacySlug(t *testing.T) {
 // file still in place so the next run resumes and adopts the remaining source
 // rather than stranding it.
 func TestAdoptLegacyIdentityDestroyFailureLeavesStateForRetry(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const legacySlug = "workspace-aaa"
 	identity := adoptIdentity()
 	identity.LegacyRepoSlugs = []string{legacySlug}
@@ -1390,13 +1392,15 @@ func TestAdoptLegacyIdentityDestroyFailureLeavesStateForRetry(t *testing.T) {
 		t.Fatalf("seed bare-root legacy state: %v", err)
 	}
 
-	failingClient := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
-		if strings.Contains(name, legacySlug) {
-			return nil, errors.New("teardown boom")
-		}
-		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
-	}}
-	ui := termio.NewTestMock(t)
+	failingClient := &msbtest.MockMsbClient{
+		GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+			if strings.Contains(name, legacySlug) {
+				return nil, errors.New("teardown boom")
+			}
+			return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
+		},
+	}
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), failingClient,
 		identity,
@@ -1414,10 +1418,10 @@ func TestAdoptLegacyIdentityDestroyFailureLeavesStateForRetry(t *testing.T) {
 	}
 
 	// Retry with every VM gone: both sources are adopted now.
-	okClient := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	okClient := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	retryUI := termio.NewTestMock(t)
+	retryUI := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1446,22 +1450,22 @@ func TestAdoptLegacyIdentityDestroyFailureLeavesStateForRetry(t *testing.T) {
 // resolution to reuse — instead of treating the checkout as brand new and
 // minting a fresh volume.
 func TestAdoptLegacyIdentityAdoptsLiveLegacyVMWithoutState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const legacyVolume = "agents-sandbox-home-widget-aaa-opencode-9"
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_: adoptLegacyVMName(),
 		Mounts: map[string]msb.MountConfig{
 			mounts.VMHomeDir: msb.Mount.Named(legacyVolume, msb.MountOptions{}),
 		},
 	}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		if name == adoptLegacyVMName() {
 			return handle, nil
 		}
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1498,23 +1502,23 @@ func TestAdoptLegacyIdentityAdoptsLiveLegacyVMWithoutState(t *testing.T) {
 // destroyed, so a destroy failure (or a caller that discards the result) cannot
 // lose it — and the marker keeps the trigger live so the teardown is retried.
 func TestAdoptLegacyIdentityPersistsVolumeBeforeDestroyFails(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const legacyVolume = "agents-sandbox-home-widget-aaa-opencode-9"
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_:      adoptLegacyVMName(),
 		DestroyErr: errors.New("destroy boom"),
 		Mounts: map[string]msb.MountConfig{
 			mounts.VMHomeDir: msb.Mount.Named(legacyVolume, msb.MountOptions{}),
 		},
 	}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		if name == adoptLegacyVMName() {
 			return handle, nil
 		}
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
@@ -1532,7 +1536,7 @@ func TestAdoptLegacyIdentityPersistsVolumeBeforeDestroyFails(t *testing.T) {
 	// Retry with a working destroy: the marker keeps the trigger live, so the
 	// leftover legacy VM is torn down and the marker survives for recovery.
 	handle.DestroyErr = nil
-	retryUI := termio.NewTestMock(t)
+	retryUI := termiotest.NewTestMock(t)
 	retry, err := AdoptLegacyIdentity(
 		context.Background(),
 		configpaths.Get(),
@@ -1561,19 +1565,19 @@ func TestAdoptLegacyIdentityPersistsVolumeBeforeDestroyFails(t *testing.T) {
 // live legacy VM: the notice names the VM's home volume, nothing is destroyed,
 // nothing is recorded, and the caller keeps the legacy slug to resolve against.
 func TestAdoptLegacyIdentityDryRunLiveLegacyVMIsReadOnly(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const legacyVolume = "agents-sandbox-home-widget-aaa-opencode-9"
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_: adoptLegacyVMName(),
 		Mounts: map[string]msb.MountConfig{
 			mounts.VMHomeDir: msb.Mount.Named(legacyVolume, msb.MountOptions{}),
 		},
 	}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	got, err := AdoptLegacyIdentity(
 		context.Background(),
@@ -1607,13 +1611,13 @@ func TestAdoptLegacyIdentityDryRunLiveLegacyVMIsReadOnly(t *testing.T) {
 // rule: a live legacy VM whose mounts cannot be read might hold the user's only
 // home volume, so adoption aborts rather than destroying it blind.
 func TestAdoptLegacyIdentityLiveLegacyVMMountsErrorFailsClosed(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName(), MountsErr: errors.New("mounts boom")}
-	client := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName(), MountsErr: errors.New("mounts boom")}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if _, err := AdoptLegacyIdentity(context.Background(), configpaths.Get(), client,
 		adoptIdentity(),
@@ -1634,7 +1638,7 @@ func TestAdoptLegacyIdentityLiveLegacyVMMountsErrorFailsClosed(t *testing.T) {
 // Only one checkout may own the volume: B must not record a marker, and the
 // claim must name A.
 func TestAdoptLegacyIdentityClaimsSharedVolumeOnce(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	const legacyVolume = "agents-sandbox-home-widget-aaa-opencode-5"
 	identityA := git.Identity{RepoSlug: adoptRepoSlug, CheckoutSlug: "checkout-aaa"}
@@ -1646,18 +1650,18 @@ func TestAdoptLegacyIdentityClaimsSharedVolumeOnce(t *testing.T) {
 		mounts.VMHomeDir: msb.Mount.Named(legacyVolume, msb.MountOptions{}),
 	}
 	// Clone A claims the volume and records the marker, then its destroy fails.
-	failing := &msb.MockSandboxHandle{
+	failing := &msbtest.MockSandboxHandle{
 		Name_:      adoptLegacyVMName(),
 		DestroyErr: errors.New("destroy boom"),
 		Mounts:     legacyMount,
 	}
-	clientA := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	clientA := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		if name == adoptLegacyVMName() {
 			return failing, nil
 		}
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	uiA := termio.NewTestMock(t)
+	uiA := termiotest.NewTestMock(t)
 	if _, err := AdoptLegacyIdentity(
 		context.Background(),
 		configpaths.Get(),
@@ -1675,14 +1679,14 @@ func TestAdoptLegacyIdentityClaimsSharedVolumeOnce(t *testing.T) {
 
 	// Clone B adopts the surviving legacy VM successfully; it must not record the
 	// same volume, which clone A owns.
-	succeeding := &msb.MockSandboxHandle{Name_: adoptLegacyVMName(), Mounts: legacyMount}
-	clientB := &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+	succeeding := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName(), Mounts: legacyMount}
+	clientB := &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		if name == adoptLegacyVMName() {
 			return succeeding, nil
 		}
 		return nil, &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 	}}
-	uiB := termio.NewTestMock(t)
+	uiB := termiotest.NewTestMock(t)
 	if _, err := AdoptLegacyIdentity(
 		context.Background(),
 		configpaths.Get(),
@@ -1759,7 +1763,7 @@ func TestLegacySlugsFiltersSources(t *testing.T) {
 // directory move actually touches: every agent with legacy state, under both the
 // legacy and the checkout slug.
 func TestAdoptionLockKeysCoversSiblingAndCheckoutKeys(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := seedHomeState(
 		state.Key{Slug: adoptRepoSlug, Agent: "pi"},
 		state.HomeState{HomeVolume: "vol-pi"},
@@ -1791,7 +1795,7 @@ func TestAdoptionLockKeysCoversSiblingAndCheckoutKeys(t *testing.T) {
 // propagation: an unreadable legacy slug must abort the lock-set derivation
 // rather than lock an incomplete set.
 func TestAdoptionLockKeysErrorsOnUnreadableSlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WritePath(t, state.SlugDir(adoptRepoSlug), "not a directory")
 
 	if _, err := adoptionLockKeys([]string{adoptRepoSlug}, adoptCheckoutSlug, adoptAgentName); err == nil {
@@ -1804,7 +1808,7 @@ func TestAdoptionLockKeysErrorsOnUnreadableSlug(t *testing.T) {
 // TestPersistRecoveredHomeVolumeEmptyIsNoOp pins the guard for a VM with no
 // home mount: there is nothing to preserve, so no state is written.
 func TestPersistRecoveredHomeVolumeEmptyIsNoOp(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	if err := persistRecoveredHomeVolume(adoptCheckoutKey(), ""); err != nil {
 		t.Fatalf("persistRecoveredHomeVolume: %v", err)
@@ -1818,7 +1822,7 @@ func TestPersistRecoveredHomeVolumeEmptyIsNoOp(t *testing.T) {
 // directory at the state file path makes the recovery read fail with a
 // non-not-found error, so the recorded volume is reported rather than lost.
 func TestPersistRecoveredHomeVolumeReadError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	k := adoptCheckoutKey()
 	if err := os.MkdirAll(filepath.Join(state.KeyDir(k), "state.yaml"), 0o700); err != nil {
@@ -1841,7 +1845,7 @@ func TestPersistRecoveredHomeVolumeReadError(t *testing.T) {
 // outcome: a claim naming a different volume than the live VM mounts is returned
 // with owned=false alongside its error.
 func TestClaimLegacyHomeVolumeReportsNotOwnedOnMismatch(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	if err := seedRootState(state.RootState{AdoptedHomeVolumes: map[string]state.AdoptedHomeVolume{
 		"widget-aaa/opencode": {CheckoutSlug: adoptCheckoutSlug, Volume: "some-other-volume"},
@@ -1865,7 +1869,7 @@ func TestClaimLegacyHomeVolumeReportsNotOwnedOnMismatch(t *testing.T) {
 // returns the ownership record the caller records: this checkout and the
 // observed live volume.
 func TestClaimLegacyHomeVolumeNamesTheCheckoutAndVolume(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	source := legacyPendingSource{Slug: adoptRepoSlug, HomeVolume: adoptLegacyVolume, FromVM: true}
 	got, own, err := withRootTxn(t, func(txn *state.RootTxn) (state.AdoptedHomeVolume, bool, error) {
@@ -1885,13 +1889,13 @@ func TestClaimLegacyHomeVolumeNamesTheCheckoutAndVolume(t *testing.T) {
 // pending=false, so a caller that checks the error first never mistakes a
 // failure for a pending migration.
 func TestLegacyAdoptionPendingUnreadableStateReportsNotPending(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	legacyKey := state.Key{Slug: adoptRepoSlug, Agent: adoptAgentName}
 	if err := os.MkdirAll(filepath.Join(state.KeyDir(legacyKey), "state.yaml"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	pending, err := legacyPendingWithError(t, &msb.MockMsbClient{})
+	pending, err := legacyPendingWithError(t, &msbtest.MockMsbClient{})
 	if err == nil {
 		t.Fatal("expected an unreadable legacy state to fail")
 	}
@@ -1903,10 +1907,10 @@ func TestLegacyAdoptionPendingUnreadableStateReportsNotPending(t *testing.T) {
 // TestLegacyAdoptionPendingUnreadableMountWrapsCause pins both the pending=false
 // contract and the cause-preserving wrap for an unreadable legacy VM mount.
 func TestLegacyAdoptionPendingUnreadableMountWrapsCause(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	handle := &msb.MockSandboxHandle{Name_: adoptLegacyVMName(), MountsErr: errLegacyVMBoom}
-	client := &msb.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
+	handle := &msbtest.MockSandboxHandle{Name_: adoptLegacyVMName(), MountsErr: errLegacyVMBoom}
+	client := &msbtest.MockMsbClient{GetSandboxFn: func(context.Context, string) (msb.SandboxHandle, error) {
 		return handle, nil
 	}}
 	pending, err := legacyPendingWithError(t, client)
@@ -1925,11 +1929,11 @@ func TestLegacyAdoptionPendingUnreadableMountWrapsCause(t *testing.T) {
 // unreadable legacy slug directory aborts the teardown rather than moving state
 // with an unknown legacy VM possibly left running.
 func TestDestroyLegacyVMsErrorsOnUnreadableSlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WritePath(t, state.SlugDir(adoptRepoSlug), "not a directory")
 
-	ui := termio.NewTestMock(t)
-	err := destroyLegacyVMs(context.Background(), &msb.MockMsbClient{}, adoptRepoSlug, adoptAgentName, &ui)
+	ui := termiotest.NewTestMock(t)
+	err := destroyLegacyVMs(context.Background(), &msbtest.MockMsbClient{}, adoptRepoSlug, adoptAgentName, &ui)
 	if err == nil {
 		t.Fatal("expected an unreadable slug to fail the teardown")
 	}
@@ -1945,7 +1949,7 @@ func TestDestroyLegacyVMsErrorsOnUnreadableSlug(t *testing.T) {
 // agent is not duplicated when it already has legacy state: the early return
 // keeps the enumerated names rather than appending the agent a second time.
 func TestLegacyAgentsToMigrateIncludesCommandAgentOnce(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := seedHomeState(adoptRepoKey(), state.HomeState{HomeVolume: adoptLegacyVolume}); err != nil {
 		t.Fatal(err)
 	}
@@ -1963,7 +1967,7 @@ func TestLegacyAgentsToMigrateIncludesCommandAgentOnce(t *testing.T) {
 // agent with no legacy state (e.g. a VM whose state file was lost, #219) is
 // appended to the enumerated names.
 func TestLegacyAgentsToMigrateAppendsMissingCommandAgent(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	sibling := state.Key{Slug: adoptRepoSlug, Agent: "pi"}
 	if err := seedHomeState(sibling, state.HomeState{HomeVolume: "vol-pi"}); err != nil {
 		t.Fatal(err)
@@ -1983,7 +1987,7 @@ func TestLegacyAgentsToMigrateAppendsMissingCommandAgent(t *testing.T) {
 // repo slug the launcher reads now, so the user keeps their settings.
 func TestMigrateLegacyConfigDirsMovesBareRootConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	paths := configpaths.Get()
 
 	from := paths.UserSlugConfigDir("workspace-aaa")
@@ -1993,7 +1997,7 @@ func TestMigrateLegacyConfigDirsMovesBareRootConfig(t *testing.T) {
 	}
 	testutil.WriteFile(t, from, "config.yaml", "x: 1\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	identity := git.Identity{RepoSlug: "agents-sandbox-bbb", LegacyRepoSlugs: []string{"workspace-aaa"}}
 
 	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
@@ -2023,7 +2027,7 @@ func TestMigrateLegacyConfigDirsMovesBareRootConfig(t *testing.T) {
 // warning rather than only a verbose note.
 func TestMigrateLegacyConfigDirsKeepsExistingTarget(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	paths := configpaths.Get()
 
 	from := paths.UserSlugConfigDir("workspace-aaa")
@@ -2037,7 +2041,7 @@ func TestMigrateLegacyConfigDirsKeepsExistingTarget(t *testing.T) {
 	testutil.WriteFile(t, from, "config.yaml", "legacy\n")
 	testutil.WriteFile(t, to, "config.yaml", "existing\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	identity := git.Identity{RepoSlug: "agents-sandbox-bbb", LegacyRepoSlugs: []string{"workspace-aaa"}}
 
 	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
@@ -2075,7 +2079,7 @@ func TestMigrateLegacyConfigDirsKeepsExistingTarget(t *testing.T) {
 // place with a verbose note and no warning.
 func TestMigrateLegacyConfigDirsKeepsTargetWithoutConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	paths := configpaths.Get()
 
 	from := paths.UserSlugConfigDir("workspace-aaa")
@@ -2088,7 +2092,7 @@ func TestMigrateLegacyConfigDirsKeepsTargetWithoutConfig(t *testing.T) {
 	}
 	testutil.WriteFile(t, from, "env.secret.yaml", "TOKEN: legacy\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	identity := git.Identity{RepoSlug: "agents-sandbox-bbb", LegacyRepoSlugs: []string{"workspace-aaa"}}
 
 	if err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui); err != nil {
@@ -2118,7 +2122,7 @@ func TestMigrateLegacyConfigDirsKeepsTargetWithoutConfig(t *testing.T) {
 // directory has nothing to move: both are skipped silently.
 func TestMigrateLegacyConfigDirsSkipsRepoSlugAndMissingSource(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	paths := configpaths.Get()
 
 	// The repo-slug config dir exists, so an entry equal to the repo slug is
@@ -2128,7 +2132,7 @@ func TestMigrateLegacyConfigDirsSkipsRepoSlugAndMissingSource(t *testing.T) {
 		t.Fatalf("mkdir repo-slug config dir: %v", err)
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	identity := git.Identity{
 		RepoSlug:        "agents-sandbox-bbb",
 		LegacyRepoSlugs: []string{"agents-sandbox-bbb", "workspace-absent"},
@@ -2147,7 +2151,7 @@ func TestMigrateLegacyConfigDirsSkipsRepoSlugAndMissingSource(t *testing.T) {
 // directory is still moved onto the repo slug.
 func TestMigrateLegacyConfigDirsContinuesPastSkippedEntries(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	paths := configpaths.Get()
 
 	from := paths.UserSlugConfigDir("workspace-aaa")
@@ -2156,7 +2160,7 @@ func TestMigrateLegacyConfigDirsContinuesPastSkippedEntries(t *testing.T) {
 	}
 	testutil.WriteFile(t, from, "config.yaml", "x: 1\n")
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	identity := git.Identity{
 		RepoSlug:        "agents-sandbox-bbb",
 		LegacyRepoSlugs: []string{"agents-sandbox-bbb", "workspace-absent", "workspace-aaa"},
@@ -2176,7 +2180,7 @@ func TestMigrateLegacyConfigDirsContinuesPastSkippedEntries(t *testing.T) {
 // the report must say so, not claim the config is stranded.
 func TestMigrateLegacyConfigDirsReportsEveryKeptTarget(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	paths := configpaths.Get()
 
 	if err := os.MkdirAll(paths.UserSlugConfigDir("agents-sandbox-bbb"), 0o700); err != nil {
@@ -2190,7 +2194,7 @@ func TestMigrateLegacyConfigDirsReportsEveryKeptTarget(t *testing.T) {
 		testutil.WriteFile(t, from, "config.yaml", "x: 1\n")
 	}
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	identity := git.Identity{
 		RepoSlug:        "agents-sandbox-bbb",
 		LegacyRepoSlugs: []string{"workspace-aaa", "workspace-ccc"},
@@ -2222,7 +2226,7 @@ func TestMigrateLegacyConfigDirsReportsEveryKeptTarget(t *testing.T) {
 // failed config move is reported, not silently swallowed.
 func TestMigrateLegacyConfigDirsReportsRenameFailure(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	configpaths.WithRealConfigPaths(t)
+	configpathstest.WithRealConfigPaths(t)
 	paths := configpaths.Get()
 
 	from := paths.UserSlugConfigDir("workspace-aaa")
@@ -2234,7 +2238,7 @@ func TestMigrateLegacyConfigDirsReportsRenameFailure(t *testing.T) {
 	renameConfigDir = func(_, _ string) error { return errRenameBoom }
 	t.Cleanup(func() { renameConfigDir = os.Rename })
 
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	identity := git.Identity{RepoSlug: "agents-sandbox-bbb", LegacyRepoSlugs: []string{"workspace-aaa"}}
 	err := migrateLegacyConfigDirs(configpaths.Get(), identity, &ui)
 	if err == nil {
@@ -2254,7 +2258,7 @@ func TestMigrateLegacyConfigDirsReportsRenameFailure(t *testing.T) {
 // second legacy slug that is not the checkout slug still gets its own row, so the
 // skip applies to the matching entry only rather than aborting the listing.
 func TestAdoptionNoticeSkipsLegacySlugThatIsTheCheckoutSlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const otherLegacySlug = "widget-legacy"
 	identity := adoptIdentity()
 	identity.LegacyRepoSlugs = []string{adoptCheckoutSlug, otherLegacySlug}
@@ -2296,8 +2300,8 @@ func assertProjectVMLockHeld(t *testing.T, k state.Key) {
 // legacyVMNotFound returns a client that serves one live legacy VM (the handle)
 // for the legacy project VM name and "sandbox not found" for everything else, the
 // shape a lost-state adoption starts from.
-func legacyVMNotFound(handle msb.SandboxHandle) *msb.MockMsbClient {
-	return &msb.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
+func legacyVMNotFound(handle msb.SandboxHandle) *msbtest.MockMsbClient {
+	return &msbtest.MockMsbClient{GetSandboxFn: func(_ context.Context, name string) (msb.SandboxHandle, error) {
 		if name == adoptLegacyVMName() {
 			return handle, nil
 		}
@@ -2305,8 +2309,8 @@ func legacyVMNotFound(handle msb.SandboxHandle) *msb.MockMsbClient {
 	}}
 }
 
-func legacyVMWithHome() *msb.MockSandboxHandle {
-	return &msb.MockSandboxHandle{
+func legacyVMWithHome() *msbtest.MockSandboxHandle {
+	return &msbtest.MockSandboxHandle{
 		Name_: adoptLegacyVMName(),
 		Mounts: map[string]msb.MountConfig{
 			mounts.VMHomeDir: msb.Mount.Named(adoptLegacyVolume, msb.MountOptions{}),

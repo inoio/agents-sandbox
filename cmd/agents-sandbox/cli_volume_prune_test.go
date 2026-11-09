@@ -8,20 +8,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestVolumePruneNonInteractiveRequiresYes(t *testing.T) {
-	m := &msb.MockMsbClient{}
-	m.Volumes = append(m.Volumes, &msb.MockVolumeHandle{
+	m := &msbtest.MockMsbClient{}
+	m.Volumes = append(m.Volumes, &msbtest.MockVolumeHandle{
 		Name_:      "agents-sandbox-home-orphan-1mjusbm3wikhb0-20260806T143022",
 		CreatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 	})
 
 	cmd, _ := setupCommandFixtures(t, "volume", "prune")
-	msb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	err := cmd.Execute()
 	if !errors.Is(err, termio.ErrConfirmationRequired) {
@@ -34,24 +35,24 @@ func TestVolumePruneNonInteractiveRequiresYes(t *testing.T) {
 
 func TestVolumePrune(t *testing.T) {
 	t.Run("prunes home volumes of stale slugs", func(t *testing.T) {
-		m := &msb.MockMsbClient{
+		m := &msbtest.MockMsbClient{
 			Sandboxes: []msb.SandboxHandle{
-				&msb.MockSandboxHandle{
+				&msbtest.MockSandboxHandle{
 					Name_:      "agents-sandbox-vm-orphan-1mjusbm3wikhb0",
 					Status_:    msb.SandboxStatusStopped,
 					UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 				},
 			},
 			Volumes: []msb.VolumeHandle{
-				&msb.MockVolumeHandle{
+				&msbtest.MockVolumeHandle{
 					Name_:      "agents-sandbox-home-orphan-1mjusbm3wikhb0-20260806T143022",
 					CreatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 				},
 			},
 		}
 		cmd, ui := setupCommandFixtures(t, "volume", "prune", "--yes")
-		msb.WithMsbMock(t, m)
-		docker.WithNoopDockerMock(t)
+		msbtest.WithMsbMock(t, m)
+		dockertest.WithNoopDockerMock(t)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -62,7 +63,7 @@ func TestVolumePrune(t *testing.T) {
 
 	t.Run("invalid age error", func(t *testing.T) {
 		cmd, _ := setupCommandFixtures(t, "volume", "prune", "--age", "invalid", "--yes")
-		msb.WithMsbMock(t, &msb.MockMsbClient{})
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 		err := cmd.Execute()
 		if err == nil {
 			t.Fatal("expected error for invalid age")
@@ -74,24 +75,24 @@ func TestVolumePrune(t *testing.T) {
 }
 
 func TestVolumePruneFormatJSON(t *testing.T) {
-	m := &msb.MockMsbClient{
+	m := &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-orphan-1mjusbm3wikhb0",
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 			},
 		},
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{
+			&msbtest.MockVolumeHandle{
 				Name_:      "agents-sandbox-home-orphan-1mjusbm3wikhb0-20260806T143022",
 				CreatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 			},
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "volume", "prune", "--format", "json", "--yes")
-	msb.WithMsbMock(t, m)
-	docker.WithNoopDockerMock(t)
+	msbtest.WithMsbMock(t, m)
+	dockertest.WithNoopDockerMock(t)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestEnvContentHashOrderIndependent(t *testing.T) {
@@ -137,7 +138,7 @@ func TestSecretsContentHashCaseOrderInsensitiveAcrossSpecs(t *testing.T) {
 
 func testUI(t *testing.T) termio.UI {
 	t.Helper()
-	mock := termio.NewTestMock(t)
+	mock := termiotest.NewTestMock(t)
 	return &mock
 }
 

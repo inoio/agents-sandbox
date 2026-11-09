@@ -7,11 +7,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/lifecycle"
-	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // captureLifecycleTrace makes the next run or shell record into a trace the
@@ -48,7 +48,7 @@ func TestRunShellRecordTheLifecycleTrace(t *testing.T) {
 				initTestProjectDir(t)
 				trace := captureLifecycleTrace(t)
 				args := append([]string{command}, tc.flag...)
-				root, _ := setupRunMocks(t, &sandboxmsb.MockMsbClient{}, &sandboxmsb.MockSandbox{}, args...)
+				root, _ := setupRunMocks(t, &msbtest.MockMsbClient{}, &msbtest.MockSandbox{}, args...)
 				if err := root.Execute(); err != nil {
 					t.Fatalf("%v: %v", args, err)
 				}
@@ -74,13 +74,13 @@ func TestNewLifecycleTraceIsNotNil(t *testing.T) {
 // preflight records preflight-only and returns exit=false with the error, so the
 // caller aborts on the error rather than the flag.
 func TestRunStartupStagesPreflightFailure(t *testing.T) {
-	doctor.MockedCheckAll(t, false)
+	doctortest.MockedCheckAll(t, false)
 	trace := &lifecycle.Trace{}
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
 
 	exit, err := runStartupStages(
-		context.Background(), cmd, options.ModeRun, options.RunOptions{Trace: trace}, &termio.Mock{},
+		context.Background(), cmd, options.ModeRun, options.RunOptions{Trace: trace}, &termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected the preflight error to propagate")

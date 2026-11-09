@@ -1,6 +1,6 @@
 ---
-description: Contract for keeping tests off real host state - the fail-fast seam mocks installed by every test package's TestMain, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, the msb-tagged isolated runtime home and its stop-then-remove sandbox teardown, the rule that seam overrides must be restored so the suite stays idempotent under -count>1, and the absolute-write-root invariant that guards every state/config write funnel at the consumer so an unresolved root cannot write relative to the process CWD.
-read_if: Adding a test package or a TestMain, debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, a test that passes at -count=1 but fails under -count>1, or a state/config/lock write that must reject a path that did not resolve to an absolute root.
+description: Contract for keeping tests off real host state - where test doubles and fail-fast installers live (the `<pkg>/<name>test` test-support subpackages), the fail-fast seam mocks installed by every test package's TestMain, the external-TestMain rule, the file-scope vs declaration-scope `//deadcode:ignore` policy, the host-home redirect in WithMockConfigPaths, the seam import-chain exceptions, the msb-tagged isolated runtime home and its stop-then-remove sandbox teardown, the rule that seam overrides must be restored so the suite stays idempotent under -count>1, and the absolute-write-root invariant that guards every state/config write funnel at the consumer so an unresolved root cannot write relative to the process CWD.
+read_if: Adding a test package, a test double, or a TestMain; deciding where a test double or fail-fast installer lives; debugging a test that reads or writes real host state (config, home, docker, msb, doctor), an msb-tagged test that leaks a sandbox/VM, a test that passes at -count=1 but fails under -count>1, or a state/config/lock write that must reject a path that did not resolve to an absolute root.
 ---
 
 # Test isolation
@@ -12,15 +12,16 @@ under tests each seam defaults to a **fail-fast** implementation that panics on 
 resolution fails loudly instead of silently touching the host.
 
 Every test package installs the fail-fast defaults in `TestMain`, for every seam family its tests can import without a
-test import cycle. The normal call is
-`mocks.InitFailFastMocks(m)` (`internal/testutil/mocks`), which installs all six seam families:
+test import cycle. Each installer lives in the seam's test-support subpackage (see "Test-support packages" below), so
+the call names it there. The normal call is `mocks.InitFailFastMocks(m)` (`internal/testutil/mocks`), which installs all
+six seam families:
 
-- `configpaths.InstallFailFastConfigPaths()`
-- `docker.InstallFailFastGet()`
-- `doctor.InstallFailFast()`
-- `msb.InstallFailFastGet()`
-- `notify.InstallFailFast()`
-- `opener.InstallFailFast()` (the host opener's `xdg-open`/`open` spawn)
+- `configpathstest.InstallFailFastConfigPaths()`
+- `dockertest.InstallFailFastGet()`
+- `doctortest.InstallFailFast()`
+- `msbtest.InstallFailFastGet()`
+- `notifytest.InstallFailFast()`
+- `openertest.InstallFailFast()` (the host opener's `xdg-open`/`open` spawn)
 
 A test that legitimately exercises a seam opts in with `WithMockConfigPaths(t)` (or the docker/msb/doctor/notify/opener
 equivalent).
@@ -41,20 +42,27 @@ The per-package check credits only direct calls that run before `m.Run()`: insta
 `InitFailFastMocks(m)` counts as the wrapper, so the wrapper's own package can install it without importing itself. The
 walk covers the module root too, so a package beside `go.mod` is checked like any other.
 
-Packages in the seam import chain cannot import `internal/testutil/mocks` without a test import cycle, so they call
-the reachable `InstallFailFast*` functions directly in `TestMain` instead of the wrapper. Which families are reachable
-is not enumerated here: `TestEveryTestPackageInstallsItsAcyclicFailFastMocks` derives each package's expected set from
-the module import graph, so a family is skipped exactly when the family's package imports the test package. Some
-illustrative cases:
+A package whose tests are a **same-package** (`package X`) test cannot import any test-support family whose package
+transitively imports `X`: the test-support package imports `X`, so importing it back cycles. Such a package either
+calls the importable `InstallFailFast*` functions directly in `TestMain` (each with a comment naming the family it must
+skip) or, when no family cycles, the `mocks` wrapper. A package with an **external** test package (`package X_test`)
+has no such limit — the external test package sits outside the import graph `X` reaches — so it installs every family,
+directly or through the wrapper.
 
-- `configpaths` installs configpaths + docker + opener (doctor and msb would cycle).
-- `sandbox/msb` installs configpaths + docker + msb + opener, with doctor deliberately omitted.
-- `agent` and `filewalk` reach every family except notify — `notify` imports both — and neither reaches a seam in its
-  own code; if one ever gains such a call, the seam must be reached through an injected dependency rather than a
-  global.
+Which families are reachable is not enumerated here: `TestEveryTestPackageInstallsItsAcyclicFailFastMocks` derives each
+package's expected set from the module import graph, so a family is skipped exactly when its test-support package
+transitively imports the test package, and every family is expected when the `TestMain` is external. Some illustrative
+cases:
 
-Nearly every seam-chain package installs `opener.InstallFailFast()` (the host opener's `xdg-open`/`open` spawn), so a
-dropped opener installer is the accidental omission the derived check catches.
+- `configpaths`, `notify`, `opener`, `doctor`, `docker` and `sandbox/msb` own a seam, have external `TestMain`s, and
+  install every family.
+- `agent`, `filewalk` and `projectguard` are same-package and install every family except notify — `notify` imports all
+  three — and none reaches a seam in its own code; if one ever gains such a call, the seam must be reached through an
+  injected dependency rather than a global.
+- `termio` is same-package and skips both the doctor and notify families, whose packages import `termio`.
+
+Nearly every seam-chain package installs `openertest.InstallFailFast()` (the host opener's `xdg-open`/`open` spawn), so
+a dropped opener installer is the accidental omission the derived check catches.
 
 `internal/testutil/mocks` calls the wrapper unqualified from its `TestMain`, since a package cannot import itself.
 `TestInstalledFailFastDefaultsPanic` asserts the wrapper's effect there — each family's fail-fast is the one in
@@ -62,6 +70,29 @@ effect, panic message included — which also puts the wrapper's body under that
 (`make coverage` measures per package, so a package with no test files reports 0%).
 
 Add a `main_test.go` with such a `TestMain` to every new package that has tests; the contract test fails without one.
+
+## Test-support packages
+
+A test double or a fail-fast installer never ships in the production import graph. Each lives in a
+`<pkg>/<name>test` subpackage beside the package it supports — `configpathstest`, `dockertest`, `doctortest`,
+`msbtest` (with its `msbtest/runtime` isolation-helpers leaf), `notifytest`, `openertest`, `termiotest` — so the
+shipped binary links neither `testing` nor the double. The subpackage name is the package name plus `test` (for
+example `configpaths` → `configpathstest`, `termio` → `termiotest`). The central doubles keep the `testmock*.go`
+file name the Codecov glob and the lint path rule match, except `termiotest`, whose double is `mock.go`.
+
+Each test-support package's own tests declare `TestMain` in an **external** test package (`package <name>test_test`).
+The isolation contract test treats an external `TestMain` as reaching every seam family — it can import
+`internal/testutil/mocks` with no test import cycle — so the leaf's `TestMain` installs the full fail-fast set, not the
+acyclic subset a same-package `TestMain` is limited to.
+
+A test-support `.go` file carries a **file-scope** `//deadcode:ignore` marker on its package clause
+(`reason="test support: referenced only by _test.go files"`); the dead-code gate scopes that marker to every function
+in the file, so the double is not reported as dead. A production file that exposes a symbol only the test-support
+package reads instead carries a **declaration-scope** marker naming that reader — `configpaths`' bare-checkout locator
+(`reason="test seam: only the configpathstest package reads the installed locator"`) and
+`notify/testseam.go`/`opener/testseam.go` (`reason="test seam: only notifytest sets it"`). Both forms are required: an
+unmarked test-support symbol fails `make deadcode`, and a marker whose symbol is no longer test-only is a stale marker
+the gate rejects.
 
 ## The SDK and the native library
 

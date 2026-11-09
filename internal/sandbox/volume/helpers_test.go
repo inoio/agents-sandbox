@@ -12,22 +12,24 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/sandbox/image"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // lookupMock returns an msb mock whose GetVolume honours present (everything
 // else is the SDK's volume-not-found), or a transient error for every name when
 // transient is set.
-func lookupMock(present []string, transient bool) *msb.MockMsbClient {
-	mock := &msb.MockMsbClient{}
+func lookupMock(present []string, transient bool) *msbtest.MockMsbClient {
+	mock := &msbtest.MockMsbClient{}
 	mock.GetVolumeFn = func(_ context.Context, name string) (msb.VolumeHandle, error) {
 		if transient {
 			var vh msb.VolumeHandle
 			return vh, fmt.Errorf("daemon unavailable looking up %s", name)
 		}
 		if slices.Contains(present, name) {
-			return msb.MockVolumeHandle{Name_: name}, nil
+			return msbtest.MockVolumeHandle{Name_: name}, nil
 		}
 		return nil, volumeNotFoundError(name)
 	}
@@ -60,9 +62,9 @@ func (l *eventLog) add(event string) { l.events = append(l.events, event) }
 // the runner image; it is not part of the throwaway lifecycle under test.
 const imageLoadSpinnerLabel = "Loading image into microsandbox"
 
-// recordingUI is a termio.Mock whose spinners log their lifecycle.
+// recordingUI is a termiotest.Mock whose spinners log their lifecycle.
 type recordingUI struct {
-	termio.Mock
+	termiotest.Mock
 
 	log *eventLog
 }
@@ -84,7 +86,7 @@ func (s *recordingSpinner) StopError(err error) { s.log.add("spinner error: " + 
 // trackingSandbox is a MockSandbox that logs Destroy and Close attempts,
 // including failed ones.
 type trackingSandbox struct {
-	*msb.MockSandbox
+	*msbtest.MockSandbox
 
 	log *eventLog
 }
@@ -103,7 +105,7 @@ type throwawayFixture struct {
 	log     *eventLog
 	ui      *recordingUI
 	sandbox *trackingSandbox
-	client  *msb.MockMsbClient
+	client  *msbtest.MockMsbClient
 }
 
 var throwawayKey = state.Key{Slug: "myproject", Agent: "opencode"}

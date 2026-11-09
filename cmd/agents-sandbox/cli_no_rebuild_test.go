@@ -5,16 +5,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/runoptions"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // resolveNoRebuild parses args on the named command (run or shell) with a real
 // resolver and returns the resolved NoRebuild option.
 func resolveNoRebuild(t *testing.T, commandName string, args ...string) bool {
 	t.Helper()
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	root := buildRootCmd(ui)
 	command, _, err := root.Find([]string{commandName})
 	if err != nil {
@@ -34,7 +34,7 @@ func resolveNoRebuild(t *testing.T, commandName string, args ...string) bool {
 func TestNoRebuildFlagIsOffByDefaultForRunAndShell(t *testing.T) {
 	for _, commandName := range []string{cmdRun, cmdShell} {
 		t.Run(commandName, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			if resolveNoRebuild(t, commandName) {
 				t.Fatal("NoRebuild = true, want off by default")
 			}
@@ -45,7 +45,7 @@ func TestNoRebuildFlagIsOffByDefaultForRunAndShell(t *testing.T) {
 func TestNoRebuildFlagSetsOptionForRunAndShell(t *testing.T) {
 	for _, commandName := range []string{cmdRun, cmdShell} {
 		t.Run(commandName, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			if !resolveNoRebuild(t, commandName, "--"+flagNoRebuild) {
 				t.Fatal("NoRebuild = false, want --no-rebuild to set it")
 			}

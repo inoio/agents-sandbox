@@ -16,14 +16,16 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -82,7 +84,7 @@ func TestBuildCommand(t *testing.T) {
 			),
 			func(t *testing.T) {
 				cmd, ui := setupCommandFixtures(t, commands...)
-				docker.WithDefaultErrorDockerMock(t)
+				dockertest.WithDefaultErrorDockerMock(t)
 
 				err := cmd.Execute()
 
@@ -121,7 +123,7 @@ func TestBuildCommand(t *testing.T) {
 			strings.Join(commands, " "),
 		), func(t *testing.T) {
 			cmd, _ := setupCommandFixtures(t, commands...)
-			doctor.MockedCheckDocker(t, false)
+			doctortest.MockedCheckDocker(t, false)
 
 			err := cmd.Execute()
 			if err == nil {
@@ -237,7 +239,7 @@ func TestBuildAgentVersionPrecedenceMatchesRun(t *testing.T) {
 			// whether a rebuild is needed. Recording that inspect lets the test
 			// tell a deferred resolution (which only runs once the decision
 			// needs a rebuild) from resolution that happens up front.
-			docker.WithDockerMock(t, &docker.MockDockerClient{
+			dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 				ImageInspectFn: func(
 					_ context.Context, _ string, _ ...client.ImageInspectOption,
 				) (client.ImageInspectResult, error) {
@@ -287,7 +289,7 @@ func TestBuildCommandRecordsPinnedAgentVersion(t *testing.T) {
 	// 9.9.9, so this test cannot distinguish which supplied the recorded value —
 	// only that it is not the fixture's freshly resolved 0.0.0-test. No label
 	// matches the dockerfile-id, so the build genuinely runs and inspects.
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{Body: io.NopCloser(strings.NewReader(""))}, nil
 		},
@@ -332,7 +334,7 @@ func TestBuildCommandWarnsWhenRecordingAgentVersionFails(t *testing.T) {
 		t.Fatalf("make state path unwritable: %v", err)
 	}
 
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				Config: &dockerspec.DockerOCIImageConfig{
@@ -544,8 +546,8 @@ func TestResolveBuildDockerSetting(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
-			cmd := buildDockerfileCmd(&termio.Mock{})
+			configpathstest.WithMockConfigPaths(t)
+			cmd := buildDockerfileCmd(&termiotest.Mock{})
 			for name, value := range tc.flags {
 				if err := cmd.Flags().Set(name, value); err != nil {
 					t.Fatalf("set %s: %v", name, err)
@@ -580,11 +582,11 @@ func TestBuildUsesCheckoutSlug(t *testing.T) {
 
 	t.Chdir(secondClone)
 	cmd, _ := setupCommandFixtures(t, cmdBuild)
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
+	mock := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mock)
 	// The default noop Docker mock reports no image ID, which would fall back to
 	// the name ref. Return a real ID so the build exercises the content ref.
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{
 				ID:     "sha256:9f2c1a7b4d6e0f3199999999999999999999999999999999999999999999999999",
@@ -617,8 +619,8 @@ func TestBuildDryRunPrintsMigrationNoticeAndMovesNothing(t *testing.T) {
 	t.Chdir(clone)
 
 	cmd, ui := setupCommandFixtures(t, cmdBuild, "--dry-run")
-	mock := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, mock)
+	mock := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, mock)
 
 	repoKey := state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName}
 	checkoutKey := state.Key{Slug: identity.CheckoutSlug, Agent: defaultAgentName}
@@ -655,19 +657,19 @@ func TestBuildChecksDockerBeforeAdoption(t *testing.T) {
 	t.Chdir(clone)
 
 	cmd, _ := setupCommandFixtures(t, cmdBuild)
-	doctor.MockedCheckDocker(t, false)
+	doctortest.MockedCheckDocker(t, false)
 
 	// A running legacy VM that adoption would destroy if it ran first.
-	legacyVM := &msb.MockSandboxHandle{
+	legacyVM := &msbtest.MockSandboxHandle{
 		Name_:   naming.LegacyVMPrefix + identity.RepoSlug + "-" + defaultAgentName,
 		Status_: msb.SandboxStatusRunning,
 	}
-	mock := &msb.MockMsbClient{
+	mock := &msbtest.MockMsbClient{
 		GetSandboxFn: func(_ context.Context, _ string) (msb.SandboxHandle, error) {
 			return legacyVM, nil
 		},
 	}
-	msb.WithMsbMock(t, mock)
+	msbtest.WithMsbMock(t, mock)
 
 	repoKey := state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName}
 	checkoutKey := state.Key{Slug: identity.CheckoutSlug, Agent: defaultAgentName}
@@ -708,7 +710,7 @@ func TestResolveBuildAgentVersion(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cmd := buildBuildCmd(&termio.Mock{})
+			cmd := buildBuildCmd(&termiotest.Mock{})
 			if err := cmd.Flags().Parse(tc.args); err != nil {
 				t.Fatalf("parse %v: %v", tc.args, err)
 			}
@@ -724,7 +726,7 @@ func TestResolveBuildAgentVersion(t *testing.T) {
 func TestBuildDockerCheckErrorWrapsCause(t *testing.T) {
 	initTestProjectDir(t)
 	cmd, _ := setupCommandFixtures(t, cmdBuild)
-	doctor.MockedCheckDocker(t, false)
+	doctortest.MockedCheckDocker(t, false)
 
 	err := cmd.Execute()
 	if err == nil {
@@ -744,7 +746,7 @@ func TestBuildAdoptionFailureFailsClosed(t *testing.T) {
 	t.Chdir(clone)
 
 	cmd, _ := setupCommandFixtures(t, cmdBuild)
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 	writeUnparsableLegacyState(t, state.Key{Slug: identity.RepoSlug, Agent: defaultAgentName})
 
 	err := cmd.Execute()
@@ -770,7 +772,7 @@ func TestBuildCommandsRejectAnUnknownAgent(t *testing.T) {
 }
 
 func TestBuildDockerfileStdOutError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withMockAgentVersion(t, "0.0.0-test")
 	ui := &errStdOutUI{err: errors.New("write failed")}
 
@@ -787,9 +789,9 @@ type errWriter struct{ err error }
 
 func (w errWriter) Write(_ []byte) (int, error) { return 0, w.err }
 
-// errStdOutUI embeds termio.Mock but returns an erroring StdOut writer.
+// errStdOutUI embeds termiotest.Mock but returns an erroring StdOut writer.
 type errStdOutUI struct {
-	termio.Mock
+	termiotest.Mock
 
 	err error
 }

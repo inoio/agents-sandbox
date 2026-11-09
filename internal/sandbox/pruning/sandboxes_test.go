@@ -10,12 +10,13 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
-func stoppedHandle(name string) *msb.MockSandboxHandle {
-	return &msb.MockSandboxHandle{
+func stoppedHandle(name string) *msbtest.MockSandboxHandle {
+	return &msbtest.MockSandboxHandle{
 		Name_:      name,
 		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
@@ -23,7 +24,7 @@ func stoppedHandle(name string) *msb.MockSandboxHandle {
 }
 
 func TestRenderSandboxReport(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	RenderSandboxReport(ui, SandboxReport{
 		VMsPruned: 1,
 		Details: []StaleEntry{
@@ -37,7 +38,7 @@ func TestRenderSandboxReport(t *testing.T) {
 		t.Errorf("VerboseCalls = %v, want the detail line", ui.VerboseCalls)
 	}
 
-	empty := &termio.Mock{}
+	empty := &termiotest.Mock{}
 	RenderSandboxReport(empty, SandboxReport{}, true)
 	if len(empty.OutCalls) != 1 || empty.OutCalls[0] != "dry-run: Would prune 0 sandbox(es)" {
 		t.Errorf("OutCalls = %v, want the dry-run summary", empty.OutCalls)
@@ -50,16 +51,16 @@ func TestRenderSandboxReport(t *testing.T) {
 func TestPruneSandboxes(t *testing.T) {
 	t.Run("removes inactive sandboxes by identity and skips running", func(t *testing.T) {
 		stopped := stoppedHandle("agents-sandbox-vm-proj1-1mjusbm3wikhb0")
-		running := &msb.MockSandboxHandle{
+		running := &msbtest.MockSandboxHandle{
 			Name_:      "agents-sandbox-vm-proj2-1mjusbm3wikhb0",
 			Status_:    msb.SandboxStatusRunning,
 			UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 		}
 		task := stoppedHandle("agents-sandbox-task-fill-proj")
 
-		client := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, client)
-		ui := &termio.Mock{}
+		client := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, client)
+		ui := &termiotest.Mock{}
 		pruneState := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{
 				{Slug: "proj1-1mjusbm3wikhb0", Agent: ""}: stopped,
@@ -88,9 +89,9 @@ func TestPruneSandboxes(t *testing.T) {
 
 	t.Run("dry run counts but does not delete", func(t *testing.T) {
 		stopped := stoppedHandle("agents-sandbox-vm-proj1-1mjusbm3wikhb0")
-		client := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, client)
-		ui := &termio.Mock{}
+		client := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, client)
+		ui := &termiotest.Mock{}
 		r, err := PruneSandboxes(
 			context.Background(),
 			PruneState{ToPrune: map[state.Key]msb.SandboxHandle{{Slug: "proj1-1mjusbm3wikhb0", Agent: ""}: stopped}},
@@ -109,17 +110,17 @@ func TestPruneSandboxes(t *testing.T) {
 	})
 
 	t.Run("skips active, transitional, and unknown statuses", func(t *testing.T) {
-		starting := &msb.MockSandboxHandle{
+		starting := &msbtest.MockSandboxHandle{
 			Name_:   "agents-sandbox-vm-starting",
 			Status_: msb.SandboxStatusStarting,
 		}
-		unknown := &msb.MockSandboxHandle{
+		unknown := &msbtest.MockSandboxHandle{
 			Name_:   "agents-sandbox-vm-unknown",
 			Status_: msb.SandboxStatus("future-status"),
 		}
-		client := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, client)
-		ui := &termio.Mock{}
+		client := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, client)
+		ui := &termiotest.Mock{}
 		pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
 			{Slug: "starting", Agent: ""}: starting,
 			{Slug: "unknown", Agent: ""}:  unknown,
@@ -134,9 +135,9 @@ func TestPruneSandboxes(t *testing.T) {
 	})
 
 	t.Run("empty state prunes nothing", func(t *testing.T) {
-		client := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, client)
-		ui := &termio.Mock{}
+		client := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, client)
+		ui := &termiotest.Mock{}
 		r, err := PruneSandboxes(context.Background(), PruneState{}, false, ui)
 		if err != nil {
 			t.Fatalf("PruneSandboxes: %v", err)
@@ -151,9 +152,9 @@ func TestPruneSandboxes(t *testing.T) {
 		failing.RemoveErr = errors.New("boom")
 		ok := stoppedHandle("agents-sandbox-vm-proj2-1mjusbm3wikhb0")
 
-		client := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, client)
-		ui := &termio.Mock{}
+		client := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, client)
+		ui := &termiotest.Mock{}
 		pruneState := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{
 				{Slug: "proj1-1mjusbm3wikhb0", Agent: ""}: failing,
@@ -182,9 +183,9 @@ func TestPruneSandboxes(t *testing.T) {
 		gone.RemoveErr = &msbSdk.Error{Kind: msbSdk.ErrSandboxNotFound, Message: "gone"}
 		ok := stoppedHandle("agents-sandbox-vm-proj3-1mjusbm3wikhb0")
 
-		client := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, client)
-		ui := &termio.Mock{}
+		client := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, client)
+		ui := &termiotest.Mock{}
 		pruneState := PruneState{
 			ToPrune: map[state.Key]msb.SandboxHandle{
 				{Slug: "proj1-1mjusbm3wikhb0", Agent: ""}: replaced,
@@ -209,9 +210,9 @@ func TestPruneSandboxes(t *testing.T) {
 
 	t.Run("prunes stopped task sandboxes carried in Tasks", func(t *testing.T) {
 		task := stoppedHandle("agents-sandbox-task-fill-1mjusbm3wikhb0-opencode-1729")
-		client := &msb.MockMsbClient{}
-		msb.WithMsbMock(t, client)
-		ui := &termio.Mock{}
+		client := &msbtest.MockMsbClient{}
+		msbtest.WithMsbMock(t, client)
+		ui := &termiotest.Mock{}
 		r, err := PruneSandboxes(
 			context.Background(),
 			PruneState{Tasks: []msb.SandboxHandle{task}},
@@ -232,9 +233,9 @@ func TestPruneSandboxesVerboseAndDetails(t *testing.T) {
 	replaced.RemoveErr = &msbSdk.Error{Kind: msbSdk.ErrSandboxReplaced, Message: "replaced"}
 	ok := stoppedHandle("agents-sandbox-vm-proj2-1mjusbm3wikhb0")
 
-	client := &msb.MockMsbClient{}
-	msb.WithMsbMock(t, client)
-	ui := &termio.Mock{}
+	client := &msbtest.MockMsbClient{}
+	msbtest.WithMsbMock(t, client)
+	ui := &termiotest.Mock{}
 	pruneState := PruneState{ToPrune: map[state.Key]msb.SandboxHandle{
 		{Slug: "proj1-1mjusbm3wikhb0"}: replaced,
 		{Slug: "proj2-1mjusbm3wikhb0"}: ok,

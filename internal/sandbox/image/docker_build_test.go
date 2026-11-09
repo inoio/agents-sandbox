@@ -17,16 +17,17 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/projectguard"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestBuildDockerImageReturnsBuildFailure(t *testing.T) {
 	a := agentOpencode(t)
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{}, errors.New("build boom")
 		},
@@ -34,7 +35,7 @@ func TestBuildDockerImageReturnsBuildFailure(t *testing.T) {
 	err := buildDockerImage(
 		context.Background(), docker.Get(), a,
 		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
-		"tag", "label", false, &termio.Mock{},
+		"tag", "label", false, &termiotest.Mock{},
 	)
 	if err == nil {
 		t.Fatal("expected buildDockerImage to return an error when the build fails")
@@ -43,8 +44,8 @@ func TestBuildDockerImageReturnsBuildFailure(t *testing.T) {
 
 func TestBuildDockerImageForwardsBuildOutputToVerbose(t *testing.T) {
 	a := agentOpencode(t)
-	ui := &termio.Mock{}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	ui := &termiotest.Mock{}
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, _ io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			return client.ImageBuildResult{
 				Body: io.NopCloser(strings.NewReader("{\"stream\":\"Step 1/1 : FROM debian\\n\"}\n")),
@@ -71,13 +72,13 @@ func TestBuildDockerImageForwardsBuildOutputToVerbose(t *testing.T) {
 
 func TestBuildDockerImageSetsHostUserBuildArgs(t *testing.T) {
 	dockerfile := []byte("FROM debian:trixie-slim\nRUN echo hi\n")
-	m := &docker.MockDockerClient{}
+	m := &dockertest.MockDockerClient{}
 	var capturedBuildArgs map[string]*string
 	m.ImageBuildFn = func(_ context.Context, _ io.Reader, opts client.ImageBuildOptions) (client.ImageBuildResult, error) {
 		capturedBuildArgs = opts.BuildArgs
 		return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
 	}
-	docker.WithDockerMock(t, m)
+	dockertest.WithDockerMock(t, m)
 
 	a, _ := agent.Lookup("opencode")
 	if err := buildImage(
@@ -158,7 +159,7 @@ func TestBuildImageClassifiesBuildFailures(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			docker.WithDockerMock(t, &docker.MockDockerClient{
+			dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 				ImageBuildFn: func(
 					_ context.Context, _ io.Reader, _ client.ImageBuildOptions,
 				) (client.ImageBuildResult, error) {
@@ -190,7 +191,7 @@ func TestBuildImageClassifiesBuildFailures(t *testing.T) {
 func TestBuildImageSendsTheRenderedDockerfileAsBuildContext(t *testing.T) {
 	rendered := []byte("FROM debian:trixie-slim\nRUN echo context\n")
 	var dockerfile []byte
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(_ context.Context, buildContext io.Reader, _ client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			tr := tar.NewReader(buildContext)
 			for header, err := tr.Next(); err == nil; header, err = tr.Next() {
@@ -219,7 +220,7 @@ func TestBuildImageNoCacheFollowsParameter(t *testing.T) {
 
 	for _, noCache := range []bool{true, false} {
 		t.Run(strconv.FormatBool(noCache), func(t *testing.T) {
-			m := &docker.MockDockerClient{}
+			m := &dockertest.MockDockerClient{}
 			var capturedNoCache bool
 			m.ImageBuildFn = func(
 				_ context.Context, _ io.Reader, opts client.ImageBuildOptions,
@@ -227,7 +228,7 @@ func TestBuildImageNoCacheFollowsParameter(t *testing.T) {
 				capturedNoCache = opts.NoCache
 				return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
 			}
-			docker.WithDockerMock(t, m)
+			dockertest.WithDockerMock(t, m)
 
 			if err := buildImage(
 				context.Background(), docker.Get(), a,
@@ -246,14 +247,14 @@ func TestBuildImageNoCacheFollowsParameter(t *testing.T) {
 
 func TestBuildImagePassesAgentVersionBuildArg(t *testing.T) {
 	a, _ := agent.Lookup("opencode")
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	orig := defaultAgentVersionResolver
 	defaultAgentVersionResolver = func(_ context.Context, _ agent.Agent, requested string) (string, error) {
 		return requested, nil
 	}
 	t.Cleanup(func() { defaultAgentVersionResolver = orig })
 
-	m := &docker.MockDockerClient{}
+	m := &dockertest.MockDockerClient{}
 	var captured map[string]*string
 	m.ImageInspectFn = func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 		return client.ImageInspectResult{ID: "sha256:base"}, nil
@@ -262,13 +263,13 @@ func TestBuildImagePassesAgentVersionBuildArg(t *testing.T) {
 		captured = opts.BuildArgs
 		return client.ImageBuildResult{Body: io.NopCloser(bytes.NewReader(nil))}, nil
 	}
-	docker.WithDockerMock(t, m)
+	dockertest.WithDockerMock(t, m)
 
 	_, err := EnsureImageWithClient(context.Background(), docker.Get(), a,
 		[]byte("FROM debian:trixie-slim\nRUN echo hi\n"),
 		"test-project",
 		BuildOptions{Force: true, AgentVersion: "1.2.3"},
-		&termio.Mock{},
+		&termiotest.Mock{},
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -607,7 +608,7 @@ func TestBuildDockerImageRefusesAfterAnUnapprovedRead(t *testing.T) {
 	if _, err := projectguard.ReadFile(path, os.ReadFile); err == nil {
 		t.Fatal("the changed Dockerfile read as approved")
 	}
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageBuildFn: func(context.Context, io.Reader, client.ImageBuildOptions) (client.ImageBuildResult, error) {
 			t.Fatal("built an image after an unapproved read")
 			return client.ImageBuildResult{}, nil
@@ -616,7 +617,7 @@ func TestBuildDockerImageRefusesAfterAnUnapprovedRead(t *testing.T) {
 	err := buildDockerImage(
 		context.Background(), docker.Get(), a,
 		testBuildRequest([]byte("FROM debian:trixie-slim\n"), "v", "base", "id", imageIdentity{}),
-		"tag", "label", false, &termio.Mock{},
+		"tag", "label", false, &termiotest.Mock{},
 	)
 	if !errors.Is(err, projectguard.ErrNotApproved) {
 		t.Errorf("buildDockerImage = %v, want ErrNotApproved", err)

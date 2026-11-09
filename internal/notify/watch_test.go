@@ -13,8 +13,9 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 // The per-connect seeding runs through the seam too: a fake whose Shell answers
@@ -37,7 +38,7 @@ func TestStubStreamsDrivesChildSeeding(t *testing.T) {
 	streams := stubStreams{
 		handle: stream,
 		shellOut: map[string]msb.ShellResult{
-			"seed-cmd": msb.NewTestResult(true, 0, sessionListBody, "", nil),
+			"seed-cmd": msbtest.NewTestResult(true, 0, sessionListBody, "", nil),
 		},
 	}
 	backend := &recordBackend{}
@@ -98,8 +99,8 @@ func TestWatchRetriesUntilCancelled(t *testing.T) {
 	defer func() { watchReconnectPolicy = orig }()
 
 	var attempts atomic.Int32
-	sb := msb.NewMockSandbox(msb.SandboxOpts{})
-	sb.(*msb.MockSandbox).ShellStreamFn = func(string) (msb.StreamHandle, error) {
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{})
+	sb.(*msbtest.MockSandbox).ShellStreamFn = func(string) (msb.StreamHandle, error) {
 		attempts.Add(1)
 		return nil, errors.New("shell failed")
 	}
@@ -207,8 +208,8 @@ func longLivedBackoffGaps(t *testing.T, held time.Duration) (gapBackoff, gapAfte
 	release := make(chan struct{})
 	invoked := make(chan time.Time, 8)
 	var call int
-	sb := msb.NewMockSandbox(msb.SandboxOpts{})
-	sb.(*msb.MockSandbox).ShellStreamFn = func(string) (msb.StreamHandle, error) {
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{})
+	sb.(*msbtest.MockSandbox).ShellStreamFn = func(string) (msb.StreamHandle, error) {
 		invoked <- clock.now()
 		call++
 		switch {
@@ -282,7 +283,7 @@ func TestWatchStopsDuringReconnectBackoff(t *testing.T) {
 	defer func() { watchReconnectPolicy = orig }()
 
 	var opened []string
-	sb := msb.NewMockSandbox(msb.SandboxOpts{StreamHandle_: failHandle{}, ShellStreamCmds: &opened})
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{StreamHandle_: failHandle{}, ShellStreamCmds: &opened})
 	err := Watch(ctx, SandboxStreamOpener{Sandbox: sb}, opencodeSpec(), &recordBackend{})
 	if err == nil || !strings.Contains(err.Error(), "dropped") {
 		t.Fatalf("Watch() error = %v, want a drop summary", err)
@@ -329,7 +330,7 @@ func TestWatchDrivesBackend(t *testing.T) {
 }
 
 func TestWatchDedupClearsOnBusy(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	stream := &streamStub{
 		events: []msb.StreamEvent{
 			{Kind: msb.StreamEventStdout, Data: sseBlockFor("message.part.updated", "ses_A")}, // busy
@@ -338,7 +339,7 @@ func TestWatchDedupClearsOnBusy(t *testing.T) {
 			{Kind: msb.StreamEventStdout, Data: sseBlockFor("session.idle", "ses_A")},         // done -> notify again
 		},
 	}
-	sb := msb.NewMockSandbox(msb.SandboxOpts{StreamHandle_: stream})
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{StreamHandle_: stream})
 	inner := &recordBackend{}
 	dedup := NewDedup("watchslug-a", StateClaimer{}, inner)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -382,8 +383,8 @@ func TestWatchReconnectsOnStreamExit(t *testing.T) {
 	var attempts atomic.Int32
 	secondAttempt := make(chan struct{})
 	spec := opencodeSpec()
-	sb := msb.NewMockSandbox(msb.SandboxOpts{})
-	sb.(*msb.MockSandbox).ShellStreamFn = func(command string) (msb.StreamHandle, error) {
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{})
+	sb.(*msbtest.MockSandbox).ShellStreamFn = func(command string) (msb.StreamHandle, error) {
 		n := attempts.Add(1)
 		if command != spec.StreamCommand {
 			t.Errorf("ShellStream command = %q, want %q", command, spec.StreamCommand)
@@ -434,9 +435,9 @@ func TestWatchOnceSeedsChildrenFromListCommand(t *testing.T) {
 		{Kind: msb.StreamEventStdout, Data: sseBlockFor("session.idle", "ses_child")},
 		{Kind: msb.StreamEventExited, ExitCode: 0},
 	}}
-	sb := msb.NewMockSandbox(msb.SandboxOpts{
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{
 		ShellOut: map[string]msb.ShellResult{
-			"seed-cmd": msb.NewTestResult(true, 0, `{"data":[{"id":"ses_child","parentID":"ses_top"}]}`, "", nil),
+			"seed-cmd": msbtest.NewTestResult(true, 0, `{"data":[{"id":"ses_child","parentID":"ses_top"}]}`, "", nil),
 		},
 		StreamHandle_: stream,
 	})
@@ -455,7 +456,7 @@ func TestWatchOnceSeedShellErrorDoesNotBlockNotifications(t *testing.T) {
 		t.Fatal("SessionListParse ran despite the shell error")
 		return nil
 	})
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellErr:      errors.New("boom"),
 		ShellCalls:    &[]string{},
 		StreamHandle_: seedFailureStream(),
@@ -472,9 +473,9 @@ func TestWatchOnceSeedNonSuccessDoesNotBlockNotifications(t *testing.T) {
 		t.Fatal("SessionListParse ran despite the failing command")
 		return nil
 	})
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			"seed-cmd": msb.NewTestResult(false, 1, "", "jq: command not found", nil),
+			"seed-cmd": msbtest.NewTestResult(false, 1, "", "jq: command not found", nil),
 		},
 		ShellCalls:    &[]string{},
 		StreamHandle_: seedFailureStream(),
@@ -487,9 +488,9 @@ func TestWatchOnceSeedNonSuccessDoesNotBlockNotifications(t *testing.T) {
 func TestWatchOnceSeedUnparsableDoesNotBlockNotifications(t *testing.T) {
 	spec := opencodeSpec()
 	spec.SessionList = agent.NewSessionList("seed-cmd", func([]byte) []string { return nil })
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellOut: map[string]msb.ShellResult{
-			"seed-cmd": msb.NewTestResult(true, 0, "not json", "", nil),
+			"seed-cmd": msbtest.NewTestResult(true, 0, "not json", "", nil),
 		},
 		ShellCalls:    &[]string{},
 		StreamHandle_: seedFailureStream(),
@@ -501,7 +502,7 @@ func TestWatchOnceSeedUnparsableDoesNotBlockNotifications(t *testing.T) {
 // reported as a drop reason so Watch reconnects; unlike an exit code or a read
 // error, a clean end is not an error in itself.
 func TestWatchOnceReportsCleanStreamEnd(t *testing.T) {
-	sb := msb.NewMockSandbox(msb.SandboxOpts{StreamHandle_: eofStreamHandle{}})
+	sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{StreamHandle_: eofStreamHandle{}})
 	spec := opencodeSpec()
 
 	err := watchOnce(context.Background(), SandboxStreamOpener{Sandbox: sb}, NewTracker(spec), &recordBackend{}, spec)
@@ -515,7 +516,7 @@ func TestWatchOnceReportsCleanStreamEnd(t *testing.T) {
 // between them. The first request claims the input token; the second carries a
 // distinct envelope id, claims its own token, and notifies too.
 func TestHandleEventSameStepInputRequestsBothNotify(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	sink := &sharedSink{}
 	dedup := NewDedup("dedupinturn-b", StateClaimer{}, sink)
 	tr := NewTracker(opencode2Spec())
@@ -533,7 +534,7 @@ func TestHandleEventSameStepInputRequestsBothNotify(t *testing.T) {
 // TestHandleEventRepeatedInputEventNotifiesOnce is the other direction: the
 // same envelope id (a replayed event) claims the same token and notifies once.
 func TestHandleEventRepeatedInputEventNotifiesOnce(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	sink := &sharedSink{}
 	dedup := NewDedup("dedupinturn-c", StateClaimer{}, sink)
 	tr := NewTracker(opencode2Spec())
@@ -568,9 +569,9 @@ func TestParseSSEBlockDelegatesToSpecParse(t *testing.T) {
 
 func TestSandboxStreamOpenerDelegatesToSandbox(t *testing.T) {
 	handle := &streamStub{}
-	seed := msb.NewTestResult(true, 0, `{"data":[]}`, "", nil)
+	seed := msbtest.NewTestResult(true, 0, `{"data":[]}`, "", nil)
 	commands := &[]string{}
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		StreamHandle_:   handle,
 		ShellStreamCmds: commands,
 		ShellOut:        map[string]msb.ShellResult{"seed-cmd": seed},
@@ -596,7 +597,7 @@ func TestSandboxStreamOpenerDelegatesToSandbox(t *testing.T) {
 
 func TestSandboxStreamOpenerPropagatesErrors(t *testing.T) {
 	boom := errors.New("boom")
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ShellErr:      boom,
 		ShellCalls:    &[]string{},
 		ShellStreamFn: func(string) (msb.StreamHandle, error) { return nil, boom },
@@ -732,7 +733,7 @@ func seedFailureStream() *streamStub {
 	}}
 }
 
-func assertOneDoneNotification(t *testing.T, sb *msb.MockSandbox, spec agent.EventStreamSpec) {
+func assertOneDoneNotification(t *testing.T, sb *msbtest.MockSandbox, spec agent.EventStreamSpec) {
 	t.Helper()
 	backend := &recordBackend{}
 	_ = watchOnce(context.Background(), SandboxStreamOpener{Sandbox: sb}, NewTracker(spec), backend, spec)
@@ -759,7 +760,7 @@ func TestWatchOnceReportsWhyTheStreamEnded(t *testing.T) {
 	})
 	t.Run("open failure", func(t *testing.T) {
 		openFailed := errors.New("open failed")
-		sb := msb.NewMockSandbox(msb.SandboxOpts{ShellStreamFn: func(string) (msb.StreamHandle, error) {
+		sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{ShellStreamFn: func(string) (msb.StreamHandle, error) {
 			return nil, openFailed
 		}})
 		err := watchOnce(

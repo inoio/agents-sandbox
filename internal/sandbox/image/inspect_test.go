@@ -10,12 +10,13 @@ import (
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 )
 
 func TestExistingAgentVersionReadsImageLabel(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withInspectLabels(t, map[string]string{agentVersionLabelKey: "1.4.0"}, true)
 
 	got, ok := ExistingAgentVersion(context.Background(), docker.Get(), "proj", "opencode")
@@ -27,7 +28,7 @@ func TestExistingAgentVersionReadsImageLabel(t *testing.T) {
 func TestExistingAgentVersionRejectsSentinels(t *testing.T) {
 	for _, sentinel := range []string{"", identityNone, userProvidedImageIdentity} {
 		t.Run("sentinel "+sentinel, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			withInspectLabels(t, map[string]string{agentVersionLabelKey: sentinel}, true)
 
 			if got, ok := ExistingAgentVersion(context.Background(), docker.Get(), "proj", "opencode"); ok {
@@ -38,7 +39,7 @@ func TestExistingAgentVersionRejectsSentinels(t *testing.T) {
 }
 
 func TestExistingAgentVersionAbsentImage(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withInspectLabels(t, nil, false)
 
 	if got, ok := ExistingAgentVersion(context.Background(), docker.Get(), "proj", "opencode"); ok {
@@ -47,7 +48,7 @@ func TestExistingAgentVersionAbsentImage(t *testing.T) {
 }
 
 func TestExistingAgentVersionMissingLabel(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withInspectLabels(t, map[string]string{"unrelated": "x"}, true)
 
 	if got, ok := ExistingAgentVersion(context.Background(), docker.Get(), "proj", "opencode"); ok {
@@ -196,7 +197,7 @@ func TestBuildReasonsCombinesSourceAndHostChanges(t *testing.T) {
 }
 
 func TestReadImageInfoFromDockerReportsNoEnvWithoutConfig(t *testing.T) {
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			return client.ImageInspectResult{InspectResponse: image.InspectResponse{}}, nil
 		},
@@ -212,7 +213,7 @@ func TestReadImageInfoFromDockerReportsNoEnvWithoutConfig(t *testing.T) {
 
 func withInspectLabels(t *testing.T, labels map[string]string, present bool) {
 	t.Helper()
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, _ string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			if !present {
 				return client.ImageInspectResult{}, errors.New("no such image")

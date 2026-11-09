@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 func TestLockRegistryFailsFastOnDoubleHold(t *testing.T) {
@@ -25,7 +25,7 @@ func TestLockRegistryFailsFastOnDoubleHold(t *testing.T) {
 }
 
 func TestRemoveHomeStateIfFailsFastWhileHomeLockHeld(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 	if err := writeState(k, HomeState{HomeVolume: "vol"}); err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestRemoveHomeStateIfFailsFastWhileHomeLockHeld(t *testing.T) {
 }
 
 func TestLockHomeStateFailsFastOnSameProcessDoubleHold(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 
 	release, ok, err := lockHomeState(k, true)
@@ -67,7 +67,7 @@ func TestLockHomeStateFailsFastOnSameProcessDoubleHold(t *testing.T) {
 }
 
 func TestLockRootStateFailsFastOnSameProcessDoubleHold(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	release, ok, err := lockRootState(true)
 	if err != nil || !ok {
@@ -89,7 +89,7 @@ func TestLockRootStateFailsFastOnSameProcessDoubleHold(t *testing.T) {
 }
 
 func TestLockHomeStateNonBlockingDoesNotRegisterHeldPath(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := testKey()
 
 	release, ok, err := lockHomeState(k, true)
@@ -108,7 +108,7 @@ func TestLockHomeStateNonBlockingDoesNotRegisterHeldPath(t *testing.T) {
 }
 
 func TestLockRootStateFlockErrorReleasesRegistry(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("flock boom")
 	orig := flockRootLock
 	flockRootLock = func(*os.File, bool) error { return wantErr }

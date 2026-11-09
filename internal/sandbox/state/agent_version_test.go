@@ -4,11 +4,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 func TestRecordAgentVersionWritesExistingState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
 	if err := writeState(k, HomeState{HomeVolume: "vol"}); err != nil {
 		t.Fatalf("writeState: %v", err)
@@ -31,7 +31,7 @@ func TestRecordAgentVersionWritesExistingState(t *testing.T) {
 }
 
 func TestRecordAgentVersionSkipsMissingState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
 
 	if err := RecordAgentVersion(k, "2.0.0"); err != nil {
@@ -44,7 +44,7 @@ func TestRecordAgentVersionSkipsMissingState(t *testing.T) {
 }
 
 func TestRecordAgentVersionSkipsEmptyVersion(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
 
 	if err := RecordAgentVersion(k, ""); err != nil {
@@ -60,7 +60,7 @@ func TestRecordAgentVersionSkipsEmptyVersion(t *testing.T) {
 // no-op, not a fall-through that fails the equality check and erases the stored
 // baseline by writing "".
 func TestRecordAgentVersionEmptyVersionPreservesBaseline(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	k := Key{Slug: "proj", Agent: "opencode"}
 	if err := writeState(k, HomeState{HomeVolume: "vol", AgentVersion: "1.2.3"}); err != nil {
 		t.Fatalf("writeState: %v", err)

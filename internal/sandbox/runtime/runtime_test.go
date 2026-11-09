@@ -13,7 +13,8 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -198,13 +199,13 @@ func TestInspectRuntimeLibraryStatError(t *testing.T) {
 
 func TestPrepareRuntimeApplyHomeError(t *testing.T) {
 	resetRuntimeState(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("setenv boom")
 	orig := setenv
 	setenv = func(string, string) error { return wantErr }
 	t.Cleanup(func() { setenv = orig })
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want ApplyHome error")
 	}
 }
@@ -224,7 +225,7 @@ func TestDefaultRuntimeCommandSeams(t *testing.T) {
 }
 
 func TestDefaultEnsureRuntimeSeamFailsDeterministically(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	home := t.TempDir()
 	t.Setenv("MSB_HOME", home)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -235,7 +236,7 @@ func TestDefaultEnsureRuntimeSeamFailsDeterministically(t *testing.T) {
 }
 
 func TestDefaultInstallRuntimeSeamFailsDeterministically(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	home := t.TempDir()
 	t.Setenv("MSB_HOME", home)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -246,7 +247,7 @@ func TestDefaultInstallRuntimeSeamFailsDeterministically(t *testing.T) {
 }
 
 func TestAcquireRuntimeLockBlocksSecondHolder(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	release, err := acquireRuntimeLock()
 	if err != nil {
 		t.Fatalf("acquireRuntimeLock: %v", err)
@@ -275,7 +276,7 @@ func TestAcquireRuntimeLockBlocksSecondHolder(t *testing.T) {
 // TestAcquireRuntimeLockError covers the error wrapping: a directory occupying
 // the lock file path makes the acquisition fail.
 func TestAcquireRuntimeLockError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	blockRuntimeLock(t)
 	_, err := acquireRuntimeLock()
 	if err == nil || !strings.Contains(err.Error(), "acquire runtime lock") {
@@ -297,7 +298,7 @@ func TestPrepareRuntimePublicGateSkipsMockClient(t *testing.T) {
 	runtimeClientIsReal = func() bool { return false }
 	t.Cleanup(func() { runtimeClientIsReal = oldReal })
 
-	if err := PrepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := PrepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("PrepareRuntime() error = %v", err)
 	}
 }
@@ -307,7 +308,7 @@ func TestPrepareRuntimeReturnsExistingPreparedState(t *testing.T) {
 	runtimeState.prepared = true
 	t.Cleanup(func() { resetRuntimeState(t) })
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("prepareRuntime() error = %v", err)
 	}
 }
@@ -325,7 +326,7 @@ func TestPrepareRuntimePublicGateUsesRealClient(t *testing.T) {
 	validateRuntime = func(context.Context) error { return nil }
 	t.Cleanup(func() { validateRuntime = oldValidate })
 
-	if err := PrepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := PrepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("PrepareRuntime() error = %v", err)
 	}
 }
@@ -347,7 +348,7 @@ func TestApplyPreviewHomeSkipsMockClient(t *testing.T) {
 }
 
 func TestApplyPreviewHomePointsAtPrivateHome(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "MSB_HOME")
 	oldReal := runtimeClientIsReal
 	runtimeClientIsReal = func() bool { return true }
@@ -363,7 +364,7 @@ func TestApplyPreviewHomePointsAtPrivateHome(t *testing.T) {
 }
 
 func TestApplyPreviewHomeWrapsApplyHomeError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	oldReal := runtimeClientIsReal
 	runtimeClientIsReal = func() bool { return true }
 	t.Cleanup(func() { runtimeClientIsReal = oldReal })
@@ -399,7 +400,7 @@ func TestPrepareRuntimeMissingInstallsAndValidates(t *testing.T) {
 		validateRuntime = oldValidate
 	})
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("prepareRuntime() error = %v", err)
 	}
 	if ensureCalls != 1 || validateCalls != 1 {
@@ -413,13 +414,13 @@ func TestPrepareRuntimeMissingManagedRuntimeInstallFails(t *testing.T) {
 	// alone is not enough: configpaths honors XDG_DATA_HOME, so on a host where
 	// it points at a real install the runtime would be found and the install
 	// path never reached.
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.UnsetEnv(t, "MSB_HOME")
 	testutil.UnsetEnv(t, "MSB_PATH")
 	oldEnsure := ensureRuntime
 	ensureRuntime = func(context.Context) error { return errors.New("install failed") }
 	t.Cleanup(func() { ensureRuntime = oldEnsure })
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want install error")
 	}
 }
@@ -440,31 +441,31 @@ func TestPrepareRuntimeMissingManagedRuntimeValidationFails(t *testing.T) {
 		ensureRuntime = oldEnsure
 		validateRuntime = oldValidate
 	})
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want post-install validation error")
 	}
 }
 
 func TestPrepareRuntimeInspectionFailure(t *testing.T) {
 	resetRuntimeState(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	oldInspect := inspectRuntimeFunc
 	inspectRuntimeFunc = func(string) (Inspection, error) { return Inspection{}, errors.New("inspect failed") }
 	t.Cleanup(func() { inspectRuntimeFunc = oldInspect })
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want inspection error")
 	}
 }
 
 func TestPrepareRuntimeRejectsUnknownFutureRelation(t *testing.T) {
 	resetRuntimeState(t)
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	oldInspect := inspectRuntimeFunc
 	inspectRuntimeFunc = func(string) (Inspection, error) {
 		return Inspection{Relation: Relation("future")}, nil
 	}
 	t.Cleanup(func() { inspectRuntimeFunc = oldInspect })
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want unknown relation error")
 	}
 }
@@ -501,7 +502,7 @@ func TestPrepareRuntimeMismatchRepairsByForceInstalling(t *testing.T) {
 				validateRuntime = oldValidate
 			})
 
-			if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+			if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 				t.Fatalf("prepareRuntime() error = %v", err)
 			}
 			if installCalls != 1 || validateCalls != 1 {
@@ -536,7 +537,7 @@ func TestPrepareRuntimeIncompleteRepairsAfterRemovingStrayFile(t *testing.T) {
 		validateRuntime = oldValidate
 	})
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("prepareRuntime() error = %v", err)
 	}
 }
@@ -550,7 +551,7 @@ func TestPrepareRuntimeRepairLockFails(t *testing.T) {
 
 	blockRuntimeLock(t)
 
-	err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0")
+	err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0")
 	if err == nil || !strings.Contains(err.Error(), "acquire runtime lock") {
 		t.Fatalf("prepareRuntime() error = %v, want a runtime lock failure", err)
 	}
@@ -574,7 +575,7 @@ func TestPrepareRuntimeRepairReinspectFails(t *testing.T) {
 	}
 	t.Cleanup(func() { inspectRuntimeFunc = oldInspect })
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want re-inspection error")
 	}
 }
@@ -600,7 +601,7 @@ func TestPrepareRuntimeIncompleteRemovalFails(t *testing.T) {
 	}
 	t.Cleanup(func() { installRuntime = oldInstall })
 
-	err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0")
+	err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0")
 	if err == nil {
 		t.Fatal("prepareRuntime() error = nil, want incomplete runtime removal error")
 	}
@@ -640,7 +641,7 @@ func TestPrepareRuntimeRepairSeesConcurrentRepair(t *testing.T) {
 		validateRuntime = oldValidate
 	})
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("prepareRuntime() error = %v", err)
 	}
 	if !validated {
@@ -666,7 +667,7 @@ func TestPrepareRuntimeRepairValidationFails(t *testing.T) {
 		validateRuntime = oldValidate
 	})
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want post-repair validation error")
 	}
 }
@@ -682,7 +683,7 @@ func TestPrepareRuntimeRepairInstallFails(t *testing.T) {
 	installRuntime = func(context.Context) error { return errors.New("install failed") }
 	t.Cleanup(func() { installRuntime = oldInstall })
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("prepareRuntime() error = nil, want repair install error")
 	}
 }
@@ -706,7 +707,7 @@ func TestPrepareRuntimeEqualValidates(t *testing.T) {
 		validateRuntime = oldValidate
 	})
 
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("prepareRuntime() error = %v", err)
 	}
 	if !validated {
@@ -723,7 +724,7 @@ func TestPrepareRuntimePreparedStateShortCircuits(t *testing.T) {
 		runtimeClientIsReal = oldReal
 		resetRuntimeState(t)
 	})
-	if err := PrepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err != nil {
+	if err := PrepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err != nil {
 		t.Fatalf("PrepareRuntime() error = %v", err)
 	}
 }
@@ -737,7 +738,7 @@ func TestPrepareRuntimeValidationErrorOnEqualRuntime(t *testing.T) {
 	oldValidate := validateRuntime
 	validateRuntime = func(context.Context) error { return errors.New("validation failed") }
 	t.Cleanup(func() { validateRuntime = oldValidate })
-	if err := prepareRuntime(context.Background(), &termio.Mock{}, "0.2.0"); err == nil {
+	if err := prepareRuntime(context.Background(), &termiotest.Mock{}, "0.2.0"); err == nil {
 		t.Fatal("equal runtime validation returned nil error")
 	}
 }
@@ -768,7 +769,7 @@ func TestSanitizeRuntimePathEmpty(t *testing.T) {
 }
 
 func TestSanitizeRuntimePathUsesHomeAndBasenameFallbacks(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	home, err := configpaths.Get().UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
@@ -780,7 +781,7 @@ func TestSanitizeRuntimePathUsesHomeAndBasenameFallbacks(t *testing.T) {
 	if got := sanitizeRuntimePath("/opt/custom/msb", "/other"); got != "msb" {
 		t.Errorf("external path = %q, want basename", got)
 	}
-	configpaths.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
+	configpathstest.WithMockConfigPathsHomeError(t, errors.New("home unavailable"))
 	if got := sanitizeRuntimePath("/opt/custom/msb", "/other"); got != "msb" {
 		t.Errorf("fallback path = %q, want basename", got)
 	}
@@ -859,7 +860,7 @@ func msbVersionScript(version string) []byte {
 
 func mockRuntimeHome(t *testing.T) string {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	return filepath.Join(configpaths.Get().UserDataDir(), "msb")
 }
 

@@ -1,5 +1,5 @@
 //deadcode:ignore reason="test support: referenced only by _test.go files"
-package docker
+package dockertest
 
 import (
 	"context"
@@ -12,6 +12,8 @@ import (
 	dockerspec "github.com/moby/docker-image-spec/specs-go/v1"
 	"github.com/moby/moby/api/types/jsonstream"
 	"github.com/moby/moby/client"
+
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 )
 
 // PullResponse is a client.ImagePullResponse for tests: reads come from Body and
@@ -37,15 +39,15 @@ func (p PullResponse) JSONMessages(context.Context) iter.Seq2[jsonstream.Message
 	return func(func(jsonstream.Message, error) bool) {}
 }
 
-func WithDockerMock(t *testing.T, mock Client) {
+func WithDockerMock(t *testing.T, mock docker.Client) {
 	t.Helper() // gomutants:disable STATEMENT_REMOVE reason="t.Helper only adjusts reported stack frames; it cannot change this helper's result"
 
-	orig := Get
+	orig := docker.Get
 
-	Get = func() Client { return mock }
+	docker.Get = func() docker.Client { return mock }
 
 	t.Cleanup(func() {
-		Get = orig
+		docker.Get = orig
 	})
 }
 
@@ -120,7 +122,7 @@ type MockDockerClient struct {
 }
 
 // Compile time check Client interface conformity of MockDockerClient.
-var _ Client = (*MockDockerClient)(nil)
+var _ docker.Client = (*MockDockerClient)(nil)
 
 func (m *MockDockerClient) ImageBuild(
 	ctx context.Context,
@@ -202,14 +204,14 @@ func (m *MockDockerClient) Ping(
 	}, nil
 }
 
-func InstallFailFastGet() { Get = func() Client { return &failFastDockerClient{} } }
+func InstallFailFastGet() { docker.Get = func() docker.Client { return &failFastDockerClient{} } }
 
 // failFastDockerClient is installed by InstallFailFastGet under tests; any method
 // call panics to signal a test reached the real docker client without opting in.
 type failFastDockerClient struct{}
 
 func (f *failFastDockerClient) mustMock() {
-	panic("docker.Get reached the real Docker client; install docker.WithDockerMock(t, ...) in the test")
+	panic("docker.Get reached the real Docker client; install dockertest.WithDockerMock(t, ...) in the test")
 }
 
 func (f *failFastDockerClient) ImageBuild(

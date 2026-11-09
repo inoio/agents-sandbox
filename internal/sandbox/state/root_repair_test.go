@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 func withFixedNow(t *testing.T, fixed time.Time) {
@@ -18,7 +18,7 @@ func withFixedNow(t *testing.T, fixed time.Time) {
 }
 
 func TestRepairRootStateQuarantinesCorruptDocument(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	withFixedNow(t, time.Date(2026, 10, 29, 12, 0, 0, 5, time.UTC))
 	corrupt := []byte("migrations: [unterminated")
 	seedFile(t, rootStateFile(), corrupt)
@@ -46,7 +46,7 @@ func TestRepairRootStateQuarantinesCorruptDocument(t *testing.T) {
 }
 
 func TestRepairRootStateLeavesHealthyAndMissingDocumentsAlone(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if path, err := RepairRootState(); path != "" || err != nil {
 		t.Fatalf("missing: path=%q err=%v", path, err)
 	}
@@ -62,7 +62,7 @@ func TestRepairRootStateLeavesHealthyAndMissingDocumentsAlone(t *testing.T) {
 }
 
 func TestRepairRootStateRefusesNewerSchema(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	newer := []byte("schema: 99\nmigrations: [changed, shape]\n")
 	seedFile(t, rootStateFile(), newer)
 	if _, err := RepairRootState(); !errors.Is(err, ErrStateSchemaUnsupported) {
@@ -74,7 +74,7 @@ func TestRepairRootStateRefusesNewerSchema(t *testing.T) {
 }
 
 func TestRepairRootStateReportsLockFailure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("mkdir failed")
 	original := mkdirRootLock
 	mkdirRootLock = func(string, os.FileMode) error { return wantErr }
@@ -85,7 +85,7 @@ func TestRepairRootStateReportsLockFailure(t *testing.T) {
 }
 
 func TestRepairRootStateReportsRenameFailure(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedFile(t, rootStateFile(), []byte("migrations: [unterminated"))
 	withFixedNow(t, time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC))
 	wantErr := errors.New("rename blocked")
@@ -99,7 +99,7 @@ func TestRepairRootStateReportsRenameFailure(t *testing.T) {
 }
 
 func TestCorruptRootStateErrorNamesRepairCommand(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	seedFile(t, rootStateFile(), []byte("migrations: [unterminated"))
 	_, err := WithRootState(true, func(*RootTxn) error { return nil })
 	if !errors.Is(err, ErrStateUnparsable) || !strings.Contains(err.Error(), RepairRootStateCommand) {

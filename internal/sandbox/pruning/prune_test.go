@@ -8,12 +8,15 @@ import (
 	"testing"
 	"time"
 
-	cp "github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestIsStoppedStatus(t *testing.T) {
@@ -183,22 +186,22 @@ func TestStaleTypeString(t *testing.T) {
 
 func TestBuildPruneStateKeysByAgent(t *testing.T) {
 	old := time.Now().Add(-15 * 24 * time.Hour)
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0-opencode",
 				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: time.Now(),
 			},
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0-pi",
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: old,
 			},
 		},
 	}
-	msb.WithMsbMock(t, client)
-	cp.WithMockConfigPaths(t)
+	msbtest.WithMsbMock(t, client)
+	configpathstest.WithMockConfigPaths(t)
 
 	got, err := buildPruneState(context.Background(), 7*24*time.Hour)
 	if err != nil {
@@ -216,15 +219,15 @@ func TestBuildPruneStateKeysByAgent(t *testing.T) {
 
 func TestPruneAggregateParity(t *testing.T) {
 	old := time.Now().Add(-15 * 24 * time.Hour)
-	staleHandle := &msb.MockSandboxHandle{
+	staleHandle := &msbtest.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: old,
 	}
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
 			staleHandle,
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-live-1mjusbm3wikhb0",
 				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: old,
@@ -232,26 +235,32 @@ func TestPruneAggregateParity(t *testing.T) {
 			},
 		},
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: "agents-sandbox-home-proj-1mjusbm3wikhb0-20260806T143022", CreatedAt_: old},
-			&msb.MockVolumeHandle{Name_: "agents-sandbox-home-live-1mjusbm3wikhb0-20260806T143022", CreatedAt_: old},
+			&msbtest.MockVolumeHandle{
+				Name_:      "agents-sandbox-home-proj-1mjusbm3wikhb0-20260806T143022",
+				CreatedAt_: old,
+			},
+			&msbtest.MockVolumeHandle{
+				Name_:      "agents-sandbox-home-live-1mjusbm3wikhb0-20260806T143022",
+				CreatedAt_: old,
+			},
 		},
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: "agents-sandbox/runner-proj-1mjusbm3wikhb0:old", CreatedAt_: old},
-			&msb.MockImageHandle{
+			&msbtest.MockImageHandle{Reference_: "agents-sandbox/runner-proj-1mjusbm3wikhb0:old", CreatedAt_: old},
+			&msbtest.MockImageHandle{
 				Reference_: "agents-sandbox/runner-live-1mjusbm3wikhb0:opencode-latest",
 				CreatedAt_: old,
 			},
-			&msb.MockImageHandle{
+			&msbtest.MockImageHandle{
 				Reference_: "agents-sandbox/runner-live-1mjusbm3wikhb0:old",
 				CreatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 			},
 		},
 	}
-	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
-	cp.WithMockConfigPaths(t)
+	msbtest.WithMsbMock(t, client)
+	dockertest.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	testUI := termio.NewTestMock(t)
+	testUI := termiotest.NewTestMock(t)
 	report, err := Prune(context.Background(), docker.Get(), PruneOptions{
 		Age: 7 * 24 * time.Hour,
 	}, &testUI)
@@ -280,22 +289,22 @@ func TestPruneNeverRemovesVolumes(t *testing.T) {
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	const slug = "proj-1mjusbm3wikhb0"
 	volumeName := "agents-sandbox-home-" + slug + "-20260806T143022"
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-" + slug,
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: old,
 			},
 		},
 		Volumes: []msb.VolumeHandle{
-			&msb.MockVolumeHandle{Name_: volumeName, CreatedAt_: old},
+			&msbtest.MockVolumeHandle{Name_: volumeName, CreatedAt_: old},
 		},
 	}
-	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
-	cp.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	msbtest.WithMsbMock(t, client)
+	dockertest.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	testUI := termiotest.NewTestMock(t)
 
 	report, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &testUI)
 	if err != nil {
@@ -313,7 +322,7 @@ func TestPruneNeverRemovesVolumes(t *testing.T) {
 // phase under the same age threshold and folds its result into the report.
 func TestPruneRunsStoragePhase(t *testing.T) {
 	physical := uint64(4096)
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
 			return &msb.PruneReport{
 				FilesRemoved:           3,
@@ -322,11 +331,11 @@ func TestPruneRunsStoragePhase(t *testing.T) {
 			}, nil
 		},
 	}
-	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
-	cp.WithMockConfigPaths(t)
+	msbtest.WithMsbMock(t, client)
+	dockertest.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	report, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &termio.Mock{})
+	report, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &termiotest.Mock{})
 	if err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
@@ -347,16 +356,16 @@ func TestPruneRunsStoragePhase(t *testing.T) {
 // TestPruneJoinsStorageError proves a storage-prune failure is warned and
 // joined into the aggregate error instead of aborting the run.
 func TestPruneJoinsStorageError(t *testing.T) {
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		StoragePruneFn: func(context.Context, msb.PruneRequest) (*msb.PruneReport, error) {
 			return nil, errors.New("storage boom")
 		},
 	}
-	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
-	cp.WithMockConfigPaths(t)
+	msbtest.WithMsbMock(t, client)
+	dockertest.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
 
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	_, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, ui)
 	if err == nil || !strings.Contains(err.Error(), "storage boom") {
 		t.Fatalf("Prune error = %v, want the storage error joined", err)
@@ -367,13 +376,13 @@ func TestPruneJoinsStorageError(t *testing.T) {
 }
 
 func TestPrune_BuildStateError(t *testing.T) {
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
 			return nil, errBoom
 		},
 	}
-	msb.WithMsbMock(t, client)
-	testUI := termio.NewTestMock(t)
+	msbtest.WithMsbMock(t, client)
+	testUI := termiotest.NewTestMock(t)
 	_, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &testUI)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected buildPruneState error, got %v", err)
@@ -381,11 +390,11 @@ func TestPrune_BuildStateError(t *testing.T) {
 }
 
 func TestPruneSurfacesSubPrunerError(t *testing.T) {
-	client := &msb.MockMsbClient{ListImagesErr: errBoom}
-	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
-	cp.WithMockConfigPaths(t)
-	testUI := termio.NewTestMock(t)
+	client := &msbtest.MockMsbClient{ListImagesErr: errBoom}
+	msbtest.WithMsbMock(t, client)
+	dockertest.WithNoopDockerMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	testUI := termiotest.NewTestMock(t)
 	_, err := Prune(context.Background(), docker.Get(), PruneOptions{Age: 7 * 24 * time.Hour}, &testUI)
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Errorf("expected the image sub-pruner error to surface, got %v", err)
@@ -393,7 +402,7 @@ func TestPruneSurfacesSubPrunerError(t *testing.T) {
 }
 
 func TestRenderPruneSummary_NilReport(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	RenderPruneSummary(ui, nil, false)
 	if len(ui.OutCalls) != 0 {
 		t.Errorf("RenderPruneSummary with nil report must not emit output, got %v", ui.OutCalls)
@@ -404,7 +413,7 @@ func TestRenderPruneSummary_NilReport(t *testing.T) {
 // the runtime-memory phase and the native image-prune report.
 func TestRenderPruneSummaryReportsStorageAndImages(t *testing.T) {
 	physical := uint64(4096)
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	report := &StaleReport{
 		PrunedSandboxes:     1,
 		SkippedImagesInUse:  4,
@@ -428,7 +437,7 @@ func TestRenderPruneSummaryReportsStorageAndImages(t *testing.T) {
 // TestRenderPruneSummaryUnknownBytesRenderDash pins that unknown byte counts
 // render as "-", never "0".
 func TestRenderPruneSummaryUnknownBytesRenderDash(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	report := &StaleReport{
 		SkippedImagesInUse: 2,
 		Storage:            StorageReport{FilesRemoved: 1, LogicalBytesRemoved: 100},
@@ -465,7 +474,7 @@ func TestRenderPruneSummaryLineBoundaries(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			RenderPruneSummary(ui, tc.report, false)
 			gotImage := slices.ContainsFunc(
 				ui.OutCalls,
@@ -488,7 +497,7 @@ func TestRenderPruneSummaryLineBoundaries(t *testing.T) {
 // TestRenderPruneSummaryOmitsEmptyStorageLine pins that a phase that reclaimed
 // nothing and reported no bytes stays off the output.
 func TestRenderPruneSummaryOmitsEmptyStorageLine(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	RenderPruneSummary(ui, &StaleReport{PrunedSandboxes: 1}, false)
 	if len(ui.OutCalls) != 1 {
 		t.Errorf("expected only the counts line, got: %v", ui.OutCalls)
@@ -496,7 +505,7 @@ func TestRenderPruneSummaryOmitsEmptyStorageLine(t *testing.T) {
 }
 
 func TestRenderPruneSummaryVerboseDetails(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	report := &StaleReport{
 		PrunedSandboxes: 1,
 		Details: []StaleEntry{
@@ -516,14 +525,14 @@ func TestRenderPruneSummaryVerboseDetails(t *testing.T) {
 // a run passes the key it is about to use, and that key's image survives even
 // though its stale project VM is pruned in the same invocation.
 func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
-	cp.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	const slug = "proj-1mjusbm3wikhb0"
 	key := state.Key{Slug: slug, Agent: "opencode"}
 	ref := "agents-sandbox/runner-" + slug + ":opencode-latest"
 	nativePruned := false
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-" + slug + "-opencode",
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-48 * time.Hour),
@@ -531,16 +540,16 @@ func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
 			},
 		},
 		Images: []msb.ImageHandle{
-			&msb.MockImageHandle{Reference_: ref, CreatedAt_: time.Now().Add(-48 * time.Hour)},
+			&msbtest.MockImageHandle{Reference_: ref, CreatedAt_: time.Now().Add(-48 * time.Hour)},
 		},
 		ImagePruneFn: func(context.Context) (*msb.ImagePruneReport, error) {
 			nativePruned = true
 			return &msb.ImagePruneReport{}, nil
 		},
 	}
-	msb.WithMsbMock(t, client)
-	docker.WithNoopDockerMock(t)
-	testUI := termio.NewTestMock(t)
+	msbtest.WithMsbMock(t, client)
+	dockertest.WithNoopDockerMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	if _, err := Prune(context.Background(), docker.Get(), PruneOptions{
 		Age:    time.Hour,
@@ -557,13 +566,13 @@ func TestPruneRetainsCurrentRunKeyImage(t *testing.T) {
 }
 
 func TestRenderPruneSummaryDryRunAction(t *testing.T) {
-	dry := &termio.Mock{}
+	dry := &termiotest.Mock{}
 	RenderPruneSummary(dry, &StaleReport{PrunedSandboxes: 1}, true)
 	if len(dry.OutCalls) != 1 || !strings.HasPrefix(dry.OutCalls[0], "dry-run: Would prune") {
 		t.Errorf("OutCalls = %v, want the dry-run action", dry.OutCalls)
 	}
 
-	rendered := &termio.Mock{}
+	rendered := &termiotest.Mock{}
 	RenderPruneSummary(rendered, &StaleReport{}, false)
 	if len(rendered.OutCalls) != 1 || !strings.HasPrefix(rendered.OutCalls[0], "Pruned") {
 		t.Errorf("OutCalls = %v, want the real action", rendered.OutCalls)
@@ -574,7 +583,7 @@ func TestRenderPruneSummaryDryRunAction(t *testing.T) {
 // removals appear on their own line, so a prune that reclaimed only internal
 // state still reports what it did.
 func TestRenderPruneSummaryReportsInternalState(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	report := &StaleReport{
 		State: StateSweepReport{
 			ClaimsRemoved:   2,
@@ -594,7 +603,7 @@ func TestRenderPruneSummaryReportsInternalState(t *testing.T) {
 // TestRenderPruneSummaryOmitsEmptyStateLine pins that a state sweep that
 // reclaimed nothing stays off the output.
 func TestRenderPruneSummaryOmitsEmptyStateLine(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	RenderPruneSummary(ui, &StaleReport{State: StateSweepReport{StaleStatesKept: 1}}, false)
 	if len(ui.OutCalls) != 1 {
 		t.Errorf("out = %v, want only the counts line (a no-removal state sweep is not rendered)", ui.OutCalls)
@@ -603,17 +612,17 @@ func TestRenderPruneSummaryOmitsEmptyStateLine(t *testing.T) {
 
 func TestInvokePruneFunc(t *testing.T) {
 	t.Run("builds state and invokes the pruner", func(t *testing.T) {
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			Sandboxes: []msb.SandboxHandle{
-				&msb.MockSandboxHandle{
+				&msbtest.MockSandboxHandle{
 					Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 					Status_:    msb.SandboxStatusStopped,
 					UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 				},
 			},
 		}
-		msb.WithMsbMock(t, client)
-		ui := &termio.Mock{}
+		msbtest.WithMsbMock(t, client)
+		ui := &termiotest.Mock{}
 		var gotState PruneState
 		got, err := InvokePruneFunc(context.Background(),
 			func(_ context.Context, state PruneState, _ bool, _ termio.UI) (int, error) {
@@ -633,13 +642,13 @@ func TestInvokePruneFunc(t *testing.T) {
 	})
 
 	t.Run("propagates buildPruneState error", func(t *testing.T) {
-		client := &msb.MockMsbClient{
+		client := &msbtest.MockMsbClient{
 			ListSandboxesFn: func(context.Context, map[string]string) ([]msb.SandboxHandle, error) {
 				return nil, errors.New("boom")
 			},
 		}
-		msb.WithMsbMock(t, client)
-		ui := &termio.Mock{}
+		msbtest.WithMsbMock(t, client)
+		ui := &termiotest.Mock{}
 		invoked := false
 		_, err := InvokePruneFunc(context.Background(),
 			func(context.Context, PruneState, bool, termio.UI) (int, error) {
@@ -656,8 +665,8 @@ func TestInvokePruneFunc(t *testing.T) {
 	})
 
 	t.Run("propagates pruner error", func(t *testing.T) {
-		msb.WithMsbMock(t, &msb.MockMsbClient{})
-		ui := &termio.Mock{}
+		msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
+		ui := &termiotest.Mock{}
 		_, err := InvokePruneFunc(context.Background(),
 			func(context.Context, PruneState, bool, termio.UI) (int, error) {
 				return 0, errors.New("prune boom")
@@ -673,10 +682,10 @@ func TestInvokePruneFunc(t *testing.T) {
 // state phase: a state recording no home volume is reclaimed, so the phase is
 // not silently skipped.
 func TestPruneNonDryRunSweepsState(t *testing.T) {
-	cp.WithMockConfigPaths(t)
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
-	docker.WithNoopDockerMock(t)
-	testUI := termio.NewTestMock(t)
+	configpathstest.WithMockConfigPaths(t)
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
+	dockertest.WithNoopDockerMock(t)
+	testUI := termiotest.NewTestMock(t)
 
 	const slug = "sweep-non-dry-run"
 	agentKey := state.Key{Slug: slug, Agent: "opencode"}

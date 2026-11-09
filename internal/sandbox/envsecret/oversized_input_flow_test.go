@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/inoio/agents-sandbox/internal/configread"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 )
 
@@ -16,7 +16,7 @@ import (
 func TestParseSecretSpecYAMLRejectsOversizedFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env.secret.yaml")
 	testutil.WritePath(t, path, "FOO: bar@host\n# "+strings.Repeat("x", configread.MaxBytes)+"\n")
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if specs := ParseSecretSpecYAML(path, &ui); specs != nil {
 		t.Errorf("specs = %v, want nil for an oversized file", specs)
@@ -29,7 +29,7 @@ func TestParseSecretSpecYAMLRejectsOversizedFile(t *testing.T) {
 func TestParseSecretSpecLegacyRejectsOversizedFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env.secret")
 	testutil.WritePath(t, path, "FOO=bar@host\n# "+strings.Repeat("x", configread.MaxBytes)+"\n")
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if specs := ParseSecretSpecLegacy(path, &ui); specs != nil {
 		t.Errorf("specs = %v, want nil for an oversized file", specs)
@@ -41,7 +41,7 @@ func TestParseSecretSpecLegacyRejectsOversizedFile(t *testing.T) {
 func TestBuildEnvMapRejectsOversizedFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "env")
 	testutil.WritePath(t, path, "FOO=bar\n# "+strings.Repeat("x", configread.MaxBytes)+"\n")
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if env := BuildEnvMap(path, &ui); env != nil {
 		t.Errorf("env = %v, want nil for an oversized file", env)
@@ -52,7 +52,7 @@ func TestBuildEnvMapRejectsOversizedFile(t *testing.T) {
 // TestBuildEnvMapStaysQuietForAMissingFile pins that an absent optional file is
 // not warned about: only a present file the cap rejects is.
 func TestBuildEnvMapStaysQuietForAMissingFile(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 
 	if env := BuildEnvMap(filepath.Join(t.TempDir(), "absent"), &ui); env != nil {
 		t.Errorf("env = %v, want nil for a missing file", env)

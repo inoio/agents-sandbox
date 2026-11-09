@@ -9,20 +9,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/termio"
 )
 
 func TestImagePruneNonInteractiveRequiresYes(t *testing.T) {
-	m := &sandboxmsb.MockMsbClient{}
-	m.Images = append(m.Images, sandboxmsb.MockImageHandle{
+	m := &msbtest.MockMsbClient{}
+	m.Images = append(m.Images, msbtest.MockImageHandle{
 		Reference_:  "agents-sandbox/runner-orphan-1mjusbm3wikhb0:v1",
 		LastUsedAt_: time.Now().Add(-30 * 24 * time.Hour),
 	})
 
 	cmd, _ := setupCommandFixtures(t, "image", "prune")
-	sandboxmsb.WithMsbMock(t, m)
+	msbtest.WithMsbMock(t, m)
 
 	err := cmd.Execute()
 	if !errors.Is(err, termio.ErrConfirmationRequired) {
@@ -36,24 +37,24 @@ func TestImagePruneNonInteractiveRequiresYes(t *testing.T) {
 func TestImagePrune(t *testing.T) {
 	t.Run("accepts and applies age flag", func(t *testing.T) {
 		// A 2d-old stale VM makes its image prunable with --age 1d, but not the 7d default.
-		m := &sandboxmsb.MockMsbClient{
+		m := &msbtest.MockMsbClient{
 			Sandboxes: []sandboxmsb.SandboxHandle{
-				&sandboxmsb.MockSandboxHandle{
+				&msbtest.MockSandboxHandle{
 					Name_:      "agents-sandbox-vm-orphan-1mjusbm3wikhb0",
 					Status_:    sandboxmsb.SandboxStatusStopped,
 					UpdatedAt_: time.Now().Add(-2 * 24 * time.Hour),
 				},
 			},
 			Images: []sandboxmsb.ImageHandle{
-				sandboxmsb.MockImageHandle{
+				msbtest.MockImageHandle{
 					Reference_:  "agents-sandbox/runner-orphan-1mjusbm3wikhb0:v1",
 					LastUsedAt_: time.Now().Add(-2 * 24 * time.Hour),
 				},
 			},
 		}
 		cmd, ui := setupCommandFixtures(t, "image", "prune", "--age", "1d", "--yes")
-		sandboxmsb.WithMsbMock(t, m)
-		docker.WithNoopDockerMock(t)
+		msbtest.WithMsbMock(t, m)
+		dockertest.WithNoopDockerMock(t)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -63,24 +64,24 @@ func TestImagePrune(t *testing.T) {
 	})
 
 	t.Run("prunes images of stale slugs", func(t *testing.T) {
-		m := &sandboxmsb.MockMsbClient{
+		m := &msbtest.MockMsbClient{
 			Sandboxes: []sandboxmsb.SandboxHandle{
-				&sandboxmsb.MockSandboxHandle{
+				&msbtest.MockSandboxHandle{
 					Name_:      "agents-sandbox-vm-orphan-1mjusbm3wikhb0",
 					Status_:    sandboxmsb.SandboxStatusStopped,
 					UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 				},
 			},
 			Images: []sandboxmsb.ImageHandle{
-				sandboxmsb.MockImageHandle{
+				msbtest.MockImageHandle{
 					Reference_:  "agents-sandbox/runner-orphan-1mjusbm3wikhb0:v1",
 					LastUsedAt_: time.Now().Add(-30 * 24 * time.Hour),
 				},
 			},
 		}
 		cmd, ui := setupCommandFixtures(t, "image", "prune", "--yes")
-		sandboxmsb.WithMsbMock(t, m)
-		docker.WithNoopDockerMock(t)
+		msbtest.WithMsbMock(t, m)
+		dockertest.WithNoopDockerMock(t)
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -95,24 +96,24 @@ func TestImagePruneFormatUnknown(t *testing.T) {
 }
 
 func TestImagePruneFormatJSON(t *testing.T) {
-	m := &sandboxmsb.MockMsbClient{
+	m := &msbtest.MockMsbClient{
 		Sandboxes: []sandboxmsb.SandboxHandle{
-			&sandboxmsb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-orphan-1mjusbm3wikhb0",
 				Status_:    sandboxmsb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-30 * 24 * time.Hour),
 			},
 		},
 		Images: []sandboxmsb.ImageHandle{
-			sandboxmsb.MockImageHandle{
+			msbtest.MockImageHandle{
 				Reference_:  "agents-sandbox/runner-orphan-1mjusbm3wikhb0:v1",
 				LastUsedAt_: time.Now().Add(-30 * 24 * time.Hour),
 			},
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "image", "prune", "--format", "json", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
-	docker.WithNoopDockerMock(t)
+	msbtest.WithMsbMock(t, m)
+	dockertest.WithNoopDockerMock(t)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -142,14 +143,14 @@ func TestImagePruneFormatJSON(t *testing.T) {
 // report's skipped-in-use and reclaimed-bytes reach the JSON.
 func TestImagePruneFormatJSONIncludesNativeReport(t *testing.T) {
 	physical := uint64(2048)
-	m := &sandboxmsb.MockMsbClient{
+	m := &msbtest.MockMsbClient{
 		ImagePruneFn: func(context.Context) (*sandboxmsb.ImagePruneReport, error) {
 			return &sandboxmsb.ImagePruneReport{SkippedInUse: 4, BytesReclaimed: &physical}, nil
 		},
 	}
 	cmd, ui := setupCommandFixtures(t, "image", "prune", "--format", "json", "--yes")
-	sandboxmsb.WithMsbMock(t, m)
-	docker.WithNoopDockerMock(t)
+	msbtest.WithMsbMock(t, m)
+	dockertest.WithNoopDockerMock(t)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

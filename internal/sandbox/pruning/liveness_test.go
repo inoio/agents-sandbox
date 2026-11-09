@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
@@ -17,53 +18,53 @@ func TestBuildPruneState(t *testing.T) {
 	recent := time.Now().Add(-5 * time.Minute)
 	stale := time.Now().Add(-15 * 24 * time.Hour)
 
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
 			// running -> never stale (kept)
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj1-1mjusbm3wikhb0",
 				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: recent,
 			},
 			// stopped but fresh -> not yet stale (kept)
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj2-1mjusbm3wikhb0",
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: recent,
 			},
 			// stale stopped -> prunable
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj3-1mjusbm3wikhb0",
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: stale,
 			},
 			// task sandbox -> prunable regardless of age
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-task-fill-1mjusbm3wikhb0-opencode-1729",
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: recent,
 			},
 			// running task -> never stale
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-task-fill2-1mjusbm3wikhb0-opencode-1729",
 				Status_:    msb.SandboxStatusRunning,
 				UpdatedAt_: stale,
 			},
 			// starting -> never stale while a runtime transition is in progress
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj4-1mjusbm3wikhb0",
 				Status_:    msb.SandboxStatusStarting,
 				UpdatedAt_: stale,
 			},
 			// unknown -> never prunable; fail closed for future statuses
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj5-1mjusbm3wikhb0",
 				Status_:    msb.SandboxStatus("future-status"),
 				UpdatedAt_: stale,
 			},
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
 	pruneState, err := buildPruneState(context.Background(), 7*24*time.Hour)
 	if err != nil {
@@ -118,18 +119,18 @@ func TestBuildPruneState(t *testing.T) {
 // project key never appears in ToPrune.
 func TestPruneStateKeepsTaskOutOfProjectKey(t *testing.T) {
 	const slug = "myproj-1mjusbm3wikhb0"
-	task := &msb.MockSandboxHandle{
+	task := &msbtest.MockSandboxHandle{
 		Name_:      slug + "-opencode-1729000000000000000",
 		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now(),
 	}
-	project := &msb.MockSandboxHandle{
+	project := &msbtest.MockSandboxHandle{
 		Name_:      slug + "-opencode",
 		Status_:    msb.SandboxStatusRunning,
 		UpdatedAt_: time.Now(),
 	}
-	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{task, project}}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{Sandboxes: []msb.SandboxHandle{task, project}}
+	msbtest.WithMsbMock(t, client)
 
 	pruneState, err := buildPruneState(context.Background(), 7*24*time.Hour)
 	if err != nil {
@@ -151,7 +152,7 @@ func TestPruneStateKeepsTaskOutOfProjectKey(t *testing.T) {
 // a project VM whose folder begins with the legacy task prefix is not a task
 // when it carries the project type label, and a labelled task is a task.
 func TestPruneStateLabelBeatsLegacyNamePrefix(t *testing.T) {
-	project := &msb.MockSandboxHandle{
+	project := &msbtest.MockSandboxHandle{
 		Name_:      "agents-sandbox-task-1mjusbm3wikhb0-opencode",
 		Status_:    msb.SandboxStatusRunning,
 		UpdatedAt_: time.Now(),
@@ -161,7 +162,7 @@ func TestPruneStateLabelBeatsLegacyNamePrefix(t *testing.T) {
 			naming.LabelAgent: "opencode",
 		}},
 	}
-	task := &msb.MockSandboxHandle{
+	task := &msbtest.MockSandboxHandle{
 		Name_:      "x-1mjusbm3wikhb0-opencode-1729000000000000000",
 		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now(),
@@ -171,8 +172,8 @@ func TestPruneStateLabelBeatsLegacyNamePrefix(t *testing.T) {
 			naming.LabelAgent: "opencode",
 		}},
 	}
-	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{project, task}}
-	msb.WithMsbMock(t, client)
+	client := &msbtest.MockMsbClient{Sandboxes: []msb.SandboxHandle{project, task}}
+	msbtest.WithMsbMock(t, client)
 
 	pruneState, err := buildPruneState(context.Background(), 7*24*time.Hour)
 	if err != nil {
@@ -191,16 +192,16 @@ func TestPruneStateLabelBeatsLegacyNamePrefix(t *testing.T) {
 }
 
 func TestBuildPruneState_AgeZero(t *testing.T) {
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now(),
 			},
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
 	pruneState, err := buildPruneState(context.Background(), 0)
 	if err != nil {
@@ -215,7 +216,7 @@ func TestBuildPruneState_AgeZero(t *testing.T) {
 // enter the snapshot with the VM classification, so every liveness input is
 // built in one place.
 func TestBuildPruneStateRecordsRetainKeys(t *testing.T) {
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 
 	pruneState, err := buildPruneState(context.Background(), time.Hour, key)
@@ -235,7 +236,7 @@ func TestKeepImagePrecedence(t *testing.T) {
 	const ref = "proj-1mjusbm3wikhb0:opencode.9f2c1a7b4d6e0f31"
 	const agentlessRef = "proj-1mjusbm3wikhb0-latest"
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
-	retiredKey := map[state.Key]msb.SandboxHandle{key: &msb.MockSandboxHandle{}}
+	retiredKey := map[state.Key]msb.SandboxHandle{key: &msbtest.MockSandboxHandle{}}
 	recent := time.Now().Add(-time.Minute)
 	aged := time.Now().Add(-48 * time.Hour)
 
@@ -268,7 +269,7 @@ func TestKeepImagePrecedence(t *testing.T) {
 			if tc.heldByKeptVM {
 				keptImageRefs = map[string]struct{}{tc.reference: {}}
 			}
-			handle := &msb.MockImageHandle{Reference_: tc.reference, LastUsedAt_: tc.lastUsedAt}
+			handle := &msbtest.MockImageHandle{Reference_: tc.reference, LastUsedAt_: tc.lastUsedAt}
 
 			if got := keepImage(handle, naming.ParseImageTag(tc.reference), pruneState, keptImageRefs); got != tc.want {
 				t.Errorf("keepImage = %v, want %v", got, tc.want)
@@ -278,7 +279,7 @@ func TestKeepImagePrecedence(t *testing.T) {
 }
 
 func TestBuildPruneStateRecordsAge(t *testing.T) {
-	msb.WithMsbMock(t, &msb.MockMsbClient{})
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{})
 
 	pruneState, err := buildPruneState(context.Background(), 24*time.Hour)
 	if err != nil {
@@ -290,7 +291,7 @@ func TestBuildPruneStateRecordsAge(t *testing.T) {
 
 	// The threshold is carried even when the snapshot fails, so a caller that
 	// reports the error still sees the age it asked for.
-	msb.WithMsbMock(t, &msb.MockMsbClient{
+	msbtest.WithMsbMock(t, &msbtest.MockMsbClient{
 		ListSandboxesFn: func(_ context.Context, _ map[string]string) ([]msb.SandboxHandle, error) {
 			return nil, errBoom
 		},
@@ -305,17 +306,17 @@ func TestBuildPruneStateRecordsAge(t *testing.T) {
 }
 
 func TestBuildPruneState_SkipsUnparseableName(t *testing.T) {
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		Sandboxes: []msb.SandboxHandle{
 			// Vm-prefixed but with no slug remainder -> must be skipped.
-			&msb.MockSandboxHandle{
+			&msbtest.MockSandboxHandle{
 				Name_:      "agents-sandbox-vm-",
 				Status_:    msb.SandboxStatusStopped,
 				UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 			},
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	pruneState, err := buildPruneState(context.Background(), 7*24*time.Hour)
 	if err != nil {
 		t.Fatalf("buildPruneState: %v", err)
@@ -326,12 +327,12 @@ func TestBuildPruneState_SkipsUnparseableName(t *testing.T) {
 }
 
 func TestBuildPruneState_ListError(t *testing.T) {
-	client := &msb.MockMsbClient{
+	client := &msbtest.MockMsbClient{
 		ListSandboxesFn: func(_ context.Context, _ map[string]string) ([]msb.SandboxHandle, error) {
 			return nil, errBoom
 		},
 	}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 	_, err := buildPruneState(context.Background(), time.Hour)
 	if err == nil {
 		t.Fatal("expected error from ListSandboxes")
@@ -342,7 +343,7 @@ func TestBuildPruneState_ListError(t *testing.T) {
 // launcher's identity labels is classified from them, not from its name: the
 // name below parses to a different slug and agent.
 func TestNoteIdentityPrefersLabelsOverName(t *testing.T) {
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_: "unparseable-name",
 		Cfg: &msb.SandboxConfig{Labels: map[string]string{
 			naming.LabelType:  naming.SandboxTypeProject,
@@ -360,7 +361,7 @@ func TestNoteIdentityPrefersLabelsOverName(t *testing.T) {
 // a populated config: a handle that returns both labels and an error must use
 // the name heuristic, not the labels.
 func TestNoteIdentityFallsBackOnConfigError(t *testing.T) {
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_: "unparseable-name",
 		Cfg: &msb.SandboxConfig{Labels: map[string]string{
 			naming.LabelType:  naming.SandboxTypeProject,
@@ -400,25 +401,25 @@ func TestKeySetReturnsNilForNoKeys(t *testing.T) {
 // processing after an unparseable name and a task sandbox: a stale project VM
 // after them must still be scheduled.
 func TestBuildPruneStateContinuesPastSkippedEntries(t *testing.T) {
-	stale := &msb.MockSandboxHandle{
+	stale := &msbtest.MockSandboxHandle{
 		Name_:      "agents-sandbox-vm-proj-1mjusbm3wikhb0",
 		Status_:    msb.SandboxStatusStopped,
 		UpdatedAt_: time.Now().Add(-15 * 24 * time.Hour),
 	}
-	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{
-		&msb.MockSandboxHandle{
+	client := &msbtest.MockMsbClient{Sandboxes: []msb.SandboxHandle{
+		&msbtest.MockSandboxHandle{
 			Name_:      "agents-sandbox-vm-",
 			Status_:    msb.SandboxStatusStopped,
 			UpdatedAt_: time.Now(),
 		},
-		&msb.MockSandboxHandle{
+		&msbtest.MockSandboxHandle{
 			Name_:      "agents-sandbox-task-fill-1mjusbm3wikhb0-opencode-1729",
 			Status_:    msb.SandboxStatusStopped,
 			UpdatedAt_: time.Now(),
 		},
 		stale,
 	}}
-	msb.WithMsbMock(t, client)
+	msbtest.WithMsbMock(t, client)
 
 	pruneState, err := buildPruneState(context.Background(), 7*24*time.Hour)
 	if err != nil {

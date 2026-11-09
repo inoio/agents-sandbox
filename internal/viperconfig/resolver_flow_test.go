@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/notify"
 	"github.com/inoio/agents-sandbox/internal/sandbox/network"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
@@ -25,7 +26,7 @@ import (
 // highest layer wins). The env and flag layers are not file layers; they reach
 // viper through binding, not mergeDir.
 func TestNewResolverMergesEveryFileLayer(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(
 		t,
@@ -67,7 +68,7 @@ func TestNewResolverMergesEveryFileLayer(t *testing.T) {
 // TestConfigAllowPlaceholderForFromFile pins that the config-file-only
 // secrets.common.allow-placeholder-for key reaches Config.
 func TestConfigAllowPlaceholderForFromFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
 		"secrets": map[string]any{
@@ -90,7 +91,7 @@ func TestConfigAllowPlaceholderForFromFile(t *testing.T) {
 // provision-host-config is derived like every other key: its env var must be
 // honored, and false must survive the on-by-default setting.
 func TestResolverProvisionHostConfigEnv(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_PROVISION_HOST_CONFIG", "false")
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -154,7 +155,7 @@ func TestNewResolverReportsABrokenConfigLayer(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			testutil.WriteFile(t, tc.dir(configpaths.Get()), tc.file, tc.content)
 
 			_, err := NewResolver(nil, configpaths.Get(), tc.slug)
@@ -170,7 +171,7 @@ func TestNewResolverReportsABrokenConfigLayer(t *testing.T) {
 // key is still rejected, now at value validation rather than the removed
 // json.Marshal.
 func TestNewResolverRejectsANonFiniteNumber(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.json5", `{"cpus": NaN}`)
 
 	_, err := NewResolver(nil, configpaths.Get(), "")
@@ -184,7 +185,7 @@ func TestNewResolverRejectsANonFiniteNumber(t *testing.T) {
 // it, and the value decodes to "NaN" — which ParseMemory later treats like any
 // other unparseable memory string.
 func TestNewResolverDecodesANonFiniteMemory(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteFile(t, configpaths.Get().UserConfigDir(), "config.json5", `{"memory": NaN}`)
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -199,7 +200,7 @@ func TestNewResolverDecodesANonFiniteMemory(t *testing.T) {
 // TestNewResolverReportsAnUnreadableConfig pins that a config path that cannot
 // be read (here a directory) names the read failure and keeps the path error.
 func TestNewResolverReportsAnUnreadableConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.MkdirAll(filepath.Join(configpaths.Get().UserConfigDir(), "config.yaml"), 0o755); err != nil {
 		t.Fatalf("mkdir config.yaml: %v", err)
 	}
@@ -213,7 +214,7 @@ func TestNewResolverReportsAnUnreadableConfig(t *testing.T) {
 // TestNewResolverRefusesAZeroAutoStopTimeout pins that an auto-stop timeout of
 // zero is rejected rather than read as "never stop".
 func TestNewResolverRefusesAZeroAutoStopTimeout(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{"auto-stop-timeout": 0})
 
 	_, err := NewResolver(nil, configpaths.Get(), "")
@@ -228,7 +229,7 @@ func projectDir(cp configpaths.ConfigPaths) string { return cp.ProjectConfigDir(
 
 // A positive prune age passes validatePruneAges without error.
 func TestNewResolverValidPruneAge(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"auto-prune-age": "7d"})
 
@@ -297,7 +298,7 @@ func TestConfigDockerSource(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			for _, kv := range tt.env {
 				t.Setenv(kv[0], kv[1])
 			}
@@ -327,7 +328,7 @@ func TestConfigDockerSource(t *testing.T) {
 // A command with no canonical --docker flag registered is not a docker source,
 // so the resolution falls through to the config layers.
 func TestConfigDockerSourceWithoutDockerFlag(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	root := &cobra.Command{Use: "root"}
 
 	r, err := NewResolver(root, configpaths.Get(), "")
@@ -340,7 +341,7 @@ func TestConfigDockerSourceWithoutDockerFlag(t *testing.T) {
 }
 
 func TestResolverAgentsSandboxEnvPrefix(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
 	t.Setenv("AGENTS_SANDBOX_CPUS", "6")
@@ -358,7 +359,7 @@ func TestResolverAgentsSandboxEnvPrefix(t *testing.T) {
 }
 
 func TestResolverLegacyEnvPrefixStillWorks(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("OPENCODE_SANDBOX_CPUS", "6")
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -374,7 +375,7 @@ func TestResolverLegacyEnvPrefixStillWorks(t *testing.T) {
 }
 
 func TestResolverAgentsEnvTakesPrecedenceOverLegacy(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_CPUS", "7")
 	t.Setenv("OPENCODE_SANDBOX_CPUS", "6")
 
@@ -391,7 +392,7 @@ func TestResolverAgentsEnvTakesPrecedenceOverLegacy(t *testing.T) {
 }
 
 func TestResolverDottedKeyUsesAgentsEnvPrefix(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "private")
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -405,7 +406,7 @@ func TestResolverDottedKeyUsesAgentsEnvPrefix(t *testing.T) {
 
 // Host-config provisioning defaults to on with no configuration at all.
 func TestResolverProvisionHostConfigDefaultsOn(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
@@ -444,7 +445,7 @@ func TestNewResolverResolvesDockerAgainstTheDindAlias(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			if tc.dind != nil {
 				testutil.WriteYAML(
 					t,
@@ -484,7 +485,7 @@ func TestNewResolverResolvesDockerAgainstTheDindAlias(t *testing.T) {
 
 // A .jsonc file is parsed as JSON5, so a comment does not break it.
 func TestNewResolverJSONCWithComment(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserConfigDir(), "config.jsonc", "{\n\t// a comment\n\t\"cpus\": 2\n}")
 
@@ -500,7 +501,7 @@ func TestNewResolverJSONCWithComment(t *testing.T) {
 // A "7d" interval is only understood by ParseHumanDuration, so the upgrade
 // validator must fall back to it.
 func TestResolverUpgradeIntervalHumanDuration(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", "7d")
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -514,7 +515,7 @@ func TestResolverUpgradeIntervalHumanDuration(t *testing.T) {
 
 // An interval exactly at the minimum is accepted.
 func TestResolverUpgradeIntervalAtMinimum(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", upgrade.MinInterval.String())
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -529,7 +530,7 @@ func TestResolverUpgradeIntervalAtMinimum(t *testing.T) {
 // A valid first prune age must not stop the loop before the second, invalid
 // one is checked.
 func TestResolverPruneAgesChecksEveryKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"auto-prune-age":   "1h",
 		"manual-prune-age": "-1h",
@@ -541,7 +542,7 @@ func TestResolverPruneAgesChecksEveryKey(t *testing.T) {
 }
 
 func TestResolverMounts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
 		"mounts": map[string]any{
@@ -566,7 +567,7 @@ func TestResolverMounts(t *testing.T) {
 }
 
 func TestResolverMountsMergeByTarget(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
 		"mounts": map[string]any{
@@ -596,7 +597,7 @@ func TestResolverMountsMergeByTarget(t *testing.T) {
 }
 
 func TestResolverRejectsInvalidMountEntry(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
 		"mounts": map[string]any{
@@ -619,7 +620,7 @@ func TestResolverRejectsInvalidMountEntry(t *testing.T) {
 }
 
 func TestResolverEnvPrecedenceOverConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
 	t.Setenv("AGENTS_SANDBOX_CPUS", "6")
@@ -634,7 +635,7 @@ func TestResolverEnvPrecedenceOverConfig(t *testing.T) {
 }
 
 func TestResolverConfigNoFlag(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 3})
 
@@ -648,7 +649,7 @@ func TestResolverConfigNoFlag(t *testing.T) {
 }
 
 func TestResolverConfigSyntaxErrorIsFriendly(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserConfigDir(), "config.yaml", "cpus: 2\n  memory: [\n")
 
@@ -664,7 +665,7 @@ func TestResolverConfigSyntaxErrorIsFriendly(t *testing.T) {
 }
 
 func TestResolverEnvKeyReplacement(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_AUTO_STOP_ON_ACTIVE_SESSIONS", "true")
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -677,7 +678,7 @@ func TestResolverEnvKeyReplacement(t *testing.T) {
 }
 
 func TestResolverEnvInvalidCPUs(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_CPUS", "300")
 
 	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
@@ -687,7 +688,7 @@ func TestResolverEnvInvalidCPUs(t *testing.T) {
 
 // Flag-over-env-over-config precedence via a real cobra command.
 func TestResolverFlagOverridesEnv(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"cpus": 2})
 	t.Setenv("AGENTS_SANDBOX_CPUS", "4")
@@ -709,7 +710,7 @@ func TestResolverFlagOverridesEnv(t *testing.T) {
 
 // An unspecified flag with a default must NOT override env/config.
 func TestResolverUnspecifiedFlagDefaultDoesNotOverride(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"memory": "8G"})
 
@@ -726,7 +727,7 @@ func TestResolverUnspecifiedFlagDefaultDoesNotOverride(t *testing.T) {
 
 // With no env/config, an unspecified flag's default is the resolution.
 func TestResolverFlagDefaultUsedWhenNothingElse(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	root := &cobra.Command{Use: "root"}
 	root.PersistentFlags().String("memory", "4G", "")
 	r, err := NewResolver(root, configpaths.Get(), "")
@@ -740,7 +741,7 @@ func TestResolverFlagDefaultUsedWhenNothingElse(t *testing.T) {
 
 // rebuild is not a config-backed key; a config file setting it is ignored.
 func TestResolverIgnoresRebuildKey(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"rebuild": true, "cpus": 2})
 
@@ -755,7 +756,7 @@ func TestResolverIgnoresRebuildKey(t *testing.T) {
 }
 
 func TestResolverProjectOverridesUser(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
 		"cpus":   2,
@@ -792,7 +793,7 @@ func TestResolverInvalidPruneAgeFromFile(t *testing.T) {
 		{key: "manual-prune-age", value: "-10h", errSuffix: "manual-prune-age must be > 0"},
 	} {
 		t.Run(tc.key, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			cp := configpaths.Get()
 			testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{tc.key: tc.value})
 
@@ -808,7 +809,7 @@ func TestResolverInvalidPruneAgeFromFile(t *testing.T) {
 }
 
 func TestResolverInvalidAutoStopRetriesFromFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
 		"auto-stop-max-session-retries": -1,
@@ -824,7 +825,7 @@ func TestResolverInvalidAutoStopRetriesFromFile(t *testing.T) {
 }
 
 func TestResolverJSON5Config(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserConfigDir(), "config.json5", `{
 		// a comment
@@ -843,7 +844,7 @@ func TestResolverJSON5Config(t *testing.T) {
 }
 
 func TestResolverJSONCConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteFile(t, cp.UserConfigDir(), "config.jsonc", `{
 		// a comment
@@ -862,7 +863,7 @@ func TestResolverJSONCConfig(t *testing.T) {
 }
 
 func TestResolverDiskSizeConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"disk-size": "24G"})
 
@@ -876,7 +877,7 @@ func TestResolverDiskSizeConfig(t *testing.T) {
 }
 
 func TestResolverWorkspaceQuotaConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{"workspace-quota": "32G"})
 
@@ -890,7 +891,7 @@ func TestResolverWorkspaceQuotaConfig(t *testing.T) {
 }
 
 func TestResolverWorkspaceQuotaEnv(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_WORKSPACE_QUOTA", "48G")
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -903,7 +904,7 @@ func TestResolverWorkspaceQuotaEnv(t *testing.T) {
 }
 
 func TestResolverReapPolicyDefaults(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
@@ -922,7 +923,7 @@ func TestResolverReapPolicyDefaults(t *testing.T) {
 // substitute a default idle timeout: with nothing configured, AutoStopTimeout
 // stays zero and the VM layer applies options.DefaultVMIdleTimeout.
 func TestResolverIdleTimeoutUnsetFromConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
@@ -933,7 +934,7 @@ func TestResolverIdleTimeoutUnsetFromConfig(t *testing.T) {
 }
 
 func TestResolverAgentEnvVar(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_AGENT", "pi")
 	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
@@ -945,7 +946,7 @@ func TestResolverAgentEnvVar(t *testing.T) {
 }
 
 func TestNetworkProfileEnvVar(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "none")
 	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
@@ -957,7 +958,7 @@ func TestNetworkProfileEnvVar(t *testing.T) {
 }
 
 func TestNetworkDefaultPublic(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
@@ -966,7 +967,7 @@ func TestNetworkDefaultPublic(t *testing.T) {
 }
 
 func TestNetworkInvalidProfileRejected(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "bogus")
 	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for invalid network profile")
@@ -974,7 +975,7 @@ func TestNetworkInvalidProfileRejected(t *testing.T) {
 }
 
 func TestNetworkDNSServersEnvVar(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_DNS_SERVERS", "1.1.1.1,8.8.8.8")
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -989,7 +990,7 @@ func TestNetworkDNSServersEnvVar(t *testing.T) {
 }
 
 func TestNetworkDNSServersFromConfigFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"network": map[string]any{
 			"profile":     "none",
@@ -1009,7 +1010,7 @@ func TestNetworkDNSServersFromConfigFile(t *testing.T) {
 }
 
 func TestNetworkDNSServersScalarConfigFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"network": map[string]any{"dns-servers": "1.1.1.1,8.8.8.8"},
 	})
@@ -1025,7 +1026,7 @@ func TestNetworkDNSServersScalarConfigFile(t *testing.T) {
 }
 
 func TestNetworkProfilesListFromConfigFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"network": map[string]any{
 			"profile": []string{"public", "host"},
@@ -1040,7 +1041,7 @@ func TestNetworkProfilesListFromConfigFile(t *testing.T) {
 }
 
 func TestNetworkProfilesCommaEnvVar(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "public,host")
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -1051,7 +1052,7 @@ func TestNetworkProfilesCommaEnvVar(t *testing.T) {
 }
 
 func TestNetworkProfilesSpacedCommaEnvVar(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NETWORK_PROFILE", "public, host")
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -1062,7 +1063,7 @@ func TestNetworkProfilesSpacedCommaEnvVar(t *testing.T) {
 }
 
 func TestNetworkProfilesSpacedScalarConfigFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"network": map[string]any{"profile": "public, host"},
 	})
@@ -1075,7 +1076,7 @@ func TestNetworkProfilesSpacedScalarConfigFile(t *testing.T) {
 }
 
 func TestNetworkProfilesSpacedListConfigFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"network": map[string]any{"profile": []string{"public", " host"}},
 	})
@@ -1088,7 +1089,7 @@ func TestNetworkProfilesSpacedListConfigFile(t *testing.T) {
 }
 
 func TestNetworkProfilesNoneCombinedRejected(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"network": map[string]any{
 			"profile": []string{"none", "public"},
@@ -1100,7 +1101,7 @@ func TestNetworkProfilesNoneCombinedRejected(t *testing.T) {
 }
 
 func TestNetworkProfileInvalidTypeRejected(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"network": map[string]any{"profile": 42},
 	})
@@ -1126,7 +1127,7 @@ func TestNetworkInvalidDNSServersRejected(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			if s, ok := tc.raw.(string); ok {
 				t.Setenv("AGENTS_SANDBOX_NETWORK_DNS_SERVERS", s)
 			} else {
@@ -1155,7 +1156,7 @@ func TestPortsInvalidRejected(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			if s, ok := tc.raw.(string); ok {
 				t.Setenv("AGENTS_SANDBOX_PORTS", s)
 			} else {
@@ -1172,7 +1173,7 @@ func TestPortsInvalidRejected(t *testing.T) {
 }
 
 func TestPortsValidConfigAccepted(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"ports": []string{"3000", "8080:5173"},
 	})
@@ -1192,7 +1193,7 @@ func TestPortsValidConfigAccepted(t *testing.T) {
 }
 
 func TestPortsPublishFlagOverridesInvalidConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"ports": "not a port",
 	})
@@ -1206,14 +1207,14 @@ func TestPortsPublishFlagOverridesInvalidConfig(t *testing.T) {
 }
 
 func TestPortsInvalidPublishFlagRejected(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if _, err := NewResolver(portsTestCmd(t, []string{"not a port"}), configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for an invalid --port flag value")
 	}
 }
 
 func TestPortsUnspecifiedPublishFlagKeepsConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"ports": []string{"3000", "8080:5173"},
 	})
@@ -1231,7 +1232,7 @@ func TestPortsUnspecifiedPublishFlagKeepsConfig(t *testing.T) {
 // any configured ports resolves to none: its StringSlice default must not leak
 // in as a port.
 func TestPortsUnsetPublishFlagAddsNoPorts(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	r, err := NewResolver(portsTestCmd(t, nil), configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
@@ -1255,7 +1256,7 @@ func TestPortsDocumentedExampleLoads(t *testing.T) {
 	if !ok {
 		t.Fatalf("no ports example found in %s; keep the doc example and this test in sync", docsPath)
 	}
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	path := filepath.Join(configpaths.Get().UserConfigDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(example), 0o600); err != nil {
 		t.Fatal(err)
@@ -1271,7 +1272,7 @@ func TestPortsDocumentedExampleLoads(t *testing.T) {
 }
 
 func TestDockerFromConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1297,7 +1298,7 @@ func TestDockerFromConfig(t *testing.T) {
 // TestDindConfigAlias verifies the deprecated dind config key still enables
 // docker and is surfaced as a legacy alias for a one-time warning.
 func TestDindConfigAlias(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1322,7 +1323,7 @@ func TestDindConfigAlias(t *testing.T) {
 
 // TestDockerConfigWinsOverDindAlias verifies the canonical key has precedence.
 func TestDockerConfigWinsOverDindAlias(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	if err := os.MkdirAll(configpaths.Get().ProjectConfigDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1345,7 +1346,7 @@ func TestDockerConfigWinsOverDindAlias(t *testing.T) {
 // TestDockerExplicitFromEnv verifies AGENTS_SANDBOX_DOCKER marks docker as
 // explicitly set, so the deprecated dind alias is not surfaced.
 func TestDockerExplicitFromEnv(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_DOCKER", "true")
 	r, err := NewResolver(nil, configpaths.Get(), "some-slug")
 	if err != nil {
@@ -1365,7 +1366,7 @@ func TestDockerExplicitFromEnv(t *testing.T) {
 func TestDockerExplicitFromLegacyEnv(t *testing.T) {
 	for _, value := range []string{"true", "false"} {
 		t.Run(value, func(t *testing.T) {
-			configpaths.WithMockConfigPaths(t)
+			configpathstest.WithMockConfigPaths(t)
 			t.Setenv("OPENCODE_SANDBOX_DOCKER", value)
 			r, err := NewResolver(nil, configpaths.Get(), "some-slug")
 			if err != nil {
@@ -1387,7 +1388,7 @@ func TestDockerExplicitFromLegacyEnv(t *testing.T) {
 // TestDockerExplicitFromFlag verifies the --docker flag marks docker as
 // explicitly set.
 func TestDockerExplicitFromFlag(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	root := &cobra.Command{Use: "root"}
 	root.PersistentFlags().Bool(KeyDocker, false, "")
 	if err := root.ParseFlags([]string{"--" + KeyDocker}); err != nil {
@@ -1430,7 +1431,7 @@ func TestDockerExplicit(t *testing.T) {
 		}
 	})
 	t.Run("nothing set", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		r, err := NewResolver(nil, configpaths.Get(), "")
 		if err != nil {
 			t.Fatalf("NewResolver: %v", err)
@@ -1440,7 +1441,7 @@ func TestDockerExplicit(t *testing.T) {
 		}
 	})
 	t.Run("dind env", func(t *testing.T) {
-		configpaths.WithMockConfigPaths(t)
+		configpathstest.WithMockConfigPaths(t)
 		t.Setenv("AGENTS_SANDBOX_DIND", "true")
 		r, err := NewResolver(nil, configpaths.Get(), "")
 		if err != nil {
@@ -1455,7 +1456,7 @@ func TestDockerExplicit(t *testing.T) {
 // TestDindFromEnvAlias verifies AGENTS_SANDBOX_DIND enables docker and is
 // reported as the deprecated source.
 func TestDindFromEnvAlias(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_DIND", "true")
 	r, err := NewResolver(nil, configpaths.Get(), "some-slug")
 	if err != nil {
@@ -1472,7 +1473,7 @@ func TestDindFromEnvAlias(t *testing.T) {
 // TestDindFromLegacyEnvAlias verifies the deprecated OPENCODE_SANDBOX_DIND
 // prefix enables docker and is reported with the generic dind source name.
 func TestDindFromLegacyEnvAlias(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("OPENCODE_SANDBOX_DIND", "true")
 	r, err := NewResolver(nil, configpaths.Get(), "some-slug")
 	if err != nil {
@@ -1487,7 +1488,7 @@ func TestDindFromLegacyEnvAlias(t *testing.T) {
 }
 
 func TestPerSlugConfigPrecedence(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 
 	// generic user: cpus=2; per-slug user: cpus=3; project: cpus=4
@@ -1518,7 +1519,7 @@ func TestPerSlugConfigPrecedence(t *testing.T) {
 }
 
 func TestResolverUpgradeEnvVars(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_MODE", "notify")
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", "2h")
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -1534,7 +1535,7 @@ func TestResolverUpgradeEnvVars(t *testing.T) {
 }
 
 func TestResolverRejectsInvalidUpgradeMode(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_MODE", "bogus")
 	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for invalid update mode")
@@ -1542,7 +1543,7 @@ func TestResolverRejectsInvalidUpgradeMode(t *testing.T) {
 }
 
 func TestResolverUpgradeChannelEnvVar(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_CHANNEL", "canary")
 	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
@@ -1554,7 +1555,7 @@ func TestResolverUpgradeChannelEnvVar(t *testing.T) {
 }
 
 func TestResolverRejectsInvalidUpgradeChannel(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_CHANNEL", "bogus")
 	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for invalid upgrade channel")
@@ -1562,7 +1563,7 @@ func TestResolverRejectsInvalidUpgradeChannel(t *testing.T) {
 }
 
 func TestResolverRejectsTooSmallInterval(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_UPGRADE_INTERVAL", "1m")
 	if _, err := NewResolver(nil, configpaths.Get(), ""); err == nil {
 		t.Fatal("expected error for update interval below minimum")
@@ -1570,7 +1571,7 @@ func TestResolverRejectsTooSmallInterval(t *testing.T) {
 }
 
 func TestResolverNotifyFromConfigFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"notify": map[string]any{
 			"desktop":  true,
@@ -1592,7 +1593,7 @@ func TestResolverNotifyFromConfigFile(t *testing.T) {
 }
 
 func TestResolverNotifyRejectsInvalidAudio(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"notify": map[string]any{"audio": "loud"},
 	})
@@ -1603,7 +1604,7 @@ func TestResolverNotifyRejectsInvalidAudio(t *testing.T) {
 
 // Each per-trigger notify key is read independently and defaults to true.
 func TestResolverNotifyTriggersFromConfigFile(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"notify": map[string]any{
 			"desktop":  true,
@@ -1629,7 +1630,7 @@ func TestResolverNotifyTriggersFromConfigFile(t *testing.T) {
 // Config struct because Notify is decoded outside viper), so their documented
 // AGENTS_SANDBOX_NOTIFY_* env vars resolve without AutomaticEnv.
 func TestResolverNotifyDottedEnvVars(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("AGENTS_SANDBOX_NOTIFY_DESKTOP", "true")
 	t.Setenv("AGENTS_SANDBOX_NOTIFY_AUDIO", "bell")
 	t.Setenv("AGENTS_SANDBOX_NOTIFY_ON_INPUT", "false")
@@ -1655,7 +1656,7 @@ func TestResolverNotifyDottedEnvVars(t *testing.T) {
 // The deprecated OPENCODE_SANDBOX_ prefix is bound for the notify dotted keys
 // too, and surfaced as a legacy variable in effect.
 func TestResolverNotifyLegacyEnvVars(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	t.Setenv("OPENCODE_SANDBOX_NOTIFY_AUDIO", "bell")
 
 	r, err := NewResolver(nil, configpaths.Get(), "")
@@ -1673,7 +1674,7 @@ func TestResolverNotifyLegacyEnvVars(t *testing.T) {
 // A valid Go-style duration (parsed directly by GetDuration) passes
 // validatePruneAges via the d > 0 fast path.
 func TestResolverPruneAgeValidGoDuration(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"auto-prune-age": "1h",
 	})
@@ -1687,7 +1688,7 @@ func TestResolverPruneAgeValidGoDuration(t *testing.T) {
 }
 
 func TestResolverHome(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
 	testutil.WriteYAML(t, cp.UserConfigDir(), "config.yaml", map[string]any{
 		"home": map[string]any{".gitconfig": ""},
@@ -1716,7 +1717,7 @@ func TestResolverHome(t *testing.T) {
 }
 
 func TestResolverHomeNoConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	r, err := NewResolver(nil, configpaths.Get(), "")
 	if err != nil {
 		t.Fatalf("NewResolver: %v", err)
@@ -1733,7 +1734,7 @@ func TestResolverHomeNoConfig(t *testing.T) {
 }
 
 func TestResolverHomeRejectsInvalidHomeValue(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", map[string]any{
 		"home": 5,
 	})
@@ -1788,7 +1789,7 @@ func documentedPortsExample(docs string) (string, bool) {
 
 func writeUserConfig(t *testing.T, values map[string]any) {
 	t.Helper()
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	testutil.WriteYAML(t, configpaths.Get().UserConfigDir(), "config.yaml", values)
 }
 
@@ -1796,7 +1797,7 @@ func writeUserConfig(t *testing.T, values map[string]any) {
 // config slug on the resolved Config, so later stages can rebuild the per-slug
 // config scope from it.
 func TestNewResolverRecordsConfigSlug(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 
 	r, err := NewResolver(nil, configpaths.Get(), "widget-bbb")
 	if err != nil {

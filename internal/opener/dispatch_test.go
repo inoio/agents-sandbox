@@ -71,24 +71,8 @@ func TestOpenOnHostReportsStartFailure(t *testing.T) {
 	}
 }
 
-// TestInstallFailFastWiresExecCommand covers InstallFailFast replacing the
-// package's exec seam with the panic, so a test that forgets to stub it fails
-// loud instead of opening a browser.
-func TestInstallFailFastWiresExecCommand(t *testing.T) {
-	original := execCommand
-	t.Cleanup(func() { execCommand = original })
-	execCommand = func(string, ...string) *exec.Cmd { return exec.Command("true") }
-
-	InstallFailFast()
-
-	defer func() {
-		if recover() == nil {
-			t.Fatal("InstallFailFast did not wire the fail-fast command")
-		}
-	}()
-	_ = execCommand("xdg-open", "https://example.com")
-}
-
+// TestOpenOnHostTreatsLongRunningHandlerAsSuccess pins that a handler still
+// running past the settle window is treated as success.
 func TestOpenOnHostTreatsLongRunningHandlerAsSuccess(t *testing.T) {
 	stubHostCommand(t, "sleep 5")
 	originalSettle := hostOpenSettleTime
@@ -97,13 +81,4 @@ func TestOpenOnHostTreatsLongRunningHandlerAsSuccess(t *testing.T) {
 	if err := OpenOnHost("https://example.com"); err != nil {
 		t.Fatalf("OpenOnHost: %v", err)
 	}
-}
-
-func TestFailFastExecCommandPanics(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected panic")
-		}
-	}()
-	failFastExecCommand("xdg-open", "https://example.com")
 }

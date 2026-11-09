@@ -39,6 +39,28 @@ func UseBareCheckoutLocator(locator BareCheckoutLocator) {
 	bareCheckoutCache = map[string]bareCheckoutLookup{}
 }
 
+// GetBareCheckoutLocator returns the locator currently installed by
+// UseBareCheckoutLocator, so a caller (a test helper) can restore the previous
+// one on cleanup.
+//
+//deadcode:ignore reason="test seam: only the configpathstest package reads the installed locator"
+func GetBareCheckoutLocator() BareCheckoutLocator {
+	bareCheckoutMutex.Lock()
+	defer bareCheckoutMutex.Unlock()
+	return bareCheckoutLocator
+}
+
+// ProjectConfigBase returns the directory project config is read from for cwd,
+// dropping the ignored worktree copy resolveProjectConfig also reports. It is
+// the seam a relocated test double builds on when it cannot name
+// resolveProjectConfig.
+//
+//deadcode:ignore reason="test seam: only the configpathstest package reads the bare base"
+func ProjectConfigBase(cwd string) string {
+	base, _ := resolveProjectConfig(cwd)
+	return base
+}
+
 func lookupBareCheckout(cwd string) bareCheckoutLookup {
 	bareCheckoutMutex.Lock()
 	defer bareCheckoutMutex.Unlock()
@@ -60,10 +82,10 @@ func lookupBareCheckout(cwd string) bareCheckoutLookup {
 func resolveProjectConfig(cwd string) (string, string) {
 	lookup := lookupBareCheckout(cwd)
 	if !lookup.inside {
-		return projectConfigDir, ""
+		return ProjectConfigDir, ""
 	}
-	base := filepath.Join(lookup.bareRoot, projectConfigDir)
-	ignored := filepath.Join(lookup.worktreeRoot, projectConfigDir)
+	base := filepath.Join(lookup.bareRoot, ProjectConfigDir)
+	ignored := filepath.Join(lookup.worktreeRoot, ProjectConfigDir)
 	if ignored == base {
 		// The CWD is the bare root itself: this is the directory the base reads,
 		// not a worktree copy that gets ignored.

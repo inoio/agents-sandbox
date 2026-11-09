@@ -21,27 +21,67 @@ const (
 	fullSetInstallerPackage = "internal/testutil/mocks"
 )
 
-// seamFamily ties a fail-fast family to the package that owns it and the
-// exported declaration that installs it.
+// seamFamily ties a fail-fast family to the package that owns its seam and the
+// package that declares its exported installer. The two coincide until an
+// installer moves to a test-support package.
 type seamFamily struct {
-	name        string
-	dir         string
-	packageName string
-	installer   string
+	name                 string
+	dir                  string
+	packageName          string
+	installerDir         string
+	installerPackageName string
+	installer            string
 }
 
 var seamFamilies = []seamFamily{
 	{
-		name:        "configpaths",
-		dir:         "internal/configpaths",
-		packageName: "configpaths",
-		installer:   "InstallFailFastConfigPaths",
+		name:                 "configpaths",
+		dir:                  "internal/configpaths",
+		packageName:          "configpaths",
+		installerDir:         "internal/configpaths/configpathstest",
+		installerPackageName: "configpathstest",
+		installer:            "InstallFailFastConfigPaths",
 	},
-	{name: "docker", dir: "internal/sandbox/docker", packageName: "docker", installer: "InstallFailFastGet"},
-	{name: "doctor", dir: "internal/sandbox/doctor", packageName: "doctor", installer: "InstallFailFast"},
-	{name: "msb", dir: "internal/sandbox/msb", packageName: "msb", installer: "InstallFailFastGet"},
-	{name: "notify", dir: "internal/notify", packageName: "notify", installer: "InstallFailFast"},
-	{name: "opener", dir: "internal/opener", packageName: "opener", installer: "InstallFailFast"},
+	{
+		name:                 "docker",
+		dir:                  "internal/sandbox/docker",
+		packageName:          "docker",
+		installerDir:         "internal/sandbox/docker/dockertest",
+		installerPackageName: "dockertest",
+		installer:            "InstallFailFastGet",
+	},
+	{
+		name:                 "doctor",
+		dir:                  "internal/sandbox/doctor",
+		packageName:          "doctor",
+		installerDir:         "internal/sandbox/doctor/doctortest",
+		installerPackageName: "doctortest",
+		installer:            "InstallFailFast",
+	},
+	{
+		name:                 "msb",
+		dir:                  "internal/sandbox/msb",
+		packageName:          "msb",
+		installerDir:         "internal/sandbox/msb/msbtest",
+		installerPackageName: "msbtest",
+		installer:            "InstallFailFastGet",
+	},
+	{
+		name:                 "notify",
+		dir:                  "internal/notify",
+		packageName:          "notify",
+		installerDir:         "internal/notify/notifytest",
+		installerPackageName: "notifytest",
+		installer:            "InstallFailFast",
+	},
+	{
+		name:                 "opener",
+		dir:                  "internal/opener",
+		packageName:          "opener",
+		installerDir:         "internal/opener/openertest",
+		installerPackageName: "openertest",
+		installer:            "InstallFailFast",
+	},
 }
 
 // installerPrefix names the exported declarations that install a seam family's
@@ -117,12 +157,13 @@ func declaredInstallersIn(dir, packageName string, decl ast.Decl) []registeredIn
 	return nil
 }
 
-// registeredInstallers lists seamFamilies as declared installers.
-func registeredInstallers() []registeredInstaller {
-	installers := make([]registeredInstaller, 0, len(seamFamilies))
-	for _, family := range seamFamilies {
+// registeredInstallers lists families as the installers they declare, located at
+// the installer package rather than the seam package.
+func registeredInstallers(families []seamFamily) []registeredInstaller {
+	installers := make([]registeredInstaller, 0, len(families))
+	for _, family := range families {
 		installers = append(installers, registeredInstaller{
-			dir: family.dir, packageName: family.packageName, installer: family.installer,
+			dir: family.installerDir, packageName: family.installerPackageName, installer: family.installer,
 		})
 	}
 	sortInstallers(installers)
@@ -164,12 +205,12 @@ func TestEveryTestPackageInstallsItsAcyclicFailFastMocks(t *testing.T) {
 			continue
 		}
 		checked++
-		want := acyclicSeamFamilies(pkg.dir, transitive)
-		got, err := installedSeamFamilies(root, pkg.dir, modulePath)
+		got, externalTestMain, err := installedSeamFamilies(root, pkg.dir, modulePath, seamFamilies)
 		if err != nil {
 			t.Errorf("%s: %v", pkg.dir, err)
 			continue
 		}
+		want := acyclicSeamFamilies(pkg.dir, transitive, seamFamilies, externalTestMain)
 		if !slices.Equal(got, want) {
 			t.Errorf("%s: fail-fast mocks installed = %v, want %v", pkg.dir, got, want)
 		}
@@ -187,8 +228,8 @@ func TestInitFailFastMocksInstallsEveryFamily(t *testing.T) {
 	root := moduleRoot(t)
 	modulePath := moduleImportPath(t, root)
 
-	got := wrapperInstalledFamilies(t, root, fullSetInstallerPackage, modulePath)
-	if want := everyFamilyName(); !slices.Equal(got, want) {
+	got := wrapperInstalledFamilies(t, root, fullSetInstallerPackage, modulePath, seamFamilies)
+	if want := everyFamilyName(seamFamilies); !slices.Equal(got, want) {
 		t.Errorf("%s (%s) installs %v, want every seam family %v",
 			fullSetInstaller, fullSetInstallerPackage, got, want)
 	}
@@ -201,7 +242,7 @@ func TestSeamFamiliesMatchDeclaredInstallers(t *testing.T) {
 	root := moduleRoot(t)
 
 	declared := declaredSeamInstallers(t, root, modulePackages(t, root))
-	if registered := registeredInstallers(); !slices.Equal(declared, registered) {
+	if registered := registeredInstallers(seamFamilies); !slices.Equal(declared, registered) {
 		t.Errorf("declared fail-fast installers = %v, want the seamFamilies installers %v", declared, registered)
 	}
 }
@@ -359,41 +400,53 @@ func directModuleImports(t *testing.T, absDir, modulePath string, known map[stri
 }
 
 // acyclicSeamFamilies returns the families whose fail-fast a package's tests can
-// install: its own family, plus every family that does not itself import the
-// package (importing such a family from the package's internal test would cycle).
-func acyclicSeamFamilies(pkgDir string, transitive map[string]map[string]bool) []string {
-	var families []string
-	for _, family := range seamFamilies {
-		if family.dir == pkgDir || !transitive[family.dir][pkgDir] {
-			families = append(families, family.name)
+// install: every family when the TestMain lives in an external test package,
+// which the module's import graph does not reach; otherwise its own family, plus
+// every family whose installer package does not itself import the package
+// (importing such a family from the package's internal test would cycle).
+func acyclicSeamFamilies(
+	pkgDir string,
+	transitive map[string]map[string]bool,
+	families []seamFamily,
+	externalTestMain bool,
+) []string {
+	var names []string
+	for _, family := range families {
+		if externalTestMain || family.installerDir == pkgDir || !transitive[family.installerDir][pkgDir] {
+			names = append(names, family.name)
 		}
 	}
-	sort.Strings(families)
-	return families
+	sort.Strings(names)
+	return names
 }
 
 // installedSeamFamilies parses a package's main_test.go and reports the seam
-// families its TestMain installs before the tests run.
-func installedSeamFamilies(root, pkgDir, modulePath string) ([]string, error) {
+// families its TestMain installs before the tests run, together with whether the
+// TestMain is declared in an external test package (package X_test).
+func installedSeamFamilies(
+	root, pkgDir, modulePath string,
+	families []seamFamily,
+) ([]string, bool, error) {
 	mainTestPath := filepath.Join(root, pkgDir, "main_test.go")
 	parsed, err := loadParsedModuleFile(mainTestPath, nil)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, errors.New("no main_test.go (add one with a TestMain that installs the fail-fast mocks)")
+			return nil, false, errors.New("no main_test.go (add one with a TestMain that installs the fail-fast mocks)")
 		}
-		return nil, fmt.Errorf("parse main_test.go: %w", err)
+		return nil, false, fmt.Errorf("parse main_test.go: %w", err)
 	}
 	file := parsed.file
 	testMain := findFunc(file, "TestMain")
 	if testMain == nil {
-		return nil, errors.New("main_test.go has no TestMain")
+		return nil, false, errors.New("main_test.go has no TestMain")
 	}
-	return installedFamiliesIn(file, testMain, modulePath), nil
+	externalTestMain := strings.HasSuffix(file.Name.Name, "_test")
+	return installedFamiliesIn(file, testMain, modulePath, families), externalTestMain, nil
 }
 
 // wrapperInstalledFamilies parses the wrapper declared in pkgDir and returns the
 // seam families its body installs.
-func wrapperInstalledFamilies(t *testing.T, root, pkgDir, modulePath string) []string {
+func wrapperInstalledFamilies(t *testing.T, root, pkgDir, modulePath string, families []seamFamily) []string {
 	t.Helper()
 	dir := filepath.Join(root, pkgDir)
 	entries, err := os.ReadDir(dir)
@@ -407,7 +460,7 @@ func wrapperInstalledFamilies(t *testing.T, root, pkgDir, modulePath string) []s
 		}
 		file := cachedParseGoFile(t, filepath.Join(dir, name), nil).file
 		if wrapper := findFunc(file, fullSetInstaller); wrapper != nil {
-			return installedFamiliesIn(file, wrapper, modulePath)
+			return installedFamiliesIn(file, wrapper, modulePath, families)
 		}
 	}
 	t.Fatalf("%s declares no %s", pkgDir, fullSetInstaller)
@@ -419,13 +472,13 @@ func wrapperInstalledFamilies(t *testing.T, root, pkgDir, modulePath string) []s
 // an installer reached from a helper, deferred, wrapped in a closure, or placed
 // after the tests start installs nothing while the tests run. Installers must
 // therefore be called directly in TestMain, as every main_test.go already does.
-func installedFamiliesIn(file *ast.File, fn *ast.FuncDecl, modulePath string) []string {
+func installedFamiliesIn(file *ast.File, fn *ast.FuncDecl, modulePath string, families []seamFamily) []string {
 	imports := importedPackagesByLocalName(file)
 	testRunParam := firstParamName(fn)
 	installed := map[string]bool{}
 	for _, statement := range fn.Body.List {
 		if call, ok := directCall(statement); ok {
-			creditInstaller(call, imports, file.Name.Name, modulePath, installed)
+			creditInstaller(call, imports, file.Name.Name, modulePath, families, installed)
 		}
 		if statementRunsTests(statement, testRunParam) {
 			break
@@ -436,11 +489,13 @@ func installedFamiliesIn(file *ast.File, fn *ast.FuncDecl, modulePath string) []
 
 // creditInstaller records the seam family a call installs. The call's import
 // path (or, for a same-package installer, the declaring package) must match a
-// family, so an installer name reused elsewhere cannot credit the wrong one.
+// family's installer location, so an installer name reused elsewhere cannot
+// credit the wrong one.
 func creditInstaller(
 	call *ast.CallExpr,
 	imports map[string]string,
 	packageName, modulePath string,
+	families []seamFamily,
 	installed map[string]bool,
 ) {
 	switch fun := call.Fun.(type) {
@@ -451,11 +506,11 @@ func creditInstaller(
 		}
 		importPath := imports[base.Name]
 		if importPath == modulePath+"/"+fullSetInstallerPackage && fun.Sel.Name == fullSetInstaller {
-			creditEveryFamily(installed)
+			creditEveryFamily(installed, families)
 			return
 		}
-		for _, family := range seamFamilies {
-			if importPath == modulePath+"/"+family.dir && fun.Sel.Name == family.installer {
+		for _, family := range families {
+			if importPath == modulePath+"/"+family.installerDir && fun.Sel.Name == family.installer {
 				installed[family.name] = true
 			}
 		}
@@ -463,11 +518,11 @@ func creditInstaller(
 		if fun.Name == fullSetInstaller {
 			// An unqualified call can only be the wrapper's own package calling it,
 			// since the module declares the wrapper once.
-			creditEveryFamily(installed)
+			creditEveryFamily(installed, families)
 			return
 		}
-		for _, family := range seamFamilies {
-			if packageName == family.packageName && fun.Name == family.installer {
+		for _, family := range families {
+			if packageName == family.installerPackageName && fun.Name == family.installer {
 				installed[family.name] = true
 			}
 		}
@@ -537,17 +592,17 @@ func firstParamName(fn *ast.FuncDecl) string {
 	return names[0].Name
 }
 
-// creditEveryFamily marks every registered family as installed.
-func creditEveryFamily(installed map[string]bool) {
-	for _, family := range seamFamilies {
+// creditEveryFamily marks every given family as installed.
+func creditEveryFamily(installed map[string]bool, families []seamFamily) {
+	for _, family := range families {
 		installed[family.name] = true
 	}
 }
 
-// everyFamilyName returns the name of every registered family, sorted.
-func everyFamilyName() []string {
-	names := make([]string, 0, len(seamFamilies))
-	for _, family := range seamFamilies {
+// everyFamilyName returns the name of every given family, sorted.
+func everyFamilyName(families []seamFamily) []string {
+	names := make([]string, 0, len(families))
+	for _, family := range families {
 		names = append(names, family.name)
 	}
 	sort.Strings(names)

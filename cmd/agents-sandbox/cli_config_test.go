@@ -13,7 +13,8 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/agent"
 	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 	"github.com/inoio/agents-sandbox/internal/testutil"
 	launcherconfig "github.com/inoio/agents-sandbox/internal/viperconfig"
 )
@@ -32,7 +33,7 @@ func mustOpencode(t *testing.T) agent.Agent {
 func TestConfigAgentPrintsMergedAndHostFiles(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
 	snippetPath := filepath.Join(
-		configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode(t).ConfigDirName())),
+		configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode(t).ConfigDirName())),
 		"opencode-x.json5",
 	)
 	testutil.WritePath(t, snippetPath, `{"model":"x"}`)
@@ -152,7 +153,7 @@ func TestConfigAgentNoSnippetFiles(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
 	a, _ := agent.Lookup("opencode")
 	if err := os.MkdirAll(
-		configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+		configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
 		0o755,
 	); err != nil {
 		t.Fatal(err)
@@ -215,7 +216,7 @@ func TestConfigAgentCodexPrintsMergedTOML(t *testing.T) {
 	a, _ := agent.Lookup("codex")
 	testutil.WriteFile(
 		t,
-		configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
+		configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName())),
 		"config-model.toml",
 		"model = \"gpt-5\"\n",
 	)
@@ -236,7 +237,7 @@ func TestConfigAgentCodexPrintsMergedTOML(t *testing.T) {
 func TestConfigAgentOhMyPiMergesBothYAMLExtensions(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "oh-my-pi")
 	a, _ := agent.Lookup("oh-my-pi")
-	dir := configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName()))
+	dir := configpathstest.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), a.ConfigDirName()))
 	testutil.WriteFile(t, dir, "config-model.yml", "modelRoles:\n  default: anthropic/claude\n")
 	testutil.WriteFile(t, dir, "config-startup.yaml", "startup:\n  quiet: true\n")
 
@@ -284,7 +285,9 @@ func TestConfigHomeManifestError(t *testing.T) {
 
 func TestConfigAgentPrintsMirrorFiles(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "opencode")
-	agentDir := configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode(t).ConfigDirName()))
+	agentDir := configpathstest.CreateDir(
+		filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode(t).ConfigDirName()),
+	)
 	testutil.WriteFile(t, agentDir, "tui.json", `{"theme":"dark"}`)
 
 	if err := cmd.Execute(); err != nil {
@@ -338,7 +341,9 @@ func TestConfigAgentOpencode2ShowsLegacyFallback(t *testing.T) {
 
 func TestConfigAgentOpencode2UsesOwnDir(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "--agent", "opencode2")
-	srcDir := configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode2(t).ConfigDirName()))
+	srcDir := configpathstest.CreateDir(
+		filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode2(t).ConfigDirName()),
+	)
 	testutil.WriteFile(t, srcDir, "opencode-model.json", `{"model":"v2"}`)
 
 	if err := cmd.Execute(); err != nil {
@@ -400,7 +405,9 @@ func TestConfigAgentMarksMissingConfigDirs(t *testing.T) {
 
 func TestConfigAgentDoesNotMarkExistingConfigDir(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "config", "agent", "--agent", "opencode2")
-	userDir := configpaths.CreateDir(filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode2(t).ConfigDirName()))
+	userDir := configpathstest.CreateDir(
+		filepath.Join(configpaths.Get().UserConfigDir(), mustOpencode2(t).ConfigDirName()),
+	)
 	if err := os.MkdirAll(userDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +439,7 @@ func TestResolveConfigAgentName(t *testing.T) {
 		{name: "no agent configured", want: defaultAgentName},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cmd := buildConfigAgentCmd(&termio.Mock{})
+			cmd := buildConfigAgentCmd(&termiotest.Mock{})
 			cmd.SetContext(context.WithValue(context.Background(), (*launcherConfigKey)(nil),
 				launcherconfig.NewResolverWithConfig(tc.config)))
 

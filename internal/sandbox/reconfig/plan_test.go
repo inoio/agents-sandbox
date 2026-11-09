@@ -13,6 +13,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/ports"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 // TestFormatSizeSpecKeepsTheRawSpellingOnlyWhenItMatches pins that the user's
@@ -1102,7 +1103,7 @@ func TestResolveReconfigAppliesAloneAndAsksWithAttachedClients(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			var prompt string
 			ui.SelectFn = func(message string, _ []termio.Choice, _ string) (string, error) {
 				prompt = message
@@ -1166,7 +1167,7 @@ func TestResolveReconfigWarnsWithTheResolvedChangesWhenAlone(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ui := &termio.Mock{}
+			ui := &termiotest.Mock{}
 			if _, err := ResolveReconfig(context.Background(), ui, tc.plan, 0, tc.plan.Changes); err != nil {
 				t.Fatalf("ResolveReconfig: %v", err)
 			}

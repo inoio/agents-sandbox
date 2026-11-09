@@ -10,6 +10,7 @@ import (
 	"github.com/inoio/agents-sandbox/internal/configpaths"
 	"github.com/inoio/agents-sandbox/internal/git"
 	sandboxmsb "github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/pressure"
 	sandbox "github.com/inoio/agents-sandbox/internal/sandbox/vm"
 	"github.com/inoio/agents-sandbox/internal/termio"
@@ -19,8 +20,8 @@ import (
 // memoryPressureSandbox is a mock project VM whose attach ends abnormally
 // (signal death) with a guest OOM kill in the system log and metrics naming a
 // 4 GiB limit, so the post-attach detection attributes the crash to memory.
-func memoryPressureSandbox() *sandboxmsb.MockSandbox {
-	return &sandboxmsb.MockSandbox{
+func memoryPressureSandbox() *msbtest.MockSandbox {
+	return &msbtest.MockSandbox{
 		AttachCode: -1,
 		LogsResult: []sandboxmsb.LogEntry{{
 			Source:    sandboxmsb.LogSourceSystem,
@@ -71,7 +72,7 @@ func TestResourcePressureInteractiveAcceptPersists(t *testing.T) {
 	t.Chdir(newOriginClone(t))
 	withoutMemoryEnv(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, memoryPressureSandbox(), "run")
 	identity := mustIdentity(t, ".")
 	if identity.RepoSlug == identity.CheckoutSlug {
@@ -111,7 +112,7 @@ func TestResourcePressureNonInteractiveDoesNotPrompt(t *testing.T) {
 	t.Chdir(newOriginClone(t))
 	withoutMemoryEnv(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, memoryPressureSandbox(), "run")
 	identity := mustIdentity(t, ".")
 	slug := effectiveConfigSlugForTest(t, identity)
@@ -138,12 +139,12 @@ func TestResourcePressureNonInteractiveDoesNotPrompt(t *testing.T) {
 
 // diskPressureSandbox is a mock project VM whose attach ends cleanly and whose
 // in-guest df reports /tmp short of space.
-func diskPressureSandbox() *sandboxmsb.MockSandbox {
+func diskPressureSandbox() *msbtest.MockSandbox {
 	command, args := pressure.DiskProbeCommand()
-	return &sandboxmsb.MockSandbox{
+	return &msbtest.MockSandbox{
 		AttachCode: 0,
 		ExecOut: map[string]sandboxmsb.ShellResult{
-			command + " " + strings.Join(args, " "): sandboxmsb.NewTestResult(true, 0,
+			command + " " + strings.Join(args, " "): msbtest.NewTestResult(true, 0,
 				"Filesystem 1024-blocks Used Available Capacity Mounted on\n"+
 					"overlay 4194304 1048576 3145728 25% /\n"+
 					"workspace_x 16777216 1048576 15728640 7% /workspace\n"+
@@ -166,7 +167,7 @@ func TestDiskPressureCleanExitOffersAndPersists(t *testing.T) {
 	t.Chdir(newOriginClone(t))
 	withoutTmpSizeEnv(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, diskPressureSandbox(), "run")
 	slug := effectiveConfigSlugForTest(t, mustIdentity(t, "."))
 	var selects int
@@ -199,7 +200,7 @@ func TestDiskPressureExplicitFlagExplainsInsteadOfPrompting(t *testing.T) {
 	t.Chdir(newOriginClone(t))
 	withoutTmpSizeEnv(t)
 
-	mock := &sandboxmsb.MockMsbClient{}
+	mock := &msbtest.MockMsbClient{}
 	root, ui := setupRunMocks(t, mock, diskPressureSandbox(), "run", "--tmp-size", "2G")
 	var selects int
 	ui.IsInteractiveResult = true

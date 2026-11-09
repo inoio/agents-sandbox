@@ -8,6 +8,7 @@ import (
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
 	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestFromKeyMapsValidKeys(t *testing.T) {
@@ -65,7 +66,7 @@ func TestFromKey(t *testing.T) {
 // TestResolveHomeAction_SameDigestReturnsKeep pins that an unchanged image
 // keeps the home volume without asking, even in an interactive session.
 func TestResolveHomeAction_SameDigestReturnsKeep(t *testing.T) {
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(string, []termio.Choice, string) (string, error) {
 			t.Error("prompted although the image is unchanged")
@@ -80,7 +81,7 @@ func TestResolveHomeAction_SameDigestReturnsKeep(t *testing.T) {
 }
 
 func TestResolveHomeAction_DifferentDigestInNonInteractiveReturnsKeep(t *testing.T) {
-	ui := termio.NewTestMock(t)
+	ui := termiotest.NewTestMock(t)
 	ui.IsInteractiveResult = false
 	vm := NewManager(docker.Get())
 	action := vm.ResolveHomeAction(&ui, "old", "new")
@@ -90,7 +91,7 @@ func TestResolveHomeAction_DifferentDigestInNonInteractiveReturnsKeep(t *testing
 }
 
 func TestResolveHomeAction_DifferentDigestInInteractivePrompt(t *testing.T) {
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(prompt string, choices []termio.Choice, _ string) (string, error) {
 			if !strings.Contains(prompt, "Docker image changed") {
@@ -111,7 +112,7 @@ func TestResolveHomeAction_DifferentDigestInInteractivePrompt(t *testing.T) {
 
 func TestResolveHomeAction_NonInteractiveExplains(t *testing.T) {
 	vm := NewManager(docker.Get())
-	ui := &termio.Mock{IsInteractiveResult: false}
+	ui := &termiotest.Mock{IsInteractiveResult: false}
 	action := vm.ResolveHomeAction(ui, "old", "new")
 	if action != ActionKeep {
 		t.Fatalf("expected ActionKeep, got %v", action)
@@ -123,7 +124,7 @@ func TestResolveHomeAction_NonInteractiveExplains(t *testing.T) {
 }
 
 func TestResolveHomeAction_ActionQuitReturnsQuit(t *testing.T) {
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
 			return "q", nil
@@ -137,7 +138,7 @@ func TestResolveHomeAction_ActionQuitReturnsQuit(t *testing.T) {
 }
 
 func TestResolveHomeAction_PromptFails_ReturnsKeep(t *testing.T) {
-	ui := &termio.Mock{
+	ui := &termiotest.Mock{
 		IsInteractiveResult: true,
 		SelectFn: func(_ string, _ []termio.Choice, _ string) (string, error) {
 			return "", errors.New("select failed")

@@ -7,20 +7,21 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/naming"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
 )
 
 func TestInUseImageReferencesUnionsProjectStatesAndKeptSandboxes(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	projectKey := state.Key{Slug: "proj-aBc1234D", Agent: "opencode"}
 	if err := seedHomeState(projectKey, state.HomeState{ImageDigest: "sha256:abc"}); err != nil {
 		t.Fatalf("write project state: %v", err)
 	}
 	pinnedKey := state.Key{Slug: "live-1mjusbm3wikhb0", Agent: "opencode"}
-	pinned := &msb.MockSandboxHandle{
+	pinned := &msbtest.MockSandboxHandle{
 		Name_: "agents-sandbox-vm-live-1mjusbm3wikhb0-opencode",
 		Cfg:   &msb.SandboxConfig{Image: "agents-sandbox/runner-live-1mjusbm3wikhb0:digestOld"},
 	}
@@ -40,12 +41,12 @@ func TestInUseImageReferencesUnionsProjectStatesAndKeptSandboxes(t *testing.T) {
 }
 
 func TestInUseImageReferencesDeduplicatesProjectAndSandbox(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	if err := seedHomeState(key, state.HomeState{}); err != nil {
 		t.Fatalf("write project state: %v", err)
 	}
-	same := &msb.MockSandboxHandle{
+	same := &msbtest.MockSandboxHandle{
 		Name_: "agents-sandbox-vm-proj-1mjusbm3wikhb0-opencode",
 		Cfg:   &msb.SandboxConfig{Image: naming.RunnerImageRef(key.Slug, key.Agent)},
 	}
@@ -63,10 +64,10 @@ func TestInUseImageReferencesDeduplicatesProjectAndSandbox(t *testing.T) {
 // in-use guard protects a content ref a kept sandbox holds: state.ImageReferences
 // does not enumerate content refs, so the live-sandbox scan must catch it.
 func TestInUseImageReferencesProtectsContentRefHeldByKeptSandbox(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	key := state.Key{Slug: "proj-1mjusbm3wikhb0", Agent: "opencode"}
 	contentRef := naming.ContentImageRef(key.Slug, key.Agent, "9f2c1a7b4d6e0f31")
-	handle := &msb.MockSandboxHandle{
+	handle := &msbtest.MockSandboxHandle{
 		Name_: "agents-sandbox-vm-proj-1mjusbm3wikhb0-opencode",
 		Cfg:   &msb.SandboxConfig{Image: contentRef},
 	}
@@ -81,8 +82,8 @@ func TestInUseImageReferencesProtectsContentRefHeldByKeptSandbox(t *testing.T) {
 }
 
 func TestInUseImageReferencesSkipsSandboxesWithoutImage(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	empty := &msb.MockSandboxHandle{
+	configpathstest.WithMockConfigPaths(t)
+	empty := &msbtest.MockSandboxHandle{
 		Name_: "agents-sandbox-vm-proj-aBc1234D-opencode",
 		Cfg:   &msb.SandboxConfig{},
 	}
@@ -97,8 +98,8 @@ func TestInUseImageReferencesSkipsSandboxesWithoutImage(t *testing.T) {
 }
 
 func TestInUseImageReferencesFailsClosedOnUnreadableSandboxConfig(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
-	broken := &msb.MockSandboxHandle{
+	configpathstest.WithMockConfigPaths(t)
+	broken := &msbtest.MockSandboxHandle{
 		Name_:     "agents-sandbox-vm-proj-aBc1234D-opencode",
 		ConfigErr: errors.New("sandbox gone"),
 	}
@@ -109,7 +110,7 @@ func TestInUseImageReferencesFailsClosedOnUnreadableSandboxConfig(t *testing.T) 
 }
 
 func TestInUseImageReferencesFailsClosedOnCorruptState(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	dir := state.KeyDir(state.Key{Slug: "proj-aBc1234D", Agent: "opencode"})
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
@@ -123,11 +124,11 @@ func TestInUseImageReferencesFailsClosedOnCorruptState(t *testing.T) {
 }
 
 func TestInUseImageReferencesKeepsPositionalSandbox(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	ref := naming.RunnerImageRef("proj-1mjusbm3wikhb0", "opencode")
-	handle := &msb.MockSandboxHandle{Name_: "proj-1mjusbm3wikhb0-opencode", Cfg: &msb.SandboxConfig{Image: ref}}
-	client := &msb.MockMsbClient{Sandboxes: []msb.SandboxHandle{handle}}
-	msb.WithMsbMock(t, client)
+	handle := &msbtest.MockSandboxHandle{Name_: "proj-1mjusbm3wikhb0-opencode", Cfg: &msb.SandboxConfig{Image: ref}}
+	client := &msbtest.MockMsbClient{Sandboxes: []msb.SandboxHandle{handle}}
+	msbtest.WithMsbMock(t, client)
 
 	references, err := inUseImageReferences(context.Background(), client)
 	if err != nil {

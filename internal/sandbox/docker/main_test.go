@@ -1,23 +1,22 @@
-package docker
+package docker_test
 
 import (
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/configpaths"
-	"github.com/inoio/agents-sandbox/internal/notify"
-	"github.com/inoio/agents-sandbox/internal/opener"
-	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
+	"github.com/inoio/agents-sandbox/internal/notify/notifytest"
+	"github.com/inoio/agents-sandbox/internal/opener/openertest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
 )
 
 func TestMain(m *testing.M) {
-	// can't call testutil.InitFailFastMocks(m) because of cyclic dependency. Keep in sync with
-	// testutil.InitFailFastMocks' body
-	configpaths.InstallFailFastConfigPaths()
-	InstallFailFastGet()
-	// cyclic dependency on Ping
-	// doctor.InstallFailFast()
-	msb.InstallFailFastGet()
-	notify.InstallFailFast()
-	opener.InstallFailFast()
+	configpathstest.InstallFailFastConfigPaths()
+	dockertest.InstallFailFastGet()
+	doctortest.InstallFailFast()
+	msbtest.InstallFailFastGet()
+	notifytest.InstallFailFast()
+	openertest.InstallFailFast()
 	m.Run()
 }

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/sandbox/doctor"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/doctor/doctortest"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func expectDoctorFailure(t *testing.T, err error) {
@@ -22,7 +22,7 @@ func expectDoctorFailure(t *testing.T, err error) {
 	}
 }
 
-func expectDoctorSuccess(t *testing.T, ui *termio.Mock, err error) {
+func expectDoctorSuccess(t *testing.T, ui *termiotest.Mock, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatalf("expected doctor to pass; got error: %v", err)
@@ -41,7 +41,7 @@ func expectDoctorSuccess(t *testing.T, ui *termio.Mock, err error) {
 
 func TestDoctorAllChecksFail(t *testing.T) {
 	cmd, _ := setupCommandFixtures(t, "doctor")
-	doctor.MockedCheckAll(t, false)
+	doctortest.MockedCheckAll(t, false)
 
 	err := cmd.Execute()
 
@@ -50,7 +50,7 @@ func TestDoctorAllChecksFail(t *testing.T) {
 
 func TestDoctorAllChecksPass(t *testing.T) {
 	cmd, ui := setupCommandFixtures(t, "doctor")
-	doctor.MockedEnsureInstalled(t, false)
+	doctortest.MockedEnsureInstalled(t, false)
 
 	// msb must be resolvable for a clean pass: put a fake msb binary on PATH.
 	binDir := t.TempDir()

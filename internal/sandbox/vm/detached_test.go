@@ -12,7 +12,8 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/sandbox/msb"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/sandbox/msb/msbtest"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func TestJobExited(t *testing.T) {
@@ -30,17 +31,17 @@ func TestJobExited(t *testing.T) {
 }
 
 func TestJobTailLogs(t *testing.T) {
-	job := &msb.MockJob{Logs_: []msb.JobLogEntry{{Data: []byte("hello ")}, {Data: []byte("world")}}}
+	job := &msbtest.MockJob{Logs_: []msb.JobLogEntry{{Data: []byte("hello ")}, {Data: []byte("world")}}}
 	if got := jobTailLogs(context.Background(), job); got != "hello world" {
 		t.Errorf("jobTailLogs() = %q, want %q", got, "hello world")
 	}
-	failing := &msb.MockJob{LogsErr: errors.New("no logs")}
+	failing := &msbtest.MockJob{LogsErr: errors.New("no logs")}
 	if got := jobTailLogs(context.Background(), failing); got != "" {
 		t.Errorf("jobTailLogs() on error = %q, want empty", got)
 	}
 	// A read can return partial entries alongside an error; the tail must be
 	// discarded then, not concatenated from the partial slice.
-	partial := &msb.MockJob{LogsFn: func(context.Context, msb.JobLogQuery) ([]msb.JobLogEntry, error) {
+	partial := &msbtest.MockJob{LogsFn: func(context.Context, msb.JobLogQuery) ([]msb.JobLogEntry, error) {
 		return []msb.JobLogEntry{{Data: []byte("partial")}}, errors.New("mid-read")
 	}}
 	if got := jobTailLogs(context.Background(), partial); got != "" {
@@ -53,7 +54,7 @@ func TestJobTailLogs(t *testing.T) {
 // expectation would move with a mutated constant instead of killing it.
 func TestJobTailLogsRequestsTail(t *testing.T) {
 	var captured msb.JobLogQuery
-	job := &msb.MockJob{LogsFn: func(_ context.Context, opts msb.JobLogQuery) ([]msb.JobLogEntry, error) {
+	job := &msbtest.MockJob{LogsFn: func(_ context.Context, opts msb.JobLogQuery) ([]msb.JobLogEntry, error) {
 		captured = opts
 		return nil, nil
 	}}
@@ -277,13 +278,13 @@ func TestJobAlreadyStopped(t *testing.T) {
 // killed and only produce spurious failures on every restart.
 func TestKillJobsDoesNotRequestAllJobs(t *testing.T) {
 	var gotQuery msb.JobQuery
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		ListJobsFn: func(_ context.Context, query msb.JobQuery) ([]msb.JobInfo, error) {
 			gotQuery = query
 			return nil, nil
 		},
 	}
-	killJobs(context.Background(), sb, dockerdHelper(), &termio.Mock{})
+	killJobs(context.Background(), sb, dockerdHelper(), &termiotest.Mock{})
 	if gotQuery != (msb.JobQuery{}) {
 		t.Errorf(
 			"ListJobs query = %+v, want the zero query (discovery must stay scoped to the current runtime generation)",
@@ -296,11 +297,11 @@ func TestKillJobsDoesNotRequestAllJobs(t *testing.T) {
 // not running (for example one left behind by an earlier runtime generation)
 // reaches the desired end state without being logged as a failure.
 func TestKillJobsTreatsAlreadyStoppedAsSuccess(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	stopped := &msb.MockJob{
+	ui := termiotest.NewTestMock(t)
+	stopped := &msbtest.MockJob{
 		KillErr: &msbSdk.JobError{Code: "job_not_running", Message: "job belongs to an earlier runtime generation"},
 	}
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		Jobs: []msb.JobInfo{{ID: "stopped", Command: []string{"dockerd"}}},
 		GetJobFn: func(context.Context, string) (msb.Job, error) {
 			return stopped, nil
@@ -327,11 +328,11 @@ func TestKillJobsTreatsAlreadyStoppedAsSuccess(t *testing.T) {
 // it, so it keeps the socket/port the fresh helper then races for and the launch
 // fails with "exited before becoming ready".
 func TestKillJobsTargetsStaleHelperWithChangedArgs(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	legacy := &msb.MockJob{}
-	marked := &msb.MockJob{}
-	otherHelper := &msb.MockJob{}
-	sb := &msb.MockSandbox{
+	ui := termiotest.NewTestMock(t)
+	legacy := &msbtest.MockJob{}
+	marked := &msbtest.MockJob{}
+	otherHelper := &msbtest.MockJob{}
+	sb := &msbtest.MockSandbox{
 		Jobs: []msb.JobInfo{
 			{ID: "legacy-dockerd", Command: []string{"dockerd", "-H", "unix:///var/run/docker.sock"}},
 			{
@@ -368,12 +369,12 @@ func TestKillJobsTargetsStaleHelperWithChangedArgs(t *testing.T) {
 }
 
 func TestKillJobsKillsMatches(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	stale := &msb.MockJob{}
-	other := &msb.MockJob{}
+	ui := termiotest.NewTestMock(t)
+	stale := &msbtest.MockJob{}
+	other := &msbtest.MockJob{}
 	// The non-matching job comes first: a matcher that stopped at the first
 	// non-match (instead of continuing) would leave the matching job alive.
-	sb := &msb.MockSandbox{
+	sb := &msbtest.MockSandbox{
 		Jobs: []msb.JobInfo{
 			{ID: "other", Command: []string{"sleep", "1"}},
 			{ID: "stale", Command: []string{"dockerd", "-H", "x"}},
@@ -405,10 +406,10 @@ func TestKillJobsKillsMatches(t *testing.T) {
 // cannot be resolved or killed is a verbose diagnostic and the remaining
 // matching jobs are still killed; a job whose kill failed is still closed.
 func TestKillJobsContinuesPastAJobItCannotKill(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	killFails := &msb.MockJob{KillErr: errors.New("kill boom")}
-	healthy := &msb.MockJob{}
-	sb := &msb.MockSandbox{
+	ui := termiotest.NewTestMock(t)
+	killFails := &msbtest.MockJob{KillErr: errors.New("kill boom")}
+	healthy := &msbtest.MockJob{}
+	sb := &msbtest.MockSandbox{
 		Jobs: []msb.JobInfo{
 			{ID: "a", Command: []string{"dockerd"}},
 			{ID: "b", Command: []string{"dockerd"}},
@@ -441,8 +442,8 @@ func TestKillJobsContinuesPastAJobItCannotKill(t *testing.T) {
 // TestKillJobsReportsAListFailure pins that jobs that cannot be listed are a
 // verbose diagnostic, not a failure: there is nothing to kill.
 func TestKillJobsReportsAListFailure(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	sb := &msb.MockSandbox{
+	ui := termiotest.NewTestMock(t)
+	sb := &msbtest.MockSandbox{
 		ListJobsFn: func(context.Context, msb.JobQuery) ([]msb.JobInfo, error) {
 			return nil, errors.New("list boom")
 		},
@@ -454,9 +455,9 @@ func TestKillJobsReportsAListFailure(t *testing.T) {
 }
 
 func TestKillJobsReportsCloseFailure(t *testing.T) {
-	ui := termio.NewTestMock(t)
-	closing := &msb.MockJob{CloseErr: errors.New("close boom")}
-	sb := &msb.MockSandbox{
+	ui := termiotest.NewTestMock(t)
+	closing := &msbtest.MockJob{CloseErr: errors.New("close boom")}
+	sb := &msbtest.MockSandbox{
 		Jobs: []msb.JobInfo{{ID: "closing", Command: []string{"dockerd"}}},
 		GetJobFn: func(context.Context, string) (msb.Job, error) {
 			return closing, nil
@@ -473,7 +474,7 @@ func TestKillJobsReportsCloseFailure(t *testing.T) {
 }
 
 func TestAwaitJobReadyInspectErrorKeepsPolling(t *testing.T) {
-	job := &msb.MockJob{
+	job := &msbtest.MockJob{
 		InspectFn: func(context.Context) (*msb.JobInfo, error) { return nil, errors.New("inspect boom") },
 	}
 	probe := func(context.Context) (bool, string) { return true, "" }
@@ -491,7 +492,7 @@ func TestAwaitJobReadyReturnsOnProbe(t *testing.T) {
 		return calls >= 2, ""
 	}
 	if err := awaitJobReady(
-		context.Background(), &msb.MockJob{}, "daemon", probe, nil, time.Second, time.Millisecond,
+		context.Background(), &msbtest.MockJob{}, "daemon", probe, nil, time.Second, time.Millisecond,
 	); err != nil {
 		t.Fatalf("awaitJobReady() = %v, want nil", err)
 	}
@@ -499,7 +500,7 @@ func TestAwaitJobReadyReturnsOnProbe(t *testing.T) {
 
 func TestAwaitJobReadyCrashReturnsExitAndLogs(t *testing.T) {
 	code := 1
-	job := &msb.MockJob{
+	job := &msbtest.MockJob{
 		Info:  &msb.JobInfo{ExitCode: &code},
 		Logs_: []msb.JobLogEntry{{Data: []byte("containerd failed")}},
 	}
@@ -518,7 +519,7 @@ func TestAwaitJobReadyCrashReturnsExitAndLogs(t *testing.T) {
 }
 
 func TestAwaitJobReadyTimeoutIncludesLogs(t *testing.T) {
-	job := &msb.MockJob{Logs_: []msb.JobLogEntry{{Data: []byte("timed-out sentinel")}}}
+	job := &msbtest.MockJob{Logs_: []msb.JobLogEntry{{Data: []byte("timed-out sentinel")}}}
 	err := awaitJobReady(
 		context.Background(),
 		job,
@@ -541,7 +542,7 @@ func TestAwaitJobReadyContextDone(t *testing.T) {
 	cancel()
 	err := awaitJobReady(
 		ctx,
-		&msb.MockJob{},
+		&msbtest.MockJob{},
 		"dockerd",
 		func(context.Context) (bool, string) { return false, "" },
 		nil,
@@ -558,7 +559,7 @@ func TestAwaitJobReadyContextDone(t *testing.T) {
 // so the readiness loop keeps polling rather than treating a stale result as
 // current.
 func TestInspectJobErrorReturnsNil(t *testing.T) {
-	job := &msb.MockJob{InspectFn: func(context.Context) (*msb.JobInfo, error) {
+	job := &msbtest.MockJob{InspectFn: func(context.Context) (*msb.JobInfo, error) {
 		return &msb.JobInfo{ID: "x"}, errors.New("inspect boom")
 	}}
 	if got := inspectJob(context.Background(), job); got != nil {
@@ -567,17 +568,17 @@ func TestInspectJobErrorReturnsNil(t *testing.T) {
 }
 
 func TestProbeHealthy(t *testing.T) {
-	failing := msb.NewMockSandbox(msb.SandboxOpts{ShellErr: errors.New("shell boom")})
+	failing := msbtest.NewMockSandbox(msbtest.SandboxOpts{ShellErr: errors.New("shell boom")})
 	if healthy, detail := probeHealthy(context.Background(), failing, "docker info"); healthy {
 		t.Error("shell error must be unhealthy")
 	} else if !strings.Contains(detail, "shell boom") {
 		t.Errorf("detail = %q, want the shell error", detail)
 	}
-	ok := msb.NewMockSandbox(msb.SandboxOpts{})
+	ok := msbtest.NewMockSandbox(msbtest.SandboxOpts{})
 	if healthy, _ := probeHealthy(context.Background(), ok, "other probe"); !healthy {
 		t.Error("successful shell must be healthy")
 	}
-	noResult := msb.NewMockSandbox(msb.SandboxOpts{ShellOut: map[string]msb.ShellResult{"nil probe": nil}})
+	noResult := msbtest.NewMockSandbox(msbtest.SandboxOpts{ShellOut: map[string]msb.ShellResult{"nil probe": nil}})
 	if healthy, detail := probeHealthy(
 		context.Background(),
 		noResult,
@@ -599,23 +600,23 @@ func TestProbeHealthyReportsFailedCommandDetail(t *testing.T) {
 	}{
 		{
 			name:   "stderr",
-			result: msb.NewTestResult(false, 1, "", "cannot connect to the Docker daemon", nil),
+			result: msbtest.NewTestResult(false, 1, "", "cannot connect to the Docker daemon", nil),
 			want:   "probe exit 1: cannot connect to the Docker daemon",
 		},
 		{
 			name:   "stdout fallback",
-			result: msb.NewTestResult(false, 2, "from stdout", "", nil),
+			result: msbtest.NewTestResult(false, 2, "from stdout", "", nil),
 			want:   "probe exit 2: from stdout",
 		},
 		{
 			name:   "no output",
-			result: msb.NewTestResult(false, 7, "", "", nil),
+			result: msbtest.NewTestResult(false, 7, "", "", nil),
 			want:   "probe exit 7: (no output)",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			sb := msb.NewMockSandbox(msb.SandboxOpts{
+			sb := msbtest.NewMockSandbox(msbtest.SandboxOpts{
 				ShellOut: map[string]msb.ShellResult{"docker info": tc.result},
 			})
 			healthy, detail := probeHealthy(context.Background(), sb, "docker info")

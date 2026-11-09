@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
 func commandOut(t *testing.T, args ...string) string {
@@ -162,7 +162,7 @@ func TestBuildRunShellHelpListDockerFlag(t *testing.T) {
 // TestCommandFlagShorthands pins the single-letter shorthands that the tree and
 // help surface advertise.
 func TestCommandFlagShorthands(t *testing.T) {
-	ui := &termio.Mock{}
+	ui := &termiotest.Mock{}
 	if got := buildBuildCmd(ui).Flags().Lookup(flagRebuild).Shorthand; got != "r" {
 		t.Errorf("--%s shorthand = %q, want %q", flagRebuild, got, "r")
 	}

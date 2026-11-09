@@ -12,6 +12,7 @@ import (
 	msbSdk "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 )
 
 func TestRuntimePreparationHelpers(t *testing.T) {
@@ -21,11 +22,6 @@ func TestRuntimePreparationHelpers(t *testing.T) {
 	if !IsRealClient() {
 		t.Fatal("default client should be real")
 	}
-	WithMsbMock(t, &MockMsbClient{})
-	if IsRealClient() {
-		t.Fatal("a mock client must not report as real")
-	}
-	Get = realGetFactory
 	previous := skipRuntimeInstall
 	t.Cleanup(func() { skipRuntimeInstall = previous })
 	SkipRuntimeInstall()
@@ -37,7 +33,7 @@ func TestRuntimePreparationHelpers(t *testing.T) {
 // TestValidateInstalledPassesPrivateHome asserts the resolve call names the
 // private home explicitly instead of relying on the process-global MSB_HOME.
 func TestValidateInstalledPassesPrivateHome(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantHome := configpaths.MSBHome()
 
 	orig := resolveRuntime
@@ -530,7 +526,7 @@ func TestRealSandboxFS(t *testing.T) {
 // TestRealClientEnsureInstalledPassesPrivateHome asserts the ensure call names
 // the private home explicitly.
 func TestRealClientEnsureInstalledPassesPrivateHome(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	previous := skipRuntimeInstall
 	skipRuntimeInstall = false
 	t.Cleanup(func() { skipRuntimeInstall = previous })
@@ -559,7 +555,7 @@ func TestPinnedRuntimeVersionMatchesSDK(t *testing.T) {
 }
 
 func TestEnsureRuntimePassesPrivateHome(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	var gotConfig msbSdk.RuntimeConfig
 	var gotOpts msbSdk.InstallOptions
 	orig := ensureRuntime
@@ -581,7 +577,7 @@ func TestEnsureRuntimePassesPrivateHome(t *testing.T) {
 }
 
 func TestEnsureRuntimePropagatesError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("ensure boom")
 	orig := ensureRuntime
 	ensureRuntime = func(context.Context, msbSdk.RuntimeConfig, msbSdk.InstallOptions) (msbSdk.ResolvedRuntime, error) {
@@ -595,7 +591,7 @@ func TestEnsureRuntimePropagatesError(t *testing.T) {
 }
 
 func TestInstallRuntimePassesPrivateHomeAndForces(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	var gotConfig msbSdk.RuntimeConfig
 	var gotOpts msbSdk.InstallOptions
 	orig := installRuntime
@@ -617,7 +613,7 @@ func TestInstallRuntimePassesPrivateHomeAndForces(t *testing.T) {
 }
 
 func TestInstallRuntimePropagatesError(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	wantErr := errors.New("install boom")
 	orig := installRuntime
 	installRuntime = func(context.Context, msbSdk.RuntimeConfig, msbSdk.InstallOptions) (msbSdk.ResolvedRuntime, error) {
@@ -1442,7 +1438,7 @@ func TestRealMsbClientListSandboxesOmitsLabelOption(t *testing.T) {
 // and the success path (including the private home it must name) is covered by
 // TestRealClientEnsureInstalledPassesPrivateHome.
 func TestRealMsbClientEnsureInstalled(t *testing.T) {
-	configpaths.WithMockConfigPaths(t)
+	configpathstest.WithMockConfigPaths(t)
 	previous := skipRuntimeInstall
 	skipRuntimeInstall = false
 	t.Cleanup(func() { skipRuntimeInstall = previous })
@@ -2014,59 +2010,4 @@ func TestRealSandboxHandleMetricsAndLogsDelegation(t *testing.T) {
 			t.Fatalf("Logs() error = %v, want %v", err, wantErr)
 		}
 	})
-}
-
-func TestMockSandboxMetricsAndLogs(t *testing.T) {
-	ctx := context.Background()
-
-	sb := &MockSandbox{MetricsResult: &Metrics{MemoryBytes: 1}}
-	got, err := sb.Metrics(ctx)
-	if err != nil || got.MemoryBytes != 1 {
-		t.Fatalf("Metrics() = (%v, %v); want MemoryBytes 1", got, err)
-	}
-
-	boom := errors.New("boom")
-	if _, err := (&MockSandbox{MetricsErr: boom}).Metrics(ctx); !errors.Is(err, boom) {
-		t.Fatalf("Metrics() error = %v; want boom", err)
-	}
-
-	entries := []LogEntry{{Source: LogSourceSystem}}
-	logSB := &MockSandbox{LogsResult: entries}
-	gotEntries, err := logSB.Logs(ctx, LogQuery{Tail: 3})
-	if err != nil || len(gotEntries) != 1 {
-		t.Fatalf("Logs() = (%v, %v); want one entry, nil", gotEntries, err)
-	}
-	if len(logSB.LogsOptions) != 1 || logSB.LogsOptions[0].Tail != 3 {
-		t.Fatalf("LogsOptions = %+v; want one call with Tail 3", logSB.LogsOptions)
-	}
-	if _, err := (&MockSandbox{LogsErr: boom}).Logs(ctx, LogQuery{}); !errors.Is(err, boom) {
-		t.Fatalf("Logs() error = %v; want boom", err)
-	}
-}
-
-func TestMockSandboxHandleMetricsAndLogs(t *testing.T) {
-	ctx := context.Background()
-
-	h := &MockSandboxHandle{MetricsResult: &Metrics{MemoryLimitBytes: 2}}
-	got, err := h.Metrics(ctx)
-	if err != nil || got.MemoryLimitBytes != 2 {
-		t.Fatalf("Metrics() = (%v, %v); want MemoryLimitBytes 2", got, err)
-	}
-
-	boom := errors.New("boom")
-	if _, err := (&MockSandboxHandle{MetricsErr: boom}).Metrics(ctx); !errors.Is(err, boom) {
-		t.Fatalf("Metrics() error = %v; want boom", err)
-	}
-
-	logHandle := &MockSandboxHandle{LogsResult: []LogEntry{{Source: LogSourceSystem}}}
-	gotEntries, err := logHandle.Logs(ctx, LogQuery{Tail: 9})
-	if err != nil || len(gotEntries) != 1 {
-		t.Fatalf("Logs() = (%v, %v); want one entry, nil", gotEntries, err)
-	}
-	if len(logHandle.LogsOptions) != 1 || logHandle.LogsOptions[0].Tail != 9 {
-		t.Fatalf("LogsOptions = %+v; want one call with Tail 9", logHandle.LogsOptions)
-	}
-	if _, err := (&MockSandboxHandle{LogsErr: boom}).Logs(ctx, LogQuery{}); !errors.Is(err, boom) {
-		t.Fatalf("Logs() error = %v; want boom", err)
-	}
 }

@@ -12,15 +12,15 @@ import (
 	"github.com/moby/moby/client"
 
 	"github.com/inoio/agents-sandbox/internal/agent"
-	"github.com/inoio/agents-sandbox/internal/configpaths"
+	"github.com/inoio/agents-sandbox/internal/configpaths/configpathstest"
 	"github.com/inoio/agents-sandbox/internal/git"
-	"github.com/inoio/agents-sandbox/internal/sandbox/docker"
+	"github.com/inoio/agents-sandbox/internal/sandbox/docker/dockertest"
 	"github.com/inoio/agents-sandbox/internal/sandbox/options"
 	"github.com/inoio/agents-sandbox/internal/sandbox/state"
-	"github.com/inoio/agents-sandbox/internal/termio"
+	"github.com/inoio/agents-sandbox/internal/termio/termiotest"
 )
 
-func verboseContains(ui *termio.Mock, substr string) bool {
+func verboseContains(ui *termiotest.Mock, substr string) bool {
 	for _, call := range ui.VerboseCalls {
 		if strings.Contains(call, substr) {
 			return true
@@ -46,7 +46,7 @@ func dockerConfigWith(version string, env []string) *dockerspec.DockerOCIImageCo
 // absent). Any pull fails the test: the build decision must stay local.
 func runnerAndBaseMock(t *testing.T, runnerLabels map[string]string, baseID string) {
 	t.Helper()
-	docker.WithDockerMock(t, &docker.MockDockerClient{
+	dockertest.WithDockerMock(t, &dockertest.MockDockerClient{
 		ImageInspectFn: func(_ context.Context, ref string, _ ...client.ImageInspectOption) (client.ImageInspectResult, error) {
 			if ref == distroBaseRef {
 				if baseID == "" {
@@ -211,8 +211,8 @@ func synthesizeBareWorktree(t *testing.T, withWorktreeConfig bool) (worktree str
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	configpaths.WithRealConfigPaths(t)
-	configpaths.WithBareCheckoutLocator(t, git.BareCheckoutRoots)
+	configpathstest.WithRealConfigPaths(t)
+	configpathstest.WithBareCheckoutLocator(t, git.BareCheckoutRoots)
 
 	root := t.TempDir()
 	worktree = filepath.Join(root, "main")
@@ -244,7 +244,7 @@ func writeFileAt(t *testing.T, path, content string) {
 // assertWarnsIgnoredWorktreeConfig fails unless ui recorded the bare-checkout
 // warning, pinning that an exported entry point still runs the warning after the
 // path resolver moved from a package global onto an injected argument.
-func assertWarnsIgnoredWorktreeConfig(t *testing.T, ui *termio.Mock) {
+func assertWarnsIgnoredWorktreeConfig(t *testing.T, ui *termiotest.Mock) {
 	t.Helper()
 	if !strings.Contains(strings.Join(ui.WarnCalls, "\n"), "read from the bare root, not the worktree") {
 		t.Errorf("WarnCalls = %v, want the ignored-worktree-config warning", ui.WarnCalls)
