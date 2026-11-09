@@ -63,8 +63,9 @@ Don't install additional tools yourself without permission.
 Common development commands (run from the Go module root):
 
 - `make check` — run `validate-fmt`, lint, and test targets, read-only (the same formatting gate CI
-  runs). Execute this when finalizing work; if it reports unformatted files, run `make fmt` to fix
-  them. `make verify` adds `test-race` and `vulncheck`.
+  runs). It and `make verify` run their independent targets as parallel jobs by default (`JOBS=<n>`
+  overrides the count). Execute `make check` when finalizing work; if it reports unformatted files, run
+  `make fmt` to fix them. `make verify` adds `test-race` and `vulncheck`.
 - `go run ./cmd/agents-sandbox --dry-run` — build and run locally without producing a binary or starting interactively
   (skips launching the agent)
 - `make test`/`go test ./...` — run all tests. `make test` passes `-tags microsandbox_ffi_path`, which keeps the
