@@ -60,6 +60,13 @@ build-only trees dominate it. After a successful install the `InstallCommand` pr
 (`hermesBuildOnlyPaths`): the blobless `.git` clone, `tests`, `website`, `apps` (desktop and bootstrap source; the
 built products land in `ui-tui/dist` and `hermes_cli/web_dist`), and the build-time `hermes-home/cache/uv`.
 
+The installer's *runtime* tool store is deliberately **not** pruned. `node` (the managed runtime and
+`hermes/node_modules`) is a **required** `pm` package (`Nodejs.optional = False`), not build-only debris:
+removing it leaves the lockfile inconsistent, breaks `npx`-based MCP servers, managed `.js`/`.ts` linting, and
+`hermes lsp install`, and makes `hermes doctor` warn — so offline boot is no longer "clean". `ffmpeg` is likewise
+required by `pm` (`optional = False`). Both stay until an upstream opt-out (`--without node`, a declinable ffmpeg)
+lands; the analysis is recorded on the closed tracker #488.
+
 Dropping `.git` is safe because the installer's `products` tail writes `install-stamp.json`, which
 `version_info.get_version_info()` reads before git and trusts without its `.git` cross-check when `.git` is absent,
 so `hermes --version` still reports the pinned release. The tree then classifies as sealed by an "unknown" steward,
