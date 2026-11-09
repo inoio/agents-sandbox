@@ -2,6 +2,7 @@ package image
 
 import (
 	"context"
+	"encoding/csv"
 	"fmt"
 	"net"
 	"os"
@@ -250,14 +251,15 @@ func buildKitCacheEntries(specs []string) []buildkitclient.CacheOptionsEntry {
 
 // parseBuildKitCacheSpec parses one BuildKit cache spec of the form
 // "type=gha,scope=x,mode=max" into the entry a SolveOpt carries. Only the
-// shape is parsed — the type and attribute values pass through to BuildKit
-// uninterpreted, so an invalid backend or attribute is the daemon's error to
-// report. A gha spec additionally gains the Actions cache credentials from the
-// environment; see fillGitHubActionsCacheAttrs.
+// shape is parsed — a field is split at "=", a quoted value has its quotes
+// stripped, and the resulting type and attribute values pass through to
+// BuildKit uninterpreted, so an invalid backend or attribute is the daemon's
+// error to report. A gha spec additionally gains the Actions cache credentials
+// from the environment; see fillGitHubActionsCacheAttrs.
 func parseBuildKitCacheSpec(spec string) buildkitclient.CacheOptionsEntry {
 	attrs := map[string]string{}
 	entryType := ""
-	for i, part := range strings.Split(spec, ",") {
+	for i, part := range splitBuildKitCacheSpecParts(spec) {
 		key, value, hasValue := strings.Cut(part, "=")
 		if !hasValue {
 			continue
@@ -272,6 +274,19 @@ func parseBuildKitCacheSpec(spec string) buildkitclient.CacheOptionsEntry {
 		fillGitHubActionsCacheAttrs(attrs)
 	}
 	return buildkitclient.CacheOptionsEntry{Type: entryType, Attrs: attrs}
+}
+
+// splitBuildKitCacheSpecParts splits a cache spec into its comma-separated
+// parts as CSV, so a quoted value may contain a comma the way buildx permits
+// (type=local,"dest=/tmp/cache,run"). A spec the CSV parser rejects — a
+// malformed quote — falls back to a plain comma split, so a malformed spec
+// stays as lenient as before.
+func splitBuildKitCacheSpecParts(spec string) []string {
+	parts, err := csv.NewReader(strings.NewReader(spec)).Read()
+	if err != nil {
+		return strings.Split(spec, ",")
+	}
+	return parts
 }
 
 // fillGitHubActionsCacheAttrs copies the GitHub Actions cache-service

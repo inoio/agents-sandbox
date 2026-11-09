@@ -885,6 +885,33 @@ func TestParseBuildKitCacheSpecSkipsPartsWithoutEqual(t *testing.T) {
 	}
 }
 
+// TestParseBuildKitCacheSpecQuotedValueKeepsComma pins that a comma inside a
+// quoted attribute value stays part of that value instead of splitting the spec:
+// cache specs are CSV, so buildx quotes a value that carries a comma, and the
+// parser must honor the quote.
+func TestParseBuildKitCacheSpecQuotedValueKeepsComma(t *testing.T) {
+	got := parseBuildKitCacheSpec(`type=local,"dest=/tmp/cache,run"`)
+	want := buildkitclient.CacheOptionsEntry{
+		Type:  "local",
+		Attrs: map[string]string{"dest": "/tmp/cache,run"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("parseBuildKitCacheSpec = %#v, want %#v", got, want)
+	}
+}
+
+// TestParseBuildKitCacheSpecMalformedQuoteFallsBackToCommaSplit pins that a spec
+// the CSV parser rejects — here an unterminated quote — still parses with the
+// plain comma split, so a malformed spec stays as lenient as before instead of
+// panicking or dropping the whole spec.
+func TestParseBuildKitCacheSpecMalformedQuoteFallsBackToCommaSplit(t *testing.T) {
+	got := parseBuildKitCacheSpec(`type=local,"dest=/tmp/cache`)
+	want := buildkitclient.CacheOptionsEntry{Type: "local", Attrs: map[string]string{`"dest`: "/tmp/cache"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("parseBuildKitCacheSpec = %#v, want %#v", got, want)
+	}
+}
+
 // TestParseBuildKitCacheSpecOnlyLeadingTypeIsTheType pins that only a leading
 // `type=` names the entry's type: a later `type` is an attribute, and a leading
 // non-type key leaves the entry typeless (the daemon then rejects the entry).
