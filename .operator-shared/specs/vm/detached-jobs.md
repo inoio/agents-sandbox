@@ -8,7 +8,7 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
 ## Contract
 
 - `dockerd` and the agent `serve` daemon are launched as microsandbox **runtime-owned detached jobs** through the
-  `internal/sandbox/msb` seam (`Sandbox.ExecDetached` plus a minimal `Job` of `ID/Inspect/Kill/Logs/Close`). The
+  `internal/sandbox/msb` seam (`Sandbox.ExecDetached` plus a minimal `Job` of `Inspect/Kill/Logs/Close`). The
   runtime owns the process: it survives client disconnect and is inspectable/killable by any later client.
 - **No shell fallback.** The previous `nohup … &` backgrounding, `/var/log/dockerd.log` (and agent `*-serve.log`)
   redirects, `pkill -f '… serve'`, and `pkill dockerd` plumbing are removed. The jobs ABI is an optional native symbol
@@ -18,7 +18,7 @@ read_if: Working on the VM's dockerd/agent-serve startup, readiness, or restart 
   daemon. Each poll iteration consults `Job.Inspect` and fails fast (structured failure naming the exit code) when the
   process has exited (`JobInfo.ExitCode != nil`). On timeout it embeds a `Job.Logs` tail (`tail=100`, as the runtime
   interprets the unit) and the last health-probe detail instead of a logfile read.
-- **No live log streaming.** `Job.FollowLogs` is deliberately unused; verbose behaviour is unchanged (the daemon's
+- **No live log streaming.** `JobLogQuery.Follow` is deliberately unused; verbose behaviour is unchanged (the daemon's
   per-poll detail is still logged) and job logs are read only on failure/timeout.
 - **Idempotency is health-probe based, with a command-line identity.** A healthy dockerd/daemon is left running; before
   (re)starting, any live job belonging to the helper is killed first. The jobs ABI exposes no labels — `JobInfo` carries

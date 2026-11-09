@@ -14,52 +14,52 @@
 
 ### `adr/` - Architecture decision records
 
-- `0001-yaml-handling.md`
+- `adr/0001-yaml-handling.md`
   - Description: Decision to adopt `oneyaml.dev/go` for the config write path (`viperconfig.WriteSetting`), to serialize on `go.yaml.in/yaml/v4` for every path we own (viper keeps its read-only `go.yaml.in/yaml/v3`), and to cap untrusted config/secret/snippet reads at 16 MiB (`internal/configread`); `goccy/go-yaml` rejected, the owner scan and JSON5 depth recorded.
   - Read If: Changing `viperconfig.WriteSetting`, the YAML edit path, or the `configread` bound; evaluating oneyaml vs goccy; touching `go.mod`'s YAML dependency or the `yaml/v3`↔`v4` choice; or triaging a `FuzzParseState` serialization-stability failure.
-- `TEMPLATE.md`
+- `adr/TEMPLATE.md`
   - Description: Template for an ADR in this directory (Context / Options / Decision / Consequences).
   - Read If: Writing a new ADR.
 
 ### `guides/` - How-to and reference notes for this partition
 
-- `agent-link-opening.md`
+- `guides/agent-link-opening.md`
   - Description: What each agent shells out to when it opens a link on Linux (opencode `xdg-open`, opencode2's `open` package, pi's `openBrowser`, claude-code's scheme allowlist), the OSC 8 wrinkle, and the network-free VM→host transport for a host-side opener (#273).
   - Read If: Working on opening links/URLs on the host from inside the VM (#273), an in-VM `xdg-open` shim, agent opener behavior, or any VM→host action channel.
-- `branch-worktree-cleanup.md`
+- `guides/branch-worktree-cleanup.md`
   - Description: How `scripts/cleanup-merged-branches.sh` (via `make cleanup-branches`) removes merged worktrees/branches and reports the rest; the three merge-detection tiers, the fresh-session worktree guard, the config-mirror protection, the named plan printed before the gate, dry-run skipping the remote refresh, the `--force-with-lease` origin deletion, and the host/VM worktree safety rules.
   - Read If: Running or changing local repository maintenance, cleaning up worktrees or merged branches, or debugging a branch the sweep kept or removed.
-- `buildkit-and-ci-build-cache.md`
+- `guides/buildkit-and-ci-build-cache.md`
   - Description: Investigation handoff for making the CI integration tier a required PR check - whether to move the runner-image build to BuildKit (the cache-export requirement), the podman and classic-builder compatibility costs, the GitHub Actions cache scoping that forces a single main writer, and the three candidate approaches with their open decision.
   - Read If: Deciding whether to switch the runner-image build off the classic builder to BuildKit; adding a cross-run build cache for `make test-integration` in CI; reasoning about podman and other Docker-API engines and BuildKit compatibility; or picking up the "run integration on every PR" work.
-- `dead-code-detection-go.md`
+- `guides/dead-code-detection-go.md`
   - Description: Using x/tools `deadcode` to find production code only tests keep alive: why staticcheck U1000 cannot, the default vs `-test` modes, the test-support paths to filter, and `-whylive` for seam-vs-accident triage.
   - Read If: Looking for dead or unreferenced production code, auditing whether a seam is still wired, or evaluating a dead-code linter; for the gate, the pin, or the `//deadcode:ignore` marker, read `specs/ci/quality-gates.md`.
-- `dev-environment.md`
+- `guides/dev-environment.md`
   - Description: The development VM's installed CLI tools and its standing environment limitations - remote git over SSH (HTTPS works), CI `pull_request` workflows absent on a conflicted PR, and TLS-interception self-signed-cert docker builds.
   - Read If: Choosing a CLI tool for a task, or hitting an environment limitation such as an unusable SSH remote, an absent CI run on a conflicted PR, or a self-signed-cert docker build failure.
-- `github-issue-workflow.md`
+- `guides/github-issue-workflow.md`
   - Description: How this repo tracks work on GitHub with the `gh` CLI: the issue CRUD commands, the triage label vocabulary (`bug`/`enhancement`/`chore`/`documentation`, the `needs-triage`/`needs-info`/`ready-for-agent`/`ready-for-human`/`wontfix` states, the `upstream` marker, the orthogonal `priority:*` set), and that external PRs are not a request surface.
   - Read If: Creating, reading, labeling, or closing a GitHub issue; resolving the label vocabulary the `maintain` skill uses; or working through a skill that publishes to or reads from the issue tracker.
-- `github-merge-driver-support.md`
+- `guides/github-merge-driver-support.md`
   - Description: Verdict, with primary sources, that GitHub's server-side merge and merge-queue build ignore `.gitattributes` merge drivers, so `CHANGELOG.md merge=union` does not resolve a conflict; libgit2 does implement `union` but GitHub does not consult it, and GitLab dropped it in 17.1.
   - Read If: Considering `merge=union`, a custom merge driver, or any `.gitattributes` merge attribute to auto-resolve conflicts on GitHub; or explaining why a server-side conflict persists when the CLI git merges cleanly.
 - `guides/mutation-testing.md`
   - Description: Mutation testing for Go in this repo - the tool survey and why gomutants was chosen, how to close gomutants survivors (recurring mutant types, the equivalent-mutant traps, the record-with-a-reason fallback), and the multi-turn sweep runbook for the #268 survivor tracker.
   - Read If: Evaluating or changing a Go mutation-testing tool or the `make mutation` target; triaging LIVED mutants from a sweep; picking a `SINCE` scope for a branch/PR sweep; or coordinating a #268 survivor-reduction pass.
-- `operator-brain-maintenance.md`
+- `guides/operator-brain-maintenance.md`
   - Description: Conventions for keeping this brain small and findable: one-line catalog Descriptions, anchor-first `Read If` lines, the `specs/<subsystem>/` layout, drop-not-point for facts covered by a skill or merged spec, and retiring a plan once its work lands.
   - Read If: Adding or editing a catalog entry, spec, plan, guide, or skill; writing a new freeform document; or curating/retiring the brain.
-- `podman-engine-testing.md`
+- `guides/podman-engine-testing.md`
   - Description: How the alternative-engine claim is verified: the `integration-podman` CI job runs the docker-build suite against a rootless podman socket, podman's unqualified-image-name refusal is the hazard the runner image avoids by qualifying its base, and the dev VM cannot run an engine build at all.
   - Read If: Verifying podman (or another Docker-API engine) against the integration suite, or investigating a build failure naming an unqualified image.
-- `secret-placeholder-transcript-trap.md`
+- `guides/secret-placeholder-transcript-trap.md`
   - Description: Why a session dies once a microsandbox secret placeholder reaches the model context - the LLM transport POSTs the whole conversation, so a placeholder anywhere in history blocks every later turn; how to observe the block in `runtime.log`; and the launcher's config-file-only `secrets.common.allow-placeholder-for` repair.
   - Read If: Diagnosing a model turn blocked by a secret violation, working on `secrets.common.allow-placeholder-for`/`BuildSecretsFromSpecs`/`placeholderHostsFor`, or envsecret passthrough hosts.
-- `test-runtime-cost.md`
+- `guides/test-runtime-cost.md`
   - Description: Where `go test ./...` wall time goes (test-binary linking, not test bodies), how `-tags microsandbox_ffi_path` drops the SDK's ~36 MB embedded native library, the test-body hotspots, and the polling/timeout seams that set failure latency.
   - Read If: Speeding up `make test`, diagnosing a slow or hanging test run, adding a polling/wait seam or a `TestMain`, adding a real-SDK test, or deciding whether a test may consume a production timeout budget.
-- `vm-oom-crash-resilience.md`
+- `guides/vm-oom-crash-resilience.md`
   - Description: How the microsandbox microVM enforces memory/disk/CPU limits (virtio-mem plug cap, no swap/zram, guest global OOM killer), why an OOM kill is invisible from the launcher, the host-terminal corruption and recovery, the `Metrics`/`LogSourceSystem` detection surface, the async live memory resize, and the ranked detect-and-propose mitigation path.
   - Read If: Working on VM OOM/crash handling, a memory/disk/CPU limit-hit detector or "raise the limit" proposal, terminal corruption after an in-VM kill, or the daemon/dockerd re-ensure and supervision behaviour.
 
@@ -249,10 +249,10 @@
   - Read If: Changing home-volume resolution (`volume.resolveHomeVolumePlan`/`Manager.ResolveHomeVolume`/`commitHomeVolumePlan`/`PreviewHomeVolume`), `liveHomeVolume` in `internal/sandbox/prepare` (delegating to `vm.ProjectVMHomeVolume`), or diagnosing a duplicate/orphaned home volume after state loss.
 - `specs/volumes/runtime-home-decoupling.md`
   - Description: Design for decoupling agents-sandbox's microsandbox runtime home from any user-installed microsandbox: a private XDG data home, no user-facing msb, retired version-matching recovery, and an opt-in copy of legacy home volumes tracked in the root `state.yaml` `migrations` registry, plus a one-time post-migration legacy-runtime notice and the `volume remove` cleanup command.
-  - Read If: Implementing or reviewing runtime-home decoupling, the private `MSB_HOME`, removal of the runtime mismatch recovery menu, the legacy home-volume copy prompt and its persisted migration state, the ambiguous-state offer, the post-migration notice, or `volume remove`.
+  - Read If: The runtime-home decoupling, the private `MSB_HOME`, removal of the runtime mismatch recovery menu, the legacy home-volume copy prompt and its persisted migration state, the ambiguous-state offer, the post-migration legacy-runtime notice, or `volume remove`.
 - `specs/volumes/runtime-management-commands.md`
   - Description: Contract for agents-sandbox's microsandbox management surface - volume/image/sandbox inspection, image and sandbox removal, sandbox disk compaction, a top-level `df` plus a `storage` group alias, and uniform `-q`/`--format json`/`--yes`/`--older-than` conventions.
-  - Read If: Adding or reviewing volume/image/sandbox inspection, removal, and disk-compaction commands, the `df`/`storage` accounting commands, prune confirmation/format flags, or command-surface consistency conventions.
+  - Read If: Volume/image/sandbox inspection, removal, and disk-compaction commands, the `df`/`storage` accounting commands, prune confirmation/format flags, or command-surface consistency conventions.
 
 #### `specs/worktrees/` - The `/workspace` bind rule
 
@@ -262,15 +262,12 @@
 
 ### `plans/` - TDD implementation plans
 
-- `2026-11-07-hermetic-test-suite-design.md`
+- `plans/2026-11-07-hermetic-test-suite-design.md`
   - Description: Design for making the default `go test` suite hermetic: the acceptance envelope (module copy outside any checkout + scrubbed env + network namespace), the host-figure sentinel pass on injected seams, the wall-clock rule, and the release-to-default cadence.
   - Read If: Working on test decoupling from the execution environment, the hermetic envelope targets, the host-figure sentinel pass, or the hermetic suite's cadence.
-- `2026-11-07-hermetic-test-envelope.md`
-  - Description: Plan 1 of the hermetic design: `scripts/test-envelope.sh` (module copy + `env -i` scrub, `--netns` strict wrapper), the `test-scrubbed`/`test-hermetic`/`envelope-test` targets, and the task that records the failing inventory and runtime budget.
-  - Read If: Implementing the hermetic envelope targets, the scrubbed/strict runners, or the inventory step that sequences the identity, host-figure, and wall-clock fixes.
-- `2026-11-07-hermetic-inventory.md`
+- `plans/2026-11-07-hermetic-inventory.md`
   - Description: First-run envelope record: the runtime budget (envelope ~1.5× an uncached `go test`, ~4.5× a cached `make test`), the green scrubbed run, and the one failing surface (6 uid/permission `chmod`-based tests the strict run runs as root).
   - Read If: Picking up a hermetic surface fix, choosing the next hermetic plan's tasks, or checking the envelope's measured runtime against `make test`.
-- `2026-11-07-hermetic-uid-permission-surface.md`
+- `plans/2026-11-07-hermetic-uid-permission-surface.md`
   - Description: Plan 2 of the hermetic design: remove the effective-uid dependence from the six tests the strict envelope runs as uid 0 (via `configmerge.readFile`, `runtimemigration.readDir`, and a `state.OverrideStateWriteForTest` hook), pin `GOTOOLCHAIN=local`, and verify `make test-hermetic` is green.
   - Read If: Implementing the uid/permission surface fix that makes the strict hermetic envelope green, or adding a read/write failure seam to `configmerge`, `runtimemigration`, or `state`.

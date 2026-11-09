@@ -11,7 +11,7 @@ A sandbox's **name** is a mutable label: the launcher derives it from the projec
 
 ## Fail-closed contract
 
-The launcher does not compare IDs itself. It relies on the SDK's identity-aware lifecycle operations (`Remove`, `Destroy`, `Stop`, `Kill`, `Refresh`, `Connect`, `Start`, `ConnectOrStart`, `WaitForStatus`, `Restart`), which carry the receiver's stored identity and return `ErrSandboxReplaced` when the name now refers to a different persisted sandbox. The seam helper `msb.IsReplaced(err)` (mirroring `msb.IsNotFound`) classifies that outcome.
+The launcher does not compare IDs itself. It relies on the SDK's identity-aware lifecycle operations (`Remove`, `Destroy`, `Stop`, `Kill`, `Connect`, `ConnectOrStart`), which carry the receiver's stored identity and return `ErrSandboxReplaced` when the name now refers to a different persisted sandbox. The seam helper `msb.IsReplaced(err)` (mirroring `msb.IsNotFound`) classifies that outcome.
 
 All of this is **same-process**: the launcher relies on a `SandboxHandle`/`Sandbox` it already holds. No cross-process identity is persisted.
 
