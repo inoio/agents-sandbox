@@ -30,6 +30,14 @@ that API, not which vendor provides it:
 podman only: one podman setting can stop a build that works everywhere else, see
 [The base image cannot be found](#the-base-image-cannot-be-found).
 
+#### BuildKit vs the classic builder
+
+Which builder the image build uses depends on the engine. Docker Engine, Docker Desktop, colima, and the untested
+OrbStack, Rancher Desktop (moby mode), and Lima build with BuildKit; podman (including the untested Podman Desktop and
+macOS podman machines) uses the classic builder. A project Dockerfile that uses BuildKit-only syntax — heredoc `RUN`,
+`RUN --mount=...`, `RUN --platform`, cache mounts — builds on the Docker engines and fails on podman, with a parse
+error from the classic builder.
+
 How you start the engine depends on which one you use: Docker Desktop starts from Applications, and a Docker Engine
 installed as a system-wide package on Linux starts with `sudo systemctl start docker`.
 
