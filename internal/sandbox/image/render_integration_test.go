@@ -668,20 +668,40 @@ func buildDockerfileTagOutput(
 	}
 }
 
-// reportCacheHits prints the steps a build served from the imported BuildKit
-// cache, so a CI log shows whether the shared cache was restored. The streamed
-// output is otherwise surfaced only when a build fails, which hides a silent
-// cache miss. BuildKit emits the step name followed by a bare "CACHED"; only the
-// BuildKit path has a cache spec here, so only it reports.
+// reportCacheHits writes the steps a build served from the imported BuildKit
+// cache, so a CI log shows whether the shared cache was restored. The engine's
+// streamed output is rendered only when a build fails, and `go test` swallows a
+// passing test's stdout, so without this a silent cache miss is invisible. The
+// report goes to AGENTS_SANDBOX_CACHE_REPORT when set — CI points it at a file
+// the integration job prints afterwards — else it is left on stdout for `-v`.
 func reportCacheHits(tag string, lines []string) {
 	hits := 0
+	var report strings.Builder
 	for i, line := range lines {
 		if line == "CACHED" && i > 0 {
 			hits++
-			fmt.Fprintf(os.Stdout, "cached %s: %s\n", tag, lines[i-1])
+			fmt.Fprintf(&report, "    cached step: %s\n", lines[i-1])
 		}
 	}
-	fmt.Fprintf(os.Stdout, "cached %s: %d step(s)\n", tag, hits)
+	fmt.Fprintf(&report, "cached %s: %d step(s)\n", tag, hits)
+	writeCacheReport(report.String())
+}
+
+// writeCacheReport appends a cache report to AGENTS_SANDBOX_CACHE_REPORT when
+// set, falling back to stdout so a local `-v` run still shows it.
+func writeCacheReport(report string) {
+	path := os.Getenv("AGENTS_SANDBOX_CACHE_REPORT")
+	if path == "" {
+		fmt.Fprint(os.Stdout, report)
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		fmt.Fprint(os.Stdout, report)
+		return
+	}
+	defer func() { _ = f.Close() }()
+	_, _ = f.WriteString(report)
 }
 
 // imageCacheEnv reads the BuildKit build-cache specs the integration builds

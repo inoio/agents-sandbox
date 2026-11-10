@@ -234,6 +234,11 @@ jobs:
       # `ghaction-github-runtime` step exposes.
       AGENTS_SANDBOX_IMAGE_CACHE_FROM: type=gha,scope=runner-image
       AGENTS_SANDBOX_IMAGE_CACHE_TO: ${{ github.ref == 'refs/heads/main' && 'type=gha,scope=runner-image,mode=max' || '' }}
+      # The integration suite writes the steps each build served from the
+      # imported cache here (a passing `go test` otherwise swallows the
+      # streamed output), and the job prints it afterwards. Without it a silent
+      # cache miss is indistinguishable from a hit.
+      AGENTS_SANDBOX_CACHE_REPORT: ${{ runner.temp }}/runner-image-cache-report.txt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -246,6 +251,9 @@ jobs:
       # them to the daemon's BuildKit (which cannot read the step's env).
       - uses: crazy-max/ghaction-github-runtime@v4
       - run: make test-integration
+      - name: Runner-image build cache report
+        if: always()
+        run: cat "$AGENTS_SANDBOX_CACHE_REPORT" 2>/dev/null || echo "no cache report"
 
   integration-podman:
     name: integration (podman build)
