@@ -675,15 +675,24 @@ func buildDockerfileTagOutput(
 // report goes to AGENTS_SANDBOX_CACHE_REPORT when set — CI points it at a file
 // the integration job prints afterwards — else it is left on stdout for `-v`.
 func reportCacheHits(tag string, lines []string) {
-	hits := 0
-	var report strings.Builder
+	seen := map[string]struct{}{}
+	var hits []string
 	for i, line := range lines {
-		if line == "CACHED" && i > 0 {
-			hits++
-			fmt.Fprintf(&report, "    cached step: %s\n", lines[i-1])
+		if line != "CACHED" || i == 0 {
+			continue
 		}
+		step := lines[i-1]
+		if _, ok := seen[step]; ok {
+			continue
+		}
+		seen[step] = struct{}{}
+		hits = append(hits, step)
 	}
-	fmt.Fprintf(&report, "cached %s: %d step(s)\n", tag, hits)
+	var report strings.Builder
+	fmt.Fprintf(&report, "cached %s: %d step(s)\n", tag, len(hits))
+	for _, step := range hits {
+		fmt.Fprintf(&report, "    cached step: %s\n", step)
+	}
 	writeCacheReport(report.String())
 }
 
