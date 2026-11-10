@@ -675,37 +675,73 @@ func buildDockerfileTagOutput(
 // report goes to AGENTS_SANDBOX_CACHE_REPORT when set — CI points it at a file
 // the integration job prints afterwards — else it is left on stdout for `-v`.
 func reportCacheHits(tag string, lines []string) {
-	cached := map[string]bool{}
-	var steps []string
+	cached, total := countCacheHits(lines)
+	writeCacheReport(fmt.Sprintf("cached %s: %d/%d step(s)\n", tag, cached, total))
+}
+
+// countCacheHits counts the distinct build steps in a stream and how many were
+// cache hits. A step is a "[<stage> <i>/<n>] <INSTRUCTION>" vertex name; it is a
+// hit when a bare "CACHED" line immediately follows it.
+func countCacheHits(lines []string) (cached, total int) {
+	steps := map[string]bool{}
 	for i, line := range lines {
 		if !isBuildStepName(line) {
 			continue
 		}
-		if _, ok := cached[line]; !ok {
-			cached[line] = false
-			steps = append(steps, line)
+		if _, ok := steps[line]; !ok {
+			steps[line] = false
 		}
 		if i+1 < len(lines) && lines[i+1] == "CACHED" {
-			cached[line] = true
+			steps[line] = true
 		}
 	}
-	hits := 0
-	for _, step := range steps {
-		if cached[step] {
-			hits++
+	for _, wasCached := range steps {
+		total++
+		if wasCached {
+			cached++
 		}
 	}
-	writeCacheReport(fmt.Sprintf("cached %s: %d/%d step(s)\n", tag, hits, len(steps)))
+	return cached, total
 }
 
 // isBuildStepName reports whether a streamed line names a build step rather than
-// an internal or auth vertex. BuildKit names build steps "[<stage> <i>/<n>]
-// <instruction>" and the plumbing "[internal] ..." / "[auth] ...".
+// an internal/auth vertex or a log line. BuildKit names build steps
+// "[<stage> <i>/<n>] <INSTRUCTION> ..."; logging tools such as dnf also emit
+// lines starting with "[", so keying on the Dockerfile instruction after "] "
+// is what distinguishes the two.
 func isBuildStepName(line string) bool {
 	if !strings.HasPrefix(line, "[") {
 		return false
 	}
-	return !strings.HasPrefix(line, "[internal]") && !strings.HasPrefix(line, "[auth]")
+	_, after, ok := strings.Cut(line, "] ")
+	if !ok {
+		return false
+	}
+	keyword, _ := instruction(after)
+	return keyword != ""
+}
+
+// TestCountCacheHits pins the cache-report parsing: build steps are counted from
+// "[<stage> <i>/<n>] <INSTRUCTION>" vertex names and a step followed by a bare
+// "CACHED" is a hit, while internal/auth vertices and log lines that merely
+// start with "[" (dnf prints "[ 2/10] ...") are ignored.
+func TestCountCacheHits(t *testing.T) {
+	lines := []string{
+		"[internal] load build definition from Dockerfile",
+		"[1/5] FROM debian:trixie-slim",
+		"CACHED",
+		"[2/5] RUN apt-get update",
+		"[auth] library/debian:pull token for registry-1.docker.io",
+		"[3/5] RUN echo hi",
+		"CACHED",
+		"[ 2/10] Installing something",
+		"[4/5] COPY --from=builder /out /out",
+		"[5/5] RUN echo done",
+		"CACHED",
+	}
+	if cached, total := countCacheHits(lines); cached != 3 || total != 5 {
+		t.Fatalf("countCacheHits = %d/%d, want 3/5", cached, total)
+	}
 }
 
 // writeCacheReport appends a cache report to AGENTS_SANDBOX_CACHE_REPORT when
