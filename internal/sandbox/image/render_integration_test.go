@@ -668,32 +668,44 @@ func buildDockerfileTagOutput(
 	}
 }
 
-// reportCacheHits writes the steps a build served from the imported BuildKit
-// cache, so a CI log shows whether the shared cache was restored. The engine's
+// reportCacheHits records how many of a build's steps the imported BuildKit
+// cache served, as "cached <tag>: <cached>/<total> step(s)". The engine's
 // streamed output is rendered only when a build fails, and `go test` swallows a
 // passing test's stdout, so without this a silent cache miss is invisible. The
 // report goes to AGENTS_SANDBOX_CACHE_REPORT when set — CI points it at a file
 // the integration job prints afterwards — else it is left on stdout for `-v`.
 func reportCacheHits(tag string, lines []string) {
-	seen := map[string]struct{}{}
-	var hits []string
+	cached := map[string]bool{}
+	var steps []string
 	for i, line := range lines {
-		if line != "CACHED" || i == 0 {
+		if !isBuildStepName(line) {
 			continue
 		}
-		step := lines[i-1]
-		if _, ok := seen[step]; ok {
-			continue
+		if _, ok := cached[line]; !ok {
+			cached[line] = false
+			steps = append(steps, line)
 		}
-		seen[step] = struct{}{}
-		hits = append(hits, step)
+		if i+1 < len(lines) && lines[i+1] == "CACHED" {
+			cached[line] = true
+		}
 	}
-	var report strings.Builder
-	fmt.Fprintf(&report, "cached %s: %d step(s)\n", tag, len(hits))
-	for _, step := range hits {
-		fmt.Fprintf(&report, "    cached step: %s\n", step)
+	hits := 0
+	for _, step := range steps {
+		if cached[step] {
+			hits++
+		}
 	}
-	writeCacheReport(report.String())
+	writeCacheReport(fmt.Sprintf("cached %s: %d/%d step(s)\n", tag, hits, len(steps)))
+}
+
+// isBuildStepName reports whether a streamed line names a build step rather than
+// an internal or auth vertex. BuildKit names build steps "[<stage> <i>/<n>]
+// <instruction>" and the plumbing "[internal] ..." / "[auth] ...".
+func isBuildStepName(line string) bool {
+	if !strings.HasPrefix(line, "[") {
+		return false
+	}
+	return !strings.HasPrefix(line, "[internal]") && !strings.HasPrefix(line, "[auth]")
 }
 
 // writeCacheReport appends a cache report to AGENTS_SANDBOX_CACHE_REPORT when
