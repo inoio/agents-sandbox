@@ -663,6 +663,25 @@ func buildDockerfileTagOutput(
 		// names only the step.
 		t.Fatalf("docker image build failed: %v\nstreamed build output:\n%s", err, strings.Join(captured, "\n"))
 	}
+	if len(req.cacheFrom) > 0 {
+		reportCacheHits(tag, captured)
+	}
+}
+
+// reportCacheHits prints the steps a build served from the imported BuildKit
+// cache, so a CI log shows whether the shared cache was restored. The streamed
+// output is otherwise surfaced only when a build fails, which hides a silent
+// cache miss. BuildKit emits the step name followed by a bare "CACHED"; only the
+// BuildKit path has a cache spec here, so only it reports.
+func reportCacheHits(tag string, lines []string) {
+	hits := 0
+	for i, line := range lines {
+		if line == "CACHED" && i > 0 {
+			hits++
+			fmt.Fprintf(os.Stdout, "cached %s: %s\n", tag, lines[i-1])
+		}
+	}
+	fmt.Fprintf(os.Stdout, "cached %s: %d step(s)\n", tag, hits)
 }
 
 // imageCacheEnv reads the BuildKit build-cache specs the integration builds
