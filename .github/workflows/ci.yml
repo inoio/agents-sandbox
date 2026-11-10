@@ -238,7 +238,7 @@ jobs:
       # imported cache here (a passing `go test` otherwise swallows the
       # streamed output), and the job prints it afterwards. Without it a silent
       # cache miss is indistinguishable from a hit.
-      AGENTS_SANDBOX_CACHE_REPORT: ${{ runner.temp }}/runner-image-cache-report.txt
+      AGENTS_SANDBOX_CACHE_REPORT: ${{ github.workspace }}/runner-image-cache-report.txt
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
