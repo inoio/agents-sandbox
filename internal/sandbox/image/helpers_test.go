@@ -250,3 +250,58 @@ func assertWarnsIgnoredWorktreeConfig(t *testing.T, ui *termiotest.Mock) {
 		t.Errorf("WarnCalls = %v, want the ignored-worktree-config warning", ui.WarnCalls)
 	}
 }
+
+// scopeCacheSpec appends variant to a BuildKit cache spec's scope attribute.
+//
+// BuildKit's gha cache backend keys its index on the scope: every build would
+// otherwise write the one `index-runner-image-...` entry, and its SaveMutable
+// keeps only the newest chain, so all but the last build's layers are dropped
+// from the restored cache. Deriving the scope per build gives each build its own
+// index. Layer blobs stay keyed by digest alone, so the extra indexes add no
+// blob storage. A spec carrying no scope attribute is returned unchanged, since
+// BuildKit's backend default is not ours to rename.
+func scopeCacheSpec(spec, variant string) string {
+	parts := splitBuildKitCacheSpecParts(spec)
+	scoped := false
+	for i, part := range parts {
+		if value, ok := strings.CutPrefix(part, "scope="); ok {
+			parts[i] = "scope=" + value + "-" + variant
+			scoped = true
+		}
+	}
+	if !scoped {
+		return spec
+	}
+	return strings.Join(parts, ",")
+}
+
+func TestScopeCacheSpecAppendsVariantToScope(t *testing.T) {
+	tests := []struct {
+		name string
+		spec string
+		want string
+	}{
+		{
+			name: "a restore spec gains the variant",
+			spec: "type=gha,scope=runner-image",
+			want: "type=gha,scope=runner-image-it-all-pi-managed",
+		},
+		{
+			name: "an export spec keeps its other attributes",
+			spec: "type=gha,scope=runner-image,mode=max",
+			want: "type=gha,scope=runner-image-it-all-pi-managed,mode=max",
+		},
+		{
+			name: "a spec without a scope is left untouched",
+			spec: "type=registry,ref=example.com/cache:main",
+			want: "type=registry,ref=example.com/cache:main",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := scopeCacheSpec(tc.spec, "it-all-pi-managed"); got != tc.want {
+				t.Errorf("scopeCacheSpec(%q) = %q, want %q", tc.spec, got, tc.want)
+			}
+		})
+	}
+}

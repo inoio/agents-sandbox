@@ -645,7 +645,7 @@ func buildDockerfileTagOutput(
 		}
 	}
 	req := testBuildRequest(dockerfile, agentVersion, "", "", imageIdentity{})
-	req.cacheFrom, req.cacheTo = imageCacheEnv()
+	req.cacheFrom, req.cacheTo = imageCacheEnv(sanitizeTag(tag))
 	if dockerEnabled {
 		req.docker = options.DockerSetting{Enabled: true, Explicit: true}
 	}
@@ -667,18 +667,21 @@ func buildDockerfileTagOutput(
 
 // imageCacheEnv reads the BuildKit build-cache specs the integration builds
 // forward to the engine from the environment. Each variable holds exactly one
-// spec (for example `type=gha,scope=runner-image,mode=max`) and is used verbatim
-// as a single entry — never comma-split. CI sets
-// AGENTS_SANDBOX_IMAGE_CACHE_FROM on every build and
-// AGENTS_SANDBOX_IMAGE_CACHE_TO only on a push to main, so a PR restores from
-// the cache without exporting a merge-ref cache. An unset or empty variable
-// contributes no entry.
-func imageCacheEnv() (cacheFrom, cacheTo []string) {
+// spec (for example `type=gha,scope=runner-image,mode=max`) and is used as a
+// single entry — never comma-split. CI sets AGENTS_SANDBOX_IMAGE_CACHE_FROM on
+// every build and AGENTS_SANDBOX_IMAGE_CACHE_TO only on a push to main, so a PR
+// restores from the cache without exporting a merge-ref cache. An unset or empty
+// variable contributes no entry.
+//
+// Each spec's scope gains variant, so every build restores and exports its own
+// cache index instead of the single shared one where only the last build's
+// chain survives; see scopeCacheSpec.
+func imageCacheEnv(variant string) (cacheFrom, cacheTo []string) {
 	if spec := os.Getenv("AGENTS_SANDBOX_IMAGE_CACHE_FROM"); spec != "" {
-		cacheFrom = []string{spec}
+		cacheFrom = []string{scopeCacheSpec(spec, variant)}
 	}
 	if spec := os.Getenv("AGENTS_SANDBOX_IMAGE_CACHE_TO"); spec != "" {
-		cacheTo = []string{spec}
+		cacheTo = []string{scopeCacheSpec(spec, variant)}
 	}
 	return cacheFrom, cacheTo
 }
