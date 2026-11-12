@@ -1,6 +1,6 @@
 ---
 description: Contract for the runner-image build and its microsandbox cache - which agent version is baked, when the image is (re)built and when Docker's layer cache is bypassed (`BuildOptions.Force`), the lazy msb load decision over a content-addressed reference (`<slug>:<agent>.<contentid>`, with the Docker tag kept stable), `ParseImageTag`/ownership round-trip, and prune retention.
-read_if: Changing image build/caching, `buildDecision`/`buildReasons`/`BuildOptions.Force`/`--rebuild`, `image.EnsureImage`/`Build`/`EnsureLoaded`/`ImageInfo`, `prepare.ResolveAgentVersionForBuild`/`resolveBuildVersion`/`recoverAgentVersion`, a profile's `LatestVersion`/`NewerThan`, `naming.RunnerImageRef`/`ImageIdentity`/`ParseImageTag`, `state.ImageReferences`, `pruning.PruneImages`/`keepImage`, or the volume subcommands' image handling; or diagnosing an unexpected `loading image … into microsandbox` on a `run`/`shell`.
+read_if: Changing image build/caching, `buildDecision`/`buildReasons`/`BuildOptions.Force`/`--rebuild`, `image.EnsureImage`/`Build`/`EnsureLoaded`/`ImageInfo`, `prepare.ResolveAgentVersionForBuild`/`resolveBuildVersion`/`recoverAgentVersion`, a profile's `LatestVersion`/`NewerThan`, `naming.RunnerImageRef`/`ImageIdentity`/`ParseImageTag`, `state.ImageReferences`, `pruning.PruneImages`/`keepImage`, or the volume subcommands' image handling; or diagnosing an unexpected `loading image … into microsandbox` on a `run`/`shell`; or a build failure's message or its network/DNS hint.
 ---
 
 # Runner image build and content addressing
@@ -103,6 +103,16 @@ Each profile's `LatestVersion` (the upgrade-check source) must mirror the source
 - `build` / `image build` → `image.Build` → `Force = -r/--rebuild`.
 - `run` / `shell` → `PrepareSandbox` → `Force = opts.Rebuild` (`-r/--rebuild`). An accepted upgrade (`shallUpgrade`) is **not** a force; it triggers the build via the changed version identity.
 - `volume migrate` / `volume reset` / `volume edit` → `image.EnsureImage` → `Force = false`. Each still exposes `--rebuild` as a hidden, deprecated no-op (restored for one cycle — see `../conventions/deprecation-policy.md`); it never forces a clean rebuild.
+
+## Failure reporting
+
+A failed build reports the tail (last 20 non-empty lines) of the engine's build output, captured on both builders
+from the same line stream that feeds verbose output, so the failing step's own message is visible at the default log
+level. `buildFailureError` then classifies the failure from the engine message and that tail: a base-image resolution
+failure points at the base-image troubleshooting section, a network/DNS download failure (`Temporary failure
+resolving`, `Failed to fetch`, `Some index files failed to download`, …) points at the image-build section, and
+anything else is a plain wrap. Classification matches on failure text, not on an exit code, so a user step exiting
+non-zero is not misreported.
 
 ## Invariants
 

@@ -372,6 +372,32 @@ runner image. `user-provided` identifies an agent that was previously found in a
 version. A rebuilt image will keep an agent supplied by the base, or install a real resolved release if that binary is
 no longer present.
 
+### Package downloads fail with "returned a non-zero code: 100"
+
+`100` is apt's general error code. When the build log also shows `Temporary failure resolving ...`,
+`Some index files failed to download`, or `Failed to fetch`, the build could not reach its package mirror. The build
+runs on your host's engine, so a broken or IPv6-only resolver there causes this. agents-sandbox prints the failing
+step's last output after such an error, so the apt message appears in the failure.
+
+Reproduce it outside agents-sandbox:
+
+```console
+docker run --rm debian:trixie-slim apt-get update
+```
+
+If that also fails, give the engine a working resolver. Add one to your Docker Engine's `daemon.json` and restart the
+engine:
+
+```json
+{ "dns": ["1.1.1.1", "8.8.8.8"] }
+```
+
+This applies to both builders agents-sandbox uses. If only the IPv6 path is broken, ask apt to use IPv4 only: add
+`-o Acquire::ForceIPv4=true` to each `apt-get` line in your project Dockerfile.
+
+apt already retries a transient failure three times, so raising `Acquire::Retries` rarely helps. On `apt-get update`,
+a `W:` line marks a failure apt tolerates; the build then fails in the `apt-get install` step that follows.
+
 ### The base image cannot be found
 
 If the build fails before it runs any of your steps because the engine could not find an image named in a `FROM`, the
