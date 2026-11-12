@@ -18,6 +18,7 @@ ARG AST_GREP_VERSION=0.51.2
 ARG ZIG_VERSION=0.17.1
 ARG GH_VERSION=2.103.3
 ARG PLANTUML_VERSION=1.2026.10
+ARG OPERATOR_HELPER_VERSION=1.12.0
 
 USER root
 # Go & linter
@@ -58,9 +59,10 @@ RUN ARCH="$(dpkg --print-architecture)" \
  && install -m 0755 /tmp/ast-grep/ast_grep_cli-*.data/scripts/ast-grep /usr/local/bin/ast-grep \
  && rm -rf /tmp/ast-grep /tmp/ast-grep.whl
 # build-essential for CGO, shellcheck for shell script linting, default-jre for the PlantUML jar
-# (the full JRE, not -headless: PlantUML renders fonts and needs libharfbuzz/libfontmanager)
+# (the full JRE, not -headless: PlantUML renders fonts and needs libharfbuzz/libfontmanager), and
+# nodejs for Node tooling (the operator-helper CLI, JS-based LSP servers)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends build-essential bundler shellcheck default-jre && \
+    apt-get install -y --no-install-recommends build-essential bundler shellcheck default-jre nodejs && \
     rm -rf /var/lib/apt/lists/*
 
 # zig (tarball and install dir are architecture-specific; a stable symlink keeps PATH fixed)
@@ -141,6 +143,17 @@ RUN mkdir -p /usr/local/plantuml \
       'exec "$JAVA" -jar "$PLANTUML_JAR" "$@"\n' \
       > /usr/local/bin/plantuml \
  && chmod +x /usr/local/bin/plantuml
+
+# Operator Helper (the Operator Memory setup CLI) is an npm package, but its
+# published dist/index.js bundles its dependencies and imports only Node
+# built-ins, so it runs on Debian's nodejs with no npm/npx. The hand-pinned
+# version (see .agents/skills/release/NON-GO-DEPS.md) also means its npm/bun
+# self-update cannot run, which is fine for a baked dev image.
+RUN curl -fsSL "https://registry.npmjs.org/@aerovato/operator-helper/-/operator-helper-${OPERATOR_HELPER_VERSION}.tgz" -o /tmp/operator-helper.tgz \
+ && mkdir -p /opt/operator-helper \
+ && tar -xzf /tmp/operator-helper.tgz -C /opt/operator-helper --strip-components=1 \
+ && ln -s /opt/operator-helper/dist/index.js /usr/local/bin/operator-helper \
+ && rm /tmp/operator-helper.tgz
 
 # agents-sandbox:docker
 

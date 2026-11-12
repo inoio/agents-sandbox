@@ -20,6 +20,7 @@ during [step 9](SKILL.md#9-post-release).
 | gh | `2.103.3` | `.agents-sandbox/Dockerfile` |
 | plantuml | `1.2026.10` | `.agents-sandbox/Dockerfile`, `.github/workflows/pages.yml` |
 | ast-grep-cli | `0.51.2` | `.agents-sandbox/Dockerfile` (`ARG AST_GREP_VERSION`) |
+| operator-helper | `1.12.0` | `.agents-sandbox/Dockerfile` (`ARG OPERATOR_HELPER_VERSION`) |
 | Node | `v24.22.3` | `internal/sandbox/image/dockerfile.go` (`nodeVersion`) — see below |
 
 A tool's version lives in more than one place; update every location in its row. Go is the exception: `ci.yml` reads
