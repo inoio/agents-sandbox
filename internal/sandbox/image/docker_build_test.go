@@ -696,3 +696,69 @@ func TestBuildOutputTailIgnoresEmptyLines(t *testing.T) {
 		t.Errorf("empty tail String() = %q, want %q", got, "")
 	}
 }
+
+// TestBuildFailureErrorClassifiesNetworkDownloadFailure pins that a failure whose
+// error or streamed output names a download/DNS problem gets the troubleshooting
+// link and carries the captured output.
+func TestBuildFailureErrorClassifiesNetworkDownloadFailure(t *testing.T) {
+	err := buildFailureError(
+		errors.New("The command '/bin/sh -c apt-get update' returned a non-zero code: 100"),
+		"W: Failed to fetch http://deb.debian.org/debian/dists/trixie/InRelease\n"+
+			"W: Temporary failure resolving 'deb.debian.org'",
+	)
+	for _, want := range []string{
+		"troubleshooting.html#image-build-fails",
+		"Last build output:",
+		"Temporary failure resolving 'deb.debian.org'",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %v, want it to contain %q", err, want)
+		}
+	}
+}
+
+// TestBuildFailureErrorAppendsBuildOutputWithoutANetworkHint pins that a
+// non-network failure still reports its output, without the network link.
+func TestBuildFailureErrorAppendsBuildOutputWithoutANetworkHint(t *testing.T) {
+	err := buildFailureError(errors.New("some other failure"), "E: step exited 2")
+	for _, want := range []string{"Last build output:", "E: step exited 2"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %v, want it to contain %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "image-build-fails") {
+		t.Errorf("error = %v, must not carry the network hint", err)
+	}
+}
+
+func TestBuildFailureErrorOmitsEmptyBuildOutput(t *testing.T) {
+	err := buildFailureError(errors.New("some other failure"), "")
+	if strings.Contains(err.Error(), "Last build output") {
+		t.Errorf("error = %v, must not add a block for empty output", err)
+	}
+}
+
+// TestBuildFailureErrorKeepsTheBaseImageCaseFirst pins that a base-image failure
+// wins over a network signal the stream also happens to carry.
+func TestBuildFailureErrorKeepsTheBaseImageCaseFirst(t *testing.T) {
+	err := buildFailureError(
+		errors.New("pull access denied for private-base"),
+		"W: Failed to fetch http://deb.debian.org/debian/dists/trixie/InRelease",
+	)
+	if !strings.Contains(err.Error(), "base image not found or not logged in") {
+		t.Errorf("error = %v, want the base-image hint", err)
+	}
+	if strings.Contains(err.Error(), "image-build-fails") {
+		t.Errorf("error = %v, want no network hint for a base-image failure", err)
+	}
+}
+
+// TestBuildFailureErrorPreservesTheCause pins that the extra wrapping keeps the
+// cause reachable through errors.Is.
+func TestBuildFailureErrorPreservesTheCause(t *testing.T) {
+	sentinel := errors.New("engine boom")
+	err := buildFailureError(sentinel, "step output")
+	if !errors.Is(err, sentinel) {
+		t.Errorf("errors.Is(%v, sentinel) = false, want true", err)
+	}
+}

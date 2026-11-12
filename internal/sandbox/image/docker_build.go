@@ -121,43 +121,84 @@ func buildImageClassic(
 		BuildArgs: userBuildArgs(os.Getuid(), os.Getgid(), a.ImageSpec(), req),
 	})
 	if err != nil {
-		return buildFailureError(err)
+		return buildFailureError(err, "")
 	}
 	defer buildResp.Body.Close()
 
 	buildErr := scanBuildOutput(buildResp.Body, line)
 	if buildErr != nil {
-		return buildFailureError(buildErr)
+		return buildFailureError(buildErr, "")
 	}
 
 	return nil
 }
 
 // buildFailureError classifies an engine build failure and tailors the message
-// for the two a user can act on: a base image the registry refused (Docker
+// for the cases a user can act on: a base image the registry refused (Docker
 // Engine reports "pull access denied", a registry "unauthorized" or "denied"),
-// and an image name with no
-// registry that the engine refused to resolve at all — podman does this when it
-// has no unqualified-search-registries, which Docker Engine never needs because
-// it assumes Docker Hub. Both point at the troubleshooting section naming the
-// remedies. Any other failure stays a plain wrap.
-func buildFailureError(err error) error {
+// an image name with no registry that the engine refused to resolve at all —
+// podman does this when it has no unqualified-search-registries, which Docker
+// Engine never needs because it assumes Docker Hub — and a network/DNS failure
+// while downloading packages. Each points at the troubleshooting section naming
+// its remedy. Any other failure stays a plain wrap. The captured build output is
+// appended last, so the failing step's own message is visible.
+func buildFailureError(err error, buildOutput string) error {
+	var failure error
 	switch msg := err.Error(); {
 	case isRegistryAccessDenied(msg):
-		return fmt.Errorf(
+		failure = fmt.Errorf(
 			"docker image build failed (base image not found or not logged in): %w\n  Docs: %s",
 			err,
 			docslink.SectionURL("troubleshooting", "the-base-image-cannot-be-found"),
 		)
 	case isUnresolvedImageName(msg):
-		return fmt.Errorf(
+		failure = fmt.Errorf(
 			"docker image build failed (the engine could not resolve an image name that has no registry): %w\n  Docs: %s",
 			err,
 			docslink.SectionURL("troubleshooting", "the-base-image-cannot-be-found"),
 		)
+	case isNetworkDownloadFailure(msg, buildOutput):
+		failure = fmt.Errorf(
+			"docker image build failed (the build could not download packages; check the build's network and DNS): %w\n  Docs: %s",
+			err,
+			docslink.SectionURL("troubleshooting", "image-build-fails"),
+		)
 	default:
-		return fmt.Errorf("docker image build failed: %w", err)
+		failure = fmt.Errorf("docker image build failed: %w", err)
 	}
+	if buildOutput == "" {
+		return failure
+	}
+	return fmt.Errorf(
+		"%w\n  Last build output:\n    %s",
+		failure,
+		strings.ReplaceAll(buildOutput, "\n", "\n    "),
+	)
+}
+
+// networkDownloadFailureSignals are the engine/apt/curl messages that identify a
+// download that failed on network or DNS resolution rather than on the request.
+var networkDownloadFailureSignals = []string{
+	"Temporary failure resolving",
+	"Temporary failure in name resolution",
+	"Could not resolve",
+	"Some index files failed to download",
+	"Failed to fetch",
+}
+
+// isNetworkDownloadFailure reports whether any message names a network or DNS
+// download failure. It matches on the failure text rather than on apt's exit
+// code alone, so a user step that exits non-zero for another reason is not
+// misreported as a network problem.
+func isNetworkDownloadFailure(messages ...string) bool {
+	for _, signal := range networkDownloadFailureSignals {
+		for _, message := range messages {
+			if strings.Contains(message, signal) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // isRegistryAccessDenied reports whether a registry refused the image: the

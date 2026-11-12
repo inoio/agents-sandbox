@@ -110,13 +110,13 @@ func buildImageBuildKit(
 ) error {
 	solver, err := newBuildKitClient(ctx, dclient)
 	if err != nil {
-		return buildFailureError(err)
+		return buildFailureError(err, "")
 	}
 	defer func() { _ = solver.Close() }()
 
 	opt, cleanup, err := buildKitSolveOpt(req, tag, noCache)
 	if err != nil {
-		return buildFailureError(err)
+		return buildFailureError(err, "")
 	}
 	defer cleanup()
 
@@ -139,7 +139,7 @@ func buildImageBuildKit(
 	_, solveErr := solver.Solve(ctx, nil, opt, statusCh)
 	pump.Wait()
 	if solveErr != nil {
-		return buildFailureError(solveErr)
+		return buildFailureError(solveErr, "")
 	}
 	return nil
 }
