@@ -72,7 +72,7 @@ strict `encoding/json`, and the owner scan with `encoding/json`). `json5` also a
 | `homeconfig.ReadHomeFromConfigDir` | host `config.<ext>` from `configpaths.FindConfigFile` | `DecodeFile(path, "config")`, then a shared `home` extractor |
 | `viperconfig.mergeDir` | host `config.<ext>` | `DecodeFile(path, "launcher config")`, then `v.MergeConfigMap` |
 | `viperconfig.layerSetsKey` (owner scan) | host `config.<ext>` | `DecodeFile` |
-| `configmerge.scanSnippets` | host snippet matched by an agent glob | `FormatFor` + `configread.ReadFile` + `Decode` |
+| `configmerge.scanSnippets` | host snippet matched by an agent glob | `FormatFor` + `configread.ReadFile` + `Decode`, recording a `SkippedSnippet` on read or parse failure |
 | `configmerge.DocumentsEqual` | `cf.Merged` (built in memory) + guest bytes from `sb.FS().Read` | `FormatFor` + `Decode` |
 
 `mergeDir` has a second consumer, `viperconfig.LayerSettings` (used by the project-config trust
@@ -107,7 +107,8 @@ decodes the bytes as `FormatYAML` and extracts `home` through the same helper
   `settings.json.bak` snippet is best-effort parsed as JSON5 and skipped on failure); the launcher
   never reaches the case because `FindConfigFile` gates on `supportedExts`.
 - **Parse failure.** `homeconfig` and `viperconfig` fail the read; `configmerge` skips the snippet and
-  moves on. This is caller error handling, not a primitive concern.
+  records it as a `SkippedSnippet` on `MergedConfig.Skipped`, which `reprovision.LoadConfigFilesForHost`
+  reports as a warning (one per skipped file). This is caller error handling, not a primitive concern.
 - **Error label.** `DecodeFile`'s `label` preserves each loader's prefix (`config`, `launcher config`)
   and each loader keeps wrapping the failure in its own message.
 

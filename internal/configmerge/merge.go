@@ -108,9 +108,10 @@ func checkSnippetListing(dir, pattern string, entries []os.DirEntry) {
 	})
 }
 
-func scanSnippets(dirs []string, pattern string) (map[string]any, []string) {
+func scanSnippets(dirs []string, pattern string) (map[string]any, []string, []SkippedSnippet) {
 	var merged map[string]any
 	var sources []string
+	var skipped []SkippedSnippet
 	for _, dir := range dirs {
 		// gomutants:disable-next-line BRANCH_IF reason="os.ReadDir of an empty path errors and the next guard continues, so skipping it agrees with falling through"
 		if dir == "" {
@@ -139,10 +140,12 @@ func scanSnippets(dirs []string, pattern string) (map[string]any, []string) {
 			snippetPath := filepath.Join(dir, entry.Name())
 			data, err := projectguard.ReadFile(snippetPath, configread.ReadFile)
 			if err != nil {
+				skipped = append(skipped, SkippedSnippet{Path: snippetPath, Err: err})
 				continue
 			}
 			cfg, err := decodeSnippet(entry.Name(), data)
 			if err != nil {
+				skipped = append(skipped, SkippedSnippet{Path: snippetPath, Err: err})
 				continue
 			}
 			merged = deepMerge(merged, cfg)
@@ -152,7 +155,7 @@ func scanSnippets(dirs []string, pattern string) (map[string]any, []string) {
 	if merged == nil {
 		merged = map[string]any{}
 	}
-	return merged, sources
+	return merged, sources, skipped
 }
 
 // decodeSnippet decodes data in the format name's extension implies, defaulting
@@ -166,12 +169,22 @@ func decodeSnippet(name string, data []byte) (map[string]any, error) {
 	return configdecode.Decode(format, data)
 }
 
+// SkippedSnippet is a snippet file that matched the agent's pattern but could
+// not be read or parsed, so it was left out of the merged config. Err carries
+// the read or parse failure.
+type SkippedSnippet struct {
+	Path string
+	Err  error
+}
+
 // MergedConfig is the outcome of merging snippet files: the marshaled config
 // document and the ordered list of snippet files it came from. When no snippet
-// existed, HasSnippets is false and Content and Sources are nil.
+// merged, HasSnippets is false and Content and Sources are nil. Skipped names
+// the matching snippets that could not be read or parsed.
 type MergedConfig struct {
 	Content     []byte
 	Sources     []string
+	Skipped     []SkippedSnippet
 	HasSnippets bool
 }
 
@@ -180,15 +193,17 @@ type MergedConfig struct {
 // configPath ends in .yaml/.yml, TOML when it ends in .toml, indented JSON
 // otherwise.
 func BuildMerged(configPath, pattern string, dirs []string) (MergedConfig, error) {
-	merged, sources := scanSnippets(dirs, pattern)
+	merged, sources, skipped := scanSnippets(dirs, pattern)
 	if len(sources) == 0 {
-		return MergedConfig{}, nil
+		// No snippet merged: still report the matching files that could not be
+		// read or parsed.
+		return MergedConfig{Content: nil, Sources: nil, Skipped: skipped, HasSnippets: false}, nil
 	}
 	data, err := marshalConfig(configPath, merged)
 	if err != nil {
 		return MergedConfig{}, err
 	}
-	return MergedConfig{Content: data, Sources: sources, HasSnippets: true}, nil
+	return MergedConfig{Content: data, Sources: sources, Skipped: skipped, HasSnippets: true}, nil
 }
 
 // marshalConfig encodes merged in the format configPath calls for: YAML for a

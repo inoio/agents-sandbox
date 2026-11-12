@@ -99,6 +99,10 @@ agent's VM config path ends in `.toml` (codex), as YAML when it ends in `.yaml`/
 
 If no snippet files exist, no merged config is produced.
 
+A snippet that matches the pattern but cannot be read or parsed is skipped, not fatal: the snippet is
+named in a warning and left out of the merge. When every matching snippet fails to read or parse,
+`agents-sandbox config agent` reports that no snippet could be merged.
+
 Run `agents-sandbox config agent` to print the merged config that would be provisioned into the VM.
 
 > **Note:** the merged config is written to the agent's VM config path (for opencode, `opencode.jsonc`, the last file

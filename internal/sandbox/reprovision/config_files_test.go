@@ -1305,7 +1305,7 @@ func TestLoadAndDescribePropagateResolveError(t *testing.T) {
 	if _, err := LoadConfigFilesForHost(agent.Resolve(a), "", t.TempDir(), t.TempDir(), &ui, true); err == nil {
 		t.Error("expected LoadConfigFilesForHost to propagate the resolution error")
 	}
-	if _, _, _, _, _, err := Describe(a, "", t.TempDir(), t.TempDir(), &ui, true); err == nil {
+	if _, _, _, _, _, _, err := Describe(a, "", t.TempDir(), t.TempDir(), &ui, true); err == nil {
 		t.Error("expected Describe to propagate the resolution error")
 	}
 }
@@ -1594,7 +1594,8 @@ func TestEnsureHookExecutable(t *testing.T) {
 }
 
 // TestDescribe verifies Describe returns the merged config, snippet sources,
-// host drop-in files and mirror files without touching a VM.
+// host drop-in files, mirror files and the snippets skipped on read or parse
+// without touching a VM.
 func TestDescribe(t *testing.T) {
 	configpathstest.WithMockConfigPaths(t)
 	cp := configpaths.Get()
@@ -1608,6 +1609,11 @@ func TestDescribe(t *testing.T) {
 		"opencode-model.json",
 		`{"model":"x"}`,
 	)
+	badSnippet := filepath.Join(
+		configpathstest.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"opencode-bad.json5",
+	)
+	testutil.WritePath(t, badSnippet, "{ this is not valid json5")
 	testutil.WriteFile(
 		t,
 		configpathstest.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
@@ -1621,7 +1627,7 @@ func TestDescribe(t *testing.T) {
 	testutil.WriteFile(t, ocConfig, "opencode.json", `{"a":1}`)
 
 	ui := termiotest.NewTestMock(t)
-	merged, sources, hostFiles, mirrorFiles, source, err := Describe(a, "", hostHome, vmHome, &ui, true)
+	merged, sources, hostFiles, mirrorFiles, skipped, source, err := Describe(a, "", hostHome, vmHome, &ui, true)
 	if err != nil {
 		t.Fatalf("Describe: %v", err)
 	}
@@ -1650,6 +1656,9 @@ func TestDescribe(t *testing.T) {
 	}
 	if !slices.Equal(mirrorFiles, []MirrorFile{wantMirror}) {
 		t.Errorf("Describe mirror files = %+v, want exactly %+v", mirrorFiles, wantMirror)
+	}
+	if len(skipped) != 1 || skipped[0].Path != badSnippet || skipped[0].Err == nil {
+		t.Errorf("Describe skipped = %+v, want the unparsable %s", skipped, badSnippet)
 	}
 }
 
@@ -2163,5 +2172,39 @@ func TestChangedAgentConfigPathsNamesEveryDifferingFile(t *testing.T) {
 	}
 	if got := ChangedAgentConfigPaths(cf, vmData); !slices.Equal(got, want) {
 		t.Errorf("ChangedAgentConfigPaths = %q, want %q", got, want)
+	}
+}
+
+// TestLoadConfigFilesWarnsAboutSkippedSnippet pins that a matching-but-unparsable
+// snippet is not dropped in silence: the load records it on ConfigFiles.Skipped
+// and warns once, naming the file, without failing.
+func TestLoadConfigFilesWarnsAboutSkippedSnippet(t *testing.T) {
+	configpathstest.WithMockConfigPaths(t)
+	cp := configpaths.Get()
+	hostHome := t.TempDir()
+	vmHome := t.TempDir()
+
+	a, _ := agent.Lookup("opencode")
+	snippet := filepath.Join(
+		configpathstest.CreateDir(filepath.Join(cp.ProjectConfigDirAbs(), a.ConfigDirName())),
+		"opencode-bad.json5",
+	)
+	testutil.WritePath(t, snippet, "{ this is not valid json5")
+
+	ui := termiotest.NewTestMock(t)
+	cf, err := LoadConfigFilesForHost(agent.Resolve(a), "", hostHome, vmHome, &ui, true)
+	if err != nil {
+		t.Fatalf("LoadConfigFilesForHost: %v", err)
+	}
+	if cf.HasSnippets {
+		t.Errorf("HasSnippets = true, want the only snippet skipped")
+	}
+	if len(cf.Skipped) != 1 || cf.Skipped[0].Path != snippet || cf.Skipped[0].Err == nil {
+		t.Errorf("Skipped = %+v, want the bad snippet with a parse error", cf.Skipped)
+	}
+	if !slices.ContainsFunc(ui.WarnCalls, func(w string) bool {
+		return strings.Contains(w, snippet) && strings.Contains(w, "skipping agent config snippet")
+	}) {
+		t.Errorf("WarnCalls = %v, want a warning naming %s", ui.WarnCalls, snippet)
 	}
 }

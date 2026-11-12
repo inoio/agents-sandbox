@@ -213,18 +213,19 @@ func IsDir(path string) bool {
 // provision into the VM, the default drop-in copy from the host, and the VM
 // paths to remove so stale host config cannot shadow the merged config.
 type ConfigFiles struct {
-	HasSnippets bool                   // whether any agent snippet existed
-	Merged      []byte                 // merged agent config content
-	MergedPath  string                 // VM path of the merged config ("" when no snippets)
-	Sources     []string               // host snippet paths merged into Merged
-	Source      ConfigSource           // resolved launcher config-dir pair (with legacy fallback marker)
-	HomeFiles   map[string][]byte      // VM absolute path -> content (from the home: key)
-	Provisioned map[string][]byte      // VM absolute path -> content (drop-in copy)
-	Mirror      map[string][]byte      // VM absolute path -> content (verbatim <agent> mirror)
-	Modes       map[string]os.FileMode // VM absolute path -> ordinary file permission bits
-	Remove      []string               // VM absolute paths to delete before writing
-	Hooks       []homeconfig.HookSpec  // startup hooks to run at vm.SetUpSandbox
-	Keys        []string               // merged config path first (when snippets exist), then the remaining VM paths sorted
+	HasSnippets bool                    // whether any agent snippet existed
+	Merged      []byte                  // merged agent config content
+	MergedPath  string                  // VM path of the merged config ("" when no snippets)
+	Sources     []string                // host snippet paths merged into Merged
+	Skipped     []config.SkippedSnippet // matching snippets skipped on read or parse
+	Source      ConfigSource            // resolved launcher config-dir pair (with legacy fallback marker)
+	HomeFiles   map[string][]byte       // VM absolute path -> content (from the home: key)
+	Provisioned map[string][]byte       // VM absolute path -> content (drop-in copy)
+	Mirror      map[string][]byte       // VM absolute path -> content (verbatim <agent> mirror)
+	Modes       map[string]os.FileMode  // VM absolute path -> ordinary file permission bits
+	Remove      []string                // VM absolute paths to delete before writing
+	Hooks       []homeconfig.HookSpec   // startup hooks to run at vm.SetUpSandbox
+	Keys        []string                // merged config path first (when snippets exist), then the remaining VM paths sorted
 }
 
 // configSubject materializes the agent facts the config pipeline needs, derived
@@ -304,6 +305,9 @@ func LoadConfigFilesForHost(
 	if err != nil {
 		return nil, err
 	}
+	for _, s := range merged.skipped {
+		ui.Warnf("skipping agent config snippet %s: %v", s.Path, s.Err)
+	}
 	reserved, err := reservedHomeTargets(merged.path, vmHome)
 	if err != nil {
 		return nil, err
@@ -358,6 +362,7 @@ func LoadConfigFilesForHost(
 		Merged:      merged.content,
 		MergedPath:  merged.path,
 		Sources:     merged.sources,
+		Skipped:     merged.skipped,
 		Source:      src,
 		HomeFiles:   homeFiles,
 		Provisioned: provisioned,
@@ -548,6 +553,7 @@ type mergedConfig struct {
 	path        string
 	content     []byte
 	sources     []string
+	skipped     []config.SkippedSnippet
 	hasSnippets bool
 }
 
@@ -577,6 +583,7 @@ func (s configSubject) buildMergedConfig(src ConfigSource) (mergedConfig, error)
 		path:        s.vmConfigPath,
 		content:     built.Content,
 		sources:     built.Sources,
+		skipped:     built.Skipped,
 		hasSnippets: built.HasSnippets,
 	}, nil
 }
@@ -648,22 +655,23 @@ type MirrorFile struct {
 }
 
 // Describe returns the merged config, the snippet sources, the host drop-in
-// files, the verbatim mirror files (host path → VM path), and the resolved
-// config source for agent a, without touching a VM.
+// files, the verbatim mirror files (host path → VM path), the matching snippets
+// skipped on read or parse, and the resolved config source for agent a, without
+// touching a VM.
 func Describe(
 	a agent.Agent,
 	configSlug, hostHome, vmHome string,
 	ui termio.Logger,
 	provisionHostConfig bool,
-) ([]byte, []string, []HostFile, []MirrorFile, ConfigSource, error) {
+) ([]byte, []string, []HostFile, []MirrorFile, []config.SkippedSnippet, ConfigSource, error) {
 	resolved := agent.Resolve(a)
 	cf, err := LoadConfigFilesForHost(resolved, configSlug, hostHome, vmHome, ui, provisionHostConfig)
 	if err != nil {
-		return nil, nil, nil, nil, ConfigSource{}, err
+		return nil, nil, nil, nil, nil, ConfigSource{}, err
 	}
 	subject := resolveConfigSubject(resolved, vmHome)
 	hostFiles := subject.hostFilesFromProvisioner(hostHome, cf)
-	return cf.Merged, cf.Sources, hostFiles, subject.mirrorFilesFromConfig(cf.Source), cf.Source, nil
+	return cf.Merged, cf.Sources, hostFiles, subject.mirrorFilesFromConfig(cf.Source), cf.Skipped, cf.Source, nil
 }
 
 // mirrorFilesFromConfig returns the mirror display records for the subject.

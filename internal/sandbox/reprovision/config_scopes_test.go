@@ -93,7 +93,7 @@ func TestDescribeUsesConfigSlug(t *testing.T) {
 	testutil.WriteFile(t, perSlugDir, "opencode-model.json", `{"model":"per-slug"}`)
 
 	ui := termiotest.NewTestMock(t)
-	merged, sources, _, _, source, err := Describe(
+	merged, sources, _, _, _, source, err := Describe(
 		opencodeTestAgent(), "widget-bbb", t.TempDir(), VMHomeDir, &ui, true,
 	)
 	if err != nil {
