@@ -9,6 +9,7 @@ import (
 
 	"github.com/docker/cli/cli/config"
 	"github.com/docker/cli/cli/config/configfile"
+	clitypes "github.com/docker/cli/cli/config/types"
 	"github.com/moby/moby/api/types/registry"
 )
 
@@ -137,6 +138,12 @@ func TestPullRegistryAuthResolvesTheImageRegistry(t *testing.T) {
 		{name: "registry without credentials", configJSON: plainAuths, ref: "ghcr.io/team/base:1.0"},
 		{name: "credentials store without an entry", configJSON: `{"credsStore":"fake"}`, ref: "ghcr.io/team/base"},
 		{name: "failing credential helper", configJSON: `{"credsStore":"broken"}`, ref: "registry.example.com/base"},
+		{
+			name: "failing credential helper ignores stale plain auths",
+			configJSON: `{"credsStore":"broken","auths":{"registry.example.com":{"auth":"` +
+				basicAuth("stale-user", "stale-secret") + `"}}}`,
+			ref: "registry.example.com/base",
+		},
 		{name: "missing config", ref: "registry.example.com/team/base:1.0"},
 		{name: "unparseable reference", configJSON: plainAuths, ref: "Not A Reference"},
 	} {
@@ -204,5 +211,48 @@ func TestBuildRegistryAuthsResolvesEveryRegistry(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestHasCredentialsAcceptsAnySecret pins that an entry counts as credentials
+// when any one of its secret fields is set, and an entry carrying only the
+// server address does not.
+func TestHasCredentialsAcceptsAnySecret(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		credentials clitypes.AuthConfig
+		want        bool
+	}{
+		{name: "username only", credentials: clitypes.AuthConfig{Username: "user"}, want: true},
+		{name: "password only", credentials: clitypes.AuthConfig{Password: "secret"}, want: true},
+		{name: "identity token only", credentials: clitypes.AuthConfig{IdentityToken: "token"}, want: true},
+		{name: "registry token only", credentials: clitypes.AuthConfig{RegistryToken: "token"}, want: true},
+		{name: "server address only", credentials: clitypes.AuthConfig{ServerAddress: "registry.example.com"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasCredentials(tc.credentials); got != tc.want {
+				t.Errorf("hasCredentials(%+v) = %v, want %v", tc.credentials, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestLoadCLIConfigReadsTheDockerConfigDirectory pins that the default loader
+// reads the docker CLI configuration directory and yields an empty
+// configuration when it holds no config.json. PATH is empty so no default
+// credential helper is detected.
+func TestLoadCLIConfigReadsTheDockerConfigDirectory(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", t.TempDir())
+	origDir := config.Dir()
+	config.SetDir(dir)
+	t.Cleanup(func() { config.SetDir(origDir) })
+
+	loaded := loadCLIConfig()
+	if got, want := loaded.GetFilename(), filepath.Join(dir, "config.json"); got != want {
+		t.Errorf("loadCLIConfig() filename = %q, want %q", got, want)
+	}
+	if loaded.ContainsAuth() {
+		t.Errorf("loadCLIConfig() of an empty directory has credentials configured: %+v", loaded.AuthConfigs)
 	}
 }

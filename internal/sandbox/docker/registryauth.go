@@ -32,6 +32,8 @@ func pullRegistryAuth(imageRef string) string {
 	if err != nil {
 		return ""
 	}
+	// A failing credential helper still returns the plain auths entry, which can
+	// be a stale leftover; a lookup error therefore pulls anonymously.
 	credentials, err := loadCLIConfig().GetAuthConfig(reference.Domain(named))
 	if err != nil || !hasCredentials(credentials) {
 		return ""
@@ -41,12 +43,10 @@ func pullRegistryAuth(imageRef string) string {
 
 // buildRegistryAuths returns the credentials of every registry the docker CLI
 // knows, keyed by registry, for the classic builder's X-Registry-Config. It is
-// nil when there are none or the credential store cannot be read.
+// nil when there are none or the credential store cannot be read: a failed read
+// returns no entries.
 func buildRegistryAuths() map[string]registry.AuthConfig {
-	all, err := loadCLIConfig().GetAllCredentials()
-	if err != nil {
-		return nil
-	}
+	all, _ := loadCLIConfig().GetAllCredentials()
 	var auths map[string]registry.AuthConfig
 	for registryHost, credentials := range all {
 		if !hasCredentials(credentials) {
