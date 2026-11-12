@@ -722,6 +722,16 @@ func TestBuildOutputTailJoinsALineSplitAcrossChunks(t *testing.T) {
 	}
 }
 
+// TestBuildOutputTailStripsCarriageReturns pins that a CRLF line loses its
+// trailing carriage return, so the tail never renders a stray \r.
+func TestBuildOutputTailStripsCarriageReturns(t *testing.T) {
+	var tail buildOutputTail
+	tail.add("line one\r\nline two\r\n")
+	if got, want := tail.String(), "line one\nline two"; got != want {
+		t.Errorf("String() = %q, want the CR-stripped lines %q", got, want)
+	}
+}
+
 func TestBuildOutputTailKeepsAnUnterminatedFinalLine(t *testing.T) {
 	var single buildOutputTail
 	single.add("only")
