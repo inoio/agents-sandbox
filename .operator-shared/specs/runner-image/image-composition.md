@@ -129,7 +129,7 @@ The node stage exists to install/run npm-based agents.
   dependency specifier, opencode `--version`, or claude positional version), still travels as a build `ARG` referenced by
   the install `RUN`, and is still folded into the `dockerfile-id`. Agent version discovery stays a host-side HTTP query
   (npm registry / pi.dev); it never runs in the image.
-- Keep the pin **below v25**; it sits on the **v24 LTS line (`v24.22.1`)**. Node v25 and v26 official tarballs carry a
+- Keep the pin **below v25**; it sits on the **v24 LTS line (`v24.22.3`)**. Node v25 and v26 official tarballs carry a
   hard `DT_NEEDED` on `libatomic.so.1`, which most custom bases do not provide (the managed base did not either before it
   gained `libatomic1` for hermes), so on such a base the npm agent's install `RUN` (which invokes `node` via npm's shebang) failed the build, and a native-agent image
   left a `node`/`npx` that could not start ([#132](https://github.com/inoio/agents-sandbox/issues/132)). v24 has no

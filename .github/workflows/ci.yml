@@ -321,7 +321,7 @@ jobs:
 
       - name: Install zig
         run: |
-          ZIG_VERSION=0.17.0
+          ZIG_VERSION=0.17.1
           TARBALL=zig-x86_64-linux-${ZIG_VERSION}.tar.xz
           curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/${TARBALL}" -o "/tmp/${TARBALL}"
           tar -xf "/tmp/${TARBALL}" -C /opt
