@@ -1,6 +1,7 @@
 package configmerge
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -21,5 +22,8 @@ func TestBuildMergedSkipsOversizedSnippet(t *testing.T) {
 	}
 	if built.HasSnippets {
 		t.Errorf("HasSnippets = true, want the oversized snippet skipped")
+	}
+	if len(built.Skipped) != 1 || !errors.Is(built.Skipped[0].Err, configread.ErrTooLarge) {
+		t.Errorf("Skipped = %+v, want one entry wrapping configread.ErrTooLarge", built.Skipped)
 	}
 }

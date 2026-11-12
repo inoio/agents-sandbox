@@ -306,6 +306,12 @@ func TestBuildMergedSkipsUnparsableSnippet(t *testing.T) {
 	if len(merged.Sources) != 1 {
 		t.Errorf("sources = %v, want only the valid snippet", merged.Sources)
 	}
+	if len(merged.Skipped) != 1 {
+		t.Fatalf("Skipped = %v, want the one bad snippet", merged.Skipped)
+	}
+	if filepath.Base(merged.Skipped[0].Path) != "opencode-bad.json5" || merged.Skipped[0].Err == nil {
+		t.Errorf("Skipped[0] = %+v, want path opencode-bad.json5 with a parse error", merged.Skipped[0])
+	}
 	var m map[string]bool
 	if err := json.Unmarshal(merged.Content, &m); err != nil {
 		t.Fatalf("unmarshal: %v", err)
@@ -564,7 +570,7 @@ func TestBuildMergedScansDirectoryAfterMissingDirectory(t *testing.T) {
 }
 
 func TestScanSnippetsReturnsNonNilEmptyMap(t *testing.T) {
-	merged, sources := scanSnippets([]string{t.TempDir()}, "opencode*.json*")
+	merged, sources, _ := scanSnippets([]string{t.TempDir()}, "opencode*.json*")
 	if len(sources) != 0 {
 		t.Errorf("sources = %v, want none", sources)
 	}
@@ -592,7 +598,7 @@ func TestScanSnippetsSkipsDirectoryOnPartialReadError(t *testing.T) {
 	}
 	t.Cleanup(func() { readDir = restore })
 
-	merged, sources := scanSnippets([]string{dir}, "opencode*.json*")
+	merged, sources, _ := scanSnippets([]string{dir}, "opencode*.json*")
 	if len(sources) != 0 {
 		t.Errorf("sources = %v, want none", sources)
 	}
@@ -614,6 +620,10 @@ func TestBuildMergedSkipsUnreadableSnippet(t *testing.T) {
 	}
 	if len(built.Sources) != 1 {
 		t.Errorf("sources = %v, want only the readable snippet", built.Sources)
+	}
+	if len(built.Skipped) != 1 || filepath.Base(built.Skipped[0].Path) != "opencode-broken.json" ||
+		built.Skipped[0].Err == nil {
+		t.Errorf("Skipped = %+v, want path opencode-broken.json with a read error", built.Skipped)
 	}
 	var m map[string]bool
 	if err := json.Unmarshal(built.Content, &m); err != nil {
@@ -819,7 +829,7 @@ func TestScanSnippetsSkipsASnippetChangedSinceItsApproval(t *testing.T) {
 		path: projectguard.ApprovalOf([]byte(`{"a": 1}`)),
 	}))
 	writeSnippet(t, dir, "opencode-a.json", `{"a": 2}`)
-	if merged, _ := scanSnippets([]string{dir}, "opencode*.json*"); len(merged) != 0 {
+	if merged, _, _ := scanSnippets([]string{dir}, "opencode*.json*"); len(merged) != 0 {
 		t.Errorf("merged = %v, want the changed snippet skipped", merged)
 	}
 	if !errors.Is(projectguard.Violation(), projectguard.ErrNotApproved) {
@@ -926,7 +936,7 @@ func TestScanSnippetsAcceptsACompleteListing(t *testing.T) {
 		filepath.Join(dir, "notes.md"):                projectguard.ApprovalOf([]byte(`x`)),
 	})
 	defer restore()
-	if merged, _ := scanSnippets([]string{dir}, "opencode*.json*"); len(merged) != 2 {
+	if merged, _, _ := scanSnippets([]string{dir}, "opencode*.json*"); len(merged) != 2 {
 		t.Errorf("merged = %v, want both approved snippets", merged)
 	}
 	if projectguard.Violation() != nil {
