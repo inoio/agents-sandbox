@@ -243,6 +243,9 @@ func (t *buildOutputTail) add(chunk string) {
 		}
 		t.lines = append(t.lines, line)
 	}
+	// At len == buildOutputTailMaxLines the guard's body keeps the same lines, so
+	// the > to >= boundary cannot change behaviour.
+	// gomutants:disable-next-line CONDITIONALS_BOUNDARY reason="at len == max the trim keeps the same lines, so > and >= are equivalent"
 	if len(t.lines) > buildOutputTailMaxLines {
 		t.lines = t.lines[len(t.lines)-buildOutputTailMaxLines:]
 	}

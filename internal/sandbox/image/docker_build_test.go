@@ -669,18 +669,18 @@ func TestBuildDockerImageRefusesAfterAnUnapprovedRead(t *testing.T) {
 
 func TestBuildOutputTailKeepsTheLastLines(t *testing.T) {
 	var tail buildOutputTail
-	for i := range buildOutputTailMaxLines + 5 {
+	for i := range 25 {
 		tail.add(fmt.Sprintf("line %d", i))
 	}
-	got := tail.String()
-	if strings.Contains(got, "line 0\n") {
-		t.Errorf("tail %q kept an evicted line", got)
+	// The cap is 20, so 25 recorded lines leave line 5 through line 24. The
+	// bounds are literals: an expectation written against the constant would move
+	// with a mutated cap and never fail.
+	var wantLines []string
+	for i := 5; i < 25; i++ {
+		wantLines = append(wantLines, fmt.Sprintf("line %d", i))
 	}
-	if !strings.Contains(got, fmt.Sprintf("line %d", buildOutputTailMaxLines+4)) {
-		t.Errorf("tail %q dropped the most recent line", got)
-	}
-	if lines := strings.Count(got, "\n") + 1; lines != buildOutputTailMaxLines {
-		t.Errorf("tail holds %d lines, want %d", lines, buildOutputTailMaxLines)
+	if got, want := tail.String(), strings.Join(wantLines, "\n"); got != want {
+		t.Errorf("String() = %q, want the last 20 lines %q", got, want)
 	}
 }
 
@@ -755,11 +755,29 @@ func TestBuildFailureErrorKeepsTheBaseImageCaseFirst(t *testing.T) {
 
 // TestBuildFailureErrorPreservesTheCause pins that the extra wrapping keeps the
 // cause reachable through errors.Is.
+// TestBuildFailureErrorPreservesTheCause pins that every classification branch,
+// and the appended output block, wrap the engine error with %w so errors.Is
+// still reaches the cause.
 func TestBuildFailureErrorPreservesTheCause(t *testing.T) {
 	sentinel := errors.New("engine boom")
-	err := buildFailureError(sentinel, "step output")
-	if !errors.Is(err, sentinel) {
-		t.Errorf("errors.Is(%v, sentinel) = false, want true", err)
+	for _, tc := range []struct {
+		name    string
+		message string
+	}{
+		{name: "default", message: "boom"},
+		{name: "base image", message: "pull access denied for private-base"},
+		{
+			name:    "unresolved name",
+			message: "short-name x did not resolve to an alias and no unqualified search registries are defined",
+		},
+		{name: "network", message: "Temporary failure resolving 'deb.debian.org'"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := buildFailureError(fmt.Errorf("%s: %w", tc.message, sentinel), "step output")
+			if !errors.Is(err, sentinel) {
+				t.Errorf("errors.Is(%v, sentinel) = false, want true", err)
+			}
+		})
 	}
 }
 
